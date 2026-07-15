@@ -58,9 +58,10 @@
 | [44](44_stock_payload_lent_et_volumineux.md) | `GET /logistics/:spaceId/stock` lent et volumineux (jusqu'à ~180 Mo / 52s) | 🟢 Corrigé | 🟠 | Stock |
 | [45](45_unit_null_codee_en_dur_readyforsale_yes.md) | `unit` codé en dur à `null` pour un menu item mono-ingrédient `readyForSale=Yes` | 🟢 Corrigé | 🟡 | Stock |
 | [46](46_inventoryunit_jamais_persiste_menuitem.md) | `inventoryUnit` (unité conditionnement) jamais persisté sur `MenuItem` | 🟢 Corrigé | 🟡 | Menu & recettes / Stock |
+| [47](47_prisma_client_desync_apres_switch_branche.md) | Prisma Client désynchronisé du schéma après switch de branche (`Unknown argument` sur champ existant) | 🟢 Corrigé | 🟡 | Technique |
 
-**46 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
-recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-46 ajoutés le
+**47 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-47 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic`.
 
 ## Comment ajouter un bug
