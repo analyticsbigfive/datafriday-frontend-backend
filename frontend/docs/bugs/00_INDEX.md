@@ -43,8 +43,9 @@
 | [27](27_bypass_demo_actif_sans_distinction_env.md) | Bypass démo (?demo=1) actif sans distinction dev/prod | 🔴 Ouvert | 🟡 | Auth & onboarding |
 | [28](28_predict_test_sans_guard_auth.md) | /predict-test monté sans guard d'authentification | 🔴 Ouvert | 🟡 | Auth & onboarding |
 | [29](29_cle_anon_supabase_codee_en_dur.md) | Clé anonyme Supabase codée en dur (hygiène) | 🔴 Ouvert | 🟢 | Auth & onboarding |
+| [30](30_good_category_ecrase_watcher_race_market_price.md) | "Good Category" écrasé à l'ouverture du drawer Edit Item (Market Prices) | 🟡 Corrigé non déployé | 🟠 | Achats & référentiels |
 
-**29 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**30 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15.
 
 ## Comment ajouter un bug
