@@ -220,6 +220,38 @@ export class LogisticsService {
     });
   }
 
+  /**
+   * Résout le pack size (unitsPerPack) d'une denrée par son `itemKey` (= nom du
+   * référentiel), tous kinds confondus — miroir des sources utilisées par
+   * `itemRefsForMenuItem` pour construire le référentiel `/stock` : MarketPrice
+   * (ingredient), MenuComponent (component), MenuItem.inventoryNumberOfUnits
+   * (product, readyForSale='Yes'). Sert de repli quand aucun `marketPriceId` n'est
+   * fourni au mouvement — le seul cas où `createMovement` pouvait auparavant
+   * apprendre `unitsPerPack` (BUG-033/049).
+   */
+  private async resolveUnitsPerPackForItemKey(itemKey: string, tenantId: string): Promise<number | null> {
+    const name = String(itemKey ?? '').trim();
+    if (!name) return null;
+
+    const mp = await this.prisma.marketPrice.findFirst({
+      where: { tenantId, deletedAt: null, itemName: { equals: name, mode: 'insensitive' } },
+      select: { packedUnits: true },
+    });
+    if (mp?.packedUnits) return mp.packedUnits;
+
+    const comp = await this.prisma.menuComponent.findFirst({
+      where: { tenantId, deletedAt: null, name: { equals: name, mode: 'insensitive' } },
+      select: { packedUnits: true },
+    });
+    if (comp?.packedUnits) return comp.packedUnits;
+
+    const mi = await this.prisma.menuItem.findFirst({
+      where: { tenantId, deletedAt: null, name: { equals: name, mode: 'insensitive' } },
+      select: { inventoryNumberOfUnits: true },
+    });
+    return mi?.inventoryNumberOfUnits ?? null;
+  }
+
   // ─── POST /logistics/movements ───────────────────────────────────────────────
 
   async createMovement(dto: CreateMovementDto, tenantId: string, userId?: string) {
@@ -266,6 +298,15 @@ export class LogisticsService {
       });
       if (!mp) throw new NotFoundException(`Market price ${dto.marketPriceId} not found`);
       unitsPerPack = mp.packedUnits ?? null;
+    } else {
+      // Aucun marketPriceId (toujours le cas pour un produit fini/component, cf. BUG-032/049 :
+      // itemRefsForMenuItem ne leur attache jamais de Market Price) → sans repli, unitsPerPack
+      // ne serait JAMAIS résolu pour ces denrées et resterait null sur le StockLevel pour
+      // toujours, empêchant la casse de pack (normalizeLevel) même quand le pack size est
+      // parfaitement connu côté référentiel (MenuItem.inventoryNumberOfUnits /
+      // MenuComponent.packedUnits) — un retrait de vrac pourtant valide serait rejeté à tort
+      // (BUG-033/backend BUG-049).
+      unitsPerPack = await this.resolveUnitsPerPackForItemKey(dto.itemKey, tenantId);
     }
     if (dto.menuItemId) {
       const mi = await this.prisma.menuItem.findFirst({
