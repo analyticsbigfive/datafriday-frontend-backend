@@ -5,8 +5,8 @@ services:
     region: frankfurt
     plan: free
     rootDir: backend
-    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: npx prisma migrate deploy && node dist/main
+    buildCommand: cd backend && npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
+    startCommand: cd backend && npx prisma migrate deploy && node dist/main
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
@@ -42,8 +42,8 @@ services:
     region: frankfurt
     plan: free
     rootDir: backend
-    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: npx prisma migrate deploy && node dist/worker
+    buildCommand: cd backend && npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
+    startCommand: cd backend && npx prisma migrate deploy && node dist/worker
     envVars:
       - key: NODE_ENV
         value: production
