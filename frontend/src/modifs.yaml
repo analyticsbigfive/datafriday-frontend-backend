@@ -1,0 +1,80 @@
+1. Interface Utilisateur (UI) & Design
+Header et Mise en Page
+Corrections visuelles :
+
+Résoudre le bug de z-index sur la barre supérieure (doit rester sur une seule rangée).
+
+Ajuster les paddings et margins dans les widgets de la topbar.
+
+Aligner les traits en "mode rail" sous le logo avec la barre de menus.
+
+Nettoyage :
+
+Supprimer l'icône de notification dans le header.
+
+Retirer le bouton flottant qui indique les filtres actifs.
+
+Harmonisation :
+
+S'assurer que les sections Notifications, Settings et Admin (profil) ont la même largeur que la colonne de droite.
+
+Intégrer le Dark Mode dans les réglages (Settings).
+
+Graphiques et Filtres
+Nouveau système de filtrage :
+
+Rendre les filtres sticky.
+
+Lorsqu'un filtre est sélectionné à gauche, afficher un chip en haut du graphique pour l'identifier et le supprimer facilement.
+
+Ajouter les options "Copier" et "Partager" à droite des filtres.
+
+Navigation :
+
+Étudier l'option d'un menu drawer (hamburger) pour regrouper les options de filtrage et d'analyse avancée des graphiques.
+
+Style :
+
+Uniformiser la mise en forme des filtres sur l'ensemble des graphiques.
+
+2. Expérience Utilisateur (UX) & Interactivité
+
+Comportement au clic et Drill-down
+Widgets Topbar : Transposer le comportement des éléments cliquables du haut pour qu'ils affichent un widget de statistiques dédié.
+
+Interactivité des graphiques :
+
+Le clic sur les cercles (données circulaires) et camemberts doit filtrer l'ensemble des données de la page.
+
+Le clic sur un Événement affiche sa timeline spécifique (en revenus et quantités).
+
+Le clic sur un élément de Shop Performance filtre simultanément la timeline et le graphique de revenus/quantités.
+
+Navigation prédictive : Cliquer sur un événement futur (Predict) doit rediriger l'utilisateur vers la page "Event Predict" correspondante.
+
+Analyse de Performance
+Shop & Menu :
+
+Dans "Menu items by shop", ajouter un filtre par catégories.
+
+Ajouter une carte "Shop" incluant le Peak Transaction Rate (les 15 minutes les plus denses).
+
+Transactions : Rendre le widget "Transaction Rate" cliquable et enrichir les stats affichées.
+
+3. Analyse & Intelligence Artificielle (Predict)
+Module d'Analyse (Sidebar)
+Implémenter un menu rétractable à droite dédié à la "compréhension intelligente" et à l'analyse assistée.
+
+Prévoir une interface permettant de modifier manuellement les poids (weights) de l'algorithme de prédiction.
+
+Comparaison et Historique
+Fusionner sur une même page les événements passés (données historiques) et les événements futurs (prédictions).
+
+Développer une interface de comparaison dédiée entre le réel et le prédictif.
+
+S'assurer que la page "Predict" charge correctement les configurations définies dans "Event Predict".
+
+4. Backend & Infrastructure
+Mettre en place le backend IA en utilisant LangSmith / RAG pour soutenir les capacités d'analyse intelligente.
+
+Gérer la logique de filtrage par slider pour impacter dynamiquement les autres éléments statistiques.

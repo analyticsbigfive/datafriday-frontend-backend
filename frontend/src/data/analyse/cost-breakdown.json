@@ -1,0 +1,112 @@
+[
+  {
+    "menuItemId": "budweiser-45",
+    "menuItemName": "Budweiser 45cl",
+    "ingredientsCost": 0.82,
+    "packagingCost": 0.34,
+    "componentsCost": 0.21,
+    "totalCost": 1.37,
+    "basePrice": 9,
+    "margin": 84.78
+  },
+  {
+    "menuItemId": "heineken-33",
+    "menuItemName": "Heineken 33cl",
+    "ingredientsCost": 0.71,
+    "packagingCost": 0.3,
+    "componentsCost": 0.17,
+    "totalCost": 1.18,
+    "basePrice": 8,
+    "margin": 85.25
+  },
+  {
+    "menuItemId": "frites",
+    "menuItemName": "Frites",
+    "ingredientsCost": 0.45,
+    "packagingCost": 0.19,
+    "componentsCost": 0.11,
+    "totalCost": 0.75,
+    "basePrice": 6,
+    "margin": 87.5
+  },
+  {
+    "menuItemId": "burger-chick",
+    "menuItemName": "Burger Pulled Chicken",
+    "ingredientsCost": 1.53,
+    "packagingCost": 0.64,
+    "componentsCost": 0.38,
+    "totalCost": 2.55,
+    "basePrice": 14,
+    "margin": 81.79
+  },
+  {
+    "menuItemId": "hot-dog",
+    "menuItemName": "Hot Dog",
+    "ingredientsCost": 1.04,
+    "packagingCost": 0.44,
+    "componentsCost": 0.26,
+    "totalCost": 1.74,
+    "basePrice": 10,
+    "margin": 82.6
+  },
+  {
+    "menuItemId": "nachos",
+    "menuItemName": "Nachos",
+    "ingredientsCost": 0.59,
+    "packagingCost": 0.25,
+    "componentsCost": 0.15,
+    "totalCost": 0.99,
+    "basePrice": 7,
+    "margin": 85.86
+  },
+  {
+    "menuItemId": "coca",
+    "menuItemName": "Coca-Cola BB 50cl",
+    "ingredientsCost": 0.34,
+    "packagingCost": 0.14,
+    "componentsCost": 0.08,
+    "totalCost": 0.56,
+    "basePrice": 5,
+    "margin": 88.8
+  },
+  {
+    "menuItemId": "water",
+    "menuItemName": "Eau plate 50cl",
+    "ingredientsCost": 0.19,
+    "packagingCost": 0.08,
+    "componentsCost": 0.04,
+    "totalCost": 0.31,
+    "basePrice": 4,
+    "margin": 92.25
+  },
+  {
+    "menuItemId": "champagne",
+    "menuItemName": "Champagne flûte",
+    "ingredientsCost": 1.49,
+    "packagingCost": 0.62,
+    "componentsCost": 0.37,
+    "totalCost": 2.48,
+    "basePrice": 15,
+    "margin": 83.47
+  },
+  {
+    "menuItemId": "mojito",
+    "menuItemName": "Cocktail Mojito",
+    "ingredientsCost": 1.12,
+    "packagingCost": 0.47,
+    "componentsCost": 0.27,
+    "totalCost": 1.86,
+    "basePrice": 12,
+    "margin": 84.5
+  },
+  {
+    "menuItemId": "glass",
+    "menuItemName": "Verre réutilisable",
+    "ingredientsCost": 0.22,
+    "packagingCost": 0.09,
+    "componentsCost": 0.06,
+    "totalCost": 0.37,
+    "basePrice": 2,
+    "margin": 81.5
+  }
+]

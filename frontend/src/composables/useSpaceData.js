@@ -1,0 +1,392 @@
+/**
+ * useSpaceData — chargement des données d'un space via API réelle.
+ *
+ * Chargement en deux phases pour accélérer le premier rendu :
+ *   Phase 1 (bloquante)  : GET /spaces/:id  +  /configurations  +  /shop-details (shops + events, sans granular)
+ *   Phase 2 (background) : GET /shop-details?granular=1  +  /menu-items  +  /menu-components  +  /ingredients
+ *
+ * Le callback `onEnrichment(data)` est appelé dès que la phase 2 est disponible.
+ * Sans callback, les deux phases sont attendues (rétrocompatible).
+ */
+import { getSpace, getSpaceConfigurations, getSpaceShopDetails, getSpaceShopGranular } from '@/api/endpoints/space.api'
+import { getEvents } from '@/api/endpoints/event.api'
+import { getAllMenuItems } from '@/api/endpoints/menu-item.api'
+import { normalizeMenuItem, menuItemsCoverage, resolveComponentRefs } from '@/utils/menuItemNormalize'
+import { getProductTypes, getProductCategories } from '@/api/endpoints/menu.api'
+import { getIngredients } from '@/api/endpoints/ingredient.api'
+import { getMenuComponents } from '@/api/endpoints/component.api'
+import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
+import { getWeezeventProducts } from '@/api/endpoints/aggregation.api'
+import { getProductMappings } from '@/api/endpoints/mapping.api'
+import { enrichGranularMenuDimensions } from '@/utils/analyseDimensions'
+
+const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
+
+export async function fetchSpaceData(spaceId, onEnrichment = null) {
+  // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
+  console.log('[useSpaceData] 🟢 Fetching from API: /api/v1/spaces/' + spaceId)
+
+  try {
+    // ── Phase 1 : données critiques pour le premier rendu ──────────────────
+    console.log('[useSpaceData] phase 1 — 4 endpoints critiques en parallèle...')
+    const _t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+    const [space, configurations, details, eventsResponse] = await Promise.all([
+      getSpace(spaceId).catch((e) => { console.error('[useSpaceData] ❌ getSpace failed:', e?.response?.status, e?.message); throw e }),
+      getSpaceConfigurations(spaceId).catch((e) => { console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message); return [] }),
+      // Phase 1: fast — returns shops + weezeventEvents + meta only (no granular join)
+      getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
+        console.warn('[useSpaceData] ⚠️ shopDetails unavailable:', e?.response?.status, e?.message, '— continuing without sales data')
+        return {}
+      }),
+      // Always fetch DataFriday Events (individual matches, not Weezevent seasons)
+      // Scopé par spaceId côté backend — avant ce fix, seule la 1re page (50 events)
+      // tenant-wide était lue puis filtrée côté client : un tenant avec >50 events
+      // au total pouvait perdre silencieusement les events de ce space.
+      getEvents({ spaceId, limit: 200 }).catch((e) => { console.warn('[useSpaceData] ⚠️ events failed:', e?.response?.status, e?.message); return null }),
+    ])
+
+    // Phase 1 has no granular data (loaded later in background)
+    const shopGranularData = []
+
+    const hasMissingWeezeventTable = details?.__softFailureReason === 'missing-weezevent-table'
+
+    // DataFriday Events (individual matches) are the ONLY source for the events list.
+    // No fallback to RPC WeezeventEvents (those are seasons, not individual matches).
+    // The SQL migration resolves granular record eventId → DataFriday Event UUID via date join.
+    // Déjà scopé par spaceId côté backend (getEvents({spaceId})) — pas de refiltrage client.
+    const events = normalizeList(eventsResponse?.data ?? eventsResponse)
+    const menuItemCostMap = details?.menuItemCostMap || details?.costMap || {}
+
+    const hasData = events.length > 0 || (details?.shops?.length ?? 0) > 0
+    const hasConfig = Array.isArray(configurations) && configurations.length > 0
+
+    console.log('[useSpaceData] phase 1 ✅ space:', space?.name, '| events:', events.length, '| cfgs:', configurations?.length || 0,
+      `| [perf] phase1 ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t1)}ms`)
+
+    // ── Diagnostic SPECTATEURS (API /events) ──────────────────────────────
+    // KPI perCapita / transfo / spectateurs lisent e.ticketsScanned ?? attendees
+    // ?? ticketsSold. On vérifie ici combien d'events les portent réellement.
+    const evWithSpectators = events.filter(
+      (e) => (e?.ticketsScanned ?? e?.attendees ?? e?.ticketsSold) != null,
+    ).length
+    console.log(
+      `[useSpaceData] 🎟️ spectateurs API — ${evWithSpectators}/${events.length} event(s) avec ticketsScanned/attendees/ticketsSold`,
+      events.slice(0, 3).map((e) => ({
+        id: e?.id,
+        ticketsScanned: e?.ticketsScanned,
+        attendees: e?.attendees,
+        ticketsSold: e?.ticketsSold,
+      })),
+    )
+    // ── Diagnostic COÛTS (shop-details.menuItemCostMap) ───────────────────
+    const costMapKeys = Object.keys(menuItemCostMap)
+    console.log(
+      `[useSpaceData] 💶 coûts API (shop-details.menuItemCostMap) — ${costMapKeys.length} entrée(s)`,
+      costMapKeys.length ? menuItemCostMap : '(vide → fallback sur cost des menu items en phase 2)',
+    )
+
+    if (!space) {
+      const err = new Error('Space not found in API')
+      err.code = 'SPACE_NOT_FOUND'
+      throw err
+    }
+
+    if (hasMissingWeezeventTable) {
+      console.warn(
+        '[useSpaceData] ⚠️ Backend incomplete (Weezevent table missing). Returning empty data.',
+      )
+      // Phase 2 non pertinente si les tables Weezevent manquent
+      if (onEnrichment) onEnrichment({ menuItems: [], ingredients: [], components: [], suppliers: [] })
+      return {
+        space,
+        configurations,
+        events: [],
+        shopGranularData: [],
+        menuItemCostMap: {},
+        menuItems: [],
+        suppliers: [],
+        ingredients: [],
+        components: [],
+        summary: null,
+        _fromMock: false,
+        _weezeventSetupIncomplete: true,
+      }
+    }
+
+    if (!hasData) {
+      console.warn(`[useSpaceData] ⚠️ Space "${space?.name}" : 0 events / 0 records. Vérifiez : configs → shops → mappings Weezevent (Step 2) → sync transactions.`)
+    }
+    if (!hasConfig) {
+      console.warn(`[useSpaceData] ⚠️ Space "${space?.name}" : aucune configuration. Créez une configuration dans le builder.`)
+    }
+
+    // ── Phase 2 : granular + enrichissement (menu, coûts, ingrédients) ──────
+    // Lance les appels en arrière-plan. Si onEnrichment est fourni, on retourne
+    // immédiatement avec les données critiques et on rappelle onEnrichment quand
+    // les données secondaires arrivent (two-phase rendering).
+    const loadEnrichment = async () => {
+      // NB perf : ingredients/menu-components ne sont PLUS chargés ici — aucun
+      // consommateur dans le state analyse (inventaire/restock/EventPredict ont
+      // leurs propres stores/chargements). 2 requêtes de moins en phase 2.
+      const _t2 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      const [apiMenuItems, granularDetails, apiProductTypes, apiProductCategories, apiWeezeventProducts, apiWeezeventProductMappings, apiIngredients, apiMenuComponents, apiPackagings] = await Promise.all([
+        getAllMenuItems(spaceId).catch((e) => { console.warn('[useSpaceData] ⚠️ menuItems failed:', e?.response?.status, e?.message); return [] }),
+        // Granular data — heavy join, loaded in background
+        getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
+          console.warn('[useSpaceData] ⚠️ shopGranular failed:', e?.response?.status, e?.message)
+          return {}
+        }),
+        getProductTypes().catch(() => []),
+        getProductCategories().catch(() => []),
+        // Produits Weezevent → prix réels (basePrice) pour Event Predict + repli
+        // dims nature/subnature (réconciliation Analyse). catalogSpaceId filtre le
+        // catalogue sur l'intégration Weezevent DE CET ESPACE (requête indexée simple,
+        // pas de cascade de prix scopée-espace — cf. gotcha noté après le 1er test :
+        // passer `spaceId` ici déclenchait une cascade de repli coûteuse et annulait la
+        // requête après >1 min). Le prix reste le prix modal global rapide.
+        getWeezeventProducts(null, null, null, true, { catalogSpaceId: spaceId }).catch((e) => { console.warn('[useSpaceData] ⚠️ weezeventProducts failed:', e?.response?.status, e?.message); return [] }),
+        // Mappings produit Weezevent → MenuItem (pour récupérer les coûts/marges).
+        // NB : `getProductMappings(locationId)` filtre par LOCATION Weezevent (un id
+        // Weezevent, pas le spaceId DataFriday) — pas de résolution spaceId→locationId
+        // disponible ici sans appel réseau supplémentaire, donc appel volontairement
+        // non scopé (backend filtre déjà par tenant).
+        getProductMappings().catch((e) => { console.warn('[useSpaceData] ⚠️ productMappings failed:', e?.response?.status, e?.message); return [] }),
+        // Catalogues ingrédients/composants/packaging : le payload /menu-items ne
+        // porte que des REFS ({ingredientId, numberOfUnits}) sans nom — on résout
+        // les noms côté front (resolveComponentRefs) tant que le backend ne
+        // dénormalise pas components[] (cf. docs/dejaFaits/menuItems.api.md).
+        getIngredients().catch((e) => { console.warn('[useSpaceData] ⚠️ ingredients failed:', e?.response?.status, e?.message); return [] }),
+        getMenuComponents().catch((e) => { console.warn('[useSpaceData] ⚠️ menuComponents failed:', e?.response?.status, e?.message); return [] }),
+        getAllPackagingTypes().catch((e) => { console.warn('[useSpaceData] ⚠️ packagings failed:', e?.response?.status, e?.message); return [] }),
+      ])
+      const menuItems = normalizeList(apiMenuItems)
+
+      const catalogIngredients = normalizeList(apiIngredients)
+      const catalogComponents = normalizeList(apiMenuComponents)
+      const catalogPackagings = normalizeList(apiPackagings)
+      // Rétro-compat : les catalogues shop-details restent prioritaires s'ils
+      // existent (même source qu'avant), sinon les endpoints dédiés.
+      const baseComponents = normalizeList(details?.components).length
+        ? normalizeList(details?.components)
+        : catalogComponents
+      // shop-details ne porte PAS la recette (`subComponents`/`numberOfUnitsRecipe`) :
+      // on l'enrichit depuis /menu-components (catalogComponents) par id puis nom.
+      // REQUIS à la décomposition composant→ingrédients (Space Inventory / Restock, F6) :
+      // sans subComponents, un composant reste compté/réarmé en 1 ligne.
+      const cnorm = (s) => String(s ?? '').trim().toLowerCase()
+      const catBy = new Map()
+      for (const c of catalogComponents) {
+        if (c?.id != null && !catBy.has(`id:${c.id}`)) catBy.set(`id:${c.id}`, c)
+        const n = cnorm(c?.name)
+        if (n && !catBy.has(`nm:${n}`)) catBy.set(`nm:${n}`, c)
+      }
+      const components = baseComponents.map((c) => {
+        if (Array.isArray(c?.subComponents) && c.subComponents.length) return c
+        const hit = catBy.get(`id:${c?.id}`) || catBy.get(`nm:${cnorm(c?.name)}`)
+        return hit?.subComponents?.length
+          ? { ...c, subComponents: hit.subComponents, numberOfUnitsRecipe: c.numberOfUnitsRecipe ?? hit.numberOfUnitsRecipe }
+          : c
+      })
+      // La LISTE /menu-components ne renvoie PAS `subComponents` (seul le détail
+      // /menu-components/:id les porte). On hydrate la recette par fetch détail pour
+      // les composants qui en manquent — REQUIS à la décomposition composant→ingrédients
+      // (F6). Borné (runWithConcurrency) + toléré (échec = composant non éclaté).
+      const needDetail = components.filter((c) => c?.id && !(c?.subComponents?.length))
+      if (needDetail.length) {
+        try {
+          const { runWithConcurrency } = await import('@/utils/asyncPool')
+          const { getMenuComponent } = await import('@/api/endpoints/menu.api')
+          // Résolution des noms d'ingrédients : le détail `ingredients[]` peut ne
+          // porter que des refs (ingredientId) sans libellé → on résout via le
+          // catalogue ingredients déjà chargé (évite N fetchs getIngredient).
+          const ingById = new Map(
+            catalogIngredients.filter((x) => x?.id != null).map((x) => [String(x.id), x]),
+          )
+          const detailById = new Map()
+          await runWithConcurrency(needDetail, 5, async (c) => {
+            try {
+              const d = await getMenuComponent(c.id)
+              const full = d?.data ?? d
+              // Le détail expose `ingredients[]` + `children[]` (PAS `subComponents`,
+              // qui est la shape du builder front). On les fusionne en subComponents
+              // normalisés attendus par flattenComponentDef. `ing.ingredientId` EST le
+              // marketPriceId (cf. ComponentCreateView) ; `child.componentId` = ref def.
+              const ings = Array.isArray(full?.ingredients) ? full.ingredients : []
+              const children = Array.isArray(full?.children) ? full.children : []
+              const subs = [
+                ...ings.map((ing) => {
+                  const iid = ing?.ingredientId || ing?.ingredient_id || null
+                  const cat = iid != null ? ingById.get(String(iid)) : null
+                  return {
+                    itemType: 'Ingredient',
+                    id: iid,
+                    marketPriceId: iid,
+                    name:
+                      ing?.itemName || ing?.name ||
+                      cat?.name || cat?.itemName || cat?.marketPrice?.supplierItem || null,
+                    numberOfUnits: Number(ing?.quantity ?? ing?.numberOfUnits ?? 0) || 0,
+                    unit: ing?.unit || ing?.recipeUnit || cat?.unit || 'unit',
+                  }
+                }),
+                ...children.map((ch) => {
+                  const cid = ch?.componentId || ch?.id || null
+                  return {
+                    itemType: 'Component',
+                    id: cid,
+                    sourceId: cid,
+                    name: ch?.itemName || ch?.name || null,
+                    numberOfUnits: Number(ch?.numberOfUnits ?? 0) || 0,
+                    unit: ch?.unit || 'unit',
+                  }
+                }),
+              ].filter((s) => s.name)
+              if (subs.length) {
+                detailById.set(c.id, { subComponents: subs, numberOfUnitsRecipe: full?.numberOfUnitsRecipe })
+              }
+            } catch (_) { /* toléré : composant sans détail → non éclaté */ }
+          })
+          for (let i = 0; i < components.length; i++) {
+            const hit = detailById.get(components[i]?.id)
+            if (hit) {
+              components[i] = {
+                ...components[i],
+                subComponents: hit.subComponents,
+                numberOfUnitsRecipe: components[i].numberOfUnitsRecipe ?? hit.numberOfUnitsRecipe,
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[useSpaceData] ⚠️ hydratation subComponents (détail) échouée:', e?.message)
+        }
+      }
+      console.log(
+        `[useSpaceData] 🧩 components recette — base=${baseComponents.length}, catalog=${catalogComponents.length}, ` +
+          `avec subComponents=${components.filter((c) => c?.subComponents?.length).length}`,
+      )
+      const ingredients = normalizeList(details?.ingredients).length
+        ? normalizeList(details?.ingredients)
+        : catalogIngredients
+      const productTypes = normalizeList(apiProductTypes)
+      const productCategories = normalizeList(apiProductCategories)
+      const weezeventProducts = normalizeList(apiWeezeventProducts)
+      const weezeventProductMappings = normalizeList(apiWeezeventProductMappings)
+      const rawGranularData =
+        granularDetails?.shopGranularData ||
+        granularDetails?.records ||
+        (Array.isArray(granularDetails) ? granularDetails : [])
+      // Normalise revenue field: the SQL RPC historically returned 'revenueHt' only.
+      // The new migration adds 'revenue' as an alias, but we normalise defensively
+      // here so old cached/pre-migration responses still work correctly.
+      const revenueNormalizedData = rawGranularData.map((r) => (
+        r.revenue == null || r.revenue === 0 && r.revenueHt != null
+          ? { ...r, revenue: r.revenueHt ?? 0 }
+          : r
+      ))
+      const granularData = enrichGranularMenuDimensions(
+        revenueNormalizedData,
+        menuItems,
+        productTypes,
+        productCategories,
+        weezeventProducts,
+        weezeventProductMappings,
+      )
+      // Do NOT overwrite state.events with granularDetails.events: those are WeezeventEvent
+      // seasons, not individual DataFriday match events. Passing them would replace the
+      // match-level events already loaded in phase 1 with season-level entries.
+      const granularRpcEvents = []
+      // Tag each menu item with current spaceId if spaceIds is absent, puis
+      // normalise (readyForSale 'Yes'/'No' + components unifiés incluant le
+      // packaging) pour que le réarmement et l'inventaire aient une shape stable
+      // quelle que soit la sérialisation backend. Voir docs/menuItems.api.md.
+      const normalizedMenuItems = menuItems.map((mi) => {
+        const tagged =
+          Array.isArray(mi.spaceIds) && mi.spaceIds.length
+            ? mi
+            : { ...mi, spaceIds: [spaceId] }
+        return normalizeMenuItem(tagged)
+      })
+      // Jointure catalogues : complète les components sans nom (refs backend).
+      const refResolution = resolveComponentRefs(normalizedMenuItems, {
+        ingredients,
+        components,
+        packagings: catalogPackagings,
+      })
+      const taggedMenuItems = refResolution.menuItems
+      // Diagnostic du « data gap » recettes (réarmement composé).
+      const cov = menuItemsCoverage(taggedMenuItems)
+      console.log(
+        `[useSpaceData] 🧩 recettes — readyForSale: ${cov.withReadyForSale}/${cov.total} | avec components: ${cov.withComponents}/${cov.total}` +
+          ` | components résolus catalogue: ${refResolution.resolved}, irrésolus (sans nom ni ref): ${refResolution.unresolved}`,
+      )
+      // ── Coûts unitaires par menu item (pour la MARGE) ─────────────────────
+      // Source primaire = shop-details (phase 1). Fallback : champ cost /
+      // costPerUnit / unitCost des menu items renvoyés par l'API → permet de
+      // calculer la marge même si shop-details ne fournit pas de costMap.
+      const costFromMenuItems = {}
+      for (const mi of taggedMenuItems) {
+        const c = Number(mi?.cost ?? mi?.costPerUnit ?? mi?.unitCost)
+        if (mi?.id && Number.isFinite(c) && c > 0) costFromMenuItems[mi.id] = c
+      }
+      console.log(
+        `[useSpaceData] 💶 coûts menu items — ${Object.keys(costFromMenuItems).length}/${taggedMenuItems.length} item(s) avec cost>0 (fallback costMap)`,
+        taggedMenuItems.slice(0, 3).map((mi) => ({ id: mi?.id, name: mi?.name, cost: mi?.cost, costPerUnit: mi?.costPerUnit, unitCost: mi?.unitCost })),
+      )
+      console.log(`[useSpaceData] phase 2 ✅ ${taggedMenuItems.length} menu items, ${components.length} components, ${ingredients.length} ingredients, ${granularData.length} granular records`,
+        `| [perf] phase2 ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t2)}ms`)
+      return {
+        menuItems: taggedMenuItems,
+        menuItemCostMap: costFromMenuItems,
+        suppliers: details?.suppliers?.length ? details.suppliers : [],
+        ingredients,
+        components,
+        // Do not pass events in phase 2 — DataFriday events (individual matches)
+        // are already loaded in phase 1 and must not be overwritten by Weezevent seasons.
+        events: [],
+        shopGranularData: granularData,
+        weezeventProducts,
+        weezeventProductMappings,
+        // Taxonomie catalogue DataFriday → source unique des dimensions item côté
+        // store (réconciliation). Jusqu'ici fetchée puis jetée.
+        productTypes,
+        productCategories,
+      }
+    }
+
+    // Phase 1 result — used for immediate first paint
+    const phase1Result = {
+      space,
+      configurations,
+      events,
+      shopGranularData,
+      menuItemCostMap,
+      summary: details?.summary || null,
+      _fromMock: false,
+    }
+
+    if (onEnrichment) {
+      // Two-phase: return critical data now, enrichment via callback
+      loadEnrichment().then(onEnrichment).catch((e) => {
+        console.warn('[useSpaceData] ⚠️ enrichment background load failed:', e?.message)
+        onEnrichment({ menuItems: [], suppliers: [], ingredients: [], components: [] })
+      })
+      return { ...phase1Result, menuItems: [], suppliers: [], ingredients: [], components: [] }
+    }
+
+    // Single-phase (legacy): await everything before returning
+    const enrichment = await loadEnrichment()
+    console.log(
+      `[useSpaceData] ✅ API OK: "${space?.name}", ${events.length} events, ${shopGranularData.length} records, ${enrichment.menuItems.length} menu items`,
+    )
+    return { ...phase1Result, ...enrichment }
+
+  } catch (err) {
+    const status = err?.response?.status
+    console.error('[useSpaceData] catch block — status:', status, '| code:', err?.code, '| message:', err?.message)
+    // Auth errors (401/403) must surface to the UI — don't mask with mock.
+    if (status === 401 || status === 403) {
+      throw err
+    }
+    // Re-throw all other errors (no mock fallback)
+    throw err
+  }
+}

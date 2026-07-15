@@ -1,0 +1,70 @@
+# Render Blueprint
+# Documentation: https://render.com/docs/blueprint-spec
+
+services:
+  # API NestJS
+  - type: web
+    name: datafriday-api
+    runtime: node
+    region: frankfurt  # ou oregon
+    plan: free  # ou starter ($7/mois) pour plus de ressources
+    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
+    startCommand: npx prisma migrate deploy && node dist/main
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        sync: false  # À configurer manuellement
+      - key: DIRECT_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false  # Upstash Redis URL
+      - key: CORS_ORIGINS
+        sync: false  # Set in Render dashboard: https://datafriday.fr,https://app.datafriday.fr
+      - key: REDIS_QUEUE_URL
+        sync: false  # Upstash Redis URL for BullMQ queues (can share with REDIS_URL)
+      - key: LOG_LEVEL
+        value: info
+
+  # BullMQ Worker (background job processor — no HTTP)
+  - type: worker
+    name: datafriday-worker
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
+    startCommand: npx prisma migrate deploy && node dist/worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info

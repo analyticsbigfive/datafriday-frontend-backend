@@ -1,0 +1,90 @@
+[
+  {
+    "menuItemId": "mojito",
+    "menuItemName": "Cocktail Mojito",
+    "totalRevenue": 76418,
+    "totalCost": 12114.18,
+    "margin": 84.15,
+    "quantitySold": 6513
+  },
+  {
+    "menuItemId": "budweiser-45",
+    "menuItemName": "Budweiser 45cl",
+    "totalRevenue": 256368.03,
+    "totalCost": 39010.75,
+    "margin": 84.78,
+    "quantitySold": 28475
+  },
+  {
+    "menuItemId": "glass",
+    "menuItemName": "Verre réutilisable",
+    "totalRevenue": 48122.75,
+    "totalCost": 8895.54,
+    "margin": 81.51,
+    "quantitySold": 24042
+  },
+  {
+    "menuItemId": "frites",
+    "menuItemName": "Frites",
+    "totalRevenue": 243804.59,
+    "totalCost": 30473.25,
+    "margin": 87.5,
+    "quantitySold": 40631
+  },
+  {
+    "menuItemId": "champagne",
+    "menuItemName": "Champagne flûte",
+    "totalRevenue": 78049.53,
+    "totalCost": 13240.72,
+    "margin": 83.04,
+    "quantitySold": 5339
+  },
+  {
+    "menuItemId": "water",
+    "menuItemName": "Eau plate 50cl",
+    "totalRevenue": 174613.57,
+    "totalCost": 13519.72,
+    "margin": 92.26,
+    "quantitySold": 43612
+  },
+  {
+    "menuItemId": "heineken-33",
+    "menuItemName": "Heineken 33cl",
+    "totalRevenue": 128042.88,
+    "totalCost": 18954.34,
+    "margin": 85.2,
+    "quantitySold": 16063
+  },
+  {
+    "menuItemId": "coca",
+    "menuItemName": "Coca-Cola BB 50cl",
+    "totalRevenue": 262120.73,
+    "totalCost": 29358.56,
+    "margin": 88.8,
+    "quantitySold": 52426
+  },
+  {
+    "menuItemId": "nachos",
+    "menuItemName": "Nachos",
+    "totalRevenue": 52066.73,
+    "totalCost": 7459.65,
+    "margin": 85.67,
+    "quantitySold": 7535
+  },
+  {
+    "menuItemId": "burger-chick",
+    "menuItemName": "Burger Pulled Chicken",
+    "totalRevenue": 136422.1,
+    "totalCost": 25120.05,
+    "margin": 81.59,
+    "quantitySold": 9851
+  },
+  {
+    "menuItemId": "hot-dog",
+    "menuItemName": "Hot Dog",
+    "totalRevenue": 60995.69,
+    "totalCost": 10781.04,
+    "margin": 82.32,
+    "quantitySold": 6196
+  }
+]

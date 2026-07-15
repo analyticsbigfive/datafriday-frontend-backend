@@ -1,0 +1,19 @@
+flowchart TD
+  Start([/]) --> Dash{logge ?}
+  Dash -->|non| Login[/login/]
+  Login --> Signup[/signup/]
+  Login --> Forgot[/forgot-password to /reset-password/]
+  Login -->|OAuth| CB[/auth/callback/]
+  Dash -->|oui, pas d org| Onb[/onboarding/]
+  Dash -->|oui + org| Spaces[/spaces/]
+  Onb --> Spaces
+  Spaces --> Overview[/spaces-overview/]
+  Spaces --> S[Entrer dans un Space]
+  S --> Analyse[/spaces/:id Analyse/]
+  S --> Builder[/spaces/:id/builder/]
+  S --> Predict[/spaces/:id/predict/]
+  S --> Inv[/spaces/:id/inventory/]
+  S --> Restock[/spaces/:id/restock/]
+  Spaces -.menu global.-> Events[/events + types/cats/subcats/]
+  Spaces -.menu global.-> MenuFB[/Menu FB: suppliers - market-prices - components - menu-items - space-menus/]
+  Spaces -.menu global.-> Products[/product-categories - product-types/]

@@ -1,0 +1,1684 @@
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { PrismaService } from '../../core/database/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { linksToSpaceIds, linksToSpacePrices, spaceLinksSelect } from '../../shared/pricing/space-links.util';
+import { CreateMenuItemDto } from './dto/create-menu-item.dto';
+import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+
+// Mapping des valeurs diet frontend → enum Diet Prisma
+function mapDiet(diet: string[]): string[] {
+  if (!diet?.length) return [];
+  const map: Record<string, string> = {
+    Vegan: 'Vegan',
+    vegan: 'Vegan',
+    'Végétarien': 'Vegetarian',
+    Vegetarian: 'Vegetarian',
+    vegetarian: 'Vegetarian',
+    'Sans gluten': 'GlutenFree',
+    GlutenFree: 'GlutenFree',
+    glutenfree: 'GlutenFree',
+    Halal: 'Halal',
+    halal: 'Halal',
+    Casher: 'Kosher',
+    Kosher: 'Kosher',
+    kosher: 'Kosher',
+  };
+  return diet.map(d => map[d] ?? null).filter(Boolean);
+}
+
+@Injectable()
+export class MenuItemsService {
+  private readonly logger = new Logger(MenuItemsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+    private pricing: MenuItemPricingService,
+  ) {}
+
+  private cacheKey(tenantId: string, suffix = 'list') {
+    return `menu-items:${tenantId}:${suffix}`;
+  }
+
+  private async invalidateCache(tenantId: string) {
+    // deletePattern préfixe déjà par 'datafriday:' (RedisService.buildKey) — passer la
+    // clé préfixée produisait 'datafriday:datafriday:…' → aucune correspondance, donc
+    // l'invalidation était un NO-OP silencieux (listes périmées 60s après chaque écriture).
+    await this.redis.deletePattern(`menu-items:${tenantId}:*`);
+  }
+
+  // `MarketPrice.image` peut contenir du base64 (cf. DTOs) — jamais lu par
+  // serializeItem/buildRecipeComponents, on l'omet des vues liste/recette.
+  private readonly marketPriceSelectNoImage = {
+    id: true, unit: true, price: true, goodType: true, itemName: true, category: true,
+    supplierItem: true, recipeUnit: true, supplier: true, supplierId: true, pricePerUnit: true,
+    packedUnits: true, numberOfUnits: true, unitsPerPurchase: true, purchasePackaging: true,
+    inventoryPackaging: true, marketPriceTypeId: true, marketPriceCategoryId: true,
+  };
+
+  private readonly includeRelations = {
+    productType: true,
+    productCategory: true,
+    brand: true,
+    displayName: true,
+    components: {
+      include: { component: true },
+      orderBy: { id: 'asc' as const },
+    },
+    ingredients: {
+      include: { ingredient: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } },
+      orderBy: { id: 'asc' as const },
+    },
+    packagings: {
+      include: { packaging: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } },
+      orderBy: { id: 'asc' as const },
+    },
+    menuAssignments: {
+      include: {
+        // select scalaire : serializeItem ne lit que station.config.spaceId — un
+        // `include: { config: true }` remontait toute la ligne Config, y compris
+        // le JSON complet du builder 3D (`Config.data`), dupliqué par assignation.
+        station: {
+          select: { config: { select: { spaceId: true } } },
+        },
+      },
+    },
+    spaceLinks: spaceLinksSelect,
+  };
+
+  private serializeItem(item: any, tenantVatRate: number | null = null) {
+    // Contrat API inchangé (spaceIds/spacePrices) — sérialisés depuis les lignes SpaceMenuItem.
+    // Collect spaceIds from links first, then enrich with menuAssignments-derived ones
+    const directSpaceIds: string[] = linksToSpaceIds(item.spaceLinks);
+    const assignmentSpaceIds: string[] = [];
+    if (item.menuAssignments?.length) {
+      for (const assignment of item.menuAssignments) {
+        const spaceId = assignment.station?.config?.spaceId;
+        if (spaceId && !assignmentSpaceIds.includes(spaceId)) {
+          assignmentSpaceIds.push(spaceId);
+        }
+      }
+    }
+    // Merge: links are source of truth, assignment-derived ones are added if missing
+    const mergedSpaceIds = [...directSpaceIds];
+    for (const sid of assignmentSpaceIds) {
+      if (!mergedSpaceIds.includes(sid)) mergedSpaceIds.push(sid);
+    }
+    const { menuAssignments, spaceLinks, ...rest } = item;
+    const spacePrices = linksToSpacePrices(spaceLinks);
+    // Coût PAR PIÈCE dérivé du coût total recette (colonne `totalCost` = fournée entière) ÷ nombre
+    // de pièces. C'est la valeur à afficher/comparer au prix de vente d'une portion (cf. pricing).
+    const pieces = Math.max(this.toNumber(rest?.numberOfPiecesRecipe, 1), 1);
+    const costPerPiece = rest?.totalCost != null ? this.toNumber(rest.totalCost, 0) / pieces : null;
+    return {
+      ...rest,
+      costPerPiece,
+      spaceIds: mergedSpaceIds,
+      spacePrices,
+      pricing: this.pricing.computePricing(item, tenantVatRate, null),
+      spacePricing: this.pricing.computeSpacePricing({ ...item, spacePrices }, tenantVatRate, null),
+    };
+  }
+
+  private toNumber(value: unknown, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  /**
+   * Synchronise les lignes SpaceMenuItem d'un article depuis le contrat API historique.
+   * Sémantique de REMPLACEMENT, comme les anciens champs :
+   *  - `spaceIds` fourni → la liste est l'état complet désiré : les associations absentes
+   *    sont supprimées (leur prix espace avec — dissocier = perdre le prix, l'historique
+   *    MenuItemPriceHistory garde la trace) ;
+   *  - `spacePrices` fourni → remplace TOUS les prix : les liens hors map repassent à null.
+   *    Une clé de prix ne CRÉE pas d'association (parité legacy : seul spaceIds associe) ;
+   *  - ids d'espaces inconnus du tenant ignorés silencieusement — avant, l'array stockait
+   *    n'importe quoi sans contrôle (2815 ids morts purgés au backfill), et un id d'un
+   *    autre tenant passait.
+   */
+  private async syncSpaceLinks(
+    menuItemId: string,
+    tenantId: string,
+    opts: { spaceIds?: unknown; spacePrices?: unknown },
+  ) {
+    const hasSpaceIds = opts.spaceIds !== undefined;
+    const hasPrices = opts.spacePrices !== undefined;
+    if (!hasSpaceIds && !hasPrices) return;
+
+    const wantedIds =
+      hasSpaceIds && Array.isArray(opts.spaceIds)
+        ? [...new Set((opts.spaceIds as unknown[]).filter((v): v is string => typeof v === 'string'))]
+        : [];
+    const prices = hasPrices ? this.normalizeSpacePricesMap(opts.spacePrices) : {};
+    const candidateIds = [...new Set([...wantedIds, ...Object.keys(prices)])];
+    const validIds = new Set(
+      candidateIds.length
+        ? (
+            await this.prisma.space.findMany({
+              where: { tenantId, id: { in: candidateIds } },
+              select: { id: true },
+            })
+          ).map((s) => s.id)
+        : [],
+    );
+
+    const ops: any[] = [];
+    if (hasSpaceIds) {
+      const keep = wantedIds.filter((id) => validIds.has(id));
+      ops.push(this.prisma.spaceMenuItem.deleteMany({ where: { menuItemId, spaceId: { notIn: keep } } }));
+      if (keep.length) {
+        ops.push(
+          this.prisma.spaceMenuItem.createMany({
+            data: keep.map((spaceId) => ({ menuItemId, spaceId })),
+            skipDuplicates: true,
+          }),
+        );
+      }
+    }
+    if (hasPrices) {
+      const priced = Object.entries(prices).filter(([sid]) => validIds.has(sid));
+      // Les liens hors map perdent leur prix (remplacement complet, parité ancien Json).
+      ops.push(
+        this.prisma.spaceMenuItem.updateMany({
+          where: {
+            menuItemId,
+            ...(priced.length ? { spaceId: { notIn: priced.map(([sid]) => sid) } } : {}),
+          },
+          data: { priceTtc: null, vatRate: null },
+        }),
+      );
+      for (const [sid, p] of priced) {
+        // updateMany = no-op si l'espace n'est pas associé (une clé de prix seule n'associe pas).
+        ops.push(
+          this.prisma.spaceMenuItem.updateMany({
+            where: { menuItemId, spaceId: sid },
+            data: { priceTtc: p.ttc, vatRate: p.vatRate },
+          }),
+        );
+      }
+    }
+    await this.prisma.$transaction(ops);
+  }
+
+  /** Délègue au service partagé (réutilisé par la Data Integration). */
+  private getTenantDefaultVatRate(tenantId: string): Promise<number> {
+    return this.pricing.getTenantDefaultVatRate(tenantId);
+  }
+
+  private async getComponentUnitCost(componentId: string, tenantId: string) {
+    const comp = await this.prisma.menuComponent.findFirst({
+      where: { id: componentId, tenantId, deletedAt: null },
+      select: { unitCost: true, storageType: true },
+    });
+    if (!comp) throw new BadRequestException(`Component ${componentId} not found`);
+    return { unitCost: this.toNumber(comp.unitCost, 0), storageType: comp.storageType };
+  }
+
+  private async getIngredientUnitCost(ingredientId: string, tenantId: string) {
+    const ing = await this.prisma.ingredient.findFirst({
+      where: { id: ingredientId, tenantId, deletedAt: null },
+      select: { costPerRecipeUnit: true, storageType: true },
+    });
+    if (!ing) throw new BadRequestException(`Ingredient ${ingredientId} not found`);
+    return { unitCost: this.toNumber(ing.costPerRecipeUnit, 0), storageType: ing.storageType };
+  }
+
+  private async getPackagingUnitCost(packagingId: string, tenantId: string) {
+    const p = await this.prisma.packaging.findFirst({
+      where: { id: packagingId, tenantId, deletedAt: null },
+      select: { costPerRecipeUnit: true, storageType: true },
+    });
+    if (!p) throw new BadRequestException(`Packaging ${packagingId} not found`);
+    return { unitCost: this.toNumber(p.costPerRecipeUnit, 0), storageType: p.storageType };
+  }
+
+  async create(dto: CreateMenuItemDto, tenantId: string) {
+    this.logger.log(`Creating menu item "${dto.name}" for tenant ${tenantId}`);
+    this.logger.debug(`Validating IDs - typeId: ${dto.typeId}, categoryId: ${dto.categoryId}`);
+    
+    try {
+      const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
+      const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
+      const packagingsLines = Array.isArray((dto as any).packagings) ? (dto as any).packagings : undefined;
+      
+      if (ingredientsLines) {
+        this.logger.debug(`Ingredient IDs: ${ingredientsLines.map((i: any) => i.ingredientId).join(', ')}`);
+      }
+      if (packagingsLines) {
+        this.logger.debug(`Packaging IDs: ${packagingsLines.map((p: any) => p.packagingId).join(', ')}`);
+      }
+      if (componentsLines) {
+        this.logger.debug(`Component IDs: ${componentsLines.map((c: any) => c.componentId).join(', ')}`);
+      }
+
+      const item = await this.prisma.menuItem.create({
+        data: {
+          tenantId,
+          name: dto.name,
+          typeId: dto.typeId || null,
+          categoryId: dto.categoryId || null,
+          brandId: dto.brandId || null,
+          displayNameId: dto.displayNameId || null,
+          basePrice: dto.basePrice,
+          vatRate: dto.vatRate ?? null,
+          discountType: dto.discountType ?? null,
+          discountValue: dto.discountValue ?? null,
+          totalCost: dto.totalCost,
+          margin: dto.margin,
+          description: dto.description,
+          picture: dto.picture,
+          allergens: dto.allergens || [],
+          diet: mapDiet(dto.diet || []) as any[],
+          storageType: (dto.storageType || []) as any[],
+          readyForSale: dto.readyForSale,
+          kitchenType: dto.kitchenType ?? null,
+          comboItem: dto.comboItem,
+          numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
+          componentsData: dto.componentsData,
+          inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
+          inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
+
+          ...(componentsLines
+            ? {
+                components: {
+                  create: componentsLines.map((l: any) => ({
+                    componentId: l.componentId,
+                    numberOfUnits: this.toNumber(l.numberOfUnits),
+                  })),
+                },
+              }
+            : {}),
+
+          ...(ingredientsLines
+            ? {
+                ingredients: {
+                  create: ingredientsLines.map((l: any) => ({
+                    ingredientId: l.ingredientId,
+                    numberOfUnits: this.toNumber(l.numberOfUnits),
+                  })),
+                },
+              }
+            : {}),
+
+          ...(packagingsLines
+            ? {
+                packagings: {
+                  create: packagingsLines.map((l: any) => ({
+                    packagingId: l.packagingId,
+                    numberOfUnits: this.toNumber(l.numberOfUnits),
+                  })),
+                },
+              }
+            : {}),
+        } as any,
+        include: this.includeRelations,
+      });
+      this.logger.log(`Menu item created: ${item.id}`);
+
+      // Associations espace + prix par espace → table SpaceMenuItem (contrat DTO inchangé).
+      await this.syncSpaceLinks(item.id, tenantId, {
+        spaceIds: (dto as any).spaceIds,
+        spacePrices: (dto as any).spacePrices,
+      });
+
+      if (componentsLines || ingredientsLines || packagingsLines) {
+        await this.refreshCosts(tenantId, { itemIds: [item.id] });
+      }
+
+      await this.invalidateCache(tenantId);
+      const refreshed = await this.findOne(item.id, tenantId);
+      return refreshed;
+    } catch (error) {
+      this.logger.error(`Failed to create menu item: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        const fieldName = error.meta?.field_name || 'unknown field';
+        this.logger.error(`Foreign key constraint failed on: ${fieldName}`);
+        throw new BadRequestException(
+          `Invalid ID provided. Foreign key constraint failed on: ${fieldName}. ` +
+          `Please verify that the typeId, categoryId, componentId, ingredientId, or packagingId exists in the database.`
+        );
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`A menu item with this name already exists`);
+      }
+      throw error;
+    }
+  }
+
+  async bulkCreate(dtos: CreateMenuItemDto[], tenantId: string) {
+    if (!Array.isArray(dtos) || dtos.length === 0) {
+      return { count: 0, items: [] };
+    }
+
+    this.logger.log(`Bulk creating ${dtos.length} menu items for tenant ${tenantId}`);
+    try {
+      const items = dtos.map((dto) => ({
+        id: randomUUID(),
+        tenantId,
+        name: dto.name,
+        typeId: dto.typeId || null,
+        categoryId: dto.categoryId || null,
+        brandId: dto.brandId || null,
+        displayNameId: dto.displayNameId || null,
+        basePrice: dto.basePrice,
+        vatRate: dto.vatRate ?? null,
+        discountType: dto.discountType ?? null,
+        discountValue: dto.discountValue ?? null,
+        totalCost: dto.totalCost,
+        margin: dto.margin,
+        description: dto.description,
+        picture: dto.picture,
+        allergens: dto.allergens || [],
+        diet: mapDiet(dto.diet || []) as any[],
+        storageType: (dto.storageType || []) as any[],
+        readyForSale: dto.readyForSale,
+        kitchenType: dto.kitchenType ?? null,
+        comboItem: dto.comboItem,
+        numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
+        componentsData: dto.componentsData,
+        inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
+        inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
+      }));
+
+      await this.prisma.menuItem.createMany({
+        data: items as any[],
+      });
+
+      await this.invalidateCache(tenantId);
+      return {
+        count: items.length,
+        items: items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          typeId: item.typeId,
+          categoryId: item.categoryId,
+          basePrice: item.basePrice,
+          tenantId: item.tenantId,
+          spaceIds: [],
+        })),
+      };
+    } catch (error) {
+      this.logger.error(`Failed to bulk create menu items: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        const fieldName = error.meta?.field_name || 'unknown field';
+        throw new BadRequestException(`Invalid ID provided. Foreign key constraint failed on: ${fieldName}.`);
+      }
+      throw error;
+    }
+  }
+
+  async findAll(tenantId: string, page = 1, limit = 100, spaceId?: string) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    this.logger.log(`Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'})`);
+    try {
+      const cacheKey = this.cacheKey(tenantId, `list:${page}:${safeLimit}:${spaceId ?? 'all'}`);
+      return this.redis.getOrSet(cacheKey, async () => {
+        const skip = (page - 1) * safeLimit;
+        // spaceId filtre sur la table SpaceMenuItem (join indexé) : évite de charger tout
+        // le catalogue tenant quand seul un espace nous intéresse (cf. /space-menus qui
+        // paginait sur l'intégralité des menu items avant de filtrer côté client).
+        const where: any = { tenantId, deletedAt: null };
+        if (spaceId) where.spaceLinks = { some: { spaceId } };
+        const [items, total, tenantVatRate] = await Promise.all([
+          this.prisma.menuItem.findMany({
+            where,
+            orderBy: { name: 'asc' },
+            include: this.includeRelations,
+            skip,
+            take: safeLimit,
+          }),
+          this.prisma.menuItem.count({ where }),
+          this.getTenantDefaultVatRate(tenantId),
+        ]);
+        this.logger.log(`Found ${items.length}/${total} menu items`);
+        return {
+          data: items.map(i => this.serializeItem(i, tenantVatRate)),
+          meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) },
+        };
+      }, { ttl: 60 });
+    } catch (error) {
+      this.logger.error(`Failed to fetch menu items: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  async findOne(id: string, tenantId: string) {
+    this.logger.log(`Fetching menu item ${id} for tenant ${tenantId}`);
+    const [item, tenantVatRate] = await Promise.all([
+      this.prisma.menuItem.findFirst({
+        where: { id, tenantId, deletedAt: null },
+        include: this.includeRelations,
+      }),
+      this.getTenantDefaultVatRate(tenantId),
+    ]);
+    if (!item) {
+      this.logger.warn(`Menu item ${id} not found for tenant ${tenantId}`);
+      throw new NotFoundException(`Menu item with ID ${id} not found`);
+    }
+    return this.serializeItem(item, tenantVatRate);
+  }
+
+  // ── Recette / réarmement plats composés ──────────────────────────────────
+  // Endpoint DÉDIÉ (GET /menu-items/:id/recipe + POST /menu-items/recipes).
+  // Ne touche PAS au `components` de /menu-items (= MenuItemComponent[]) → aucune
+  // régression éditeur de recettes / /space-menus / DTO create-update / Swagger.
+  // Voir docs/recipe-endpoint.api.md.
+  private readonly recipeInclude = {
+    components: { include: { component: true } },
+    ingredients: { include: { ingredient: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } } },
+    packagings: { include: { packaging: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } } },
+  };
+
+  /** Normalise vers 'Yes'/'No' (casse/oui-non/booléen). null/'' restent null. */
+  private normYesNo(value: unknown): 'Yes' | 'No' | null {
+    if (value === true) return 'Yes';
+    if (value === false) return 'No';
+    const s = String(value ?? '').trim().toLowerCase();
+    if (s === 'yes' || s === 'true' || s === 'oui' || s === '1') return 'Yes';
+    if (s === 'no' || s === 'false' || s === 'non' || s === '0') return 'No';
+    return null;
+  }
+
+  /** category détectable comme packaging par le front (isPackagingComponent). */
+  private isPackagingCategory(category?: string | null) {
+    const c = String(category ?? '').toLowerCase();
+    return c.includes('packaging') || c.includes('emballage');
+  }
+
+  /** Coût de ligne : totalCost déjà calculé (refreshCosts) sinon unitCost × qty. */
+  private lineCost(line: any) {
+    const total = this.toNumber(line.totalCost, NaN);
+    if (Number.isFinite(total)) return total;
+    return Math.round(this.toNumber(line.unitCost) * this.toNumber(line.numberOfUnits) * 10000) / 10000;
+  }
+
+  /**
+   * Fusionne les 3 relations (MenuItemIngredient + MenuItemComponent +
+   * MenuItemPackaging) en un seul `components[]` dénormalisé au format contrat.
+   * Résout `supplierId` inline via marketPrice (le front court-circuite ainsi le
+   * join marketPrice→supplier). Collecte les supplierIds rencontrés.
+   * NB: les MenuComponent (sous-recettes) sont retournés comme lignes terminales
+   * (`itemType:'Component'`) ; le moteur front `expandMenuItemStock` recurse de
+   * lui-même au niveau menu-items (pas d'aplatissement serveur superflu).
+   */
+  private buildRecipeComponents(item: any): { components: any[]; supplierIds: Set<string> } {
+    const supplierIds = new Set<string>();
+    const components: any[] = [];
+
+    for (const line of item.ingredients || []) {
+      const ing = line.ingredient || {};
+      const mp = ing.marketPrice || null;
+      const supplierId = mp?.supplierId || null;
+      if (supplierId) supplierIds.add(supplierId);
+      components.push({
+        id: line.id,
+        sourceId: line.ingredientId,
+        name: ing.name ?? null,
+        itemType: 'Ingredient',
+        numberOfUnits: this.toNumber(line.numberOfUnits),
+        unit: ing.recipeUnit ?? 'unit',
+        category: ing.ingredientCategory ?? mp?.category ?? null,
+        storageType: line.storageType ?? ing.storageType ?? null,
+        marketPriceId: ing.marketPriceId ?? null,
+        supplierId,
+        cost: this.lineCost(line),
+      });
+    }
+
+    for (const line of item.packagings || []) {
+      const pkg = line.packaging || {};
+      const mp = pkg.marketPrice || null;
+      const supplierId = mp?.supplierId || null;
+      if (supplierId) supplierIds.add(supplierId);
+      // StorageType DB = Cold|Dry|Frozen (jamais 'material') → on s'appuie sur la
+      // `category` pour la détection front, et on force storageType='material'
+      // (contrat) pour fiabiliser isPackagingComponent.
+      const category = this.isPackagingCategory(pkg.ingredientCategory)
+        ? pkg.ingredientCategory
+        : 'packaging';
+      components.push({
+        id: line.id,
+        sourceId: line.packagingId,
+        name: pkg.name ?? null,
+        itemType: 'Packaging',
+        numberOfUnits: this.toNumber(line.numberOfUnits),
+        unit: pkg.recipeUnit ?? 'unit',
+        category,
+        storageType: 'material',
+        marketPriceId: pkg.marketPriceId ?? null,
+        supplierId,
+        cost: this.lineCost(line),
+      });
+    }
+
+    for (const line of item.components || []) {
+      const comp = line.component || {};
+      components.push({
+        id: line.id,
+        sourceId: line.componentId,
+        name: comp.name ?? null,
+        itemType: 'Component',
+        numberOfUnits: this.toNumber(line.numberOfUnits),
+        unit: comp.unit ?? 'unit',
+        category: comp.category ?? null,
+        storageType: line.storageType ?? comp.storageType ?? null,
+        marketPriceId: null,
+        supplierId: null,
+        cost: this.lineCost(line),
+      });
+    }
+
+    return { components, supplierIds };
+  }
+
+  /** Charge le dictionnaire fournisseurs (id, name, email, phone←tel, sites). */
+  private async loadSuppliers(supplierIds: Set<string>, tenantId: string) {
+    if (!supplierIds.size) return [];
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { id: { in: [...supplierIds] }, tenantId },
+      select: { id: true, name: true, email: true, tel: true, sites: true },
+    });
+    return suppliers.map((s) => ({
+      id: s.id,
+      name: s.name,
+      email: s.email ?? null,
+      phone: s.tel ?? null,
+      sites: s.sites ?? [],
+    }));
+  }
+
+  private toRecipeDto(item: any, components: any[]) {
+    return {
+      id: item.id,
+      name: item.name,
+      readyForSale: this.normYesNo(item.readyForSale),
+      comboItem: this.normYesNo(item.comboItem),
+      numberOfPiecesRecipe: this.toNumber(item.numberOfPiecesRecipe, 1) || 1,
+      cost: this.toNumber(item.totalCost, 0),
+      components,
+    };
+  }
+
+  async getRecipe(id: string, tenantId: string) {
+    this.logger.log(`Fetching recipe for menu item ${id} (tenant ${tenantId})`);
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      include: this.recipeInclude,
+    });
+    if (!item) throw new NotFoundException(`Menu item with ID ${id} not found`);
+    const { components, supplierIds } = this.buildRecipeComponents(item);
+    const suppliers = await this.loadSuppliers(supplierIds, tenantId);
+    return { ...this.toRecipeDto(item, components), suppliers };
+  }
+
+  async getRecipes(ids: string[], tenantId: string) {
+    const where: any = { tenantId, deletedAt: null };
+    if (Array.isArray(ids) && ids.length) where.id = { in: ids };
+    this.logger.log(`Fetching recipes for ${ids?.length ?? 'all'} menu item(s) (tenant ${tenantId})`);
+    const items = await this.prisma.menuItem.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      include: this.recipeInclude,
+    });
+    const allSupplierIds = new Set<string>();
+    const built = items.map((item) => {
+      const { components, supplierIds } = this.buildRecipeComponents(item);
+      supplierIds.forEach((s) => allSupplierIds.add(s));
+      return this.toRecipeDto(item, components);
+    });
+    const suppliers = await this.loadSuppliers(allSupplierIds, tenantId);
+    return { items: built, suppliers };
+  }
+
+  async update(id: string, dto: UpdateMenuItemDto, tenantId: string) {
+    this.logger.log(`Updating menu item ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
+
+    const updateData: any = {};
+    if (dto.name !== undefined) updateData.name = dto.name;
+    if (dto.typeId !== undefined) updateData.typeId = dto.typeId;
+    if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
+    if (dto.brandId !== undefined) updateData.brandId = dto.brandId || null;
+    if (dto.displayNameId !== undefined) updateData.displayNameId = dto.displayNameId || null;
+    if (dto.basePrice !== undefined) updateData.basePrice = dto.basePrice;
+    if (dto.vatRate !== undefined) updateData.vatRate = dto.vatRate ?? null;
+    if (dto.discountType !== undefined) updateData.discountType = dto.discountType ?? null;
+    if (dto.discountValue !== undefined) updateData.discountValue = dto.discountValue ?? null;
+    if (dto.totalCost !== undefined) updateData.totalCost = dto.totalCost;
+    if (dto.margin !== undefined) updateData.margin = dto.margin;
+    if (dto.description !== undefined) updateData.description = dto.description;
+    if (dto.picture !== undefined) updateData.picture = dto.picture;
+    if (dto.allergens !== undefined) updateData.allergens = dto.allergens;
+    if (dto.diet !== undefined) updateData.diet = mapDiet(dto.diet) as any[];
+    if (dto.storageType !== undefined) updateData.storageType = dto.storageType as any[];
+    if (dto.readyForSale !== undefined) updateData.readyForSale = dto.readyForSale;
+    if (dto.kitchenType !== undefined) updateData.kitchenType = dto.kitchenType ?? null;
+    if (dto.comboItem !== undefined) updateData.comboItem = dto.comboItem;
+    if (dto.numberOfPiecesRecipe !== undefined) updateData.numberOfPiecesRecipe = dto.numberOfPiecesRecipe;
+    if (dto.componentsData !== undefined) updateData.componentsData = dto.componentsData;
+    if ((dto as any).inventoryPackagingType !== undefined) updateData.inventoryPackagingType = (dto as any).inventoryPackagingType;
+    if ((dto as any).inventoryNumberOfUnits !== undefined) updateData.inventoryNumberOfUnits = (dto as any).inventoryNumberOfUnits;
+    // spaceIds/spacePrices : plus des colonnes — synchronisés vers SpaceMenuItem après l'update.
+
+    const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
+    const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
+    const packagingsLines = Array.isArray((dto as any).packagings) ? (dto as any).packagings : undefined;
+
+    if (componentsLines) {
+      updateData.components = {
+        deleteMany: {},
+        create: componentsLines.map((l: any) => ({
+          componentId: l.componentId,
+          numberOfUnits: this.toNumber(l.numberOfUnits),
+        })),
+      };
+    }
+    if (ingredientsLines) {
+      updateData.ingredients = {
+        deleteMany: {},
+        create: ingredientsLines.map((l: any) => ({
+          ingredientId: l.ingredientId,
+          numberOfUnits: this.toNumber(l.numberOfUnits),
+        })),
+      };
+    }
+    if (packagingsLines) {
+      updateData.packagings = {
+        deleteMany: {},
+        create: packagingsLines.map((l: any) => ({
+          packagingId: l.packagingId,
+          numberOfUnits: this.toNumber(l.numberOfUnits),
+        })),
+      };
+    }
+
+    try {
+      const item = await this.prisma.menuItem.update({
+        where: { id },
+        data: updateData,
+        include: this.includeRelations,
+      });
+      this.logger.log(`Menu item ${id} updated`);
+
+      await this.syncSpaceLinks(id, tenantId, {
+        spaceIds: (dto as any).spaceIds,
+        spacePrices: (dto as any).spacePrices,
+      });
+
+      if (componentsLines || ingredientsLines || packagingsLines) {
+        await this.refreshCosts(tenantId, { itemIds: [id] });
+      }
+
+      await this.invalidateCache(tenantId);
+      return this.findOne(id, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to update menu item ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid typeId, categoryId, componentId, ingredientId, or packagingId provided`);
+      }
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Menu item with ID ${id} not found`);
+      }
+      throw error;
+    }
+  }
+
+  // ─── Application du prix Weezevent + historique ──────────────────────────────
+
+  /**
+   * Résout le produit Weezevent source d'un menu item : mapping explicite si `weezeventProductId`
+   * est fourni, sinon l'unique produit mappé. Lève une 400 si rien n'est mappé ou si plusieurs
+   * produits le sont (l'appelant doit alors préciser lequel).
+   */
+  private async resolveMappedProductId(
+    tenantId: string,
+    menuItemId: string,
+    weezeventProductId?: string,
+  ): Promise<string> {
+    if (weezeventProductId) {
+      const m = await this.prisma.productMapping.findFirst({
+        where: { tenantId, menuItemId, salesProductId: weezeventProductId },
+        select: { salesProductId: true },
+      });
+      if (!m) throw new BadRequestException(`Le produit Weezevent ${weezeventProductId} n'est pas mappé à cet article`);
+      return m.salesProductId;
+    }
+    const mappings = await this.prisma.productMapping.findMany({
+      where: { tenantId, menuItemId },
+      select: { salesProductId: true },
+    });
+    if (mappings.length === 0) throw new BadRequestException(`Aucun produit Weezevent mappé à cet article`);
+    if (mappings.length > 1) {
+      throw new BadRequestException(`Plusieurs produits Weezevent mappés à cet article — précisez weezeventProductId`);
+    }
+    return mappings[0].salesProductId;
+  }
+
+  /**
+   * Applique au menu item le prix Weezevent du produit mappé (prix catalogue Weezevent sinon
+   * prix modal des ventes, cf. `resolveWeezeventApplyPrice`) et ARCHIVE le prix appliqué dans
+   * `MenuItemPriceHistory`. `MenuItem.basePrice` reste le prix COURANT (visible côté menu-items).
+   * Idempotent : si le prix courant est déjà celui résolu, ne réécrit ni n'historise rien.
+   */
+  /** Normalise le JSON `spacePrices` stocké en `{ [spaceId]: { ttc, vatRate } }` (migre le legacy `number`). */
+  private normalizeSpacePricesMap(raw: any): Record<string, { ttc: number; vatRate: number | null }> {
+    const out: Record<string, { ttc: number; vatRate: number | null }> = {};
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [spaceId, v] of Object.entries(raw)) {
+        const n = this.pricing.normalizeSpacePrice(v);
+        if (n) out[spaceId] = n;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Résout le prix à hériter depuis un produit Weezevent. `override` = le prix DU PRODUIT TEL
+   * QU'AFFICHÉ côté front : s'il est fourni, le menu item en hérite EXACTEMENT (pas de re-calcul
+   * serveur qui divergerait de l'affichage). Sinon, repli : prix dérivé GLOBALEMENT (dernier prix
+   * non nul des ventes, sinon catalogue) — JAMAIS scopé à l'espace (l'espace = destination, pas
+   * filtre sur la source).
+   */
+  private async resolveInheritedPrice(
+    product: any,
+    productId: string,
+    tenantId: string,
+    override?: { basePrice?: number | null; vatRate?: number | null },
+    spaceId?: string,
+    eventIds?: string[],
+  ) {
+    if (override?.basePrice != null && Number.isFinite(Number(override.basePrice))) {
+      return {
+        basePrice: this.toNumber(override.basePrice),
+        vatRate: override.vatRate != null ? this.toNumber(override.vatRate) : null,
+        currency: null as string | null,
+        source: 'weezevent_catalog' as 'weezevent_catalog' | 'weezevent_sales',
+      };
+    }
+    // Sans override : dernier prix non nul SCOPÉ à l'espace (priorité aux ventes de l'espace, sinon
+    // ventes non attribuées à un autre espace — jamais un prix d'un autre espace). Sans espace →
+    // dernier prix non nul global (repli historique).
+    let latest: { ttc: number; vatRate: number | null } | undefined;
+    if (spaceId) {
+      latest = (await this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, [productId], { eventIds })).get(productId);
+      if (!latest && eventIds && eventIds.length > 0) {
+        latest = (await this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, [productId])).get(productId);
+      }
+    } else {
+      latest = (await this.pricing.getLatestSalesPrices([productId], {})).get(productId);
+    }
+    return this.pricing.resolveWeezeventApplyPrice(product, latest);
+  }
+
+  async applyWeezeventPrice(
+    menuItemId: string,
+    tenantId: string,
+    weezeventProductId?: string,
+    spaceId?: string,
+    override?: { basePrice?: number | null; vatRate?: number | null },
+  ) {
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id: menuItemId, tenantId, deletedAt: null },
+      select: { id: true, basePrice: true, vatRate: true },
+    });
+    if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
+
+    if (spaceId) {
+      // L'upsert SpaceMenuItem associe l'item à l'espace si besoin → l'espace doit être au tenant.
+      const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true } });
+      if (!space) throw new BadRequestException(`Espace ${spaceId} introuvable pour ce tenant`);
+    }
+
+    const productId = await this.resolveMappedProductId(tenantId, menuItemId, weezeventProductId);
+    const product = await this.prisma.salesProduct.findFirst({
+      where: { id: productId, tenantId },
+      include: { prices: true },
+    });
+    if (!product) throw new BadRequestException(`Produit Weezevent ${productId} introuvable`);
+
+    const resolved = await this.resolveInheritedPrice(product, productId, tenantId, override, spaceId);
+    if (!resolved) {
+      throw new BadRequestException(`Aucun prix Weezevent disponible pour ce produit (ni ventes, ni catalogue)`);
+    }
+
+    if (spaceId) {
+      // PRIX PAR ESPACE : ligne SpaceMenuItem (on ne touche plus basePrice = défaut/fallback).
+      // L'upsert CRÉE l'association si absente : poser un prix pour un espace = y vendre l'item
+      // (soigne au passage les items « mappés sans espace »).
+      const link = await this.prisma.spaceMenuItem.findUnique({
+        where: { menuItemId_spaceId: { menuItemId, spaceId } },
+        select: { priceTtc: true, vatRate: true },
+      });
+      const previous =
+        link?.priceTtc != null
+          ? { ttc: this.toNumber(link.priceTtc), vatRate: link.vatRate != null ? this.toNumber(link.vatRate) : null }
+          : null;
+      const next = { ttc: resolved.basePrice, vatRate: resolved.vatRate ?? null };
+      const unchanged = previous != null && previous.ttc === next.ttc && (previous.vatRate ?? null) === next.vatRate;
+      if (!unchanged) {
+        await this.prisma.$transaction([
+          this.prisma.menuItemPriceHistory.create({
+            data: {
+              menuItemId,
+              tenantId,
+              spaceId,
+              basePrice: resolved.basePrice,
+              vatRate: resolved.vatRate,
+              currency: resolved.currency,
+              source: resolved.source,
+              weezeventProductId: productId,
+              observedAt: new Date(),
+            },
+          }),
+          this.prisma.spaceMenuItem.upsert({
+            where: { menuItemId_spaceId: { menuItemId, spaceId } },
+            create: { menuItemId, spaceId, priceTtc: next.ttc, vatRate: next.vatRate },
+            update: { priceTtc: next.ttc, vatRate: next.vatRate },
+          }),
+        ]);
+        await this.invalidateCache(tenantId);
+        this.logger.log(`Applied Weezevent price ${resolved.basePrice} (${resolved.source}) to menu item ${menuItemId} for space ${spaceId}`);
+      }
+      return { changed: !unchanged, previous, applied: resolved, item: await this.findOne(menuItemId, tenantId) };
+    }
+
+    // Sans espace → comportement global historique (prix courant = basePrice).
+    const previous = {
+      basePrice: this.toNumber(item.basePrice),
+      vatRate: item.vatRate != null ? this.toNumber(item.vatRate) : null,
+    };
+    const unchanged = previous.basePrice === resolved.basePrice && previous.vatRate === (resolved.vatRate ?? null);
+
+    if (!unchanged) {
+      await this.prisma.$transaction([
+        this.prisma.menuItemPriceHistory.create({
+          data: {
+            menuItemId,
+            tenantId,
+            spaceId: null,
+            basePrice: resolved.basePrice,
+            vatRate: resolved.vatRate,
+            currency: resolved.currency,
+            source: resolved.source,
+            weezeventProductId: productId,
+            observedAt: new Date(),
+          },
+        }),
+        this.prisma.menuItem.update({
+          where: { id: menuItemId },
+          data: { basePrice: resolved.basePrice, vatRate: resolved.vatRate },
+        }),
+      ]);
+      await this.invalidateCache(tenantId);
+      this.logger.log(`Applied Weezevent price ${resolved.basePrice} (${resolved.source}) to menu item ${menuItemId}`);
+    }
+
+    return {
+      changed: !unchanged,
+      previous,
+      applied: resolved,
+      item: await this.findOne(menuItemId, tenantId),
+    };
+  }
+
+  /**
+   * Applique le prix Weezevent à plusieurs menu items (action de masse étape 3). Le prix modal
+   * et les produits sont requêtés EN UNE FOIS pour tout le lot. Renvoie un résumé par article
+   * (changed / applied / error) ; un article en erreur n'interrompt pas les autres.
+   */
+  async applyWeezeventPricesBulk(
+    items: Array<{ menuItemId: string; weezeventProductId?: string; basePrice?: number | null; vatRate?: number | null }>,
+    tenantId: string,
+    spaceId?: string,
+  ) {
+    const results: Array<{ menuItemId: string; changed: boolean; applied?: any; previous?: any; error?: string }> = [];
+    const pairs: Array<{ menuItemId: string; productId: string; override?: { basePrice?: number | null; vatRate?: number | null } }> = [];
+
+    for (const it of items) {
+      try {
+        const productId = await this.resolveMappedProductId(tenantId, it.menuItemId, it.weezeventProductId);
+        pairs.push({ menuItemId: it.menuItemId, productId, override: { basePrice: it.basePrice, vatRate: it.vatRate } });
+      } catch (e) {
+        results.push({ menuItemId: it.menuItemId, changed: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    if (pairs.length === 0) return { total: items.length, changed: 0, results };
+
+    if (spaceId) {
+      // Les upserts SpaceMenuItem associent les items à l'espace si besoin → espace du tenant requis.
+      const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true } });
+      if (!space) throw new BadRequestException(`Espace ${spaceId} introuvable pour ce tenant`);
+    }
+
+    const productIds = [...new Set(pairs.map((p) => p.productId))];
+    const menuItemIds = [...new Set(pairs.map((p) => p.menuItemId))];
+    // Repli (si le front n'envoie pas le prix affiché) : dernier prix non nul par produit, SCOPÉ à
+    // l'espace ciblé quand il y en a un (priorité espace, sinon ventes non attribuées à un autre
+    // espace — jamais un prix d'un autre espace), sinon global.
+    const [products, latest, menuItems, links] = await Promise.all([
+      this.prisma.salesProduct.findMany({ where: { id: { in: productIds }, tenantId }, include: { prices: true } }),
+      spaceId
+        ? this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, productIds)
+        : this.pricing.getLatestSalesPrices(productIds, {}),
+      this.prisma.menuItem.findMany({
+        where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
+        select: { id: true, basePrice: true, vatRate: true },
+      }),
+      spaceId
+        ? this.prisma.spaceMenuItem.findMany({
+            where: { spaceId, menuItemId: { in: menuItemIds } },
+            select: { menuItemId: true, priceTtc: true, vatRate: true },
+          })
+        : Promise.resolve([] as Array<{ menuItemId: string; priceTtc: any; vatRate: any }>),
+    ]);
+    const productById = new Map(products.map((p) => [p.id, p]));
+    const itemById = new Map(menuItems.map((m) => [m.id, m]));
+    const linkByItem = new Map(links.map((l) => [l.menuItemId, l]));
+    // Prix « courant » par article au fil du lot (gère plusieurs pairs sur le même item).
+    const workingPrice = new Map<string, { ttc: number; vatRate: number | null }>();
+
+    const writes: any[] = [];
+    let changed = 0;
+    for (const { menuItemId, productId, override } of pairs) {
+      const product = productById.get(productId);
+      const current = itemById.get(menuItemId);
+      if (!product || !current) {
+        results.push({ menuItemId, changed: false, error: 'Article ou produit introuvable' });
+        continue;
+      }
+      // Prix hérité = prix affiché envoyé par le front (override) sinon repli global.
+      const resolved = override?.basePrice != null && Number.isFinite(Number(override.basePrice))
+        ? {
+            basePrice: this.toNumber(override.basePrice),
+            vatRate: override.vatRate != null ? this.toNumber(override.vatRate) : null,
+            currency: null as string | null,
+            source: 'weezevent_catalog' as 'weezevent_catalog' | 'weezevent_sales',
+          }
+        : this.pricing.resolveWeezeventApplyPrice(product, latest.get(productId));
+      if (!resolved) {
+        results.push({ menuItemId, changed: false, error: 'Aucun prix Weezevent disponible (ni ventes, ni catalogue)' });
+        continue;
+      }
+
+      if (spaceId) {
+        // PRIX PAR ESPACE : upsert SpaceMenuItem (basePrice intouché = défaut/fallback ;
+        // l'association est créée si absente, comme en apply unitaire).
+        const link = linkByItem.get(menuItemId);
+        const previous =
+          workingPrice.get(menuItemId) ??
+          (link?.priceTtc != null
+            ? { ttc: this.toNumber(link.priceTtc), vatRate: link.vatRate != null ? this.toNumber(link.vatRate) : null }
+            : null);
+        const next = { ttc: resolved.basePrice, vatRate: resolved.vatRate ?? null };
+        if (previous != null && previous.ttc === next.ttc && (previous.vatRate ?? null) === next.vatRate) {
+          results.push({ menuItemId, changed: false, applied: resolved });
+          continue;
+        }
+        workingPrice.set(menuItemId, next);
+        writes.push(
+          this.prisma.menuItemPriceHistory.create({
+            data: {
+              menuItemId,
+              tenantId,
+              spaceId,
+              basePrice: resolved.basePrice,
+              vatRate: resolved.vatRate,
+              currency: resolved.currency,
+              source: resolved.source,
+              weezeventProductId: productId,
+              observedAt: new Date(),
+            },
+          }),
+          this.prisma.spaceMenuItem.upsert({
+            where: { menuItemId_spaceId: { menuItemId, spaceId } },
+            create: { menuItemId, spaceId, priceTtc: next.ttc, vatRate: next.vatRate },
+            update: { priceTtc: next.ttc, vatRate: next.vatRate },
+          }),
+        );
+        changed++;
+        results.push({ menuItemId, changed: true, applied: resolved, previous });
+        continue;
+      }
+
+      // Sans espace → comportement global (basePrice courant).
+      const previous = {
+        basePrice: this.toNumber(current.basePrice),
+        vatRate: current.vatRate != null ? this.toNumber(current.vatRate) : null,
+      };
+      if (previous.basePrice === resolved.basePrice && previous.vatRate === (resolved.vatRate ?? null)) {
+        results.push({ menuItemId, changed: false, applied: resolved });
+        continue;
+      }
+      writes.push(
+        this.prisma.menuItemPriceHistory.create({
+          data: {
+            menuItemId,
+            tenantId,
+            spaceId: null,
+            basePrice: resolved.basePrice,
+            vatRate: resolved.vatRate,
+            currency: resolved.currency,
+            source: resolved.source,
+            weezeventProductId: productId,
+            observedAt: new Date(),
+          },
+        }),
+        this.prisma.menuItem.update({
+          where: { id: menuItemId },
+          data: { basePrice: resolved.basePrice, vatRate: resolved.vatRate },
+        }),
+      );
+      changed++;
+      results.push({ menuItemId, changed: true, applied: resolved, previous });
+    }
+
+    if (writes.length) {
+      await this.prisma.$transaction(writes);
+      await this.invalidateCache(tenantId);
+      this.logger.log(`Bulk-applied Weezevent price to ${changed} menu item(s) for tenant ${tenantId}${spaceId ? ` (space ${spaceId})` : ''}`);
+    }
+    return { total: items.length, changed, results };
+  }
+
+  /**
+   * BACKFILL de masse : corrige tous les menu items mappés dont le prix par espace est absent/0.
+   * Pour chaque couple (item × espace assigné), écrit le DERNIER prix de vente non nul observé
+   * DANS CET ESPACE (locations mappées) — event prioritaire si fourni, repli sur l'espace (tous
+   * events). Règle stricte : jamais un prix venu d'un autre espace. Un espace sans vente non nulle
+   * (ou sans location mappée) est ignoré (`skippedNoSales`). Un item sans espace assigné ne peut
+   * pas être tarifé par espace (`skippedNoSpace`) — il faut d'abord lui assigner un espace.
+   *
+   * `opts.spaceId`   → limiter le backfill à un seul espace.
+   * `opts.eventId`   → event prioritaire (WeezeventEvent.id interne) ; repli sur l'espace si vide.
+   * `opts.overwrite` → réécrire même les couples déjà tarifés (> 0). Défaut : false (idempotent).
+   *
+   * Écritures groupées par lots (transactions courtes) pour rester compatible pooler transaction.
+   */
+  async backfillWeezeventPrices(
+    tenantId: string,
+    opts: { spaceId?: string; eventId?: string; overwrite?: boolean; dryRun?: boolean } = {},
+  ) {
+    const { spaceId: onlySpaceId, eventId, overwrite = false, dryRun = false } = opts;
+    const eventIds = eventId ? [eventId] : undefined;
+    const summary = {
+      dryRun,
+      itemsScanned: 0,
+      itemsTouched: 0,
+      pairsApplied: 0,
+      skippedNoSpace: 0,
+      skippedNoSales: 0,
+      skippedAlreadyPriced: 0,
+      skippedAmbiguousMapping: 0,
+    };
+
+    // 1. Produits mappés par item (on ne tarifie que les items à mapping unique — sinon ambigu).
+    const mappings = await this.prisma.productMapping.findMany({
+      where: { tenantId },
+      select: { menuItemId: true, salesProductId: true },
+    });
+    const productsByItem = new Map<string, Set<string>>();
+    for (const m of mappings) {
+      const s = productsByItem.get(m.menuItemId) ?? new Set<string>();
+      s.add(m.salesProductId);
+      productsByItem.set(m.menuItemId, s);
+    }
+    const menuItemIds = [...productsByItem.keys()];
+    if (menuItemIds.length === 0) return summary;
+
+    const items = await this.prisma.menuItem.findMany({
+      where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
+      select: { id: true, spaceLinks: spaceLinksSelect },
+    });
+
+    // 2. Plan de travail : espace → [{ itemId, productId }], depuis les lignes SpaceMenuItem
+    // (association + prix courant portés par la même ligne).
+    const workBySpace = new Map<string, Array<{ itemId: string; productId: string }>>();
+    for (const item of items) {
+      summary.itemsScanned++;
+      const products = productsByItem.get(item.id)!;
+      if (products.size !== 1) { summary.skippedAmbiguousMapping++; continue; }
+      const productId = [...products][0];
+      const links = item.spaceLinks.filter((l) => !onlySpaceId || l.spaceId === onlySpaceId);
+      if (links.length === 0) { summary.skippedNoSpace++; continue; }
+      for (const link of links) {
+        const existingTtc = link.priceTtc != null ? this.toNumber(link.priceTtc) : null;
+        if (!overwrite && existingTtc != null && existingTtc > 0) { summary.skippedAlreadyPriced++; continue; }
+        const arr = workBySpace.get(link.spaceId) ?? [];
+        arr.push({ itemId: item.id, productId });
+        workBySpace.set(link.spaceId, arr);
+      }
+    }
+
+    // 3. Résolution du prix par espace (scopé locations) + collecte des écritures.
+    const writes: any[] = [];
+    const touched = new Set<string>();
+    for (const [sid, pairs] of workBySpace) {
+      const productIds = [...new Set(pairs.map((p) => p.productId))];
+      // Prix de l'espace (priorité) + repli ventes non attribuées à un autre espace (jamais cross-espace).
+      const latest = await this.pricing.getSpaceScopedLatestPrices(tenantId, sid, productIds, { eventIds });
+      if (eventIds) {
+        // Event prioritaire : repli sans contrainte d'event pour les produits sans vente sur l'event.
+        const missing = productIds.filter((pid) => !latest.has(pid));
+        if (missing.length) {
+          const fb = await this.pricing.getSpaceScopedLatestPrices(tenantId, sid, missing);
+          for (const [k, v] of fb) latest.set(k, v);
+        }
+      }
+      for (const { itemId, productId } of pairs) {
+        const px = latest.get(productId);
+        if (!px || !(px.ttc > 0)) { summary.skippedNoSales++; continue; }
+        touched.add(itemId);
+        writes.push(
+          this.prisma.menuItemPriceHistory.create({
+            data: {
+              menuItemId: itemId,
+              tenantId,
+              spaceId: sid,
+              basePrice: px.ttc,
+              vatRate: px.vatRate ?? null,
+              currency: null,
+              source: 'weezevent_sales',
+              weezeventProductId: productId,
+              observedAt: new Date(),
+            },
+          }),
+          // 4. Le prix vit sur la ligne d'association elle-même (qui existe forcément :
+          // le plan de travail est construit DEPUIS ces lignes).
+          this.prisma.spaceMenuItem.update({
+            where: { menuItemId_spaceId: { menuItemId: itemId, spaceId: sid } },
+            data: { priceTtc: this.toNumber(px.ttc), vatRate: px.vatRate ?? null },
+          }),
+        );
+        summary.pairsApplied++;
+      }
+    }
+    summary.itemsTouched = touched.size;
+
+    // 5. Écritures par lots courts (compat pooler transaction) — sauf en aperçu (dryRun).
+    if (!dryRun) {
+      const CHUNK = 25;
+      for (let i = 0; i < writes.length; i += CHUNK) {
+        await this.prisma.$transaction(writes.slice(i, i + CHUNK));
+      }
+      if (writes.length) await this.invalidateCache(tenantId);
+    }
+    this.logger.log(
+      `Backfill Weezevent prices${dryRun ? ' [DRY-RUN]' : ''} (tenant ${tenantId}${onlySpaceId ? `, space ${onlySpaceId}` : ''}): ` +
+        `${summary.pairsApplied} prix appliqués sur ${summary.itemsTouched} items ` +
+        `(noSpace=${summary.skippedNoSpace}, noSales=${summary.skippedNoSales}, ` +
+        `already=${summary.skippedAlreadyPriced}, ambiguous=${summary.skippedAmbiguousMapping})`,
+    );
+    return summary;
+  }
+
+  /** Historique des prix d'un menu item (du plus récent au plus ancien) — courbe d'évolution. */
+  async getPriceHistory(menuItemId: string, tenantId: string) {
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id: menuItemId, tenantId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
+    return this.prisma.menuItemPriceHistory.findMany({
+      where: { menuItemId, tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async replaceComponents(menuItemId: string, components: CreateMenuItemDto['components'], tenantId: string) {
+    this.logger.log(`Replacing components for menu item ${menuItemId} (tenant ${tenantId})`);
+    await this.findOne(menuItemId, tenantId);
+    const lines = Array.isArray(components) ? components : [];
+
+    try {
+      await this.prisma.menuItem.update({
+        where: { id: menuItemId },
+        data: {
+          components: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              componentId: l.componentId,
+              numberOfUnits: this.toNumber(l.numberOfUnits),
+            })),
+          },
+        },
+      });
+
+      await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.invalidateCache(tenantId);
+      return this.findOne(menuItemId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace components for menu item ${menuItemId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid componentId in the provided list`);
+      }
+      throw error;
+    }
+  }
+
+  async replaceIngredients(menuItemId: string, ingredients: CreateMenuItemDto['ingredients'], tenantId: string) {
+    this.logger.log(`Replacing ingredients for menu item ${menuItemId} (tenant ${tenantId})`);
+    await this.findOne(menuItemId, tenantId);
+    const lines = Array.isArray(ingredients) ? ingredients : [];
+
+    try {
+      await this.prisma.menuItem.update({
+        where: { id: menuItemId },
+        data: {
+          ingredients: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              ingredientId: l.ingredientId,
+              numberOfUnits: this.toNumber(l.numberOfUnits),
+            })),
+          },
+        },
+      });
+
+      await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.invalidateCache(tenantId);
+      return this.findOne(menuItemId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace ingredients for menu item ${menuItemId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid ingredientId in the provided list`);
+      }
+      throw error;
+    }
+  }
+
+  async replacePackagings(menuItemId: string, packagings: CreateMenuItemDto['packagings'], tenantId: string) {
+    this.logger.log(`Replacing packagings for menu item ${menuItemId} (tenant ${tenantId})`);
+    await this.findOne(menuItemId, tenantId);
+    const lines = Array.isArray(packagings) ? packagings : [];
+
+    try {
+      await this.prisma.menuItem.update({
+        where: { id: menuItemId },
+        data: {
+          packagings: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              packagingId: l.packagingId,
+              numberOfUnits: this.toNumber(l.numberOfUnits),
+            })),
+          },
+        },
+      });
+
+      await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.invalidateCache(tenantId);
+      return this.findOne(menuItemId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace packagings for menu item ${menuItemId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid packagingId in the provided list`);
+      }
+      throw error;
+    }
+  }
+
+  async remove(id: string, tenantId: string) {
+    this.logger.log(`Soft-deleting menu item ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
+    try {
+      const result = await this.prisma.menuItem.update({ where: { id }, data: { deletedAt: new Date() } });
+      // Invariant : un MenuItem soft-deleted ne doit JAMAIS rester référencé par un mapping
+      // Weezevent → sinon la Data Integration affiche un mapping vers un article disparu de la
+      // liste (champ vide, non remappable). On supprime donc les mappings produit liés.
+      // (Le soft-delete ne déclenche pas le cascade FK qui n'agit qu'au hard-delete.)
+      const purged = await this.prisma.productMapping.deleteMany({ where: { tenantId, menuItemId: id } });
+      if (purged.count > 0) {
+        this.logger.log(`Removed ${purged.count} Weezevent product mapping(s) pointing to soft-deleted menu item ${id}`);
+      }
+      this.logger.log(`Menu item ${id} soft-deleted`);
+      await this.invalidateCache(tenantId);
+      return result;
+    } catch (error) {
+      this.logger.error(`Failed to delete menu item ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Menu item with ID ${id} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async refreshCosts(tenantId: string, opts?: { itemIds?: string[] }) {
+    const itemIds = opts?.itemIds;
+    this.logger.log(`Refreshing menu item costs for tenant ${tenantId}${itemIds?.length ? ` (ids=${itemIds.length})` : ''}...`);
+    try {
+      const items = await this.prisma.menuItem.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          ...(itemIds?.length ? { id: { in: itemIds } } : {}),
+        },
+        include: {
+          components: { include: { component: true } },
+          ingredients: { include: { ingredient: true } },
+          packagings: { include: { packaging: true } },
+        },
+      });
+
+      // P1: Batch load all costs in 3 queries instead of N queries
+      const [allComponents, allIngredients, allPackagings] = await Promise.all([
+        this.prisma.menuComponent.findMany({
+          where: { tenantId, deletedAt: null },
+          select: { id: true, unitCost: true, storageType: true },
+        }),
+        this.prisma.ingredient.findMany({
+          where: { tenantId, deletedAt: null },
+          select: { id: true, costPerRecipeUnit: true, storageType: true },
+        }),
+        this.prisma.packaging.findMany({
+          where: { tenantId, deletedAt: null },
+          select: { id: true, costPerRecipeUnit: true, storageType: true },
+        }),
+      ]);
+
+      // Create lookup maps for O(1) access
+      const componentCostMap = new Map(
+        allComponents.map(c => [c.id, { unitCost: this.toNumber(c.unitCost, 0), storageType: c.storageType }])
+      );
+      const ingredientCostMap = new Map(
+        allIngredients.map(i => [i.id, { unitCost: this.toNumber(i.costPerRecipeUnit, 0), storageType: i.storageType }])
+      );
+      const packagingCostMap = new Map(
+        allPackagings.map(p => [p.id, { unitCost: this.toNumber(p.costPerRecipeUnit, 0), storageType: p.storageType }])
+      );
+
+      let updated = 0;
+      let updatedLines = 0;
+
+      for (const item of items as any[]) {
+        const tx: any[] = [];
+        let totalCost = 0;
+
+        for (const line of item.components || []) {
+          const costData = componentCostMap.get(line.componentId);
+          if (!costData) {
+            this.logger.warn(`Component ${line.componentId} not found in cost map`);
+            continue;
+          }
+          const { unitCost, storageType } = costData;
+          const numberOfUnits = this.toNumber(line.numberOfUnits);
+          const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
+          totalCost += lineTotal;
+          tx.push(
+            this.prisma.menuItemComponent.update({
+              where: { id: line.id },
+              data: { unitCost, totalCost: lineTotal, storageType: storageType || undefined },
+            }),
+          );
+          updatedLines++;
+        }
+
+        for (const line of item.ingredients || []) {
+          const costData = ingredientCostMap.get(line.ingredientId);
+          if (!costData) {
+            this.logger.warn(`Ingredient ${line.ingredientId} not found in cost map`);
+            continue;
+          }
+          const { unitCost, storageType } = costData;
+          const numberOfUnits = this.toNumber(line.numberOfUnits);
+          const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
+          totalCost += lineTotal;
+          tx.push(
+            this.prisma.menuItemIngredient.update({
+              where: { id: line.id },
+              data: { unitCost, totalCost: lineTotal, storageType: storageType || undefined },
+            }),
+          );
+          updatedLines++;
+        }
+
+        for (const line of item.packagings || []) {
+          const costData = packagingCostMap.get(line.packagingId);
+          if (!costData) {
+            this.logger.warn(`Packaging ${line.packagingId} not found in cost map`);
+            continue;
+          }
+          const { unitCost, storageType } = costData;
+          const numberOfUnits = this.toNumber(line.numberOfUnits);
+          const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
+          totalCost += lineTotal;
+          tx.push(
+            this.prisma.menuItemPackaging.update({
+              where: { id: line.id },
+              data: { unitCost, totalCost: lineTotal, storageType: storageType || undefined },
+            }),
+          );
+          updatedLines++;
+        }
+
+        // Marge calculée sur le coût PAR PIÈCE (totalCost = fournée) face au prix d'UNE portion.
+        const pieces = Math.max(this.toNumber(item.numberOfPiecesRecipe, 1), 1);
+        const costPerPiece = totalCost / pieces;
+        const margin = this.toNumber(item.basePrice) > 0
+          ? ((this.toNumber(item.basePrice) - costPerPiece) / this.toNumber(item.basePrice)) * 100
+          : null;
+
+        tx.push(
+          this.prisma.menuItem.update({
+            where: { id: item.id },
+            data: { totalCost, margin },
+          }),
+        );
+
+        await this.prisma.$transaction(tx);
+        updated++;
+      }
+
+      this.logger.log(`✅ P1: Refreshed costs for ${updated} menu items (${updatedLines} lines) with batch optimization`);
+      await this.invalidateCache(tenantId);
+      return { updated, total: items.length, updatedLines };
+    } catch (error) {
+      this.logger.error(`Failed to refresh costs: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  // ── ProductType & ProductCategory ────────────────
+  async getProductTypes(tenantId: string) {
+    return this.prisma.productType.findMany({
+      where: { OR: [{ tenantId }, { tenantId: null }] },
+      orderBy: { name: 'asc' },
+      include: {
+        categories: {
+          where: { OR: [{ tenantId }, { tenantId: null }] },
+        },
+      },
+    });
+  }
+
+  async createProductType(name: string, tenantId?: string) {
+    return this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
+  }
+
+  async deleteProductType(id: string, tenantId: string) {
+    const productType = await this.prisma.productType.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productType) {
+      throw new NotFoundException(`Product type with ID ${id} not found`);
+    }
+
+    if (productType.tenantId === null) {
+      throw new BadRequestException(`Cannot delete global product type`);
+    }
+
+    await this.prisma.productType.delete({ where: { id } });
+    this.logger.log(`Product type ${id} deleted`);
+  }
+
+  async updateProductType(id: string, name: string, tenantId: string) {
+    const productType = await this.prisma.productType.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productType) {
+      throw new NotFoundException(`Product type with ID ${id} not found`);
+    }
+
+    if (productType.tenantId === null) {
+      throw new BadRequestException(`Cannot update global product type`);
+    }
+
+    const updated = await this.prisma.productType.update({
+      where: { id },
+      data: { name },
+      include: { categories: true },
+    });
+    this.logger.log(`Product type ${id} updated`);
+    return updated;
+  }
+
+  async getProductCategories(tenantId: string, typeId?: string) {
+    return this.prisma.productCategory.findMany({
+      where: {
+        AND: [
+          { OR: [{ tenantId }, { tenantId: null }] },
+          ...(typeId ? [{ typeId }] : []),
+        ],
+      },
+      orderBy: { name: 'asc' },
+      include: { type: true },
+    });
+  }
+
+  async createProductCategory(
+    name: string,
+    typeId?: string,
+    tenantId?: string,
+    productTypeId?: string,
+  ) {
+    const resolvedTypeId = typeId ?? productTypeId;
+
+    if (!resolvedTypeId) {
+      throw new BadRequestException({
+        message: 'Validation failed',
+        errors: [
+          {
+            property: 'typeId',
+            constraints: {
+              isNotEmpty: 'typeId should not be empty',
+              isString: 'typeId must be a string',
+            },
+            messages: [
+              'typeId should not be empty',
+              'typeId must be a string',
+            ],
+            value: resolvedTypeId,
+          },
+        ],
+      });
+    }
+
+    const productType = await this.prisma.productType.findFirst({
+      where: {
+        id: resolvedTypeId,
+        OR: [{ tenantId }, { tenantId: null }],
+      },
+    });
+
+    if (!productType) {
+      throw new BadRequestException({
+        message: 'Validation failed',
+        errors: [
+          {
+            property: 'typeId',
+            constraints: {
+              exists: 'typeId must reference an accessible product type',
+            },
+            messages: ['typeId must reference an accessible product type'],
+            value: resolvedTypeId,
+          },
+        ],
+      });
+    }
+
+    return this.prisma.productCategory.create({
+      data: {
+        name,
+        tenantId,
+        type: {
+          connect: { id: resolvedTypeId },
+        },
+      },
+      include: { type: true },
+    });
+  }
+
+  async deleteProductCategory(id: string, tenantId: string) {
+    const productCategory = await this.prisma.productCategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productCategory) {
+      throw new NotFoundException(`Product category with ID ${id} not found`);
+    }
+
+    if (productCategory.tenantId === null) {
+      throw new BadRequestException(`Cannot delete global product category`);
+    }
+
+    await this.prisma.productCategory.delete({ where: { id } });
+    this.logger.log(`Product category ${id} deleted`);
+  }
+
+  async updateProductCategory(
+    id: string,
+    data: { name?: string; typeId?: string; productTypeId?: string },
+    tenantId: string,
+  ) {
+    const productCategory = await this.prisma.productCategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productCategory) {
+      throw new NotFoundException(`Product category with ID ${id} not found`);
+    }
+
+    if (productCategory.tenantId === null) {
+      throw new BadRequestException(`Cannot update global product category`);
+    }
+
+    const resolvedTypeId = data.typeId ?? data.productTypeId;
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+
+    if (resolvedTypeId !== undefined) {
+      const productType = await this.prisma.productType.findFirst({
+        where: { id: resolvedTypeId, OR: [{ tenantId }, { tenantId: null }] },
+      });
+      if (!productType) {
+        throw new BadRequestException({
+          message: 'Validation failed',
+          errors: [
+            {
+              property: 'typeId',
+              constraints: {
+                exists: 'typeId must reference an accessible product type',
+              },
+              messages: ['typeId must reference an accessible product type'],
+              value: resolvedTypeId,
+            },
+          ],
+        });
+      }
+      updateData.type = { connect: { id: resolvedTypeId } };
+    }
+
+    const updated = await this.prisma.productCategory.update({
+      where: { id },
+      data: updateData,
+      include: { type: true },
+    });
+    this.logger.log(`Product category ${id} updated`);
+    return updated;
+  }
+}

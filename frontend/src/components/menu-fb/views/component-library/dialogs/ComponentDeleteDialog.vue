@@ -1,0 +1,73 @@
+<template>
+  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="480">
+    <div class="cld-card" :class="{'cld--dark': isDark}">
+      <div class="cld-card__head">
+        <div class="cld-card__icon-wrap"><Trash2 :size="20" color="#ff3131" /></div>
+        <div class="cld-card__headtext">
+          <div class="cld-card__title">{{ title }}</div>
+          <div v-if="subtitle" class="cld-card__sub">{{ subtitle }}</div>
+        </div>
+        <button class="cld-card__close" @click="$emit('update:modelValue', false)"><X :size="16" /></button>
+      </div>
+      <div class="cld-card__body">
+        <div v-if="error" class="cld-card__error"><AlertCircle :size="14" /> {{ error }}</div>
+        <p class="cld-card__msg">{{ message }} <strong>{{ itemName }}</strong> ?</p>
+      </div>
+      <div class="cld-card__foot">
+        <button class="cld-btn cld-btn--cancel" @click="$emit('update:modelValue', false)">{{ cancelLabel }}</button>
+        <button class="cld-btn cld-btn--danger" :disabled="loading" @click="$emit('confirm')">
+          <Trash2 :size="14" /> {{ loading ? 'Suppression…' : confirmLabel }}
+        </button>
+      </div>
+    </div>
+  </v-dialog>
+</template>
+
+<script>
+import { AlertCircle, Trash2, X } from 'lucide-vue-next';
+
+export default {
+  name: 'ComponentDeleteDialog',
+  components: { AlertCircle, Trash2, X },
+  props: {
+    modelValue: { type: Boolean, default: false },
+    itemName: { type: String, default: '' },
+    loading: { type: Boolean, default: false },
+    error: { type: String, default: '' },
+    isDark: { type: Boolean, default: false },
+    title: { type: String, default: 'Supprimer' },
+    subtitle: { type: String, default: '' },
+    message: { type: String, default: 'Supprimer' },
+    cancelLabel: { type: String, default: 'Annuler' },
+    confirmLabel: { type: String, default: 'Supprimer' },
+  },
+  emits: ['update:modelValue', 'confirm'],
+};
+</script>
+
+<style scoped>
+.cld-card { background:#fff; border-radius:20px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.15); }
+.cld-card__head { display:flex; align-items:flex-start; gap:14px; padding:22px 22px 16px; }
+.cld-card__icon-wrap { width:42px; height:42px; border-radius:12px; background:#fef2f2; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.cld-card__headtext { flex:1; min-width:0; }
+.cld-card__title { font-size:16px; font-weight:700; color:#111827; }
+.cld-card__sub { font-size:13px; color:#6b7280; margin-top:2px; }
+.cld-card__close { background:none; border:none; cursor:pointer; padding:4px; color:#9ca3af; border-radius:8px; display:flex; align-items:center; transition:color .15s,background .15s; }
+.cld-card__close:hover { color:#374151; background:#f3f4f6; }
+.cld-card__body { padding:0 22px 20px; }
+.cld-card__error { display:flex; align-items:center; gap:7px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:10px; padding:10px 14px; font-size:13px; margin-bottom:14px; }
+.cld-card__msg { font-size:14px; color:#374151; margin:0; }
+.cld-card__foot { display:flex; justify-content:flex-end; gap:10px; padding:14px 22px 22px; border-top:1px solid #f3f4f6; }
+.cld-btn { display:inline-flex; align-items:center; gap:6px; padding:0 20px; height:40px; border-radius:50px; font-size:13.5px; font-weight:600; cursor:pointer; border:none; transition:all .2s; }
+.cld-btn--cancel { background:#f3f4f6; color:#374151; }
+.cld-btn--cancel:hover { background:#e5e7eb; }
+.cld-btn--danger { background:#ff3131; color:#fff; }
+.cld-btn--danger:hover { box-shadow:0 4px 14px rgba(255, 49, 49,.4); transform:translateY(-1px); }
+.cld-btn:disabled { opacity:.6; cursor:not-allowed; transform:none !important; }
+.cld--dark.cld-card { background:#1f2937; }
+.cld--dark .cld-card__title { color:#f9fafb; }
+.cld--dark .cld-card__sub { color:#9ca3af; }
+.cld--dark .cld-card__msg { color:#d1d5db; }
+.cld--dark .cld-card__foot { border-top-color:#374151; }
+.cld--dark .cld-btn--cancel { background:#374151; color:#d1d5db; }
+</style>

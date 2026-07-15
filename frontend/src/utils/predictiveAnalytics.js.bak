@@ -1,0 +1,3 @@
+// Backup of legacy predictiveAnalytics.js — kept for reference.
+// The active algorithm now lives in predictiveAnalytics.js with the
+// weighted-scoring rules ported from the React implementation.

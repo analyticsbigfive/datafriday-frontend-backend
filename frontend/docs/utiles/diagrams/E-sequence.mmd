@@ -1,0 +1,15 @@
+sequenceDiagram
+  participant U as Utilisateur
+  participant P as Predict
+  participant T as Terrain (event)
+  participant I as Inventory
+  participant A as Analyse
+  U->>P: choisir space + event
+  P->>P: lire historique events similaires
+  P-->>U: ventes prevues + stock a commander (per-capita)
+  U->>T: commander stock, vendre
+  T->>I: comptage stock reel
+  T->>A: ventes reelles (integration)
+  A-->>U: KPIs, revenu/boutique, marge
+  I->>U: liste Restock
+  A-->>P: ajuste prediction suivante

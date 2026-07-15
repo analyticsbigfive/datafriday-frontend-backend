@@ -1,0 +1,12 @@
+flowchart LR
+  subgraph SETUP[1. SETUP - architecte]
+    A1[Creer Space] --> A2[Builder: plan + boutiques] --> A3[Menu FB: offre] --> A4[Space Menus]
+  end
+  subgraph AVANT[2. AVANT EVENT - planificateur]
+    B1[Events creer/importer] --> B2[Predict: ventes + stock] --> B3[Commander] --> B4[Inventory: compter]
+  end
+  subgraph APRES[3. APRES EVENT - analyste]
+    C1[Integration ventes reelles] --> C2[Analyse: KPIs/charts] --> C3[Restock]
+  end
+  SETUP --> AVANT --> APRES
+  C3 -.feedback.-> B2

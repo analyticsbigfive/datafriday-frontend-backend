@@ -1,0 +1,554 @@
+{
+  "space": {
+    "id": "space-arena-01",
+    "name": "Arena Test Stadium",
+    "city": "Paris",
+    "country": "France",
+    "addressLine1": "1 Avenue du Stade",
+    "homeTeam": "PSG",
+    "spaceType": "stadium",
+    "maxCapacity": 12000,
+    "capacity": 12000,
+    "currency": "EUR",
+    "shopsCount": 4,
+    "createdAt": "2024-01-01T00:00:00Z",
+    "updatedAt": "2025-12-01T00:00:00Z",
+    "cachedMetrics": {
+      "fbRevenue": 425600,
+      "merchRevenue": 0,
+      "ticketingRevenue": 0,
+      "totalRevenue": 425600,
+      "maxCapacity": 12000,
+      "configurationCount": 1,
+      "transactionCount": 18500,
+      "eventsCount": 8,
+      "lastUpdated": "2025-12-01T00:00:00Z"
+    }
+  },
+  "eventTypes": [
+    { "id": "et-sport", "name": "Sport" },
+    { "id": "et-concert", "name": "Concert" },
+    { "id": "et-mice", "name": "MICE" }
+  ],
+  "eventCategories": [
+    { "id": "ec-football", "name": "Football", "eventTypeId": "et-sport", "hasHomeTeam": true },
+    { "id": "ec-rugby", "name": "Rugby", "eventTypeId": "et-sport", "hasHomeTeam": true },
+    { "id": "ec-handball", "name": "Handball", "eventTypeId": "et-sport", "hasHomeTeam": true },
+    { "id": "ec-music", "name": "Music", "eventTypeId": "et-concert", "hasHomeTeam": false },
+    { "id": "ec-show", "name": "Show", "eventTypeId": "et-concert", "hasHomeTeam": false },
+    { "id": "ec-tradeshow", "name": "Tradeshow", "eventTypeId": "et-mice", "hasHomeTeam": false },
+    { "id": "ec-exhibition", "name": "Exhibition", "eventTypeId": "et-mice", "hasHomeTeam": false }
+  ],
+  "eventSubcategories": [
+    { "id": "es-ligue1", "name": "Ligue 1", "eventCategoryId": "ec-football" },
+    { "id": "es-coupefr", "name": "Coupe de France", "eventCategoryId": "ec-football" },
+    { "id": "es-6nations", "name": "6 Nations", "eventCategoryId": "ec-rugby" },
+    { "id": "es-lnh", "name": "LNH", "eventCategoryId": "ec-handball" },
+    { "id": "es-poprock", "name": "Pop/Rock", "eventCategoryId": "ec-music" },
+    { "id": "es-electronic", "name": "Electronic", "eventCategoryId": "ec-music" },
+    { "id": "es-indie", "name": "Indie", "eventCategoryId": "ec-music" },
+    { "id": "es-comedy", "name": "Comedy", "eventCategoryId": "ec-show" },
+    { "id": "es-tech-tradeshow", "name": "Tech Tradeshow", "eventCategoryId": "ec-tradeshow" },
+    { "id": "es-art-exhibition", "name": "Art Exhibition", "eventCategoryId": "ec-exhibition" }
+  ],
+  "teams": [
+    { "id": "team-psg", "name": "PSG" },
+    { "id": "team-marseille", "name": "Marseille" },
+    { "id": "team-lyon", "name": "Lyon" },
+    { "id": "team-nice", "name": "Nice" },
+    { "id": "team-france", "name": "France" },
+    { "id": "team-italie", "name": "Italie" }
+  ],
+  "sponsors": [
+    { "id": "sponsor-orange", "name": "Orange" },
+    { "id": "sponsor-redbull", "name": "Red Bull" }
+  ],
+  "shopTypes": [
+    { "id": "st-food", "name": "food" },
+    { "id": "st-beverages", "name": "beverages" },
+    { "id": "st-beer", "name": "beer" },
+    { "id": "st-drinkee", "name": "drinkee" },
+    { "id": "st-gppremium", "name": "gppremium" },
+    { "id": "st-temporary", "name": "temporary" }
+  ],
+  "shopAreas": [
+    { "id": "area-tribune-sud", "name": "Tribune Sud" },
+    { "id": "area-tribune-nord", "name": "Tribune Nord" },
+    { "id": "area-coursive", "name": "Coursive" },
+    { "id": "area-vip", "name": "VIP" }
+  ],
+  "menuItemTypes": [
+    { "id": "mit-food", "name": "Food" },
+    { "id": "mit-beverage", "name": "Beverage" },
+    { "id": "mit-beer", "name": "Beer" },
+    { "id": "mit-combo", "name": "Combo" }
+  ],
+  "menuItemCategories": [
+    { "id": "mic-burger", "name": "Burger" },
+    { "id": "mic-side", "name": "Side" },
+    { "id": "mic-beer-can", "name": "Beer (can)" },
+    { "id": "mic-soft", "name": "Soft drink" },
+    { "id": "mic-cocktail", "name": "Cocktail" },
+    { "id": "mic-popcorn", "name": "Popcorn" }
+  ],
+  "menuItems": [
+    {
+      "id": "mi-burger",
+      "name": "Classic Burger",
+      "menuItemTypeId": "mit-food",
+      "menuItemCategoryId": "mic-burger",
+      "basePrice": 12,
+      "spaceSpecificPrices": [
+        { "spaceId": "space-arena-01", "price": 12 }
+      ],
+      "spaceIds": ["space-arena-01"]
+    },
+    {
+      "id": "mi-fries",
+      "name": "Fries",
+      "menuItemTypeId": "mit-food",
+      "menuItemCategoryId": "mic-side",
+      "basePrice": 5,
+      "spaceSpecificPrices": [
+        { "spaceId": "space-arena-01", "price": 5 }
+      ],
+      "spaceIds": ["space-arena-01"]
+    },
+    {
+      "id": "mi-beer",
+      "name": "Heineken 33cl",
+      "menuItemTypeId": "mit-beer",
+      "menuItemCategoryId": "mic-beer-can",
+      "basePrice": 6,
+      "spaceSpecificPrices": [
+        { "spaceId": "space-arena-01", "price": 6 }
+      ],
+      "spaceIds": ["space-arena-01"]
+    },
+    {
+      "id": "mi-soda",
+      "name": "Coca 33cl",
+      "menuItemTypeId": "mit-beverage",
+      "menuItemCategoryId": "mic-soft",
+      "basePrice": 4,
+      "spaceSpecificPrices": [
+        { "spaceId": "space-arena-01", "price": 4 }
+      ],
+      "spaceIds": ["space-arena-01"]
+    },
+    {
+      "id": "mi-cocktail",
+      "name": "Mojito",
+      "menuItemTypeId": "mit-beverage",
+      "menuItemCategoryId": "mic-cocktail",
+      "basePrice": 10,
+      "spaceSpecificPrices": [
+        { "spaceId": "space-arena-01", "price": 10 }
+      ],
+      "spaceIds": ["space-arena-01"]
+    },
+    {
+      "id": "mi-popcorn",
+      "name": "Popcorn",
+      "menuItemTypeId": "mit-food",
+      "menuItemCategoryId": "mic-popcorn",
+      "basePrice": 7,
+      "spaceSpecificPrices": [
+        { "spaceId": "space-arena-01", "price": 7 }
+      ],
+      "spaceIds": ["space-arena-01"]
+    },
+    {
+      "id": "mi-combo",
+      "name": "Burger Combo",
+      "menuItemTypeId": "mit-combo",
+      "menuItemCategoryId": "mic-burger",
+      "basePrice": 18,
+      "spaceSpecificPrices": [
+        { "spaceId": "space-arena-01", "price": 18 }
+      ],
+      "spaceIds": ["space-arena-01"]
+    }
+  ],
+  "configurations": [
+    {
+      "id": "cfg-stadium-default",
+      "spaceId": "space-arena-01",
+      "name": "Configuration standard",
+      "capacity": 12000,
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2025-01-01T00:00:00Z",
+      "data": {
+        "floors": [
+          {
+            "id": "floor-1",
+            "name": "Niveau 0",
+            "elements": [
+              {
+                "id": "shop-1",
+                "registryId": "shop-1",
+                "name": "Burger Sud",
+                "type": "shop",
+                "shopType": ["food"],
+                "areaId": "area-tribune-sud"
+              },
+              {
+                "id": "shop-2",
+                "registryId": "shop-2",
+                "name": "Bodega",
+                "type": "shop",
+                "shopType": ["beer", "beverages"],
+                "areaId": "area-tribune-sud"
+              },
+              {
+                "id": "shop-3",
+                "registryId": "shop-3",
+                "name": "Comptoir Sud",
+                "type": "shop",
+                "shopType": ["beverages", "drinkee"],
+                "areaId": "area-tribune-sud"
+              },
+              {
+                "id": "shop-4",
+                "registryId": "shop-4",
+                "name": "Bar Cocktail",
+                "type": "shop",
+                "shopType": ["beverages"],
+                "areaId": "area-vip"
+              },
+              {
+                "id": "shop-5",
+                "registryId": "shop-5",
+                "name": "Snack Coursive",
+                "type": "shop",
+                "shopType": ["food", "beverages"],
+                "areaId": "area-coursive"
+              }
+            ]
+          }
+        ],
+        "forecourt": { "elements": [] },
+        "externalMerch": { "elements": [] }
+      }
+    }
+  ],
+  "spaceMenuConfig": {
+    "shop-1": { "mi-burger": true, "mi-fries": true, "mi-combo": true },
+    "shop-2": { "mi-beer": true },
+    "shop-3": { "mi-soda": true, "mi-beer": true },
+    "shop-4": { "mi-cocktail": true, "mi-beer": true },
+    "shop-5": { "mi-burger": true, "mi-soda": true, "mi-popcorn": true }
+  },
+  "shopElementMappings": [
+    { "spaceId": "space-arena-01", "shopName": "Burger Sud", "elementId": "shop-1" },
+    { "spaceId": "space-arena-01", "shopName": "Bodega", "elementId": "shop-2" },
+    { "spaceId": "space-arena-01", "shopName": "Comptoir Sud", "elementId": "shop-3" },
+    { "spaceId": "space-arena-01", "shopName": "Bar Cocktail", "elementId": "shop-4" },
+    { "spaceId": "space-arena-01", "shopName": "Snack Coursive", "elementId": "shop-5" }
+  ],
+  "menuItemMappings": [
+    { "spaceId": "space-arena-01", "importedName": "Classic Burger", "menuItemId": "mi-burger" },
+    { "spaceId": "space-arena-01", "importedName": "Fries", "menuItemId": "mi-fries" },
+    { "spaceId": "space-arena-01", "importedName": "Heineken 33cl", "menuItemId": "mi-beer" },
+    { "spaceId": "space-arena-01", "importedName": "Coca 33cl", "menuItemId": "mi-soda" },
+    { "spaceId": "space-arena-01", "importedName": "Mojito", "menuItemId": "mi-cocktail" },
+    { "spaceId": "space-arena-01", "importedName": "Popcorn", "menuItemId": "mi-popcorn" }
+  ],
+  "events": [
+    {
+      "id": "e-future-01",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "PSG vs Marseille",
+      "eventDate": "15/06/2026",
+      "eventTypeId": "et-sport",
+      "eventCategoryId": "ec-football",
+      "eventSubcategoryId": "es-ligue1",
+      "eventType": "Sport",
+      "category": "Football",
+      "subcategory": "Ligue 1",
+      "homeTeamName": "PSG",
+      "team": "PSG",
+      "visitingTeamId": "team-marseille",
+      "visitingTeam": "Marseille",
+      "sponsorId": "sponsor-orange",
+      "sponsorName": "Orange",
+      "performerName": null,
+      "openingActName": null,
+      "numberOfSessions": 1,
+      "ticketsSold": 10000,
+      "ticketsScanned": 0,
+      "event_revenue_HT": 850000,
+      "sessions": [{ "doorsOpening": "19:30", "showTime": "21:00", "intermission": null }]
+    },
+    {
+      "id": "e-future-02",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "Coldplay Concert",
+      "eventDate": "20/06/2026",
+      "eventTypeId": "et-concert",
+      "eventCategoryId": "ec-music",
+      "eventSubcategoryId": "es-poprock",
+      "eventType": "Concert",
+      "category": "Music",
+      "subcategory": "Pop/Rock",
+      "homeTeamName": null,
+      "performerName": "Coldplay",
+      "openingActName": "Local DJ",
+      "numberOfSessions": 1,
+      "ticketsSold": 8000,
+      "ticketsScanned": 0,
+      "event_revenue_HT": 720000,
+      "sessions": [{ "doorsOpening": "18:00", "showTime": "20:00", "intermission": "21:30" }]
+    },
+    {
+      "id": "e-past-01",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "PSG vs Marseille (Past)",
+      "eventDate": "10/02/2025",
+      "eventTypeId": "et-sport",
+      "eventCategoryId": "ec-football",
+      "eventSubcategoryId": "es-ligue1",
+      "eventType": "Sport",
+      "category": "Football",
+      "subcategory": "Ligue 1",
+      "homeTeamName": "PSG",
+      "team": "PSG",
+      "visitingTeamId": "team-marseille",
+      "visitingTeam": "Marseille",
+      "sponsorId": "sponsor-orange",
+      "sponsorName": "Orange",
+      "numberOfSessions": 1,
+      "ticketsSold": 9500,
+      "ticketsScanned": 9200,
+      "event_revenue_HT": 800000,
+      "sessions": [{ "doorsOpening": "19:30", "showTime": "21:00" }]
+    },
+    {
+      "id": "e-past-02",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "PSG vs Lyon",
+      "eventDate": "12/04/2025",
+      "eventTypeId": "et-sport",
+      "eventCategoryId": "ec-football",
+      "eventSubcategoryId": "es-ligue1",
+      "eventType": "Sport",
+      "category": "Football",
+      "subcategory": "Ligue 1",
+      "homeTeamName": "PSG",
+      "team": "PSG",
+      "visitingTeamId": "team-lyon",
+      "visitingTeam": "Lyon",
+      "sponsorId": "sponsor-orange",
+      "sponsorName": "Orange",
+      "numberOfSessions": 1,
+      "ticketsSold": 8500,
+      "ticketsScanned": 8200,
+      "event_revenue_HT": 720000,
+      "sessions": [{ "doorsOpening": "19:30", "showTime": "21:00" }]
+    },
+    {
+      "id": "e-past-03",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "PSG vs Nice",
+      "eventDate": "20/09/2024",
+      "eventTypeId": "et-sport",
+      "eventCategoryId": "ec-football",
+      "eventSubcategoryId": "es-coupefr",
+      "eventType": "Sport",
+      "category": "Football",
+      "subcategory": "Coupe de France",
+      "homeTeamName": "PSG",
+      "team": "PSG",
+      "visitingTeamId": "team-nice",
+      "visitingTeam": "Nice",
+      "numberOfSessions": 1,
+      "ticketsSold": 11000,
+      "ticketsScanned": 10500,
+      "event_revenue_HT": 920000,
+      "sessions": [{ "doorsOpening": "18:30", "showTime": "20:00" }]
+    },
+    {
+      "id": "e-past-04",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "Rugby France-Italie",
+      "eventDate": "05/03/2025",
+      "eventTypeId": "et-sport",
+      "eventCategoryId": "ec-rugby",
+      "eventSubcategoryId": "es-6nations",
+      "eventType": "Sport",
+      "category": "Rugby",
+      "subcategory": "6 Nations",
+      "homeTeamName": "France",
+      "team": "France",
+      "visitingTeamId": "team-italie",
+      "visitingTeam": "Italie",
+      "numberOfSessions": 1,
+      "ticketsSold": 9000,
+      "ticketsScanned": 8700,
+      "event_revenue_HT": 760000,
+      "sessions": [{ "doorsOpening": "19:30", "showTime": "21:00" }]
+    },
+    {
+      "id": "e-past-05",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "Concert Disclosure",
+      "eventDate": "18/05/2025",
+      "eventTypeId": "et-concert",
+      "eventCategoryId": "ec-music",
+      "eventSubcategoryId": "es-electronic",
+      "eventType": "Concert",
+      "category": "Music",
+      "subcategory": "Electronic",
+      "performerName": "Disclosure",
+      "openingActName": null,
+      "sponsorId": "sponsor-redbull",
+      "sponsorName": "Red Bull",
+      "numberOfSessions": 1,
+      "ticketsSold": 7500,
+      "ticketsScanned": 7100,
+      "event_revenue_HT": 670000,
+      "sessions": [{ "doorsOpening": "18:30", "showTime": "20:00", "intermission": "21:00" }]
+    },
+    {
+      "id": "e-past-06",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "Coldplay 2024 Tour",
+      "eventDate": "22/06/2024",
+      "eventTypeId": "et-concert",
+      "eventCategoryId": "ec-music",
+      "eventSubcategoryId": "es-poprock",
+      "eventType": "Concert",
+      "category": "Music",
+      "subcategory": "Pop/Rock",
+      "performerName": "Coldplay",
+      "openingActName": "Opening Act 1",
+      "numberOfSessions": 1,
+      "ticketsSold": 8200,
+      "ticketsScanned": 8000,
+      "event_revenue_HT": 730000,
+      "sessions": [{ "doorsOpening": "18:00", "showTime": "20:00", "intermission": "21:30" }]
+    },
+    {
+      "id": "e-past-07",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "Indie Showcase",
+      "eventDate": "10/01/2025",
+      "eventTypeId": "et-concert",
+      "eventCategoryId": "ec-music",
+      "eventSubcategoryId": "es-indie",
+      "eventType": "Concert",
+      "category": "Music",
+      "subcategory": "Indie",
+      "performerName": "Various Artists",
+      "openingActName": null,
+      "numberOfSessions": 2,
+      "ticketsSold": 4000,
+      "ticketsScanned": 3700,
+      "event_revenue_HT": 320000,
+      "sessions": [
+        { "doorsOpening": "18:00", "showTime": "19:00" },
+        { "doorsOpening": "20:30", "showTime": "21:30" }
+      ]
+    },
+    {
+      "id": "e-past-08",
+      "spaceId": "space-arena-01",
+      "configurationId": "cfg-stadium-default",
+      "eventName": "Matinée Concert",
+      "eventDate": "01/02/2025",
+      "eventTypeId": "et-concert",
+      "eventCategoryId": "ec-music",
+      "eventSubcategoryId": "es-poprock",
+      "eventType": "Concert",
+      "category": "Music",
+      "subcategory": "Pop/Rock",
+      "performerName": "Local Band",
+      "openingActName": null,
+      "numberOfSessions": 1,
+      "ticketsSold": 7800,
+      "ticketsScanned": 7500,
+      "event_revenue_HT": 690000,
+      "sessions": [{ "doorsOpening": "13:00", "showTime": "14:00" }]
+    }
+  ],
+  "shopGranularData": [
+    { "eventId": "e-past-01", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 1500, "revenue": 18000, "transactionCount": 1500, "location": "Tribune Sud" },
+    { "eventId": "e-past-01", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-fries", "menuItemName": "Fries", "menuItemType": "Food", "menuItemCategory": "Side", "quantity": 1800, "revenue": 9000, "transactionCount": 1800, "location": "Tribune Sud" },
+    { "eventId": "e-past-01", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 4200, "revenue": 25200, "transactionCount": 4200, "location": "Tribune Sud" },
+    { "eventId": "e-past-01", "elementId": "shop-3", "elementName": "Comptoir Sud", "shopName": "Comptoir Sud", "menuItemId": "mi-soda", "menuItemName": "Coca 33cl", "menuItemType": "Beverage", "menuItemCategory": "Soft drink", "quantity": 2100, "revenue": 8400, "transactionCount": 2100, "location": "Tribune Sud" },
+
+    { "eventId": "e-past-02", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 1300, "revenue": 15600, "transactionCount": 1300, "location": "Tribune Sud" },
+    { "eventId": "e-past-02", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-fries", "menuItemName": "Fries", "menuItemType": "Food", "menuItemCategory": "Side", "quantity": 1600, "revenue": 8000, "transactionCount": 1600, "location": "Tribune Sud" },
+    { "eventId": "e-past-02", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 3700, "revenue": 22200, "transactionCount": 3700, "location": "Tribune Sud" },
+    { "eventId": "e-past-02", "elementId": "shop-3", "elementName": "Comptoir Sud", "shopName": "Comptoir Sud", "menuItemId": "mi-soda", "menuItemName": "Coca 33cl", "menuItemType": "Beverage", "menuItemCategory": "Soft drink", "quantity": 1900, "revenue": 7600, "transactionCount": 1900, "location": "Tribune Sud" },
+
+    { "eventId": "e-past-03", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 1700, "revenue": 20400, "transactionCount": 1700, "location": "Tribune Sud" },
+    { "eventId": "e-past-03", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 4600, "revenue": 27600, "transactionCount": 4600, "location": "Tribune Sud" },
+    { "eventId": "e-past-03", "elementId": "shop-3", "elementName": "Comptoir Sud", "shopName": "Comptoir Sud", "menuItemId": "mi-soda", "menuItemName": "Coca 33cl", "menuItemType": "Beverage", "menuItemCategory": "Soft drink", "quantity": 2300, "revenue": 9200, "transactionCount": 2300, "location": "Tribune Sud" },
+    { "eventId": "e-past-03", "elementId": "shop-5", "elementName": "Snack Coursive", "shopName": "Snack Coursive", "menuItemId": "mi-popcorn", "menuItemName": "Popcorn", "menuItemType": "Food", "menuItemCategory": "Popcorn", "quantity": 800, "revenue": 5600, "transactionCount": 800, "location": "Coursive" },
+
+    { "eventId": "e-past-04", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 1400, "revenue": 16800, "transactionCount": 1400, "location": "Tribune Sud" },
+    { "eventId": "e-past-04", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 3900, "revenue": 23400, "transactionCount": 3900, "location": "Tribune Sud" },
+
+    { "eventId": "e-past-05", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 900, "revenue": 10800, "transactionCount": 900, "location": "Tribune Sud" },
+    { "eventId": "e-past-05", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 5200, "revenue": 31200, "transactionCount": 5200, "location": "Tribune Sud" },
+    { "eventId": "e-past-05", "elementId": "shop-4", "elementName": "Bar Cocktail", "shopName": "Bar Cocktail", "menuItemId": "mi-cocktail", "menuItemName": "Mojito", "menuItemType": "Beverage", "menuItemCategory": "Cocktail", "quantity": 1800, "revenue": 18000, "transactionCount": 1800, "location": "VIP" },
+
+    { "eventId": "e-past-06", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 1100, "revenue": 13200, "transactionCount": 1100, "location": "Tribune Sud" },
+    { "eventId": "e-past-06", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 5400, "revenue": 32400, "transactionCount": 5400, "location": "Tribune Sud" },
+    { "eventId": "e-past-06", "elementId": "shop-4", "elementName": "Bar Cocktail", "shopName": "Bar Cocktail", "menuItemId": "mi-cocktail", "menuItemName": "Mojito", "menuItemType": "Beverage", "menuItemCategory": "Cocktail", "quantity": 1900, "revenue": 19000, "transactionCount": 1900, "location": "VIP" },
+
+    { "eventId": "e-past-07", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 600, "revenue": 7200, "transactionCount": 600, "location": "Tribune Sud" },
+    { "eventId": "e-past-07", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 2100, "revenue": 12600, "transactionCount": 2100, "location": "Tribune Sud" },
+
+    { "eventId": "e-past-08", "elementId": "shop-1", "elementName": "Burger Sud", "shopName": "Burger Sud", "menuItemId": "mi-burger", "menuItemName": "Classic Burger", "menuItemType": "Food", "menuItemCategory": "Burger", "quantity": 1000, "revenue": 12000, "transactionCount": 1000, "location": "Tribune Sud" },
+    { "eventId": "e-past-08", "elementId": "shop-2", "elementName": "Bodega", "shopName": "Bodega", "menuItemId": "mi-beer", "menuItemName": "Heineken 33cl", "menuItemType": "Beer", "menuItemCategory": "Beer (can)", "quantity": 4800, "revenue": 28800, "transactionCount": 4800, "location": "Tribune Sud" }
+  ],
+  "eventTimelineData": {
+    "e-past-01": [
+      { "minute": "19:30", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 1800, "totalQuantity": 150, "transactionCount": 150 },
+      { "minute": "19:45", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 3600, "totalQuantity": 300, "transactionCount": 300 },
+      { "minute": "20:00", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 4800, "totalQuantity": 400, "transactionCount": 400 },
+      { "minute": "20:15", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 4200, "totalQuantity": 350, "transactionCount": 350 },
+      { "minute": "20:30", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 3600, "totalQuantity": 300, "transactionCount": 300 },
+      { "minute": "19:30", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 4200, "totalQuantity": 700, "transactionCount": 700 },
+      { "minute": "19:45", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 7200, "totalQuantity": 1200, "transactionCount": 1200 },
+      { "minute": "20:00", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 6600, "totalQuantity": 1100, "transactionCount": 1100 },
+      { "minute": "20:15", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 4200, "totalQuantity": 700, "transactionCount": 700 },
+      { "minute": "20:30", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 3000, "totalQuantity": 500, "transactionCount": 500 }
+    ],
+    "e-past-02": [
+      { "minute": "19:30", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 1500, "totalQuantity": 125, "transactionCount": 125 },
+      { "minute": "19:45", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 3000, "totalQuantity": 250, "transactionCount": 250 },
+      { "minute": "20:00", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 4200, "totalQuantity": 350, "transactionCount": 350 },
+      { "minute": "20:15", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 3900, "totalQuantity": 325, "transactionCount": 325 },
+      { "minute": "20:30", "shopId": "shop-1", "menuItemId": "mi-burger", "itemName": "Classic Burger", "totalRevenue": 3000, "totalQuantity": 250, "transactionCount": 250 },
+      { "minute": "19:30", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 3600, "totalQuantity": 600, "transactionCount": 600 },
+      { "minute": "19:45", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 6600, "totalQuantity": 1100, "transactionCount": 1100 },
+      { "minute": "20:00", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 6000, "totalQuantity": 1000, "transactionCount": 1000 },
+      { "minute": "20:15", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 3600, "totalQuantity": 600, "transactionCount": 600 },
+      { "minute": "20:30", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 2400, "totalQuantity": 400, "transactionCount": 400 }
+    ],
+    "e-past-06": [
+      { "minute": "18:30", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 9000, "totalQuantity": 1500, "transactionCount": 1500 },
+      { "minute": "19:00", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 10800, "totalQuantity": 1800, "transactionCount": 1800 },
+      { "minute": "19:30", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 7200, "totalQuantity": 1200, "transactionCount": 1200 },
+      { "minute": "20:00", "shopId": "shop-2", "menuItemId": "mi-beer", "itemName": "Heineken 33cl", "totalRevenue": 5400, "totalQuantity": 900, "transactionCount": 900 },
+      { "minute": "18:30", "shopId": "shop-4", "menuItemId": "mi-cocktail", "itemName": "Mojito", "totalRevenue": 7000, "totalQuantity": 700, "transactionCount": 700 },
+      { "minute": "19:00", "shopId": "shop-4", "menuItemId": "mi-cocktail", "itemName": "Mojito", "totalRevenue": 6000, "totalQuantity": 600, "transactionCount": 600 },
+      { "minute": "19:30", "shopId": "shop-4", "menuItemId": "mi-cocktail", "itemName": "Mojito", "totalRevenue": 4000, "totalQuantity": 400, "transactionCount": 400 },
+      { "minute": "20:00", "shopId": "shop-4", "menuItemId": "mi-cocktail", "itemName": "Mojito", "totalRevenue": 2000, "totalQuantity": 200, "transactionCount": 200 }
+    ]
+  },
+  "predictiveEventSelections": {},
+  "eventPredictVersions": {}
+}

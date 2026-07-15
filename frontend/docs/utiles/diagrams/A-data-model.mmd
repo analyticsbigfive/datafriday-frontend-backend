@@ -1,0 +1,12 @@
+graph TD
+  Org[Organisation] --> Space
+  Org -.referentiels.-> REF[Suppliers / MarketPrices / Components / MenuItems / Products / EventTypes]
+  Space --> Config[Configuration]
+  Space --> Event
+  Config --> Floor[Floor / Forecourt / External]
+  Floor --> FB[FBElement<br/>shop - storage - kitchen - entrance - hospitality - merchshop - access - entertainment]
+  FB --> MI[MenuItems = ce qui se vend]
+  FB --> INV[InventoryItems = stock]
+  Event -->|pointe| Config
+  MI -.assembles depuis.-> Components
+  Components -.cout depuis.-> REF

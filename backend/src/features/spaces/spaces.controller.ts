@@ -1,0 +1,1128 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+  ApiParam,
+  ApiBody,
+} from '@nestjs/swagger';
+import { SpacesService } from './spaces.service';
+import { CreateSpaceDto } from './dto/create-space.dto';
+import { UpdateSpaceDto } from './dto/update-space.dto';
+import { QuerySpaceDto } from './dto/query-space.dto';
+import { CreateConfigDto } from './dto/create-config.dto';
+import { UpdateSpaceImageDto } from './dto/update-space-image.dto';
+import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
+import { UpdateSpaceElementDto } from './dto/update-space-element.dto';
+import { AssignElementsToFloorDto } from './dto/assign-floor.dto';
+import { QuickCreateElementDto } from './dto/quick-create-element.dto';
+import { BulkQuickElementsDto } from './dto/bulk-quick-elements.dto';
+import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { RolesGuard } from '../../core/auth/guards/roles.guard';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorator';
+
+@ApiTags('Spaces')
+@ApiBearerAuth('supabase-jwt')
+@Controller('spaces')
+// Ce contrôleur expose `/spaces/:id` → indique au SpaceAccessGuard que l'id d'espace
+// est porté par le param `id` (et non `spaceId`).
+@SpaceIdParam('id')
+@UseGuards(JwtDatabaseGuard, RolesGuard)
+export class SpacesController {
+  constructor(private readonly spacesService: SpacesService) {}
+
+  /**
+   * Create a new space
+   */
+  @Post()
+  @RequirePermissions('space.edit')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Créer un nouvel espace/établissement',
+    description:
+      'Crée un nouvel espace pour l\'organisation. Réservé aux ADMIN et MANAGER.',
+  })
+  @ApiBody({ type: CreateSpaceDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Espace créé avec succès',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', example: 'space-abc123' },
+        name: { type: 'string', example: 'Restaurant Le Gourmet' },
+        image: { type: 'string', nullable: true },
+        tenantId: { type: 'string' },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+        tenant: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            slug: { type: 'string' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Accès refusé - rôle insuffisant' })
+  async create(@CurrentUser() user: any, @Body() dto: CreateSpaceDto) {
+    return this.spacesService.create(user.tenantId, dto);
+  }
+
+  /**
+   * Get all spaces for current tenant
+   */
+  @Get()
+  @ApiOperation({
+    summary: 'Lister tous les espaces de l\'organisation',
+    description: 'Retourne la liste paginée des espaces de l\'organisation.',
+  })
+  @ApiQuery({ name: 'search', required: false, description: 'Recherche par nom' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des espaces avec pagination',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              image: { type: 'string', nullable: true },
+              createdAt: { type: 'string', format: 'date-time' },
+              _count: {
+                type: 'object',
+                properties: {
+                  configs: { type: 'number' },
+                  pinnedByUsers: { type: 'number' },
+                },
+              },
+            },
+          },
+        },
+        meta: {
+          type: 'object',
+          properties: {
+            total: { type: 'number' },
+            page: { type: 'number' },
+            limit: { type: 'number' },
+            totalPages: { type: 'number' },
+          },
+        },
+      },
+    },
+  })
+  async findAll(@CurrentUser() user: any, @Query() query: QuerySpaceDto) {
+    if (!user.tenantId) {
+      throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
+    }
+    return this.spacesService.findAll(user.tenantId, query, user);
+  }
+
+  /**
+   * Lightweight space list for selects & wizards (id + name only).
+   * Redis-cached — typical response < 10ms on cache hit.
+   */
+  @Get('light')
+  @ApiOperation({
+    summary: 'Liste légère des espaces (id + name)',
+    description: 'Retourne uniquement id et name, mis en cache Redis (60s). Idéal pour les selects et wizards.',
+  })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+        },
+      },
+    },
+  })
+  async getSpacesLight(@CurrentUser() user: any) {
+    if (!user.tenantId) {
+      throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
+    }
+    return this.spacesService.getSpacesLight(user.tenantId, user);
+  }
+
+  /**
+   * Get space statistics
+   */
+  @Get('statistics')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Statistiques des espaces',
+    description: 'Retourne les statistiques globales sur les espaces.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Statistiques',
+    schema: {
+      type: 'object',
+      properties: {
+        totalSpaces: { type: 'number', example: 5 },
+        totalConfigs: { type: 'number', example: 12 },
+        recentSpaces: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              image: { type: 'string', nullable: true },
+              createdAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getStatistics(@CurrentUser() user: any) {
+    return this.spacesService.getStatistics(user.tenantId);
+  }
+
+  /**
+   * Get pinned spaces for current user
+   */
+  @Get('pinned')
+  @ApiOperation({
+    summary: 'Obtenir les espaces épinglés',
+    description: 'Retourne la liste des espaces favoris/épinglés par l\'utilisateur.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des espaces épinglés',
+  })
+  async getPinned(@CurrentUser() user: any) {
+    return this.spacesService.getPinned(user.id, user.tenantId, user);
+  }
+
+  /**
+   * Get space by ID
+   */
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Obtenir un espace par ID',
+    description: 'Retourne les détails complets d\'un espace.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'light', required: false, type: Boolean, description: 'Mode léger (sans image)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Détails de l\'espace',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        image: { type: 'string', nullable: true },
+        tenantId: { type: 'string' },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+        tenant: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            slug: { type: 'string' },
+          },
+        },
+        configs: {
+          type: 'array',
+          description: 'Liste complète des configurations avec leurs données (floors, forecourt, externalMerch)',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              spaceId: { type: 'string' },
+              capacity: { type: 'number', nullable: true },
+              data: { 
+                type: 'object', 
+                nullable: true,
+                description: 'Données complètes de la configuration (floors, forecourt, externalMerch)',
+                properties: {
+                  floors: { type: 'array', description: 'Liste des étages avec leurs éléments' },
+                  forecourt: { type: 'object', nullable: true, description: 'Configuration du parvis' },
+                  externalMerch: { type: 'object', nullable: true, description: 'Configuration merchandising externe' },
+                },
+              },
+              createdAt: { type: 'string', format: 'date-time' },
+              updatedAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+        _count: {
+          type: 'object',
+          properties: {
+            pinnedByUsers: { type: 'number' },
+            userAccess: { type: 'number' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async findOne(
+    @Param('id') id: string, 
+    @CurrentUser() user: any,
+    @Query('light') light?: string,
+  ) {
+    const space = await this.spacesService.findOne(id, user.tenantId);
+    
+    // In light mode, exclude heavy data like images
+    if (light === 'true') {
+      const { image, ...lightSpace } = space;
+      return lightSpace;
+    }
+    
+    return space;
+  }
+
+  /**
+   * Update a space
+   */
+  @Patch(':id')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Mettre à jour un espace',
+    description: 'Modifie les informations d\'un espace. Réservé aux ADMIN et MANAGER.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({ status: 200, description: 'Espace mis à jour' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  async update(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: UpdateSpaceDto,
+  ) {
+    return this.spacesService.update(id, user.tenantId, dto);
+  }
+
+  /**
+   * Update space image
+   */
+  @Put(':id/image')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Mettre à jour l\'image d\'un espace',
+    description: 'Met à jour l\'image d\'un espace. Réservé aux ADMIN et MANAGER.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ type: UpdateSpaceImageDto })
+  @ApiResponse({ status: 200, description: 'Image mise à jour' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async updateImage(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() body: UpdateSpaceImageDto,
+  ) {
+    return this.spacesService.updateImage(id, user.tenantId, body.image);
+  }
+
+  /**
+   * Get configurations for a space
+   */
+  @Get(':id/configurations')
+  @ApiOperation({
+    summary: 'Obtenir les configurations d\'un espace',
+    description: 'Retourne la liste des configurations associées à un espace.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des configurations',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          spaceId: { type: 'string' },
+          capacity: { type: 'number', nullable: true },
+          data: { type: 'object', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+          _count: {
+            type: 'object',
+            properties: {
+              floors: { type: 'number' },
+              stations: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getConfigurations(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.getConfigurations(id, user.tenantId);
+  }
+
+  /**
+   * Get shops list only — lightweight, no transaction data (used by SpaceMenuView)
+   */
+  @Get(':id/shops')
+  @ApiOperation({
+    summary: 'Lister les shops (SpaceElements) d\'un espace — version légère',
+    description:
+      'Retourne tous les SpaceElements de type shop (floors + forecourt) de cet espace, sans données de transaction Weezevent agrégées (utiliser /shop-details pour cela).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'configId', required: false, type: String, description: 'Filtre sur les shops de cette configuration uniquement (sinon toutes les configs de l\'espace)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des shops',
+    schema: {
+      type: 'object',
+      properties: {
+        shops: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'ID du SpaceElement (shop)' },
+              name: { type: 'string', description: 'Nom du shop' },
+              type: { type: 'string', description: 'Type Prisma (shop, fnb_food, fnb_beverages, fnb_bar, fnb_snack, fnb_icecream, merchshop)' },
+              shopTypes: { type: 'array', items: { type: 'string' }, description: 'Tags de sous-type utilisés par le filtre du 3D Builder (food, beverages, beer, gppremium, temporary, drinkee)' },
+              attributes: { type: 'object', nullable: true },
+              image: { type: 'string', nullable: true },
+              notes: { type: 'string', nullable: true },
+              configId: { type: 'string', nullable: true },
+              configName: { type: 'string', nullable: true },
+              locationId: { type: 'string', nullable: true, description: 'ID du floor ou forecourt' },
+              locationName: { type: 'string', nullable: true, description: 'Nom du floor ou forecourt' },
+              floorLevel: {
+                oneOf: [{ type: 'integer' }, { type: 'string', enum: ['forecourt'] }, { type: 'null' }],
+                description: 'Niveau du floor (0 = RDC, négatif = sous-sol, positif = étage), "forecourt" si l\'élément est sur le parvis ("Parvis"), ou null si non rattaché',
+              },
+              weezeventLocationId: { type: 'string', nullable: true },
+              isMappedToWeezevent: { type: 'boolean' },
+              menuItemsCount: { type: 'number' },
+              isOpen: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getSpaceShops(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Query('configId') configId?: string,
+  ) {
+    return this.spacesService.getSpaceShops(id, user.tenantId, configId);
+  }
+
+  /**
+   * Get shop details for a space (all shops created in configurations)
+   */
+  @Get(':id/shop-details')
+  @ApiOperation({
+    summary: 'Obtenir tous les shops (points de vente) d\'un espace',
+    description:
+      'Retourne tous les SpaceElements de type shop créés dans les configurations de cet espace, avec leurs données de vente agrégées si mappés à Weezevent.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des shops avec leurs détails et données de vente',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          shopId: { type: 'string', description: 'ID du SpaceElement (shop)' },
+          shopName: { type: 'string', description: 'Nom du shop' },
+          shopType: { type: 'string', description: 'Type du shop (fnb-food, fnb-bar, merchshop, etc.)' },
+          shopSubTypes: { type: 'array', items: { type: 'string' }, description: 'Sous-types spécifiques' },
+          configId: { type: 'string', description: 'ID de la configuration' },
+          configName: { type: 'string', description: 'Nom de la configuration' },
+          locationId: { type: 'string', description: 'ID du floor ou forecourt' },
+          locationName: { type: 'string', description: 'Nom du floor ou forecourt' },
+          locationType: { type: 'string', enum: ['floor', 'forecourt'], description: 'Type de localisation' },
+          revenue: { type: 'number', description: 'Revenu total HT (si mappé à Weezevent)' },
+          transactionCount: { type: 'number', description: 'Nombre de transactions (si mappé à Weezevent)' },
+          itemsCount: { type: 'number', description: 'Nombre d\'items vendus (si mappé à Weezevent)' },
+          isMappedToWeezevent: { type: 'boolean', description: 'Indique si le shop est mappé à un merchant Weezevent' },
+          weezeventMerchantId: { type: 'string', nullable: true, description: 'ID du merchant Weezevent mappé' },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getShopDetails(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('granular') granular = '0',
+  ) {
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
+    const includeGranular = granular === '1' || granular === 'true';
+    return this.spacesService.getShopDetails(id, user.tenantId, pageNum, limitNum, includeGranular);
+  }
+
+  /**
+   * Get minute-level timeline for MULTIPLE events at once: minute × shop × menuItem.
+   * Batched version of the single-event endpoint below — resolves shopIds/ownership/
+   * integration scope once for the space instead of once per event.
+   */
+  @Get(':id/event-timeline')
+  @ApiOperation({
+    summary: 'Timeline minute par minute de plusieurs événements (batch)',
+    description:
+      'Version batchée de GET :id/event-timeline/:eventId — un seul appel pour N eventIds ' +
+      'au lieu de N appels individuels. Retourne un objet { [eventId]: records[] }.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
+  async getEventTimelineBatch(
+    @Param('id') id: string,
+    @Query('eventIds') eventIds: string,
+    @CurrentUser() user: any,
+  ) {
+    const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return this.spacesService.getEventTimelineBatch(id, ids, user.tenantId);
+  }
+
+  /**
+   * Get minute-level timeline for one event: minute × shop × menuItem
+   */
+  @Get(':id/event-timeline/:eventId')
+  @ApiOperation({
+    summary: 'Timeline minute par minute d\'un événement',
+    description:
+      'Retourne les transactions agrégées par minute × shop (SpaceElement) × article (MenuItem mappé) pour un événement donné. ' +
+      'Source de données : WeezeventTransaction + WeezeventTransactionItem, jointure avec les mappings shop (Step 2) et menu (Step 3) du wizard. ' +
+      'Produits non mappés au Step 3 sont inclus avec menuItemId = null.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiParam({ name: 'eventId', description: 'ID de l\'événement Weezevent (WeezeventEvent.id)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Enregistrements timeline (un par minute × shop × article)',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          minute:           { type: 'string', example: '19:42', description: 'Minute HH:MM (heure locale UTC)' },
+          shopId:           { type: 'string', description: 'ID du SpaceElement (shop)' },
+          shopName:         { type: 'string', description: 'Nom du shop' },
+          shopType:         { type: 'string', nullable: true, description: 'Type du shop (fnb-food, fnb-bar…)' },
+          shopArea:         { type: 'string', nullable: true, description: 'Zone du shop' },
+          weezeventProductId: { type: 'string', nullable: true, description: 'ID produit Weezevent brut' },
+          menuItemId:       { type: 'string', nullable: true, description: 'ID MenuItem mappé (null si produit non mappé au Step 3)' },
+          menuItemName:     { type: 'string', nullable: true, description: 'Nom de l\'article' },
+          menuItemType:     { type: 'string', nullable: true, description: 'Type produit (ProductType)' },
+          menuItemCategory: { type: 'string', nullable: true, description: 'Catégorie produit (ProductCategory)' },
+          quantity:         { type: 'integer', description: 'Quantité vendue sur cette minute' },
+          transactionCount: { type: 'integer', description: 'Transactions distinctes sur cette minute' },
+          revenueHt:        { type: 'number', description: 'Revenu HT (€) sur cette minute' },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getEventTimeline(
+    @Param('id') id: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.getEventTimeline(id, eventId, user.tenantId);
+  }
+
+  /**
+   * List WeezeventEvents for a space, including enrichment metadata
+   */
+  @Get(':id/weezevent-events')
+  @ApiOperation({ summary: 'Liste des WeezeventEvents d\'un espace avec métadonnées d\'enrichissement' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({ status: 200, description: 'Liste des événements Weezevent avec métadonnées' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getWeezeventEventsForSpace(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.getWeezeventEventsForSpace(id, user.tenantId);
+  }
+
+  /**
+   * Update enrichment metadata for a WeezeventEvent (doorsOpening, showTime, category, team…)
+   */
+  @Patch(':id/weezevent-events/:eventId')
+  @ApiOperation({ summary: 'Mettre à jour les métadonnées d\'enrichissement d\'un WeezeventEvent' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiParam({ name: 'eventId', description: 'ID du WeezeventEvent' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        doorsOpening:   { type: 'string', nullable: true, example: '18:30' },
+        showTime:       { type: 'string', nullable: true, example: '20:00' },
+        category:       { type: 'string', nullable: true, example: 'sport' },
+        eventType:      { type: 'string', nullable: true, example: 'home' },
+        team:           { type: 'string', nullable: true, example: 'PSG' },
+        visitingTeam:   { type: 'string', nullable: true, example: 'Lyon' },
+        hasIntermission:{ type: 'boolean', nullable: true },
+        performer:      { type: 'string', nullable: true, example: 'Coldplay' },
+        openingAct:     { type: 'string', nullable: true, example: 'The xx' },
+        sponsor:        { type: 'string', nullable: true, example: 'Sponsor SA' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Métadonnées mises à jour' })
+  @ApiResponse({ status: 404, description: 'Espace ou événement non trouvé' })
+  async updateWeezeventEventMetadata(
+    @Param('id') id: string,
+    @Param('eventId') eventId: string,
+    @Body() body: {
+      doorsOpening?: string | null;
+      showTime?: string | null;
+      category?: string | null;
+      eventType?: string | null;
+      team?: string | null;
+      visitingTeam?: string | null;
+      hasIntermission?: boolean;
+      performer?: string | null;
+      openingAct?: string | null;
+      sponsor?: string | null;
+    },
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.updateWeezeventEventMetadata(id, eventId, body, user.tenantId);
+  }
+
+  /**
+   * Sync attendees for a WeezeventEvent from the WeezPay API (G6)
+   */
+  @Post(':id/weezevent-events/:eventId/sync-attendees')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Synchronise les participants d\'un événement depuis l\'API WeezPay' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiParam({ name: 'eventId', description: 'ID du WeezeventEvent' })
+  @ApiResponse({ status: 200, description: 'Participants synchronisés', schema: { type: 'object', properties: { synced: { type: 'number' } } } })
+  @ApiResponse({ status: 404, description: 'Espace ou événement non trouvé' })
+  async syncEventAttendees(
+    @Param('id') id: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.syncEventAttendees(id, eventId, user.tenantId);
+  }
+
+  /**
+   * Delete a space
+   */
+  @Delete(':id')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Supprimer un espace',
+    description: 'Supprime définitivement un espace. Réservé aux ADMIN uniquement.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({ status: 200, description: 'Espace supprimé' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.remove(id, user.tenantId);
+  }
+
+  /**
+   * Pin a space
+   */
+  @Post(':id/pin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Épingler un espace',
+    description: 'Ajoute l\'espace aux favoris de l\'utilisateur.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({ status: 200, description: 'Espace épinglé' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async pin(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.pin(id, user.id, user.tenantId);
+  }
+
+  /**
+   * Unpin a space
+   */
+  @Delete(':id/pin')
+  @ApiOperation({
+    summary: 'Désépingler un espace',
+    description: 'Retire l\'espace des favoris de l\'utilisateur.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({ status: 200, description: 'Espace désépinglé' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé ou non épinglé' })
+  async unpin(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.unpin(id, user.id, user.tenantId);
+  }
+
+  /**
+   * Grant user access to a space
+   */
+  @Post(':id/access')
+  @RequirePermissions('space.edit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Donner accès à un utilisateur',
+    description:
+      'Accorde un accès spécifique à un utilisateur sur cet espace. Réservé aux ADMIN et MANAGER.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ type: GrantSpaceAccessDto })
+  @ApiResponse({ status: 200, description: 'Accès accordé' })
+  @ApiResponse({ status: 404, description: 'Espace ou utilisateur non trouvé' })
+  async grantAccess(
+    @Param('id') id: string,
+    @Body() body: GrantSpaceAccessDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.grantAccess(id, body.userId, body.role, user.tenantId);
+  }
+
+  /**
+   * Revoke user access to a space
+   */
+  @Delete(':id/access/:userId')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Révoquer l\'accès d\'un utilisateur',
+    description: 'Retire l\'accès d\'un utilisateur à cet espace. Réservé aux ADMIN et MANAGER.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiParam({ name: 'userId', description: 'ID de l\'utilisateur' })
+  @ApiResponse({ status: 200, description: 'Accès révoqué' })
+  @ApiResponse({ status: 404, description: 'Accès non trouvé' })
+  async revokeAccess(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.revokeAccess(id, userId, user.tenantId);
+  }
+
+  /**
+   * Get users with access to a space
+   */
+  @Get(':id/users')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Lister les utilisateurs ayant accès',
+    description: 'Retourne la liste des utilisateurs avec leurs rôles sur cet espace.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des utilisateurs',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          userId: { type: 'string' },
+          spaceId: { type: 'string' },
+          role: { type: 'string', enum: ['ADMIN', 'MANAGER', 'STAFF', 'VIEWER'] },
+          grantedAt: { type: 'string', format: 'date-time' },
+          user: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              email: { type: 'string' },
+              firstName: { type: 'string' },
+              lastName: { type: 'string' },
+              role: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getSpaceUsers(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.getSpaceUsers(id, user.tenantId);
+  }
+
+  /**
+   * Quick-create a shop element for a space (from Weezevent import flow)
+   */
+  @Post(':id/quick-element')
+  @RequirePermissions('space.edit')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
+    description:
+      'Crée un SpaceElement dans la configuration utilisateur de l\'espace (celle de l\'étape 1 / du 3D Builder, la plus ancienne non-système). ' +
+      'Aucune configuration "Weezevent Import" n\'est créée tant qu\'une config utilisateur existe. ' +
+      'Dimensions par défaut : floor 200m × 200m × 4m si aucun floor n\'existe encore, shop 2m × 2m × 2m. ' +
+      'Pour un `type` F&B (fnb-food, fnb-beverages, fnb-bar, fnb-snack, fnb-icecream), `shopTypes` est ' +
+      'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ type: QuickCreateElementDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Shop créé',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string' },
+        configName: { type: 'string' },
+        areaName: { type: 'string' },
+      },
+    },
+  })
+  async quickCreateElement(
+    @Param('id') spaceId: string,
+    @CurrentUser() user: any,
+    @Body() body: QuickCreateElementDto,
+  ) {
+    return this.spacesService.quickCreateElement(spaceId, user.tenantId, body);
+  }
+
+  /**
+   * Bulk create & map shops for the Weezevent import flow (step 2)
+   */
+  @Post(':id/quick-elements/bulk')
+  @RequirePermissions('space.edit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Créer et mapper des shops en masse (étape 2 import Weezevent)',
+    description:
+      'Remplace la boucle unitaire quick-element + location-shop du front. ' +
+      'Item avec `elementId` → mapping seul vers l\'élément existant (rien n\'est créé) ; ' +
+      'item sans `elementId` → création d\'un SpaceElement (zone RDC niveau 0, 2×2×2 m, grille) puis mapping. ' +
+      'Config cible et zone résolues une fois, créations et upserts de mappings en transaction, ' +
+      'une seule invalidation de cache.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ type: BulkQuickElementsDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Résultat du bulk',
+    schema: {
+      type: 'object',
+      properties: {
+        total: { type: 'number' },
+        createdCount: { type: 'number' },
+        mappedCount: { type: 'number' },
+        failed: { type: 'number' },
+        errors: { type: 'array', items: { type: 'object' } },
+        configName: { type: 'string', nullable: true },
+        areaName: { type: 'string', nullable: true },
+        floorLevel: { type: 'number', nullable: true },
+        mapped: { type: 'array', items: { type: 'object' } },
+      },
+    },
+  })
+  async bulkQuickCreateAndMap(
+    @Param('id') spaceId: string,
+    @CurrentUser() user: any,
+    @Body() body: BulkQuickElementsDto,
+  ) {
+    return this.spacesService.bulkQuickCreateAndMap(spaceId, user.tenantId, body);
+  }
+
+  /**
+   * Assign a list of SpaceElements to a floor level (creates the floor if needed)
+   */
+  @Post(':id/assign-floor')
+  @RequirePermissions('space.edit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Assigner des shops à un étage, au parvis ou à la zone External Merch' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ type: AssignElementsToFloorDto })
+  @ApiResponse({ status: 200, description: 'Shops assignés à l\'étage / parvis / external merch' })
+  async assignElementsToFloor(
+    @Param('id') spaceId: string,
+    @CurrentTenant() tenantId: string,
+    @Body() body: AssignElementsToFloorDto,
+  ) {
+    return this.spacesService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level, {
+      configId: body.configId,
+      width: body.width,
+      length: body.length,
+      height: body.height,
+      zoneName: body.zoneName,
+      position: body.position,
+      shopDimensions: body.shopDimensions,
+    });
+  }
+
+  /**
+   * Lightweight floor/zone options for the step-2 "Assign floor" dialog
+   */
+  @Get(':id/floor-options')
+  @ApiOperation({
+    summary: 'Lister les zones/étages disponibles (dialogue « Assigner un étage », étape 2)',
+    description:
+      'Version LÉGÈRE : zones v2 (table Zone, source de vérité — retournées même vides) + ' +
+      'floors legacy v1 (Floor relationnel + JSON config.data) pour les levels sans Zone v2. ' +
+      'Éléments réduits à {id, name, x, y, width, depth} pour le minimap. ' +
+      'Remplace la lecture getConfiguration (fusion complète) qui masquait les zones vides.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'configId', required: false, description: 'Configuration cible (nécessaire pour le repli legacy v1)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Zones/étages de l\'espace',
+    schema: {
+      type: 'object',
+      properties: {
+        managedByV2: { type: 'boolean' },
+        floors: { type: 'array', items: { type: 'object' } },
+        forecourt: { type: 'object', nullable: true },
+        externalMerch: { type: 'object', nullable: true },
+      },
+    },
+  })
+  async getFloorOptions(
+    @Param('id') spaceId: string,
+    @CurrentTenant() tenantId: string,
+    @Query('configId') configId?: string,
+  ) {
+    return this.spacesService.getFloorOptions(spaceId, tenantId, configId);
+  }
+}
+
+// ==================== CONFIGURATIONS CONTROLLER ====================
+
+@ApiTags('Configurations')
+@ApiBearerAuth('supabase-jwt')
+@Controller('configurations')
+@UseGuards(JwtDatabaseGuard, RolesGuard)
+export class ConfigurationsController {
+  private readonly logger = new Logger(ConfigurationsController.name);
+  
+  constructor(private readonly spacesService: SpacesService) {}
+
+  /**
+   * Create or update a configuration
+   */
+  @Post()
+  @RequirePermissions('space.edit')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Créer ou mettre à jour une configuration',
+    description:
+      'Crée une nouvelle configuration ou met à jour une configuration existante pour un espace.',
+  })
+  @ApiBody({ type: CreateConfigDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Configuration créée ou mise à jour avec succès',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', example: 'config-1234567890' },
+        name: { type: 'string', example: 'Main Configuration' },
+        spaceId: { type: 'string', example: 'space-abc123' },
+        capacity: { type: 'number', nullable: true, example: 5000 },
+        data: {
+          type: 'object',
+          nullable: true,
+          description: 'Configuration data (floors, forecourt, etc.)',
+        },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async saveConfiguration(
+    @Body() dto: CreateConfigDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`POST /configurations - Tenant: ${tenantId}, SpaceId: ${dto.spaceId}, ConfigName: ${dto.name}`);
+    return this.spacesService.saveConfiguration(dto, tenantId);
+  }
+
+  /**
+   * Get a configuration by ID
+   */
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Obtenir une configuration par ID',
+    description: 'Retourne les détails complets d\'une configuration.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la configuration' })
+  @ApiResponse({
+    status: 200,
+    description: 'Configuration trouvée',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        spaceId: { type: 'string' },
+        capacity: { type: 'number', nullable: true },
+        data: { type: 'object', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
+  async getConfiguration(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.spacesService.getConfiguration(id, tenantId);
+  }
+
+  /**
+   * Delete a configuration
+   */
+  @Delete(':id')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Supprimer une configuration',
+    description: 'Supprime définitivement une configuration.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la configuration' })
+  @ApiResponse({ status: 200, description: 'Configuration supprimée' })
+  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  async deleteConfiguration(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.spacesService.deleteConfiguration(id, tenantId);
+  }
+
+  /**
+   * Update a configuration by ID
+   */
+  @Patch(':id')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Mettre à jour une configuration',
+    description: 'Met à jour une configuration existante (floors, forecourt, capacity, etc.).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la configuration' })
+  @ApiResponse({ status: 200, description: 'Configuration mise à jour' })
+  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  async updateConfiguration(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: any,
+  ) {
+    return this.spacesService.saveConfiguration({ ...dto, id }, tenantId);
+  }
+
+  /**
+   * Update a shop (SpaceElement) — image, name, type, shopTypes
+   */
+  @Patch('elements/:elementId')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Modifier un shop (SpaceElement)',
+    description: 'Met à jour le nom, l\'image, le type principal et/ou les sous-types d\'un SpaceElement (shop). Vérifie que l\'élément appartient bien au tenant avant modification.',
+  })
+  @ApiParam({ name: 'elementId', description: 'ID du SpaceElement (shop)' })
+  @ApiBody({ type: UpdateSpaceElementDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Shop mis à jour',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string', example: 'fnb_food' },
+        shopTypes: { type: 'array', items: { type: 'string' }, example: ['Food', 'Beverages'] },
+        image: { type: 'string', nullable: true },
+        notes: { type: 'string', nullable: true },
+        floorId: { type: 'string', nullable: true },
+        forecourtId: { type: 'string', nullable: true },
+      },
+    },
+  })
+  @ApiResponse({ status: 403, description: 'Shop n\'appartient pas au tenant' })
+  @ApiResponse({ status: 404, description: 'Shop non trouvé' })
+  async updateSpaceElement(
+    @Param('elementId') elementId: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: UpdateSpaceElementDto,
+  ) {
+    return this.spacesService.updateSpaceElement(elementId, tenantId, dto);
+  }
+
+  /**
+   * Quick-create a shop element for a space (from Weezevent import flow)
+   */
+  @Post(':id/quick-element')
+  @RequirePermissions('space.edit')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
+    description:
+      'Crée un SpaceElement dans la configuration utilisateur de l\'espace (celle de l\'étape 1 / du 3D Builder, la plus ancienne non-système). ' +
+      'Aucune configuration "Weezevent Import" n\'est créée tant qu\'une config utilisateur existe. ' +
+      'Dimensions par défaut : floor 200m × 200m × 4m si aucun floor n\'existe encore, shop 2m × 2m × 2m. ' +
+      'Pour un `type` F&B (fnb-food, fnb-beverages, fnb-bar, fnb-snack, fnb-icecream), `shopTypes` est ' +
+      'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'fnb-beverages', enum: ['shop', 'fnb-food', 'fnb-beverages', 'fnb-bar', 'fnb-snack', 'fnb-icecream', 'merchshop'] } }, required: ['name'] } })
+  @ApiResponse({
+    status: 201,
+    description: 'Shop créé',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string' },
+        configName: { type: 'string' },
+        areaName: { type: 'string' },
+      },
+    },
+  })
+  async quickCreateElement(
+    @CurrentTenant() tenantId: string,
+    @Param('id') spaceId: string,
+    @Body() body: { name: string; type?: string },
+  ) {
+    return this.spacesService.quickCreateElement(spaceId, tenantId, body);
+  }
+}

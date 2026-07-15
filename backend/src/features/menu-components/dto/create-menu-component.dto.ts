@@ -1,0 +1,315 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsInt,
+  IsArray,
+  IsEnum,
+  ValidateNested,
+} from 'class-validator';
+import { Type, Transform } from 'class-transformer';
+import { KitchenType } from '@prisma/client';
+
+export enum StorageType {
+  Dry = 'Dry',
+  Cold = 'Cold',
+  Freezer = 'Freezer',
+  Material = 'Material',
+  NA = 'NA',
+}
+
+/**
+ * DTO pour définir une ligne d'ingrédient dans un composant.
+ * Note: Les champs supplémentaires envoyés sont automatiquement ignorés par le ValidationPipe.
+ * Seuls les champs définis ci-dessous sont utilisés pour créer la relation ComponentIngredient.
+ * 
+ * Transformation automatique:
+ * - ingredientId: accepte string, number, ou objet avec 'ingredientId' ou 'marketPriceId'
+ * - quantity/numberOfUnits: accepte number ou string convertible en number
+ */
+export class MenuComponentIngredientLineDto {
+  @ApiProperty({ 
+    description: "ID de l'ingrédient. Accepte: string, number, ou {ingredientId/marketPriceId: string}",
+    example: 'ingredient-123'
+  })
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'object' && value !== null) {
+      return String(value.ingredientId || value.marketPriceId || value.id || '').trim();
+    }
+    return String(value).trim();
+  })
+  @IsString({ 
+    message: '❌ INGRÉDIENT (ingredients) - ingredientId invalide. ' +
+             'Il s\'agit de l\'ID d\'un Ingredient (matière première comme "Tomate", "Fromage", "Farine", etc.), PAS d\'un sous-composant. ' +
+             'Reçu: "$value". ' +
+             'Formats acceptés: string ("ingredient-123"), number (123), ou objet ({ingredientId: "...", marketPriceId: "...", id: "..."}).'
+  })
+  ingredientId: string;
+
+  @ApiProperty({ 
+    description: 'Quantité utilisée (accepte aussi numberOfUnits). Accepte: number ou string convertible',
+    example: 1.5
+  })
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof value === 'object' && value !== null) {
+      const qty = value.quantity ?? value.numberOfUnits ?? 0;
+      return typeof qty === 'number' ? qty : parseFloat(String(qty)) || 0;
+    }
+    return parseFloat(String(value)) || 0;
+  })
+  @IsNumber({}, { 
+    message: '❌ INGRÉDIENT (ingredients) - quantity invalide. ' +
+             'La quantité de l\'ingrédient doit être un nombre. ' +
+             'Reçu: "$value". ' +
+             'Formats acceptés: number (1.5), string ("1.5"), ou objet ({quantity: 1.5, numberOfUnits: 1.5}).'
+  })
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Nombre d\'unités (alias de quantity pour compatibilité frontend)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  numberOfUnits?: number;
+
+  @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
+  @IsOptional()
+  @IsString()
+  @Type(() => String)
+  unit?: string;
+
+  @ApiPropertyOptional({ description: 'Coût unitaire (optionnel, peut être recalculé)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  unitCost?: number;
+
+  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, peut être recalculé)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  cost?: number;
+}
+
+/**
+ * DTO pour définir une ligne de sous-composant (relation parent → child).
+ * 
+ * FORMAT ATTENDU DU FRONTEND:
+ * {
+ *   "componentId": "cmnheiwkl0008u8fn0fnd7hkd",  // ID du MenuComponent enfant
+ *   "numberOfUnits": 1,                          // Quantité utilisée dans la recette
+ *   "unit": "kg"                                 // (Optionnel) Surcharge l'unité du composant
+ * }
+ * 
+ * TRANSFORMATION AUTOMATIQUE:
+ * - componentId/childId/id → childId (string)
+ * - numberOfUnits/quantity → quantity (number)
+ * 
+ * Note: Les champs supplémentaires (itemType, itemName, category, storageType, etc.) 
+ * sont automatiquement ignorés par le ValidationPipe.
+ */
+export class MenuComponentChildLineDto {
+  @ApiProperty({ 
+    description: 'ID du sous-composant (MenuComponent). Le frontend peut envoyer "componentId", "childId" ou "id".',
+    example: 'cmnheiwkl0008u8fn0fnd7hkd',
+    required: true
+  })
+  @Transform(({ value, obj }) => {
+    // Store the original object for error messages
+    if (typeof value === 'object' && value !== null) {
+      obj._originalChildData = value;
+    }
+    
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'object' && value !== null) {
+      // Frontend sends componentId, not childId
+      return String(value.componentId || value.childId || value.id || '').trim();
+    }
+    return String(value).trim();
+  })
+  @IsString({ 
+    message: '❌ SOUS-COMPOSANT (children) - childId invalide. ' +
+             'Composant concerné: "$property" avec données = $value. ' +
+             'Il s\'agit de l\'ID d\'un MenuComponent (sous-composant), PAS d\'un ingrédient. ' +
+             'Vérifiez que vous envoyez bien un ID de composant existant.'
+  })
+  childId: string;
+
+  @ApiProperty({ 
+    description: 'Quantité utilisée dans la recette parent. Le frontend peut envoyer "numberOfUnits" ou "quantity".',
+    example: 1,
+    required: true
+  })
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof value === 'object' && value !== null) {
+      // Frontend sends numberOfUnits, not quantity
+      const qty = value.numberOfUnits ?? value.quantity ?? 0;
+      return typeof qty === 'number' ? qty : parseFloat(String(qty)) || 0;
+    }
+    return parseFloat(String(value)) || 0;
+  })
+  @IsNumber({}, { 
+    message: '❌ SOUS-COMPOSANT (children) - quantity invalide. ' +
+             'La quantité du sous-composant doit être un nombre. ' +
+             'Reçu: "$value". ' +
+             'Formats acceptés: number (2.5), string ("2.5"), ou objet ({quantity: 2.5, numberOfUnits: 2.5}).'
+  })
+  quantity: number;
+
+  @ApiPropertyOptional({ 
+    description: 'Unité (optionnelle). Si non fournie, hérite de l\'unité du composant enfant. Permet de surcharger l\'unité si nécessaire.',
+    example: 'kg'
+  })
+  @IsOptional()
+  @IsString()
+  @Type(() => String)
+  unit?: string;
+
+  @ApiPropertyOptional({ 
+    description: 'Coût total de la ligne (optionnel, sera recalculé automatiquement si non fourni)',
+    example: 150
+  })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  cost?: number;
+}
+
+export class ReplaceMenuComponentIngredientsDto {
+  @ApiProperty({ description: "Liste complète des lignes d'ingrédients", type: [MenuComponentIngredientLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentIngredientLineDto)
+  ingredients: MenuComponentIngredientLineDto[];
+}
+
+export class ReplaceMenuComponentChildrenDto {
+  @ApiProperty({ description: 'Liste complète des sous-composants (children)', type: [MenuComponentChildLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentChildLineDto)
+  children: MenuComponentChildLineDto[];
+}
+
+export class CreateMenuComponentDto {
+  @ApiProperty({ description: 'Nom du composant' })
+  @IsString()
+  name: string;
+
+  @ApiProperty({ description: 'Unité (kg, liter, piece)' })
+  @IsString()
+  unit: string;
+
+  @ApiProperty({ description: 'Catégorie (Food, Beverage)' })
+  @IsString()
+  category: string;
+
+  @ApiPropertyOptional({ description: 'Coût unitaire' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  unitCost?: number;
+
+  @ApiPropertyOptional({ description: 'Allergènes', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allergens?: string[];
+
+  @ApiPropertyOptional({ description: 'Description' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ description: 'Type de stockage (Dry, Cold, Freezer, Material, NA)' })
+  @IsOptional()
+  @IsString()
+  storageType?: string;
+
+  @ApiPropertyOptional({ description: 'Sous-composants JSON' })
+  @IsOptional()
+  subComponents?: any;
+
+  @ApiPropertyOptional({ description: "Lignes d'ingrédients (source de vérité)", type: [MenuComponentIngredientLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentIngredientLineDto)
+  ingredients?: MenuComponentIngredientLineDto[];
+
+  @ApiPropertyOptional({ 
+    description: 'Sous-composants (relation parent→child). Format: [{componentId: "id", numberOfUnits: 1, unit?: "kg"}]',
+    type: [MenuComponentChildLineDto],
+    example: [
+      {
+        componentId: "cmnheiwkl0008u8fn0fnd7hkd",
+        numberOfUnits: 1,
+        unit: "kg"
+      }
+    ]
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentChildLineDto)
+  children?: MenuComponentChildLineDto[];
+
+  @ApiPropertyOptional({ description: 'Catégorie de composant (Sauce, Meat, Fish, Veg, Salad, Biscuit, Jus, Juice)' })
+  @IsOptional()
+  @IsString()
+  componentCategory?: string;
+
+  @ApiPropertyOptional({ description: 'ID du Component Type (taxonomie dédiée, indépendante)' })
+  @IsOptional()
+  @IsString()
+  componentTypeId?: string;
+
+  @ApiPropertyOptional({ description: 'ID de la Component Category (taxonomie dédiée, indépendante)' })
+  @IsOptional()
+  @IsString()
+  componentCategoryId?: string;
+
+  @ApiPropertyOptional({ description: "Nombre d'unités par recette" })
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  numberOfUnitsRecipe?: number;
+
+  @ApiPropertyOptional({ description: 'Nombre d\'unités par carton/emballage de stockage' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  packedUnits?: number;
+
+  @ApiPropertyOptional({ description: 'Emballage de stockage ("Item is stored in", ex: Box, Bag)' })
+  @IsOptional()
+  @IsString()
+  inventoryPackaging?: string;
+
+  @ApiPropertyOptional({ description: 'Prêt à la vente: Yes, No' })
+  @IsOptional()
+  @IsString()
+  readyForSale?: string;
+
+  @ApiPropertyOptional({ description: 'Cuisine de préparation (saisi quand readyForSale = "Yes")', enum: KitchenType })
+  @IsOptional()
+  @IsEnum(KitchenType)
+  kitchenType?: KitchenType;
+}

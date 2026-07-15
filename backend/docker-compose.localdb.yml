@@ -1,0 +1,27 @@
+# Base PostgreSQL LOCALE pour le développement/test (chantier Digifood).
+# But : ne jamais risquer la base Supabase en ligne pendant les tests.
+#   docker compose -f docker-compose.localdb.yml up -d
+#   docker compose -f docker-compose.localdb.yml down          # stop (données conservées)
+#   docker compose -f docker-compose.localdb.yml down -v       # reset complet (drop volume)
+# .env : DATABASE_URL / DIRECT_URL → postgresql://datafriday:datafriday@localhost:54329/datafriday
+services:
+  postgres-local:
+    image: postgres:16-alpine
+    container_name: datafriday-postgres-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: datafriday
+      POSTGRES_PASSWORD: datafriday
+      POSTGRES_DB: datafriday
+    ports:
+      - '54329:5432'
+    volumes:
+      - datafriday_pg_local:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U datafriday -d datafriday']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  datafriday_pg_local:

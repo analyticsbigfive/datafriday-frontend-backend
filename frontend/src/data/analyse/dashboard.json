@@ -1,0 +1,33 @@
+{
+  "totalRevenue": 1517024.6,
+  "totalEvents": 36,
+  "totalCost": 208927.8,
+  "averageMargin": 86.23,
+  "topMenuItems": [
+    {
+      "name": "Coca-Cola BB 50cl",
+      "revenue": 262120.73,
+      "quantity": 52426
+    },
+    {
+      "name": "Budweiser 45cl",
+      "revenue": 256368.03,
+      "quantity": 28475
+    },
+    {
+      "name": "Frites",
+      "revenue": 243804.59,
+      "quantity": 40631
+    },
+    {
+      "name": "Eau plate 50cl",
+      "revenue": 174613.57,
+      "quantity": 43612
+    },
+    {
+      "name": "Burger Pulled Chicken",
+      "revenue": 136422.1,
+      "quantity": 9851
+    }
+  ]
+}

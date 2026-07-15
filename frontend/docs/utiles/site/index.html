@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataFriday — Doc complète de l'app</title>
+<style>
+  :root{
+    --bg:#f6f8fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee4;
+    --txt:#1f2328; --muted:#656d76; --accent:#0969da; --accent2:#1a7f37;
+    --warn:#9a6700; --chip:#eaeef2; --danger:#cf222e;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--txt);display:flex}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  aside{position:sticky;top:0;height:100vh;width:280px;flex:0 0 280px;
+    background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:18px 0}
+  aside .brand{padding:0 22px 14px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  aside .brand h1{font-size:18px;margin:0}
+  aside .brand span{color:var(--muted);font-size:12px}
+  aside nav a{display:block;padding:6px 22px;color:var(--muted);font-size:13.5px;border-left:3px solid transparent}
+  aside nav a:hover{color:var(--txt);background:var(--panel2);text-decoration:none}
+  aside nav a.active{color:var(--accent);border-left-color:var(--accent);background:var(--panel2);font-weight:600}
+  aside nav .grp{padding:14px 22px 4px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#8893a0;font-weight:700}
+
+  main{flex:1;max-width:1120px;margin:0 auto;padding:36px 52px 140px;min-width:0}
+  section{padding-top:22px;margin-bottom:30px;border-bottom:1px solid var(--line)}
+  h2{font-size:25px;margin:.2em 0 .5em;scroll-margin-top:16px}
+  h2 .num{color:var(--muted);font-weight:500;font-size:18px}
+  h3{font-size:17px;color:var(--accent);margin:1.5em 0 .5em}
+  h4{font-size:14px;margin:1.2em 0 .4em;color:var(--txt)}
+  p{color:#3a424b}
+  ul,ol{color:#3a424b;padding-left:22px}
+  li{margin:3px 0}
+  code{background:var(--chip);padding:2px 6px;border-radius:4px;font-size:12.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  pre{background:#f3f5f8;color:#1f2328;border:1px solid var(--line);border-radius:8px;padding:13px 15px;
+    overflow:auto;font-size:12.5px;line-height:1.5}
+  pre code{background:none;padding:0}
+  .lead{font-size:16px;color:#4a525c;border-left:3px solid var(--accent);padding-left:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .chip{display:inline-block;background:var(--chip);color:var(--accent);border-radius:20px;
+    padding:2px 10px;font-size:11.5px;margin:2px 4px 2px 0;font-family:ui-monospace,monospace}
+  .chip.g{color:var(--accent2)} .chip.w{color:var(--warn)} .chip.d{color:var(--danger)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  tr:hover td{background:var(--panel2)}
+  .diagram{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;margin:14px 0;overflow:auto}
+  .step{display:flex;gap:11px;margin:9px 0}
+  .step .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px}
+  .gotcha{background:#fff8e6;border:1px solid #e9d8a6;border-left:4px solid var(--warn);
+    border-radius:8px;padding:12px 15px;margin:10px 0}
+  .gotcha b{color:#7a5200}
+  .danger{background:#fff0f0;border:1px solid #f3c0c4;border-left:4px solid var(--danger);
+    border-radius:8px;padding:12px 15px;margin:10px 0}
+  .formula{font-family:ui-monospace,monospace;font-size:13px;background:#eef6ff;border:1px solid #cfe3fb;
+    border-radius:6px;padding:8px 12px;margin:6px 0;display:block;color:#0a3977}
+  .m{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;font-family:ui-monospace,monospace;color:#fff}
+  .m.get{background:#1a7f37} .m.post{background:#0969da} .m.put{background:#9a6700} .m.patch{background:#8250df} .m.del{background:#cf222e}
+  .pill{display:inline-block;padding:1px 8px;border-radius:5px;font-size:12px;font-family:ui-monospace,monospace}
+  .pill.auth{background:#fff3d4;color:#9a6700} .pill.org{background:#dafbe1;color:#1a7f37} .pill.none{background:#fbeffb;color:#a040a0}
+  .mono{font-family:ui-monospace,monospace;font-size:12.5px}
+  .tag{display:inline-block;font-size:10.5px;background:var(--accent2);color:#fff;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+  .ref{color:var(--muted);font-size:12px;font-family:ui-monospace,monospace}
+  .st{display:inline-block;font-size:11px;font-weight:700;border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .st.ok{background:#dafbe1;color:#1a7f37} .st.part{background:#fff3d4;color:#9a6700} .st.todo{background:#ffe0e2;color:#cf222e}
+  .bar{height:9px;border-radius:6px;background:#e6eaef;overflow:hidden;margin:6px 0}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,#1a7f37,#3fb950)}
+  .toc-mini{columns:2;gap:24px}
+  @media(max-width:980px){
+    body{flex-direction:column}
+    aside{position:static;width:100%;height:auto;flex:none;border-right:none;border-bottom:1px solid var(--line)}
+    aside nav{display:flex;flex-wrap:wrap}
+    aside nav .grp{width:100%}
+    main{padding:22px 16px 80px}
+    .g2,.g3,.g4{grid-template-columns:1fr}
+    .toc-mini{columns:1}
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <h1>🏟️ DataFriday</h1>
+    <span>Doc complète — comprendre toute l'app</span>
+  </div>
+  <nav id="toc">
+    <div class="grp">Comprendre</div>
+    <a href="#intro">Vue d'ensemble</a>
+    <a href="#glossaire">Glossaire des entités</a>
+    <div class="grp">Schémas</div>
+    <a href="#model">A · Modèle de données</a>
+    <a href="#nav">B · Navigation</a>
+    <a href="#loop">C · Boucle métier</a>
+    <a href="#menu">D · Pyramide F&amp;B</a>
+    <a href="#seq">E · Séquence predict</a>
+    <div class="grp">Parcours</div>
+    <a href="#auth">1 · Authentification</a>
+    <a href="#onboarding">2 · Onboarding</a>
+    <a href="#spaces">3 · Spaces</a>
+    <a href="#builder">4 · Builder</a>
+    <a href="#fb">5 · Menu F&amp;B</a>
+    <a href="#events">6 · Events</a>
+    <a href="#predict">7 · Predict</a>
+    <a href="#inventory">8 · Inventory</a>
+    <a href="#restock">9 · Restock</a>
+    <a href="#analyse">10 · Analyse</a>
+    <div class="grp">Référence technique</div>
+    <a href="#datamodel">Modèle de données détaillé</a>
+    <a href="#state">State Vuex (3 modules)</a>
+    <a href="#api">API &amp; endpoints REST</a>
+    <a href="#predict-engine">Moteur Predict (algo)</a>
+    <a href="#metrics">Formules Analyse</a>
+    <a href="#backend">Backend KV (React)</a>
+    <div class="grp">Conformité</div>
+    <a href="#conformite">Reste à faire (Vue↔React)</a>
+    <div class="grp">Survie dev</div>
+    <a href="#gotchas">⚠️ Pièges (gotchas)</a>
+    <a href="#filemap">Où trouver quoi</a>
+    <a href="#react">React vs Vue</a>
+  </nav>
+</aside>
+
+<main>
+
+<!-- ===================== INTRO ===================== -->
+<section id="intro">
+  <h2>Vue d'ensemble</h2>
+  <p class="lead">SaaS de gestion <b>F&amp;B (restauration)</b> dans les grands lieux : stades, arénas, salles d'événements.
+  Répond à : <i>« Combien vais-je vendre, combien commander, combien de staff, et combien ai-je gagné ? »</i></p>
+  <div class="grid g3">
+    <div class="card"><h3 style="margin-top:0">👤 Utilisateur</h3>Opérateur F&amp;B / traiteur de stade gérant plusieurs points de vente sur plusieurs étages, pour des dizaines d'événements/an.</div>
+    <div class="card"><h3 style="margin-top:0">🎯 Valeur</h3>Prévoir les ventes → commander le bon stock → éviter rupture <b>et</b> surstock → mesurer la performance réelle.</div>
+    <div class="card"><h3 style="margin-top:0">📐 Métrique reine</h3><b>Per-capita</b> = revenu ÷ spectateurs. Compare un match 20k à un concert 40k sur la même base.</div>
+  </div>
+  <div class="card">
+    <b>Deux bases de code</b> dans ce repo :
+    <ul>
+      <li><b>Vue 3</b> (<code>src/</code>) = app <b>production</b> réelle. vue-router + auth multi-org + Vuex + backend REST. C'est l'app vivante.</li>
+      <li><b>React</b> (<code>versionReact/</code>) = export <b>Figma Make</b>, un seul <code>App.tsx</code> (3029 l.), sans auth ni router, backend Supabase Edge Function + KV store. = <b>maquette de référence UI/UX + logique métier d'origine</b> qu'on porte vers Vue.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <b>Boucle de valeur</b>
+    <pre><code>Prédire → Commander stock → Vendre pendant event
+   → Compter (Inventory) → Réarmer (Restock) → Mesurer (Analyse) → ↺ améliore la prédiction</code></pre>
+  </div>
+</section>
+
+<!-- ===================== GLOSSAIRE ===================== -->
+<section id="glossaire">
+  <h2>Glossaire des entités</h2>
+  <p>Le vocabulaire à maîtriser avant tout. Du plus gros au plus petit.</p>
+  <table>
+    <tr><th>Entité</th><th>C'est quoi</th><th>Clés</th></tr>
+    <tr><td><b>Organisation</b></td><td>Le client (traiteur/opérateur). Multi-tenant via <code>tenantId</code> dans le JWT.</td><td class="mono">tenantId, userRole</td></tr>
+    <tr><td><b>Space</b></td><td>Un lieu = un stade. Porte des métriques pré-calculées.</td><td class="mono">id, name, homeTeam, cachedMetrics</td></tr>
+    <tr><td><b>Configuration</b></td><td>Un agencement du Space pour un type d'event (Match ≠ Concert). Contient le plan.</td><td class="mono">id, spaceId, capacity, data{floors,forecourt,externalMerch}</td></tr>
+    <tr><td><b>Floor / Forecourt / External</b></td><td>Zones physiques d'une config. Floor = étage (level), Forecourt = parvis, External = merch déporté.</td><td class="mono">width, length, level, elements[]</td></tr>
+    <tr><td><b>FBElement</b></td><td>Un point de vente/objet placé sur le plan. 8 types.</td><td class="mono">type, x,y,width,depth,height, menuItems[]</td></tr>
+    <tr><td><b>FBElementRegistry</b></td><td>Fiche « identité » d'un élément, partagée entre configs.</td><td class="mono">configurations{configId→placement}</td></tr>
+    <tr><td><b>FBElementPlacement</b></td><td>Position d'un élément <i>dans une config donnée</i>.</td><td class="mono">areaType, areaId, x,y,...</td></tr>
+    <tr><td><b>Event</b></td><td>Un match/concert daté, rattaché à un Space + une Configuration.</td><td class="mono">eventDate, ticketsSold/Scanned, eventTypeId</td></tr>
+    <tr><td><b>Market Price</b></td><td>Prix d'achat d'un ingrédient/commodité (par unité + conversion).</td><td class="mono">cost, purchaseUnit, recipeUnit, supplierId</td></tr>
+    <tr><td><b>Component</b></td><td>Sous-recette (mix d'ingrédients) : « pain », « steak ».</td><td class="mono">ingredients[], cost</td></tr>
+    <tr><td><b>Menu Item</b></td><td>Produit fini vendu : « Burger » = composants. Porte coût + marge + prix.</td><td class="mono">type(Food/Beverage/Combo), components[], readyForSale</td></tr>
+    <tr><td><b>Space Menu</b></td><td>Quels menu items sont actifs dans quelle boutique d'un space.</td><td class="mono">spaceId, configId, shop→items</td></tr>
+    <tr><td><b>ShopGranularRecord</b></td><td>Ligne de vente réelle (ou prédite) : event × shop × menu item.</td><td class="mono">quantity, revenue, transactionCount, isPredictive</td></tr>
+  </table>
+</section>
+
+<!-- ===================== DIAGRAMS ===================== -->
+<section id="model">
+  <h2><span class="num">A ·</span> Modèle de données</h2>
+  <p>Une boutique (<code>FBElement</code>) est placée <b>différemment selon la configuration</b> (match vs concert).</p>
+  <div class="diagram"><pre class="mermaid">
+graph TD
+  Org[Organisation] --> Space
+  Org -.référentiels.-> REF[Suppliers / MarketPrices / Components / MenuItems / Products / EventTypes]
+  Space --> Config[Configuration]
+  Space --> Event
+  Config --> Floor[Floor / Forecourt / External]
+  Floor --> FB["FBElement<br/>shop · storage · kitchen · entrance<br/>hospitality · merchshop · access · entertainment"]
+  FB --> MI[MenuItems = ce qui se vend]
+  FB --> INV[InventoryItems = stock]
+  Event -->|pointe| Config
+  MI -.assemblés depuis.-> Components
+  Components -.coût depuis.-> REF
+  </pre></div>
+</section>
+
+<section id="nav">
+  <h2><span class="num">B ·</span> Navigation &amp; routes</h2>
+  <p>Gardes : <span class="pill auth">requireAuth</span> <span class="pill org">requireOrganization</span> <span class="pill none">guestOnly</span>. Bypass démo : <code>?demo=1</code>.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  Start(["/"]) --> Dash{loggé ?}
+  Dash -->|non| Login["/login"]
+  Login --> Signup["/signup"]
+  Login --> Forgot["/forgot-password → /reset-password"]
+  Login -->|OAuth| CB["/auth/callback"]
+  Dash -->|oui, pas d'org| Onb["/onboarding"]
+  Dash -->|oui + org| Spaces["/spaces"]
+  Onb --> Spaces
+  Spaces --> Overview["/spaces-overview"]
+  Spaces --> S[Entrer dans un Space]
+  S --> Analyse["/spaces/:id — Analyse"]
+  S --> Builder["/spaces/:id/builder"]
+  S --> Predict["/spaces/:id/predict"]
+  S --> Inv["/spaces/:id/inventory"]
+  S --> Restock["/spaces/:id/restock"]
+  Spaces -.menu global.-> Events["/events + types/cats/subcats"]
+  Spaces -.menu global.-> MenuFB["Menu F&amp;B: suppliers · market-prices · components · menu-items · space-menus"]
+  Spaces -.menu global.-> Products["/product-categories · product-types"]
+  </pre></div>
+</section>
+
+<section id="loop">
+  <h2><span class="num">C ·</span> Boucle métier (3 phases)</h2>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph SETUP[1 · SETUP — architecte]
+    A1[Créer Space] --> A2[Builder: plan + boutiques] --> A3[Menu F&amp;B: offre] --> A4[Space Menus]
+  end
+  subgraph AVANT[2 · AVANT EVENT — planificateur]
+    B1[Events créer/importer] --> B2[Predict: ventes + stock] --> B3[Commander] --> B4[Inventory: compter]
+  end
+  subgraph APRES[3 · APRÈS EVENT — analyste]
+    C1[Intégration ventes réelles] --> C2[Analyse: KPIs/charts] --> C3[Restock]
+  end
+  SETUP --> AVANT --> APRES
+  C3 -.feedback.-> B2
+  </pre></div>
+</section>
+
+<section id="menu">
+  <h2><span class="num">D ·</span> Pyramide de l'offre F&amp;B</h2>
+  <div class="diagram"><pre class="mermaid">
+flowchart BT
+  MP["Market Prices<br/>prix ingrédients"] --> CP["Components<br/>sous-recettes: pain, steak, sauce"]
+  CP --> MIT["Menu Items<br/>produit fini: Burger"]
+  MIT --> SM["Space Menus<br/>quel item dans quelle boutique"]
+  SM --> PR[Prix spécifique par space]
+  </pre></div>
+</section>
+
+<section id="seq">
+  <h2><span class="num">E ·</span> Séquence : prévoir → vendre → mesurer</h2>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant U as Utilisateur
+  participant P as Predict
+  participant T as Terrain (event)
+  participant I as Inventory
+  participant A as Analyse
+  U->>P: choisir space + event
+  P->>P: lire historique events similaires
+  P-->>U: ventes prévues + stock à commander (per-capita)
+  U->>T: commander stock, vendre
+  T->>I: comptage stock réel
+  T->>A: ventes réelles (intégration)
+  A-->>U: KPIs, revenu/boutique, marge
+  I->>U: liste Restock
+  A-->>P: ajuste prédiction suivante
+  </pre></div>
+</section>
+
+<!-- ===================== PARCOURS ===================== -->
+<section id="auth">
+  <h2><span class="num">1 ·</span> Authentification</h2>
+  <p>Backend auth = <b>Supabase</b>. Le token JWT porte un claim custom <code>tenant_id</code> (= organisation) injecté par un hook Supabase.</p>
+  <div class="grid g2">
+    <div class="card"><h4 style="margin-top:0">Inscription</h4><div class="mono">/signup → email vérif → /verify-email → /auth/callback → /onboarding</div></div>
+    <div class="card"><h4 style="margin-top:0">Connexion</h4><div class="mono">/login → signIn() → setAccessToken() → checkOnboardingStatus() → org ? /dashboard : /onboarding</div></div>
+    <div class="card"><h4 style="margin-top:0">Mot de passe oublié</h4><div class="mono">/forgot-password → email → /reset-password → /login</div></div>
+    <div class="card"><h4 style="margin-top:0">Démo / test</h4><code>?demo=1</code> court-circuite l'auth. Banc moteur : <code>/predict-test</code> (mock JSON, sans auth).</div>
+  </div>
+  <div class="danger">
+    <b>🔑 Piège n°1 (silencieux)</b> — Après <code>createOrganization()</code> / <code>joinOrganization()</code>, il faut <b>refresh la session Supabase</b> (auth.js L.261-274). Sinon le JWT ne contient pas encore <code>tenant_id</code> → tout appel API suivant (ex. <code>GET /spaces</code>) renvoie <b>401</b>. Aucun message clair, juste un 401.
+  </div>
+  <p><b>Flux token</b> : token gardé en mémoire (<code>client.js</code>). Si absent (reload, deep-link, OAuth), l'intercepteur le récupère depuis la session Supabase — <i>sauf</i> si <code>_explicitlyLoggedOut=true</code> (posé par <code>signOut()</code> qui efface le token <b>avant</b> le logout Supabase). Sur <span class="m get">401</span> l'intercepteur tente <b>un</b> refresh, sinon redirige <code>/login</code>.</p>
+</section>
+
+<section id="onboarding">
+  <h2><span class="num">2 ·</span> Onboarding</h2>
+  <p>1ʳᵉ connexion → créer l'<b>organisation</b>. Sans org, toute route protégée renvoie ici (<code>auth/hasOrganization</code> = <code>!!tenantId</code>).</p>
+  <div class="mono card">/onboarding → POST /onboarding (createOrganization) → <b>refresh session</b> → /spaces</div>
+  <p>Alternative : rejoindre une org existante via code → <code>POST /onboarding/join-by-code</code>.</p>
+</section>
+
+<section id="spaces">
+  <h2><span class="num">3 ·</span> Spaces</h2>
+  <p><code>/spaces</code> liste (cartes + <code>cachedMetrics</code>) · <code>/spaces-overview</code> comparaison multi-spaces. Entrer dans un space → 5 outils, accessibles via <code>MainNav</code> / <code>BurgerMenu</code> :</p>
+  <table>
+    <tr><th>Outil</th><th>Route</th><th>Rôle</th></tr>
+    <tr><td>Analyse</td><td class="mono">/spaces/:id</td><td>Bilan après-event</td></tr>
+    <tr><td>Builder</td><td class="mono">/spaces/:id/builder</td><td>Dessiner le plan</td></tr>
+    <tr><td>Predict</td><td class="mono">/spaces/:id/predict</td><td>Prévoir ventes/stock</td></tr>
+    <tr><td>Inventory</td><td class="mono">/spaces/:id/inventory</td><td>Compter le stock</td></tr>
+    <tr><td>Restock</td><td class="mono">/spaces/:id/restock</td><td>Réarmer</td></tr>
+  </table>
+</section>
+
+<section id="builder">
+  <h2><span class="num">4 ·</span> Builder</h2>
+  <p>Modéliser physiquement le lieu et ses points de vente. <code>/spaces/:id/builder</code> → <code>SpaceBuilderViewRoute.vue</code> orchestre 5 widgets.</p>
+  <div class="grid g2">
+    <div class="card">
+      <h4 style="margin-top:0">Disposition de l'écran</h4>
+      <ul>
+        <li><b>Gauche</b> : <code>FloorListView</code> (liste étages/zones, +Floor/Basement/Forecourt/External)</li>
+        <li><b>Gauche bas</b> : <code>ElementPaletteView</code> (outil : shop/storage/… + sous-types en cases à cocher)</li>
+        <li><b>Centre haut</b> : <code>ElevationBuilderView</code> (vue 3D isométrique, étages empilés)</li>
+        <li><b>Centre bas</b> : <code>FloorPlanBuilderView</code> (vue 2D dessus, drag pour placer)</li>
+        <li><b>Droite</b> : <code>PropertiesPanelView</code> (édite l'élément sélectionné)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">Placer un élément</h4>
+      <div class="step"><div class="n">1</div><div>Choisir Configuration (match vs concert)</div></div>
+      <div class="step"><div class="n">2</div><div>Choisir outil + sous-types dans la palette</div></div>
+      <div class="step"><div class="n">3</div><div>Dessiner un rectangle sur le plan 2D</div></div>
+      <div class="step"><div class="n">4</div><div>Régler x/y, width/<b>depth</b>/height, rotation</div></div>
+      <div class="step"><div class="n">5</div><div>Éditer nom, image, menuItems, staff (panel droit)</div></div>
+      <div class="step"><div class="n">6</div><div>Sauver → <span class="m post">POST</span> <code>/configurations</code> (blob <code>data</code> complet)</div></div>
+    </div>
+  </div>
+  <p style="margin-top:14px">8 types d'éléments :
+    <span class="chip">shop</span><span class="chip">storage</span><span class="chip">kitchen</span><span class="chip">entrance</span>
+    <span class="chip">hospitality</span><span class="chip">merchshop</span><span class="chip">access</span><span class="chip">entertainment</span>
+  </p>
+  <div class="gotcha"><b>Attention</b> — la position est le coin <b>haut-gauche</b> ; <code>depth</code> = axe Y en 2D (pas height) ; les sous-types sont des <b>tableaux</b> (une cuisine peut être <code>['fb','hospitality']</code>). Voir <a href="#datamodel">modèle détaillé</a>.</p>
+</section>
+
+<section id="fb">
+  <h2><span class="num">5 ·</span> Menu F&amp;B</h2>
+  <p>Référentiel de l'offre, construit du bas vers le haut (cf. pyramide D). Chaque niveau enrichit le coût vers le haut.</p>
+  <table>
+    <tr><th>Sous-parcours</th><th>Route</th><th>Rôle</th></tr>
+    <tr><td>Suppliers</td><td class="mono">/suppliers</td><td>CRUD fournisseurs</td></tr>
+    <tr><td>Market Prices</td><td class="mono">/market-prices</td><td>Prix marché + <b>import CSV</b> (MarketPriceImportPage)</td></tr>
+    <tr><td>Products</td><td class="mono">/product-categories · /product-types</td><td>Taxonomie (good type, category) — dropdowns de référence</td></tr>
+    <tr><td>Components</td><td class="mono">/components/new · /edit/:id</td><td>Ingrédients + qté → coût roulé</td></tr>
+    <tr><td>Menu Items</td><td class="mono">/menu-items/create · /edit/:id</td><td>Composants → prix, <b>marge</b> ; flag <code>readyForSale</code></td></tr>
+    <tr><td>Space Menus</td><td class="mono">/space-menus/:spaceId/shops/:shopId</td><td>Affecter aux boutiques, prix par space</td></tr>
+  </table>
+  <h4>Coût &amp; marge</h4>
+  <span class="formula">component.cost = Σ(ingredient.costPerRecipeUnit × numberOfUnits)</span>
+  <span class="formula">menuItem.cost = Σ(component costs)</span>
+  <span class="formula">marge % = (sellingPrice − cost) / sellingPrice × 100</span>
+  <div class="gotcha"><b>Coût figé à la création</b> — changer un prix marché ne recalcule <b>pas</b> automatiquement les menu items qui l'utilisent. Bouton « Refresh Costs » (<span class="m post">POST</span> <code>/menu-items/refresh-costs</code>) requis.</div>
+</section>
+
+<section id="events">
+  <h2><span class="num">6 ·</span> Events</h2>
+  <p>Hiérarchie : <b>Type → Catégorie → Sous-catégorie</b> (<code>/event-types</code>, <code>/event-categories</code>, <code>/event-subcategories</code>).</p>
+  <div class="card"><div class="mono">/events → créer/éditer : space + configuration, date, type/cat, sessions (doorsOpening/showTime), billets vendus/scannés, 1ʳᵉ partie, entracte, équipe visiteuse, sponsor, performer</div></div>
+  <p>Import masse : <code>EventsImportWizard</code> (fichier → mapping → validation). <code>LowConfidenceEventsDialog</code> signale les lignes douteuses. <b>Lien fort</b> : Event → <b>Configuration</b> précise → utilisée par Predict et Analyse.</p>
+</section>
+
+<section id="predict">
+  <h2><span class="num">7 ·</span> Predict</h2>
+  <p><b>Avant</b> l'event : prévoir ventes + stock. <code>/spaces/:id/predict</code> → <code>EventPredictView.vue</code>. (Algo détaillé : <a href="#predict-engine">moteur Predict</a>.)</p>
+  <div class="grid g2">
+    <div class="card">
+      <h4 style="margin-top:0">UI</h4>
+      <ul>
+        <li><b>Gauche</b> : sélecteur d'event (Upcoming/Past), versions sauvegardées</li>
+        <li><b>Centre</b> : Timeline prédite + onglets <b>Configuration</b> (items par boutique, slider qté 0–500%) / <b>Stock Up</b> (ingrédients agrégés à commander)</li>
+        <li><b>Droite</b> : 6 KPI (Revenue, Cost, Margin%, PerCap, Panier, Transfo%) — version prédite + ajustée</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">Versions de prédiction</h4>
+      <code>useEventPredictVersions</code> sauve des scénarios : config menu, ajustements qté, events passés sélectionnés. Persistence 3 niveaux : <b>API KV → localStorage → ref mémoire</b>. Clé LS : <code>analyse:event-predict-versions:{eventId}</code>.
+    </div>
+  </div>
+</section>
+
+<section id="inventory">
+  <h2><span class="num">8 ·</span> Inventory</h2>
+  <p>Compter le stock réel sur le terrain. <code>/spaces/:id/inventory</code></p>
+  <div class="step"><div class="n">1</div><div>Filtres (boutique/type stock) → <code>InventoryFilterDrawer</code></div></div>
+  <div class="step"><div class="n">2</div><div>Cartes par point de vente → <code>InventoryShopCard</code> / <code>InventoryStorageCard</code></div></div>
+  <div class="step"><div class="n">3</div><div>Comptage : <code>InventoryCountingInterface</code> — saisie <code>packedUnits</code> + <code>looseUnits</code> + perte (<code>discarded</code>)</div></div>
+  <div class="step"><div class="n">4</div><div>Statut par item : <span class="chip">pending</span><span class="chip">in-progress</span><span class="chip g">counted</span><span class="chip d">discarded</span></div></div>
+  <div class="step"><div class="n">5</div><div>Agrégation : <code>InventoryAggregateView</code> (totaux par item, tous shops)</div></div>
+  <span class="formula">totalForItem = packedUnits × packSize + looseUnits</span>
+  <div class="gotcha"><b>Persistence double</b> — écrit <b>immédiatement</b> en localStorage (clé <code>analyse:space-inventory-counts:{spaceId}:{eventId}</code>), puis API best-effort. Marche offline. Changer d'event en plein comptage <b>perd l'état local</b> si pas sauvé.</div>
+</section>
+
+<section id="restock">
+  <h2><span class="num">9 ·</span> Restock / Réarmement</h2>
+  <p>Après comptage, recalcule le réapprovisionnement. <code>/spaces/:id/restock</code></p>
+  <span class="formula">restockQty = max(0, targetQuantity − remainingQuantity)</span>
+  <p>Pipeline (<code>stockPlanning.js</code>) : pour chaque event sélectionné → prédictions → <code>buildStockRequirements()</code> → ajustement % (slider 0–200) → mode packaging (« 5 boîtes de 10 » vs « 50 pcs ») → soustrait le <code>remainingQuantity</code> de l'inventaire précédent.</p>
+  <div class="gotcha"><b>« Remaining » = snapshot de l'event <i>précédent</i></b>, pas le comptage en cours. Si l'inventaire précédent n'a pas été sauvé → remaining = 0. Expansion récursive des combos plafonnée à 10 niveaux, <b>pas de détection de cycle</b>.</div>
+</section>
+
+<section id="analyse">
+  <h2><span class="num">10 ·</span> Analyse</h2>
+  <p><b>Après</b> l'event : mesurer la performance réelle. <code>/spaces/:id</code> → <code>components/analyse/AnalyseView.vue</code> (conteneur). (Formules : <a href="#metrics">formules Analyse</a>.)</p>
+  <h4>Arbre des composants</h4>
+  <pre><code>AnalyseView
+├─ AnalyseAppHeader        8 KPIs cliquables + alertes + space switcher
+├─ FilterPanel (gauche)    ~90 filtres en accordéon
+├─ SummaryPanel (droite)   taux par shop, clic → filtre
+├─ FilterSummary           chips de filtres actifs
+├─ FinancialMetricsGrid    4 cartes: Cost / Revenue / Margin% / TxRate
+├─ EventTimelineChart      si 1 seul event (minute par minute)
+├─ EventRevenueByShopChart bar, clic barre → drilldown
+├─ ShopDistributionPieChart 3 donuts (shop / type / zone), clic → filtre
+├─ MenuItemRevenueDistribution 3 donuts (item / type / cat)
+├─ MenuItemsByShopTable     table filtrable + export Excel
+└─ GenericByEventChart      dialog ouvert au clic d'un KPI</code></pre>
+  <div class="gotcha"><b>Mono vs multi-event</b> — <code>isSingleEventMode = selectedEventIds.length === 1</code>. En mono : moyennes /event masquées, timeline auto-chargée. Au-delà de 50 events la timeline se ferme (garde les 50 plus récents). Si données mock/API absentes, la timeline est <b>synthétisée</b> (fenêtre 180 min, distribution gaussienne pic ~60 min).</div>
+</section>
+
+<!-- ===================== REF: DATA MODEL ===================== -->
+<section id="datamodel">
+  <h2>Modèle de données détaillé</h2>
+  <p class="ref">Source : versionReact/src/app/App.tsx L.57-200 + types.ts · src/types/</p>
+  <h3>Le split Registry / Placement (clé)</h3>
+  <p>Un même élément (« Bar principal ») peut être placé à des (x,y) différents selon la config, ou absent d'une config.</p>
+  <div class="grid g2">
+    <div class="card"><h4 style="margin-top:0"><code>FBElementRegistry</code> — l'identité</h4>
+      Ce que l'élément <b>EST</b>. Partagé entre toutes les configs.
+      <pre><code>{ id, name, type, archived,
+  menuItems[], inventoryItems[],
+  performance, staffPositions[],
+  shopType[]/storageType[]/...,
+  configurations: {
+    [configId]: FBElementPlacement
+  } }</code></pre>
+    </div>
+    <div class="card"><h4 style="margin-top:0"><code>FBElementPlacement</code> — la position</h4>
+      <b>OÙ</b> il est dans une config donnée.
+      <pre><code>{ areaType: 'floor'|'basement'
+            |'forecourt'|'external',
+  areaId,
+  x, y, width, depth, height,
+  rotation?, cornerRadius? }</code></pre>
+    </div>
+  </div>
+  <h3>Les 8 types &amp; leurs sous-types</h3>
+  <table>
+    <tr><th>Type</th><th>Sous-types (tableaux)</th><th>Données opérationnelles</th></tr>
+    <tr><td><b>shop</b></td><td class="mono">food, beverages, beer, gppremium, temporary, drinkee</td><td>menuItems[], performance, staffPositions</td></tr>
+    <tr><td><b>storage</b></td><td class="mono">dry, cold, belowzero, material, merch</td><td>inventoryItems[], <b>selectedShops[]</b> (boutiques servies)</td></tr>
+    <tr><td><b>entrance</b></td><td class="mono">public, vip, staff</td><td>contrôle d'accès</td></tr>
+    <tr><td><b>hospitality</b></td><td class="mono">lodges, salon</td><td>menuItems[], staffPositions</td></tr>
+    <tr><td><b>merchshop</b></td><td class="mono">onsite, offsite, temporary</td><td>inventoryItems[], performance</td></tr>
+    <tr><td><b>access</b></td><td class="mono">lift, staircase, servicelift, venueentrance, parking, reception, information</td><td>points de circulation</td></tr>
+    <tr><td><b>entertainment</b></td><td class="mono">sportground, stage, mice</td><td>zones revenu non-food</td></tr>
+    <tr><td><b>kitchen</b></td><td class="mono">fb, hospitality, storage</td><td>menuItems[], staffPositions, performance</td></tr>
+  </table>
+  <h3>Blob <code>data</code> persisté (Configuration)</h3>
+  <pre><code>POST /configurations
+{ id, name, spaceId, capacity,
+  data: {
+    floors: [ { id, name, level, width, length, height, cornerRadius, hole,
+                elements: [ { id, name, type, shopType[], x,y,width,depth,height,
+                              rotation, image, menuItems[], performance, staffPositions[] } ] } ],
+    forecourt: { id, name, width, length, elements[] } | null,
+    externalMerch: { ... } | null
+  } }</code></pre>
+  <div class="gotcha"><b>IDs temporaires</b> — avant save, floors/elements ont <code>id:"temp-&lt;timestamp&gt;"</code> (réactivité locale). Le backend les remplace par des UUID au save. Le client doit gérer les deux. Réactivité Vue : muter un tableau imbriqué peut ne pas être détecté → réassigner la référence.</div>
+</section>
+
+<!-- ===================== REF: STATE ===================== -->
+<section id="state">
+  <h2>State Vuex — 3 modules</h2>
+  <p class="ref">src/store/modules/{auth,analyse,inventory}.js</p>
+  <div class="grid g3">
+    <div class="card">
+      <h4 style="margin-top:0">auth</h4>
+      <b>state</b> : userId, token, refreshToken, <b>tenantId</b>, tenantName, userRole, initialized
+      <br><b>getters</b> : isAuthenticated (<code>!!token</code>), hasOrganization (<code>!!tenantId</code>), isAdmin, isManager
+      <br><b>actions</b> : signIn, signUp, signInWithGoogle, createOrganization, joinOrganization, <b>initialize</b> (onAuthStateChange), signOut
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">analyse <span class="tag">le gros</span></h4>
+      <b>state</b> : spaceId, space, configurations, <b>shopGranularData</b>, events, menuItemCostMap, summary, fromMock, <b>~90 filtres</b>
+      <br><b>getters</b> : <b>filteredEvents</b>, <b>filteredShopGranularData</b>, uniqueShopNames/Types/Areas, aggregatedTimelineByEvent
+      <br><b>caches</b> : timelineCacheByEventId, predictionCacheByEventConfigKey, shopPerformanceCache
+      <br><b>actions</b> : loadSpace, loadSpaceLightweight, loadTimelineForEvent, regeneratePredictions
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">inventory</h4>
+      <b>state</b> : inventoryCounts{shopId→itemId→count}, marketPrices, packagingTypes, lastEvent, currentSpaceId/EventId
+      <br><b>getters</b> : countFor, countedInShop, marketPriceById
+      <br><b>actions</b> : loadInventory, upsertCount (LS + API), saveInventory, resolveLastPastEvent
+    </div>
+  </div>
+  <h4>Flux des filtres (Analyse, unidirectionnel)</h4>
+  <pre><code>UI (FilterPanel) → setFilterImmediate(key,value)   // sliders: setFilter() debounce 150ms
+  → dispatch('analyse/updateFilter') → mutation → state.filters[key]=value
+  → getters recalculent filteredEvents / filteredShopGranularData
+  → useMetricsCalculator recompute KPIs → charts re-render</code></pre>
+  <p>Clés de filtre principales :
+    <span class="chip">selectedEventIds</span><span class="chip">selectedShopIds</span><span class="chip">selectedShopTypes</span><span class="chip">selectedShopAreas</span>
+    <span class="chip">selectedMenuItemIds</span><span class="chip">selectedMenuItemTypes</span><span class="chip">selectedMenuItemCategories</span>
+    <span class="chip">ticketsScannedRange</span><span class="chip">timeRange</span><span class="chip">comparisonMode</span>
+  </p>
+</section>
+
+<!-- ===================== REF: API ===================== -->
+<section id="api">
+  <h2>API &amp; endpoints REST</h2>
+  <p class="ref">Client : src/api/client.js (axios, base <code>VUE_APP_API_URL || http://localhost:3000/api/v1</code>) · endpoints : src/api/endpoints/*.api.js</p>
+  <p>Token <code>Bearer</code> auto-injecté. Intercepteur de réponse : messages FR par code (401 retry+login, 403, 404, 422, 429, 5xx, timeout, réseau) + event <code>api-error</code>. <code>apiOrMock.js</code> : fallback mock sur réseau/timeout/404/5xx (<b>pas</b> sur 401/403), tag <code>_fromMock:true</code>.</p>
+  <table>
+    <tr><th>Domaine</th><th>Endpoints (méthode /path)</th></tr>
+    <tr><td><b>Spaces</b></td><td class="mono"><span class="m get">GET</span> /spaces · /spaces/:id · /spaces/:id/configurations · /spaces/:id/shop-details &nbsp; <span class="m post">POST</span> /spaces &nbsp; <span class="m patch">PATCH</span> /spaces/:id &nbsp; <span class="m del">DEL</span> /spaces/:id</td></tr>
+    <tr><td><b>Configurations</b></td><td class="mono"><span class="m get">GET</span> /configurations · /configurations/:id · ?spaceId= &nbsp; <span class="m post">POST</span> &nbsp; <span class="m patch">PATCH</span> /:id &nbsp; <span class="m del">DEL</span> /:id</td></tr>
+    <tr><td><b>Events</b></td><td class="mono"><span class="m get">GET</span> /events · /events/:id &nbsp; <span class="m post">POST</span> &nbsp; <span class="m patch">PATCH</span> /:id &nbsp; <span class="m del">DEL</span> /:id &nbsp;|&nbsp; event-types / -categories / -subcategories (CRUD) &nbsp;|&nbsp; <span class="m post">POST</span> /events/calculate-single-event-revenue</td></tr>
+    <tr><td><b>Market Prices</b></td><td class="mono"><span class="m get">GET</span> /market-prices · /with-ingredients · /with-packagings &nbsp; <span class="m post">POST</span> /import · /deduplicate · /sync-packagings &nbsp; <span class="m patch">PATCH</span> /:id &nbsp; <span class="m del">DEL</span> /:id</td></tr>
+    <tr><td><b>Menu Items</b></td><td class="mono"><span class="m get">GET</span> /menu-items · /:id &nbsp; <span class="m post">POST</span> · /refresh-costs · /:id/refresh-costs &nbsp; <span class="m put">PUT</span> /:id/components · /ingredients · /packagings &nbsp; <span class="m patch">PATCH</span> /:id</td></tr>
+    <tr><td><b>Components / Ingredients</b></td><td class="mono"><span class="m get">GET</span> /menu-components · /ingredients · /packaging &nbsp; <span class="m post">POST</span> (+ /repair · /cleanup) &nbsp; <span class="m patch">PATCH</span> /:id &nbsp; <span class="m del">DEL</span> /:id</td></tr>
+    <tr><td><b>Space Menus</b></td><td class="mono"><span class="m get">GET</span> /space-menu/:spaceId/:configId · /space-menu/shop/:shopId &nbsp; <span class="m post">POST</span> /space-menus &nbsp;|&nbsp; menu-item-mappings (CRUD)</td></tr>
+    <tr><td><b>Inventory</b></td><td class="mono"><span class="m get">GET</span> /inventory/:spaceId/:eventId · /inventory/:spaceId/latest · /packaging-types &nbsp; <span class="m post">POST</span> /inventory · /inventory-counts</td></tr>
+    <tr><td><b>Analyse</b></td><td class="mono"><span class="m get">GET</span> /analyse/dashboard · /analyse/kpis/menu · /analyse/kpis/events · /analyse/cost-breakdown</td></tr>
+    <tr><td><b>Products / Suppliers</b></td><td class="mono"><span class="m get">GET</span> /product-categories · /product-types · /suppliers (CRUD chacun)</td></tr>
+    <tr><td><b>Onboarding</b></td><td class="mono"><span class="m get">GET</span> /onboarding/status &nbsp; <span class="m post">POST</span> /onboarding · /onboarding/join-by-code</td></tr>
+  </table>
+  <div class="gotcha"><b>Double stockage prix marché</b> — <code>store.analyse.marketPrices</code> ET <code>store.inventory.marketPrices</code> coexistent (lookup image selon le chemin d'import). À réconcilier mentalement.</div>
+</section>
+
+<!-- ===================== REF: PREDICT ENGINE ===================== -->
+<section id="predict-engine">
+  <h2>Moteur Predict — l'algorithme</h2>
+  <p class="ref">src/utils/predictiveAnalytics.js (origine : versionReact/.../predictiveAnalytics.ts)</p>
+  <p>But : prédire les ventes par <code>(shop, menuItem)</code> pour un event futur, à partir d'events passés similaires pondérés.</p>
+
+  <h3>Phase 1 — Scorer les events passés</h3>
+  <h4>Filtres durs (exclusion immédiate → null)</h4>
+  <ul>
+    <li><b>Type</b> d'event différent (si les deux connus)</li>
+    <li><b>Catégorie</b> différente</li>
+    <li><b>Affluence hors ±40 %</b> : <code>pTickets &lt; 0.6×tTickets || &gt; 1.4×tTickets</code></li>
+    <li><b>Show time &gt; 3 h</b> d'écart</li>
+  </ul>
+  <h4>Score souple (points additionnés)</h4>
+  <table>
+    <tr><th>Critère</th><th>Points</th></tr>
+    <tr><td>subcategory exacte</td><td>800</td></tr>
+    <tr><td>équipe visiteuse (sport) exacte</td><td>800</td></tr>
+    <tr><td>performer (concert) exact</td><td>800</td></tr>
+    <tr><td>sponsor (MICE) exact</td><td>400</td></tr>
+    <tr><td>jour de semaine : même jour</td><td>500 · (250 si même groupe weekend/semaine)</td></tr>
+    <tr><td>show time : exact / ≤60min / ≤120min</td><td>400 / 300 / 100</td></tr>
+    <tr><td>affluence proche (proportionnel)</td><td>0–200</td></tr>
+    <tr><td>type + catégorie (déjà filtre dur)</td><td>100 + 100</td></tr>
+  </table>
+  <span class="formula">scalingFactor = targetTickets / pastTickets</span>
+
+  <h3>Phase 2 — Sélection &amp; pondération</h3>
+  <ul>
+    <li>Garder les <b>10 meilleurs</b> scores</li>
+    <li>Aucun match → <b>fallback</b> : 3 events passés au hasard, <code>isLowConfidence=true</code>, confiance=0</li>
+    <li><span class="formula" style="display:inline-block">weight[i] = score[i] / Σ(scores)</span></li>
+  </ul>
+
+  <h3>Phase 3 — Agrégation par item</h3>
+  <p>Pour chaque <code>(shop, menuItemId)</code> :</p>
+  <span class="formula">qtySum = Σ( past_quantity × scalingFactor × weight )</span>
+  <span class="formula">revSum = Σ( past_revenue × scalingFactor × weight )</span>
+  <div class="gotcha"><b>Normalisation « sparsité »</b> — si un item n'apparaît que dans K des N events sélectionnés, on divise par <code>weightCovered</code> (somme des poids des events qui ont l'item). Sans ça, les items absents de certains events seraient <b>sous-estimés</b>. Ordre des opérations : scaling AVANT weight.</div>
+  <p><b>Timeline</b> (<code>usePredictiveTimeline</code>) : poids appliqués à la volée <code>value × eventWeight × (predictedAttendees/pastAttendees)</code>, puis agrégé par <code>(minute, shopId, menuItemId)</code>.</p>
+  <p><b>Banc de test</b> <code>/predict-test</code> : montre la table des events scorés (score/maxScore %, poids, scaling, exclusions + raison) et la <b>trace de calcul</b> par item.</p>
+</section>
+
+<!-- ===================== REF: METRICS ===================== -->
+<section id="metrics">
+  <h2>Formules Analyse</h2>
+  <p class="ref">src/composables/useMetricsCalculator.js</p>
+  <p>Entrées : <code>filteredShopGranularData</code> (lignes de vente), <code>chartFilteredEvents</code>, <code>menuItemCostMap</code>.</p>
+  <span class="formula">revenue       = Σ record.revenue</span>
+  <span class="formula">cost          = Σ costMap[record.menuItemId] × record.quantity</span>
+  <span class="formula">transactions  = Σ record.transactionCount</span>
+  <span class="formula">ticketsScanned= Σ (event.ticketsScanned || event.attendees)</span>
+  <span class="formula">avgRevenuePerEvent = revenue / eventsWithRevenueCount</span>
+  <span class="formula">avgPerTransaction  = revenue / transactions        ← « panier moyen »</span>
+  <span class="formula">perCapita          = revenue / ticketsScanned      ← métrique reine</span>
+  <span class="formula">margin %           = (revenue − cost) / revenue × 100</span>
+  <span class="formula">transactionRate    = transactions / operatingMinutes   (défaut 180 min/event)</span>
+  <p>Comparaisons : <code>comparisonMode</code> = <code>previous_period</code> | <code>year_over_year</code>. Variations masquées en mode mono-event. Source de vérité = getters du store (ne pas recalculer en local).</p>
+</section>
+
+<!-- ===================== REF: BACKEND ===================== -->
+<section id="backend">
+  <h2>Backend KV (version React)</h2>
+  <p class="ref">versionReact/src/app/supabase/functions/server/index.tsx (12 723 l., Deno + Hono)</p>
+  <p>⚠️ C'est le backend de la <b>maquette React</b>, pas celui de l'app Vue (REST <code>/api/v1</code>). Mais il documente la <b>logique métier d'origine</b> que l'API Vue reproduit.</p>
+  <h3>Stockage = Key-Value</h3>
+  <p>Table Postgres <code>kv_store_eb31619c (key TEXT, value JSONB)</code>. Tout est rangé par <b>préfixe de clé</b> :</p>
+  <p>
+    <span class="chip">space:</span><span class="chip">config:</span><span class="chip">event:</span><span class="chip">event-type:</span><span class="chip">event-revenue:</span>
+    <span class="chip">menu-item:</span><span class="chip">menu-component:</span><span class="chip">ingredient:</span><span class="chip">market-price:</span><span class="chip">packaging:</span>
+    <span class="chip">category:</span><span class="chip">type:</span><span class="chip">category-agg:</span><span class="chip">type-agg:</span>
+    <span class="chip">shop-element-mapping:</span><span class="chip">menu-item-mapping:</span><span class="chip">location-space-mapping:</span>
+    <span class="chip">shop-granular-records:</span><span class="chip">shop-event-revenue:</span><span class="chip">supplier:</span><span class="chip">team:</span><span class="chip">sponsor:</span>
+  </p>
+  <h3>Logique métier à connaître</h3>
+  <ul>
+    <li><b>Event revenue</b> : lit <code>fnb_sales_raw</code> (pagination 1000/chunk), <b>groupe par <code>Long_ID</code></b> (= une transaction client) et somme <code>Total_HT</code>. Format euro à virgule géré.</li>
+    <li><b>Aggregations</b> : pré-calcule coût/prix/marge par catégorie &amp; type (cher : joint tous les menu items) → caché en KV avec <b>dirty-tracking</b>.</li>
+    <li><b>Aggregation queue</b> : à chaque save de menu item → marque catégorie+type « dirty » → traité par lots (10 items, timeout 20s) au prochain appel. Évite de bloquer les saves.</li>
+    <li><b>Shop performance</b> : job <b>background</b> multi-phases avec checkpoints (resumable, timeout 10 min) → calcule transaction-rate par shop depuis la timeline.</li>
+    <li><b>Transaction distribution</b> : % de transactions par type d'item (60% Beverage / 40% Food…).</li>
+  </ul>
+  <div class="gotcha"><b>Mappings doubles</b> — ancien (consolidé <code>shop-mappings:{spaceId}</code>) vs nouveau (granulaire <code>shop-element-mapping:</code>). Les routes lisent le nouveau ; des migrations convertissent. Vérifier lequel est actif. Aussi : dates DD/MM/YYYY (saisie) vs YYYY-MM-DD (DB) → un mismatch = résultats vides.</div>
+</section>
+
+<!-- ===================== GOTCHAS ===================== -->
+<section id="gotchas">
+  <h2>⚠️ Pièges (gotchas) — la liste de survie</h2>
+  <p>Compilé des 6 sous-systèmes. À relire avant de toucher quoi que ce soit.</p>
+
+  <h3>Auth / API</h3>
+  <div class="danger"><b>JWT tenant</b> — après création/join d'org, <b>refresh session obligatoire</b> sinon 401 silencieux sur tous les appels.</div>
+  <div class="gotcha"><b>apiOrMock masque les erreurs</b> — réseau/timeout/404/5xx renvoient du mock (tag <code>_fromMock</code>). Un vrai bug backend peut passer inaperçu si un mock existe. (401/403 remontent, eux.)</div>
+  <div class="gotcha"><b><code>?demo=1</code></b> bypasse <code>requireOrganization</code> — pratique en local, dangereux si ça part en prod dans une URL.</div>
+
+  <h3>Builder / Modèle</h3>
+  <div class="gotcha"><b>IDs temporaires</b> <code>temp-*</code> → UUID au save. <b>depth ≠ height</b> (depth = Y en 2D). Sous-types = <b>tableaux</b>. Réactivité Vue : réassigner la référence du tableau de floors.</div>
+
+  <h3>Menu F&amp;B</h3>
+  <div class="gotcha"><b>Coût figé</b> à la création — pas de cascade quand un prix marché change (bouton refresh-costs). <b>Expansion combo</b> plafond 10 niveaux, <b>pas</b> de détection de cycle. Items « packaging » <b>silencieusement ignorés</b> à l'expansion (si « pack » dans le nom → drop accidentel).</div>
+
+  <h3>Predict</h3>
+  <div class="gotcha"><b>Ordre</b> scaling × weight (pas l'inverse). <b>Normalisation sparsité</b> sinon sous-estimation. Filtres durs excluent <b>avant</b> tout scoring (impossible de rattraper par le poids). Low-confidence = 3 events au hasard.</div>
+
+  <h3>Analyse</h3>
+  <div class="gotcha"><b>Canvas remount trap</b> — la <code>key</code> de EventTimelineChart ne change que sur <code>eventId</code>/longueur de liste, sinon crash ResizeObserver « ownerDocument ». <b>Timeline synthétique</b> si pas de données (gaussienne 180 min). Variations toujours via getters store, jamais en local.</div>
+
+  <h3>Inventory / Restock</h3>
+  <div class="gotcha"><b>Double persistence</b> LS + API ; changer d'event en plein comptage perd l'état non sauvé. <b>« Remaining »</b> = event précédent (0 si pas sauvé). Tabs shop/storage partagent le state de filtre mais logique différente.</div>
+</section>
+
+<!-- ===================== FILE MAP ===================== -->
+<section id="filemap">
+  <h2>Où trouver quoi (file map)</h2>
+  <div class="toc-mini">
+    <p><b>Entrée / routing</b><br>
+    <span class="mono">src/main.js · src/App.vue<br>src/router/index.js · router/guards.js</span></p>
+    <p><b>API</b><br>
+    <span class="mono">src/api/client.js (axios+intercepteurs)<br>src/api/apiOrMock.js<br>src/api/endpoints/*.api.js</span></p>
+    <p><b>State</b><br>
+    <span class="mono">src/store/index.js<br>src/store/modules/{auth,analyse,inventory}.js</span></p>
+    <p><b>Spaces / Builder</b><br>
+    <span class="mono">src/components/spaces/views/SpaceListView.vue<br>.../builder/views/SpaceBuilderViewRoute.vue<br>.../builder/widgets/*.vue</span></p>
+    <p><b>Analyse</b><br>
+    <span class="mono">src/components/analyse/AnalyseView.vue (+ enfants)<br>src/composables/useMetricsCalculator.js<br>useFilters.js · useFormatters.js</span></p>
+    <p><b>Predict</b><br>
+    <span class="mono">src/views/SpacePredictView.vue<br>src/components/EventPredictView.vue<br>EventPredict{Menus,StockUp}Section.vue<br>src/utils/predictiveAnalytics.js<br>src/composables/useEventPredictVersions.js</span></p>
+    <p><b>Inventory / Restock</b><br>
+    <span class="mono">src/views/Space{Inventory,Restock}View.vue<br>src/components/Inventory*.vue<br>src/composables/useInventory*.js<br>src/utils/{inventoryUtils,stockPlanning}.js</span></p>
+    <p><b>Menu F&amp;B</b><br>
+    <span class="mono">src/components/menu-fb/views/**<br>src/components/MenuBuilder.vue<br>src/composables/useMarketPrices.js</span></p>
+    <p><b>Types</b><br>
+    <span class="mono">src/types/* (JSDoc)<br>versionReact/src/app/types.ts (autorité)<br>versionReact/src/app/App.tsx L.57-200</span></p>
+    <p><b>Backend d'origine (réf)</b><br>
+    <span class="mono">versionReact/src/app/supabase/functions/server/index.tsx<br>+ aggregation_*, event_revenue_helper,<br>shop-performance-*, transaction-distribution</span></p>
+    <p><b>Docs de port</b><br>
+    <span class="mono">PORTING_PROGRESS.md<br>PLAN_PORT_REACT_VUE_ANALYSE.md<br>GUIDE_PARCOURS_APP.md</span></p>
+  </div>
+</section>
+
+<!-- ===================== REACT VS VUE ===================== -->
+<section id="react" style="border-bottom:none">
+  <h2>React (maquette) vs Vue (prod)</h2>
+  <table>
+    <tr><th>Axe</th><th>React <code>versionReact/</code></th><th>Vue <code>src/</code></th></tr>
+    <tr><td>Rôle</td><td>Maquette Figma Make, référence UI/UX + logique</td><td>App production vivante</td></tr>
+    <tr><td>Navigation</td><td>Booléens <code>showXView</code> dans 1 App.tsx (3029 l.)</td><td>vue-router + gardes</td></tr>
+    <tr><td>Auth</td><td>Aucune</td><td>Supabase + multi-org (tenantId)</td></tr>
+    <tr><td>State</td><td>Hooks <code>useXState</code></td><td>Vuex (auth/analyse/inventory)</td></tr>
+    <tr><td>Backend</td><td>Supabase Edge Function + KV store</td><td>REST <code>/api/v1</code> (axios) Postgres</td></tr>
+    <tr><td>UI kit</td><td>shadcn/Radix + MUI</td><td>Vuetify + Bootstrap</td></tr>
+    <tr><td>Charts</td><td>recharts</td><td>chart.js / vue-chartjs</td></tr>
+    <tr><td>Extras</td><td>—</td><td>PWA, xlsx export, html2canvas</td></tr>
+  </table>
+  <pre><code>React showSpacesPage/showAnalyseView/... (état)  ≈  Vue /spaces, /spaces/:id, ... (routes)</code></pre>
+  <p class="ref">Détails de port : PORTING_PROGRESS.md · PLAN_PORT_REACT_VUE_ANALYSE.md</p>
+</section>
+
+</main>
+
+<script>
+  mermaid.initialize({startOnLoad:true, theme:'default', securityLevel:'loose',
+    flowchart:{useMaxWidth:true, htmlLabels:true}});
+
+  const links=[...document.querySelectorAll('#toc a')];
+  const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const obs=new IntersectionObserver(es=>{
+    es.forEach(e=>{ if(e.isIntersecting){
+      links.forEach(l=>l.classList.remove('active'));
+      const a=map.get(e.target.id); if(a)a.classList.add('active');
+    }});
+  },{rootMargin:'-15% 0px -75% 0px'});
+  document.querySelectorAll('section[id]').forEach(s=>obs.observe(s));
+</script>
+</body>
+</html>

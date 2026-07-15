@@ -1,0 +1,1642 @@
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma, StockMovementReason } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import { PrismaService } from '../../core/database/prisma.service';
+import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
+
+type ElementRef = { id: string; name: string; spaceId: string };
+
+type SalesRawRow = {
+  elementId: string;
+  menuItemId: string;
+  eventId: string | null;
+  eventName: string | null;
+  qty: number;
+  lastAt: Date;
+};
+
+/** Types de SpaceElement considérés comme un PDV (miroir SpacesService.getSpaceShops). */
+const SHOP_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
+
+/** Nature de la ligne — sert le filtre front « Type de denrée ». */
+type ItemKind = 'ingredient' | 'component' | 'packaging' | 'product';
+
+type ItemRef = {
+  key: string;
+  id: string;
+  kind: ItemKind;
+  unit: string | null;
+  marketPriceId: string | null;
+  unitsPerPack: number | null;
+  packagingType: string | null;
+  picture: string | null;
+};
+
+type ElementItem = {
+  name: string;
+  id: string;
+  kind: ItemKind;
+  unit: string | null;
+  marketPriceId: string | null;
+  unitsPerPack: number | null;
+  packagingType: string | null;
+  picture: string | null;
+  usedIn: Array<{ id: string; name: string; picture: string | null }>;
+};
+
+type RecipeCtx = {
+  comboByName: Map<string, any>;
+  mpByName: Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>;
+  /** Component (MenuComponent) par id, recette complète — pour le dépliage récursif readyForSale=No. */
+  componentById: Map<string, any>;
+};
+
+/**
+ * Logistic — stock temps réel par PDV/Storage.
+ *
+ * Modèle : ledger `StockMovement` (deltas signés, append-only) + état matérialisé
+ * `StockLevel` (mouvements MANUELS uniquement). Les ventes ne sont PAS matérialisées :
+ * elles sont dérivées read-time depuis les transactions Weezevent, bornées par la
+ * dernière `StockReconciliation` (ancre posée par l'Inventory Reset).
+ * Stock attendu affiché = StockLevel − consommation ventes, avec « casse de pack »
+ * (loose négatif → emprunte des packs à hauteur de unitsPerPack).
+ *
+ * `itemKey` = nom du référentiel d'inventaire front (itemName market price pour un
+ * menu item readyForSale à ingrédient unique, sinon nom d'ingrédient/composant ou de
+ * menu item) — même convention que ElementInventory (persistance par nom).
+ */
+@Injectable()
+export class LogisticsService {
+  private readonly logger = new Logger(LogisticsService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
+
+  /** Fragment where : SpaceElement appartenant au tenant (v1 floor/forecourt/externalMerch + v2 zone). */
+  private tenantElementWhere(tenantId: string) {
+    return {
+      OR: [
+        { floor: { config: { space: { tenantId } } } },
+        { forecourt: { config: { space: { tenantId } } } },
+        { externalMerch: { config: { space: { tenantId } } } },
+        { zone: { space: { tenantId } } },
+      ],
+    } as any;
+  }
+
+  private async getElementOrThrow(elementId: string, tenantId: string): Promise<ElementRef> {
+    const el = await this.prisma.spaceElement.findFirst({
+      where: { id: elementId, ...this.tenantElementWhere(tenantId) },
+      select: {
+        id: true,
+        name: true,
+        floor: { select: { config: { select: { spaceId: true } } } },
+        forecourt: { select: { config: { select: { spaceId: true } } } },
+        externalMerch: { select: { config: { select: { spaceId: true } } } },
+        zone: { select: { spaceId: true } },
+      },
+    } as any);
+    if (!el) throw new NotFoundException(`Element ${elementId} not found`);
+    const anyEl = el as any;
+    const spaceId: string | null =
+      anyEl.floor?.config?.spaceId ??
+      anyEl.forecourt?.config?.spaceId ??
+      anyEl.externalMerch?.config?.spaceId ??
+      anyEl.zone?.spaceId ??
+      null;
+    if (!spaceId) throw new NotFoundException(`Element ${elementId} has no space`);
+    return { id: anyEl.id, name: anyEl.name, spaceId };
+  }
+
+  /** Tous les éléments (PDV + storages) d'un espace du tenant. */
+  private async getSpaceElementIds(spaceId: string, tenantId: string): Promise<string[]> {
+    const rows = await this.prisma.spaceElement.findMany({
+      where: {
+        OR: [
+          { floor: { config: { space: { id: spaceId, tenantId } } } },
+          { forecourt: { config: { space: { id: spaceId, tenantId } } } },
+          { externalMerch: { config: { space: { id: spaceId, tenantId } } } },
+          { zone: { space: { id: spaceId, tenantId } } },
+        ],
+      } as any,
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  private async assertSpace(spaceId: string, tenantId: string) {
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, tenantId },
+      select: { id: true },
+    });
+    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+  }
+
+  // ─── Casse de pack / normalisation ───────────────────────────────────────────
+
+  /**
+   * Normalise un niveau (packed, loose) : un vrac négatif emprunte des packs
+   * (packed −1, loose += unitsPerPack) tant que possible, puis clamp ≥ 0.
+   * Le vrac excédentaire n'est jamais re-packé (le vrac reste du vrac).
+   */
+  normalizeLevel(packed: number, loose: number, unitsPerPack?: number | null) {
+    const upp = unitsPerPack && unitsPerPack > 0 ? unitsPerPack : null;
+    if (upp && loose < -1e-9 && packed > 0) {
+      const needed = Math.ceil((-loose - 1e-9) / upp);
+      const borrowed = Math.min(packed, needed);
+      packed -= borrowed;
+      loose += borrowed * upp;
+    }
+    if (packed < 0) packed = 0;
+    if (loose < -1e-9) loose = 0;
+    return { packed, loose: Math.round(loose * 100) / 100 };
+  }
+
+  /**
+   * Applique un delta signé sur le StockLevel d'un (élément × item), avec casse de
+   * pack. `strict` (mouvements manuels) : refuse un delta qui rendrait le niveau
+   * négatif — sinon le clamp à 0 désynchroniserait ledger et niveaux (un transfert
+   * depuis un élément vide créerait du stock ex nihilo sur la destination).
+   */
+  private async applyLevelDelta(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    element: ElementRef,
+    itemKey: string,
+    packedDelta: number,
+    looseDelta: number,
+    unitsPerPack: number | null,
+    marketPriceId: string | null,
+    strict = false,
+  ) {
+    const existing = await tx.stockLevel.findUnique({
+      where: { uniq_stock_level: { tenantId, elementId: element.id, itemKey } },
+    });
+    const upp = unitsPerPack ?? existing?.unitsPerPack ?? null;
+    const rawPacked = (existing?.packedUnits ?? 0) + packedDelta;
+    const rawLoose = (existing?.looseUnits ?? 0) + looseDelta;
+    if (strict && (packedDelta < 0 || looseDelta < 0)) {
+      const uppOrOne = upp && upp > 0 ? upp : null;
+      const insufficient = uppOrOne
+        ? rawPacked * uppOrOne + rawLoose < -1e-9 || rawPacked < 0
+        : rawPacked < 0 || rawLoose < -1e-9;
+      if (insufficient) {
+        throw new BadRequestException(
+          `Stock insuffisant sur « ${element.name} » pour « ${itemKey} » ` +
+            `(disponible : ${existing?.packedUnits ?? 0} packs, ${existing?.looseUnits ?? 0} vrac)`,
+        );
+      }
+    }
+    const next = this.normalizeLevel(rawPacked, rawLoose, upp);
+    if (existing) {
+      return tx.stockLevel.update({
+        where: { id: existing.id },
+        data: {
+          packedUnits: next.packed,
+          looseUnits: next.loose,
+          unitsPerPack: upp,
+          marketPriceId: marketPriceId ?? existing.marketPriceId,
+        },
+      });
+    }
+    return tx.stockLevel.create({
+      data: {
+        tenantId,
+        spaceId: element.spaceId,
+        elementId: element.id,
+        itemKey,
+        packedUnits: next.packed,
+        looseUnits: next.loose,
+        unitsPerPack: upp,
+        marketPriceId,
+      },
+    });
+  }
+
+  // ─── POST /logistics/movements ───────────────────────────────────────────────
+
+  async createMovement(dto: CreateMovementDto, tenantId: string, userId?: string) {
+    if ((dto.packed ?? 0) === 0 && (dto.loose ?? 0) === 0) {
+      throw new BadRequestException('Quantité nulle : packed ou loose doit être > 0');
+    }
+    const isTransfer = dto.reason === 'TRANSFER_SHOP' || dto.reason === 'TRANSFER_STORAGE';
+    if (dto.reason === 'DELIVERY' && dto.direction !== 'add') {
+      throw new BadRequestException('DELIVERY est réservé aux ajouts');
+    }
+    if (dto.reason === 'EXPIRY' && dto.direction !== 'remove') {
+      throw new BadRequestException('EXPIRY est réservé aux suppressions');
+    }
+    if (isTransfer && !dto.counterpartyElementId) {
+      throw new BadRequestException('counterpartyElementId requis pour un transfert');
+    }
+    if (dto.reason === 'EXPIRY' && !dto.expiryDate) {
+      throw new BadRequestException('expiryDate requise pour EXPIRY');
+    }
+    if (dto.reason === 'OTHER' && !dto.note?.trim()) {
+      throw new BadRequestException('note requise pour OTHER');
+    }
+    if (isTransfer && dto.counterpartyElementId === dto.elementId) {
+      throw new BadRequestException('Un élément ne peut pas transférer vers lui-même');
+    }
+
+    const element = await this.getElementOrThrow(dto.elementId, tenantId);
+    if (element.spaceId !== dto.spaceId) {
+      throw new BadRequestException(`Element ${dto.elementId} n'appartient pas à l'espace ${dto.spaceId}`);
+    }
+    let counterparty: ElementRef | null = null;
+    if (isTransfer) {
+      counterparty = await this.getElementOrThrow(dto.counterpartyElementId!, tenantId);
+      if (counterparty.spaceId !== dto.spaceId) {
+        throw new BadRequestException('La contrepartie du transfert doit appartenir au même espace');
+      }
+    }
+
+    let unitsPerPack: number | null = null;
+    if (dto.marketPriceId) {
+      const mp = await this.prisma.marketPrice.findFirst({
+        where: { id: dto.marketPriceId, tenantId, deletedAt: null },
+        select: { packedUnits: true },
+      });
+      if (!mp) throw new NotFoundException(`Market price ${dto.marketPriceId} not found`);
+      unitsPerPack = mp.packedUnits ?? null;
+    }
+    if (dto.menuItemId) {
+      const mi = await this.prisma.menuItem.findFirst({
+        where: { id: dto.menuItemId, tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!mi) throw new NotFoundException(`Menu item ${dto.menuItemId} not found`);
+    }
+
+    const sign = dto.direction === 'add' ? 1 : -1;
+    const packedDelta = sign * dto.packed;
+    const looseDelta = sign * dto.loose;
+    const transferGroupId = counterparty ? randomUUID() : null;
+    const base = {
+      tenantId,
+      spaceId: dto.spaceId,
+      itemKey: dto.itemKey,
+      menuItemId: dto.menuItemId ?? null,
+      marketPriceId: dto.marketPriceId ?? null,
+      reason: dto.reason as StockMovementReason,
+      transferGroupId,
+      expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
+      note: dto.note?.trim() || null,
+      createdBy: userId ?? null,
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      const movement = await tx.stockMovement.create({
+        data: {
+          ...base,
+          elementId: element.id,
+          packedDelta,
+          looseDelta,
+          counterpartyElementId: counterparty?.id ?? null,
+        },
+      });
+      const level = await this.applyLevelDelta(
+        tx, tenantId, element, dto.itemKey, packedDelta, looseDelta, unitsPerPack, dto.marketPriceId ?? null, true,
+      );
+      let counterpartyLevel: any = null;
+      if (counterparty) {
+        // Double écriture : le miroir porte le delta opposé (la source d'un ajout
+        // est décrémentée, la destination d'une suppression est incrémentée).
+        await tx.stockMovement.create({
+          data: {
+            ...base,
+            elementId: counterparty.id,
+            packedDelta: -packedDelta,
+            looseDelta: -looseDelta,
+            counterpartyElementId: element.id,
+          },
+        });
+        counterpartyLevel = await this.applyLevelDelta(
+          tx, tenantId, counterparty, dto.itemKey, -packedDelta, -looseDelta, unitsPerPack, dto.marketPriceId ?? null, true,
+        );
+      }
+      return { movement, level, counterpartyLevel };
+    });
+  }
+
+  // ─── Référentiel des items par élément (PDV + Storage) ───────────────────────
+  // Remplace l'ancien chemin front (useInventoryData + catalogues complets
+  // ingredients/menu-items/market-prices) : le backend a déjà toutes les données
+  // pour ne renvoyer QUE les denrées suivies par CET espace, nommées, sans dump
+  // de catalogue tenant-wide. Miroir exact des règles déjà déployées et
+  // éprouvées de `explodeSalesToConsumption`/`perUnit` (ventes) — mêmes clés,
+  // pour ne jamais désynchroniser le référentiel affiché de la consommation
+  // calculée : readyForSale=Yes + 1 seul ingrédient → market price (lien direct
+  // sinon résolution par NOM) ; sinon l'article lui-même (packedUnits/inventory
+  // Packaging propres si présents). readyForSale=No → explosion ingrédients +
+  // composants (combo déplié par nom, profondeur ≤ 4) ; un composant qui n'est pas
+  // un combo est lui-même déplié en ses propres ingrédients/sous-composants si son
+  // readyForSale est "No" (sinon compté par son propre nom + son propre packaging).
+  // Différence volontaire avec perUnit : le packaging (jamais consommé à la
+  // vente) est ICI ajouté en lignes directes (non récursif), pour rester suivi
+  // manuellement — miroir de buildConsolidatedInventory (front, non modifié).
+
+  private recipeSelect() {
+    return {
+      id: true,
+      name: true,
+      picture: true,
+      readyForSale: true,
+      comboItem: true,
+      numberOfPiecesRecipe: true,
+      inventoryPackagingType: true,
+      inventoryNumberOfUnits: true,
+      ingredients: {
+        select: {
+          numberOfUnits: true,
+          ingredient: {
+            select: {
+              id: true,
+              name: true,
+              recipeUnit: true,
+              marketPrice: { select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true } },
+            },
+          },
+        },
+      },
+      components: {
+        select: {
+          numberOfUnits: true,
+          component: { select: this.componentSelect() },
+        },
+      },
+      packagings: {
+        select: {
+          numberOfUnits: true,
+          packaging: { select: { id: true, name: true, recipeUnit: true } },
+        },
+      },
+    } as const;
+  }
+
+  /**
+   * Recette complète d'un Component (MenuComponent), pour le dépliage récursif
+   * readyForSale=No (ingrédients + sous-composants). `children` n'est chargé qu'à
+   * un niveau : les petits-enfants sont résolus par élargissement itératif dans
+   * `loadRecipeContext` (mêmes contraintes que le Prisma `select` statique pour les
+   * combos menu item — pas de récursion arbitraire dans une seule requête).
+   */
+  private componentSelect() {
+    return {
+      id: true,
+      name: true,
+      unit: true,
+      readyForSale: true,
+      packedUnits: true,
+      inventoryPackaging: true,
+      numberOfUnitsRecipe: true,
+      ingredients: {
+        select: {
+          quantity: true,
+          ingredient: {
+            select: {
+              id: true,
+              name: true,
+              recipeUnit: true,
+              marketPrice: { select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true } },
+            },
+          },
+        },
+      },
+      children: {
+        select: {
+          quantity: true,
+          child: { select: { id: true, name: true, unit: true } },
+        },
+      },
+    } as const;
+  }
+
+  /** Config effective d'un élément (miroir SpaceMenusService.resolveShopConfigId). */
+  private resolveElementConfigId(
+    el: { floor?: any; forecourt?: any; externalMerch?: any; configurationElements?: any[] },
+    explicitConfigId?: string | null,
+  ): string | null {
+    if (explicitConfigId) return explicitConfigId;
+    const v1Config = el.floor?.config ?? el.forecourt?.config ?? el.externalMerch?.config;
+    return v1Config?.id ?? el.configurationElements?.[0]?.configId ?? null;
+  }
+
+  /**
+   * Charge les menu items (ids demandés + combos référencés par nom, profondeur ≤ 4)
+   * avec leur recette complète, et résout les market prices par nom d'ingrédient
+   * pour ceux sans lien direct — mêmes requêtes ciblées que explodeSalesToConsumption,
+   * en PARALLÈLE (indépendant : pas de risque de désync des ventes, code dupliqué
+   * à dessein pour ne jamais toucher au chemin ventes déjà validé en prod).
+   */
+  private async loadRecipeContext(seedItems: any[], tenantId: string): Promise<RecipeCtx> {
+    if (!seedItems.length) return { comboByName: new Map(), mpByName: new Map(), componentById: new Map() };
+    const select = this.recipeSelect();
+    const comboByName = new Map<string, any>();
+    let frontier = seedItems;
+    for (let depth = 0; depth < 4 && frontier.length; depth++) {
+      const wantedNames = new Set<string>();
+      for (const item of frontier) {
+        for (const line of item.components) {
+          const name = line.component?.name?.trim();
+          if (name && !comboByName.has(name.toLowerCase())) wantedNames.add(name);
+        }
+      }
+      if (!wantedNames.size) break;
+      const candidates = await this.prisma.menuItem.findMany({
+        where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
+        select,
+      });
+      frontier = candidates.filter(
+        (c) => this.normYesNo(c.comboItem) === 'Yes' && this.normYesNo(c.readyForSale) === 'No',
+      );
+      for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
+    }
+
+    const unresolvedNames = new Set<string>();
+    for (const item of [...seedItems, ...comboByName.values()]) {
+      if (this.normYesNo(item.readyForSale) === 'Yes' && item.ingredients.length === 1) {
+        const ing = item.ingredients[0].ingredient;
+        if (ing?.name && !ing.marketPrice) unresolvedNames.add(ing.name.trim());
+      }
+    }
+    const mpByName = new Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>();
+    if (unresolvedNames.size) {
+      const rows = await this.prisma.marketPrice.findMany({
+        where: { tenantId, deletedAt: null, itemName: { in: [...unresolvedNames] } },
+        select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true },
+      });
+      for (const mp of rows) mpByName.set(mp.itemName.trim().toLowerCase(), mp);
+    }
+
+    // Components (readyForSale=No à déplier) : élargissement itératif du graphe
+    // ComponentComponent PAR ID (relation réelle, contrairement au combo menu item
+    // matché par nom) — profondeur bornée + Set visité, un cycle parent/enfant
+    // n'est jamais garanti impossible en base.
+    const componentById = new Map<string, any>();
+    const componentIds = new Set<string>();
+    for (const item of [...seedItems, ...comboByName.values()]) {
+      for (const line of item.components ?? []) {
+        const comp = line.component;
+        if (comp?.id) {
+          componentIds.add(comp.id);
+          if (!componentById.has(comp.id)) componentById.set(comp.id, comp);
+        }
+      }
+    }
+    const visited = new Set<string>(componentIds);
+    let componentFrontier = [...componentIds];
+    for (let depth = 0; depth < 4 && componentFrontier.length; depth++) {
+      const childIds = new Set<string>();
+      for (const id of componentFrontier) {
+        for (const line of componentById.get(id)?.children ?? []) {
+          const childId = line.child?.id;
+          if (childId && !visited.has(childId)) childIds.add(childId);
+        }
+      }
+      if (!childIds.size) break;
+      const rows = await this.prisma.menuComponent.findMany({
+        where: { id: { in: [...childIds] }, tenantId, deletedAt: null },
+        select: this.componentSelect(),
+      });
+      for (const c of rows) {
+        componentById.set(c.id, c);
+        visited.add(c.id);
+      }
+      componentFrontier = rows.map((c) => c.id);
+    }
+
+    return { comboByName, mpByName, componentById };
+  }
+
+  /** Lignes de stock (référentiel) contribuées par UN menu item, recette dépliée. */
+  private itemRefsForMenuItem(item: any, ctx: RecipeCtx, depth = 0): ItemRef[] {
+    const refs: ItemRef[] = [];
+    for (const line of item.packagings ?? []) {
+      const pkg = line.packaging;
+      const name = pkg?.name?.trim();
+      if (!name) continue;
+      refs.push({ key: name, id: pkg.id, kind: 'packaging', unit: pkg.recipeUnit ?? null, marketPriceId: null, unitsPerPack: null, packagingType: null, picture: null });
+    }
+
+    if (this.normYesNo(item.readyForSale) === 'Yes') {
+      const ing = item.ingredients.length === 1 ? item.ingredients[0].ingredient : null;
+      const mp = ing?.marketPrice ?? (ing?.name ? ctx.mpByName.get(ing.name.trim().toLowerCase()) : null);
+      if (ing && mp) {
+        refs.push({
+          key: mp.itemName.trim(), id: mp.id, kind: 'ingredient', unit: null,
+          marketPriceId: mp.id, unitsPerPack: mp.packedUnits ?? null, packagingType: mp.inventoryPackaging ?? null, picture: null,
+        });
+        return refs; // packaging déjà ajouté ci-dessus ; seule ligne « produit » = le market price
+      }
+      const selfName = item.name?.trim();
+      if (selfName) {
+        refs.push({
+          key: selfName, id: item.id, kind: 'product', unit: null, marketPriceId: null,
+          unitsPerPack: item.inventoryNumberOfUnits ?? null, packagingType: item.inventoryPackagingType ?? null, picture: item.picture ?? null,
+        });
+      }
+      return refs;
+    }
+
+    // readyForSale = No (ou non défini) : ingrédients directs + composants (combo
+    // récursif par nom, packaging déjà traité au-dessus, non récursif).
+    let leafCount = 0;
+    for (const line of item.ingredients ?? []) {
+      const ing = line.ingredient;
+      const name = ing?.name?.trim();
+      if (!name) continue;
+      const mp = ing.marketPrice ?? ctx.mpByName.get(name.toLowerCase());
+      refs.push({
+        key: name, id: mp?.id ?? ing.id, kind: 'ingredient', unit: ing.recipeUnit ?? null,
+        marketPriceId: mp?.id ?? null, unitsPerPack: mp?.packedUnits ?? null, packagingType: mp?.inventoryPackaging ?? null, picture: null,
+      });
+      leafCount++;
+    }
+    for (const line of item.components ?? []) {
+      const comp = line.component;
+      const name = comp?.name?.trim();
+      if (!name) continue;
+      const combo = depth < 4 ? ctx.comboByName.get(name.toLowerCase()) : null;
+      if (combo) {
+        refs.push(...this.itemRefsForMenuItem(combo, ctx, depth + 1));
+      } else {
+        const fullComp = ctx.componentById.get(comp.id) ?? comp;
+        refs.push(...this.componentRefsForComponent(fullComp, ctx));
+      }
+      leafCount++;
+    }
+
+    if (leafCount === 0 && !(item.packagings ?? []).length) {
+      const selfName = item.name?.trim();
+      if (selfName) {
+        refs.push({
+          key: selfName, id: item.id, kind: 'product', unit: null, marketPriceId: null,
+          unitsPerPack: item.inventoryNumberOfUnits ?? null, packagingType: item.inventoryPackagingType ?? null, picture: item.picture ?? null,
+        });
+      }
+    }
+    return refs;
+  }
+
+  /**
+   * Lignes de stock contribuées par UN Component, recette dépliée si
+   * readyForSale=No (ingrédients + sous-composants, `ComponentComponent` étant un
+   * vrai graphe par id — cycle-guard par Set visité, pas seulement la profondeur).
+   */
+  private componentRefsForComponent(comp: any, ctx: RecipeCtx, depth = 0, visited: Set<string> = new Set()): ItemRef[] {
+    const name = comp?.name?.trim();
+    if (!name) return [];
+    const asLeaf = (): ItemRef[] => [{
+      key: name, id: comp.id, kind: 'component', unit: comp.unit ?? null, marketPriceId: null,
+      unitsPerPack: comp.packedUnits ?? null, packagingType: comp.inventoryPackaging ?? null, picture: null,
+    }];
+    if (this.normYesNo(comp.readyForSale) === 'Yes') return asLeaf();
+    if (depth >= 4 || visited.has(comp.id)) return asLeaf();
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(comp.id);
+    const refs: ItemRef[] = [];
+    for (const line of comp.ingredients ?? []) {
+      const ing = line.ingredient;
+      const ingName = ing?.name?.trim();
+      if (!ingName) continue;
+      const mp = ing.marketPrice ?? ctx.mpByName.get(ingName.toLowerCase());
+      refs.push({
+        key: ingName, id: mp?.id ?? ing.id, kind: 'ingredient', unit: ing.recipeUnit ?? null,
+        marketPriceId: mp?.id ?? null, unitsPerPack: mp?.packedUnits ?? null, packagingType: mp?.inventoryPackaging ?? null, picture: null,
+      });
+    }
+    for (const line of comp.children ?? []) {
+      const childId = line.child?.id;
+      if (!childId) continue;
+      const fullChild = ctx.componentById.get(childId) ?? line.child;
+      refs.push(...this.componentRefsForComponent(fullChild, ctx, depth + 1, nextVisited));
+    }
+    return refs.length ? refs : asLeaf();
+  }
+
+  /** Agrège les refs de plusieurs menu items en items de référentiel (1re valeur non nulle gagne). */
+  private aggregateItems(
+    menuItems: Array<{ id: string; name: string; picture: string | null }>,
+    byId: Map<string, any>,
+    ctx: RecipeCtx,
+  ): Map<string, ElementItem> {
+    const map = new Map<string, ElementItem>();
+    for (const mi of menuItems) {
+      const full = byId.get(mi.id);
+      if (!full) continue;
+      for (const ref of this.itemRefsForMenuItem(full, ctx)) {
+        let entry = map.get(ref.key);
+        if (!entry) {
+          entry = { name: ref.key, id: ref.id, kind: ref.kind, unit: ref.unit, marketPriceId: ref.marketPriceId, unitsPerPack: ref.unitsPerPack, packagingType: ref.packagingType, picture: ref.picture, usedIn: [] };
+          map.set(ref.key, entry);
+        }
+        if (!entry.usedIn.some((u) => u.id === mi.id)) {
+          entry.usedIn.push({ id: mi.id, name: mi.name, picture: mi.picture ?? null });
+        }
+      }
+    }
+    return map;
+  }
+
+  /**
+   * Éléments (PDV + Storage) de l'espace avec leur référentiel d'items. Storage =
+   * union des items des shops liés (`attributes.selectedShops`), miroir exact du
+   * comportement front actuel (buildStorageInventory ne fait pas de filtre par
+   * sous-type de storage côté Logistic — non reproduit ici, à vérifier en test réel).
+   */
+  private async getSpaceElementsWithItems(spaceId: string, tenantId: string, configId?: string) {
+    const rows = await this.prisma.spaceElement.findMany({
+      where: {
+        OR: [
+          { floor: { config: { space: { id: spaceId, tenantId } } } },
+          { forecourt: { config: { space: { id: spaceId, tenantId } } } },
+          { externalMerch: { config: { space: { id: spaceId, tenantId } } } },
+          { zone: { space: { id: spaceId, tenantId } } },
+        ],
+      } as any,
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        attributes: true,
+        floor: { select: { config: { select: { id: true } } } },
+        forecourt: { select: { config: { select: { id: true } } } },
+        externalMerch: { select: { config: { select: { id: true } } } },
+        configurationElements: { select: { configId: true }, orderBy: { createdAt: 'asc' }, take: 1 },
+        menuAssignments: { select: { menuItemId: true, enabled: true, configId: true } },
+      },
+    } as any);
+
+    const shops = (rows as any[]).filter((r) => SHOP_TYPES.includes(r.type));
+    const storages = (rows as any[]).filter((r) => r.type === 'storage');
+
+    // Enabled menuItemIds par shop, scopés à la config effective de CE shop.
+    const enabledByShop = new Map<string, string[]>();
+    const allMenuItemIds = new Set<string>();
+    for (const shop of shops) {
+      const effectiveConfigId = this.resolveElementConfigId(shop, configId);
+      const ids = [
+        ...new Set<string>(
+          (shop.menuAssignments ?? [])
+            .filter((a: any) => (a.configId ?? null) === effectiveConfigId && a.enabled)
+            .map((a: any) => String(a.menuItemId)),
+        ),
+      ];
+      enabledByShop.set(shop.id, ids);
+      for (const id of ids) allMenuItemIds.add(id);
+    }
+
+    const byId = new Map<string, any>();
+    if (allMenuItemIds.size) {
+      const select = this.recipeSelect();
+      const items = await this.prisma.menuItem.findMany({
+        where: { id: { in: [...allMenuItemIds] }, tenantId, deletedAt: null },
+        select,
+      });
+      for (const it of items) byId.set(it.id, it);
+    }
+    // Réutilise la requête menu items déjà faite ci-dessus (seedItems) — pas de 2e
+    // findMany identique pour résoudre les combos/market-prices.
+    const ctx = await this.loadRecipeContext([...byId.values()], tenantId);
+
+    // Un PDV sans aucun menu item activé (config effective) n'est pas « configuré »
+    // dans Space Menu — miroir de l'ancien gate front (isOpen || menuItemsCount > 0) :
+    // ne pas l'afficher du tout (pas juste à 0 denrée).
+    const configuredShops = shops.filter((shop) => (enabledByShop.get(shop.id) ?? []).length > 0);
+
+    const itemMapByShop = new Map<string, Map<string, ElementItem>>();
+    const elements: Array<{ id: string; name: string; type: string; items: ElementItem[] }> = [];
+    for (const shop of configuredShops) {
+      const ids = enabledByShop.get(shop.id) ?? [];
+      const menuItems = ids.map((id) => byId.get(id)).filter(Boolean).map((mi: any) => ({ id: mi.id, name: mi.name, picture: mi.picture }));
+      const map = this.aggregateItems(menuItems, byId, ctx);
+      itemMapByShop.set(shop.id, map);
+      elements.push({ id: shop.id, name: shop.name, type: shop.type, items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')) });
+    }
+
+    for (const storage of storages) {
+      const selectedShopIds: string[] = Array.isArray((storage.attributes as any)?.selectedShops)
+        ? (storage.attributes as any).selectedShops.map(String)
+        : [];
+      const merged = new Map<string, ElementItem>();
+      for (const shopId of selectedShopIds) {
+        const shopMap = itemMapByShop.get(shopId);
+        if (!shopMap) continue;
+        for (const [key, item] of shopMap) {
+          let entry = merged.get(key);
+          if (!entry) {
+            entry = { ...item, usedIn: [...item.usedIn] };
+            merged.set(key, entry);
+          } else {
+            for (const u of item.usedIn) {
+              if (!entry.usedIn.some((x) => x.id === u.id)) entry.usedIn.push(u);
+            }
+          }
+        }
+      }
+      elements.push({ id: storage.id, name: storage.name, type: storage.type, items: [...merged.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')) });
+    }
+
+    return elements;
+  }
+
+  /** Market prices candidats pour le dropdown du popup +/− (itemKey donné, sans le catalogue complet). */
+  async getMarketPricesForItem(spaceId: string, tenantId: string, itemKey: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const name = String(itemKey ?? '').trim();
+    if (!name) return [];
+    const rows = await this.prisma.marketPrice.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [{ itemName: { equals: name, mode: 'insensitive' } }, { itemName: { contains: name, mode: 'insensitive' } }],
+      },
+      select: {
+        id: true,
+        itemName: true,
+        supplier: true,
+        supplierItem: true,
+        supplierRel: { select: { name: true } },
+      },
+      take: 20,
+    });
+    // Correspondance exacte d'abord (dropdown pré-trié comme avant, cf. LogisticMovementDialog).
+    rows.sort((a, b) => {
+      const aExact = a.itemName.trim().toLowerCase() === name.toLowerCase() ? 0 : 1;
+      const bExact = b.itemName.trim().toLowerCase() === name.toLowerCase() ? 0 : 1;
+      return aExact - bExact;
+    });
+    // Nom fournisseur : la relation supplierRel prime (source de vérité du module
+    // Market Prices — cf. market-prices.service.ts), le champ texte `supplier` en repli.
+    return rows.map((r) => ({
+      id: r.id,
+      itemName: r.itemName,
+      supplierItem: r.supplierItem,
+      supplier: r.supplierRel?.name ?? r.supplier ?? null,
+    }));
+  }
+
+  // ─── GET /logistics/:spaceId/stock ───────────────────────────────────────────
+
+  async getStock(spaceId: string, tenantId: string, configId?: string, eventId?: string) {
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
+    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+
+    const [configurations, event, allLevels, lastReco, firstMovement, elementIds] = await Promise.all([
+      // Config n'a pas de tenantId propre (scoping via spaceId, déjà vérifié tenant plus haut).
+      this.prisma.config.findMany({ where: { spaceId }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } }),
+      eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
+      this.prisma.stockLevel.findMany({ where: { tenantId, spaceId } }),
+      this.prisma.stockReconciliation.findFirst({
+        where: { tenantId, spaceId },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, createdAt: true, eventId: true },
+      }),
+      this.prisma.stockMovement.findFirst({
+        where: { tenantId, spaceId },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+      this.getSpaceElementIds(spaceId, tenantId),
+    ]);
+
+    // Priorité : configId explicite (deep-link ?configuration=) > config de l'event
+    // (deep-link ?event=, comme Space Inventory) > 1re configuration de l'espace.
+    const inConfigs = (id: string | null | undefined) => !!id && configurations.some((c) => c.id === id);
+    const resolvedConfigId =
+      (inConfigs(configId) ? configId : null) ??
+      (inConfigs(event?.configurationId) ? event!.configurationId : null) ??
+      configurations[0]?.id ??
+      null;
+
+    // Ancre de dérivation des ventes : dernière réconciliation, sinon premier
+    // mouvement (= activation de la logistique sur l'espace). Sans ancre, pas de
+    // ventes décomptées (aucun stock suivi de toute façon).
+    const anchorAt = lastReco?.createdAt ?? firstMovement?.createdAt ?? null;
+
+    // Référentiel (PDV + Storage) et consommation dérivée des ventes sont
+    // indépendants (aucun ne dépend du résultat de l'autre) — en parallèle plutôt
+    // qu'en série pour ne pas payer deux fois la latence réseau DB.
+    const [elementsWithItems, consumption] = await Promise.all([
+      this.getSpaceElementsWithItems(spaceId, tenantId, resolvedConfigId ?? undefined),
+      anchorAt && elementIds.length
+        ? this.deriveSalesRaw(tenantId, elementIds, anchorAt).then((raw) => this.explodeSalesToConsumption(raw, tenantId))
+        : Promise.resolve([] as Array<{ elementId: string; itemKey: string; quantity: number }>),
+    ]);
+
+    // Niveaux pointant vers des SpaceElement disparus (le saveConfiguration v1 fait
+    // du delete+recreate) : masqués — sinon la vue affiche des lignes fantômes que
+    // le reset rejette ensuite (element hors espace).
+    const currentIds = new Set(elementIds);
+    const levels = allLevels.filter((l) => currentIds.has(l.elementId));
+
+    // Un mouvement (ex. transfert) peut viser un élément qui ne vend pas cette
+    // denrée sur son propre menu (référentiel vide pour cet itemKey) — le niveau
+    // existe quand même en base. Sans ce filet, ce stock devient invisible côté
+    // élément receveur/donneur (« le produit a disparu ») alors qu'il est bien là.
+    // On complète chaque élément avec les niveaux orphelins, en ligne minimale.
+    for (const el of elementsWithItems) {
+      const known = new Set(el.items.map((it) => it.name));
+      for (const level of levels) {
+        if (level.elementId !== el.id || known.has(level.itemKey)) continue;
+        el.items.push({
+          name: level.itemKey,
+          id: level.itemKey,
+          kind: 'product',
+          unit: null,
+          marketPriceId: level.marketPriceId ?? null,
+          unitsPerPack: level.unitsPerPack ?? null,
+          packagingType: null,
+          picture: null,
+          usedIn: [],
+        });
+        known.add(level.itemKey);
+      }
+      el.items.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    }
+
+    return {
+      spaceId,
+      space,
+      configurations,
+      resolvedConfigId,
+      anchor: anchorAt ? { at: anchorAt, reconciliationId: lastReco?.id ?? null } : null,
+      elements: elementsWithItems,
+      levels,
+      consumption,
+    };
+  }
+
+  // ─── GET /logistics/element/:elementId/history ───────────────────────────────
+
+  async getHistory(elementId: string, tenantId: string, limit = 50, cursor?: string) {
+    const element = await this.getElementOrThrow(elementId, tenantId);
+    const take = Math.min(Math.max(limit, 1), 200);
+
+    const [movements, raw] = await Promise.all([
+      this.prisma.stockMovement.findMany({
+        where: { tenantId, elementId },
+        // Tie-breaker id : les mouvements d'un reset partagent le même createdAt
+        // (createMany) — sans lui la pagination cursor saute/duplique des lignes.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      }),
+      // Ventes agrégées par event (une ligne par event, toute la période)
+      this.deriveSalesRaw(tenantId, [elementId], null),
+    ]);
+
+    const hasMore = movements.length > take;
+    const page = hasMore ? movements.slice(0, take) : movements;
+
+    // Noms des contreparties pour l'affichage (« Transfert depuis/vers X »)
+    const counterpartyIds = [...new Set(page.map((m) => m.counterpartyElementId).filter(Boolean))] as string[];
+    const counterparts = counterpartyIds.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: counterpartyIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameById = new Map(counterparts.map((c) => [c.id, c.name]));
+
+    const salesByEvent = new Map<string, { eventId: string | null; eventName: string | null; soldUnits: number; lastAt: Date }>();
+    for (const row of raw) {
+      const key = row.eventId ?? '(none)';
+      let agg = salesByEvent.get(key);
+      if (!agg) {
+        agg = { eventId: row.eventId, eventName: row.eventName, soldUnits: 0, lastAt: row.lastAt };
+        salesByEvent.set(key, agg);
+      }
+      agg.soldUnits += row.qty;
+      if (row.lastAt > agg.lastAt) agg.lastAt = row.lastAt;
+      if (!agg.eventName && row.eventName) agg.eventName = row.eventName;
+    }
+
+    return {
+      elementId: element.id,
+      elementName: element.name,
+      movements: page.map((m) => ({
+        ...m,
+        counterpartyName: m.counterpartyElementId ? (nameById.get(m.counterpartyElementId) ?? null) : null,
+      })),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+      salesByEvent: [...salesByEvent.values()].sort((a, b) => b.lastAt.getTime() - a.lastAt.getTime()),
+    };
+  }
+
+  // ─── Dérivation des ventes (read-time) ───────────────────────────────────────
+
+  /**
+   * Quantités vendues par (élément, menu item, event) via les mappings Weezevent
+   * (location → SpaceElement, produit → MenuItem), bornées par `since` (exclus).
+   * - `status = 'V'` : seules les ventes validées (les W/C/R — attente/annulée/
+   *   remboursée — ne consomment pas de stock), même filtre que les agrégats revenu.
+   * - Jointure location via WeezeventLocation avec OR (id interne OU weezeventId
+   *   externe) : certains mappings historiques stockent l'id externe
+   *   (même OR-join que builder-v2.service getSpaceShops).
+   */
+  private async deriveSalesRaw(tenantId: string, elementIds: string[], since: Date | null): Promise<SalesRawRow[]> {
+    if (!elementIds.length) return [];
+    const sinceFilter = since ? Prisma.sql`AND t."transactionDate" > ${since}` : Prisma.empty;
+    const rows = await this.prisma.$queryRaw<SalesRawRow[]>(Prisma.sql`
+      SELECT m."spaceElementId"          AS "elementId",
+             pm."menuItemId"             AS "menuItemId",
+             t."eventId"                 AS "eventId",
+             MAX(t."eventName")          AS "eventName",
+             SUM(ti."quantity")::float   AS "qty",
+             MAX(t."transactionDate")    AS "lastAt"
+      FROM "WeezeventTransactionItem" ti
+      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
+      JOIN "WeezeventLocation" wl ON wl."id" = t."locationId"
+      JOIN "WeezeventLocationShopMapping" m
+        ON m."tenantId" = t."tenantId"
+        AND (m."weezeventLocationId" = wl."id" OR m."weezeventLocationId" = wl."weezeventId")
+      JOIN "WeezeventProductMapping" pm
+        ON pm."tenantId" = t."tenantId" AND pm."weezeventProductId" = ti."productId"
+      WHERE t."tenantId" = ${tenantId}
+        AND t."status" = 'V'
+        AND m."spaceElementId" IN (${Prisma.join(elementIds)})
+        ${sinceFilter}
+      GROUP BY 1, 2, 3
+    `);
+    return rows.map((r) => ({ ...r, qty: Number(r.qty ?? 0) }));
+  }
+
+  /** 'Yes'/'No' normalisé (mêmes règles que MenuItemsService.normYesNo). */
+  private normYesNo(value: unknown): 'Yes' | 'No' | null {
+    if (value === true) return 'Yes';
+    if (value === false) return 'No';
+    const s = String(value ?? '').trim().toLowerCase();
+    if (s === 'yes' || s === 'true' || s === 'oui' || s === '1') return 'Yes';
+    if (s === 'no' || s === 'false' || s === 'non' || s === '0') return 'No';
+    return null;
+  }
+
+  /**
+   * Explose les ventes en consommation par (élément × itemKey), en miroir du
+   * référentiel front (buildConsolidatedInventory) :
+   * - readyForSale=Yes + UN seul ingrédient → clé = itemName du market price de
+   *   l'ingrédient (sinon nom de l'ingrédient) ; 1 unité loose par vente.
+   * - readyForSale=Yes sinon → clé = nom du menu item ; 1 unité par vente.
+   * - readyForSale=No → explosion de recette : ingrédients + composants
+   *   (numberOfUnits / numberOfPiecesRecipe par unité vendue), packaging exclu ;
+   *   un composant portant le nom d'un menu item combo (comboItem=Yes,
+   *   readyForSale=No) est récursivement déplié (profondeur ≤ 4). Un composant qui
+   *   n'est PAS un combo est lui-même déplié en ses propres ingrédients/sous-
+   *   composants si son readyForSale est "No" (sinon compté par son propre nom,
+   *   1 unité par vente) — profondeur ≤ 4 + cycle-guard par id (ComponentComponent
+   *   est un vrai graphe, pas un matching par nom).
+   */
+  private async explodeSalesToConsumption(raw: SalesRawRow[], tenantId: string) {
+    if (!raw.length) return [];
+    // Component (MenuComponent) : recette pour le dépliage readyForSale=No — pas de
+    // packaging ici (exclu à dessein de la consommation, cf. docstring de la
+    // fonction), `children` chargé à un niveau (petits-enfants résolus par
+    // élargissement itératif ci-dessous, même contrainte que les combos par nom).
+    const componentSelect = {
+      id: true,
+      name: true,
+      readyForSale: true,
+      numberOfUnitsRecipe: true,
+      ingredients: {
+        select: {
+          quantity: true,
+          ingredient: { select: { name: true, marketPrice: { select: { itemName: true } } } },
+        },
+      },
+      children: { select: { quantity: true, child: { select: { id: true, name: true } } } },
+    } as const;
+    const recipeSelect = {
+      id: true,
+      name: true,
+      readyForSale: true,
+      comboItem: true,
+      numberOfPiecesRecipe: true,
+      ingredients: {
+        select: {
+          numberOfUnits: true,
+          ingredient: { select: { name: true, marketPrice: { select: { itemName: true } } } },
+        },
+      },
+      components: { select: { numberOfUnits: true, component: { select: componentSelect } } },
+    } as const;
+
+    const menuItemIds = [...new Set(raw.map((r) => r.menuItemId))];
+    const items = await this.prisma.menuItem.findMany({
+      where: { id: { in: menuItemIds }, tenantId, deletedAt: null },
+      select: recipeSelect,
+    });
+    const byId = new Map(items.map((i) => [i.id, i]));
+    const comboByName = new Map<string, any>();
+
+    // Charge itérativement les combos référencés par nom dans les composants
+    // (le front matche component.name ↔ menuItem.name), profondeur bornée.
+    let frontier = items;
+    for (let depth = 0; depth < 4 && frontier.length; depth++) {
+      const wantedNames = new Set<string>();
+      for (const item of frontier) {
+        for (const line of item.components) {
+          const name = line.component?.name?.trim();
+          if (name && !comboByName.has(name.toLowerCase())) wantedNames.add(name);
+        }
+      }
+      if (!wantedNames.size) break;
+      const candidates = await this.prisma.menuItem.findMany({
+        where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
+        select: recipeSelect,
+      });
+      frontier = candidates.filter(
+        (c) => this.normYesNo(c.comboItem) === 'Yes' && this.normYesNo(c.readyForSale) === 'No',
+      );
+      for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
+    }
+
+    // Components (readyForSale=No à déplier) : élargissement itératif du graphe
+    // ComponentComponent PAR ID — miroir du même bloc dans loadRecipeContext
+    // (Path A), dupliqué à dessein (cf. docstring en tête de fonction).
+    const componentById = new Map<string, any>();
+    const componentIds = new Set<string>();
+    for (const mi of [...items, ...comboByName.values()]) {
+      for (const line of mi.components ?? []) {
+        const comp = line.component;
+        if (comp?.id) {
+          componentIds.add(comp.id);
+          if (!componentById.has(comp.id)) componentById.set(comp.id, comp);
+        }
+      }
+    }
+    const componentVisited = new Set<string>(componentIds);
+    let componentFrontier = [...componentIds];
+    for (let depth = 0; depth < 4 && componentFrontier.length; depth++) {
+      const childIds = new Set<string>();
+      for (const id of componentFrontier) {
+        for (const line of componentById.get(id)?.children ?? []) {
+          const childId = line.child?.id;
+          if (childId && !componentVisited.has(childId)) childIds.add(childId);
+        }
+      }
+      if (!childIds.size) break;
+      const rows = await this.prisma.menuComponent.findMany({
+        where: { id: { in: [...childIds] }, tenantId, deletedAt: null },
+        select: componentSelect,
+      });
+      for (const c of rows) {
+        componentById.set(c.id, c);
+        componentVisited.add(c.id);
+      }
+      componentFrontier = rows.map((c) => c.id);
+    }
+
+    // Miroir du front (buildConsolidatedInventory) pour la clé d'un item RFS=Yes à
+    // ingrédient unique : market price lié → itemName ; sinon market price retrouvé
+    // PAR NOM d'ingrédient → itemName (== nom d'ingrédient) ; sinon la ligne front
+    // retombe sur le NOM DU MENU ITEM (« fall through to normal logic »).
+    const unresolvedIngredientNames = new Set<string>();
+    for (const item of items) {
+      if (this.normYesNo(item.readyForSale) === 'Yes' && item.ingredients.length === 1) {
+        const ing = item.ingredients[0].ingredient;
+        if (ing?.name && !ing.marketPrice?.itemName) unresolvedIngredientNames.add(ing.name.trim());
+      }
+    }
+    const mpByItemName = new Set<string>(
+      unresolvedIngredientNames.size
+        ? (
+            await this.prisma.marketPrice.findMany({
+              where: { tenantId, deletedAt: null, itemName: { in: [...unresolvedIngredientNames] } },
+              select: { itemName: true },
+            })
+          ).map((mp) => mp.itemName.trim().toLowerCase())
+        : [],
+    );
+
+    // Component (readyForSale=No) : même dépliage récursif que itemRefsForMenuItem
+    // côté Path A, mais gardé indépendant (closure séparée, cache séparé) — la
+    // consommation ventes ne doit jamais dépendre du chemin référentiel.
+    const componentPerUnitCache = new Map<string, Map<string, number>>();
+    const perUnitForComponent = (comp: any, depth = 0, visited: Set<string> = new Set()): Map<string, number> => {
+      const cacheKey = `${comp.id}:${depth}`;
+      const cached = componentPerUnitCache.get(cacheKey);
+      if (cached) return cached;
+      const result = new Map<string, number>();
+      const add = (key: string | null | undefined, qty: number) => {
+        const k = key?.trim();
+        if (!k || !Number.isFinite(qty) || qty <= 0) return;
+        result.set(k, (result.get(k) ?? 0) + qty);
+      };
+      if (this.normYesNo(comp.readyForSale) === 'Yes' || depth >= 4 || visited.has(comp.id)) {
+        add(comp.name, 1);
+      } else {
+        const nextVisited = new Set(visited);
+        nextVisited.add(comp.id);
+        const pieces = Number(comp.numberOfUnitsRecipe) > 0 ? Number(comp.numberOfUnitsRecipe) : 1;
+        for (const line of comp.ingredients ?? []) {
+          const ing = line.ingredient;
+          add(ing?.marketPrice?.itemName || ing?.name, Number(line.quantity ?? 0) / pieces);
+        }
+        for (const line of comp.children ?? []) {
+          const childId = line.child?.id;
+          if (!childId) continue;
+          const fullChild = componentById.get(childId) ?? line.child;
+          const qty = Number(line.quantity ?? 0) / pieces;
+          for (const [k, q] of perUnitForComponent(fullChild, depth + 1, nextVisited)) add(k, q * qty);
+        }
+        if (!result.size) add(comp.name, 1);
+      }
+      componentPerUnitCache.set(cacheKey, result);
+      return result;
+    };
+
+    const perUnitCache = new Map<string, Map<string, number>>();
+    const perUnit = (item: any, depth = 0): Map<string, number> => {
+      // Le dépliage combo est gaté par depth → le cache doit l'inclure.
+      const cacheKey = `${item.id}:${depth}`;
+      const cached = perUnitCache.get(cacheKey);
+      if (cached) return cached;
+      const result = new Map<string, number>();
+      const add = (key: string | null | undefined, qty: number) => {
+        const k = key?.trim();
+        if (!k || !Number.isFinite(qty) || qty <= 0) return;
+        result.set(k, (result.get(k) ?? 0) + qty);
+      };
+      if (this.normYesNo(item.readyForSale) === 'Yes') {
+        const ing = item.ingredients.length === 1 ? item.ingredients[0].ingredient : null;
+        if (ing?.marketPrice?.itemName) {
+          add(ing.marketPrice.itemName, 1);
+        } else if (ing?.name && mpByItemName.has(ing.name.trim().toLowerCase())) {
+          add(ing.name, 1);
+        } else {
+          add(item.name, 1);
+        }
+      } else {
+        const pieces = Number(item.numberOfPiecesRecipe) > 0 ? Number(item.numberOfPiecesRecipe) : 1;
+        for (const line of item.ingredients) {
+          add(line.ingredient?.name, Number(line.numberOfUnits ?? 0) / pieces);
+        }
+        for (const line of item.components) {
+          const qty = Number(line.numberOfUnits ?? 0) / pieces;
+          const name = line.component?.name?.trim();
+          const combo = name && depth < 4 ? comboByName.get(name.toLowerCase()) : null;
+          const compId = line.component?.id;
+          const fullComp = !combo && compId ? componentById.get(compId) : null;
+          if (combo) {
+            for (const [k, q] of perUnit(combo, depth + 1)) add(k, q * qty);
+          } else if (fullComp) {
+            for (const [k, q] of perUnitForComponent(fullComp)) add(k, q * qty);
+          } else {
+            add(name, qty);
+          }
+        }
+      }
+      perUnitCache.set(cacheKey, result);
+      return result;
+    };
+
+    const consumption = new Map<string, { elementId: string; itemKey: string; quantity: number }>();
+    for (const row of raw) {
+      const item = byId.get(row.menuItemId);
+      if (!item) continue; // menu item supprimé depuis
+      for (const [itemKey, qtyPerUnit] of perUnit(item)) {
+        const key = `${row.elementId}::${itemKey}`;
+        let agg = consumption.get(key);
+        if (!agg) {
+          agg = { elementId: row.elementId, itemKey, quantity: 0 };
+          consumption.set(key, agg);
+        }
+        agg.quantity += qtyPerUnit * row.qty;
+      }
+    }
+    return [...consumption.values()].map((c) => ({ ...c, quantity: Math.round(c.quantity * 100) / 100 }));
+  }
+
+  // ─── Reset après inventaire + réconciliation ─────────────────────────────────
+
+  /**
+   * Fige les écarts attendu vs compté dans une StockReconciliation (nouvelle ancre
+   * des ventes), pose un mouvement INVENTORY_RESET par ligne et remplace les
+   * StockLevel par les valeurs comptées. Seules les lignes envoyées sont réconciliées ;
+   * la consommation dérivée des niveaux NON couverts est MATÉRIALISÉE (mouvement SALE
+   * + niveau décrémenté) avant de déplacer l'ancre — sinon un reset partiel
+   * ré-injecterait leurs ventes en stock fantôme.
+   * NB : l'attendu est calculé juste avant la transaction — un mouvement ou une vente
+   * strictement concurrents au reset peuvent tomber dans la fenêtre (écart absorbé au
+   * prochain inventaire).
+   */
+  async reset(spaceId: string, dto: InventoryResetDto, tenantId: string, userId?: string) {
+    if (!dto.lines?.length) throw new BadRequestException('Aucune ligne à réconcilier');
+
+    const stock = await this.getStock(spaceId, tenantId);
+    const levelByKey = new Map(stock.levels.map((l) => [`${l.elementId}::${l.itemKey}`, l]));
+    const consumedByKey = new Map(stock.consumption.map((c) => [`${c.elementId}::${c.itemKey}`, c.quantity]));
+
+    // Valide que tous les éléments visés appartiennent bien à l'espace
+    const spaceElementIds = new Set(await this.getSpaceElementIds(spaceId, tenantId));
+    for (const line of dto.lines) {
+      if (!spaceElementIds.has(line.elementId)) {
+        throw new BadRequestException(`Element ${line.elementId} n'appartient pas à l'espace ${spaceId}`);
+      }
+    }
+
+    // Dédup : deux lignes sur la même clé = la dernière gagne (évite le double
+    // mouvement et la violation d'unicité au createMany des niveaux).
+    const dedupedLines = [...new Map(dto.lines.map((l) => [`${l.elementId}::${l.itemKey}`, l])).values()];
+    const dtoKeys = new Set(dedupedLines.map((l) => `${l.elementId}::${l.itemKey}`));
+
+    // Niveaux existants NON couverts par le reset : leur consommation dérivée est
+    // figée en mouvement SALE + décrément du niveau (l'ancre va bouger pour tout
+    // l'espace). Les clés sans niveau (consommation seule) restent à 0/0 — rien à préserver.
+    const carryLines: Array<{
+      elementId: string; itemKey: string;
+      deltaPacked: number; deltaLoose: number;
+      newPacked: number; newLoose: number; levelId: string;
+    }> = [];
+    for (const level of stock.levels) {
+      const key = `${level.elementId}::${level.itemKey}`;
+      if (dtoKeys.has(key)) continue;
+      const consumed = consumedByKey.get(key) ?? 0;
+      if (!consumed) continue;
+      const next = this.normalizeLevel(level.packedUnits, level.looseUnits - consumed, level.unitsPerPack);
+      carryLines.push({
+        elementId: level.elementId,
+        itemKey: level.itemKey,
+        deltaPacked: next.packed - level.packedUnits,
+        deltaLoose: Math.round((next.loose - level.looseUnits) * 100) / 100,
+        newPacked: next.packed,
+        newLoose: next.loose,
+        levelId: level.id,
+      });
+    }
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const recoLines = dedupedLines.map((line) => {
+      const key = `${line.elementId}::${line.itemKey}`;
+      const level = levelByKey.get(key);
+      const upp = line.unitsPerPack ?? level?.unitsPerPack ?? null;
+      const expected = this.normalizeLevel(
+        level?.packedUnits ?? 0,
+        (level?.looseUnits ?? 0) - (consumedByKey.get(key) ?? 0),
+        upp,
+      );
+      const deltaUnits = upp
+        ? round2((line.countedPacked - expected.packed) * upp + (line.countedLoose - expected.loose))
+        : null;
+      return {
+        elementId: line.elementId,
+        itemKey: line.itemKey,
+        unitsPerPack: upp,
+        expectedPacked: expected.packed,
+        expectedLoose: expected.loose,
+        countedPacked: line.countedPacked,
+        countedLoose: round2(line.countedLoose),
+        deltaPacked: line.countedPacked - expected.packed,
+        deltaLoose: round2(line.countedLoose - expected.loose),
+        deltaUnits,
+      };
+    });
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const reco = await tx.stockReconciliation.create({
+          data: {
+            tenantId,
+            spaceId,
+            eventId: dto.eventId ?? null,
+            eventName: dto.eventName ?? null,
+            lines: recoLines as any,
+            createdBy: userId ?? null,
+          },
+        });
+
+        await tx.stockMovement.createMany({
+          data: [
+            ...recoLines.map((line) => ({
+              tenantId,
+              spaceId,
+              elementId: line.elementId,
+              itemKey: line.itemKey,
+              packedDelta: line.deltaPacked,
+              looseDelta: line.deltaLoose,
+              reason: StockMovementReason.INVENTORY_RESET,
+              eventId: dto.eventId ?? null,
+              note: reco.id,
+              createdBy: userId ?? null,
+            })),
+            // Matérialisation des ventes des niveaux non couverts (cf. docstring)
+            ...carryLines.map((line) => ({
+              tenantId,
+              spaceId,
+              elementId: line.elementId,
+              itemKey: line.itemKey,
+              packedDelta: line.deltaPacked,
+              looseDelta: line.deltaLoose,
+              reason: StockMovementReason.SALE,
+              eventId: dto.eventId ?? null,
+              note: reco.id,
+              createdBy: userId ?? null,
+            })),
+          ],
+        });
+
+        for (const line of carryLines) {
+          await tx.stockLevel.update({
+            where: { id: line.levelId },
+            data: { packedUnits: line.newPacked, looseUnits: line.newLoose },
+          });
+        }
+
+        // Remplace les niveaux par les valeurs comptées (SET, pas d'incrément)
+        const existing = new Map(
+          (
+            await tx.stockLevel.findMany({
+              where: { tenantId, spaceId, elementId: { in: [...new Set(recoLines.map((l) => l.elementId))] } },
+              select: { id: true, elementId: true, itemKey: true },
+            })
+          ).map((l) => [`${l.elementId}::${l.itemKey}`, l.id]),
+        );
+        const toCreate = recoLines.filter((l) => !existing.has(`${l.elementId}::${l.itemKey}`));
+        if (toCreate.length) {
+          await tx.stockLevel.createMany({
+            data: toCreate.map((l) => ({
+              tenantId,
+              spaceId,
+              elementId: l.elementId,
+              itemKey: l.itemKey,
+              packedUnits: l.countedPacked,
+              looseUnits: l.countedLoose,
+              unitsPerPack: l.unitsPerPack,
+            })),
+          });
+        }
+        for (const l of recoLines) {
+          const id = existing.get(`${l.elementId}::${l.itemKey}`);
+          if (!id) continue;
+          await tx.stockLevel.update({
+            where: { id },
+            data: {
+              packedUnits: l.countedPacked,
+              looseUnits: l.countedLoose,
+              ...(l.unitsPerPack != null ? { unitsPerPack: l.unitsPerPack } : {}),
+            },
+          });
+        }
+
+        return { reconciliationId: reco.id, createdAt: reco.createdAt, lines: recoLines.length };
+      },
+      { timeout: 30000 },
+    );
+  }
+
+  // ─── Réconciliations (listing + export) ──────────────────────────────────────
+
+  async listReconciliations(spaceId: string, tenantId: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const rows = await this.prisma.stockReconciliation.findMany({
+      where: { tenantId, spaceId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, eventId: true, eventName: true, createdAt: true, createdBy: true, lines: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      eventId: r.eventId,
+      eventName: r.eventName,
+      createdAt: r.createdAt,
+      createdBy: r.createdBy,
+      lineCount: Array.isArray(r.lines) ? (r.lines as any[]).length : 0,
+    }));
+  }
+
+  async getReconciliation(id: string, tenantId: string) {
+    const reco = await this.prisma.stockReconciliation.findFirst({ where: { id, tenantId } });
+    if (!reco) throw new NotFoundException(`Reconciliation ${id} not found`);
+    return reco;
+  }
+
+  /** CSV des écarts d'une réconciliation (séparateur ';' — Excel FR). */
+  async exportReconciliationCsv(id: string, tenantId: string) {
+    const reco = await this.getReconciliation(id, tenantId);
+    const lines = (Array.isArray(reco.lines) ? reco.lines : []) as any[];
+
+    const elementIds = [...new Set(lines.map((l) => l.elementId).filter(Boolean))];
+    const elements = elementIds.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: elementIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameById = new Map(elements.map((e) => [e.id, e.name]));
+
+    const esc = (v: unknown) => {
+      const s = String(v ?? '');
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = [
+      'PDV/Storage', 'Item', 'Unites par pack',
+      'Attendu (packs)', 'Attendu (vrac)', 'Compte (packs)', 'Compte (vrac)',
+      'Ecart (packs)', 'Ecart (vrac)', 'Ecart (unites)',
+    ];
+    const rows = lines.map((l) =>
+      [
+        nameById.get(l.elementId) ?? l.elementId,
+        l.itemKey,
+        l.unitsPerPack ?? '',
+        l.expectedPacked, l.expectedLoose, l.countedPacked, l.countedLoose,
+        l.deltaPacked, l.deltaLoose, l.deltaUnits ?? '',
+      ]
+        .map(esc)
+        .join(';'),
+    );
+    // BOM UTF-8 pour qu'Excel ouvre les accents correctement
+    const csv = ['\uFEFF' + header.join(';'), ...rows].join('\n');
+    return { reco, csv };
+  }
+
+  // \u2500\u2500\u2500 Simulation de vente (QA / tests logistique) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+  /**
+   * Simule une vente Weezevent : cr\u00E9e une WeezeventTransaction + ses
+   * WeezeventTransactionItem synth\u00E9tiques dans les m\u00EAmes tables que le pipeline
+   * r\u00E9el (donc lues par getStock/deriveSalesRaw exactement comme une vraie vente),
+   * marqu\u00E9es `metadata.isSimulated=true`. N\u00E9cessite que le PDV et chaque menu item
+   * soient d\u00E9j\u00E0 mapp\u00E9s \u00E0 Weezevent (WeezeventLocationShopMapping /
+   * WeezeventProductMapping) \u2014 sinon une vraie vente ne serait pas compt\u00E9e non
+   * plus, donc rien \u00E0 simuler.
+   * \u26A0\uFE0F Non filtr\u00E9e des autres endpoints (dashboards revenus/analytics) : purger
+   * via purgeSimulatedSales une fois le test termin\u00E9.
+   */
+  async simulateSale(spaceId: string, elementId: string, lines: SimulateSaleLineDto[], tenantId: string, userId?: string) {
+    if (!lines?.length) throw new BadRequestException('Aucune ligne \u00E0 simuler');
+    const element = await this.getElementOrThrow(elementId, tenantId);
+    if (element.spaceId !== spaceId) {
+      throw new BadRequestException(`Element ${elementId} n'appartient pas \u00E0 l'espace ${spaceId}`);
+    }
+
+    const shopMapping = await this.prisma.locationShopMapping.findFirst({
+      where: { tenantId, spaceElementId: elementId },
+    });
+    if (!shopMapping) {
+      throw new BadRequestException(`"${element.name}" n'est rattach\u00E9 \u00E0 aucune location Weezevent \u2014 vente non simulable.`);
+    }
+    const location = await this.prisma.salesLocation.findFirst({
+      where: { tenantId, OR: [{ id: shopMapping.salesLocationId }, { externalId: shopMapping.salesLocationId }] },
+    });
+    if (!location) {
+      throw new BadRequestException(`Location Weezevent introuvable pour "${element.name}".`);
+    }
+
+    const menuItemIds = [...new Set(lines.map((l) => l.menuItemId))];
+    const [menuItems, productMappings] = await Promise.all([
+      this.prisma.menuItem.findMany({ where: { id: { in: menuItemIds }, tenantId, deletedAt: null }, select: { id: true, name: true } }),
+      this.prisma.productMapping.findMany({ where: { tenantId, menuItemId: { in: menuItemIds } } }),
+    ]);
+    const menuItemById = new Map(menuItems.map((m) => [m.id, m]));
+    const mappingByMenuItemId = new Map(productMappings.map((m) => [m.menuItemId, m]));
+    const missing = menuItemIds.filter((id) => !mappingByMenuItemId.has(id));
+    if (missing.length) {
+      const names = missing.map((id) => menuItemById.get(id)?.name ?? id).join(', ');
+      throw new BadRequestException(`Non mapp\u00E9 \u00E0 un produit Weezevent : ${names}. Vente non simulable pour ces menu items.`);
+    }
+    const productIds = [...new Set(productMappings.map((m) => m.salesProductId))];
+    const products = await this.prisma.salesProduct.findMany({ where: { id: { in: productIds } } });
+    const productById = new Map(products.map((p) => [p.id, p]));
+
+    const transactionDate = new Date();
+    const itemsData = lines.map((line) => {
+      const menuItem = menuItemById.get(line.menuItemId);
+      const mapping = mappingByMenuItemId.get(line.menuItemId)!;
+      const product = productById.get(mapping.salesProductId);
+      return {
+        menuItemId: line.menuItemId,
+        productId: mapping.salesProductId,
+        productName: product?.name ?? menuItem?.name ?? null,
+        quantity: line.quantity,
+        unitPrice: product?.basePrice ?? new Prisma.Decimal(0),
+        vat: product?.vatRate ?? new Prisma.Decimal(0),
+        rawData: { simulated: true },
+      };
+    });
+    const amount = itemsData.reduce((sum, it) => sum + Number(it.unitPrice) * it.quantity, 0);
+
+    // Calcule la consommation AVANT d'écrire quoi que ce soit : si le résultat ne
+    // peut pas être correctement reflété sur le stock (pack size manquante/invalide
+    // et vrac insuffisant pour absorber la vente), on refuse la vente plutôt que de
+    // créer une transaction dont l'effet réel serait silencieusement clampé à 0
+    // (cf. normalizeLevel) — un « succès » trompeur.
+    const raw: SalesRawRow[] = lines.map((line) => ({
+      elementId,
+      menuItemId: line.menuItemId,
+      eventId: location.eventId,
+      eventName: null,
+      qty: line.quantity,
+      lastAt: transactionDate,
+    }));
+    const consumptionPreview = await this.explodeSalesToConsumption(raw, tenantId);
+    const problems = await this.checkConsumptionFeasibility(tenantId, elementId, consumptionPreview);
+    if (problems.length) {
+      throw new BadRequestException(`Vente non simulable — configuration de stock incomplète : ${problems.join(' ; ')}`);
+    }
+
+    const transaction = await this.prisma.salesTransaction.create({
+      data: {
+        externalId: `SIM-${randomUUID()}`,
+        tenantId,
+        integrationId: location.integrationId,
+        amount,
+        status: 'V',
+        transactionDate,
+        eventId: location.eventId,
+        locationId: location.id,
+        locationName: location.name,
+        metadata: { isSimulated: true, simulatedByUserId: userId ?? null, simulatedElementId: elementId },
+        rawData: { simulated: true },
+        items: {
+          create: itemsData.map(({ menuItemId, ...data }) => data),
+        },
+      },
+      include: { items: true },
+    });
+
+    return {
+      transactionId: transaction.id,
+      elementId,
+      elementName: element.name,
+      items: itemsData.map((it) => ({ menuItemId: it.menuItemId, productName: it.productName, quantity: it.quantity })),
+      consumptionPreview,
+    };
+  }
+
+  /**
+   * Une ligne de consommation est « impossible à refléter » si elle ferait passer
+   * le vrac sous 0 sans pouvoir emprunter un pack entier (unitsPerPack manquant/0
+   * sur le StockLevel suivi, ou à défaut sur le Market Price du référentiel, ou
+   * pas assez de packs en stock) — cf. `normalizeLevel` qui clampe alors
+   * silencieusement à 0 sans que la vente soit réellement reflétée.
+   */
+  private async checkConsumptionFeasibility(
+    tenantId: string,
+    elementId: string,
+    consumption: Array<{ itemKey: string; quantity: number }>,
+  ): Promise<string[]> {
+    if (!consumption.length) return [];
+    const itemKeys = [...new Set(consumption.map((c) => c.itemKey))];
+    const [levels, marketPrices] = await Promise.all([
+      this.prisma.stockLevel.findMany({ where: { tenantId, elementId, itemKey: { in: itemKeys } } }),
+      this.prisma.marketPrice.findMany({
+        where: { tenantId, deletedAt: null, itemName: { in: itemKeys, mode: 'insensitive' } },
+        select: { itemName: true, packedUnits: true },
+      }),
+    ]);
+    const levelByKey = new Map(levels.map((l) => [l.itemKey, l]));
+    const uppByName = new Map(marketPrices.map((m) => [m.itemName.trim().toLowerCase(), m.packedUnits]));
+
+    const problems: string[] = [];
+    for (const c of consumption) {
+      const level = levelByKey.get(c.itemKey);
+      const currentPacked = level?.packedUnits ?? 0;
+      const currentLoose = level?.looseUnits ?? 0;
+      const upp =
+        level?.unitsPerPack && level.unitsPerPack > 0
+          ? level.unitsPerPack
+          : (uppByName.get(c.itemKey.trim().toLowerCase()) ?? null);
+      const nextLoose = currentLoose - c.quantity;
+      if (nextLoose < -1e-9) {
+        const canBorrow = !!upp && upp > 0 && currentPacked >= Math.ceil((-nextLoose - 1e-9) / upp);
+        if (!canBorrow) {
+          problems.push(
+            `"${c.itemKey}" (stock ${currentPacked} pack × ${upp ?? '?'} + ${currentLoose} vrac, insuffisant pour -${c.quantity} — taille de pack Market Price manquante ou invalide)`,
+          );
+        }
+      }
+    }
+    return problems;
+  }
+
+  /**
+   * Purge les ventes simul\u00E9es (`metadata.isSimulated=true`) d'un PDV \u2014 nettoyage
+   * post-test. Cascade sur WeezeventTransactionItem (onDelete: Cascade).
+   */
+  async purgeSimulatedSales(spaceId: string, elementId: string, tenantId: string) {
+    const element = await this.getElementOrThrow(elementId, tenantId);
+    if (element.spaceId !== spaceId) {
+      throw new BadRequestException(`Element ${elementId} n'appartient pas \u00E0 l'espace ${spaceId}`);
+    }
+    const shopMapping = await this.prisma.locationShopMapping.findFirst({
+      where: { tenantId, spaceElementId: elementId },
+    });
+    if (!shopMapping) return { deletedCount: 0 };
+    const location = await this.prisma.salesLocation.findFirst({
+      where: { tenantId, OR: [{ id: shopMapping.salesLocationId }, { externalId: shopMapping.salesLocationId }] },
+      select: { id: true },
+    });
+    if (!location) return { deletedCount: 0 };
+    const { count } = await this.prisma.salesTransaction.deleteMany({
+      where: {
+        tenantId,
+        locationId: location.id,
+        metadata: { path: ['isSimulated'], equals: true },
+      },
+    });
+    return { deletedCount: count };
+  }
+}

@@ -1,0 +1,694 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../../core/database/prisma.service';
+import { RedisService } from '../../../core/redis/redis.service';
+import {
+  DashboardQueryDto,
+  DashboardResponseDto,
+  DashboardMetaDto,
+  SpaceInfoDto,
+  FiltersDto,
+  KpisDto,
+  ChartsDto,
+  ListsDto,
+  DashboardInclude,
+  DashboardGranularity,
+} from '../dto';
+import { createHash } from 'crypto';
+
+@Injectable()
+export class SpaceDashboardService {
+  private readonly logger = new Logger(SpaceDashboardService.name);
+  private readonly CACHE_TTL = 120; // 2 minutes
+  private readonly CACHE_PREFIX = 'dash:v1';
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
+
+  async getDashboard(
+    spaceId: string,
+    tenantId: string,
+    query: DashboardQueryDto,
+  ): Promise<DashboardResponseDto> {
+    const startTime = Date.now();
+
+    // Verify space belongs to tenant
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, tenantId },
+      include: { configs: true },
+    });
+
+    if (!space) {
+      throw new NotFoundException(`Space ${spaceId} not found`);
+    }
+
+    // Get dashboard version for cache key
+    const version = await this.getDashboardVersion(spaceId, tenantId);
+
+    // Build cache key
+    const cacheKey = this.buildCacheKey(
+      tenantId,
+      spaceId,
+      query,
+      version.version,
+    );
+
+    // Try to get from cache
+    const cached = await this.getFromCache(cacheKey);
+    if (cached) {
+      this.logger.log(
+        `Cache hit for space ${spaceId} (${Date.now() - startTime}ms)`,
+      );
+      return cached;
+    }
+
+    // Cache miss - compute dashboard
+    this.logger.log(`Cache miss for space ${spaceId}, computing...`);
+
+    const { from, to } = this.getDateRange(query);
+    const include = query.include || [];
+
+    const response: DashboardResponseDto = {
+      meta: this.buildMeta(
+        spaceId,
+        tenantId,
+        from,
+        to,
+        query,
+        version.version,
+        false,
+      ),
+    };
+
+    // Build response based on include parameter
+    if (include.includes(DashboardInclude.SPACE)) {
+      response.space = this.buildSpaceInfo(space);
+    }
+
+    if (include.includes(DashboardInclude.FILTERS)) {
+      response.filters = await this.getFilters(spaceId, tenantId, from, to);
+    }
+
+    if (include.includes(DashboardInclude.KPIS)) {
+      response.kpis = await this.getKpis(spaceId, tenantId, from, to);
+    }
+
+    if (include.includes(DashboardInclude.CHARTS)) {
+      response.charts = await this.getCharts(
+        spaceId,
+        tenantId,
+        from,
+        to,
+        query.granularity || DashboardGranularity.DAY,
+      );
+    }
+
+    if (include.includes(DashboardInclude.LISTS)) {
+      response.lists = await this.getLists(spaceId, tenantId, from, to);
+    }
+
+    // Cache the response
+    await this.setCache(cacheKey, response);
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`Dashboard computed for space ${spaceId} in ${duration}ms`);
+
+    return response;
+  }
+
+  private async getDashboardVersion(spaceId: string, tenantId: string) {
+    let version = await this.prisma.spaceDashboardVersion.findUnique({
+      where: { spaceId },
+    });
+
+    if (version && version.tenantId !== tenantId) {
+      throw new NotFoundException(`Space ${spaceId} not found`);
+    }
+
+    if (!version) {
+      version = await this.prisma.spaceDashboardVersion.create({
+        data: { spaceId, tenantId, version: 1 },
+      });
+    }
+
+    return version;
+  }
+
+  private buildCacheKey(
+    tenantId: string,
+    spaceId: string,
+    query: DashboardQueryDto,
+    version: number,
+  ): string {
+    const { from, to } = this.getDateRange(query);
+    const filtersHash = this.hashFilters(query);
+    const granularity = query.granularity || DashboardGranularity.DAY;
+    const include = (query.include || []).sort().join(',');
+
+    return `${this.CACHE_PREFIX}:${tenantId}:${spaceId}:${from}:${to}:${granularity}:${include}:${filtersHash}:${version}`;
+  }
+
+  private hashFilters(query: DashboardQueryDto): string {
+    const filterData = JSON.stringify({
+      configId: query.configId,
+    });
+    return createHash('md5').update(filterData).digest('hex').substring(0, 8);
+  }
+
+  private getDateRange(query: DashboardQueryDto): { from: string; to: string } {
+    const now = new Date();
+    const to = query.to || now.toISOString().split('T')[0];
+    const from =
+      query.from ||
+      new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split('T')[0];
+
+    return { from, to };
+  }
+
+  private buildMeta(
+    spaceId: string,
+    tenantId: string,
+    from: string,
+    to: string,
+    query: DashboardQueryDto,
+    version: number,
+    cacheHit: boolean,
+  ): DashboardMetaDto {
+    return {
+      spaceId,
+      tenantId,
+      from,
+      to,
+      granularity: query.granularity || DashboardGranularity.DAY,
+      filtersHash: this.hashFilters(query),
+      analyticsVersion: version,
+      generatedAt: new Date().toISOString(),
+      cache: {
+        hit: cacheHit,
+        ttlSeconds: this.CACHE_TTL,
+      },
+    };
+  }
+
+  private buildSpaceInfo(space: any): SpaceInfoDto {
+    return {
+      id: space.id,
+      name: space.name,
+      timezone: space.timezone || 'Europe/Paris',
+      configs: space.configs.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        capacity: c.capacity,
+      })),
+    };
+  }
+
+  private async getFilters(
+    spaceId: string,
+    tenantId: string,
+    from: string,
+    to: string,
+  ): Promise<FiltersDto> {
+    // Get location mapping for this space
+    const locationMappings =
+      await this.prisma.locationSpaceMapping.findMany({
+        where: { tenantId, spaceId },
+      });
+
+    const locationIds = locationMappings.map((m) => m.salesLocationId);
+
+    // Get events from transactions in date range
+    const events = await this.prisma.salesEvent.findMany({
+      where: {
+        tenantId,
+        transactions: {
+          some: {
+            locationId: { in: locationIds },
+            transactionDate: {
+              gte: new Date(from),
+              lte: new Date(to),
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        startDate: true,
+      },
+      distinct: ['id'],
+    });
+
+    // Get merchants from transactions
+    const merchants = await this.prisma.weezeventMerchant.findMany({
+      where: {
+        tenantId,
+        transactions: {
+          some: {
+            locationId: { in: locationIds },
+            transactionDate: {
+              gte: new Date(from),
+              lte: new Date(to),
+            },
+          },
+        },
+      },
+      select: {
+        weezeventId: true,
+        name: true,
+      },
+      distinct: ['weezeventId'],
+    });
+
+    // Get merchant-element mappings
+    const merchantMappings =
+      await this.prisma.locationShopMapping.findMany({
+        where: {
+          tenantId,
+          salesLocationId: { in: merchants.map((m) => m.weezeventId) },
+        },
+        select: {
+          salesLocationId: true,
+          spaceElementId: true,
+        },
+      });
+
+    const spaceElements = merchantMappings.length
+      ? await this.prisma.spaceElement.findMany({
+          where: {
+            id: { in: merchantMappings.map((m) => m.spaceElementId) },
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+        })
+      : [];
+
+    const spaceElementById = new Map(
+      spaceElements.map((element) => [element.id, element]),
+    );
+
+    // Get locations
+    const locations = await this.prisma.salesLocation.findMany({
+      where: {
+        externalId: { in: locationIds },
+      },
+      select: {
+        externalId: true,
+        name: true,
+      },
+    });
+
+    return {
+      events: events.map((e) => ({
+        id: e.id,
+        name: e.name,
+        startDate: e.startDate?.toISOString() || null,
+      })),
+      shops: merchantMappings
+        .map((m) => ({
+          spaceElementId: m.spaceElementId,
+          spaceElement: spaceElementById.get(m.spaceElementId),
+        }))
+        .filter(
+          (
+            m,
+          ): m is {
+            spaceElementId: string;
+            spaceElement: { id: string; name: string };
+          } => Boolean(m.spaceElement),
+        )
+        .map((m) => ({
+          spaceElementId: m.spaceElementId,
+          name: m.spaceElement.name,
+        })),
+      weezevent: {
+        locations: locations.map((l) => ({
+          weezeventLocationId: l.externalId,
+          name: l.name,
+        })),
+        merchants: merchants.map((m) => ({
+          weezeventMerchantId: m.weezeventId,
+          name: m.name,
+        })),
+      },
+    };
+  }
+
+  private async getKpis(
+    spaceId: string,
+    tenantId: string,
+    from: string,
+    to: string,
+  ): Promise<KpisDto> {
+    const aggregates = await this.prisma.spaceRevenueMinuteAgg.aggregate({
+      where: {
+        tenantId,
+        spaceId,
+        minute: {
+          gte: new Date(from),
+          lte: new Date(to),
+        },
+      },
+      _sum: {
+        revenueHt: true,
+        transactionsCount: true,
+        itemsCount: true,
+      },
+    });
+
+    const totalRevenue = Number(aggregates._sum.revenueHt || 0);
+    const totalTransactions = aggregates._sum.transactionsCount || 0;
+    const avgTicket =
+      totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+
+    // Get distinct event IDs in this space's aggregation window
+    const aggEvents = await this.prisma.spaceRevenueMinuteAgg.findMany({
+      where: {
+        tenantId,
+        spaceId,
+        minute: { gte: new Date(from), lte: new Date(to) },
+        weezeventEventId: { not: null },
+      },
+      distinct: ['weezeventEventId'],
+      select: { weezeventEventId: true },
+    });
+    const eventIds = aggEvents
+      .map(r => r.weezeventEventId)
+      .filter((id): id is string => id !== null);
+
+    // Count attendees + refunds in parallel
+    const [attendees, refundedTxCount, totalTxCount] = await Promise.all([
+      eventIds.length > 0
+        ? this.prisma.weezeventAttendee.count({
+            where: { tenantId, eventId: { in: eventIds } },
+          })
+        : Promise.resolve(0),
+      this.prisma.salesTransaction.count({
+        where: { tenantId, status: 'refunded' },
+      }),
+      this.prisma.salesTransaction.count({ where: { tenantId } }),
+    ]);
+
+    const revenuePerAttendee = attendees > 0 ? totalRevenue / attendees : 0;
+    const conversionRate = attendees > 0 ? Math.min(1, totalTransactions / attendees) : 0;
+    const refundRate = totalTxCount > 0 ? refundedTxCount / totalTxCount : 0;
+
+    // Get top category
+    const topCategory = await this.getTopCategory(spaceId, tenantId, from, to);
+
+    return {
+      revenueHt: totalRevenue,
+      transactions: totalTransactions,
+      avgTicketHt: avgTicket,
+      attendees,
+      revenuePerAttendee,
+      conversionRate,
+      topSellingCategory: topCategory,
+      refundRate,
+    };
+  }
+
+  private async getTopCategory(
+    spaceId: string,
+    tenantId: string,
+    from: string,
+    to: string,
+  ): Promise<string | null> {
+    const topProduct = await this.prisma.spaceProductRevenueDailyAgg.groupBy({
+      by: ['weezeventProductId'],
+      where: {
+        tenantId,
+        spaceId,
+        day: {
+          gte: new Date(from),
+          lte: new Date(to),
+        },
+      },
+      _sum: {
+        revenueHt: true,
+      },
+      orderBy: {
+        _sum: {
+          revenueHt: 'desc',
+        },
+      },
+      take: 1,
+    });
+
+    if (topProduct.length === 0) return null;
+
+    const product = await this.prisma.salesProduct.findUnique({
+      where: { id: topProduct[0].weezeventProductId },
+      select: { categoryId: true },
+    });
+
+    return product?.categoryId || null;
+  }
+
+  private async getCharts(
+    spaceId: string,
+    tenantId: string,
+    from: string,
+    to: string,
+    granularity: DashboardGranularity,
+  ): Promise<ChartsDto> {
+    // Get revenue over time — agrégé à la journée depuis SpaceRevenueMinuteAgg
+    const revenueData = await this.prisma.$queryRaw<Array<{ day: string; revenue: any }>>`
+      SELECT
+        DATE_TRUNC('day', minute AT TIME ZONE 'UTC')::date::text as day,
+        SUM("revenueHt") as revenue
+      FROM "SpaceRevenueMinuteAgg"
+      WHERE "tenantId" = ${tenantId}
+        AND "spaceId" = ${spaceId}
+        AND minute >= ${new Date(from)}
+        AND minute <= ${new Date(to)}
+      GROUP BY 1
+      ORDER BY 1
+    `;
+
+    const labels = revenueData.map((d) => d.day);
+    const values = revenueData.map((d) => Number(d.revenue || 0));
+
+    // Get revenue by shop — agrégé à la journée depuis SpaceRevenueMinuteAgg
+    const shopData = await this.prisma.$queryRaw<Array<{ day: string; spaceElementId: string | null; revenue: any }>>`
+      SELECT
+        DATE_TRUNC('day', minute AT TIME ZONE 'UTC')::date::text as day,
+        "spaceElementId",
+        SUM("revenueHt") as revenue
+      FROM "SpaceRevenueMinuteAgg"
+      WHERE "tenantId" = ${tenantId}
+        AND "spaceId" = ${spaceId}
+        AND minute >= ${new Date(from)}
+        AND minute <= ${new Date(to)}
+        AND "spaceElementId" IS NOT NULL
+      GROUP BY 1, 2
+      ORDER BY 1
+    `;
+
+    // Group by shop
+    const shopSeries = new Map<string, { label: string; values: number[] }>();
+
+    // ⚡ Fix N+1: charger tous les SpaceElement en UNE requête, puis indexer en Map
+    const elementIds = Array.from(
+      new Set(
+        shopData
+          .map((d) => d.spaceElementId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const elements = elementIds.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: elementIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const elementNameById = new Map(elements.map((e) => [e.id, e.name]));
+
+    for (const data of shopData) {
+      if (!data.spaceElementId) continue;
+
+      if (!shopSeries.has(data.spaceElementId)) {
+        shopSeries.set(data.spaceElementId, {
+          label: elementNameById.get(data.spaceElementId) || 'Unknown',
+          values: new Array(labels.length).fill(0),
+        });
+      }
+
+      const dayIndex = labels.indexOf(data.day);
+      if (dayIndex >= 0) {
+        shopSeries.get(data.spaceElementId)!.values[dayIndex] = Number(
+          data.revenue || 0,
+        );
+      }
+    }
+
+    return {
+      revenueOverTime: {
+        labels,
+        series: [
+          {
+            key: 'total',
+            label: 'Total',
+            values,
+          },
+        ],
+      },
+      revenueByShopOverTime: {
+        labels,
+        series: Array.from(shopSeries.entries()).map(([id, data]) => ({
+          key: `shop:${id}`,
+          label: data.label,
+          values: data.values,
+        })),
+      },
+    };
+  }
+
+  private async getLists(
+    spaceId: string,
+    tenantId: string,
+    from: string,
+    to: string,
+  ): Promise<ListsDto> {
+    // Top shops
+    const topShops = await this.prisma.spaceRevenueMinuteAgg.groupBy({
+      by: ['spaceElementId'],
+      where: {
+        tenantId,
+        spaceId,
+        minute: {
+          gte: new Date(from),
+          lte: new Date(to),
+        },
+        spaceElementId: { not: null },
+      },
+      _sum: {
+        revenueHt: true,
+      },
+      orderBy: {
+        _sum: {
+          revenueHt: 'desc',
+        },
+      },
+      take: 10,
+    });
+
+    // ⚡ Fix N+1: une seule requête au lieu de N findUnique
+    const topShopElementIds = topShops
+      .map((s) => s.spaceElementId)
+      .filter((id): id is string => Boolean(id));
+    const topShopElements = topShopElementIds.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: topShopElementIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const topShopNameById = new Map(topShopElements.map((e) => [e.id, e.name]));
+
+    const topShopsWithNames = topShops.map((shop) => ({
+      spaceElementId: shop.spaceElementId!,
+      name: topShopNameById.get(shop.spaceElementId!) || 'Unknown',
+      revenueHt: Number(shop._sum.revenueHt || 0),
+    }));
+
+    // Top products
+    const topProducts = await this.prisma.spaceProductRevenueDailyAgg.groupBy({
+      by: ['weezeventProductId'],
+      where: {
+        tenantId,
+        spaceId,
+        day: {
+          gte: new Date(from),
+          lte: new Date(to),
+        },
+      },
+      _sum: {
+        revenueHt: true,
+        quantity: true,
+      },
+      orderBy: {
+        _sum: {
+          revenueHt: 'desc',
+        },
+      },
+      take: 10,
+    });
+
+    // ⚡ Fix N+1: une seule requête au lieu de N findUnique
+    const productIds = topProducts.map((p) => p.weezeventProductId);
+    const products = productIds.length
+      ? await this.prisma.salesProduct.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const productNameById = new Map(products.map((p) => [p.id, p.name]));
+
+    const topProductsWithNames = topProducts.map((product) => ({
+      weezeventProductId: product.weezeventProductId,
+      name: productNameById.get(product.weezeventProductId) || 'Unknown',
+      revenueHt: Number(product._sum.revenueHt || 0),
+      quantity: product._sum.quantity || 0,
+    }));
+
+    return {
+      topShops: topShopsWithNames,
+      topProducts: topProductsWithNames,
+    };
+  }
+
+  private async getFromCache(
+    key: string,
+  ): Promise<DashboardResponseDto | null> {
+    try {
+      const cached = await this.redis.get<DashboardResponseDto>(key);
+      if (!cached) return null;
+
+      cached.meta.cache.hit = true;
+      return cached;
+    } catch (error) {
+      this.logger.warn(`Cache read error: ${error.message}`);
+      return null;
+    }
+  }
+
+  private async setCache(
+    key: string,
+    data: DashboardResponseDto,
+  ): Promise<void> {
+    try {
+      await this.redis.set(key, data, { ttl: this.CACHE_TTL });
+    } catch (error) {
+      this.logger.warn(`Cache write error: ${error.message}`);
+    }
+  }
+
+  async invalidateCache(spaceId: string, tenantId: string): Promise<number> {
+    try {
+      const pattern = `${this.CACHE_PREFIX}:${tenantId}:${spaceId}:*`;
+      return this.redis.deletePattern(pattern);
+    } catch (error) {
+      this.logger.error(`Cache invalidation error: ${error.message}`);
+      return 0;
+    }
+  }
+
+  async incrementVersion(spaceId: string, tenantId: string): Promise<void> {
+    await this.prisma.spaceDashboardVersion.upsert({
+      where: { spaceId },
+      create: {
+        spaceId,
+        tenantId,
+        version: 1,
+      },
+      update: {
+        version: { increment: 1 },
+      },
+    });
+  }
+}

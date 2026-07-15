@@ -1,0 +1,2615 @@
+// Datasource Supabase Postgres
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  // driverAdapters : requêtes via node-postgres (prepared statements NON nommés),
+  // compatibles pooler transaction (6543) SANS le wrapping BEGIN/DEALLOCATE ALL/COMMIT
+  // que pgbouncer=true impose au moteur natif (~3 round-trips perdus par requête).
+  previewFeatures = ["driverAdapters"]
+}
+
+// ==================== ENUMS ====================
+
+enum ElementType {
+  access
+  hospitality
+  entertainment
+  shop
+  merchshop
+  entrance
+  storage
+  kitchen
+  fnb_food
+  fnb_beverages
+  fnb_bar
+  fnb_snack
+  fnb_icecream
+  seating
+  stage
+  parking
+  restroom
+  office
+  other
+}
+
+// Builder v2 (docs/REFONTE_3D_BUILDER_V2.md §2) : les zones appartiennent à l'ESPACE.
+enum ZoneKind {
+  FLOOR
+  FORECOURT
+  EXTERNAL
+}
+
+enum StorageType {
+  Cold
+  Dry
+  Frozen
+}
+
+enum KitchenType {
+  Central
+  Local
+}
+
+enum Diet {
+  Vegetarian
+  Vegan
+  GlutenFree
+  Halal
+  Kosher
+}
+
+enum IngredientCategory {
+  Vegetable
+  Meat
+  Fish
+  Dairy
+  Bread
+  Spice
+  Condiment
+  Grain
+  Fruit
+  Herb
+  Oil
+  Sweetener
+  Beverage
+  Packaging
+  Other
+}
+
+enum AccessType {
+  venueentrance
+  emergency
+  service
+  vip
+}
+
+enum HospitalityType {
+  salon
+  lounge
+  restaurant
+  bar
+  vip_area
+}
+
+enum EntertainmentType {
+  sportground
+  stage
+  screen
+  playground
+}
+
+enum ShopType {
+  food
+  beverages
+  beer
+  merchandise
+  souvenirs
+  retail
+}
+
+enum EntranceType {
+  public
+  vip
+  service
+  emergency
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}
+
+// ==================== MULTI-TENANT ====================
+
+model Tenant {
+  id     String       @id @default(cuid())
+  name   String
+  slug   String       @unique
+  domain String?      @unique
+  logo   String?
+  plan   TenantPlan   @default(FREE)
+  status TenantStatus @default(ACTIVE)
+
+  // Invitation System
+  invitationCode    String? @unique // Code for joining this tenant
+  invitationEnabled Boolean @default(true) // Allow new members to join
+
+  // Business Information
+  organizationType String? // Restaurant, Hotel, Bar, Event, etc.
+  siret            String?
+  address          String?
+  city             String?
+  postalCode       String?
+  country          String? @default("France")
+  email            String?
+  phone            String?
+
+  // Additional Info
+  numberOfEmployees Int?
+  numberOfSpaces    Int?
+  paymentMethod     String? // Card, Transfer, Direct Debit, etc.
+
+  metadata Json?
+
+  // Weezevent Integration
+  weezeventClientId       String?
+  weezeventClientSecret   String? // Encrypted
+  weezeventOrganizationId String? // Weezevent Organization ID
+  weezeventEnabled        Boolean @default(false)
+
+  // Weezevent Webhook
+  weezeventWebhookSecret  String? // Secret for signature validation
+  weezeventWebhookEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users       User[] // Keep for backward compatibility
+  userTenants UserTenant[] // New many-to-many relation
+  spaces      Space[]
+  suppliers   Supplier[]
+
+  // RBAC (rôles/permissions dynamiques)
+  roles       Role[]
+  permissions Permission[] // Permissions custom du tenant (scope CUSTOM)
+
+  // Menu domain relations (ajoutées pour isolation multi-tenant)
+  menuItems            MenuItem[]
+  menuItemPriceHistory MenuItemPriceHistory[]
+  menuComponents       MenuComponent[]
+  ingredients          Ingredient[]
+  packagings           Packaging[]
+  marketPrices         MarketPrice[]
+  csvMappings          CsvMapping[]
+  menus                Menu[]
+  auditLogs            AuditLog[]
+  webhooks             Webhook[]
+
+  // Events domain
+  teams Team[]
+
+  // Weezevent Relations
+  salesEvents              SalesEvent[]
+  weezeventMerchants       WeezeventMerchant[]
+  salesLocations           SalesLocation[]
+  salesProducts            SalesProduct[]
+  weezeventUsers           WeezeventUser[]
+  weezeventWallets         WeezeventWallet[]
+  salesTransactions        SalesTransaction[]
+  integrationWebhookEvents IntegrationWebhookEvent[]
+  productMappings          ProductMapping[]
+  salesProductVariants     SalesProductVariant[]
+  salesProductComponents   SalesProductComponent[]
+  weezeventOrders          WeezeventOrder[]
+  weezeventPrices          WeezeventPrice[]
+  weezeventAttendees       WeezeventAttendee[]
+  integrations             Integration[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([weezeventEnabled])
+  @@index([weezeventWebhookEnabled])
+}
+
+// Provenance des intégrations et des données de ventes (PLAN_INTEGRATION_DIGIFOOD §2.1)
+enum IntegrationProvider {
+  WEEZEVENT
+  DIGIFOOD
+}
+
+// Intégration de ventes (multi-provider). Table physique historique "Integration",
+// détail des credentials dans une table 1-1 par provider (WeezeventIntegrationConfig /
+// DigifoodIntegrationConfig). Voir PLAN_INTEGRATION_DIGIFOOD §2.2.
+// ⚠️ clientId/clientSecret/organizationId : colonnes gelées, à retirer du modèle au
+// refactor de renommage (étape 2 du plan) — lecture/écriture via WeezeventIntegrationConfig.
+model Integration {
+  id        String              @id @default(cuid())
+  tenantId  String
+  provider  IntegrationProvider @default(WEEZEVENT)
+  name      String // User-defined label, e.g. "Stande", "Hellfest 2025"
+  enabled   Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Détail de config 1-1 selon provider
+  weezevent WeezeventIntegrationConfig?
+  digifood  DigifoodIntegrationConfig?
+
+  // Back-references
+  events            SalesEvent[]
+  merchants         WeezeventMerchant[]
+  locations         SalesLocation[]
+  products          SalesProduct[]
+  users             WeezeventUser[]
+  wallets           WeezeventWallet[]
+  transactions      SalesTransaction[]
+  orders            WeezeventOrder[]
+  prices            WeezeventPrice[]
+  attendees         WeezeventAttendee[]
+  productVariants   SalesProductVariant[]
+  productComponents SalesProductComponent[]
+  syncStates        WeezeventSyncState[]
+  webhookEvents     IntegrationWebhookEvent[]
+  syncJobs          WeezeventSyncJob[]
+
+  @@index([tenantId])
+  @@index([tenantId, enabled])
+  @@index([tenantId, provider, enabled])
+  @@map("WeezeventIntegration")
+}
+
+// Credentials API Weezevent — détail 1-1 de Integration (provider = WEEZEVENT)
+model WeezeventIntegrationConfig {
+  id             String  @id @default(cuid())
+  integrationId  String  @unique
+  clientId       String
+  clientSecret   String // Encrypted (EncryptionService)
+  organizationId String? // Weezevent Organization ID
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+}
+
+// Secret webhook Digifood — détail 1-1 de Integration (provider = DIGIFOOD)
+model DigifoodIntegrationConfig {
+  id            String  @id @default(cuid())
+  integrationId String  @unique
+  webhookSecret String // Encrypted (EncryptionService)
+  keyVersion    String? // Dernière valeur reçue de digifood-wh-key-version
+  posVersion    String? // Info : "24" | "26" (détectée via software.version)
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+}
+
+enum TenantPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+// ==================== USER & AUTH ====================
+
+model User {
+  id        String  @id @default(cuid())
+  email     String
+  firstName String
+  lastName  String
+  fullName  String?
+  phone     String? // Téléphone de contact (optionnel)
+
+  role            UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
+  roleId          String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
+  avatar          String?
+  // Super-admin PLATEFORME (DataFriday), distinct du rôle ADMIN d'une organisation.
+  // Donne accès à l'administration cross-tenant (SuperAdminGuard). Écriture réservée
+  // à un super-admin existant / bootstrap via script. Voir docs/CONCEPTION_CIBLE_AUTH.md §3.
+  isSuperAdmin    Boolean  @default(false)
+  // Accès à TOUS les espaces de l'organisation (présents et futurs), INDÉPENDAMMENT du rôle.
+  // Choisi par l'owner à la création/édition. L'owner et le super-admin voient toujours tout.
+  // Voir docs/CONCEPTION_CIBLE_AUTH.md §5 (accès par espace découplé du rôle).
+  allSpacesAccess Boolean  @default(false)
+  tenantId        String // Keep for backward compatibility
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roleRef      Role?             @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  userTenants  UserTenant[] // New many-to-many relation
+  pinnedSpaces UserPinnedSpace[]
+  spaceAccess  UserSpaceAccess[]
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
+  @@index([email])
+  @@index([roleId])
+}
+
+// Many-to-many relation between User and Tenant
+model UserTenant {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      UserRole @default(ADMIN) // Legacy - conservé pour compatibilité, voir roleRef
+  roleId    String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
+  isOwner   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roleRef Role?  @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([isOwner])
+  @@index([roleId])
+}
+
+model UserPinnedSpace {
+  id       String   @id @default(cuid())
+  userId   String
+  spaceId  String
+  pinnedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, spaceId])
+  @@index([userId])
+}
+
+model UserSpaceAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  spaceId   String
+  role      UserRole @default(VIEWER)
+  grantedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, spaceId])
+  @@index([userId])
+  @@index([spaceId])
+}
+
+// ==================== RBAC (Rôles & Permissions dynamiques) ====================
+// Voir docs/auth/RBAC_SYSTEM.md pour le design complet.
+
+// Origine d'une permission :
+// - SYSTEM : fait partie du catalogue système (tenantId = null), non éditable
+// - CUSTOM : créée par un tenant (tenantId = <tenant>), éditable par les admins du tenant
+enum PermissionScope {
+  SYSTEM
+  CUSTOM
+}
+
+model Permission {
+  id          String          @id @default(cuid())
+  tenantId    String? // null = permission système globale (catalogue partagé)
+  code        String // ex: "nav.spaces", "org.roles.manage" (unicité gérée par seed/service, voir doc)
+  name        String
+  description String?
+  category    String? // regroupement pour l'UI (ex: "Navigation", "Organisation")
+  scope       PermissionScope @default(CUSTOM)
+  isSystem    Boolean         @default(false) // true = non modifiable/supprimable via l'UI
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roles  RolePermission[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([scope])
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  // Référence vers le rôle "système" équivalent (ADMIN/MANAGER/STAFF/VIEWER) pour la
+  // hiérarchie legacy et la règle "ADMIN = toutes les permissions". Null pour les rôles
+  // 100% custom créés par un tenant.
+  systemKey   UserRole?
+  isSystem    Boolean   @default(false) // true = rôle cloné depuis le catalogue système (non supprimable)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  users       User[]
+  userTenants UserTenant[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([systemKey])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+// ==================== SPACE & CONFIG ====================
+
+model Space {
+  id        String   @id @default(cuid())
+  name      String
+  image     String?  @db.Text
+  tenantId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Contact Info
+  tel               String?
+  email             String?
+  contactTel        String?
+  contactEmail      String?
+  mainContactPerson String?
+
+  // Address
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  postcode     String?
+  department   Int?
+  country      String?
+
+  // Space Details
+  spaceType      String? // Stadium, Arena, etc.
+  spaceTypeOther String?
+  maxCapacity    Int?
+  homeTeam       String?
+
+  // Social Media
+  facebook  String?
+  instagram String?
+  twitter   String?
+  tiktok    String?
+
+  // Metrics (calculated/cached)
+  avgEvent       Float?
+  avgTransaction Float?
+  perCapita      Float?
+  cachedMetrics  Json? // Cache des métriques calculées
+
+  // Timezone for dashboard aggregations
+  timezone String? @default("Europe/Paris")
+
+  // Relations
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  configs       Config[]
+  zones         Zone[] // Builder v2
+  pinnedByUsers UserPinnedSpace[]
+  userAccess    UserSpaceAccess[]
+  menus         Menu[]
+  menuItemLinks SpaceMenuItem[]
+
+  @@index([tenantId])
+  @@index([name])
+  @@index([spaceType])
+  @@index([city])
+}
+
+model Config {
+  id        String   @id @default(cuid())
+  name      String
+  spaceId   String
+  capacity  Int?
+  data      Json?
+  isSystem  Boolean  @default(false) // true = config auto-générée par le backend (import Weezevent), masquée côté UI
+  version   Int      @default(0) // verrou optimiste pour la synchronisation de `data` (JSON) concurrente
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  space                 Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  floors                Floor[]
+  forecourt             Forecourt?
+  externalMerch         ExternalMerch?
+  stations              Station[]
+  // Builder v2 : adhésions explicites élément ↔ configuration
+  configurationElements ConfigurationElement[]
+  // Assignations menu scopées par config (éléments partagés entre configs en v2)
+  menuAssignments       MenuAssignment[]
+  // Perf/staff/inventaire d'élément scopés par config (même patron que menuAssignments)
+  elementPerformances   ElementPerformance[]
+  elementStaff          ElementStaff[]
+  elementInventories    ElementInventory[]
+
+  @@index([spaceId])
+}
+
+// ==================== BUILDER V2 — ZONES & ADHÉSIONS ====================
+// docs/REFONTE_3D_BUILDER_V2.md §2 : le relationnel est l'UNIQUE source de vérité.
+// Une Zone appartient à l'ESPACE (pas à une config) ; une configuration est un
+// ensemble d'adhésions (ConfigurationElement). Les éléments existent UNE fois.
+
+model Zone {
+  id        String   @id @default(cuid())
+  spaceId   String
+  kind      ZoneKind
+  name      String
+  level     Int      @default(0) // FLOOR : 0=RDC, <0 sous-sol, >0 étage ; 0 pour les autres kinds
+  width     Float
+  length    Float
+  height    Float    @default(4)
+  geometry  Json? // { cornerRadius, hole } — présentation pure, aucune jointure dessus
+  sortIndex Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  space    Space          @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  elements SpaceElement[]
+
+  // Un seul étage par niveau et par espace (et un seul parvis / une seule zone externe).
+  @@unique([spaceId, kind, level])
+  @@index([spaceId])
+}
+
+// Adhésion élément ↔ configuration : cocher = INSERT, décocher = DELETE,
+// cloner une config = copie des lignes. Remplace `configurationIds` JSON de la v1.
+model ConfigurationElement {
+  configId  String
+  elementId String
+  createdAt DateTime @default(now())
+
+  config  Config       @relation(fields: [configId], references: [id], onDelete: Cascade)
+  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+
+  @@id([configId, elementId])
+  @@index([elementId])
+}
+
+// ==================== FLOOR & ELEMENTS ====================
+
+model Floor {
+  id           String @id @default(cuid())
+  configId     String
+  name         String
+  level        Int
+  width        Float
+  height       Float
+  length       Float
+  cornerRadius Json?
+
+  config   Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements SpaceElement[]
+
+  @@index([configId])
+  @@index([level])
+}
+
+// ==================== UNIFIED SPACE ELEMENT ====================
+// Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
+
+model SpaceElement {
+  id              String      @id @default(cuid())
+  floorId         String? // FK to Floor (if element is inside a floor)
+  forecourtId     String? // FK to Forecourt (if element is in forecourt)
+  externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
+  zoneId          String? // Builder v2 : FK vers Zone (remplace les 3 FK ci-dessus pour les éléments v2)
+  name            String
+  type            ElementType
+  x               Float
+  y               Float
+  depth           Float?
+  width           Float?
+  height          Float?
+  height3d        Float? // Hauteur 3D en mètres
+  rotation        Float?      @default(0)
+  image           String?     @db.Text
+  notes           String?
+  capacity        Int?
+
+  // Corner radius pour forme arrondie
+  cornerRadiusTL Float? @default(0)
+  cornerRadiusTR Float? @default(0)
+  cornerRadiusBL Float? @default(0)
+  cornerRadiusBR Float? @default(0)
+
+  // Type-specific attributes (arrays stockés en JSON)
+  shopTypes          String[]
+  storageTypes       String[]
+  hospitalityTypes   String[]
+  accessTypes        String[]
+  entertainmentTypes String[]
+  entranceTypes      String[]
+  kitchenTypes       String[]
+
+  // Builder v2 : le `type` détermine le vocabulaire → une seule colonne de sous-types,
+  // `area` promu en colonne (l'analytique le lisait dans attributes.area), verrou
+  // optimiste PAR ÉLÉMENT (header If-Match).
+  subtypes String[]
+  area     String?
+  version  Int      @default(0)
+
+  attributes Json?
+  tags       String[]
+
+  // Relations
+  floor                 Floor?                 @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  forecourt             Forecourt?             @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  externalMerch         ExternalMerch?         @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
+  zone                  Zone?                  @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  configurationElements ConfigurationElement[]
+  // 1-N depuis le scoping par config : une ligne de perf PAR config adhérente
+  performances          ElementPerformance[]
+  staffPositions        ElementStaff[]
+  inventoryItems        ElementInventory[]
+  menuAssignments       MenuAssignment[]
+  locationShopMappings  LocationShopMapping[]
+
+  @@index([floorId])
+  @@index([forecourtId])
+  @@index([externalMerchId])
+  @@index([zoneId])
+  @@index([type])
+  @@index([floorId, type]) // Composite: shop queries filter by floor + type
+  @@index([forecourtId, type]) // Composite: shop queries filter by forecourt + type
+}
+
+// ==================== ELEMENT PERFORMANCE ====================
+
+model ElementPerformance {
+  id                    String   @id @default(cuid())
+  elementId             String
+  // Scope par CONFIGURATION (même patron que MenuAssignment) : un élément v2 partagé
+  // entre configs peut avoir des métriques différentes en config Concert vs Match.
+  // null = élément orphelin sans config adhérente.
+  configId              String?
+  revenue               Float?   @default(0)
+  numberOfPOS           Int?     @default(0)
+  numberOfTransactions  Float?   @default(0)
+  transactionsPerMinute Float?   @default(0)
+  staffCost             Float?   @default(0)
+  revenuePerEmployee    Float?   @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  config  Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@unique([elementId, configId])
+  @@index([elementId])
+  @@index([configId])
+}
+
+// ==================== ELEMENT STAFF ====================
+
+model ElementStaff {
+  id         String   @id @default(cuid())
+  elementId  String
+  // Scope par CONFIGURATION (cf. ElementPerformance) — staffing différent par config.
+  configId   String?
+  position   String // "Cashier", "Cook", "Security", etc.
+  count      Int      @default(1)
+  hourlyRate Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  config  Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([elementId])
+  @@index([configId])
+}
+
+// ==================== ELEMENT INVENTORY ====================
+
+model ElementInventory {
+  id         String   @id @default(cuid())
+  elementId  String
+  // Scope par CONFIGURATION (cf. ElementPerformance) — stock prévu différent par config.
+  configId   String?
+  name       String
+  quantity   Float    @default(0)
+  unit       String? // "units", "kg", "liters", etc.
+  minStock   Float? // Niveau minimum d'alerte
+  maxStock   Float? // Capacité maximum
+  isCustom   Boolean  @default(true)
+  menuItemId String? // Référence optionnelle à un item du menu
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  config  Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([elementId])
+  @@index([configId])
+  @@index([name])
+}
+
+model Forecourt {
+  id       String @id @default(cuid())
+  configId String @unique
+  name     String
+  width    Float
+  length   Float
+
+  config   Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements SpaceElement[]
+}
+
+// Zone "External Merch" (merchandising extérieur), miroir de Forecourt.
+model ExternalMerch {
+  id       String @id @default(cuid())
+  configId String @unique
+  name     String
+  width    Float
+  length   Float
+
+  config   Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements SpaceElement[]
+}
+
+// ==================== SUPPLIER & MARKET PRICES ====================
+
+model Supplier {
+  id               String   @id @default(cuid())
+  name             String
+  email            String?
+  tel              String?
+  city             String?
+  address          String?
+  postcode         String?
+  picture          String?
+  sites            String[] // Array of spaceIds
+  contactName      String?
+  configurationIds String[] @default([])
+  sectors          String[] @default([])
+  tenantId         String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  marketPrices MarketPrice[]
+
+  @@index([tenantId])
+  @@index([name])
+}
+
+model MarketPrice {
+  id                     String    @id @default(cuid())
+  unit                   String
+  image                  String?
+  price                  Decimal   @db.Decimal(10, 2)
+  goodType               String
+  itemName               String
+  category               String?
+  supplierItem           String?
+  recipeUnit             String?
+  purchaseUnitConversion Float?
+  supplier               String? // Nom du fournisseur
+  supplierId             String? // ID du fournisseur
+  pricePerUnit           Decimal?  @db.Decimal(10, 4)
+  packedUnits            Float?
+  numberOfUnits          Float?
+  unitsPerPurchase       Float?
+  packingWidth           Float?
+  packingHeight          Float?
+  packingLength          Float?
+  purchasePackaging      String? // Emballage d'achat ("Item is purchased in", ex: Box)
+  inventoryPackaging     String? // Emballage de stockage ("Item is stored in", ex: Bag)
+  // Taxonomie dynamique propre à Market Price (séparée de Menu Item).
+  // `goodType` (texte libre, ex-enum) reste le discriminateur fonctionnel qui
+  // pilote l'auto-création Ingredient/Packaging quand il vaut littéralement
+  // "Food"/"Beverage"/"Packaging".
+  marketPriceTypeId      String? // FK -> MarketPriceType
+  marketPriceCategoryId  String? // FK -> MarketPriceCategory
+  industrialId           String? // FK -> Industrial (façonnier/industriel de la ligne d'achat)
+  tenantId               String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierRel         Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  marketPriceType     MarketPriceType?     @relation(fields: [marketPriceTypeId], references: [id], onDelete: SetNull)
+  marketPriceCategory MarketPriceCategory? @relation(fields: [marketPriceCategoryId], references: [id], onDelete: SetNull)
+  industrial          Industrial?          @relation(fields: [industrialId], references: [id], onDelete: SetNull)
+  ingredients         Ingredient[]
+  packagings          Packaging[]
+
+  @@index([tenantId])
+  @@index([supplierId])
+  @@index([goodType])
+  @@index([itemName])
+  @@index([category])
+  @@index([marketPriceTypeId])
+  @@index([marketPriceCategoryId])
+  @@index([industrialId])
+}
+
+// ==================== WEEZEVENT SYNC ====================
+
+model SalesEvent {
+  id            String @id @default(cuid())
+  externalId    String @map("weezeventId")
+  tenantId      String
+  integrationId String
+
+  // Event data
+  name           String
+  organizationId String
+  startDate      DateTime?
+  endDate        DateTime?
+  description    String?
+  location       String?
+  capacity       Int?
+  status         String?
+
+  // Link to DataFriday Config (set after Step 1 location-space mapping)
+  configurationId String?
+
+  // Metadata
+  metadata Json?
+  rawData  Json
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration  Integration         @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  transactions SalesTransaction[]
+  locations    SalesLocation[]
+  orders       WeezeventOrder[]
+  prices       WeezeventPrice[]
+  attendees    WeezeventAttendee[]
+
+  @@unique([tenantId, integrationId, externalId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([externalId])
+  @@index([startDate])
+  @@map("WeezeventEvent")
+}
+
+model WeezeventMerchant {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+
+  // Merchant data
+  name           String
+  organizationId String
+  description    String?
+  email          String?
+  phone          String?
+  address        Json?
+
+  // Metadata
+  metadata Json?
+  rawData  Json
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration  Integration        @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  transactions SalesTransaction[]
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([weezeventId])
+}
+
+model SalesLocation {
+  id            String              @id @default(cuid())
+  externalId    String              @map("weezeventId")
+  tenantId      String
+  integrationId String
+  provider      IntegrationProvider @default(WEEZEVENT)
+  eventId       String?
+
+  // Location data
+  name        String
+  type        String?
+  capacity    Int?
+  coordinates Json?
+
+  // Metadata
+  metadata Json?
+  rawData  Json
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration  Integration        @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  event        SalesEvent?        @relation(fields: [eventId], references: [id])
+  transactions SalesTransaction[]
+
+  @@unique([tenantId, integrationId, externalId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([externalId])
+  @@index([eventId])
+  @@map("WeezeventLocation")
+}
+
+model SalesProduct {
+  id            String              @id @default(cuid())
+  externalId    String              @map("weezeventId")
+  tenantId      String
+  integrationId String
+  provider      IntegrationProvider @default(WEEZEVENT)
+
+  // Product data
+  name        String
+  description String?
+  nature      String?
+  subnature   String?
+  productType String?
+  categoryId  String?
+  basePrice   Decimal? @db.Decimal(10, 2)
+  vatRate     Decimal? @db.Decimal(5, 2)
+  image       String?
+  allergens   String[]
+
+  // Composition
+  isCompound Boolean @default(false)
+  components Json?
+  variants   Json?
+
+  // Metadata
+  metadata Json?
+  rawData  Json
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration       Integration             @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  transactionItems  SalesTransactionItem[]
+  mappings          ProductMapping[]
+  productVariants   SalesProductVariant[]
+  productComponents SalesProductComponent[]
+  prices            WeezeventPrice[]
+
+  @@unique([tenantId, integrationId, externalId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([externalId])
+  @@index([nature])
+  @@index([subnature])
+  @@index([productType])
+  @@index([tenantId, provider]) // catalogue mixte → wizard filtre/étiquette par source
+  @@map("WeezeventProduct")
+}
+
+model WeezeventUser {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+
+  // User data (Client)
+  email     String?
+  firstName String?
+  lastName  String?
+  phone     String?
+  birthdate DateTime?
+  address   Json?
+
+  // Wallet
+  walletId String?
+
+  // GDPR
+  gdprConsent      Boolean @default(false)
+  marketingConsent Boolean @default(false)
+
+  // Metadata
+  metadata Json?
+  rawData  Json
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration Integration      @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  wallet      WeezeventWallet? @relation(fields: [walletId], references: [id])
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([weezeventId])
+  @@index([email])
+}
+
+model WeezeventWallet {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+
+  // Wallet data
+  balance       Decimal @db.Decimal(10, 2)
+  currency      String
+  userId        String?
+  walletGroupId String?
+  status        String
+
+  // Card info
+  cardNumber String?
+  cardType   String?
+
+  // Metadata
+  metadata Json?
+  rawData  Json
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration        Integration        @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  users              WeezeventUser[]
+  sellerTransactions SalesTransaction[] @relation("SellerWallet")
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([weezeventId])
+  @@index([userId])
+}
+
+model SalesTransaction {
+  id            String              @id @default(cuid())
+  externalId    String              @map("weezeventId")
+  tenantId      String
+  integrationId String
+  provider      IntegrationProvider @default(WEEZEVENT)
+
+  // Transaction data
+  amount          Decimal  @db.Decimal(10, 2)
+  status          String
+  transactionDate DateTime
+
+  // Event and merchant info
+  eventId      String?
+  eventName    String?
+  merchantId   String?
+  merchantName String?
+  locationId   String?
+  locationName String?
+
+  // Seller info
+  sellerWalletId String?
+
+  // Metadata
+  metadata Json?
+  rawData  Json
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  // Relations
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration  Integration            @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  event        SalesEvent?            @relation(fields: [eventId], references: [id])
+  merchant     WeezeventMerchant?     @relation(fields: [merchantId], references: [id])
+  location     SalesLocation?         @relation(fields: [locationId], references: [id])
+  sellerWallet WeezeventWallet?       @relation("SellerWallet", fields: [sellerWalletId], references: [id])
+  items        SalesTransactionItem[]
+
+  @@unique([tenantId, integrationId, externalId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([externalId])
+  @@index([eventId])
+  @@index([merchantId])
+  @@index([locationId])
+  @@index([status])
+  @@index([transactionDate])
+  @@index([syncedAt])
+  @@index([sellerWalletId]) // Added walletId index
+  // Composite indexes for analytics
+  @@index([tenantId, status, transactionDate])
+  @@index([tenantId, eventId, status])
+  @@index([eventId, transactionDate])
+  @@index([tenantId, locationId, transactionDate]) // Aggregation query: WHERE tenantId + locationId IN (...) + transactionDate range
+  @@index([tenantId, integrationId, transactionDate]) // step4-context: WHERE tenantId + integrationId + transactionDate range
+  @@index([tenantId, provider]) // filtre des ventes par source (dashboards, exports, debug)
+  @@map("WeezeventTransaction")
+}
+
+// ==================== WEEZEVENT SYNC STATE ====================
+
+// Track sync state per tenant/type for incremental sync
+model WeezeventSyncState {
+  id            String @id @default(cuid())
+  tenantId      String
+  integrationId String
+  syncType      String // 'events', 'transactions', 'products', 'wallets', 'users'
+
+  // Cursor-based sync (most efficient)
+  lastSyncedAt    DateTime? // Last successful sync time
+  lastCursor      String? // API cursor for pagination
+  lastWeezeventId String? // Last processed Weezevent ID
+  lastUpdatedAt   DateTime? // Last 'updated_at' from API
+
+  // Stats
+  totalSynced       Int     @default(0)
+  lastSyncCount     Int     @default(0)
+  lastSyncDuration  Int? // Duration in ms
+  lastError         String?
+  consecutiveErrors Int     @default(0)
+
+  // Checkpoints for large syncs
+  checkpoint Json? // Store progress for resumable syncs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, integrationId, syncType])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([syncType])
+  @@index([lastSyncedAt])
+}
+
+// ==================== WEEZEVENT WEBHOOK ====================
+
+model IntegrationWebhookEvent {
+  id            String              @id @default(cuid())
+  tenantId      String
+  integrationId String
+  provider      IntegrationProvider @default(WEEZEVENT)
+
+  // Webhook data
+  eventType String // transaction, refill, transfer, wallet | order.completed, order.refunded (Digifood)
+  method    String // create, update, delete | sale, refund, order (Digifood, data.type normalisé)
+  payload   Json // Full webhook body
+  signature String? // X-Weezevent-Signature | digifood-wh-signature header
+
+  // Dédup Digifood : payload.id (UUID de livraison, stable entre retries 24 h)
+  externalDeliveryId String?
+
+  // Processing
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+  retryCount  Int       @default(0)
+
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, externalDeliveryId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([eventType])
+  @@index([processed])
+  @@index([createdAt])
+  @@map("WeezeventWebhookEvent")
+}
+
+model SalesTransactionItem {
+  id             String  @id @default(cuid())
+  transactionId  String
+  externalItemId String? @map("weezeventItemId")
+
+  // Item data
+  productId   String?
+  productName String?
+  compoundId  String?
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  vat         Decimal @db.Decimal(5, 2)
+  reduction   Decimal @default(0) @db.Decimal(5, 2)
+
+  // Metadata
+  rawData Json
+
+  // Audit
+  createdAt DateTime @default(now())
+
+  // Relations
+  transaction SalesTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product     SalesProduct?    @relation(fields: [productId], references: [id])
+  payments    SalesPayment[]
+
+  @@index([transactionId])
+  @@index([productId])
+  @@index([externalItemId])
+  // Composite index for product analytics
+  @@index([productId, transactionId])
+  @@map("WeezeventTransactionItem")
+}
+
+model SalesPayment {
+  id                 String  @id @default(cuid())
+  itemId             String
+  weezeventPaymentId String?
+
+  // Payment data
+  walletId        String?
+  amount          Decimal @db.Decimal(10, 2)
+  amountVat       Decimal @db.Decimal(10, 2)
+  currencyId      String?
+  quantity        Int
+  paymentMethodId String?
+
+  // Metadata
+  rawData Json
+
+  // Audit
+  createdAt DateTime @default(now())
+
+  // Relations
+  item SalesTransactionItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([walletId])
+  @@map("WeezeventPayment")
+}
+
+// ==================== WEEZEVENT PRODUCT MAPPING ====================
+
+model ProductMapping {
+  id             String   @id @default(cuid())
+  tenantId       String
+  salesProductId String   @map("weezeventProductId")
+  menuItemId     String
+  autoMapped     Boolean  @default(false)
+  confidence     Float?
+  mappedBy       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesProduct SalesProduct @relation(fields: [salesProductId], references: [id], onDelete: Cascade)
+  menuItem     MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([salesProductId])
+  @@index([menuItemId])
+  @@index([tenantId])
+  @@index([autoMapped])
+  @@map("WeezeventProductMapping")
+}
+
+model SalesProductVariant {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+  productId     String
+
+  name        String
+  description String?
+  price       Decimal? @db.Decimal(10, 2)
+  sku         String?
+  stock       Int?
+  isDefault   Boolean  @default(false)
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration Integration  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  product     SalesProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([productId])
+  @@index([weezeventId])
+  @@map("WeezeventProductVariant")
+}
+
+model SalesProductComponent {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+  productId     String
+
+  name        String
+  description String?
+  quantity    Float?
+  unit        String?
+  isRequired  Boolean @default(true)
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration Integration  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  product     SalesProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([productId])
+  @@index([weezeventId])
+  @@map("WeezeventProductComponent")
+}
+
+// ==================== WEEZEVENT SYNC JOBS ====================
+
+model WeezeventSyncJob {
+  id            String   @id @default(cuid())
+  tenantId      String
+  integrationId String
+  fromDate      DateTime
+  toDate        DateTime
+  status        String   @default("PENDING") // PENDING | COLLECTING | COMPLETED | FAILED
+
+  totalCollected  Int     @default(0)
+  totalInserted   Int     @default(0)
+  totalChunks     Int     @default(0)
+  processedChunks Int     @default(0)
+  collectDone     Boolean @default(false)
+
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  integration Integration          @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  chunks      WeezeventSyncChunk[]
+
+  @@index([integrationId, status])
+  @@index([tenantId, integrationId])
+}
+
+model WeezeventSyncChunk {
+  id        String   @id @default(cuid())
+  jobId     String
+  fromDate  DateTime
+  toDate    DateTime
+  status    String   @default("PENDING") // PENDING | PROCESSING | DONE | FAILED
+  itemCount Int      @default(0)
+  rawData   Json
+  createdAt DateTime @default(now())
+
+  job WeezeventSyncJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, status])
+}
+
+model WeezeventOrder {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+
+  eventId       String?
+  eventName     String?
+  userId        String?
+  userEmail     String?
+  status        String
+  totalAmount   Decimal  @db.Decimal(10, 2)
+  orderDate     DateTime
+  paymentMethod String?
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  event       SalesEvent? @relation(fields: [eventId], references: [id])
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([eventId])
+  @@index([weezeventId])
+  @@index([orderDate])
+  @@index([status])
+}
+
+model WeezeventPrice {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+
+  eventId    String?
+  productId  String?
+  name       String
+  amount     Decimal   @db.Decimal(10, 2)
+  currency   String
+  validFrom  DateTime?
+  validUntil DateTime?
+  priceType  String?
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  event       SalesEvent?   @relation(fields: [eventId], references: [id])
+  product     SalesProduct? @relation(fields: [productId], references: [id])
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([eventId])
+  @@index([productId])
+  @@index([weezeventId])
+}
+
+model WeezeventAttendee {
+  id            String @id @default(cuid())
+  weezeventId   String
+  tenantId      String
+  integrationId String
+
+  eventId    String?
+  eventName  String?
+  email      String?
+  firstName  String?
+  lastName   String?
+  ticketType String?
+  status     String
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  event       SalesEvent? @relation(fields: [eventId], references: [id])
+
+  @@unique([tenantId, integrationId, weezeventId])
+  @@index([tenantId])
+  @@index([integrationId])
+  @@index([eventId])
+  @@index([weezeventId])
+  @@index([email])
+}
+
+// ==================== INGREDIENTS & PACKAGING ====================
+
+model Ingredient {
+  id                         String              @id @default(cuid())
+  name                       String
+  active                     Boolean             @default(true)
+  supplier                   String?
+  recipeUnit                 String
+  storageType                StorageType?
+  purchaseUnit               String
+  marketPriceId              String?
+  costPerRecipeUnit          Decimal?            @db.Decimal(10, 4)
+  ingredientCategory         IngredientCategory?
+  costPerPurchaseUnit        Decimal?            @db.Decimal(10, 4)
+  purchaseUnitsPerRecipeUnit Float?
+  tenantId                   String
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  deletedAt                  DateTime?
+
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  marketPrice          MarketPrice?          @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+  componentIngredients ComponentIngredient[]
+  menuItemIngredients  MenuItemIngredient[]
+
+  @@index([tenantId])
+  @@index([name])
+  @@index([active])
+  @@index([ingredientCategory])
+  @@index([tenantId, deletedAt])
+}
+
+model Packaging {
+  id                         String       @id @default(cuid())
+  name                       String
+  active                     Boolean      @default(true)
+  supplier                   String?
+  recipeUnit                 String
+  storageType                StorageType?
+  purchaseUnit               String
+  marketPriceId              String?
+  costPerRecipeUnit          Decimal?     @db.Decimal(10, 4)
+  ingredientCategory         String?
+  costPerPurchaseUnit        Decimal?     @db.Decimal(10, 4)
+  purchaseUnitsPerRecipeUnit Float?
+  tenantId                   String
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
+  deletedAt                  DateTime?
+
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  marketPrice        MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+  menuItemPackagings MenuItemPackaging[]
+
+  @@index([tenantId])
+  @@index([name])
+  @@index([active])
+  @@index([tenantId, deletedAt])
+}
+
+// ==================== MENU COMPONENTS ====================
+
+model MenuComponent {
+  id                  String       @id @default(cuid())
+  name                String
+  unit                String
+  category            String // Flexible pour "Food", "Sauce", etc.
+  unitCost            Decimal?     @db.Decimal(10, 4)
+  allergens           String[]
+  description         String?
+  storageType         StorageType?
+  subComponents       Json? // Pour stocker les subComponents JSON de Figma
+  componentCategory   String? // "Veg", "Sauce", etc.
+  numberOfUnitsRecipe Int? // Nombre d'unités par recette
+  packedUnits         Float?
+  inventoryPackaging  String? // Emballage de stockage ("Item is stored in", ex: Box)
+  readyForSale        String? // "Yes", "No" ou null — même contrat que MenuItem.readyForSale
+  kitchenType         KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
+  // Taxonomie dynamique dédiée Component (indépendante de ProductType/ProductCategory
+  // et de MarketPriceType/MarketPriceCategory). `category`/`componentCategory`
+  // (texte libre ci-dessus) restent le contrat fonctionnel existant, inchangés.
+  componentTypeId     String? // FK -> ComponentType
+  componentCategoryId String? // FK -> ComponentCategory
+  tenantId            String
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  deletedAt           DateTime?
+
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredients          ComponentIngredient[]
+  children             ComponentComponent[]  @relation("ParentToChild")
+  parents              ComponentComponent[]  @relation("ChildToParent")
+  usedIn               MenuItemComponent[]
+  // Relation nommée `componentCategoryRef` (et non `componentCategory`) pour éviter
+  // la collision avec le champ texte libre `componentCategory` ci-dessus.
+  componentType        ComponentType?        @relation(fields: [componentTypeId], references: [id], onDelete: SetNull)
+  componentCategoryRef ComponentCategory?    @relation(fields: [componentCategoryId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([name])
+  @@index([category])
+  @@index([componentTypeId])
+  @@index([componentCategoryId])
+  @@index([readyForSale])
+}
+
+// ==================== COMPONENT TAXONOMY ====================
+// Taxonomie propre à Component (Menu Component Library), séparée de
+// ProductType/ProductCategory (Menu Item) et de MarketPriceType/MarketPriceCategory.
+
+model ComponentType {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories ComponentCategory[]
+  components MenuComponent[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+}
+
+model ComponentCategory {
+  id        String   @id @default(cuid())
+  name      String
+  typeId    String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  type       ComponentType   @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  components MenuComponent[]
+
+  @@unique([tenantId, typeId, name])
+  @@index([tenantId])
+  @@index([typeId])
+  @@index([name])
+}
+
+model ComponentIngredient {
+  id           String   @id @default(cuid())
+  componentId  String
+  ingredientId String
+  quantity     Float
+  unit         String?
+  unitCost     Decimal? @db.Decimal(10, 4)
+  cost         Decimal? @db.Decimal(10, 4)
+
+  component  MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  ingredient Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([componentId, ingredientId])
+  @@index([componentId])
+  @@index([ingredientId])
+}
+
+model ComponentComponent {
+  id       String   @id @default(cuid())
+  parentId String
+  childId  String
+  quantity Float
+  unit     String?
+  cost     Decimal? @db.Decimal(10, 4)
+
+  parent MenuComponent @relation("ParentToChild", fields: [parentId], references: [id], onDelete: Cascade)
+  child  MenuComponent @relation("ChildToParent", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, childId])
+  @@index([parentId])
+  @@index([childId])
+}
+
+// ==================== MENU ITEMS ====================
+
+// ==================== PRODUCT CLASSIFICATION ====================
+
+// Types dynamiques de produits (Beverage, Food, Combo, Glasses, Ticket/Bracelets...)
+model ProductType {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories ProductCategory[]
+  menuItems  MenuItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+}
+
+// Catégories dynamiques de produits (Beer, Soft Drink, Main, Desert...)
+model ProductCategory {
+  id        String   @id @default(cuid())
+  name      String
+  typeId    String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  type      ProductType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  menuItems MenuItem[]
+
+  @@unique([tenantId, typeId, name])
+  @@index([tenantId])
+  @@index([typeId])
+  @@index([name])
+}
+
+// ==================== MARKET PRICE TAXONOMY ====================
+// Taxonomie propre à Market Price List (Good Type / Good Category côté UI),
+// séparée de la taxonomie Menu Item (ProductType / ProductCategory).
+
+model MarketPriceType {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories   MarketPriceCategory[]
+  marketPrices MarketPrice[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+}
+
+model MarketPriceCategory {
+  id        String   @id @default(cuid())
+  name      String
+  typeId    String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  type         MarketPriceType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  marketPrices MarketPrice[]
+
+  @@unique([tenantId, typeId, name])
+  @@index([tenantId])
+  @@index([typeId])
+  @@index([name])
+}
+
+// ==================== BRANDS & DISPLAY NAMES ====================
+
+model Brand {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model DisplayName {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Industrial {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  marketPrices MarketPrice[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// Référentiel de formats de conditionnement (Cup, Fût, Box...) pour
+/// MarketPrice.purchasePackaging/inventoryPackaging (String, non-FK — la valeur
+/// stockée est le NOM choisi ici, comme goodType/category). Indépendant de
+/// MarketPriceType/MarketPriceCategory (Good Type/Good Category, classification
+/// du produit) et du modèle Packaging (composant de recette avec coût propre).
+model PackingType {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ==================== MENU ITEMS ====================
+
+model MenuItem {
+  id                     String        @id @default(cuid())
+  name                   String
+  typeId                 String? // FK to ProductType (optional)
+  categoryId             String? // FK to ProductCategory (optional)
+  brandId                String? // FK to Brand (optional)
+  displayNameId          String? // FK to DisplayName (optional)
+  diet                   Diet[]
+  allergens              String[]
+  picture                String?
+  basePrice              Decimal       @db.Decimal(10, 2)
+  vatRate                Decimal?      @db.Decimal(5, 2) // Taux TVA % par article (null → défaut tenant)
+  discountType           String? // Remise catalogue : "percent" | "amount" | null
+  discountValue          Decimal?      @db.Decimal(10, 2) // Valeur remise (% si percent, montant TTC si amount)
+  totalCost              Decimal?      @db.Decimal(12, 4)
+  margin                 Float?
+  description            String?
+  storageType            StorageType[]
+  readyForSale           String? // "Yes", "No" ou null
+  kitchenType            KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
+  comboItem              String? // "Yes", "No" ou null
+  numberOfPiecesRecipe   Int?
+  componentsData         Json? // Pour stocker les components JSON de Figma
+  inventoryPackagingType String? // Type de conditionnement inventaire (ex: Box, Bag)
+  inventoryNumberOfUnits Float? // Nombre d'unités par conditionnement
+  // ⚠️ spaceIds (String[]) et spacePrices (Json) existent encore en DB mais sont GELÉS
+  // (source de vérité = table SpaceMenuItem, cf. modèle plus bas). Retirés du schéma pour
+  // que tout code qui les référencerait encore casse à la compilation. Drop DB différé
+  // (migration de nettoyage après validation).
+  tenantId               String
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  deletedAt              DateTime?
+
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productType     ProductType?           @relation(fields: [typeId], references: [id])
+  productCategory ProductCategory?       @relation(fields: [categoryId], references: [id])
+  brand           Brand?                 @relation(fields: [brandId], references: [id])
+  displayName     DisplayName?           @relation(fields: [displayNameId], references: [id])
+  components      MenuItemComponent[]
+  ingredients     MenuItemIngredient[]
+  packagings      MenuItemPackaging[]
+  menuAssignments MenuAssignment[]
+  salesMappings   ProductMapping[]
+  priceHistory    MenuItemPriceHistory[]
+  spaceLinks      SpaceMenuItem[]
+
+  @@index([tenantId])
+  @@index([name])
+  @@index([typeId])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([displayNameId])
+  @@index([readyForSale])
+  @@index([tenantId, deletedAt])
+}
+
+/// Association espace↔menu item + prix par espace. UNE ligne = « cet item est vendu dans cet
+/// espace » (condition 0 des vues Space Menu) avec, optionnellement, son prix TTC/TVA propres
+/// à l'espace (null = fallback MenuItem.basePrice/vatRate). Remplace les champs dénormalisés
+/// MenuItem.spaceIds (String[] sans FK) et MenuItem.spacePrices (Json) — gelés en DB, plus lus.
+/// Le contrat API expose toujours `spaceIds`/`spacePrices`, sérialisés depuis cette table.
+model SpaceMenuItem {
+  id         String   @id @default(cuid())
+  spaceId    String
+  menuItemId String
+  priceTtc   Decimal? @db.Decimal(10, 2) // prix TTC spécifique à cet espace (null = basePrice global)
+  vatRate    Decimal? @db.Decimal(5, 2) // TVA spécifique (null = vatRate item, sinon défaut tenant)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  space    Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, spaceId])
+  @@index([spaceId])
+}
+
+/// Historique des prix d'un menu item : chaque application du prix Weezevent (ou édition
+/// manuelle traçée) archive le prix appliqué avec sa provenance. `MenuItem.basePrice` reste
+/// le prix COURANT ; cette table garde la courbe d'évolution dans le temps.
+/// `observedAt` = date métier du prix source (ex. transaction Weezevent) ; `createdAt` = pose.
+model MenuItemPriceHistory {
+  id                 String   @id @default(cuid())
+  menuItemId         String
+  tenantId           String
+  spaceId            String? // espace où ce prix a été appliqué (null = prix global/legacy)
+  basePrice          Decimal  @db.Decimal(10, 2) // TTC appliqué
+  vatRate            Decimal? @db.Decimal(5, 2)
+  currency           String?
+  source             String // 'weezevent_catalog' | 'weezevent_sales' | 'manual'
+  weezeventProductId String? // produit Weezevent d'où vient le prix (provenance)
+  observedAt         DateTime // date du prix source (transaction) ; défaut = pose
+  createdAt          DateTime @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId, createdAt])
+  @@index([menuItemId, spaceId, createdAt])
+  @@index([tenantId])
+}
+
+model MenuItemComponent {
+  id            String       @id @default(cuid())
+  menuItemId    String
+  componentId   String
+  numberOfUnits Float
+  unitCost      Decimal?     @db.Decimal(10, 4)
+  totalCost     Decimal?     @db.Decimal(12, 4)
+  storageType   StorageType?
+
+  menuItem  MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  component MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, componentId])
+  @@index([menuItemId])
+  @@index([componentId])
+}
+
+model MenuItemIngredient {
+  id            String       @id @default(cuid())
+  menuItemId    String
+  ingredientId  String
+  numberOfUnits Float
+  unitCost      Decimal?     @db.Decimal(10, 4)
+  totalCost     Decimal?     @db.Decimal(12, 4)
+  storageType   StorageType?
+
+  menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, ingredientId])
+  @@index([menuItemId])
+  @@index([ingredientId])
+}
+
+model MenuItemPackaging {
+  id            String       @id @default(cuid())
+  menuItemId    String
+  packagingId   String
+  numberOfUnits Float
+  unitCost      Decimal?     @db.Decimal(10, 4)
+  totalCost     Decimal?     @db.Decimal(12, 4)
+  storageType   StorageType?
+
+  menuItem  MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  packaging Packaging @relation(fields: [packagingId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, packagingId])
+  @@index([menuItemId])
+  @@index([packagingId])
+}
+
+// ==================== STATIONS & MENU ASSIGNMENTS ====================
+
+model Station {
+  id        String   @id // Garder les IDs comme "1761836020929"
+  configId  String
+  name      String? // Nom optionnel
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  config Config           @relation(fields: [configId], references: [id], onDelete: Cascade)
+  menus  MenuAssignment[]
+
+  @@index([configId])
+}
+
+model MenuAssignment {
+  id         String   @id @default(cuid())
+  stationId  String? // Optional: assignment to a station
+  elementId  String? // Optional: assignment to a space element
+  // Scope par CONFIGURATION pour les assignations `elementId` : en builder v2 un élément
+  // est partagé entre configs (ConfigurationElement), donc « scopé élément » ne suffit plus
+  // (un item coché en config A apparaissait en config B). null = assignation station
+  // (Station porte déjà son configId) ou élément orphelin sans config adhérente.
+  configId   String?
+  menuItemId String
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  station  Station?      @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  element  SpaceElement? @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  config   Config?       @relation(fields: [configId], references: [id], onDelete: Cascade)
+  menuItem MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([stationId, menuItemId])
+  @@unique([elementId, menuItemId, configId])
+  @@index([stationId])
+  @@index([elementId])
+  @@index([elementId, enabled]) // Composite: shop menu assignment query filters by elementId + enabled
+  @@index([menuItemId])
+  @@index([configId])
+}
+
+// ==================== OUTBOUND WEBHOOKS ====================
+
+model Webhook {
+  id        String   @id @default(cuid())
+  tenantId  String
+  url       String // Target URL
+  secret    String? // HMAC signing secret
+  events    String[] // e.g. ["menu_item.created", "menu_item.updated"]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  logs   WebhookLog[]
+
+  @@index([tenantId])
+  @@index([active])
+}
+
+model WebhookLog {
+  id        String   @id @default(cuid())
+  webhookId String
+  event     String // e.g. "menu_item.created"
+  payload   Json
+  status    Int // HTTP status code of the response
+  response  String? // Response body (truncated)
+  duration  Int? // Response time in ms
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([event])
+  @@index([createdAt])
+}
+
+// ==================== CSV MAPPINGS ====================
+
+model CsvMapping {
+  id          String   @id @default(cuid())
+  mappingType String
+  mapping     Json
+  tenantId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([mappingType])
+}
+
+// ==================== EVENTS (Internal Planning) ====================
+
+// Types d'événements (Concert, Sport Match, Conference...)
+model EventType {
+  id        String   @id @default(uuid())
+  name      String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories EventCategory[]
+  events     Event[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+}
+
+// Catégories d'événements (Show, Ligue 1, Festival...)
+model EventCategory {
+  id          String   @id @default(uuid())
+  name        String
+  eventTypeId String
+  hasHomeTeam Boolean  @default(false)
+  tenantId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  eventType     EventType          @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
+  subcategories EventSubcategory[]
+  events        Event[]
+  teams         Team[]
+
+  @@unique([tenantId, eventTypeId, name])
+  @@index([tenantId])
+  @@index([eventTypeId])
+  @@index([name])
+}
+
+// Sous-catégories d'événements (Communautaire, International, Régional...)
+model EventSubcategory {
+  id              String   @id @default(uuid())
+  name            String
+  eventCategoryId String
+  tenantId        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  eventCategory EventCategory @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+  events        Event[]
+  teams         Team[]
+
+  @@unique([tenantId, eventCategoryId, name])
+  @@index([tenantId])
+  @@index([eventCategoryId])
+  @@index([name])
+}
+
+// Équipes sportives (catalogue tenant, scopé compétition — les deux scopes null = équipe générique)
+model Team {
+  id                 String   @id @default(uuid())
+  name               String
+  tenantId           String
+  eventCategoryId    String?
+  eventSubcategoryId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category    EventCategory?    @relation(fields: [eventCategoryId], references: [id])
+  subcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
+  visitingFor Event[]           @relation("EventVisitingTeam")
+
+  @@index([tenantId])
+  @@index([eventCategoryId])
+  @@index([eventSubcategoryId])
+}
+
+// Événements planifiés
+model Event {
+  id                 String   @id @default(uuid())
+  name               String
+  eventDate          DateTime
+  spaceId            String?
+  configurationId    String?
+  eventTypeId        String?
+  eventCategoryId    String?
+  eventSubcategoryId String?
+  tenantId           String?
+
+  // Event date/time details
+  eventStartDate DateTime?
+  eventEndDate   DateTime?
+  eventEndTime   String?
+
+  // Event details
+  location         String?
+  spaceName        String?
+  sessions         String? // "Open/Show" info
+  numberOfSessions Int?
+  hasOpeningAct    Boolean?
+  hasIntermission  Boolean?
+
+  // Teams (events sport) — home = texte libre, visiting = FK catalogue Team ;
+  // visitingTeamName dénormalisé (repli d'affichage si la team est supprimée)
+  homeTeamName     String?
+  visitingTeamId   String?
+  visitingTeamName String?
+
+  // Attendance
+  ticketsSold    Int?
+  ticketsScanned Int?
+
+  // Revenue tracking (calculated)
+  revenue          Decimal? @db.Decimal(12, 2)
+  transactionCount Int?
+  avgSpendPerTx    Decimal? @db.Decimal(10, 2)
+  perCapita        Decimal? @db.Decimal(10, 2)
+
+  // Status
+  status       String? // "success", "pending", etc.
+  calculatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  eventType        EventType?        @relation(fields: [eventTypeId], references: [id])
+  eventCategory    EventCategory?    @relation(fields: [eventCategoryId], references: [id])
+  eventSubcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
+  visitingTeam     Team?             @relation("EventVisitingTeam", fields: [visitingTeamId], references: [id])
+
+  @@index([tenantId])
+  @@index([spaceId])
+  @@index([eventDate])
+  @@index([eventTypeId])
+  @@index([eventCategoryId])
+  @@index([eventSubcategoryId])
+  @@index([visitingTeamId])
+}
+
+// ==================== AUDIT TRAIL ====================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  action    String // CREATE, UPDATE, DELETE, RESTORE
+  entity    String // MenuItem, MenuComponent, etc.
+  entityId  String
+  changes   Json? // { before: {...}, after: {...} }
+  metadata  Json? // Extra context (IP, user-agent, etc.)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entity, createdAt])
+  @@index([tenantId, entityId])
+  @@index([userId])
+}
+
+// ==================== MENU (dédié) ====================
+
+model Menu {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  spaceId     String
+  configId    String
+  isActive    Boolean   @default(true)
+  tenantId    String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  space  Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, configId, name])
+  @@index([tenantId])
+  @@index([spaceId])
+  @@index([configId])
+}
+
+// ==================== SPACE DASHBOARD - MAPPING DOMAIN ====================
+
+// Maps Weezevent Location to Space for revenue attribution
+model LocationSpaceMapping {
+  id              String   @id @default(cuid())
+  tenantId        String
+  salesLocationId String   @map("weezeventLocationId")
+  spaceId         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, salesLocationId])
+  @@index([tenantId, spaceId])
+  @@index([salesLocationId])
+  @@map("WeezeventLocationSpaceMapping")
+}
+
+// Maps Weezevent Merchant to SpaceElement (shop) for revenue grouping
+model LocationShopMapping {
+  id              String   @id @default(cuid())
+  tenantId        String
+  salesLocationId String   @map("weezeventLocationId")
+  spaceElementId  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Intégrité référentielle : le mapping ne peut plus pointer vers un SpaceElement inexistant
+  // (cause des « PDV démappés » silencieux). onDelete: Cascade = quand un shop est RÉELLEMENT
+  // supprimé (espace/config supprimé), son mapping part avec ; le save de config (reconcile)
+  // ne supprime plus jamais un élément mappé, donc aucun mapping légitime n'est perdu.
+  spaceElement SpaceElement @relation(fields: [spaceElementId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, salesLocationId])
+  @@index([tenantId, spaceElementId])
+  @@index([salesLocationId])
+  @@map("WeezeventLocationShopMapping")
+}
+
+// Tenant-specific VAT configuration
+model TenantVatConfig {
+  id             String   @id @default(cuid())
+  tenantId       String
+  defaultVatRate Decimal  @db.Decimal(5, 2)
+  countryCode    String   @default("FR")
+  effectiveFrom  DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([tenantId, effectiveFrom])
+  @@index([tenantId])
+}
+
+// ==================== SPACE DASHBOARD - READ MODELS ====================
+
+// Minute-level revenue aggregates — source de vérité unique (remplace SpaceRevenueDailyAgg)
+// Pour agréger à la journée : GROUP BY DATE_TRUNC('day', minute)
+model SpaceRevenueMinuteAgg {
+  id       String   @id @default(cuid())
+  tenantId String
+  spaceId  String
+  minute   DateTime // TIMESTAMPTZ tronqué à la minute (ex: 2025-05-10T20:45:00Z)
+  timezone String   @default("Europe/Paris")
+
+  // Optional dimensions for filtering
+  weezeventEventId    String?
+  weezeventLocationId String?
+  weezeventMerchantId String?
+  spaceElementId      String?
+
+  // Aggregated metrics
+  revenueHt         Decimal @db.Decimal(12, 2)
+  transactionsCount Int
+  itemsCount        Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId])
+  @@index([tenantId, spaceId, minute])
+  @@index([tenantId, spaceId, weezeventEventId, minute])
+  @@index([tenantId, spaceId, spaceElementId, minute])
+  @@index([tenantId, spaceId, weezeventLocationId, minute])
+}
+
+// Daily product revenue aggregates
+model SpaceProductRevenueDailyAgg {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  spaceId            String
+  day                DateTime @db.Date
+  weezeventProductId String
+
+  // Aggregated metrics
+  revenueHt Decimal @db.Decimal(12, 2)
+  quantity  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, day, weezeventProductId])
+  @@index([tenantId, spaceId, day])
+  @@index([tenantId, spaceId, weezeventProductId, day])
+}
+
+// Version tracking for cache invalidation
+model SpaceDashboardVersion {
+  spaceId   String   @id
+  tenantId  String
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// ==================== SPACE DASHBOARD - JOB TRACKING ====================
+
+// Tracks aggregation job execution for monitoring and retry
+model AggregationJobLog {
+  id                    String    @id @default(cuid())
+  tenantId              String
+  spaceId               String?
+  jobType               String // 'full' | 'incremental' | 'rebuild'
+  status                String // 'pending' | 'running' | 'completed' | 'failed'
+  fromDate              DateTime  @db.Date
+  toDate                DateTime  @db.Date
+  transactionsProcessed Int       @default(0)
+  startedAt             DateTime  @default(now())
+  completedAt           DateTime?
+  error                 String?   @db.Text
+  retryCount            Int       @default(0)
+  metadata              Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status, startedAt])
+  @@index([spaceId, status])
+  @@index([status, startedAt])
+}
+
+// ==================== INVENTORY ====================
+
+// Horodated snapshot of the full inventoryCounts JSON (one per POST /inventory call)
+model InventorySnapshot {
+  id              String   @id @default(cuid())
+  tenantId        String
+  spaceId         String
+  eventId         String?
+  inventoryCounts Json
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([spaceId, eventId])
+  @@index([spaceId, createdAt])
+}
+
+// Per-item count upserted by POST /inventory-counts (one row per space+event+shop+item)
+model InventoryCount {
+  id                String   @id @default(cuid())
+  tenantId          String
+  spaceId           String
+  eventId           String?
+  shopId            String?
+  itemId            String
+  packedUnits       Int      @default(0)
+  looseUnits        Float    @default(0)
+  isCounted         Boolean  @default(false)
+  storageLocation   String?
+  countingStatus    String   @default("pending")
+  discardedQuantity Int      @default(0)
+  discardedReason   String?
+  countedBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, eventId, shopId, itemId], name: "uniq_inventory_count")
+  @@index([tenantId])
+  @@index([spaceId, eventId])
+  @@index([shopId])
+  @@index([itemId])
+}
+
+// ==================== LOGISTICS (stock movements ledger) ====================
+
+enum StockMovementReason {
+  DELIVERY // ajout par livraison (défaut)
+  TRANSFER_SHOP // transfert depuis/vers un PDV (counterpartyElementId)
+  TRANSFER_STORAGE // transfert depuis/vers un storage (counterpartyElementId)
+  EXPIRY // date limite de consommation (expiryDate)
+  SALE // réservé : matérialisation future des ventes par job
+  INVENTORY_RESET // ajustement posé par le reset post-inventaire
+  OTHER // raison libre (note)
+}
+
+// Ledger append-only des mouvements de stock. Deltas SIGNÉS (positif = entrée,
+// négatif = sortie). Un transfert crée 2 lignes (source négative, cible positive)
+// liées par transferGroupId. Source de vérité de l'historique Logistic.
+model StockMovement {
+  id                    String              @id @default(cuid())
+  tenantId              String
+  spaceId               String
+  elementId             String // PDV ou storage (SpaceElement)
+  itemKey               String // même référence que l'inventaire dérivé (nom)
+  menuItemId            String?
+  marketPriceId         String?
+  packedDelta           Int                 @default(0)
+  looseDelta            Float               @default(0)
+  reason                StockMovementReason
+  counterpartyElementId String? // PDV/storage source ou destination (TRANSFER_*)
+  transferGroupId       String?
+  expiryDate            DateTime? // EXPIRY
+  note                  String? // OTHER (ou commentaire libre)
+  eventId               String? // SALE / INVENTORY_RESET
+  createdBy             String?
+  createdAt             DateTime            @default(now())
+
+  @@index([tenantId, elementId, createdAt])
+  @@index([tenantId, spaceId, createdAt])
+  @@index([tenantId, spaceId, eventId])
+}
+
+// État courant matérialisé du stock attendu par élément × item (packed/loose).
+// Mis à jour transactionnellement avec chaque StockMovement. Les ventes ne sont
+// PAS incluses ici : elles sont dérivées read-time depuis la dernière réconciliation.
+model StockLevel {
+  id            String   @id @default(cuid())
+  tenantId      String
+  spaceId       String
+  elementId     String
+  itemKey       String
+  packedUnits   Int      @default(0)
+  looseUnits    Float    @default(0)
+  unitsPerPack  Float? // MarketPrice.numberOfUnits du dernier ajout (casse de pack)
+  marketPriceId String? // dernier market price utilisé
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, elementId, itemKey], name: "uniq_stock_level")
+  @@index([tenantId, spaceId])
+}
+
+// Archive des écarts attendu vs compté figée par un Inventory Reset.
+// `lines` = [{ elementId, elementName, itemKey, expectedPacked, expectedLoose,
+//   countedPacked, countedLoose, deltaUnits }]. Le "fichier" de réconciliation
+// est exporté à la volée depuis ce JSON. La plus récente sert d'ancre temporelle
+// à la dérivation des ventes.
+model StockReconciliation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  spaceId   String
+  eventId   String?
+  eventName String?
+  lines     Json
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, spaceId, createdAt])
+}
+
+// ==================== KV STORE ====================
+
+// Generic key-value store (Event Predict versions, etc.)
+model KvStore {
+  id        String   @id @default(cuid())
+  key       String
+  tenantId  String?
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key], name: "uniq_kv_store")
+  @@index([tenantId])
+}
+
+// ==================== EVENT PREDICT VERSIONS ====================
+
+model EventPredictVersion {
+  id                         String   @id @default(cuid())
+  tenantId                   String?
+  eventId                    String
+  spaceId                    String?
+  name                       String
+  isDefault                  Boolean  @default(false)
+  eventSnapshot              Json
+  totalRevenue               Float    @default(0)
+  adjustedTotalRevenue       Float    @default(0)
+  perCapita                  Float    @default(0)
+  adjustedPerCapita          Float    @default(0)
+  menuConfig                 Json
+  quantityAdjustments        Json
+  manualQuantities           Json     @default("{}")
+  predictedRecords           Json     @default("[]")
+  selectedPredictionEventIds String[]
+  selectedTimeRange          Json?
+  createdBy                  String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([eventId])
+  @@index([spaceId])
+}
+
+// ==================== RESTOCK STATE ====================
+
+// Unique restock session state per (tenantId, spaceId) — upsert idempotent.
+// Persists the 9-field UI snapshot from SpaceRestockView so users can resume
+// on another machine without losing their selections, adjustments and confirmations.
+model RestockState {
+  id        String   @id @default(cuid())
+  tenantId  String
+  spaceId   String
+  state     Json
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId])
+  @@index([tenantId])
+  @@index([spaceId])
+}
+
+// Tracks unmapped Weezevent entities for data quality monitoring
+model UnmappedDataMetrics {
+  id               String   @id @default(cuid())
+  tenantId         String
+  entityType       String // 'location' | 'merchant' | 'product'
+  entityId         String
+  entityName       String
+  transactionCount Int      @default(0)
+  revenueHt        Decimal  @db.Decimal(12, 2)
+  firstSeenAt      DateTime @default(now())
+  lastSeenAt       DateTime @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, entityType, entityId])
+  @@index([tenantId, entityType])
+  @@index([lastSeenAt])
+}

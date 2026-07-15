@@ -1,0 +1,74 @@
+# compiled output
+/dist
+/node_modules
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+
+# Tests
+/coverage
+/.nyc_output
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.*.local
+envFiles/
+
+# Prisma
+prisma/migrations/*
+!prisma/migrations/.gitkeep
+
+# Docker
+docker-compose.override.yml
+
+# Supabase
+supabase/.temp
+supabase/config.toml
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+.cache/
+
+# Build info
+*.tsbuildinfo
+
+# Logs at root
+output.log
+.env.backup-*
+tmp-e2e/
+
+# Notes personnelles (voir docs/scratch/README.md) — jamais de doc projet ici
+docs/scratch/*
+!docs/scratch/.gitkeep
+!docs/scratch/README.md

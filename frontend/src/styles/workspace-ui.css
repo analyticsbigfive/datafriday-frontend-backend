@@ -1,0 +1,48 @@
+/* Tokens UI workspace partagés — RÉFÉRENCE = EventPredict (.ep-*).
+   Uniformise cartes blanches / colonnes sidebar / toolbox sur toutes les pages
+   (Analyse, Inventaire, Réarmement, Logistique). Fichier global (main.js). */
+
+/* Carte blanche standard = .ep-event-selector-card d'EventPredict. */
+.wsl-card {
+  background: #ffffff;
+  border: 1px solid #d9e2ec;
+  border-radius: 18px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+/* Colonne sidebar = .ep-side : empilement vertical, gap 12, la toolbox et les
+   cartes reposent directement sur le fond gris de la page. */
+.wsl-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Sélecteur d'outils (WorkspaceToolSelect) posé hors carte = .ep-toolbox-select. */
+.wsl-toolbox {
+  margin: 0 0 2px;
+}
+.v-expansion-panel__shadow {
+  box-shadow: none !important;
+}
+/* regle pour que  la p****d****m***** s'affiche correctement */
+.si-body{
+  padding-top: 25px !important;
+}
+.an-body {
+  padding-top: 36px !important;
+}
+.lg-layout{
+  padding-top: 40px !important;
+}
+.sr-body {
+  padding-top: 25px !important;
+}
+.filter-summary{
+  justify-content:space-between !important;
+}
+.an-inline-kpi-chart{
+  margin-top: 0px !important;
+  padding-top: 0px !important;
+}

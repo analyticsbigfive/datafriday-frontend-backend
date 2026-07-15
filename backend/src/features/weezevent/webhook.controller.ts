@@ -1,0 +1,154 @@
+import {
+    Controller,
+    Post,
+    Body,
+    Param,
+    Headers,
+    HttpCode,
+    HttpStatus,
+    Logger,
+    BadRequestException,
+    UnauthorizedException,
+} from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { PrismaService } from '../../core/database/prisma.service';
+import { Public } from '../../core/auth/decorators/public.decorator';
+import { WebhookSignatureService } from './services/webhook-signature.service';
+import { WebhookEventHandler } from './services/webhook-event.handler';
+import { WeezeventWebhookPayloadDto } from './dto/webhook-payload.dto';
+
+// Endpoint appelé par Weezevent (sans JWT Supabase) : l'authentification se fait
+// par SIGNATURE HMAC (header x-weezevent-signature), pas par le guard JWT global.
+// `@Public()` désactive JwtDatabaseGuard/TenantGuard ; le scoping Prisma est de toute
+// façon neutralisé hors contexte tenant (cf. PrismaService).
+@ApiTags('Weezevent Webhooks')
+@Controller('webhooks/weezevent')
+@Public()
+export class WebhookController {
+    private readonly logger = new Logger(WebhookController.name);
+
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly signatureService: WebhookSignatureService,
+        private readonly eventHandler: WebhookEventHandler,
+    ) { }
+
+    /**
+     * Receive webhook from Weezevent
+     * POST /webhooks/weezevent/:tenantId
+     */
+    @Post(':tenantId/:integrationId')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Recevoir un webhook Weezevent' })
+    @ApiParam({ name: 'tenantId', description: 'ID du tenant destinataire du webhook' })
+    @ApiParam({ name: 'integrationId', description: 'ID de l\'intégration Weezevent' })
+    @ApiBody({ type: WeezeventWebhookPayloadDto })
+    @ApiResponse({ status: 200, description: 'Webhook reçu et enregistré pour traitement' })
+    async receiveWebhook(
+        @Param('tenantId') tenantId: string,
+        @Param('integrationId') integrationId: string,
+        @Headers('x-weezevent-signature') signature: string,
+        @Body() payload: WeezeventWebhookPayloadDto,
+    ): Promise<{ received: boolean; eventId: string }> {
+        this.logger.log(
+            `Received webhook for tenant ${tenantId}: ${payload.type} - ${payload.method}`,
+        );
+
+        try {
+            const integration = await this.prisma.integration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, tenantId: true },
+            });
+
+            if (!integration || integration.tenantId !== tenantId) {
+                throw new BadRequestException('Integration not found');
+            }
+
+            // 1. Get tenant configuration
+            const tenant = await this.prisma.tenant.findUnique({
+                where: { id: tenantId },
+            });
+
+            if (!tenant) {
+                throw new BadRequestException('Tenant not found');
+            }
+
+            if (!tenant.weezeventWebhookEnabled) {
+                throw new UnauthorizedException('Webhooks not enabled for this tenant');
+            }
+
+            // 2. Validate signature (OBLIGATOIRE — fail-closed). Sans secret configuré
+            //    ou sans signature valide, on rejette : pas de webhook anonyme/spoofable.
+            if (!tenant.weezeventWebhookSecret) {
+                this.logger.warn(`Webhook secret not configured for tenant ${tenantId}`);
+                throw new UnauthorizedException('Webhook secret not configured for this tenant');
+            }
+
+            if (!signature) {
+                throw new UnauthorizedException('Signature header missing');
+            }
+
+            const isValid = this.signatureService.validateSignature(
+                payload,
+                signature,
+                tenant.weezeventWebhookSecret,
+            );
+
+            if (!isValid) {
+                this.logger.warn(`Invalid signature for tenant ${tenantId}`);
+                throw new UnauthorizedException('Invalid signature');
+            }
+
+            this.logger.log(`Signature validated for tenant ${tenantId}`);
+
+            // 3. Store webhook event for audit and processing
+            const webhookEvent = await this.prisma.integrationWebhookEvent.create({
+                data: {
+                    tenantId,
+                    integrationId,
+                    eventType: payload.type,
+                    method: payload.method,
+                    payload: payload as any,
+                    signature,
+                    processed: false,
+                },
+            });
+
+            this.logger.log(`Stored webhook event ${webhookEvent.id}`);
+
+            // 4. Process event asynchronously (don't wait for completion)
+            // This ensures we return 200 quickly to Weezevent
+            this.processEventAsync(webhookEvent.id);
+
+            // 5. Return success immediately
+            return {
+                received: true,
+                eventId: webhookEvent.id,
+            };
+        } catch (error) {
+            this.logger.error(
+                `Failed to receive webhook for tenant ${tenantId}`,
+                error.stack,
+            );
+            throw error;
+        }
+    }
+
+    /**
+     * Process event asynchronously without blocking the response
+     */
+    private processEventAsync(eventId: string): void {
+        // Use setImmediate to process in next event loop iteration
+        setImmediate(async () => {
+            try {
+                await this.eventHandler.processEvent(eventId);
+            } catch (error) {
+                this.logger.error(
+                    `Async processing failed for event ${eventId}`,
+                    error.stack,
+                );
+                // Error is already logged in the database by the handler
+            }
+        });
+    }
+}
