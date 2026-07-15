@@ -343,46 +343,36 @@
               <div v-if="form.readyForSale === 'Yes'" class="mb-3">
                 <div class="mic-inventory-card">
                   <div class="mic-inventory-card__title mb-2">{{ t('menuItemCreate.inventoryInfo') }}</div>
-                  <div class="mb-2">
-                    <label class="field-label">{{ t('menuItemCreate.packagingType') }}</label>
-                    <v-select
-                      v-model="form.inventoryPackagingType"
-                      :items="packagingCategoryOptions"
-                      density="compact"
-                      variant="outlined"
-                      rounded="lg"
-                      hide-details
-                      :placeholder="t('menuItemCreate.none')"
-                      clearable
-                      :menu-props="{ zIndex: 10000 }"
-                    />
-                  </div>
-                  <div class="mb-2">
-                    <label class="field-label">{{ t('menuItemCreate.numberOfUnits') }}</label>
-                    <v-text-field
+                  <div class="mic-sentence" style="flex-wrap: wrap;">
+                    <span class="mic-sentence-chip">{{ form.name || '…' }}</span>
+                    <span class="mic-sentence-text">{{ t('menuItemCreate.isStoredIn') }}</span>
+                    <select v-model="form.inventoryPackagingType" class="mic-inline-select" style="min-width: 120px;" @change="onPackagingSelectChange">
+                      <option :value="null">—</option>
+                      <option value="__create_packing_type__" style="color:#ff3131; font-weight:600;">+ {{ t('menuItemCreate.addPackaging') }}</option>
+                      <option v-for="opt in packagingCategoryOptions" :key="opt" :value="opt">{{ opt }}</option>
+                    </select>
+                    <span class="mic-sentence-text">{{ t('menuItemCreate.of') }}</span>
+                    <input
                       v-model.number="form.inventoryNumberOfUnits"
                       type="number"
                       min="0"
                       step="0.001"
-                      density="compact"
-                      variant="outlined"
-                      rounded="lg"
-                      hide-details
-                      placeholder="1.000"
+                      class="mic-inline-input"
+                      style="width: 80px;"
                     />
+                    <select v-model="form.inventoryUnit" class="mic-inline-select" style="width: 80px;">
+                      <option value="Kg">Kg</option>
+                      <option value="L">L</option>
+                      <option value="Pc">Pc</option>
+                    </select>
+                    <span class="mic-sentence-text">.</span>
                   </div>
-                  <div>
+                  <div class="mic-inventory-card__field">
                     <label class="field-label">{{ t('menuItemCreate.kitchenType') }}</label>
-                    <v-select
-                      v-model="form.kitchenType"
-                      :items="kitchenTypeOptions"
-                      density="compact"
-                      variant="outlined"
-                      rounded="lg"
-                      hide-details
-                      clearable
-                      :menu-props="{ zIndex: 10000 }"
-                    />
+                    <select v-model="form.kitchenType" class="mic-inline-select" style="min-width: 130px;">
+                      <option :value="null">—</option>
+                      <option v-for="opt in kitchenTypeOptions" :key="opt.value" :value="opt.value">{{ opt.title }}</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -600,6 +590,9 @@
       @saved="onDisplayNameCreated"
     />
 
+    <!-- Create Packing Type Dialog -->
+    <CreatePackingTypeDialog v-model="packingTypeCreateOpen" @created="onPackingTypeCreated" />
+
     <!-- Create Type Dialog -->
     <CreateTypeDialog v-model="createTypeDialog" @created="onTypeCreated" />
 
@@ -649,10 +642,11 @@ import CreateTypeDialog from '../dialogs/CreateTypeDialog.vue';
 import CreateCategoryDialog from '../dialogs/CreateCategoryDialog.vue';
 import BrandNameFormDrawer from '@/components/brand-name/drawers/BrandNameFormDrawer.vue';
 import DisplayNameFormDrawer from '@/components/display-name/drawers/DisplayNameFormDrawer.vue';
+import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -686,6 +680,7 @@ export default {
         kitchenType: null,
         inventoryPackagingType: null,
         inventoryNumberOfUnits: 1,
+        inventoryUnit: "Pc",
         comboItem: "No",
         basePrice: 0,
         vatRate: null,
@@ -721,6 +716,9 @@ export default {
 
       // Create Display Name drawer
       createDisplayNameDrawer: false,
+
+      // Create Packing Type dialog
+      packingTypeCreateOpen: false,
 
       // Price group builder
       newPriceAmount: 0,
@@ -763,6 +761,7 @@ export default {
       this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true }),
       this.$store.dispatch('brandNames/fetchBrandNames'),
       this.$store.dispatch('displayNames/fetchDisplayNames'),
+      this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true }),
     ]);
 
     if (this.isEditMode) {
@@ -811,6 +810,9 @@ export default {
       ];
     },
     packagingCategoryOptions() {
+      const packingTypes = this.$store.getters['packingTypes/packingTypes'] || [];
+      const names = packingTypes.map((p) => p.name).filter(Boolean);
+      if (names.length) return names;
       const filtered = (this.productCategories || [])
         .filter((c) => (c.typeName || '').toLowerCase().includes('packag'))
         .map((c) => c.name)
@@ -1303,6 +1305,17 @@ export default {
       if (value === '__create_brand__') {
         this.form.brandId = null;
         this.createBrandDrawer = true;
+      }
+    },
+    onPackagingSelectChange(event) {
+      if (event.target.value === '__create_packing_type__') {
+        this.form.inventoryPackagingType = null;
+        this.packingTypeCreateOpen = true;
+      }
+    },
+    onPackingTypeCreated(name) {
+      if (name) {
+        this.form.inventoryPackagingType = name;
       }
     },
     onBrandCreated(brand) {
@@ -2300,15 +2313,60 @@ label {
 .mic-inventory-card {
   background: #eff6ff;
   border: 1.5px solid #dbeafe;
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 12px;
+  padding: 16px;
 }
 
 .mic-inventory-card__title {
-  font-size: 0.82rem;
   font-weight: 700;
-  color: #1e40af;
-  margin-bottom: 6px;
+  font-size: 0.9375rem;
+  color: #1e3a5f;
+  margin-bottom: 10px;
+}
+
+.mic-sentence {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mic-sentence-text {
+  font-size: 0.875rem;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.mic-sentence-chip {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-radius: 6px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+.mic-inventory-card__field {
+  margin-top: 12px;
+}
+
+.mic-inline-input,
+.mic-inline-select {
+  border: 1.5px solid #dbeafe;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 13px;
+  color: #1e3a5f;
+  background: #fff;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.mic-inline-input:focus,
+.mic-inline-select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, .1);
+  outline: none;
 }
 
 .picture-preview {
@@ -2530,6 +2588,26 @@ label {
 .mic--dark label,
 .mic--dark .field-label {
   color: #d1d5db;
+}
+
+.mic--dark .mic-inventory-card {
+  background: #1e3a5f;
+  border-color: #1d4ed8;
+}
+
+.mic--dark .mic-inventory-card__title {
+  color: #93c5fd;
+}
+
+.mic--dark .mic-sentence-text {
+  color: #d1d5db;
+}
+
+.mic--dark .mic-inline-input,
+.mic--dark .mic-inline-select {
+  background: #1a2535;
+  border-color: rgba(255, 255, 255, .12);
+  color: #e5e7eb;
 }
 
 .mic--dark .form-section-divider {
