@@ -1193,6 +1193,7 @@ export default {
           numberOfPiecesRecipe: Number(this.form.numberOfPiecesRecipe) || 1,
           inventoryPackagingType: this.form.inventoryPackagingType || null,
           inventoryNumberOfUnits: Number(this.form.inventoryNumberOfUnits) || 1,
+          inventoryUnit: this.form.inventoryUnit || null,
           spaceIds: Array.isArray(this.form.spaces) ? this.form.spaces : [],
           spacePrices: this.form.spacePrices || {},
           brandId: this.form.brandId || null,
@@ -1384,6 +1385,7 @@ export default {
         this.form.kitchenType = menuItem.kitchenType || null;
         this.form.inventoryPackagingType = menuItem.inventoryPackagingType || null;
         this.form.inventoryNumberOfUnits = Number(menuItem.inventoryNumberOfUnits) || 1;
+        this.form.inventoryUnit = menuItem.inventoryUnit || "Pc";
         this.form.comboItem = menuItem.comboItem || "No";
         this.form.numberOfPiecesRecipe = Number(menuItem.numberOfPiecesRecipe) || 1;
         this.form.storageTypes = Array.isArray(menuItem.storageType) ? menuItem.storageType : [];

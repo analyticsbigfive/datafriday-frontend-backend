@@ -283,6 +283,7 @@ export class MenuItemsService {
           componentsData: dto.componentsData,
           inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
           inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
+          inventoryUnit: (dto as any).inventoryUnit ?? null,
 
           ...(componentsLines
             ? {
@@ -384,6 +385,7 @@ export class MenuItemsService {
         componentsData: dto.componentsData,
         inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
         inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
+        inventoryUnit: (dto as any).inventoryUnit ?? null,
       })));
 
       await this.prisma.menuItem.createMany({
@@ -664,6 +666,7 @@ export class MenuItemsService {
     if (dto.componentsData !== undefined) updateData.componentsData = dto.componentsData;
     if ((dto as any).inventoryPackagingType !== undefined) updateData.inventoryPackagingType = (dto as any).inventoryPackagingType;
     if ((dto as any).inventoryNumberOfUnits !== undefined) updateData.inventoryNumberOfUnits = (dto as any).inventoryNumberOfUnits;
+    if ((dto as any).inventoryUnit !== undefined) updateData.inventoryUnit = (dto as any).inventoryUnit;
     // spaceIds/spacePrices : plus des colonnes — synchronisés vers SpaceMenuItem après l'update.
 
     const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;

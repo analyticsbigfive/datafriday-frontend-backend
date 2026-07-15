@@ -196,6 +196,11 @@ export class CreateMenuItemDto {
   @Type(() => Number)
   inventoryNumberOfUnits?: number;
 
+  @ApiPropertyOptional({ description: 'Unité du conditionnement inventaire (ex: Kg, L, Pc)' })
+  @IsOptional()
+  @IsString()
+  inventoryUnit?: string;
+
   @ApiPropertyOptional({ description: 'IDs des espaces associés', type: [String] })
   @IsOptional()
   @IsArray()

@@ -1862,6 +1862,7 @@ model MenuItem {
   componentsData         Json? // Pour stocker les components JSON de Figma
   inventoryPackagingType String? // Type de conditionnement inventaire (ex: Box, Bag)
   inventoryNumberOfUnits Float? // Nombre d'unités par conditionnement
+  inventoryUnit          String? // Unité du conditionnement inventaire (ex: Kg, L, Pc)
   // ⚠️ spaceIds (String[]) et spacePrices (Json) existent encore en DB mais sont GELÉS
   // (source de vérité = table SpaceMenuItem, cf. modèle plus bas). Retirés du schéma pour
   // que tout code qui les référencerait encore casse à la compilation. Drop DB différé
