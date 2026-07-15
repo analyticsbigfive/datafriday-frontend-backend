@@ -38,6 +38,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "npx tsx prisma/seed.ts",
     "rbac:backfill": "npx tsx prisma/backfill-rbac.ts",
+    "images:migrate-to-storage": "npx tsx prisma/migrate-images-to-storage.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f api"

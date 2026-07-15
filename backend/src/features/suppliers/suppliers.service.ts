@@ -2,16 +2,18 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 
 @Injectable()
 export class SuppliersService {
   private readonly logger = new Logger(SuppliersService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private storage: SupabaseStorageService) {}
 
   async create(createSupplierDto: CreateSupplierDto, tenantId: string) {
     this.logger.log(`Creating supplier "${createSupplierDto.name}" for tenant ${tenantId}`);
     try {
+      const picture = await this.storage.resolveImage(createSupplierDto.picture, 'suppliers');
       const supplier = await this.prisma.supplier.create({
         data: {
           name: createSupplierDto.name,
@@ -20,7 +22,7 @@ export class SuppliersService {
           address: createSupplierDto.address,
           city: createSupplierDto.city,
           postcode: createSupplierDto.postcode,
-          picture: createSupplierDto.picture,
+          picture,
           contactName: createSupplierDto.contactName,
           sites: createSupplierDto.spaceIds || [],
           configurationIds: createSupplierDto.configurationIds || [],
@@ -95,7 +97,7 @@ export class SuppliersService {
     if (updateSupplierDto.address !== undefined) updateData.address = updateSupplierDto.address;
     if (updateSupplierDto.city !== undefined) updateData.city = updateSupplierDto.city;
     if (updateSupplierDto.postcode !== undefined) updateData.postcode = updateSupplierDto.postcode;
-    if (updateSupplierDto.picture !== undefined) updateData.picture = updateSupplierDto.picture;
+    if (updateSupplierDto.picture !== undefined) updateData.picture = await this.storage.resolveImage(updateSupplierDto.picture, 'suppliers');
     if (updateSupplierDto.contactName !== undefined) updateData.contactName = updateSupplierDto.contactName;
     if (updateSupplierDto.spaceIds !== undefined) updateData.sites = updateSupplierDto.spaceIds;
     if (updateSupplierDto.configurationIds !== undefined) updateData.configurationIds = updateSupplierDto.configurationIds;

@@ -8,6 +8,7 @@ import { QuerySpaceDto } from './dto/query-space.dto';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
+import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -42,6 +43,7 @@ export class SpacesService {
     private readonly redis: RedisService,
     private readonly weezeventClient: WeezeventClientService,
     private readonly spaceAccess: SpaceAccessService,
+    private readonly storage: SupabaseStorageService,
   ) {}
 
   /**
@@ -77,12 +79,13 @@ export class SpacesService {
    * Create a new space for a tenant
    */
   async create(tenantId: string, dto: CreateSpaceDto) {
+    const image = await this.storage.resolveImage(dto.image, 'spaces');
     const space = await this.prisma.space.create({
       data: {
         tenantId,
         // Basic Information
         name: dto.name,
-        image: dto.image,
+        image,
         // Space Details
         spaceType: dto.spaceType,
         spaceTypeOther: dto.spaceTypeOther,
@@ -363,12 +366,13 @@ export class SpacesService {
     // Verify space exists and belongs to tenant
     await this.findOne(id, tenantId);
 
+    const image = await this.storage.resolveImage(dto.image, 'spaces');
     const space = await this.prisma.space.update({
       where: { id },
       data: {
         // Basic Information
         name: dto.name,
-        image: dto.image,
+        image,
         // Space Details
         spaceType: dto.spaceType,
         spaceTypeOther: dto.spaceTypeOther,
@@ -743,9 +747,10 @@ export class SpacesService {
     // Verify space exists and belongs to tenant
     await this.findOne(id, tenantId);
 
+    const resolvedImage = await this.storage.resolveImage(image, 'spaces');
     const space = await this.prisma.space.update({
       where: { id },
-      data: { image },
+      data: { image: resolvedImage },
       select: {
         id: true,
         name: true,
@@ -2424,11 +2429,12 @@ export class SpacesService {
       throw new ForbiddenException(`SpaceElement ${elementId} does not belong to tenant`);
     }
 
+    const image = dto.image !== undefined ? await this.storage.resolveImage(dto.image, 'space-elements') : undefined;
     const updated = await this.prisma.spaceElement.update({
       where: { id: elementId },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.image !== undefined && { image: dto.image }),
+        ...(image !== undefined && { image }),
         ...(dto.notes !== undefined && { notes: dto.notes }),
         ...(dto.type !== undefined && { type: dto.type as any }),
         ...(dto.shopTypes !== undefined && { shopTypes: dto.shopTypes }),

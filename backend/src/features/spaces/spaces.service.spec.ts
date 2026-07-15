@@ -4,6 +4,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
+import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
@@ -97,6 +98,8 @@ describe('SpacesService', () => {
         { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), getClient: jest.fn() } },
         // Accès complet par défaut dans les tests (pas de restriction d'espace)
         { provide: SpaceAccessService, useValue: { getAccessibleSpaceIds: jest.fn().mockResolvedValue('ALL'), hasFullAccess: jest.fn().mockReturnValue(true), canAccessSpace: jest.fn().mockResolvedValue(true) } },
+        // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
+        { provide: SupabaseStorageService, useValue: { resolveImage: jest.fn((value) => Promise.resolve(value)) } },
       ],
     }).compile();
 

@@ -6,6 +6,7 @@ import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.s
 import { linksToSpaceIds, linksToSpacePrices, spaceLinksSelect } from '../../shared/pricing/space-links.util';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 
 // Mapping des valeurs diet frontend → enum Diet Prisma
 function mapDiet(diet: string[]): string[] {
@@ -36,6 +37,7 @@ export class MenuItemsService {
     private prisma: PrismaService,
     private redis: RedisService,
     private pricing: MenuItemPricingService,
+    private storage: SupabaseStorageService,
   ) {}
 
   private cacheKey(tenantId: string, suffix = 'list') {
@@ -254,6 +256,7 @@ export class MenuItemsService {
         this.logger.debug(`Component IDs: ${componentsLines.map((c: any) => c.componentId).join(', ')}`);
       }
 
+      const picture = await this.storage.resolveImage(dto.picture, 'menu-items');
       const item = await this.prisma.menuItem.create({
         data: {
           tenantId,
@@ -269,7 +272,7 @@ export class MenuItemsService {
           totalCost: dto.totalCost,
           margin: dto.margin,
           description: dto.description,
-          picture: dto.picture,
+          picture,
           allergens: dto.allergens || [],
           diet: mapDiet(dto.diet || []) as any[],
           storageType: (dto.storageType || []) as any[],
@@ -355,7 +358,7 @@ export class MenuItemsService {
 
     this.logger.log(`Bulk creating ${dtos.length} menu items for tenant ${tenantId}`);
     try {
-      const items = dtos.map((dto) => ({
+      const items = await Promise.all(dtos.map(async (dto) => ({
         id: randomUUID(),
         tenantId,
         name: dto.name,
@@ -370,7 +373,7 @@ export class MenuItemsService {
         totalCost: dto.totalCost,
         margin: dto.margin,
         description: dto.description,
-        picture: dto.picture,
+        picture: await this.storage.resolveImage(dto.picture, 'menu-items'),
         allergens: dto.allergens || [],
         diet: mapDiet(dto.diet || []) as any[],
         storageType: (dto.storageType || []) as any[],
@@ -381,7 +384,7 @@ export class MenuItemsService {
         componentsData: dto.componentsData,
         inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
         inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
-      }));
+      })));
 
       await this.prisma.menuItem.createMany({
         data: items as any[],
@@ -650,7 +653,7 @@ export class MenuItemsService {
     if (dto.totalCost !== undefined) updateData.totalCost = dto.totalCost;
     if (dto.margin !== undefined) updateData.margin = dto.margin;
     if (dto.description !== undefined) updateData.description = dto.description;
-    if (dto.picture !== undefined) updateData.picture = dto.picture;
+    if (dto.picture !== undefined) updateData.picture = await this.storage.resolveImage(dto.picture, 'menu-items');
     if (dto.allergens !== undefined) updateData.allergens = dto.allergens;
     if (dto.diet !== undefined) updateData.diet = mapDiet(dto.diet) as any[];
     if (dto.storageType !== undefined) updateData.storageType = dto.storageType as any[];

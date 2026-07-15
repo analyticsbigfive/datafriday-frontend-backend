@@ -2,12 +2,13 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateMarketPriceDto } from './dto/create-market-price.dto';
 import { UpdateMarketPriceDto } from './dto/update-market-price.dto';
+import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 
 @Injectable()
 export class MarketPricesService {
   private readonly logger = new Logger(MarketPricesService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private storage: SupabaseStorageService) {}
 
   /**
    * Convertit les champs Decimal (sérialisés en string par Prisma) en number,
@@ -42,6 +43,7 @@ export class MarketPricesService {
   async create(dto: CreateMarketPriceDto, tenantId: string) {
     this.logger.log(`Creating market price "${dto.itemName}" for tenant ${tenantId}`);
     try {
+      const image = await this.storage.resolveImage(dto.image, 'market-prices');
       const price = await this.prisma.marketPrice.create({
         data: {
           tenantId,
@@ -53,7 +55,7 @@ export class MarketPricesService {
           marketPriceTypeId: dto.marketPriceTypeId,
           marketPriceCategoryId: dto.marketPriceCategoryId,
           industrialId: dto.industrialId,
-          image: dto.image,
+          image,
           supplier: dto.supplier,
           supplierId: dto.supplierId,
           supplierItem: dto.supplierItem,
@@ -272,7 +274,7 @@ export class MarketPricesService {
     if (dto.marketPriceTypeId !== undefined) updateData.marketPriceTypeId = dto.marketPriceTypeId;
     if (dto.marketPriceCategoryId !== undefined) updateData.marketPriceCategoryId = dto.marketPriceCategoryId;
     if (dto.industrialId !== undefined) updateData.industrialId = dto.industrialId;
-    if (dto.image !== undefined) updateData.image = dto.image;
+    if (dto.image !== undefined) updateData.image = await this.storage.resolveImage(dto.image, 'market-prices');
     if (dto.supplier !== undefined) updateData.supplier = dto.supplier;
     if (dto.supplierId !== undefined) updateData.supplierId = dto.supplierId;
     if (dto.supplierItem !== undefined) updateData.supplierItem = dto.supplierItem;
@@ -350,6 +352,7 @@ export class MarketPricesService {
     try {
       const results = [];
       for (const dto of items) {
+        const image = await this.storage.resolveImage(dto.image, 'market-prices');
         const price = await this.prisma.marketPrice.create({
           data: {
             tenantId,
@@ -361,7 +364,7 @@ export class MarketPricesService {
             marketPriceTypeId: dto.marketPriceTypeId,
             marketPriceCategoryId: dto.marketPriceCategoryId,
             industrialId: dto.industrialId,
-            image: dto.image,
+            image,
             supplier: dto.supplier,
             supplierId: dto.supplierId,
             supplierItem: dto.supplierItem,

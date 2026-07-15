@@ -16,6 +16,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
+import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import {
   CreateZoneDto, UpdateZoneDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto,
@@ -36,6 +37,7 @@ export class BuilderV2Service {
   constructor(
     private readonly prisma: PrismaService,
     private readonly spacesService: SpacesService,
+    private readonly storage: SupabaseStorageService,
   ) {}
 
   // ─── Garde-fous tenant (par jointure) ──────────────────────────────────────
@@ -598,6 +600,7 @@ export class BuilderV2Service {
       }
     }
 
+    const image = (await this.storage.resolveImage(dto.image, 'space-elements')) ?? null;
     const element = await this.prisma.spaceElement.create({
       data: {
         zoneId,
@@ -611,7 +614,7 @@ export class BuilderV2Service {
         height3d: dto.height3d ?? 2,
         rotation: dto.rotation ?? 0,
         capacity: dto.capacity ?? null,
-        image: dto.image ?? null,
+        image,
         notes: dto.notes ?? null,
         area: dto.area ?? null,
         attributes: dto.attributes ?? undefined,
@@ -640,6 +643,9 @@ export class BuilderV2Service {
    * version a changé (rayon du conflit = un élément, contre toute la config en v1).
    */
   async patchElement(elementId: string, tenantId: string, dto: UpdateElementDto, expectedVersion?: number) {
+    // Regex-only cost when `image` isn't a fresh base64 upload — keeps this hot
+    // autosave path fast; only a real re-upload pays the Storage round-trip.
+    const image = dto.image !== undefined ? await this.storage.resolveImage(dto.image, 'space-elements') : undefined;
     const data: any = {
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.subtypes !== undefined && { subtypes: dto.subtypes }),
@@ -650,7 +656,7 @@ export class BuilderV2Service {
       ...(dto.height3d !== undefined && { height3d: dto.height3d }),
       ...(dto.rotation !== undefined && { rotation: dto.rotation }),
       ...(dto.capacity !== undefined && { capacity: dto.capacity }),
-      ...(dto.image !== undefined && { image: dto.image }),
+      ...(image !== undefined && { image }),
       ...(dto.notes !== undefined && { notes: dto.notes }),
       ...(dto.area !== undefined && { area: dto.area }),
       ...(dto.attributes !== undefined && { attributes: dto.attributes }),

@@ -58,6 +58,15 @@ export class SupabaseAdminService implements OnModuleInit {
     return this.client !== null;
   }
 
+  /**
+   * Exposes the raw service-role client to other core services (e.g. Storage)
+   * that need Supabase APIs beyond auth.admin.* without duplicating the
+   * connection setup. Bypasses RLS — server-side use only.
+   */
+  getServiceClient(): SupabaseClient {
+    return this.getClient();
+  }
+
   private getClient(): SupabaseClient {
     if (!this.client) {
       throw new InternalServerErrorException(
