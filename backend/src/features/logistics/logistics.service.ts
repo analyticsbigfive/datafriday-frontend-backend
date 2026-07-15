@@ -353,6 +353,7 @@ export class LogisticsService {
       numberOfPiecesRecipe: true,
       inventoryPackagingType: true,
       inventoryNumberOfUnits: true,
+      inventoryUnit: true,
       ingredients: {
         select: {
           numberOfUnits: true,
@@ -545,7 +546,7 @@ export class LogisticsService {
       const selfName = item.name?.trim();
       if (selfName) {
         refs.push({
-          key: selfName, id: item.id, kind: 'product', unit: null, marketPriceId: null,
+          key: selfName, id: item.id, kind: 'product', unit: item.inventoryUnit ?? null, marketPriceId: null,
           unitsPerPack: item.inventoryNumberOfUnits ?? null, packagingType: item.inventoryPackagingType ?? null, picture: item.picture ?? null,
         });
       }
@@ -585,7 +586,7 @@ export class LogisticsService {
       const selfName = item.name?.trim();
       if (selfName) {
         refs.push({
-          key: selfName, id: item.id, kind: 'product', unit: null, marketPriceId: null,
+          key: selfName, id: item.id, kind: 'product', unit: item.inventoryUnit ?? null, marketPriceId: null,
           unitsPerPack: item.inventoryNumberOfUnits ?? null, packagingType: item.inventoryPackagingType ?? null, picture: item.picture ?? null,
         });
       }
