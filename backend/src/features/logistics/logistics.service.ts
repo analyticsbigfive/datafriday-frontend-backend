@@ -41,7 +41,7 @@ type ElementItem = {
   unitsPerPack: number | null;
   packagingType: string | null;
   picture: string | null;
-  usedIn: Array<{ id: string; name: string; picture: string | null }>;
+  usedIn: Array<{ id: string; name: string }>;
 };
 
 type RecipeCtx = {
@@ -49,6 +49,12 @@ type RecipeCtx = {
   mpByName: Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>;
   /** Component (MenuComponent) par id, recette complète — pour le dépliage récursif readyForSale=No. */
   componentById: Map<string, any>;
+  /** Cache de dépliage recette, clé `${id}:${depth}` — même schéma que perUnitCache/
+   * componentPerUnitCache dans explodeSalesToConsumption. Sans lui, un menu item/component
+   * partagé par plusieurs plats ou plusieurs shops est ré-expansé depuis zéro à chaque
+   * référence (coût combinatoire sur un catalogue à combos/composants imbriqués). */
+  itemRefsCache: Map<string, ItemRef[]>;
+  componentRefsCache: Map<string, ItemRef[]>;
 };
 
 /**
@@ -431,7 +437,9 @@ export class LogisticsService {
    * à dessein pour ne jamais toucher au chemin ventes déjà validé en prod).
    */
   private async loadRecipeContext(seedItems: any[], tenantId: string): Promise<RecipeCtx> {
-    if (!seedItems.length) return { comboByName: new Map(), mpByName: new Map(), componentById: new Map() };
+    if (!seedItems.length) {
+      return { comboByName: new Map(), mpByName: new Map(), componentById: new Map(), itemRefsCache: new Map(), componentRefsCache: new Map() };
+    }
     const select = this.recipeSelect();
     const comboByName = new Map<string, any>();
     let frontier = seedItems;
@@ -507,11 +515,14 @@ export class LogisticsService {
       componentFrontier = rows.map((c) => c.id);
     }
 
-    return { comboByName, mpByName, componentById };
+    return { comboByName, mpByName, componentById, itemRefsCache: new Map(), componentRefsCache: new Map() };
   }
 
   /** Lignes de stock (référentiel) contribuées par UN menu item, recette dépliée. */
   private itemRefsForMenuItem(item: any, ctx: RecipeCtx, depth = 0): ItemRef[] {
+    const cacheKey = `${item.id}:${depth}`;
+    const cached = ctx.itemRefsCache.get(cacheKey);
+    if (cached) return cached;
     const refs: ItemRef[] = [];
     for (const line of item.packagings ?? []) {
       const pkg = line.packaging;
@@ -528,6 +539,7 @@ export class LogisticsService {
           key: mp.itemName.trim(), id: mp.id, kind: 'ingredient', unit: null,
           marketPriceId: mp.id, unitsPerPack: mp.packedUnits ?? null, packagingType: mp.inventoryPackaging ?? null, picture: null,
         });
+        ctx.itemRefsCache.set(cacheKey, refs);
         return refs; // packaging déjà ajouté ci-dessus ; seule ligne « produit » = le market price
       }
       const selfName = item.name?.trim();
@@ -537,6 +549,7 @@ export class LogisticsService {
           unitsPerPack: item.inventoryNumberOfUnits ?? null, packagingType: item.inventoryPackagingType ?? null, picture: item.picture ?? null,
         });
       }
+      ctx.itemRefsCache.set(cacheKey, refs);
       return refs;
     }
 
@@ -577,6 +590,7 @@ export class LogisticsService {
         });
       }
     }
+    ctx.itemRefsCache.set(cacheKey, refs);
     return refs;
   }
 
@@ -584,16 +598,25 @@ export class LogisticsService {
    * Lignes de stock contribuées par UN Component, recette dépliée si
    * readyForSale=No (ingrédients + sous-composants, `ComponentComponent` étant un
    * vrai graphe par id — cycle-guard par Set visité, pas seulement la profondeur).
+   * Cache par `${id}:${depth}` (même schéma que itemRefsForMenuItem/perUnitForComponent) —
+   * `visited` ne sert qu'à couper les cycles, le résultat pour un (id, depth) donné est
+   * déterministe indépendamment du chemin d'appel.
    */
   private componentRefsForComponent(comp: any, ctx: RecipeCtx, depth = 0, visited: Set<string> = new Set()): ItemRef[] {
     const name = comp?.name?.trim();
     if (!name) return [];
+    const cacheKey = `${comp.id}:${depth}`;
+    const cached = ctx.componentRefsCache.get(cacheKey);
+    if (cached) return cached;
     const asLeaf = (): ItemRef[] => [{
       key: name, id: comp.id, kind: 'component', unit: comp.unit ?? null, marketPriceId: null,
       unitsPerPack: comp.packedUnits ?? null, packagingType: comp.inventoryPackaging ?? null, picture: null,
     }];
-    if (this.normYesNo(comp.readyForSale) === 'Yes') return asLeaf();
-    if (depth >= 4 || visited.has(comp.id)) return asLeaf();
+    if (this.normYesNo(comp.readyForSale) === 'Yes' || depth >= 4 || visited.has(comp.id)) {
+      const leaf = asLeaf();
+      ctx.componentRefsCache.set(cacheKey, leaf);
+      return leaf;
+    }
 
     const nextVisited = new Set(visited);
     nextVisited.add(comp.id);
@@ -614,12 +637,14 @@ export class LogisticsService {
       const fullChild = ctx.componentById.get(childId) ?? line.child;
       refs.push(...this.componentRefsForComponent(fullChild, ctx, depth + 1, nextVisited));
     }
-    return refs.length ? refs : asLeaf();
+    const result = refs.length ? refs : asLeaf();
+    ctx.componentRefsCache.set(cacheKey, result);
+    return result;
   }
 
   /** Agrège les refs de plusieurs menu items en items de référentiel (1re valeur non nulle gagne). */
   private aggregateItems(
-    menuItems: Array<{ id: string; name: string; picture: string | null }>,
+    menuItems: Array<{ id: string; name: string }>,
     byId: Map<string, any>,
     ctx: RecipeCtx,
   ): Map<string, ElementItem> {
@@ -634,7 +659,7 @@ export class LogisticsService {
           map.set(ref.key, entry);
         }
         if (!entry.usedIn.some((u) => u.id === mi.id)) {
-          entry.usedIn.push({ id: mi.id, name: mi.name, picture: mi.picture ?? null });
+          entry.usedIn.push({ id: mi.id, name: mi.name });
         }
       }
     }
@@ -711,7 +736,7 @@ export class LogisticsService {
     const elements: Array<{ id: string; name: string; type: string; items: ElementItem[] }> = [];
     for (const shop of configuredShops) {
       const ids = enabledByShop.get(shop.id) ?? [];
-      const menuItems = ids.map((id) => byId.get(id)).filter(Boolean).map((mi: any) => ({ id: mi.id, name: mi.name, picture: mi.picture }));
+      const menuItems = ids.map((id) => byId.get(id)).filter(Boolean).map((mi: any) => ({ id: mi.id, name: mi.name }));
       const map = this.aggregateItems(menuItems, byId, ctx);
       itemMapByShop.set(shop.id, map);
       elements.push({ id: shop.id, name: shop.name, type: shop.type, items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')) });
