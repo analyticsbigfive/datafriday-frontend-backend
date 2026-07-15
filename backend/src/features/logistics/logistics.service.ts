@@ -330,15 +330,16 @@ export class LogisticsService {
   // Remplace l'ancien chemin front (useInventoryData + catalogues complets
   // ingredients/menu-items/market-prices) : le backend a déjà toutes les données
   // pour ne renvoyer QUE les denrées suivies par CET espace, nommées, sans dump
-  // de catalogue tenant-wide. Miroir exact des règles déjà déployées et
-  // éprouvées de `explodeSalesToConsumption`/`perUnit` (ventes) — mêmes clés,
-  // pour ne jamais désynchroniser le référentiel affiché de la consommation
-  // calculée : readyForSale=Yes + 1 seul ingrédient → market price (lien direct
-  // sinon résolution par NOM) ; sinon l'article lui-même (packedUnits/inventory
-  // Packaging propres si présents). readyForSale=No → explosion ingrédients +
-  // composants (combo déplié par nom, profondeur ≤ 4) ; un composant qui n'est pas
-  // un combo est lui-même déplié en ses propres ingrédients/sous-composants si son
-  // readyForSale est "No" (sinon compté par son propre nom + son propre packaging).
+  // de catalogue tenant-wide.
+  // readyForSale=Yes → toujours l'article lui-même (packedUnits/inventoryPackaging
+  // propres si présents), SANS exception pour le cas mono-ingrédient (BUG-048 :
+  // un item readyForSale=Yes n'est plus jamais fondu dans la Market Price de son
+  // ingrédient — même règle appliquée à `explodeSalesToConsumption`/`perUnit`
+  // (ventes) et à `buildConsolidatedInventory` côté front, les trois restent
+  // alignés). readyForSale=No → explosion ingrédients + composants (combo déplié
+  // par nom, profondeur ≤ 4) ; un composant qui n'est pas un combo est lui-même
+  // déplié en ses propres ingrédients/sous-composants si son readyForSale est
+  // "No" (sinon compté par son propre nom + son propre packaging).
   // Différence volontaire avec perUnit : le packaging (jamais consommé à la
   // vente) est ICI ajouté en lignes directes (non récursif), pour rester suivi
   // manuellement — miroir de buildConsolidatedInventory (front, non modifié).
@@ -533,16 +534,11 @@ export class LogisticsService {
     }
 
     if (this.normYesNo(item.readyForSale) === 'Yes') {
-      const ing = item.ingredients.length === 1 ? item.ingredients[0].ingredient : null;
-      const mp = ing?.marketPrice ?? (ing?.name ? ctx.mpByName.get(ing.name.trim().toLowerCase()) : null);
-      if (ing && mp) {
-        refs.push({
-          key: mp.itemName.trim(), id: mp.id, kind: 'ingredient', unit: ing.recipeUnit ?? null,
-          marketPriceId: mp.id, unitsPerPack: mp.packedUnits ?? null, packagingType: mp.inventoryPackaging ?? null, picture: null,
-        });
-        ctx.itemRefsCache.set(cacheKey, refs);
-        return refs; // packaging déjà ajouté ci-dessus ; seule ligne « produit » = le market price
-      }
+      // readyForSale=Yes prime toujours sur lui-même, sans exception pour le cas
+      // mono-ingrédient (BUG-048) : un item readyForSale=Yes n'est JAMAIS fondu
+      // dans la Market Price de son ingrédient, même si sa recette n'en a qu'un
+      // seul — il est compté comme son propre produit, avec son propre packaging
+      // (inventoryPackagingType/inventoryNumberOfUnits/inventoryUnit).
       const selfName = item.name?.trim();
       if (selfName) {
         refs.push({
@@ -1004,9 +1000,9 @@ export class LogisticsService {
   /**
    * Explose les ventes en consommation par (élément × itemKey), en miroir du
    * référentiel front (buildConsolidatedInventory) :
-   * - readyForSale=Yes + UN seul ingrédient → clé = itemName du market price de
-   *   l'ingrédient (sinon nom de l'ingrédient) ; 1 unité loose par vente.
-   * - readyForSale=Yes sinon → clé = nom du menu item ; 1 unité par vente.
+   * - readyForSale=Yes → clé = nom du menu item ; 1 unité par vente. Sans exception
+   *   pour le cas mono-ingrédient (BUG-048) : ne bascule plus jamais sur la Market
+   *   Price de l'ingrédient, même à ingrédient unique.
    * - readyForSale=No → explosion de recette : ingrédients + composants
    *   (numberOfUnits / numberOfPiecesRecipe par unité vendue), packaging exclu ;
    *   un composant portant le nom d'un menu item combo (comboItem=Yes,
@@ -1044,7 +1040,7 @@ export class LogisticsService {
       ingredients: {
         select: {
           numberOfUnits: true,
-          ingredient: { select: { name: true, marketPrice: { select: { itemName: true } } } },
+          ingredient: { select: { name: true } },
         },
       },
       components: { select: { numberOfUnits: true, component: { select: componentSelect } } },
@@ -1116,28 +1112,6 @@ export class LogisticsService {
       componentFrontier = rows.map((c) => c.id);
     }
 
-    // Miroir du front (buildConsolidatedInventory) pour la clé d'un item RFS=Yes à
-    // ingrédient unique : market price lié → itemName ; sinon market price retrouvé
-    // PAR NOM d'ingrédient → itemName (== nom d'ingrédient) ; sinon la ligne front
-    // retombe sur le NOM DU MENU ITEM (« fall through to normal logic »).
-    const unresolvedIngredientNames = new Set<string>();
-    for (const item of items) {
-      if (this.normYesNo(item.readyForSale) === 'Yes' && item.ingredients.length === 1) {
-        const ing = item.ingredients[0].ingredient;
-        if (ing?.name && !ing.marketPrice?.itemName) unresolvedIngredientNames.add(ing.name.trim());
-      }
-    }
-    const mpByItemName = new Set<string>(
-      unresolvedIngredientNames.size
-        ? (
-            await this.prisma.marketPrice.findMany({
-              where: { tenantId, deletedAt: null, itemName: { in: [...unresolvedIngredientNames] } },
-              select: { itemName: true },
-            })
-          ).map((mp) => mp.itemName.trim().toLowerCase())
-        : [],
-    );
-
     // Component (readyForSale=No) : même dépliage récursif que itemRefsForMenuItem
     // côté Path A, mais gardé indépendant (closure séparée, cache séparé) — la
     // consommation ventes ne doit jamais dépendre du chemin référentiel.
@@ -1188,14 +1162,7 @@ export class LogisticsService {
         result.set(k, (result.get(k) ?? 0) + qty);
       };
       if (this.normYesNo(item.readyForSale) === 'Yes') {
-        const ing = item.ingredients.length === 1 ? item.ingredients[0].ingredient : null;
-        if (ing?.marketPrice?.itemName) {
-          add(ing.marketPrice.itemName, 1);
-        } else if (ing?.name && mpByItemName.has(ing.name.trim().toLowerCase())) {
-          add(ing.name, 1);
-        } else {
-          add(item.name, 1);
-        }
+        add(item.name, 1);
       } else {
         const pieces = Number(item.numberOfPiecesRecipe) > 0 ? Number(item.numberOfPiecesRecipe) : 1;
         for (const line of item.ingredients) {
