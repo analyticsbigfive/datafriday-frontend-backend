@@ -59,9 +59,10 @@
 | [45](45_unit_null_codee_en_dur_readyforsale_yes.md) | `unit` codé en dur à `null` pour un menu item mono-ingrédient `readyForSale=Yes` | 🟢 Corrigé | 🟡 | Stock |
 | [46](46_inventoryunit_jamais_persiste_menuitem.md) | `inventoryUnit` (unité conditionnement) jamais persisté sur `MenuItem` | 🟢 Corrigé | 🟡 | Menu & recettes / Stock |
 | [47](47_prisma_client_desync_apres_switch_branche.md) | Prisma Client désynchronisé du schéma après switch de branche (`Unknown argument` sur champ existant) | 🟢 Corrigé | 🟡 | Technique |
+| [48](48_readyforsale_yes_mono_ingredient_masque_par_marketprice.md) | Menu item `readyForSale=Yes` mono-ingrédient masqué par la Market Price de l'ingrédient (jamais affiché sous son propre nom) | 🟡 Corrigé non déployé | 🟠 | Stock |
 
-**47 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
-recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-47 ajoutés le
+**48 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-48 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic`.
 
 ## Comment ajouter un bug
