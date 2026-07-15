@@ -55,9 +55,12 @@
 | [41](41_queue_exports_sans_processor.md) | Queue EXPORTS enregistrée sans processor | 🔴 Ouvert | 🟡 | Technique |
 | [42](42_queues_analytics_notifications_placeholder.md) | Queues ANALYTICS/NOTIFICATIONS 100% placeholder | 🔴 Ouvert | 🟢 | Technique |
 | [43](43_edge_function_heavy_processing_table_inexistante.md) | Edge Function heavy-processing référence une table inexistante | 🔴 Ouvert | 🟢 | Technique |
+| [44](44_stock_payload_lent_et_volumineux.md) | `GET /logistics/:spaceId/stock` lent et volumineux (jusqu'à ~180 Mo / 52s) | 🟢 Corrigé | 🟠 | Stock |
+| [45](45_unit_null_codee_en_dur_readyforsale_yes.md) | `unit` codé en dur à `null` pour un menu item mono-ingrédient `readyForSale=Yes` | 🟢 Corrigé | 🟡 | Stock |
 
-**43 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
-recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15.
+**45 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-45 ajoutés le
+2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic`.
 
 ## Comment ajouter un bug
 

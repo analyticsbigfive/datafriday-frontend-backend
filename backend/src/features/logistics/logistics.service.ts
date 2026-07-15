@@ -536,7 +536,7 @@ export class LogisticsService {
       const mp = ing?.marketPrice ?? (ing?.name ? ctx.mpByName.get(ing.name.trim().toLowerCase()) : null);
       if (ing && mp) {
         refs.push({
-          key: mp.itemName.trim(), id: mp.id, kind: 'ingredient', unit: null,
+          key: mp.itemName.trim(), id: mp.id, kind: 'ingredient', unit: ing.recipeUnit ?? null,
           marketPriceId: mp.id, unitsPerPack: mp.packedUnits ?? null, packagingType: mp.inventoryPackaging ?? null, picture: null,
         });
         ctx.itemRefsCache.set(cacheKey, refs);
