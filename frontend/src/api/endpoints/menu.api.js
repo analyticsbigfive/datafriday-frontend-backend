@@ -373,10 +373,15 @@ export async function deduplicateMarketPrices() {
 
 /**
  * Récupérer tous les fournisseurs
+ * @param {{page?: number, limit?: number}} [opts]
  * @returns {Promise<Array>}
  */
-export async function getSuppliers() {
-  return api.get('/suppliers')
+export async function getSuppliers({ page, limit } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/suppliers${qs ? `?${qs}` : ''}`)
 }
 
 /**

@@ -65,8 +65,9 @@
 | [49](49_market_prices_import_csv_message_fichier_vide_trompeur.md) | Import CSV Market Prices : message "Nothing to import (empty file?)" trompeur quand des lignes ont bien été envoyées | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [50](50_market_prices_import_csv_dedup_supplierid_fragile_mirror.md) | Import CSV Market Prices : réimport créant des doublons malgré le dédoublonnage (fiche miroir) | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [51](51_market_prices_import_csv_dedup_decimal_number_mirror.md) | Import CSV Market Prices : dédoublonnage totalement inopérant pour la plupart des prix (fiche miroir) | 🟢 Corrigé | 🔴 | Achats & référentiels |
+| [52](52_suppliers_get_plafond_silencieux_100_lignes_mirror.md) | GET /suppliers plafonné à 100 lignes sans pagination réelle côté front (fiche miroir) | 🟢 Corrigé | 🟠 | Achats & référentiels |
 
-**51 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**52 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
@@ -81,7 +82,9 @@ le 2026-07-16 suite à un signalement utilisateur d'un message "fichier vide" tr
 import réel ; 50 ajouté le 2026-07-16 suite à un signalement utilisateur de doublons réels créés
 malgré le fix de dédoublonnage (supplierId trop fragile comme clé de comparaison) ; 51 ajouté le
 2026-07-16 suite à un nouveau signalement de doublons malgré le fix 50 — cause racine : comparaison
-Decimal/number Prisma silencieusement cassée.
+Decimal/number Prisma silencieusement cassée ; 52 ajouté et corrigé le 2026-07-16 suite à un audit
+de la page `/suppliers` (mêmes dette technique et cause racine que le cap 200 lignes de BUG-040,
+jamais répliqué côté suppliers).
 
 ## Comment ajouter un bug
 
