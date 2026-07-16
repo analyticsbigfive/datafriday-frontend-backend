@@ -94,7 +94,7 @@
     </div>
 
     <!-- Drawers / Dialogs -->
-    <MarketPriceCsvImportDrawer v-model="csvImportDrawer" :is-dark="isDark" @imported="loadMarketPrices(true)" />
+    <MarketPriceCsvImportDrawer v-model="csvImportDrawer" :is-dark="isDark" :good-type-options="goodTypeOptions" :suppliers="suppliers" :industrials="industrials" @imported="loadMarketPrices(true)" />
     <MarketPriceCreateDrawer v-model="createDialog" :initial-data="createInitialData" :existing-item-names="existingItemNames" :suppliers="suppliers" :good-type-options="goodTypeOptions" :product-categories="productCategories" :is-dark="isDark" @created="onCreated" />
     <MarketPriceEditDrawer v-model="editDialog" :initial-item="editTargetItem" :good-type-options="goodTypeOptions" :product-category-options="productCategoryOptions" :product-categories="productCategories" :recipe-unit-options="recipeUnitOptions" :is-dark="isDark" @saved="onSaved" />
     <MarketPriceDeleteItemDialog v-model="deleteItemDialog" :item-name="deleteItemName" :is-dark="isDark" @deleted="onDeleted" />
@@ -213,6 +213,7 @@ export default {
   },
   async mounted() {
     this.$store.dispatch('suppliers/fetchSuppliers');
+    this.$store.dispatch('industrials/fetchIndustrials');
     this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes');
     this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories');
     this.$store.dispatch('spaces/fetchSpaces');
@@ -242,6 +243,9 @@ export default {
     suppliers() {
       return this.$store.getters['suppliers/suppliers'];
     },
+    industrials() {
+      return this.$store.getters['industrials/industrials'];
+    },
     productTypes() {
       return this.$store.getters['marketPriceTypes/marketPriceTypes'];
     },
@@ -257,6 +261,7 @@ export default {
     items() {
       const rows = this.marketPriceRows;
       const supplierNameById = new Map((this.suppliers || []).map((s) => [s.id, s.name]));
+      const industrialNameById = new Map((this.industrials || []).map((ind) => [ind.id, ind.name]));
       const map = new Map();
 
       for (const r of rows) {
@@ -319,6 +324,9 @@ export default {
           packingWidth: r?.packingWidth ?? 0,
           packingHeight: r?.packingHeight ?? 0,
           industrialId: r?.industrialId || r?.industrial?.id || '',
+          industrialName:
+            r?.industrial?.name ||
+            (r?.industrialId ? industrialNameById.get(r.industrialId) : '') || '',
         };
 
         if (!map.has(itemName)) {
@@ -573,10 +581,18 @@ export default {
     exportToCSV() {
       try {
         const csvData = [];
+        // "Price (Package Total) (EUR)" = champ `price` brut (montant payé pour le
+        // conditionnement d'achat) — PAS un prix par unité malgré l'ancien libellé "Price Per
+        // Unit". `pricePerUnit` reste dérivé (price / Units Per Purchase), jamais réimporté en
+        // direct, cf. `MarketPriceCsvImportDrawer.vue`.
         const headers = [
-          'Item Name', 'Good Type', 'Category', 'Supplier Name', 'Supplier Item',
-          'Recipe Unit', 'Purchase Unit', 'Purchase Unit Conversion',
-          'Price Per Unit (EUR)', 'Cost Per Recipe Unit (EUR)',
+          'Item Name', 'Good Type', 'Category', 'Image URL',
+          'Supplier Name', 'Supplier Item', 'Industrial',
+          'Recipe Unit', 'Purchase Unit', 'Purchase Unit Conversion', 'Units Per Purchase',
+          'Price (Package Total) (EUR)', 'Cost Per Recipe Unit (EUR)',
+          'Purchased In (Packaging)', 'Stored In (Packaging)',
+          'Packed Units', 'Number of Units',
+          'Packing Length (cm)', 'Packing Width (cm)', 'Packing Height (cm)',
         ];
         csvData.push(headers);
 
@@ -592,6 +608,7 @@ export default {
           const goodType  = String(item?.goodType || item?.type || '');
           const category  = String(item?.category || '');
           const recipeUnit = String(item?.recipeUnit || '');
+          const imageUrl  = String(item?.image || '');
 
           const rows = item?.supplierRows || [];
           if (rows.length > 0) {
@@ -600,17 +617,27 @@ export default {
                 itemName,
                 goodType,
                 category,
+                imageUrl,
                 String(sr?.supplierName || ''),
                 String(sr?.supplierItemName || ''),
+                String(sr?.industrialName || ''),
                 recipeUnit,
                 String(sr?.unit || ''),
                 String(sr?.purchaseUnitConversion ?? ''),
-                String(sr?.pricePerUnit ?? sr?.price ?? ''),
+                String(sr?.unitsPerPurchase ?? ''),
+                String(sr?.price ?? ''),
                 String(sr?.recipeUnitCost ?? ''),
+                String(sr?.purchasePackaging || ''),
+                String(sr?.inventoryPackaging || ''),
+                String(sr?.packedUnits ?? ''),
+                String(sr?.numberOfUnits ?? ''),
+                String(sr?.packingLength ?? ''),
+                String(sr?.packingWidth ?? ''),
+                String(sr?.packingHeight ?? ''),
               ]);
             }
           } else {
-            csvData.push([itemName, goodType, category, '', '', recipeUnit, '', '', '', '']);
+            csvData.push([itemName, goodType, category, imageUrl, '', '', '', recipeUnit, '', '', '', '', '', '', '', '', '', '', '', '']);
           }
         }
 

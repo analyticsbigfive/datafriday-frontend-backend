@@ -347,11 +347,43 @@ export class MarketPricesService {
     }
   }
 
+  /**
+   * Traite chaque ligne indépendamment (pas de transaction Prisma globale) : une ligne en
+   * échec ne doit ni bloquer ni faire disparaître les lignes précédentes déjà committées.
+   * Retourne un décompte précis (créées/ignorées/en erreur, avec l'index de chaque erreur)
+   * pour que l'appelant (import CSV) sache exactement ce qui s'est passé, au lieu de marquer
+   * tout le lot en échec dès qu'une seule ligne casse.
+   */
   async bulkCreate(items: CreateMarketPriceDto[], tenantId: string) {
     this.logger.log(`Bulk creating ${items.length} market prices for tenant ${tenantId}`);
-    try {
-      const results = [];
-      for (const dto of items) {
+    const result = {
+      created: [] as any[],
+      skipped: 0,
+      errors: [] as Array<{ index: number; itemName?: string; message: string }>,
+    };
+
+    for (let index = 0; index < items.length; index++) {
+      const dto = items[index];
+      try {
+        // Dédoublonnage exact à l'insertion : évite de recréer une ligne identique à chaque
+        // réimport du même CSV (cf. BUG connu : aucune contrainte @@unique en base sur
+        // MarketPrice). Volontairement plus strict que `deduplicate()` (nom+fournisseur
+        // uniquement) : on inclut aussi unit/price pour ne jamais fusionner deux prix
+        // réellement différents pour le même article/fournisseur.
+        const existing = await this.prisma.marketPrice.findFirst({
+          where: {
+            tenantId,
+            itemName: dto.itemName,
+            unit: dto.unit,
+            price: dto.price,
+            supplierId: dto.supplierId ?? null,
+          },
+        });
+        if (existing) {
+          result.skipped++;
+          continue;
+        }
+
         const image = await this.storage.resolveImage(dto.image, 'market-prices');
         const price = await this.prisma.marketPrice.create({
           data: {
@@ -382,14 +414,19 @@ export class MarketPricesService {
           },
         });
         await this.syncRecipeRecordForGoodType(price, dto.goodType, tenantId);
-        results.push(this.serialize(price));
+        result.created.push(this.serialize(price));
+      } catch (error) {
+        this.logger.warn(
+          `Bulk import: item ${index} ("${dto?.itemName}") failed: ${error.message}`,
+        );
+        result.errors.push({ index, itemName: dto?.itemName, message: error.message || 'Unknown error' });
       }
-      this.logger.log(`Bulk created ${results.length} market prices`);
-      return results;
-    } catch (error) {
-      this.logger.error(`Failed to bulk create: ${error.message}`, error.stack);
-      throw error;
     }
+
+    this.logger.log(
+      `Bulk create complete: ${result.created.length} created, ${result.skipped} skipped (duplicates), ${result.errors.length} errors`,
+    );
+    return result;
   }
 
   /**

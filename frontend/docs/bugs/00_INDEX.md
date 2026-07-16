@@ -54,13 +54,24 @@
 | [38](38_market_prices_keepalive_activated_mort.md) | Market Prices : hook `activated()` mort (aucun `<keep-alive>` autour du router-view) | 🟢 Corrigé | 🟢 | Achats & référentiels |
 | [39](39_market_prices_recherche_sans_debounce.md) | Market Prices : recherche sans debounce (recalcul à chaque frappe) | 🟢 Corrigé | 🟢 | Achats & référentiels |
 | [40](40_market_prices_cap_silencieux_200_lignes_mirror.md) | `GET /market-prices` plafonné à 200 lignes sans pagination réelle (fiche miroir) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [41](41_market_prices_import_csv_succes_partiel_invisible_et_doublons_mirror.md) | Import CSV Market Prices : succès partiel invisible et doublons au réimport (fiche miroir) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [42](42_market_prices_import_csv_goodtype_verrouille_valeurs_fixes.md) | Import CSV Market Prices : `goodType` verrouillé à 4 valeurs fixes (référentiel pourtant dynamique) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [43](43_market_prices_import_csv_supplierid_jamais_resolu.md) | Import CSV Market Prices : `supplierId` jamais résolu (fournisseur toujours en texte libre) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [44](44_market_prices_import_csv_priceperunit_incoherent.md) | Import CSV Market Prices : `pricePerUnit` mappé depuis "Cost Per Recipe Unit" (double application de la conversion) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [45](45_market_prices_import_csv_parsing_champs_multilignes.md) | Import CSV Market Prices : parsing casse sur un champ entre guillemets contenant un saut de ligne | 🟢 Corrigé | 🟡 | Achats & référentiels |
+| [46](46_market_prices_import_csv_barre_progression_trompeuse.md) | Import CSV Market Prices : barre de progression figée pendant l'envoi réseau | 🟢 Corrigé | 🟡 | Achats & référentiels |
+| [47](47_market_prices_export_import_champs_incomplets.md) | Export/Import CSV Market Prices : la moitié des champs du modèle absents (image, industriel, emballages, dimensions) | 🟢 Corrigé | 🟠 | Achats & référentiels |
 
-**40 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**47 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
 `/market-prices` (vide avant affichage, pagination à 10, code mort keepAlive, recherche sans
-debounce, cap silencieux à 200 lignes).
+debounce, cap silencieux à 200 lignes) ; 41-46 ajoutés le 2026-07-16 suite à une analyse du drawer
+d'import CSV `/market-prices` (succès partiel invisible, doublons, goodType verrouillé,
+supplierId non résolu, pricePerUnit incohérent, parsing multi-lignes, progression trompeuse) ; 47
+ajouté le 2026-07-16 suite à un audit d'exhaustivité des champs export/import contre le modèle
+`MarketPrice` complet.
 
 ## Comment ajouter un bug
 

@@ -120,22 +120,25 @@
         <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12">
           <v-progress-circular indeterminate color="#ff3131" size="48" class="mb-4" />
           <div class="text-body-2 text-medium-emphasis">
-            {{ t('importing') }} {{ importProgress }}/{{ csvRows.length }}
+            {{ sendingToServer ? t('sendingToServer') : `${t('importing')} ${importProgress}/${csvRows.length}` }}
           </div>
         </div>
         <template v-else-if="importResults">
           <v-alert v-if="importResults.success > 0" type="success" variant="tonal" rounded="lg" class="mb-4">
             <strong>{{ importResults.success }}</strong> {{ t('importedOk') }}
           </v-alert>
+          <v-alert v-if="importResults.skipped > 0" type="info" variant="tonal" rounded="lg" class="mb-4">
+            <strong>{{ importResults.skipped }}</strong> {{ t('skippedDuplicates') }}
+          </v-alert>
           <v-alert v-if="importResults.errors.length > 0" type="error" variant="tonal" rounded="lg" class="mb-4">
             <div class="font-weight-medium mb-2">{{ importResults.errors.length }} {{ t('errors') }}</div>
             <ul style="padding-left: 16px; margin: 0;">
-              <li v-for="err in importResults.errors" :key="err.row" class="text-body-2">
+              <li v-for="(err, idx) in importResults.errors" :key="`${err.row}-${idx}`" class="text-body-2">
                 {{ t('row') }} {{ err.row }} : {{ err.message }}
               </li>
             </ul>
           </v-alert>
-          <v-alert v-if="importResults.success === 0 && importResults.errors.length === 0" type="info" variant="tonal" rounded="lg">
+          <v-alert v-if="importResults.success === 0 && importResults.skipped === 0 && importResults.errors.length === 0" type="info" variant="tonal" rounded="lg">
             {{ t('noRows') }}
           </v-alert>
         </template>
@@ -170,7 +173,8 @@
 
 <script>
 import { X, Upload, Download, FileSpreadsheet, CheckCircle2 } from 'lucide-vue-next';
-import { api, setAccessToken } from '@/api/client';
+import { setAccessToken } from '@/api/client';
+import { importMarketPrices } from '@/api/endpoints/menu.api';
 import { supabase } from '@/lib/supabase';
 
 function detectSeparator(firstLine) {
@@ -189,28 +193,34 @@ function detectSeparator(firstLine) {
 function parseCSV(text) {
   // Supprimer le BOM UTF-8 éventuel
   const clean = text.replace(/^\uFEFF/, '');
-  const lines = clean.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length === 0) return [];
-  const sep = detectSeparator(lines[0]);
+  if (!clean.trim()) return [];
+  const firstLine = clean.split(/\r?\n/, 1)[0] || '';
+  const sep = detectSeparator(firstLine);
+  // Parcours caractère par caractère sur TOUT le texte (pas ligne par ligne au préalable) :
+  // un saut de ligne à l'intérieur d'un champ entre guillemets ne doit pas couper la ligne
+  // logique (bug précédent : `split(/\r?\n/)` coupait avant toute prise en compte des
+  // guillemets, désalignant les colonnes des lignes suivantes).
   const result = [];
-  for (const line of lines) {
-    const row = [];
-    let cur = '';
-    let inQuote = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQuote = !inQuote;
-      } else if (ch === sep && !inQuote) {
-        row.push(cur.trim()); cur = '';
-      } else {
-        cur += ch;
-      }
+  let row = [];
+  let cur = '';
+  let inQuote = false;
+  const pushCell = () => { row.push(cur.trim()); cur = ''; };
+  const pushRow = () => { pushCell(); if (row.some((c) => c !== '')) result.push(row); row = []; };
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i];
+    if (ch === '"') {
+      if (inQuote && clean[i + 1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if (ch === sep && !inQuote) {
+      pushCell();
+    } else if ((ch === '\n' || ch === '\r') && !inQuote) {
+      if (ch === '\r' && clean[i + 1] === '\n') i++;
+      pushRow();
+    } else {
+      cur += ch;
     }
-    row.push(cur.trim());
-    result.push(row);
   }
+  if (cur !== '' || row.length > 0) pushRow();
   return result;
 }
 
@@ -220,6 +230,13 @@ export default {
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
+    // Types de prix (MarketPriceType) existants du tenant — référentiel dynamique, cf.
+    // MarketPriceCreateDrawer.vue. "Packaging" reste accepté en plus, valeur réservée.
+    goodTypeOptions: { type: Array, default: () => [] },
+    // Fournisseurs existants — pour relier supplierId par nom (cf. MarketPriceCreateDrawer.vue).
+    suppliers: { type: Array, default: () => [] },
+    // Industriels existants — pour relier industrialId par nom (même principe que suppliers).
+    industrials: { type: Array, default: () => [] },
   },
   emits: ['update:modelValue', 'imported'],
 
@@ -234,6 +251,7 @@ export default {
       mapping: {},
       importLoading: false,
       importProgress: 0,
+      sendingToServer: false,
       importResults: null,
 
       priceFields: [
@@ -247,8 +265,15 @@ export default {
         { key: 'supplierName',           required: false },
         { key: 'supplierItemName',       required: false },
         { key: 'unitsPerPurchase',       required: false },
-        { key: 'pricePerUnit',           required: false },
         { key: 'purchasePackaging',      required: false },
+        { key: 'inventoryPackaging',     required: false },
+        { key: 'industrialName',         required: false },
+        { key: 'image',                  required: false },
+        { key: 'packedUnits',            required: false },
+        { key: 'numberOfUnits',          required: false },
+        { key: 'packingLength',          required: false },
+        { key: 'packingWidth',           required: false },
+        { key: 'packingHeight',          required: false },
       ],
 
       translations: {
@@ -278,21 +303,31 @@ export default {
           close: 'Close',
           f_itemName: 'Item Name',
           f_unit: 'Purchase Unit (kg, l, pcs…)',
-          f_price: 'Price',
-          f_goodType: 'Good Type (Food/Beverage/Packaging/Other)',
+          f_price: 'Price (Package Total)',
+          f_goodType: 'Good Type',
           f_recipeUnit: 'Recipe Unit',
           f_purchaseUnitConversion: 'Purchase Unit Conversion',
           f_category: 'Category',
           f_supplierName: 'Supplier Name',
           f_supplierItemName: 'Supplier Item Name',
           f_unitsPerPurchase: 'Units per Purchase',
-          f_pricePerUnit: 'Price per Unit',
+          f_purchasePackaging: 'Purchased In (Packaging)',
+          f_inventoryPackaging: 'Stored In (Packaging)',
+          f_industrialName: 'Industrial',
+          f_image: 'Image URL',
+          f_packedUnits: 'Packed Units',
+          f_numberOfUnits: 'Number of Units',
+          f_packingLength: 'Packing Length (cm)',
+          f_packingWidth: 'Packing Width (cm)',
+          f_packingHeight: 'Packing Height (cm)',
           err_missingName: 'Missing item name',
           err_missingUnit: 'Missing unit (required)',
           err_missingPrice: 'Missing or invalid price (required)',
-          err_missingGoodType: 'Missing good type (required: Food, Beverage, Packaging or Other)',
-          err_invalidGoodType: 'Invalid good type — must be Food, Beverage, Packaging or Other',
+          err_missingGoodType: 'Missing good type (required)',
+          err_invalidGoodType: 'Unknown good type — create it first under Types',
           missingRequiredMapping: 'Map all required fields (unit, price, good type) before importing.',
+          skippedDuplicates: 'duplicate(s) skipped (already imported).',
+          sendingToServer: 'Sending to server…',
         },
         fr: {
           drawerTitle: 'Importer des prix du marché',
@@ -320,21 +355,31 @@ export default {
           close: 'Fermer',
           f_itemName: "Nom de l'article",
           f_unit: "Unité d'achat (kg, l, pcs…)",
-          f_price: 'Prix',
-          f_goodType: 'Type de produit (Food/Beverage/Packaging/Other)',
+          f_price: 'Prix (total du conditionnement)',
+          f_goodType: 'Type de produit',
           f_recipeUnit: 'Unité de recette',
           f_purchaseUnitConversion: "Conversion d'unité d'achat",
           f_category: 'Catégorie',
           f_supplierName: 'Nom du fournisseur',
           f_supplierItemName: 'Article fournisseur',
           f_unitsPerPurchase: 'Unités par achat',
-          f_pricePerUnit: 'Prix par unité',
+          f_purchasePackaging: 'Acheté en (emballage)',
+          f_inventoryPackaging: 'Stocké en (emballage)',
+          f_industrialName: 'Industriel',
+          f_image: 'URL image',
+          f_packedUnits: 'Unités emballées',
+          f_numberOfUnits: "Nombre d'unités",
+          f_packingLength: 'Longueur emballage (cm)',
+          f_packingWidth: 'Largeur emballage (cm)',
+          f_packingHeight: 'Hauteur emballage (cm)',
           err_missingName: "Nom de l'article manquant",
           err_missingUnit: "Unité manquante (obligatoire)",
           err_missingPrice: 'Prix manquant ou invalide (obligatoire)',
-          err_missingGoodType: 'Type de produit manquant (obligatoire : Food, Beverage, Packaging ou Other)',
-          err_invalidGoodType: 'Type de produit invalide — doit être Food, Beverage, Packaging ou Other',
+          err_missingGoodType: 'Type de produit manquant (obligatoire)',
+          err_invalidGoodType: 'Type de produit inconnu — créez-le d\'abord dans Types',
           missingRequiredMapping: 'Associez tous les champs obligatoires (unité, prix, type de produit) avant d\'importer.',
+          skippedDuplicates: 'doublon(s) ignoré(s) (déjà importé(s)).',
+          sendingToServer: 'Envoi vers le serveur…',
         },
       },
     };
@@ -405,6 +450,7 @@ export default {
       this.mapping = {};
       this.importLoading = false;
       this.importProgress = 0;
+      this.sendingToServer = false;
       this.importResults = null;
     },
 
@@ -448,18 +494,30 @@ export default {
                                  'artictefournisseur', 'supplier_item', 'supplieritemeur'],
         unit:                   ['unit', 'unite', 'unité', 'unitéachat', 'purchaseunit', 'purchaseuniteur'],
         unitsPerPurchase:       ['unitsperpurchase', 'unitesparachat', 'unitésparachat', 'units_per_purchase'],
-        // "Price Per Unit (EUR)" → normalize → "priceperuniteur"
+        // "Price Per Unit (EUR)" → normalize → "priceperuniteur". `pricePerUnit` n'est PAS un
+        // champ mappable ici : comme partout ailleurs dans l'app (MarketPriceCreateDrawer,
+        // MarketPriceEditSupplierDrawer), il est toujours recalculé (price / unitsPerPurchase),
+        // jamais saisi directement — cf. doImport(). "Cost Per Recipe Unit (EUR)" (export
+        // informatif) n'a délibérément aucun alias : c'est une valeur dérivée de second niveau
+        // (pricePerUnit × purchaseUnitConversion) sans champ d'entrée correspondant côté API.
         price:                  ['price', 'prix', 'priceperunit', 'priceperuniteur',
                                  'prixparunite', 'prixparuniteeur', 'prixparunité',
                                  'cost', 'cout', 'coût', 'tarif', 'montant', 'amount',
                                  'unitprice', 'prixunit', 'prixunitaire', 'coutachat',
-                                 'costprice', 'purchaseprice', 'prixachat'],
-        // "Cost Per Recipe Unit (EUR)" → normalize → "costperrecipeuniteur"
-        pricePerUnit:           ['priceperrecipeunit', 'priceperrecipeuniteur',
-                                 'costperrecipeunit', 'costperrecipeuniteur',
-                                 'coutparunitérecette', 'coutparunitedrecette',
-                                 'prixparunitederecette'],
-        purchasePackaging:      ['purchasepackaging', 'packaging', 'emballage', 'purchasedin', 'acheten'],
+                                 'costprice', 'purchaseprice', 'prixachat',
+                                 // "Price (Package Total) (EUR)" → normalize → "pricepackagetotaleur"
+                                 'pricepackagetotal', 'pricepackagetotaleur',
+                                 'prixtotalconditionnement', 'prixtotal', 'prixtotalpack'],
+        purchasePackaging:      ['purchasepackaging', 'purchasedinpackaging', 'purchasedin', 'acheteen'],
+        inventoryPackaging:     ['inventorypackaging', 'storedinpackaging', 'storedin', 'stockeen',
+                                 'packaging', 'emballage'],
+        industrialName:         ['industrial', 'industriel', 'manufacturer', 'fabricant', 'faconnier'],
+        image:                  ['image', 'imageurl', 'photo', 'picture', 'img'],
+        packedUnits:            ['packedunits', 'unitesemballees'],
+        numberOfUnits:          ['numberofunits', 'nombredunites', 'nbunits'],
+        packingLength:          ['packinglength', 'longueuremballage', 'longueur', 'length'],
+        packingWidth:           ['packingwidth', 'largeuremballage', 'largeur', 'width'],
+        packingHeight:          ['packingheight', 'hauteuremballage', 'hauteur', 'height'],
       };
       // Initialiser toutes les clés à null pour que v-select soit réactif dès le départ
       const newMapping = {};
@@ -474,13 +532,27 @@ export default {
     },
 
     downloadTemplate() {
-      // Utiliser des noms de colonnes lisibles, identiques au format d'export
+      // Utiliser des noms de colonnes lisibles. Pas de colonne "Cost Per Recipe Unit" : c'est
+      // une valeur dérivée (pricePerUnit × Purchase Unit Conversion), toujours recalculée par
+      // l'app, jamais un champ d'entrée — cf. autoMap()/doImport().
       const headers = [
-        'Item Name', 'Good Type', 'Category', 'Supplier Name', 'Supplier Item',
-        'Recipe Unit', 'Purchase Unit', 'Purchase Unit Conversion',
-        'Price Per Unit (EUR)', 'Cost Per Recipe Unit (EUR)',
+        'Item Name', 'Good Type', 'Category', 'Image URL',
+        'Supplier Name', 'Supplier Item', 'Industrial',
+        'Recipe Unit', 'Purchase Unit', 'Purchase Unit Conversion', 'Units Per Purchase',
+        'Price (Package Total) (EUR)',
+        'Purchased In (Packaging)', 'Stored In (Packaging)',
+        'Packed Units', 'Number of Units',
+        'Packing Length (cm)', 'Packing Width (cm)', 'Packing Height (cm)',
       ];
-      const example = ['Tomato', 'Food', 'Vegetables', 'FreshCo', 'Tomato 5kg', 'kg', 'box', '1', '12.50', '2.50'];
+      const example = [
+        'Tomato', 'Food', 'Vegetables', '',
+        'FreshCo', 'Tomato 5kg', '',
+        'kg', 'box', '1', '5',
+        '12.50',
+        'Box', 'Box',
+        '5', '1',
+        '', '', '',
+      ];
       const csv = [headers.join(','), example.join(',')].join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -502,6 +574,7 @@ export default {
     async doImport() {
       this.importLoading = true;
       this.importProgress = 0;
+      this.sendingToServer = false;
       this.step = 3;
       await this.ensureAuth();
       await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
@@ -509,14 +582,16 @@ export default {
       const marketPriceTypes = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
       const marketPriceCategories = this.$store.getters['marketPriceCategories/marketPriceCategories'] || [];
 
-      const results = { success: 0, errors: [] };
+      const results = { success: 0, skipped: 0, errors: [] };
 
-      const VALID_GOOD_TYPES = ['Food', 'Beverage', 'Packaging', 'Other'];
-      const GOOD_TYPE_NORM = {
-        food: 'Food', nourriture: 'Food', aliment: 'Food',
-        beverage: 'Beverage', boisson: 'Beverage', drink: 'Beverage',
-        packaging: 'Packaging', emballage: 'Packaging',
-        other: 'Other', autre: 'Other',
+      // Type de prix : référentiel dynamique du tenant (cf. goodTypeOptions, même liste que
+      // MarketPriceCreateDrawer) — "Packaging" reste toujours accepté en plus (valeur réservée
+      // côté backend, cf. market-prices.service.ts syncRecipeRecordForGoodType).
+      const matchGoodType = (raw) => {
+        const norm = raw.trim().toLowerCase();
+        if (norm === 'packaging') return 'Packaging';
+        const found = (this.goodTypeOptions || []).find((name) => String(name).trim().toLowerCase() === norm);
+        return found || null;
       };
 
       const colIdx = (colName) => (colName != null ? this.csvHeaders.indexOf(colName) : -1);
@@ -526,6 +601,9 @@ export default {
       }
 
       const validItems = [];
+      // Ligne CSV d'origine (pour remonter une erreur backend à la bonne ligne) alignée
+      // index-à-index avec validItems.
+      const validItemRows = [];
 
       for (let i = 0; i < this.csvRows.length; i++) {
         const row = this.csvRows[i];
@@ -559,8 +637,7 @@ export default {
           this.importProgress++;
           continue;
         }
-        const goodType = GOOD_TYPE_NORM[goodTypeRaw.toLowerCase()] ||
-          (VALID_GOOD_TYPES.includes(goodTypeRaw) ? goodTypeRaw : null);
+        const goodType = matchGoodType(goodTypeRaw);
         if (!goodType) {
           results.errors.push({ row: i + 2, message: this.t('err_invalidGoodType') + ` ("${goodTypeRaw}")` });
           this.importProgress++;
@@ -577,6 +654,22 @@ export default {
               && (!marketPriceTypeId || c.typeId === marketPriceTypeId))?.id || undefined
           : undefined;
 
+        const supplierNameRaw = get('supplierName') || undefined;
+        const matchedSupplier = supplierNameRaw
+          ? (this.suppliers || []).find((s) => String(s?.name || '').trim().toLowerCase() === supplierNameRaw.trim().toLowerCase())
+          : null;
+
+        const industrialNameRaw = get('industrialName') || undefined;
+        const matchedIndustrial = industrialNameRaw
+          ? (this.industrials || []).find((ind) => String(ind?.name || '').trim().toLowerCase() === industrialNameRaw.trim().toLowerCase())
+          : null;
+
+        const unitsPerPurchase = numOrUndef(get('unitsPerPurchase'));
+        // `pricePerUnit` n'est jamais un champ d'entrée (cf. MarketPriceCreateDrawer.vue
+        // recomputePricePerUnit) : toujours dérivé de price/unitsPerPurchase, jamais lu
+        // depuis une colonne CSV.
+        const pricePerUnit = unitsPerPurchase && unitsPerPurchase > 0 ? priceNum / unitsPerPurchase : priceNum;
+
         const payload = {
           itemName,
           unit:                   unitVal,
@@ -587,29 +680,50 @@ export default {
           purchaseUnitConversion: numOrUndef(get('purchaseUnitConversion')),
           category:               categoryRaw,
           marketPriceCategoryId,
-          supplier:               get('supplierName') || undefined,
+          supplier:               supplierNameRaw,
+          supplierId:             matchedSupplier?.id || undefined,
           supplierItem:           get('supplierItemName') || undefined,
-          unitsPerPurchase:       numOrUndef(get('unitsPerPurchase')),
-          pricePerUnit:           numOrUndef(get('pricePerUnit')),
+          industrialId:           matchedIndustrial?.id || undefined,
+          unitsPerPurchase,
+          pricePerUnit,
           purchasePackaging:      get('purchasePackaging') || undefined,
+          inventoryPackaging:     get('inventoryPackaging') || undefined,
+          image:                  get('image') || undefined,
+          packedUnits:            numOrUndef(get('packedUnits')),
+          numberOfUnits:          numOrUndef(get('numberOfUnits')),
+          packingLength:          numOrUndef(get('packingLength')),
+          packingWidth:           numOrUndef(get('packingWidth')),
+          packingHeight:          numOrUndef(get('packingHeight')),
         };
 
         Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
         validItems.push(payload);
+        validItemRows.push(i + 2);
         this.importProgress++;
       }
 
-      // Bulk import via /market-prices/import
+      // Bulk import via /market-prices/import — le backend traite chaque ligne indépendamment
+      // (créée / doublon ignoré / erreur) et remonte un décompte précis, cf. bulkCreate().
       if (validItems.length > 0) {
+        this.sendingToServer = true;
         try {
-          await api.post('/market-prices/import', { items: validItems });
-          results.success = validItems.length;
+          const response = await importMarketPrices(validItems);
+          const created = Array.isArray(response?.created) ? response.created.length : 0;
+          const skipped = Number(response?.skipped) || 0;
+          const backendErrors = Array.isArray(response?.errors) ? response.errors : [];
+          results.success += created;
+          results.skipped += skipped;
+          for (const err of backendErrors) {
+            const row = validItemRows[err.index] ?? '?';
+            results.errors.push({ row, message: err.message });
+          }
         } catch (e) {
           const errMsg = e?.response?.data?.message || e?.message || 'Import failed';
-          // Mark all as errors since we can't know which ones failed
-          for (let i = 0; i < validItems.length; i++) {
-            results.errors.push({ row: '?', message: errMsg });
-          }
+          // Échec réseau/serveur global (pas une erreur ligne par ligne) : impossible de savoir
+          // ce qui a réellement été committé côté serveur avant la coupure.
+          results.errors.push({ row: '?', message: errMsg });
+        } finally {
+          this.sendingToServer = false;
         }
       }
 

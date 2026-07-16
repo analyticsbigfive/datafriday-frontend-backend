@@ -66,15 +66,18 @@
 | [52](52_quickcreate_sans_dedoublonnage_par_nom.md) | Quick-create Data Integration sans dédoublonnage par nom (cause racine de BUG-051) | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [53](53_supplier_notes_jamais_persiste.md) | `Supplier.notes` accepté par l'API mais jamais persisté (perte silencieuse) | 🟢 Corrigé | 🟡 | Achats & référentiels |
 | [54](54_market_prices_get_sans_pagination_reelle_limit_200_code_en_dur.md) | `GET /market-prices` sans pagination réelle : perte silencieuse au-delà de 200 lignes | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [55](55_market_prices_bulkcreate_non_transactionnel_import_partiel_et_doublons.md) | `bulkCreate` non transactionnel : import CSV partiellement invisible + doublons garantis au réimport | 🟢 Corrigé | 🟠 | Achats & référentiels |
 
-**54 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+**55 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
 recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-50 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic` ; 51 ajouté le 2026-07-15 suite
 à une vérification directe en base des Menu Items sans prix pour l'espace Auxerre lors de la Data
 Integration ; 52 ajouté le 2026-07-15 en creusant la cause racine de BUG-051 (quick-create sans
 dédoublonnage) ; 53 ajouté le 2026-07-16 en auditant les payloads backend de fichiers frontend
 récupérés depuis une copie parallèle du repo (`old-web`) ; 54 ajouté le 2026-07-16 suite à une
-analyse directe de la page frontend `/market-prices` (pagination absente sur `GET /market-prices`).
+analyse directe de la page frontend `/market-prices` (pagination absente sur `GET /market-prices`) ;
+55 ajouté le 2026-07-16 suite à une analyse du drawer d'import CSV `/market-prices` (bulkCreate non
+transactionnel, cause racine du succès partiel invisible et des doublons côté frontend).
 
 ## Comment ajouter un bug
 
