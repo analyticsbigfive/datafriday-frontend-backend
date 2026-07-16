@@ -1,6 +1,6 @@
 # BUG-032 — Logistic : sélecteur Market Price non scopé (corrompt le pack size) + Total quantité/unité collés
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur (fausse le Total affiché → impacte les décisions de réassort)
 - **Domaine** : Stock (Logistic)
 - **Repo(s) concerné(s)** : les deux (fix appliqué côté `datafriday-web` ; cause racine backend
