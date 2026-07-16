@@ -230,6 +230,56 @@
               </div>
             </v-dialog>
 
+            <!-- Good Category -->
+            <div class="mpesd-field-row" style="margin-bottom: 14px;">
+              <label class="mpesd-field-label">{{ t('goodCategory') }}</label>
+              <v-select
+                v-model="form.category"
+                :items="goodCategoryOptions"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                :disabled="!form.goodType"
+                :menu-props="{ attach: 'body', zIndex: 10001 }"
+                class="mpesd-item-select"
+              >
+                <template #prepend-item>
+                  <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="goodCategoryCreateOpen = true">
+                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
+                    <v-list-item-title>{{ t('addCategory') }}</v-list-item-title>
+                  </v-list-item>
+                  <v-divider class="my-1" />
+                </template>
+              </v-select>
+            </div>
+
+            <!-- Dialog — Good Category creation -->
+            <v-dialog v-model="goodCategoryCreateOpen" max-width="400" :z-index="11000">
+              <div class="mpesd-mini-dialog">
+                <div class="mpesd-mini-dialog__header">
+                  <Tag :size="18" color="white" />
+                  <span>{{ t('addCategory') }}</span>
+                  <button class="mpesd-mini-dialog__close" @click="goodCategoryCreateOpen = false"><X :size="16" /></button>
+                </div>
+                <div v-if="goodCategoryCreateError" class="mpesd-mini-dialog__error">{{ goodCategoryCreateError }}</div>
+                <div class="mpesd-mini-dialog__body">
+                  <div class="mpesd-field-row">
+                    <label for="mpesd-gc-name" class="mpesd-field-label">{{ t('categoryName') }} <span class="mpesd-required">*</span></label>
+                    <input id="mpesd-gc-name" v-model="goodCategoryCreateForm.name" type="text" class="form-control mpesd-input" @keyup.enter="submitGoodCategoryCreate" />
+                  </div>
+                </div>
+                <div class="mpesd-mini-dialog__footer">
+                  <button class="mpesd-btn mpesd-btn--cancel" :disabled="goodCategoryCreateLoading" @click="goodCategoryCreateOpen = false">{{ t('cancel') }}</button>
+                  <button class="mpesd-btn mpesd-btn--save" :disabled="!goodCategoryCreateForm.name.trim() || goodCategoryCreateLoading" @click="submitGoodCategoryCreate">
+                    <span v-if="goodCategoryCreateLoading" class="spinner-border spinner-border-sm me-2"></span>
+                    <Check v-else :size="14" class="me-1" />
+                    {{ t('create') }}
+                  </button>
+                </div>
+              </div>
+            </v-dialog>
+
             <!-- Industrial -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
               <label class="mpesd-field-label">Industrial</label>
@@ -423,7 +473,7 @@
 <script>
 import { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X } from 'lucide-vue-next';
 import { updateMarketPrice, createSupplier } from '@/api/endpoints/menu.api';
-import { createMarketPriceType } from '@/api/endpoints/market.price.api';
+import { createMarketPriceType, createMarketPriceCategory } from '@/api/endpoints/market.price.api';
 import { createPackingType } from '@/api/endpoints/packing-type.api';
 import { createIndustrial } from '@/api/endpoints/industrial.api';
 
@@ -445,6 +495,7 @@ export default {
       locale: localStorage.getItem('appLocale') || 'en',
       loading: false,
       error: '',
+      isHydratingForm: false,
       targetId: '',
       localSuppliers: [],
       supplierCreateOpen: false,
@@ -458,6 +509,11 @@ export default {
       goodTypeCreateLoading: false,
       goodTypeCreateError: '',
       goodTypeCreateForm: { name: '' },
+      localGoodCategoryOptions: [],
+      goodCategoryCreateOpen: false,
+      goodCategoryCreateLoading: false,
+      goodCategoryCreateError: '',
+      goodCategoryCreateForm: { name: '' },
       industrialCreateOpen: false,
       industrialCreateLoading: false,
       industrialCreateError: '',
@@ -473,6 +529,7 @@ export default {
         supplierItem: '',
         supplierId: '',
         goodType: '',
+        category: '',
         industrialId: '',
         purchasePackaging: '',
         unit: '',
@@ -519,6 +576,9 @@ export default {
           goodType: 'Good Type',
           addGoodType: 'Add a Good Type',
           goodTypeName: 'Good Type name',
+          goodCategory: 'Good Category',
+          addCategory: 'Add a Category',
+          categoryName: 'Category name',
           purchaseInfo: 'Purchase Information',
           isPurchasedIn: 'is purchased in',
           addPackaging: '+ Add packaging',
@@ -570,6 +630,9 @@ export default {
           goodType: 'Type de produit',
           addGoodType: 'Ajouter un type de produit',
           goodTypeName: 'Nom du type de produit',
+          goodCategory: 'Catégorie',
+          addCategory: 'Ajouter une catégorie',
+          categoryName: 'Nom de la catégorie',
           purchaseInfo: "Informations d'achat",
           isPurchasedIn: 'est acheté en',
           addPackaging: '+ Ajouter un emballage',
@@ -612,15 +675,39 @@ export default {
     industrialsOptions() {
       return this.$store.getters['industrials/industrials'] || [];
     },
+    selectedTypeId() {
+      const types = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
+      return types.find((t) => t.name === this.form.goodType)?.id || null;
+    },
+    selectedCategoryId() {
+      return (this.productCategories || []).find((c) => c.name === this.form.category)?.id || null;
+    },
+    goodCategoryOptions() {
+      const goodType = (this.form.goodType || '').toLowerCase();
+      const base = goodType
+        ? (this.productCategories || [])
+            .filter((c) => (c.typeName || '').toLowerCase() === goodType)
+            .map((c) => c?.name)
+            .filter(Boolean)
+        : [];
+      const extra = this.localGoodCategoryOptions.filter((o) => !base.includes(o));
+      return [...base, ...extra];
+    },
   },
   watch: {
+    'form.goodType'() {
+      if (this.isHydratingForm) return;
+      this.form.category = '';
+    },
     modelValue(val) {
       if (val && this.item && this.row) {
         this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
+        this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
         this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
         this.$store.dispatch('industrials/fetchIndustrials', { forceRefresh: true });
         this.localSuppliers = [...(this.suppliers || [])];
         this.localGoodTypeOptions = [...(this.goodTypeOptions || [])];
+        this.localGoodCategoryOptions = [];
         this.localPackagingOptions = [...this.packagingCategoryItems];
         this.supplierCreateOpen = false;
         this.supplierCreateError = '';
@@ -629,6 +716,9 @@ export default {
         this.goodTypeCreateOpen = false;
         this.goodTypeCreateError = '';
         this.goodTypeCreateForm = { name: '' };
+        this.goodCategoryCreateOpen = false;
+        this.goodCategoryCreateError = '';
+        this.goodCategoryCreateForm = { name: '' };
         this.industrialCreateOpen = false;
         this.industrialCreateError = '';
         this.industrialCreateForm = { name: '' };
@@ -637,11 +727,13 @@ export default {
         this.packagingCreateForm = { name: '' };
         const id = this.row?.id || this.row?._id;
         this.targetId = id ? String(id) : '';
+        this.isHydratingForm = true;
         this.form = {
           itemName: String(this.item?.name || this.item?.itemName || '').trim(),
           supplierItem: this.row?.supplierItemName || this.row?.supplierItem || '',
           supplierId: this.row?.supplierId || '',
           goodType: this.item?.goodType || this.item?.type || '',
+          category: this.row?.category || this.item?.category || '',
           industrialId: this.row?.industrialId || this.row?.industrial?.id || '',
           unit: this.row?.unit || '',
           recipeUnit: this.item?.recipeUnit || this.row?.recipeUnit || '',
@@ -659,6 +751,9 @@ export default {
         this.recomputePricePerUnit();
         this.error = '';
         this.loading = false;
+        this.$nextTick(() => {
+          this.isHydratingForm = false;
+        });
       }
     },
     packagingCategoryItems(newVal) {
@@ -732,6 +827,32 @@ export default {
         this.goodTypeCreateError = e?.response?.data?.message || e?.message || 'Failed to create Good Type';
       } finally {
         this.goodTypeCreateLoading = false;
+      }
+    },
+    async submitGoodCategoryCreate() {
+      const name = this.goodCategoryCreateForm.name.trim();
+      if (!name) return;
+      if (!this.selectedTypeId) {
+        this.goodCategoryCreateError = this.locale === 'fr'
+          ? "Choisis d'abord un Good Type."
+          : 'Pick a Good Type first.';
+        return;
+      }
+      this.goodCategoryCreateLoading = true;
+      this.goodCategoryCreateError = '';
+      try {
+        await createMarketPriceCategory({ name, typeId: this.selectedTypeId });
+        if (!this.localGoodCategoryOptions.includes(name)) {
+          this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
+        }
+        this.form.category = name;
+        this.goodCategoryCreateOpen = false;
+        this.goodCategoryCreateForm = { name: '' };
+        this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
+      } catch (e) {
+        this.goodCategoryCreateError = e?.response?.data?.message || e?.message || 'Failed to create Category';
+      } finally {
+        this.goodCategoryCreateLoading = false;
       }
     },
     async submitIndustrialCreate() {
@@ -878,6 +999,9 @@ export default {
           supplierId,
           supplierItem: String(this.form.supplierItem || '').trim(),
           goodType: this.form.goodType || '',
+          marketPriceTypeId: this.selectedTypeId,
+          category: this.form.category || '',
+          marketPriceCategoryId: this.selectedCategoryId,
           industrialId: this.form.industrialId || null,
           purchasePackaging: this.form.packaging || '',
           unit: this.form.unit || '',

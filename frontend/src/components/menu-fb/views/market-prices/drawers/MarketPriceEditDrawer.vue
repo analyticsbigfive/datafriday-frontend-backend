@@ -232,6 +232,7 @@ export default {
       locale: localStorage.getItem('appLocale') || 'en',
       loading: false,
       error: '',
+      isHydratingForm: false,
       imageFile: null,
       imagePreview: '',
       localGoodTypeOptions: [],
@@ -392,6 +393,7 @@ export default {
   },
   watch: {
     'form.goodType'() {
+      if (this.isHydratingForm) return;
       this.form.category = '';
     },
     // Unité de recette = unité du 1er supplier item → conversion 1 par défaut.
@@ -414,6 +416,7 @@ export default {
         this.newCategoryOpen = false;
         this.newCategoryValue = '';
         const raw = this.initialItem;
+        this.isHydratingForm = true;
         this.form = {
           originalItemName: String(raw.name || raw.itemName || '').trim(),
           itemName: String(raw.name || raw.itemName || '').trim(),
@@ -439,6 +442,9 @@ export default {
         this.imagePreview = raw.image || '';
         this.error = '';
         this.loading = false;
+        this.$nextTick(() => {
+          this.isHydratingForm = false;
+        });
       }
     },
   },
