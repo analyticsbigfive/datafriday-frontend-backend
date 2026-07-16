@@ -45,12 +45,14 @@
         <div class="lg-field-value">{{ expected.packed }}</div>
       </div>
       <div class="lg-field-row">
-        <div class="lg-field-label">{{ t('logiLoose') }}</div>
+        <div class="lg-field-label">{{ looseLabel }}</div>
         <div class="lg-field-value">{{ formatUnits(expected.loose) }}</div>
       </div>
       <div v-if="unitsPerPack" class="lg-field-row lg-field-row-total">
         <div class="lg-field-label">{{ t('logiTotal') }}</div>
-        <div class="lg-field-value">{{ formatTotal(expected.packed, expected.loose) }}</div>
+        <div class="lg-field-value">
+          {{ formatTotal(expected.packed, expected.loose) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span>
+        </div>
       </div>
     </div>
 
@@ -113,17 +115,27 @@ const localizedPackagingType = computed(() => translatePackagingType(props.item?
 const packLabel = computed(() => {
   const type = localizedPackagingType.value
   if (type && props.unitsPerPack) {
-    return `${t('logiNumberOf')} ${pluralize(type)} ${t('logiPackagingOf')} ${props.unitsPerPack}${props.item?.unit || ''}`
+    return `${t('logiNumberOf')} ${pluralize(type)} ${t('logiPackagingOf')} ${props.unitsPerPack} ${props.item?.unit || ''}`.trim()
   }
   return t('logiPacked')
 })
 
-/** Total en unité réelle (packed*unitsPerPack + loose), ex. 45l pour 1 fût + 0,5 en vrac. */
+/** Libellé de la ligne « Loose » : même méthode que packLabel — porte l'unité réelle
+ *  de la denrée (ex. « Number of loose Pc ») plutôt que le mot générique « units »
+ *  figé dans logiLoose, quand cette unité est connue. */
+const looseLabel = computed(() => {
+  const unit = props.item?.unit
+  return unit ? `${t('logiNumberOf')} ${t('logiLooseShort')} ${unit}` : t('logiLoose')
+})
+
+/** Total en unité réelle (packed*unitsPerPack + loose), ex. 45l pour 1 fût + 0,5 en vrac.
+ *  L'unité est rendue séparément dans le template (`.lg-field-unit`) — ne pas la
+ *  reconcaténer ici, sinon "45" et "l" redeviennent un seul bloc visuel illisible. */
 function formatTotal(packed, loose) {
   const upp = Number(props.unitsPerPack)
   if (!upp) return '—'
   const total = (Number(packed) || 0) * upp + (Number(loose) || 0)
-  return `${formatUnits(total)}${props.item?.unit || ''}`
+  return formatUnits(total)
 }
 </script>
 
@@ -211,6 +223,12 @@ function formatTotal(packed, loose) {
   color: var(--fb-text, #212121);
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.lg-field-unit {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--fb-muted, #6b7280);
+  margin-left: 3px;
 }
 .lg-item-actions {
   display: flex;

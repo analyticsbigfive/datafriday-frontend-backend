@@ -21,7 +21,12 @@
 
           <!-- Body -->
           <div class="lgmv-body">
-            <div class="lgmv-field">
+            <!-- Le sélecteur de Market Price n'a de sens que pour une denrée 'ingredient' :
+                 un produit fini (readyForSale=Yes), un component ou un packaging n'ont pas
+                 de Market Price propre — l'afficher laissait choisir n'importe quel article
+                 du catalogue et écraser silencieusement le pack size (unitsPerPack) de cette
+                 ligne de stock (BUG-032). -->
+            <div v-if="item?.kind === 'ingredient'" class="lgmv-field">
               <div class="lgmv-label">{{ t('logiMarketPrice') }}</div>
               <v-skeleton-loader v-if="marketPricesLoading" type="text" class="lgmv-field-skeleton" />
               <v-autocomplete
@@ -55,7 +60,7 @@
                 />
               </div>
               <div class="lgmv-field">
-                <div class="lgmv-label">{{ t('logiLoose') }}</div>
+                <div class="lgmv-label">{{ looseLabel }}</div>
                 <v-text-field
                   v-model.number="form.loose"
                   type="number"
@@ -71,7 +76,9 @@
 
             <div v-if="availableCap" class="lgmv-cap" :class="{ 'lgmv-cap-over': exceedsCap }">
               <v-icon size="14" class="mr-1">{{ exceedsCap ? 'mdi-alert-circle-outline' : 'mdi-information-outline' }}</v-icon>
-              {{ t('logiAvailable') }} : {{ availableCap.packed }} {{ t('logiPackedShort') }} · {{ formatUnits(availableCap.loose) }} {{ t('logiLooseShort') }}
+              {{ t('logiAvailable') }} : {{ availableCap.packed }} {{ packedShortLabel }}
+              <template v-if="capTotal(availableCap) !== null"> ({{ capTotal(availableCap) }})</template>
+              <template v-else> · {{ formatUnits(availableCap.loose) }} {{ looseShortLabel }}</template>
             </div>
 
             <div class="lgmv-field">
@@ -234,9 +241,28 @@ export default {
     packLabel() {
       const type = translatePackagingType(this.item?.packagingType, this.locale)
       if (type && this.unitsPerPack) {
-        return `${this.t('logiNumberOf')} ${pluralize(type)} ${this.t('logiPackagingOf')} ${this.unitsPerPack}${this.item?.unit || ''}`
+        return `${this.t('logiNumberOf')} ${pluralize(type)} ${this.t('logiPackagingOf')} ${this.unitsPerPack} ${this.item?.unit || ''}`.trim()
       }
       return this.t('logiPacked')
+    },
+    /** Libellé du champ « Loose » : même méthode que packLabel — porte l'unité réelle
+     *  de la denrée (ex. « Number of loose Pc ») plutôt que le mot générique « units »
+     *  figé dans logiLoose, quand cette unité est connue. */
+    looseLabel() {
+      const unit = this.item?.unit
+      return unit ? `${this.t('logiNumberOf')} ${this.t('logiLooseShort')} ${unit}` : this.t('logiLoose')
+    },
+    /** Version courte du type de conditionnement (ex. « Crates »), utilisée dans le
+     *  bandeau « Available » et les options de transfert — repli sur le mot générique
+     *  « packed » si le type n'est pas connu. */
+    packedShortLabel() {
+      const type = translatePackagingType(this.item?.packagingType, this.locale)
+      return type ? pluralize(type) : this.t('logiPackedShort')
+    },
+    /** Unité réelle de la denrée (ex. « l », « Pc »), repli sur le mot générique
+     *  « loose » si l'unité n'est pas connue — même esprit que looseLabel. */
+    looseShortLabel() {
+      return this.item?.unit || this.t('logiLooseShort')
     },
     reasonOptions() {
       // Ajout : Delivery (défaut) / Transfert d'un PDV / d'un Storage / Autre.
@@ -256,26 +282,25 @@ export default {
           ]
       return opts
     },
-    /** Market prices du produit d'abord (match itemName), puis le reste du catalogue. */
-    /** Article fournisseur (nom réel du produit acheté), fournisseur entre
-     *  parenthèses pour distinguer plusieurs fournisseurs d'un même produit
-     *  (ex. « 4x LARGE PANCO 80gr (Metro Auxerre) »). Repli sur itemName si
-     *  aucun article fournisseur renseigné. */
+    /** Market prices RÉELLEMENT liés à cette denrée (match itemName, ou déjà lié via
+     *  item.marketPriceId) — plusieurs fournisseurs d'un même produit restent proposés
+     *  (ex. « 4x LARGE PANCO 80gr (Metro Auxerre) » vs un autre fournisseur), mais le
+     *  reste du catalogue n'est PLUS proposé en repli : un Market Price sans rapport
+     *  avec cette denrée a un pack size différent, et le sélectionner écraserait
+     *  silencieusement le unitsPerPack de cette ligne de stock (BUG-032). Article
+     *  fournisseur (nom réel du produit acheté) affiché, fournisseur entre parenthèses
+     *  pour distinguer plusieurs fournisseurs ; repli sur itemName si aucun article
+     *  fournisseur renseigné. */
     marketPriceOptions() {
       const name = String(this.item?.name ?? '').trim().toLowerCase()
       const matches = []
-      const others = []
       for (const mp of this.marketPrices) {
+        if (String(mp.itemName ?? '').trim().toLowerCase() !== name && mp.id !== this.item?.marketPriceId) continue
         const label = String(mp.supplierItem ?? '').trim() || mp.itemName
         const title = mp.supplier ? `${label} (${mp.supplier})` : label
-        const opt = { title, value: mp.id }
-        if (String(mp.itemName ?? '').trim().toLowerCase() === name || mp.id === this.item?.marketPriceId) {
-          matches.push(opt)
-        } else {
-          others.push(opt)
-        }
+        matches.push({ title, value: mp.id })
       }
-      return [...matches, ...others]
+      return matches
     },
     shopOptions() {
       return this.shops
@@ -312,12 +337,22 @@ export default {
       const cp = list.find((s) => s.id === this.form.counterpartyElementId)
       return cp ? { packed: cp.packed ?? 0, loose: cp.loose ?? 0 } : null
     },
-    /** Dépassement simple champ par champ — le backend reste juge de paix final
-     *  (casse de pack exacte), ce garde-fou est indicatif, pas une reproduction 1:1. */
+    /** Miroir de la « casse de pack » backend (`normalizeLevel`/`applyLevelDelta` insufficient
+     *  check) : on ne peut jamais prélever plus de packs ENTIERS que disponible (`packed >
+     *  cap.packed`), mais un manque de loose peut être comblé en empruntant sur un pack entier
+     *  disponible — d'où la comparaison sur le TOTAL en unité réelle (packed*unitsPerPack+loose)
+     *  plutôt que sur `loose` seul. Sans pack size connu, repli sur l'ancienne comparaison
+     *  champ par champ (le backend reste de toute façon juge de paix final). */
     exceedsCap() {
       const cap = this.availableCap
       if (!cap) return false
       const { packed, loose } = this.sanitizedQty
+      const upp = Number(this.unitsPerPack)
+      if (upp > 0) {
+        const availableTotal = (Number(cap.packed) || 0) * upp + (Number(cap.loose) || 0)
+        const requestedTotal = packed * upp + loose
+        return packed > (cap.packed ?? 0) || requestedTotal > availableTotal + 1e-9
+      }
       return packed > (cap.packed ?? 0) || loose > (cap.loose ?? 0)
     },
     isValid() {
@@ -352,9 +387,21 @@ export default {
     close() {
       this.$emit('update:modelValue', false)
     },
+    /** Quantité totale équivalente d'un stock (packed*unitsPerPack + loose) en unité réelle —
+     *  « 2 Cartons » de 3 Pc et 0 loose, c'est 6 Pc, pas "0 Pc" (le nombre de loose seul est
+     *  trompeur une fois qu'on sait qu'un carton contient plusieurs pièces). Retourne `null`
+     *  si le pack size n'est pas connu (repli sur l'ancien affichage packed/loose séparé). */
+    capTotal(cap) {
+      const upp = Number(this.unitsPerPack)
+      if (!upp || !cap) return null
+      const total = (Number(cap.packed) || 0) * upp + (Number(cap.loose) || 0)
+      return `${formatUnits(total)} ${this.item?.unit || ''}`.trim()
+    },
     /** Titre enrichi du stock actuel de la denrée à cet élément (choisir en connaissance de cause). */
     optionLabel(el) {
-      return `${el.name} — ${el.packed ?? 0} ${this.t('logiPackedShort')} · ${formatUnits(el.loose ?? 0)} ${this.t('logiLooseShort')}`
+      const total = this.capTotal(el)
+      const detail = total !== null ? `(${total})` : `· ${formatUnits(el.loose ?? 0)} ${this.looseShortLabel}`
+      return `${el.name} — ${el.packed ?? 0} ${this.packedShortLabel} ${detail}`
     },
     resetForm() {
       this.form = {

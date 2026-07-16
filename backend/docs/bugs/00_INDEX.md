@@ -60,9 +60,11 @@
 | [46](46_inventoryunit_jamais_persiste_menuitem.md) | `inventoryUnit` (unité conditionnement) jamais persisté sur `MenuItem` | 🟢 Corrigé | 🟡 | Menu & recettes / Stock |
 | [47](47_prisma_client_desync_apres_switch_branche.md) | Prisma Client désynchronisé du schéma après switch de branche (`Unknown argument` sur champ existant) | 🟢 Corrigé | 🟡 | Technique |
 | [48](48_readyforsale_yes_mono_ingredient_masque_par_marketprice.md) | Menu item `readyForSale=Yes` mono-ingrédient masqué par la Market Price de l'ingrédient (jamais affiché sous son propre nom) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [49](49_marketpriceid_mouvement_non_valide_contre_itemkey.md) | `createMovement` accepte un `marketPriceId` sans le valider contre `itemKey` | ⚪ Diagnostiqué | 🟠 | Stock |
+| [50](50_unitsperpack_jamais_resolu_hors_marketprice_bloque_casse_de_pack.md) | `unitsPerPack` jamais résolu pour un produit fini/component : casse de pack impossible, retraits valides rejetés | 🟡 Corrigé non déployé | 🔴 | Stock |
 
-**48 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
-recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-48 ajoutés le
+**50 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-50 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic`.
 
 ## Comment ajouter un bug
