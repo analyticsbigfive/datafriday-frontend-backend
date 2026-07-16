@@ -242,7 +242,7 @@
 
 <script>
 import { Boxes, Download, Pencil, Plus, Search, Trash2, X } from "lucide-vue-next";
-import { t as translate } from '@/i18n';
+import { useI18n } from '@/i18n/useI18n';
 import { deleteMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import ComponentDeleteDialog from '../dialogs/ComponentDeleteDialog.vue';
@@ -259,9 +259,12 @@ export default {
     X,
     ComponentDeleteDialog,
   },
+  setup() {
+    const { t, locale } = useI18n();
+    return { t, locale };
+  },
   data() {
     return {
-      locale: localStorage.getItem('appLocale') || 'en',
       searchQuery: "",
       selectedCategory: null,
       selectedType: null,
@@ -351,10 +354,6 @@ export default {
     },
   },
   methods: {
-    t(key) {
-      return translate(key, this.locale);
-    },
-
     normalizeComponent(raw) {
       const id = raw?.id ?? raw?._id ?? raw?.uuid ?? "";
       const name = raw?.name ?? raw?.componentName ?? raw?.title ?? "";
@@ -364,6 +363,7 @@ export default {
       const unitsPerRecipe = raw?.unitsPerRecipe ?? raw?.numberOfUnitsRecipe ?? raw?.numberOfUnits ?? raw?.yield ?? 0;
       const storageType = raw?.storageType ?? raw?.storage ?? "";
       const unitCost = raw?.unitCost ?? raw?.costPerUnit ?? raw?.cost ?? 0;
+      const description = raw?.description ?? "";
 
       // Calculer le nombre total d'items (ingredients + children)
       const ingredientsCount = Array.isArray(raw?.ingredients) ? raw.ingredients.length : 0;
@@ -385,6 +385,7 @@ export default {
         storageType: String(storageType || ""),
         unitCost: Number(unitCost) || 0,
         subItemsCount: Number(subItemsCount) || 0,
+        description: String(description || ""),
         _raw: raw,
       };
     },
@@ -432,10 +433,10 @@ export default {
           const row = [
             String(component?.name || ''),
             String(component?.category || ''),
-            String(component?.componentCategory || component?.type || ''),
+            String(component?.type || ''),
             String(component?.unit || ''),
             String(component?.unitCost || ''),
-            String(component?.numberOfUnitsRecipe || ''),
+            String(component?.unitsPerRecipe || ''),
             String(component?.storageType || ''),
             String(component?.description || ''),
           ];
@@ -466,8 +467,6 @@ export default {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-
-        console.log(`Exported ${csvData.length - 1} components to CSV`);
       } catch (error) {
         console.error('Error exporting to CSV:', error);
         alert('Failed to export CSV. Please try again.');
@@ -513,10 +512,9 @@ export default {
             try {
 
               const ingredientDetails = await getIngredient(ingredientId);
-              console.log("Log ingredient data:", ingredientDetails);
               return {
                 id: `ing-${idx}-${ingredientId}`,
-                itemName: ingredientDetails?.marketPrice.supplierItem || ing.itemName || ing.ingredientName || "-",
+                itemName: ingredientDetails?.marketPrice?.supplierItem || ing.itemName || ing.ingredientName || "-",
                 itemType: "Ingredient",
                 category: ingredientDetails?.category || ing.category || "-",
                 numberOfUnits: Number(ing.quantity || ing.numberOfUnits || 0).toFixed(3),
@@ -525,7 +523,6 @@ export default {
                 _details: ingredientDetails,
               };
             } catch (error) {
-              console.log("Nous avons une erreur:", error);
               console.error(`Error fetching ingredient ${ingredientId}:`, error);
               // Fallback sur les données existantes si l'API échoue
               return {
@@ -623,15 +620,9 @@ export default {
     },
   },
   mounted() {
-    this._localeHandler = (e) => { this.locale = e.detail.locale; };
-    window.addEventListener('locale-changed', this._localeHandler);
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
     this.loadComponents();
-  },
-
-  beforeUnmount() {
-    window.removeEventListener('locale-changed', this._localeHandler);
   },
 };
 </script>

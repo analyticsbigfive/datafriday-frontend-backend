@@ -157,6 +157,10 @@
               <v-form v-model="formValid" class="cc-form-body">
 
                 <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">{{ error }}</v-alert>
+                <v-alert v-if="loadingError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">{{ loadingError }}</v-alert>
+                <div v-if="loadingComponent" class="d-flex justify-center align-center py-8">
+                  <v-progress-circular indeterminate color="#ff3131" size="32" />
+                </div>
 
                 <!-- Section: Général -->
                 <div class="ccf-section-label">Général</div>
@@ -237,6 +241,7 @@
                     variant="outlined"
                     density="compact"
                     hide-details="auto"
+                    :rules="[rules.positive]"
                     class="ccf-field"
                   />
                 </div>
@@ -402,7 +407,7 @@
 
 <script>
 import { Boxes, ChevronDown, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
-import { t as translate } from '@/i18n';
+import { useI18n } from '@/i18n/useI18n';
 import { createMenuComponent, getMenuComponent, updateMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import { createPackingType } from "@/api/endpoints/packing-type.api";
@@ -426,9 +431,12 @@ export default {
     NewCategoryDialog,
     NewTypeDialog,
   },
+  setup() {
+    const { t, locale } = useI18n();
+    return { t, locale };
+  },
   data() {
     return {
-      locale: localStorage.getItem('appLocale') || 'en',
       componentId: null,
       isEditMode: false,
       loadingComponent: false,
@@ -443,6 +451,10 @@ export default {
 
       componentDrawer: false,
       _prefillingForm: false,
+      // Lien FK taxonomie (componentTypeId/componentCategoryId) tel que chargé depuis le
+      // backend en mode édition — préservé tant que form.type/form.category ne changent pas
+      // (voir selectedComponentTypeId/selectedComponentCategoryId).
+      _loadedTaxonomy: { typeId: "", categoryId: "", typeName: "", categoryName: "" },
       form: {
         name: "",
         category: "",
@@ -456,6 +468,8 @@ export default {
         allergens: [],
         ingredients: [],
         children: [],
+        inventoryPackaging: "",
+        packedUnits: 0,
       },
 
       unitOptions: ["Kg", "L", "Pc"],
@@ -512,10 +526,16 @@ export default {
     },
     selectedComponentTypeId() {
       const type = String(this.form.type ?? '').trim()
+      if (this._loadedTaxonomy.typeId && type === String(this._loadedTaxonomy.typeName ?? '').trim()) {
+        return this._loadedTaxonomy.typeId
+      }
       return this.componentTypesList.find(t => String(t?.name ?? '').trim() === type)?.id || ''
     },
     selectedComponentCategoryId() {
       const category = String(this.form.category ?? '').trim()
+      if (this._loadedTaxonomy.categoryId && category === String(this._loadedTaxonomy.categoryName ?? '').trim()) {
+        return this._loadedTaxonomy.categoryId
+      }
       const typeId = this.selectedComponentTypeId
       return this.componentCategoriesList.find(c =>
         String(c?.name ?? '').trim() === category && (!typeId || c?.typeId === typeId)
@@ -560,8 +580,6 @@ export default {
         addedAt: c?.addedAt || new Date().toISOString(),
       }));
 
-      console.log("Ingredient :", ingRows);
-      console.log("Children :", childRows);
       return [...ingRows, ...childRows];
     },
     totalItems() {
@@ -606,7 +624,6 @@ export default {
     },
   },
   methods: {
-    t: translate,
     getStorageTypeForCategory(category) {
       const c = String(category || "").trim();
       if (!c) return "Dry";
@@ -638,10 +655,16 @@ export default {
     },
 
     onIngredientsAdded(items) {
-      this.form.ingredients = [...(this.form.ingredients || []), ...items];
+      // Si un ingrédient déjà présent est resélectionné, on remplace sa ligne au lieu de la
+      // dupliquer (un doublon aurait causé une suppression groupée involontaire, cf. BUG-058).
+      const incomingIds = new Set(items.map((i) => i?.marketPriceId || i?.ingredientId));
+      const existing = (this.form.ingredients || []).filter((i) => !incomingIds.has(i?.marketPriceId || i?.ingredientId));
+      this.form.ingredients = [...existing, ...items];
     },
     onComponentsAdded(items) {
-      this.form.children = [...(this.form.children || []), ...items];
+      const incomingIds = new Set(items.map((c) => c?.childId || c?.componentId));
+      const existing = (this.form.children || []).filter((c) => !incomingIds.has(c?.childId || c?.componentId));
+      this.form.children = [...existing, ...items];
     },
     onCategoryCreated(name) {
       this.form.category = name;
@@ -756,10 +779,6 @@ export default {
       this.$router.push({ path: "/components" });
     },
 
-    t(key) {
-      return translate(key, this.locale);
-    },
-
     async loadComponentData() {
       if (!this.componentId) return;
 
@@ -769,8 +788,6 @@ export default {
       try {
         const response = await getMenuComponent(this.componentId);
         const component = response?.data || response;
-
-        console.log('Component loaded for edit:', component);
 
         // Pré-remplir le formulaire avec les données existantes
         // (_prefillingForm évite que le watcher 'form.type' n'efface la
@@ -787,6 +804,17 @@ export default {
         this.form.kitchenType = component.kitchenType || null;
         this.form.description = component.description || "";
         this.form.allergens = Array.isArray(component.allergens) ? component.allergens : [];
+        // BUG-053 : ces deux champs n'étaient jamais restaurés ici, donc une sauvegarde après
+        // édition les écrasait silencieusement (inventoryPackaging → undefined, packedUnits → 0).
+        this.form.inventoryPackaging = component.inventoryPackaging || "";
+        this.form.packedUnits = component.packedUnits || 0;
+
+        this._loadedTaxonomy = {
+          typeId: component.componentTypeId || "",
+          categoryId: component.componentCategoryId || "",
+          typeName: this.form.type,
+          categoryName: this.form.category,
+        };
 
         // Charger les ingredients avec récupération des détails via API
         if (Array.isArray(component.ingredients) && component.ingredients.length > 0) {
@@ -798,8 +826,6 @@ export default {
               try {
                 const ingredientDetails = await getIngredient(ingredientId);
                 const marketPrice = ingredientDetails?.marketPrice || {};
-
-                console.log("Ingredient détail:", ingredientDetails);
 
                 return {
                   ingredientId: ingredientId,
@@ -914,7 +940,6 @@ export default {
           storageType: String(this.form.storageType || "").trim(),
           readyForSale: String(this.form.readyForSale || "No").trim(),
           kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
-          subComponents: {},
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
@@ -925,7 +950,6 @@ export default {
           packedUnits: Number(this.form.packedUnits) || 0,
         };
 
-        console.log("Updating component with payload:", payload);
         await updateMenuComponent(this.componentId, payload);
         this.$store.dispatch('menuComponents/invalidate');
         this.$router.push({ path: "/components" });
@@ -973,7 +997,6 @@ export default {
           storageType: String(this.form.storageType || "").trim(),
           readyForSale: String(this.form.readyForSale || "No").trim(),
           kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
-          subComponents: {},
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
@@ -984,7 +1007,6 @@ export default {
           packedUnits: Number(this.form.packedUnits) || 0,
         };
 
-        console.log("Creating component with payload:", payload);
         await createMenuComponent(payload);
         this.$store.dispatch('menuComponents/invalidate');
         this.$router.push({ path: "/components" });
@@ -1012,9 +1034,6 @@ export default {
       this.loadComponentData();
     }
 
-    this._localeHandler = (e) => { this.locale = e.detail?.locale || localStorage.getItem('appLocale') || 'en'; };
-    window.addEventListener('locale-changed', this._localeHandler);
-
     // Bloquer le scroll de la page (v-main)
     const mainWrap = document.querySelector('.v-main');
     if (mainWrap) { this._mainWrap = mainWrap; mainWrap.style.overflow = 'hidden'; }
@@ -1022,7 +1041,6 @@ export default {
   },
 
   beforeUnmount() {
-    window.removeEventListener('locale-changed', this._localeHandler);
     // Restaurer le scroll
     if (this._mainWrap) { this._mainWrap.style.overflow = ''; }
     document.documentElement.style.overflow = '';

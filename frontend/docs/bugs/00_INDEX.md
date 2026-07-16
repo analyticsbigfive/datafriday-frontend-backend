@@ -66,8 +66,23 @@
 | [50](50_market_prices_import_csv_dedup_supplierid_fragile_mirror.md) | Import CSV Market Prices : réimport créant des doublons malgré le dédoublonnage (fiche miroir) | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [51](51_market_prices_import_csv_dedup_decimal_number_mirror.md) | Import CSV Market Prices : dédoublonnage totalement inopérant pour la plupart des prix (fiche miroir) | 🟢 Corrigé | 🔴 | Achats & référentiels |
 | [52](52_suppliers_get_plafond_silencieux_100_lignes_mirror.md) | GET /suppliers plafonné à 100 lignes sans pagination réelle côté front (fiche miroir) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [53](53_component_inventorypackaging_packedunits_jamais_restaures_edition.md) | Component : "is stored in"/quantité par carton jamais restaurés en édition (fix BUG-035 partiel) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [54](54_menu_components_get_plafond_silencieux_100_lignes_mirror.md) | GET /menu-components plafonné à 100 lignes sans pagination réelle (fiche miroir) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [55](55_component_subcomponents_ecrase_a_chaque_save.md) | `subComponents: {}` écrasé à chaque sauvegarde d'un Component | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [56](56_component_numberofunitsrecipe_sans_validation.md) | `numberOfUnitsRecipe` sans validation (0/négatif accepté) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [57](57_component_export_csv_colonnes_vides.md) | Export CSV Components : colonnes "Number of Units Recipe"/"Description" toujours vides | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [58](58_component_doublon_sous_item_suppression_groupee.md) | Doublon de sous-item Component : suppression groupée accidentelle | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [59](59_component_marketprice_null_safety_incomplete.md) | Null-safety incomplète sur `ingredient.marketPrice` (tiroir sub-items) | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [60](60_component_formatcurrency_incoherent_3_implementations.md) | `formatCurrency` : 3 implémentations incohérentes dans component-library | 🟢 Corrigé | 🟢 | Menu & recettes |
+| [61](61_component_i18n_contourne_localstorage_manuel_et_textes_en_dur.md) | i18n contourné (localStorage manuel + textes en dur) dans componentListView/ComponentCreateView | 🟡 Corrigé non testé | 🟢 | Menu & recettes |
+| [62](62_component_taxonomie_fk_resolution_fragile_par_nom.md) | Component : `componentTypeId`/`componentCategoryId` re-résolus par nom, perte silencieuse possible | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [63](63_component_n_plus_1_requetes_detail_ingredients.md) | N+1 requêtes API pour charger le détail des ingrédients (liste + formulaire d'édition) | ⚪ Diagnostiqué | 🟢 | Menu & recettes |
+| [64](64_component_api_client_duplique_non_couvert_par_pagination.md) | `component.api.js` : client MenuComponent dupliqué, non couvert par le fix pagination BUG-054 | ⚪ Diagnostiqué | 🟢 | Menu & recettes |
+| [65](65_component_logs_debug_laisses_en_production.md) | Logs de debug laissés en production dans ComponentCreateView/componentListView | 🟢 Corrigé | 🟢 | Menu & recettes |
+| [66](66_component_loadingcomponent_loadingerror_jamais_affiches.md) | `loadingComponent`/`loadingError` jamais affichés dans ComponentCreateView.vue | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [67](67_component_methode_t_dupliquee_dead_code.md) | Méthode `t()` définie deux fois dans ComponentCreateView.vue (dead code) | 🟢 Corrigé | 🟢 | Menu & recettes |
 
-**52 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**67 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
@@ -84,7 +99,17 @@ malgré le fix de dédoublonnage (supplierId trop fragile comme clé de comparai
 2026-07-16 suite à un nouveau signalement de doublons malgré le fix 50 — cause racine : comparaison
 Decimal/number Prisma silencieusement cassée ; 52 ajouté et corrigé le 2026-07-16 suite à un audit
 de la page `/suppliers` (mêmes dette technique et cause racine que le cap 200 lignes de BUG-040,
-jamais répliqué côté suppliers).
+jamais répliqué côté suppliers) ; 53-67 ajoutés et corrigés le 2026-07-16 suite à un audit complet de
+la page `/components` et de ses composants (liste, formulaire création/édition, tiroirs de
+sélection ingrédients/composants) : régression partielle du fix BUG-035 (packaging jamais restauré
+en édition), cap silencieux à 100 lignes (même cause que BUG-040/052), champ legacy `subComponents`
+écrasé à chaque save, absence de validation sur `numberOfUnitsRecipe`, colonnes CSV export toujours
+vides, doublons de sous-items entraînant une suppression groupée accidentelle, null-safety
+incomplète sur les ingrédients sans fournisseur, incohérences de formatage monétaire, i18n contourné,
+résolution fragile des FK de taxonomie, N+1 sur le détail des ingrédients (documenté, non corrigé —
+nécessite un endpoint backend batch) et client API dupliqué non couvert par le fix de pagination
+(documenté, non corrigé — hors périmètre de cette page), plus quelques nettoyages de code mort
+(logs de debug, méthode dupliquée, états loading/error jamais affichés).
 
 ## Comment ajouter un bug
 

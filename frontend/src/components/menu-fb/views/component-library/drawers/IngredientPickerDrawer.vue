@@ -386,7 +386,8 @@ export default {
     },
     formatCurrency(v) {
       const n = Number(v);
-      return Number.isFinite(n) ? `€${n.toFixed(2)}` : '—';
+      if (!Number.isFinite(n)) return '—';
+      return n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
     },
     formatDate(value) {
       if (!value) return '—';
