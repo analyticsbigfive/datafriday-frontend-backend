@@ -23,6 +23,7 @@ export class SuppliersService {
           city: createSupplierDto.city,
           postcode: createSupplierDto.postcode,
           picture,
+          notes: createSupplierDto.notes,
           contactName: createSupplierDto.contactName,
           sites: createSupplierDto.spaceIds || [],
           configurationIds: createSupplierDto.configurationIds || [],
@@ -99,6 +100,7 @@ export class SuppliersService {
     if (updateSupplierDto.postcode !== undefined) updateData.postcode = updateSupplierDto.postcode;
     if (updateSupplierDto.picture !== undefined) updateData.picture = await this.storage.resolveImage(updateSupplierDto.picture, 'suppliers');
     if (updateSupplierDto.contactName !== undefined) updateData.contactName = updateSupplierDto.contactName;
+    if (updateSupplierDto.notes !== undefined) updateData.notes = updateSupplierDto.notes;
     if (updateSupplierDto.spaceIds !== undefined) updateData.sites = updateSupplierDto.spaceIds;
     if (updateSupplierDto.configurationIds !== undefined) updateData.configurationIds = updateSupplierDto.configurationIds;
     if (updateSupplierDto.sectors !== undefined) updateData.sectors = updateSupplierDto.sectors;

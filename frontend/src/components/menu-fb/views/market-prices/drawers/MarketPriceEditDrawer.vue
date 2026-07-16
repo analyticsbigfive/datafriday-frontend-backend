@@ -232,7 +232,6 @@ export default {
       locale: localStorage.getItem('appLocale') || 'en',
       loading: false,
       error: '',
-      isHydratingForm: false,
       imageFile: null,
       imagePreview: '',
       localGoodTypeOptions: [],
@@ -344,13 +343,20 @@ export default {
       get() { return this.modelValue; },
       set(val) { this.$emit('update:modelValue', val); },
     },
-    // Sous-titre dynamique sous « Purchase Unit Conversion » : reprend l'unité de
-    // recette sélectionnée (Kg / L / Pc).
+    // Unité du 1er supplier item de cet article (base de la conversion d'achat).
+    firstSupplierUnit() {
+      const rows = this.initialItem?.supplierRows || [];
+      return String(rows[0]?.unit || '').trim();
+    },
+    // Sous-titre sous « Purchase Unit Conversion » :
+    // « How many <unité du 1er supplier item> do you need to make one <unité de recette>? »
     conversionSubtitle() {
-      const unit = this.form.recipeUnit || (this.locale === 'fr' ? 'unité' : 'unit');
+      const fallback = this.locale === 'fr' ? 'unité' : 'unit';
+      const recipe = this.form.recipeUnit || fallback;
+      const supplier = this.firstSupplierUnit || fallback;
       return this.locale === 'fr'
-        ? `Combien de l faut-il pour faire un ${unit} ?`
-        : `How many l do you need to make one ${unit}?`;
+        ? `Combien de ${supplier} faut-il pour faire un ${recipe} ?`
+        : `How many ${supplier} do you need to make one ${recipe}?`;
     },
     storeGoodTypeOptions() {
       const types = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
@@ -370,20 +376,30 @@ export default {
     },
     goodCategoryOptions() {
       const goodType = (this.form.goodType || '').toLowerCase();
-      const base = goodType
-        ? (this.productCategories || [])
-            .filter((c) => (c.typeName || '').toLowerCase() === goodType)
-            .map((c) => c?.name)
-            .filter(Boolean)
-        : this.productCategoryOptions;
+      let base;
+      if (goodType && this.productCategories && this.productCategories.length) {
+        const filtered = this.productCategories
+          .filter((c) => (c.typeName || '').toLowerCase() === goodType)
+          .map((c) => c?.name)
+          .filter(Boolean);
+        base = filtered.length ? filtered : this.productCategoryOptions;
+      } else {
+        base = this.productCategoryOptions;
+      }
       const extra = this.localGoodCategoryOptions.filter((o) => !base.includes(o));
       return [...base, ...extra];
     },
   },
   watch: {
     'form.goodType'() {
-      if (this.isHydratingForm) return;
       this.form.category = '';
+    },
+    // Unité de recette = unité du 1er supplier item → conversion 1 par défaut.
+    // Sinon on laisse la valeur courante (à l'utilisateur de la saisir).
+    'form.recipeUnit'(val) {
+      if (this.sameAsSupplierUnit(val)) {
+        this.form.purchaseUnitConversion = 1;
+      }
     },
     modelValue(val) {
       if (val) {
@@ -398,7 +414,6 @@ export default {
         this.newCategoryOpen = false;
         this.newCategoryValue = '';
         const raw = this.initialItem;
-        this.isHydratingForm = true;
         this.form = {
           originalItemName: String(raw.name || raw.itemName || '').trim(),
           itemName: String(raw.name || raw.itemName || '').trim(),
@@ -415,13 +430,15 @@ export default {
           packingWidth: Number(raw.packingWidth) || 0,
           packingHeight: Number(raw.packingHeight) || 0,
         };
+        // Si l'unité de recette = l'unité du 1er supplier item, la conversion vaut 1
+        // par défaut (même unité) ; sinon on garde la valeur existante (à saisir).
+        if (this.sameAsSupplierUnit(this.form.recipeUnit)) {
+          this.form.purchaseUnitConversion = 1;
+        }
         this.imageFile = null;
         this.imagePreview = raw.image || '';
         this.error = '';
         this.loading = false;
-        this.$nextTick(() => {
-          this.isHydratingForm = false;
-        });
       }
     },
   },
@@ -436,6 +453,12 @@ export default {
   methods: {
     t(key) {
       return this.translations[this.locale]?.[key] || key;
+    },
+    // Vrai si l'unité passée correspond à l'unité du 1er supplier item (insensible casse/espaces).
+    sameAsSupplierUnit(unit) {
+      const u = String(unit || '').trim().toLowerCase();
+      const s = this.firstSupplierUnit.toLowerCase();
+      return !!u && !!s && u === s;
     },
     handleLocaleChange(event) {
       this.locale = event.detail?.locale || 'en';

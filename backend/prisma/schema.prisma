@@ -780,6 +780,7 @@ model Supplier {
   address          String?
   postcode         String?
   picture          String?
+  notes            String?
   sites            String[] // Array of spaceIds
   contactName      String?
   configurationIds String[] @default([])

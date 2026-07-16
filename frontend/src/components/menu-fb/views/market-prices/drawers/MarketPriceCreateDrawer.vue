@@ -86,7 +86,8 @@
           <div class="mpcd-section">
             <div class="mpcd-section__label">{{ locale === 'fr' ? 'Informations article' : 'Item Information' }}</div>
             <div class="mb-3">
-              <div v-if="itemNameMode === 'select'" class="mpcd-select-field">
+              <div v-if="itemNameMode === 'select'" class="mpcd-field-row">
+                <label class="mpcd-field-label">{{ t('itemName') }} <span class="mpcd-required">*</span></label>
                 <v-select
                   v-model="form.itemName"
                   :items="existingItemNames"
@@ -97,14 +98,14 @@
                   :menu-props="{ zIndex: 10000 }"
                   class="mpcd-item-select"
                 ></v-select>
-                <label class="mpcd-select-field__label">{{ t('itemName') }} <span class="mpcd-required">*</span></label>
               </div>
               <div v-else class="mpcd-field-row">
                 <label class="mpcd-field-label" for="mpcd-itemName">{{ t('itemName') }} <span class="mpcd-required">*</span></label>
                 <input id="mpcd-itemName" v-model="form.itemName" type="text" class="form-control mpcd-input" />
               </div>
             </div>
-          <div class="mpcd-select-field">
+          <div class="mpcd-field-row mb-3">
+            <label class="mpcd-field-label">{{ t('goodType') }} <span class="mpcd-required">*</span></label>
             <v-select
               v-model="form.goodType"
               :items="localGoodTypeOptions"
@@ -122,10 +123,10 @@
                 <v-divider class="my-1" />
               </template>
             </v-select>
-            <label class="mpcd-select-field__label">{{ t('goodType') }} <span class="mpcd-required">*</span></label>
           </div>
 
-          <div class="mpcd-select-field">
+          <div class="mpcd-field-row">
+            <label class="mpcd-field-label">{{ t('goodCategory') }}</label>
             <v-select
               v-model="form.category"
               :items="goodCategoryOptions"
@@ -145,7 +146,6 @@
                 <v-divider class="my-1" />
               </template>
             </v-select>
-            <label class="mpcd-select-field__label">{{ t('goodCategory') }}</label>
           </div>
 
           <!-- Dialog — Nouvelle catégorie -->
@@ -216,7 +216,8 @@
               </span>
             </v-alert>
 
-            <div class="mpcd-select-field mb-3">
+            <div class="mpcd-field-row mb-3">
+              <label class="mpcd-field-label">{{ t('supplier') }} <span class="mpcd-required">*</span></label>
               <v-select
                 v-model="form.supplierId"
                 :items="localSuppliers"
@@ -240,7 +241,6 @@
                   <v-divider class="my-1" />
                 </template>
               </v-select>
-              <label class="mpcd-select-field__label">{{ t('supplier') }} <span class="mpcd-required">*</span></label>
             </div>
 
             <!-- Dialog — création d'un fournisseur -->
@@ -270,6 +270,22 @@
                 <!-- Body -->
                 <div class="sc-dialog__body">
 
+                  <!-- Photo du fournisseur -->
+                  <input ref="supplierPictureInput" type="file" accept="image/*" class="d-none" @change="onSupplierPictureSelected" />
+                  <div class="sc-photo" @click="triggerSupplierPicture">
+                    <template v-if="supplierImagePreview">
+                      <img :src="supplierImagePreview" class="sc-photo__img" />
+                      <button type="button" class="sc-photo__remove" @click.stop="clearSupplierPicture"><X :size="14" /></button>
+                    </template>
+                    <div v-else class="sc-photo__placeholder">
+                      <div class="sc-photo__icon">
+                        <ImagePlus :size="30" style="color:#ff3131" />
+                      </div>
+                      <span class="sc-photo__label">{{ t('uploadPicture') }}</span>
+                      <span class="sc-photo__hint">{{ t('fileFormat') }}</span>
+                    </div>
+                  </div>
+
                   <!-- Identité -->
                   <div class="sc-section">
                     <div class="sc-section__label">{{ t('sectionIdentity') }}</div>
@@ -284,7 +300,16 @@
                         @keyup.enter="supplierCreateForm.name.trim() && submitSupplierCreate()"
                       />
                     </div>
-                    <div class="row g-3 mb-3">
+                    <div class="mpcd-field-row">
+                      <label class="mpcd-field-label" for="sc-contact">{{ t('supplierContactName') }} <span class="sc-required">*</span></label>
+                      <input id="sc-contact" v-model="supplierCreateForm.contactName" type="text" class="form-control sc-input" />
+                    </div>
+                  </div>
+
+                  <!-- Contact -->
+                  <div class="sc-section">
+                    <div class="sc-section__label">{{ t('sectionContact') }}</div>
+                    <div class="row g-3">
                       <div class="col-6">
                         <div class="mpcd-field-row">
                           <label class="mpcd-field-label" for="sc-email">{{ t('supplierEmail') }} <span class="sc-required">*</span></label>
@@ -293,20 +318,47 @@
                       </div>
                       <div class="col-6">
                         <div class="mpcd-field-row">
-                          <label class="mpcd-field-label" for="sc-phone">{{ t('supplierPhone') }}</label>
+                          <label class="mpcd-field-label" for="sc-phone">{{ t('supplierPhone') }} <span class="sc-required">*</span></label>
                           <input id="sc-phone" v-model="supplierCreateForm.phone" type="tel" class="form-control sc-input" />
                         </div>
                       </div>
                     </div>
-                    <div class="mpcd-field-row">
-                      <label class="mpcd-field-label" for="sc-contact">{{ t('supplierContactName') }} <span class="sc-required">*</span></label>
-                      <input id="sc-contact" v-model="supplierCreateForm.contactName" type="text" class="form-control sc-input" />
+                  </div>
+
+                  <!-- Localisation -->
+                  <div class="sc-section">
+                    <div class="sc-section__label">{{ t('sectionLocation') }}</div>
+                    <div class="mpcd-field-row mb-3">
+                      <label class="mpcd-field-label" for="sc-address">{{ t('address') }} <span class="sc-required">*</span></label>
+                      <input id="sc-address" v-model="supplierCreateForm.address" type="text" class="form-control sc-input" />
+                    </div>
+                    <div class="row g-3">
+                      <div class="col-7">
+                        <div class="mpcd-field-row">
+                          <label class="mpcd-field-label" for="sc-city">{{ t('city') }} <span class="sc-required">*</span></label>
+                          <input id="sc-city" v-model="supplierCreateForm.city" type="text" class="form-control sc-input" />
+                        </div>
+                      </div>
+                      <div class="col-5">
+                        <div class="mpcd-field-row">
+                          <label class="mpcd-field-label" for="sc-postcode">{{ t('postcode') }} <span class="sc-required">*</span></label>
+                          <input id="sc-postcode" v-model="supplierCreateForm.postcode" type="text" class="form-control sc-input" />
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  <!-- Espaces -->
+                  <!-- Sites -->
                   <div v-if="availableSpaces.length > 0" class="sc-section">
-                    <div class="sc-section__label">{{ t('supplierSpaces') }}</div>
+                    <div class="sc-section__header">
+                      <div class="sc-section__label mb-0">
+                        {{ t('sites') }} <span class="sc-required">*</span>
+                        <span class="sc-site-count">({{ supplierCreateForm.spaceIds.length }}/{{ availableSpaces.length }})</span>
+                      </div>
+                      <button class="sc-toggle-all" @click="toggleAllSpaces">
+                        {{ isAllSpacesChecked ? t('unselectAll') : t('selectAll') }}
+                      </button>
+                    </div>
                     <div class="sc-pill-grid">
                       <label
                         v-for="space in availableSpaces"
@@ -321,6 +373,12 @@
                     </div>
                   </div>
 
+                  <!-- Notes -->
+                  <div class="sc-section">
+                    <div class="sc-section__label">{{ t('notes') }}</div>
+                    <textarea v-model="supplierCreateForm.notes" class="form-control sc-input" rows="3" :placeholder="t('addNotes')"></textarea>
+                  </div>
+
                 </div>
 
                 <!-- Footer -->
@@ -328,7 +386,7 @@
                   <button class="sc-btn sc-btn--cancel" :disabled="supplierCreateLoading" @click="supplierCreateOpen = false">
                     {{ t('cancel') }}
                   </button>
-                  <button class="sc-btn sc-btn--create" :disabled="!supplierCreateForm.name.trim() || !supplierCreateForm.email.trim() || !supplierCreateForm.contactName.trim() || supplierCreateLoading" @click="submitSupplierCreate">
+                  <button class="sc-btn sc-btn--create" :disabled="!supplierCreateForm.name.trim() || supplierCreateLoading" @click="submitSupplierCreate">
                     <span v-if="supplierCreateLoading" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                     <Check v-else :size="15" class="me-1" />
                     {{ t('create') }}
@@ -344,7 +402,8 @@
             </div>
 
             <!-- Industrial -->
-            <div class="mpcd-select-field mb-3">
+            <div class="mpcd-field-row mb-3">
+              <label class="mpcd-field-label">{{ t('industrial') }}</label>
               <v-select
                 v-model="form.industrialId"
                 :items="industrialsOptions"
@@ -365,7 +424,6 @@
                   <v-divider class="my-1" />
                 </template>
               </v-select>
-              <label class="mpcd-select-field__label">{{ t('industrial') }}</label>
             </div>
 
             <!-- Dialog — Nouvel industriel -->
@@ -626,6 +684,18 @@ export default {
           supplierPhone: 'Phone',
           supplierContactName: 'Contact name',
           supplierSpaces: 'Spaces',
+          sectionContact: 'Contact',
+          sectionLocation: 'Location',
+          address: 'Address',
+          city: 'City',
+          postcode: 'Postcode',
+          notes: 'Notes',
+          sites: 'Sites',
+          selectAll: 'Select all',
+          unselectAll: 'Unselect all',
+          addNotes: 'Add any additional notes…',
+          required: 'Required field',
+          uploadPicture: 'Upload supplier photo',
           supplierConfigurations: 'Configurations',
           supplierSectors: 'Sectors',
           create: 'Create',
@@ -684,6 +754,18 @@ export default {
           supplierPhone: 'Téléphone',
           supplierContactName: 'Nom du contact',
           supplierSpaces: 'Espaces',
+          sectionContact: 'Contact',
+          sectionLocation: 'Localisation',
+          address: 'Adresse',
+          city: 'Ville',
+          postcode: 'Code postal',
+          notes: 'Notes',
+          sites: 'Sites',
+          selectAll: 'Tout sélectionner',
+          unselectAll: 'Tout désélectionner',
+          addNotes: 'Notes supplémentaires sur ce fournisseur…',
+          required: 'Champ requis',
+          uploadPicture: 'Photo du fournisseur',
           supplierConfigurations: 'Configurations',
           supplierSectors: 'Secteurs',
           create: 'Créer',
@@ -719,6 +801,7 @@ export default {
       supplierCreateOpen: false,
       supplierCreateLoading: false,
       supplierCreateError: '',
+      supplierImagePreview: '',
       extraSuppliers: [],
       _spaceConfigsCache: {},
       supplierCreateForm: {
@@ -726,9 +809,14 @@ export default {
         email: '',
         phone: '',
         contactName: '',
+        address: '',
+        city: '',
+        postcode: '',
+        notes: '',
         spaceIds: [],
         configurationIds: [],
         sectors: [],
+        picture: '',
       },
       SUPPLIER_SECTORS: ['F&B', 'Hospitality', 'Merch', 'Ticketing', 'Access', 'Kitchen', 'Entertainment'],
     };
@@ -745,6 +833,9 @@ export default {
     },
     availableSpaces() {
       return this.$store.getters['spaces/spaces'] || []
+    },
+    isAllSpacesChecked() {
+      return this.availableSpaces.length > 0 && this.supplierCreateForm.spaceIds.length === this.availableSpaces.length
     },
     supplierAvailableConfigs() {
       return this.supplierCreateForm.spaceIds.flatMap(spaceId =>
@@ -771,12 +862,16 @@ export default {
     },
     goodCategoryOptions() {
       const goodType = (this.form.goodType || '').toLowerCase();
-      const base = goodType
-        ? (this.productCategories || [])
-            .filter((c) => (c.typeName || '').toLowerCase() === goodType)
-            .map((c) => c?.name)
-            .filter(Boolean)
-        : this.categoryOptions;
+      let base;
+      if (goodType && this.productCategories && this.productCategories.length) {
+        const filtered = this.productCategories
+          .filter((c) => (c.typeName || '').toLowerCase() === goodType)
+          .map((c) => c?.name)
+          .filter(Boolean);
+        base = filtered.length ? filtered : this.categoryOptions;
+      } else {
+        base = this.categoryOptions;
+      }
       const extra = this.localGoodCategoryOptions.filter((o) => !base.includes(o));
       return [...base, ...extra];
     },
@@ -938,6 +1033,9 @@ export default {
       const value = units > 0 ? price / units : 0;
       this.form.pricePerUnit = Number.isFinite(value) ? value : 0;
     },
+    toggleAllSpaces() {
+      this.supplierCreateForm.spaceIds = this.isAllSpacesChecked ? [] : this.availableSpaces.map(s => s.id)
+    },
     async onSupplierSpacesChange(newSpaceIds) {
       // Fetch configurations for newly selected spaces and store results locally
       await Promise.allSettled(
@@ -1089,7 +1187,27 @@ export default {
       const name = this.supplierCreateForm.name.trim()
       const email = this.supplierCreateForm.email.trim()
       const contactName = this.supplierCreateForm.contactName.trim()
-      if (!name || !email || !contactName) return
+      const required = [
+        { key: 'name', label: this.t('supplierName') },
+        { key: 'contactName', label: this.t('supplierContactName') },
+        { key: 'email', label: this.t('supplierEmail') },
+        { key: 'phone', label: this.t('supplierPhone') },
+        { key: 'address', label: this.t('address') },
+        { key: 'city', label: this.t('city') },
+        { key: 'postcode', label: this.t('postcode') },
+      ]
+      for (const field of required) {
+        if (!String(this.supplierCreateForm[field.key] || '').trim()) {
+          this.supplierCreateError = `${field.label} — ${this.t('required')}`
+          return
+        }
+      }
+      if (!this.supplierCreateForm.spaceIds.length) {
+        this.supplierCreateError = this.locale === 'fr'
+          ? 'Veuillez sélectionner au moins un site *'
+          : 'Please select at least one site *'
+        return
+      }
       this.supplierCreateLoading = true
       this.supplierCreateError = ''
       try {
@@ -1098,9 +1216,14 @@ export default {
           email,
           phone: this.supplierCreateForm.phone.trim(),
           contactName,
+          address: this.supplierCreateForm.address.trim(),
+          city: this.supplierCreateForm.city.trim(),
+          postcode: this.supplierCreateForm.postcode.trim(),
+          notes: this.supplierCreateForm.notes.trim() || undefined,
           spaceIds: this.supplierCreateForm.spaceIds,
           configurationIds: this.supplierCreateForm.configurationIds,
           sectors: this.supplierCreateForm.sectors,
+          picture: this.supplierCreateForm.picture || undefined,
         }
         const res = await createSupplier(payload)
         const created = res?.data || res
@@ -1109,12 +1232,41 @@ export default {
         this.$store.dispatch('suppliers/addSupplier', newSupplier)
         this.form.supplierId = newSupplier.id
         this.supplierCreateOpen = false
-        this.supplierCreateForm = { name: '', email: '', phone: '', contactName: '', spaceIds: [], configurationIds: [], sectors: [] }
+        this.supplierCreateForm = { name: '', email: '', phone: '', contactName: '', address: '', city: '', postcode: '', notes: '', spaceIds: [], configurationIds: [], sectors: [], picture: '' }
+        this.clearSupplierPicture()
       } catch (err) {
         this.supplierCreateError = err?.response?.data?.message || err?.message || 'Échec de la création'
       } finally {
         this.supplierCreateLoading = false
       }
+    },
+    // ── Upload photo du fournisseur (dialog création) ──
+    triggerSupplierPicture() {
+      this.$refs?.supplierPictureInput?.click()
+    },
+    async onSupplierPictureSelected(e) {
+      const file = e?.target?.files?.[0] || null
+      this.clearSupplierPicture()
+      if (!file) return
+      this.supplierImagePreview = URL.createObjectURL(file)
+      try {
+        this.supplierCreateForm.picture = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result || ''))
+          reader.onerror = () => reject(new Error('FileReader error'))
+          reader.readAsDataURL(file)
+        })
+      } catch {
+        this.supplierCreateForm.picture = ''
+      }
+    },
+    clearSupplierPicture() {
+      if (this.supplierImagePreview && String(this.supplierImagePreview).startsWith('blob:')) {
+        URL.revokeObjectURL(this.supplierImagePreview)
+      }
+      this.supplierImagePreview = ''
+      this.supplierCreateForm.picture = ''
+      if (this.$refs?.supplierPictureInput) this.$refs.supplierPictureInput.value = ''
     },
     close() {
       this.$emit('update:modelValue', false);
@@ -1647,6 +1799,9 @@ export default {
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
 }
 
 .sc-dialog__header {
@@ -1725,7 +1880,8 @@ export default {
 
 .sc-dialog__body {
   padding: 20px 22px;
-  max-height: 55vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1749,6 +1905,26 @@ export default {
   color: #9ca3af;
   margin-bottom: 12px;
 }
+
+.sc-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sc-site-count {
+  font-weight: 500;
+  color: #9ca3af;
+}
+.sc-toggle-all {
+  background: none;
+  border: none;
+  color: #ff3131;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sc-toggle-all:hover { text-decoration: underline; }
 
 /* Bootstrap floating inputs */
 .sc-input.form-control {
@@ -1777,6 +1953,66 @@ export default {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Zone d'upload photo (dialogue de création fournisseur) */
+.sc-photo {
+  position: relative;
+  width: 100%;
+  min-height: 150px;
+  border: 2px dashed #e5e7eb;
+  border-radius: 16px;
+  background: #fafafa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: border-color .18s, background .18s;
+}
+.sc-photo:hover { border-color: #ff3131; background: #fff5f5; }
+.sc-photo__img { width: 100%; height: 100%; max-height: 220px; object-fit: cover; }
+.sc-photo__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px;
+  text-align: center;
+}
+.sc-photo__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #fef2f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sc-photo__label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+.sc-photo__hint {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.sc-photo__remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .92);
+  color: #ff3131;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .15);
 }
 
 .sc-check-pill {
