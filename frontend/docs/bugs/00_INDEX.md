@@ -61,8 +61,9 @@
 | [45](45_market_prices_import_csv_parsing_champs_multilignes.md) | Import CSV Market Prices : parsing casse sur un champ entre guillemets contenant un saut de ligne | 🟢 Corrigé | 🟡 | Achats & référentiels |
 | [46](46_market_prices_import_csv_barre_progression_trompeuse.md) | Import CSV Market Prices : barre de progression figée pendant l'envoi réseau | 🟢 Corrigé | 🟡 | Achats & référentiels |
 | [47](47_market_prices_export_import_champs_incomplets.md) | Export/Import CSV Market Prices : la moitié des champs du modèle absents (image, industriel, emballages, dimensions) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [48](48_market_prices_import_csv_alias_dimensions_cm_non_reconnu.md) | Import CSV Market Prices : alias d'auto-mapping des dimensions "(cm)" non reconnu | 🟢 Corrigé | 🟡 | Achats & référentiels |
 
-**47 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**48 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
@@ -71,7 +72,8 @@ debounce, cap silencieux à 200 lignes) ; 41-46 ajoutés le 2026-07-16 suite à 
 d'import CSV `/market-prices` (succès partiel invisible, doublons, goodType verrouillé,
 supplierId non résolu, pricePerUnit incohérent, parsing multi-lignes, progression trompeuse) ; 47
 ajouté le 2026-07-16 suite à un audit d'exhaustivité des champs export/import contre le modèle
-`MarketPrice` complet.
+`MarketPrice` complet ; 48 ajouté le 2026-07-16 en vérifiant par simulation qu'un round-trip
+export→import fonctionnerait de bout en bout (alias des colonnes de dimensions "(cm)").
 
 ## Comment ajouter un bug
 

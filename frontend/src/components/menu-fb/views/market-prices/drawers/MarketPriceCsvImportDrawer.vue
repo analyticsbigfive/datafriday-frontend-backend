@@ -515,9 +515,13 @@ export default {
         image:                  ['image', 'imageurl', 'photo', 'picture', 'img'],
         packedUnits:            ['packedunits', 'unitesemballees'],
         numberOfUnits:          ['numberofunits', 'nombredunites', 'nbunits'],
-        packingLength:          ['packinglength', 'longueuremballage', 'longueur', 'length'],
-        packingWidth:           ['packingwidth', 'largeuremballage', 'largeur', 'width'],
-        packingHeight:          ['packingheight', 'hauteuremballage', 'hauteur', 'height'],
+        // Le template/export utilise un suffixe "(cm)" — normalize() retire les parenthèses mais
+        // pas les lettres qu'elles contenaient, donc "Packing Length (cm)" → "packinglengthcm"
+        // (pas "packinglength") : il faut lister la forme AVEC le "cm" collé, sinon
+        // l'auto-mapping échoue silencieusement sur un fichier réexporté par l'app elle-même.
+        packingLength:          ['packinglength', 'packinglengthcm', 'longueuremballage', 'longueur', 'length'],
+        packingWidth:           ['packingwidth', 'packingwidthcm', 'largeuremballage', 'largeur', 'width'],
+        packingHeight:          ['packingheight', 'packingheightcm', 'hauteuremballage', 'hauteur', 'height'],
       };
       // Initialiser toutes les clés à null pour que v-select soit réactif dès le départ
       const newMapping = {};
