@@ -1,6 +1,6 @@
 # BUG-050 — `unitsPerPack` jamais résolu pour un produit fini/component : casse de pack impossible, retraits valides rejetés
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🔴 Bloquant/impact business (retraits/transferts légitimes rejetés en 400)
 - **Domaine** : Stock (Logistic)
 - **Repo(s) concerné(s)** : les deux — voir aussi côté front
@@ -73,7 +73,7 @@ dépendre uniquement de l'`existing.unitsPerPack`, potentiellement déjà corrom
   MenuItem ; à surveiller si un tel homonyme existe réellement en prod (risque déjà inhérent à
   l'architecture "itemKey = nom", documenté dans `06_STOCK_INVENTAIRE.md` côté front).
 - Aucun test automatisé sur `logistics.service.ts` pour ce chemin — vérification manuelle à
-  refaire après déploiement : retrait vrac seul sur un produit fini avec cartons disponibles.
+  refaire : retrait vrac seul sur un produit fini avec cartons disponibles.
 
 ## Références
 

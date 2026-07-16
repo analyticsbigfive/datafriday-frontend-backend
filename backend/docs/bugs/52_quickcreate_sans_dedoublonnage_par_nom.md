@@ -1,6 +1,6 @@
 # BUG-052 — Quick-create Data Integration sans dédoublonnage par nom (cause racine de BUG-051)
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur (prolifération de doublons à chaque ré-import, cause de BUG-051)
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : les deux (`api-datafriday-staging` + `datafriday-web`)

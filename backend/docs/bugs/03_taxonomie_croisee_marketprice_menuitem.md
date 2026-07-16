@@ -1,6 +1,6 @@
 # BUG-003 — Taxonomie croisée Market Price / Menu Item
 
-- **Statut** : 🟡 Corrigé (code), non buildé / non testé navigateur
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Achats & référentiels (Market Price)
 - **Repo(s) concerné(s)** : les deux
@@ -23,8 +23,7 @@ le détail du crash silencieux associé côté front (import manquant en Edit Su
 
 ## Correction
 
-Les 3 points corrigés côté BE+FE le 2026-07-14. **Non buildé, non testé en navigateur** — à
-valider avant tout déploiement.
+Les 3 points corrigés côté BE+FE le 2026-07-14, buildés, testés et déployés.
 
 ## Risque de régression / à surveiller
 

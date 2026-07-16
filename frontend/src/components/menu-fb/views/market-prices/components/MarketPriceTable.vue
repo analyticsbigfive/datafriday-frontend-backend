@@ -4,12 +4,24 @@
       <v-data-table
         :headers="headers"
         :items="items"
+        :loading="loading"
         item-value="id"
         density="compact"
         class="market-table"
         :expanded="expanded"
+        :items-per-page="25"
+        :items-per-page-options="[
+          { value: 25, title: '25' },
+          { value: 50, title: '50' },
+          { value: 100, title: '100' },
+          { value: -1, title: 'Tout' },
+        ]"
         @update:expanded="$emit('update:expanded', $event)"
       >
+        <!-- Bandeau de chargement propre à la page (mpl-loader, rouge) déjà affiché au-dessus
+             du tableau : on désactive la barre native (noire par défaut) pour ne pas en avoir deux. -->
+        <template #loader></template>
+
         <template #item.expand="{ item }">
           <v-btn
             variant="text"
@@ -134,6 +146,10 @@ export default {
     items: {
       type: Array,
       required: true,
+    },
+    loading: {
+      type: Boolean,
+      default: false,
     },
     expanded: {
       type: Array,

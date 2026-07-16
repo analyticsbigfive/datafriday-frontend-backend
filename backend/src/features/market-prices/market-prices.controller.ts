@@ -88,10 +88,17 @@ export class MarketPricesController {
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les prix du marché' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page (défaut: 1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Nombre d\'éléments par page (défaut: 200)' })
   @ApiResponse({ status: 200, description: 'Liste des prix' })
-  findAll(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
-    this.logger.log(`GET /market-prices - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.findAll(tenantId);
+  findAll(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    this.logger.log(`GET /market-prices - User: ${user?.id}, Tenant: ${tenantId}, page=${page}, limit=${limit}`);
+    return this.marketPricesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined);
   }
 
   @Get('with-packagings')

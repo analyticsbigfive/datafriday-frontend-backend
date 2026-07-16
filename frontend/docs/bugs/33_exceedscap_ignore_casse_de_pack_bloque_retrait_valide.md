@@ -1,6 +1,6 @@
 # BUG-033 — `exceedsCap` ignore la casse de pack : bloque des retraits/transferts pourtant valides
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur (bloque des opérations légitimes, bouton grisé sans explication claire)
 - **Domaine** : Stock (Logistic)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -56,8 +56,8 @@ le garde-fou front. Corrigé dans la même session (nouvelle méthode
   dépassement, ex. demander 7 Pc sur 6 disponibles → doit rester bloqué).
 - Vérifier qu'une demande de packed strictement supérieure au nombre de cartons disponibles reste
   bloquée même si le total en Pc suffirait autrement (on ne peut pas "inventer" un carton entier).
-- Aucun test automatisé sur ce composant — vérification manuelle à refaire après déploiement sur
-  les 3 scénarios : suppression directe, transfert vers PDV, transfert vers Storage.
+- Aucun test automatisé sur ce composant — vérification manuelle à refaire sur les 3 scénarios :
+  suppression directe, transfert vers PDV, transfert vers Storage.
 
 ## Références
 

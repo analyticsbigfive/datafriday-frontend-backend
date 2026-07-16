@@ -1,6 +1,6 @@
 # BUG-030 — "Good Category" écrasé à l'ouverture du drawer Edit Item (Market Prices)
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Achats & référentiels (Market Prices)
 - **Repo(s) concerné(s)** : `datafriday-web`

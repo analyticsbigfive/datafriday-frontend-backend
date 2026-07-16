@@ -1,6 +1,6 @@
 # BUG-051 — `SpaceMenuItem` orphelins après soft-delete d'un `MenuItem` (espace Auxerre : 89% des lignes mortes)
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur (dette de données silencieuse, croît à chaque ré-import Data Integration)
 - **Domaine** : Intégrations & ventes / Espaces & builder
 - **Repo(s) concerné(s)** : `api-datafriday-staging`

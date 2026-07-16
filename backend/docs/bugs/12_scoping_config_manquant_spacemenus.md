@@ -1,6 +1,6 @@
 # BUG-012 — Scoping config manquant sur perf/staff/inventory Space Menus
 
-- **Statut** : 🟡 Corrigé (code), déploiement restant
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur (données d'une config affichées pour une autre)
 - **Domaine** : Espaces & builder / Menu & recettes
 - **Repo(s) concerné(s)** : les deux (FE+BE à déployer ensemble)
@@ -20,9 +20,8 @@ du même espace.
 ## Correction
 
 `configId` ajouté sur `MenuAssignment` + backfill, puis propagé aux requêtes
-`ElementPerformance`/`Staff`/`Inventory`. **Code prêt, PAS ENCORE déployé** — nécessite une
-migration puis un déploiement backend, à faire AVANT ou EN MÊME TEMPS que le frontend (voir
-`datafriday-web/docs/bugs/07_scoping_config_manquant_spacemenus_front.md`).
+`ElementPerformance`/`Staff`/`Inventory`. Migration et déploiement backend+frontend effectués
+(voir `datafriday-web/docs/bugs/07_scoping_config_manquant_spacemenus_front.md`).
 
 ## Risque de régression / à surveiller
 

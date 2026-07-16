@@ -347,11 +347,78 @@ export class MarketPricesService {
     }
   }
 
+  /**
+   * Traite chaque ligne indépendamment (pas de transaction Prisma globale) : une ligne en
+   * échec ne doit ni bloquer ni faire disparaître les lignes précédentes déjà committées.
+   * Retourne un décompte précis (créées/ignorées/en erreur, avec l'index de chaque erreur)
+   * pour que l'appelant (import CSV) sache exactement ce qui s'est passé, au lieu de marquer
+   * tout le lot en échec dès qu'une seule ligne casse.
+   */
   async bulkCreate(items: CreateMarketPriceDto[], tenantId: string) {
     this.logger.log(`Bulk creating ${items.length} market prices for tenant ${tenantId}`);
-    try {
-      const results = [];
-      for (const dto of items) {
+    const result = {
+      created: [] as any[],
+      skipped: 0,
+      errors: [] as Array<{ index: number; itemName?: string; message: string }>,
+    };
+
+    for (let index = 0; index < items.length; index++) {
+      const dto = items[index];
+      try {
+        // Dédoublonnage exact à l'insertion : évite de recréer une ligne identique à chaque
+        // réimport du même CSV (cf. BUG connu : aucune contrainte @@unique en base sur
+        // MarketPrice). Volontairement plus strict que `deduplicate()` (nom+fournisseur
+        // uniquement) : on inclut aussi unit/price pour ne jamais fusionner deux prix
+        // réellement différents pour le même article/fournisseur.
+        //
+        // Le rapprochement fournisseur ne peut PAS reposer sur `supplierId` seul : les lignes
+        // créées manuellement (MarketPriceCreateDrawer) n'enregistrent jamais de `supplier`
+        // texte (constaté en base : `supplier` vaut `""`, pas le nom), et les lignes créées par
+        // d'anciens imports CSV (avant résolution de supplierId) ont `supplierId = null`.
+        // Comparer `supplierId` exact aurait donc raté un vrai doublon dès que sa résolution
+        // diffère d'une exécution à l'autre — et dépendre uniquement de la résolution
+        // supplierId/nom fournisseur reste fragile si cette résolution échoue pour une raison
+        // quelconque côté frontend (liste des fournisseurs pas encore chargée, etc). `supplierItem`
+        // (référence article chez CE fournisseur, ex. "PAPRIKA DOUX 1KG") est un signal
+        // d'identité au moins aussi fort, toujours envoyé tel quel par l'import CSV et
+        // indépendant de toute résolution de FK — on l'ajoute comme troisième alternative.
+        const supplierNameTrimmed = (dto.supplier || '').trim();
+        const supplierItemTrimmed = (dto.supplierItem || '').trim();
+        const supplierMatchOr: any[] = [];
+        if (supplierNameTrimmed) {
+          supplierMatchOr.push({ supplier: { equals: supplierNameTrimmed, mode: 'insensitive' } });
+        }
+        if (dto.supplierId) {
+          supplierMatchOr.push({ supplierId: dto.supplierId });
+        }
+        if (supplierItemTrimmed) {
+          supplierMatchOr.push({ supplierItem: { equals: supplierItemTrimmed, mode: 'insensitive' } });
+        }
+        if (supplierMatchOr.length === 0) {
+          supplierMatchOr.push({ supplierId: null, supplier: null });
+        }
+
+        // `price` est un champ Prisma `Decimal` : le comparer à un `number` JS brut dans un
+        // `where` échoue silencieusement pour la plupart des valeurs à décimales (constaté :
+        // `price: 9.8` ne matche JAMAIS la ligne existante stockée en Decimal "9.80", alors que
+        // `price: "9.8"` (string) ou `price: new Prisma.Decimal(9.8)` matchent correctement —
+        // sans ce cast, TOUTE la vérification de doublon ci-dessous est un no-op silencieux dès
+        // que le prix a une partie décimale non trivialement représentable en binaire (9.8, 8.54,
+        // 9.3…). Toujours convertir en string avant de comparer un Decimal.
+        const existing = await this.prisma.marketPrice.findFirst({
+          where: {
+            tenantId,
+            itemName: { equals: dto.itemName, mode: 'insensitive' },
+            unit: { equals: dto.unit, mode: 'insensitive' },
+            price: String(dto.price),
+            OR: supplierMatchOr,
+          },
+        });
+        if (existing) {
+          result.skipped++;
+          continue;
+        }
+
         const image = await this.storage.resolveImage(dto.image, 'market-prices');
         const price = await this.prisma.marketPrice.create({
           data: {
@@ -382,14 +449,19 @@ export class MarketPricesService {
           },
         });
         await this.syncRecipeRecordForGoodType(price, dto.goodType, tenantId);
-        results.push(this.serialize(price));
+        result.created.push(this.serialize(price));
+      } catch (error) {
+        this.logger.warn(
+          `Bulk import: item ${index} ("${dto?.itemName}") failed: ${error.message}`,
+        );
+        result.errors.push({ index, itemName: dto?.itemName, message: error.message || 'Unknown error' });
       }
-      this.logger.log(`Bulk created ${results.length} market prices`);
-      return results;
-    } catch (error) {
-      this.logger.error(`Failed to bulk create: ${error.message}`, error.stack);
-      throw error;
     }
+
+    this.logger.log(
+      `Bulk create complete: ${result.created.length} created, ${result.skipped} skipped (duplicates), ${result.errors.length} errors`,
+    );
+    return result;
   }
 
   /**

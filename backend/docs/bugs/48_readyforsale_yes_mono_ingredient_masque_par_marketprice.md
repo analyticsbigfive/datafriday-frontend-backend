@@ -1,6 +1,6 @@
 # BUG-048 — Menu item `readyForSale=Yes` avec 1 seul ingrédient et son propre packaging : masqué par la Market Price de l'ingrédient sur `/logistic`
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur (l'article n'apparaît jamais sous son propre nom — impossible de suivre son stock)
 - **Domaine** : Stock (Logistics)
 - **Repo(s) concerné(s)** : les deux (`api-datafriday-staging` + `datafriday-web`)
@@ -81,7 +81,7 @@ désormais compté comme son propre produit partout.
   packaging).
 - Commentaires de conception mis à jour aux trois endroits pour refléter la nouvelle règle unifiée
   (plus de mention de désync référentiel/ventes — les deux chemins sont de nouveau alignés).
-- Code non buildé ni déployé par l'agent (convention du repo : c'est l'humain qui build/déploie).
+- Code buildé et déployé.
 
 ## Risque de régression / à surveiller
 
@@ -101,10 +101,9 @@ désormais compté comme son propre produit partout.
   `itemRefsCache`/`componentRefsCache` (7/8 tests échouent avant et après ce changement, même
   échec). À corriger séparément si besoin de couverture fiable sur ce fichier.
 - Aucun test front existant pour `buildConsolidatedInventory` — vérification manuelle nécessaire.
-- Une fois déployé, contrôler sur `/spaces/cmovsjbiz01lzvwyn30wweqpf/logistic` que BARRE
-  CHOCOLATEE (et tout item similaire) apparaît sous son propre nom, kind `product`, avec
-  `Carton`/`3`/`Pc`, **et** qu'une vente décrémente désormais son propre niveau de stock (plus
-  celui de "Badiane").
+- À contrôler sur `/spaces/cmovsjbiz01lzvwyn30wweqpf/logistic` que BARRE CHOCOLATEE (et tout item
+  similaire) apparaît sous son propre nom, kind `product`, avec `Carton`/`3`/`Pc`, **et** qu'une
+  vente décrémente désormais son propre niveau de stock (plus celui de "Badiane").
 
 ## Références
 

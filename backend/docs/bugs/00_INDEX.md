@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | [01](01_cout_menucomponent_surestime.md) | Coût MenuComponent surestimé (`numberOfUnitsRecipe` ignoré) | 🔴 Ouvert | 🔴 | Menu & recettes |
 | [02](02_double_regle_combo_incompatible.md) | Deux règles d'expansion combo incompatibles | 🔴 Ouvert | 🟠 | Menu & recettes / Stock |
-| [03](03_taxonomie_croisee_marketprice_menuitem.md) | Taxonomie croisée Market Price / Menu Item | 🟡 Corrigé non déployé | 🟠 | Achats & référentiels |
+| [03](03_taxonomie_croisee_marketprice_menuitem.md) | Taxonomie croisée Market Price / Menu Item | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [04](04_mappings_orphelins_save_builder.md) | Mappings orphelins après sauvegarde du builder | ⚪ Diagnostiqué | 🟠 | Intégrations & ventes |
 | [05](05_menuitem_mappe_sans_espace.md) | Menu item mappé sans association Espace | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [06](06_perte_tva_bulk_automap.md) | Perte de TVA lors du bulk auto-map | 🟡 Corrigé partiel | 🟠 | Intégrations & ventes |
@@ -23,7 +23,7 @@
 | [09](09_deconnexion_intempestive_multi_onglets.md) | Déconnexion intempestive pendant l'édition (multi-onglets) | 🟡 Corrigé partiel | 🔴 | Auth & onboarding |
 | [10](10_n1_queries_toolbox_predict.md) | Requêtes N+1 dans le toolbox Event Predict | 🔴 Ouvert | 🟡 | Prévision |
 | [11](11_routes_kv_mortes.md) | Routes /kv mortes (KvModule non enregistré) | 🔴 Ouvert | 🟡 | Technique |
-| [12](12_scoping_config_manquant_spacemenus.md) | Scoping config manquant perf/staff/inventory Space Menus | 🟡 Corrigé non déployé | 🟠 | Espaces & builder |
+| [12](12_scoping_config_manquant_spacemenus.md) | Scoping config manquant perf/staff/inventory Space Menus | 🟢 Corrigé | 🟠 | Espaces & builder |
 | [13](13_predictversion_update_jamais_appelee.md) | PredictVersionsService.update() jamais appelée | 🔴 Ouvert | 🟢 | Prévision |
 | [14](14_aggregation_colonnes_mal_ecrites.md) | AggregationService écrit menuItemId/locationId dans les mauvaises colonnes | 🔴 Ouvert | 🔴 | Analyse & agrégation |
 | [15](15_agregation_ttc_ht_non_convertie.md) | Formule de CA ne convertit jamais TTC→HT | 🔴 Ouvert | 🔴 | Analyse & agrégation |
@@ -59,20 +59,31 @@
 | [45](45_unit_null_codee_en_dur_readyforsale_yes.md) | `unit` codé en dur à `null` pour un menu item mono-ingrédient `readyForSale=Yes` | 🟢 Corrigé | 🟡 | Stock |
 | [46](46_inventoryunit_jamais_persiste_menuitem.md) | `inventoryUnit` (unité conditionnement) jamais persisté sur `MenuItem` | 🟢 Corrigé | 🟡 | Menu & recettes / Stock |
 | [47](47_prisma_client_desync_apres_switch_branche.md) | Prisma Client désynchronisé du schéma après switch de branche (`Unknown argument` sur champ existant) | 🟢 Corrigé | 🟡 | Technique |
-| [48](48_readyforsale_yes_mono_ingredient_masque_par_marketprice.md) | Menu item `readyForSale=Yes` mono-ingrédient masqué par la Market Price de l'ingrédient (jamais affiché sous son propre nom) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [48](48_readyforsale_yes_mono_ingredient_masque_par_marketprice.md) | Menu item `readyForSale=Yes` mono-ingrédient masqué par la Market Price de l'ingrédient (jamais affiché sous son propre nom) | 🟢 Corrigé | 🟠 | Stock |
 | [49](49_marketpriceid_mouvement_non_valide_contre_itemkey.md) | `createMovement` accepte un `marketPriceId` sans le valider contre `itemKey` | ⚪ Diagnostiqué | 🟠 | Stock |
-| [50](50_unitsperpack_jamais_resolu_hors_marketprice_bloque_casse_de_pack.md) | `unitsPerPack` jamais résolu pour un produit fini/component : casse de pack impossible, retraits valides rejetés | 🟡 Corrigé non déployé | 🔴 | Stock |
-| [51](51_spacemenuitem_orphelins_apres_soft_delete_menuitem.md) | `SpaceMenuItem` orphelins après soft-delete d'un `MenuItem` (espace Auxerre : 89% des lignes mortes) | 🟡 Corrigé non déployé | 🟠 | Intégrations & ventes / Espaces & builder |
-| [52](52_quickcreate_sans_dedoublonnage_par_nom.md) | Quick-create Data Integration sans dédoublonnage par nom (cause racine de BUG-051) | 🟡 Corrigé non déployé | 🟠 | Intégrations & ventes |
+| [50](50_unitsperpack_jamais_resolu_hors_marketprice_bloque_casse_de_pack.md) | `unitsPerPack` jamais résolu pour un produit fini/component : casse de pack impossible, retraits valides rejetés | 🟢 Corrigé | 🔴 | Stock |
+| [51](51_spacemenuitem_orphelins_apres_soft_delete_menuitem.md) | `SpaceMenuItem` orphelins après soft-delete d'un `MenuItem` (espace Auxerre : 89% des lignes mortes) | 🟢 Corrigé | 🟠 | Intégrations & ventes / Espaces & builder |
+| [52](52_quickcreate_sans_dedoublonnage_par_nom.md) | Quick-create Data Integration sans dédoublonnage par nom (cause racine de BUG-051) | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [53](53_supplier_notes_jamais_persiste.md) | `Supplier.notes` accepté par l'API mais jamais persisté (perte silencieuse) | 🟢 Corrigé | 🟡 | Achats & référentiels |
+| [54](54_market_prices_get_sans_pagination_reelle_limit_200_code_en_dur.md) | `GET /market-prices` sans pagination réelle : perte silencieuse au-delà de 200 lignes | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [55](55_market_prices_bulkcreate_non_transactionnel_import_partiel_et_doublons.md) | `bulkCreate` non transactionnel : import CSV partiellement invisible + doublons garantis au réimport | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [56](56_market_prices_bulkcreate_dedup_supplierid_fragile.md) | `bulkCreate` : dédoublonnage basé sur `supplierId` trop fragile, crée des doublons réels | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [57](57_market_prices_bulkcreate_dedup_decimal_number_comparaison_silencieuse.md) | `bulkCreate` : comparer un champ `Decimal` (`price`) à un `number` JS brut échoue silencieusement, dédoublonnage totalement inopérant | 🟢 Corrigé | 🔴 | Achats & référentiels |
 
-**53 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+**57 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
 recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-50 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic` ; 51 ajouté le 2026-07-15 suite
 à une vérification directe en base des Menu Items sans prix pour l'espace Auxerre lors de la Data
 Integration ; 52 ajouté le 2026-07-15 en creusant la cause racine de BUG-051 (quick-create sans
 dédoublonnage) ; 53 ajouté le 2026-07-16 en auditant les payloads backend de fichiers frontend
-récupérés depuis une copie parallèle du repo (`old-web`).
+récupérés depuis une copie parallèle du repo (`old-web`) ; 54 ajouté le 2026-07-16 suite à une
+analyse directe de la page frontend `/market-prices` (pagination absente sur `GET /market-prices`) ;
+55 ajouté le 2026-07-16 suite à une analyse du drawer d'import CSV `/market-prices` (bulkCreate non
+transactionnel, cause racine du succès partiel invisible et des doublons côté frontend) ; 56 ajouté
+le 2026-07-16 suite à un signalement utilisateur de doublons réels créés malgré le fix 55
+(dédoublonnage sur supplierId trop fragile) ; 57 ajouté le 2026-07-16 suite à un nouveau
+signalement de doublons malgré le fix 56 — cause racine : comparaison Decimal/number Prisma
+silencieusement cassée, confirmée par requêtes directes en base.
 
 ## Comment ajouter un bug
 
