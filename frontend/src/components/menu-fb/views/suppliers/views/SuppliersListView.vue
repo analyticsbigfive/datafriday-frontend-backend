@@ -234,6 +234,8 @@
 import { AlertCircle, LayoutGrid, List, Mail, MapPin, PackageX, Pencil, Phone, Plus, Search, Trash2, Truck, Upload, User, X } from "lucide-vue-next";
 import SupplierFormDrawer from '../drawers/SupplierFormDrawer.vue';
 import SupplierDeleteDialog from '../dialogs/SupplierDeleteDialog.vue';
+import { useI18n } from '@/i18n/useI18n';
+import { getSupplierPhone, getSupplierPicture, getSupplierSiteNames } from '@/utils/supplierHelpers';
 
 const AVATAR_GRADIENTS = [
   'linear-gradient(135deg,#ff3131,#e84444)',
@@ -249,9 +251,12 @@ const AVATAR_GRADIENTS = [
 export default {
   name: "SuppliersListView",
   components: { AlertCircle, LayoutGrid, List, Mail, MapPin, PackageX, Pencil, Phone, Plus, Search, Trash2, Truck, Upload, User, X, SupplierFormDrawer, SupplierDeleteDialog },
+  setup() {
+    const { t, locale } = useI18n();
+    return { t, locale };
+  },
   data() {
     return {
-      locale: localStorage.getItem('appLocale') || 'en',
       theme: localStorage.getItem('appTheme') || 'light',
       viewMode: "grid",
       searchQuery: "",
@@ -265,41 +270,6 @@ export default {
       deleteDialog: false,
       deleteSupplierId: null,
       deleteSupplierName: "",
-
-      translations: {
-        en: {
-          breadcrumbHome: "Home",
-          title: "Suppliers",
-          subtitle: "Manage your suppliers and their contact information",
-          addSupplier: "Add Supplier",
-          addFirstSupplier: "Add Your First Supplier",
-          totalSuppliers: "suppliers",
-          searchPlaceholder: "Search by name, email, city…",
-          noSuppliersFound: "No suppliers found",
-          noSuppliersMessage: "Get started by adding your first supplier",
-          tryAdjusting: "Try adjusting your search terms",
-          noEmail: "No email",
-          noPhone: "No phone",
-          noSite: "No site",
-          noCity: "No city",
-        },
-        fr: {
-          breadcrumbHome: "Accueil",
-          title: "Fournisseurs",
-          subtitle: "Gérez vos fournisseurs et leurs coordonnées",
-          addSupplier: "Ajouter",
-          addFirstSupplier: "Ajouter le premier fournisseur",
-          totalSuppliers: "fournisseurs",
-          searchPlaceholder: "Rechercher par nom, email, ville…",
-          noSuppliersFound: "Aucun fournisseur trouvé",
-          noSuppliersMessage: "Commencez par ajouter votre premier fournisseur",
-          tryAdjusting: "Essayez d'ajuster vos termes de recherche",
-          noEmail: "Pas d'email",
-          noPhone: "Pas de téléphone",
-          noSite: "Pas de site",
-          noCity: "Pas de ville",
-        },
-      },
 
       tableHeaders: [
         { title: "Nom", key: "name" },
@@ -319,7 +289,7 @@ export default {
       const q = (this.searchQuery || "").trim().toLowerCase();
       if (!q) return this.suppliers;
       return this.suppliers.filter((s) => {
-        const hay = [s.name, s.email, s.city, this.getSupplierPhone(s), this.getSupplierSitesLabel(s)]
+        const hay = [s.name, s.email, s.city, s.phone, s.site]
           .filter(Boolean).join(" ").toLowerCase();
         return hay.includes(q);
       });
@@ -330,15 +300,13 @@ export default {
     suppliers() {
       return (this.$store.getters['suppliers/suppliers'] || []).map((s) => ({
         ...s,
-        image: s.image || s.picture || '',
-        phone: s.phone || s.tel || s.phoneNumber,
-        site: this.getSupplierSitesLabel(s),
+        image: getSupplierPicture(s),
+        phone: getSupplierPhone(s),
+        site: this.getSupplierSiteNames(s).join(", "),
       }));
     },
   },
   methods: {
-    t(key) { return this.translations[this.locale]?.[key] || key; },
-    handleLocaleChange(event) { this.locale = event.detail?.locale || 'en'; },
     handleThemeChange(event) { this.theme = event.detail?.theme || 'light'; },
 
     getInitials(name) {
@@ -351,28 +319,8 @@ export default {
       return AVATAR_GRADIENTS[idx];
     },
 
-    getSupplierPhone(supplier) {
-      return supplier?.phone || supplier?.tel || supplier?.phoneNumber || "";
-    },
-    getSupplierSitesLabel(supplier) {
-      return this.getSupplierSiteNames(supplier).join(", ");
-    },
     getSupplierSiteNames(supplier) {
-      const extractId = (v) => {
-        if (!v) return null;
-        if (typeof v === 'string' || typeof v === 'number') return String(v);
-        if (typeof v === 'object') return String(v.id || v._id || v.spaceId || v.siteId || v.value || '');
-        return null;
-      };
-      let raw = [];
-      if (Array.isArray(supplier?.spaces)) raw = supplier.spaces;
-      else if (Array.isArray(supplier?.spaceIds)) raw = supplier.spaceIds;
-      else if (Array.isArray(supplier?.siteIds)) raw = supplier.siteIds;
-      else if (Array.isArray(supplier?.sites)) raw = supplier.sites;
-      const ids = raw.map(extractId).filter(v => !!v);
-      if (!ids.length) return [];
-      const spaces = Array.isArray(this.sites) ? this.sites : [];
-      return ids.map(id => spaces.find(sp => String(sp?.id) === String(id))?.name).filter(Boolean);
+      return getSupplierSiteNames(supplier, this.sites);
     },
 
     async loadSuppliers({ forceRefresh = false } = {}) {
@@ -408,11 +356,9 @@ export default {
   mounted() {
     this.loadSuppliers();
     this.loadSites();
-    window.addEventListener('locale-changed', this.handleLocaleChange);
     window.addEventListener('theme-changed', this.handleThemeChange);
   },
   beforeUnmount() {
-    window.removeEventListener('locale-changed', this.handleLocaleChange);
     window.removeEventListener('theme-changed', this.handleThemeChange);
   },
 };

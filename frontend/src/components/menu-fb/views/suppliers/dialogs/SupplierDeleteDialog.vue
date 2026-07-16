@@ -19,7 +19,7 @@
           {{ t('deleteConfirm') }} <strong>"{{ supplierName }}"</strong> ?
           <br />
           <span class="sdd__irreversible">
-            {{ locale === 'fr' ? 'Cette action est irréversible.' : 'This action cannot be undone.' }}
+            {{ t('supplierListDeleteIrreversible') }}
           </span>
         </p>
       </div>
@@ -49,6 +49,7 @@
 <script>
 import { AlertCircle, Trash2, X } from "lucide-vue-next";
 import { deleteSupplier } from "@/api/endpoints/menu.api";
+import { useI18n } from "@/i18n/useI18n";
 
 export default {
   name: "SupplierDeleteDialog",
@@ -60,30 +61,17 @@ export default {
     isDark: { type: Boolean, default: false },
   },
   emits: ["update:modelValue", "deleted"],
+  setup() {
+    const { t, locale } = useI18n();
+    return { t, locale };
+  },
   data() {
     return {
       loading: false,
       error: "",
-      locale: localStorage.getItem("appLocale") || "en",
-      translations: {
-        en: {
-          deleteSupplierTitle: "Delete supplier",
-          deleteConfirm: "Are you sure you want to delete",
-          cancel: "Cancel",
-          delete: "Delete",
-        },
-        fr: {
-          deleteSupplierTitle: "Supprimer le fournisseur",
-          deleteConfirm: "Êtes-vous sûr de vouloir supprimer",
-          cancel: "Annuler",
-          delete: "Supprimer",
-        },
-      },
     };
   },
   methods: {
-    t(key) { return this.translations[this.locale]?.[key] || key; },
-    handleLocaleChange(event) { this.locale = event.detail?.locale || "en"; },
     close() {
       this.error = "";
       this.loading = false;
@@ -105,8 +93,6 @@ export default {
       }
     },
   },
-  mounted() { window.addEventListener("locale-changed", this.handleLocaleChange); },
-  beforeUnmount() { window.removeEventListener("locale-changed", this.handleLocaleChange); },
 };
 </script>
 

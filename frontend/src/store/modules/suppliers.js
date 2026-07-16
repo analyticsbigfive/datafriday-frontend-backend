@@ -45,14 +45,26 @@ export default {
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const result = await getSuppliers()
-        const list = Array.isArray(result)
-          ? result
-          : Array.isArray(result?.data)
-            ? result.data
-            : Array.isArray(result?.data?.data)
-              ? result.data.data
-              : []
+        const limit = 100
+        let page = 1
+        let list = []
+        // Le backend plafonne chaque appel à `limit` fournisseurs (cf. BUG-052, miroir de
+        // BUG-040 côté Market Prices) : on boucle sur `meta.total` tant qu'il en reste, pour ne
+        // pas tronquer silencieusement les tenants ayant plus de `limit` fournisseurs.
+        while (true) {
+          const result = await getSuppliers({ page, limit })
+          const pageList = Array.isArray(result)
+            ? result
+            : Array.isArray(result?.data)
+              ? result.data
+              : Array.isArray(result?.data?.data)
+                ? result.data.data
+                : []
+          list = list.concat(pageList)
+          const total = result?.meta?.total ?? result?.data?.meta?.total
+          if (!total || pageList.length < limit || list.length >= total) break
+          page += 1
+        }
         commit('SET_SUPPLIERS', list)
       } finally {
         commit('SET_FETCHING', false)

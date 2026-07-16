@@ -47,7 +47,13 @@ export const translations = {
     addFirstSupplier: 'Add Your First Supplier',
     title: 'Suppliers',
     subtitle: 'Manage your suppliers and their contact information',
-    
+    supplierFormAddSubtitle: 'Fill in the supplier information',
+    supplierFormEditSubtitle: 'Update supplier information',
+    supplierFormSectionLocation: 'Location',
+    supplierFormSectionContact: 'Contact',
+    supplierFormSelectAtLeastOneSite: 'Please select at least one site',
+    supplierListDeleteIrreversible: 'This action cannot be undone.',
+
     // Market Prices
     marketPrices: 'Market Prices',
     addMarketPrice: 'Add Market Price',
@@ -3532,7 +3538,13 @@ export const translations = {
     addFirstSupplier: 'Ajoutez votre premier fournisseur',
     title: 'Fournisseurs',
     subtitle: 'Gérez vos fournisseurs et leurs informations de contact',
-    
+    supplierFormAddSubtitle: 'Renseignez les informations du fournisseur',
+    supplierFormEditSubtitle: 'Mettez à jour les informations du fournisseur',
+    supplierFormSectionLocation: 'Localisation',
+    supplierFormSectionContact: 'Contact',
+    supplierFormSelectAtLeastOneSite: 'Veuillez sélectionner au moins un site',
+    supplierListDeleteIrreversible: 'Cette action est irréversible.',
+
     // Market Prices
     marketPrices: 'Prix du Marché',
     addMarketPrice: 'Ajouter Prix du Marché',

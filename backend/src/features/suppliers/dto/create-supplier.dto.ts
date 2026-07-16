@@ -1,45 +1,46 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsEmail, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsArray, IsNotEmpty } from 'class-validator';
 
 export class CreateSupplierDto {
   @ApiProperty({ description: 'Nom du fournisseur' })
   @IsString()
+  @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ description: 'Email de contact', required: false })
+  @ApiProperty({ description: 'Email de contact' })
   @IsEmail()
-  @IsOptional()
-  email?: string;
+  @IsNotEmpty()
+  email: string;
 
-  @ApiProperty({ description: 'Téléphone', required: false })
+  @ApiProperty({ description: 'Téléphone' })
   @IsString()
-  @IsOptional()
-  phone?: string;
+  @IsNotEmpty()
+  phone: string;
 
-  @ApiProperty({ description: 'Adresse', required: false })
+  @ApiProperty({ description: 'Adresse' })
   @IsString()
-  @IsOptional()
-  address?: string;
+  @IsNotEmpty()
+  address: string;
 
-  @ApiProperty({ description: 'Ville', required: false })
+  @ApiProperty({ description: 'Ville' })
   @IsString()
-  @IsOptional()
-  city?: string;
+  @IsNotEmpty()
+  city: string;
 
-  @ApiProperty({ description: 'Code postal', required: false })
+  @ApiProperty({ description: 'Code postal' })
   @IsString()
-  @IsOptional()
-  postcode?: string;
+  @IsNotEmpty()
+  postcode: string;
 
   @ApiProperty({ description: 'Image URL', required: false })
   @IsString()
   @IsOptional()
   picture?: string;
 
-  @ApiProperty({ description: 'Contact name', required: false })
+  @ApiProperty({ description: 'Contact name' })
   @IsString()
-  @IsOptional()
-  contactName?: string;
+  @IsNotEmpty()
+  contactName: string;
 
   @ApiProperty({ description: 'Space IDs (sites)', required: false, type: [String] })
   @IsArray()

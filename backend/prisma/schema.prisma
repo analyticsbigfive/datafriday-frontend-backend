@@ -774,15 +774,15 @@ model ExternalMerch {
 model Supplier {
   id               String   @id @default(cuid())
   name             String
-  email            String?
-  tel              String?
-  city             String?
-  address          String?
-  postcode         String?
+  email            String
+  tel              String
+  city             String
+  address          String
+  postcode         String
   picture          String?
   notes            String?
   sites            String[] // Array of spaceIds
-  contactName      String?
+  contactName      String
   configurationIds String[] @default([])
   sectors          String[] @default([])
   tenantId         String
