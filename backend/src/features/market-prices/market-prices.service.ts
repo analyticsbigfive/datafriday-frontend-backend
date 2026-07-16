@@ -370,13 +370,48 @@ export class MarketPricesService {
         // MarketPrice). Volontairement plus strict que `deduplicate()` (nom+fournisseur
         // uniquement) : on inclut aussi unit/price pour ne jamais fusionner deux prix
         // réellement différents pour le même article/fournisseur.
+        //
+        // Le rapprochement fournisseur ne peut PAS reposer sur `supplierId` seul : les lignes
+        // créées manuellement (MarketPriceCreateDrawer) n'enregistrent jamais de `supplier`
+        // texte (constaté en base : `supplier` vaut `""`, pas le nom), et les lignes créées par
+        // d'anciens imports CSV (avant résolution de supplierId) ont `supplierId = null`.
+        // Comparer `supplierId` exact aurait donc raté un vrai doublon dès que sa résolution
+        // diffère d'une exécution à l'autre — et dépendre uniquement de la résolution
+        // supplierId/nom fournisseur reste fragile si cette résolution échoue pour une raison
+        // quelconque côté frontend (liste des fournisseurs pas encore chargée, etc). `supplierItem`
+        // (référence article chez CE fournisseur, ex. "PAPRIKA DOUX 1KG") est un signal
+        // d'identité au moins aussi fort, toujours envoyé tel quel par l'import CSV et
+        // indépendant de toute résolution de FK — on l'ajoute comme troisième alternative.
+        const supplierNameTrimmed = (dto.supplier || '').trim();
+        const supplierItemTrimmed = (dto.supplierItem || '').trim();
+        const supplierMatchOr: any[] = [];
+        if (supplierNameTrimmed) {
+          supplierMatchOr.push({ supplier: { equals: supplierNameTrimmed, mode: 'insensitive' } });
+        }
+        if (dto.supplierId) {
+          supplierMatchOr.push({ supplierId: dto.supplierId });
+        }
+        if (supplierItemTrimmed) {
+          supplierMatchOr.push({ supplierItem: { equals: supplierItemTrimmed, mode: 'insensitive' } });
+        }
+        if (supplierMatchOr.length === 0) {
+          supplierMatchOr.push({ supplierId: null, supplier: null });
+        }
+
+        // `price` est un champ Prisma `Decimal` : le comparer à un `number` JS brut dans un
+        // `where` échoue silencieusement pour la plupart des valeurs à décimales (constaté :
+        // `price: 9.8` ne matche JAMAIS la ligne existante stockée en Decimal "9.80", alors que
+        // `price: "9.8"` (string) ou `price: new Prisma.Decimal(9.8)` matchent correctement —
+        // sans ce cast, TOUTE la vérification de doublon ci-dessous est un no-op silencieux dès
+        // que le prix a une partie décimale non trivialement représentable en binaire (9.8, 8.54,
+        // 9.3…). Toujours convertir en string avant de comparer un Decimal.
         const existing = await this.prisma.marketPrice.findFirst({
           where: {
             tenantId,
-            itemName: dto.itemName,
-            unit: dto.unit,
-            price: dto.price,
-            supplierId: dto.supplierId ?? null,
+            itemName: { equals: dto.itemName, mode: 'insensitive' },
+            unit: { equals: dto.unit, mode: 'insensitive' },
+            price: String(dto.price),
+            OR: supplierMatchOr,
           },
         });
         if (existing) {

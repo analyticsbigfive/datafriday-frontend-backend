@@ -62,8 +62,11 @@
 | [46](46_market_prices_import_csv_barre_progression_trompeuse.md) | Import CSV Market Prices : barre de progression figée pendant l'envoi réseau | 🟢 Corrigé | 🟡 | Achats & référentiels |
 | [47](47_market_prices_export_import_champs_incomplets.md) | Export/Import CSV Market Prices : la moitié des champs du modèle absents (image, industriel, emballages, dimensions) | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [48](48_market_prices_import_csv_alias_dimensions_cm_non_reconnu.md) | Import CSV Market Prices : alias d'auto-mapping des dimensions "(cm)" non reconnu | 🟢 Corrigé | 🟡 | Achats & référentiels |
+| [49](49_market_prices_import_csv_message_fichier_vide_trompeur.md) | Import CSV Market Prices : message "Nothing to import (empty file?)" trompeur quand des lignes ont bien été envoyées | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [50](50_market_prices_import_csv_dedup_supplierid_fragile_mirror.md) | Import CSV Market Prices : réimport créant des doublons malgré le dédoublonnage (fiche miroir) | 🟢 Corrigé | 🟠 | Achats & référentiels |
+| [51](51_market_prices_import_csv_dedup_decimal_number_mirror.md) | Import CSV Market Prices : dédoublonnage totalement inopérant pour la plupart des prix (fiche miroir) | 🟢 Corrigé | 🔴 | Achats & référentiels |
 
-**48 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**51 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
@@ -73,7 +76,12 @@ d'import CSV `/market-prices` (succès partiel invisible, doublons, goodType ver
 supplierId non résolu, pricePerUnit incohérent, parsing multi-lignes, progression trompeuse) ; 47
 ajouté le 2026-07-16 suite à un audit d'exhaustivité des champs export/import contre le modèle
 `MarketPrice` complet ; 48 ajouté le 2026-07-16 en vérifiant par simulation qu'un round-trip
-export→import fonctionnerait de bout en bout (alias des colonnes de dimensions "(cm)").
+export→import fonctionnerait de bout en bout (alias des colonnes de dimensions "(cm)") ; 49 ajouté
+le 2026-07-16 suite à un signalement utilisateur d'un message "fichier vide" trompeur après un
+import réel ; 50 ajouté le 2026-07-16 suite à un signalement utilisateur de doublons réels créés
+malgré le fix de dédoublonnage (supplierId trop fragile comme clé de comparaison) ; 51 ajouté le
+2026-07-16 suite à un nouveau signalement de doublons malgré le fix 50 — cause racine : comparaison
+Decimal/number Prisma silencieusement cassée.
 
 ## Comment ajouter un bug
 

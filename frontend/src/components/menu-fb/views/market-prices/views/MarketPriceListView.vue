@@ -94,7 +94,7 @@
     </div>
 
     <!-- Drawers / Dialogs -->
-    <MarketPriceCsvImportDrawer v-model="csvImportDrawer" :is-dark="isDark" :good-type-options="goodTypeOptions" :suppliers="suppliers" :industrials="industrials" @imported="loadMarketPrices(true)" />
+    <MarketPriceCsvImportDrawer v-model="csvImportDrawer" :is-dark="isDark" :suppliers="suppliers" :industrials="industrials" @imported="loadMarketPrices(true)" />
     <MarketPriceCreateDrawer v-model="createDialog" :initial-data="createInitialData" :existing-item-names="existingItemNames" :suppliers="suppliers" :good-type-options="goodTypeOptions" :product-categories="productCategories" :is-dark="isDark" @created="onCreated" />
     <MarketPriceEditDrawer v-model="editDialog" :initial-item="editTargetItem" :good-type-options="goodTypeOptions" :product-category-options="productCategoryOptions" :product-categories="productCategories" :recipe-unit-options="recipeUnitOptions" :is-dark="isDark" @saved="onSaved" />
     <MarketPriceDeleteItemDialog v-model="deleteItemDialog" :item-name="deleteItemName" :is-dark="isDark" @deleted="onDeleted" />
