@@ -37,14 +37,26 @@ export default {
 
       commit('SET_LOADING', true)
       try {
-        const result = await getMarketPrices()
-        const rows = Array.isArray(result)
-          ? result
-          : Array.isArray(result?.data)
-            ? result.data
-            : Array.isArray(result?.data?.data)
-              ? result.data.data
-              : []
+        const limit = 200
+        let page = 1
+        let rows = []
+        // Le backend plafonne chaque appel à `limit` lignes (cf. BUG-054/BUG-040) : on boucle
+        // sur `meta.total` tant qu'il en reste, pour ne pas tronquer silencieusement les tenants
+        // ayant plus de `limit` Market Prices.
+        while (true) {
+          const result = await getMarketPrices({ page, limit })
+          const pageRows = Array.isArray(result)
+            ? result
+            : Array.isArray(result?.data)
+              ? result.data
+              : Array.isArray(result?.data?.data)
+                ? result.data.data
+                : []
+          rows = rows.concat(pageRows)
+          const total = result?.meta?.total ?? result?.data?.meta?.total
+          if (!total || pageRows.length < limit || rows.length >= total) break
+          page += 1
+        }
         commit('SET_ROWS', rows)
       } finally {
         commit('SET_LOADING', false)

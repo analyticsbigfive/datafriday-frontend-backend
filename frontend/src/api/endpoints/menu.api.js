@@ -267,10 +267,15 @@ export async function cleanupInvalidPackaging() {
 
 /**
  * Récupérer tous les prix du marché
+ * @param {{ page?: number, limit?: number }} [opts]
  * @returns {Promise<Array>}
  */
-export async function getMarketPrices() {
-  return api.get('/market-prices')
+export async function getMarketPrices({ page, limit } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/market-prices${qs ? '?' + qs : ''}`)
 }
 
 export async function getMarketPricesWithIngredients({ page, limit, search, category, goodType } = {}) {

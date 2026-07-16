@@ -79,6 +79,7 @@
         <MarketPriceTable
           :headers="tableHeaders"
           :items="filteredItems"
+          :loading="marketPricesLoading"
           :expanded="expanded"
           :supplier-headers="supplierHeaders"
           @update:expanded="expanded = $event"
@@ -156,8 +157,11 @@ export default {
       selectedSupplier: "All Suppliers",
       selectedSpace: "All Spaces",
 
-      marketPricesLoading: false,
+      marketPricesLoading: true,
       marketPricesError: "",
+
+      debouncedSearchQuery: "",
+      searchDebounceTimer: null,
 
       csvImportDrawer: false,
 
@@ -226,13 +230,10 @@ export default {
       }
     };
   },
-  activated() {
-    this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-    this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
-  },
   beforeUnmount() {
     window.removeEventListener('theme-changed', this.handleThemeChange);
     window.removeEventListener('locale-changed', this.handleLocaleChange);
+    clearTimeout(this.searchDebounceTimer);
   },
   computed: {
     isDark() {
@@ -429,7 +430,7 @@ export default {
       return (this.items || []).filter(i => i?.goodType === 'Beverage').length;
     },
     filteredItems() {
-      const q = (this.searchQuery || "").trim().toLowerCase();
+      const q = (this.debouncedSearchQuery || "").trim().toLowerCase();
       let list = this.items;
       if (this.selectedType && this.selectedType !== "All Types") {
         list = list.filter((i) => i.type === this.selectedType);
@@ -450,12 +451,22 @@ export default {
       return list;
     },
   },
+  watch: {
+    searchQuery(value) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => {
+        this.debouncedSearchQuery = value;
+      }, 150);
+    },
+  },
   methods: {
     handleThemeChange(event) { this.theme = event.detail?.theme || 'light'; },
     handleLocaleChange(event) { this.locale = event.detail?.locale || 'en'; },
 
     clearFilters() {
+      clearTimeout(this.searchDebounceTimer);
       this.searchQuery = '';
+      this.debouncedSearchQuery = '';
       this.selectedType = 'All Types';
       this.selectedCategory = 'All Categories';
       this.selectedSupplier = 'All Suppliers';
