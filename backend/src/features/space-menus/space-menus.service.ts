@@ -100,6 +100,10 @@ export class SpaceMenusService {
         externalMerch: { select: { config: { select: { id: true } } } },
         configurationElements: { select: { configId: true }, orderBy: { createdAt: 'asc' }, take: 1 },
         menuAssignments: {
+          // BUG-051 : une MenuAssignment ne doit jamais exposer un MenuItem soft-deleted (ex.
+          // doublon nettoyé lors d'un re-mapping Data Integration) — sinon l'article réapparaît
+          // ici avec un prix à 0/vide comme s'il était toujours en vente.
+          where: { menuItem: { deletedAt: null } },
           select: {
             menuItemId: true,
             enabled: true,

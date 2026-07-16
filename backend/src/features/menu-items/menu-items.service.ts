@@ -1340,6 +1340,13 @@ export class MenuItemsService {
       if (purged.count > 0) {
         this.logger.log(`Removed ${purged.count} Weezevent product mapping(s) pointing to soft-deleted menu item ${id}`);
       }
+      // Même invariant côté prix par espace : un MenuItem soft-deleted ne doit jamais laisser de
+      // SpaceMenuItem orphelin derrière lui (BUG-051), sinon ces lignes s'accumulent à chaque
+      // ré-import/re-mapping sans jamais être nettoyées.
+      const purgedSpaceLinks = await this.prisma.spaceMenuItem.deleteMany({ where: { menuItemId: id } });
+      if (purgedSpaceLinks.count > 0) {
+        this.logger.log(`Removed ${purgedSpaceLinks.count} space price override(s) pointing to soft-deleted menu item ${id}`);
+      }
       this.logger.log(`Menu item ${id} soft-deleted`);
       await this.invalidateCache(tenantId);
       return result;
