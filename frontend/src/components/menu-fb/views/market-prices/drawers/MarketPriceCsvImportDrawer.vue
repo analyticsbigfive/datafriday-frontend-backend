@@ -504,6 +504,10 @@ export default {
       this.importProgress = 0;
       this.step = 3;
       await this.ensureAuth();
+      await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
+      await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
+      const marketPriceTypes = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
+      const marketPriceCategories = this.$store.getters['marketPriceCategories/marketPriceCategories'] || [];
 
       const results = { success: 0, errors: [] };
 
@@ -565,14 +569,24 @@ export default {
 
         const numOrUndef = (v) => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : undefined; };
 
+        const categoryRaw = get('category') || undefined;
+        const marketPriceTypeId = marketPriceTypes
+          .find((t) => (t?.name || '').toLowerCase() === goodType.toLowerCase())?.id || undefined;
+        const marketPriceCategoryId = categoryRaw
+          ? marketPriceCategories.find((c) => (c?.name || '').toLowerCase() === categoryRaw.toLowerCase()
+              && (!marketPriceTypeId || c.typeId === marketPriceTypeId))?.id || undefined
+          : undefined;
+
         const payload = {
           itemName,
           unit:                   unitVal,
           price:                  priceNum,
           goodType,
+          marketPriceTypeId,
           recipeUnit:             get('recipeUnit') || undefined,
           purchaseUnitConversion: numOrUndef(get('purchaseUnitConversion')),
-          category:               get('category') || undefined,
+          category:               categoryRaw,
+          marketPriceCategoryId,
           supplier:               get('supplierName') || undefined,
           supplierItem:           get('supplierItemName') || undefined,
           unitsPerPurchase:       numOrUndef(get('unitsPerPurchase')),
