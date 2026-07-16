@@ -47,9 +47,13 @@
 | [31](31_kitchentype_traductions_manquantes_inventory_menu_item.md) | Traductions "Kitchen Type" manquantes + design incohérent sur Inventory Information (Menu Item) | 🟢 Corrigé | 🟡 | Menu & recettes |
 | [32](32_logistic_marketprice_selecteur_non_scope_et_total_colle.md) | Logistic : sélecteur Market Price non scopé (corrompt le pack size) + Total quantité/unité collés | 🟡 Corrigé non déployé | 🟠 | Stock |
 | [33](33_exceedscap_ignore_casse_de_pack_bloque_retrait_valide.md) | `exceedsCap` ignore la casse de pack : bloque des retraits/transferts pourtant valides | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [34](34_supplier_notes_jamais_persiste_mirror.md) | `Supplier.notes` accepté par l'API mais jamais persisté (fiche miroir, cause racine backend) | 🟢 Corrigé | 🟡 | Achats & référentiels |
+| [35](35_component_inventorypackaging_packedunits_jamais_envoyes.md) | Component : "is stored in" (packaging) et quantité par carton jamais envoyés au backend | 🟢 Corrigé | 🟡 | Menu & recettes |
 
-**33 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
-~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15.
+**35 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
+ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
+parallèle du repo (`old-web`).
 
 ## Comment ajouter un bug
 

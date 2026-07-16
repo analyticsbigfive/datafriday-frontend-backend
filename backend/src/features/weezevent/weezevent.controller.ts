@@ -307,7 +307,7 @@ export class WeezeventController {
     async getDataIntegrationIntegrity(@CurrentUser() user: any) {
         const tenantId = user.tenantId;
         // ⚠️ $queryRaw n'est PAS intercepté par l'isolation Prisma (CLS) → scope manuel par tenantId.
-        const [elem, loc, deadItems, dupProd, dupLoc] = await Promise.all([
+        const [elem, loc, deadItems, deadSpaceLinks, dupProd, dupLoc] = await Promise.all([
             this.prisma.$queryRaw<{ n: bigint }[]>`
                 SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
                 LEFT JOIN "SpaceElement" se ON se.id = m."spaceElementId"
@@ -320,6 +320,12 @@ export class WeezeventController {
                 SELECT count(*)::bigint AS n FROM "WeezeventProductMapping" m
                 JOIN "MenuItem" mi ON mi.id = m."menuItemId"
                 WHERE m."tenantId" = ${tenantId} AND mi."deletedAt" IS NOT NULL`,
+            // BUG-051 : SpaceMenuItem (prix par espace) orphelin d'un MenuItem soft-deleted —
+            // même famille de symptôme que mappingsToDeletedItems ci-dessus, mais côté prix espace.
+            this.prisma.$queryRaw<{ n: bigint }[]>`
+                SELECT count(*)::bigint AS n FROM "SpaceMenuItem" sm
+                JOIN "MenuItem" mi ON mi.id = sm."menuItemId"
+                WHERE mi."tenantId" = ${tenantId} AND mi."deletedAt" IS NOT NULL`,
             this.prisma.$queryRaw<{ n: bigint }[]>`
                 SELECT count(*)::bigint AS n FROM (
                   SELECT 1 FROM "WeezeventProduct" WHERE "tenantId" = ${tenantId}
@@ -333,12 +339,18 @@ export class WeezeventController {
         const shopElementDanglings = num(elem);
         const shopLocationDanglings = num(loc);
         const mappingsToDeletedItems = num(deadItems);
+        const spaceLinksToDeletedItems = num(deadSpaceLinks);
         return {
             tenantId,
-            healthy: shopElementDanglings === 0 && shopLocationDanglings === 0 && mappingsToDeletedItems === 0,
+            healthy:
+                shopElementDanglings === 0 &&
+                shopLocationDanglings === 0 &&
+                mappingsToDeletedItems === 0 &&
+                spaceLinksToDeletedItems === 0,
             shopElementDanglings,
             shopLocationDanglings,
             mappingsToDeletedItems,
+            spaceLinksToDeletedItems,
             // Informatif : doublons attendus si multi-intégrations volontaires (pas une alerte).
             duplicateProductGroups: num(dupProd),
             duplicateLocationGroups: num(dupLoc),

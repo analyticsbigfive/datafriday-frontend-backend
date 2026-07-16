@@ -245,7 +245,8 @@
                 <div class="cc-info-card mb-3">
                   <div class="cc-info-card__title">{{ t('inventoryInfo') }}</div>
                   <div class="cc-info-card__row">
-                    <span class="cc-info-label">{{ t('componentIsStoredIn') }}</span>
+                    <span class="cc-info-card__chip">{{ form.name || '…' }}</span>
+                    <span class="cc-info-label">{{ t('isStoredIn') }}</span>
                     <select v-model="form.inventoryPackaging" class="cc-inline-select cc-info-card__select" @change="onPackagingSelectChange($event)">
                       <option value="">—</option>
                       <option value="__add_packaging__" style="color:#ff3131; font-weight:600;">+ {{ locale === 'fr' ? 'Ajouter un packaging type' : 'Add packaging type' }}</option>
@@ -502,6 +503,12 @@ export default {
         .filter(c => !type || String(c?.typeName ?? '').trim() === type)
         .map(c => String(c?.name ?? '').trim()).filter(Boolean)
       return [this.t('compCreateNewCategoryOption'), ...existing]
+    },
+    // Options du select « stored in » : les Packaging Types (store packingTypes).
+    packagingCategoryOptions() {
+      return (this.$store.getters['packingTypes/packingTypes'] || [])
+        .map(p => String(p?.name ?? '').trim())
+        .filter(Boolean)
     },
     selectedComponentTypeId() {
       const type = String(this.form.type ?? '').trim()
@@ -914,6 +921,8 @@ export default {
           numberOfUnitsRecipe: Number(this.form.numberOfUnitsRecipe) || 0,
           componentTypeId: this.selectedComponentTypeId || undefined,
           componentCategoryId: this.selectedComponentCategoryId || undefined,
+          inventoryPackaging: this.form.inventoryPackaging || undefined,
+          packedUnits: Number(this.form.packedUnits) || 0,
         };
 
         console.log("Updating component with payload:", payload);
@@ -971,6 +980,8 @@ export default {
           numberOfUnitsRecipe: Number(this.form.numberOfUnitsRecipe) || 0,
           componentTypeId: this.selectedComponentTypeId || undefined,
           componentCategoryId: this.selectedComponentCategoryId || undefined,
+          inventoryPackaging: this.form.inventoryPackaging || undefined,
+          packedUnits: Number(this.form.packedUnits) || 0,
         };
 
         console.log("Creating component with payload:", payload);
@@ -994,6 +1005,7 @@ export default {
 
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
+    this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
 
     // Charger les données du composant si en mode édition
     if (this.isEditMode) {
@@ -1518,6 +1530,22 @@ export default {
   font-weight: 600;
   color: #1e40af;
   white-space: nowrap;
+}
+/* Chip du nom du composant (« <nom> is stored in … ») */
+.cc-info-card__chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  padding: 4px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e40af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Pill buttons (save/cancel) ── */

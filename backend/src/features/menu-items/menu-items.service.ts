@@ -205,6 +205,33 @@ export class MenuItemsService {
     await this.prisma.$transaction(ops);
   }
 
+  /**
+   * Associe un MenuItem existant à des espaces sans toucher à ses autres associations
+   * (contrairement à syncSpaceLinks qui remplace tout l'état). Utilisé quand on RÉUTILISE un
+   * item déjà existant (dedupeByName, BUG-052) : on ne veut ajouter que l'espace demandé, pas
+   * désassocier les espaces auxquels l'item était déjà rattaché.
+   */
+  private async linkSpacesAdditive(menuItemId: string, tenantId: string, spaceIds?: unknown, spacePrices?: unknown) {
+    const ids = Array.isArray(spaceIds) ? [...new Set(spaceIds.filter((v): v is string => typeof v === 'string'))] : [];
+    if (!ids.length) return;
+    const validIds = new Set(
+      (await this.prisma.space.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true } })).map((s) => s.id),
+    );
+    const prices = spacePrices ? this.normalizeSpacePricesMap(spacePrices) : {};
+    const ops = ids
+      .filter((id) => validIds.has(id))
+      .map((spaceId) => {
+        const p = prices[spaceId];
+        return this.prisma.spaceMenuItem.upsert({
+          where: { menuItemId_spaceId: { menuItemId, spaceId } },
+          create: { menuItemId, spaceId, priceTtc: p?.ttc ?? null, vatRate: p?.vatRate ?? null },
+          // Ne touche pas un lien déjà existant : ne pas écraser un prix espace déjà réglé.
+          update: {},
+        });
+      });
+    if (ops.length) await this.prisma.$transaction(ops);
+  }
+
   /** Délègue au service partagé (réutilisé par la Data Integration). */
   private getTenantDefaultVatRate(tenantId: string): Promise<number> {
     return this.pricing.getTenantDefaultVatRate(tenantId);
@@ -240,7 +267,21 @@ export class MenuItemsService {
   async create(dto: CreateMenuItemDto, tenantId: string) {
     this.logger.log(`Creating menu item "${dto.name}" for tenant ${tenantId}`);
     this.logger.debug(`Validating IDs - typeId: ${dto.typeId}, categoryId: ${dto.categoryId}`);
-    
+
+    if (dto.dedupeByName && dto.name?.trim()) {
+      const existing = await this.prisma.menuItem.findFirst({
+        where: { tenantId, deletedAt: null, name: { equals: dto.name.trim(), mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (existing) {
+        this.logger.log(
+          `dedupeByName: reusing existing menu item ${existing.id} for name "${dto.name}" instead of creating a duplicate`,
+        );
+        await this.linkSpacesAdditive(existing.id, tenantId, (dto as any).spaceIds, (dto as any).spacePrices);
+        return this.findOne(existing.id, tenantId);
+      }
+    }
+
     try {
       const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
       const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
@@ -1339,6 +1380,13 @@ export class MenuItemsService {
       const purged = await this.prisma.productMapping.deleteMany({ where: { tenantId, menuItemId: id } });
       if (purged.count > 0) {
         this.logger.log(`Removed ${purged.count} Weezevent product mapping(s) pointing to soft-deleted menu item ${id}`);
+      }
+      // Même invariant côté prix par espace : un MenuItem soft-deleted ne doit jamais laisser de
+      // SpaceMenuItem orphelin derrière lui (BUG-051), sinon ces lignes s'accumulent à chaque
+      // ré-import/re-mapping sans jamais être nettoyées.
+      const purgedSpaceLinks = await this.prisma.spaceMenuItem.deleteMany({ where: { menuItemId: id } });
+      if (purgedSpaceLinks.count > 0) {
+        this.logger.log(`Removed ${purgedSpaceLinks.count} space price override(s) pointing to soft-deleted menu item ${id}`);
       }
       this.logger.log(`Menu item ${id} soft-deleted`);
       await this.invalidateCache(tenantId);

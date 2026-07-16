@@ -24,13 +24,13 @@
 
             <!-- Supplier Item Name -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
-              <label for="mpesd-supplierItem" class="mpesd-field-label">{{ t('supplierItemName') }}</label>
+              <label for="mpesd-supplierItem" class="mpesd-field-label">{{ t('supplierItemName') }} <span class="mpesd-required">*</span></label>
               <input id="mpesd-supplierItem" v-model="form.supplierItem" type="text" class="form-control mpesd-input" />
             </div>
 
             <!-- Item Name (read-only) -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
-              <label for="mpesd-itemName" class="mpesd-field-label">{{ t('itemName') }}</label>
+              <label for="mpesd-itemName" class="mpesd-field-label">{{ t('itemName') }} <span class="mpesd-required">*</span></label>
               <input id="mpesd-itemName" :value="form.itemName" type="text" class="form-control mpesd-input mpesd-input--readonly" readonly />
             </div>
 
@@ -59,7 +59,7 @@
             </div>
 
             <!-- Dialog — création fournisseur -->
-            <v-dialog v-model="supplierCreateOpen" max-width="460" :z-index="11000">
+            <v-dialog v-model="supplierCreateOpen" max-width="540" :z-index="11000">
               <div class="mpesd-mini-dialog">
                 <div class="mpesd-mini-dialog__header">
                   <Truck :size="18" color="white" />
@@ -68,67 +68,88 @@
                 </div>
                 <div v-if="supplierCreateError" class="mpesd-mini-dialog__error">{{ supplierCreateError }}</div>
                 <div class="mpesd-mini-dialog__body">
-                  <!-- Upload photo du fournisseur -->
+                  <!-- Photo du fournisseur -->
                   <input ref="supplierPictureInput" type="file" accept="image/*" class="d-none" @change="onSupplierPictureSelected" />
-                  <div class="mpesd-sc-photo mb-3" @click="triggerSupplierPicture">
+                  <div class="mpesd-sc-photo" @click="triggerSupplierPicture">
                     <template v-if="supplierImagePreview">
                       <img :src="supplierImagePreview" alt="" class="mpesd-sc-photo__img" />
-                      <button type="button" class="mpesd-sc-photo__remove" @click.stop="clearSupplierPicture"><X :size="12" /></button>
+                      <button type="button" class="mpesd-sc-photo__remove" @click.stop="clearSupplierPicture"><X :size="14" /></button>
                     </template>
                     <div v-else class="mpesd-sc-photo__placeholder">
-                      <ImagePlus :size="22" style="color:#ff3131" />
-                      <span>{{ t('uploadPicture') }}</span>
+                      <div class="mpesd-sc-photo__icon">
+                        <ImagePlus :size="30" style="color:#ff3131" />
+                      </div>
+                      <span class="mpesd-sc-photo__label">{{ t('uploadPicture') }}</span>
+                      <span class="mpesd-sc-photo__hint">{{ t('fileFormat') }}</span>
                     </div>
                   </div>
+
                   <!-- Identité -->
-                  <div class="mpesd-field-row mb-3">
-                    <label for="mpesd-sc-name" class="mpesd-field-label">{{ t('supplierName') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-sc-name" v-model="supplierCreateForm.name" type="text" class="form-control mpesd-input" @keyup.enter="submitSupplierCreate" />
-                  </div>
-                  <div class="mpesd-field-row mb-3">
-                    <label for="mpesd-sc-contact" class="mpesd-field-label">{{ t('supplierContactName') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-sc-contact" v-model="supplierCreateForm.contactName" type="text" class="form-control mpesd-input" />
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('sectionIdentity') }}</div>
+                    <div class="mpesd-field-row mb-3">
+                      <label for="mpesd-sc-name" class="mpesd-field-label">{{ t('supplierName') }} <span class="mpesd-required">*</span></label>
+                      <input id="mpesd-sc-name" v-model="supplierCreateForm.name" type="text" class="form-control mpesd-input" autofocus @keyup.enter="supplierCreateForm.name.trim() && submitSupplierCreate()" />
+                    </div>
+                    <div class="mpesd-field-row">
+                      <label for="mpesd-sc-contact" class="mpesd-field-label">{{ t('supplierContactName') }} <span class="mpesd-required">*</span></label>
+                      <input id="mpesd-sc-contact" v-model="supplierCreateForm.contactName" type="text" class="form-control mpesd-input" />
+                    </div>
                   </div>
 
                   <!-- Contact -->
-                  <div class="row g-2 mb-3">
-                    <div class="col-6">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-email" class="mpesd-field-label">{{ t('email') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-email" v-model="supplierCreateForm.email" type="email" class="form-control mpesd-input" />
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('sectionContact') }}</div>
+                    <div class="row g-2">
+                      <div class="col-6">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-email" class="mpesd-field-label">{{ t('email') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-email" v-model="supplierCreateForm.email" type="email" class="form-control mpesd-input" />
+                        </div>
                       </div>
-                    </div>
-                    <div class="col-6">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-phone" class="mpesd-field-label">{{ t('phone') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-phone" v-model="supplierCreateForm.phone" type="tel" class="form-control mpesd-input" />
+                      <div class="col-6">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-phone" class="mpesd-field-label">{{ t('phone') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-phone" v-model="supplierCreateForm.phone" type="tel" class="form-control mpesd-input" />
+                        </div>
                       </div>
                     </div>
                   </div>
 
                   <!-- Localisation -->
-                  <div class="mpesd-field-row mb-3">
-                    <label for="mpesd-sc-address" class="mpesd-field-label">{{ t('address') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-sc-address" v-model="supplierCreateForm.address" type="text" class="form-control mpesd-input" />
-                  </div>
-                  <div class="row g-2 mb-3">
-                    <div class="col-7">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-city" class="mpesd-field-label">{{ t('city') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-city" v-model="supplierCreateForm.city" type="text" class="form-control mpesd-input" />
-                      </div>
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('sectionLocation') }}</div>
+                    <div class="mpesd-field-row mb-3">
+                      <label for="mpesd-sc-address" class="mpesd-field-label">{{ t('address') }} <span class="mpesd-required">*</span></label>
+                      <input id="mpesd-sc-address" v-model="supplierCreateForm.address" type="text" class="form-control mpesd-input" />
                     </div>
-                    <div class="col-5">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-postcode" class="mpesd-field-label">{{ t('postcode') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-postcode" v-model="supplierCreateForm.postcode" type="text" class="form-control mpesd-input" />
+                    <div class="row g-2">
+                      <div class="col-7">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-city" class="mpesd-field-label">{{ t('city') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-city" v-model="supplierCreateForm.city" type="text" class="form-control mpesd-input" />
+                        </div>
+                      </div>
+                      <div class="col-5">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-postcode" class="mpesd-field-label">{{ t('postcode') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-postcode" v-model="supplierCreateForm.postcode" type="text" class="form-control mpesd-input" />
+                        </div>
                       </div>
                     </div>
                   </div>
 
                   <!-- Sites -->
-                  <div v-if="availableSpaces.length > 0" class="mpesd-sc-section mb-3">
-                    <div class="mpesd-sc-section__label">{{ t('supplierSpaces') }} <span class="mpesd-required">*</span></div>
+                  <div v-if="availableSpaces.length > 0" class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__header">
+                      <div class="mpesd-sc-section__label mb-0">
+                        {{ t('sites') }} <span class="mpesd-required">*</span>
+                        <span class="mpesd-sc-site-count">({{ supplierCreateForm.spaceIds.length }}/{{ availableSpaces.length }})</span>
+                      </div>
+                      <button class="mpesd-sc-toggle-all" @click="toggleAllSpaces">
+                        {{ isAllSpacesChecked ? t('unselectAll') : t('selectAll') }}
+                      </button>
+                    </div>
                     <div class="mpesd-pill-grid">
                       <label
                         v-for="space in availableSpaces"
@@ -144,9 +165,9 @@
                   </div>
 
                   <!-- Notes -->
-                  <div class="mpesd-field-row">
-                    <label for="mpesd-sc-notes" class="mpesd-field-label">{{ t('notes') }}</label>
-                    <textarea id="mpesd-sc-notes" v-model="supplierCreateForm.notes" class="form-control mpesd-input" rows="2"></textarea>
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('notes') }}</div>
+                    <textarea id="mpesd-sc-notes" v-model="supplierCreateForm.notes" class="form-control mpesd-input" rows="3" :placeholder="t('addNotes')"></textarea>
                   </div>
                 </div>
                 <div class="mpesd-mini-dialog__footer">
@@ -162,7 +183,7 @@
 
             <!-- Good Type -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
-              <label class="mpesd-field-label">{{ t('goodType') }}</label>
+              <label class="mpesd-field-label">{{ t('goodType') }} <span class="mpesd-required">*</span></label>
               <v-select
                 v-model="form.goodType"
                 :items="localGoodTypeOptions"
@@ -480,6 +501,14 @@ export default {
           supplierContactName: 'Contact Name',
           supplierSpaces: 'Sites',
           uploadPicture: 'Upload supplier photo',
+          fileFormat: 'PNG, JPG up to 5MB',
+          sectionIdentity: 'Identity',
+          sectionContact: 'Contact',
+          sectionLocation: 'Location',
+          sites: 'Sites',
+          selectAll: 'Select all',
+          unselectAll: 'Unselect all',
+          addNotes: 'Add any additional notes…',
           address: 'Address',
           city: 'City',
           postcode: 'Postcode',
@@ -523,6 +552,14 @@ export default {
           supplierContactName: 'Nom du contact',
           supplierSpaces: 'Sites',
           uploadPicture: 'Photo du fournisseur',
+          fileFormat: "PNG, JPG jusqu'à 5MB",
+          sectionIdentity: 'Identité',
+          sectionContact: 'Contact',
+          sectionLocation: 'Localisation',
+          sites: 'Sites',
+          selectAll: 'Tout sélectionner',
+          unselectAll: 'Tout désélectionner',
+          addNotes: "Notes supplémentaires sur ce fournisseur…",
           address: 'Adresse',
           city: 'Ville',
           postcode: 'Code postal',
@@ -563,6 +600,10 @@ export default {
     },
     availableSpaces() {
       return this.$store.getters['spaces/spaces'] || [];
+    },
+    isAllSpacesChecked() {
+      return this.availableSpaces.length > 0
+        && this.supplierCreateForm.spaceIds.length === this.availableSpaces.length;
     },
     packagingCategoryItems() {
       const storePackingTypes = this.$store.getters['packingTypes/packingTypes'] || [];
@@ -764,6 +805,11 @@ export default {
       } finally {
         this.supplierCreateLoading = false;
       }
+    },
+    toggleAllSpaces() {
+      this.supplierCreateForm.spaceIds = this.isAllSpacesChecked
+        ? []
+        : this.availableSpaces.map((s) => s.id);
     },
     // ── Upload photo du fournisseur (dialog création) ──
     triggerSupplierPicture() {
@@ -1083,12 +1129,14 @@ export default {
 .mpesd-mini-dialog {
   background: #fff; border-radius: 16px;
   overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,.14);
+  display: flex; flex-direction: column; max-height: 90vh;
 }
 .mpesd-mini-dialog__header {
   display: flex; align-items: center; gap: 10px;
   padding: 16px 20px;
   background: #ff3131;
   color: #fff; font-size: 14px; font-weight: 700;
+  flex-shrink: 0;
 }
 .mpesd-mini-dialog__close {
   margin-left: auto; background: rgba(255,255,255,.18);
@@ -1101,8 +1149,9 @@ export default {
   padding: 10px 20px; background: #fef2f2;
   font-size: 13px; color: #ff3131; border-bottom: 1px solid #fecaca;
 }
-.mpesd-mini-dialog__body { padding: 20px 20px 16px; }
+.mpesd-mini-dialog__body { padding: 20px 20px 16px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .mpesd-mini-dialog__footer {
+  flex-shrink: 0;
   display: flex; justify-content: flex-end; gap: 10px;
   padding: 12px 20px; border-top: 1px solid #f0f0f0; background: #fafafa;
 }
@@ -1251,37 +1300,42 @@ export default {
 /* Zone d'upload photo (dialogue de création fournisseur) */
 .mpesd-sc-photo {
   position: relative;
-  width: 96px;
-  height: 96px;
-  border-radius: 14px;
-  border: 1.5px dashed #e5e7eb;
-  background: #f9fafb;
+  width: 100%;
+  min-height: 150px;
+  border-radius: 16px;
+  border: 2px dashed #e5e7eb;
+  background: #fafafa;
   cursor: pointer;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: border-color .18s, background .18s;
+  margin-bottom: 4px;
 }
 .mpesd-sc-photo:hover { border-color: #ff3131; background: #fff5f5; }
-.mpesd-sc-photo__img { width: 100%; height: 100%; object-fit: cover; }
+.mpesd-sc-photo__img { width: 100%; height: 100%; max-height: 220px; object-fit: cover; }
 .mpesd-sc-photo__placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   text-align: center;
-  padding: 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #9ca3af;
+  padding: 22px;
 }
+.mpesd-sc-photo__icon {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #fef2f2;
+  display: flex; align-items: center; justify-content: center;
+}
+.mpesd-sc-photo__label { font-size: 14px; font-weight: 700; color: #111827; }
+.mpesd-sc-photo__hint { font-size: 12px; color: #9ca3af; }
 .mpesd-sc-photo__remove {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 20px;
-  height: 20px;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
   border: none;
   border-radius: 50%;
   background: rgba(255, 255, 255, .92);
@@ -1293,8 +1347,9 @@ export default {
   box-shadow: 0 1px 4px rgba(0, 0, 0, .15);
 }
 
-/* Section Espaces (dialogue de création fournisseur) */
-.mpesd-sc-section { margin-top: 4px; }
+/* Sections (dialogue de création fournisseur) */
+.mpesd-sc-section { margin-top: 18px; }
+.mpesd-sc-section:first-of-type { margin-top: 0; }
 .mpesd-sc-section__label {
   font-size: 10.5px;
   font-weight: 700;
@@ -1303,6 +1358,16 @@ export default {
   color: #9ca3af;
   margin-bottom: 12px;
 }
+.mpesd-sc-section__header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.mpesd-sc-site-count { font-weight: 500; color: #9ca3af; }
+.mpesd-sc-toggle-all {
+  background: none; border: none; color: #ff3131;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.mpesd-sc-toggle-all:hover { text-decoration: underline; }
 .mpesd-pill-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .mpesd-check-pill {
   display: inline-flex;
