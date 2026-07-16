@@ -209,6 +209,13 @@ export class CreateMenuItemDto {
 
   @ApiPropertyOptional({
     description:
+      "Si true, réutilise un MenuItem actif du même nom (tenant, casse/espaces ignorés) au lieu d'en créer un doublon — utilisé par le quick-create de la Data Integration (BUG-052). Ignoré par défaut pour ne pas changer le comportement du builder manuel.",
+  })
+  @IsOptional()
+  dedupeByName?: boolean;
+
+  @ApiPropertyOptional({
+    description:
       'Prix de vente par espace. Forme courante : { [spaceId]: { ttc, vatRate } } (TVA propre à l’espace). Forme legacy tolérée : { [spaceId]: number } (TTC seul).',
   })
   @IsOptional()

@@ -63,12 +63,14 @@
 | [49](49_marketpriceid_mouvement_non_valide_contre_itemkey.md) | `createMovement` accepte un `marketPriceId` sans le valider contre `itemKey` | ⚪ Diagnostiqué | 🟠 | Stock |
 | [50](50_unitsperpack_jamais_resolu_hors_marketprice_bloque_casse_de_pack.md) | `unitsPerPack` jamais résolu pour un produit fini/component : casse de pack impossible, retraits valides rejetés | 🟡 Corrigé non déployé | 🔴 | Stock |
 | [51](51_spacemenuitem_orphelins_apres_soft_delete_menuitem.md) | `SpaceMenuItem` orphelins après soft-delete d'un `MenuItem` (espace Auxerre : 89% des lignes mortes) | 🟡 Corrigé non déployé | 🟠 | Intégrations & ventes / Espaces & builder |
+| [52](52_quickcreate_sans_dedoublonnage_par_nom.md) | Quick-create Data Integration sans dédoublonnage par nom (cause racine de BUG-051) | 🟡 Corrigé non déployé | 🟠 | Intégrations & ventes |
 
-**51 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+**52 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
 recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-50 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic` ; 51 ajouté le 2026-07-15 suite
 à une vérification directe en base des Menu Items sans prix pour l'espace Auxerre lors de la Data
-Integration.
+Integration ; 52 ajouté le 2026-07-15 en creusant la cause racine de BUG-051 (quick-create sans
+dédoublonnage).
 
 ## Comment ajouter un bug
 

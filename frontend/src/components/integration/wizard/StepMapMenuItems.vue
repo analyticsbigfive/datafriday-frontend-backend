@@ -1696,6 +1696,9 @@ export default {
           categoryId: this.quickCreateForm.categoryId || null,
           basePrice: this.quickCreateForm.basePrice || 0,
           spaceIds: this.spaceId ? [this.spaceId] : [],
+          // BUG-052 : réutilise un MenuItem actif existant du même nom au lieu d'en recréer un
+          // doublon à chaque ré-import (cause des SpaceMenuItem orphelins de BUG-051).
+          dedupeByName: true,
         }
         // TVA : n'envoyer que si renseignée (sinon le backend applique le défaut tenant)
         const rate = this.quickCreateForm.vatRate

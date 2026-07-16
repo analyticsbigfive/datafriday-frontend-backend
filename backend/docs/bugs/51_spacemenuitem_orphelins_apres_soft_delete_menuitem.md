@@ -76,13 +76,9 @@ Appliquée le 2026-07-15 :
   réparties sur 5 autres espaces). Reconfirmé après coup : 0 ligne orpheline restante, tous
   tenants confondus.
 
-Non traité (hors scope immédiat, cause plus profonde) :
-
-- Le quick-create du wizard de mapping (`MenuItemsService.create()`, étape 3 Data Integration)
-  continue de créer un nouveau `MenuItem` sans dédoublonnage par nom à chaque ré-import — donc de
-  nouveaux doublons peuvent encore apparaître (ils seront désormais nettoyés correctement à la
-  suppression, mais la cause de la prolifération de doublons elle-même reste entière). À traiter
-  dans un ticket séparé si le volume de doublons redevient un problème.
+Cause plus profonde (prolifération des doublons elle-même) traitée séparément dans
+[BUG-052](52_quickcreate_sans_dedoublonnage_par_nom.md) : le quick-create du wizard de mapping ne
+recrée plus de doublon par nom depuis sa correction.
 
 ## Risque de régression / à surveiller
 
