@@ -4,6 +4,7 @@
     @update:model-value="$emit('update:modelValue', $event)"
     location="right"
     temporary
+    :persistent="importLoading"
     width="640"
     class="elv-csv-drawer"
     :class="{ 'elv--dark': isDark }"
@@ -57,6 +58,7 @@
 
       <!-- ── Step 1 : Upload ── -->
       <div v-if="step === 1">
+        <v-alert v-if="fileError" type="error" variant="tonal" rounded="lg" class="mb-4">{{ fileError }}</v-alert>
         <input ref="fileInput" type="file" accept=".csv,.tsv,text/csv" style="display: none;" @change="onFileChange" />
         <div
           class="elv-dropzone d-flex flex-column align-center justify-center pa-10"
@@ -287,9 +289,13 @@
             <strong>{{ importResults.success }}</strong>
             événement{{ importResults.success > 1 ? 's' : '' }} importé{{ importResults.success > 1 ? 's' : '' }} avec succès.
           </v-alert>
+          <v-alert v-if="importResults.skipped > 0" type="warning" variant="tonal" rounded="lg" class="mb-4">
+            <strong>{{ importResults.skipped }}</strong>
+            ligne{{ importResults.skipped > 1 ? 's' : '' }} ignorée{{ importResults.skipped > 1 ? 's' : '' }} (doublon déjà présent).
+          </v-alert>
           <v-alert v-if="importResults.errors.length > 0" type="error" variant="tonal" rounded="lg" class="mb-4">
             <div class="font-weight-medium mb-2">
-              {{ importResults.errors.length }} erreur{{ importResults.errors.length > 1 ? 's' : '' }}
+              {{ importResults.errors.length }} ligne{{ importResults.errors.length > 1 ? 's' : '' }} non importée{{ importResults.errors.length > 1 ? 's' : '' }}
             </div>
             <ul style="padding-left: 16px; margin: 0;">
               <li v-for="err in importResults.errors" :key="err.row" class="text-body-2">
@@ -387,6 +393,7 @@ export default {
       subcategoryValueMap: {},
       importLoading: false,
       importResults: null,
+      fileError: '',
       _spaceConfigsCache: {},
       eventFields: [
         { key: 'spaceRaw',            label: 'Espace',                             aliases: ['space'] },
@@ -459,6 +466,10 @@ export default {
         .filter((s) => !!s.id);
     },
 
+    events() {
+      return this.$store.getters['events/events'] || [];
+    },
+
     eventTypes() {
       return (this.$store.getters['eventTypes/eventTypes'] || [])
         .map((t) => ({ ...t, id: t?.id || t?._id }))
@@ -510,6 +521,7 @@ export default {
           this.$store.dispatch('eventTypes/fetchEventTypes'),
           this.$store.dispatch('eventCategories/fetchEventCategories'),
           this.$store.dispatch('eventSubcategories/fetchEventSubcategories'),
+          this.$store.dispatch('events/fetchEvents'),
         ]);
       } else {
         this.reset();
@@ -570,6 +582,7 @@ export default {
       this.subcategoryValueMap = {};
       this.importLoading = false;
       this.importResults = null;
+      this.fileError = '';
       this.dropping = false;
     },
 
@@ -587,11 +600,15 @@ export default {
 
     readFile(file) {
       this.fileName = file.name;
+      this.fileError = '';
       const reader = new FileReader();
       reader.onload = (evt) => {
         const text = evt.target.result;
         const parsed = parseCSV(text);
-        if (parsed.length < 2) return;
+        if (parsed.length < 2) {
+          this.fileError = 'Ce fichier est vide ou ne contient que l\'en-tête — aucune ligne à importer.';
+          return;
+        }
         this.csvHeaders = parsed[0];
         this.csvRows = parsed.slice(1).filter((r) => r.some((c) => c.trim()));
         this.mapping = {};
@@ -648,7 +665,14 @@ export default {
       this.importLoading = true;
       this.importResults = null;
       let successCount = 0;
+      let skippedCount = 0;
       const errors = [];
+
+      // Dédup au ré-import : un event existant avec le même nom (insensible à
+      // la casse) + la même date n'est pas recréé (BUG-137).
+      const existingKeys = new Set(
+        (this.events || []).map((e) => `${String(e?.name || '').trim().toLowerCase()}|${String(e?.eventDate || '').slice(0, 10)}`),
+      );
 
       for (let i = 0; i < this.csvRows.length; i++) {
         const row = this.csvRows[i];
@@ -660,25 +684,36 @@ export default {
           continue;
         }
 
+        const eventDate = get('eventDate') ? this.parseDate(get('eventDate')) : undefined;
+        const dedupKey = `${name.trim().toLowerCase()}|${String(eventDate || '').slice(0, 10)}`;
+        if (existingKeys.has(dedupKey)) {
+          skippedCount++;
+          errors.push({ row: i + 2, message: `Ignoré : un événement "${name}" existe déjà à cette date` });
+          continue;
+        }
+
         const spaceRaw         = get('spaceRaw');
         const configurationRaw = get('configurationRaw');
         const typeRaw          = get('eventTypeRaw');
         const categoryRaw      = get('eventCategoryRaw');
         const subcategoryRaw   = get('eventSubcategoryRaw');
+        const doorsOpen        = get('doorsOpen') ? this.parseTime(get('doorsOpen')) : undefined;
+        const showTime         = get('showTime') ? this.parseTime(get('showTime')) : undefined;
 
         const payload = {
           name,
-          eventDate:          get('eventDate') ? this.parseDate(get('eventDate')) : undefined,
-          doorsOpen:          get('doorsOpen') ? this.parseTime(get('doorsOpen')) : undefined,
-          showTime:           get('showTime') ? this.parseTime(get('showTime')) : undefined,
-          performerName:      get('performerName') || undefined,
+          eventDate,
+          // "performerName"/"sponsor"/"openingActName"/"allSessions" sont
+          // proposés au mapping mais N'ONT AUCUN champ correspondant sur
+          // `Event` — les envoyer ferait rejeter TOUTE la requête
+          // (ValidationPipe forbidNonWhitelisted). Décision produit en
+          // attente : ajouter ces colonnes au schéma, ou retirer ces 4
+          // champs du mapping CSV (voir docs/bugs/136_*.md).
           homeTeamName:       get('homeTeamName') || undefined,
-          visitingTeam:       get('visitingTeam') || undefined,
-          sponsor:            get('sponsor') || undefined,
+          visitingTeamName:   get('visitingTeam') || undefined,
+          sessions:           (doorsOpen || showTime) ? [{ doorsOpening: doorsOpen || '', showTime: showTime || '' }] : undefined,
           numberOfSessions:   get('numberOfSessions') ? parseInt(get('numberOfSessions')) : undefined,
-          allSessions:        get('allSessions') || undefined,
           hasOpeningAct:      get('hasOpeningAct') ? this.parseBool(get('hasOpeningAct')) : undefined,
-          openingActName:     get('openingActName') || undefined,
           hasIntermission:    get('hasIntermission') ? this.parseBool(get('hasIntermission')) : undefined,
           ticketsSold:        get('ticketsSold') ? parseInt(get('ticketsSold')) : undefined,
           ticketsScanned:     get('ticketsScanned') ? parseInt(get('ticketsScanned')) : undefined,
@@ -696,6 +731,7 @@ export default {
           const response = await createEvent(payload);
           const created = response?.data ?? response;
           this.$store.dispatch('events/addEvent', created);
+          existingKeys.add(dedupKey);
           successCount++;
         } catch (e) {
           errors.push({
@@ -705,7 +741,7 @@ export default {
         }
       }
 
-      this.importResults = { success: successCount, errors };
+      this.importResults = { success: successCount, skipped: skippedCount, errors };
       this.importLoading = false;
       if (successCount > 0) this.$emit('imported');
     },

@@ -86,8 +86,6 @@ export class CreatePredictVersionDto {
   selectedTimeRange?: { start: string | null; end: string | null } | null;
 }
 
-export class UpdatePredictVersionDto extends CreatePredictVersionDto {}
-
 export class PatchPredictVersionDto {
   @ApiPropertyOptional()
   @IsOptional()

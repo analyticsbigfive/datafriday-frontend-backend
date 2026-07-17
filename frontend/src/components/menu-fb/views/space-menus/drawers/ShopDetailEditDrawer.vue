@@ -10,7 +10,7 @@
               <Settings :size="22" color="white" />
             </div>
             <div class="sde-header__titles">
-              <div class="sde-header__title">Modifier le shop</div>
+              <div class="sde-header__title">{{ t('spaceMenu.editShop') }}</div>
               <div v-if="shop" class="sde-header__sub">{{ shop.name }}</div>
             </div>
             <button class="sde-close-btn" @click="$emit('update:modelValue', false)">
@@ -25,7 +25,7 @@
             <div class="sde-section">
               <div class="sde-section__label">
                 <ImageIcon :size="13" style="color:#ff3131" />
-                Shop Image
+                {{ t('spaceMenu.shopImage') }}
               </div>
               <div
                 class="sde-upload-zone"
@@ -36,9 +36,9 @@
                   <img :src="form.image" />
                   <div class="sde-upload-preview__overlay">
                     <Camera :size="28" color="white" />
-                    <span>Click to change</span>
+                    <span>{{ t('spaceMenu.clickToChange') }}</span>
                   </div>
-                  <button class="sde-upload-remove" @click.stop="form.image = ''">
+                  <button class="sde-upload-remove" @click.stop="removeImage">
                     <X :size="12" />
                   </button>
                 </div>
@@ -46,8 +46,8 @@
                   <div class="sde-upload-icon-circle">
                     <ImagePlus :size="32" style="color:#ff3131" />
                   </div>
-                  <p class="sde-upload-placeholder__title">Upload Shop Image</p>
-                  <p class="sde-upload-placeholder__sub">Click to browse · JPG, PNG, WebP</p>
+                  <p class="sde-upload-placeholder__title">{{ t('spaceMenu.uploadShopImage') }}</p>
+                  <p class="sde-upload-placeholder__sub">{{ t('spaceMenu.clickToBrowseOrDrag') }}</p>
                 </div>
               </div>
               <input ref="imgInput" type="file" accept="image/*" style="display:none;" @change="handleImageUpload" />
@@ -57,7 +57,7 @@
             <div class="sde-section">
               <div class="sde-section__label">
                 <Tags :size="13" style="color:#ff3131" />
-                Shop Types
+                {{ t('spaceMenu.shopTypes') }}
               </div>
               <div class="sde-types-grid">
                 <label
@@ -76,7 +76,7 @@
                   <span class="sde-type-pill__icon">
                     <component :is="type.iconComponent" :size="14" />
                   </span>
-                  {{ type.label }}
+                  {{ t(type.labelKey) }}
                 </label>
               </div>
             </div>
@@ -85,7 +85,7 @@
             <div class="sde-section">
               <div class="sde-section__label">
                 <Settings :size="13" style="color:#ff3131" />
-                Available in Configurations
+                {{ t('spaceMenu.availableInConfigurations') }}
               </div>
               <div v-if="currentConfigurations.length" class="sde-config-list">
                 <div v-for="config in currentConfigurations" :key="config.id" class="sde-config-item">
@@ -99,7 +99,7 @@
                 </div>
               </div>
               <div v-else class="sde-config-empty">
-                <p>Aucune configuration disponible</p>
+                <p>{{ t('spaceMenu.noConfigurationsAvailable') }}</p>
               </div>
             </div>
 
@@ -107,7 +107,7 @@
             <div class="sde-section">
               <div class="sde-section__label">
                 <FileText :size="13" style="color:#ff3131" />
-                Notes
+                {{ t('notes') }}
               </div>
               <div class="sde-textarea-wrap">
                 <textarea
@@ -117,7 +117,7 @@
                   placeholder=" "
                   rows="4"
                 ></textarea>
-                <label for="sde-notes" class="sde-textarea__label">Notes internes</label>
+                <label for="sde-notes" class="sde-textarea__label">{{ t('spaceMenu.internalNotes') }}</label>
               </div>
             </div>
 
@@ -135,7 +135,7 @@
               :disabled="saving"
               @click="$emit('update:modelValue', false)"
             >
-              <X :size="14" /> Cancel
+              <X :size="14" /> {{ t('cancel') }}
             </button>
             <button
               class="sde-btn sde-btn--primary"
@@ -144,7 +144,7 @@
             >
               <span v-if="saving" class="sde-spinner"></span>
               <Save v-else :size="14" />
-              Save Changes
+              {{ t('saveChanges') }}
             </button>
           </div>
 
@@ -155,19 +155,24 @@
 </template>
 
 <script>
+import { useI18n } from "@/i18n/useI18n";
 import { Settings, X, Save, Image as ImageIcon, Camera, ImagePlus, Tags, AlertCircle, FileText, Utensils, Coffee, Beer, Package, Clock } from 'lucide-vue-next';
 import { updateSpaceElement } from '@/api/endpoints/space.api'
 
 export default {
   name: 'ShopDetailEditDrawer',
   components: { Settings, X, Save, ImageIcon, Camera, ImagePlus, Tags, AlertCircle, FileText, Utensils, Coffee, Beer, Package, Clock },
+  setup() {
+    const { t } = useI18n();
+    return { t };
+  },
   props: {
     modelValue: { type: Boolean, default: false },
     shop: { type: Object, default: null },
     currentConfigurations: { type: Array, default: () => [] },
     isDark: { type: Boolean, default: false },
   },
-  emits: ['update:modelValue', 'saved'],
+  emits: ['update:modelValue', 'saved', 'save-error'],
   beforeUnmount() {
     document.body.style.overflow = '';
   },
@@ -176,13 +181,14 @@ export default {
       saving: false,
       saveError: '',
       form: { image: '', subTypes: [], notes: '' },
+      // labelKey aligné sur SpaceMenuEditShopDrawer.vue (mêmes valeurs, cf. BUG-118).
       availableShopTypes: [
-        { label: 'Food',       value: 'Food',       iconComponent: 'Utensils' },
-        { label: 'Beverages',  value: 'Beverages',  iconComponent: 'Coffee' },
-        { label: 'Beer',       value: 'Beer',       iconComponent: 'Beer' },
-        { label: 'GP Premium', value: 'GP Premium', iconComponent: 'Package' },
-        { label: 'Temporary',  value: 'Temporary',  iconComponent: 'Clock' },
-        { label: 'Drinkee',    value: 'Drinkee',    iconComponent: 'Coffee' },
+        { labelKey: 'food',                       value: 'Food',       iconComponent: 'Utensils' },
+        { labelKey: 'beverage',                   value: 'Beverages',  iconComponent: 'Coffee' },
+        { labelKey: 'spaceMenu.shopTypeBeer',      value: 'Beer',       iconComponent: 'Beer' },
+        { labelKey: 'spaceMenu.shopTypeGpPremium', value: 'GP Premium', iconComponent: 'Package' },
+        { labelKey: 'spaceMenu.shopTypeTemporary', value: 'Temporary', iconComponent: 'Clock' },
+        { labelKey: 'spaceMenu.shopTypeDrinkee',   value: 'Drinkee',   iconComponent: 'Coffee' },
       ],
     };
   },
@@ -201,6 +207,12 @@ export default {
   },
   methods: {
     triggerImageUpload() { this.$refs.imgInput.click(); },
+    // BUG-129 : sans reset de l'input natif, re-sélectionner exactement le même fichier après
+    // l'avoir retiré ne redéclenchait pas @change (liste de fichiers identique côté navigateur).
+    removeImage() {
+      this.form.image = '';
+      if (this.$refs.imgInput) this.$refs.imgInput.value = '';
+    },
     handleImageUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -226,7 +238,11 @@ export default {
         this.$emit('saved', { ...this.shop, ...(updated || {}), image: this.form.image, subTypes: [...this.form.subTypes], notes: this.form.notes });
         this.$emit('update:modelValue', false);
       } catch (e) {
-        this.saveError = e?.response?.data?.message || e?.message || 'Failed to save shop';
+        // BUG-120 : émis même si le tiroir a déjà été fermé (backdrop-click/X non désactivés
+        // pendant `saving`) — sans ça, un échec réseau ici était invisible pour l'utilisateur.
+        const message = e?.response?.data?.message || e?.message || this.t('spaceMenu.failedToSaveShop');
+        this.saveError = message;
+        this.$emit('save-error', message);
       } finally {
         this.saving = false;
       }
@@ -357,6 +373,12 @@ export default {
 .sde-panel--dark .sde-type-pill { border-color: #334155; background: #1e293b; color: #94a3b8; }
 .sde-panel--dark .sde-type-pill--active { border-color: #ff3131; background: rgba(255, 49, 49,.15); color: #f87171; }
 .sde-panel--dark .sde-textarea { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+.sde-panel--dark .sde-config-list { border-color: #334155; }
+.sde-panel--dark .sde-config-item { border-bottom-color: #1e293b; }
+.sde-panel--dark .sde-config-item__icon { background: rgba(30,64,175,.2); }
+.sde-panel--dark .sde-config-item__name { color: #e2e8f0; }
+.sde-panel--dark .sde-config-empty { border-color: #334155; }
+.sde-panel--dark .sde-error { background: rgba(255, 49, 49,.12); }
 .sde-panel--dark .sde-footer { background: #111827; border-top-color: #1e293b; }
 .sde-panel--dark .sde-btn--ghost { background: #1e293b; color: #e2e8f0; border-color: #334155; }
 

@@ -2,6 +2,10 @@ import { getEventTypes } from '@/api/endpoints/event.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes
 
+// Single-flight registry HORS du state Vuex — cf. menuItems.js pour le pattern
+// de référence. Deux fetchEventTypes() concurrents attendent la MÊME Promise.
+let inflight = null
+
 export default {
   namespaced: true,
 
@@ -40,23 +44,29 @@ export default {
   },
 
   actions: {
-    async fetchEventTypes({ state, commit, getters }, { forceRefresh = false } = {}) {
-      if (state.fetching) return
+    async fetchEventTypes({ commit, getters }, { forceRefresh = false } = {}) {
       if (!forceRefresh && getters.isCacheValid) return
+      if (inflight) return inflight
+
       commit('SET_FETCHING', true)
-      try {
-        const data = await getEventTypes()
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.data?.data)
-              ? data.data.data
-              : []
-        commit('SET_EVENT_TYPES', list)
-      } finally {
-        commit('SET_FETCHING', false)
-      }
+      const p = (async () => {
+        try {
+          const data = await getEventTypes()
+          const list = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.data)
+              ? data.data
+              : Array.isArray(data?.data?.data)
+                ? data.data.data
+                : []
+          commit('SET_EVENT_TYPES', list)
+        } finally {
+          commit('SET_FETCHING', false)
+          inflight = null
+        }
+      })()
+      inflight = p
+      return p
     },
 
     invalidate({ commit }) {

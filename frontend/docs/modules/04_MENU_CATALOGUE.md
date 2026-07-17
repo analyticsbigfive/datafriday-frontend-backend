@@ -247,13 +247,26 @@ apparaissait à tort en config B »*. La contrainte `@@unique([elementId, menuIt
 scoping, tu réintroduis la fuite entre configurations.
 
 **Frontend — deux consommateurs distincts, pour deux usages différents** :
-- **Édition** (l'écran `/space-menus/:spaceId/shops/:shopId` lui-même, cocher/décocher les items
-  d'un shop) : `src/composables/useSpaceMenu.js` (état `Map<elementId, Set<menuItemId>>`) +
-  `useSpaceMenuReconciliation.js` (règle de réconciliation "souple" : au rechargement, ne réinjecte
-  **jamais** un item retiré manuellement sur un shop déjà sauvegardé — `savedElementIds` marque les
-  shops déjà configurés par l'utilisateur). Écrans :
+- **Édition** (l'écran `/space-menus` — cocher/décocher les items d'un shop) : état géré **inline**
+  dans les composants (`SpaceMenuView.vue` `data()`), appels directs à `menu.api.js`
+  (`getSpaceMenuConfiguration`, `assignMenuItemsToShop` en delta partiel — une paire shop×item ou
+  les seuls items modifiés selon l'appelant). Écrans :
   `components/menu-fb/views/space-menus/views/SpaceMenuView.vue`, `ShopDetailView.vue` (+
-  `SpaceMenuShopView.vue`, `SpaceMenuItemView.vue`), drawers associés.
+  `SpaceMenuShopView.vue`, `SpaceMenuItemView.vue`), drawers associés (`ShopMenuItemsDrawer.vue`,
+  `SpaceMenuEditShopDrawer.vue`, `ShopDetailEditDrawer.vue`).
+  **Historique** : ce paragraphe décrivait auparavant `src/composables/useSpaceMenu.js` /
+  `useSpaceMenuReconciliation.js` / `useShopElementMapping.js` comme la couche d'édition live —
+  c'était faux. Ces 3 fichiers implémentaient une approche différente et jamais branchée à un
+  écran réel (état `Map<elementId, Set<menuItemId>>`, sauvegarde POST complète via
+  `saveSpaceMenuConfiguration`, réconciliation "souple" avec pré-remplissage suggéré depuis un
+  mapping Weezevent shop↔élément + badge non bloquant de divergence), dépendant d'une route
+  backend `GET /shop-element-mappings/:spaceId` qui n'a jamais existé dans `api-datafriday-staging`
+  (vérifié le 2026-07-17). **Supprimés le 2026-07-17** (audit
+  [BUG-116](../bugs/116_spacemenus_composables_morts_doc_obsolete.md)) après confirmation qu'ils
+  étaient un prototype abandonné (aucune trace git d'un branchement passé, aucun spec document,
+  et un concept concurrent déjà en production sous un autre nom — `LocationSpaceMapping` /
+  module `mappings/`). Si ce besoin (suggestion + badge de divergence non bloquant) redevient
+  pertinent, repartir de zéro côté backend plutôt que de chercher à réanimer ce code.
 - **Lecture ailleurs dans l'app** (savoir quels items sont activés sur un shop, sans les éditer) :
   `src/store/modules/shopMenuItems.js`, qui appelle `getShopMenuItems` (`menu.api.js`) →
   `GET /space-menu/shop/:id?configId=...`. **Piège déjà corrigé, documenté dans le code
@@ -432,6 +445,18 @@ une colonne enum Postgres → probablement rejetée. **Statut : documenté, non 
 - `MenuComponent.subComponents` (Json legacy) — encore lu par `repair()` mais plus la source de
   vérité.
 - `MenuItem.spaceIds`/`spacePrices` (colonnes gelées).
+- `src/composables/useSpaceMenu.js`, `useSpaceMenuReconciliation.js`, `useShopElementMapping.js` —
+  **supprimés le 2026-07-17** (cluster de 3 composables auto-référencés, zéro appelant réel hors
+  d'eux-mêmes et de `SpaceMenusPanel.vue`, déjà mort). Voir
+  [BUG-116](../bugs/116_spacemenus_composables_morts_doc_obsolete.md) pour l'arbitrage complet.
+- `space-menu.api.js` : `getSpaceMenu` (seule `getShopMenus` du même fichier est vivante,
+  consommée par `EventPredictView.vue`) — mort, plus aucun consommateur depuis la suppression
+  ci-dessus (laissé en l'état, non prioritaire).
+- `utils/api.js` : `getSpaceMenuConfiguration`/`saveSpaceMenuConfiguration` — plus aucun
+  consommateur en dehors de `SpaceMenusPanel.vue` (déjà mort) depuis la suppression ci-dessus,
+  laissées en l'état. **Ne pas confondre avec** `getShopElementMappings` du même fichier, qui reste
+  vivante — consommée par `useShoppingList.js`/`SpaceRestockView.vue` (domaine Restock, l'usage
+  documenté et légitime de ce module legacy).
 
 ## Zones grises restantes (pas des angles morts — des points réellement non tranchés)
 

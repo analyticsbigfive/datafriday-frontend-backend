@@ -69,8 +69,42 @@
 | [55](55_market_prices_bulkcreate_non_transactionnel_import_partiel_et_doublons.md) | `bulkCreate` non transactionnel : import CSV partiellement invisible + doublons garantis au réimport | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [56](56_market_prices_bulkcreate_dedup_supplierid_fragile.md) | `bulkCreate` : dédoublonnage basé sur `supplierId` trop fragile, crée des doublons réels | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [57](57_market_prices_bulkcreate_dedup_decimal_number_comparaison_silencieuse.md) | `bulkCreate` : comparer un champ `Decimal` (`price`) à un `number` JS brut échoue silencieusement, dédoublonnage totalement inopérant | 🟢 Corrigé | 🔴 | Achats & référentiels |
+| [58](58_spacemenu_deletedat_fix51_non_replique.md) | Fix BUG-051 (`deletedAt` sur `MenuAssignment.menuItem`) non répliqué sur 3 endroits de `space-menus.service.ts` | 🟢 Corrigé | 🟠 | Menu & recettes / Espaces & builder |
+| [59](59_spacemenu_savemenuconfiguration_non_transactionnel.md) | `saveMenuConfiguration` : création des `SpaceMenuItem` hors de la transaction des `MenuAssignment` | 🟢 Corrigé | 🟠 | Menu & recettes / Espaces & builder |
+| [60](60_spacemenu_getshopmenu_spacelinks_non_scope.md) | `getShopMenu` renvoie les prix de tous les espaces (`spaceLinks` non scopé) et ne résout jamais `spaceId` | 🟢 Corrigé | 🟠 | Menu & recettes / Espaces & builder |
+| [61](61_spacemenu_duplication_lookup_shop_tenant.md) | Logique de lookup shop/tenant + résolution `spaceId` dupliquée sur 4 méthodes (cause racine de BUG-060) | 🟢 Corrigé | 🟡 | Menu & recettes / Espaces & builder |
+| [62](62_spacemenu_availability_referentiel_tenant_non_scope.md) | `getItemsWithAvailabilityForSpace` charge tout le référentiel tenant sur chaque appel, sans cache | ⚪ Diagnostiqué | 🟠 | Menu & recettes / Espaces & builder |
+| [63](63_spacemenu_dto_enabled_non_valide_booleen.md) | `SaveSpaceMenuConfigurationDto.menuItems` : aucune validation que les valeurs sont des booléens | 🟢 Corrigé | 🟡 | Menu & recettes / Espaces & builder |
+| [64](64_spacemenu_nettoyages_mineurs.md) | SpaceMenus backend : nettoyages mineurs (logs verbeux, doc Swagger désynchronisée) | 🟢 Corrigé | 🟡 | Menu & recettes / Espaces & builder |
+| [65](65_predictversions_setdefault_cross_tenant.md) | `PredictVersionsService.setDefault` : écriture cross-tenant sans scoping | 🟢 Corrigé | 🔴 | Événements / Prévision |
+| [66](66_createeventcategory_eventtypeid_sans_ownership.md) | `createEventCategory` : aucune vérification d'ownership sur `eventTypeId` | 🟢 Corrigé | 🟠 | Événements |
+| [67](67_event_taxonomy_fk_sans_ownership.md) | `Event.create()`/`update()` : aucune vérification d'ownership sur les FK de taxonomie | 🟢 Corrigé | 🟠 | Événements |
+| [68](68_updateteam_rename_non_transactionnel.md) | `updateTeam` : renommage + repropagation `Event.visitingTeamName` non transactionnels | 🟢 Corrigé | 🟡 | Événements |
+| [69](69_events_module_pas_de_traduction_p2002_p2003.md) | Module Events : aucune traduction des erreurs Prisma P2002/P2003 (500 générique) | 🟢 Corrigé | 🟠 | Événements |
+| [70](70_team_duplicate_toctou_sans_unique_index.md) | `Team` : vérification de doublon TOCTOU, aucune contrainte `@@unique` en base | ⚪ Diagnostiqué | 🟡 | Événements |
+| [71](71_get_events_page_limit_negatifs_sans_borne.md) | `GET /events` : `page`/`limit` négatifs acceptés, `limit` sans borne haute | 🟢 Corrigé | 🟡 | Événements |
+| [72](72_createeventdto_createteamdto_name_vide.md) | `CreateEventDto.name`/`CreateTeamDto.name` : chaîne vide acceptée | 🟢 Corrigé | 🟡 | Événements |
+| [73](73_createeventdto_champs_numeriques_sans_borne_min.md) | `CreateEventDto` : `ticketsSold`/`ticketsScanned`/`numberOfSessions` sans borne minimale | 🟢 Corrigé | 🟡 | Événements |
+| [74](74_predictversionsservice_remove_findone_code_mort.md) | `PredictVersionsService.remove()`/`findOne()` : code mort (au-delà de BUG-13) | 🟢 Corrigé | 🟢 | Prévision |
+| [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | ⚪ Diagnostiqué | 🟠 | Événements |
+| [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | ⚪ Diagnostiqué | 🟢 | Prévision |
 
-**57 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+**76 bugs au total**, 65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
+Events (`events.controller.ts`/`.service.ts`, taxonomies, Teams, couche API `predict-versions.*`) :
+une faille cross-tenant P0 sur `PUT .../predict-versions/default` (aucun scoping tenant sur
+l'update, corrigée + couverte par un nouveau fichier de tests — ce module n'en avait aucun) ;
+`createEventCategory` sans vérification d'ownership sur `eventTypeId` (seule méthode taxonomie à
+avoir cet oubli, les autres l'avaient déjà) ; `Event.create()`/`update()` sans vérification
+d'ownership sur les 3 FK de taxonomie (même famille que le Piège n°3 déjà documenté pour
+`spaceId`/`configurationId`, mais corrigible ici via les helpers déjà existants) ; renommage de Team
+non transactionnel avec sa repropagation sur les events ; aucune des 6 méthodes CRUD de taxonomie ne
+traduisait P2002/P2003 en erreur propre (pattern déjà établi ailleurs dans le backend, jamais
+répliqué sur ce module) ; pagination `GET /events` acceptant des valeurs négatives et sans borne
+haute ; validations DTO manquantes (`name` vide, champs numériques négatifs) ; code mort
+supplémentaire dans `PredictVersionsService` (`remove()`/`findOne()`, et `update()` déjà documenté
+BUG-13, supprimés ensemble). BUG-70/75/76 laissés en ⚪ Diagnostiqué (décision produit/architecture
+nécessaire avant de trancher, cf. fiches individuelles) ; BUG-13 (frontend miroir) mis à jour à 🟢
+suite à la suppression de `update()`. extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
 recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-50 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic` ; 51 ajouté le 2026-07-15 suite
 à une vérification directe en base des Menu Items sans prix pour l'espace Auxerre lors de la Data
@@ -83,7 +117,27 @@ transactionnel, cause racine du succès partiel invisible et des doublons côté
 le 2026-07-16 suite à un signalement utilisateur de doublons réels créés malgré le fix 55
 (dédoublonnage sur supplierId trop fragile) ; 57 ajouté le 2026-07-16 suite à un nouveau
 signalement de doublons malgré le fix 56 — cause racine : comparaison Decimal/number Prisma
-silencieusement cassée, confirmée par requêtes directes en base.
+silencieusement cassée, confirmée par requêtes directes en base ; 58-64 ajoutés et majoritairement
+corrigés le 2026-07-17 suite à un audit complet du module `SpaceMenus`
+(`space-menus.controller.ts` + `.service.ts`) : le fix BUG-051 (`deletedAt` sur
+`MenuAssignment.menuItem`) non répliqué sur 3 des 4 endroits qui lisent/écrivent des assignations,
+une écriture `SpaceMenuItem` hors transaction pouvant désynchroniser `MenuAssignment.enabled` et
+la disponibilité réelle, une fuite de prix inter-espaces dans `getShopMenu` (spaceLinks non scopé,
+cause racine : le shop n'était jamais résolu vers son `spaceId`), la duplication de code à
+l'origine de cette dernière fuite, une validation DTO trop faible sur les valeurs booléennes, et
+des nettoyages mineurs (logs, doc Swagger) ; BUG-061 initialement laissé non corrigé (refactor
+jugé trop risqué), puis re-tranché le même jour après ré-examen : la clause `OR` d'appartenance
+tenant et la dérivation `spaceId` sont strictement identiques dans les 4 méthodes (vérifié
+caractère près) et ont été factorisées dans 2 helpers privés, sans toucher aux `select` Prisma
+hétérogènes (là où vivait le vrai risque) — `tsc --noEmit` propre après coup ; BUG-062 (chargement
+du référentiel tenant complet sans scoping sur chaque ouverture de drawer) laissé non corrigé après
+vérification en base (lecture seule, 2026-07-17) : le plus gros tenant des 21 existants n'a que 54
+ingrédients, 8 packagings/composants au total tous tenants confondus, 46 market prices, 16
+fournisseurs — l'espace le plus chargé n'a que 60 items associés (181 lignes `SpaceMenuItem` au
+total en base). Le pattern non scopé charge donc au pire ~130 lignes plates par appel, un coût
+négligeable à l'échelle actuelle malgré le défaut architectural réel — fix reporté, à revisiter si
+le référentiel cumulé d'un tenant dépasse ~500 lignes ou si la latence de cette route devient
+mesurable (cf. fiche BUG-062 pour le design de fix envisagé si besoin).
 
 ## Comment ajouter un bug
 

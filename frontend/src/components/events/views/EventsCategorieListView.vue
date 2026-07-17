@@ -58,6 +58,8 @@
           :headers="tableHeaders"
           :items="categories"
           :loading="loading"
+          :items-per-page="25"
+          :items-per-page-options="[10, 25, 50, 100]"
           density="compact"
           class="ecl-table"
         >
@@ -85,7 +87,7 @@
     </div>
 
     <!-- Category Drawer -->
-    <v-navigation-drawer v-model="categoryDialog" location="right" temporary width="560" class="ecl-cat-drawer">
+    <v-navigation-drawer v-model="categoryDialog" location="right" temporary :persistent="categoryLoading" width="560" class="ecl-cat-drawer">
       <!-- Gradient header -->
       <div class="ecl-drawer-header">
         <div class="ecl-drawer-header__icon">
@@ -168,27 +170,27 @@
     <EventTypeDialog v-model="typeDialog" @created="handleTypeCreated" />
 
     <!-- Delete dialog -->
-    <v-dialog v-model="deleteDialog" max-width="440">
+    <v-dialog v-model="deleteDialog" max-width="440" :persistent="deleteLoading">
       <div class="ecl-modal">
         <div class="ecl-modal__head">
           <div class="ecl-modal__icon-wrap"><Trash2 :size="18" color="#ff3131" /></div>
           <div class="ecl-modal__headtext">
-            <div class="ecl-modal__title">Supprimer la catégorie</div>
-            <div class="ecl-modal__sub">Cette action est irréversible</div>
+            <div class="ecl-modal__title">{{ t('eventCategoryList.deleteTitle') }}</div>
+            <div class="ecl-modal__sub">{{ t('eventCategoryList.deleteSubtitle') }}</div>
           </div>
           <button class="ecl-modal__close" @click="closeDeleteDialog"><X :size="16" /></button>
         </div>
         <div class="ecl-modal__body">
           <div v-if="deleteError" class="ecl-modal__error"><AlertCircle :size="14" /> {{ deleteError }}</div>
           <p class="ecl-modal__text">
-            Voulez-vous supprimer la catégorie <strong>{{ deleteCategoryName }}</strong> ? Cette action est définitive.
+            {{ t('eventCategoryList.deleteText') }} <strong>{{ deleteCategoryName }}</strong> ?
           </p>
         </div>
         <div class="ecl-modal__foot">
-          <button class="ecl-mbtn ecl-mbtn--cancel" @click="closeDeleteDialog">Annuler</button>
+          <button class="ecl-mbtn ecl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventCategoryList.deleteCancel') }}</button>
           <button class="ecl-mbtn ecl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
             <Trash2 :size="14" />
-            {{ deleteLoading ? 'Suppression…' : 'Supprimer' }}
+            {{ deleteLoading ? t('eventCategoryList.deleteConfirming') : t('eventCategoryList.deleteConfirm') }}
           </button>
         </div>
       </div>
@@ -354,6 +356,7 @@ export default {
           const payload = {
             name: this.categoryFormData.name,
             eventTypeId: this.categoryFormData.eventTypeId,
+            hasHomeTeam: this.categoryFormData.hasHomeTeam,
           };
           await updateEventCategory(this.categoryId, payload);
           await this.$store.dispatch('eventCategories/updateEventCategory', {
@@ -364,6 +367,7 @@ export default {
           const payload = {
             name: this.categoryFormData.name,
             eventTypeId: this.categoryFormData.eventTypeId,
+            hasHomeTeam: this.categoryFormData.hasHomeTeam,
           };
           const response = await createEventCategory(payload);
           const created = response?.data || response;
@@ -463,9 +467,6 @@ export default {
         name: "Créer un nouveau type",
       };
       return [createOption, ...this.eventTypes];
-    },
-    categoriesWithHomeTeam() {
-      return this.categories.filter(c => c.hasHomeTeam).length;
     },
     eventTypeNameById() {
       const map = {};

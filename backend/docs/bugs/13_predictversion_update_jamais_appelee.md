@@ -1,6 +1,6 @@
 # BUG-013 — PredictVersionsService.update() jamais appelée (code mort d'API)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟢 Mineur (code mort, sans conséquence fonctionnelle actuelle)
 - **Domaine** : Prévision (Event Predict)
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -19,8 +19,9 @@ Toute mise à jour de version de prédiction passe en réalité par `PATCH /pred
 
 ## Correction
 
-Aucune. À supprimer, ou à documenter comme volontairement conservée si un futur besoin de
-remplacement complet est prévu.
+Supprimée le 2026-07-17 avec son DTO `UpdatePredictVersionDto`, à l'occasion de
+[[74_predictversionsservice_remove_findone_code_mort]] (`remove()`/`findOne()`, dont `update()`
+était le seul autre appelant de `findOne`).
 
 ## Risque de régression / à surveiller
 

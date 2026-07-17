@@ -58,6 +58,8 @@
           :headers="tableHeaders"
           :items="subcategories"
           :loading="loading"
+          :items-per-page="25"
+          :items-per-page-options="[10, 25, 50, 100]"
           density="compact"
           class="esl-table"
         >
@@ -87,7 +89,7 @@
     </div>
 
     <!-- Subcategory Drawer -->
-    <v-navigation-drawer v-model="subDialog" location="right" temporary width="560" class="esl-sub-drawer">
+    <v-navigation-drawer v-model="subDialog" location="right" temporary :persistent="subLoading" width="560" class="esl-sub-drawer">
       <!-- Gradient header -->
       <div class="esl-drawer-header">
         <div class="esl-drawer-header__icon">
@@ -164,27 +166,27 @@
     <EventCategoryDialog v-model="categoryDialog" :event-types="eventTypes" @created="handleCategoryCreated" />
 
     <!-- Delete dialog -->
-    <v-dialog v-model="deleteDialog" max-width="440">
+    <v-dialog v-model="deleteDialog" max-width="440" :persistent="deleteLoading">
       <div class="esl-modal">
         <div class="esl-modal__head">
           <div class="esl-modal__icon-wrap"><Trash2 :size="18" color="#ff3131" /></div>
           <div class="esl-modal__headtext">
-            <div class="esl-modal__title">Supprimer la sous-catégorie</div>
-            <div class="esl-modal__sub">Cette action est irréversible</div>
+            <div class="esl-modal__title">{{ t('eventSubcategoryList.deleteTitle') }}</div>
+            <div class="esl-modal__sub">{{ t('eventSubcategoryList.deleteSubtitle') }}</div>
           </div>
           <button class="esl-modal__close" @click="closeDeleteDialog"><X :size="16" /></button>
         </div>
         <div class="esl-modal__body">
           <div v-if="deleteError" class="esl-modal__error"><AlertCircle :size="14" /> {{ deleteError }}</div>
           <p class="esl-modal__text">
-            Voulez-vous supprimer <strong>{{ deleteSubName }}</strong> ? Cette action est définitive.
+            {{ t('eventSubcategoryList.deleteText') }} <strong>{{ deleteSubName }}</strong> ?
           </p>
         </div>
         <div class="esl-modal__foot">
-          <button class="esl-mbtn esl-mbtn--cancel" @click="closeDeleteDialog">Annuler</button>
+          <button class="esl-mbtn esl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventSubcategoryList.deleteCancel') }}</button>
           <button class="esl-mbtn esl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
             <Trash2 :size="14" />
-            {{ deleteLoading ? 'Suppression…' : 'Supprimer' }}
+            {{ deleteLoading ? t('eventSubcategoryList.deleteConfirming') : t('eventSubcategoryList.deleteConfirm') }}
           </button>
         </div>
       </div>

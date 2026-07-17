@@ -126,8 +126,67 @@
 | [110](110_menu_items_export_placeholder_tiret_casse_reimport.md) | Export/Import CSV MenuItem : le placeholder d'affichage "-" cassait le réimport en masse | 🟢 Corrigé | 🔴 | Menu & recettes |
 | [111](111_menu_items_import_ui_trop_dense_listes_non_actionnables.md) | Import CSV MenuItem : interface trop dense, listes d'erreurs sans action possible | 🟢 Corrigé | 🟡 | Menu & recettes |
 | [112](112_menu_items_import_mapping_creation_auto_referentiels.md) | Import CSV MenuItem : pas de mapping de colonnes ni de création auto des référentiels manquants | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [113](113_spacemenus_shopdetailview_orpheline_attach_factice.md) | ShopDetailView.vue : écran orphelin dont l'action "Attacher" est un stub non fonctionnel | 🟢 Corrigé | 🔴 | Menu & recettes |
+| [114](114_spacemenus_shopdetailview_disponibilite_catalogue_divergents.md) | ShopDetailView.vue : disponibilité et chargement catalogue divergents du reste du feature | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [115](115_spacemenus_shopdetailview_dette_diverse.md) | ShopDetailView.vue : dette diverse (i18n contourné, pas de dark mode, formatage incohérent, logs, pas de retry) | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [116](116_spacemenus_composables_morts_doc_obsolete.md) | Cluster de composables morts (useSpaceMenu/useSpaceMenuReconciliation/useShopElementMapping) + doc module obsolète | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [117](117_spacemenus_scrolllock_keepalive.md) | Fuite du verrou de scroll body en quittant /space-menus (keep-alive) avec un drawer ouvert | 🟢 Corrigé | 🔴 | Menu & recettes |
+| [118](118_spacemenus_shoptypes_incompatibles_entre_drawers.md) | Deux tiroirs éditent les "types de shop" avec des noms de champ incompatibles → écrasement silencieux | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [119](119_spacemenus_drawers_race_settimeout_reouverture.md) | Tiroirs Space Menus : race locale sur réouverture rapide (setTimeout non annulé vide le formulaire) | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [120](120_spacemenus_drawers_erreurs_save_avalees.md) | Erreurs de sauvegarde des tiroirs d'édition shop avalées sans feedback utilisateur | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [121](121_spacemenus_drawers_i18n_darkmode_incomplet.md) | Tiroirs Space Menus : i18n contourné et dark mode incomplet | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [122](122_spacemenus_deeplink_casse_keepalive.md) | SpaceMenuView.vue : le deep-link ?space=&config= casse au retour sur la page (keep-alive) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [123](123_spacemenus_menuitemquery_filtre_residuel.md) | SpaceMenuView.vue : la recherche "par article" continue de filtrer les shops après retour en vue "By Shop" | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [124](124_spacemenus_race_condition_changement_espace.md) | SpaceMenuView.vue : race condition sans garde de spaceId après changement rapide d'espace | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [125](125_spacemenus_darkmode_non_propage_enfants.md) | Dark mode non propagé de SpaceMenuView.vue à SpaceMenuShopView/SpaceMenuItemView | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [126](126_spacemenus_i18n_formats_en_dur.md) | i18n contourné et formats en dur sur SpaceMenuItemView/SpaceMenuShopView/SpaceMenuView | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [127](127_spacemenus_nettoyages_code_mort_perf.md) | SpaceMenuView/SpaceMenuItemView : nettoyages mineurs (code mort + recalcul O(P×S) non mémoïsé) | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [128](128_spacemenus_cache_shopmenuitems_non_invalide.md) | Cache Vuex shopMenuItems jamais invalidé après une écriture Space Menus (et jamais préchargé pour la recherche) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [129](129_spacemenus_ux_mineurs_a11y_input_file.md) | Space Menus : petits soucis UX/a11y (focus clavier invisible, état "sans configuration", input file non réinitialisé) | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [130](130_eventcategorielist_hashometeam_jamais_envoye.md) | `/event-categories` : `hasHomeTeam` jamais envoyé par le seul écran dédié à ce champ | 🟢 Corrigé | 🟠 | Événements |
+| [131](131_eventcategorydialog_hashometeam_absent_cache_emit.md) | `EventCategoryDialog.vue` : `hasHomeTeam` absent du cache Vuex optimiste et de l'emit | 🟢 Corrigé | 🟡 | Événements |
+| [132](132_events_stores_registre_inflight_absent.md) | Stores Événements : registre `inflight` absent (déviation du pattern établi) | 🟢 Corrigé | 🟠 | Événements |
+| [133](133_eventslist_bouton_calculer_revenu_mort.md) | `/events` : bouton "Calculer le revenu" sans aucun handler | 🟢 Corrigé | 🟠 | Événements |
+| [134](134_events_dialogs_drawers_sans_persistent.md) | Dialogs/drawers Événements sans `persistent` : fermables pendant une requête en cours | 🟢 Corrigé | 🟠 | Événements |
+| [135](135_parsecsv_casse_champs_multilignes.md) | `utils/csv.js parseCSV` : casse sur un champ entre guillemets contenant un saut de ligne | 🟢 Corrigé | 🔴 | Événements |
+| [136](136_csvimportdrawer_champs_hors_dto_400_garanti.md) | `CsvImportDrawer.vue` : champs hors DTO → 400 garanti (`forbidNonWhitelisted`) sur toute ligne enrichie | 🟢 Corrigé (partiel) | 🔴 | Événements |
+| [137](137_csv_import_events_sans_dedoublonnage.md) | Import CSV Events : aucune déduplication au ré-import | 🟢 Corrigé | 🟠 | Événements |
+| [138](138_csv_import_events_fichier_vide_silencieux.md) | Import CSV Événements : fichier vide/en-tête seul silencieusement ignoré | 🟢 Corrigé | 🟠 | Événements |
+| [139](139_events_store_pas_de_pagination_cap_50.md) | `events.js` store : `fetchEvents` sans pagination → `/events` plafonné à 50 lignes | 🟢 Corrigé | 🟠 | Événements |
+| [140](140_teamapi_getteams_avale_toutes_erreurs.md) | `team.api.js getTeams()` : avale TOUTES les erreurs, pas seulement le 404 attendu | 🟢 Corrigé | 🟡 | Événements |
+| [141](141_events_i18n_contourne_dialogs_suppression.md) | Événements : i18n contourné sur les 4 dialogs de suppression + mini-dialog "Créer une équipe" | 🟢 Corrigé | 🟡 | Événements |
+| [142](142_events_vdatatable_pagination_non_configuree.md) | Les 4 `v-data-table` du domaine Événements : pagination non configurée (défaut Vuetify = 10) | 🟢 Corrigé | 🟡 | Événements |
+| [143](143_events_computed_morts.md) | Computed morts jamais référencés dans le template (EventsTypeListView/EventsCategorieListView) | 🟢 Corrigé | 🟢 | Événements |
+| [144](144_eventslistview_mappedevents_recherche_lineaire.md) | `EventsListView.vue mappedEvents` : recherche linéaire O(n×m) non mémoïsée | 🟢 Corrigé | 🟢 | Événements |
+| [145](145_eventcategorielist_duplication_creation_categorie.md) | Deux implémentations divergentes de "créer une catégorie" | ⚪ Diagnostiqué | 🟡 | Événements |
+| [146](146_eventformdrawer_ticketsscanned_sans_validation_croisee.md) | `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold` | ⚪ Diagnostiqué | 🟢 | Événements |
+| [147](147_events_store_ttl_5min_incoherent.md) | `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie | ⚪ Diagnostiqué | 🟢 | Événements |
+| [148](148_eventdrawershell_inutilise_duplication_markup.md) | `EventDrawerShell.vue` inutilisé dans le périmètre Événements, header/footer dupliqués 3× | ⚪ Diagnostiqué | 🟢 | Événements |
 
-**112 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**148 bugs au total**, 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
+complet du domaine Événements (`/events`, `/event-types`, `/event-categories`,
+`/event-subcategories` + module backend miroir) : `hasHomeTeam` jamais réellement sauvegardé
+depuis son seul écran de gestion dédié (2 bugs, cause racine = deux implémentations divergentes de
+création de catégorie, laissée en ⚪ pour arbitrage) ; registre `inflight` absent des 4 stores du
+domaine (déviation du pattern établi ailleurs) ; bouton "Calculer le revenu" mort (retiré) ; aucun
+dialog/drawer du domaine n'était `persistent` pendant une requête — le cas le plus grave concernant
+les deux importeurs CSV, dont la boucle d'import continue en tâche de fond même si l'utilisateur
+croit avoir fermé le drawer ; le parseur CSV partagé (`utils/csv.js`, seul consommateur = ce
+domaine) cassait sur les champs multi-lignes entre guillemets (même classe de bug déjà fixée
+ailleurs sous forme de parseurs locaux, jamais répercutée sur cet utilitaire partagé) ; l'import CSV
+d'events envoyait des champs absents du contrat `CreateEventDto` (`doorsOpen`/`showTime`/
+`visitingTeam`/`performerName`/`sponsor`/`openingActName`/`allSessions`), provoquant un rejet 400
+systématique (`forbidNonWhitelisted`) pour toute ligne renseignant l'un de ces champs — corrigé pour
+les champs ayant un vrai foyer côté DTO, décision produit posée pour les 3 qui n'en ont aucun ; ni
+import (Events ni taxonomie) ne dédupliquait au ré-import, ni ne signalait un fichier vide ; le
+store `events.js` ne paginait jamais `GET /events`, tronquant silencieusement à 50 lignes (défaut
+backend) tout tenant plus chargé ; `team.api.js` masquait toute erreur réseau réelle en "aucune
+équipe" ; i18n contourné sur 5 dialogs (4 suppressions + création d'équipe inline) ; pagination
+`v-data-table` non configurée sur les 4 écrans (défaut Vuetify 10 lignes) ; plus quelques nettoyages
+mineurs (computed morts, recherche linéaire non mémoïsée). 145-148 documentent des décisions
+produit non tranchées mises au jour par ce même audit (duplication de la logique de création de
+catégorie, absence de validation croisée ticketsScanned/ticketsSold, incohérence de TTL de cache,
+composant `EventDrawerShell` disponible mais non adopté par les 3 drawers du domaine). extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
@@ -188,7 +247,33 @@ différents ne bute plus sur un référentiel absent — les lignes de recette (
 Packaging) restent volontairement exclues de cette auto-création (coût/unité non déductibles d'un
 simple nom). BUG-005 (Freezer/Frozen) mis à jour le 2026-07-17 : son fichier `MenuItemFormDrawer.vue`
 ayant été supprimé (BUG-083), seule l'occurrence `MenuItemCreateView.vue:504` reste active — bug
-toujours non corrigé (décision produit du 2026-07-15 à reconfirmer avant d'y toucher).
+toujours non corrigé (décision produit du 2026-07-15 à reconfirmer avant d'y toucher) ; 113-129
+ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit complet de la page `/space-menus`
+et de ses 7 composants live (4 vues, 3 tiroirs) + de sa couche état (composables, clients API,
+store) : `ShopDetailView.vue` s'est révélé être un écran orphelin (route jamais atteinte par
+aucune navigation en application) dont l'action principale "Attacher" était un stub 100% factice
+sans appel réseau (BUG-113), avec en prime une logique de disponibilité/catalogue entièrement
+divergente du reste du feature (BUG-114) ; une fuite de verrou de scroll body bloquait le défilement
+de toute l'application après avoir quitté `/space-menus` (route keep-alive) avec un tiroir resté
+ouvert (BUG-117) ; deux tiroirs d'édition shop se sont révélés éditer le même concept "types de
+shop" sous des noms de champ et valeurs incompatibles, un save silencieux écrasant les vrais types
+du shop par un défaut codé en dur (BUG-118) ; un deep-link `?space=&config=` depuis Event Predict se
+cassait au retour sur une page gardée en mémoire (BUG-122) ; un filtre de recherche résiduel
+polluait silencieusement la vue "By Shop" après un passage par "By Menu Item" (BUG-123) ; des race
+conditions sans garde de fraîcheur pouvaient afficher les données d'un espace précédent après un
+changement rapide de sélection (BUG-124) ; le cache Vuex `shopMenuItems` n'était jamais invalidé
+après une écriture Space Menus, laissant Event Predict/Restock servir un roster périmé jusqu'à 15
+minutes (BUG-128) ; et un cluster de 3 composables entiers (`useSpaceMenu.js`,
+`useSpaceMenuReconciliation.js`, `useShopElementMapping.js`) s'est révélé être du code mort jamais
+branché aux écrans réels malgré une documentation de module qui les décrivait comme la couche
+d'édition live ; complétés par des correctifs de dark mode non propagé, i18n contourné, formatage
+monétaire incohérent, petits nettoyages de code mort et de perf (recalcul O(P×S) non mémoïsé), et
+quelques soucis UX/a11y mineurs. BUG-116 tranché et corrigé le même jour après recherche
+approfondie (historique git, recherche d'un spec document introuvable, vérification qu'aucune
+route backend `/shop-element-mappings` n'existe, découverte d'un concept concurrent déjà en
+production sous un autre nom) : arbitrage en faveur de la suppression (prototype abandonné, pas
+une fonctionnalité en attente) — les 3 composables et leurs tests dédiés supprimés, doc module
+mise à jour.
 
 ## Comment ajouter un bug
 

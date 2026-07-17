@@ -4,6 +4,7 @@
     @update:model-value="$emit('update:modelValue', $event)"
     location="right"
     temporary
+    :persistent="formLoading"
     width="560"
     class="efd-drawer"
     :class="{ 'efd--dark': isDark }"
@@ -456,21 +457,21 @@
   />
 
   <!-- Création d'équipe inline (scopée à la compétition de l'event). -->
-  <v-dialog v-model="teamDialogOpen" max-width="420">
+  <v-dialog v-model="teamDialogOpen" max-width="420" :persistent="teamCreateLoading">
     <div style="background: var(--card, #fff); padding: 20px; border-radius: 12px;">
-      <h3 style="font-weight: 700; margin-bottom: 12px;">Créer une équipe</h3>
+      <h3 style="font-weight: 700; margin-bottom: 12px;">{{ t('eventsList.createTeamTitle') }}</h3>
       <v-text-field
         v-model="teamName"
-        label="Nom de l'équipe"
-        placeholder="Ex. Olympique Lyonnais"
+        :label="t('eventsList.createTeamLabel')"
+        :placeholder="t('eventsList.createTeamPlaceholder')"
         variant="outlined"
         density="comfortable"
         hide-details
         @keyup.enter="handleCreateTeam"
       />
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-        <v-btn variant="text" @click="teamDialogOpen = false">Annuler</v-btn>
-        <v-btn color="primary" :disabled="!teamName.trim()" @click="handleCreateTeam">Créer</v-btn>
+        <v-btn variant="text" :disabled="teamCreateLoading" @click="teamDialogOpen = false">{{ t('eventsList.createTeamCancel') }}</v-btn>
+        <v-btn color="primary" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
       </div>
     </div>
   </v-dialog>
@@ -544,6 +545,7 @@ export default {
       teams: [],
       teamName: '',
       teamDialogOpen: false,
+      teamCreateLoading: false,
       teamDialogTarget: 'visiting',
       _initializingEdit: false,
       spaceConfigs: {},
@@ -1011,6 +1013,7 @@ export default {
           ? { eventSubcategoryId: this.newEvent.eventSubcategoryId }
           : {}),
       };
+      this.teamCreateLoading = true;
       try {
         const created = await restCreateTeam(payload);
         const team = created && created.id ? created : { id: `team-${Date.now()}`, ...payload };
@@ -1026,6 +1029,8 @@ export default {
         this.teamDialogOpen = false;
       } catch (e) {
         this.formError = e?.response?.data?.message || e?.message || "Impossible de créer l'équipe";
+      } finally {
+        this.teamCreateLoading = false;
       }
     },
   },
