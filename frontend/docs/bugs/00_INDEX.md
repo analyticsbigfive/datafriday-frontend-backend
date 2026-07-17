@@ -122,8 +122,9 @@
 | [106](106_menu_items_pas_de_loading_et_chargement_catalogue_complet.md) | MenuItemView : pas d'indicateur de chargement + catalogue complet chargé d'un coup (pagination serveur réelle ajoutée) | 🟢 Corrigé | 🟠 | Menu & recettes |
 | [107](107_menu_items_export_csv_lent_incomplet_ids_bruts.md) | Export CSV MenuItem : lent (N+1), champs incomplets, recette en IDs bruts non portables | 🟢 Corrigé (export) | 🟠 | Menu & recettes |
 | [108](108_menu_items_csv_reimport_format_multi_lignes.md) | Import CSV MenuItem : support du format multi-lignes (une ligne par recette) de l'export | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [109](109_menu_items_import_dropzone_hauteur_non_remplie.md) | Import CSV MenuItem : dropzone de l'étape 1 n'utilise pas toute la hauteur du tiroir | 🟢 Corrigé | 🟡 | Menu & recettes |
 
-**108 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**109 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page

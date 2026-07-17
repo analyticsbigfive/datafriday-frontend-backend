@@ -42,7 +42,7 @@
     <div class="mi-body pa-5">
 
       <!-- Step 1 : Upload ── -->
-      <div v-if="step === 1">
+      <div v-if="step === 1" class="mi-step1">
         <input ref="fileInput" type="file" accept=".csv,.tsv,text/csv" style="display:none" @change="onFileChange" />
 
         <div
@@ -1042,6 +1042,18 @@ export default {
 .mi-body {
   overflow-y: auto;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Step 1 (upload) : occupe toute la hauteur disponible du corps du tiroir au lieu de
+   laisser un grand vide sous la dropzone — seul ce step utilise flex:1 ici (le format hint
+   garde sa hauteur naturelle en bas) ; steps 2/3 (aperçu/résultat) restent en flux normal. */
+.mi-step1 {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── Dropzone ────────────────────────────────────────────── */
@@ -1052,6 +1064,8 @@ export default {
   padding: 48px 24px;
   background: #f9fafb;
   transition: border-color 0.2s, background 0.2s;
+  flex: 1;
+  min-height: 220px;
 }
 .mi-import--dark .mi-dropzone {
   border-color: #374151;
