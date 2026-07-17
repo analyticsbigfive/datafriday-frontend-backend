@@ -449,8 +449,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { formatCurrency } from "@/composables/useFormatters";
-import { runWithConcurrency } from "@/utils/asyncPool";
-import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemById, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
+import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
 import { getProductMappings, deleteProductMapping } from "@/api/endpoints/mapping.api";
 import MenuItemDeleteDialog from '../dialogs/MenuItemDeleteDialog.vue';
 import MenuItemCsvImportDrawer from '../drawers/MenuItemCsvImportDrawer.vue';
@@ -860,75 +859,77 @@ export default {
       return { totalCost, totalPrice, avgMargin };
     },
 
-    buildRecipeString(menuItem) {
-      const parts = []
-      for (const ing of menuItem.ingredients || []) {
-        const entityId = ing.ingredientId || ''
-        const qty = Number(ing.numberOfUnits || 0).toFixed(3)
-        if (entityId) parts.push(`${ing.id}>Ingredient>${entityId}>${entityId}>${qty}`)
-      }
-      for (const comp of menuItem.components || []) {
-        const entityId = comp.componentId || ''
-        const qty = Number(comp.numberOfUnits || 0).toFixed(3)
-        if (entityId) parts.push(`${comp.id}>Component>${entityId}>${entityId}>${qty}`)
-      }
-      for (const pkg of menuItem.packagings || []) {
-        const entityId = pkg.packagingId || ''
-        const qty = Number(pkg.numberOfUnits || 0).toFixed(3)
-        if (entityId) parts.push(`${pkg.id}>Packaging>${entityId}>${entityId}>${qty}`)
-      }
-      return parts.join('|')
-    },
     async onExportCsv() {
       this.exportLoading = true
       try {
         // L'export porte sur le catalogue COMPLET filtré, pas juste la page visible à l'écran
         // (mode tableau paginé) — s'assure que le store est peuplé avant de lire filteredItems.
+        // Note perf : PAS de getMenuItemById() par article ici — findAll() (donc fetchMenuItems)
+        // inclut déjà ingredients/components/packagings avec leurs entités liées (même
+        // `includeRelations` que le détail unitaire), item._raw les contient donc déjà.
+        // L'ancienne version refaisait un appel réseau par article (N+1), c'était l'essentiel
+        // de la lenteur avant le lancement du téléchargement.
         await this.$store.dispatch('menuItems/fetchMenuItems', {})
         const source = this.filteredItems.length ? this.filteredItems : (this.items || [])
         if (!source.length) { this.exportLoading = false; return }
-        // Fetch full details per item to get ingredients/components/packagings (une ligne = un article).
-        // Concurrence bornée (asyncPool) pour éviter une rafale de requêtes simultanées sur un backend lent.
-        const detailById = {}
-        const menuItemIds = [...new Set(source.map(item => item.menuItemId))]
-        await runWithConcurrency(menuItemIds, 5, async (id) => {
-          try {
-            detailById[id] = await getMenuItemById(id)
-          } catch (e) {
-            // ignoré : repli sur item._raw plus bas
-          }
-        })
 
         const headers = [
-          'Name',
-          'Type',
-          'Category',
-          'Space',
-          'Price TTC',
-          'Price HT',
-          'VAT %',
-          'Ready for Sale',
-          'Combo Item',
-          'Description',
-          'Recipe',
+          // "Display Name Ref" (pas "Display Name" tout court) : évite une collision avec
+          // l'alias historique 'display name' → name du menu item lui-même côté import CSV.
+          'Name', 'Type', 'Category', 'Brand', 'Display Name Ref',
+          'Ready for Sale', 'Kitchen Type', 'Combo Item', 'Number of Pieces (Recipe)',
+          'Price TTC', 'Price HT', 'VAT %', 'Discount Type', 'Discount Value',
+          'Storage Type', 'Diet', 'Space', 'Description',
+          // Une ligne par ingrédient/composant/packaging de la recette — identifiés par NOM
+          // (pas par ID interne, qui n'a aucun sens d'un compte à l'autre) pour que le fichier
+          // reste lisible et exploitable en dehors de ce tenant précis.
+          'Line Type', 'Line Item Name', 'Line Quantity', 'Line Unit Cost', 'Line Total Cost',
         ]
 
-        const rows = source.map((item) => {
-          const raw = detailById[item.menuItemId] || item._raw || {}
-          return [
+        const rows = []
+        for (const item of source) {
+          const raw = item._raw || {}
+          const lines = [
+            ...(raw.ingredients || []).map((l) => ({ type: 'Ingredient', name: l.ingredient?.name || '', qty: l.numberOfUnits, unitCost: l.unitCost, totalCost: l.totalCost })),
+            ...(raw.components || []).map((l) => ({ type: 'Component', name: l.component?.name || '', qty: l.numberOfUnits, unitCost: l.unitCost, totalCost: l.totalCost })),
+            ...(raw.packagings || []).map((l) => ({ type: 'Packaging', name: l.packaging?.name || '', qty: l.numberOfUnits, unitCost: l.unitCost, totalCost: l.totalCost })),
+          ]
+          // Un article sans aucune ligne de recette garde quand même UNE ligne dans l'export
+          // (sinon il disparaîtrait silencieusement du fichier).
+          if (!lines.length) lines.push({ type: '', name: '', qty: '', unitCost: '', totalCost: '' })
+
+          const itemColumns = [
             String(raw.name || item.name || ''),
             String(raw.productType?.name || item.type || ''),
             String(raw.productCategory?.name || item.category || ''),
-            String((item.spaceNames || []).join('; ')),
+            String(raw.brand?.name || ''),
+            String(raw.displayName?.name || ''),
+            String(raw.readyForSale ?? ''),
+            String(raw.kitchenType || ''),
+            String(raw.comboItem ?? ''),
+            String(raw.numberOfPiecesRecipe ?? ''),
             String(item.price ?? ''),
             String(item.priceHt ?? ''),
             String(item.vatRate ?? ''),
-            String(raw.readyForSale ?? ''),
-            String(raw.comboItem ?? ''),
+            String(raw.discountType || ''),
+            String(raw.discountValue ?? ''),
+            String((raw.storageType || []).join('; ')),
+            String((raw.diet || []).join('; ')),
+            String((item.spaceNames || []).join('; ')),
             String(raw.description || ''),
-            this.buildRecipeString(raw),
           ]
-        })
+
+          for (const line of lines) {
+            rows.push([
+              ...itemColumns,
+              String(line.type),
+              String(line.name),
+              String(line.qty ?? ''),
+              String(line.unitCost ?? ''),
+              String(line.totalCost ?? ''),
+            ])
+          }
+        }
 
         const escape = cell => {
           const s = String(cell ?? '')

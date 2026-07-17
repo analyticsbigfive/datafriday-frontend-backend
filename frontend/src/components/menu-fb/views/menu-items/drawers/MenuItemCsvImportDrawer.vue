@@ -157,6 +157,25 @@
           <div v-if="duplicateRows.length > 10">… +{{ duplicateRows.length - 10 }}</div>
         </div>
 
+        <!-- BUG-107 : lignes de recette (Ingredient/Component/Packaging) dont le nom ne
+             correspond à rien dans ce compte — l'article sera quand même créé, juste sans
+             cette ligne précise. -->
+        <v-alert
+          v-if="unresolvedRecipeLines.length"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          rounded="lg"
+          class="mb-2"
+          :text="`${unresolvedRecipeLines.length} ligne(s) de recette introuvable(s) dans ce compte — l'article sera créé sans elles`"
+        />
+        <div v-if="unresolvedRecipeLines.length" class="mi-skip-list mb-4 pa-3 rounded-lg text-caption mi-subtitle">
+          <div v-for="(l, i) in unresolvedRecipeLines.slice(0, 10)" :key="i">
+            • {{ l.item }} — {{ l.type }} "{{ l.name }}"
+          </div>
+          <div v-if="unresolvedRecipeLines.length > 10">… +{{ unresolvedRecipeLines.length - 10 }}</div>
+        </div>
+
         <!-- Preview table -->
         <div class="mi-table-wrap rounded-lg" style="overflow:hidden;">
           <v-table density="compact" class="mi-preview-table">
@@ -303,22 +322,31 @@ import { bulkCreateMenuItems, createMenuItem } from '@/api/endpoints/menu-item.a
 import { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Info } from 'lucide-vue-next'
 
 const KNOWN_COLUMNS = [
-  { key: 'name',         label: 'Name',          required: true  },
-  { key: 'type',         label: 'Type',           required: false },
-  { key: 'category',     label: 'Category',       required: false },
-  { key: 'basePrice',    label: 'Base Price',     required: false },
-  { key: 'readyForSale', label: 'Ready for Sale', required: false },
-  { key: 'comboItem',    label: 'Combo Item',     required: false },
-  { key: 'description',  label: 'Description',    required: false },
-  { key: 'recipe',       label: 'Recipe',         required: false },
+  { key: 'name',           label: 'Name',                       required: true  },
+  { key: 'type',           label: 'Type',                       required: false },
+  { key: 'category',       label: 'Category',                   required: false },
+  { key: 'basePrice',      label: 'Price TTC',                  required: false },
+  { key: 'vatRate',        label: 'VAT %',                      required: false },
+  { key: 'readyForSale',   label: 'Ready for Sale',             required: false },
+  { key: 'comboItem',      label: 'Combo Item',                 required: false },
+  { key: 'brand',          label: 'Brand',                      required: false },
+  { key: 'kitchenType',    label: 'Kitchen Type',                required: false },
+  { key: 'numberOfPiecesRecipe', label: 'Number of Pieces (Recipe)', required: false },
+  { key: 'storageType',    label: 'Storage Type',               required: false },
+  { key: 'diet',           label: 'Diet',                       required: false },
+  { key: 'description',    label: 'Description',                required: false },
+  { key: 'recipe',         label: 'Recipe (legacy)',            required: false },
+  { key: 'lineItemName',   label: 'Line Type / Line Item Name / Line Quantity', required: false },
 ]
 
 // Maps CSV column headers (lowercase, trimmed) → internal key names
 // BUG-88 : alias FR ajoutés (nom, catégorie, prix de base, prêt à la vente, …) sur le
 // modèle de l'alias 'recette' déjà présent, pour les exports CSV en français.
+// BUG-107 : colonnes du nouvel export "une ligne par ligne de recette" (MenuItemView.onExportCsv)
+// ajoutées, pour permettre un aller-retour export→import complet.
 const HEADER_MAP = {
   'name':             'name',
-  'display name':     'name',
+  'display name':     'name', // alias historique : "Display Name" = nom de l'article lui-même
   'nom':              'name',
   "nom de l'article": 'name',
   'type':             'type',
@@ -328,8 +356,14 @@ const HEADER_MAP = {
   'baseprice':        'basePrice',
   'base price':       'basePrice',
   'price':            'basePrice',
+  'price ttc':        'basePrice',
   'prix':             'basePrice',
+  'prix ttc':         'basePrice',
   'prix de base':     'basePrice',
+  'vat %':            'vatRate',
+  'vat':              'vatRate',
+  'tva %':            'vatRate',
+  'tva':              'vatRate',
   'readyforsale':     'readyForSale',
   'ready for sale':   'readyForSale',
   'prêt à la vente':  'readyForSale',
@@ -339,9 +373,71 @@ const HEADER_MAP = {
   'comboitem':        'comboItem',
   'combo item':       'comboItem',
   'article combo':    'comboItem',
+  'brand':            'brand',
+  'brand name':       'brand',
+  'marque':           'brand',
+  // "Display Name Ref" (nouvel export, BUG-107) — DIFFÉRENT de l'alias historique
+  // "display name" ci-dessus, qui lui désigne le nom de l'article.
+  'display name ref': 'displayNameRef',
+  'kitchen type':     'kitchenType',
+  'cuisine':          'kitchenType',
+  'number of pieces (recipe)': 'numberOfPiecesRecipe',
+  'nombre de pièces (recette)': 'numberOfPiecesRecipe',
+  'discount type':    'discountType',
+  'discount value':   'discountValue',
+  'storage type':     'storageType',
+  'stockage':         'storageType',
+  'diet':             'diet',
+  'régime':           'diet',
+  'regime':           'diet',
+  'space':            'space',
+  'spaces':           'space',
+  'espace':           'space',
   'description':      'description',
   'recipe':           'recipe',
   'recette':          'recipe',
+  // Nouvel export "une ligne par ligne de recette" (BUG-107) — résolues par NOM, pas par id.
+  'line type':        'lineType',
+  'line item name':   'lineItemName',
+  'line quantity':    'lineQuantity',
+  'line unit cost':   'lineUnitCost',
+  'line total cost':  'lineTotalCost',
+}
+
+// BUG-107 : le nouvel export produit PLUSIEURS lignes CSV pour un même article (une par
+// ingrédient/composant/packaging de sa recette, colonnes "Line Type"/"Line Item Name"/
+// "Line Quantity"). Regroupe ces lignes par nom d'article avant la résolution habituelle
+// (une ligne CSV = un article) — sans ce regroupement, chaque ligne de recette créerait un
+// article en double. N'affecte pas l'ancien format (une ligne = un article, éventuellement
+// avec une colonne "Recipe" packée) : si aucune colonne `lineItemName` n'est présente, les
+// lignes sont retournées telles quelles.
+function groupCsvRows(rawRows) {
+  if (!rawRows.length || !Object.prototype.hasOwnProperty.call(rawRows[0], 'lineItemName')) {
+    return rawRows
+  }
+  const groups = []
+  const byName = new Map()
+  for (const row of rawRows) {
+    const key = String(row.name || '').trim().toLowerCase()
+    if (!key) continue
+    let group = byName.get(key)
+    if (!group) {
+      group = { ...row, recipeLines: [] }
+      delete group.lineType
+      delete group.lineItemName
+      delete group.lineQuantity
+      delete group.lineUnitCost
+      delete group.lineTotalCost
+      byName.set(key, group)
+      groups.push(group)
+    }
+    const lineType = String(row.lineType || '').trim()
+    const lineName = String(row.lineItemName || '').trim()
+    if (lineType && lineName) {
+      group.recipeLines.push({ type: lineType, name: lineName, qty: row.lineQuantity })
+    }
+  }
+  return groups
 }
 
 // BUG-84 : tokenizer caractère par caractère sur le texte BRUT complet (pas de split par
@@ -518,6 +614,81 @@ export default {
       return KNOWN_COLUMNS.filter(c => keys.has(c.key))
     },
     previewRows() { return this.validRows.slice(0, 5) },
+    // BUG-107 : lookups nom→id pour résoudre les lignes de recette et les référentiels
+    // Brand/DisplayName/Space PAR NOM (portable d'un compte à l'autre), au lieu des ids
+    // internes du compte source (jamais valides dans le compte cible).
+    ingredientNameToId() {
+      const map = new Map()
+      const rawList = this.$store.getters['marketPriceIngredients/rows'] || []
+      for (const mp of rawList) {
+        const ingredients = mp?.ingredients || mp?.ingredientList || mp?.items || mp?.data?.ingredients || []
+        for (const ing of (Array.isArray(ingredients) ? ingredients : [])) {
+          const id = String(
+            ing?.id ?? ing?._id ?? ing?.ingredientId ?? ing?.ingredient_id ??
+            ing?.ingredient?.id ?? ing?.ingredient?._id ?? ''
+          ).trim()
+          const name = String(ing?.name ?? ing?.itemName ?? ing?.ingredientName ?? ing?.label ?? '').trim().toLowerCase()
+          if (id && name && !map.has(name)) map.set(name, id)
+        }
+      }
+      return map
+    },
+    componentNameToId() {
+      const map = new Map()
+      for (const c of (this.$store.getters['menuComponents/rows'] || [])) {
+        const id = String(c?.id ?? '').trim()
+        const name = String(c?.name ?? '').trim().toLowerCase()
+        if (id && name && !map.has(name)) map.set(name, id)
+      }
+      return map
+    },
+    packagingNameToId() {
+      const map = new Map()
+      for (const p of (this.$store.getters['packaging/rows'] || [])) {
+        const id = String(p?.id ?? '').trim()
+        const name = String(p?.name ?? p?.marketPrice?.itemName ?? '').trim().toLowerCase()
+        if (id && name && !map.has(name)) map.set(name, id)
+      }
+      return map
+    },
+    brandNameToId() {
+      const map = new Map()
+      for (const b of (this.$store.getters['brandNames/brandNames'] || [])) {
+        const id = String(b?.id ?? '').trim()
+        const name = String(b?.name ?? '').trim().toLowerCase()
+        if (id && name) map.set(name, id)
+      }
+      return map
+    },
+    displayNameToId() {
+      const map = new Map()
+      for (const d of (this.$store.getters['displayNames/displayNames'] || [])) {
+        const id = String(d?.id ?? '').trim()
+        const name = String(d?.name ?? '').trim().toLowerCase()
+        if (id && name) map.set(name, id)
+      }
+      return map
+    },
+    spaceNameToId() {
+      const map = new Map()
+      for (const s of (this.$store.getters['spaces/spaces'] || [])) {
+        const id = String(s?.id ?? s?._id ?? '').trim()
+        const name = String(s?.name ?? s?.title ?? s?.label ?? '').trim().toLowerCase()
+        if (id && name) map.set(name, id)
+      }
+      return map
+    },
+    // Lignes de recette (Ingredient/Component/Packaging) dont le nom ne correspond à rien
+    // dans le compte cible — l'article est quand même créé, juste sans cette ligne précise.
+    // Affiché à l'utilisateur pour qu'il sache quoi créer/renommer avant de réessayer.
+    unresolvedRecipeLines() {
+      const out = []
+      for (const row of this.validRows) {
+        if (!row.recipeLines?.length) continue
+        out.push(...this.resolveRecipeLines(row).unresolved)
+      }
+      return out
+    },
   },
 
   watch: {
@@ -528,6 +699,14 @@ export default {
         // catalogue complet est chargé même si l'écran liste a démarré en mode paginé rapide
         // (qui ne charge plus tout le catalogue par défaut).
         this.$store.dispatch('menuItems/fetchMenuItems', {})
+        // BUG-107 : résolution des lignes de recette (Ingredient/Component/Packaging) et des
+        // référentiels Brand/DisplayName par NOM — nécessite ces listes en mémoire.
+        this.$store.dispatch('marketPriceIngredients/fetchRows', {})
+        this.$store.dispatch('packaging/fetchPackaging', {})
+        this.$store.dispatch('menuComponents/fetchComponents', {})
+        this.$store.dispatch('brandNames/fetchBrandNames', {})
+        this.$store.dispatch('displayNames/fetchDisplayNames', {})
+        this.$store.dispatch('spaces/fetchSpaces', {})
       }
     },
   },
@@ -565,7 +744,7 @@ export default {
       this.fileName = file.name
       const reader = new FileReader()
       reader.onload = e => {
-        this.csvRows = parseCsv(e.target.result)
+        this.csvRows = groupCsvRows(parseCsv(e.target.result))
         // BUG-88 : fichier vide, mal délimité, ou en-têtes non reconnus (pas de colonne
         // name/nom) → 0 ligne après parsing. On l'indique explicitement plutôt que de
         // laisser un aperçu vide sans explication.
@@ -602,6 +781,33 @@ export default {
       }
       return { valid: true, typeObj, catObj }
     },
+    // BUG-107 : résout chaque ligne de recette (Ingredient/Component/Packaging) PAR NOM contre
+    // le référentiel du compte cible. Une ligne non résolue est simplement omise (l'article
+    // est quand même créé) et remontée dans `unresolved` pour affichage — pas de rejet de
+    // l'article entier pour une seule ligne de recette introuvable.
+    resolveRecipeLines(row) {
+      const ingredients = [], components = [], packagings = [], unresolved = []
+      for (const line of (row.recipeLines || [])) {
+        const qty = Number(line.qty) || 0
+        if (!qty) continue
+        const key = String(line.name || '').trim().toLowerCase()
+        const type = String(line.type || '').trim().toLowerCase()
+        if (type === 'ingredient') {
+          const id = this.ingredientNameToId.get(key)
+          if (id) ingredients.push({ ingredientId: id, numberOfUnits: qty })
+          else unresolved.push({ item: row.name, type: 'Ingredient', name: line.name })
+        } else if (type === 'component') {
+          const id = this.componentNameToId.get(key)
+          if (id) components.push({ componentId: id, numberOfUnits: qty })
+          else unresolved.push({ item: row.name, type: 'Component', name: line.name })
+        } else if (type === 'packaging') {
+          const id = this.packagingNameToId.get(key)
+          if (id) packagings.push({ packagingId: id, numberOfUnits: qty })
+          else unresolved.push({ item: row.name, type: 'Packaging', name: line.name })
+        }
+      }
+      return { ingredients, components, packagings, unresolved }
+    },
     buildPayload(row) {
       const { typeObj, catObj } = this.resolveTypeCategory(row)
       const payload = {
@@ -613,7 +819,42 @@ export default {
       if (row.readyForSale) payload.readyForSale = toBool(row.readyForSale) ? 'Yes' : 'No'
       if (row.comboItem)    payload.comboItem    = toBool(row.comboItem) ? 'Yes' : 'No'
       if (row.description)  payload.description  = row.description
-      if (row.recipe)       Object.assign(payload, parseRecipe(row.recipe))
+      if (row.kitchenType)  payload.kitchenType  = row.kitchenType
+      if (row.numberOfPiecesRecipe) {
+        payload.numberOfPiecesRecipe = Math.max(1, Math.round(Number(row.numberOfPiecesRecipe) || 1))
+      }
+      if (row.discountType)  payload.discountType  = row.discountType
+      if (row.discountValue) payload.discountValue = Number(row.discountValue) || 0
+      if (row.vatRate)       payload.vatRate       = Number(row.vatRate) || undefined
+      if (row.storageType) {
+        payload.storageType = String(row.storageType).split(';').map(s => s.trim()).filter(Boolean)
+      }
+      if (row.diet) {
+        payload.diet = String(row.diet).split(';').map(s => s.trim()).filter(Boolean)
+      }
+      if (row.brand) {
+        const brandId = this.brandNameToId.get(String(row.brand).trim().toLowerCase())
+        if (brandId) payload.brandId = brandId
+      }
+      if (row.displayNameRef) {
+        const displayNameId = this.displayNameToId.get(String(row.displayNameRef).trim().toLowerCase())
+        if (displayNameId) payload.displayNameId = displayNameId
+      }
+      if (row.space) {
+        const spaceIds = String(row.space).split(';').map(s => s.trim()).filter(Boolean)
+          .map(n => this.spaceNameToId.get(n.toLowerCase()))
+          .filter(Boolean)
+        if (spaceIds.length) payload.spaceIds = spaceIds
+      }
+      // Ancien format "Recipe" packé (IDs bruts, rétro-compatibilité) — utilisé seulement si
+      // le nouveau format multi-lignes (Line Type/Line Item Name) n'est pas présent.
+      if (row.recipe) Object.assign(payload, parseRecipe(row.recipe))
+      if (row.recipeLines?.length) {
+        const { ingredients, components, packagings } = this.resolveRecipeLines(row)
+        if (ingredients.length) payload.ingredients = ingredients
+        if (components.length)  payload.components  = components
+        if (packagings.length)  payload.packagings  = packagings
+      }
       return payload
     },
     async runImport() {
