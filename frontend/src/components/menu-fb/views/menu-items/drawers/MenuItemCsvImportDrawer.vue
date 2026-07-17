@@ -1,13 +1,8 @@
 <template>
-  <v-navigation-drawer
-    :model-value="modelValue"
-    @update:model-value="$emit('update:modelValue', $event)"
-    location="right"
-    temporary
-    width="580"
-    class="mi-import-drawer"
-    :class="{ 'mi-import--dark': isDark }"
-  >
+  <Teleport to="body">
+  <Transition name="mi-import">
+  <div v-if="modelValue" class="mi-import-overlay" @mousedown.self="$emit('update:modelValue', false)">
+  <div class="mi-import-panel" :class="{ 'mi-import--dark': isDark }">
     <!-- ── Header ─────────────────────────────────────────── -->
     <div class="mi-header">
       <div class="mi-header__icon"><FileSpreadsheet :size="20" color="white" /></div>
@@ -19,7 +14,7 @@
     </div>
 
     <!-- ── Step bar ───────────────────────────────────────── -->
-    <div class="mi-stepbar px-5 pb-4">
+    <div class="mi-stepbar px-5 pt-5 pb-4">
       <div class="d-flex align-center" style="gap: 0;">
         <template v-for="(s, i) in stepLabels" :key="i">
           <div class="d-flex align-center" style="gap: 8px; flex-shrink: 0;">
@@ -72,38 +67,65 @@
           </v-btn>
         </div>
 
-        <!-- Format hint — même structure que MarketPriceCsvImportDrawer.vue (bouton "Download
-             template" dans le bloc "Expected format") -->
+        <!-- Format hint — même structure que MarketPriceCsvImportDrawer.vue exactement
+             (titre + description + lien "Download template", sans liste de colonnes). -->
         <v-card class="mi-hint-card mt-4 pa-4" rounded="lg" elevation="0">
-          <div class="d-flex align-center justify-space-between mb-2" style="gap: 8px;">
-            <div class="d-flex align-center" style="gap: 8px;">
-              <Info :size="15" class="mi-hint-icon" />
-              <span class="text-body-2 font-weight-medium mi-title">{{ t('menuItemImportKnownCols') }}</span>
+          <div class="d-flex align-center justify-space-between flex-wrap" style="gap: 8px;">
+            <div>
+              <div class="text-body-2 font-weight-medium mb-1 mi-title">{{ t('menuItemImportExpectedFormat') }}</div>
+              <div class="text-caption mi-subtitle">{{ t('menuItemImportFormatDesc') }}</div>
             </div>
             <v-btn variant="text" size="small" class="text-none" @click="downloadTemplate">
               <Download :size="14" class="mr-1" />
               {{ t('menuItemImportDownloadTemplate') }}
             </v-btn>
           </div>
-          <div class="d-flex flex-wrap mb-3" style="gap: 6px;">
-            <v-chip
-              v-for="col in knownColumns"
-              :key="col.key"
-              size="x-small"
-              :color="col.required ? '#ff3131' : 'default'"
-              :variant="col.required ? 'flat' : 'tonal'"
-              rounded="lg"
-            >
-              {{ col.label }}
-              <span v-if="col.required" class="ml-1 font-weight-bold">*</span>
-            </v-chip>
-          </div>
-          <div class="text-caption mi-subtitle">{{ t('menuItemImportFormatDesc') }}</div>
         </v-card>
       </div>
 
-      <!-- Step 2 : Preview ── -->
+      <!-- Step 2 : Mapping (BUG-112) — un v-select par champ interne, comme
+           MarketPriceCsvImportDrawer.vue : auto-détecté au chargement, corrigible ici. -->
       <div v-if="step === 2">
+        <div class="mi-file-bar d-flex align-center mb-4 pa-3 rounded-lg" style="gap: 10px;">
+          <FileSpreadsheet :size="16" class="mi-hint-icon" style="flex-shrink:0" />
+          <span class="text-body-2 font-weight-medium mi-title" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ fileName }}</span>
+          <v-chip size="x-small" variant="tonal">{{ rawRows.length }} rows</v-chip>
+        </div>
+
+        <v-alert
+          v-if="!mapping.name"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          rounded="lg"
+          class="mb-4"
+          text="Map the &quot;Name&quot; field to a column to continue."
+        />
+
+        <div v-for="group in mappingGroups" :key="group.key" class="mb-4">
+          <div class="mi-mapping-group-label">{{ group.label }}</div>
+          <div v-for="field in group.fields" :key="field.key" class="d-flex align-center mb-2" style="gap: 12px;">
+            <div class="mi-mapping-label">
+              {{ field.label }}<span v-if="field.required" class="mi-required">*</span>
+            </div>
+            <v-select
+              :model-value="mapping[field.key]"
+              @update:model-value="setMapping(field.key, $event)"
+              :items="columnOptions"
+              item-title="title"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              rounded="lg"
+              style="flex: 1; min-width: 0;"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 : Preview ── -->
+      <div v-if="step === 3">
         <!-- File info bar -->
         <div class="mi-file-bar d-flex align-center mb-4 pa-3 rounded-lg" style="gap: 10px;">
           <FileSpreadsheet :size="16" class="mi-hint-icon" style="flex-shrink:0" />
@@ -130,22 +152,41 @@
           :text="emptyParseWarning"
         />
 
-        <!-- Skipped warning (BUG-87 : nom/type/catégorie non résolus) -->
+        <!-- BUG-112 : référentiels manquants qui seront créés automatiquement à l'import —
+             informatif, pas une erreur (contrairement à avant, BUG-110/111). -->
+        <v-alert
+          v-if="pendingCreationsCount"
+          type="info"
+          variant="tonal"
+          density="compact"
+          rounded="lg"
+          class="mb-4"
+          :text="`${pendingCreationsCount} referential value(s) will be created automatically (type/category/brand/display name not found in this account).`"
+        />
+
+        <!-- Skipped warning (BUG-87 : nom/type/catégorie non résolus) — repliée par défaut
+             (BUG-111 : trop de bruit visuel pour de l'information sans action possible). -->
         <v-alert
           v-if="invalidRows.length"
           type="warning"
           variant="tonal"
           density="compact"
           rounded="lg"
-          class="mb-2"
-          :text="`${invalidRows.length} ${t('menuItemImportSkipped')}`"
-        />
-        <div v-if="invalidRows.length" class="mi-skip-list mb-4 pa-3 rounded-lg text-caption mi-subtitle">
-          <div v-for="(r, i) in invalidRows.slice(0, 10)" :key="i">
-            • {{ r.row.name || '(sans nom)' }} : {{ r.reason }}
+          class="mb-4"
+        >
+          <div class="d-flex align-center justify-space-between" style="gap: 8px;">
+            <span>{{ invalidRows.length }} {{ t('menuItemImportSkipped') }}</span>
+            <button class="mi-detail-toggle" @click="showInvalidDetail = !showInvalidDetail">
+              {{ showInvalidDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
+            </button>
           </div>
-          <div v-if="invalidRows.length > 10">… +{{ invalidRows.length - 10 }}</div>
-        </div>
+          <div v-if="showInvalidDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
+            <div v-for="(r, i) in invalidRows.slice(0, 10)" :key="i">
+              • {{ r.row.name || '(sans nom)' }} : {{ r.reason }}
+            </div>
+            <div v-if="invalidRows.length > 10">… +{{ invalidRows.length - 10 }}</div>
+          </div>
+        </v-alert>
 
         <!-- BUG-86 : lignes ignorées car un menu item du même nom existe déjà -->
         <v-alert
@@ -154,15 +195,21 @@
           variant="tonal"
           density="compact"
           rounded="lg"
-          class="mb-2"
-          :text="`${duplicateRows.length} ligne(s) ignorée(s) — déjà existantes dans le catalogue`"
-        />
-        <div v-if="duplicateRows.length" class="mi-skip-list mb-4 pa-3 rounded-lg text-caption mi-subtitle">
-          <div v-for="(row, i) in duplicateRows.slice(0, 10)" :key="i">
-            • {{ row.name }}
+          class="mb-4"
+        >
+          <div class="d-flex align-center justify-space-between" style="gap: 8px;">
+            <span>{{ duplicateRows.length }} ligne(s) ignorée(s) — déjà existantes dans le catalogue</span>
+            <button class="mi-detail-toggle" @click="showDuplicateDetail = !showDuplicateDetail">
+              {{ showDuplicateDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
+            </button>
           </div>
-          <div v-if="duplicateRows.length > 10">… +{{ duplicateRows.length - 10 }}</div>
-        </div>
+          <div v-if="showDuplicateDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
+            <div v-for="(row, i) in duplicateRows.slice(0, 10)" :key="i">
+              • {{ row.name }}
+            </div>
+            <div v-if="duplicateRows.length > 10">… +{{ duplicateRows.length - 10 }}</div>
+          </div>
+        </v-alert>
 
         <!-- BUG-107 : lignes de recette (Ingredient/Component/Packaging) dont le nom ne
              correspond à rien dans ce compte — l'article sera quand même créé, juste sans
@@ -173,15 +220,21 @@
           variant="tonal"
           density="compact"
           rounded="lg"
-          class="mb-2"
-          :text="`${unresolvedRecipeLines.length} ligne(s) de recette introuvable(s) dans ce compte — l'article sera créé sans elles`"
-        />
-        <div v-if="unresolvedRecipeLines.length" class="mi-skip-list mb-4 pa-3 rounded-lg text-caption mi-subtitle">
-          <div v-for="(l, i) in unresolvedRecipeLines.slice(0, 10)" :key="i">
-            • {{ l.item }} — {{ l.type }} "{{ l.name }}"
+          class="mb-4"
+        >
+          <div class="d-flex align-center justify-space-between" style="gap: 8px;">
+            <span>{{ unresolvedRecipeLines.length }} ligne(s) de recette introuvable(s) — l'article sera créé sans elles</span>
+            <button class="mi-detail-toggle" @click="showUnresolvedDetail = !showUnresolvedDetail">
+              {{ showUnresolvedDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
+            </button>
           </div>
-          <div v-if="unresolvedRecipeLines.length > 10">… +{{ unresolvedRecipeLines.length - 10 }}</div>
-        </div>
+          <div v-if="showUnresolvedDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
+            <div v-for="(l, i) in unresolvedRecipeLines.slice(0, 10)" :key="i">
+              • {{ l.item }} — {{ l.type }} "{{ l.name }}"
+            </div>
+            <div v-if="unresolvedRecipeLines.length > 10">… +{{ unresolvedRecipeLines.length - 10 }}</div>
+          </div>
+        </v-alert>
 
         <!-- Preview table -->
         <div class="mi-table-wrap rounded-lg" style="overflow:hidden;">
@@ -217,8 +270,8 @@
         </div>
       </div>
 
-      <!-- Step 3 : Result ── -->
-      <div v-if="step === 3">
+      <!-- Step 4 : Result ── -->
+      <div v-if="step === 4">
         <!-- Loading -->
         <div v-if="importing" class="d-flex flex-column align-center justify-center py-14" style="gap: 18px;">
           <v-progress-circular indeterminate color="#ff3131" size="52" width="4" />
@@ -245,6 +298,17 @@
           </div>
           <div class="text-body-2 mi-subtitle">{{ importedCount }} {{ t('menuItemImportItems') }}</div>
 
+          <!-- BUG-112 : récapitulatif des référentiels créés automatiquement pendant cet import -->
+          <v-alert
+            v-if="autoCreatedSummary"
+            type="info"
+            variant="tonal"
+            density="compact"
+            rounded="lg"
+            style="max-width:420px;"
+            :text="`Automatically created: ${autoCreatedSummary}`"
+          />
+
           <v-alert
             v-if="importBulkCountUnknown"
             type="warning"
@@ -268,9 +332,8 @@
     </div>
 
     <!-- ── Footer ─────────────────────────────────────────── -->
-    <template #append>
-      <v-divider class="mi-divider" />
-      <div class="d-flex align-center pa-4" style="gap: 8px;">
+    <v-divider class="mi-divider" />
+    <div class="mi-footer d-flex align-center pa-4" style="gap: 8px;">
         <v-btn
           v-if="step === 1"
           variant="text"
@@ -281,7 +344,7 @@
           {{ t('menuItemImportCancel') }}
         </v-btn>
         <v-btn
-          v-if="step === 2"
+          v-if="step === 2 || step === 3"
           variant="outlined"
           rounded="lg"
           class="text-none mi-outline-btn"
@@ -298,6 +361,19 @@
           variant="flat"
           rounded="lg"
           class="text-white text-none"
+          :disabled="!mapping.name"
+          elevation="0"
+          @click="step = 3"
+        >
+          {{ t('menuItemImportNext') }}
+        </v-btn>
+
+        <v-btn
+          v-if="step === 3"
+          color="#ff3131"
+          variant="flat"
+          rounded="lg"
+          class="text-white text-none"
           :disabled="!validRows.length"
           elevation="0"
           @click="runImport"
@@ -306,7 +382,7 @@
         </v-btn>
 
         <v-btn
-          v-if="step === 3 && !importing"
+          v-if="step === 4 && !importing"
           color="#ff3131"
           variant="flat"
           rounded="lg"
@@ -316,9 +392,11 @@
         >
           {{ t('menuItemImportClose') }}
         </v-btn>
-      </div>
-    </template>
-  </v-navigation-drawer>
+    </div>
+  </div>
+  </div>
+  </Transition>
+  </Teleport>
 </template>
 
 <script>
@@ -326,25 +404,46 @@ import { computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { bulkCreateMenuItems, createMenuItem } from '@/api/endpoints/menu-item.api'
-import { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Info, Download } from 'lucide-vue-next'
+import { createProductType, createProductCategory } from '@/api/endpoints/product.api'
+import { createBrandName } from '@/api/endpoints/brand-name.api'
+import { createDisplayName } from '@/api/endpoints/display-name.api'
+import { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Download } from 'lucide-vue-next'
 
-const KNOWN_COLUMNS = [
-  { key: 'name',           label: 'Name',                       required: true  },
-  { key: 'type',           label: 'Type',                       required: false },
-  { key: 'category',       label: 'Category',                   required: false },
-  { key: 'basePrice',      label: 'Price TTC',                  required: false },
-  { key: 'vatRate',        label: 'VAT %',                      required: false },
-  { key: 'readyForSale',   label: 'Ready for Sale',             required: false },
-  { key: 'comboItem',      label: 'Combo Item',                 required: false },
-  { key: 'brand',          label: 'Brand',                      required: false },
-  { key: 'kitchenType',    label: 'Kitchen Type',                required: false },
-  { key: 'numberOfPiecesRecipe', label: 'Number of Pieces (Recipe)', required: false },
-  { key: 'storageType',    label: 'Storage Type',               required: false },
-  { key: 'diet',           label: 'Diet',                       required: false },
-  { key: 'description',    label: 'Description',                required: false },
-  { key: 'recipe',         label: 'Recipe (legacy)',            required: false },
-  { key: 'lineItemName',   label: 'Line Type / Line Item Name / Line Quantity', required: false },
+// BUG-112 : champs mappables, groupés pour l'écran "Mapping" (même pattern que
+// MarketPriceCsvImportDrawer.vue : un v-select par champ interne, pas par colonne CSV).
+// Sert aussi de source pour l'en-tête du tableau d'aperçu (visibleColumns).
+const MENU_ITEM_FIELDS = [
+  { key: 'name',           label: 'Name',                       required: true,  group: 'identity' },
+  { key: 'type',           label: 'Type',                       required: false, group: 'identity' },
+  { key: 'category',       label: 'Category',                   required: false, group: 'identity' },
+  { key: 'brand',          label: 'Brand',                       required: false, group: 'identity' },
+  { key: 'displayNameRef', label: 'Display Name Ref',            required: false, group: 'identity' },
+  { key: 'basePrice',      label: 'Price TTC',                  required: false, group: 'pricing' },
+  { key: 'vatRate',        label: 'VAT %',                      required: false, group: 'pricing' },
+  { key: 'discountType',   label: 'Discount Type',               required: false, group: 'pricing' },
+  { key: 'discountValue',  label: 'Discount Value',              required: false, group: 'pricing' },
+  { key: 'readyForSale',   label: 'Ready for Sale',             required: false, group: 'details' },
+  { key: 'comboItem',      label: 'Combo Item',                 required: false, group: 'details' },
+  { key: 'kitchenType',    label: 'Kitchen Type',                required: false, group: 'details' },
+  { key: 'numberOfPiecesRecipe', label: 'Number of Pieces (Recipe)', required: false, group: 'details' },
+  { key: 'storageType',    label: 'Storage Type',               required: false, group: 'details' },
+  { key: 'diet',           label: 'Diet',                       required: false, group: 'details' },
+  { key: 'space',          label: 'Space',                       required: false, group: 'details' },
+  { key: 'description',    label: 'Description',                required: false, group: 'details' },
+  { key: 'lineType',       label: 'Line Type',                   required: false, group: 'recipe' },
+  { key: 'lineItemName',   label: 'Line Item Name',              required: false, group: 'recipe' },
+  { key: 'lineQuantity',   label: 'Line Quantity',                required: false, group: 'recipe' },
+  { key: 'lineUnitCost',   label: 'Line Unit Cost',              required: false, group: 'recipe' },
+  { key: 'lineTotalCost',  label: 'Line Total Cost',              required: false, group: 'recipe' },
+  { key: 'recipe',         label: 'Recipe (legacy)',            required: false, group: 'legacy' },
 ]
+const MAPPING_GROUP_LABELS = {
+  identity: 'Identity',
+  pricing: 'Pricing',
+  details: 'Details',
+  recipe: 'Recipe (one row per ingredient/component/packaging)',
+  legacy: 'Legacy',
+}
 
 // Maps CSV column headers (lowercase, trimmed) → internal key names
 // BUG-88 : alias FR ajoutés (nom, catégorie, prix de base, prêt à la vente, …) sur le
@@ -413,18 +512,13 @@ const HEADER_MAP = {
 
 // BUG-107 : le nouvel export produit PLUSIEURS lignes CSV pour un même article (une par
 // ingrédient/composant/packaging de sa recette, colonnes "Line Type"/"Line Item Name"/
-// "Line Quantity"). Regroupe ces lignes par nom d'article avant la résolution habituelle
-// (une ligne CSV = un article) — sans ce regroupement, chaque ligne de recette créerait un
-// article en double. N'affecte pas l'ancien format (une ligne = un article, éventuellement
-// avec une colonne "Recipe" packée) : si aucune colonne `lineItemName` n'est présente, les
-// lignes sont retournées telles quelles.
-function groupCsvRows(rawRows) {
-  if (!rawRows.length || !Object.prototype.hasOwnProperty.call(rawRows[0], 'lineItemName')) {
-    return rawRows
-  }
+// "Line Quantity"). Regroupe TOUJOURS les lignes par nom d'article (déduplique aussi les
+// éventuels doublons exacts) : une ligne sans "Line Type"/"Line Item Name" mappé ou vide ne
+// contribue simplement aucune ligne de recette au groupe.
+function groupCsvRows(rows) {
   const groups = []
   const byName = new Map()
-  for (const row of rawRows) {
+  for (const row of rows) {
     const key = String(row.name || '').trim().toLowerCase()
     if (!key) continue
     let group = byName.get(key)
@@ -488,15 +582,15 @@ function tokenizeCsv(text) {
   return rows
 }
 
-function parseCsv(text) {
+// BUG-112 : parsing BRUT (en-têtes + lignes de valeurs), sans résolution de colonnes — la
+// résolution "quelle colonne CSV correspond à quel champ interne" est déportée dans l'écran
+// Mapping (auto-détectée via HEADER_MAP, corrigible manuellement), pas figée au parsing.
+function parseCsvRaw(text) {
   const rows = tokenizeCsv(text)
-  if (rows.length < 2) return []
-  const rawHeaders = rows[0].map(h => String(h || '').trim())
-  // Normalize each header to an internal key (or keep raw if not mapped)
-  const headers = rawHeaders.map(h => HEADER_MAP[h.toLowerCase()] ?? h.toLowerCase().replace(/\s+/g, '_'))
-  return rows.slice(1).map(values =>
-    Object.fromEntries(headers.map((h, i) => [h, String(values[i] ?? '').trim()]))
-  )
+  if (rows.length < 1) return { headers: [], dataRows: [] }
+  const headers = rows[0].map(h => String(h || '').trim())
+  const dataRows = rows.slice(1)
+  return { headers, dataRows }
 }
 
 function toBool(v) {
@@ -536,7 +630,7 @@ function parseRecipe(recipeStr) {
 
 export default {
   name: 'MenuItemCsvImportDrawer',
-  components: { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Info, Download },
+  components: { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Download },
 
   props: {
     modelValue:        { type: Boolean, default: false },
@@ -557,14 +651,28 @@ export default {
       step: 1,
       dropping: false,
       fileName: '',
-      csvRows: [],
+      // BUG-112 : parsing brut (en-têtes + lignes de valeurs) séparé du mapping — csvRows
+      // (le résultat mappé/groupé consommé par le reste du composant) devient un computed.
+      csvHeaders: [],
+      rawRows: [],
+      mapping: {}, // { [fieldKey]: rawHeaderString|null }
       emptyParseWarning: '', // BUG-88 : message explicite quand le parsing produit 0 ligne
       importing: false,
       importError: '',
       importedCount: 0,
       importFailed: [],         // BUG-85 : [{ name, message }] des lignes withRecipe en échec
       importBulkCountUnknown: false, // BUG-85 : la réponse bulk n'a pas renvoyé de count exploitable
-      knownColumns: KNOWN_COLUMNS,
+      // BUG-111 : listes repliées par défaut (bruit visuel sans action possible dessus).
+      showInvalidDetail: false,
+      showDuplicateDetail: false,
+      showUnresolvedDetail: false,
+      // BUG-112 : référentiels créés automatiquement PENDANT cet import (nom non résolu dans
+      // le compte cible) — mêmes formes que productTypes/productCategories (props) et
+      // brandNames/displayNames (store), pour que les résolutions suivantes les retrouvent.
+      createdTypes: [],
+      createdCategories: [],
+      createdBrands: [],
+      createdDisplayNames: [],
     }
   },
 
@@ -572,6 +680,7 @@ export default {
     stepLabels() {
       return [
         this.t('menuItemImportStep1'),
+        this.t('menuItemImportStepMapping'),
         this.t('menuItemImportStep2'),
         this.t('menuItemImportStep3'),
       ]
@@ -579,9 +688,52 @@ export default {
     stepDesc() {
       return [
         this.t('menuItemImportStep1Desc'),
+        this.t('menuItemImportStepMappingDesc'),
         this.t('menuItemImportStep2Desc'),
         this.t('menuItemImportStep3Desc'),
       ][this.step - 1]
+    },
+    // BUG-112 : options du v-select de chaque champ, à l'écran Mapping — colonnes CSV
+    // détectées + option "Ignorer" (aucune valeur pour ce champ).
+    columnOptions() {
+      return [
+        { title: '— Ignore —', value: null },
+        ...this.csvHeaders.map(h => ({ title: h, value: h })),
+      ]
+    },
+    mappingGroups() {
+      const byGroup = {}
+      for (const f of MENU_ITEM_FIELDS) {
+        if (!byGroup[f.group]) byGroup[f.group] = []
+        byGroup[f.group].push(f)
+      }
+      return Object.keys(byGroup).map(key => ({
+        key,
+        label: MAPPING_GROUP_LABELS[key] || key,
+        fields: byGroup[key],
+      }))
+    },
+    // BUG-112 : applique `mapping` aux lignes brutes pour reconstituer les objets
+    // { fieldKey: valeur } que le reste du composant consomme déjà (rowResolutions,
+    // buildPayload, etc. n'ont pas besoin de savoir que le mapping est maintenant manuel).
+    mappedRawRows() {
+      if (!this.csvHeaders.length) return []
+      const colIndex = {}
+      for (const f of MENU_ITEM_FIELDS) {
+        const header = this.mapping[f.key]
+        colIndex[f.key] = header ? this.csvHeaders.indexOf(header) : -1
+      }
+      return this.rawRows.map(values => {
+        const obj = {}
+        for (const f of MENU_ITEM_FIELDS) {
+          const idx = colIndex[f.key]
+          obj[f.key] = idx >= 0 ? String(values[idx] ?? '').trim() : ''
+        }
+        return obj
+      })
+    },
+    csvRows() {
+      return groupCsvRows(this.mappedRawRows)
     },
     // BUG-86 : noms (normalisés) des menu items déjà présents dans le store, pour détecter
     // les doublons au réimport sans renvoyer silencieusement les mêmes lignes au backend.
@@ -615,10 +767,11 @@ export default {
         .map(r => r.row)
         .filter(row => this.existingMenuItemNames.has(this.normalizeName(row.name)))
     },
+    // BUG-112 : n'affiche dans l'aperçu que les champs réellement mappés à une colonne
+    // (avant, se basait sur les clés présentes dans csvRows — désormais toujours toutes
+    // présentes puisque mappedRawRows peuple systématiquement chaque champ, mappé ou non).
     visibleColumns() {
-      if (!this.csvRows.length) return []
-      const keys = new Set(this.csvRows.flatMap(r => Object.keys(r)))
-      return KNOWN_COLUMNS.filter(c => keys.has(c.key))
+      return MENU_ITEM_FIELDS.filter(f => this.mapping[f.key])
     },
     previewRows() { return this.validRows.slice(0, 5) },
     // BUG-107 : lookups nom→id pour résoudre les lignes de recette et les référentiels
@@ -658,9 +811,12 @@ export default {
       }
       return map
     },
+    // BUG-112 : inclut aussi createdBrands (créées PENDANT cet import) — sinon une marque
+    // tout juste auto-créée pour la ligne 1 ne serait pas retrouvée pour la ligne 5 qui la
+    // référence aussi, avant que le store n'ait été rafraîchi.
     brandNameToId() {
       const map = new Map()
-      for (const b of (this.$store.getters['brandNames/brandNames'] || [])) {
+      for (const b of [...(this.$store.getters['brandNames/brandNames'] || []), ...this.createdBrands]) {
         const id = String(b?.id ?? '').trim()
         const name = String(b?.name ?? '').trim().toLowerCase()
         if (id && name) map.set(name, id)
@@ -669,7 +825,7 @@ export default {
     },
     displayNameToId() {
       const map = new Map()
-      for (const d of (this.$store.getters['displayNames/displayNames'] || [])) {
+      for (const d of [...(this.$store.getters['displayNames/displayNames'] || []), ...this.createdDisplayNames]) {
         const id = String(d?.id ?? '').trim()
         const name = String(d?.name ?? '').trim().toLowerCase()
         if (id && name) map.set(name, id)
@@ -695,6 +851,60 @@ export default {
         out.push(...this.resolveRecipeLines(row).unresolved)
       }
       return out
+    },
+    // BUG-112 : référentiels (Type/Category/Brand/Display Name) mentionnés dans le fichier
+    // mais absents du compte cible — seront créés automatiquement à l'import (PAS pour les
+    // lignes de recette Ingredient/Component/Packaging, qui nécessitent un coût/une unité
+    // qu'un simple nom ne permet pas de déduire — celles-là restent seulement signalées,
+    // cf. unresolvedRecipeLines). Informatif, PAS une erreur bloquante.
+    pendingCreations() {
+      const isEmptyMarker = (v) => !v || v === '-'
+      const types = new Map(), categories = new Map(), brands = new Map(), displayNames = new Map()
+      const allTypes = [...(this.productTypes || []), ...this.createdTypes]
+      const allCategories = [...(this.productCategories || []), ...this.createdCategories]
+      for (const row of this.validRows) {
+        const typeName = String(row.type || '').trim()
+        const typeExists = !isEmptyMarker(typeName)
+          && allTypes.some(t => String(t.name || '').toLowerCase() === typeName.toLowerCase())
+        if (!isEmptyMarker(typeName) && !typeExists) types.set(typeName.toLowerCase(), typeName)
+
+        const categoryName = String(row.category || '').trim()
+        if (!isEmptyMarker(categoryName) && !isEmptyMarker(typeName)) {
+          const typeObj = allTypes.find(t => String(t.name || '').toLowerCase() === typeName.toLowerCase())
+          const typeKey = typeObj && (typeObj.id || typeObj._id)
+          const categoryExists = allCategories.some(
+            c => c.typeId === typeKey && String(c.name || '').toLowerCase() === categoryName.toLowerCase()
+          )
+          if (!categoryExists) categories.set(`${typeName.toLowerCase()}::${categoryName.toLowerCase()}`, { type: typeName, category: categoryName })
+        }
+
+        const brandName = String(row.brand || '').trim()
+        if (!isEmptyMarker(brandName) && !this.brandNameToId.has(brandName.toLowerCase())) {
+          brands.set(brandName.toLowerCase(), brandName)
+        }
+        const displayName = String(row.displayNameRef || '').trim()
+        if (!isEmptyMarker(displayName) && !this.displayNameToId.has(displayName.toLowerCase())) {
+          displayNames.set(displayName.toLowerCase(), displayName)
+        }
+      }
+      return {
+        types: [...types.values()],
+        categories: [...categories.values()],
+        brands: [...brands.values()],
+        displayNames: [...displayNames.values()],
+      }
+    },
+    pendingCreationsCount() {
+      const p = this.pendingCreations
+      return p.types.length + p.categories.length + p.brands.length + p.displayNames.length
+    },
+    autoCreatedSummary() {
+      const parts = []
+      if (this.createdTypes.length) parts.push(`${this.createdTypes.length} type(s)`)
+      if (this.createdCategories.length) parts.push(`${this.createdCategories.length} category(ies)`)
+      if (this.createdBrands.length) parts.push(`${this.createdBrands.length} brand(s)`)
+      if (this.createdDisplayNames.length) parts.push(`${this.createdDisplayNames.length} display name(s)`)
+      return parts.join(', ')
     },
   },
 
@@ -728,13 +938,22 @@ export default {
       this.step = 1
       this.dropping = false
       this.fileName = ''
-      this.csvRows = []
+      this.csvHeaders = []
+      this.rawRows = []
+      this.mapping = {}
       this.emptyParseWarning = ''
       this.importing = false
       this.importError = ''
       this.importedCount = 0
       this.importFailed = []
       this.importBulkCountUnknown = false
+      this.showInvalidDetail = false
+      this.showDuplicateDetail = false
+      this.showUnresolvedDetail = false
+      this.createdTypes = []
+      this.createdCategories = []
+      this.createdBrands = []
+      this.createdDisplayNames = []
     },
     close() { this.$emit('update:modelValue', false) },
     onDrop(e) {
@@ -751,16 +970,30 @@ export default {
       this.fileName = file.name
       const reader = new FileReader()
       reader.onload = e => {
-        this.csvRows = groupCsvRows(parseCsv(e.target.result))
-        // BUG-88 : fichier vide, mal délimité, ou en-têtes non reconnus (pas de colonne
-        // name/nom) → 0 ligne après parsing. On l'indique explicitement plutôt que de
-        // laisser un aperçu vide sans explication.
-        this.emptyParseWarning = this.csvRows.length === 0
-          ? 'Fichier vide ou en-têtes non reconnus (colonne "name"/"nom" introuvable).'
-          : ''
-        this.step = 2
+        const { headers, dataRows } = parseCsvRaw(e.target.result)
+        this.csvHeaders = headers
+        this.rawRows = dataRows
+        // BUG-88 : fichier réellement vide (aucune ligne de données après l'en-tête).
+        this.emptyParseWarning = dataRows.length === 0 ? 'Fichier vide.' : ''
+        this.autoMapFields()
+        this.step = 2 // Mapping (BUG-112)
       }
       reader.readAsText(file, 'UTF-8')
+    },
+    // BUG-112 : auto-mapping par alias d'en-tête (réutilise HEADER_MAP existant), corrigible
+    // ensuite manuellement à l'écran Mapping — même principe que
+    // MarketPriceCsvImportDrawer.autoMap().
+    autoMapFields() {
+      const newMapping = {}
+      for (const f of MENU_ITEM_FIELDS) newMapping[f.key] = null
+      for (const header of this.csvHeaders) {
+        const fieldKey = HEADER_MAP[header.toLowerCase().trim()]
+        if (fieldKey && !newMapping[fieldKey]) newMapping[fieldKey] = header
+      }
+      this.mapping = newMapping
+    },
+    setMapping(key, val) {
+      this.mapping = { ...this.mapping, [key]: val }
     },
     // Modèle CSV téléchargeable — même pattern que MarketPriceCsvImportDrawer.vue
     // (downloadTemplate). Exemple avec 2 lignes de recette pour illustrer le format
@@ -792,22 +1025,31 @@ export default {
     // BUG-87 : résout le type par nom, PUIS la catégorie filtrée par le typeId résolu (comme
     // MenuItemCreateView.filteredCategoryNames) — jamais un match de catégorie sur le nom
     // seul, qui pourrait associer la catégorie d'un autre type portant le même nom.
+    // BUG-110 : type/catégorie sont OPTIONNELS côté backend (CreateMenuItemDto) — un article
+    // sans type/catégorie existe réellement en base (affiché "-" dans la liste/l'export, cf.
+    // MenuItemView.mapItemToRow). "" ou "-" en entrée = valide, article créé sans FK, PAS une
+    // erreur. Seul un nom NON VIDE qui ne correspond à aucun type/catégorie connu (vraie faute
+    // de frappe / référentiel différent) reste une erreur bloquante pour la ligne.
+    // BUG-112 : un type/catégorie NON VIDE qui ne correspond à rien n'est plus une erreur
+    // bloquante — il sera créé automatiquement à l'import (cf. pendingCreations/
+    // scanAndCreateMissingReferentials), comme MarketPriceCsvImportDrawer le fait déjà pour
+    // Good Type/Category/Supplier/Industrial. typeObj/catObj restent null si non résolus —
+    // buildPayload gère ce cas (FK omise si la création automatique venait à échouer).
     resolveTypeCategory(row) {
       const typeName = String(row.type || '').trim()
       const categoryName = String(row.category || '').trim()
-      if (!typeName) return { valid: false, reason: 'Type manquant' }
-      const typeObj = (this.productTypes || []).find(
-        t => String(t.name || '').toLowerCase() === typeName.toLowerCase()
-      )
+      const isEmptyMarker = (v) => !v || v === '-'
+      const allTypes = [...(this.productTypes || []), ...this.createdTypes]
+      const allCategories = [...(this.productCategories || []), ...this.createdCategories]
+
+      if (isEmptyMarker(typeName)) return { valid: true, typeObj: null, catObj: null }
+      const typeObj = allTypes.find(t => String(t.name || '').toLowerCase() === typeName.toLowerCase()) || null
       const typeKey = typeObj && (typeObj.id || typeObj._id)
-      if (!typeKey) return { valid: false, reason: `Type "${typeName}" introuvable` }
-      if (!categoryName) return { valid: false, reason: 'Catégorie manquante' }
-      const catObj = (this.productCategories || []).find(
+
+      if (isEmptyMarker(categoryName) || !typeKey) return { valid: true, typeObj, catObj: null }
+      const catObj = allCategories.find(
         c => c.typeId === typeKey && String(c.name || '').toLowerCase() === categoryName.toLowerCase()
-      )
-      if (!catObj?.id && !catObj?._id) {
-        return { valid: false, reason: `Catégorie "${categoryName}" introuvable pour le type "${typeName}"` }
-      }
+      ) || null
       return { valid: true, typeObj, catObj }
     },
     // BUG-107 : résout chaque ligne de recette (Ingredient/Component/Packaging) PAR NOM contre
@@ -842,9 +1084,11 @@ export default {
       const payload = {
         name: row.name,
         basePrice: Number(row.basePrice) || 0,
-        typeId: typeObj.id || typeObj._id,
-        categoryId: catObj.id || catObj._id,
       }
+      // BUG-110 : typeObj/catObj peuvent être null (article légitimement sans type/catégorie) —
+      // typeId/categoryId sont optionnels côté backend, on ne les envoie que si résolus.
+      if (typeObj) payload.typeId = typeObj.id || typeObj._id
+      if (catObj)  payload.categoryId = catObj.id || catObj._id
       if (row.readyForSale) payload.readyForSale = toBool(row.readyForSale) ? 'Yes' : 'No'
       if (row.comboItem)    payload.comboItem    = toBool(row.comboItem) ? 'Yes' : 'No'
       if (row.description)  payload.description  = row.description
@@ -886,15 +1130,82 @@ export default {
       }
       return payload
     },
+    // BUG-112 : crée réellement en base les Types/Categories/Brands/Display Names détectés
+    // comme manquants (cf. computed pendingCreations) — UNE SEULE FOIS par nom pour tout le
+    // fichier, avant le traitement ligne par ligne. Types créés avant Categories (dépendance
+    // typeId). Même pattern que MarketPriceCsvImportDrawer.createMissingEntities(), en plus
+    // simple : pas de détection de faute de frappe/confirmation ambiguë (scope volontairement
+    // réduit) — un nom non trouvé exactement est directement traité comme nouveau.
+    // Échec de création isolé (catch vide) : la ligne concernée sera simplement créée sans
+    // cette FK plus tard (typeObj/catObj/brandId/displayNameId resteront non résolus).
+    async scanAndCreateMissingReferentials() {
+      const { types, categories, brands, displayNames } = this.pendingCreations
+      for (const name of types) {
+        try {
+          const res = await createProductType({ name })
+          const created = res?.data || res
+          const id = created?.id || created?._id
+          if (id) {
+            this.createdTypes.push({ ...created, id, name })
+            this.$store.dispatch('productTypes/addProductType', { ...created, id, name })
+          }
+        } catch (e) { /* la ligne sera créée sans ce type, faute de résolution */ }
+      }
+      for (const { type, category } of categories) {
+        const typeObj = [...(this.productTypes || []), ...this.createdTypes]
+          .find(t => String(t.name || '').toLowerCase() === type.toLowerCase())
+        const typeId = typeObj && (typeObj.id || typeObj._id)
+        if (!typeId) continue // le type lui-même n'a pas pu être résolu/créé
+        try {
+          const res = await createProductCategory({ name: category, typeId })
+          const created = res?.data || res
+          const id = created?.id || created?._id
+          if (id) {
+            this.createdCategories.push({ ...created, id, name: category, typeId })
+            this.$store.dispatch('productCategories/addProductCategory', { ...created, id, name: category, typeId })
+          }
+        } catch (e) { /* idem */ }
+      }
+      for (const name of brands) {
+        try {
+          const res = await createBrandName({ name })
+          const created = res?.data || res
+          const id = created?.id || created?._id
+          if (id) {
+            this.createdBrands.push({ ...created, id, name })
+            this.$store.dispatch('brandNames/addBrandName', { ...created, id, name })
+          }
+        } catch (e) { /* idem */ }
+      }
+      for (const name of displayNames) {
+        try {
+          const res = await createDisplayName({ name })
+          const created = res?.data || res
+          const id = created?.id || created?._id
+          if (id) {
+            this.createdDisplayNames.push({ ...created, id, name })
+            this.$store.dispatch('displayNames/addDisplayName', { ...created, id, name })
+          }
+        } catch (e) { /* idem */ }
+      }
+    },
     async runImport() {
-      this.step = 3
+      this.step = 4
       this.importing = true
       this.importError = ''
       this.importFailed = []
       this.importBulkCountUnknown = false
+      this.createdTypes = []
+      this.createdCategories = []
+      this.createdBrands = []
+      this.createdDisplayNames = []
       try {
-        // validRows exclut déjà les lignes invalides (BUG-87) et les doublons déjà en
-        // base (BUG-86) — ce qui suit n'envoie que des lignes importables.
+        // BUG-112 : crée d'abord les référentiels manquants détectés dans validRows, pour que
+        // buildPayload() (juste après) puisse résoudre typeId/categoryId/brandId/displayNameId
+        // fraîchement créés en plus de ceux déjà existants.
+        await this.scanAndCreateMissingReferentials()
+        // validRows exclut déjà les doublons déjà en base (BUG-86) — ce qui suit n'envoie que
+        // des lignes importables (type/catégorie non résolus ne bloquent plus, BUG-112).
         const allItems = this.validRows.map(r => this.buildPayload(r))
 
         const hasRecipe = item =>
@@ -947,11 +1258,46 @@ export default {
 
 <style scoped>
 /* ── Shell ───────────────────────────────────────────────── */
-.mi-import-drawer {
-  background: #ffffff !important;
+/* Overlay + panel "faits maison" (Teleport, comme MarketPriceCsvImportDrawer.vue) au lieu
+   d'un <v-navigation-drawer> Vuetify : le scrim de ce dernier ne couvrait pas toute la
+   largeur de l'écran (s'arrêtait avant la barre latérale gauche) — signalé par l'utilisateur,
+   capture à l'appui. position:fixed; inset:0 garantit une couverture plein écran réelle. */
+.mi-import-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: flex-end;
 }
-.mi-import--dark.mi-import-drawer {
-  background: #111827 !important;
+.mi-import-panel {
+  width: 580px;
+  max-width: 100vw;
+  height: 100%;
+  background: #ffffff;
+  box-shadow: -4px 0 32px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mi-import--dark.mi-import-panel {
+  background: #111827;
+}
+.mi-import-enter-active,
+.mi-import-leave-active {
+  transition: opacity 0.25s ease;
+}
+.mi-import-enter-active .mi-import-panel,
+.mi-import-leave-active .mi-import-panel {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mi-import-enter-from,
+.mi-import-leave-to {
+  opacity: 0;
+}
+.mi-import-enter-from .mi-import-panel,
+.mi-import-leave-to .mi-import-panel {
+  transform: translateX(100%);
 }
 
 /* ── Header ──────────────────────────────────────────────── */
@@ -1121,6 +1467,38 @@ export default {
   border-color: #374151;
 }
 
+/* BUG-111 : toggle "Voir/Masquer le détail" dans les bandeaux d'avertissement — évite
+   d'imposer une longue liste sans action possible dessus par défaut. */
+.mi-detail-toggle {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.85;
+}
+.mi-detail-toggle:hover { opacity: 1; }
+
+/* ── Mapping (BUG-112) ──────────────────────────────────────── */
+.mi-mapping-group-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+.mi-import--dark .mi-mapping-group-label { color: #6b7280; }
+.mi-mapping-label {
+  flex: 0 0 190px;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.mi-required { color: #ff3131; margin-left: 2px; font-weight: 700; }
+
 /* ── Preview table ───────────────────────────────────────── */
 .mi-table-wrap {
   border: 1px solid #e5e7eb;
@@ -1176,13 +1554,14 @@ export default {
 }
 
 /* ── Footer ──────────────────────────────────────────────── */
-.mi-import-drawer :deep(.v-navigation-drawer__append) {
+.mi-footer {
+  flex-shrink: 0;
   background: #ffffff;
   border-top: 1px solid #f1f5f9;
 }
-.mi-import--dark :deep(.v-navigation-drawer__append) {
-  background: #111827 !important;
-  border-top-color: #1e293b !important;
+.mi-import--dark .mi-footer {
+  background: #111827;
+  border-top-color: #1e293b;
 }
 
 /* ── Buttons ─────────────────────────────────────────────── */

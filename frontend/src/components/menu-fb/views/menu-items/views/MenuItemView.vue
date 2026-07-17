@@ -900,8 +900,12 @@ export default {
 
           const itemColumns = [
             String(raw.name || item.name || ''),
-            String(raw.productType?.name || item.type || ''),
-            String(raw.productCategory?.name || item.category || ''),
+            // item.type/item.category valent "-" quand l'article n'a pas de type/catégorie
+            // (placeholder d'affichage table/grille, cf. mapItemToRow) — NE PAS l'utiliser en
+            // repli ici, sinon l'export écrit littéralement "-" comme si c'était un vrai nom de
+            // type, et le réimport échoue en cherchant un type nommé "-" (BUG-110).
+            String(raw.productType?.name || ''),
+            String(raw.productCategory?.name || ''),
             String(raw.brand?.name || ''),
             String(raw.displayName?.name || ''),
             String(raw.readyForSale ?? ''),
