@@ -76,11 +76,11 @@ export default {
     async submit() {
       const trimmed = this.name.trim();
       if (!trimmed) {
-        this.error = 'Le nom de la catégorie est requis.';
+        this.error = this.t('menuItemCreateCategoryDialogNameRequiredError');
         return;
       }
       if (!this.typeId) {
-        this.error = "Veuillez d'abord sélectionner un type.";
+        this.error = this.t('menuItemCreateCategoryDialogTypeRequiredError');
         return;
       }
       this.loading = true;
@@ -101,7 +101,7 @@ export default {
         this.name = '';
         this.$emit('update:modelValue', false);
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Une erreur est survenue.';
+        this.error = e?.response?.data?.message || e?.message || this.t('menuItemCreateGenericError');
       } finally {
         this.loading = false;
       }

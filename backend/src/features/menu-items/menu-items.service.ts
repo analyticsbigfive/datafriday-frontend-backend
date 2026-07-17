@@ -456,11 +456,23 @@ export class MenuItemsService {
     }
   }
 
-  async findAll(tenantId: string, page = 1, limit = 100, spaceId?: string) {
+  async findAll(
+    tenantId: string,
+    page = 1,
+    limit = 100,
+    spaceId?: string,
+    filters?: { search?: string; typeId?: string; categoryId?: string; readyForSale?: string },
+  ) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
-    this.logger.log(`Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'})`);
+    const { search, typeId, categoryId, readyForSale } = filters || {};
+    this.logger.log(
+      `Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'}, search=${search ?? ''}, typeId=${typeId ?? ''}, categoryId=${categoryId ?? ''}, readyForSale=${readyForSale ?? ''})`,
+    );
     try {
-      const cacheKey = this.cacheKey(tenantId, `list:${page}:${safeLimit}:${spaceId ?? 'all'}`);
+      const cacheKey = this.cacheKey(
+        tenantId,
+        `list:${page}:${safeLimit}:${spaceId ?? 'all'}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${readyForSale ?? ''}`,
+      );
       return this.redis.getOrSet(cacheKey, async () => {
         const skip = (page - 1) * safeLimit;
         // spaceId filtre sur la table SpaceMenuItem (join indexé) : évite de charger tout
@@ -468,6 +480,10 @@ export class MenuItemsService {
         // paginait sur l'intégralité des menu items avant de filtrer côté client).
         const where: any = { tenantId, deletedAt: null };
         if (spaceId) where.spaceLinks = { some: { spaceId } };
+        if (search) where.name = { contains: search, mode: 'insensitive' };
+        if (typeId) where.typeId = typeId;
+        if (categoryId) where.categoryId = categoryId;
+        if (readyForSale) where.readyForSale = readyForSale;
         const [items, total, tenantVatRate] = await Promise.all([
           this.prisma.menuItem.findMany({
             where,
@@ -1549,7 +1565,14 @@ export class MenuItemsService {
   }
 
   async createProductType(name: string, tenantId?: string) {
-    return this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
+    try {
+      return await this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`Un type nommé « ${name} » existe déjà`);
+      }
+      throw error;
+    }
   }
 
   async deleteProductType(id: string, tenantId: string) {
@@ -1655,16 +1678,23 @@ export class MenuItemsService {
       });
     }
 
-    return this.prisma.productCategory.create({
-      data: {
-        name,
-        tenantId,
-        type: {
-          connect: { id: resolvedTypeId },
+    try {
+      return await this.prisma.productCategory.create({
+        data: {
+          name,
+          tenantId,
+          type: {
+            connect: { id: resolvedTypeId },
+          },
         },
-      },
-      include: { type: true },
-    });
+        include: { type: true },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`Une catégorie nommée « ${name} » existe déjà pour ce type`);
+      }
+      throw error;
+    }
   }
 
   async deleteProductCategory(id: string, tenantId: string) {

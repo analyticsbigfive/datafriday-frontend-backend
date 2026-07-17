@@ -22,19 +22,25 @@
               <LayoutGrid :size="15" />
             </button>
           </div>
+          <button
+            v-if="viewMode === 'table'"
+            class="mil-action-hbtn"
+            :class="{ 'mil-view-btn--active': groupByEnabled }"
+            @click="groupByEnabled = !groupByEnabled"
+            :title="t('menuItemLib.groupByToggle')"
+          >
+            {{ t('menuItemLib.groupByToggle') }}
+          </button>
           <div class="mil-header__sep"></div>
           <div class="mil-header__actions">
             <button class="mil-action-hbtn" @click="onExportCsv" :disabled="exportLoading">
               <Download :size="15" /> {{ t("menuItemLib.exportCsv") }}
             </button>
             <button class="mil-action-hbtn" @click="importDrawer = true">
-              <Upload :size="15" /> Importer CSV
+              <Upload :size="15" /> {{ t('menuItemLib.importCsv') }}
             </button>
             <button class="mil-action-hbtn" @click="onRefreshCosts" :disabled="refreshing">
               <RefreshCw :size="15" /> {{ t("menuItemLib.refreshCosts") }}
-            </button>
-            <button class="mil-action-hbtn" @click="onSyncCategories" :disabled="syncing">
-              <RefreshCcw :size="15" /> {{ t("menuItemLib.syncCategories") }}
             </button>
             <button class="mil-add-btn" @click="onAddMenuItem">
               <Plus :size="17" /> {{ t("menuItemLib.addMenuItem") }}
@@ -101,7 +107,7 @@
           />
         </div>
         <span class="mil-filterbar__count">
-          {{ filteredItems.length }} {{ filteredItems.length === 1 ? t('menuItemLib.menuItem') : t('menuItemLib.menuItems') }}
+          {{ tableTotalCount }} {{ tableTotalCount === 1 ? t('menuItemLib.menuItem') : t('menuItemLib.menuItems') }}
         </span>
       </div>
 
@@ -131,12 +137,12 @@
     <div v-if="selectedItems.length > 0" class="mil-bulk-bar" :class="{ 'mil-bulk-bar--dark': isDark }">
       <div class="mil-bulk-bar__left">
         <span class="mil-bulk-badge">{{ selectedItems.length }}</span>
-        <span class="mil-bulk-text">article{{ selectedItems.length > 1 ? 's' : '' }} sélectionné{{ selectedItems.length > 1 ? 's' : '' }}</span>
+        <span class="mil-bulk-text">{{ selectedItems.length > 1 ? t('menuItemLib.itemsSelected') : t('menuItemLib.itemSelected') }}</span>
       </div>
       <div class="mil-bulk-bar__right">
-        <button class="mil-bulk-cancel" @click="selectedItems = []">Désélectionner</button>
+        <button class="mil-bulk-cancel" @click="selectedItems = []">{{ t('menuItemLib.deselect') }}</button>
         <button class="mil-bulk-delete" @click="onBulkDelete">
-          <Trash2 :size="14" /> Supprimer ({{ selectedItems.length }})
+          <Trash2 :size="14" /> {{ t('menuItemLib.deleteSelectedBtn') }} ({{ selectedItems.length }})
         </button>
       </div>
     </div>
@@ -146,19 +152,22 @@
       <v-card v-if="viewMode === 'table'" rounded="xl" class="data-table-card overflow-hidden" elevation="0">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredItems"
+          :items="tableItems"
           item-value="id"
           density="compact"
-          :group-by="groupBy"
+          :group-by="groupByColumns"
           fixed-header
-          :items-per-page="-1"
-          hide-default-footer
+          :items-per-page="needsFullCatalog ? -1 : serverItemsPerPage"
+          :items-length="needsFullCatalog ? undefined : serverTotal"
+          :hide-default-footer="needsFullCatalog"
+          :loading="isTableLoading ? 'primary' : false"
+          @update:options="onUpdateOptions"
           class="menu-items-table"
         >
           <template #header.select>
             <v-checkbox-btn
-              :model-value="selectedItems.length > 0 && selectedItems.length === filteredItems.length"
-              :indeterminate="selectedItems.length > 0 && selectedItems.length < filteredItems.length"
+              :model-value="selectedItems.length > 0 && selectedItems.length === tableItems.length"
+              :indeterminate="selectedItems.length > 0 && selectedItems.length < tableItems.length"
               density="compact"
               @update:model-value="toggleSelectAll"
             />
@@ -393,10 +402,10 @@
       </div>
     </v-container>
 
-    <!-- Delete Dialog (single) -->
-    <!-- Delete Dialog -->
+    <!-- Recipe Import Drawer -->
     <RecipeImportDrawer v-model="recipeImportOpen" :is-dark="isDark" @imported="onRecipesImported" />
 
+    <!-- Delete Dialog (single) -->
     <MenuItemDeleteDialog
       v-model="deleteDialog"
       :title="t('menuItemLib.deleteTitle')"
@@ -413,14 +422,14 @@
     <!-- Bulk Delete Dialog -->
     <MenuItemDeleteDialog
       v-model="bulkDeleteDialog"
-      title="Supprimer la sélection"
-      subtitle="Cette action est irréversible."
-      :message="`Supprimer les ${selectedItems.length} articles sélectionnés`"
+      :title="t('menuItemLib.deleteSelectedTitle')"
+      :subtitle="t('menuItemLib.deleteSubtitle')"
+      :message="`${t('menuItemLib.deleteSelectedMessagePrefix')} ${selectedItems.length} ${t('menuItemLib.itemsSelected')}`"
       item-name=""
       :loading="bulkDeleteLoading"
       :error="bulkDeleteError"
-      cancel-label="Annuler"
-      confirm-label="Tout supprimer"
+      :cancel-label="t('cancel')"
+      :confirm-label="t('menuItemLib.deleteAllConfirm')"
       @confirm="confirmBulkDelete"
     />
 
@@ -439,7 +448,9 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemById } from "@/api/endpoints/menu-item.api";
+import { formatCurrency } from "@/composables/useFormatters";
+import { runWithConcurrency } from "@/utils/asyncPool";
+import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemById, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
 import { getProductMappings, deleteProductMapping } from "@/api/endpoints/mapping.api";
 import MenuItemDeleteDialog from '../dialogs/MenuItemDeleteDialog.vue';
 import MenuItemCsvImportDrawer from '../drawers/MenuItemCsvImportDrawer.vue';
@@ -453,7 +464,6 @@ import {
   LayoutList,
   Pencil,
   Plus,
-  RefreshCcw,
   RefreshCw,
   Search,
   Trash2,
@@ -473,14 +483,12 @@ export default {
     LayoutList,
     Pencil,
     Plus,
-    RefreshCcw,
     RefreshCw,
     Search,
     Trash2,
     Upload,
     UtensilsCrossed,
     X,
-    Upload,
     MenuItemDeleteDialog,
     MenuItemCsvImportDrawer,
     RecipeImportDrawer,
@@ -489,23 +497,29 @@ export default {
     const theme = useTheme();
     const { t } = useI18n();
     const isDark = computed(() => !!theme.global.current.value.dark);
-    return { t, isDark };
+    return { t, isDark, formatCurrency };
   },
   data() {
     return {
       viewMode: "table",
       refreshing: false,
-      syncing: false,
       searchQuery: "",
       spaceFilter: "All Spaces",
       typeFilter: "All Types",
       categoryFilter: "All Categories",
       readyFilter: "All",
 
-      groupBy: [
-        { key: "type", order: "asc" },
-        { key: "category", order: "asc" },
-      ],
+      // Regroupement par type+catégorie (avec totaux) : ACTIVÉ PAR DÉFAUT — design validé
+      // client, comportement historique inchangé (chevrons d'expansion par groupe + totaux).
+      // Décocher le toggle bascule sur une vue tableau à plat en pagination serveur (plus
+      // rapide sur un gros catalogue), en option seulement, jamais par défaut.
+      groupByEnabled: true,
+      serverLoading: false,
+      serverPage: 1,
+      serverItemsPerPage: 25,
+      serverTotal: 0,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       selectedItems: [],
 
@@ -527,12 +541,25 @@ export default {
     this.$store.dispatch('spaces/fetchSpaces');
     this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
     this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
-    this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+    this.ensureDataLoaded();
   },
   activated() {
-    this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
-    this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
-    this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+    this.$store.dispatch('productTypes/fetchProductTypes', {});
+    this.$store.dispatch('productCategories/fetchProductCategories', {});
+    this.ensureDataLoaded();
+  },
+  watch: {
+    searchQuery() {
+      if (this.needsFullCatalog) return;
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
+    },
+    spaceFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    typeFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    categoryFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    readyFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    viewMode() { this.ensureDataLoaded(); },
+    groupByEnabled() { this.ensureDataLoaded(); },
   },
   computed: {
     // Données depuis le store (avec cache TTL)
@@ -546,58 +573,34 @@ export default {
       return this.$store.getters['productCategories/productCategories']
     },
     items() {
-      // UNE LIGNE PAR ARTICLE. Un même article vendu dans N espaces reste UNE seule ligne :
-      // on affiche le NOMBRE d'espaces, et le prix le PLUS ÉLEVÉ parmi les espaces
-      // (TTC + HT/TVA/marge de ce même espace le plus cher, pour garder une ligne cohérente).
-      const rows = [];
-      for (const item of (this.$store.getters['menuItems/rows'] || [])) {
-        const menuItemId = item?.id || item?._id;
-        // On affiche le coût PAR PIÈCE (cohérent avec le drawer et le prix de vente d'une portion),
-        // pas le coût total de la recette. Le backend le fournit déjà (costPerPiece) ; repli local
-        // = totalCost / nombre de pièces.
-        const recipeTotalCost = Number(item?.totalCost || 0);
-        const pieces = Math.max(Number(item?.numberOfPiecesRecipe) || 1, 1);
-        const totalCost = item?.costPerPiece != null
-          ? Number(item.costPerPiece)
-          : recipeTotalCost / pieces;
-        const spaceIds = Array.isArray(item?.spaceIds) ? item.spaceIds : (item?.spaceId ? [item.spaceId] : []);
-
-        // Prix de chaque espace (ou prix global si aucun espace), puis on retient l'espace le plus cher.
-        const priced = (spaceIds.length ? spaceIds : [null]).map((sid) => {
-          const p = this.rowPrice(item, sid);
-          const margin = p.margin != null
-            ? p.margin
-            : (p.ttc > 0 ? ((p.ttc - totalCost) / p.ttc) * 100 : 0);
-          return { ...p, margin: Number(margin) };
-        });
-        const top = priced.reduce(
-          (best, cur) => (cur.ttc > (best?.ttc ?? -Infinity) ? cur : best),
-          priced[0],
-        );
-
-        rows.push({
-          id: menuItemId, // clé de ligne = l'article (plus de couple article×espace)
-          menuItemId,
-          name: item?.name || "-",
-          category: item?.productCategory?.name || "-",
-          type: item?.productType?.name || "-",
-          picture: item?.picture || item?.image || null,
-          readyForSale: item?.readyForSale === "Yes" ? "Yes" : "No",
-          comboItem: item?.comboItem === "Yes" ? "Yes" : "No",
-          totalCost,
-          diet: item?.diet?.join(", ") || "-",
-          storage: item?.storageType?.join(", ") || "-",
-          spaceIds,
-          spaceCount: spaceIds.length,
-          spaceNames: spaceIds.map((sid) => this.getSpaceName(sid)),
-          price: top.ttc,
-          priceHt: top.ht,
-          vatRate: top.vatRate,
-          margin: Number(top.margin).toFixed(1),
-          _raw: item,
-        });
-      }
-      return rows;
+      // UNE LIGNE PAR ARTICLE, à partir du catalogue COMPLET en mémoire (store). Utilisé par
+      // la vue grille et par la vue tableau REGROUPÉE (voir tableItems ci-dessous) — les deux
+      // ont besoin de voir tous les articles pour calculer des totaux/filtres corrects.
+      return (this.$store.getters['menuItems/rows'] || []).map((item) => this.mapItemToRow(item));
+    },
+    // true si l'écran a besoin du catalogue COMPLET en mémoire (vue grille, ou tableau
+    // regroupé par type/catégorie avec totaux) plutôt que d'une simple page côté serveur.
+    needsFullCatalog() {
+      return this.viewMode === 'grid' || this.groupByEnabled;
+    },
+    groupByColumns() {
+      return this.groupByEnabled
+        ? [{ key: "type", order: "asc" }, { key: "category", order: "asc" }]
+        : [];
+    },
+    // Lignes affichées dans le v-data-table : catalogue complet filtré côté client en mode
+    // "regroupé", ou juste la page courante déjà filtrée côté serveur en mode "paginé".
+    tableItems() {
+      return this.needsFullCatalog ? this.filteredItems : this.serverRows;
+    },
+    serverRows() {
+      return this.serverRawItems.map((item) => this.mapItemToRow(item));
+    },
+    tableTotalCount() {
+      return this.needsFullCatalog ? this.filteredItems.length : this.serverTotal;
+    },
+    isTableLoading() {
+      return this.needsFullCatalog ? !!this.$store.state.menuItems.isFetching : this.serverLoading;
     },
     tableHeaders() {
       return [
@@ -605,11 +608,11 @@ export default {
         { title: this.t("menuItemLib.colPicture"), key: "picture", sortable: false, width: 90 },
         { title: this.t("menuItemLib.colName"), key: "name" },
         { title: this.t("menuItemLib.colCategory"), key: "category" },
-        { title: "Espace", key: "spaceCount", width: 150 },
+        { title: this.t("menuItemLib.colSpace"), key: "spaceCount", width: 150 },
         { title: this.t("menuItemLib.colReady"), key: "readyForSale", sortable: false, width: 90 },
         { title: this.t("menuItemLib.colCombo"), key: "comboItem", sortable: false, width: 90 },
-        { title: `${this.t("menuItemLib.colPrice")} TTC`, key: "price", width: 110 },
-        { title: "Prix HT", key: "priceHt", width: 100 },
+        { title: `${this.t("menuItemLib.colPrice")} ${this.t("menuItemLib.ttcSuffix")}`, key: "price", width: 110 },
+        { title: this.t("menuItemLib.colPriceHt"), key: "priceHt", width: 100 },
         { title: this.t("menuItemLib.colTotalCost"), key: "totalCost", width: 120 },
         { title: this.t("menuItemLib.colMargin"), key: "margin", width: 120 },
         { title: this.t("menuItemLib.colDiet"), key: "diet", sortable: false, width: 90 },
@@ -677,10 +680,114 @@ export default {
       this.categoryFilter = "All Categories";
       this.readyFilter = "All";
     },
-    formatCurrency(v) {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return "-";
-      return `€${n.toFixed(2)}`;
+    // Charge soit le catalogue complet (vue grille / tableau regroupé), soit la page
+    // serveur courante (vue tableau à plat) — à appeler à chaque fois que l'écran doit
+    // (re)synchroniser ses données avec le backend (montage, retour sur la page, mutation).
+    ensureDataLoaded() {
+      if (this.needsFullCatalog) {
+        this.$store.dispatch('menuItems/fetchMenuItems', {});
+      } else {
+        this.reloadServerFirstPage();
+      }
+    },
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      this.loadServerPage();
+    },
+    resolveTypeId(name) {
+      if (!name || name === 'All Types') return null;
+      const found = (this.productTypes || []).find((t) => String(t?.name || t?.type || '') === name);
+      return found?.id || null;
+    },
+    resolveCategoryId(name) {
+      if (!name || name === 'All Categories') return null;
+      const found = (this.productCategories || []).find((c) => String(c?.name || c?.category || '') === name);
+      return found?.id || null;
+    },
+    async loadServerPage() {
+      this.serverLoading = true;
+      try {
+        const res = await getMenuItemsPage({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          spaceId: this.spaceFilter !== 'All Spaces' ? this.spaceFilter : null,
+          search: this.searchQuery,
+          typeId: this.resolveTypeId(this.typeFilter),
+          categoryId: this.resolveCategoryId(this.categoryFilter),
+          readyForSale: this.readyFilter !== 'All' ? this.readyFilter : null,
+        });
+        this.serverRawItems = res.data;
+        this.serverTotal = res.meta?.total || 0;
+      } catch (e) {
+        console.error('[MenuItemView] loadServerPage error:', e);
+        this.serverRawItems = [];
+        this.serverTotal = 0;
+      } finally {
+        this.serverLoading = false;
+      }
+    },
+    // Appelé par v-data-table (props items-per-page/page en mode paginé serveur) à chaque
+    // changement de page/taille de page — ignoré en mode "catalogue complet".
+    onUpdateOptions(options) {
+      if (this.needsFullCatalog) return;
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return; // évite un fetch en double sur l'émission initiale de v-data-table au montage
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    mapItemToRow(item) {
+      // UNE LIGNE PAR ARTICLE. Un même article vendu dans N espaces reste UNE seule ligne :
+      // on affiche le NOMBRE d'espaces, et le prix le PLUS ÉLEVÉ parmi les espaces
+      // (TTC + HT/TVA/marge de ce même espace le plus cher, pour garder une ligne cohérente).
+      const menuItemId = item?.id || item?._id;
+      // On affiche le coût PAR PIÈCE (cohérent avec le drawer et le prix de vente d'une portion),
+      // pas le coût total de la recette. Le backend le fournit déjà (costPerPiece) ; repli local
+      // = totalCost / nombre de pièces.
+      const recipeTotalCost = Number(item?.totalCost || 0);
+      const pieces = Math.max(Number(item?.numberOfPiecesRecipe) || 1, 1);
+      const totalCost = item?.costPerPiece != null
+        ? Number(item.costPerPiece)
+        : recipeTotalCost / pieces;
+      const spaceIds = Array.isArray(item?.spaceIds) ? item.spaceIds : (item?.spaceId ? [item.spaceId] : []);
+
+      // Prix de chaque espace (ou prix global si aucun espace), puis on retient l'espace le plus cher.
+      const priced = (spaceIds.length ? spaceIds : [null]).map((sid) => {
+        const p = this.rowPrice(item, sid);
+        const margin = p.margin != null
+          ? p.margin
+          : (p.ttc > 0 ? ((p.ttc - totalCost) / p.ttc) * 100 : 0);
+        return { ...p, margin: Number(margin) };
+      });
+      const top = priced.reduce(
+        (best, cur) => (cur.ttc > (best?.ttc ?? -Infinity) ? cur : best),
+        priced[0],
+      );
+
+      return {
+        id: menuItemId, // clé de ligne = l'article (plus de couple article×espace)
+        menuItemId,
+        name: item?.name || "-",
+        category: item?.productCategory?.name || "-",
+        type: item?.productType?.name || "-",
+        picture: item?.picture || item?.image || null,
+        readyForSale: item?.readyForSale === "Yes" ? "Yes" : "No",
+        comboItem: item?.comboItem === "Yes" ? "Yes" : "No",
+        totalCost,
+        diet: item?.diet?.join(", ") || "-",
+        storage: item?.storageType?.join(", ") || "-",
+        spaceIds,
+        spaceCount: spaceIds.length,
+        spaceNames: spaceIds.map((sid) => this.getSpaceName(sid)),
+        price: top.ttc,
+        priceHt: top.ht,
+        vatRate: top.vatRate,
+        margin: Number(top.margin).toFixed(1),
+        _raw: item,
+      };
     },
     getSpaceName(spaceId) {
       const s = (this.spaces || []).find(x => String(x?.id || x?._id) === String(spaceId));
@@ -773,17 +880,24 @@ export default {
       return parts.join('|')
     },
     async onExportCsv() {
-      const source = this.filteredItems.length ? this.filteredItems : (this.items || [])
-      if (!source.length) return
-
       this.exportLoading = true
       try {
+        // L'export porte sur le catalogue COMPLET filtré, pas juste la page visible à l'écran
+        // (mode tableau paginé) — s'assure que le store est peuplé avant de lire filteredItems.
+        await this.$store.dispatch('menuItems/fetchMenuItems', {})
+        const source = this.filteredItems.length ? this.filteredItems : (this.items || [])
+        if (!source.length) { this.exportLoading = false; return }
         // Fetch full details per item to get ingredients/components/packagings (une ligne = un article).
+        // Concurrence bornée (asyncPool) pour éviter une rafale de requêtes simultanées sur un backend lent.
         const detailById = {}
-        await Promise.all(
-          [...new Set(source.map(item => item.menuItemId))]
-            .map(id => getMenuItemById(id).then(d => { detailById[id] = d }).catch(() => null))
-        )
+        const menuItemIds = [...new Set(source.map(item => item.menuItemId))]
+        await runWithConcurrency(menuItemIds, 5, async (id) => {
+          try {
+            detailById[id] = await getMenuItemById(id)
+          } catch (e) {
+            // ignoré : repli sur item._raw plus bas
+          }
+        })
 
         const headers = [
           'Name',
@@ -843,25 +957,22 @@ export default {
       }
     },
     async onRecipesImported() {
-      try { await this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true }); } catch (e) { /* noop */ }
+      try {
+        await this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+      } catch (e) { /* noop */ }
+      this.ensureDataLoaded();
     },
     async onRefreshCosts() {
       this.refreshing = true;
       try {
         await refreshMenuItemsCosts();
         await this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+        this.ensureDataLoaded();
       } catch (e) {
         console.error('Error refreshing costs:', e);
+        alert(e?.userMessage || e?.message || 'Failed to refresh costs. Please try again.');
       } finally {
         this.refreshing = false;
-      }
-    },
-    async onSyncCategories() {
-      this.syncing = true;
-      try {
-        await new Promise((r) => setTimeout(r, 400));
-      } finally {
-        this.syncing = false;
       }
     },
     onAddMenuItem() {
@@ -895,6 +1006,7 @@ export default {
         this.selectedItems = this.selectedItems.filter(sid => String(sid) !== String(id));
         this.closeDeleteDialog();
         this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+        this.ensureDataLoaded();
       } catch (e) {
         console.error('Error deleting menu item:', e);
         this.deleteError = e?.userMessage || e?.message || "Failed to delete menu item";
@@ -921,7 +1033,9 @@ export default {
       }
     },
     toggleSelectAll(val) {
-      this.selectedItems = val ? this.filteredItems.map(i => i.id) : [];
+      // Mode paginé : "tout sélectionner" ne porte que sur la page visible (les autres
+      // pages ne sont pas chargées en mémoire) — cohérent avec le compteur affiché.
+      this.selectedItems = val ? this.tableItems.map(i => i.id) : [];
     },
 
     onBulkDelete() {
@@ -935,10 +1049,13 @@ export default {
       // La sélection contient des ids d'articles (une ligne = un article).
       const menuItemIds = [...new Set(this.selectedItems.map(id => String(id)))];
       const failed = [];
+      let firstErrorMessage = "";
       for (const id of menuItemIds) {
         try {
           await deleteMenuItem(id);
         } catch (e) {
+          console.error(`Error deleting menu item ${id}:`, e);
+          if (!firstErrorMessage) firstErrorMessage = e?.userMessage || e?.message || "";
           failed.push(id);
         }
       }
@@ -954,16 +1071,20 @@ export default {
         this.$store.dispatch('menuItems/removeRows', deleted);
         this.cleanWeezMappings(deleted);
         this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+        this.ensureDataLoaded();
       }
 
       if (failed.length > 0) {
-        this.bulkDeleteError = `${failed.length} article(s) n'ont pas pu être supprimés.`;
+        this.bulkDeleteError = firstErrorMessage
+          ? `${failed.length} article(s) n'ont pas pu être supprimés : ${firstErrorMessage}`
+          : `${failed.length} article(s) n'ont pas pu être supprimés.`;
       }
     },
 
     async onImported() {
       await refreshMenuItemsCosts();
       await this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+      this.ensureDataLoaded();
     },
   },
 };

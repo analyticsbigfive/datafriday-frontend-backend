@@ -64,14 +64,41 @@ export async function getAllMenuItems(spaceId = null) {
 }
 
 /**
- * Lister les articles de menu avec pagination et recherche
- * @param {Object} params - { page, limit, search }
- * @returns {Promise<{data: Array, total: Number}>}
+ * Charger UNE page d'articles de menu directement depuis le backend (vraie pagination
+ * serveur, contrairement à getAllMenuItems() qui boucle sur toutes les pages). À utiliser
+ * pour un affichage liste paginé/rapide plutôt que pour un besoin de catalogue complet en
+ * mémoire (matching CSV, wizard de mapping — ceux-là doivent continuer à utiliser
+ * getAllMenuItems()/le store menuItems.rows).
+ * @param {Object} opts
+ * @param {number} [opts.page=1]
+ * @param {number} [opts.limit=25]
+ * @param {string|null} [opts.spaceId]
+ * @param {string} [opts.search] - Recherche texte sur le nom (insensible à la casse)
+ * @param {string} [opts.typeId]
+ * @param {string} [opts.categoryId]
+ * @param {string} [opts.readyForSale] - 'Yes' | 'No'
+ * @returns {Promise<{data: Array, meta: {total: number, page: number, limit: number, totalPages: number}}>}
  */
-export async function getMenuItemsPaginated({ page = 1, limit = 100, search = '' } = {}) {
-  const params = new URLSearchParams({ page, limit })
+export async function getMenuItemsPage({
+  page = 1,
+  limit = 25,
+  spaceId = null,
+  search = '',
+  typeId = null,
+  categoryId = null,
+  readyForSale = null,
+} = {}) {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  if (spaceId) params.set('spaceId', spaceId)
   if (search) params.set('search', search)
-  return api.get(`/menu-items?${params}`)
+  if (typeId) params.set('typeId', typeId)
+  if (categoryId) params.set('categoryId', categoryId)
+  if (readyForSale) params.set('readyForSale', readyForSale)
+  const res = await api.get(`/menu-items?${params.toString()}`)
+  return {
+    data: Array.isArray(res?.data) ? res.data : [],
+    meta: res?.meta || { total: 0, page, limit, totalPages: 0 },
+  }
 }
 
 /**
@@ -120,16 +147,6 @@ export async function deleteMenuItem(id) {
 }
 
 /**
- * Remplacer les composants d'un menu item
- * @param {string} id - L'ID du menu item
- * @param {Array} components - Les composants à remplacer
- * @returns {Promise<Object>}
- */
-export async function replaceMenuItemComponents(id, components) {
-  return api.put(`/menu-items/${id}/components`, components)
-}
-
-/**
  * Remplacer les ingrédients d'un menu item
  * @param {string} id - L'ID du menu item
  * @param {Array} ingredients - Les ingrédients à remplacer
@@ -137,16 +154,6 @@ export async function replaceMenuItemComponents(id, components) {
  */
 export async function replaceMenuItemIngredients(id, ingredients) {
   return api.put(`/menu-items/${id}/ingredients`, ingredients)
-}
-
-/**
- * Remplacer les packagings d'un menu item
- * @param {string} id - L'ID du menu item
- * @param {Array} packagings - Les packagings à remplacer
- * @returns {Promise<Object>}
- */
-export async function replaceMenuItemPackagings(id, packagings) {
-  return api.put(`/menu-items/${id}/packagings`, packagings)
 }
 
 // ============================================
@@ -192,4 +199,46 @@ export async function applyWeezeventPrices(items, spaceId = null) {
  */
 export async function getMenuItemPriceHistory(id) {
   return api.get(`/menu-items/${id}/price-history`)
+}
+
+// ============================================
+// RECETTES (réarmement plats composés)
+// ============================================
+
+/**
+ * Recette d'un menu item (réarmement plat composé). Renvoie l'item avec readyForSale,
+ * comboItem, numberOfPiecesRecipe, cost, components[] (fusion ingrédients + composants
+ * + packaging, supplierId résolu) et suppliers[]. N'altère pas /menu-items.
+ * @param {string} id - L'ID du menu item
+ * @returns {Promise<Object>}
+ */
+export async function getMenuItemRecipe(id) {
+  return api.get(`/menu-items/${id}/recipe`)
+}
+
+/**
+ * Recettes de plusieurs menu items en un seul appel (réarmement plats composés).
+ * Renvoie { items: Recipe[], suppliers: Supplier[] }. Charge tout un space en 1 appel.
+ * @param {Array<string>} [ids] - IDs des menu items dont on veut la recette. Absent/vide
+ *   → tous les items du tenant.
+ * @returns {Promise<{items: Array, suppliers: Array}>}
+ */
+export async function getMenuItemRecipes(ids) {
+  return api.post('/menu-items/recipes', { ids: ids || [] })
+}
+
+/**
+ * Backfill de masse : corrige tous les menu items mappés à 0 (prix par espace). Pour
+ * chaque menu item mappé et chaque espace assigné, écrit dans spacePrices[espace] le
+ * dernier prix de vente non nul observé DANS CET ESPACE et l'archive dans l'historique.
+ * Idempotent (overwrite=false).
+ * @param {Object} [opts]
+ * @param {string} [opts.spaceId] - Limiter le backfill à un seul espace.
+ * @param {string} [opts.eventId] - Event prioritaire (repli sur l'espace si pas de vente).
+ * @param {boolean} [opts.overwrite] - Réécrire même les couples déjà tarifés. Défaut false.
+ * @param {boolean} [opts.dryRun] - Aperçu sans écriture. Défaut false.
+ * @returns {Promise<Object>}
+ */
+export async function backfillWeezeventPrices(opts = {}) {
+  return api.post('/menu-items/backfill-weezevent-prices', opts)
 }

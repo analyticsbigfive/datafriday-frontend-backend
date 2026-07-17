@@ -81,8 +81,47 @@
 | [65](65_component_logs_debug_laisses_en_production.md) | Logs de debug laissés en production dans ComponentCreateView/componentListView | 🟢 Corrigé | 🟢 | Menu & recettes |
 | [66](66_component_loadingcomponent_loadingerror_jamais_affiches.md) | `loadingComponent`/`loadingError` jamais affichés dans ComponentCreateView.vue | 🟢 Corrigé | 🟡 | Menu & recettes |
 | [67](67_component_methode_t_dupliquee_dead_code.md) | Méthode `t()` définie deux fois dans ComponentCreateView.vue (dead code) | 🟢 Corrigé | 🟢 | Menu & recettes |
+| [68](68_menu_items_sync_categories_factice.md) | Bouton "Synchroniser les catégories" 100% factice (MenuItemView) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [69](69_menu_items_activated_force_refetch_ignore_cache_ttl.md) | `activated()` force un refetch complet ignorant le cache TTL (MenuItemView) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [70](70_menu_items_store_fetchmenuitems_sans_inflight.md) | `menuItems.js` : `fetchMenuItems` sans registre `inflight`, risque de course | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [71](71_menu_items_bulk_delete_erreurs_avalees.md) | Suppression en masse de MenuItem : erreur individuelle avalée | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [72](72_menu_items_refresh_costs_echec_silencieux.md) | `onRefreshCosts` : échec silencieux pour l'utilisateur | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [73](73_menu_items_export_csv_rafale_requetes.md) | Export CSV MenuItem : rafale de requêtes non throttlées | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [74](74_menu_items_bouton_combo_item_non_fonctionnel.md) | Bouton "Ajouter un article combo" non fonctionnel | ⚪ Diagnostiqué | 🟠 | Menu & recettes |
+| [75](75_menu_items_creation_type_categorie_echec_silencieux_fk_vide.md) | MenuItemCreateView : échec silencieux création type/catégorie → FK vide | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [76](76_menu_items_groupe_prix_non_editable_en_edition.md) | Impossible d'ajouter/modifier un groupe de prix en édition | ⚪ Diagnostiqué | 🟠 | Menu & recettes |
+| [77](77_menu_items_marge_affichee_vs_marge_sauvegardee.md) | Marge affichée par groupe ≠ marge sauvegardée en base | ⚪ Diagnostiqué | 🟠 | Menu & recettes |
+| [78](78_menu_items_validations_numeriques_manquantes.md) | MenuItemCreateView : validations numériques manquantes | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [79](79_menu_items_logs_debug_et_alert_natif.md) | Logs de debug et `alert()` natif laissés en production | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [80](80_menu_items_code_mort_menuitemcreateview.md) | Volume important de code mort dans MenuItemCreateView.vue | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [81](81_menu_items_fk_taxonomie_resolue_par_nom.md) | MenuItemCreateView : FK type/catégorie re-résolues par nom | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [82](82_menu_items_upload_image_sans_validation.md) | Aucune validation de taille/type sur l'upload d'image | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [83](83_menu_items_formdrawer_orphelin_code_mort.md) | `MenuItemFormDrawer.vue` : fichier orphelin de 976 lignes, jamais importé | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [84](84_menu_items_csv_parsing_casse_guillemets.md) | Import CSV MenuItem : parsing cassé sur champ multilignes/échappé | 🟢 Corrigé | 🔴 | Menu & recettes |
+| [85](85_menu_items_csv_succes_partiel_invisible.md) | Import CSV MenuItem : succès partiel invisible, pas de try/catch par item | 🟢 Corrigé | 🔴 | Menu & recettes |
+| [86](86_menu_items_csv_pas_de_dedup_reimport.md) | Import CSV MenuItem : aucune déduplication au réimport | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [87](87_menu_items_csv_resolution_type_categorie_fragile.md) | Import CSV MenuItem : résolution type/catégorie fragile et silencieuse | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [88](88_menu_items_csv_ergonomie_alias_fr_et_feedback_vide.md) | Import CSV MenuItem : ergonomie (alias FR absents, feedback fichier vide) | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [89](89_menu_items_picker_drawers_cap_pagination_silencieux.md) | Pickers Ingredient/Packaging : cap silencieux de pagination (fiche miroir) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [90](90_menu_items_ingredientpicker_storage_incorrect.md) | IngredientPickerDrawer : champ storage rempli avec la catégorie d'achat | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [91](91_menu_items_pickers_dark_mode_incomplet.md) | Mode sombre non supporté par 2 des 3 pickers de recette | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [92](92_menu_items_pickers_sans_filtre_active.md) | Aucun filtre `active=true` dans les pickers Ingredient/Packaging | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [93](93_menu_items_recipeimportdrawer_parseur_virgule_uniquement.md) | RecipeImportDrawer : parseur CSV virgule uniquement, message trompeur | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [94](94_menu_items_recipeimportdrawer_readyforsale_echecs_invisibles.md) | RecipeImportDrawer : échecs de mise à jour `readyForSale` invisibles | 🟢 Corrigé | 🔴 | Menu & recettes |
+| [95](95_menu_items_spacegroupdrawer_scroll_lock_sans_compteur.md) | SpaceGroupDrawer : verrou de scroll body sans compteur de référence | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [96](96_menu_items_spaceselectiondrawer_orphelin_code_mort.md) | `SpaceSelectionDrawer.vue` : fichier orphelin de 361 lignes, jamais importé | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [97](97_menu_items_creation_type_categorie_doublon_500_generique.md) | CreateTypeDialog/CreateCategoryDialog : doublon de nom → 500 générique | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [98](98_menu_items_deletedialog_non_persistent.md) | MenuItemDeleteDialog : pas de `persistent`, fermable pendant requête | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [99](99_menu_items_dialogs_creation_duplication_non_factorisee.md) | 3 dialogs de création quasi dupliqués, non factorisés | ⚪ Diagnostiqué | 🟡 | Menu & recettes |
+| [100](100_menu_items_i18n_contourne_multi_fichiers.md) | i18n contourné / texte en dur sur toute la page `/menu-items` | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [101](101_menu_items_formatcurrency_incoherent_multi_fichiers.md) | `formatCurrency` réimplémenté de façon incohérente sur `/menu-items` | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [102](102_menu_items_petits_nettoyages_code_mort.md) | Petits nettoyages de code mort sur `/menu-items` | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [103](103_menu_items_store_byspace_mort_commentaire_trompeur.md) | `menuItems.js` : cache `bySpace` entièrement mort, commentaire trompeur | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [104](104_menu_items_routes_backend_non_exposees_recipeimport_reimplemente.md) | `menu-item.api.js` : 3 routes backend utiles non exposées côté client | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [105](105_menu_items_usespacedata_mauvais_client_component_api.md) | `useSpaceData.js` : mauvais client API pour MenuComponent (non paginé) | 🟢 Corrigé | 🟠 | Menu & recettes |
+| [106](106_menu_items_pas_de_loading_et_chargement_catalogue_complet.md) | MenuItemView : pas d'indicateur de chargement + catalogue complet chargé d'un coup (pagination serveur réelle ajoutée) | 🟢 Corrigé | 🟠 | Menu & recettes |
 
-**67 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+**106 bugs au total**, extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
@@ -109,7 +148,24 @@ incomplète sur les ingrédients sans fournisseur, incohérences de formatage mo
 résolution fragile des FK de taxonomie, N+1 sur le détail des ingrédients (documenté, non corrigé —
 nécessite un endpoint backend batch) et client API dupliqué non couvert par le fix de pagination
 (documenté, non corrigé — hors périmètre de cette page), plus quelques nettoyages de code mort
-(logs de debug, méthode dupliquée, états loading/error jamais affichés).
+(logs de debug, méthode dupliquée, états loading/error jamais affichés) ; 68-105 ajoutés et
+majoritairement corrigés le 2026-07-17 suite à un audit complet de la page `/menu-items` et de
+ses 14 composants (liste, formulaire création/édition 3019 lignes, tiroirs de sélection
+ingrédients/composants/packaging, imports CSV articles et recettes, tiroirs/dialogs d'espaces et
+de référentiels, store Vuex, client API, composables) : deux fichiers entiers orphelins jamais
+importés (`MenuItemFormDrawer.vue` 976 lignes, `SpaceSelectionDrawer.vue` 361 lignes, supprimés),
+parsing CSV cassé sur champs multilignes/échappés (2 imports distincts), succès partiels invisibles
+sans détail des lignes en échec, échecs de mise à jour `readyForSale` totalement silencieux malgré
+leur impact sur l'éclatement composants Event Predict/Logistics, absence de registre `inflight` sur
+le store (même piège déjà corrigé ailleurs dans le domaine), cache Vuex `bySpace` entièrement mort
+avec un commentaire trompeur, cap silencieux de pagination sur 2 modules non couverts par les fix
+précédents (BUG-040/054), mode sombre non supporté par 2 des 3 pickers de recette, aucun filtre
+`active` sur les ingrédients/packagings désactivés, FK taxonomie re-résolues par nom, marge
+affichée incohérente avec la marge sauvegardée (diagnostiqué, décision produit nécessaire), bouton
+combo item et édition de groupe de prix non fonctionnels (diagnostiqués, décisions produit
+nécessaires), plus les patterns transverses déjà vus sur `/components` (i18n contourné,
+`formatCurrency` incohérent, nettoyages de code mort) répliqués et corrigés sur l'ensemble de la
+page.
 
 ## Comment ajouter un bug
 

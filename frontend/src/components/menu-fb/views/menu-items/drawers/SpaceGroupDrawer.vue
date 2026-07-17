@@ -8,10 +8,10 @@
           <div class="sgd-header">
             <div class="sgd-header__icon"><Building2 :size="20" color="white" /></div>
             <div class="sgd-header__text">
-              <div class="sgd-header__title">{{ selectable ? t('menuItemCreate.spacesDrawerTitle') : 'Espaces' }}</div>
+              <div class="sgd-header__title">{{ selectable ? t('menuItemCreate.spacesDrawerTitle') : t('menuItemCreate.spacesDrawerViewTitle') }}</div>
               <div class="sgd-header__sub">
                 <template v-if="selectable">{{ t('menuItemCreate.spacesDrawerSubtitle') }}</template>
-                <template v-else>{{ spaceIds.length }} espace{{ spaceIds.length > 1 ? 's' : '' }} dans ce groupe de prix</template>
+                <template v-else>{{ spaceIds.length }} {{ t('menuItemCreate.spacesDrawerViewSubtitle') }}</template>
               </div>
             </div>
             <button class="sgd-header__close" @click="close"><X :size="16" /></button>
@@ -73,9 +73,9 @@
                     </div>
                     <!-- View mode: afficher TTC/HT/Marge du groupe de prix -->
                     <div v-if="!selectable && groupPrice" class="sgd-card__meta">
-                      <span>TTC {{ formatPrice(groupPrice) }}</span>
+                      <span>TTC {{ formatCurrency(groupPrice) }}</span>
                       <span class="sgd-meta-sep">·</span>
-                      <span>HT {{ formatPrice(groupHT) }}</span>
+                      <span>HT {{ formatCurrency(groupHT) }}</span>
                       <span v-if="groupMarginText !== null" class="sgd-meta-sep">·</span>
                       <span v-if="groupMarginText !== null" :class="groupMarginClass">Marge {{ groupMarginText }}</span>
                     </div>
@@ -109,6 +109,22 @@
 <script>
 import { X, Building2 } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
+import { formatCurrency } from '@/composables/useFormatters.js';
+
+// Verrou de scroll partagé (module-level) : plusieurs instances de ce drawer
+// peuvent être ouvertes simultanément (voir MenuItemCreateView.vue). On ne
+// retire `overflow: hidden` que quand toutes les instances sont fermées.
+let scrollLockCount = 0;
+function lockBodyScroll() {
+  scrollLockCount += 1;
+  document.body.style.overflow = 'hidden';
+}
+function unlockBodyScroll() {
+  scrollLockCount = Math.max(0, scrollLockCount - 1);
+  if (scrollLockCount === 0) {
+    document.body.style.overflow = '';
+  }
+}
 
 export default {
   name: 'SpaceGroupDrawer',
@@ -129,12 +145,13 @@ export default {
   emits: ['update:modelValue', 'confirm'],
   setup() {
     const { t } = useI18n();
-    return { t };
+    return { t, formatCurrency };
   },
   data() {
     return {
       search: '',
       localIds: [],
+      scrollLocked: false,
     };
   },
   computed: {
@@ -166,17 +183,20 @@ export default {
   },
   watch: {
     modelValue(val) {
-      document.body.style.overflow = val ? 'hidden' : '';
       if (val) {
+        if (!this.scrollLocked) {
+          lockBodyScroll();
+          this.scrollLocked = true;
+        }
         this.search = '';
         this.localIds = [...(this.selectedIds || [])];
+      } else if (this.scrollLocked) {
+        unlockBodyScroll();
+        this.scrollLocked = false;
       }
     },
   },
   methods: {
-    formatPrice(v) {
-      return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(v) || 0);
-    },
     close() { this.$emit('update:modelValue', false); },
     isSelected(id) { return this.localIds.includes(id); },
     setSelected(id, val) {
@@ -191,10 +211,12 @@ export default {
       this.$emit('confirm', { spaceIds: [...this.localIds] });
       this.$emit('update:modelValue', false);
     },
-    getSpace(id) { return (this.spaces || []).find(s => (s.id || s._id) === id) || null; },
   },
   beforeUnmount() {
-    document.body.style.overflow = '';
+    if (this.scrollLocked) {
+      unlockBodyScroll();
+      this.scrollLocked = false;
+    }
   },
 };
 </script>

@@ -107,18 +107,55 @@
           <v-chip v-if="invalidRows.length" size="x-small" color="error" variant="tonal">
             {{ invalidRows.length }} {{ t('menuItemImportErrors') }}
           </v-chip>
+          <v-chip v-if="duplicateRows.length" size="x-small" color="warning" variant="tonal">
+            {{ duplicateRows.length }} déjà existants
+          </v-chip>
         </div>
 
-        <!-- Skipped warning -->
+        <!-- BUG-88 : fichier vide ou en-têtes non reconnus -->
+        <v-alert
+          v-if="emptyParseWarning"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          rounded="lg"
+          class="mb-4"
+          :text="emptyParseWarning"
+        />
+
+        <!-- Skipped warning (BUG-87 : nom/type/catégorie non résolus) -->
         <v-alert
           v-if="invalidRows.length"
           type="warning"
           variant="tonal"
           density="compact"
           rounded="lg"
-          class="mb-4"
+          class="mb-2"
           :text="`${invalidRows.length} ${t('menuItemImportSkipped')}`"
         />
+        <div v-if="invalidRows.length" class="mi-skip-list mb-4 pa-3 rounded-lg text-caption mi-subtitle">
+          <div v-for="(r, i) in invalidRows.slice(0, 10)" :key="i">
+            • {{ r.row.name || '(sans nom)' }} : {{ r.reason }}
+          </div>
+          <div v-if="invalidRows.length > 10">… +{{ invalidRows.length - 10 }}</div>
+        </div>
+
+        <!-- BUG-86 : lignes ignorées car un menu item du même nom existe déjà -->
+        <v-alert
+          v-if="duplicateRows.length"
+          type="info"
+          variant="tonal"
+          density="compact"
+          rounded="lg"
+          class="mb-2"
+          :text="`${duplicateRows.length} ligne(s) ignorée(s) — déjà existantes dans le catalogue`"
+        />
+        <div v-if="duplicateRows.length" class="mi-skip-list mb-4 pa-3 rounded-lg text-caption mi-subtitle">
+          <div v-for="(row, i) in duplicateRows.slice(0, 10)" :key="i">
+            • {{ row.name }}
+          </div>
+          <div v-if="duplicateRows.length > 10">… +{{ duplicateRows.length - 10 }}</div>
+        </div>
 
         <!-- Preview table -->
         <div class="mi-table-wrap rounded-lg" style="overflow:hidden;">
@@ -171,13 +208,34 @@
           <div class="text-body-2 mi-subtitle text-center" style="max-width:360px;">{{ importError }}</div>
         </div>
 
-        <!-- Success -->
+        <!-- Success (BUG-85 : succès total OU partiel, détail des échecs affiché) -->
         <div v-else class="d-flex flex-column align-center justify-center py-12" style="gap: 12px;">
-          <div class="mi-result-icon mi-result-icon--success">
-            <CheckCircle2 :size="32" />
+          <div class="mi-result-icon" :class="importFailed.length ? 'mi-result-icon--error' : 'mi-result-icon--success'">
+            <CheckCircle2 v-if="!importFailed.length" :size="32" />
+            <AlertCircle v-else :size="32" />
           </div>
-          <div class="text-h6 font-weight-bold mi-title">{{ t('menuItemImportSuccess') }}</div>
+          <div class="text-h6 font-weight-bold mi-title">
+            {{ importFailed.length ? 'Import partiellement réussi' : t('menuItemImportSuccess') }}
+          </div>
           <div class="text-body-2 mi-subtitle">{{ importedCount }} {{ t('menuItemImportItems') }}</div>
+
+          <v-alert
+            v-if="importBulkCountUnknown"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            rounded="lg"
+            style="max-width:420px;"
+            text="Le nombre de lignes réellement créées par le lot n'a pas pu être confirmé par le serveur (réponse sans compteur) — vérifiez le catalogue avant de réimporter."
+          />
+
+          <div v-if="importFailed.length" class="mi-skip-list pa-3 rounded-lg text-caption mi-subtitle" style="max-width:420px; width:100%;">
+            <div class="font-weight-bold mb-1">{{ importFailed.length }} ligne(s) en échec :</div>
+            <div v-for="(f, i) in importFailed.slice(0, 10)" :key="i">
+              • {{ f.name }} : {{ f.message }}
+            </div>
+            <div v-if="importFailed.length > 10">… +{{ importFailed.length - 10 }}</div>
+          </div>
         </div>
       </div>
 
@@ -256,45 +314,86 @@ const KNOWN_COLUMNS = [
 ]
 
 // Maps CSV column headers (lowercase, trimmed) → internal key names
+// BUG-88 : alias FR ajoutés (nom, catégorie, prix de base, prêt à la vente, …) sur le
+// modèle de l'alias 'recette' déjà présent, pour les exports CSV en français.
 const HEADER_MAP = {
-  'name':           'name',
-  'display name':   'name',
-  'type':           'type',
-  'category':       'category',
-  'baseprice':      'basePrice',
-  'base price':     'basePrice',
-  'price':          'basePrice',
-  'readyforsale':   'readyForSale',
-  'ready for sale': 'readyForSale',
-  'comboitem':      'comboItem',
-  'combo item':     'comboItem',
-  'description':    'description',
-  'recipe':         'recipe',
-  'recette':        'recipe',
+  'name':             'name',
+  'display name':     'name',
+  'nom':              'name',
+  "nom de l'article": 'name',
+  'type':             'type',
+  'category':         'category',
+  'catégorie':        'category',
+  'categorie':        'category',
+  'baseprice':        'basePrice',
+  'base price':       'basePrice',
+  'price':            'basePrice',
+  'prix':             'basePrice',
+  'prix de base':     'basePrice',
+  'readyforsale':     'readyForSale',
+  'ready for sale':   'readyForSale',
+  'prêt à la vente':  'readyForSale',
+  'pret à la vente':  'readyForSale',
+  'prêt a la vente':  'readyForSale',
+  'pret a la vente':  'readyForSale',
+  'comboitem':        'comboItem',
+  'combo item':       'comboItem',
+  'article combo':    'comboItem',
+  'description':      'description',
+  'recipe':           'recipe',
+  'recette':          'recipe',
 }
 
-function parseCsvLine(line) {
-  const values = []
-  let cur = '', inQ = false
-  for (const ch of line) {
-    if (ch === '"') { inQ = !inQ }
-    else if (ch === ',' && !inQ) { values.push(cur); cur = '' }
-    else cur += ch
+// BUG-84 : tokenizer caractère par caractère sur le texte BRUT complet (pas de split par
+// ligne avant parsing) — un champ entre guillemets peut contenir un vrai saut de ligne
+// (cas fréquent en export Excel/Google Sheets), ce qu'un split(/\r?\n/) préalable casse.
+// Gère aussi l'échappement `""` à l'intérieur d'un champ entre guillemets. Même approche
+// que le tokenizer de RecipeImportDrawer.vue (parseCsv/split).
+function tokenizeCsv(text) {
+  const raw = String(text || '').replace(/^﻿/, '') // BOM éventuel
+  const rows = []
+  let row = []
+  let cur = ''
+  let inQuotes = false
+  let rowHasContent = false
+
+  const pushCell = () => { row.push(cur); cur = '' }
+  const pushRow = () => {
+    pushCell()
+    if (rowHasContent || row.some(c => c !== '')) rows.push(row)
+    row = []
+    rowHasContent = false
   }
-  values.push(cur)
-  return values
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    if (inQuotes) {
+      if (ch === '"' && raw[i + 1] === '"') { cur += '"'; i++ } // "" échappé
+      else if (ch === '"') { inQuotes = false }
+      else { cur += ch }
+      rowHasContent = true
+      continue
+    }
+    if (ch === '"') { inQuotes = true; rowHasContent = true }
+    else if (ch === ',') { pushCell(); rowHasContent = true }
+    else if (ch === '\r') { if (raw[i + 1] === '\n') i++; pushRow() }
+    else if (ch === '\n') { pushRow() }
+    else { cur += ch; rowHasContent = true }
+  }
+  if (cur !== '' || row.length || rowHasContent) pushRow()
+
+  return rows
 }
 
 function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) return []
-  const rawHeaders = parseCsvLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim())
+  const rows = tokenizeCsv(text)
+  if (rows.length < 2) return []
+  const rawHeaders = rows[0].map(h => String(h || '').trim())
   // Normalize each header to an internal key (or keep raw if not mapped)
   const headers = rawHeaders.map(h => HEADER_MAP[h.toLowerCase()] ?? h.toLowerCase().replace(/\s+/g, '_'))
-  return lines.slice(1).map(line => {
-    const values = parseCsvLine(line)
-    return Object.fromEntries(headers.map((h, i) => [h, (values[i] || '').replace(/^"|"$/g, '').trim()]))
-  })
+  return rows.slice(1).map(values =>
+    Object.fromEntries(headers.map((h, i) => [h, String(values[i] ?? '').trim()]))
+  )
 }
 
 function toBool(v) {
@@ -356,9 +455,12 @@ export default {
       dropping: false,
       fileName: '',
       csvRows: [],
+      emptyParseWarning: '', // BUG-88 : message explicite quand le parsing produit 0 ligne
       importing: false,
       importError: '',
       importedCount: 0,
+      importFailed: [],         // BUG-85 : [{ name, message }] des lignes withRecipe en échec
+      importBulkCountUnknown: false, // BUG-85 : la réponse bulk n'a pas renvoyé de count exploitable
       knownColumns: KNOWN_COLUMNS,
     }
   },
@@ -378,8 +480,38 @@ export default {
         this.t('menuItemImportStep3Desc'),
       ][this.step - 1]
     },
-    validRows()   { return this.csvRows.filter(r => !!r.name) },
-    invalidRows() { return this.csvRows.filter(r => !r.name)  },
+    // BUG-86 : noms (normalisés) des menu items déjà présents dans le store, pour détecter
+    // les doublons au réimport sans renvoyer silencieusement les mêmes lignes au backend.
+    existingMenuItemNames() {
+      const rows = this.$store?.getters?.['menuItems/rows'] || []
+      return new Set(rows.map(r => this.normalizeName(r?.name)))
+    },
+    // BUG-87 : chaque ligne nommée est résolue (type puis catégorie scopée par ce type) ;
+    // une ligne dont le nom, le type OU la catégorie ne se résout pas devient invalide avec
+    // un motif explicite, au lieu de produire un item incomplet sans FK.
+    rowResolutions() {
+      return this.csvRows.map(row => {
+        if (!row.name) return { row, valid: false, reason: 'Nom manquant' }
+        const tc = this.resolveTypeCategory(row)
+        if (!tc.valid) return { row, valid: false, reason: tc.reason }
+        return { row, valid: true, typeObj: tc.typeObj, catObj: tc.catObj }
+      })
+    },
+    validRows() {
+      return this.rowResolutions
+        .filter(r => r.valid)
+        .map(r => r.row)
+        .filter(row => !this.existingMenuItemNames.has(this.normalizeName(row.name)))
+    },
+    invalidRows() { return this.rowResolutions.filter(r => !r.valid) },
+    // BUG-86 : lignes par ailleurs valides mais dont le nom correspond déjà à un menu item
+    // existant — exclues de l'import et listées séparément comme "déjà existantes".
+    duplicateRows() {
+      return this.rowResolutions
+        .filter(r => r.valid)
+        .map(r => r.row)
+        .filter(row => this.existingMenuItemNames.has(this.normalizeName(row.name)))
+    },
     visibleColumns() {
       if (!this.csvRows.length) return []
       const keys = new Set(this.csvRows.flatMap(r => Object.keys(r)))
@@ -389,7 +521,15 @@ export default {
   },
 
   watch: {
-    modelValue(v) { if (v) this.reset() },
+    modelValue(v) {
+      if (v) {
+        this.reset()
+        // La déduplication (existingMenuItemNames) lit menuItems/rows : s'assurer que le
+        // catalogue complet est chargé même si l'écran liste a démarré en mode paginé rapide
+        // (qui ne charge plus tout le catalogue par défaut).
+        this.$store.dispatch('menuItems/fetchMenuItems', {})
+      }
+    },
   },
 
   methods: {
@@ -403,9 +543,12 @@ export default {
       this.dropping = false
       this.fileName = ''
       this.csvRows = []
+      this.emptyParseWarning = ''
       this.importing = false
       this.importError = ''
       this.importedCount = 0
+      this.importFailed = []
+      this.importBulkCountUnknown = false
     },
     close() { this.$emit('update:modelValue', false) },
     onDrop(e) {
@@ -423,23 +566,50 @@ export default {
       const reader = new FileReader()
       reader.onload = e => {
         this.csvRows = parseCsv(e.target.result)
+        // BUG-88 : fichier vide, mal délimité, ou en-têtes non reconnus (pas de colonne
+        // name/nom) → 0 ligne après parsing. On l'indique explicitement plutôt que de
+        // laisser un aperçu vide sans explication.
+        this.emptyParseWarning = this.csvRows.length === 0
+          ? 'Fichier vide ou en-têtes non reconnus (colonne "name"/"nom" introuvable).'
+          : ''
         this.step = 2
       }
       reader.readAsText(file, 'UTF-8')
     },
+    // BUG-86 : normalisation nom (casse/espaces) pour comparer une ligne CSV à un menu item
+    // déjà en base.
+    normalizeName(name) {
+      return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+    },
+    // BUG-87 : résout le type par nom, PUIS la catégorie filtrée par le typeId résolu (comme
+    // MenuItemCreateView.filteredCategoryNames) — jamais un match de catégorie sur le nom
+    // seul, qui pourrait associer la catégorie d'un autre type portant le même nom.
+    resolveTypeCategory(row) {
+      const typeName = String(row.type || '').trim()
+      const categoryName = String(row.category || '').trim()
+      if (!typeName) return { valid: false, reason: 'Type manquant' }
+      const typeObj = (this.productTypes || []).find(
+        t => String(t.name || '').toLowerCase() === typeName.toLowerCase()
+      )
+      const typeKey = typeObj && (typeObj.id || typeObj._id)
+      if (!typeKey) return { valid: false, reason: `Type "${typeName}" introuvable` }
+      if (!categoryName) return { valid: false, reason: 'Catégorie manquante' }
+      const catObj = (this.productCategories || []).find(
+        c => c.typeId === typeKey && String(c.name || '').toLowerCase() === categoryName.toLowerCase()
+      )
+      if (!catObj?.id && !catObj?._id) {
+        return { valid: false, reason: `Catégorie "${categoryName}" introuvable pour le type "${typeName}"` }
+      }
+      return { valid: true, typeObj, catObj }
+    },
     buildPayload(row) {
-      const typeObj = this.productTypes.find(
-        t => String(t.name || '').toLowerCase() === String(row.type || '').toLowerCase()
-      )
-      const catObj = this.productCategories.find(
-        c => String(c.name || '').toLowerCase() === String(row.category || '').toLowerCase()
-      )
+      const { typeObj, catObj } = this.resolveTypeCategory(row)
       const payload = {
         name: row.name,
         basePrice: Number(row.basePrice) || 0,
+        typeId: typeObj.id || typeObj._id,
+        categoryId: catObj.id || catObj._id,
       }
-      if (typeObj?.id)    payload.typeId     = typeObj.id
-      if (catObj?.id)     payload.categoryId = catObj.id
       if (row.readyForSale) payload.readyForSale = toBool(row.readyForSale) ? 'Yes' : 'No'
       if (row.comboItem)    payload.comboItem    = toBool(row.comboItem) ? 'Yes' : 'No'
       if (row.description)  payload.description  = row.description
@@ -450,7 +620,11 @@ export default {
       this.step = 3
       this.importing = true
       this.importError = ''
+      this.importFailed = []
+      this.importBulkCountUnknown = false
       try {
+        // validRows exclut déjà les lignes invalides (BUG-87) et les doublons déjà en
+        // base (BUG-86) — ce qui suit n'envoie que des lignes importables.
         const allItems = this.validRows.map(r => this.buildPayload(r))
 
         const hasRecipe = item =>
@@ -464,13 +638,29 @@ export default {
         // Bulk pour les items sans recipe (efficace)
         if (withoutRecipe.length) {
           const res = await bulkCreateMenuItems(withoutRecipe)
-          totalCreated += res?.data?.count ?? res?.count ?? withoutRecipe.length
+          const count = res?.data?.count ?? res?.count
+          // BUG-85 : si l'endpoint bulk ne renvoie pas de count exploitable, on ne suppose
+          // plus un succès total (ancien repli `?? withoutRecipe.length`) — on le signale
+          // explicitement à l'utilisateur à l'étape Résultat à la place.
+          if (typeof count === 'number') {
+            totalCreated += count
+          } else {
+            this.importBulkCountUnknown = true
+          }
         }
 
-        // Individuel pour les items avec recipe — le endpoint single traite les ingrédients/composants/packagings
+        // Individuel pour les items avec recipe — le endpoint single traite les
+        // ingrédients/composants/packagings. BUG-85 : try/catch PAR item pour qu'un échec
+        // isolé n'efface pas les succès déjà obtenus (avant : une exception ici remontait
+        // au catch global et affichait "Import error" alors que des items avaient bien été
+        // créés en base).
         for (const item of withRecipe) {
-          await createMenuItem(item)
-          totalCreated++
+          try {
+            await createMenuItem(item)
+            totalCreated++
+          } catch (e) {
+            this.importFailed.push({ name: item.name || '(sans nom)', message: e?.message || 'Erreur inconnue' })
+          }
         }
 
         this.importedCount = totalCreated
@@ -631,6 +821,18 @@ export default {
   border: 1px solid #e5e7eb;
 }
 .mi-import--dark .mi-file-bar {
+  background: #1e293b;
+  border-color: #374151;
+}
+
+/* ── Skip / dedup / failure lists (BUG-85/86/87 récapitulatifs) ──────── */
+.mi-skip-list {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.mi-import--dark .mi-skip-list {
   background: #1e293b;
   border-color: #374151;
 }

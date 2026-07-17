@@ -61,6 +61,10 @@ export class MenuItemsController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 100)', example: 100 })
   @ApiQuery({ name: 'spaceId', required: false, type: String, description: 'Filtre sur les articles vendus dans cet espace (MenuItem.spaceIds)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Recherche texte (nom, insensible à la casse)' })
+  @ApiQuery({ name: 'typeId', required: false, type: String, description: 'Filtre par ProductType' })
+  @ApiQuery({ name: 'categoryId', required: false, type: String, description: 'Filtre par ProductCategory' })
+  @ApiQuery({ name: 'readyForSale', required: false, type: String, description: 'Filtre "Yes"/"No"' })
   @ApiResponse({
     status: 200,
     description: 'Liste paginée des articles de menu',
@@ -158,9 +162,18 @@ export class MenuItemsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('spaceId') spaceId?: string,
+    @Query('search') search?: string,
+    @Query('typeId') typeId?: string,
+    @Query('categoryId') categoryId?: string,
+    @Query('readyForSale') readyForSale?: string,
   ) {
     this.logger.log(`GET /menu-items - User: ${user?.id}, Tenant: ${tenantId}, spaceId: ${spaceId ?? 'all'}`);
-    return this.menuItemsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId);
+    return this.menuItemsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId, {
+      search,
+      typeId,
+      categoryId,
+      readyForSale,
+    });
   }
 
   @RequirePermissions('menu.fb.menuItems')
