@@ -59,6 +59,7 @@ describe('EventsService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    $transaction: jest.fn((ops) => Promise.all(ops)),
   };
 
   beforeEach(async () => {
@@ -89,6 +90,32 @@ describe('EventsService', () => {
           data: expect.objectContaining({ tenantId: 'tenant-1', name: 'New Event' }),
         }),
       );
+    });
+
+    it('accepts an eventTypeId that references a GLOBAL (tenantId=null) referential row (BUG-67 regression)', async () => {
+      const dto = { name: 'New Event', eventDate: '2024-08-01', eventTypeId: 'global-type-1' };
+      mockPrisma.eventType.findFirst.mockResolvedValue({ id: 'global-type-1', tenantId: null });
+      mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
+
+      const result = await service.create('tenant-1', dto as any);
+
+      expect(result).toBeDefined();
+      expect(mockPrisma.eventType.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'global-type-1', OR: [{ tenantId: 'tenant-1' }, { tenantId: null }] },
+        }),
+      );
+      expect(mockPrisma.event.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ eventTypeId: 'global-type-1' }) }),
+      );
+    });
+
+    it('rejects an eventTypeId belonging to another tenant', async () => {
+      const dto = { name: 'New Event', eventDate: '2024-08-01', eventTypeId: 'foreign-type-1' };
+      mockPrisma.eventType.findFirst.mockResolvedValue(null);
+
+      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.create).not.toHaveBeenCalled();
     });
   });
 

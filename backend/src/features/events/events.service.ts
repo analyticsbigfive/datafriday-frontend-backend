@@ -54,6 +54,43 @@ export class EventsService {
     return eventSubcategory;
   }
 
+  /**
+   * Contrairement à findOwned*OrThrow (réservés à la modification/suppression
+   * de la ligne de taxonomie elle-même, où un tenant ne doit jamais pouvoir
+   * toucher une entrée globale), une RÉFÉRENCE depuis un Event peut légitimement
+   * pointer vers une entrée globale (tenantId=null, socle partagé) — même règle
+   * que createEventCategory/createEventSubcategory/assertAccessibleTeamScope.
+   */
+  private async findAccessibleEventTypeOrThrow(id: string, tenantId: string) {
+    const eventType = await this.prisma.eventType.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+    if (!eventType) {
+      throw new BadRequestException('eventTypeId must reference an accessible event type');
+    }
+    return eventType;
+  }
+
+  private async findAccessibleEventCategoryOrThrow(id: string, tenantId: string) {
+    const eventCategory = await this.prisma.eventCategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+    if (!eventCategory) {
+      throw new BadRequestException('eventCategoryId must reference an accessible event category');
+    }
+    return eventCategory;
+  }
+
+  private async findAccessibleEventSubcategoryOrThrow(id: string, tenantId: string) {
+    const eventSubcategory = await this.prisma.eventSubcategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+    if (!eventSubcategory) {
+      throw new BadRequestException('eventSubcategoryId must reference an accessible event subcategory');
+    }
+    return eventSubcategory;
+  }
+
   private async findOwnedTeamOrThrow(id: string, tenantId: string) {
     const team = await this.prisma.team.findFirst({
       where: { id, tenantId },
@@ -95,37 +132,65 @@ export class EventsService {
     return data;
   }
 
+  private async resolveEventTaxonomyFields(
+    dto: CreateEventDto | UpdateEventDto,
+    tenantId: string,
+  ): Promise<Record<string, string | undefined>> {
+    const data: Record<string, string | undefined> = {};
+    if (dto.eventTypeId !== undefined) {
+      await this.findAccessibleEventTypeOrThrow(dto.eventTypeId, tenantId);
+      data.eventTypeId = dto.eventTypeId;
+    }
+    if (dto.eventCategoryId !== undefined) {
+      await this.findAccessibleEventCategoryOrThrow(dto.eventCategoryId, tenantId);
+      data.eventCategoryId = dto.eventCategoryId;
+    }
+    if (dto.eventSubcategoryId !== undefined) {
+      await this.findAccessibleEventSubcategoryOrThrow(dto.eventSubcategoryId, tenantId);
+      data.eventSubcategoryId = dto.eventSubcategoryId;
+    }
+    return data;
+  }
+
   async create(tenantId: string, dto: CreateEventDto) {
     this.logger.log(`Creating event "${dto.name}" for tenant ${tenantId}`);
-    return this.prisma.event.create({
-      data: {
-        tenantId,
-        name: dto.name,
-        eventDate: new Date(dto.eventDate),
-        spaceId: dto.spaceId,
-        configurationId: dto.configurationId,
-        eventTypeId: dto.eventTypeId,
-        eventCategoryId: dto.eventCategoryId,
-        eventSubcategoryId: dto.eventSubcategoryId,
-        location: dto.location,
-        spaceName: dto.spaceName,
-        sessions: dto.sessions ? JSON.stringify(dto.sessions) : null,
-        numberOfSessions: dto.numberOfSessions,
-        hasOpeningAct: dto.hasOpeningAct,
-        hasIntermission: dto.hasIntermission,
-        status: dto.status || 'draft',
-        ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
-        ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
-        ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
-        ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
-        ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
-        ...(await this.resolveEventTeamFields(dto, tenantId)),
-      },
-      include: this.includeRelations,
-    });
+    try {
+      return await this.prisma.event.create({
+        data: {
+          tenantId,
+          name: dto.name,
+          eventDate: new Date(dto.eventDate),
+          spaceId: dto.spaceId,
+          configurationId: dto.configurationId,
+          location: dto.location,
+          spaceName: dto.spaceName,
+          sessions: dto.sessions ? JSON.stringify(dto.sessions) : null,
+          numberOfSessions: dto.numberOfSessions,
+          hasOpeningAct: dto.hasOpeningAct,
+          hasIntermission: dto.hasIntermission,
+          status: dto.status || 'draft',
+          ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
+          ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
+          ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
+          ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
+          ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
+          ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
+          ...(await this.resolveEventTeamFields(dto, tenantId)),
+        },
+        include: this.includeRelations,
+      });
+    } catch (error) {
+      if (error.code === 'P2003') {
+        const fieldName = error.meta?.field_name || 'unknown field';
+        throw new BadRequestException(`Invalid ID provided. Foreign key constraint failed on: ${fieldName}.`);
+      }
+      throw error;
+    }
   }
 
   async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string) {
+    page = Math.max(1, page);
+    limit = Math.min(200, Math.max(1, limit));
     const skip = (page - 1) * limit;
     const where = spaceId ? { tenantId, spaceId } : { tenantId };
     const [events, total] = await Promise.all([
@@ -155,32 +220,38 @@ export class EventsService {
 
   async update(id: string, tenantId: string, dto: UpdateEventDto) {
     await this.findOne(id, tenantId);
-    return this.prisma.event.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.eventDate !== undefined && { eventDate: new Date(dto.eventDate) }),
-        ...(dto.spaceId !== undefined && { spaceId: dto.spaceId }),
-        ...(dto.configurationId !== undefined && { configurationId: dto.configurationId }),
-        ...(dto.eventTypeId !== undefined && { eventTypeId: dto.eventTypeId }),
-        ...(dto.eventCategoryId !== undefined && { eventCategoryId: dto.eventCategoryId }),
-        ...(dto.eventSubcategoryId !== undefined && { eventSubcategoryId: dto.eventSubcategoryId }),
-        ...(dto.location !== undefined && { location: dto.location }),
-        ...(dto.spaceName !== undefined && { spaceName: dto.spaceName }),
-        ...(dto.sessions !== undefined && { sessions: dto.sessions ? JSON.stringify(dto.sessions) : null }),
-        ...(dto.numberOfSessions !== undefined && { numberOfSessions: dto.numberOfSessions }),
-        ...(dto.hasOpeningAct !== undefined && { hasOpeningAct: dto.hasOpeningAct }),
-        ...(dto.hasIntermission !== undefined && { hasIntermission: dto.hasIntermission }),
-        ...(dto.status !== undefined && { status: dto.status }),
-        ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
-        ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
-        ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
-        ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
-        ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
-        ...(await this.resolveEventTeamFields(dto, tenantId)),
-      },
-      include: this.includeRelations,
-    });
+    try {
+      return await this.prisma.event.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.eventDate !== undefined && { eventDate: new Date(dto.eventDate) }),
+          ...(dto.spaceId !== undefined && { spaceId: dto.spaceId }),
+          ...(dto.configurationId !== undefined && { configurationId: dto.configurationId }),
+          ...(dto.location !== undefined && { location: dto.location }),
+          ...(dto.spaceName !== undefined && { spaceName: dto.spaceName }),
+          ...(dto.sessions !== undefined && { sessions: dto.sessions ? JSON.stringify(dto.sessions) : null }),
+          ...(dto.numberOfSessions !== undefined && { numberOfSessions: dto.numberOfSessions }),
+          ...(dto.hasOpeningAct !== undefined && { hasOpeningAct: dto.hasOpeningAct }),
+          ...(dto.hasIntermission !== undefined && { hasIntermission: dto.hasIntermission }),
+          ...(dto.status !== undefined && { status: dto.status }),
+          ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
+          ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
+          ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
+          ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
+          ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
+          ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
+          ...(await this.resolveEventTeamFields(dto, tenantId)),
+        },
+        include: this.includeRelations,
+      });
+    } catch (error) {
+      if (error.code === 'P2003') {
+        const fieldName = error.meta?.field_name || 'unknown field';
+        throw new BadRequestException(`Invalid ID provided. Foreign key constraint failed on: ${fieldName}.`);
+      }
+      throw error;
+    }
   }
 
   async remove(id: string, tenantId: string) {
@@ -199,14 +270,28 @@ export class EventsService {
   }
 
   async createEventType(tenantId: string, data: { name: string }) {
-    return this.prisma.eventType.create({
-      data: { name: data.name, tenantId },
-    });
+    try {
+      return await this.prisma.eventType.create({
+        data: { name: data.name, tenantId },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Un type d'événement nommé « ${data.name} » existe déjà`);
+      }
+      throw error;
+    }
   }
 
   async updateEventType(tenantId: string, id: string, data: { name?: string }) {
     await this.findOwnedEventTypeOrThrow(id, tenantId);
-    return this.prisma.eventType.update({ where: { id }, data: { name: data.name } });
+    try {
+      return await this.prisma.eventType.update({ where: { id }, data: { name: data.name } });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Un type d'événement nommé « ${data.name} » existe déjà`);
+      }
+      throw error;
+    }
   }
 
   async deleteEventType(tenantId: string, id: string) {
@@ -225,9 +310,17 @@ export class EventsService {
   }
 
   async createEventCategory(tenantId: string, data: { name: string; eventTypeId: string; hasHomeTeam?: boolean }) {
-    return this.prisma.eventCategory.create({
-      data: { name: data.name, eventTypeId: data.eventTypeId, hasHomeTeam: data.hasHomeTeam ?? false, tenantId },
-    });
+    await this.findOwnedEventTypeOrThrow(data.eventTypeId, tenantId);
+    try {
+      return await this.prisma.eventCategory.create({
+        data: { name: data.name, eventTypeId: data.eventTypeId, hasHomeTeam: data.hasHomeTeam ?? false, tenantId },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une catégorie nommée « ${data.name} » existe déjà pour ce type`);
+      }
+      throw error;
+    }
   }
 
   async updateEventCategory(tenantId: string, id: string, data: { name?: string; eventTypeId?: string; hasHomeTeam?: boolean }) {
@@ -258,18 +351,25 @@ export class EventsService {
       }
     }
 
-    return this.prisma.eventCategory.update({
-      where: { id },
-      data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.eventTypeId !== undefined && {
-          eventType: {
-            connect: { id: data.eventTypeId },
-          },
-        }),
-        ...(data.hasHomeTeam !== undefined && { hasHomeTeam: data.hasHomeTeam }),
-      },
-    });
+    try {
+      return await this.prisma.eventCategory.update({
+        where: { id },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.eventTypeId !== undefined && {
+            eventType: {
+              connect: { id: data.eventTypeId },
+            },
+          }),
+          ...(data.hasHomeTeam !== undefined && { hasHomeTeam: data.hasHomeTeam }),
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une catégorie nommée « ${data.name} » existe déjà pour ce type`);
+      }
+      throw error;
+    }
   }
 
   async deleteEventCategory(tenantId: string, id: string) {
@@ -335,9 +435,16 @@ export class EventsService {
       });
     }
 
-    return this.prisma.eventSubcategory.create({
-      data: { name: data.name, eventCategoryId, tenantId },
-    });
+    try {
+      return await this.prisma.eventSubcategory.create({
+        data: { name: data.name, eventCategoryId, tenantId },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une sous-catégorie nommée « ${data.name} » existe déjà pour cette catégorie`);
+      }
+      throw error;
+    }
   }
 
   async updateEventSubcategory(
@@ -374,17 +481,24 @@ export class EventsService {
       }
     }
 
-    return this.prisma.eventSubcategory.update({
-      where: { id },
-      data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(eventCategoryId !== undefined && {
-          eventCategory: {
-            connect: { id: eventCategoryId },
-          },
-        }),
-      },
-    });
+    try {
+      return await this.prisma.eventSubcategory.update({
+        where: { id },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(eventCategoryId !== undefined && {
+            eventCategory: {
+              connect: { id: eventCategoryId },
+            },
+          }),
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une sous-catégorie nommée « ${data.name} » existe déjà pour cette catégorie`);
+      }
+      throw error;
+    }
   }
 
   async deleteEventSubcategory(tenantId: string, id: string) {
@@ -479,22 +593,26 @@ export class EventsService {
     await this.findOwnedTeamOrThrow(id, tenantId);
     await this.assertAccessibleTeamScope(tenantId, dto);
 
-    const team = await this.prisma.team.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.eventCategoryId !== undefined && { eventCategoryId: dto.eventCategoryId }),
-        ...(dto.eventSubcategoryId !== undefined && { eventSubcategoryId: dto.eventSubcategoryId }),
-      },
-    });
+    const updateData = {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.eventCategoryId !== undefined && { eventCategoryId: dto.eventCategoryId }),
+      ...(dto.eventSubcategoryId !== undefined && { eventSubcategoryId: dto.eventSubcategoryId }),
+    };
 
-    // Garde le nom dénormalisé des events en phase avec le renommage
-    if (dto.name !== undefined) {
-      await this.prisma.event.updateMany({
-        where: { visitingTeamId: id },
-        data: { visitingTeamName: team.name },
-      });
-    }
+    // Renommage + repropagation du nom dénormalisé sur les events groupées dans
+    // une transaction : sans ça, un échec entre les deux écritures laisserait
+    // Event.visitingTeamName périmé indéfiniment (BUG-68).
+    const [team] = await this.prisma.$transaction([
+      this.prisma.team.update({ where: { id }, data: updateData }),
+      ...(dto.name !== undefined
+        ? [
+            this.prisma.event.updateMany({
+              where: { visitingTeamId: id },
+              data: { visitingTeamName: dto.name },
+            }),
+          ]
+        : []),
+    ]);
 
     return team;
   }

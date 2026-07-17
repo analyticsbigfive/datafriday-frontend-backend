@@ -58,6 +58,8 @@
           :headers="tableHeaders"
           :items="eventTypes"
           :loading="loading"
+          :items-per-page="25"
+          :items-per-page-options="[10, 25, 50, 100]"
           density="compact"
           class="etl-table"
         >
@@ -129,34 +131,34 @@
     </v-dialog>
 
     <!-- Delete dialog -->
-    <v-dialog v-model="deleteDialog" max-width="440">
+    <v-dialog v-model="deleteDialog" max-width="440" :persistent="deleteLoading">
       <div class="etl-modal">
         <div class="etl-modal__head">
           <div class="etl-modal__icon-wrap etl-modal__icon-wrap--danger"><Trash2 :size="18" color="#ff3131" /></div>
           <div class="etl-modal__headtext">
-            <div class="etl-modal__title">Supprimer le type</div>
-            <div class="etl-modal__sub">Cette action est irréversible</div>
+            <div class="etl-modal__title">{{ t('eventTypeList.deleteTitle') }}</div>
+            <div class="etl-modal__sub">{{ t('eventTypeList.deleteSubtitle') }}</div>
           </div>
           <button class="etl-modal__close" @click="closeDeleteDialog"><X :size="16" /></button>
         </div>
         <div class="etl-modal__body">
           <div v-if="deleteError" class="etl-modal__error"><AlertCircle :size="14" /> {{ deleteError }}</div>
           <p class="etl-modal__text">
-            Voulez-vous supprimer le type <strong>{{ deleteTypeName }}</strong> ? Cette action est définitive.
+            {{ t('eventTypeList.deleteText') }} <strong>{{ deleteTypeName }}</strong> ?
           </p>
         </div>
         <div class="etl-modal__foot">
-          <button class="etl-mbtn etl-mbtn--cancel" @click="closeDeleteDialog">Annuler</button>
+          <button class="etl-mbtn etl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventTypeList.deleteCancel') }}</button>
           <button class="etl-mbtn etl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
             <Trash2 :size="14" />
-            {{ deleteLoading ? 'Suppression…' : 'Supprimer' }}
+            {{ deleteLoading ? t('eventTypeList.deleteConfirming') : t('eventTypeList.deleteConfirm') }}
           </button>
         </div>
       </div>
     </v-dialog>
 
     <!-- Create/Edit drawer -->
-    <v-navigation-drawer v-model="typeDialog" location="right" temporary width="480" class="etl-type-drawer">
+    <v-navigation-drawer v-model="typeDialog" location="right" temporary :persistent="typeLoading" width="480" class="etl-type-drawer">
       <template #default>
         <!-- Gradient header -->
         <div class="etl-drawer-header">
@@ -455,15 +457,6 @@ export default {
   computed: {
     eventTypes() {
       return this.$store.getters['eventTypes/eventTypes']
-    },
-    typeDialogTitle() {
-      return this.typeMode === "edit" ? "Edit Event Type" : "Add Event Type";
-    },
-    totalCategories() {
-      return this.eventTypes.reduce((sum, type) => {
-        const count = Array.isArray(type?.categories) ? type.categories.length : 0;
-        return sum + count;
-      }, 0);
     },
     tableHeaders() {
       return [

@@ -1,13 +1,13 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="440">
+  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="440" :persistent="loading">
     <div class="edd-card" :class="{'edd--dark': isDark}">
       <div class="edd-card__head">
         <div class="edd-card__icon-wrap">
           <Trash2 :size="20" color="#ff3131" />
         </div>
         <div class="edd-card__headtext">
-          <div class="edd-card__title">Supprimer l'événement</div>
-          <div class="edd-card__sub">Cette action est irréversible</div>
+          <div class="edd-card__title">{{ t('eventsList.deleteTitle') }}</div>
+          <div class="edd-card__sub">{{ t('eventsList.deleteSubtitle') }}</div>
         </div>
         <button class="edd-card__close" @click="$emit('update:modelValue', false)">
           <X :size="16" />
@@ -19,15 +19,15 @@
           <AlertCircle :size="14" /> {{ error }}
         </div>
         <p class="edd-card__text">
-          Voulez-vous supprimer l'événement <strong>{{ eventName }}</strong> ? Cette action est définitive et ne peut pas être annulée.
+          {{ t('eventsList.deleteText') }} <strong>{{ eventName }}</strong> ?
         </p>
       </div>
 
       <div class="edd-card__foot">
-        <button class="edd-btn edd-btn--cancel" @click="$emit('update:modelValue', false)">Annuler</button>
+        <button class="edd-btn edd-btn--cancel" @click="$emit('update:modelValue', false)">{{ t('eventsList.deleteCancel') }}</button>
         <button class="edd-btn edd-btn--danger" :disabled="loading" @click="$emit('confirm')">
           <Trash2 :size="14" />
-          {{ loading ? 'Suppression…' : 'Supprimer' }}
+          {{ loading ? t('eventsList.deleteConfirming') : t('eventsList.deleteConfirm') }}
         </button>
       </div>
     </div>
@@ -35,10 +35,15 @@
 </template>
 
 <script>
+import { useI18n } from '@/i18n/useI18n';
 import { Trash2, X, AlertCircle } from 'lucide-vue-next';
 export default {
   name: 'EventDeleteDialog',
   components: { Trash2, X, AlertCircle },
+  setup() {
+    const { t } = useI18n();
+    return { t };
+  },
   props: {
     modelValue: { type: Boolean, default: false },
     eventName: { type: String, default: '' },

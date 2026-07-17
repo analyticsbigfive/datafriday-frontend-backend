@@ -22,9 +22,6 @@
             <button class="elv-action-hbtn" @click="csvImportDrawer = true">
               <Upload :size="15" /> {{ t('eventsList.importCsv') }}
             </button>
-            <button class="elv-action-hbtn">
-              <CircleDollarSign :size="15" /> {{ t('eventsList.calculateRevenue') }}
-            </button>
             <button class="elv-add-btn" @click="openAddEventDialog">
               <Plus :size="17" /> {{ t('eventsList.newEvent') }}
             </button>
@@ -77,6 +74,8 @@
           :items="filteredEvents"
           :loading="loading"
           item-value="id"
+          :items-per-page="25"
+          :items-per-page-options="[10, 25, 50, 100]"
           density="compact"
           class="elv-table"
         >
@@ -139,7 +138,7 @@
 
 <script>
 import { t as translate, getCurrentLocale } from "@/i18n/translations";
-import { Upload, Download, Plus, CircleDollarSign, Trash2, Pencil, Search, Calendar, AlertCircle, X } from "lucide-vue-next";
+import { Upload, Download, Plus, Trash2, Pencil, Search, Calendar, AlertCircle, X } from "lucide-vue-next";
 import { deleteEvent } from "@/api/endpoints/event.api";
 import { downloadCSV } from "@/utils/csv";
 import EventFormDrawer from "@/components/events/drawers/EventFormDrawer.vue";
@@ -152,7 +151,6 @@ export default {
     Upload,
     Download,
     Plus,
-    CircleDollarSign,
     Trash2,
     Pencil,
     Search,
@@ -335,9 +333,14 @@ export default {
         }))
         .filter((s) => !!s.id)
     },
+    spacesById() {
+      const map = new Map();
+      for (const s of this.spaces) map.set(s.id, s);
+      return map;
+    },
     mappedEvents() {
       return (this.events || []).map((e) => {
-        const spaceFromId = this.spaces.find(s => s.id === e.spaceId);
+        const spaceFromId = this.spacesById.get(e.spaceId);
         const spaceName = e.spaceName || spaceFromId?.name || e.space || e.location || "-";
         const eventDate = e.eventDate || e.date || e.startsAt || e.startDate;
         const eventStartDate = e.eventStartDate || e.startDate || '';

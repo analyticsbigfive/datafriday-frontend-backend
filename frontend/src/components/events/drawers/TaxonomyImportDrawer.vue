@@ -4,6 +4,7 @@
     @update:model-value="$emit('update:modelValue', $event)"
     location="right"
     temporary
+    :persistent="importLoading"
     width="600"
     class="elv-tax-drawer"
     :class="{ 'etax--dark': isDark }"
@@ -45,6 +46,7 @@
 
       <!-- Step 1: Upload -->
       <div v-if="step === 1">
+        <v-alert v-if="fileError" type="error" variant="tonal" rounded="lg" class="mb-4">{{ fileError }}</v-alert>
         <input ref="fileInput" type="file" accept=".csv,text/csv" style="display:none;" @change="onFileChange" />
         <div class="elv-t-dropzone d-flex flex-column align-center justify-center pa-10"
           :class="{'elv-t-dropzone--hover': dropping}"
@@ -225,6 +227,7 @@ export default {
       categoryValueMap: {},
       importLoading: false,
       importResults: null,
+      fileError: '',
     };
   },
 
@@ -393,6 +396,7 @@ export default {
       this.categoryValueMap = {};
       this.importLoading = false;
       this.importResults = null;
+      this.fileError = '';
       this.dropping = false;
     },
 
@@ -410,11 +414,15 @@ export default {
 
     readFile(file) {
       this.fileName = file.name;
+      this.fileError = '';
       const reader = new FileReader();
       reader.onload = (evt) => {
         const text = evt.target.result;
         const parsed = parseCSV(text);
-        if (parsed.length < 2) return;
+        if (parsed.length < 2) {
+          this.fileError = 'Ce fichier est vide ou ne contient que l\'en-tête — aucune ligne à importer.';
+          return;
+        }
         this.csvHeaders = parsed[0];
         this.csvRows = parsed.slice(1).filter((r) => r.some((c) => c.trim()));
         this.mapping = {};

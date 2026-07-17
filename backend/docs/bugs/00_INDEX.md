@@ -76,8 +76,35 @@
 | [62](62_spacemenu_availability_referentiel_tenant_non_scope.md) | `getItemsWithAvailabilityForSpace` charge tout le référentiel tenant sur chaque appel, sans cache | ⚪ Diagnostiqué | 🟠 | Menu & recettes / Espaces & builder |
 | [63](63_spacemenu_dto_enabled_non_valide_booleen.md) | `SaveSpaceMenuConfigurationDto.menuItems` : aucune validation que les valeurs sont des booléens | 🟢 Corrigé | 🟡 | Menu & recettes / Espaces & builder |
 | [64](64_spacemenu_nettoyages_mineurs.md) | SpaceMenus backend : nettoyages mineurs (logs verbeux, doc Swagger désynchronisée) | 🟢 Corrigé | 🟡 | Menu & recettes / Espaces & builder |
+| [65](65_predictversions_setdefault_cross_tenant.md) | `PredictVersionsService.setDefault` : écriture cross-tenant sans scoping | 🟢 Corrigé | 🔴 | Événements / Prévision |
+| [66](66_createeventcategory_eventtypeid_sans_ownership.md) | `createEventCategory` : aucune vérification d'ownership sur `eventTypeId` | 🟢 Corrigé | 🟠 | Événements |
+| [67](67_event_taxonomy_fk_sans_ownership.md) | `Event.create()`/`update()` : aucune vérification d'ownership sur les FK de taxonomie | 🟢 Corrigé | 🟠 | Événements |
+| [68](68_updateteam_rename_non_transactionnel.md) | `updateTeam` : renommage + repropagation `Event.visitingTeamName` non transactionnels | 🟢 Corrigé | 🟡 | Événements |
+| [69](69_events_module_pas_de_traduction_p2002_p2003.md) | Module Events : aucune traduction des erreurs Prisma P2002/P2003 (500 générique) | 🟢 Corrigé | 🟠 | Événements |
+| [70](70_team_duplicate_toctou_sans_unique_index.md) | `Team` : vérification de doublon TOCTOU, aucune contrainte `@@unique` en base | ⚪ Diagnostiqué | 🟡 | Événements |
+| [71](71_get_events_page_limit_negatifs_sans_borne.md) | `GET /events` : `page`/`limit` négatifs acceptés, `limit` sans borne haute | 🟢 Corrigé | 🟡 | Événements |
+| [72](72_createeventdto_createteamdto_name_vide.md) | `CreateEventDto.name`/`CreateTeamDto.name` : chaîne vide acceptée | 🟢 Corrigé | 🟡 | Événements |
+| [73](73_createeventdto_champs_numeriques_sans_borne_min.md) | `CreateEventDto` : `ticketsSold`/`ticketsScanned`/`numberOfSessions` sans borne minimale | 🟢 Corrigé | 🟡 | Événements |
+| [74](74_predictversionsservice_remove_findone_code_mort.md) | `PredictVersionsService.remove()`/`findOne()` : code mort (au-delà de BUG-13) | 🟢 Corrigé | 🟢 | Prévision |
+| [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | ⚪ Diagnostiqué | 🟠 | Événements |
+| [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | ⚪ Diagnostiqué | 🟢 | Prévision |
 
-**64 bugs au total**, extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+**76 bugs au total**, 65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
+Events (`events.controller.ts`/`.service.ts`, taxonomies, Teams, couche API `predict-versions.*`) :
+une faille cross-tenant P0 sur `PUT .../predict-versions/default` (aucun scoping tenant sur
+l'update, corrigée + couverte par un nouveau fichier de tests — ce module n'en avait aucun) ;
+`createEventCategory` sans vérification d'ownership sur `eventTypeId` (seule méthode taxonomie à
+avoir cet oubli, les autres l'avaient déjà) ; `Event.create()`/`update()` sans vérification
+d'ownership sur les 3 FK de taxonomie (même famille que le Piège n°3 déjà documenté pour
+`spaceId`/`configurationId`, mais corrigible ici via les helpers déjà existants) ; renommage de Team
+non transactionnel avec sa repropagation sur les events ; aucune des 6 méthodes CRUD de taxonomie ne
+traduisait P2002/P2003 en erreur propre (pattern déjà établi ailleurs dans le backend, jamais
+répliqué sur ce module) ; pagination `GET /events` acceptant des valeurs négatives et sans borne
+haute ; validations DTO manquantes (`name` vide, champs numériques négatifs) ; code mort
+supplémentaire dans `PredictVersionsService` (`remove()`/`findOne()`, et `update()` déjà documenté
+BUG-13, supprimés ensemble). BUG-70/75/76 laissés en ⚪ Diagnostiqué (décision produit/architecture
+nécessaire avant de trancher, cf. fiches individuelles) ; BUG-13 (frontend miroir) mis à jour à 🟢
+suite à la suppression de `update()`. extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
 recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-50 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic` ; 51 ajouté le 2026-07-15 suite
 à une vérification directe en base des Menu Items sans prix pour l'espace Auxerre lors de la Data

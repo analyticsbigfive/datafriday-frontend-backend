@@ -1,5 +1,5 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="480">
+  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="480" :persistent="loading">
     <div class="ecd-card">
       <!-- Gradient header -->
       <div class="ecd-grad-header">
@@ -142,12 +142,9 @@ export default {
         const created = response?.data || response;
         const id = created?.id || created?._id;
         if (id) {
-          await this.$store.dispatch('eventCategories/addEventCategory', {
-            id,
-            name: this.name.trim(),
-            eventTypeId: this.eventTypeId,
-          });
-          this.$emit('created', { id, name: this.name.trim(), eventTypeId: this.eventTypeId });
+          const createdCategory = { id, name: this.name.trim(), eventTypeId: this.eventTypeId, hasHomeTeam: this.hasHomeTeam };
+          await this.$store.dispatch('eventCategories/addEventCategory', createdCategory);
+          this.$emit('created', createdCategory);
         }
         this.close();
       } catch (e) {

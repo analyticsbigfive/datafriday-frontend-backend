@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { CreatePredictVersionDto, PatchPredictVersionDto, UpdatePredictVersionDto } from './dto/predict-version.dto';
+import { CreatePredictVersionDto, PatchPredictVersionDto } from './dto/predict-version.dto';
 
 @Injectable()
 export class PredictVersionsService {
@@ -13,14 +13,6 @@ export class PredictVersionsService {
       where: { eventId, tenantId },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
     });
-  }
-
-  async findOne(eventId: string, versionId: string, tenantId: string) {
-    const version = await this.prisma.eventPredictVersion.findFirst({
-      where: { id: versionId, eventId, tenantId },
-    });
-    if (!version) throw new NotFoundException(`PredictVersion ${versionId} not found`);
-    return version;
   }
 
   async findById(id: string, tenantId: string) {
@@ -55,29 +47,6 @@ export class PredictVersionsService {
     });
   }
 
-  async update(eventId: string, versionId: string, tenantId: string, dto: UpdatePredictVersionDto) {
-    await this.findOne(eventId, versionId, tenantId);
-    return this.prisma.eventPredictVersion.update({
-      where: { id: versionId },
-      data: {
-        name: dto.name,
-        spaceId: dto.spaceId ?? null,
-        isDefault: dto.isDefault ?? false,
-        eventSnapshot: dto.eventSnapshot as any,
-        totalRevenue: dto.totalRevenue ?? 0,
-        adjustedTotalRevenue: dto.adjustedTotalRevenue ?? 0,
-        perCapita: dto.perCapita ?? 0,
-        adjustedPerCapita: dto.adjustedPerCapita ?? 0,
-        menuConfig: (dto.menuConfig ?? {}) as any,
-        quantityAdjustments: (dto.quantityAdjustments ?? {}) as any,
-        manualQuantities: (dto.manualQuantities ?? {}) as any,
-        predictedRecords: (dto.predictedRecords ?? []) as any,
-        selectedPredictionEventIds: dto.selectedPredictionEventIds ?? [],
-        selectedTimeRange: (dto.selectedTimeRange ?? null) as any,
-      },
-    });
-  }
-
   async patch(id: string, tenantId: string, dto: PatchPredictVersionDto) {
     await this.findById(id, tenantId);
     const data: Record<string, any> = {};
@@ -90,11 +59,6 @@ export class PredictVersionsService {
       if (dto[field] !== undefined) data[field] = dto[field];
     }
     return this.prisma.eventPredictVersion.update({ where: { id }, data });
-  }
-
-  async remove(eventId: string, versionId: string, tenantId: string) {
-    await this.findOne(eventId, versionId, tenantId);
-    await this.prisma.eventPredictVersion.delete({ where: { id: versionId } });
   }
 
   async removeById(id: string, tenantId: string) {
@@ -110,6 +74,10 @@ export class PredictVersionsService {
       }),
     ];
     if (versionId) {
+      // Vérifie l'ownership avant d'écrire — sans ce lookup, un versionId
+      // d'un autre tenant (ou d'un autre event) serait accepté tel quel par
+      // l'update ci-dessous (BUG-65).
+      await this.findById(versionId, tenantId);
       ops.push(
         this.prisma.eventPredictVersion.update({
           where: { id: versionId },

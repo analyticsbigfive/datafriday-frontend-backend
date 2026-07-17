@@ -20,11 +20,13 @@ export async function getTeams(params = {}) {
     const data = response.data
     return Array.isArray(data) ? data : (data?.data ?? [])
   } catch (error) {
-    // 404 = endpoint pas encore déployé → dégrade en [] sans bruit.
-    if (error?.response?.status !== 404) {
-      console.warn('[TEAMS API] getTeams failed:', error?.message)
-    }
-    return []
+    // 404 = endpoint pas encore déployé → dégrade en [] sans bruit. Toute
+    // autre erreur (500, timeout, 403…) est re-levée : les deux appelants
+    // (EventFormDrawer.loadTeams, EventPredictView) l'attrapent déjà eux-mêmes
+    // et retombent sur [] — mais un vrai échec ne doit pas se déguiser en
+    // "aucune équipe" (BUG-140).
+    if (error?.response?.status === 404) return []
+    throw error
   }
 }
 

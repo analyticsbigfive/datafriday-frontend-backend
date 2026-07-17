@@ -362,6 +362,22 @@ pas confondre avec le vrai champ `EventCategory.hasHomeTeam` persistant).
 
 ---
 
+## Audit complémentaire du 2026-07-17 — bugs corrigés
+
+Un second passage exhaustif (frontend `/events`, `/event-types`, `/event-categories`,
+`/event-subcategories` + backend module Events, taxonomies, Teams, couche API
+`predict-versions.*`) a mis au jour et corrigé 25 bugs supplémentaires (15 confirmés + 4
+diagnostiqués côté frontend BUG-130 à 148 ; 10 confirmés + 3 diagnostiqués côté backend BUG-65 à
+76), en plus des 5 déjà listés ci-dessus. Le plus sérieux : une faille cross-tenant P0 sur
+`PredictVersionsService.setDefault` (aucun scoping tenant sur l'update — n'importe quel tenant
+pouvait forcer la version par défaut d'un autre), corrigée et couverte par des tests (ce module
+n'en avait aucun avant). Détail complet dans `docs/bugs/00_INDEX.md` (#130-148) et
+`../../../api-datafriday-staging/docs/bugs/00_INDEX.md` (#65-76) — non reproduit ici pour éviter la
+duplication. Quatre décisions produit restent en attente (voir fiches ⚪ Diagnostiqué #70, #75, #76
+côté backend et #145-148 côté frontend), notamment : que faire des colonnes CSV events
+`performerName`/`sponsor`/`openingActName`/`allSessions`, proposées au mapping d'import mais sans
+aucun champ `Event` correspondant (BUG-136).
+
 ## Code mort de ce domaine (preuve : recherche exhaustive des appelants)
 
 Un sous-arbre entier de l'ancien portage React du module Événements a été neutralisé plutôt que

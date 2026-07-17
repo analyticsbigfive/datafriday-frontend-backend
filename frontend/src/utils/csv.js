@@ -36,29 +36,47 @@ export function downloadCSV(rows, filename) {
 
 /**
  * Parse un texte CSV (RFC 4180) en tableau de lignes.
- * Gère les guillemets doubles échappés et les virgules dans les champs.
+ * Tokenise le texte BRUT complet (pas de split préalable par `\n`) pour ne
+ * pas couper un champ entre guillemets contenant un retour à la ligne, et
+ * gère l'échappement `""` à l'intérieur d'un champ entre guillemets.
  *
  * @param {string} text
  * @returns {Array<Array<string>>}
  */
 export function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim())
-  return lines.map((line) => {
-    const row = []
-    let cur = ''
-    let inQuote = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
+  const rows = []
+  let row = []
+  let cur = ''
+  let inQuote = false
+  const str = String(text ?? '')
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i]
+    if (inQuote) {
       if (ch === '"') {
-        if (inQuote && line[i + 1] === '"') { cur += '"'; i++ }
-        else inQuote = !inQuote
-      } else if (ch === ',' && !inQuote) {
-        row.push(cur.trim()); cur = ''
+        if (str[i + 1] === '"') { cur += '"'; i++ }
+        else inQuote = false
       } else {
         cur += ch
       }
+    } else if (ch === '"') {
+      inQuote = true
+    } else if (ch === ',') {
+      row.push(cur.trim()); cur = ''
+    } else if (ch === '\r') {
+      // ignoré — géré via \n (CRLF) ou fin de fichier
+    } else if (ch === '\n') {
+      row.push(cur.trim()); cur = ''
+      rows.push(row); row = []
+    } else {
+      cur += ch
     }
+  }
+  // Dernière ligne sans retour à la ligne final
+  if (cur.length > 0 || row.length > 0) {
     row.push(cur.trim())
-    return row
-  })
+    rows.push(row)
+  }
+
+  return rows.filter((r) => r.some((c) => c !== ''))
 }
