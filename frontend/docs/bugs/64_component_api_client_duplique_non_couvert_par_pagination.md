@@ -1,6 +1,8 @@
 # BUG-064 — `component.api.js` : client MenuComponent dupliqué, utilisé par `useSpaceData.js`, non couvert par le fix de pagination BUG-054
 
-- **Statut** : ⚪ Diagnostiqué (root cause connue, fix différé — hors périmètre de la page `/components`)
+- **Statut** : 🟢 Corrigé (le 2026-07-17, via [[105_menu_items_usespacedata_mauvais_client_component_api]]
+  — fix fait lors de l'audit `/menu-items`, sans lien identifié avec cette fiche au moment du fix ;
+  lien établi a posteriori le 2026-07-17)
 - **Sévérité** : 🟢 Mineur
 - **Domaine** : Menu & recettes / Espaces & builder
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -28,19 +30,23 @@ vivante pour `/components`, l'autre (`component.api.js`) conservé pour un besoi
 
 ## Correction
 
-Non traité : consolider les deux clients (faire pointer `useSpaceData.js` vers `menu.api.js`, ou
-répliquer le support `page`/`limit` dans `component.api.js`) touche un fichier partagé par plusieurs
-écrans (Space Menus, Analyse) hors du périmètre "page `/components`" de cette série de corrections, et
-mérite un test de non-régression plus large que celui possible ici. Documenté pour visibilité.
+`useSpaceData.js` importe désormais `getMenuComponents` depuis `menu.api.js` (paginé) au lieu de
+`component.api.js`, avec la même boucle de pagination que `menuComponents.js`
+(cf. [[105_menu_items_usespacedata_mauvais_client_component_api]], fait lors de l'audit
+`/menu-items` du 2026-07-17). Conséquence directe non anticipée à l'époque : `component.api.js`
+n'a plus **aucun** consommateur dans le repo (`grep` confirmé le 2026-07-17) — totalement mort,
+plus seulement "quasi-mort". À supprimer si une future passe de nettoyage de code mort couvre ce
+fichier (non fait ici, hors scope de ce fix ponctuel).
 
 ## Risque de régression / à surveiller
 
-Si un tenant a plus de 100 `MenuComponent` ET utilise activement un espace dont les données
-transitent par `useSpaceData.js`, certains composants resteront invisibles dans ce chemin de
-chargement précis (mais pas dans `/components` lui-même, corrigé par BUG-054).
+Vérifier que le contrat de retour paginé de `menu.api.js#getMenuComponents` (avec `meta.total`)
+est bien consommé partout où `useSpaceData.js` l'utilise — déjà vérifié une fois lors du fix, à
+revérifier en navigateur (non fait, `pnpm dev` interdit dans cette session).
 
 ## Références
 
 - [[54_menu_components_get_plafond_silencieux_100_lignes_mirror]]
+- [[105_menu_items_usespacedata_mauvais_client_component_api]] (le fix réel)
 - `docs/modules/04_MENU_CATALOGUE.md` §"⚠️ Le piège architectural n°1 de ce domaine : 3 clients API
   se disputent MenuItem/MenuComponent".

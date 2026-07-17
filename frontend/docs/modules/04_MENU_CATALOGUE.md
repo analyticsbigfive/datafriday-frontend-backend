@@ -51,7 +51,7 @@ chemin mort et rien ne change en prod, ou inversement on croit qu'un chemin est 
 
 | Entité | Client **réellement vivant** | Consommateurs confirmés | Client(s) mort/legacy en parallèle |
 |---|---|---|---|
-| **MenuItem** | `src/api/endpoints/menu-item.api.js` | `store/modules/menuItems.js`, `MenuItemCreateView.vue`, `MenuItemView.vue`, `MenuItemFormDrawer.vue`, `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue`, `ShopDetailView.vue`, `EventPredictView.vue`, `StepMapMenuItems.vue` (wizard), `useSpaceData.js` | `menu.api.js` expose aussi `getMenuItems/createMenuItem/...` (lignes 14-70) — **zéro appelant en dehors de lui-même**, mort pour MenuItem. `utils/api.js` (legacy 45 Ko) expose aussi `getAllMenuItems/saveMenuItem/...` — encore appelé, mais **uniquement par le builder v1** (`PropertiesPanelView.vue:1663`, live) et par des fichiers eux-mêmes morts (`PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue` racine, `MenuItemMarginReport.vue` — 0 référence externe, voir Code mort) |
+| **MenuItem** | `src/api/endpoints/menu-item.api.js` | `store/modules/menuItems.js`, `MenuItemCreateView.vue`, `MenuItemView.vue`, `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue`, `ShopDetailView.vue`, `EventPredictView.vue`, `StepMapMenuItems.vue` (wizard), `useSpaceData.js` (`MenuItemFormDrawer.vue` supprimé le 2026-07-17, jamais branché) | `menu.api.js` expose aussi `getMenuItems/createMenuItem/...` (lignes 14-70) — **zéro appelant en dehors de lui-même**, mort pour MenuItem. `utils/api.js` (legacy 45 Ko) expose aussi `getAllMenuItems/saveMenuItem/...` — encore appelé, mais **uniquement par le builder v1** (`PropertiesPanelView.vue:1663`, live) et par des fichiers eux-mêmes morts (`PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue` racine, `MenuItemMarginReport.vue` — 0 référence externe, voir Code mort) |
 | **MenuComponent** | `src/api/endpoints/menu.api.js` (`getMenuComponents` etc., lignes 82-131) | `store/modules/menuComponents.js` — donc l'écran `/components` passe par le **monolithe**, contrairement à MenuItem qui en est sorti | `component.api.js` (34 lignes, mêmes fonctions dupliquées) — utilisé uniquement par `useSpaceData.js`, pas par l'écran Components lui-même |
 | Suppliers, Packaging, MarketPrices, MarketPriceIngredients | `menu.api.js` | `store/modules/suppliers.js`, `packaging.js`, `marketPrices.js`, `marketPriceIngredients.js` | — (pas de client dédié pour ces 4, tout passe par le monolithe) |
 | Brand/DisplayName/Industrial/PackingType/ProductType-Category | Clients dédiés propres | `brand-name.api.js`, `display-name.api.js`, `industrial.api.js`, `packing-type.api.js`, `product.api.js` — chacun avec son store correspondant, **aucune ambiguïté** | — |
@@ -77,7 +77,8 @@ un pack de chips). C'est la fiche produit du menu d'un espace.
 - Client API live : `datafriday-web/src/api/endpoints/menu-item.api.js`
 - Écrans : `datafriday-web/src/components/menu-fb/views/menu-items/views/`
   (`MenuItemView.vue` = liste, `MenuItemCreateView.vue` = création/édition), drawers
-  `MenuItemFormDrawer.vue`, `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue`
+  `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue` (`MenuItemFormDrawer.vue`, ancien
+  drawer parallèle jamais branché, supprimé le 2026-07-17 — voir Code mort de ce domaine)
 
 **Toutes les routes backend** (`menu-items.controller.ts`) :
 
@@ -299,7 +300,7 @@ Deux entités sœurs, dérivées d'un `MarketPrice`. **Où vit le code** : modè
 `schema.prisma:1538-1594` ; contrôleurs `ingredients.controller.ts` (`@Controller('ingredients')`,
 +`GET by-market-price/:marketPriceId`) et `packaging.controller.ts` (`@Controller('packaging')`) ;
 stores `store/modules/` correspondants (via `menu.api.js`, sauf `ingredient.api.js` qui existe et
-est utilisé par `MenuItemFormDrawer.vue`/`RecipeImportDrawer.vue`/`useSpaceData.js` pour des besoins
+est utilisé par `RecipeImportDrawer.vue`/`useSpaceData.js` pour des besoins
 ponctuels — vérifier lequel des deux clients avant de modifier).
 
 **Champs clés** (identiques sur les deux modèles sauf mention) :
@@ -394,10 +395,10 @@ avaient 3 enums incompatibles — ils ont convergé vers celui-ci.
 
 ### 🔴 Bug de saisie actif — `"Freezer"` n'existe pas dans l'enum
 
-Deux formulaires MenuItem envoient encore `"Freezer"` (`MenuItemFormDrawer.vue:225`,
-`MenuItemCreateView.vue:513`) alors que la vraie valeur d'enum est `Frozen`. Écriture d'une string
-invalide dans une colonne enum Postgres → probablement rejetée. **Statut : documenté, non
-corrigé.**
+`MenuItemCreateView.vue:504` envoie encore `"Freezer"` (l'autre occurrence,
+`MenuItemFormDrawer.vue:225`, a disparu avec la suppression de ce fichier orphelin le
+2026-07-17) alors que la vraie valeur d'enum est `Frozen`. Écriture d'une string invalide dans
+une colonne enum Postgres → probablement rejetée. **Statut : documenté, non corrigé.**
 
 ---
 
@@ -406,7 +407,7 @@ corrigé.**
 | # | Bug | Fichiers |
 |---|---|---|
 | 1 | Coût `MenuComponent` surestimé (ignore `numberOfUnitsRecipe`) → `MenuItem.totalCost` faux | `menu-components.service.ts:196-236`, `menu-items.service.ts:1398-1409` |
-| 2 | `"Freezer"` (front) vs `Frozen` (enum) | `MenuItemFormDrawer.vue:225`, `MenuItemCreateView.vue:513` |
+| 2 | `"Freezer"` (front) vs `Frozen` (enum) | `MenuItemCreateView.vue:504` |
 | 3 | Deux règles d'expansion combo incompatibles | `EventPredictStockUpSection.vue` (readyForSale seul) vs `logistics.service.ts:407,904` (+ comboItem) |
 | 4 | `Supplier.sites` vide : "personne" (backend) vs "tout le monde" (1 composant front) | `space-menus.service.ts:466-472` vs `MarketPriceHierarchicalTable.vue:211` |
 | 5 | Dédup MarketPrice ignore prix/unité/quantité — risque de fusion excessive | `market-prices.service.ts` (`deduplicate`) |
@@ -425,8 +426,9 @@ corrigé.**
 - `menu.api.js` : les fonctions `getMenuItems/createMenuItem/updateMenuItem/deleteMenuItem/
   getMenuItemSnapshots` (lignes 14-70) sont mortes pour MenuItem (voir piège n°1) — ne pas les
   utiliser comme référence, `menu-item.api.js` est la version vivante.
-- `component.api.js` : doublon quasi-mort des fonctions MenuComponent de `menu.api.js`, seul
-  `useSpaceData.js` s'en sert.
+- `component.api.js` : doublon des fonctions MenuComponent de `menu.api.js` — totalement mort
+  depuis le 2026-07-17 (`useSpaceData.js`, son dernier consommateur, redirigé vers `menu.api.js`
+  pour corriger un cap silencieux à 100 lignes, voir BUG-064/105).
 - `MenuComponent.subComponents` (Json legacy) — encore lu par `repair()` mais plus la source de
   vérité.
 - `MenuItem.spaceIds`/`spacePrices` (colonnes gelées).

@@ -77,7 +77,7 @@
 | [61](61_component_i18n_contourne_localstorage_manuel_et_textes_en_dur.md) | i18n contourné (localStorage manuel + textes en dur) dans componentListView/ComponentCreateView | 🟡 Corrigé non testé | 🟢 | Menu & recettes |
 | [62](62_component_taxonomie_fk_resolution_fragile_par_nom.md) | Component : `componentTypeId`/`componentCategoryId` re-résolus par nom, perte silencieuse possible | 🟢 Corrigé | 🟡 | Menu & recettes |
 | [63](63_component_n_plus_1_requetes_detail_ingredients.md) | N+1 requêtes API pour charger le détail des ingrédients (liste + formulaire d'édition) | ⚪ Diagnostiqué | 🟢 | Menu & recettes |
-| [64](64_component_api_client_duplique_non_couvert_par_pagination.md) | `component.api.js` : client MenuComponent dupliqué, non couvert par le fix pagination BUG-054 | ⚪ Diagnostiqué | 🟢 | Menu & recettes |
+| [64](64_component_api_client_duplique_non_couvert_par_pagination.md) | `component.api.js` : client MenuComponent dupliqué, non couvert par le fix pagination BUG-054 | 🟢 Corrigé | 🟢 | Menu & recettes |
 | [65](65_component_logs_debug_laisses_en_production.md) | Logs de debug laissés en production dans ComponentCreateView/componentListView | 🟢 Corrigé | 🟢 | Menu & recettes |
 | [66](66_component_loadingcomponent_loadingerror_jamais_affiches.md) | `loadingComponent`/`loadingError` jamais affichés dans ComponentCreateView.vue | 🟢 Corrigé | 🟡 | Menu & recettes |
 | [67](67_component_methode_t_dupliquee_dead_code.md) | Méthode `t()` définie deux fois dans ComponentCreateView.vue (dead code) | 🟢 Corrigé | 🟢 | Menu & recettes |
@@ -171,7 +171,24 @@ affichée incohérente avec la marge sauvegardée (diagnostiqué, décision prod
 combo item et édition de groupe de prix non fonctionnels (diagnostiqués, décisions produit
 nécessaires), plus les patterns transverses déjà vus sur `/components` (i18n contourné,
 `formatCurrency` incohérent, nettoyages de code mort) répliqués et corrigés sur l'ensemble de la
-page.
+page ; 106 ajouté et corrigé le 2026-07-17 suite à un signalement utilisateur direct (spinner
+manquant + catalogue complet rechargé à chaque affichage) — pagination serveur réelle ajoutée en
+plus du spinner, tout en gardant le mode "regroupé par type/catégorie" (design validé client) actif
+par défaut ; 107-112 ajoutés et corrigés le 2026-07-17 suite à un test réel de réimport par
+l'utilisateur de son propre export `/menu-items`, qui échouait presque totalement : export lent
+(N+1 réseau supprimé, données déjà en mémoire), champs incomplets, colonne "Recipe" packée en IDs
+internes remplacée par une ligne par ingrédient/composant/packaging identifiée par NOM (BUG-107),
+import capable de relire ce nouveau format multi-lignes (BUG-108), interface d'import trop dense
+avec des listes d'erreurs non actionnables (BUG-111), et surtout un bug de fond où l'export
+écrivait le placeholder d'affichage `"-"` comme si c'était un vrai nom de type — cassant le
+réimport de presque tous les articles sans type (BUG-110) ; enfin BUG-112 porte l'écran de mapping
+de colonnes et la création automatique des référentiels Type/Catégorie/Marque/Nom d'affichage
+manquants (à l'image de `MarketPriceCsvImportDrawer.vue`), pour qu'un import entre deux comptes
+différents ne bute plus sur un référentiel absent — les lignes de recette (Ingredient/Component/
+Packaging) restent volontairement exclues de cette auto-création (coût/unité non déductibles d'un
+simple nom). BUG-005 (Freezer/Frozen) mis à jour le 2026-07-17 : son fichier `MenuItemFormDrawer.vue`
+ayant été supprimé (BUG-083), seule l'occurrence `MenuItemCreateView.vue:504` reste active — bug
+toujours non corrigé (décision produit du 2026-07-15 à reconfirmer avant d'y toucher).
 
 ## Comment ajouter un bug
 

@@ -9,8 +9,8 @@
 
 ## Symptôme
 
-Le chip "Storage" affiché dans le tableau de recette (`MenuItemCreateView.vue`,
-`MenuItemFormDrawer.vue`) attend une valeur `Cold`/`Dry`/`Frozen`. Pour tout ingrédient dont la
+Le chip "Storage" affiché dans le tableau de recette (`MenuItemCreateView.vue`) attend une
+valeur `Cold`/`Dry`/`Frozen`. Pour tout ingrédient dont la
 catégorie d'achat n'est pas littéralement "Dry"/"Cold"/"Frozen" (ex. "Produits laitiers",
 "Légumes"), le chip affiche ce texte de catégorie au lieu d'un vrai type de stockage, sans couleur
 reconnue.

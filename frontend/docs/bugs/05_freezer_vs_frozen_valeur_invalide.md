@@ -5,7 +5,9 @@
 - **Domaine** : Menu & recettes (Catalogue)
 - **Repo(s) concerné(s)** : `datafriday-web`
 - **Découvert le** : 2026-07-15
-- **Fichiers** : `MenuItemFormDrawer.vue:225`, `MenuItemCreateView.vue:513`
+- **Fichiers** : `MenuItemCreateView.vue:504` (seul fichier live désormais —
+  `MenuItemFormDrawer.vue`, qui contenait aussi cette occurrence, supprimé le 2026-07-17 en tant
+  que fichier orphelin jamais importé, voir [[83_menu_items_formdrawer_orphelin_code_mort]])
 
 ## Symptôme
 
