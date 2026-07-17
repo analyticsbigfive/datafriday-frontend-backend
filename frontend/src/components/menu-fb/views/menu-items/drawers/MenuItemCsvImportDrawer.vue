@@ -72,11 +72,18 @@
           </v-btn>
         </div>
 
-        <!-- Format hint -->
+        <!-- Format hint — même structure que MarketPriceCsvImportDrawer.vue (bouton "Download
+             template" dans le bloc "Expected format") -->
         <v-card class="mi-hint-card mt-4 pa-4" rounded="lg" elevation="0">
-          <div class="d-flex align-center mb-2" style="gap: 8px;">
-            <Info :size="15" class="mi-hint-icon" />
-            <span class="text-body-2 font-weight-medium mi-title">{{ t('menuItemImportKnownCols') }}</span>
+          <div class="d-flex align-center justify-space-between mb-2" style="gap: 8px;">
+            <div class="d-flex align-center" style="gap: 8px;">
+              <Info :size="15" class="mi-hint-icon" />
+              <span class="text-body-2 font-weight-medium mi-title">{{ t('menuItemImportKnownCols') }}</span>
+            </div>
+            <v-btn variant="text" size="small" class="text-none" @click="downloadTemplate">
+              <Download :size="14" class="mr-1" />
+              {{ t('menuItemImportDownloadTemplate') }}
+            </v-btn>
           </div>
           <div class="d-flex flex-wrap mb-3" style="gap: 6px;">
             <v-chip
@@ -319,7 +326,7 @@ import { computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { bulkCreateMenuItems, createMenuItem } from '@/api/endpoints/menu-item.api'
-import { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Info } from 'lucide-vue-next'
+import { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Info, Download } from 'lucide-vue-next'
 
 const KNOWN_COLUMNS = [
   { key: 'name',           label: 'Name',                       required: true  },
@@ -529,7 +536,7 @@ function parseRecipe(recipeStr) {
 
 export default {
   name: 'MenuItemCsvImportDrawer',
-  components: { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Info },
+  components: { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Info, Download },
 
   props: {
     modelValue:        { type: Boolean, default: false },
@@ -754,6 +761,28 @@ export default {
         this.step = 2
       }
       reader.readAsText(file, 'UTF-8')
+    },
+    // Modèle CSV téléchargeable — même pattern que MarketPriceCsvImportDrawer.vue
+    // (downloadTemplate). Exemple avec 2 lignes de recette pour illustrer le format
+    // multi-lignes (BUG-107/108) : ces 2 lignes CSV représentent UN SEUL article.
+    downloadTemplate() {
+      const headers = [
+        'Name', 'Type', 'Category', 'Price TTC', 'VAT %', 'Ready for Sale', 'Combo Item',
+        'Brand', 'Kitchen Type', 'Number of Pieces (Recipe)', 'Storage Type', 'Diet', 'Description',
+        'Line Type', 'Line Item Name', 'Line Quantity',
+      ]
+      const rows = [
+        ['Classic Burger', 'Food', 'Burgers', '12.50', '10', 'Yes', 'No', '', 'Central', '1', 'Cold', '', 'Beef burger with cheese', 'Ingredient', 'Beef Patty', '1'],
+        ['Classic Burger', 'Food', 'Burgers', '12.50', '10', 'Yes', 'No', '', 'Central', '1', 'Cold', '', 'Beef burger with cheese', 'Ingredient', 'Burger Bun', '1'],
+      ]
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'menu_items_template.csv'
+      a.click()
+      URL.revokeObjectURL(url)
     },
     // BUG-86 : normalisation nom (casse/espaces) pour comparer une ligne CSV à un menu item
     // déjà en base.
