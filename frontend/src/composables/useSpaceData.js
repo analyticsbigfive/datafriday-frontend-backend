@@ -12,15 +12,41 @@ import { getSpace, getSpaceConfigurations, getSpaceShopDetails, getSpaceShopGran
 import { getEvents } from '@/api/endpoints/event.api'
 import { getAllMenuItems } from '@/api/endpoints/menu-item.api'
 import { normalizeMenuItem, menuItemsCoverage, resolveComponentRefs } from '@/utils/menuItemNormalize'
-import { getProductTypes, getProductCategories } from '@/api/endpoints/menu.api'
+import { getProductTypes, getProductCategories, getMenuComponents } from '@/api/endpoints/menu.api'
 import { getIngredients } from '@/api/endpoints/ingredient.api'
-import { getMenuComponents } from '@/api/endpoints/component.api'
 import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
 import { getWeezeventProducts } from '@/api/endpoints/aggregation.api'
 import { getProductMappings } from '@/api/endpoints/mapping.api'
 import { enrichGranularMenuDimensions } from '@/utils/analyseDimensions'
 
 const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
+
+/**
+ * Charge tous les MenuComponents en paginant sur `meta.total` — le backend plafonne
+ * chaque appel à `limit` (cf. BUG-054/BUG-105), donc on boucle pour ne pas tronquer
+ * silencieusement les tenants ayant plus de `limit` composants. Même boucle que
+ * src/store/modules/menuComponents.js (store `/components`).
+ */
+async function fetchAllMenuComponents() {
+  const limit = 100
+  let page = 1
+  let rows = []
+  while (true) {
+    const res = await getMenuComponents({ page, limit })
+    const pageRows = Array.isArray(res)
+      ? res
+      : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.items)
+          ? res.items
+          : []
+    rows = rows.concat(pageRows)
+    const total = res?.meta?.total ?? res?.data?.meta?.total
+    if (!total || pageRows.length < limit || rows.length >= total) break
+    page += 1
+  }
+  return rows
+}
 
 export async function fetchSpaceData(spaceId, onEnrichment = null) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
@@ -156,7 +182,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         // les noms côté front (resolveComponentRefs) tant que le backend ne
         // dénormalise pas components[] (cf. docs/dejaFaits/menuItems.api.md).
         getIngredients().catch((e) => { console.warn('[useSpaceData] ⚠️ ingredients failed:', e?.response?.status, e?.message); return [] }),
-        getMenuComponents().catch((e) => { console.warn('[useSpaceData] ⚠️ menuComponents failed:', e?.response?.status, e?.message); return [] }),
+        fetchAllMenuComponents().catch((e) => { console.warn('[useSpaceData] ⚠️ menuComponents failed:', e?.response?.status, e?.message); return [] }),
         getAllPackagingTypes().catch((e) => { console.warn('[useSpaceData] ⚠️ packagings failed:', e?.response?.status, e?.message); return [] }),
       ])
       const menuItems = normalizeList(apiMenuItems)

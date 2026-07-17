@@ -112,22 +112,22 @@ export default {
 .ncd-grad-header { display:flex; align-items:center; gap:14px; padding:20px 20px 18px; background:#ff3131; }
 .ncd-grad-header__icon { width:40px; height:40px; border-radius:10px; background:rgba(255,255,255,.2); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .ncd-grad-header__text { flex:1; }
-.ncd-grad-header__title { font-size:16px; font-weight:700; color:#fff; }
-.ncd-grad-header__sub { font-size:12px; color:rgba(255,255,255,.75); margin-top:2px; }
+.ncd-grad-header__title { font-size:1rem; font-weight:700; color:#fff; }
+.ncd-grad-header__sub { font-size:0.75rem; color:rgba(255,255,255,.75); margin-top:2px; }
 .ncd-close { background:rgba(255,255,255,.15); border:none; cursor:pointer; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#fff; transition:background .15s; }
 .ncd-close:hover { background:rgba(255,255,255,.25); }
 .ncd-body { padding:22px 22px 10px; }
-.ncd-error { display:flex; align-items:center; gap:7px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:10px; padding:10px 14px; font-size:13px; margin-bottom:16px; }
-.ncd-warning { display:flex; align-items:flex-start; gap:7px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:10px; padding:10px 14px; font-size:13px; margin-bottom:16px; }
+.ncd-error { display:flex; align-items:center; gap:7px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:10px; padding:10px 14px; font-size:0.8125rem; margin-bottom:16px; }
+.ncd-warning { display:flex; align-items:flex-start; gap:7px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:10px; padding:10px 14px; font-size:0.8125rem; margin-bottom:16px; }
 .ncd-warning svg { flex-shrink:0; margin-top:1px; }
 .ncd-field { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
 .ncd-field:last-child { margin-bottom:0; }
-.ncd-field-label { font-size:12.5px; font-weight:600; color:#374151; }
-.ncd-input { border:1.5px solid #e5e7eb !important; border-radius:11px !important; box-shadow:none !important; height:46px; font-size:14px; padding:0 14px; }
+.ncd-field-label { font-size:0.75rem; font-weight:600; color:#374151; }
+.ncd-input { border:1.5px solid #e5e7eb !important; border-radius:11px !important; box-shadow:none !important; height:46px; font-size:0.875rem; padding:0 14px; }
 .ncd-input:focus { border-color:#ff3131 !important; box-shadow:0 0 0 3px rgba(255, 49, 49,.1) !important; outline:none; }
 .ncd-input--readonly { background:#f9fafb; color:#6b7280; cursor:default; }
 .ncd-foot { display:flex; justify-content:flex-end; gap:10px; padding:14px 22px 22px; }
-.ncd-btn { display:inline-flex; align-items:center; gap:6px; padding:0 20px; height:40px; border-radius:50px; font-size:13.5px; font-weight:600; cursor:pointer; border:none; transition:all .2s; }
+.ncd-btn { display:inline-flex; align-items:center; gap:6px; padding:0 20px; height:40px; border-radius:50px; font-size:0.875rem; font-weight:600; cursor:pointer; border:none; transition:all .2s; }
 .ncd-btn--cancel { background:#f3f4f6; color:#374151; }
 .ncd-btn--cancel:hover { background:#e5e7eb; }
 .ncd-btn--primary { background:#ff3131; color:#fff; }

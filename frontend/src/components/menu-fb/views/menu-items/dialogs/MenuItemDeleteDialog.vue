@@ -3,6 +3,7 @@
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
     max-width="480"
+    :persistent="loading"
   >
     <div class="midd-card" :class="{'midd--dark': isDark}">
       <div class="midd-card__head">

@@ -46,3 +46,6 @@ Pas de test automatisé sur ce composant. Vérifier manuellement : créer/édite
   [31](31_kitchentype_traductions_manquantes_inventory_menu_item.md) (note sur `inventoryUnit`
   volontairement front-only, à ne pas confondre avec ce bug-ci qui est un oubli non voulu).
 - Fiche liée découverte le même jour : [34](34_supplier_notes_jamais_persiste_mirror.md).
+- **Suite** : [53](53_component_inventorypackaging_packedunits_jamais_restaures_edition.md) — ce
+  correctif ne couvrait que l'écriture (payload) ; la lecture (`loadComponentData`) avait le même
+  oubli côté restauration en édition, découvert en auditant le fix à froid le même jour.

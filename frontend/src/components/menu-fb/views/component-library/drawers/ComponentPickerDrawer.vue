@@ -13,7 +13,7 @@
           </div>
 
           <div class="component-create__drawer-body">
-            <div class="d-flex gap-3">
+            <div class="d-flex gap-3 ccd-toolbar">
               <v-text-field
                 v-model="search"
                 variant="outlined"
@@ -23,6 +23,7 @@
                 :placeholder="t('compCreateCompSearchPlaceholder')"
                 prepend-inner-icon="mdi-magnify"
                 clearable
+                class="ccd-field"
               />
               <v-select
                 v-model="category"
@@ -35,6 +36,8 @@
                 hide-details
                 prepend-inner-icon="mdi-shape"
                 :loading="loading"
+                :menu-props="{ zIndex: 10000 }"
+                class="ccd-field"
               />
             </div>
 
@@ -42,7 +45,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="mt-3">
+            <div class="mt-3 ccd-table-card">
               <v-data-table
                 v-model="selectedIds"
                 :headers="headers"
@@ -142,11 +145,11 @@ export default {
     },
     headers() {
       return [
-        { title: this.t('compCreateCompColName'), key: 'name' },
-        { title: this.t('compCreateCompColType'), key: 'type' },
-        { title: this.t('compCreateCompColCategory'), key: 'category' },
-        { title: this.t('compCreateCompColUnit'), key: 'unit' },
-        { title: this.t('compCreateCompColUnitCost'), key: 'unitCost' },
+        { title: this.t('compCreateCompColName'), key: 'name', minWidth: '180px' },
+        { title: this.t('compCreateCompColType'), key: 'type', width: '110px' },
+        { title: this.t('compCreateCompColCategory'), key: 'category', width: '140px' },
+        { title: this.t('compCreateCompColUnit'), key: 'unit', width: '90px' },
+        { title: this.t('compCreateCompColUnitCost'), key: 'unitCost', width: '100px', align: 'end' },
       ];
     },
   },
@@ -221,7 +224,7 @@ export default {
 }
 
 .ccd-panel {
-  width: 620px;
+  width: 760px;
   max-width: 100vw;
   height: 100%;
   display: flex;
@@ -238,6 +241,43 @@ export default {
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+}
+
+/* Champs de la toolbar (recherche + filtre catégorie) : même style doux que le reste de l'app
+   (bordure gris clair, coin arrondi) au lieu du contour noir par défaut de Vuetify. */
+.ccd-toolbar { align-items: flex-start; }
+.ccd-field { flex: 1; min-width: 0; }
+.ccd-field :deep(.v-field) {
+  border: 1.5px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  background: #f9fafb !important;
+  box-shadow: none !important;
+}
+.ccd-field :deep(.v-field__outline) { display: none; }
+.ccd-field :deep(.v-field--focused) { border-color: #ff3131 !important; }
+.ccd-field :deep(.v-field__input) { font-size: 0.8125rem !important; }
+
+/* Tableau : carte blanche cohérente avec le reste de la page, en-têtes sur une seule ligne. */
+.ccd-table-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.component-create__drawer-table :deep(.v-data-table__th) {
+  background: #f9fafb !important;
+  color: #6b7280 !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.component-create__drawer-table :deep(.v-data-table__td) {
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cld-drawer__header {
@@ -264,13 +304,13 @@ export default {
 .cld-drawer__header-text { flex: 1; }
 
 .cld-drawer__header-title {
-  font-size: 15px;
+  font-size: 1rem;
   font-weight: 700;
   color: #fff;
 }
 
 .cld-drawer__header-sub {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.72);
   margin-top: 2px;
 }
@@ -303,7 +343,7 @@ export default {
 }
 
 .cld-drawer__footer-count {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #6b7280;
 }
 
@@ -319,7 +359,7 @@ export default {
   padding: 0 20px;
   height: 38px;
   border-radius: 50px;
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   border: none;

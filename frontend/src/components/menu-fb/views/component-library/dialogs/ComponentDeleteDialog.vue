@@ -50,15 +50,15 @@ export default {
 .cld-card__head { display:flex; align-items:flex-start; gap:14px; padding:22px 22px 16px; }
 .cld-card__icon-wrap { width:42px; height:42px; border-radius:12px; background:#fef2f2; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .cld-card__headtext { flex:1; min-width:0; }
-.cld-card__title { font-size:16px; font-weight:700; color:#111827; }
-.cld-card__sub { font-size:13px; color:#6b7280; margin-top:2px; }
+.cld-card__title { font-size:1rem; font-weight:700; color:#111827; }
+.cld-card__sub { font-size:0.8125rem; color:#6b7280; margin-top:2px; }
 .cld-card__close { background:none; border:none; cursor:pointer; padding:4px; color:#9ca3af; border-radius:8px; display:flex; align-items:center; transition:color .15s,background .15s; }
 .cld-card__close:hover { color:#374151; background:#f3f4f6; }
 .cld-card__body { padding:0 22px 20px; }
-.cld-card__error { display:flex; align-items:center; gap:7px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:10px; padding:10px 14px; font-size:13px; margin-bottom:14px; }
-.cld-card__msg { font-size:14px; color:#374151; margin:0; }
+.cld-card__error { display:flex; align-items:center; gap:7px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:10px; padding:10px 14px; font-size:0.8125rem; margin-bottom:14px; }
+.cld-card__msg { font-size:0.875rem; color:#374151; margin:0; }
 .cld-card__foot { display:flex; justify-content:flex-end; gap:10px; padding:14px 22px 22px; border-top:1px solid #f3f4f6; }
-.cld-btn { display:inline-flex; align-items:center; gap:6px; padding:0 20px; height:40px; border-radius:50px; font-size:13.5px; font-weight:600; cursor:pointer; border:none; transition:all .2s; }
+.cld-btn { display:inline-flex; align-items:center; gap:6px; padding:0 20px; height:40px; border-radius:50px; font-size:0.875rem; font-weight:600; cursor:pointer; border:none; transition:all .2s; }
 .cld-btn--cancel { background:#f3f4f6; color:#374151; }
 .cld-btn--cancel:hover { background:#e5e7eb; }
 .cld-btn--danger { background:#ff3131; color:#fff; }

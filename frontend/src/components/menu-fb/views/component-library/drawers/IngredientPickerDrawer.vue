@@ -386,7 +386,8 @@ export default {
     },
     formatCurrency(v) {
       const n = Number(v);
-      return Number.isFinite(n) ? `€${n.toFixed(2)}` : '—';
+      if (!Number.isFinite(n)) return '—';
+      return n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
     },
     formatDate(value) {
       if (!value) return '—';
@@ -429,8 +430,8 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .ipd-header__titles { flex: 1; }
-.ipd-header__title  { font-size: 15px; font-weight: 700; color: #fff; margin: 0; line-height: 1.2; }
-.ipd-header__sub    { font-size: 12px; color: rgba(255,255,255,.72); margin: 2px 0 0; }
+.ipd-header__title  { font-size: 1rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2; }
+.ipd-header__sub    { font-size: 0.75rem; color: rgba(255,255,255,.72); margin: 2px 0 0; }
 .ipd-header__close  {
   width: 30px; height: 30px; border-radius: 8px;
   border: none; background: rgba(255,255,255,.15); color: #fff;
@@ -458,7 +459,7 @@ export default {
 .ipd-search__icon  { color: #9ca3af; flex-shrink: 0; }
 .ipd-search__input {
   flex: 1; border: none; outline: none; background: transparent;
-  font-size: 13.5px; color: #111827;
+  font-size: 0.875rem; color: #111827;
 }
 .ipd-search__input::placeholder { color: #9ca3af; }
 .ipd-search__clear {
@@ -471,7 +472,7 @@ export default {
 .ipd-pill {
   padding: 4px 12px; border-radius: 100px;
   border: 1.5px solid #e5e7eb; background: #f9fafb;
-  font-size: 12px; font-weight: 500; color: #6b7280;
+  font-size: 0.75rem; font-weight: 500; color: #6b7280;
   cursor: pointer; user-select: none;
   transition: border-color .15s, background .15s, color .15s;
 }
@@ -496,7 +497,7 @@ export default {
   background: linear-gradient(135deg, #fef2f2, #fee2e2);
   display: flex; align-items: center; justify-content: center; color: #ff3131;
 }
-.ipd-empty__text { font-size: 13.5px; font-weight: 500; color: #6b7280; margin: 0; }
+.ipd-empty__text { font-size: 0.8125rem; font-weight: 500; color: #6b7280; margin: 0; }
 
 /* ── Item cards ── */
 .ipd-list { display: flex; flex-direction: column; gap: 10px; }
@@ -524,13 +525,13 @@ export default {
 
 .ipd-card__info { flex: 1; min-width: 0; }
 .ipd-card__name {
-  font-size: 13.5px; font-weight: 700; color: #111827;
+  font-size: 0.8125rem; font-weight: 700; color: #111827;
   display: block; margin-bottom: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ipd-card__tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .ipd-tag {
-  font-size: 11px; font-weight: 600; padding: 2px 7px;
+  font-size: 0.75rem; font-weight: 600; padding: 2px 7px;
   border-radius: 100px; background: #f3f4f6; color: #6b7280;
 }
 .ipd-tag--type { background: #fef2f2; color: #ff3131; }
@@ -539,7 +540,7 @@ export default {
   display: flex; align-items: center; gap: 6px;
   flex-shrink: 0; color: #9ca3af;
 }
-.ipd-card__count { font-size: 11.5px; white-space: nowrap; }
+.ipd-card__count { font-size: 0.75rem; white-space: nowrap; }
 .ipd-chevron     { color: #9ca3af; }
 
 /* ── Supplier rows ── */
@@ -555,7 +556,7 @@ export default {
   width: 17px; flex-shrink: 0;
 }
 .ipd-rows__header-col {
-  font-size: 10.5px; font-weight: 700;
+  font-size: 0.75rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: .6px;
   color: #9ca3af; white-space: nowrap; flex-shrink: 0;
 }
@@ -583,25 +584,25 @@ export default {
 /* Row content */
 .ipd-row__main { flex: 1; min-width: 0; }
 .ipd-row__name {
-  font-size: 13px; font-weight: 600; color: #111827;
+  font-size: 0.8125rem; font-weight: 600; color: #111827;
   display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ipd-row__ref { font-size: 11.5px; color: #9ca3af; margin-top: 1px; }
+.ipd-row__ref { font-size: 0.75rem; color: #9ca3af; margin-top: 1px; }
 
 .ipd-row__supplier {
   display: flex; align-items: center; gap: 4px;
-  font-size: 12px; color: #6b7280; white-space: nowrap; flex-shrink: 0;
+  font-size: 0.75rem; color: #6b7280; white-space: nowrap; flex-shrink: 0;
   min-width: 90px; max-width: 120px; overflow: hidden; text-overflow: ellipsis;
 }
 .ipd-row__icon { color: #9ca3af; flex-shrink: 0; }
 
 .ipd-row__price { display: flex; align-items: baseline; gap: 2px; flex-shrink: 0; }
-.ipd-row__price-val  { font-size: 13.5px; font-weight: 700; color: #111827; }
-.ipd-row__price-unit { font-size: 11px; color: #9ca3af; }
+.ipd-row__price-val  { font-size: 0.8125rem; font-weight: 700; color: #111827; }
+.ipd-row__price-unit { font-size: 0.75rem; color: #9ca3af; }
 
 .ipd-row__date {
   display: flex; align-items: center; gap: 4px;
-  font-size: 11px; color: #9ca3af; white-space: nowrap; flex-shrink: 0;
+  font-size: 0.75rem; color: #9ca3af; white-space: nowrap; flex-shrink: 0;
 }
 
 /* ── Footer ── */
@@ -615,22 +616,22 @@ export default {
 }
 .ipd-footer__count {
   display: flex; align-items: center; gap: 8px;
-  font-size: 13px; color: #6b7280;
+  font-size: 0.8125rem; color: #6b7280;
 }
 .ipd-footer__badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 22px; height: 22px; padding: 0 7px;
   background: #ff3131; color: #fff;
-  border-radius: 100px; font-size: 11.5px; font-weight: 700;
+  border-radius: 100px; font-size: 0.75rem; font-weight: 700;
 }
-.ipd-footer__none  { font-size: 13px; color: #9ca3af; }
+.ipd-footer__none  { font-size: 0.8125rem; color: #9ca3af; }
 .ipd-footer__actions { display: flex; gap: 9px; }
 
 /* Buttons */
 .ipd-btn {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 9px 18px; border-radius: 100px;
-  font-size: 13px; font-weight: 600; cursor: pointer;
+  font-size: 0.875rem; font-weight: 600; cursor: pointer;
   transition: all .2s; border: none; line-height: 1.4;
 }
 .ipd-btn:disabled { opacity: .45; cursor: not-allowed; }
