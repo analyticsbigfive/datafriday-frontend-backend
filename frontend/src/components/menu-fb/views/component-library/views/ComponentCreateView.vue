@@ -356,16 +356,16 @@
 
               <!-- Sticky footer -->
               <div class="cc-form-footer">
+                <button class="cc-pill-btn cc-pill-btn--outline" type="button" @click="onCancel">
+                  {{ t('compCreateCancel') }}
+                </button>
                 <button
-                  class="cc-pill-btn cc-pill-btn--primary cc-pill-btn--block mb-2"
+                  class="cc-pill-btn cc-pill-btn--primary"
                   type="button"
                   :disabled="saving || !formValid"
                   @click="onSave"
                 >
                   <Save :size="15" /> {{ saving ? 'Sauvegarde…' : (isEditMode ? t('compCreateSaveEdit') : t('compCreateSaveCreate')) }}
-                </button>
-                <button class="cc-pill-btn cc-pill-btn--outline cc-pill-btn--block" type="button" @click="onCancel">
-                  {{ t('compCreateCancel') }}
                 </button>
               </div>
 
@@ -1083,15 +1083,15 @@ export default {
 .cc-header__text { flex: 1; }
 
 .cc-header__title {
-  font-size: 18px;
-  font-weight: 800;
+  font-size: 1.25rem;
+  font-weight: 700;
   color: #fff;
   margin: 0;
   line-height: 1.2;
 }
 
 .cc-header__sub {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.72);
   margin: 3px 0 0;
 }
@@ -1111,7 +1111,7 @@ export default {
   border: 1.5px solid rgba(255, 255, 255, 0.6);
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 12.5px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -1123,7 +1123,9 @@ export default {
 }
 
 /* ── Layout ── */
-.cc-content { padding: 20px 24px; }
+/* Mêmes 28px horizontaux que .cc-header au-dessus (référence MarketPriceListView.vue) — un
+   padding différent créait un décalage gauche/droite visible entre le bandeau et le contenu. */
+.cc-content { padding: 20px 28px; }
 .cc-row { align-items: flex-start; }
 .cc-left-col { height: calc(100vh - 90px); display: flex; flex-direction: column; }
 
@@ -1148,8 +1150,8 @@ export default {
   flex-shrink: 0;
   flex-wrap: wrap;
 }
-.cc-card-title { font-size: 15px; font-weight: 700; color: #111827; }
-.cc-card-sub   { font-size: 12.5px; color: #6b7280; margin-top: 2px; }
+.cc-card-title { font-size: 1rem; font-weight: 700; color: #111827; }
+.cc-card-sub   { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
 
 /* Add buttons */
 .cc-add-btns { display: flex; gap: 7px; flex-shrink: 0; }
@@ -1159,7 +1161,7 @@ export default {
   gap: 5px;
   padding: 7px 14px;
   border-radius: 50px;
-  font-size: 12.5px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all .15s;
@@ -1188,8 +1190,8 @@ export default {
   border-right: 1px solid #f3f4f6;
 }
 .cc-stat:last-child { border-right: none; }
-.cc-stat__label { font-size: 10.5px; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-.cc-stat__value { font-size: 19px; font-weight: 800; color: #111827; margin-top: 4px; }
+.cc-stat__label { font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.cc-stat__value { font-size: 1.25rem; font-weight: 700; color: #111827; margin-top: 4px; }
 .cc-stat__value--blue  { color: #2563eb; }
 .cc-stat__value--green { color: #059669; }
 
@@ -1214,14 +1216,14 @@ export default {
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 6px;
 }
-.cc-empty__title { font-size: 15px; font-weight: 700; color: #374151; }
-.cc-empty__sub   { font-size: 13px; color: #9ca3af; max-width: 360px; }
+.cc-empty__title { font-size: 1rem; font-weight: 700; color: #374151; }
+.cc-empty__sub   { font-size: 0.8125rem; color: #9ca3af; max-width: 360px; }
 
 /* Table */
 .cc-table :deep(.v-data-table__th) {
   background: #f9fafb !important;
   color: #6b7280 !important;
-  font-size: 0.7rem !important;
+  font-size: 0.75rem !important;
   font-weight: 700 !important;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -1240,15 +1242,15 @@ export default {
 /* Row name */
 .cc-row-name { display: flex; align-items: flex-start; gap: 9px; }
 .cc-row-name__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
-.cc-row-name__text { font-weight: 600; font-size: 13px; color: #111827; }
-.cc-row-name__sub  { font-size: 11.5px; color: #9ca3af; margin-top: 1px; }
+.cc-row-name__text { font-weight: 600; font-size: 0.8125rem; color: #111827; }
+.cc-row-name__sub  { font-size: 0.75rem; color: #9ca3af; margin-top: 1px; }
 
 /* Badges */
 .ccv-badge {
   display: inline-block;
   padding: 2px 9px;
   border-radius: 50px;
-  font-size: .71rem;
+  font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1259,8 +1261,8 @@ export default {
 .ccv-badge--unit       { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
 
 /* Cost & muted */
-.cc-cost  { font-weight: 700; font-size: 13px; color: #059669; }
-.cc-muted { font-size: 12px; color: #9ca3af; }
+.cc-cost  { font-weight: 700; font-size: 0.8125rem; color: #059669; }
+.cc-muted { font-size: 0.75rem; color: #9ca3af; }
 
 /* Qty input */
 .cc-qty-input {
@@ -1269,7 +1271,7 @@ export default {
   border-radius: 8px;
   border: 1.5px solid #e5e7eb;
   background: #fafafa;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #111827;
   text-align: center;
   outline: none;
@@ -1312,8 +1314,8 @@ export default {
   padding: 18px 22px 16px;
   border-bottom: 1px solid #f3f4f6;
 }
-.cc-form-title { font-size: 15px; font-weight: 700; color: #111827; }
-.cc-form-sub   { font-size: 12.5px; color: #6b7280; margin-top: 2px; }
+.cc-form-title { font-size: 1rem; font-weight: 700; color: #111827; }
+.cc-form-sub   { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
 
 /* Scrollable body */
 .cc-form-body {
@@ -1326,15 +1328,19 @@ export default {
 /* Sticky footer */
 .cc-form-footer {
   flex-shrink: 0;
+  display: flex;
+  gap: 10px;
   padding: 14px 22px;
   border-top: 1px solid #f3f4f6;
   background: #fff;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, .05);
 }
+.cc-form-footer .cc-pill-btn--outline { flex: 0 0 auto; }
+.cc-form-footer .cc-pill-btn--primary { flex: 1 1 auto; }
 
 /* ── Section labels (supplier style) ── */
 .ccf-section-label {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .9px;
@@ -1342,45 +1348,11 @@ export default {
   margin-bottom: 12px;
 }
 
-/* ── Bootstrap form-floating inputs (supplier style) ── */
-.ccf-input.form-control {
-  border-radius: 11px;
-  border: 1.5px solid #e5e7eb;
-  font-size: 13.5px;
-  color: #111827;
-  padding: .65rem .8rem;
-  height: auto;
-  min-height: auto;
-  line-height: 1.4;
-  background: #fafafa;
-  transition: border-color .2s, box-shadow .2s;
-}
-.ccf-input.form-control:focus {
-  border-color: #ff3131;
-  box-shadow: 0 0 0 3px rgba(255, 49, 49,.1);
-  background: #fff;
-  outline: none;
-}
-.ccf-input--textarea.form-control { resize: vertical; }
-
-.cc-form-body .form-floating > label {
-  font-size: 13.5px;
-  color: #9ca3af;
-  padding: .65rem .8rem;
-}
-.cc-form-body .form-floating > .ccf-input:focus ~ label,
-.cc-form-body .form-floating > .ccf-input:not(:placeholder-shown) ~ label {
-  color: #ff3131;
-  font-weight: 600;
-  font-size: 10.5px;
-  opacity: 1;
-  transform: scale(1) translateY(-0.6rem) translateX(0.1rem);
-}
 .ccf-required { color: #ff3131; }
 
 /* Champ : label statique visible AU-DESSUS du champ (plus de label flottant). */
 .ccf-field-wrap { display: flex; flex-direction: column; gap: 6px; }
-.ccf-field-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.ccf-field-label { font-size: 0.75rem; font-weight: 600; color: #374151; }
 
 /* ── Vuetify select/combobox (supplier style) ── */
 .ccf-field :deep(.v-field) {
@@ -1396,18 +1368,18 @@ export default {
   background: #fff !important;
 }
 .ccf-field :deep(.v-label) {
-  font-size: 13.5px !important;
+  font-size: 0.875rem !important;
   color: #9ca3af !important;
   opacity: 1 !important;
 }
 .ccf-field :deep(.v-label.v-field-label--floating) {
-  font-size: 10.5px !important;
+  font-size: 0.75rem !important;
   font-weight: 600 !important;
   color: #ff3131 !important;
   opacity: 1 !important;
 }
 .ccf-field :deep(.v-field__input) {
-  font-size: 13.5px !important;
+  font-size: 0.875rem !important;
   color: #111827 !important;
 }
 
@@ -1420,15 +1392,15 @@ export default {
   margin-bottom: 16px;
 }
 .cc-calc-card__label {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .05em;
   color: #3b82f6;
 }
 .cc-calc-card__amount {
-  font-size: 2.1rem;
-  font-weight: 800;
+  font-size: 1.5rem;
+  font-weight: 700;
   color: #1d4ed8;
   line-height: 1.1;
   margin: 7px 0 12px;
@@ -1437,7 +1409,7 @@ export default {
 .cc-calc-card__row {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #3b82f6;
   padding: 2px 0;
 }
@@ -1451,7 +1423,7 @@ export default {
   padding: 16px 18px;
 }
 .cc-info-card__title {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   margin-bottom: 14px;
   color: #1e40af;
@@ -1465,7 +1437,7 @@ export default {
   line-height: 1.6;
 }
 .cc-info-label {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: #374151;
   white-space: nowrap;
@@ -1478,7 +1450,7 @@ export default {
   gap: 6px;
 }
 .cc-info-card__field-label {
-  font-size: 12.5px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #1e40af;
 }
@@ -1488,7 +1460,7 @@ export default {
 .cc-pk-dialog__header {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 18px; background: #ff3131; color: #fff;
-  font-size: 15px; font-weight: 700;
+  font-size: 1rem; font-weight: 700;
 }
 .cc-pk-dialog__close {
   width: 28px; height: 28px; border: none; border-radius: 8px;
@@ -1497,7 +1469,7 @@ export default {
 }
 .cc-pk-dialog__close:hover { background: rgba(255,255,255,.3); }
 .cc-pk-dialog__error {
-  padding: 10px 18px; background: #fef2f2; color: #ff3131; font-size: 13px;
+  padding: 10px 18px; background: #fef2f2; color: #ff3131; font-size: 0.8125rem;
 }
 .cc-pk-dialog__body { padding: 18px; }
 .cc-pk-dialog__footer {
@@ -1505,7 +1477,7 @@ export default {
   padding: 14px 18px; background: #f9fafb; border-top: 1px solid #f3f4f6;
 }
 .cc-pk-btn {
-  padding: 8px 18px; border-radius: 50px; font-size: 13.5px; font-weight: 600;
+  padding: 8px 18px; border-radius: 50px; font-size: 0.875rem; font-weight: 600;
   border: none; cursor: pointer; transition: all .15s;
 }
 .cc-pk-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -1513,7 +1485,7 @@ export default {
 .cc-pk-btn--primary { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255,49,49,.3); }
 .cc-pk-btn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255,49,49,.4); transform: translateY(-1px); }
 .cc-info-label--dot {
-  font-size: 18px;
+  font-size: 1rem;
   font-weight: 700;
   color: #6b7280;
   line-height: 1;
@@ -1523,7 +1495,7 @@ export default {
   border: 1.5px solid #dbeafe;
   border-radius: 8px;
   padding: 5px 8px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #1e3a5f;
   background: #fff;
   outline: none;
@@ -1544,7 +1516,7 @@ export default {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid #bfdbfe;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #1e40af;
   white-space: nowrap;
@@ -1558,7 +1530,7 @@ export default {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #1e40af;
   white-space: nowrap;
@@ -1575,7 +1547,7 @@ export default {
   height: 40px;
   padding: 0 20px;
   border-radius: 50px;
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   border: none;
@@ -1586,7 +1558,6 @@ export default {
 .cc-pill-btn--primary { background: #ff3131; color: #fff; border: none; }
 .cc-pill-btn--primary:hover { box-shadow: 0 4px 14px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 .cc-pill-btn--primary:disabled { opacity: .6; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-.cc-pill-btn--block { width: 100%; }
 
 @media (max-width: 768px) {
   .cc-content { padding: 12px 16px; }
