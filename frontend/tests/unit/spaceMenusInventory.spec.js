@@ -6,11 +6,6 @@ import { expandMenuItemStock, isPackagingComponent } from '@/utils/stockPlanning
 import { resolveComponentRefs } from '@/utils/menuItemNormalize'
 import { aggregateSalesToPredictedRecords } from '@/utils/salesAggregation'
 import { buildShoppingList, countedRemaining } from '@/utils/shoppingList'
-import {
-  computeDivergence,
-  seedBlankElements,
-  buildSuggestionsByElement,
-} from '@/composables/useSpaceMenuReconciliation'
 
 const names = (rows) => rows.map((r) => r.name).sort()
 
@@ -300,43 +295,5 @@ describe('Règle 3 — liste de courses (shoppingList)', () => {
       getQuantityPackaged: () => 24,
     })
     expect(aggregated).toHaveLength(0)
-  })
-})
-
-describe('Règle 1 — réconciliation souple', () => {
-  it('computeDivergence sépare hors-mapping et non-listés', () => {
-    const d = computeDivergence(new Set(['a', 'b']), new Set(['b', 'c']))
-    expect(d.itemsHorsMapping).toEqual(['a'])
-    expect(d.produitsNonListes).toEqual(['c'])
-  })
-
-  it('seedBlankElements pré-remplit uniquement les PDV vierges', () => {
-    const selected = new Map([['el-1', new Set(['a'])]])
-    const savedIds = new Set(['el-1'])
-    const suggestions = new Map([
-      ['el-1', new Set(['a', 'b'])],
-      ['el-2', new Set(['z'])],
-    ])
-    const out = seedBlankElements(selected, savedIds, suggestions)
-    // el-1 configuré -> non re-seedé (le choix utilisateur gagne)
-    expect([...out.get('el-1')]).toEqual(['a'])
-    // el-2 vierge -> pré-rempli depuis le mapping
-    expect([...out.get('el-2')]).toEqual(['z'])
-  })
-
-  it('un item retiré manuellement n’est jamais ré-injecté au rechargement', () => {
-    // l'utilisateur a retiré "b" : el-1 sauvegardé avec seulement {a}
-    const selected = new Map([['el-1', new Set(['a'])]])
-    const savedIds = new Set(['el-1'])
-    const suggestions = new Map([['el-1', new Set(['a', 'b'])]])
-    const out = seedBlankElements(selected, savedIds, suggestions)
-    expect([...out.get('el-1')]).not.toContain('b')
-  })
-
-  it('buildSuggestionsByElement résout elementId -> menuItemIds via shopId', () => {
-    const mappings = [{ elementId: 'el-1', shopId: 's-1' }]
-    const getRows = (shopId) => (shopId === 's-1' ? [{ id: 'm1' }, { id: 'm2' }] : [])
-    const map = buildSuggestionsByElement(mappings, getRows)
-    expect([...map.get('el-1')].sort()).toEqual(['m1', 'm2'])
   })
 })

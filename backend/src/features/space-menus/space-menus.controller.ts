@@ -46,20 +46,21 @@ export class SpaceMenusController {
               margin: { type: 'number', example: 65.6, description: 'Marge en pourcentage' },
               description: { type: 'string', example: 'Burger classique avec frites' },
               picture: { type: 'string', nullable: true, example: 'https://cdn.example.com/burger.jpg' },
-              diet: { 
-                type: 'array', 
-                items: { type: 'string', enum: ['VEGAN', 'VEGETARIAN', 'HALAL', 'KOSHER', 'NONE'] },
-                example: ['NONE']
+              diet: {
+                type: 'array',
+                items: { type: 'string', enum: ['Vegetarian', 'Vegan', 'GlutenFree', 'Halal', 'Kosher'] },
+                example: ['Vegan']
               },
-              allergens: { 
-                type: 'array', 
-                items: { type: 'string', enum: ['GLUTEN', 'LACTOSE', 'EGGS', 'NUTS', 'FISH', 'SHELLFISH', 'SOY'] },
-                example: ['GLUTEN', 'LACTOSE']
+              allergens: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Liste libre (pas un enum fermé côté modèle)',
+                example: ['Gluten', 'Lactose']
               },
               storageType: {
                 type: 'array',
-                items: { type: 'string', enum: ['FROZEN', 'REFRIGERATED', 'DRY', 'AMBIENT'] },
-                example: ['FROZEN', 'REFRIGERATED']
+                items: { type: 'string', enum: ['Cold', 'Dry', 'Frozen'] },
+                example: ['Frozen']
               },
               readyForSale: { type: 'string', nullable: true, enum: ['Yes', 'No'], example: 'Yes' },
               comboItem: { type: 'string', nullable: true, enum: ['Yes', 'No'], example: 'No' },

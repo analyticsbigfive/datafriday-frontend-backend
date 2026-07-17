@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div :class="{ 'smiv-root--dark': isDark }">
     <!-- Loading skeletons -->
     <div v-if="menuItemsLoading || shopMenuItemsLoading" class="smiv-grid">
       <div v-for="i in 8" :key="i" class="smiv-skeleton">
@@ -23,8 +23,8 @@
     <!-- Empty: aucun menu item dans ce space -->
     <div v-else-if="menuItemsByCategory.length === 0 && !menuItemQuery" class="smiv-empty">
       <div class="smiv-empty__icon"><Package :size="32" style="color:#d1d5db" /></div>
-      <p class="smiv-empty__title">Aucun menu item</p>
-      <p class="smiv-empty__sub">Aucun menu item n'est rattaché à cet espace.</p>
+      <p class="smiv-empty__title">{{ t('spaceMenu.noMenuItemsFound') }}</p>
+      <p class="smiv-empty__sub">{{ t('spaceMenu.noMenuItemsInSpace') }}</p>
     </div>
 
     <!-- Empty: filtre sans résultat -->
@@ -64,13 +64,13 @@
             <div class="smiv-item-card__body">
               <div class="smiv-item-card__name">{{ item.name }}</div>
               <div class="smiv-item-card__cat">{{ item.category || item?.productCategory?.name || '' }}</div>
-              <div class="smiv-item-card__price">${{ Number(item.price ?? item.basePrice ?? 0).toFixed(2) }}</div>
+              <div class="smiv-item-card__price">{{ formatCurrency(item.price ?? item.basePrice ?? 0) }}</div>
             </div>
             <!-- Shops expandable footer -->
             <div class="smiv-item-card__foot" @click.stop="toggleExpand(item.id || item._id)">
               <span class="smiv-item-card__shop-count">
                 <Store :size="11" />
-                {{ shopsWithMenuItem(item.id || item._id).length }}/{{ shops.length }} shops
+                {{ shopsWithMenuItem(item.id || item._id).length }}/{{ shops.length }} {{ t('spaceMenu.shops') }}
               </span>
               <ChevronDown
                 :size="14"
@@ -79,7 +79,7 @@
             </div>
             <!-- Expandable shops list -->
             <div v-if="isExpanded(item.id || item._id)" class="smiv-shops-list">
-              <div v-if="!shops.length" class="smiv-shops-list__empty">Aucun shop disponible</div>
+              <div v-if="!shops.length" class="smiv-shops-list__empty">{{ t('spaceMenu.noShopsAvailable') }}</div>
               <div
                 v-for="shop in shops"
                 :key="shop.id"
@@ -121,6 +121,7 @@
 import { useI18n } from "@/i18n/useI18n";
 import { Package, Store, ChevronDown, AlertCircle } from 'lucide-vue-next';
 import { assignMenuItemsToShop } from '@/api/endpoints/menu.api';
+import { formatCurrency } from "@/composables/useFormatters";
 
 export default {
   name: "SpaceMenuItemView",
@@ -140,17 +141,40 @@ export default {
     // Message d'échec de chargement (null = pas d'erreur) — affiché à la place de
     // l'état vide, avec bouton réessayer (emit 'retry').
     loadError:           { type: String,  default: null },
+    // BUG-125 : non propagé par le parent jusqu'ici — grille restait blanche sur fond sombre.
+    isDark:               { type: Boolean, default: false },
   },
   emits: ["show-error", "menu-item-toggled", "retry"],
   setup() {
     const { t } = useI18n();
-    return { t };
+    return { t, formatCurrency };
   },
   data() {
     return {
       expandedIds: [],
       pendingToggles: {},
     };
+  },
+  computed: {
+    // BUG-127 : Map indexée une seule fois par changement de shops/matrice d'assignation, au
+    // lieu d'un `.filter()` O(shops) réévalué par appel de méthode (3 call sites par carte
+    // article dépliée) à chaque re-rendu.
+    shopsByMenuItemId() {
+      const map = new Map();
+      for (const shop of this.shops || []) {
+        const assignments = this.menuAssignmentMap || {};
+        for (const [shopId, items] of Object.entries(assignments)) {
+          if (String(shopId) !== String(shop.id)) continue;
+          for (const [menuItemId, enabled] of Object.entries(items || {})) {
+            if (!enabled) continue;
+            const key = String(menuItemId);
+            if (!map.has(key)) map.set(key, []);
+            map.get(key).push(shop);
+          }
+        }
+      }
+      return map;
+    },
   },
   methods: {
     // `available` vient du BACKEND (mêmes règles fournisseur×espace que le drawer shop) —
@@ -170,9 +194,10 @@ export default {
     isMenuItemAssignedToShop(shopId, menuItemId) {
       return this.menuAssignmentMap?.[shopId]?.[String(menuItemId)] === true;
     },
+    // BUG-127 : lecture O(1) dans la Map mémoïsée `shopsByMenuItemId` au lieu d'un filter O(shops)
+    // recalculé à chaque appel.
     shopsWithMenuItem(menuItemId) {
-      const mid = String(menuItemId);
-      return this.shops.filter(shop => this.isMenuItemAssignedToShop(shop.id, mid));
+      return this.shopsByMenuItemId.get(String(menuItemId)) || [];
     },
     toggleExpand(id) {
       const sid = String(id);
@@ -203,7 +228,7 @@ export default {
         // exactement ce qui a changé.
         this.$emit('menu-item-toggled', { shopId, menuItemId: mid, enabled });
       } catch (e) {
-        this.$emit('show-error', e?.response?.data?.message || e?.message || 'Erreur lors de la mise à jour');
+        this.$emit('show-error', e?.response?.data?.message || e?.message || this.t('spaceMenu.updateFailed'));
       } finally {
         const updated = { ...this.pendingToggles };
         delete updated[key];
@@ -321,4 +346,31 @@ export default {
 .smiv-empty__icon { width: 64px; height: 64px; background: #f3f4f6; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; }
 .smiv-empty__title { font-size: 16px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }
 .smiv-empty__sub { font-size: 13px; color: #9ca3af; }
+
+/* ── Dark mode (BUG-125) ── */
+.smiv-root--dark .smiv-cat-head__line { background: #1e293b; }
+.smiv-root--dark .smiv-cat-head__label { color: #94a3b8; }
+.smiv-root--dark .smiv-item-card { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.smiv-root--dark .smiv-item-card__img { background: #111827; }
+.smiv-root--dark .smiv-item-card__name { color: #e2e8f0; }
+.smiv-root--dark .smiv-item-card__cat { color: #64748b; }
+.smiv-root--dark .smiv-item-card__foot { background: #111827; border-top-color: rgba(255,255,255,.06); }
+.smiv-root--dark .smiv-item-card__foot:hover { background: #1e293b; }
+.smiv-root--dark .smiv-item-card__shop-count { color: #94a3b8; }
+.smiv-root--dark .smiv-shops-list { background: #111827; border-top-color: rgba(255,255,255,.06); }
+.smiv-root--dark .smiv-shops-list__row { border-bottom-color: rgba(255,255,255,.06); }
+.smiv-root--dark .smiv-shops-list__row:hover { background: #1e293b; }
+.smiv-root--dark .smiv-shops-list__row--checked { background: rgba(255, 49, 49,.12); }
+.smiv-root--dark .smiv-shops-list__row--checked:hover { background: rgba(255, 49, 49,.18); }
+.smiv-root--dark .smiv-shops-list__icon-wrap { background: #1e293b; }
+.smiv-root--dark .smiv-shops-list__name { color: #e2e8f0; }
+.smiv-root--dark .smiv-shops-list__type { color: #64748b; }
+.smiv-root--dark .smiv-skeleton { background: #1e293b; border-color: rgba(255,255,255,.06); }
+.smiv-root--dark .smiv-skeleton__img,
+.smiv-root--dark .smiv-skeleton__line { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 800px 100%; }
+.smiv-root--dark .smiv-empty { background: #111827; border-color: #1e293b; }
+.smiv-root--dark .smiv-empty--error { background: rgba(255, 49, 49,.08); border-color: rgba(255, 49, 49,.3); }
+.smiv-root--dark .smiv-empty__icon { background: #1e293b; }
+.smiv-root--dark .smiv-empty__title { color: #94a3b8; }
+.smiv-root--dark .smiv-empty__sub { color: #64748b; }
 </style>

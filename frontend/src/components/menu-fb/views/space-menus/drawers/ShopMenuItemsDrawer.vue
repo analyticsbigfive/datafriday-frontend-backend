@@ -117,7 +117,7 @@
                     </div>
                     <!-- Price -->
                     <div class="smi-item-row__price" :style="item.available ? 'color:#ff3131' : 'color:#9ca3af'">
-                      {{ item.price != null ? `$${Number(item.price).toFixed(2)}` : '-' }}
+                      {{ formatCurrency(item.price) }}
                     </div>
                     <!-- Check dot (disponible) / alerte rouge (non disponible) -->
                     <div v-if="item.available" class="smi-check-dot" :class="{ active: selectedMenuItemIds.includes(String(item.id)) }">
@@ -136,7 +136,7 @@
           <!-- Footer -->
           <div class="smi-footer">
             <button class="smi-btn smi-btn--ghost" @click="$emit('update:modelValue', false)">
-              Annuler
+              {{ t('cancel') }}
             </button>
             <button
               v-if="hasChanges"
@@ -161,13 +161,14 @@
 import { useI18n } from "@/i18n/useI18n";
 import { X, UtensilsCrossed, Package, Check, AlertCircle } from 'lucide-vue-next';
 import { assignMenuItemsToShop, getShopAvailableMenuItems } from "@/api/endpoints/menu.api";
+import { formatCurrency } from "@/composables/useFormatters";
 
 export default {
   name: 'ShopMenuItemsDrawer',
   components: { X, UtensilsCrossed, Package, Check, AlertCircle },
   setup() {
     const { t } = useI18n();
-    return { t };
+    return { t, formatCurrency };
   },
   props: {
     modelValue: { type: Boolean, default: false },
@@ -178,6 +179,12 @@ export default {
   },
   emits: ['update:modelValue', 'attached'],
   beforeUnmount() {
+    document.body.style.overflow = '';
+  },
+  // BUG-117 : la route hôte (/space-menus) est keep-alive — quitter la page sans fermer ce
+  // tiroir déclenche `deactivated()`, jamais `beforeUnmount()`, ce qui laissait le scroll body
+  // verrouillé en permanence sur les autres écrans de l'app.
+  deactivated() {
     document.body.style.overflow = '';
   },
   data() {
@@ -194,14 +201,22 @@ export default {
   watch: {
     modelValue(isOpen) {
       document.body.style.overflow = isOpen ? 'hidden' : '';
+      // BUG-119 : annule le nettoyage différé d'une fermeture précédente — sans ça, une
+      // réouverture rapide (<300ms) sur le même shop ou un autre pouvait laisser le timer
+      // périmé vider le formulaire juste après son rechargement.
+      if (this._clearTimer) {
+        clearTimeout(this._clearTimer);
+        this._clearTimer = null;
+      }
       if (isOpen && this.shop) {
         this.selectedMenuItemIds = [];
         this.availabilityTab = 'available';
         this.loadMenuItems();
       } else if (!isOpen) {
-        setTimeout(() => {
+        this._clearTimer = setTimeout(() => {
           this.allMenuItems = [];
           this.selectedMenuItemIds = [];
+          this._clearTimer = null;
         }, 300);
       }
     },
@@ -230,12 +245,16 @@ export default {
     // BACKEND — GET /space-menu/shop/:shopId/items. Ici on ne fait qu'afficher.
     async loadMenuItems() {
       if (!this.shop) return;
+      // Garde anti-course : une sélection rapide shop A → shop B avant que la réponse de A ne
+      // revienne ne doit pas écraser l'état affiché (déjà celui de B) avec les données de A.
+      const requestedShopId = this.shop.id;
       this.menuItemsLoading = true;
       this.loadError = null;
       try {
         // configId : sans lui le backend devine (1re adhésion) — faux pour un shop
         // partagé entre configs (les coches de la config A s'affichaient en config B).
-        const res = await getShopAvailableMenuItems(this.shop.id, this.configId);
+        const res = await getShopAvailableMenuItems(requestedShopId, this.configId);
+        if (!this.shop || this.shop.id !== requestedShopId) return;
         this.allMenuItems = (res?.items || []).map(item => ({
           id: String(item.id),
           name: item.name || '-',
