@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import store from '@/store'
-import { requireAuth, requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard } from './guards'
+import { requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard } from './guards'
 
 // Views — PERF: imports LAZY (`() => import(...)`) au lieu de statiques. En
 // statique, ces ~31 vues étaient inlinées dans le chunk eager `app.js` (953KB),

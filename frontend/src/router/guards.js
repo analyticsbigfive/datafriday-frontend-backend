@@ -4,28 +4,6 @@
 import store from '@/store'
 
 /**
- * Guard pour les routes nécessitant une authentification
- */
-export async function requireAuth(to, from, next) {
-  // Attendre que l'auth soit initialisée
-  if (!store.getters['auth/isInitialized']) {
-    await store.dispatch('auth/initialize')
-  }
-  
-  const isAuthenticated = store.getters['auth/isAuthenticated']
-  
-  if (!isAuthenticated) {
-    // Sauvegarder la destination pour redirection après login
-    return next({
-      path: '/login',
-      query: { redirect: to.fullPath }
-    })
-  }
-  
-  next()
-}
-
-/**
  * Guard pour les routes nécessitant une organisation
  */
 export async function requireOrganization(to, from, next) {
@@ -122,54 +100,6 @@ export async function guestOnly(to, from, next) {
 }
 
 /**
- * Guard pour les routes admin uniquement
- */
-export async function requireAdmin(to, from, next) {
-  // Attendre que l'auth soit initialisée
-  if (!store.getters['auth/isInitialized']) {
-    await store.dispatch('auth/initialize')
-  }
-  
-  const isAuthenticated = store.getters['auth/isAuthenticated']
-  const isAdmin = store.getters['auth/isAdmin']
-  
-  if (!isAuthenticated) {
-    return next({
-      path: '/login',
-      query: { redirect: to.fullPath }
-    })
-  }
-  
-  if (!isAdmin) {
-    return next('/dashboard')
-  }
-  
-  next()
-}
-
-/**
- * Guard pour les routes nécessitant une permission RBAC précise
- * (cf. docs/RBAC_SYSTEM.md §3.5 — le rôle ADMIN bypass toujours via le getter `auth/can`)
- */
-export function requirePermission(code) {
-  return async (to, from, next) => {
-    if (!store.getters['auth/isInitialized']) {
-      await store.dispatch('auth/initialize')
-    }
-
-    if (!store.getters['auth/isAuthenticated']) {
-      return next({ path: '/login', query: { redirect: to.fullPath } })
-    }
-
-    if (!store.getters['auth/can'](code)) {
-      return next('/dashboard')
-    }
-
-    next()
-  }
-}
-
-/**
  * Écrans front d'un espace, par ordre de préférence d'atterrissage.
  * Le 1er écran que le rôle de l'utilisateur autorise devient sa page d'accueil
  * quand il ouvre un espace (évite de bloquer un rôle qui n'a pas l'Analyse).
@@ -207,30 +137,4 @@ export async function spaceEntryGuard(to, from, next) {
     return next({ name: first.name, params: { spaceId: to.params.spaceId }, query: to.query })
   }
   return next('/spaces')
-}
-
-/**
- * Guard pour les routes manager+ (admin ou manager)
- */
-export async function requireManager(to, from, next) {
-  // Attendre que l'auth soit initialisée
-  if (!store.getters['auth/isInitialized']) {
-    await store.dispatch('auth/initialize')
-  }
-  
-  const isAuthenticated = store.getters['auth/isAuthenticated']
-  const isManager = store.getters['auth/isManager']
-  
-  if (!isAuthenticated) {
-    return next({
-      path: '/login',
-      query: { redirect: to.fullPath }
-    })
-  }
-  
-  if (!isManager) {
-    return next('/dashboard')
-  }
-  
-  next()
 }
