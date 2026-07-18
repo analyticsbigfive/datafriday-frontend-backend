@@ -1,6 +1,6 @@
 # BUG-76 — `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant)
 
-- **Statut** : ⚪ Diagnostiqué
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟢 Mineur
 - **Domaine** : Prévision
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -23,16 +23,17 @@ ce vide ici (contrairement à BUG-67, corrigé pour les FK de taxonomie d'`Event
 
 ## Correction
 
-Aucune à ce jour — décision à prendre en cohérence avec le traitement plus large de
-`EventPredictVersion` (déjà noté dans `docs/modules/07_EVENEMENTS.md` que la suppression d'un
-`Event` laisse ses `EventPredictVersion` orphelines, même famille de risque). Ajouter la
-vérification isolément ici sans traiter le cas symétrique (suppression) ne referme qu'une partie du
-risque.
+**Décision (2026-07-18)** : ajouter la vérification côté création, même sans traiter le cas
+symétrique (suppression d'un `Event` laissant ses `EventPredictVersion` orphelines — hors
+périmètre, comportement pré-existant inchangé). `create()` fait désormais
+`this.prisma.event.findFirst({ where: { id: eventId, tenantId } })` et lève `NotFoundException` si
+l'event n'existe pas/n'appartient pas au tenant, avant toute écriture — même pattern que BUG-67.
 
 ## Risque de régression / à surveiller
 
-Si corrigé : vérifier que le flux Event Predict (hors périmètre de cet audit) crée toujours ses
-versions correctement — l'`eventId` y provient normalement toujours d'un event réellement chargé.
+- Vérifié : le flux Event Predict (hors périmètre de cet audit) charge toujours un event réel
+  avant d'appeler cette route — pas de régression attendue sur le chemin nominal.
+- `tsc --noEmit` propre sur l'ensemble du backend après ce changement.
 
 ## Références
 

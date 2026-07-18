@@ -7,8 +7,8 @@
           <Shapes :size="20" color="white" />
         </div>
         <div class="ecd-grad-header__text">
-          <div class="ecd-grad-header__title">{{ t('eventCategoryDialogTitle') }}</div>
-          <div class="ecd-grad-header__sub">{{ t('eventCategoryDialogSubtitle') }}</div>
+          <div class="ecd-grad-header__title">{{ isEdit ? t('eventCategoryDialogEditTitle') : t('eventCategoryDialogTitle') }}</div>
+          <div class="ecd-grad-header__sub">{{ isEdit ? t('eventCategoryDialogEditSubtitle') : t('eventCategoryDialogSubtitle') }}</div>
         </div>
         <button class="ecd-grad-header__close" @click="close">
           <X :size="16" />
@@ -27,7 +27,7 @@
             <label class="ecd-field-label">{{ t('eventCategoryDialogTypeLabel') }} <span class="ecd-star">*</span></label>
             <v-select
               v-model="eventTypeId"
-              :items="eventTypes"
+              :items="allowCreateType ? eventTypesWithCreate : eventTypes"
               item-title="name"
               item-value="id"
               :placeholder="t('eventCategoryDialogTypePlaceholder')"
@@ -36,7 +36,20 @@
               hide-details="auto"
               :rules="[rules.required]"
               class="ecd-v-select"
-            />
+              @update:modelValue="handleTypeSelect"
+            >
+              <template v-if="allowCreateType" #item="{ props, item }">
+                <v-list-item
+                  v-bind="props"
+                  :class="item.raw.id === '__create__' ? 'ecd-create-option' : ''"
+                  @click="item.raw.id === '__create__' ? openCreateType() : null"
+                >
+                  <template #prepend v-if="item.raw.id === '__create__'">
+                    <Plus :size="16" class="mr-2" />
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
           </div>
 
           <!-- Name input -->
@@ -71,16 +84,21 @@
       </div>
     </div>
   </v-dialog>
+
+  <!-- BUG-145 : capacité "créer un type à la volée" auto-portée (uniquement si allowCreateType) —
+       remplace la copie dupliquée qui vivait dans EventsCategorieListView.vue. -->
+  <EventTypeDialog v-if="allowCreateType" v-model="typeDialogOpen" @created="handleTypeCreated" />
 </template>
 
 <script>
 import { useI18n } from '@/i18n/useI18n';
-import { X, Shapes, AlertCircle, Save } from 'lucide-vue-next';
-import { createEventCategory } from '@/api/endpoints/event.api';
+import { X, Shapes, AlertCircle, Save, Plus } from 'lucide-vue-next';
+import { createEventCategory, updateEventCategory } from '@/api/endpoints/event.api';
+import EventTypeDialog from './EventTypeDialog.vue';
 
 export default {
   name: 'EventCategoryDialog',
-  components: { X, Shapes, AlertCircle, Save },
+  components: { X, Shapes, AlertCircle, Save, Plus, EventTypeDialog },
 
   setup() {
     const { t } = useI18n();
@@ -91,9 +109,17 @@ export default {
     modelValue: { type: Boolean, default: false },
     eventTypes: { type: Array, default: () => [] },
     preselectedTypeId: { type: [String, Number], default: '' },
+    // BUG-145 : mode édition — quand fourni, le dialog se pré-remplit et appelle
+    // updateEventCategory au lieu de createEventCategory.
+    category: { type: Object, default: null },
+    // BUG-145 : option "Créer un nouveau type" dans le select, avec EventTypeDialog auto-porté —
+    // seul l'écran /event-categories (qui avait cette capacité dans son ancien drawer inline)
+    // l'active ; les autres appelants (EventFormDrawer, /event-subcategories) gardent leur
+    // comportement actuel (simple select, pas de création inline depuis ce dialog).
+    allowCreateType: { type: Boolean, default: false },
   },
 
-  emits: ['update:modelValue', 'created'],
+  emits: ['update:modelValue', 'created', 'updated'],
 
   data() {
     return {
@@ -103,22 +129,43 @@ export default {
       loading: false,
       error: '',
       formValid: false,
+      typeDialogOpen: false,
       rules: { required: (v) => !!v || 'Ce champ est obligatoire' },
     };
+  },
+
+  computed: {
+    isEdit() {
+      return !!this.category;
+    },
+    eventTypesWithCreate() {
+      return [{ id: '__create__', name: this.t('eventCategoryDialogCreateTypeOption') }, ...this.eventTypes];
+    },
   },
 
   watch: {
     modelValue(isOpen) {
       if (isOpen) {
-        this.name = '';
-        this.eventTypeId = this.preselectedTypeId || '';
-        this.hasHomeTeam = false;
+        if (this.category) {
+          this.name = this.category.name || '';
+          const rawTypeId = this.category.eventTypeId || this.category.eventType?._id || this.category.eventType?.id || null;
+          // Défensif : eventTypeId peut arriver comme objet peuplé plutôt que string id
+          // selon la forme renvoyée par le store (cf. normalizeId de l'ancien drawer inline).
+          this.eventTypeId = (rawTypeId && typeof rawTypeId === 'object')
+            ? (rawTypeId.id || rawTypeId._id || '')
+            : (rawTypeId || '');
+          this.hasHomeTeam = !!this.category.hasHomeTeam;
+        } else {
+          this.name = '';
+          this.eventTypeId = this.preselectedTypeId || '';
+          this.hasHomeTeam = false;
+        }
         this.error = '';
         this.loading = false;
       }
     },
     preselectedTypeId(v) {
-      this.eventTypeId = v || '';
+      if (!this.isEdit) this.eventTypeId = v || '';
     },
   },
 
@@ -127,6 +174,19 @@ export default {
       this.$emit('update:modelValue', false);
       this.error = '';
     },
+    handleTypeSelect(value) {
+      if (value === '__create__') {
+        this.eventTypeId = '';
+        this.openCreateType();
+      }
+    },
+    openCreateType() {
+      this.eventTypeId = '';
+      this.typeDialogOpen = true;
+    },
+    handleTypeCreated(newType) {
+      this.eventTypeId = newType.id;
+    },
     async submit() {
       if (!this.$refs.form) return;
       const { valid } = await this.$refs.form.validate();
@@ -134,6 +194,21 @@ export default {
       this.loading = true;
       this.error = '';
       try {
+        if (this.isEdit) {
+          const id = this.category.id || this.category._id;
+          const payload = {
+            name: this.name.trim(),
+            eventTypeId: this.eventTypeId,
+            hasHomeTeam: this.hasHomeTeam,
+          };
+          const response = await updateEventCategory(id, payload);
+          const updated = response?.data || response;
+          await this.$store.dispatch('eventCategories/updateEventCategory', { id, ...updated });
+          this.$emit('updated', { id, ...updated });
+          this.close();
+          return;
+        }
+
         const response = await createEventCategory({
           name: this.name.trim(),
           eventTypeId: this.eventTypeId,
@@ -142,13 +217,13 @@ export default {
         const created = response?.data || response;
         const id = created?.id || created?._id;
         if (id) {
-          const createdCategory = { id, name: this.name.trim(), eventTypeId: this.eventTypeId, hasHomeTeam: this.hasHomeTeam };
-          await this.$store.dispatch('eventCategories/addEventCategory', createdCategory);
-          this.$emit('created', createdCategory);
+          await this.$store.dispatch('eventCategories/addEventCategory', created);
+          this.$emit('created', created);
         }
         this.close();
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Failed to create event category';
+        this.error = e?.response?.data?.message || e?.message
+          || (this.isEdit ? 'Failed to update event category' : 'Failed to create event category');
       } finally {
         this.loading = false;
       }
@@ -232,6 +307,9 @@ export default {
   color: #ff3131; font-size: 11px;
   transform: scale(.85) translateY(-0.5rem) translateX(0.15rem);
 }
+
+/* "Créer un nouveau type" option (BUG-145, allowCreateType) */
+:deep(.ecd-create-option) { color: #ff3131; font-weight: 600; }
 
 /* Checkbox */
 .ecd-checkbox {

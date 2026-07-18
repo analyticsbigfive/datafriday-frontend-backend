@@ -133,12 +133,11 @@ export default {
         const created = response?.data || response;
         const id = created?.id || created?._id;
         if (id) {
-          await this.$store.dispatch('eventSubcategories/addEventSubcategory', {
-            id,
-            name: this.name.trim(),
-            categoryId: this.categoryId,
-          });
-          this.$emit('created', { id, name: this.name.trim(), categoryId: this.categoryId });
+          // categoryId (alias non-persisté, cf. events.service.ts) ajouté en plus des champs
+          // réels renvoyés par l'API (dont eventCategoryId) — EventFormDrawer.vue lit created.categoryId.
+          const createdSubcategory = { ...created, categoryId: this.categoryId };
+          await this.$store.dispatch('eventSubcategories/addEventSubcategory', createdSubcategory);
+          this.$emit('created', createdSubcategory);
         }
         this.close();
       } catch (e) {

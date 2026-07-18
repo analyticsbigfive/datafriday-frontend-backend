@@ -36,7 +36,7 @@ export default {
       state.list = [...state.list, item]
     },
     UPDATE_EVENT_CATEGORY(state, updated) {
-      state.list = state.list.map((c) => (c.id === updated.id ? updated : c))
+      state.list = state.list.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
     },
     REMOVE_EVENT_CATEGORY(state, id) {
       state.list = state.list.filter((c) => c.id !== id)

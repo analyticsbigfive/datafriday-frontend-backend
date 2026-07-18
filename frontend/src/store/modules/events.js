@@ -1,6 +1,8 @@
 import { getEvents } from '@/api/endpoints/event.api'
 
-const TTL = 5 * 60 * 1000 // 5 minutes
+// BUG-147 : aligné sur la convention établie (15 min, cf. eventTypes.js/eventCategories.js/
+// eventSubcategories.js) — aucun consommateur identifié n'a besoin d'une fraîcheur plus courte.
+const TTL = 15 * 60 * 1000 // 15 minutes
 
 // Single-flight registry HORS du state Vuex — cf. menuItems.js pour le pattern
 // de référence. Deux fetchEvents() concurrents attendent la MÊME Promise.

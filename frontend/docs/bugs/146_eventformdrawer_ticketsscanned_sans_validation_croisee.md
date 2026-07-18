@@ -1,6 +1,6 @@
 # BUG-146 — `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold`
 
-- **Statut** : ⚪ Diagnostiqué
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟢 Mineur
 - **Domaine** : Événements
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -21,17 +21,22 @@ cf. BUG-73 backend / BUG-10 frontend déjà corrigés pour les bornes individuel
 
 ## Correction
 
-Aucune à ce jour — prolonge la zone grise déjà documentée sur `numberOfSessions` vs
-`sessions.length` (`docs/modules/07_EVENEMENTS.md`, "Zones grises restantes") : même famille
-d'absence de garde-fou croisé sur les champs de billetterie. À trancher : la règle métier est-elle
-"ticketsScanned ne peut jamais dépasser ticketsSold" (souvent vrai en billetterie), ou existe-t-il
-des cas légitimes où ce n'est pas le cas (invités hors billetterie scannés à l'entrée) ?
+**Décision (2026-07-18)** : la règle métier "ticketsScanned ≤ ticketsSold" n'est pas garantie vraie
+en toute généralité (invités hors vente comptés au scan, comps) — pas de blocage. Un avertissement
+**non bloquant** est ajouté à la place, pour éviter les erreurs de saisie évidentes (ex. inversion
+des deux champs) sans empêcher les cas légitimes.
+
+Implémentation : `EventFormDrawer.vue` — computed `ticketsScannedExceedsSold` (réactif, évalué à
+chaque frappe sur les deux champs) affiche un bandeau `.efd-warning` (ambre, distinct visuellement
+de `.efd-error` qui est bloquant) sous la section Billetterie dès que
+`ticketsScanned > ticketsSold`. `submit()` n'a **pas** été modifié : aucune validation croisée n'y
+a été ajoutée, la sauvegarde reste possible avec l'avertissement affiché.
 
 ## Risque de régression / à surveiller
 
-Si une validation est ajoutée : vérifier qu'elle n'empêche pas la saisie progressive pendant
-l'édition d'un event en cours (ex. `ticketsScanned` mis à jour avant que `ticketsSold` final soit
-connu).
+- Vérifier que le bandeau apparaît/disparaît en temps réel pendant la saisie (pas seulement au
+  submit), et qu'il n'empêche jamais la sauvegarde.
+- Vérifier l'affichage en dark mode (`.efd--dark .efd-warning`).
 
 ## Références
 

@@ -36,7 +36,7 @@ export default {
       state.list = [...state.list, item]
     },
     UPDATE_EVENT_SUBCATEGORY(state, updated) {
-      state.list = state.list.map((s) => (s.id === updated.id ? updated : s))
+      state.list = state.list.map((s) => (s.id === updated.id ? { ...s, ...updated } : s))
     },
     REMOVE_EVENT_SUBCATEGORY(state, id) {
       state.list = state.list.filter((s) => s.id !== id)

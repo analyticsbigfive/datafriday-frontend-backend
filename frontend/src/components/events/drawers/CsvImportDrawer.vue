@@ -1,28 +1,22 @@
 <template>
-  <v-navigation-drawer
+  <EventDrawerShell
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    location="right"
-    temporary
     :persistent="importLoading"
+    :is-dark="isDark"
     width="640"
-    class="elv-csv-drawer"
-    :class="{ 'elv--dark': isDark }"
+    title="Importer des événements"
+    :subtitle="stepLabel"
+    flush
   >
-    <!-- Header -->
-    <div class="elv-drawer-header">
-      <div class="elv-drawer-header__icon">
-        <FileSpreadsheet :size="20" color="white" />
-      </div>
-      <div class="elv-drawer-header__text">
-        <div class="elv-drawer-header__title">Importer des événements</div>
-        <div class="elv-drawer-header__sub">{{ stepLabel }}</div>
-      </div>
-      <button class="elv-drawer-header__close" @click="$emit('update:modelValue', false)">
-        <X :size="18" />
-      </button>
-    </div>
+    <template #icon>
+      <FileSpreadsheet :size="20" color="white" />
+    </template>
 
+    <!-- BUG-148 : wrapper efd/elv--dark conservé ici (et non sur la racine) : le CSS scoped de
+         ce composant ne matche que les éléments de son propre template, pas l'intérieur de
+         EventDrawerShell. -->
+    <div :class="{ 'elv--dark': isDark }">
     <!-- Step indicator -->
     <div class="px-6 py-3 elv-step-bar">
       <div class="d-flex align-center" style="gap: 4px;">
@@ -310,10 +304,10 @@
       </div>
 
     </div>
+    </div>
 
-    <!-- Footer -->
-    <div class="elv-drawer-footer pa-6">
-      <div class="d-flex" style="gap: 12px;">
+    <template #footer>
+      <div class="d-flex" style="gap: 12px; flex: 1;">
 
         <template v-if="step >= 2 && step <= 7">
           <v-btn variant="outlined" rounded="lg" size="small" class="text-none" style="flex: 1;" @click="navigateBack">
@@ -359,18 +353,19 @@
         </template>
 
       </div>
-    </div>
-  </v-navigation-drawer>
+    </template>
+  </EventDrawerShell>
 </template>
 
 <script>
-import { X, Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags } from 'lucide-vue-next';
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags } from 'lucide-vue-next';
 import { createEvent } from '@/api/endpoints/event.api';
 import { parseCSV } from '@/utils/csv';
+import EventDrawerShell from './EventDrawerShell.vue';
 
 export default {
   name: 'CsvImportDrawer',
-  components: { X, Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags },
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, EventDrawerShell },
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -750,29 +745,6 @@ export default {
 </script>
 
 <style scoped>
-.elv-csv-drawer { display: flex; flex-direction: column; }
-.elv-csv-drawer :deep(.v-navigation-drawer__content) { display: flex; flex-direction: column; }
-.elv-drawer-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 20px 20px 18px;
-  background: #ff3131;
-  flex-shrink: 0;
-}
-.elv-drawer-header__icon {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: rgba(255,255,255,.18);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.elv-drawer-header__text { flex: 1; }
-.elv-drawer-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.elv-drawer-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
-.elv-drawer-header__close {
-  width: 30px; height: 30px; border-radius: 8px; border: none;
-  background: rgba(255,255,255,.15);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85); flex-shrink: 0; transition: background .2s;
-}
-.elv-drawer-header__close:hover { background: rgba(255,255,255,.25); }
 .elv-step-bar {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity, 1));
   background: rgb(var(--v-theme-surface));
@@ -780,11 +752,6 @@ export default {
 }
 .elv-step-line { background: rgba(var(--v-border-color), var(--v-border-opacity, 1)); }
 .elv-drawer-body { flex: 1; overflow-y: auto; background: rgb(var(--v-theme-background)); }
-.elv-drawer-footer {
-  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity, 1));
-  background: rgb(var(--v-theme-surface));
-  flex-shrink: 0;
-}
 .elv-dropzone {
   border: 2px dashed rgba(var(--v-border-color), var(--v-border-opacity, 1));
   border-radius: 12px;
@@ -812,11 +779,6 @@ export default {
   background: #111827 !important;
 }
 
-.elv--dark .elv-drawer-header {
-  background: #1f2937 !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-}
-
 .elv--dark .elv-step-bar {
   background: #1f2937 !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
@@ -826,10 +788,6 @@ export default {
   background: #111827 !important;
 }
 
-.elv--dark .elv-drawer-footer {
-  background: #1f2937 !important;
-  border-top-color: rgba(255, 255, 255, 0.08) !important;
-}
 
 .elv--dark .elv-dropzone {
   background: #1f2937 !important;

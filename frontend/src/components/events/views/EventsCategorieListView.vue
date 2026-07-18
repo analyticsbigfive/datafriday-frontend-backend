@@ -86,88 +86,17 @@
       </div>
     </div>
 
-    <!-- Category Drawer -->
-    <v-navigation-drawer v-model="categoryDialog" location="right" temporary :persistent="categoryLoading" width="560" class="ecl-cat-drawer">
-      <!-- Gradient header -->
-      <div class="ecl-drawer-header">
-        <div class="ecl-drawer-header__icon">
-          <Shapes :size="20" color="white" />
-        </div>
-        <div class="ecl-drawer-header__text">
-          <div class="ecl-drawer-header__title">{{ categoryDialogMode === 'edit' ? t('eventCategoryList.drawerEditTitle') : t('eventCategoryList.drawerCreateTitle') }}</div>
-          <div class="ecl-drawer-header__sub">{{ categoryDialogMode === 'edit' ? t('eventCategoryList.drawerEditSubtitle') : t('eventCategoryList.drawerCreateSubtitle') }}</div>
-        </div>
-        <button class="ecl-drawer-header__close" @click="closeCategoryDialog"><X :size="18" /></button>
-      </div>
-
-      <!-- Body -->
-      <div class="ecl-drawer-body">
-        <div v-if="categoryError" class="ecl-drawer-error">
-          <AlertCircle :size="14" /> {{ categoryError }}
-        </div>
-
-        <v-form ref="categoryForm" v-model="categoryFormValid" validate-on="submit">
-          <!-- Name field -->
-          <v-text-field
-            v-model="categoryFormData.name"
-            :label="t('eventCategoryList.labelName')"
-            :placeholder="t('eventCategoryList.namePlaceholder')"
-            density="comfortable"
-            variant="outlined"
-            hide-details="auto"
-            :rules="[rules.required]"
-            class="ecl-drawer-input mb-5"
-          />
-
-          <!-- Event Type select (with __create__ option) -->
-          <div class="ecl-select-wrap mb-5">
-            <label class="ecl-select-label">{{ t('eventCategoryList.labelEventType') }}</label>
-            <v-select
-              v-model="categoryFormData.eventTypeId"
-              :items="eventTypesWithCreate"
-              item-title="name"
-              item-value="id"
-              density="comfortable"
-              variant="outlined"
-              :placeholder="t('eventCategoryList.selectType')"
-              hide-details="auto"
-              :rules="[rules.required]"
-              class="ecl-drawer-select"
-              @update:modelValue="handleEventTypeChange"
-            >
-              <template #item="{ props, item }">
-                <v-list-item
-                  v-bind="props"
-                  :class="item.raw.id === '__create__' ? 'ecl-create-option' : ''"
-                  @click="item.raw.id === '__create__' ? handleCreateTypeClick() : null"
-                >
-                  <template #prepend v-if="item.raw.id === '__create__'">
-                    <Plus :size="16" class="mr-2" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
-          </div>
-
-          <!-- Has home team -->
-          <label class="ecl-checkbox">
-            <input type="checkbox" v-model="categoryFormData.hasHomeTeam" class="ecl-checkbox__input" />
-            <span class="ecl-checkbox__label">{{ t('eventCategoryList.labelHasHomeTeam') }}</span>
-          </label>
-        </v-form>
-      </div>
-
-      <!-- Footer -->
-      <div class="ecl-drawer-footer">
-        <button class="ecl-fbtn ecl-fbtn--cancel" @click="closeCategoryDialog">{{ t('eventCategoryList.cancel') }}</button>
-        <button class="ecl-fbtn ecl-fbtn--primary" :disabled="categoryLoading" @click="submitCategory">
-          <Save :size="14" />
-          {{ categoryLoading ? 'Enregistrement…' : t('eventCategoryList.save') }}
-        </button>
-      </div>
-    </v-navigation-drawer>
-
-    <EventTypeDialog v-model="typeDialog" @created="handleTypeCreated" />
+    <!-- BUG-145 : dialog partagé (créait auparavant une divergence avec EventFormDrawer.vue /
+         EventsSubcategorieListView.vue — cause racine de BUG-130/131) — étendu pour couvrir
+         édition + création de type à la volée, les 2 besoins propres à cet écran. -->
+    <EventCategoryDialog
+      v-model="categoryDialog"
+      :event-types="eventTypes"
+      :category="editingCategory"
+      allow-create-type
+      @created="handleCategoryCreated"
+      @updated="handleCategoryUpdated"
+    />
 
     <!-- Delete dialog -->
     <v-dialog v-model="deleteDialog" max-width="440" :persistent="deleteLoading">
@@ -209,15 +138,11 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { Upload, Download, Pencil, Plus, Save, Trash2, X, Search, Shapes, AlertCircle } from "lucide-vue-next";
+import { Upload, Download, Pencil, Plus, Trash2, X, Search, Shapes, AlertCircle } from "lucide-vue-next";
 import { downloadCSV } from "@/utils/csv";
-import {
-  createEventCategory,
-  deleteEventCategory,
-  updateEventCategory,
-} from "@/api/endpoints/event.api";
+import { deleteEventCategory } from "@/api/endpoints/event.api";
 import TaxonomyImportDrawer from '../drawers/TaxonomyImportDrawer.vue';
-import EventTypeDialog from '../dialogs/EventTypeDialog.vue';
+import EventCategoryDialog from '../dialogs/EventCategoryDialog.vue';
 
 export default {
   name: "EventsCategorieListView",
@@ -226,14 +151,13 @@ export default {
     Download,
     Pencil,
     Plus,
-    Save,
     Trash2,
     X,
     Search,
     Shapes,
     AlertCircle,
     TaxonomyImportDrawer,
-    EventTypeDialog,
+    EventCategoryDialog,
   },
   setup() {
     const theme = useTheme();
@@ -248,40 +172,20 @@ export default {
       loading: false,
       error: "",
 
+      // BUG-145 : catégorie en cours d'édition (objet) → passée au dialog partagé
+      // EventCategoryDialog en mode édition ; null = mode création.
       categoryDialog: false,
-      categoryDialogMode: "create",
-      categoryLoading: false,
-      categoryError: "",
-      categoryFormValid: false,
-      categoryId: null,
-      categoryFormData: {
-        name: "",
-        eventTypeId: null,
-        hasHomeTeam: false,
-      },
-
-      typeDialog: false,
+      editingCategory: null,
 
       deleteDialog: false,
       deleteLoading: false,
       deleteError: "",
       deleteCategoryId: null,
       deleteCategoryName: "",
-
-      rules: {
-        required: (v) => (!!String(v || "").trim() ? true : "Required"),
-      },
     };
   },
 
   methods: {
-    normalizeId(value) {
-      if (!value) return null;
-      if (typeof value === 'string' || typeof value === 'number') return value;
-      if (typeof value === 'object') return value.id || value._id || null;
-      return null;
-    },
-
     async loadEventTypes() {
       try {
         await this.$store.dispatch('eventTypes/fetchEventTypes')
@@ -302,84 +206,22 @@ export default {
     },
 
     openCreateDialog() {
-      this.categoryDialogMode = "create";
-      this.categoryId = null;
-      this.categoryError = "";
-      this.categoryFormValid = false;
-      this.categoryFormData = {
-        name: "",
-        eventTypeId: null,
-        hasHomeTeam: false,
-      };
+      this.editingCategory = null;
       this.categoryDialog = true;
     },
     openEditDialog(category) {
-      this.categoryDialogMode = "edit";
-      this.categoryId = category?.id || category?._id || null;
-      this.categoryError = "";
-      this.categoryFormValid = false;
-
-      const eventTypeId =
-        category?.eventTypeId ||
-        category?.eventType?._id ||
-        category?.eventType?.id ||
-        null;
-
-      this.categoryFormData = {
-        name: category?.name || "",
-        eventTypeId: this.normalizeId(eventTypeId),
-        hasHomeTeam: !!category?.hasHomeTeam,
-      };
+      this.editingCategory = category;
       this.categoryDialog = true;
     },
-    closeCategoryDialog() {
-      this.categoryDialog = false;
-      this.categoryLoading = false;
-      this.categoryError = "";
-      this.categoryFormValid = false;
-      this.categoryId = null;
+    // BUG-145 : EventCategoryDialog gère désormais lui-même la création ET la sauvegarde
+    // (create/update + dispatch store) — ces handlers ne font plus que refléter le résultat
+    // dans l'état local de cet écran (utile pour tout affichage optimiste additionnel futur ;
+    // aujourd'hui le store suffit, `categories` en dérive directement).
+    handleCategoryCreated() {
+      this.editingCategory = null;
     },
-    async submitCategory() {
-      const form = this.$refs?.categoryForm;
-      if (form && typeof form.validate === "function") {
-        const result = await form.validate();
-        const valid = typeof result === "boolean" ? result : !!result?.valid;
-        if (!valid) return;
-      }
-
-      this.categoryLoading = true;
-      this.categoryError = "";
-
-      try {
-        if (this.categoryDialogMode === "edit") {
-          if (!this.categoryId) throw new Error("Missing category id");
-          const payload = {
-            name: this.categoryFormData.name,
-            eventTypeId: this.categoryFormData.eventTypeId,
-            hasHomeTeam: this.categoryFormData.hasHomeTeam,
-          };
-          await updateEventCategory(this.categoryId, payload);
-          await this.$store.dispatch('eventCategories/updateEventCategory', {
-            id: this.categoryId,
-            ...payload,
-          });
-        } else {
-          const payload = {
-            name: this.categoryFormData.name,
-            eventTypeId: this.categoryFormData.eventTypeId,
-            hasHomeTeam: this.categoryFormData.hasHomeTeam,
-          };
-          const response = await createEventCategory(payload);
-          const created = response?.data || response;
-          await this.$store.dispatch('eventCategories/addEventCategory', created);
-        }
-
-        this.closeCategoryDialog();
-      } catch (e) {
-        this.categoryError = e?.response?.data?.message || e?.message || "Impossible d'enregistrer la catégorie";
-      } finally {
-        this.categoryLoading = false;
-      }
+    handleCategoryUpdated() {
+      this.editingCategory = null;
     },
 
     openDeleteDialog(category) {
@@ -416,20 +258,6 @@ export default {
       }
     },
 
-    handleEventTypeChange(value) {
-      if (value === "__create__") {
-        this.categoryFormData.eventTypeId = null;
-        this.typeDialog = true;
-      }
-    },
-    handleCreateTypeClick() {
-      this.categoryFormData.eventTypeId = null;
-      this.typeDialog = true;
-    },
-    handleTypeCreated(newType) {
-      this.categoryFormData.eventTypeId = newType.id;
-    },
-
     exportToCSV() {
       const rows = [
         ['Name', 'Event Type', 'Has Home Team'],
@@ -460,13 +288,6 @@ export default {
         { title: this.t('eventCategoryList.colHomeTeam'), key: 'hasHomeTeam' },
         { title: this.t('eventCategoryList.colActions'), key: 'actions', sortable: false, align: 'end' },
       ];
-    },
-    eventTypesWithCreate() {
-      const createOption = {
-        id: "__create__",
-        name: "Créer un nouveau type",
-      };
-      return [createOption, ...this.eventTypes];
     },
     eventTypeNameById() {
       const map = {};
@@ -603,79 +424,6 @@ export default {
 .ecl-abtn--edit:hover { background: #dbeafe; }
 .ecl-abtn--del { background: #fef2f2; color: #ff3131; }
 .ecl-abtn--del:hover { background: #fee2e2; }
-
-/* Drawer */
-.ecl-cat-drawer :deep(.v-navigation-drawer__content) { display: flex; flex-direction: column; }
-.ecl-drawer-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 20px 20px 18px;
-  background: #ff3131;
-  flex-shrink: 0;
-}
-.ecl-drawer-header__icon {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: rgba(255,255,255,.18);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.ecl-drawer-header__text { flex: 1; }
-.ecl-drawer-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.ecl-drawer-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
-.ecl-drawer-header__close {
-  width: 30px; height: 30px; border-radius: 8px; border: none;
-  background: rgba(255,255,255,.15);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85); transition: background .2s;
-}
-.ecl-drawer-header__close:hover { background: rgba(255,255,255,.25); }
-.ecl-drawer-body { flex: 1; overflow-y: auto; padding: 24px 20px; background: #f9fafb; }
-.ecl--dark .ecl-drawer-body { background: #111827; }
-.ecl-drawer-error {
-  display: flex; align-items: center; gap: 8px;
-  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
-}
-
-/* Styled v-text-field */
-.ecl-drawer-input :deep(.v-field) { border: 1.5px solid #e5e7eb; border-radius: 11px; box-shadow: none; }
-.ecl-drawer-input :deep(.v-field--focused) { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255, 49, 49,.10); }
-.ecl-drawer-input :deep(.v-field__outline) { display: none; }
-.ecl-drawer-input :deep(.v-label.v-field-label--floating) { color: #ff3131; }
-
-/* v-select styling */
-.ecl-select-wrap { display: flex; flex-direction: column; gap: 6px; }
-.ecl-select-label { font-size: 12.5px; font-weight: 600; color: #374151; }
-.ecl--dark .ecl-select-label { color: #d1d5db; }
-.ecl-drawer-select :deep(.v-field) { border: 1.5px solid #e5e7eb; border-radius: 11px; box-shadow: none; }
-.ecl-drawer-select :deep(.v-field--focused) { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255, 49, 49,.10); }
-.ecl-drawer-select :deep(.v-field__outline) { display: none; }
-.ecl-drawer-select :deep(.v-field__input) { font-size: 14px; }
-.ecl--dark .ecl-drawer-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
-
-/* Create option */
-:deep(.ecl-create-option) { color: #ff3131; font-weight: 600; }
-
-/* Checkbox */
-.ecl-checkbox { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.ecl-checkbox__input { width: 18px; height: 18px; accent-color: #ff3131; cursor: pointer; flex-shrink: 0; }
-.ecl-checkbox__label { font-size: 14px; color: #374151; user-select: none; }
-.ecl--dark .ecl-checkbox__label { color: #d1d5db; }
-
-/* Drawer footer */
-.ecl-drawer-footer {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 16px 20px; background: #fff; border-top: 1px solid #e5e7eb; flex-shrink: 0;
-}
-.ecl--dark .ecl-drawer-footer { background: #1f2937; border-color: #374151; }
-.ecl-fbtn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 20px; height: 40px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 500; border: none; cursor: pointer; transition: all .2s;
-}
-.ecl-fbtn:disabled { opacity: .5; cursor: not-allowed; }
-.ecl-fbtn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
-.ecl-fbtn--cancel:hover { background: #e9ecef; }
-.ecl-fbtn--primary { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3); }
-.ecl-fbtn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 
 /* Delete modal */
 .ecl-modal {

@@ -475,7 +475,7 @@ export default {
         ['Name', 'Event Category'],
         ...(this.subcategories || []).map(s => [
           s?.name || '',
-          this.categoryNameById[s?.categoryId] || '',
+          this.categoryNameById[s?.categoryId] || this.categoryNameById[s?.eventCategoryId] || '',
         ]),
       ];
       downloadCSV(rows, 'event-subcategories');

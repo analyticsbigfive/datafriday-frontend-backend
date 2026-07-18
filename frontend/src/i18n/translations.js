@@ -821,6 +821,9 @@ export const translations = {
     // Event Category Dialog
     eventCategoryDialogTitle: 'Create Event Category',
     eventCategoryDialogSubtitle: 'Form to create a new event category',
+    eventCategoryDialogEditTitle: 'Edit Event Category',
+    eventCategoryDialogEditSubtitle: 'Form to edit an event category',
+    eventCategoryDialogCreateTypeOption: 'Create a new type',
     eventCategoryDialogTypeLabel: 'Event Type *',
     eventCategoryDialogTypePlaceholder: 'Select Event Type',
     eventCategoryDialogNameLabel: 'Category Name *',
@@ -4447,6 +4450,9 @@ export const translations = {
     // Event Category Dialog
     eventCategoryDialogTitle: 'Créer une catégorie d\'événement',
     eventCategoryDialogSubtitle: 'Formulaire de création d\'une nouvelle catégorie',
+    eventCategoryDialogEditTitle: 'Modifier la catégorie',
+    eventCategoryDialogEditSubtitle: 'Formulaire de modification de la catégorie',
+    eventCategoryDialogCreateTypeOption: 'Créer un nouveau type',
     eventCategoryDialogTypeLabel: 'Type d\'événement *',
     eventCategoryDialogTypePlaceholder: 'Sélectionner un type',
     eventCategoryDialogNameLabel: 'Nom de la catégorie *',

@@ -1,6 +1,6 @@
 # BUG-147 — `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie
 
-- **Statut** : ⚪ Diagnostiqué
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟢 Mineur
 - **Domaine** : Événements
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -22,14 +22,15 @@ donc un cache plus court a du sens) ou un simple oubli de copier la constante st
 
 ## Correction
 
-Aucune à ce jour — décision à prendre : documenter ce choix comme délibéré (avec la justification
-métier), ou aligner sur 15 min comme les 3 autres stores du même domaine.
+**Décision (2026-07-18)** : alignement sur 15 min, la convention établie — aucun consommateur
+identifié n'a besoin d'une fraîcheur plus courte, et l'écart n'avait pas de justification métier
+documentée. `TTL` dans `src/store/modules/events.js` passe de `5 * 60 * 1000` à `15 * 60 * 1000`.
 
 ## Risque de régression / à surveiller
 
-Si alignement à 15 min : vérifier que les écrans qui dépendent d'une fraîcheur "quasi temps réel"
-de la liste d'events (s'il y en a) ne sont pas impactés — aucun consommateur de ce type identifié
-lors de cet audit.
+- Vérifié lors de l'audit initial : aucun écran ne dépend d'une fraîcheur "quasi temps réel" de la
+  liste d'events.
+- Suite de tests Événements (99 tests) toujours verte après ce changement.
 
 ## Références
 

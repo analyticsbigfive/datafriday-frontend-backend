@@ -26,7 +26,7 @@
 | [10](10_assign_shop_items_emit_non_declare.md) | assign-shop-items émis sans être déclaré dans emits | 🔴 Ouvert | 🟡 | Prévision |
 | [11](11_update_viewmode_jamais_emis.md) | update:viewMode déclaré mais jamais émis | 🔴 Ouvert | 🟢 | Prévision |
 | [12](12_usepredictivetimeline_fonctions_mortes_edge_legacy.md) | usePredictiveTimeline.js : fonctions de persistance mortes | 🔴 Ouvert | 🟢 | Prévision |
-| [13](13_team_api_commentaire_obsolete.md) | team.api.js : commentaire obsolète sur /teams | 🔴 Ouvert | 🟢 | Prévision / Événements |
+| [13](13_team_api_commentaire_obsolete.md) | team.api.js : commentaire obsolète sur /teams | 🟢 Corrigé | 🟢 | Prévision / Événements |
 | [14](14_triple_formule_ca_moyen_event.md) | Triple formule "CA moyen par event" incohérente | 🔴 Ouvert | 🟠 | Analyse & agrégation |
 | [15](15_futureeventscount_deux_implementations.md) | futureEventsCount : deux implémentations divergentes | 🔴 Ouvert | 🟡 | Analyse & agrégation |
 | [16](16_synchro_cross_config_v1_non_transactionnelle.md) | Synchro cross-config v1 non transactionnelle | 🔴 Ouvert | 🟠 | Espaces & builder |
@@ -158,10 +158,10 @@
 | [142](142_events_vdatatable_pagination_non_configuree.md) | Les 4 `v-data-table` du domaine Événements : pagination non configurée (défaut Vuetify = 10) | 🟢 Corrigé | 🟡 | Événements |
 | [143](143_events_computed_morts.md) | Computed morts jamais référencés dans le template (EventsTypeListView/EventsCategorieListView) | 🟢 Corrigé | 🟢 | Événements |
 | [144](144_eventslistview_mappedevents_recherche_lineaire.md) | `EventsListView.vue mappedEvents` : recherche linéaire O(n×m) non mémoïsée | 🟢 Corrigé | 🟢 | Événements |
-| [145](145_eventcategorielist_duplication_creation_categorie.md) | Deux implémentations divergentes de "créer une catégorie" | ⚪ Diagnostiqué | 🟡 | Événements |
-| [146](146_eventformdrawer_ticketsscanned_sans_validation_croisee.md) | `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold` | ⚪ Diagnostiqué | 🟢 | Événements |
-| [147](147_events_store_ttl_5min_incoherent.md) | `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie | ⚪ Diagnostiqué | 🟢 | Événements |
-| [148](148_eventdrawershell_inutilise_duplication_markup.md) | `EventDrawerShell.vue` inutilisé dans le périmètre Événements, header/footer dupliqués 3× | ⚪ Diagnostiqué | 🟢 | Événements |
+| [145](145_eventcategorielist_duplication_creation_categorie.md) | Deux implémentations divergentes de "créer une catégorie" | 🟢 Corrigé | 🟡 | Événements |
+| [146](146_eventformdrawer_ticketsscanned_sans_validation_croisee.md) | `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold` | 🟢 Corrigé | 🟢 | Événements |
+| [147](147_events_store_ttl_5min_incoherent.md) | `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie | 🟢 Corrigé | 🟢 | Événements |
+| [148](148_eventdrawershell_inutilise_duplication_markup.md) | `EventDrawerShell.vue` inutilisé dans le périmètre Événements, header/footer dupliqués 3× | 🟢 Corrigé | 🟢 | Événements |
 | [149](149_chaine_analyse_api_morte_supprimee.md) | Chaîne `/analyse/*` entièrement morte (action jamais dispatchée, buckets jamais lus) — supprimée | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [150](150_timeline_batch_inflight_empoisonne_sur_rejet.md) | `getSpaceEventTimelineBatch` : in-flight jamais nettoyé sur échec → erreurs permanentes | 🟢 Corrigé | 🟠 | Analyse & agrégation |
 | [151](151_loadspace_sans_cache_first.md) | `/analyse` : chaque re-mount re-payait la phase 1 (pas de cache-first 15 min) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
@@ -176,8 +176,14 @@
 | [160](160_double_persistance_comptages.md) | Inventaire : chaque comptage écrit deux fois (POST par item + snapshot blob) | ⚪ Diagnostiqué | 🟡 | Stock |
 | [161](161_nettoyages_stock_analyse.md) | Nettoyages : actions Vuex dupliquées (inventory), précédence non parenthésée (revenue) | 🟢 Corrigé | 🟢 | Stock / Analyse |
 | [162](162_inventaire_adopte_batch_shop_items.md) | (miroir) Space Inventory : adoption du batch shop-items, fin du N+1 — canonique back 84 | 🟢 Corrigé | 🟠 | Stock |
+| [167](167_taxonomie_evenements_optimistic_write_objets_partiels.md) | Taxonomie Événements : écritures Vuex optimistes avec objets partiels (perte de champs après édition/création inline/import CSV) | 🟢 Corrigé | 🟡 | Événements |
+| [168](168_eventsubcategorielist_exportcsv_champ_categoryid_toujours_vide.md) | `EventsSubcategorieListView.vue exportToCSV` : colonne "Event Category" systématiquement vide | 🟢 Corrigé | 🟡 | Événements |
+| [169](169_taxonomyimportdrawer_fk_parente_non_forcee_avant_import.md) | `TaxonomyImportDrawer.vue` : FK parente (type/catégorie) non forcée avant import, échec 400 brut ligne par ligne | 🟢 Corrigé | 🟡 | Événements |
 
-**162 bugs au total.** 149-162 ajoutés le 2026-07-18 — audit croisé /analyse + Event Predict +
+**165 fiches au total** (163-166 réservées par la session d'audit en cours ; les fiches
+« taxonomie Événements » du 2026-07-18 côté develop, initialement numérotées 149-151, ont été
+renumérotées **167-169** au merge — collision de numéros avec l'audit /analyse ci-dessous).
+149-162 ajoutés le 2026-07-18 — audit croisé /analyse + Event Predict +
 Stock (inventory/logistics/restock), mené avec le backend (fiches 77-90) et un objectif de
 performance « contenu initial des vues < 300ms ». Découverte structurante : toute la chaîne
 `/analyse/*` du front (action `loadSpaceLightweight`, 4 buckets d'état, `analyse.api.js`, mock
@@ -225,7 +231,18 @@ backend) tout tenant plus chargé ; `team.api.js` masquait toute erreur réseau 
 mineurs (computed morts, recherche linéaire non mémoïsée). 145-148 documentent des décisions
 produit non tranchées mises au jour par ce même audit (duplication de la logique de création de
 catégorie, absence de validation croisée ticketsScanned/ticketsSold, incohérence de TTL de cache,
-composant `EventDrawerShell` disponible mais non adopté par les 3 drawers du domaine). extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+composant `EventDrawerShell` disponible mais non adopté par les 3 drawers du domaine). BUG-146
+tranché le 2026-07-18 : pas de blocage (cas légitimes en billetterie où scanné > vendu — invités
+hors vente, comps), avertissement non bloquant ajouté à la place (`EventFormDrawer.vue`, bandeau
+réactif pendant la saisie, `submit()` non modifié). 145/147/148 tranchés et corrigés le même jour :
+BUG-145 unifie création ET édition de catégorie sur `EventCategoryDialog.vue` (étendu avec un mode
+édition + une option de création de type à la volée, tous deux additifs/rétrocompatibles), qui
+remplace le drawer inline dupliqué d'`EventsCategorieListView.vue` ; BUG-147 aligne le TTL du store
+`events.js` sur la convention 15 min ; BUG-148 migre les 3 drawers du domaine
+(`EventFormDrawer.vue`, `CsvImportDrawer.vue`, `TaxonomyImportDrawer.vue`) vers
+`EventDrawerShell.vue`, après avoir étendu ce dernier avec le support `persistent` et dark mode
+qui lui manquaient (leur absence aurait fait régresser BUG-134 et le thème sombre sur les 3
+drawers migrés). extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
@@ -313,6 +330,27 @@ route backend `/shop-element-mappings` n'existe, découverte d'un concept concur
 production sous un autre nom) : arbitrage en faveur de la suppression (prototype abandonné, pas
 une fonctionnalité en attente) — les 3 composables et leurs tests dédiés supprimés, doc module
 mise à jour.
+
+167-169 (initialement 149-151, renumérotées au merge) ajoutés le 2026-07-18 suite à un audit ciblé de `/event-types`,
+`/event-categories` et `/event-subcategories` (suite du passage 130-148 du 2026-07-17, complété
+ensuite par une relecture des DTOs/contrôleurs/gardes de suppression — rien d'autre trouvé côté
+backend sur ces 2 écrans) : les mutations Vuex `UPDATE_EVENT_TYPE`/`UPDATE_EVENT_CATEGORY`/
+`UPDATE_EVENT_SUBCATEGORY` remplaçaient l'item entier au lieu de fusionner avec l'existant, et
+plusieurs composants construisaient eux-mêmes des objets partiels pour les dispatches optimistes
+au lieu d'utiliser la réponse API complète — perte silencieuse de `categories`/`subcategories`/
+`createdAt`/`updatedAt` après édition, création inline (`EventTypeDialog.vue`/
+`EventCategoryDialog.vue`/`EventSubcategoryDialog.vue`, montés depuis `EventFormDrawer.vue`) ou
+import CSV (`TaxonomyImportDrawer.vue`), auto-corrigé après 15 min (TTL cache) ou reload (BUG-167,
+corrigé) ; export CSV des sous-catégories lisant un nom de champ (`categoryId`) qui n'existe sur
+aucune ligne réelle de l'API, colonne "Event Category" toujours vide (BUG-168, corrigé) ;
+`TaxonomyImportDrawer.vue` ne forçait jamais le mapping de la FK parente (type/catégorie) avant
+import, chaque ligne concernée échouant en 400 brut plutôt que d'être bloquée ou clarifiée en amont
+(BUG-169) — tranché le jour même par l'utilisateur en faveur du blocage (`canProceed`/nouveau
+`valuesFullyMapped`) plutôt que l'auto-création par nom (précédent Menu Items BUG-110/111/112),
+pour ne pas fragmenter silencieusement la taxonomie résolue par nom dans le moteur Event Predict
+(cf. `QUESTIONS_A_BERTRAND.md` #10). Les 3 corrigés par lecture de code croisée (schéma Prisma,
+service backend, consommateurs réels via grep) mais **non reproduits en navigateur** (pas de
+`pnpm dev` dans cette session) — à valider manuellement.
 
 ## Comment ajouter un bug
 
