@@ -179,7 +179,7 @@ Effort **M** · Risque **🟢**
 handler sans `@RequirePermissions(...)` est accessible à tout utilisateur authentifié ayant un
 tenant résolu.
 
-**C'est la cause structurelle de la faille `/organizations`** (bug n°1 du domaine, 🔴 critique,
+**C'est la cause structurelle de la faille `/organizations`** (dossier technique : [`SECURITE_ORGANIZATIONS_CROSS_TENANT.md`](SECURITE_ORGANIZATIONS_CROSS_TENANT.md)) (bug n°1 du domaine, 🔴 critique,
 toujours ouvert) : aucun décorateur posé = aucune restriction. Tant que le défaut est permissif, la
 prochaine route oubliée rouvrira exactement le même trou.
 
