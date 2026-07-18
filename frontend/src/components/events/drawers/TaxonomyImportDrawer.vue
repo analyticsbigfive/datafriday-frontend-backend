@@ -1,28 +1,22 @@
 <template>
-  <v-navigation-drawer
+  <EventDrawerShell
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    location="right"
-    temporary
     :persistent="importLoading"
+    :is-dark="isDark"
     width="600"
-    class="elv-tax-drawer"
-    :class="{ 'etax--dark': isDark }"
+    :title="`Importer — ${entityLabel}`"
+    :subtitle="stepLabel"
+    flush
   >
-    <!-- Header -->
-    <div class="elv-t-header">
-      <div class="elv-t-header__icon">
-        <FileSpreadsheet :size="20" color="white" />
-      </div>
-      <div class="elv-t-header__text">
-        <div class="elv-t-header__title">Importer — {{ entityLabel }}</div>
-        <div class="elv-t-header__sub">{{ stepLabel }}</div>
-      </div>
-      <button class="elv-t-header__close" @click="$emit('update:modelValue', false)">
-        <X :size="18" />
-      </button>
-    </div>
+    <template #icon>
+      <FileSpreadsheet :size="20" color="white" />
+    </template>
 
+    <!-- BUG-148 : wrapper etax--dark conservé ici (et non sur la racine) : le CSS scoped de ce
+         composant ne matche que les éléments de son propre template, pas l'intérieur de
+         EventDrawerShell. -->
+    <div :class="{ 'etax--dark': isDark }">
     <!-- Step indicator -->
     <div class="px-6 py-3 elv-t-stepbar">
       <div class="d-flex align-center" style="gap:4px;">
@@ -158,10 +152,10 @@
       </div>
 
     </div>
+    </div>
 
-    <!-- Footer -->
-    <div class="elv-t-footer pa-6">
-      <div class="d-flex" style="gap:12px;">
+    <template #footer>
+      <div class="d-flex" style="gap:12px; flex: 1;">
         <template v-if="step >= 2 && !isResultStep">
           <v-btn variant="outlined" rounded="lg" size="small" class="text-none" style="flex:1;" @click="navigateBack">
             Retour
@@ -191,13 +185,13 @@
           </v-btn>
         </template>
       </div>
-    </div>
-
-  </v-navigation-drawer>
+    </template>
+  </EventDrawerShell>
 </template>
 
 <script>
-import { X, Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags } from 'lucide-vue-next';
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags } from 'lucide-vue-next';
+import EventDrawerShell from './EventDrawerShell.vue';
 import {
   createEventType,
   createEventCategory,
@@ -207,7 +201,7 @@ import { parseCSV } from '@/utils/csv';
 
 export default {
   name: 'TaxonomyImportDrawer',
-  components: { X, Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags },
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, EventDrawerShell },
   props: {
     modelValue: { type: Boolean, default: false },
     entity: { type: String, default: 'type' }, // 'type' | 'category' | 'subcategory'
@@ -515,40 +509,12 @@ export default {
 </script>
 
 <style scoped>
-.elv-tax-drawer { display: flex; flex-direction: column; }
-.elv-tax-drawer :deep(.v-navigation-drawer__content) { display: flex; flex-direction: column; }
-.elv-t-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 20px 20px 18px;
-  background: #ff3131;
-  flex-shrink: 0;
-}
-.elv-t-header__icon {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: rgba(255,255,255,.18);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.elv-t-header__text { flex: 1; }
-.elv-t-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.elv-t-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
-.elv-t-header__close {
-  width: 30px; height: 30px; border-radius: 8px; border: none;
-  background: rgba(255,255,255,.15);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85); flex-shrink: 0; transition: background .2s;
-}
-.elv-t-header__close:hover { background: rgba(255,255,255,.25); }
 .elv-t-stepbar {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity, 1));
   background: rgb(var(--v-theme-surface));
   flex-shrink: 0;
 }
 .elv-t-body { flex: 1; overflow-y: auto; background: rgb(var(--v-theme-background)); }
-.elv-t-footer {
-  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity, 1));
-  background: rgb(var(--v-theme-surface));
-  flex-shrink: 0;
-}
 .elv-t-dropzone {
   border: 2px dashed rgba(var(--v-border-color), var(--v-border-opacity, 1));
   border-radius: 12px;
@@ -575,11 +541,6 @@ export default {
   background: #111827 !important;
 }
 
-.etax--dark .elv-t-header {
-  background: #1f2937 !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-}
-
 .etax--dark .elv-t-stepbar {
   background: #1f2937 !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
@@ -587,11 +548,6 @@ export default {
 
 .etax--dark .elv-t-body {
   background: #111827 !important;
-}
-
-.etax--dark .elv-t-footer {
-  background: #1f2937 !important;
-  border-top-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 .etax--dark .elv-t-dropzone {

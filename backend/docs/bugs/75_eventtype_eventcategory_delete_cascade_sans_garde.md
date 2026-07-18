@@ -1,6 +1,6 @@
 # BUG-75 — Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation"
 
-- **Statut** : ⚪ Diagnostiqué
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur (risque dormant)
 - **Domaine** : Événements
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -28,17 +28,24 @@ taxonomie plutôt que la branche espace.
 
 ## Correction
 
-Aucune à ce jour — décision produit à prendre : ajouter un check "N catégories/événements
-utilisent ce type, confirmer ?" avant suppression (nécessite une requête de comptage
-supplémentaire, et un choix UX côté frontend pour afficher ce compte), ou accepter le comportement
-actuel comme volontaire (cohérent avec le choix déjà fait de ne pas garder les référentiels
-"orphelins" — la logique cascade existe précisément pour éviter des `EventCategory`/
-`EventSubcategory` sans `EventType` parent).
+**Décision (2026-07-18)** : bloquer totalement la suppression tant que des enfants dépendent (pas
+juste avertir) — pattern le plus sûr et le plus conventionnel, cohérent avec le fait que ces
+entités structurent des `Event`/`Team` potentiellement déjà en production. `deleteEventType`
+compte désormais les `EventCategory` dépendantes (`eventTypeId: id`) et lève `ConflictException`
+(« Impossible de supprimer ce type : N catégorie(s) en dépendent encore. Supprimez-les d'abord. »)
+si le compte est > 0. `deleteEventCategory` fait de même un niveau plus bas avec les
+`EventSubcategory` dépendantes.
+
+Aucun changement frontend nécessaire : les deux écrans live (`EventsTypeListView.vue`,
+`EventsCategorieListView.vue`) affichent déjà `e.response.data.message` sur échec de suppression
+(pattern déjà en place, vérifié dans le code).
 
 ## Risque de régression / à surveiller
 
-Si un garde-fou est ajouté : décider s'il bloque totalement la suppression (nécessite d'abord
-réaffecter/supprimer les enfants) ou s'il se contente d'avertir puis laisse la cascade s'exécuter.
+- Vérifié : `tsc --noEmit` propre.
+- Tester manuellement : supprimer un `EventType`/`EventCategory` qui a des enfants doit maintenant
+  échouer avec un message clair au lieu de cascader silencieusement ; supprimer une entité sans
+  enfant doit continuer à fonctionner normalement.
 
 ## Références
 

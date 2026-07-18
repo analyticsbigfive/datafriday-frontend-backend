@@ -296,6 +296,15 @@ export class EventsService {
 
   async deleteEventType(tenantId: string, id: string) {
     await this.findOwnedEventTypeOrThrow(id, tenantId);
+    // BUG-75 : EventCategory.eventType est onDelete: Cascade — sans cette garde, supprimer un
+    // EventType supprimait silencieusement en cascade toutes ses EventCategory (et par
+    // transitivité leurs EventSubcategory), sans confirmation ni compte des entités affectées.
+    const categoryCount = await this.prisma.eventCategory.count({ where: { eventTypeId: id } });
+    if (categoryCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
+      );
+    }
     return this.prisma.eventType.delete({ where: { id } });
   }
 
@@ -374,6 +383,14 @@ export class EventsService {
 
   async deleteEventCategory(tenantId: string, id: string) {
     await this.findOwnedEventCategoryOrThrow(id, tenantId);
+    // BUG-75 : même garde que deleteEventType, un niveau plus bas (EventSubcategory.eventCategory
+    // est aussi onDelete: Cascade).
+    const subcategoryCount = await this.prisma.eventSubcategory.count({ where: { eventCategoryId: id } });
+    if (subcategoryCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer cette catégorie : ${subcategoryCount} sous-catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
+      );
+    }
     return this.prisma.eventCategory.delete({ where: { id } });
   }
 

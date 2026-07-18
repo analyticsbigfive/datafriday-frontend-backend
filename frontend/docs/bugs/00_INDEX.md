@@ -158,10 +158,10 @@
 | [142](142_events_vdatatable_pagination_non_configuree.md) | Les 4 `v-data-table` du domaine Événements : pagination non configurée (défaut Vuetify = 10) | 🟢 Corrigé | 🟡 | Événements |
 | [143](143_events_computed_morts.md) | Computed morts jamais référencés dans le template (EventsTypeListView/EventsCategorieListView) | 🟢 Corrigé | 🟢 | Événements |
 | [144](144_eventslistview_mappedevents_recherche_lineaire.md) | `EventsListView.vue mappedEvents` : recherche linéaire O(n×m) non mémoïsée | 🟢 Corrigé | 🟢 | Événements |
-| [145](145_eventcategorielist_duplication_creation_categorie.md) | Deux implémentations divergentes de "créer une catégorie" | ⚪ Diagnostiqué | 🟡 | Événements |
-| [146](146_eventformdrawer_ticketsscanned_sans_validation_croisee.md) | `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold` | ⚪ Diagnostiqué | 🟢 | Événements |
-| [147](147_events_store_ttl_5min_incoherent.md) | `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie | ⚪ Diagnostiqué | 🟢 | Événements |
-| [148](148_eventdrawershell_inutilise_duplication_markup.md) | `EventDrawerShell.vue` inutilisé dans le périmètre Événements, header/footer dupliqués 3× | ⚪ Diagnostiqué | 🟢 | Événements |
+| [145](145_eventcategorielist_duplication_creation_categorie.md) | Deux implémentations divergentes de "créer une catégorie" | 🟢 Corrigé | 🟡 | Événements |
+| [146](146_eventformdrawer_ticketsscanned_sans_validation_croisee.md) | `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold` | 🟢 Corrigé | 🟢 | Événements |
+| [147](147_events_store_ttl_5min_incoherent.md) | `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie | 🟢 Corrigé | 🟢 | Événements |
+| [148](148_eventdrawershell_inutilise_duplication_markup.md) | `EventDrawerShell.vue` inutilisé dans le périmètre Événements, header/footer dupliqués 3× | 🟢 Corrigé | 🟢 | Événements |
 
 **148 bugs au total**, 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
 complet du domaine Événements (`/events`, `/event-types`, `/event-categories`,
@@ -186,7 +186,18 @@ backend) tout tenant plus chargé ; `team.api.js` masquait toute erreur réseau 
 mineurs (computed morts, recherche linéaire non mémoïsée). 145-148 documentent des décisions
 produit non tranchées mises au jour par ce même audit (duplication de la logique de création de
 catégorie, absence de validation croisée ticketsScanned/ticketsSold, incohérence de TTL de cache,
-composant `EventDrawerShell` disponible mais non adopté par les 3 drawers du domaine). extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
+composant `EventDrawerShell` disponible mais non adopté par les 3 drawers du domaine). BUG-146
+tranché le 2026-07-18 : pas de blocage (cas légitimes en billetterie où scanné > vendu — invités
+hors vente, comps), avertissement non bloquant ajouté à la place (`EventFormDrawer.vue`, bandeau
+réactif pendant la saisie, `submit()` non modifié). 145/147/148 tranchés et corrigés le même jour :
+BUG-145 unifie création ET édition de catégorie sur `EventCategoryDialog.vue` (étendu avec un mode
+édition + une option de création de type à la volée, tous deux additifs/rétrocompatibles), qui
+remplace le drawer inline dupliqué d'`EventsCategorieListView.vue` ; BUG-147 aligne le TTL du store
+`events.js` sur la convention 15 min ; BUG-148 migre les 3 drawers du domaine
+(`EventFormDrawer.vue`, `CsvImportDrawer.vue`, `TaxonomyImportDrawer.vue`) vers
+`EventDrawerShell.vue`, après avoir étendu ce dernier avec le support `persistent` et dark mode
+qui lui manquaient (leur absence aurait fait régresser BUG-134 et le thème sombre sur les 3
+drawers migrés). extraits de [`../modules/`](../modules/00_INDEX.md) (source exhaustive,
 ~61 bugs recensés dont certains purement backend — voir l'index miroir) le 2026-07-15 ; 34-35
 ajoutés le 2026-07-16 en auditant les payloads backend de fichiers récupérés depuis une copie
 parallèle du repo (`old-web`) ; 36-40 ajoutés le 2026-07-16 suite à une analyse directe de la page
