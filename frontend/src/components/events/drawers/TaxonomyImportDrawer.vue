@@ -104,6 +104,9 @@
             variant="outlined" density="compact" rounded="lg" hide-details clearable style="flex:1;" />
         </div>
         <v-alert v-if="!uniqueTypeValues.length" type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
+        <v-alert v-else-if="!valuesFullyMapped" type="warning" variant="tonal" density="compact" rounded="lg">
+          Associez chaque valeur à un type existant pour pouvoir importer — un type d'événement est obligatoire pour créer une catégorie.
+        </v-alert>
       </div>
 
       <!-- Step 3: Map Event Categories (subcategory import) -->
@@ -125,6 +128,9 @@
             variant="outlined" density="compact" rounded="lg" hide-details clearable style="flex:1;" />
         </div>
         <v-alert v-if="!uniqueCategoryValues.length" type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
+        <v-alert v-else-if="!valuesFullyMapped" type="warning" variant="tonal" density="compact" rounded="lg">
+          Associez chaque valeur à une catégorie existante pour pouvoir importer — une catégorie est obligatoire pour créer une sous-catégorie.
+        </v-alert>
       </div>
 
       <!-- Last step: Résultats -->
@@ -168,7 +174,7 @@
           </v-btn>
           <v-btn v-else
             color="#ff3131" variant="flat" rounded="lg" size="small" class="text-white text-none" style="flex:1;"
-            :disabled="step===2 && !canProceed"
+            :disabled="(step===2 && !canProceed) || !valuesFullyMapped"
             :loading="importLoading"
             @click="doImport">
             <Upload :size="16" class="mr-2" />
@@ -239,14 +245,14 @@ export default {
       if (this.entity === 'category') {
         return [
           { key: 'name', label: 'Nom', required: true },
-          { key: 'eventTypeRaw', label: 'Type d\'événement (nom)' },
+          { key: 'eventTypeRaw', label: 'Type d\'événement (nom)', required: true },
           { key: 'hasHomeTeam', label: 'Has Home Team (true/false)' },
         ];
       }
       // subcategory
       return [
         { key: 'name', label: 'Nom', required: true },
-        { key: 'eventCategoryRaw', label: 'Catégorie (nom)' },
+        { key: 'eventCategoryRaw', label: 'Catégorie (nom)', required: true },
       ];
     },
 
@@ -318,8 +324,26 @@ export default {
       ];
     },
 
+    // BUG-151 : la FK parente (type pour une catégorie, catégorie pour une sous-catégorie) est
+    // obligatoire côté backend (DTO) — on la rend obligatoire ici aussi plutôt que de laisser
+    // chaque ligne échouer en 400 brut après coup.
     canProceed() {
-      return !!(this.mapping.name && this.csvRows.length > 0);
+      if (!this.mapping.name || this.csvRows.length === 0) return false;
+      if (this.entity === 'category' && !this.mapping.eventTypeRaw) return false;
+      if (this.entity === 'subcategory' && !this.mapping.eventCategoryRaw) return false;
+      return true;
+    },
+
+    // BUG-151 : une colonne mappée ne suffit pas — chaque valeur unique doit être résolue vers un
+    // type/catégorie existant (pas laissée sur "Ignorer") avant de pouvoir importer.
+    valuesFullyMapped() {
+      if (this.entity === 'category' && this.mapping.eventTypeRaw) {
+        return this.uniqueTypeValues.every((v) => !!this.typeValueMap[v]);
+      }
+      if (this.entity === 'subcategory' && this.mapping.eventCategoryRaw) {
+        return this.uniqueCategoryValues.every((v) => !!this.categoryValueMap[v]);
+      }
+      return true;
     },
 
     eventTypes() {
@@ -479,7 +503,7 @@ export default {
             created = res?.data ?? res;
             const id = created?.id || created?._id;
             if (id) {
-              await this.$store.dispatch('eventCategories/addEventCategory', { id, name, eventTypeId, hasHomeTeam });
+              await this.$store.dispatch('eventCategories/addEventCategory', created);
             }
           } else {
             const catRaw = get('eventCategoryRaw');
@@ -488,7 +512,7 @@ export default {
             created = res?.data ?? res;
             const id = created?.id || created?._id;
             if (id) {
-              await this.$store.dispatch('eventSubcategories/addEventSubcategory', { id, name, categoryId });
+              await this.$store.dispatch('eventSubcategories/addEventSubcategory', created);
             }
           }
           successCount++;

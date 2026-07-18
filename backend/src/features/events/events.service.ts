@@ -596,14 +596,25 @@ export class EventsService {
       throw new ConflictException(`Team "${dto.name}" already exists for this competition`);
     }
 
-    return this.prisma.team.create({
-      data: {
-        tenantId,
-        name: dto.name,
-        eventCategoryId: dto.eventCategoryId ?? null,
-        eventSubcategoryId: dto.eventSubcategoryId ?? null,
-      },
-    });
+    try {
+      return await this.prisma.team.create({
+        data: {
+          tenantId,
+          name: dto.name,
+          eventCategoryId: dto.eventCategoryId ?? null,
+          eventSubcategoryId: dto.eventSubcategoryId ?? null,
+        },
+      });
+    } catch (error) {
+      // BUG-70 : filet de sécurité pour la fenêtre de course du check ci-dessus (deux requêtes
+      // concurrentes passant toutes les deux le findFirst avant que l'une des deux ne commit) —
+      // sans ce catch, la contrainte @@unique ajoutée pour cette même fenêtre de course renvoyait
+      // un 500 générique (message Prisma brut) au lieu du même 409 propre que le cas normal.
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Team "${dto.name}" already exists for this competition`);
+      }
+      throw error;
+    }
   }
 
   async updateTeam(tenantId: string, id: string, dto: UpdateTeamDto) {

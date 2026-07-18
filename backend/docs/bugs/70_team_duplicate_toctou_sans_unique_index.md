@@ -1,6 +1,6 @@
 # BUG-70 — `Team` : vérification de doublon TOCTOU, aucune contrainte `@@unique` en base
 
-- **Statut** : 🟡 Corrigé non déployé
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Événements
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -44,22 +44,23 @@ Fait :
 - `prisma generate` exécuté (régénère le client localement, aucune écriture en base) — `tsc --noEmit`
   propre.
 
-**Non fait à ce stade — nécessite une confirmation explicite séparée** : le déploiement réel de la
-migration (`prisma migrate deploy` ou exécution manuelle du SQL contre la base ciblée par
-`DATABASE_URL`/`DIRECT_URL`, conformément à
-[ADR-0002](../adr/0002_migrations_manuelles_jamais_plateforme.md)). Tant que ce n'est pas fait, le
-client Prisma régénéré localement connaît un type de contrainte que la base réelle n'a pas encore
-— écart sans risque tant qu'aucun code n'utilise `findUnique` sur cette clé composite (vérifié :
-aucun).
+**Déployée le 2026-07-18** (`prisma migrate deploy`, sur autorisation explicite de l'utilisateur,
+conformément à [ADR-0002](../adr/0002_migrations_manuelles_jamais_plateforme.md)), contre la base
+pointée par `backend/.env`. Re-vérifié juste avant déploiement : toujours 11 lignes `Team`, aucun
+doublon. Vérifié après coup en base (`pg_constraint`) :
+`Team_tenantId_eventCategoryId_eventSubcategoryId_name_key` — `UNIQUE ("tenantId",
+"eventCategoryId", "eventSubcategoryId", name)` — bien présente sur la table réelle.
 
 ## Risque de régression / à surveiller
 
-- Après déploiement : reconfirmer qu'aucun doublon n'a été créé entre le 2026-07-18 (vérification)
-  et le moment du déploiement — sinon la migration échouera à l'application, dédupliquer avant de
-  réessayer.
-- Ne pas oublier l'étape de déploiement manuel : `prisma/migrations/*` est gitignoré (seul
-  `.gitkeep` versionné), donc ce fichier de migration n'existe que localement tant qu'il n'est pas
-  appliqué à la base cible.
+- Un `POST /teams` créant un doublon exact (même tenant/catégorie/sous-catégorie/nom, casse
+  identique) échoue désormais aussi au niveau DB (backstop derrière le check applicatif) —
+  `createTeam` doit continuer à retourner un 409 propre via son `findFirst` existant dans le cas
+  normal ; si jamais les deux passent la fenêtre de course, l'erreur remontera comme une violation
+  de contrainte Prisma (P2002) au lieu d'un doublon silencieux — à surveiller si un tel cas
+  apparaît en usage réel (pas de traduction P2002 dédiée ajoutée pour ce chemin précis).
+- Rappel des limites connues (documentées dans le schéma et la migration) : ne bloque pas un
+  doublon de casse différente, ni deux équipes "génériques" (scopes null) de même nom.
 
 ## Références
 

@@ -201,9 +201,10 @@ export default {
             eventTypeId: this.eventTypeId,
             hasHomeTeam: this.hasHomeTeam,
           };
-          await updateEventCategory(id, payload);
-          await this.$store.dispatch('eventCategories/updateEventCategory', { id, ...payload });
-          this.$emit('updated', { id, ...payload });
+          const response = await updateEventCategory(id, payload);
+          const updated = response?.data || response;
+          await this.$store.dispatch('eventCategories/updateEventCategory', { id, ...updated });
+          this.$emit('updated', { id, ...updated });
           this.close();
           return;
         }
@@ -216,9 +217,8 @@ export default {
         const created = response?.data || response;
         const id = created?.id || created?._id;
         if (id) {
-          const createdCategory = { id, name: this.name.trim(), eventTypeId: this.eventTypeId, hasHomeTeam: this.hasHomeTeam };
-          await this.$store.dispatch('eventCategories/addEventCategory', createdCategory);
-          this.$emit('created', createdCategory);
+          await this.$store.dispatch('eventCategories/addEventCategory', created);
+          this.$emit('created', created);
         }
         this.close();
       } catch (e) {
