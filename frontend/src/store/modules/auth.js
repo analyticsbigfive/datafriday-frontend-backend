@@ -1,14 +1,20 @@
 // src/store/modules/auth.js
 // Module Vuex pour l'authentification
 
-import { supabase, getSessionOnce } from '@/lib/supabase'
+import { supabase, getSessionOnce, readPersistedSession } from '@/lib/supabase'
 import api from '@/lib/api'
-import { setAccessToken, clearAccessToken } from '@/api/client'
+import { setAccessToken, clearAccessToken, isExplicitlyLoggedOut } from '@/api/client'
+import { resolveAuthStateChange, AUTH_EVENT_DECISION } from '@/utils/authSessionEvent'
 
 // In-flight promise to deduplicate concurrent checkOnboardingStatus calls
 let checkOnboardingStatusPromise = null
 // In-flight promise to deduplicate concurrent fetchCurrentUser calls
 let fetchCurrentUserPromise = null
+// Souscription à onAuthStateChange. Conservée pour pouvoir la libérer : `initialize`
+// est dispatché par le beforeEach global ET par AuthCallbackView, et un premier appel
+// qui échoue avant SET_INITIALIZED laisserait sinon deux listeners empilés — donc deux
+// CLEAR_AUTH sur le même événement.
+let authSubscription = null
 
 const state = {
   userId: null,         // ID utilisateur uniquement
@@ -341,14 +347,13 @@ const actions = {
 
   // 6. Créer une organisation (onboarding)
   async createOrganization(
-    { commit, dispatch, getters },
+    { commit, dispatch },
     { firstName, lastName, organizationName, organizationType, organizationEmail, organizationPhone },
   ) {
     commit('SET_LOADING', true)
     commit('SET_ERROR', null)
     
     try {
-      console.log('TOKEN au moment du post:', getters.token) 
       const response = await api.post('/onboarding', {
         firstName,
         lastName,
@@ -566,8 +571,13 @@ const actions = {
         }
       }
 
-      // Écouter les changements d'état d'authentification
-      supabase.auth.onAuthStateChange(async (_event, session) => {
+      // Écouter les changements d'état d'authentification.
+      // Libérer une éventuelle souscription précédente avant d'en poser une nouvelle.
+      if (authSubscription) {
+        authSubscription.unsubscribe()
+        authSubscription = null
+      }
+      const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (session) {
           const isSameUser = state.userId === session.user.id
           commit('SET_AUTH', {
@@ -592,12 +602,45 @@ const actions = {
           if (status?.hasOrganization) {
             await dispatch('fetchCurrentUser').catch(() => {})
           }
-        } else {
-          commit('CLEAR_AUTH')
-          setAccessToken(null)
+          return
         }
+
+        // Événement sans session. Ne PAS purger d'office : Supabase émet aussi
+        // SIGNED_OUT dans l'onglet qui perd la course au renouvellement du refresh
+        // token (usage unique), alors que la session persistée vient d'être renouvelée
+        // et reste valide. Voir docs/bugs/149 et utils/authSessionEvent.js.
+        //
+        // ⚠️ Lecture SYNCHRONE du stockage, surtout pas `getSessionOnce()` : ce callback
+        // est invoqué par signOut() ALORS QU'IL DÉTIENT LE VERROU d'auth et qu'il attend
+        // le retour des abonnés. Appeler getSession() ici tenterait de reprendre le même
+        // verrou → blocage 10 s, signOut() jamais terminé, session non purgée.
+        const storedSession = readPersistedSession()
+
+        const decision = resolveAuthStateChange({
+          event,
+          session,
+          storedSession,
+          explicitlyLoggedOut: isExplicitlyLoggedOut(),
+        })
+
+        if (decision === AUTH_EVENT_DECISION.IGNORE) {
+          // Faux positif : resynchroniser le token sur la session encore valide.
+          // `user` peut manquer sur une session partielle — conserver l'id courant
+          // plutôt que de lever ici : une exception dans ce handler serait silencieuse.
+          commit('SET_AUTH', {
+            userId: storedSession.user?.id ?? state.userId,
+            token: storedSession.access_token,
+            refreshToken: storedSession.refresh_token
+          })
+          setAccessToken(storedSession.access_token)
+          return
+        }
+
+        commit('CLEAR_AUTH')
+        setAccessToken(null)
       })
-      
+      authSubscription = authListener?.subscription ?? null
+
       commit('SET_INITIALIZED', true)
     } catch (error) {
       commit('SET_ERROR', error.message)

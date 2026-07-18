@@ -51,6 +51,16 @@ export function clearAccessToken() {
   _explicitlyLoggedOut = true
 }
 
+/**
+ * L'utilisateur s'est-il déconnecté volontairement depuis CET onglet ?
+ * Consommé par le handler `onAuthStateChange` (store/modules/auth.js) pour distinguer
+ * une vraie déconnexion d'un `SIGNED_OUT` émis par la rotation du refresh token.
+ * @returns {boolean}
+ */
+export function isExplicitlyLoggedOut() {
+  return _explicitlyLoggedOut
+}
+
 // ============================================
 // INTERCEPTEURS
 // ============================================
