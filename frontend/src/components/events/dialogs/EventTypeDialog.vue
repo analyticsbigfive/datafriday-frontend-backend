@@ -110,8 +110,8 @@ export default {
         const created = response?.data || response;
         const id = created?.id || created?._id;
         if (id) {
-          await this.$store.dispatch('eventTypes/addEventType', { id, name: this.name.trim() });
-          this.$emit('created', { id, name: this.name.trim() });
+          await this.$store.dispatch('eventTypes/addEventType', created);
+          this.$emit('created', created);
         }
         this.close();
       } catch (e) {

@@ -419,13 +419,14 @@ export default {
 
       try {
         const payload = {
-          name: this.typeFormData.name,
+          name: String(this.typeFormData.name || "").trim(),
         };
 
         if (this.typeMode === "edit") {
           if (!this.typeId) throw new Error("Missing event type id");
-          await updateEventType(this.typeId, payload);
-          await this.$store.dispatch('eventTypes/updateEventType', { id: this.typeId, ...payload });
+          const response = await updateEventType(this.typeId, payload);
+          const updated = response?.data || response;
+          await this.$store.dispatch('eventTypes/updateEventType', { id: this.typeId, ...updated });
         } else {
           const response = await createEventType(payload);
           const created = response?.data || response;

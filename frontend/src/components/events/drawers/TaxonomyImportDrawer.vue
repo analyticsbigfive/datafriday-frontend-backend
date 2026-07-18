@@ -475,7 +475,7 @@ export default {
             created = res?.data ?? res;
             const id = created?.id || created?._id;
             if (id) {
-              await this.$store.dispatch('eventTypes/addEventType', { id, name });
+              await this.$store.dispatch('eventTypes/addEventType', created);
             }
           } else if (this.entity === 'category') {
             const typeRaw = get('eventTypeRaw');
