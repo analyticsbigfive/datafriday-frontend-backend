@@ -1373,11 +1373,20 @@ export class LogisticsService {
           ],
         });
 
-        for (const line of carryLines) {
-          await tx.stockLevel.update({
-            where: { id: line.levelId },
-            data: { packedUnits: line.newPacked, looseUnits: line.newLoose },
-          });
+        // Bulk UPDATE (une requête) au lieu d'un update par ligne : la boucle
+        // séquentielle était le poste dominant du timeout 30s de la transaction
+        // sur les gros espaces (cf. audit perf 2026-07-18).
+        if (carryLines.length) {
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "StockLevel" AS sl
+            SET "packedUnits" = v.packed, "looseUnits" = v.loose, "updatedAt" = NOW()
+            FROM (VALUES ${Prisma.join(
+              carryLines.map((l) =>
+                Prisma.sql`(${l.levelId}, ${Math.trunc(l.newPacked)}::int, ${l.newLoose}::float8)`,
+              ),
+            )}) AS v(id, packed, loose)
+            WHERE sl.id = v.id AND sl."tenantId" = ${tenantId}
+          `);
         }
 
         // Remplace les niveaux par les valeurs comptées (SET, pas d'incrément)
@@ -1403,17 +1412,25 @@ export class LogisticsService {
             })),
           });
         }
-        for (const l of recoLines) {
-          const id = existing.get(`${l.elementId}::${l.itemKey}`);
-          if (!id) continue;
-          await tx.stockLevel.update({
-            where: { id },
-            data: {
-              packedUnits: l.countedPacked,
-              looseUnits: l.countedLoose,
-              ...(l.unitsPerPack != null ? { unitsPerPack: l.unitsPerPack } : {}),
-            },
-          });
+        // Bulk UPDATE (une requête) — même optimisation que carryLines ci-dessus.
+        // COALESCE préserve la sémantique « ne toucher unitsPerPack que si fourni ».
+        const toUpdate = recoLines
+          .map((l) => ({ id: existing.get(`${l.elementId}::${l.itemKey}`), l }))
+          .filter((x): x is { id: string; l: (typeof recoLines)[number] } => !!x.id);
+        if (toUpdate.length) {
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "StockLevel" AS sl
+            SET "packedUnits" = v.packed,
+                "looseUnits" = v.loose,
+                "unitsPerPack" = COALESCE(v.upp, sl."unitsPerPack"),
+                "updatedAt" = NOW()
+            FROM (VALUES ${Prisma.join(
+              toUpdate.map(({ id, l }) =>
+                Prisma.sql`(${id}, ${Math.trunc(l.countedPacked)}::int, ${l.countedLoose}::float8, ${l.unitsPerPack ?? null}::float8)`,
+              ),
+            )}) AS v(id, packed, loose, upp)
+            WHERE sl.id = v.id AND sl."tenantId" = ${tenantId}
+          `);
         }
 
         return { reconciliationId: reco.id, createdAt: reco.createdAt, lines: recoLines.length };

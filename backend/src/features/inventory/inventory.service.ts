@@ -26,13 +26,19 @@ export class InventoryService {
       }),
     ]);
 
-    if (counts.length > 0) {
+    // buildInventoryCounts SKIPPE les lignes shopId=null (inadressables par le
+    // front). Si TOUTES les lignes sont dans ce cas, l'early-return « counts > 0 »
+    // renvoyait `inventoryCounts: {}` en ignorant un snapshot pourtant présent →
+    // inventaire affiché vide malgré des données sauvegardées. On ne prend la
+    // branche counts QUE si elle produit un objet adressable.
+    const builtCounts = counts.length > 0 ? this.buildInventoryCounts(counts) : {};
+    if (Object.keys(builtCounts).length > 0) {
       return {
         id: snapshot?.id ?? null,
         tenantId,
         spaceId,
         eventId,
-        inventoryCounts: this.buildInventoryCounts(counts),
+        inventoryCounts: builtCounts,
         createdAt: snapshot?.createdAt ?? null,
         updatedAt: snapshot?.updatedAt ?? null,
         createdBy: snapshot?.createdBy ?? null,
@@ -86,17 +92,22 @@ export class InventoryService {
           ? this.prisma.event.findFirst({ where: { id: latestCount.eventId }, select: { name: true } })
           : null,
       ]);
-      return {
-        id: null,
-        tenantId,
-        spaceId,
-        eventId: latestCount.eventId,
-        eventName: event?.name ?? null,
-        inventoryCounts: this.buildInventoryCounts(counts),
-        createdAt: latestCount.updatedAt,
-        updatedAt: latestCount.updatedAt,
-        createdBy: null,
-      };
+      // Même garde que getBySpaceAndEvent : ne servir la branche counts que si
+      // elle est adressable (lignes shopId=null skippées par buildInventoryCounts).
+      const builtLatest = this.buildInventoryCounts(counts);
+      if (Object.keys(builtLatest).length > 0) {
+        return {
+          id: null,
+          tenantId,
+          spaceId,
+          eventId: latestCount.eventId,
+          eventName: event?.name ?? null,
+          inventoryCounts: builtLatest,
+          createdAt: latestCount.updatedAt,
+          updatedAt: latestCount.updatedAt,
+          createdBy: null,
+        };
+      }
     }
 
     if (latestSnapshot) {
@@ -130,20 +141,28 @@ export class InventoryService {
   // Upsert a single item count. Uses findFirst + create/update instead of
   // prisma.upsert because Prisma 5.x does not support null values in compound
   // unique where clauses (eventId and shopId are both nullable).
+  //
+  // TOCTOU : deux saves concurrents sur la même clé passaient tous deux le
+  // findFirst (existing=null) puis créaient DEUX lignes — et la contrainte
+  // @@unique ne bloquait pas quand eventId/shopId est NULL (NULLS DISTINCT par
+  // défaut en Postgres). L'index unique est recréé NULLS NOT DISTINCT
+  // (cf. prisma/sql/2026-07-18_inventorycount_unique_nulls_not_distinct.sql) ;
+  // ici on rattrape la violation P2002 du perdant de la course et on retombe
+  // sur l'update de la ligne gagnante.
   async saveInventoryCounts(dto: CreateInventoryCountDto, tenantId: string, userId?: string) {
     this.logger.log(
       `POST /inventory-counts spaceId=${dto.spaceId} shopId=${dto.shopId ?? 'null'} itemId=${dto.itemId}`,
     );
 
-    const existing = await this.prisma.inventoryCount.findFirst({
-      where: {
-        tenantId,
-        spaceId: dto.spaceId,
-        eventId: dto.eventId ?? null,
-        shopId: dto.shopId ?? null,
-        itemId: dto.itemId,
-      },
-    });
+    const key = {
+      tenantId,
+      spaceId: dto.spaceId,
+      eventId: dto.eventId ?? null,
+      shopId: dto.shopId ?? null,
+      itemId: dto.itemId,
+    };
+
+    const existing = await this.prisma.inventoryCount.findFirst({ where: key });
 
     const data = {
       packedUnits: dto.packedUnits,
@@ -158,16 +177,16 @@ export class InventoryService {
       return this.prisma.inventoryCount.update({ where: { id: existing.id }, data });
     }
 
-    return this.prisma.inventoryCount.create({
-      data: {
-        tenantId,
-        spaceId: dto.spaceId,
-        eventId: dto.eventId ?? null,
-        shopId: dto.shopId ?? null,
-        itemId: dto.itemId,
-        ...data,
-      },
-    });
+    try {
+      return await this.prisma.inventoryCount.create({ data: { ...key, ...data } });
+    } catch (e: any) {
+      // P2002 = violation d'unicité : un save concurrent a créé la ligne entre
+      // notre findFirst et notre create → on met à jour la ligne existante.
+      if (e?.code !== 'P2002') throw e;
+      const winner = await this.prisma.inventoryCount.findFirst({ where: key });
+      if (!winner) throw e;
+      return this.prisma.inventoryCount.update({ where: { id: winner.id }, data });
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

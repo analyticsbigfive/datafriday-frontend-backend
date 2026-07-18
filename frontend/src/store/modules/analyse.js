@@ -451,6 +451,9 @@ const state = () => ({
   // Data brute
   spaceId: null,
   space: null,
+  // Horodatage de la dernière phase 1 réussie — support du cache-first 15 min
+  // de loadSpace (stale-while-revalidate au re-mount de la vue).
+  spaceCachedAt: 0,
   configurations: [],
   shopGranularData: [],        // ShopGranularRecord[]
   menuItemCostMap: {},
@@ -505,11 +508,10 @@ const state = () => ({
   filters: DEFAULT_FILTERS(),
 
   // ---- Buckets agrégés API-shape (cf. plan : first-paint lightweight) ----
-  spaceSummary: null,                 // { totalRevenue, totalCost, margin, ... }
+  // NB : spaceSummary/menuKpis/eventKpis/costBreakdown supprimés (2026-07-18) —
+  // alimentés uniquement par l'action morte loadSpaceLightweight (jamais dispatchée),
+  // jamais lus par aucun composant. Cf. fiche bug « chaîne /analyse/* morte ».
   shopSummaries: [],                  // ShopSummary[] (1 par shop)
-  menuKpis: [],                       // MenuItemKpi[]
-  eventKpis: [],                      // EventKpi[]
-  costBreakdown: [],                  // CostBreakdown[]
   spaceMenuByConfig: {},              // configId → SpaceMenu
   shopMenusByShop: {},                // shopId → ShopMenu
 
@@ -1530,6 +1532,7 @@ const mutations = {
   },
   SET_SPACE_ID(state, id) { state.spaceId = id },
   SET_SPACE(state, s) { state.space = s },
+  SET_SPACE_CACHED_AT(state, ts) { state.spaceCachedAt = ts || 0 },
   SET_CONFIGURATIONS(state, c) { state.configurations = filterValidConfigurations(c) },
   SET_TAXONOMY(state, { productTypes, productCategories } = {}) {
     state.productTypesList = Array.isArray(productTypes) ? productTypes : []
@@ -1622,11 +1625,7 @@ const mutations = {
   },
 
   // ---- Buckets API-shape ----
-  SET_SPACE_SUMMARY(state, v) { state.spaceSummary = v },
   SET_SHOP_SUMMARIES(state, v) { state.shopSummaries = v || [] },
-  SET_MENU_KPIS(state, v) { state.menuKpis = v || [] },
-  SET_EVENT_KPIS(state, v) { state.eventKpis = v || [] },
-  SET_COST_BREAKDOWN(state, v) { state.costBreakdown = v || [] },
   SET_SPACE_MENU_BY_CONFIG(state, v) { state.spaceMenuByConfig = v || {} },
   SET_SHOP_MENUS_BY_SHOP(state, v) { state.shopMenusByShop = v || {} },
 
@@ -1693,12 +1692,41 @@ const mutations = {
 }
 
 const actions = {
-  async loadSpace({ commit, dispatch }, spaceId) {
+  /**
+   * Charge un espace. Accepte `spaceId` (string) ou `{ spaceId, force }`.
+   *
+   * Cache-first (stale-while-revalidate) : si le MÊME espace est déjà en store et
+   * que la phase 1 date de moins de 15 min (convention TTL des stores, cf.
+   * CLAUDE.md), on rend immédiatement depuis le store (pas de loading, pas de
+   * skeletons) et on revalide en arrière-plan — le re-mount de la vue devient
+   * instantané au lieu de re-payer les 4 requêtes de phase 1 en bloquant.
+   */
+  async loadSpace({ commit, dispatch, state }, payload) {
+    const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
+    const force = typeof payload === 'object' && payload !== null ? !!payload.force : false
+    const CACHE_TTL = 15 * 60 * 1000
+    const fresh =
+      !force &&
+      state.space?.id === spaceId &&
+      state.spaceCachedAt &&
+      Date.now() - state.spaceCachedAt < CACHE_TTL
+
     commit('SET_SPACE_ID', spaceId)
     // Le cache contexte-PdV est clé par configId ; on le purge au (re)chargement d'un
     // espace pour ne jamais servir un périmètre d'un autre espace / d'un état périmé.
     // Idem pour les subtypes builder2 : re-fetch après édition dans le builder.
     resetBuilder2SubtypesCache()
+
+    if (fresh) {
+      // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
+      // données fraîches remplaceront réactivement celles affichées, sans skeleton).
+      commit('SET_ERROR', null)
+      dispatch('useSpaceDataFetch', spaceId).catch((err) => {
+        console.warn('[analyse] revalidation arrière-plan échouée:', err?.message)
+      })
+      return
+    }
+
     commit('SET_LOADING', true)
     commit('SET_ENRICHING', true)
     commit('SET_ERROR', null)
@@ -1767,6 +1795,8 @@ const actions = {
     commit('SET_SUMMARY', data.summary || null)
     commit('SET_FROM_MOCK', !!data._fromMock)
     commit('SET_WEEZEVENT_SETUP_INCOMPLETE', !!data._weezeventSetupIncomplete)
+    // Phase 1 fraîche → horodate le cache-first de loadSpace (15 min).
+    commit('SET_SPACE_CACHED_AT', Date.now())
 
     // Calibre automatiquement les bornes des sliders attendance sur la data
     // réelle (évite de laisser [0, 1000000] quand le max réel est p.ex. 8500).
@@ -2159,51 +2189,10 @@ const actions = {
     commit('SET_SHOP_GRANULAR', state.shopGranularData.filter((r) => !r.isPredictive))
   },
 
-  /**
-   * First-paint allégé : charge space + configurations + summaries + KPIs +
-   * cost breakdown + menu/catalog. Les timelines détaillées sont chargées à
-   * la demande via `loadTimelineForEvent`.
-   *
-   * Idempotent : si les buckets sont déjà peuplés on n'écrase pas les données
-   * complètes héritées de `loadSpace`.
-   */
-  async loadSpaceLightweight({ commit, state, dispatch }, spaceId) {
-    commit('SET_SPACE_ID', spaceId)
-    commit('SET_LOADING', true)
-    commit('SET_ERROR', null)
-    try {
-      const [
-        { getAnalyseDashboard, getAnalyseKpisMenu, getAnalyseKpisEvents, getAnalyseCostBreakdown },
-      ] = await Promise.all([
-        import('@/api/endpoints/analyse.api'),
-      ])
-      const params = { spaceId }
-      const [dashboard, menuKpis, eventKpis, costBreakdown] = await Promise.all([
-        getAnalyseDashboard(params),
-        getAnalyseKpisMenu(params),
-        getAnalyseKpisEvents(params),
-        getAnalyseCostBreakdown(params),
-      ])
-      commit('SET_SPACE_SUMMARY', dashboard || null)
-      commit('SET_MENU_KPIS', menuKpis || [])
-      commit('SET_EVENT_KPIS', eventKpis || [])
-      commit('SET_COST_BREAKDOWN', costBreakdown || [])
-      const dashboardFromMock = !!(dashboard && dashboard._fromMock)
-      if (dashboardFromMock) commit('SET_FROM_MOCK', true)
-
-      // Reuse the heavier loader to fill catalog / space / configurations
-      // (idempotent — overwrites the same fields).
-      if (!state.space || !state.configurations?.length) {
-        await dispatch('useSpaceDataFetch', spaceId).catch((err) => {
-          console.warn('[analyse] useSpaceDataFetch failed in lightweight loader:', err?.message)
-        })
-      }
-    } catch (err) {
-      commit('SET_ERROR', err.message || 'Erreur de chargement (lightweight)')
-    } finally {
-      commit('SET_LOADING', false)
-    }
-  },
+  // NB (2026-07-18) : l'action loadSpaceLightweight (chargement « first-paint allégé »
+  // via les 4 endpoints /analyse/*) a été supprimée — jamais dispatchée, et ses buckets
+  // (spaceSummary/menuKpis/eventKpis/costBreakdown) n'étaient lus nulle part. Le vrai
+  // chemin de chargement est loadSpace → useSpaceDataFetch (two-phase useSpaceData).
 
   /**
    * Lazy-load la timeline brute pour un event donné — uniquement si elle

@@ -315,14 +315,6 @@ const actions = {
     commit('INVALIDATE_PACKAGING_TYPES')
   },
 
-  invalidateMarketPrices({ commit }) {
-    commit('INVALIDATE_MARKET_PRICES')
-  },
-
-  invalidatePackagingTypes({ commit }) {
-    commit('INVALIDATE_PACKAGING_TYPES')
-  },
-
   /** Sélectionne automatiquement le dernier event passé pour ce space. */
   resolveLastPastEvent({ commit, rootState }, { spaceId } = {}) {
     const events = rootState.analyse?.events || []

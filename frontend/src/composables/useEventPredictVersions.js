@@ -141,12 +141,12 @@ function versionToPayload(v) {
     adjustedPerCapita: v.adjustedPerCapita || 0,
     menuConfig: v.menuConfig || {},
     quantityAdjustments: v.quantityAdjustments || {},
-    // ⚠️ NE PAS envoyer `manualQuantities` tant que le backend ne l'accepte pas :
-    // le DTO est en `forbidNonWhitelisted` → 400 "property manualQuantities
-    // should not exist" → casse TOUS les saves. Dès que la colonne + le DTO
-    // existent (cf. docs/eventPredictVersions-manualQuantities-backend.md),
-    // dé-commenter la ligne suivante :
-    // manualQuantities: v.manualQuantities || {},
+    // BUG-008 (corrigé 2026-07-18) : le backend accepte désormais ce champ —
+    // colonne Prisma `manualQuantities Json @default("{}")`, DTO whitelisted
+    // (predict-version.dto.ts:69,142), service (predict-versions.service.ts:41,56).
+    // Sans cet envoi, les quantités manuelles ne quittaient jamais le
+    // localStorage → perdues au changement d'appareil/navigateur.
+    manualQuantities: v.manualQuantities || {},
     selectedPredictionEventIds: v.selectedPredictionEventIds || [],
     selectedTimeRange: v.selectedTimeRange || null,
     // N'envoie `predictedRecords` que s'il est NON-VIDE : un snapshot pris avant

@@ -88,8 +88,43 @@
 | [74](74_predictversionsservice_remove_findone_code_mort.md) | `PredictVersionsService.remove()`/`findOne()` : code mort (au-delà de BUG-13) | 🟢 Corrigé | 🟢 | Prévision |
 | [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | ⚪ Diagnostiqué | 🟠 | Événements |
 | [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | ⚪ Diagnostiqué | 🟢 | Prévision |
+| [77](77_analyse_swagger_faux_spaceid_ignore.md) | `/analyse/*` : Swagger mensonger + `?spaceId=` silencieusement ignoré | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [78](78_analyse_timeline_sans_garde_event_troncature.md) | `/analyse/timeline/:eventId` : eventId jamais vérifié, troncature LIMIT silencieuse | 🟢 Corrigé (garde) / ⚪ (flag) | 🟡 | Analyse & agrégation |
+| [79](79_analyse_kpis_findmany_reduce_tenant_entier.md) | `getMenuKpis`/`getEventKpis` : findMany du tenant entier + reduce JS | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [80](80_shopdetails_rpc_non_cachee.md) | `getShopDetails` : RPC ~300ms du premier rendu /analyse jamais cachée | 🟢 Corrigé | 🟠 | Espaces & builder |
+| [81](81_inventorycount_toctou_unique_nulls.md) | `saveInventoryCounts` : TOCTOU + unique inopérant avec NULLs (doublons) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [82](82_buildinventorycounts_perd_lignes_shopid_null.md) | Inventaire vide malgré données : lignes `shopId=null` perdues + early-return | 🟢 Corrigé | 🟠 | Stock |
+| [83](83_logistics_reset_updates_sequentiels_transaction.md) | `reset` logistique : updates StockLevel un-par-un dans la transaction 30s | 🟢 Corrigé | 🟡 | Stock |
+| [84](84_shop_items_batch_incomplet_n1_inventaire.md) | Inventaire : N+1 GET shop/:shopId alors qu'un batch existe (payload trop maigre) | 🟢 Corrigé | 🟠 | Stock |
+| [85](85_double_persistance_counts_miroir.md) | (miroir) Double persistance des comptages — canonique front 160 | ⚪ Diagnostiqué | 🟡 | Stock |
+| [86](86_eventpredictversion_tenantid_nullable.md) | `EventPredictVersion.tenantId` nullable : lignes legacy invisibles | ⚪ Diagnostiqué | 🟡 | Prévision |
+| [87](87_index_perf_manquants_predict_inventory.md) | Index manquants : EventPredictVersion (tenantId,eventId) + InventoryCount (tenantId,spaceId,updatedAt) | 🟡 Corrigé non déployé | 🟡 | Prévision / Stock |
+| [88](88_manualquantities_miroir.md) | (miroir) `manualQuantities` : backend prêt, front ne l'envoyait pas — canonique front 08 | 🟢 Corrigé | 🟠 | Prévision |
+| [89](89_stocklevel_elementid_sans_fk.md) | `StockLevel.elementId` sans FK : niveaux orphelins, workarounds en lecture | ⚪ Diagnostiqué | 🟡 | Stock |
+| [90](90_simulatesale_pollution_reset_race.md) | `simulateSale` visible dans les analytics ; fenêtre de course du `reset` | ⚪ Diagnostiqué | 🟡 | Stock |
 
-**76 bugs au total**, 65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
+**90 bugs au total.** 77-90 ajoutés le 2026-07-18 suite à l'audit croisé /analyse + Event Predict +
+Stock (inventory/logistics/restock), mené conjointement côté front (fiches 149-162) avec objectif
+de performance « contenu initial des vues < 300ms ». Côté backend : les 4 endpoints `/analyse/*`
+documentaient dans Swagger des réponses qui n'ont jamais existé et ignoraient le `?spaceId=` que le
+front leur envoyait — sans témoin, car la découverte centrale de l'audit est que leur unique
+consommateur front était du code mort jamais dispatché (fiche front 149) ; agrégations réécrites en
+SQL (79), garde d'ownership sur la timeline (78), et surtout mise en cache Redis 60s de la RPC
+`get_space_shop_details` (~300ms, chemin critique du premier rendu /analyse — 80). Stock : le
+couple TOCTOU + contrainte unique inopérante sur NULLs expliquant les doublons de comptage (81,
+script SQL `NULLS NOT DISTINCT` + rattrapage P2002), l'inventaire « vide malgré données » (82), le
+bulk-update du reset (83), et l'extension du batch shop-items qui permet au front de tuer le N+1
+inventaire (84 — ce qui, avec l'adoption du batch event-timeline par le moteur predict côté front,
+solde le vieux BUG-010 passé à 🟢). Restock : BUG-31 mis à jour — le front alerte désormais sur
+403 (fiche front 19), le choix de permissions PUT/DELETE reste posé à Bertrand. Laissés en ⚪ après
+diagnostic : 85/86/89/90 (décisions produit/architecture ou nettoyages de données prod préalables
+— cf. `QUESTIONS_A_BERTRAND.md`). Deux scripts SQL rejouables livrés dans `prisma/sql/`
+(2026-07-18_*) — À EXÉCUTER AU DÉPLOIEMENT (81/87). Au passage : 3 specs préexistantes réparées
+(mocks obsolètes — `zone`/`configurationElement` manquants dans spaces.service.spec qui tuaient le
+process jest en silence, `event` manquant + `eventName` non attendu dans inventory.service.spec,
+caches RecipeCtx manquants dans logistics.service.spec).
+
+65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
 Events (`events.controller.ts`/`.service.ts`, taxonomies, Teams, couche API `predict-versions.*`) :
 une faille cross-tenant P0 sur `PUT .../predict-versions/default` (aucun scoping tenant sur
 l'update, corrigée + couverte par un nouveau fichier de tests — ce module n'en avait aucun) ;

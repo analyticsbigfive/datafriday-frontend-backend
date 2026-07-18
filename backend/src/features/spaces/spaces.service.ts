@@ -37,6 +37,13 @@ export class SpacesService {
     `spaces:shops:${tenantId}:${spaceId}`;
   private readonly SPACE_CONFIGS_CACHE_KEY = (tenantId: string, spaceId: string) =>
     `spaces:configs:${tenantId}:${spaceId}`;
+  // RPC get_space_shop_details ≈ 300ms à elle seule (cf. commentaire getShopDetails) et
+  // sur le chemin critique du premier rendu /analyse (phase 1 de useSpaceData) — cachée
+  // 60s. Données alimentées par sync/agrégation (pas d'écriture utilisateur directe),
+  // invalidées avec les autres clés spaces:* dans invalidateSpaceCache.
+  private readonly SPACE_SHOPDETAILS_CACHE_TTL = 60;
+  private readonly SPACE_SHOPDETAILS_CACHE_KEY = (tenantId: string, spaceId: string) =>
+    `spaces:shopdetails:${tenantId}:${spaceId}`;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -71,6 +78,8 @@ export class SpacesService {
       keys.push(this.redis.deletePattern(`${this.SPACE_SHOPS_CACHE_KEY(tenantId, spaceId)}*`) as unknown as Promise<void>);
       keys.push(this.redis.delete(this.SPACE_CONFIGS_CACHE_KEY(tenantId, spaceId)));
       keys.push(this.redis.delete(this.SPACE_SHOPIDS_CACHE_KEY(tenantId, spaceId)));
+      // deletePattern : getShopDetails écrit des clés suffixées ":page:limit:granular"
+      keys.push(this.redis.deletePattern(`${this.SPACE_SHOPDETAILS_CACHE_KEY(tenantId, spaceId)}*`) as unknown as Promise<void>);
     }
     await Promise.all(keys);
   }
@@ -967,14 +976,22 @@ export class SpacesService {
    * collapsing 8 sequential DB round-trips into a single network call (~2s → ~300ms).
    */
   async getShopDetails(spaceId: string, tenantId: string, page = 1, limit = 20, includeGranular = false) {
-    const rows = await this.prisma.$queryRaw<Array<{ get_space_shop_details: any }>>`
-      SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int, ${includeGranular}::boolean)
-    `;
-    const data = rows[0]?.get_space_shop_details;
-    if (!data || data.__error === 'space_not_found') {
-      throw new NotFoundException(`Space with ID ${spaceId} not found`);
-    }
-    return data;
+    // Cache Redis (60s) : la RPC est le poste dominant du premier rendu /analyse.
+    // Une erreur (space_not_found) jette depuis la factory → rien n'est mis en cache.
+    return this.redis.getOrSet(
+      `${this.SPACE_SHOPDETAILS_CACHE_KEY(tenantId, spaceId)}:${page}:${limit}:${includeGranular ? 1 : 0}`,
+      async () => {
+        const rows = await this.prisma.$queryRaw<Array<{ get_space_shop_details: any }>>`
+          SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int, ${includeGranular}::boolean)
+        `;
+        const data = rows[0]?.get_space_shop_details;
+        if (!data || data.__error === 'space_not_found') {
+          throw new NotFoundException(`Space with ID ${spaceId} not found`);
+        }
+        return data;
+      },
+      { ttl: this.SPACE_SHOPDETAILS_CACHE_TTL },
+    );
   }
 
   private readonly SPACE_SHOPIDS_CACHE_TTL = 30; // seconds — même durée que SPACE_SHOPS_CACHE_TTL

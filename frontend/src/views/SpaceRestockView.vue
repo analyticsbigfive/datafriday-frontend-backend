@@ -99,7 +99,7 @@
           <RestockEventScenarioPicker
             v-if="objectiveSource === 'forecast'"
             :events="predictedEvents"
-            :selected-event-id="selectedEventId"
+            :selected-event-ids="selectedEventIds"
             :selected-scenario-by-event-id="selectedScenarioByEventId"
             @select-event="selectEvent"
             @select-scenario="selectScenario"
@@ -966,7 +966,7 @@
             <RestockEventScenarioPicker
               v-if="objectiveSource === 'forecast'"
               :events="predictedEvents"
-              :selected-event-id="selectedEventId"
+              :selected-event-ids="selectedEventIds"
               :selected-scenario-by-event-id="selectedScenarioByEventId"
               @select-event="selectEvent"
               @select-scenario="selectScenario"
@@ -1375,7 +1375,8 @@ export default {
       })
       return Array.from(ids)
     },
-    /** Sélection unique : l'évènement de réarmement courant (ou null). */
+    /** 1er évènement sélectionné (contexte nav ?event= / comptages) — la
+     *  sélection elle-même est multiple (selectedEventIds). */
     selectedEventId() {
       return this.selectedEventIds[0] || null
     },
@@ -2160,7 +2161,24 @@ export default {
       if (!spaceId || isDemoMode() || isRestockApiDown()) return
       clearTimeout(this._restockPutTimer)
       this._restockPutTimer = setTimeout(() => {
-        putRestockState(spaceId, snapshot).catch((err) => onRestockApiError(err))
+        putRestockState(spaceId, snapshot).catch((err) => {
+          onRestockApiError(err)
+          // BUG-019 : un 4xx (typiquement 403 permissions — rôles « Technicien
+          // Logistic » / « PDV Superviseur », cf. fiche backend BUG-31) était
+          // avalé en silence : l'état SEMBLE sauvegardé (localStorage) mais ne
+          // traverse jamais vers l'API → perte de travail au changement de
+          // machine. On alerte UNE fois par session (le PUT part à chaque
+          // frappe débouncée — pas de spam).
+          const status = err?.response?.status
+          if (status === 401 || status === 403) {
+            if (!this._restockPermissionAlerted) {
+              this._restockPermissionAlerted = true
+              this.snackbarText = this.t('srSnackSaveForbidden')
+              this.snackbarColor = 'error'
+              this.snackbar = true
+            }
+          }
+        })
       }, 500)
     },
     goBack() {
@@ -2557,11 +2575,27 @@ export default {
         null
       if (def) this.selectedScenarioByEventId = { ...this.selectedScenarioByEventId, [id]: def }
     },
-    /** Sélection unique d'un évènement prédit (+ scénario par défaut + date). */
+    /**
+     * Sélection MULTIPLE d'évènements prédits : clic = toggle. L'objectif (target)
+     * devient la SOMME des besoins de tous les évènements cochés (stockRowsRaw
+     * agrège déjà par shop+item sur objectiveEvents). Chaque évènement garde son
+     * scénario (version) propre dans selectedScenarioByEventId.
+     */
     selectEvent(id) {
       if (!id) { this.selectedEventIds = []; return }
-      this.selectedEventIds = [id]
+      if (this.selectedEventIds.includes(id)) {
+        this.selectedEventIds = this.selectedEventIds.filter((eid) => eid !== id)
+        return
+      }
+      this.selectedEventIds = [...this.selectedEventIds, id]
       this.ensureDefaultScenario(id)
+      // Versions BDD de l'event fraîchement coché (best-effort, seuls les events
+      // sélectionnés au mount sont déjà synchronisés) → scénario par défaut et
+      // prédictions réévalués une fois rapatriées.
+      this.syncBddVersions([id]).then(() => {
+        this.ensureDefaultScenario(id)
+        this.refreshSelectedPredictions()
+      })
       // Date prévue = date de l'évènement si pas déjà fournie par ?date=.
       if (!this.plannedEventDate) {
         const ev = this.events.find((e) => String(e.id) === String(id))

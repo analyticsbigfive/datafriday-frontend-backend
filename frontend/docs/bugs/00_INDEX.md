@@ -162,8 +162,47 @@
 | [146](146_eventformdrawer_ticketsscanned_sans_validation_croisee.md) | `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold` | ⚪ Diagnostiqué | 🟢 | Événements |
 | [147](147_events_store_ttl_5min_incoherent.md) | `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie | ⚪ Diagnostiqué | 🟢 | Événements |
 | [148](148_eventdrawershell_inutilise_duplication_markup.md) | `EventDrawerShell.vue` inutilisé dans le périmètre Événements, header/footer dupliqués 3× | ⚪ Diagnostiqué | 🟢 | Événements |
+| [149](149_chaine_analyse_api_morte_supprimee.md) | Chaîne `/analyse/*` entièrement morte (action jamais dispatchée, buckets jamais lus) — supprimée | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [150](150_timeline_batch_inflight_empoisonne_sur_rejet.md) | `getSpaceEventTimelineBatch` : in-flight jamais nettoyé sur échec → erreurs permanentes | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [151](151_loadspace_sans_cache_first.md) | `/analyse` : chaque re-mount re-payait la phase 1 (pas de cache-first 15 min) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [152](152_fetchallmenucomponents_pagination_sequentielle.md) | `fetchAllMenuComponents` : pagination page-à-page séquentielle | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [153](153_phase2_endpoints_unscoped_tradeoff.md) | Phase 2 : endpoints tenant-wide non scopés (tradeoff délibéré documenté) | ⚫ Won't fix | 🟡 | Analyse & agrégation |
+| [154](154_hydration_recettes_n1_background.md) | Hydration recettes : N fetchs détail `/menu-components/:id` en phase 2 | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [155](155_double_cache_timeline.md) | Trois couches de cache timeline indépendantes (store / module API / predict) | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [156](156_getters_analyse_lourds.md) | Getters analyse : ré-itération des tableaux complets à chaque changement de filtre | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [157](157_predict_timeline_single_vers_batch.md) | (miroir) Moteur predict : N GET single event-timeline → batch adopté — canonique back 10 | 🟢 Corrigé | 🟠 | Prévision |
+| [158](158_cascade_duplication_versions_predict.md) | Cascade historique de versions dupliquées, tenue par des workarounds fragiles | ⚪ Diagnostiqué | 🟠 | Prévision |
+| [159](159_scoring_predict_client_3_8s.md) | Scoring predict client-side 3-8s : incompatible < 300ms (limitation documentée) | ⚪ Diagnostiqué | 🟢 | Prévision |
+| [160](160_double_persistance_comptages.md) | Inventaire : chaque comptage écrit deux fois (POST par item + snapshot blob) | ⚪ Diagnostiqué | 🟡 | Stock |
+| [161](161_nettoyages_stock_analyse.md) | Nettoyages : actions Vuex dupliquées (inventory), précédence non parenthésée (revenue) | 🟢 Corrigé | 🟢 | Stock / Analyse |
+| [162](162_inventaire_adopte_batch_shop_items.md) | (miroir) Space Inventory : adoption du batch shop-items, fin du N+1 — canonique back 84 | 🟢 Corrigé | 🟠 | Stock |
 
-**148 bugs au total**, 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
+**162 bugs au total.** 149-162 ajoutés le 2026-07-18 — audit croisé /analyse + Event Predict +
+Stock (inventory/logistics/restock), mené avec le backend (fiches 77-90) et un objectif de
+performance « contenu initial des vues < 300ms ». Découverte structurante : toute la chaîne
+`/analyse/*` du front (action `loadSpaceLightweight`, 4 buckets d'état, `analyse.api.js`, mock
+39KB) était MORTE — jamais dispatchée, jamais lue — et a été supprimée (149) ; le vrai chemin est
+`loadSpace → useSpaceData` two-phase, qui reçoit : cache-first 15 min stale-while-revalidate au
+re-mount (151), pagination composants parallélisée (152), et côté backend le cache Redis de la RPC
+shop-details (~300ms économisés, back 80). Deux N+1 majeurs éteints par adoption de batchs
+existants : le moteur predict passe au batch event-timeline (157, avec fix préalable de
+l'empoisonnement in-flight du batch sur rejet — 150) et Space Inventory au batch shop-items
+enrichi (162) — soldant le BUG-010 backend. Predict : `manualQuantities` enfin envoyé (fiche 08 →
+🟢, le backend était prêt depuis le début). Restock : alerte explicite sur 403 + envoi de
+`stockExcluded`/`currentStep` (fiche 19 mise à jour ; le choix de permissions backend reste à
+Bertrand). Laissés volontairement en ⚪/⚫ après diagnostic : le tradeoff phase-2 unscoped (153,
+annoté en code — ne pas « re-scoper » sans lever les gotchas), l'hydration N+1 des recettes (154,
+en arrière-plan, vrai fix côté backend), la triple couche de cache timeline (155), les getters
+lourds (156, plan de fix par index `Map` posé), la cascade de duplication des versions predict
+(158, bloquée par le nettoyage des doublons prod) et la double persistance des comptages (160,
+décision d'architecture → `QUESTIONS_A_BERTRAND.md`). État de la suite unit après session :
+397/401 verts — les 4 échecs restants (suites `apiOrMock.spec.js` [teste le fallback mock
+supprimé], `spaceMenusInventory.spec.js`, `eventDetailsEditor.spec.js`) sont PRÉEXISTANTS,
+vérifiés identiques à HEAD avant toute modification de cette session ; corrigé au passage un
+unhandledRejection réel dans le batch timeline (promesses dérivées sans handler) révélé par la
+nouvelle spec `spaceApiTimelineBatch.spec.js`.
+
+130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
 complet du domaine Événements (`/events`, `/event-types`, `/event-categories`,
 `/event-subcategories` + module backend miroir) : `hasHomeTeam` jamais réellement sauvegardé
 depuis son seul écran de gestion dédié (2 bugs, cause racine = deux implémentations divergentes de

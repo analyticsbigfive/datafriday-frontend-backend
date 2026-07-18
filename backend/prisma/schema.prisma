@@ -2455,6 +2455,9 @@ model InventoryCount {
   @@index([spaceId, eventId])
   @@index([shopId])
   @@index([itemId])
+  // Couvre getLatestBySpace : findFirst({ where: { tenantId, spaceId }, orderBy: { updatedAt: desc } })
+  // — sans lui : scan + tri par appel (cf. inventory.service.ts).
+  @@index([tenantId, spaceId, updatedAt(sort: Desc)])
 }
 
 // ==================== LOGISTICS (stock movements ledger) ====================
@@ -2575,6 +2578,8 @@ model EventPredictVersion {
   @@index([tenantId])
   @@index([eventId])
   @@index([spaceId])
+  // Couvre findAll : where { eventId, tenantId } (cf. predict-versions.service.ts)
+  @@index([tenantId, eventId])
 }
 
 // ==================== RESTOCK STATE ====================

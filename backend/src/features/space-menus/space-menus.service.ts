@@ -1082,19 +1082,34 @@ export class SpaceMenusService {
           where: { configId, enabled: true, menuItem: { deletedAt: null } },
           select: {
             menuItem: {
-              select: { id: true, name: true, productCategory: { select: { name: true } } },
+              // basePrice/picture : additifs (2026-07-18) — permettent à Space
+              // Inventory de consommer ce batch au lieu d'un GET shop/:shopId
+              // par shop (N+1, cf. fiche BUG-010 backend).
+              select: {
+                id: true,
+                name: true,
+                basePrice: true,
+                picture: true,
+                productCategory: { select: { name: true } },
+              },
             },
           },
         },
       } as any,
     });
 
-    const out: Record<string, { shopName: string; items: { id: string; name: string; category: string }[] }> = {};
+    const out: Record<string, { shopName: string; items: { id: string; name: string; category: string; basePrice: number | null; picture: string | null }[] }> = {};
     for (const el of elements as any[]) {
       const items = (el.menuAssignments || [])
         .map((a: any) => a.menuItem)
         .filter(Boolean)
-        .map((mi: any) => ({ id: mi.id, name: mi.name, category: mi.productCategory?.name || '' }));
+        .map((mi: any) => ({
+          id: mi.id,
+          name: mi.name,
+          category: mi.productCategory?.name || '',
+          basePrice: mi.basePrice != null ? Number(mi.basePrice) : null,
+          picture: mi.picture ?? null,
+        }));
       if (items.length) out[el.id] = { shopName: el.name, items };
     }
     return out;

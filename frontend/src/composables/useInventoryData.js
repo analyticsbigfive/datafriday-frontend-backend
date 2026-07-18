@@ -219,9 +219,29 @@ export function useInventoryData(selectedConfigId) {
       const union = buildConfigShopList(rows, floors)
       if (rowsFailed && union.length) contextWarning.value = 'assignment-partial'
 
-      // --- Menus pour TOUS les shops de l'union (fan-out borné, échec partiel
-      //     toléré). Pas de skip sur menuItemsCount : champ non fiable. -------
+      // --- Menus pour TOUS les shops de l'union -----------------------------
+      // BATCH D'ABORD (1 requête pour tout le config — même endpoint que la page
+      // Analyse, enrichi basePrice/picture le 2026-07-18) ; le fan-out borné
+      // per-shop ne sert plus que de FALLBACK (échec batch, ou backend déployé
+      // antérieur à l'enrichissement). Avant : 1 GET /space-menu/shop/:id par
+      // shop (N+1) + passe de retry — jusqu'à ~2× N requêtes au premier rendu.
       const itemsByShopId = new Map()
+      let batchOk = false
+      try {
+        const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
+        const byShop = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
+        // Le batch omet les shops sans item activé : absence = « 0 item » (l'union
+        // des shops est déjà connue), PAS un échec.
+        for (const entry of union) {
+          itemsByShopId.set(entry.shopId, byShop[entry.shopId]?.items || [])
+        }
+        batchOk = true
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[inventory] batch shop-items indisponible, fallback per-shop:', e?.message)
+      }
+      if (stale()) return
+
       const fetchShopMenu = async (entry) => {
         try {
           // configId OBLIGATOIRE : l'assignation menu est scopée par config côté
@@ -238,16 +258,18 @@ export function useInventoryData(selectedConfigId) {
           // Autre échec : laissé hors de la map → retenté ci-dessous.
         }
       }
-      await runWithConcurrency(union, 6, fetchShopMenu)
-      if (stale()) return
-
-      // Retry ciblé des shops en échec (backend lent / cold-start Render → timeouts
-      // transitoires). Une seule passe, concurrence réduite, avant de conclure au
-      // bandeau « chargement partiel ».
-      const failedEntries = union.filter((e) => !itemsByShopId.has(e.shopId))
-      if (failedEntries.length) {
-        await runWithConcurrency(failedEntries, 3, fetchShopMenu)
+      if (!batchOk) {
+        await runWithConcurrency(union, 6, fetchShopMenu)
         if (stale()) return
+
+        // Retry ciblé des shops en échec (backend lent / cold-start Render → timeouts
+        // transitoires). Une seule passe, concurrence réduite, avant de conclure au
+        // bandeau « chargement partiel ».
+        const failedEntries = union.filter((e) => !itemsByShopId.has(e.shopId))
+        if (failedEntries.length) {
+          await runWithConcurrency(failedEntries, 3, fetchShopMenu)
+          if (stale()) return
+        }
       }
       let failures = 0
       for (const e of union) if (!itemsByShopId.has(e.shopId)) failures += 1
