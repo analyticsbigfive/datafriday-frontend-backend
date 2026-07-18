@@ -1,11 +1,9 @@
 // API functions for teams (équipes) — API NestJS (projet alsgd).
 //
-// Spéc backend attendue : docs/BACKEND_TEAMS_EVENTS.md.
-// IMPORTANT : tant que le backend n'expose pas encore `/teams`, `getTeams`
-// renvoie `[]` SILENCIEUSEMENT sur 404 (alsgd est vivant → 404 rapide ~0.4s,
-// PAS le 500/522 de l'ancienne make-server uvxx morte). Dès que le contrôleur
-// NestJS `/teams` est déployé, le catalogue se peuple automatiquement, sans
-// changement frontend.
+// `TeamsController` (GET/POST/PATCH/DELETE `/teams`) est déployé et
+// fonctionnel côté backend depuis la migration hors make-server. `getTeams`
+// dégrade en `[]` sur 404 par prudence (repli inoffensif), pas parce que
+// l'endpoint serait absent.
 import api from '../client'
 
 /**
