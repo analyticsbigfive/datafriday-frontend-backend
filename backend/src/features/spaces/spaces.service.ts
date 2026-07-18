@@ -1053,6 +1053,10 @@ export class SpacesService {
    * event) instead of once per event, then runs a single raw-SQL aggregate for all events
    * via a VALUES CTE joined by date-range predicate — instead of one query per event.
    * Returns a map keyed by the requested eventId (missing/not-found events map to []).
+   * Sales whose location has no shop mapping are KEPT (shopId falls back to the raw
+   * locationId, shopName to locationName) — same resilience as the shop-details RPC;
+   * the frontend buckets them as "unattached" (grey). Only when the space has no
+   * integration mapping (tenant-wide degraded scope) are unmapped rows excluded.
    */
   async getEventTimelineBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
     const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
@@ -1116,6 +1120,18 @@ export class SpacesService {
       ? Prisma.sql`AND t."integrationId" = ${integrationId}`
       : Prisma.sql``;
 
+    // Shop scoping aligned with the get_space_shop_details RPC: keep sales whose
+    // location has no shop mapping (they surface as the frontend's grey
+    // "unattached" bucket, UNATTACHED_SHOP_KEY) instead of silently dropping them
+    // — an unmapped POS previously zeroed out every item-level view while the
+    // shop-level aggregate kept showing revenue. Rows mapped to another space's
+    // shops stay excluded. Without an integration scope the query is tenant-wide,
+    // so the unmapped branch would leak other spaces' sales into this space's
+    // date windows — in that degraded mode, require the mapping.
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
+      : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
+
     const valuesSql = Prisma.join(
       windows.map(w => Prisma.sql`(${w.id}::text, ${w.eventDate}::timestamp, ${w.windowEnd}::timestamp)`),
       ', ',
@@ -1126,8 +1142,8 @@ export class SpacesService {
       SELECT
         ev."eventId"                                                      AS "eventId",
         TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')    AS minute,
-        mem."spaceElementId"                                              AS "shopId",
-        se.name                                                           AS "shopName",
+        COALESCE(mem."spaceElementId", t."locationId")                    AS "shopId",
+        COALESCE(se.name, t."locationName", t."locationId")               AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
         se.attributes::jsonb->>'area'                                     AS "shopArea",
         ti."productId"                                                    AS "weezeventProductId",
@@ -1150,11 +1166,10 @@ export class SpacesService {
        AND t.status = 'V'
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
-      INNER JOIN "WeezeventLocationShopMapping" mem
+      LEFT JOIN "WeezeventLocationShopMapping" mem
         ON mem."weezeventLocationId" = t."locationId"
        AND mem."tenantId"         = ${tenantId}
-       AND mem."spaceElementId"   = ANY(${shopIds})
-      INNER JOIN "SpaceElement" se
+      LEFT JOIN "SpaceElement" se
         ON se.id = mem."spaceElementId"
       LEFT JOIN "WeezeventProductMapping" wpm
         ON wpm."weezeventProductId" = ti."productId"
@@ -1165,9 +1180,12 @@ export class SpacesService {
         ON pt.id = mi."typeId"
       LEFT JOIN "ProductCategory" pc
         ON pc.id = mi."categoryId"
+      WHERE ${shopScopeClause}
       GROUP BY
         ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
-        mem."spaceElementId", se.name, se.type, se.attributes,
+        COALESCE(mem."spaceElementId", t."locationId"),
+        COALESCE(se.name, t."locationName", t."locationId"),
+        se.type, se.attributes,
         ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name
       ORDER BY ev."eventId", minute ASC
     `);

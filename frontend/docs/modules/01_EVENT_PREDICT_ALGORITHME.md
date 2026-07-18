@@ -708,7 +708,13 @@ sont protégées par `RequirePermissions('menu.events.manage')`.
 
 ---
 
-## Bugs actifs confirmés (2026-07-15, non corrigés)
+## Bugs actifs confirmés (2026-07-15 ; statuts mis à jour 2026-07-18)
+
+> **Mise à jour 2026-07-18** : #1 corrigé (fiche 08) ; #3 corrigé (`&&`, fiche 09) ; #4 corrigé
+> (`assign-shop-items` déclaré, fiche 10) ; #5 corrigé (déclaration + listener orphelin retirés,
+> fiche 11) ; #7 corrigé (fonctions + `API_BASE`/import supabase legacy supprimés, fiche 12) ;
+> #8 corrigé (commentaire réécrit, fiche 13). Restent ouverts : #2 (règle métier combo →
+> `QUESTIONS_A_BERTRAND.md` #18, fiche 165) et #6 (code mort backend, sans fiche dédiée).
 
 | # | Bug | Fichiers | Repro / preuve |
 |---|---|---|---|

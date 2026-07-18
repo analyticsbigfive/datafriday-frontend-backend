@@ -102,8 +102,9 @@
 | [88](88_manualquantities_miroir.md) | (miroir) `manualQuantities` : backend prêt, front ne l'envoyait pas — canonique front 08 | 🟢 Corrigé | 🟠 | Prévision |
 | [89](89_stocklevel_elementid_sans_fk.md) | `StockLevel.elementId` sans FK : niveaux orphelins, workarounds en lecture | ⚪ Diagnostiqué | 🟡 | Stock |
 | [90](90_simulatesale_pollution_reset_race.md) | `simulateSale` visible dans les analytics ; fenêtre de course du `reset` | ⚪ Diagnostiqué | 🟡 | Stock |
+| [91](91_event_timeline_articles_vides_jointure_mapping.md) | `event-timeline` : item-level vide (0 article) malgré CA shop-level — INNER JOIN mapping trop strict | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation |
 
-**90 bugs au total.** 75-76 passés 🟢 le 2026-07-18 côté develop (garde « en cours d'utilisation »
+**91 bugs au total.** 75-76 passés 🟢 le 2026-07-18 côté develop (garde « en cours d'utilisation »
 sur la suppression EventType/EventCategory ; vérification existence/tenant de `eventId` à la
 création de version predict), fusionnés ici au merge. 77-90 ajoutés le 2026-07-18 suite à l'audit croisé /analyse + Event Predict +
 Stock (inventory/logistics/restock), mené conjointement côté front (fiches 149-162) avec objectif

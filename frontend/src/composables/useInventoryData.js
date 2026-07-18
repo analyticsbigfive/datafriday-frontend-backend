@@ -394,15 +394,22 @@ export function useInventoryData(selectedConfigId) {
       name: s.element.name,
       availableMenuItems: s.availableMenuItems,
     }))
-    return storageElements.value.map((el) => {
-      const types = Array.isArray(el.storageType) ? el.storageType : []
-      // marketPrices : même renommage market-price que côté shops (clé de denrée
-      // identique shop↔storage — indispensable au ledger Logistic keyé par nom).
-      const storageInventory = buildStorageInventory(
-        types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value,
-      )
-      return { element: el, storageInventory }
-    })
+    return storageElements.value
+      // Un Storage typé UNIQUEMENT 'merch' est servi par merchWithInventory
+      // (carte scopée, BUG-021) — pas de doublon de carte F&B vide ici.
+      .filter((el) => {
+        const types = Array.isArray(el.storageType) ? el.storageType : []
+        return !(types.length && types.every((t) => t === 'merch'))
+      })
+      .map((el) => {
+        const types = Array.isArray(el.storageType) ? el.storageType : []
+        // marketPrices : même renommage market-price que côté shops (clé de denrée
+        // identique shop↔storage — indispensable au ledger Logistic keyé par nom).
+        const storageInventory = buildStorageInventory(
+          types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value,
+        )
+        return { element: el, storageInventory }
+      })
   })
 
   const merchWithInventory = computed(() => {
@@ -411,6 +418,26 @@ export function useInventoryData(selectedConfigId) {
       name: m.name,
       merchItems: Array.isArray(m.merchItems) ? m.merchItems : [],
     }))
+    // BUG-021 : un Storage typé 'merch' donne désormais une carte scopée à SES
+    // merchshops (attributes.selectedShops ; vide = tous, même convention que
+    // buildStorageInventory côté F&B). L'agrégat unique « Merch Aggregate »
+    // n'est conservé qu'en repli, quand aucun Storage 'merch' n'existe dans la
+    // config (comportement historique).
+    const merchStorages = storageElements.value.filter((el) => {
+      const types = Array.isArray(el.storageType) ? el.storageType : []
+      return types.includes('merch')
+    })
+    if (merchStorages.length) {
+      return merchStorages
+        .map((el) => {
+          const selected = Array.isArray(el.selectedShops) ? el.selectedShops : []
+          const scoped = selected.length
+            ? merchEls.filter((m) => selected.includes(m.id))
+            : merchEls
+          return { element: el, merchInventory: buildMerchStorageInventory(scoped) }
+        })
+        .filter((s) => s.merchInventory.length)
+    }
     const merchInventory = buildMerchStorageInventory(merchEls)
     return merchInventory.length
       ? [{ element: { id: 'merch-aggregate', name: 'Merch Aggregate' }, merchInventory }]

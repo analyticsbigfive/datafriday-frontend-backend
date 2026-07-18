@@ -1510,16 +1510,6 @@ const getters = {
     }
   },
 
-  // Compteur d'events futurs (utilisé par le bandeau Predict Mode)
-  futureEventsCount(state) {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return state.events.filter((e) => {
-      const d = eventDateOf(e)
-      return d && d > today
-    }).length
-  },
-
   // Indique si on a déjà des records prédictifs en mémoire
   hasPredictiveRecords(state) {
     return state.shopGranularData.some((r) => r.isPredictive)
@@ -1669,11 +1659,17 @@ const mutations = {
   APPLY_EVENT_PREDICT_VERSION(state, { eventId, version }) {
     if (!eventId || !version) return
     if (version.eventSnapshot) {
-      // Snapshot figé au save de version : ne jamais laisser son nom écraser
-      // le nom canonique (rename postérieur fait dans Settings/Profile).
+      // Snapshot figé au save de version : ne jamais laisser son nom NI ses
+      // dates écraser les valeurs canoniques (rename/changement de date
+      // postérieur fait dans Settings/Profile). Une date périmée sortirait
+      // l'event de futureEvents → badge calendrier disparu (BUG-163, miroir
+      // de omitEventIdentity côté EventPredictView).
       const snap = { ...version.eventSnapshot }
       delete snap.name
       delete snap.eventName
+      delete snap.date
+      delete snap.eventDate
+      delete snap.eventEndDate
       state.events = state.events.map((event) =>
         event.id === eventId
           ? {

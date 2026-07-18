@@ -17,7 +17,6 @@ import {
   findAndScorePastEvents,
   findAndScorePastEventsWithTrace,
 } from '@/utils/predictiveAnalytics'
-import { projectId, publicAnonKey } from '@/utils/supabase/info'
 import { parseEventDate as parseEventDateFr } from '@/utils/dateFr'
 import {
   TIMELINE_BUCKET_STRATEGIES,
@@ -27,8 +26,6 @@ import {
   preprocessTimelineRecords,
 } from '@/utils/timelineBucketing'
 import { runWithConcurrency } from '@/utils/asyncPool'
-
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-eb31619c`
 
 // Clé d'IDENTITÉ d'un tableau granular pour le mémo de résultat. Remplace le
 // proxy « longueur » (`readGranular().length`) qui laissait le mémo servir un
@@ -283,24 +280,6 @@ export function usePredictiveTimeline(options) {
     selectedPredictionEventIds.value = Array.isArray(selectedIds)
       ? [...selectedIds]
       : []
-  }
-
-  async function persistSelection(eventId, eventIds) {
-    try {
-      await fetch(
-        `${API_BASE}/predictive-event-selection/${encodeURIComponent(eventId)}`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ eventIds }),
-        },
-      )
-    } catch (err) {
-      console.error('[PREDICTIVE TIMELINE] error saving selection:', err)
-    }
   }
 
   // Normalisation d'une ligne REST /event-timeline vers la forme pipeline
@@ -1137,16 +1116,6 @@ export function usePredictiveTimeline(options) {
     }
   }
 
-  async function updatePredictionEvents(selectedIds) {
-    if (!predictiveFutureEventId.value) return
-    await persistSelection(predictiveFutureEventId.value, selectedIds)
-    const allEvents = readEvents()
-    const futureEvent = allEvents.find((e) => e.id === predictiveFutureEventId.value)
-    if (futureEvent) {
-      await loadPredictiveTimeline(futureEvent, selectedIds)
-    }
-  }
-
   return {
     // state
     timelineLoading,
@@ -1172,7 +1141,6 @@ export function usePredictiveTimeline(options) {
     timelineDebugTrace,
     // actions
     loadPredictiveTimeline,
-    updatePredictionEvents,
     setSelectedEvents,
     reset,
   }

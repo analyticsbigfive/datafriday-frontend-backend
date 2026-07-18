@@ -933,10 +933,10 @@ export default {
     'update:selectedMenuItems',
     'update:quantityAdjustments',
     'update:manualQuantities',
-    'update:viewMode',
     'manual-info',
     'remap-request',
     'assign-shop-item',
+    'assign-shop-items',
     'assign-blocked',
   ],
   setup() {
@@ -1224,7 +1224,9 @@ export default {
               const type = this.classifyItemType(item)
               if (type === 'Food') return fbTypes.includes('food')
               if (type === 'Beverage') return fbTypes.includes('beverages') || fbTypes.includes('drinkee') || fbTypes.includes('beer')
-              if (type === 'Combo') return fbTypes.includes('food') || fbTypes.includes('beverages')
+              // Combo = food ET beverages (spec EVENT_PREDICT_SECTIONS.md §5.3,
+              // BUG-009) : un shop mono-type ne sert pas un combo des deux.
+              if (type === 'Combo') return fbTypes.includes('food') && fbTypes.includes('beverages')
               return false
             })
           }

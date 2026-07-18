@@ -787,6 +787,8 @@ export function buildStorageInventory(
         return 'cold';
       case 'Freezer':
         return 'belowzero';
+      case 'Material':
+        return 'material';
     }
   };
 
@@ -809,7 +811,11 @@ export function buildStorageInventory(
             st === 'dry' ||
             st === 'cold' ||
             st === 'freezer' ||
-            st === 'belowzero'
+            st === 'belowzero' ||
+            // 'material' = packaging/matériel (même convention que isPackaging
+            // plus haut) — sans cette branche, un Storage filtré 'material'
+            // était vide en permanence (BUG-020).
+            st === 'material'
           ) {
             return [st === 'freezer' ? 'belowzero' : st];
           }

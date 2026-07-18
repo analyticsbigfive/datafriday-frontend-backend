@@ -1,6 +1,6 @@
 # BUG-011 — `update:viewMode` déclaré mais jamais émis
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟢 Mineur (à vérifier avant de compter sur cet événement)
 - **Domaine** : Prévision (Event Predict)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -20,8 +20,9 @@ local (`shopStatusTab`/`itemTypeTab`) ou côté `EventPredictView.vue`.
 
 ## Correction
 
-Aucune à ce jour — retirer la déclaration morte, ou câbler l'émission si le besoin existe
-réellement.
+2026-07-18 : déclaration morte retirée des `emits` de `EventPredictMenusSection.vue`, et le
+listener orphelin `@update:view-mode="setViewMode"` retiré du template de `EventPredictView.vue`
+(le vrai pilotage passe par les tabs du header, `@update:value="setViewMode"`, inchangé).
 
 ## Risque de régression / à surveiller
 

@@ -1,6 +1,6 @@
 # BUG-023 — Fonctions Inventory ciblent un ancien backend Supabase Edge Function
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟠 Majeur (appels API garantis en échec)
 - **Domaine** : Stock (Inventory)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -19,12 +19,20 @@ projet Supabase Edge Function, jamais mis à jour vers l'API NestJS actuelle.
 
 ## Correction
 
-Aucune à ce jour — soit migrer ces fonctions vers l'API NestJS, soit confirmer qu'elles sont mortes
-et les supprimer.
+2026-07-18 : les trois fonctions ont des appelants **vivants** (`useReferenceSales`,
+`useShoppingList`, `SpaceMenusPanel.vue`, `SpaceRestockView.vue`) qui traitaient tous l'échec
+réseau comme un repli vide — elles ne sont donc pas supprimées mais **court-circuitées** dans
+`utils/api.js` : plus aucun appel réseau vers le backend legacy, retour direct du repli
+(`getShopElementMappings` → `[]`, `getSalesForSpace` → page vide sauf mode démo qui garde son
+mock, `getSalesSummaryForSpace` → résumé vide). Comportement observable identique, moins la
+latence/erreur réseau garantie. Une vraie migration NestJS (routes équivalentes) reste possible
+plus tard — les signatures sont conservées.
 
 ## Risque de régression / à surveiller
 
-Vérifier d'abord si un code vivant appelle encore ces fonctions avant de les toucher.
+`fetchReferenceSales` ne passera plus jamais par son chemin « summary dégradé » (le primaire ne
+throw plus) — comportement inchangé en pratique (les deux échouaient). Mode démo Inventory :
+vérifié, le mock de `getSalesForSpace` est conservé.
 
 ## Références
 

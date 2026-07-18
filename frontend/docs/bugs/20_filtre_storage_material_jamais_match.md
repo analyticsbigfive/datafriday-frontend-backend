@@ -1,6 +1,6 @@
 # BUG-020 — Filtre storage `'material'` (Inventory) : jamais aucun article ne matche
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟠 Majeur (fonctionnalité invisible pour l'utilisateur qui la configure)
 - **Domaine** : Stock (Inventory)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -19,11 +19,18 @@ réellement présent.
 
 ## Correction
 
-Aucune à ce jour.
+2026-07-18 : `getItemStorageTypes` (`inventoryUtils.js`, dans `buildStorageInventory`) reconnaît
+désormais `'material'` : branche composant (`component.storageType === 'material'` →
+`['material']`, même convention que le prédicat `isPackaging` du même fichier) + cas
+`'Material' → 'material'` dans `mapStorageType` (côté menu item, par symétrie). Le défaut
+`['dry']` est inchangé.
 
 ## Risque de régression / à surveiller
 
-—
+Les items packaging/matériel qui retombaient dans `['dry']` par défaut peuvent changer de carte :
+ils apparaissent maintenant dans les Storages filtrés `'material'` et plus dans les Storages
+`'dry'` (si leur `storageType` composant est renseigné `'material'`). Vérifier un espace avec un
+Storage 'dry' + un Storage 'material'.
 
 ## Références
 
