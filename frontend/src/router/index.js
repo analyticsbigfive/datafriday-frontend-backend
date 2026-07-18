@@ -371,13 +371,19 @@ const routes = [
     ]
   },
   
-  // Predict engine test harness (no auth, mock JSON data)
-  {
-    path: '/predict-test',
-    name: 'predict-test',
-    component: () => import('../views/PredictTestView.vue'),
-    meta: { title: 'Predict — Test Harness' }
-  },
+  // Banc de test du moteur predict (données mock, sans authentification).
+  // Non monté en production (BUG-028) : c'est un outil de développement, et l'exposer
+  // en prod ajoutait une surface non authentifiée sans contrepartie fonctionnelle.
+  // Volontairement laissé SANS guard hors production — c'est ce qui en fait un banc
+  // de test utilisable sans compte.
+  ...(process.env.NODE_ENV === 'production'
+    ? []
+    : [{
+      path: '/predict-test',
+      name: 'predict-test',
+      component: () => import('../views/PredictTestView.vue'),
+      meta: { title: 'Predict — Test Harness' }
+    }]),
 
   // Home redirect
   {

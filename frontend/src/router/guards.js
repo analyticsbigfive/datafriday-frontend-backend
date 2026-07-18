@@ -29,19 +29,13 @@ export async function requireAuth(to, from, next) {
  * Guard pour les routes nécessitant une organisation
  */
 export async function requireOrganization(to, from, next) {
-  // Mode démo : ?demo=1 dans l'URL court-circuite l'authentification pour
-  // permettre l'accès aux écrans (predict, analyse) en local sans login.
-  const demoFromQuery = to.query?.demo === '1' || /(?:^|[?&])demo=1(?:&|$)/.test(to.fullPath || '')
-  let demoFromStorage = false
-  try {
-    demoFromStorage =
-      typeof window !== 'undefined' && window.localStorage?.getItem('analyse_demo') === '1'
-  } catch (_) {
-    demoFromStorage = false
-  }
-  if (demoFromQuery || demoFromStorage) {
-    return next()
-  }
+  // NB : le bypass `?demo=1` / `localStorage.analyse_demo` qui court-circuitait
+  // l'authentification ici a été retiré (BUG-027). Le mode démo est débranché depuis
+  // que `utils/demoMode.js::isDemoMode()` retourne `false` en dur : le flag ne servait
+  // donc plus aucune donnée mock, il n'accordait plus qu'un accès non authentifié à des
+  // écrans qui, sans token, se faisaient de toute façon rejeter en 401 par l'API.
+  // Ne pas le réintroduire sans rebrancher d'abord le mode démo lui-même.
+
   // Attendre que l'auth soit initialisée
   if (!store.getters['auth/isInitialized']) {
     await store.dispatch('auth/initialize')
