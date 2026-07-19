@@ -172,6 +172,35 @@
 | [156](156_taxonomydetaildrawer_i18n_texte_en_dur.md) | `TaxonomyDetailDrawer.vue` : texte en dur (FR), i18n non branché + 3 boutons "Enregistrement…" en dur | 🟢 Corrigé | 🟡 | Événements |
 | [157](157_events_domaine_loading_tableaux_noir_et_navigation_event_lie_retiree.md) | Domaine Événements : loading des `v-data-table` en noir (au lieu du rouge de marque) + navigation "événement lié" retirée (non fiable) | 🟢 Corrigé (partiel) | 🟡 | Événements |
 | [158](158_eventformdrawer_createteam_bouton_color_primary_vire_violet_en_dark.md) | `EventFormDrawer.vue` : bouton "Créer" (équipe inline) en `color="primary"` — vire violet en dark mode au lieu du rouge de marque | 🟢 Corrigé | 🟢 | Événements |
+| [159](159_producttype_optimistic_write_objet_partiel.md) | `ProductType` : écriture Vuex optimiste avec objet partiel écrase `categories`/`createdAt` après édition | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
+| [160](160_brand_displayname_optimistic_write_objet_partiel.md) | `Brand`/`DisplayName` : écriture Vuex optimiste avec objet partiel après édition | 🔴 Ouvert | 🟡 | Menu & recettes (Configurations) |
+| [161](161_good_component_categories_derivees_endpoint_types.md) | Good/Component Categories : dérivées de l'endpoint Types au lieu de leur propre endpoint dédié | 🔴 Ouvert | 🟡 | Achats & référentiels / Menu & recettes (Configurations) |
+| [162](162_marketprice_selectedtype_category_resolu_par_nom.md) | MarketPrice : `selectedTypeId`/`selectedCategoryId` résolus par nom, pas par la FK chargée | 🔴 Ouvert | 🟡 | Achats & référentiels (Configurations) |
+| [163](163_good_component_cross_invalidation_absente.md) | Good/Component Types↔Categories : pas d'invalidation croisée de cache, actions `invalidate` mortes | 🔴 Ouvert | 🟡 | Achats & référentiels / Menu & recettes (Configurations) |
+| [164](164_menuapi_code_mort_routes_inexistantes.md) | `menu.api.js` : code mort pointant vers des routes backend inexistantes (`/categories`, `/types`) | 🔴 Ouvert | 🟡 | Menu & recettes (Configurations) |
+| [165](165_referentiels_plats_duplication_non_factorisee.md) | Référentiels plats (Brand/Display/Industrial/PackingType) : duplication quasi totale, jamais factorisée | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [166](166_taxonomies_configurations_i18n_texte_en_dur.md) | Taxonomies Configurations : chaînes FR/EN codées en dur dans les drawers/dialogs (10 écrans) | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [167](167_nav_configurations_fr_non_traduit.md) | Sidebar Configurations : 4 libellés jamais traduits en français (texte anglais copié-collé) | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [168](168_productcategorylist_force_refresh_cache_ttl_contourne.md) | `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL | 🔴 Ouvert | 🟡 | Menu & recettes (Configurations) |
+| [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | ⚪ Diagnostiqué | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+
+**169 bugs au total**, 159-169 ajoutés le 2026-07-19 suite à un audit complet de la section
+"Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component
+Types/Categories, Brand Names, Display Names, Industrials, Packing Types), en miroir de l'audit
+backend (BUG-78 à 88, voir `api-datafriday-staging/docs/bugs/00_INDEX.md`). Motifs récurrents :
+écritures Vuex optimistes avec objet partiel écrasant des champs (BUG-159/160, même famille que
+BUG-149 déjà corrigé pour Events, jamais porté sur les taxonomies Menu/Configurations) ; deux des
+trois paires Type/Category (Good, Component) dérivent leurs Categories de l'endpoint Types au lieu
+d'appeler leur propre endpoint dédié pourtant implémenté côté backend, avec pour conséquence une
+absence d'invalidation croisée de cache (BUG-161/163) ; résolution de FK par correspondance de nom
+plutôt que par l'id chargé, même famille que BUG-62/81 déjà connus dans ce domaine mais jamais
+corrigée sur les drawers MarketPrice (BUG-162) ; code mort ciblant des routes backend inexistantes
+(BUG-164) ; duplication quasi totale des 4 référentiels plats jamais factorisée en composant
+générique (BUG-165), qui explique la répétition du bug i18n sur 10 écrans (BUG-166) ; 4 clés de
+traduction FR de la sidebar Configurations jamais traduites, laissées en anglais (BUG-167). Aucun de
+ces bugs n'a été reproduit en navigateur (pas de `pnpm dev` dans cette session) — à valider
+manuellement avant correction. Fiche de domaine étendue :
+[`docs/modules/04_MENU_CATALOGUE.md`](../modules/04_MENU_CATALOGUE.md).
 
 **158 bugs au total**, 158 ajouté et corrigé le 2026-07-19 suite à un balayage de complétude
 ("on a tout couvert ? pour les events") : seul bouton natif Vuetify du domaine sur `color="primary"`

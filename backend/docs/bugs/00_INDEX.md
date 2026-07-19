@@ -89,6 +89,32 @@
 | [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | 🟢 Corrigé | 🟠 | Événements |
 | [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | 🟢 Corrigé | 🟢 | Prévision |
 | [77](77_createeventcategory_type_global_rejete_regression_bug66.md) | `createEventCategory` rejette les `eventTypeId` globaux (régression du fix BUG-66) | 🟢 Corrigé | 🟠 | Événements |
+| [78](78_product_taxonomy_update_sans_permission_guard.md) | `PATCH /product-types/:id` et `/product-categories/:id` sans `@RequirePermissions` (contrôle d'accès contourné) | 🔴 Ouvert | 🔴 | Menu & recettes (Configurations) |
+| [79](79_suppression_producttype_category_sans_garde_dependances.md) | Suppression `ProductType`/`ProductCategory` sans garde contre les `MenuItem` dépendants | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
+| [80](80_menucomponent_taxonomy_fk_sans_ownership.md) | `MenuComponent.create()`/`update()` : aucune vérification d'ownership sur `componentTypeId`/`componentCategoryId` | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
+| [81](81_suppression_componenttype_category_sans_garde_dependances.md) | Suppression `ComponentType`/`ComponentCategory` sans garde contre les `MenuComponent` dépendants | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
+| [82](82_suppression_marketpricetype_sans_garde_categories.md) | Suppression `MarketPriceType` sans garde contre les `MarketPriceCategory` dépendantes | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
+| [83](83_marketprice_goodtype_category_desync_rename_delete.md) | `MarketPrice.goodType`/`category` (texte libre) jamais resynchronisés au rename/delete de la taxonomie Good Type/Category | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
+| [84](84_packingtype_desync_rename_delete_texte_libre.md) | `PackingType` (texte libre, sans FK) jamais resynchronisé au rename/delete | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
+| [85](85_suppression_brand_displayname_sans_garde_usage.md) | Suppression `Brand`/`DisplayName` sans garde ni avertissement d'usage | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
+| [86](86_suppression_industrial_sans_garde_usage.md) | Suppression `Industrial` sans garde ni avertissement d'usage | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
+| [87](87_taxonomies_configurations_doublon_insensible_casse.md) | Pas de protection anti-doublon insensible à la casse sur les taxonomies/référentiels de Configurations | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [88](88_taxonomies_configurations_dto_name_incoherents.md) | DTOs de création incohérents entre Type et Category (`name` sans `@IsNotEmpty`/`@MaxLength`) sur plusieurs taxonomies | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+
+**88 bugs au total**, 78-88 ajoutés le 2026-07-19 suite à un audit complet de la section
+"Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component
+Types/Categories, Brand Names, Display Names, Industrials, Packing Types), mené en 5 audits
+parallèles (un par paire de taxonomie/référentiel). Le finding le plus sévère (BUG-78) est une
+faille d'autorisation : `update()` sur ProductTypes/Categories n'a jamais eu de garde de permission,
+contrairement à `create`/`remove` sur les mêmes contrôleurs. Motif récurrent sur les 6 taxonomies
+Type/Category et référentiels plats de cette section : suppression sans garde contre les entités
+dépendantes (BUG-79/81/82/85/86, même famille que BUG-75 déjà corrigée pour Events, jamais portée
+ici) et désynchronisation des valeurs texte libre miroir lors d'un rename/delete de la taxonomie
+source (BUG-83/84, même famille que les bugs 62/81 déjà connus côté frontend, mais côté
+update/delete backend cette fois). BUG-80 est un trou d'ownership cross-tenant sur les FK de
+taxonomie de `MenuComponent`, même famille que BUG-67 (Events) jamais porté ici. Voir aussi l'audit
+miroir côté `datafriday-web` (frontend bugs 159-169) pour les findings purement frontend de la même
+session. Fiche de domaine étendue : [`frontend/docs/modules/04_MENU_CATALOGUE.md`](../../../frontend/docs/modules/04_MENU_CATALOGUE.md).
 
 **77 bugs au total**, 77 ajouté le 2026-07-18 suite à une relecture ciblée de `/event-categories`
 (frontend→backend) : le fix de BUG-66 (ajout d'une vérification d'ownership sur `eventTypeId` dans
