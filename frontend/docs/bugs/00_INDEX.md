@@ -170,6 +170,23 @@
 | [154](154_eventslistview_deeplink_editeventid_casse_keepalive.md) | `EventsListView.vue` : deep-link `?editEventId=` cassé par `keep-alive` après la première visite | 🟢 Corrigé | 🟠 | Événements |
 | [155](155_events_domaine_popups_v_dialog_remplaces_par_tiroirs.md) | Domaine Événements : popups `v-dialog` remplacés par des tiroirs (cohérence charte graphique) | 🟢 Corrigé | 🟡 | Événements |
 | [156](156_taxonomydetaildrawer_i18n_texte_en_dur.md) | `TaxonomyDetailDrawer.vue` : texte en dur (FR), i18n non branché + 3 boutons "Enregistrement…" en dur | 🟢 Corrigé | 🟡 | Événements |
+| [157](157_events_domaine_loading_tableaux_noir_et_navigation_event_lie_retiree.md) | Domaine Événements : loading des `v-data-table` en noir (au lieu du rouge de marque) + navigation "événement lié" retirée (non fiable) | 🟢 Corrigé (partiel) | 🟡 | Événements |
+| [158](158_eventformdrawer_createteam_bouton_color_primary_vire_violet_en_dark.md) | `EventFormDrawer.vue` : bouton "Créer" (équipe inline) en `color="primary"` — vire violet en dark mode au lieu du rouge de marque | 🟢 Corrigé | 🟢 | Événements |
+
+**158 bugs au total**, 158 ajouté et corrigé le 2026-07-19 suite à un balayage de complétude
+("on a tout couvert ? pour les events") : seul bouton natif Vuetify du domaine sur `color="primary"`
+au lieu du rouge codé en dur `#ff3131` utilisé partout ailleurs — invisible en thème clair (où
+`primary` vaut justement `#ff3131`) mais viré violet en thème sombre (palette d'accent dark
+volontairement distincte, `plugins/vuetify.js`). Corrigé par cohérence avec le reste du domaine.
+
+**157 bugs au total**, 157 ajouté le 2026-07-19 suite à 2 retours utilisateur sur le passage
+BUG-155/156 : (1) barre de chargement des 4 `v-data-table` du domaine rendue en gris/noir Vuetify
+par défaut au lieu du rouge de marque — `loading` booléen ne suffit pas, Vuetify n'applique le thème
+`primary` que si une couleur est explicitement déduite, corrigé en passant la couleur directement en
+chaîne (`loading ? '#ff3131' : false`) ; (2) navigation "cliquer un événement lié" (introduite par
+BUG-153) n'ouvrait pas la bonne fiche en usage réel — cause racine non identifiée sans navigateur,
+retirée sur demande explicite de l'utilisateur plutôt que corrigée à l'aveugle (liste des événements
+liés conservée, non cliquable).
 
 **156 bugs au total**, 155-156 ajoutés et corrigés le 2026-07-18 suite à un retour utilisateur
 direct sur BUG-153 : "on ne doit pas avoir de popups sur ces pages d'events" et "la traduction n'est

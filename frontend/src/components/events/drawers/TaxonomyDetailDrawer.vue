@@ -37,19 +37,15 @@
         <div v-if="eventsLoading" class="etd-empty">{{ t('loading') }}</div>
         <div v-else-if="eventsError" class="etd-error"><AlertCircle :size="14" /> {{ eventsError }}</div>
         <div v-else-if="linkedEvents.length" class="etd-events">
-          <button
-            v-for="ev in linkedEvents"
-            :key="ev.id"
-            type="button"
-            class="etd-event-row"
-            @click="goToEvent(ev)"
-          >
+          <!-- BUG-157 : ligne cliquable retirée — la navigation vers /events?editEventId=
+               n'ouvrait pas la bonne fiche en usage réel, non fiable sans pouvoir la retester
+               en navigateur. Liste informative uniquement (nom + date). -->
+          <div v-for="ev in linkedEvents" :key="ev.id" class="etd-event-row">
             <div class="etd-event-row__main">
               <span class="etd-event-row__name">{{ ev.name }}</span>
               <span class="etd-event-row__date">{{ formatDate(ev.eventDate) }}</span>
             </div>
-            <ChevronRight :size="16" />
-          </button>
+          </div>
         </div>
         <div v-else class="etd-empty">{{ t('taxonomyDetailDrawerNoEvents') }}</div>
       </div>
@@ -62,7 +58,7 @@
 </template>
 
 <script>
-import { Info, Tag, Shapes, Layers, ChevronRight, AlertCircle } from 'lucide-vue-next';
+import { Info, Tag, Shapes, Layers, AlertCircle } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import EventDrawerShell from './EventDrawerShell.vue';
 
@@ -71,7 +67,7 @@ import EventDrawerShell from './EventDrawerShell.vue';
 // indépendantes, qui ont déjà causé BUG-130/131/145 sur ce domaine par le passé.
 export default {
   name: 'TaxonomyDetailDrawer',
-  components: { Info, Tag, Shapes, Layers, ChevronRight, AlertCircle, EventDrawerShell },
+  components: { Info, Tag, Shapes, Layers, AlertCircle, EventDrawerShell },
 
   setup() {
     const { t } = useI18n();
@@ -197,12 +193,6 @@ export default {
         this.eventsLoading = false;
       }
     },
-    goToEvent(ev) {
-      const id = ev?.id || ev?._id;
-      if (!id) return;
-      this.$emit('update:modelValue', false);
-      this.$router.push({ path: '/events', query: { editEventId: id } });
-    },
   },
 };
 </script>
@@ -243,17 +233,13 @@ export default {
 .etd-event-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   width: 100%; padding: 10px 12px; border-radius: 10px;
-  border: 1px solid #e5e7eb; background: #fff;
-  cursor: pointer; transition: background .15s, border-color .15s; color: #6b7280;
-  text-align: left;
+  border: 1px solid #e5e7eb; background: #fff; color: #6b7280;
 }
-.etd-event-row:hover { background: #fef2f2; border-color: #fecaca; color: #ff3131; }
 .etd-event-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .etd-event-row__name {
   font-size: 13.5px; font-weight: 600; color: #111827;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.etd-event-row:hover .etd-event-row__name { color: #ff3131; }
 .etd-event-row__date { font-size: 12px; color: #9ca3af; }
 
 .etd-fbtn {
@@ -273,5 +259,4 @@ export default {
 .etd--dark .etd-empty { color: #6b7280; }
 .etd--dark .etd-event-row { background: #1a2332; border-color: rgba(255,255,255,.08); color: #9ca3af; }
 .etd--dark .etd-event-row__name { color: #e5e7eb; }
-.etd--dark .etd-event-row:hover { background: rgba(255,49,49,.1); border-color: rgba(255,49,49,.3); }
 </style>
