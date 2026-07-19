@@ -397,6 +397,19 @@
                   {{ t('srByItem') }}
                 </button>
               </div>
+              <v-select
+                v-if="restockEventOptions.length > 1"
+                v-model="restockEventFilter"
+                class="sr-event-filter"
+                :items="restockEventOptions"
+                item-title="label"
+                item-value="id"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                :placeholder="t('srFilterByEventPlaceholder')"
+              />
             </template>
           </AppSearchBar>
 
@@ -1167,6 +1180,10 @@ export default {
       restockGenerated: false,
       shoppingGenerated: false,
       restockViewMode: 'shop',
+      // Filtre d'affichage de la feuille de réarmement : null = tous les events.
+      // N'altère pas les quantités (agrégées sur tous les events sélectionnés) —
+      // masque seulement les lignes qui ne concernent pas l'event choisi.
+      restockEventFilter: null,
       // Feuille de course : 'ingredients' (défaut) = explosion BOM en matière à
       // produire/acheter en cuisine centrale (ignore readyForSale) ; 'finished' =
       // produits finis transportés au PDV (réarmement). Voir bomPlanning.js.
@@ -1593,10 +1610,22 @@ export default {
         }
       }).filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
     },
+    /** Events réellement présents dans la feuille (id + label), pour le filtre. */
+    restockEventOptions() {
+      const idsInRows = new Set()
+      this.restockRows.forEach((row) => (row.eventIds || []).forEach((id) => idsInRows.add(id)))
+      return this.selectedEvents
+        .filter((event) => idsInRows.has(event.id))
+        .map((event) => ({ id: event.id, label: this.eventLabel(event) }))
+    },
     filteredRestockRows() {
+      let rows = this.restockRows
+      if (this.restockEventFilter) {
+        rows = rows.filter((row) => (row.eventIds || []).includes(this.restockEventFilter))
+      }
       const q = (this.restockSearch || '').trim().toLowerCase()
-      if (!q) return this.restockRows
-      return this.restockRows.filter((row) => {
+      if (!q) return rows
+      return rows.filter((row) => {
         const sourceNames = (row.sources || []).map((s) => s.menuItemName).join(' ')
         const eventNames = (row.eventNames || []).join(' ')
         const haystack = [row.shopName, row.itemName, sourceNames, eventNames]
@@ -1942,6 +1971,12 @@ export default {
     },
     stockSettingsSignature() {
       this.ensureStockItemDefaults()
+    },
+    restockEventOptions(options) {
+      // L'event filtré a quitté la sélection (ou n'a plus de lignes) → retour à « tous ».
+      if (this.restockEventFilter && !options.some((o) => o.id === this.restockEventFilter)) {
+        this.restockEventFilter = null
+      }
     },
     objectiveSource() {
       this.resetGeneratedOutputs()
@@ -4425,6 +4460,11 @@ export default {
   background: #fff;
   color: #0f172a;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.sr-event-filter {
+  min-width: 180px;
+  max-width: 260px;
 }
 
 .sr-table-groups,
