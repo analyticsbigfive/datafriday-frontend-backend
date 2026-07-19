@@ -1,6 +1,6 @@
 # BUG-80 — `MenuComponent.create()`/`update()` : aucune vérification d'ownership sur `componentTypeId`/`componentCategoryId`
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Menu & recettes (Configurations)
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -27,17 +27,24 @@ sur `MenuComponent`.
 
 ## Correction
 
-Reste à faire : ajouter la vérification d'accessibilité (`OR: [{tenantId}, {tenantId: null}]`,
-pattern `findAccessibleXOrThrow` déjà établi côté Events, voir aussi le correctif de
-[BUG-77](77_createeventcategory_type_global_rejete_regression_bug66.md) qui précise bien utiliser la
-variante "accessible" et non "owned" pour une simple référence FK) avant `create`/`update` de
-`MenuComponent`.
+Ajouté deux nouveaux helpers privés, `assertComponentTypeAccessible`/
+`assertComponentCategoryAccessible` (`src/features/menu-components/menu-components.service.ts:95-118`,
+juste après `assertChildrenExist`, même style), utilisant le pattern "accessible"
+(`OR: [{tenantId}, {tenantId: null}]`) — pas la variante "owned" stricte, pour ne pas reproduire la
+régression de BUG-77 sur les entrées globales. Chaque helper est un no-op si l'id est
+`undefined`/`null` (comportement `PATCH` partiel préservé). Appelés :
+- `src/features/menu-components/menu-components.service.ts:302-303` dans `create()`, en parallèle
+  de `assertIngredientsExist`/`assertChildrenExist`, avant l'écriture Prisma.
+- `src/features/menu-components/menu-components.service.ts:469-470` dans `update()`, même
+  emplacement.
 
 ## Risque de régression / à surveiller
 
-Vérifier qu'un `componentTypeId`/`componentCategoryId` **global** (`tenantId=null`) reste accepté
-après le fix (ne pas reproduire la régression de BUG-77 en utilisant le mauvais helper "owned" au
-lieu de "accessible").
+Non testé en navigateur/via `pnpm dev` (indisponible dans cette session) — revue de code
+uniquement, validation manuelle requise. Vérifier qu'un `componentTypeId`/`componentCategoryId`
+**global** (`tenantId=null`) reste accepté après le fix (ne pas reproduire la régression de BUG-77
+en utilisant le mauvais helper "owned" au lieu de "accessible"), et qu'un
+`componentTypeId`/`componentCategoryId` omis (`undefined`) ne déclenche aucune vérification.
 
 ## Références
 

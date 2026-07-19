@@ -407,6 +407,7 @@ export class ProductTypesController {
     return this.menuItemsService.createProductType(body.name, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un type de produit' })
   @ApiResponse({ status: 200, description: 'Type de produit mis à jour' })
@@ -464,6 +465,7 @@ export class ProductCategoriesController {
     );
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une catégorie de produit' })
   @ApiResponse({ status: 200, description: 'Catégorie de produit mise à jour' })

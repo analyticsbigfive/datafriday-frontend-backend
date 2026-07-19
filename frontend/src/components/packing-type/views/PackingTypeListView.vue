@@ -194,13 +194,13 @@ export default {
       this.deleteError = '';
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
-        if (!id) { this.deleteError = 'Identifiant manquant'; return; }
+        if (!id) { this.deleteError = this.t('packingTypeList.missingId'); return; }
         await deletePackingType(id);
         await this.$store.dispatch('packingTypes/removePackingType', id);
         this.deleteDialog = false;
         this.deleteTarget = null;
       } catch (e) {
-        this.deleteError = e?.response?.data?.message || e?.message || 'Échec de la suppression';
+        this.deleteError = e?.response?.data?.message || e?.message || this.t('packingTypeList.deleteError');
       } finally {
         this.deleteLoading = false;
       }

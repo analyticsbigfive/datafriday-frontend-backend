@@ -664,15 +664,6 @@ export async function getProductTypes() {
   return api.get('/product-types')
 }
 
-/**
- * Créer un type de produit
- * @param {string} name
- * @returns {Promise<Object>}
- */
-export async function createProductType(name) {
-  return api.post('/product-types', { name })
-}
-
 // ============================================
 // PRODUCT CATEGORIES (dynamiques)
 // ============================================
@@ -685,75 +676,6 @@ export async function createProductType(name) {
 export async function getProductCategories(typeId) {
   const url = typeId ? `/product-categories?typeId=${encodeURIComponent(typeId)}` : '/product-categories'
   return api.get(url)
-}
-
-/**
- * Créer une catégorie de produit
- * @param {string} name
- * @param {string} typeId - ID du type parent
- * @returns {Promise<Object>}
- */
-export async function createProductCategory(name, typeId) {
-  return api.post('/product-categories', { name, typeId })
-}
-
-// ============================================
-// CATEGORIES (legacy)
-// ============================================
-
-/**
- * Récupérer toutes les catégories
- * @returns {Promise<Array>}
- */
-export async function getAllCategories() {
-  return api.get('/categories')
-}
-
-/**
- * Créer une catégorie
- * @param {string} name 
- * @param {string} typeId - ID du type parent
- * @returns {Promise<Object>}
- */
-export async function createCategory(name, typeId) {
-  return api.post('/categories', { name, typeId })
-}
-
-/**
- * Récupérer les agrégations de catégories
- * @returns {Promise<Object>}
- */
-export async function getAllCategoryAggregations() {
-  return api.get('/categories/aggregations')
-}
-
-// ============================================
-// TYPES (legacy)
-// ============================================
-
-/**
- * Récupérer tous les types
- * @returns {Promise<Array>}
- */
-export async function getAllTypes() {
-  return api.get('/types')
-}
-
-/**
- * Créer un type
- * @param {string} name 
- * @returns {Promise<Object>}
- */
-export async function createType(name) {
-  return api.post('/types', { name })
-}
-
-/**
- * Récupérer les agrégations de types
- * @returns {Promise<Object>}
- */
-export async function getAllTypeAggregations() {
-  return api.get('/types/aggregations')
 }
 
 // ============================================

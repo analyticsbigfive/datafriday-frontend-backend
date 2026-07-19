@@ -89,17 +89,17 @@
 | [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | 🟢 Corrigé | 🟠 | Événements |
 | [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | 🟢 Corrigé | 🟢 | Prévision |
 | [77](77_createeventcategory_type_global_rejete_regression_bug66.md) | `createEventCategory` rejette les `eventTypeId` globaux (régression du fix BUG-66) | 🟢 Corrigé | 🟠 | Événements |
-| [78](78_product_taxonomy_update_sans_permission_guard.md) | `PATCH /product-types/:id` et `/product-categories/:id` sans `@RequirePermissions` (contrôle d'accès contourné) | 🔴 Ouvert | 🔴 | Menu & recettes (Configurations) |
-| [79](79_suppression_producttype_category_sans_garde_dependances.md) | Suppression `ProductType`/`ProductCategory` sans garde contre les `MenuItem` dépendants | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
-| [80](80_menucomponent_taxonomy_fk_sans_ownership.md) | `MenuComponent.create()`/`update()` : aucune vérification d'ownership sur `componentTypeId`/`componentCategoryId` | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
-| [81](81_suppression_componenttype_category_sans_garde_dependances.md) | Suppression `ComponentType`/`ComponentCategory` sans garde contre les `MenuComponent` dépendants | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
-| [82](82_suppression_marketpricetype_sans_garde_categories.md) | Suppression `MarketPriceType` sans garde contre les `MarketPriceCategory` dépendantes | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
-| [83](83_marketprice_goodtype_category_desync_rename_delete.md) | `MarketPrice.goodType`/`category` (texte libre) jamais resynchronisés au rename/delete de la taxonomie Good Type/Category | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
-| [84](84_packingtype_desync_rename_delete_texte_libre.md) | `PackingType` (texte libre, sans FK) jamais resynchronisé au rename/delete | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
-| [85](85_suppression_brand_displayname_sans_garde_usage.md) | Suppression `Brand`/`DisplayName` sans garde ni avertissement d'usage | 🔴 Ouvert | 🟠 | Menu & recettes (Configurations) |
-| [86](86_suppression_industrial_sans_garde_usage.md) | Suppression `Industrial` sans garde ni avertissement d'usage | 🔴 Ouvert | 🟠 | Achats & référentiels (Configurations) |
-| [87](87_taxonomies_configurations_doublon_insensible_casse.md) | Pas de protection anti-doublon insensible à la casse sur les taxonomies/référentiels de Configurations | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
-| [88](88_taxonomies_configurations_dto_name_incoherents.md) | DTOs de création incohérents entre Type et Category (`name` sans `@IsNotEmpty`/`@MaxLength`) sur plusieurs taxonomies | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [78](78_product_taxonomy_update_sans_permission_guard.md) | `PATCH /product-types/:id` et `/product-categories/:id` sans `@RequirePermissions` (contrôle d'accès contourné) | 🟢 Corrigé | 🔴 | Menu & recettes (Configurations) |
+| [79](79_suppression_producttype_category_sans_garde_dependances.md) | Suppression `ProductType`/`ProductCategory` sans garde contre les `MenuItem` dépendants | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [80](80_menucomponent_taxonomy_fk_sans_ownership.md) | `MenuComponent.create()`/`update()` : aucune vérification d'ownership sur `componentTypeId`/`componentCategoryId` | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [81](81_suppression_componenttype_category_sans_garde_dependances.md) | Suppression `ComponentType`/`ComponentCategory` sans garde contre les `MenuComponent` dépendants | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [82](82_suppression_marketpricetype_sans_garde_categories.md) | Suppression `MarketPriceType` sans garde contre les `MarketPriceCategory` dépendantes | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [83](83_marketprice_goodtype_category_desync_rename_delete.md) | `MarketPrice.goodType`/`category` (texte libre) jamais resynchronisés au rename/delete de la taxonomie Good Type/Category | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [84](84_packingtype_desync_rename_delete_texte_libre.md) | `PackingType` (texte libre, sans FK) jamais resynchronisé au rename/delete | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [85](85_suppression_brand_displayname_sans_garde_usage.md) | Suppression `Brand`/`DisplayName` sans garde ni avertissement d'usage | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [86](86_suppression_industrial_sans_garde_usage.md) | Suppression `Industrial` sans garde ni avertissement d'usage | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [87](87_taxonomies_configurations_doublon_insensible_casse.md) | Pas de protection anti-doublon insensible à la casse sur les taxonomies/référentiels de Configurations | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [88](88_taxonomies_configurations_dto_name_incoherents.md) | DTOs de création incohérents entre Type et Category (`name` sans `@IsNotEmpty`/`@MaxLength`) sur plusieurs taxonomies | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 
 **88 bugs au total**, 78-88 ajoutés le 2026-07-19 suite à un audit complet de la section
 "Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component
@@ -115,6 +115,21 @@ update/delete backend cette fois). BUG-80 est un trou d'ownership cross-tenant s
 taxonomie de `MenuComponent`, même famille que BUG-67 (Events) jamais porté ici. Voir aussi l'audit
 miroir côté `datafriday-web` (frontend bugs 159-169) pour les findings purement frontend de la même
 session. Fiche de domaine étendue : [`frontend/docs/modules/04_MENU_CATALOGUE.md`](../../../frontend/docs/modules/04_MENU_CATALOGUE.md).
+
+**78-88 corrigés le 2026-07-19**, même jour, en 3 passes parallèles par cluster de fichiers (menu-items
++ menu-components ; market-price-taxonomy + packing-types ; brands/display-names/industrials).
+Politique uniformisée sur les 6 gardes de suppression (BUG-79/81/82/85/86) : blocage total
+(`ConflictException`, pattern BUG-75) si une entité dépendante existe encore, plutôt que
+l'avertissement optionnel initialement envisagé pour Brand/DisplayName/Industrial — choisi pour
+rester cohérent avec le reste de la section plutôt que de trancher au cas par cas. BUG-83/84
+(désynchronisation texte libre) corrigés par propagation transactionnelle du rename
+(`prisma.$transaction`) plutôt que par promotion en FK réelle (chantier plus lourd, jugé non
+nécessaire une fois la garde de suppression en place) ; `PackingType` (BUG-84, sans FK du tout)
+utilise en plus un blocage de suppression basé sur un `count()` par égalité de texte, faute de FK à
+vérifier. BUG-87/88 étendus à l'ensemble des 10 taxonomies/référentiels de la section (pas
+seulement les 3 initialement citées dans chaque fiche). Revue de code uniquement — **aucun test
+`pnpm dev`/navigateur exécuté dans cette session**, chaque fiche liste les points de validation
+manuelle à faire avant déploiement.
 
 **77 bugs au total**, 77 ajouté le 2026-07-18 suite à une relecture ciblée de `/event-categories`
 (frontend→backend) : le fix de BUG-66 (ajout d'une vérification d'ownership sur `eventTypeId` dans

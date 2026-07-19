@@ -1,6 +1,6 @@
 # BUG-166 — Taxonomies Configurations : chaînes FR/EN codées en dur dans les drawers/dialogs (10 écrans)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Menu & recettes / Achats & référentiels (Configurations)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -37,6 +37,103 @@ Reste à faire : appliquer le même correctif que [BUG-156](156_taxonomydetaildr
 `translations.js`) aux 10 écrans de Configurations. Vu le nombre d'écrans concernés, envisager de
 faire ce nettoyage **après** le refactor de factorisation (BUG-165) pour n'écrire les clés qu'une
 seule fois dans le composant générique plutôt que 4× à l'identique pour les référentiels plats.
+
+Volet Good taxonomy (MarketPrice Type/Category) traité : dans `MarketPriceTypeList.vue`, le
+fallback `"Failed to load types"` (:208) et les messages FR en dur `"Identifiant manquant"` (:258),
+`"Impossible de supprimer un Good Type lié à des catégories."` (:263 et :272) et `"Échec de la
+suppression"` (:274) passent désormais par `t('marketPriceTypeList.loadError'|'missingId'|
+'deleteBlockedCategories'|'deleteError')`. Même traitement dans `MarketPriceCategoryList.vue` :
+`"Failed to load categories"` (:200) → `loadError`, `"Identifiant manquant"` (:247) → `missingId`,
+`"Impossible de supprimer une Good Category utilisée dans le système."` (:256) →
+`deleteBlockedUsed`, `"Échec de la suppression"` (:258) → `deleteError`, sous la clé
+`marketPriceCategoryList.*`. Dans `MarketPriceTypeFormDrawer.vue`, `"Le nom est requis"` (:112) →
+`marketPriceTypeList.nameRequired`, `"Identifiant manquant"` (:118) → `marketPriceTypeList.missingId`
+(clé réutilisée, même namespace que la liste), `"Échec de la sauvegarde"` (:133) →
+`marketPriceTypeList.saveError`. Dans `MarketPriceCategoryFormDrawer.vue`, `"Le nom est requis"`
+(:128) → `marketPriceCategoryList.nameRequired`, `"Le type est requis"` (:129) →
+`marketPriceCategoryList.typeRequired`, `"Identifiant manquant"` (:137) →
+`marketPriceCategoryList.missingId`, `"Échec de la sauvegarde"` (:156) →
+`marketPriceCategoryList.saveError`. Dans `MarketPriceTypeCategoriesDrawer.vue`, le chip `<v-chip>
+Category</v-chip>` (:43, anglais en dur dans une UI FR) → `t('marketPriceTypeList.categoryChipLabel')`
+(EN "Category" / FR "Catégorie"). 14 nouvelles clés ajoutées en `en`/`fr` dans `translations.js`,
+insérées immédiatement après les blocs de clés `marketPriceTypeList*`/`marketPriceCategoryList*`
+existants (pas de clé "saving" dédiée ajoutée pour ces deux drawers : contrairement aux dialogs de
+BUG-156, aucun texte "Enregistrement…"/"Saving…" n'était codé en dur ici — le bouton reste juste
+`:disabled="loading"`). Ni `ComponentType*`/`ComponentCategory*`, ni `NewTypeDialog`/
+`NewCategoryDialog`, ni `BrandName*`/`DisplayName*`, ni `Industrial*`/`PackingType*`, ni
+`ProductType*`/`ProductCategory*` n'ont été touchés dans ce passage (autres volets du même bug,
+traités séparément).
+
+Volet Industrial/PackingType traité : dans `IndustrialFormDrawer.vue`, le bouton "Sauvegarde…" (:43)
+→ `t('industrialList.saving')`, `"Le nom est requis"` (:104) → `industrialList.nameRequired`,
+`"Identifiant manquant"` (:110) → `industrialList.missingId`, `"Échec de la sauvegarde"` (:125) →
+`industrialList.saveError`. Dans `IndustrialDeleteDialog.vue`, le bouton "Suppression…" (:35) →
+`industrialList.deleting`. Dans `IndustrialListView.vue`, `"Identifiant manquant"` (:197)
+→ `industrialList.missingId` (clé réutilisée, même namespace que le drawer/dialog) et `"Échec de la
+suppression"` (:203) → `industrialList.deleteError`. `PackingTypeFormDrawer.vue`,
+`PackingTypeDeleteDialog.vue` et `PackingTypeListView.vue` étant des duplicatas quasi identiques
+(mêmes numéros de ligne), traités à l'identique sous le namespace `packingTypeList.*` (`saving`,
+`nameRequired`, `missingId`, `saveError`, `deleting`, `deleteError`). Les 3 composants Industrial et
+les 3 composants PackingType partageaient déjà un même namespace de clés par écran
+(`industrialList.*` / `packingTypeList.*`, pas un namespace par composant) pour les labels
+statiques existants — convention reprise ici plutôt que le pattern par-composant de BUG-156 pour
+rester cohérent avec l'existant local. 12 nouvelles clés ajoutées en `en` et 12 en `fr` dans
+`translations.js` (6 par namespace `industrialList*`/`packingTypeList*`), insérées immédiatement
+après les blocs de clés existants correspondants.
+
+Volet Menu Item (Product) / Component / NewType-NewCategory dialogs traité (2026-07-19, session
+ultérieure) : suit exactement la même convention `xxxList.loadError`/`.missingId`/
+`.deleteBlockedCategories`|`.deleteBlockedUsed`/`.deleteError`/`.nameRequired`/`.typeRequired`/
+`.saveError` déjà posée par le volet Good/MarketPrice ci-dessus (clés réutilisées entre List et
+FormDrawer d'un même écran, namespace par écran).
+
+- `ProductTypeFormDrawer.vue:112,118,133` → `productTypeList.nameRequired`/`.missingId`/
+  `.saveError`. `ProductTypeList.vue` (`loadTypes` catch, `confirmDelete`) → `.loadError`,
+  `.missingId`, `.deleteBlockedCategories`, `.deleteError`.
+- `ProductCategoryFormDrawer.vue:230-260` → `productCategoryList.nameRequired`/`.typeRequired`/
+  `.missingId`/`.saveError` ; le sous-dialog inline "créer un type" (jusqu'ici entièrement en dur :
+  titre, sous-titre, label, placeholder, message "existe déjà", erreur de création) → nouvelles
+  clés `.newTypeTitle`/`.newTypeSubtitle`/`.newTypeLabel`/`.newTypePlaceholder`/`.typeExists`
+  (avec un placeholder `{name}` remplacé manuellement en JS, faute de support d'interpolation dans
+  `t()`)/`.typeCreateError` ; les boutons Annuler/Créer du sous-dialog réutilisent les clés
+  `.cancel`/`.create` déjà existantes. `ProductCategoryList.vue` (`loadCategories` catch,
+  `confirmDelete`) → `.loadError`, `.missingId`, `.deleteBlockedUsed`, `.deleteError`.
+- `ComponentTypeFormDrawer.vue:112,118,133` → `componentTypeList.nameRequired`/`.missingId`/
+  `.saveError`. `ComponentTypeList.vue` (`loadTypes` catch, `confirmDelete`) → `.loadError`,
+  `.missingId`, `.deleteBlockedCategories`, `.deleteError`.
+- `ComponentCategoryFormDrawer.vue:128-129,137,156` → `componentCategoryList.nameRequired`/
+  `.typeRequired`/`.missingId`/`.saveError`. `ComponentCategoryList.vue` (`loadCategories` catch,
+  `confirmDelete`) → `.loadError`, `.missingId`, `.deleteBlockedUsed`, `.deleteError`.
+- `NewTypeDialog.vue:22,74` → `compCreateNewTypeDialogCreating` (bouton "Création…") /
+  `compCreateNewTypeDialogGenericError`.
+- `NewCategoryDialog.vue:17-18,22,80,101` → `compCreateNewCategoryDialogChooseTypeFirst` +
+  `compCreateNewCategoryDialogTypeNotRecognized` (message d'avertissement composé, avec le nom de
+  type interpolé directement dans le template comme c'était déjà fait pour `itemName` dans
+  `BrandNameDeleteDialog.vue`), `compCreateNewCategoryDialogCreating` (bouton "Création…"),
+  `compCreateNewCategoryDialogTypeRequiredError`, `compCreateNewCategoryDialogGenericError`.
+  Namespace `compCreate*` réutilisé (déjà utilisé par ces 2 dialogs pour leurs labels statiques)
+  plutôt qu'un nouveau namespace par dialog, pour rester cohérent avec l'existant local — même
+  logique que le choix `industrialList*`/`packingTypeList*` ci-dessus.
+- `BrandNameFormDrawer.vue:43,104,110,125` → `brandNameList.saving`/`.nameRequired`/`.missingId`/
+  `.saveError`. `BrandNameDeleteDialog.vue:35` → `brandNameList.deleting`. `BrandNameListView.vue`
+  (`loadBrands` catch, `confirmDelete`, + `:36` compteur `"{{n}} marques"` en dur) →
+  `.loadError`/`.missingId`/`.deleteError`, et branchement du compteur sur la clé
+  `brandNameListTotalBrands` déjà existante (vérifiée présente en `en`/`fr`, pas de doublon créé).
+- `DisplayNameFormDrawer.vue`/`DisplayNameDeleteDialog.vue`/`DisplayNameListView.vue` : mêmes
+  motifs, mêmes lignes, sous `displayNameList.*` (`.saving`, `.nameRequired`, `.missingId`,
+  `.saveError`, `.deleting`, `.loadError`, `.deleteError`) — le compteur `totalDisplayNames` de
+  `DisplayNameListView.vue:36` utilisait déjà `t('displayNameList.totalDisplayNames')`, aucun
+  changement nécessaire là.
+
+Toutes les nouvelles clés insérées immédiatement après le bloc de clés existant de chaque écran
+(`productTypeList*`/`productCategoryList*`/`componentTypeList*`/`componentCategoryList*`/
+`brandNameList*`/`displayNameList*`/`compCreate*`) en `en` et en `fr`, syntaxe vérifiée avec
+`node --check src/i18n/translations.js` (OK). `ComponentTypeList.vue`/`ComponentCategoryList.vue`/
+`ComponentTypeFormDrawer.vue`/`ComponentCategoryFormDrawer.vue`/`marketPriceTypes.js`/
+`marketPriceCategories.js`/`componentTypes.js`/`componentCategories.js`/tout fichier drawer
+MarketPrice n'ont pas été touchés côté store ou logique métier dans ce passage (uniquement les
+chaînes en dur listées ci-dessus, dans les fichiers `.vue` explicitement dans le périmètre de cette
+tâche).
 
 ## Risque de régression / à surveiller
 

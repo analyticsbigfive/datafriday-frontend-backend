@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -1564,7 +1564,45 @@ export class MenuItemsService {
     });
   }
 
+  // BUG-87 : la contrainte unique Postgres (@@unique([tenantId, name])) est sensible à la casse —
+  // sans ce garde-fou pré-insertion, "Food" et "food" peuvent coexister comme deux ProductType
+  // distincts pour le même tenant. Pattern identique à menu-items.service.ts:273 (dedupeByName).
+  private async assertProductTypeNameAvailable(name: string, tenantId: string | undefined, excludeId?: string) {
+    const duplicate = await this.prisma.productType.findFirst({
+      where: {
+        tenantId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`Un type nommé « ${name} » existe déjà`);
+    }
+  }
+
+  // Scope aligné sur la contrainte unique réelle (@@unique([tenantId, typeId, name])) : deux
+  // catégories de même nom sont autorisées si elles appartiennent à des ProductType différents.
+  private async assertProductCategoryNameAvailable(
+    name: string,
+    tenantId: string | undefined,
+    typeId: string,
+    excludeId?: string,
+  ) {
+    const duplicate = await this.prisma.productCategory.findFirst({
+      where: {
+        tenantId,
+        typeId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`Une catégorie nommée « ${name} » existe déjà pour ce type`);
+    }
+  }
+
   async createProductType(name: string, tenantId?: string) {
+    await this.assertProductTypeNameAvailable(name, tenantId);
     try {
       return await this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
     } catch (error) {
@@ -1588,6 +1626,23 @@ export class MenuItemsService {
       throw new BadRequestException(`Cannot delete global product type`);
     }
 
+    // BUG-79 : ProductCategory.type est onDelete: Cascade et MenuItem.typeId n'a pas d'onDelete
+    // explicite (SET NULL par défaut) — sans cette garde, supprimer un ProductType cascade-supprime
+    // silencieusement ses ProductCategory enfants et met NULL sur MenuItem.typeId. Même pattern que
+    // deleteEventType (BUG-75, events.service.ts:297-309).
+    const categoryCount = await this.prisma.productCategory.count({ where: { typeId: id } });
+    if (categoryCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
+      );
+    }
+    const menuItemCount = await this.prisma.menuItem.count({ where: { typeId: id } });
+    if (menuItemCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+      );
+    }
+
     await this.prisma.productType.delete({ where: { id } });
     this.logger.log(`Product type ${id} deleted`);
   }
@@ -1603,6 +1658,10 @@ export class MenuItemsService {
 
     if (productType.tenantId === null) {
       throw new BadRequestException(`Cannot update global product type`);
+    }
+
+    if (name !== undefined) {
+      await this.assertProductTypeNameAvailable(name, tenantId, id);
     }
 
     const updated = await this.prisma.productType.update({
@@ -1678,6 +1737,8 @@ export class MenuItemsService {
       });
     }
 
+    await this.assertProductCategoryNameAvailable(name, tenantId, resolvedTypeId);
+
     try {
       return await this.prisma.productCategory.create({
         data: {
@@ -1708,6 +1769,16 @@ export class MenuItemsService {
 
     if (productCategory.tenantId === null) {
       throw new BadRequestException(`Cannot delete global product category`);
+    }
+
+    // BUG-79 : MenuItem.categoryId n'a pas d'onDelete explicite (SET NULL par défaut) — sans cette
+    // garde, supprimer une ProductCategory encore utilisée met silencieusement NULL sur
+    // MenuItem.categoryId. Même pattern que deleteEventCategory (BUG-75).
+    const menuItemCount = await this.prisma.menuItem.count({ where: { categoryId: id } });
+    if (menuItemCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer cette catégorie : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+      );
     }
 
     await this.prisma.productCategory.delete({ where: { id } });
@@ -1755,6 +1826,15 @@ export class MenuItemsService {
         });
       }
       updateData.type = { connect: { id: resolvedTypeId } };
+    }
+
+    if (data.name !== undefined || resolvedTypeId !== undefined) {
+      await this.assertProductCategoryNameAvailable(
+        data.name ?? productCategory.name,
+        tenantId,
+        resolvedTypeId ?? productCategory.typeId,
+        id,
+      );
     }
 
     const updated = await this.prisma.productCategory.update({

@@ -1,6 +1,6 @@
 # BUG-82 — Suppression `MarketPriceType` sans garde contre les `MarketPriceCategory` dépendantes
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Achats & référentiels (Configurations — Good Types/Categories)
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (impact visible côté `datafriday-web`)
@@ -25,15 +25,26 @@ Aucune vérification `categories.length` (ou équivalent `count`) côté service
 
 ## Correction
 
-Reste à faire : bloquer la suppression côté backend si des `MarketPriceCategory` dépendent encore
-du type (même pattern que le fix de [BUG-75](75_eventtype_eventcategory_delete_cascade_sans_garde.md)).
-Une fois le backend faisant autorité, le check front peut rester en optimisation UX mais ne doit
-plus être le seul filet.
+Appliqué le même pattern de garde que [BUG-75](75_eventtype_eventcategory_delete_cascade_sans_garde.md)
+(`count()` avant `delete()`, `ConflictException` si des dépendants existent), étendu au-delà du
+périmètre initial du bug pour rester cohérent avec les correctifs jumeaux BUG-79/81/85/86 (politique
+uniforme "bloquer si quelque chose en dépend") :
+
+- `market-price-taxonomy.service.ts:114-139` (`deleteType`) — bloque désormais si des
+  `MarketPriceCategory` (`typeId: id`) **ou** des `MarketPrice` (`marketPriceTypeId: id`) dépendent
+  encore du type, avec `ConflictException` donnant le compte de chaque.
+- `market-price-taxonomy.service.ts:266-288` (`deleteCategory`) — bloque désormais si des
+  `MarketPrice` (`marketPriceCategoryId: id`) dépendent encore de la catégorie.
+
+Le check front (`MarketPriceTypeList.vue:262-265`) reste en place en optimisation UX ; le backend
+fait maintenant autorité.
 
 ## Risque de régression / à surveiller
 
-Vérifier que la suppression d'un Good Type sans catégorie continue de fonctionner, et que le
-message d'erreur front reste cohérent avec la nouvelle réponse backend.
+Revue de code uniquement dans cette session (pas de `pnpm dev` lancé) — validation manuelle requise :
+vérifier que la suppression d'un Good Type/Category sans dépendant continue de fonctionner, et que
+le message d'erreur front reste cohérent avec la nouvelle réponse backend (`e.response.data.message`,
+même pattern que BUG-75).
 
 ## Références
 

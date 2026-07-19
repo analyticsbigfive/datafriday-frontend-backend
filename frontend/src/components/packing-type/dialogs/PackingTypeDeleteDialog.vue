@@ -32,7 +32,7 @@
           {{ t('packingTypeList.cancel') }}
         </button>
         <button class="pktd-btn pktd-btn--danger" :disabled="loading" @click="$emit('confirm')">
-          <Trash2 :size="14" /> {{ loading ? 'Suppression…' : t('packingTypeList.delete') }}
+          <Trash2 :size="14" /> {{ loading ? t('packingTypeList.deleting') : t('packingTypeList.delete') }}
         </button>
       </div>
     </div>

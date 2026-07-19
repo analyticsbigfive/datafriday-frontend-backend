@@ -1,6 +1,6 @@
 # BUG-164 — `menu.api.js` : code mort pointant vers des routes backend inexistantes (`/categories`, `/types`)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Menu & recettes (Configurations)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -31,16 +31,23 @@ semblent être un essai d'API générique jamais concrétisé côté backend.
 
 ## Correction
 
-Reste à faire : supprimer `createProductType`, `createProductCategory`, `getAllCategories`,
-`createCategory`, `getAllCategoryAggregations`, `getAllTypes`, `createType` de `menu.api.js`.
-Conserver `getProductTypes`/`getProductCategories` (utilisées par `useSpaceData.js`) ou les migrer
-vers `product.api.js` pour cohérence avec le reste du domaine (voir aussi la note de
-`frontend/docs/modules/04_MENU_CATALOGUE.md:439-441` sur ce même fichier).
+Corrigé le 2026-07-19 : `createProductType`, `createProductCategory`, `getAllCategories`,
+`createCategory`, `getAllCategoryAggregations`, `getAllTypes`, `createType` supprimés de
+`menu.api.js`, ainsi que `getAllTypeAggregations` (`/types/aggregations`), trouvée dans le même
+cluster mort lors de la vérification finale des appelants (même famille — aucune référence en
+dehors de `menu.api.js` lui-même ; les seuls appelants réels de `getAllCategories`/`getAllTypes`/
+`getAllCategoryAggregations`/`getAllTypeAggregations`/`createCategory`/`createType` sont
+`MenuItemsLibraryPanel.vue`/`TypeCategorySelector.vue`, qui importent depuis `utils/api.js`, pas
+`menu.api.js`). `getProductTypes`/`getProductCategories` conservées telles quelles (utilisées par
+`useSpaceData.js`), non migrées vers `product.api.js` dans ce passage pour limiter le risque —
+migration possible dans un futur nettoyage séparé.
 
 ## Risque de régression / à surveiller
 
-Avant suppression, re-grep `frontend/src` pour confirmer zéro appelant (déjà fait dans cette
-session, mais à revérifier au moment du fix si du code a changé entre-temps).
+Suppression confirmée sans impact : grep final de `frontend/src` avant suppression, zéro appelant
+des 8 fonctions retirées en dehors de leur propre définition. Non reproduit en navigateur (pas de
+`pnpm dev` dans cette session) — à valider manuellement que les écrans consommant `menu.api.js`
+(MenuComponent, Suppliers, Packaging, MarketPrices) continuent de fonctionner normalement.
 
 ## Références
 

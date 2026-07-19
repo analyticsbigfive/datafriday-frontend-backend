@@ -233,6 +233,10 @@ export default {
       loading: false,
       error: '',
       isHydratingForm: false,
+      // FK type/catégorie chargées depuis l'API (BUG-162) : réutilisées tant que le nom
+      // affiché n'a pas changé depuis le chargement, au lieu de re-résoudre par nom à
+      // chaque sauvegarde (cf. BUG-62/81, même pattern sur Component/MenuItem).
+      _loadedTaxonomy: { typeId: null, categoryId: null, typeName: '', categoryName: '' },
       imageFile: null,
       imagePreview: '',
       localGoodTypeOptions: [],
@@ -369,10 +373,19 @@ export default {
       return [...base, ...extra];
     },
     selectedTypeId() {
+      // Réutilise le FK chargé depuis l'API tant que le nom affiché n'a pas changé
+      // depuis le chargement (BUG-162) ; ne retombe sur la résolution par nom que si
+      // l'utilisateur change effectivement le Good Type (ou si aucun FK n'a été chargé).
+      if (this._loadedTaxonomy.typeId && this._loadedTaxonomy.typeName === this.form.goodType) {
+        return this._loadedTaxonomy.typeId;
+      }
       const types = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
       return types.find((t) => t.name === this.form.goodType)?.id || null;
     },
     selectedCategoryId() {
+      if (this._loadedTaxonomy.categoryId && this._loadedTaxonomy.categoryName === this.form.category) {
+        return this._loadedTaxonomy.categoryId;
+      }
       return (this.productCategories || []).find((c) => c.name === this.form.category)?.id || null;
     },
     goodCategoryOptions() {
@@ -432,6 +445,19 @@ export default {
           packingLength: Number(raw.packingLength) || 0,
           packingWidth: Number(raw.packingWidth) || 0,
           packingHeight: Number(raw.packingHeight) || 0,
+        };
+        // Capture le FK type/catégorie tel que chargé depuis l'API (BUG-162), pour le
+        // réutiliser à la sauvegarde tant que le nom affiché ne change pas — au lieu de
+        // toujours re-résoudre par nom (fragile si homonymie/cache périmé). NB : au
+        // 2026-07-19, MarketPriceListView.vue n'expose pas encore marketPriceTypeId/
+        // marketPriceCategoryId sur l'item agrégé transmis ici ; tant que ce n'est pas
+        // corrigé en amont, ces valeurs seront null et selectedTypeId/selectedCategoryId
+        // retombent sur la résolution par nom (comportement inchangé, sans régression).
+        this._loadedTaxonomy = {
+          typeId: raw.marketPriceTypeId || raw.typeId || null,
+          categoryId: raw.marketPriceCategoryId || raw.categoryId || null,
+          typeName: this.form.goodType,
+          categoryName: this.form.category,
         };
         // Si l'unité de recette = l'unité du 1er supplier item, la conversion vaut 1
         // par défaut (même unité) ; sinon on garde la valeur existante (à saisir).

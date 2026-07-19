@@ -125,8 +125,8 @@ export default {
     async submit() {
       this.error = '';
       const name = String(this.form.name || '').trim();
-      if (!name) { this.error = 'Le nom est requis'; return; }
-      if (!this.form.typeId) { this.error = 'Le type est requis'; return; }
+      if (!name) { this.error = this.t('componentCategoryList.nameRequired'); return; }
+      if (!this.form.typeId) { this.error = this.t('componentCategoryList.typeRequired'); return; }
 
       this.loading = true;
       try {
@@ -134,7 +134,7 @@ export default {
         const typeName = (this.types.find(t => t.id === payload.typeId) || {}).name || '';
 
         if (this.mode === 'edit') {
-          if (!this.form.id) { this.error = 'Identifiant manquant'; return; }
+          if (!this.form.id) { this.error = this.t('componentCategoryList.missingId'); return; }
           await updateComponentCategory(this.form.id, payload);
           await this.$store.dispatch('componentCategories/updateComponentCategory', {
             id: this.form.id, ...payload, typeName,
@@ -153,7 +153,7 @@ export default {
         }
         this.close();
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Échec de la sauvegarde';
+        this.error = e?.response?.data?.message || e?.message || this.t('componentCategoryList.saveError');
       } finally {
         this.loading = false;
       }

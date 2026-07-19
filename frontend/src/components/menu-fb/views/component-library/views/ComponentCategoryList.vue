@@ -197,7 +197,7 @@ export default {
       try {
         await this.$store.dispatch('componentCategories/fetchComponentCategories', { forceRefresh: true });
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || "Failed to load categories";
+        this.loadError = e?.response?.data?.message || e?.message || this.t('componentCategoryList.loadError');
       } finally {
         this.loading = false;
       }
@@ -244,7 +244,7 @@ export default {
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
-          this.deleteError = "Identifiant manquant";
+          this.deleteError = this.t('componentCategoryList.missingId');
           return;
         }
         await deleteComponentCategory(id);
@@ -253,9 +253,9 @@ export default {
       } catch (e) {
         const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
         if (msg.includes('cannot delete global component category') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
-          this.deleteError = "Impossible de supprimer une Component Category utilisée dans le système.";
+          this.deleteError = this.t('componentCategoryList.deleteBlockedUsed');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || "Échec de la suppression";
+          this.deleteError = e?.response?.data?.message || e?.message || this.t('componentCategoryList.deleteError');
         }
       } finally {
         this.deleteLoading = false;

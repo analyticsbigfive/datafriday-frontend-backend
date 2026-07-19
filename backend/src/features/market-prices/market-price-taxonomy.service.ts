@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 
 /**
@@ -11,6 +11,44 @@ export class MarketPriceTaxonomyService {
   private readonly logger = new Logger(MarketPriceTaxonomyService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  // ---------------- Duplicate guards (BUG-87) ----------------
+  // Pre-insert case-insensitive check, same idiom as menu-items.service.ts:273 /
+  // events.service.ts:593 (findFirst with mode: 'insensitive' scoped to tenantId),
+  // thrown before the Prisma insert instead of relying solely on the DB unique
+  // constraint (case-sensitive).
+
+  private async assertNoDuplicateType(name: string, tenantId: string | null, excludeId?: string) {
+    const duplicate = await this.prisma.marketPriceType.findFirst({
+      where: {
+        tenantId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`A market price type named "${name}" already exists`);
+    }
+  }
+
+  private async assertNoDuplicateCategory(
+    name: string,
+    typeId: string,
+    tenantId: string | null,
+    excludeId?: string,
+  ) {
+    const duplicate = await this.prisma.marketPriceCategory.findFirst({
+      where: {
+        tenantId,
+        typeId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`A market price category named "${name}" already exists for this type`);
+    }
+  }
 
   // ---------------- Types ----------------
 
@@ -27,6 +65,7 @@ export class MarketPriceTaxonomyService {
   }
 
   async createType(name: string, tenantId?: string) {
+    await this.assertNoDuplicateType(name, tenantId ?? null);
     return this.prisma.marketPriceType.create({
       data: { name, tenantId },
       include: { categories: true },
@@ -43,11 +82,31 @@ export class MarketPriceTaxonomyService {
     if (type.tenantId === null) {
       throw new BadRequestException(`Cannot update global market price type`);
     }
-    const updated = await this.prisma.marketPriceType.update({
-      where: { id },
-      data: { name },
-      include: { categories: true },
-    });
+
+    const nameChanged = name !== undefined && name !== type.name;
+    if (nameChanged) {
+      await this.assertNoDuplicateType(name, tenantId, id);
+    }
+
+    // BUG-83: MarketPrice.goodType is a free-text mirror of MarketPriceType.name
+    // (kept alongside the real marketPriceTypeId FK). Propagate the rename to
+    // every MarketPrice row pointing at this type, in the same transaction as
+    // the taxonomy update, so existing rows never go stale.
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.marketPriceType.update({
+        where: { id },
+        data: { name },
+        include: { categories: true },
+      }),
+      ...(nameChanged
+        ? [
+            this.prisma.marketPrice.updateMany({
+              where: { marketPriceTypeId: id },
+              data: { goodType: name },
+            }),
+          ]
+        : []),
+    ]);
     this.logger.log(`Market price type ${id} updated`);
     return updated;
   }
@@ -61,6 +120,19 @@ export class MarketPriceTaxonomyService {
     }
     if (type.tenantId === null) {
       throw new BadRequestException(`Cannot delete global market price type`);
+    }
+    // BUG-82: MarketPriceCategory.type is onDelete: Cascade — without this guard,
+    // deleting a MarketPriceType silently cascade-deleted its MarketPriceCategory
+    // children. Same blocking pattern as BUG-75 (EventType/EventCategory), extended
+    // to also block if any MarketPrice row still references this type directly.
+    const [categoryCount, marketPriceCount] = await Promise.all([
+      this.prisma.marketPriceCategory.count({ where: { typeId: id } }),
+      this.prisma.marketPrice.count({ where: { marketPriceTypeId: id } }),
+    ]);
+    if (categoryCount > 0 || marketPriceCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) et ${marketPriceCount} prix marché en dépendent encore. Supprimez/réassignez-les d'abord.`,
+      );
     }
     await this.prisma.marketPriceType.delete({ where: { id } });
     this.logger.log(`Market price type ${id} deleted`);
@@ -116,6 +188,8 @@ export class MarketPriceTaxonomyService {
       });
     }
 
+    await this.assertNoDuplicateCategory(name, typeId, tenantId ?? null);
+
     return this.prisma.marketPriceCategory.create({
       data: { name, tenantId, type: { connect: { id: typeId } } },
       include: { type: true },
@@ -160,11 +234,31 @@ export class MarketPriceTaxonomyService {
       updateData.type = { connect: { id: data.typeId } };
     }
 
-    const updated = await this.prisma.marketPriceCategory.update({
-      where: { id },
-      data: updateData,
-      include: { type: true },
-    });
+    const nameChanged = data.name !== undefined && data.name !== category.name;
+    if (nameChanged) {
+      const effectiveTypeId = data.typeId ?? category.typeId;
+      await this.assertNoDuplicateCategory(data.name as string, effectiveTypeId, tenantId, id);
+    }
+
+    // BUG-83: MarketPrice.category is a free-text mirror of MarketPriceCategory.name
+    // (kept alongside the real marketPriceCategoryId FK). Propagate the rename to
+    // every MarketPrice row pointing at this category, in the same transaction as
+    // the taxonomy update, so existing rows never go stale.
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.marketPriceCategory.update({
+        where: { id },
+        data: updateData,
+        include: { type: true },
+      }),
+      ...(nameChanged
+        ? [
+            this.prisma.marketPrice.updateMany({
+              where: { marketPriceCategoryId: id },
+              data: { category: data.name },
+            }),
+          ]
+        : []),
+    ]);
     this.logger.log(`Market price category ${id} updated`);
     return updated;
   }
@@ -178,6 +272,16 @@ export class MarketPriceTaxonomyService {
     }
     if (category.tenantId === null) {
       throw new BadRequestException(`Cannot delete global market price category`);
+    }
+    // BUG-82: block deletion while MarketPrice rows still reference this category,
+    // same guard family as deleteType above.
+    const marketPriceCount = await this.prisma.marketPrice.count({
+      where: { marketPriceCategoryId: id },
+    });
+    if (marketPriceCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer cette catégorie : ${marketPriceCount} prix marché en dépendent encore. Réassignez-les d'abord.`,
+      );
     }
     await this.prisma.marketPriceCategory.delete({ where: { id } });
     this.logger.log(`Market price category ${id} deleted`);

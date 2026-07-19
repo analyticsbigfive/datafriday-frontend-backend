@@ -1,6 +1,6 @@
 # BUG-84 — `PackingType` (texte libre, sans FK) jamais resynchronisé au rename/delete
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Achats & référentiels (Configurations — Packing Types)
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (impact visible côté `datafriday-web`)
@@ -32,19 +32,26 @@ promotion de `PackingType` en vraie FK.
 
 ## Correction
 
-Reste à faire — décision produit nécessaire avant d'implémenter (impact plus large qu'un simple
-bugfix) :
-1. Option a minima : propager le rename dans `MarketPrice.purchasePackaging`/`inventoryPackaging`
-   et `MenuComponent.inventoryPackaging` via une requête de masse au moment du `update()`, et
-   bloquer/avertir le `remove()` si des lignes utilisent encore ce nom.
-2. Option structurelle : promouvoir `PackingType` en FK réelle sur les 3 champs concernés — chantier
-   plus lourd (migration de données, tous les points de saisie/affichage packaging à retoucher).
+Option 1 (« a minima ») implémentée :
+
+- `packing-types.service.ts:53-99` (`update`) — capture `oldName` (`item.name`) avant l'update ;
+  quand le nom trimé change réellement, `prisma.$transaction([...])` regroupe
+  `packingType.update()` avec trois `updateMany` scopés `tenantId` : `marketPrice.purchasePackaging`,
+  `marketPrice.inventoryPackaging`, et `menuComponent.inventoryPackaging` (tous `where: { ...Packaging: oldName, tenantId }`).
+- `packing-types.service.ts:101-121` (`remove`) — bloque désormais la suppression (`ConflictException`,
+  même pattern que [BUG-82](82_suppression_marketpricetype_sans_garde_categories.md)) si un
+  `count()` sur l'un des 3 champs (`marketPrice.purchasePackaging`, `marketPrice.inventoryPackaging`,
+  `menuComponent.inventoryPackaging`) égal au nom du `PackingType`, scopé tenant, est > 0.
+
+L'option structurelle (promotion en FK réelle) reste hors périmètre — non nécessaire une fois la
+propagation/garde en place, cohérent avec la note de BUG-83 sur ce même chantier.
 
 ## Risque de régression / à surveiller
 
-Si option 1 retenue : la propagation doit être transactionnelle (rename de `PackingType` + mise à
-jour de toutes les lignes `MarketPrice`/`MenuComponent` concernées dans la même transaction) pour
-éviter un état intermédiaire incohérent.
+Revue de code uniquement dans cette session (pas de `pnpm dev` lancé) — validation manuelle requise.
+La propagation étant transactionnelle mais potentiellement lourde (3 `updateMany` en plus du rename),
+elle doit être testée sur un tenant ayant un nombre non trivial de lignes `MarketPrice`/
+`MenuComponent` avant mise en production, pour valider le comportement et le temps de réponse.
 
 ## Références
 

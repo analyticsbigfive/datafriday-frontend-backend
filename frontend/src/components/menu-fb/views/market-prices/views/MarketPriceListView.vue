@@ -271,6 +271,8 @@ export default {
         const id = r?.id || r?._id || itemName;
         const goodType = r?.goodType || '';
         const category = r?.category || '';
+        const marketPriceTypeId = r?.marketPriceTypeId || '';
+        const marketPriceCategoryId = r?.marketPriceCategoryId || '';
         const recipeUnit = r?.recipeUnit || '';
         const purchaseUnitConversion = r?.purchaseUnitConversion ?? '';
         const image = r?.image || '';
@@ -338,6 +340,8 @@ export default {
             purchaseUnitConversion,
             goodType,
             category,
+            marketPriceTypeId,
+            marketPriceCategoryId,
             type: goodType,
             image,
             unit,
@@ -357,6 +361,8 @@ export default {
         if (image && !agg.image) agg.image = image;
         if (goodType && !agg.goodType) agg.goodType = goodType;
         if (category && !agg.category) agg.category = category;
+        if (marketPriceTypeId && !agg.marketPriceTypeId) agg.marketPriceTypeId = marketPriceTypeId;
+        if (marketPriceCategoryId && !agg.marketPriceCategoryId) agg.marketPriceCategoryId = marketPriceCategoryId;
         if (recipeUnit && !agg.recipeUnit) agg.recipeUnit = recipeUnit;
         if (purchaseUnitConversion !== '' && agg.purchaseUnitConversion === '') {
           agg.purchaseUnitConversion = purchaseUnitConversion;

@@ -638,6 +638,11 @@ export default {
       newCategoryValue: '',
       newCategoryLoading: false,
       newCategoryError: '',
+      // FK type/catégorie chargées depuis l'API quand on ajoute un fournisseur à un item
+      // existant (BUG-162) : réutilisées tant que le nom affiché n'a pas changé depuis le
+      // chargement. Pour un item brand-new (pas d'initialData), reste à null → la
+      // résolution par nom (comportement précédent) s'applique, faute d'id à réutiliser.
+      _loadedTaxonomy: { typeId: null, categoryId: null, typeName: '', categoryName: '' },
       form: this._defaultForm(),
       translations: {
         en: {
@@ -850,10 +855,20 @@ export default {
       return this.$store.getters['industrials/industrials'] || [];
     },
     selectedTypeId() {
+      // Réutilise le FK chargé depuis l'API (flux "ajouter un fournisseur à un item
+      // existant") tant que le nom affiché n'a pas changé depuis le chargement (BUG-162).
+      // Pour un item brand-new (création à la volée), aucun id n'a jamais été chargé →
+      // on retombe sur la résolution par nom, seule source possible à ce stade.
+      if (this._loadedTaxonomy.typeId && this._loadedTaxonomy.typeName === this.form.goodType) {
+        return this._loadedTaxonomy.typeId;
+      }
       const types = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
       return types.find((t) => t.name === this.form.goodType)?.id || null;
     },
     selectedCategoryId() {
+      if (this._loadedTaxonomy.categoryId && this._loadedTaxonomy.categoryName === this.form.category) {
+        return this._loadedTaxonomy.categoryId;
+      }
       return (this.productCategories || []).find((c) => c.name === this.form.category)?.id || null;
     },
     categoryOptions() {
@@ -977,12 +992,25 @@ export default {
             ? Number(initialData.purchaseUnitConversion)
             : 1,
         };
+        // Capture le FK type/catégorie tel que chargé depuis l'API (BUG-162). NB : au
+        // 2026-07-19, MarketPriceListView.vue n'expose pas encore marketPriceTypeId/
+        // marketPriceCategoryId sur l'item agrégé transmis en initialData ; tant que ce
+        // n'est pas corrigé en amont, ces valeurs seront null et selectedTypeId/
+        // selectedCategoryId retombent sur la résolution par nom (comportement inchangé).
+        this._loadedTaxonomy = {
+          typeId: initialData.marketPriceTypeId || initialData.typeId || null,
+          categoryId: initialData.marketPriceCategoryId || initialData.categoryId || null,
+          typeName: this.form.goodType,
+          categoryName: this.form.category,
+        };
       } else {
         // New item — start at step 1
         this.step = 1;
         this.itemNameMode = this.existingItemNames.length ? 'select' : 'create';
         this.imagePreview = '';
         this.form = this._defaultForm();
+        // Item brand-new : aucun FK d'origine, la résolution par nom s'applique.
+        this._loadedTaxonomy = { typeId: null, categoryId: null, typeName: '', categoryName: '' };
       }
     },
     triggerImagePicker() {

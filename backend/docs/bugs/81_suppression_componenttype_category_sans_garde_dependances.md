@@ -1,6 +1,6 @@
 # BUG-81 — Suppression `ComponentType`/`ComponentCategory` sans garde contre les `MenuComponent` dépendants
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Menu & recettes (Configurations)
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (impact visible côté `datafriday-web`)
@@ -28,13 +28,22 @@ Prisma `delete()`. Même famille que [BUG-75](75_eventtype_eventcategory_delete_
 
 ## Correction
 
-Reste à faire : appliquer le pattern de fix de BUG-75 (blocage total si des `MenuComponent`
-dépendent encore du type/de la catégorie).
+Appliqué le pattern de fix de BUG-75 (`ConflictException`, blocage total si des enfants dépendent
+encore) :
+- `src/features/menu-components/component-taxonomy.service.ts:96-124` (`deleteType`) : compte
+  désormais les `ComponentCategory` dépendantes (`typeId: id`) et les `MenuComponent` dépendants
+  (`componentTypeId: id`), lève `ConflictException` avec un message distinct pour chaque cas avant
+  `prisma.componentType.delete()`.
+- `src/features/menu-components/component-taxonomy.service.ts:240-260` (`deleteCategory`) : compte
+  les `MenuComponent` dépendants (`componentCategoryId: id`) et lève `ConflictException` avant
+  `prisma.componentCategory.delete()`.
 
 ## Risque de régression / à surveiller
 
-Vérifier que le message d'erreur remonte proprement au front (pas un 500 brut), et que la
-suppression d'un type/catégorie réellement inutilisé continue de fonctionner.
+Non testé en navigateur/via `pnpm dev` (indisponible dans cette session) — revue de code
+uniquement, validation manuelle requise. Vérifier que le message d'erreur remonte proprement au
+front (pas un 500 brut), et que la suppression d'un type/catégorie réellement inutilisé continue de
+fonctionner.
 
 ## Références
 

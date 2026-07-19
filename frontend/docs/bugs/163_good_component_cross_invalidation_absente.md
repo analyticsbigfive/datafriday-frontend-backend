@@ -1,6 +1,6 @@
 # BUG-163 — Good/Component Types↔Categories : pas d'invalidation croisée de cache, actions `invalidate` mortes
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Achats & référentiels / Menu & recettes (Configurations)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -38,16 +38,69 @@ devrait dispatcher `Types/invalidate`, et vice-versa au besoin) ; `ComponentType
 
 ## Correction
 
-Reste à faire : soit câbler `invalidate` sur le module croisé après chaque mutation Category/Type,
-soit — option plus simple étant donné BUG-161 — une fois la dérivation Types→Categories supprimée,
-ce problème disparaît de lui-même puisque Categories lirait alors sa propre source de vérité.
-Corriger dans tous les cas l'incohérence `forceRefresh` de `ComponentTypeList.vue` vs
-`ComponentCategoryList.vue`.
+Deux volets, tous deux traités :
+
+**(a) Direction Types→Categories (la staleness décrite dans ce bug) est désormais moot.** Depuis le
+correctif [BUG-161](161_good_component_categories_derivees_endpoint_types.md),
+`marketPriceCategories.js`/`componentCategories.js` lisent leur propre endpoint dédié
+(`getMarketPriceCategories()`/`getComponentCategories()`) au lieu de dériver de `type.categories[]`
+— la page Categories n'a donc plus de dépendance de fraîcheur envers le cache du module Types dans
+ce sens.
+
+**(b) Direction Categories→Types (le staleness inverse, pas couvert par BUG-161) : câblage ajouté.**
+Les modules Types continuent de GET leur liste avec les catégories imbriquées
+(`include: {categories}` côté serveur), donc une mutation côté Category peut laisser périmé le
+`categories[]` en cache du module Types. Les actions de mutation optimiste du module Category
+dispatchent maintenant l'`invalidate` du module Types sœur via `dispatch('<module>Types/invalidate',
+null, { root: true })` (pattern `{ root: true }` déjà utilisé ailleurs dans le store, ex.
+`analyse.js:144`) :
+
+- `src/store/modules/marketPriceCategories.js:88-101` — `addMarketPriceCategory`,
+  `updateMarketPriceCategory`, `removeMarketPriceCategory` dispatchent chacune
+  `marketPriceTypes/invalidate` après leur `commit`.
+- `src/store/modules/componentCategories.js:88-101` — `addComponentCategory`,
+  `updateComponentCategory`, `removeComponentCategory` dispatchent chacune
+  `componentTypes/invalidate` après leur `commit`.
+
+Ceci constitue le premier appelant réel de `marketPriceTypes/invalidate` et
+`componentTypes/invalidate` (jusqu'ici mortes). Les actions `invalidate` de
+`marketPriceCategories`/`componentCategories` (l'autre sens) restent volontairement non câblées —
+hors scope de ce correctif, cf. consigne de la tâche.
+
+L'incohérence `forceRefresh` de `ComponentTypeList.vue` vs `ComponentCategoryList.vue` n'a **pas**
+été traitée ici (fichier `.vue`, hors périmètre de cette tâche store-only) — reste ouverte pour un
+suivi séparé si jugé utile.
+
+**Suivi (2026-07-19, session ultérieure)** : vérification de `ComponentTypeList.vue:198-200`
+(`mounted()`) — le mount dispatch déjà `componentTypes/fetchComponentTypes` **sans**
+`forceRefresh`, ce qui est le comportement standard attendu (respect du cache TTL 15 min,
+cf. `CLAUDE.md`). Aucun changement de code nécessaire sur ce fichier : l'incohérence décrite dans ce
+bug (`ComponentTypeList.vue` sans `forceRefresh` vs `ComponentCategoryList.vue` avec) est donc
+résolue du côté `ComponentTypeList.vue` — c'est `ComponentCategoryList.vue` qui reste l'exception
+(force-refresh systématique au mount), volontairement non touchée ici car hors du périmètre de cette
+tâche (fichiers `componentTypes.js`/`componentCategories.js` déjà possédés par l'agent store-only
+ci-dessus ; `ComponentCategoryList.vue` non modifié). Combiné à l'invalidation croisée déjà en place
+(ci-dessus), `ComponentTypeList.vue` lit maintenant soit un cache valide, soit un cache invalidé par
+une mutation Category récente — le point (a) de ce bug est donc pleinement clos.
 
 ## Risque de régression / à surveiller
 
-Auto-corrigé par TTL (15 min) ou rechargement — aucune corruption de données, juste un staleness
-d'affichage.
+Corrigé sur revue de code uniquement (pas de `pnpm dev` cette session) — nécessite une validation
+manuelle, en particulier :
+- Vérifier que `marketPriceTypes/invalidate` / `componentTypes/invalidate` se déclenchent bien après
+  un create/update/delete de catégorie et que la page Types (drawer
+  `ComponentTypeCategoriesDrawer.vue` notamment) reflète la mutation au prochain fetch
+  (`forceRefresh` ou après expiration du cache invalidé).
+- Le filtre `?typeId=` de `getMarketPriceCategories()`/`getComponentCategories()` (voir BUG-161) —
+  confirmer qu'aucun consommateur actuel ou futur de `fetchMarketPriceCategories`/
+  `fetchComponentCategories` n'a besoin de filtrer par type ; aucun appelant recensé aujourd'hui n'en
+  a besoin.
+- Avant ce correctif, `ComponentTypeList.vue` montait sans `forceRefresh` (contrairement à
+  `ComponentCategoryList.vue`) — avec l'invalidation croisée désormais active, un `mount` sans
+  `forceRefresh` après une mutation Category dans la même session lira quand même un cache invalidé
+  (donc refetch). Vérifié (2026-07-19) : `ComponentTypeList.vue` mount toujours sans `forceRefresh`
+  (comportement correct/standard, aucun changement requis) — code-review uniquement, pas de
+  `pnpm dev` cette session, à valider manuellement en navigateur.
 
 ## Références
 

@@ -159,7 +159,7 @@ export default {
       try {
         await this.$store.dispatch('displayNames/fetchDisplayNames');
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || 'Failed to load display names';
+        this.loadError = e?.response?.data?.message || e?.message || this.t('displayNameList.loadError');
       } finally {
         this.loading = false;
       }
@@ -194,13 +194,13 @@ export default {
       this.deleteError = '';
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
-        if (!id) { this.deleteError = 'Identifiant manquant'; return; }
+        if (!id) { this.deleteError = this.t('displayNameList.missingId'); return; }
         await deleteDisplayName(id);
         await this.$store.dispatch('displayNames/removeDisplayName', id);
         this.deleteDialog = false;
         this.deleteTarget = null;
       } catch (e) {
-        this.deleteError = e?.response?.data?.message || e?.message || 'Échec de la suppression';
+        this.deleteError = e?.response?.data?.message || e?.message || this.t('displayNameList.deleteError');
       } finally {
         this.deleteLoading = false;
       }

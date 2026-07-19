@@ -197,7 +197,7 @@ export default {
       try {
         await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || "Failed to load categories";
+        this.loadError = e?.response?.data?.message || e?.message || this.t('marketPriceCategoryList.loadError');
       } finally {
         this.loading = false;
       }
@@ -244,7 +244,7 @@ export default {
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
-          this.deleteError = "Identifiant manquant";
+          this.deleteError = this.t('marketPriceCategoryList.missingId');
           return;
         }
         await deleteMarketPriceCategory(id);
@@ -253,9 +253,9 @@ export default {
       } catch (e) {
         const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
         if (msg.includes('cannot delete global market price category') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
-          this.deleteError = "Impossible de supprimer une Good Category utilisée dans le système.";
+          this.deleteError = this.t('marketPriceCategoryList.deleteBlockedUsed');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || "Échec de la suppression";
+          this.deleteError = e?.response?.data?.message || e?.message || this.t('marketPriceCategoryList.deleteError');
         }
       } finally {
         this.deleteLoading = false;

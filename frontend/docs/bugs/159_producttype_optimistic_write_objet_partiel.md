@@ -1,6 +1,6 @@
 # BUG-159 — `ProductType` : écriture Vuex optimiste avec objet partiel écrase `categories`/`createdAt` après édition
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Menu & recettes (Configurations — Menu Item Types)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -32,16 +32,31 @@ la réponse API complète) n'a jamais été porté sur `productTypes.js`.
 
 ## Correction
 
-Reste à faire : appliquer le même correctif que BUG-149 — soit fusionner l'objet dans la mutation
-(`{...state.list.find(t => t.id === updated.id), ...updated}`), soit faire dispatcher la réponse API
-complète (incluant `categories`) par `updateProductType`, et/ou ajouter un `@saved` sur
-`ProductTypeList.vue` comme sur `ProductCategoryList.vue`.
+- `src/store/modules/productTypes.js:38-40` (`UPDATE_PRODUCT_TYPE`) : remplacement complet
+  (`t.id === updated.id ? updated : t`) remplacé par une fusion (`{ ...t, ...updated }`), même
+  pattern que `eventTypes.js:39` (correctif de référence BUG-149). Les champs absents du payload
+  dispatché par le drawer (`categories`, `createdAt`) sont désormais préservés depuis l'entrée
+  existante au lieu d'être écrasés par `undefined`.
+- `src/components/products/views/ProductTypeList.vue:96-102` : ajout du listener
+  `@saved="loadTypes"` sur `<ProductTypeFormDrawer>` (manquant, contrairement à
+  `ProductCategoryList.vue:101`).
+- `src/components/products/views/ProductTypeList.vue:207-216` (`loadTypes`) : passe désormais
+  `{ forceRefresh: true }` à `fetchProductTypes` (au lieu d'un fetch simple qui aurait pu être
+  no-op si le cache était encore valide), pour garantir un refresh visible juste après
+  création/édition — même pattern que `ComponentTypeList.vue::loadTypes` (déjà correct).
+
+`ProductTypeFormDrawer.vue` n'a pas eu besoin d'être modifié pour dispatcher la réponse API
+complète : la fusion dans la mutation suffit à préserver `categories`/`createdAt` même avec un
+payload partiel `{id, name}`.
 
 ## Risque de régression / à surveiller
 
-Vérifier après le fix que le chip "N catégories" reste correct immédiatement après un renommage,
-sans attendre le TTL. Non reproduit en navigateur (pas de `pnpm dev` dans cette session) — à
-valider manuellement.
+Vérifié seulement par lecture de code (le fichier a été relu après édition, pas de `node --check`
+possible sur un `.vue`) — **pas de reproduction live en navigateur** (interdiction de lancer
+`pnpm dev` dans cette session). À valider manuellement : éditer un Menu Item Type et vérifier que
+le chip "N catégories" et la colonne "Créé le" restent corrects immédiatement après le renommage,
+sans attendre le TTL de 15 min ; créer un nouveau type et vérifier que la liste se rafraîchit bien
+après fermeture du drawer.
 
 ## Références
 

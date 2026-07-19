@@ -1,6 +1,6 @@
 # BUG-79 — Suppression `ProductType`/`ProductCategory` sans garde contre les `MenuItem` dépendants
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Menu & recettes (Configurations)
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (impact visible côté `datafriday-web`)
@@ -29,16 +29,24 @@ le même correctif n'a jamais été porté sur la taxonomie Menu Item.
 
 ## Correction
 
-Reste à faire : appliquer le même pattern que le fix de BUG-75 — bloquer la suppression
-(`ConflictException` ou équivalent) tant qu'au moins un `MenuItem` référence le type/la catégorie,
-ou qu'une `ProductCategory` dépend encore du `ProductType`.
+Appliqué le même pattern que le fix de BUG-75 (`ConflictException`, blocage total tant que des
+enfants dépendent) :
+- `src/features/menu-items/menu-items.service.ts:1616-1648` (`deleteProductType`) : compte
+  désormais les `ProductCategory` dépendantes (`typeId: id`) et les `MenuItem` dépendants
+  (`typeId: id`), lève `ConflictException` avec un message distinct pour chaque cas avant l'appel
+  `prisma.productType.delete()`.
+- `src/features/menu-items/menu-items.service.ts:1761-1786` (`deleteProductCategory`) : compte les
+  `MenuItem` dépendants (`categoryId: id`) et lève `ConflictException` avant
+  `prisma.productCategory.delete()`.
 
 ## Risque de régression / à surveiller
 
-Après le fix, vérifier que la suppression d'un type/catégorie inutilisé continue de fonctionner
-normalement, et qu'un message d'erreur clair (pas un 500 brut) remonte au front quand la
-suppression est bloquée. Le front pourra alors simplifier/retirer sa vérification `categoryList`
-actuelle (partielle) au profit du message d'erreur backend faisant autorité.
+Non testé en navigateur/via `pnpm dev` (indisponible dans cette session) — revue de code
+uniquement, validation manuelle requise. Après le fix, vérifier que la suppression d'un
+type/catégorie inutilisé continue de fonctionner normalement, et qu'un message d'erreur clair (pas
+un 500 brut) remonte au front quand la suppression est bloquée. Le front pourra alors
+simplifier/retirer sa vérification `categoryList` actuelle (partielle) au profit du message
+d'erreur backend faisant autorité.
 
 ## Références
 

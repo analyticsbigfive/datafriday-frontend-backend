@@ -1,4 +1,4 @@
-import { getMarketPriceTypes } from '@/api/endpoints/market.price.api'
+import { getMarketPriceCategories } from '@/api/endpoints/market.price.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes
 
@@ -40,13 +40,13 @@ export default {
   },
 
   actions: {
-    async fetchMarketPriceCategories({ state, commit, getters }, { forceRefresh = false } = {}) {
+    async fetchMarketPriceCategories({ state, commit, getters, rootGetters }, { forceRefresh = false } = {}) {
       if (state.fetching) return
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const data = await getMarketPriceTypes()
-        const typesRaw = Array.isArray(data)
+        const data = await getMarketPriceCategories()
+        const raw = Array.isArray(data)
           ? data
           : Array.isArray(data?.data)
             ? data.data
@@ -54,17 +54,24 @@ export default {
               ? data.data.data
               : []
 
-        const list = typesRaw
-          .flatMap((type) =>
-            Array.isArray(type.categories)
-              ? type.categories.map((c) => ({
-                  ...c,
-                  id: c?.id || c?._id,
-                  typeId: c?.typeId || type.id,
-                  typeName: type.name || '',
-                }))
-              : []
-          )
+        const types = rootGetters['marketPriceTypes/marketPriceTypes'] || []
+
+        const list = raw
+          .map((c) => {
+            const typeId = c?.typeId || c?.type?.id || c?.marketPriceTypeId
+            const typeName =
+              c?.typeName ||
+              c?.type?.name ||
+              c?.marketPriceType?.name ||
+              types.find((t) => t.id === typeId)?.name ||
+              ''
+            return {
+              ...c,
+              id: c?.id || c?._id,
+              typeId,
+              typeName,
+            }
+          })
           .filter((c) => !!c.id)
           .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
 
@@ -78,16 +85,19 @@ export default {
       commit('INVALIDATE')
     },
 
-    addMarketPriceCategory({ commit }, item) {
+    addMarketPriceCategory({ commit, dispatch }, item) {
       commit('ADD_MARKET_PRICE_CATEGORY', item)
+      dispatch('marketPriceTypes/invalidate', null, { root: true })
     },
 
-    updateMarketPriceCategory({ commit }, item) {
+    updateMarketPriceCategory({ commit, dispatch }, item) {
       commit('UPDATE_MARKET_PRICE_CATEGORY', item)
+      dispatch('marketPriceTypes/invalidate', null, { root: true })
     },
 
-    removeMarketPriceCategory({ commit }, id) {
+    removeMarketPriceCategory({ commit, dispatch }, id) {
       commit('REMOVE_MARKET_PRICE_CATEGORY', id)
+      dispatch('marketPriceTypes/invalidate', null, { root: true })
     },
   },
 }

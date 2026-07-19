@@ -32,7 +32,7 @@
           {{ t('brandNameList.cancel') }}
         </button>
         <button class="bnd-btn bnd-btn--danger" :disabled="loading" @click="$emit('confirm')">
-          <Trash2 :size="14" /> {{ loading ? 'Suppression…' : t('brandNameList.delete') }}
+          <Trash2 :size="14" /> {{ loading ? t('brandNameList.deleting') : t('brandNameList.delete') }}
         </button>
       </div>
     </div>

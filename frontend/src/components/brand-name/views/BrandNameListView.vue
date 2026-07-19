@@ -33,7 +33,7 @@
           type="search"
           :placeholder="t('brandNameList.searchPlaceholder')"
         />
-        <span class="bnl-searchbar__count">{{ filteredBrandNames.length }} marques</span>
+        <span class="bnl-searchbar__count">{{ filteredBrandNames.length }} {{ t('brandNameList.totalBrands') }}</span>
       </div>
     </div>
 
@@ -159,7 +159,7 @@ export default {
       try {
         await this.$store.dispatch('brandNames/fetchBrandNames');
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || 'Failed to load brand names';
+        this.loadError = e?.response?.data?.message || e?.message || this.t('brandNameList.loadError');
       } finally {
         this.loading = false;
       }
@@ -194,13 +194,13 @@ export default {
       this.deleteError = '';
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
-        if (!id) { this.deleteError = 'Identifiant manquant'; return; }
+        if (!id) { this.deleteError = this.t('brandNameList.missingId'); return; }
         await deleteBrandName(id);
         await this.$store.dispatch('brandNames/removeBrandName', id);
         this.deleteDialog = false;
         this.deleteTarget = null;
       } catch (e) {
-        this.deleteError = e?.response?.data?.message || e?.message || 'Échec de la suppression';
+        this.deleteError = e?.response?.data?.message || e?.message || this.t('brandNameList.deleteError');
       } finally {
         this.deleteLoading = false;
       }

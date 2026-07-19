@@ -1,6 +1,6 @@
 # BUG-83 — `MarketPrice.goodType`/`category` (texte libre) jamais resynchronisés au rename/delete de `MarketPriceType`/`Category`
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Achats & référentiels (Configurations — Good Types/Categories)
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (impact visible côté `datafriday-web`)
@@ -29,19 +29,38 @@ sur l'axe update/delete plutôt que create.
 
 ## Correction
 
-Reste à faire — deux options à trancher avec le produit avant d'implémenter :
-1. Propager le rename dans une transaction (`updateType`/`updateCategory` mettent aussi à jour
-   `MarketPrice.goodType`/`category` pour toutes les lignes dont `marketPriceTypeId`/
-   `marketPriceCategoryId` correspond).
-2. Ou faire de `goodType`/`category` des colonnes strictement dérivées en lecture (join sur la FK),
-   supprimant la duplication texte — plus gros chantier, à évaluer au vu de l'usage de `goodType`
-   comme discriminateur (`syncIngredients`/`syncPackagings`).
+Option 1 retenue (propagation transactionnelle du rename) :
+
+- `market-price-taxonomy.service.ts:75-112` (`updateType`) — quand `name` change réellement,
+  `prisma.$transaction([...])` regroupe désormais `marketPriceType.update()` et
+  `prisma.marketPrice.updateMany({ where: { marketPriceTypeId: id }, data: { goodType: name } })`,
+  même style de transaction (tableau de promesses) que `EventsService.updateTeam`
+  (`events.service.ts:636-646`).
+- `market-price-taxonomy.service.ts:199-264` (`updateCategory`) — même principe :
+  `prisma.marketPrice.updateMany({ where: { marketPriceCategoryId: id }, data: { category: name } })`
+  dans la même transaction que `marketPriceCategory.update()`.
+
+Le risque de désync côté suppression est désormais couvert par la garde de [BUG-82](82_suppression_marketpricetype_sans_garde_categories.md)
+(impossible de supprimer un type/catégorie encore référencé par une ligne `MarketPrice`) — seule la
+propagation du rename manquait encore, d'où ce correctif ciblé sur `updateType`/`updateCategory`
+uniquement.
+
+**Gap résiduel connu (non traité, non vérifié)** : d'éventuelles lignes `MarketPrice` historiques
+portant un `goodType`/`category` texte mais une FK `marketPriceTypeId`/`marketPriceCategoryId` à
+`NULL` ne seraient rafraîchies par aucun des deux correctifs (BUG-82 ni celui-ci), puisque la
+propagation et la garde de suppression s'appuient toutes deux sur la FK. Présence de telles lignes
+non vérifiée lors de cette session.
 
 ## Risque de régression / à surveiller
 
-Ne pas casser `syncIngredients()`/`syncPackagings()` (`market-prices.service.ts:540-558`), qui
-lisent `goodType` comme discriminateur fonctionnel — toute modification de ce champ doit rester
-cohérente avec leur logique de matching.
+Revue de code uniquement dans cette session (pas de `pnpm dev` lancé) — validation manuelle requise,
+en particulier :
+- Ne pas casser `syncIngredients()`/`syncPackagings()` (`market-prices.service.ts:540-558`), qui
+  lisent `goodType` comme discriminateur fonctionnel — toute modification de ce champ doit rester
+  cohérente avec leur logique de matching.
+- Tester la propagation transactionnelle (`updateType`/`updateCategory`) sur un tenant ayant un
+  nombre non trivial de lignes `MarketPrice` avant mise en production, pour valider le comportement
+  et le temps de réponse du `updateMany` en masse dans la transaction.
 
 ## Références
 

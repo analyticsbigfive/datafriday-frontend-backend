@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { PackingTypesService } from './packing-types.service';
@@ -8,6 +8,8 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 
 class CreatePackingTypeDto {
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name: string;
 }
 

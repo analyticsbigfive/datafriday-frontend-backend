@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 
 /**
@@ -11,6 +11,43 @@ export class ComponentTaxonomyService {
   private readonly logger = new Logger(ComponentTaxonomyService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  // BUG-87 : la contrainte unique Postgres (@@unique([tenantId, name])) est sensible à la casse —
+  // sans ce garde-fou pré-insertion, "Sauce" et "sauce" peuvent coexister comme deux ComponentType
+  // distincts pour le même tenant. Pattern identique à menu-items.service.ts:273/events.service.ts:593.
+  private async assertTypeNameAvailable(name: string, tenantId: string | undefined, excludeId?: string) {
+    const duplicate = await this.prisma.componentType.findFirst({
+      where: {
+        tenantId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`Un type nommé « ${name} » existe déjà`);
+    }
+  }
+
+  // Scope aligné sur la contrainte unique réelle (@@unique([tenantId, typeId, name])) : deux
+  // catégories de même nom sont autorisées si elles appartiennent à des ComponentType différents.
+  private async assertCategoryNameAvailable(
+    name: string,
+    tenantId: string | undefined,
+    typeId: string,
+    excludeId?: string,
+  ) {
+    const duplicate = await this.prisma.componentCategory.findFirst({
+      where: {
+        tenantId,
+        typeId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`Une catégorie nommée « ${name} » existe déjà pour ce type`);
+    }
+  }
 
   // ---------------- Types ----------------
 
@@ -27,6 +64,7 @@ export class ComponentTaxonomyService {
   }
 
   async createType(name: string, tenantId?: string) {
+    await this.assertTypeNameAvailable(name, tenantId);
     return this.prisma.componentType.create({
       data: { name, tenantId },
       include: { categories: true },
@@ -42,6 +80,9 @@ export class ComponentTaxonomyService {
     }
     if (type.tenantId === null) {
       throw new BadRequestException(`Cannot update global component type`);
+    }
+    if (name !== undefined) {
+      await this.assertTypeNameAvailable(name, tenantId, id);
     }
     const updated = await this.prisma.componentType.update({
       where: { id },
@@ -61,6 +102,22 @@ export class ComponentTaxonomyService {
     }
     if (type.tenantId === null) {
       throw new BadRequestException(`Cannot delete global component type`);
+    }
+    // BUG-81 : ComponentCategory.type est onDelete: Cascade et MenuComponent.componentTypeId est
+    // onDelete: SetNull — sans cette garde, supprimer un ComponentType cascade-supprime
+    // silencieusement ses ComponentCategory enfants et met NULL sur MenuComponent.componentTypeId.
+    // Même pattern que deleteEventType (BUG-75).
+    const categoryCount = await this.prisma.componentCategory.count({ where: { typeId: id } });
+    if (categoryCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
+      );
+    }
+    const componentCount = await this.prisma.menuComponent.count({ where: { componentTypeId: id } });
+    if (componentCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${componentCount} composant(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+      );
     }
     await this.prisma.componentType.delete({ where: { id } });
     this.logger.log(`Component type ${id} deleted`);
@@ -116,6 +173,8 @@ export class ComponentTaxonomyService {
       });
     }
 
+    await this.assertCategoryNameAvailable(name, tenantId, typeId);
+
     return this.prisma.componentCategory.create({
       data: { name, tenantId, type: { connect: { id: typeId } } },
       include: { type: true },
@@ -160,6 +219,15 @@ export class ComponentTaxonomyService {
       updateData.type = { connect: { id: data.typeId } };
     }
 
+    if (data.name !== undefined || data.typeId !== undefined) {
+      await this.assertCategoryNameAvailable(
+        data.name ?? category.name,
+        tenantId,
+        data.typeId ?? category.typeId,
+        id,
+      );
+    }
+
     const updated = await this.prisma.componentCategory.update({
       where: { id },
       data: updateData,
@@ -178,6 +246,15 @@ export class ComponentTaxonomyService {
     }
     if (category.tenantId === null) {
       throw new BadRequestException(`Cannot delete global component category`);
+    }
+    // BUG-81 : MenuComponent.componentCategoryId est onDelete: SetNull — sans cette garde,
+    // supprimer une ComponentCategory encore utilisée met silencieusement NULL sur
+    // MenuComponent.componentCategoryId. Même pattern que deleteEventCategory (BUG-75).
+    const componentCount = await this.prisma.menuComponent.count({ where: { componentCategoryId: id } });
+    if (componentCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer cette catégorie : ${componentCount} composant(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+      );
     }
     await this.prisma.componentCategory.delete({ where: { id } });
     this.logger.log(`Component category ${id} deleted`);

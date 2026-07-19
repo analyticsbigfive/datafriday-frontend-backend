@@ -32,7 +32,7 @@ export default {
       state.list = [...state.list, item]
     },
     UPDATE_DISPLAY_NAME(state, updated) {
-      state.list = state.list.map((d) => (d.id === updated.id ? updated : d))
+      state.list = state.list.map((d) => (d.id === updated.id ? { ...d, ...updated } : d))
     },
     REMOVE_DISPLAY_NAME(state, id) {
       state.list = state.list.filter((d) => d.id !== id)

@@ -1,6 +1,6 @@
 # BUG-78 — `PATCH /product-types/:id` et `/product-categories/:id` sans `@RequirePermissions` (contrôle d'accès contourné)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🔴 Bloquant/impact business
 - **Domaine** : Menu & recettes / Achats & référentiels (Configurations)
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -28,15 +28,22 @@ Ce n'est donc pas une convention du projet mais un oubli localisé aux deux cont
 
 ## Correction
 
-Reste à faire : ajouter `@RequirePermissions('menu.config.manage')` (ou l'équivalent déjà utilisé
-par `create`/`remove` sur ces mêmes contrôleurs) sur les deux méthodes `update`.
+Ajouté `@RequirePermissions('menu.fb.menuItems')` (la permission exacte déjà utilisée par
+`create`/`remove` sur ces deux contrôleurs, pas `menu.config.manage` qui n'existe pas dans ce
+fichier) sur les deux méthodes `update` :
+- `src/features/menu-items/menu-items.controller.ts:410` (`ProductTypesController.update`, juste
+  avant `@Patch(':id')`)
+- `src/features/menu-items/menu-items.controller.ts:468` (`ProductCategoriesController.update`,
+  juste avant `@Patch(':id')`)
 
 ## Risque de régression / à surveiller
 
-Vérifier après le fix qu'un utilisateur sans la permission `menu.config.manage` reçoit bien un 403
-sur `PATCH /product-types/:id` et `PATCH /product-categories/:id`, et qu'un utilisateur habilité
-continue de pouvoir éditer normalement depuis `/product-types`/`/product-categories`. Pas de
-migration de données nécessaire (bug d'autorisation, pas de corruption de données).
+Non testé en navigateur/via `pnpm dev` (indisponible dans cette session) — revue de code
+uniquement, validation manuelle requise. Vérifier après le fix qu'un utilisateur sans la permission
+`menu.fb.menuItems` reçoit bien un 403 sur `PATCH /product-types/:id` et
+`PATCH /product-categories/:id`, et qu'un utilisateur habilité continue de pouvoir éditer
+normalement depuis `/product-types`/`/product-categories`. Pas de migration de données nécessaire
+(bug d'autorisation, pas de corruption de données).
 
 ## Références
 

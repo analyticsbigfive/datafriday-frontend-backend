@@ -1,6 +1,6 @@
 # BUG-161 — Good/Component Categories : dérivées de l'endpoint Types au lieu de leur propre endpoint dédié
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Achats & référentiels / Menu & recettes (Configurations)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -34,16 +34,38 @@ payload déjà chargé par la page Types plutôt que d'appeler leur propre endpo
 
 ## Correction
 
-Reste à faire — arbitrage à faire avant de corriger : soit aligner Good/Component Categories sur le
-pattern de Menu Item Categories (appeler leur propre endpoint dédié), soit assumer le pattern
-dérivé-des-Types partout et supprimer le code mort `getMarketPriceCategories()`/
-`getComponentCategories()` côté API et le contrôleur `GET /market-price-categories`/
-`/component-categories` côté backend si jugé définitivement inutile.
+Alignement sur le pattern de Menu Item Categories (`productCategories.js`) : les deux modules
+appellent désormais leur propre endpoint dédié au lieu de dériver depuis Types.
+
+- `src/store/modules/marketPriceCategories.js:1` — import remplacé par
+  `getMarketPriceCategories` (`@/api/endpoints/market.price.api`).
+- `src/store/modules/marketPriceCategories.js:43-82` (`fetchMarketPriceCategories`) — appelle
+  `getMarketPriceCategories()` au lieu de `getMarketPriceTypes()` ; `state.list` est maintenant
+  construit par un `.map()` direct sur la réponse plate de l'endpoint (au lieu du `.flatMap()` sur
+  `type.categories[]`) ; `typeId`/`typeName` sont résolus depuis le payload de la catégorie
+  elle-même (`c.typeId`/`c.type`/`c.marketPriceTypeId`) avec fallback sur le cache
+  `rootGetters['marketPriceTypes/marketPriceTypes']` si le nom du type n'est pas déjà inclus.
+- `src/store/modules/componentCategories.js:1` — import remplacé par `getComponentCategories`
+  (`@/api/endpoints/menu.api`).
+- `src/store/modules/componentCategories.js:43-82` (`fetchComponentCategories`) — même
+  transformation, avec `rootGetters['componentTypes/componentTypes']` comme fallback de nom de type.
+
+État `{list, cachedAt, fetching}`, getters (`marketPriceCategories`/`componentCategories`,
+`isCacheValid`) et contrat TTL (15 min) inchangés — seule la source de données change.
+
+Voir aussi [BUG-163](163_good_component_cross_invalidation_absente.md) pour le câblage
+d'invalidation croisée ajouté dans les actions `add`/`update`/`removeMarketPriceCategory` et
+`add`/`update`/`removeComponentCategory` du même changement.
 
 ## Risque de régression / à surveiller
 
-Si on bascule vers l'endpoint dédié : vérifier que le filtre `?typeId=` (jamais exploité
-aujourd'hui) n'était pas silencieusement nécessaire à un comportement front implicite.
+Corrigé sur revue de code uniquement (pas de `pnpm dev` cette session) — nécessite une validation
+manuelle. En particulier : aucun appelant recensé de `fetchMarketPriceCategories`/
+`fetchComponentCategories` ne passe de `typeId` (le filtre `?typeId=` de
+`getMarketPriceCategories()`/`getComponentCategories()` n'est toujours pas exploité côté front,
+comme avant ce correctif) — donc pas de régression sur ce point, mais si un futur consommateur a
+besoin de filtrer par type, il faudra étendre la signature des fonctions API (actuellement sans
+paramètre) sur le modèle de `getProductCategories(typeId)`.
 
 ## Références
 

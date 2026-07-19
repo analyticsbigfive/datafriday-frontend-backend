@@ -1,6 +1,6 @@
 # BUG-167 — Sidebar Configurations : 4 libellés jamais traduits en français (texte anglais copié-collé)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Menu & recettes / Achats & référentiels (Configurations)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -23,10 +23,13 @@ Oubli lors de l'ajout de ces 4 clés au bloc `fr` — copié-collé du bloc `en`
 
 ## Correction
 
-Reste à faire : traduire les 4 clés, par exemple `navMarketPriceTypes` → "Types de Marchandise",
-`navMarketPriceCategories` → "Catégories de Marchandise", `navComponentTypes` → "Types de
-Composant", `navComponentCategories` → "Catégories de Composant" (à valider avec le produit pour la
-terminologie exacte "Good"/"Marchandise" déjà utilisée ailleurs dans l'app).
+Corrigé le 2026-07-19 : les 4 clés traduites dans le bloc `fr` de `translations.js` —
+`navMarketPriceTypes` → "Types de Marchandise", `navMarketPriceCategories` → "Catégories de
+Marchandise", `navComponentTypes` → "Types de Composant", `navComponentCategories` → "Catégories de
+Composant". Terminologie choisie par cohérence avec les clés voisines déjà traduites intégralement
+(`navPackingTypes` → "Types de conditionnement", `navBrandNames` → "Noms de marque") plutôt que de
+garder "Good"/"Component" en anglais — à ajuster si le produit préfère une autre terminologie
+("Marchandise" vs un autre terme métier pour "Good").
 
 ## Risque de régression / à surveiller
 

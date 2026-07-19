@@ -1,6 +1,6 @@
 # BUG-86 — Suppression `Industrial` sans garde ni avertissement d'usage
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Achats & référentiels (Configurations — Industrials)
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (impact visible côté `datafriday-web`)
@@ -21,11 +21,19 @@ prices".
 
 ## Correction
 
-Reste à faire — même arbitrage que BUG-85 (avertissement avec décompte, ou blocage strict).
+**Décision (2026-07-19)** : même arbitrage que BUG-85 — option stricte, cohérente avec le pattern
+BUG-75/79/81/82/85. `IndustrialsService.remove()`
+(`src/features/industrials/industrials.service.ts:71-85`) compte désormais les `MarketPrice`
+dépendants (`industrialId: id`) et lève `ConflictException` (« Impossible de supprimer cet
+industrial : N prix marché en dépendent encore... ») si le compte est > 0. `create`/`update`
+gagnent aussi une garde anti-doublon insensible à la casse (voir BUG-87/88).
 
 ## Risque de régression / à surveiller
 
-Voir BUG-85.
+Revue de code uniquement dans cette session (pas de `pnpm dev` lancé) — à valider manuellement :
+supprimer un `Industrial` encore référencé par un `MarketPrice` doit désormais échouer avec un
+message clair (409) au lieu de détacher silencieusement `industrialId` ; supprimer une entité non
+référencée doit continuer à fonctionner normalement. Voir aussi BUG-85 (même famille de risque).
 
 ## Références
 

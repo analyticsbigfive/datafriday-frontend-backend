@@ -1,4 +1,4 @@
-import { getComponentTypes } from '@/api/endpoints/menu.api'
+import { getComponentCategories } from '@/api/endpoints/menu.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes
 
@@ -40,13 +40,13 @@ export default {
   },
 
   actions: {
-    async fetchComponentCategories({ state, commit, getters }, { forceRefresh = false } = {}) {
+    async fetchComponentCategories({ state, commit, getters, rootGetters }, { forceRefresh = false } = {}) {
       if (state.fetching) return
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const data = await getComponentTypes()
-        const typesRaw = Array.isArray(data)
+        const data = await getComponentCategories()
+        const raw = Array.isArray(data)
           ? data
           : Array.isArray(data?.data)
             ? data.data
@@ -54,17 +54,24 @@ export default {
               ? data.data.data
               : []
 
-        const list = typesRaw
-          .flatMap((type) =>
-            Array.isArray(type.categories)
-              ? type.categories.map((c) => ({
-                  ...c,
-                  id: c?.id || c?._id,
-                  typeId: c?.typeId || type.id,
-                  typeName: type.name || '',
-                }))
-              : []
-          )
+        const types = rootGetters['componentTypes/componentTypes'] || []
+
+        const list = raw
+          .map((c) => {
+            const typeId = c?.typeId || c?.type?.id || c?.componentTypeId
+            const typeName =
+              c?.typeName ||
+              c?.type?.name ||
+              c?.componentType?.name ||
+              types.find((t) => t.id === typeId)?.name ||
+              ''
+            return {
+              ...c,
+              id: c?.id || c?._id,
+              typeId,
+              typeName,
+            }
+          })
           .filter((c) => !!c.id)
           .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
 
@@ -78,16 +85,19 @@ export default {
       commit('INVALIDATE')
     },
 
-    addComponentCategory({ commit }, item) {
+    addComponentCategory({ commit, dispatch }, item) {
       commit('ADD_COMPONENT_CATEGORY', item)
+      dispatch('componentTypes/invalidate', null, { root: true })
     },
 
-    updateComponentCategory({ commit }, item) {
+    updateComponentCategory({ commit, dispatch }, item) {
       commit('UPDATE_COMPONENT_CATEGORY', item)
+      dispatch('componentTypes/invalidate', null, { root: true })
     },
 
-    removeComponentCategory({ commit }, id) {
+    removeComponentCategory({ commit, dispatch }, id) {
       commit('REMOVE_COMPONENT_CATEGORY', id)
+      dispatch('componentTypes/invalidate', null, { root: true })
     },
   },
 }

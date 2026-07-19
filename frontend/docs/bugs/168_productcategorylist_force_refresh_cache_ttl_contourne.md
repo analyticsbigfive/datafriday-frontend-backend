@@ -1,6 +1,6 @@
 # BUG-168 — `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Menu & recettes (Configurations — Menu Item Categories)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -22,16 +22,26 @@ navigation vers `/product-categories`, même si le cache est encore valide — u
 
 ## Correction
 
-Reste à faire : retirer `forceRefresh: true` du mount par défaut, ne le garder que pour le
-listener `@saved` (après une création/édition, où un refresh forcé est légitime — voir
-[BUG-159](159_producttype_optimistic_write_objet_partiel.md), qui documente que `ProductTypeList.vue`
-manque justement ce listener sur sa propre page).
+`src/components/products/views/ProductCategoryList.vue` :
+- `loadCategories()` (ex-`:207-211`) accepte désormais un paramètre `forceRefresh = false` et le
+  transmet tel quel à `productCategories/fetchProductCategories({ forceRefresh })` au lieu de
+  toujours passer `{ forceRefresh: true }`.
+- `mounted()` appelle `this.loadCategories()` sans argument → respecte désormais le cache TTL
+  15 min (comportement standard, aligné sur `ProductTypeList.vue`).
+- `<ProductCategoryFormDrawer>` écoute maintenant `@saved="onCategorySaved"` (nouvelle méthode) au
+  lieu de `@saved="loadCategories"` directement — `onCategorySaved()` appelle
+  `this.loadCategories(true)`, préservant le refresh forcé légitime après un create/edit (cf.
+  [BUG-159](159_producttype_optimistic_write_objet_partiel.md), qui a par ailleurs ajouté
+  l'équivalent `@saved="loadTypes"` sur `ProductTypeList.vue`).
 
 ## Risque de régression / à surveiller
 
-Vérifier qu'une catégorie créée/modifiée depuis un autre onglet reste visible dans un délai
-raisonnable (le TTL de 15 min s'appliquera alors normalement, comportement attendu et cohérent avec
-le reste de l'app).
+Vérifié seulement par lecture de code (pas de `pnpm dev` cette session) — à valider manuellement :
+naviguer vers `/product-categories` deux fois de suite dans les 15 minutes doit éviter un second
+appel réseau (cache respecté) ; créer/éditer une catégorie doit toujours rafraîchir la liste
+immédiatement (refresh forcé toujours actif sur `@saved`) ; vérifier qu'une catégorie créée/modifiée
+depuis un autre onglet reste visible dans un délai raisonnable (le TTL de 15 min s'applique
+normalement, comportement attendu et cohérent avec le reste de l'app).
 
 ## Références
 

@@ -1,6 +1,6 @@
 # BUG-160 — `Brand`/`DisplayName` : écriture Vuex optimiste avec objet partiel après édition
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Menu & recettes (Configurations — Brand Names/Display Names)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -30,11 +30,23 @@ correctif (fusion ou dispatch de la réponse API complète) n'a jamais été por
 
 ## Correction
 
-Reste à faire : même correctif que BUG-149/BUG-159.
+- `src/store/modules/brandNames.js:34` (`UPDATE_BRAND_NAME`) : remplacement complet
+  (`b.id === updated.id ? updated : b`) remplacé par une fusion (`{ ...b, ...updated }`).
+- `src/store/modules/displayNames.js:34` (`UPDATE_DISPLAY_NAME`) : même fusion
+  (`{ ...d, ...updated }`).
+
+Même pattern que `eventTypes.js:39` (correctif de référence BUG-149) et que BUG-159
+(`productTypes.js`). `BrandNameFormDrawer.vue:112`/`DisplayNameFormDrawer.vue:112` n'ont pas eu
+besoin d'être modifiés pour dispatcher la réponse API complète : la fusion dans la mutation suffit
+à préserver `createdAt` (et tout autre champ) même avec le payload partiel `{id, name}` déjà
+dispatché.
 
 ## Risque de régression / à surveiller
 
-Non reproduit en navigateur (pas de `pnpm dev` dans cette session) — à valider manuellement.
+Vérifié seulement par lecture de code (`node --check` sur les deux fichiers store, OK) — pas de
+reproduction live en navigateur (interdiction de lancer `pnpm dev` dans cette session). À valider
+manuellement : renommer une Brand Name / Display Name et vérifier que la colonne "Créé le" reste
+correcte immédiatement après l'édition, sans attendre le TTL de 15 min.
 
 ## Références
 

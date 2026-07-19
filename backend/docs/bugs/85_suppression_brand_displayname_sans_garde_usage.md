@@ -1,6 +1,6 @@
 # BUG-85 — Suppression `Brand`/`DisplayName` sans garde ni avertissement d'usage
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Menu & recettes (Configurations — Brand Names/Display Names)
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (impact visible côté `datafriday-web`)
@@ -23,17 +23,25 @@ retourne aucune information d'impact à afficher côté front.
 
 ## Correction
 
-Reste à faire — arbitrage produit à faire (contrairement à BUG-79/81/82, ici la FK `SetNull` est
-déjà un choix de design raisonnable, pas nécessairement à bloquer totalement) :
-1. Option légère : `remove()` renvoie le nombre de `MenuItem` affectés, le front affiche un
-   avertissement explicite ("N articles vont perdre ce nom de marque") avant confirmation finale.
-2. Option stricte : bloquer la suppression tant que des `MenuItem` référencent encore l'entité
-   (aligné avec le pattern BUG-75/79/81/82).
+**Décision (2026-07-19)** : option stricte retenue, alignée avec le pattern BUG-75/79/81/82/86
+("bloquer si quelque chose en dépend") pour rester cohérent avec la politique uniforme appliquée
+en parallèle sur ces taxonomies. `BrandsService.remove()`
+(`src/features/brands/brands.service.ts:71-84`) compte désormais les `MenuItem` dépendants
+(`brandId: id`) et lève `ConflictException` (« Impossible de supprimer ce brand : N article(s) de
+menu en dépendent encore... ») si le compte est > 0.
+`DisplayNamesService.remove()` (`src/features/display-names/display-names.service.ts:74-88`) fait
+de même avec `displayNameId`. Au passage, les deux `create`/`update` gagnent une garde
+anti-doublon insensible à la casse (voir BUG-87/88 pour le détail).
 
 ## Risque de régression / à surveiller
 
-Si option 1 retenue, vérifier que le décompte reste correct sous charge concurrente (un autre
-utilisateur pourrait rattacher un MenuItem entre le décompte affiché et la confirmation).
+Revue de code uniquement dans cette session (pas de `pnpm dev` lancé) — à valider manuellement :
+supprimer un `Brand`/`DisplayName` encore référencé par un `MenuItem` doit désormais échouer avec
+un message clair (409) au lieu de détacher silencieusement la FK ; supprimer une entité non
+référencée doit continuer à fonctionner normalement. Vérifier aussi que le front
+(`BrandNameDeleteDialog.vue`/`DisplayNameDeleteDialog.vue`) affiche bien `e.response.data.message`
+sur l'échec (pattern déjà utilisé pour BUG-75, à confirmer côté frontend — non touché dans cette
+session, hors périmètre backend).
 
 ## Références
 

@@ -32,7 +32,7 @@
           {{ t('industrialList.cancel') }}
         </button>
         <button class="ind-btn ind-btn--danger" :disabled="loading" @click="$emit('confirm')">
-          <Trash2 :size="14" /> {{ loading ? 'Suppression…' : t('industrialList.delete') }}
+          <Trash2 :size="14" /> {{ loading ? t('industrialList.deleting') : t('industrialList.delete') }}
         </button>
       </div>
     </div>

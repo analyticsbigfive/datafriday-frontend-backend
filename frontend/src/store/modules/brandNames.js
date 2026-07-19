@@ -32,7 +32,7 @@ export default {
       state.list = [...state.list, item]
     },
     UPDATE_BRAND_NAME(state, updated) {
-      state.list = state.list.map((b) => (b.id === updated.id ? updated : b))
+      state.list = state.list.map((b) => (b.id === updated.id ? { ...b, ...updated } : b))
     },
     REMOVE_BRAND_NAME(state, id) {
       state.list = state.list.filter((b) => b.id !== id)

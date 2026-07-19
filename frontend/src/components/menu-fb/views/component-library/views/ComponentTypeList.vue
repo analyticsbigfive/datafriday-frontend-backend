@@ -205,7 +205,7 @@ export default {
       try {
         await this.$store.dispatch('componentTypes/fetchComponentTypes', { forceRefresh: true })
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || "Failed to load types";
+        this.loadError = e?.response?.data?.message || e?.message || this.t('componentTypeList.loadError');
       } finally {
         this.loading = false;
       }
@@ -255,13 +255,13 @@ export default {
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
-          this.deleteError = "Identifiant manquant";
+          this.deleteError = this.t('componentTypeList.missingId');
           return;
         }
         // Pré-vérification : le type a des catégories liées (suppression en
         // cascade côté backend, on préfère avertir plutôt que supprimer en silence).
         if (this.deleteTarget?.categoryList?.length > 0) {
-          this.deleteError = "Impossible de supprimer un Component Type lié à des catégories.";
+          this.deleteError = this.t('componentTypeList.deleteBlockedCategories');
           return;
         }
         await deleteComponentType(id);
@@ -270,9 +270,9 @@ export default {
       } catch (e) {
         const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
         if (msg.includes('cannot delete global component type') || msg.includes('categor') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
-          this.deleteError = "Impossible de supprimer un Component Type lié à des catégories.";
+          this.deleteError = this.t('componentTypeList.deleteBlockedCategories');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || "Échec de la suppression";
+          this.deleteError = e?.response?.data?.message || e?.message || this.t('componentTypeList.deleteError');
         }
       } finally {
         this.deleteLoading = false;

@@ -98,7 +98,7 @@
       :initial-data="selectedCategory"
       :types="types"
       :is-dark="isDark"
-      @saved="loadCategories"
+      @saved="onCategorySaved"
     />
 
     <ProductDeleteDialog
@@ -204,22 +204,27 @@ export default {
         // silent
       }
     },
-    async loadCategories() {
+    async loadCategories(forceRefresh = false) {
       this.loading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
+        await this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh });
         if (process.env.NODE_ENV === 'development') {
           console.log('[ProductCategoryList] categories loaded:', this.categories.length, this.categories);
         }
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || "Failed to load categories";
+        this.loadError = e?.response?.data?.message || e?.message || this.t('productCategoryList.loadError');
         if (process.env.NODE_ENV === 'development') {
           console.error('[ProductCategoryList] fetch error:', e);
         }
       } finally {
         this.loading = false;
       }
+    },
+    // Après un create/edit, un refresh forcé est légitime (contourne le TTL) —
+    // cf. BUG-168. Le mount initial, lui, respecte le cache (loadCategories()).
+    onCategorySaved() {
+      this.loadCategories(true);
     },
     formatDate(value) {
       if (!value) return "-";
@@ -263,7 +268,7 @@ export default {
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
-          this.deleteError = "Identifiant manquant";
+          this.deleteError = this.t('productCategoryList.missingId');
           return;
         }
         await deleteProductCategory(id);
@@ -272,9 +277,9 @@ export default {
       } catch (e) {
         const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
         if (msg.includes('cannot delete global product category') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
-          this.deleteError = "Impossible de supprimer une Menu Item Category utilisée dans le système.";
+          this.deleteError = this.t('productCategoryList.deleteBlockedUsed');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || "Échec de la suppression";
+          this.deleteError = e?.response?.data?.message || e?.message || this.t('productCategoryList.deleteError');
         }
       } finally {
         this.deleteLoading = false;
