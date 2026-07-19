@@ -1552,16 +1552,28 @@ export class MenuItemsService {
   }
 
   // ── ProductType & ProductCategory ────────────────
-  async getProductTypes(tenantId: string) {
-    return this.prisma.productType.findMany({
-      where: { OR: [{ tenantId }, { tenantId: null }] },
-      orderBy: { name: 'asc' },
-      include: {
-        categories: {
-          where: { OR: [{ tenantId }, { tenantId: null }] },
+  // BUG-169 : pagination réelle (skip/take), même shape/clamp que findAll (menu-items) —
+  // évite un findMany() non borné sur ce référentiel. Le front (store productTypes.js)
+  // boucle sur les pages pour reconstituer la liste complète (contrat inchangé côté UI).
+  async getProductTypes(tenantId: string, page = 1, limit = 200) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where = { OR: [{ tenantId }, { tenantId: null }] };
+    const [data, total] = await Promise.all([
+      this.prisma.productType.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: {
+          categories: {
+            where: { OR: [{ tenantId }, { tenantId: null }] },
+          },
         },
-      },
-    });
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.productType.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) } };
   }
 
   // BUG-87 : la contrainte unique Postgres (@@unique([tenantId, name])) est sensible à la casse —
@@ -1673,17 +1685,27 @@ export class MenuItemsService {
     return updated;
   }
 
-  async getProductCategories(tenantId: string, typeId?: string) {
-    return this.prisma.productCategory.findMany({
-      where: {
-        AND: [
-          { OR: [{ tenantId }, { tenantId: null }] },
-          ...(typeId ? [{ typeId }] : []),
-        ],
-      },
-      orderBy: { name: 'asc' },
-      include: { type: true },
-    });
+  // BUG-169 : idem getProductTypes — pagination réelle, même shape/clamp que findAll.
+  async getProductCategories(tenantId: string, typeId?: string, page = 1, limit = 200) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where: any = {
+      AND: [
+        { OR: [{ tenantId }, { tenantId: null }] },
+        ...(typeId ? [{ typeId }] : []),
+      ],
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.productCategory.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: { type: true },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.productCategory.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) } };
   }
 
   async createProductCategory(

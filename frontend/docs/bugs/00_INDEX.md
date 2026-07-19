@@ -178,11 +178,11 @@
 | [162](162_marketprice_selectedtype_category_resolu_par_nom.md) | MarketPrice : `selectedTypeId`/`selectedCategoryId` résolus par nom, pas par la FK chargée | 🟢 Corrigé | 🟡 | Achats & référentiels (Configurations) |
 | [163](163_good_component_cross_invalidation_absente.md) | Good/Component Types↔Categories : pas d'invalidation croisée de cache, actions `invalidate` mortes | 🟢 Corrigé | 🟡 | Achats & référentiels / Menu & recettes (Configurations) |
 | [164](164_menuapi_code_mort_routes_inexistantes.md) | `menu.api.js` : code mort pointant vers des routes backend inexistantes (`/categories`, `/types`) | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
-| [165](165_referentiels_plats_duplication_non_factorisee.md) | Référentiels plats (Brand/Display/Industrial/PackingType) : duplication quasi totale, jamais factorisée | 🔴 Ouvert | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [165](165_referentiels_plats_duplication_non_factorisee.md) | Référentiels plats (Brand/Display/Industrial/PackingType) : duplication quasi totale, jamais factorisée | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [166](166_taxonomies_configurations_i18n_texte_en_dur.md) | Taxonomies Configurations : chaînes FR/EN codées en dur dans les drawers/dialogs (10 écrans) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [167](167_nav_configurations_fr_non_traduit.md) | Sidebar Configurations : 4 libellés jamais traduits en français (texte anglais copié-collé) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [168](168_productcategorylist_force_refresh_cache_ttl_contourne.md) | `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
-| [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | ⚪ Diagnostiqué | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 
 **169 bugs au total**, 159-169 ajoutés le 2026-07-19 suite à un audit complet de la section
 "Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component
@@ -211,11 +211,33 @@ croisée Categories→Types. BUG-162 : en creusant le fix, l'agent a découvert 
 `MarketPriceListView.vue` omettait `marketPriceTypeId`/`marketPriceCategoryId` de l'item agrégé
 transmis aux drawers — sans quoi le correctif restait inerte (fallback silencieux sur l'ancien
 comportement, pas de régression mais aucun bénéfice réel) — corrigé dans la foulée dans le même
-fichier. BUG-165 (refactor de factorisation des 4 référentiels plats) **volontairement non traité**
-dans cette passe : chantier de refactor distinct d'un bugfix isolé, à planifier séparément (cf. sa
-propre fiche). BUG-169 (pagination) reste ⚪ Diagnostiqué par choix déjà documenté, non revu. Aucun
-de ces correctifs n'a été testé en navigateur (pas de `pnpm dev` dans cette session) — chaque fiche
+fichier. BUG-165 (refactor de factorisation des 4 référentiels plats) et BUG-169 (pagination)
+volontairement non traités dans cette passe initiale : chantiers jugés distincts d'un bugfix
+isolé — voir plus bas, tous deux corrigés le même jour dans une seconde passe après une demande
+explicite de ne pas laisser cette dette de côté. Aucun de ces correctifs n'a été testé en navigateur
+(pas de `pnpm dev` dans cette session) — chaque fiche
 liste les points de validation manuelle à faire avant déploiement.
+
+**165 et 169 corrigés le 2026-07-19**, même jour, seconde passe. BUG-165 : extraction d'une factory
+Vuex générique (`store/modules/factories/flatReferentialModule.js`) + 3 composants génériques
+(`FlatReferentialListView`/`FormDrawer`/`DeleteDialog` sous `components/common/`), les 12 fichiers
+per-entité devenus des thin wrappers (~30-40 lignes chacun au lieu de 163-353) plutôt que supprimés
+— `BrandNameFormDrawer.vue`/`DisplayNameFormDrawer.vue` sont importés directement par
+`MenuItemCreateView.vue` en dehors du contexte liste, la suppression aurait cassé cet import. Le
+refactor a mis au jour 2 divergences comportementales réelles jamais unifiées silencieusement
+(`mergeOnUpdate` jamais porté sur Industrial/PackingType par le fix BUG-160,
+`loadErrorFallback` jamais traduit par BUG-166 sur ces 2 mêmes écrans) — préservées telles quelles
+dans le refactor puis closes séparément juste après, chacune devenue une correction d'une ligne une
+fois la factorisation en place. BUG-169 : l'arbitrage initial "cardinalité faible, pas de risque
+actif" a été explicitement rejeté (croissance attendue à plusieurs centaines de lignes par tenant
+d'ici la fin du mois) — les 10 endpoints paginés en 3 passes (MarketPrice, Product+Component,
+référentiels plats, cette dernière réduite à un seul point de changement côté store grâce au
+refactor BUG-165 tout juste terminé), chacune suivant le contrat déjà établi par `marketPrices.js`
+(le store boucle sur des pages serveur bornées à 200 lignes et reconstitue la liste complète avant
+de la committer) — choisi précisément pour ne PAS reproduire la classe de bug "plafond silencieux"
+déjà documentée et corrigée ailleurs dans ce projet (BUG-52/54/89/139) : aucun consommateur
+dropdown/picker (une recherche exhaustive en a confirmé au moins 2 par module, aucune exception) ne
+reçoit de liste tronquée.
 
 **158 bugs au total**, 158 ajouté et corrigé le 2026-07-19 suite à un balayage de complétude
 ("on a tout couvert ? pour les events") : seul bouton natif Vuetify du domaine sur `color="primary"`

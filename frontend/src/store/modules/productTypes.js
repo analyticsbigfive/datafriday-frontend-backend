@@ -53,14 +53,27 @@ export default {
       commit('SET_FETCHING', true)
       commit('SET_PENDING_REFRESH', false)
       try {
-        const data = await getProductType()
-        const raw = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.data?.data)
-              ? data.data.data
-              : []
+        // BUG-169 : GET /product-types est désormais paginé côté serveur (défaut limit=200,
+        // clampé à 500) — on boucle sur `meta.total` pour reconstituer la liste COMPLÈTE avant
+        // de committer, comme marketPrices.js/fetchRows. Le contrat du store (getter = liste
+        // entière) ne change pas : tous les consommateurs (dropdowns inclus) restent servis.
+        const limit = 200
+        let page = 1
+        let raw = []
+        while (true) {
+          const result = await getProductType({ page, limit })
+          const pageRows = Array.isArray(result)
+            ? result
+            : Array.isArray(result?.data)
+              ? result.data
+              : Array.isArray(result?.data?.data)
+                ? result.data.data
+                : []
+          raw = raw.concat(pageRows)
+          const total = result?.meta?.total ?? result?.data?.meta?.total
+          if (!total || pageRows.length < limit || raw.length >= total) break
+          page += 1
+        }
 
         const list = raw
           .map((t) => ({ ...t, id: t?.id || t?._id }))

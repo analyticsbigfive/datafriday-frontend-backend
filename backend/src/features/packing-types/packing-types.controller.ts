@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
@@ -23,9 +23,13 @@ export class PackingTypesController {
   constructor(private readonly packingTypesService: PackingTypesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lister les packing types du tenant' })
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.packingTypesService.findAll(tenantId);
+  @ApiOperation({ summary: 'Lister les packing types du tenant (paginé)' })
+  findAll(
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.packingTypesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined);
   }
 
   @RequirePermissions('menu.config.manage')

@@ -45,14 +45,27 @@ export default {
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const data = await getMarketPriceCategories()
-        const raw = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.data?.data)
-              ? data.data.data
-              : []
+        const limit = 200
+        let page = 1
+        let raw = []
+        // BUG-169: même boucle de pagination que marketPriceTypes.js/marketPrices.js —
+        // le backend plafonne chaque appel à `limit` lignes, on accumule toutes les pages
+        // avant de committer, pour que les dropdowns consommant cette liste complète
+        // (cf. fetchMarketPriceTypes ci-dessus) ne voient jamais une page partielle.
+        while (true) {
+          const result = await getMarketPriceCategories({ page, limit })
+          const pageRows = Array.isArray(result)
+            ? result
+            : Array.isArray(result?.data)
+              ? result.data
+              : Array.isArray(result?.data?.data)
+                ? result.data.data
+                : []
+          raw = raw.concat(pageRows)
+          const total = result?.meta?.total ?? result?.data?.meta?.total
+          if (!total || pageRows.length < limit || raw.length >= total) break
+          page += 1
+        }
 
         const types = rootGetters['marketPriceTypes/marketPriceTypes'] || []
 

@@ -137,8 +137,17 @@ export async function repairMenuComponents() {
 // Taxonomie dédiée, indépendante de Product Type/Category et Market Price Type/Category.
 // ============================================
 
-export async function getComponentTypes() {
-  return api.get('/component-types')
+/**
+ * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
+ * pages pour reconstituer la liste complète — voir store/modules/componentTypes.js).
+ * @param {{ page?: number, limit?: number }} [opts]
+ */
+export async function getComponentTypes({ page, limit } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/component-types${qs ? '?' + qs : ''}`)
 }
 
 export async function createComponentType(componentType) {
@@ -153,8 +162,17 @@ export async function deleteComponentType(id) {
   return api.delete(`/component-types/${id}`)
 }
 
-export async function getComponentCategories() {
-  return api.get('/component-categories')
+/**
+ * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
+ * pages pour reconstituer la liste complète — voir store/modules/componentCategories.js).
+ * @param {{ page?: number, limit?: number }} [opts]
+ */
+export async function getComponentCategories({ page, limit } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/component-categories${qs ? '?' + qs : ''}`)
 }
 
 export async function createComponentCategory(componentCategory) {

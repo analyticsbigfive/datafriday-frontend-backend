@@ -52,16 +52,32 @@ export class MarketPriceTaxonomyService {
 
   // ---------------- Types ----------------
 
-  async getTypes(tenantId: string) {
-    return this.prisma.marketPriceType.findMany({
-      where: { OR: [{ tenantId }, { tenantId: null }] },
-      orderBy: { name: 'asc' },
-      include: {
-        categories: {
-          where: { OR: [{ tenantId }, { tenantId: null }] },
+  // BUG-169: bounded pagination, same shape/clamp as menu-items.service.ts findAll
+  // ({ data, meta: { total, page, limit, totalPages } }, limit clamped to [1, 500],
+  // default page=1/limit=200). Callers that need the full tenant list (dropdowns)
+  // are expected to page through it client-side (see marketPriceTypes.js store).
+  async getTypes(tenantId: string, page = 1, limit = 200) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where = { OR: [{ tenantId }, { tenantId: null }] };
+    const [data, total] = await Promise.all([
+      this.prisma.marketPriceType.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: {
+          categories: {
+            where: { OR: [{ tenantId }, { tenantId: null }] },
+          },
         },
-      },
-    });
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.marketPriceType.count({ where }),
+    ]);
+    return {
+      data,
+      meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) },
+    };
   }
 
   async createType(name: string, tenantId?: string) {
@@ -140,17 +156,30 @@ export class MarketPriceTaxonomyService {
 
   // ---------------- Categories ----------------
 
-  async getCategories(tenantId: string, typeId?: string) {
-    return this.prisma.marketPriceCategory.findMany({
-      where: {
-        AND: [
-          { OR: [{ tenantId }, { tenantId: null }] },
-          ...(typeId ? [{ typeId }] : []),
-        ],
-      },
-      orderBy: { name: 'asc' },
-      include: { type: true },
-    });
+  // BUG-169: same bounded-pagination shape as getTypes above.
+  async getCategories(tenantId: string, typeId?: string, page = 1, limit = 200) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where = {
+      AND: [
+        { OR: [{ tenantId }, { tenantId: null }] },
+        ...(typeId ? [{ typeId }] : []),
+      ],
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.marketPriceCategory.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: { type: true },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.marketPriceCategory.count({ where }),
+    ]);
+    return {
+      data,
+      meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) },
+    };
   }
 
   async createCategory(name: string, typeId: string | undefined, tenantId?: string) {

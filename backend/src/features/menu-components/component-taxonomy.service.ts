@@ -51,16 +51,28 @@ export class ComponentTaxonomyService {
 
   // ---------------- Types ----------------
 
-  async getTypes(tenantId: string) {
-    return this.prisma.componentType.findMany({
-      where: { OR: [{ tenantId }, { tenantId: null }] },
-      orderBy: { name: 'asc' },
-      include: {
-        categories: {
-          where: { OR: [{ tenantId }, { tenantId: null }] },
+  // BUG-169 : pagination réelle (skip/take), même shape/clamp que menu-items findAll —
+  // évite un findMany() non borné sur ce référentiel. Le front (store componentTypes.js)
+  // boucle sur les pages pour reconstituer la liste complète (contrat inchangé côté UI).
+  async getTypes(tenantId: string, page = 1, limit = 200) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where = { OR: [{ tenantId }, { tenantId: null }] };
+    const [data, total] = await Promise.all([
+      this.prisma.componentType.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: {
+          categories: {
+            where: { OR: [{ tenantId }, { tenantId: null }] },
+          },
         },
-      },
-    });
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.componentType.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) } };
   }
 
   async createType(name: string, tenantId?: string) {
@@ -125,17 +137,27 @@ export class ComponentTaxonomyService {
 
   // ---------------- Categories ----------------
 
-  async getCategories(tenantId: string, typeId?: string) {
-    return this.prisma.componentCategory.findMany({
-      where: {
-        AND: [
-          { OR: [{ tenantId }, { tenantId: null }] },
-          ...(typeId ? [{ typeId }] : []),
-        ],
-      },
-      orderBy: { name: 'asc' },
-      include: { type: true },
-    });
+  // BUG-169 : idem getTypes — pagination réelle, même shape/clamp que menu-items findAll.
+  async getCategories(tenantId: string, typeId?: string, page = 1, limit = 200) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where: any = {
+      AND: [
+        { OR: [{ tenantId }, { tenantId: null }] },
+        ...(typeId ? [{ typeId }] : []),
+      ],
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.componentCategory.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: { type: true },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.componentCategory.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) } };
   }
 
   async createCategory(name: string, typeId: string | undefined, tenantId?: string) {

@@ -5,11 +5,26 @@ import { PrismaService } from '../../core/database/prisma.service';
 export class BrandsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(tenantId: string) {
-    return this.prisma.brand.findMany({
-      where: { tenantId },
-      orderBy: { name: 'asc' },
-    });
+  // BUG-169: pagination bornée, même forme/clamp que menu-items.service.ts findAll —
+  // { data, meta: { total, page, limit, totalPages } }. Le store frontend boucle sur les
+  // pages (voir flatReferentialModule.js) pour reconstituer la liste complète côté
+  // dropdown/picker sans jamais tronquer silencieusement.
+  async findAll(tenantId: string, page = 1, limit = 200) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const [data, total] = await Promise.all([
+      this.prisma.brand.findMany({
+        where: { tenantId },
+        orderBy: { name: 'asc' },
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+      }),
+      this.prisma.brand.count({ where: { tenantId } }),
+    ]);
+    return {
+      data,
+      meta: { total, page: safePage, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) || 1 },
+    };
   }
 
   private async assertNoCaseInsensitiveDuplicate(name: string, tenantId: string, excludeId?: string) {

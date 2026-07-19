@@ -65,8 +65,17 @@ export async function synchronisePackaging() {
 // MARKET PRICE TYPES (taxonomie propre à Market Price)
 // ============================================
 
-export async function getMarketPriceTypes() {
-  return api.get('/market-price-types')
+/**
+ * Récupérer une page de Market Price Types
+ * @param {{page?: number, limit?: number}} [params]
+ * @returns {Promise<{data: Array, meta: Object}>}
+ */
+export async function getMarketPriceTypes({ page, limit } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/market-price-types${qs ? '?' + qs : ''}`)
 }
 
 export async function createMarketPriceType(marketPriceType) {
@@ -85,8 +94,18 @@ export async function deleteMarketPriceType(id) {
 // MARKET PRICE CATEGORIES
 // ============================================
 
-export async function getMarketPriceCategories() {
-  return api.get('/market-price-categories')
+/**
+ * Récupérer une page de Market Price Categories
+ * @param {{page?: number, limit?: number, typeId?: string}} [params]
+ * @returns {Promise<{data: Array, meta: Object}>}
+ */
+export async function getMarketPriceCategories({ page, limit, typeId } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  if (typeId) params.set('typeId', typeId)
+  const qs = params.toString()
+  return api.get(`/market-price-categories${qs ? '?' + qs : ''}`)
 }
 
 export async function createMarketPriceCategory(marketPriceCategory) {

@@ -45,14 +45,28 @@ export default {
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const data = await getMarketPriceTypes()
-        const raw = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.data?.data)
-              ? data.data.data
-              : []
+        const limit = 200
+        let page = 1
+        let raw = []
+        // BUG-169: le backend plafonne chaque appel à `limit` lignes (même pattern que
+        // marketPrices.js) : on boucle sur `meta.total` tant qu'il en reste, pour ne pas
+        // tronquer silencieusement les dropdowns consommant cette liste complète
+        // (MarketPriceCreateDrawer/EditDrawer/EditSupplierDrawer/CsvImportDrawer, filtres
+        // de MarketPriceListView).
+        while (true) {
+          const result = await getMarketPriceTypes({ page, limit })
+          const pageRows = Array.isArray(result)
+            ? result
+            : Array.isArray(result?.data)
+              ? result.data
+              : Array.isArray(result?.data?.data)
+                ? result.data.data
+                : []
+          raw = raw.concat(pageRows)
+          const total = result?.meta?.total ?? result?.data?.meta?.total
+          if (!total || pageRows.length < limit || raw.length >= total) break
+          page += 1
+        }
 
         const list = raw
           .map((t) => ({ ...t, id: t?.id || t?._id }))
