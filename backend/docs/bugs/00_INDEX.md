@@ -24,7 +24,7 @@
 | [10](10_n1_queries_toolbox_predict.md) | Requêtes N+1 dans le toolbox Event Predict | 🔴 Ouvert | 🟡 | Prévision |
 | [11](11_routes_kv_mortes.md) | Routes /kv mortes (KvModule non enregistré) | 🔴 Ouvert | 🟡 | Technique |
 | [12](12_scoping_config_manquant_spacemenus.md) | Scoping config manquant perf/staff/inventory Space Menus | 🟢 Corrigé | 🟠 | Espaces & builder |
-| [13](13_predictversion_update_jamais_appelee.md) | PredictVersionsService.update() jamais appelée | 🔴 Ouvert | 🟢 | Prévision |
+| [13](13_predictversion_update_jamais_appelee.md) | PredictVersionsService.update() jamais appelée | 🟢 Corrigé | 🟢 | Prévision |
 | [14](14_aggregation_colonnes_mal_ecrites.md) | AggregationService écrit menuItemId/locationId dans les mauvaises colonnes | 🔴 Ouvert | 🔴 | Analyse & agrégation |
 | [15](15_agregation_ttc_ht_non_convertie.md) | Formule de CA ne convertit jamais TTC→HT | 🔴 Ouvert | 🔴 | Analyse & agrégation |
 | [16](16_agregats_perimetre_divergent.md) | SpaceProductRevenueDailyAgg vs SpaceRevenueMinuteAgg : périmètre divergent | 🔴 Ouvert | 🟠 | Analyse & agrégation |
@@ -81,13 +81,22 @@
 | [67](67_event_taxonomy_fk_sans_ownership.md) | `Event.create()`/`update()` : aucune vérification d'ownership sur les FK de taxonomie | 🟢 Corrigé | 🟠 | Événements |
 | [68](68_updateteam_rename_non_transactionnel.md) | `updateTeam` : renommage + repropagation `Event.visitingTeamName` non transactionnels | 🟢 Corrigé | 🟡 | Événements |
 | [69](69_events_module_pas_de_traduction_p2002_p2003.md) | Module Events : aucune traduction des erreurs Prisma P2002/P2003 (500 générique) | 🟢 Corrigé | 🟠 | Événements |
-| [70](70_team_duplicate_toctou_sans_unique_index.md) | `Team` : vérification de doublon TOCTOU, aucune contrainte `@@unique` en base | ⚪ Diagnostiqué | 🟡 | Événements |
+| [70](70_team_duplicate_toctou_sans_unique_index.md) | `Team` : vérification de doublon TOCTOU, aucune contrainte `@@unique` en base | 🟡 Corrigé non déployé | 🟡 | Événements |
 | [71](71_get_events_page_limit_negatifs_sans_borne.md) | `GET /events` : `page`/`limit` négatifs acceptés, `limit` sans borne haute | 🟢 Corrigé | 🟡 | Événements |
 | [72](72_createeventdto_createteamdto_name_vide.md) | `CreateEventDto.name`/`CreateTeamDto.name` : chaîne vide acceptée | 🟢 Corrigé | 🟡 | Événements |
 | [73](73_createeventdto_champs_numeriques_sans_borne_min.md) | `CreateEventDto` : `ticketsSold`/`ticketsScanned`/`numberOfSessions` sans borne minimale | 🟢 Corrigé | 🟡 | Événements |
 | [74](74_predictversionsservice_remove_findone_code_mort.md) | `PredictVersionsService.remove()`/`findOne()` : code mort (au-delà de BUG-13) | 🟢 Corrigé | 🟢 | Prévision |
-| [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | ⚪ Diagnostiqué | 🟠 | Événements |
-| [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | ⚪ Diagnostiqué | 🟢 | Prévision |
+| [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | 🟢 Corrigé | 🟠 | Événements |
+| [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | 🟢 Corrigé | 🟢 | Prévision |
+| [77](77_createeventcategory_type_global_rejete_regression_bug66.md) | `createEventCategory` rejette les `eventTypeId` globaux (régression du fix BUG-66) | 🟢 Corrigé | 🟠 | Événements |
+
+**77 bugs au total**, 77 ajouté le 2026-07-18 suite à une relecture ciblée de `/event-categories`
+(frontend→backend) : le fix de BUG-66 (ajout d'une vérification d'ownership sur `eventTypeId` dans
+`createEventCategory`) utilisait le mauvais helper — `findOwnedEventTypeOrThrow` (strict) au lieu de
+`findAccessibleEventTypeOrThrow` (`OR: [{tenantId}, {tenantId: null}]`, pattern utilisé partout
+ailleurs pour cette même relation FK) — cassant la création de catégorie sous un type d'événement
+global alors que l'édition de la même catégorie l'acceptait sans problème. Corrigé en réutilisant le
+helper existant.
 
 **76 bugs au total**, 65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
 Events (`events.controller.ts`/`.service.ts`, taxonomies, Teams, couche API `predict-versions.*`) :
@@ -102,9 +111,15 @@ traduisait P2002/P2003 en erreur propre (pattern déjà établi ailleurs dans le
 répliqué sur ce module) ; pagination `GET /events` acceptant des valeurs négatives et sans borne
 haute ; validations DTO manquantes (`name` vide, champs numériques négatifs) ; code mort
 supplémentaire dans `PredictVersionsService` (`remove()`/`findOne()`, et `update()` déjà documenté
-BUG-13, supprimés ensemble). BUG-70/75/76 laissés en ⚪ Diagnostiqué (décision produit/architecture
-nécessaire avant de trancher, cf. fiches individuelles) ; BUG-13 (frontend miroir) mis à jour à 🟢
-suite à la suppression de `update()`. extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
+BUG-13, supprimés ensemble). BUG-70/75/76 initialement laissés en ⚪ Diagnostiqué (décision produit/
+architecture nécessaire avant de trancher) ; BUG-13 (frontend miroir) mis à jour à 🟢 suite à la
+suppression de `update()`. Décisions tranchées et implémentées le 2026-07-18 : BUG-76 (vérification
+`eventId`/tenant ajoutée à `EventPredictVersion.create()`, même pattern que BUG-67) ; BUG-75
+(suppression `EventType`/`EventCategory` désormais bloquée si des enfants en dépendent, plutôt que
+cascade silencieuse) ; BUG-70 (contrainte `@@unique` ajoutée au schéma + migration écrite après
+vérification en base — 11 lignes `Team`, aucun doublon — mais **non déployée**, en attente d'une
+confirmation explicite séparée pour l'application réelle contre la base de données, cf. fiche).
+extraits de `datafriday-web/docs/modules/` (source exhaustive, ~61 bugs
 recensés dont certains purement frontend — voir l'index miroir) le 2026-07-15 ; 44-50 ajoutés le
 2026-07-15 suite à un diagnostic direct sur `/spaces/:id/logistic` ; 51 ajouté le 2026-07-15 suite
 à une vérification directe en base des Menu Items sans prix pour l'espace Auxerre lors de la Data

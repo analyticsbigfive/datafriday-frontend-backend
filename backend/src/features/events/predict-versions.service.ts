@@ -24,6 +24,12 @@ export class PredictVersionsService {
   }
 
   async create(eventId: string, tenantId: string, dto: CreatePredictVersionDto, userId?: string) {
+    // BUG-076 : eventId (pris depuis l'URL) n'a pas de FK Prisma déclarée — sans cette
+    // vérification, un eventId erroné/typo créait une EventPredictVersion orpheline (même
+    // famille de garde déjà ajoutée pour les FK de taxonomie d'Event, cf. BUG-67).
+    const event = await this.prisma.event.findFirst({ where: { id: eventId, tenantId }, select: { id: true } });
+    if (!event) throw new NotFoundException(`Event ${eventId} not found`);
+
     return this.prisma.eventPredictVersion.create({
       data: {
         tenantId,

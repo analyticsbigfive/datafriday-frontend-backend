@@ -76,6 +76,9 @@
           </template>
           <template #item.actions="{ item }">
             <div class="esl-actions">
+              <div class="esl-abtn esl-abtn--info" @click.stop="openDetailsDrawer(item)">
+                <Eye :size="15" />
+              </div>
               <div class="esl-abtn esl-abtn--edit" @click.stop="openEditDialog(item)">
                 <Pencil :size="15" />
               </div>
@@ -165,32 +168,34 @@
 
     <EventCategoryDialog v-model="categoryDialog" :event-types="eventTypes" @created="handleCategoryCreated" />
 
-    <!-- Delete dialog -->
-    <v-dialog v-model="deleteDialog" max-width="440" :persistent="deleteLoading">
-      <div class="esl-modal">
-        <div class="esl-modal__head">
-          <div class="esl-modal__icon-wrap"><Trash2 :size="18" color="#ff3131" /></div>
-          <div class="esl-modal__headtext">
-            <div class="esl-modal__title">{{ t('eventSubcategoryList.deleteTitle') }}</div>
-            <div class="esl-modal__sub">{{ t('eventSubcategoryList.deleteSubtitle') }}</div>
-          </div>
-          <button class="esl-modal__close" @click="closeDeleteDialog"><X :size="16" /></button>
-        </div>
-        <div class="esl-modal__body">
-          <div v-if="deleteError" class="esl-modal__error"><AlertCircle :size="14" /> {{ deleteError }}</div>
-          <p class="esl-modal__text">
-            {{ t('eventSubcategoryList.deleteText') }} <strong>{{ deleteSubName }}</strong> ?
-          </p>
-        </div>
-        <div class="esl-modal__foot">
-          <button class="esl-mbtn esl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventSubcategoryList.deleteCancel') }}</button>
-          <button class="esl-mbtn esl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
-            <Trash2 :size="14" />
-            {{ deleteLoading ? t('eventSubcategoryList.deleteConfirming') : t('eventSubcategoryList.deleteConfirm') }}
-          </button>
-        </div>
+    <!-- BUG-155 : tiroir (au lieu d'un v-dialog centré) — cohérence charte graphique, cf. BUG-153. -->
+    <EventDrawerShell
+      v-model="deleteDialog"
+      :is-dark="isDark"
+      :persistent="deleteLoading"
+      width="420"
+      :title="t('eventSubcategoryList.deleteTitle')"
+      :subtitle="t('eventSubcategoryList.deleteSubtitle')"
+    >
+      <template #icon>
+        <Trash2 :size="18" color="white" />
+      </template>
+
+      <div :class="{ 'esl--dark': isDark }">
+        <div v-if="deleteError" class="esl-delete-error"><AlertCircle :size="14" /> {{ deleteError }}</div>
+        <p class="esl-delete-text">
+          {{ t('eventSubcategoryList.deleteText') }} <strong>{{ deleteSubName }}</strong> ?
+        </p>
       </div>
-    </v-dialog>
+
+      <template #footer>
+        <button class="esl-mbtn esl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventSubcategoryList.deleteCancel') }}</button>
+        <button class="esl-mbtn esl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
+          <Trash2 :size="14" />
+          {{ deleteLoading ? t('eventSubcategoryList.deleteConfirming') : t('eventSubcategoryList.deleteConfirm') }}
+        </button>
+      </template>
+    </EventDrawerShell>
 
     <TaxonomyImportDrawer
       v-model="taxonomyImportDrawer"
@@ -198,6 +203,10 @@
       :is-dark="isDark"
       @imported="loadSubcategories"
     />
+
+    <!-- BUG-153 : tiroir de détail (liste des événements liés, cliquables) — même composant partagé
+         qu'/event-types et /event-categories. -->
+    <TaxonomyDetailDrawer v-model="detailsDrawer" entity="subcategory" :item="detailsSubcategory" :is-dark="isDark" />
   </div>
 </template>
 
@@ -205,7 +214,7 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { Download, Pencil, Plus, Save, Trash2, Upload, X, Search, Layers, AlertCircle } from "lucide-vue-next";
+import { Download, Eye, Pencil, Plus, Save, Trash2, Upload, X, Search, Layers, AlertCircle } from "lucide-vue-next";
 import { downloadCSV } from "@/utils/csv";
 import {
   createEventSubcategory,
@@ -213,12 +222,15 @@ import {
   updateEventSubcategory,
 } from "@/api/endpoints/event.api";
 import TaxonomyImportDrawer from '../drawers/TaxonomyImportDrawer.vue';
+import TaxonomyDetailDrawer from '../drawers/TaxonomyDetailDrawer.vue';
+import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 import EventCategoryDialog from '../dialogs/EventCategoryDialog.vue';
 
 export default {
   name: "EventsSubcategorieListView",
   components: {
     Download,
+    Eye,
     Pencil,
     Plus,
     Save,
@@ -229,6 +241,8 @@ export default {
     Layers,
     AlertCircle,
     TaxonomyImportDrawer,
+    TaxonomyDetailDrawer,
+    EventDrawerShell,
     EventCategoryDialog,
   },
   setup() {
@@ -258,6 +272,9 @@ export default {
       },
 
       categoryDialog: false,
+
+      detailsDrawer: false,
+      detailsSubcategory: null,
 
       deleteDialog: false,
       deleteLoading: false,
@@ -347,6 +364,11 @@ export default {
       } catch (e) {
         this.eventTypes = [];
       }
+    },
+
+    openDetailsDrawer(sub) {
+      this.detailsSubcategory = sub;
+      this.detailsDrawer = true;
     },
 
     openCreateDialog() {
@@ -475,7 +497,7 @@ export default {
         ['Name', 'Event Category'],
         ...(this.subcategories || []).map(s => [
           s?.name || '',
-          this.categoryNameById[s?.categoryId] || '',
+          this.categoryNameById[s?.categoryId] || this.categoryNameById[s?.eventCategoryId] || '',
         ]),
       ];
       downloadCSV(rows, 'event-subcategories');
@@ -594,6 +616,8 @@ export default {
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
 }
+.esl-abtn--info { background: #f0f9ff; color: #0369a1; }
+.esl-abtn--info:hover { background: #e0f2fe; }
 .esl-abtn--edit { background: #eff6ff; color: #2563eb; }
 .esl-abtn--edit:hover { background: #dbeafe; }
 .esl-abtn--del { background: #fef2f2; color: #ff3131; }
@@ -667,18 +691,12 @@ export default {
 .esl-fbtn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 
 /* Delete modal */
-.esl-modal { background: #fff; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
-.esl-modal__head { display: flex; align-items: flex-start; gap: 14px; padding: 22px 22px 16px; }
-.esl-modal__icon-wrap { width: 42px; height: 42px; border-radius: 12px; background: #fef2f2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.esl-modal__headtext { flex: 1; }
-.esl-modal__title { font-size: 16px; font-weight: 700; color: #111827; }
-.esl-modal__sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
-.esl-modal__close { width: 28px; height: 28px; border-radius: 8px; border: none; background: #f3f4f6; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #6b7280; }
-.esl-modal__close:hover { background: #e5e7eb; }
-.esl-modal__body { padding: 0 22px 18px; }
-.esl-modal__error { display: flex; align-items: center; gap: 8px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
-.esl-modal__text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
-.esl-modal__foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; background: #f9fafb; border-top: 1px solid #f3f4f6; }
+.esl-delete-error {
+  display: flex; align-items: center; gap: 8px; background: #fef2f2; border: 1px solid #fecaca;
+  color: #991b1b; border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
+}
+.esl-delete-text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
+.esl--dark .esl-delete-text { color: #d1d5db; }
 .esl-mbtn { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px; height: 38px; border-radius: 50px; font-size: 13.5px; font-weight: 500; border: none; cursor: pointer; transition: all .2s; }
 .esl-mbtn:disabled { opacity: .5; cursor: not-allowed; }
 .esl-mbtn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }

@@ -228,7 +228,13 @@ export default {
       const id = this.$route.query?.editEventId;
       if (!id) return;
       const ev = (this.events || []).find((e) => String(e.id) === String(id));
-      if (ev) this.openEditEventDialog(ev);
+      // BUG-154 : ne PAS nettoyer la query si l'event n'est pas (encore) trouvé — `activated()`
+      // peut s'exécuter avant que `loadEvents()` (awaité dans `mounted()`) n'ait résolu lors de la
+      // toute première activation de la session ; effacer la query ici sans avoir ouvert la fiche
+      // ferait perdre le deep-link définitivement. `mounted()` rappelle cette même méthode une fois
+      // les events chargés, donc un id valide finit toujours par être résolu.
+      if (!ev) return;
+      this.openEditEventDialog(ev);
       // Nettoie la query pour ne pas rouvrir la fiche à chaque navigation/refresh.
       this.$router.replace({ name: 'events' }).catch(() => {});
     },
@@ -423,7 +429,16 @@ export default {
     this.loadSpaces();
     await this.loadEvents();
     // Deep-link : ?editEventId=<id> (ex. depuis l'alerte « évènements sans coup
-    // d'envoi » de la Moyenne timeline) → ouvre directement la fiche event.
+    // d'envoi » de la Moyenne timeline, ou depuis TaxonomyDetailDrawer) → ouvre
+    // directement la fiche event.
+    this.openDeepLinkedEvent();
+  },
+  // BUG-154 : /events a `meta.keepAlive: true` (DashboardView enveloppe le router-view dans
+  // <keep-alive>) — sans ce hook, `mounted()` ne se redéclenche qu'à la toute première visite de
+  // la session ; toute navigation ultérieure vers /events?editEventId=<id> (ex. depuis le tiroir
+  // « Événements liés » des écrans taxonomie) laissait le query param dans l'URL sans jamais rouvrir
+  // la fiche. Même classe de bug que BUG-122 (SpaceMenuView, deep-link cassé par keep-alive).
+  activated() {
     this.openDeepLinkedEvent();
   },
   beforeUnmount() {

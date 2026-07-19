@@ -1,34 +1,21 @@
 <template>
-  <v-navigation-drawer
+  <EventDrawerShell
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    location="right"
-    temporary
     :persistent="formLoading"
+    :is-dark="isDark"
     width="560"
-    class="efd-drawer"
-    :class="{ 'efd--dark': isDark }"
+    :title="mode === 'edit' ? t('eventsList.drawerEditTitle') : t('eventsList.drawerCreateTitle')"
+    :subtitle="mode === 'edit' ? t('eventsList.drawerEditSubtitle') : t('eventsList.drawerCreateSubtitle')"
   >
-    <!-- Gradient header -->
-    <div class="efd-grad-header">
-      <div class="efd-grad-header__icon">
-        <Calendar :size="20" color="white" />
-      </div>
-      <div class="efd-grad-header__text">
-        <div class="efd-grad-header__title">
-          {{ mode === 'edit' ? t('eventsList.drawerEditTitle') : t('eventsList.drawerCreateTitle') }}
-        </div>
-        <div class="efd-grad-header__sub">
-          {{ mode === 'edit' ? t('eventsList.drawerEditSubtitle') : t('eventsList.drawerCreateSubtitle') }}
-        </div>
-      </div>
-      <button class="efd-grad-header__close" @click="$emit('update:modelValue', false)">
-        <X :size="18" />
-      </button>
-    </div>
+    <template #icon>
+      <Calendar :size="20" color="white" />
+    </template>
 
-    <!-- Scrollable body -->
-    <div class="efd-body">
+    <!-- Scrollable body — le wrapper efd--dark reste nécessaire ici (et non sur la racine) :
+         le CSS scoped de ce composant (`.efd--dark .efd-input` etc.) ne matche que les éléments
+         du propre template de ce composant, pas l'intérieur de EventDrawerShell. -->
+    <div :class="{ 'efd--dark': isDark }">
 
       <!-- Error -->
       <div v-if="formError" class="efd-error">
@@ -378,6 +365,12 @@
         </div>
       </div>
 
+      <!-- BUG-146 : avertissement non bloquant, ne bloque ni la saisie ni submit() -->
+      <div v-if="ticketsScannedExceedsSold" class="efd-warning">
+        <AlertCircle :size="14" />
+        Tickets scannés ({{ newEvent.ticketsScanned }}) supérieur à tickets vendus ({{ newEvent.ticketsSold }}).
+      </div>
+
       <!-- ── Section: Options ── -->
       <div class="efd-section-label">
         <Settings :size="12" />
@@ -428,8 +421,7 @@
       </div>
     </div>
 
-    <!-- Footer -->
-    <div class="efd-footer">
+    <template #footer>
       <button class="efd-fbtn efd-fbtn--cancel" @click="$emit('update:modelValue', false)">
         {{ t('eventsList.cancel') }}
       </button>
@@ -437,8 +429,8 @@
         <Save :size="14" />
         {{ formLoading ? 'Enregistrement…' : t('eventsList.save') }}
       </button>
-    </div>
-  </v-navigation-drawer>
+    </template>
+  </EventDrawerShell>
 
   <EventTypeDialog v-model="typeDialogOpen" @created="handleTypeCreated" />
 
@@ -457,29 +449,38 @@
   />
 
   <!-- Création d'équipe inline (scopée à la compétition de l'event). -->
-  <v-dialog v-model="teamDialogOpen" max-width="420" :persistent="teamCreateLoading">
-    <div style="background: var(--card, #fff); padding: 20px; border-radius: 12px;">
-      <h3 style="font-weight: 700; margin-bottom: 12px;">{{ t('eventsList.createTeamTitle') }}</h3>
-      <v-text-field
-        v-model="teamName"
-        :label="t('eventsList.createTeamLabel')"
-        :placeholder="t('eventsList.createTeamPlaceholder')"
-        variant="outlined"
-        density="comfortable"
-        hide-details
-        @keyup.enter="handleCreateTeam"
-      />
-      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-        <v-btn variant="text" :disabled="teamCreateLoading" @click="teamDialogOpen = false">{{ t('eventsList.createTeamCancel') }}</v-btn>
-        <v-btn color="primary" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
-      </div>
-    </div>
-  </v-dialog>
+  <EventDrawerShell
+    v-model="teamDialogOpen"
+    :is-dark="isDark"
+    :persistent="teamCreateLoading"
+    width="420"
+    :title="t('eventsList.createTeamTitle')"
+  >
+    <template #icon>
+      <Users :size="18" color="white" />
+    </template>
+
+    <v-text-field
+      v-model="teamName"
+      :label="t('eventsList.createTeamLabel')"
+      :placeholder="t('eventsList.createTeamPlaceholder')"
+      variant="outlined"
+      density="comfortable"
+      hide-details
+      @keyup.enter="handleCreateTeam"
+    />
+
+    <template #footer>
+      <v-btn variant="text" :disabled="teamCreateLoading" @click="teamDialogOpen = false">{{ t('eventsList.createTeamCancel') }}</v-btn>
+      <v-btn color="primary" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
+    </template>
+  </EventDrawerShell>
 </template>
 
 <script>
 import { t as translate, getCurrentLocale } from '@/i18n/translations';
-import { Plus, Save, X, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle } from 'lucide-vue-next';
+import { Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users } from 'lucide-vue-next';
+import EventDrawerShell from './EventDrawerShell.vue';
 import { createEvent, updateEvent } from '@/api/endpoints/event.api';
 import { getTeams as restGetTeams, createTeam as restCreateTeam } from '@/api/endpoints/team.api';
 import EventTypeDialog from '../dialogs/EventTypeDialog.vue';
@@ -519,8 +520,8 @@ export default {
   name: 'EventFormDrawer',
 
   components: {
-    Plus, Save, X, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle,
-    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog,
+    Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users,
+    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog, EventDrawerShell,
   },
 
   props: {
@@ -553,6 +554,15 @@ export default {
   },
 
   computed: {
+    // BUG-146 : avertissement non bloquant — la règle "scanné ≤ vendu" n'est pas garantie vraie
+    // en billetterie (invités hors vente comptés au scan, comps) ; on prévient sans empêcher la
+    // saisie ni la sauvegarde.
+    ticketsScannedExceedsSold() {
+      const sold = Number(this.newEvent.ticketsSold);
+      const scanned = Number(this.newEvent.ticketsScanned);
+      if (!Number.isFinite(sold) || !Number.isFinite(scanned)) return false;
+      return scanned > sold;
+    },
     spaces() {
       return this.$store.getters['spaces/spaces']
         .map((s) => ({ ...s, id: s?.id || s?._id, name: s?.name || s?.spaceName || s?.title || '' }))
@@ -1045,54 +1055,21 @@ export default {
 </script>
 
 <style scoped>
-.efd-drawer :deep(.v-navigation-drawer__content) {
-  display: flex;
-  flex-direction: column;
-}
-
-/* Gradient header */
-.efd-grad-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 20px 20px 18px;
-  background: #ff3131;
-  flex-shrink: 0;
-}
-.efd-grad-header__icon {
-  width: 44px; height: 44px;
-  border-radius: 13px;
-  background: rgba(255,255,255,.18);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.efd-grad-header__text { flex: 1; }
-.efd-grad-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.efd-grad-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
-.efd-grad-header__close {
-  width: 32px; height: 32px;
-  border-radius: 9px; border: none;
-  background: rgba(255,255,255,.15);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85); flex-shrink: 0;
-  transition: background .2s;
-}
-.efd-grad-header__close:hover { background: rgba(255,255,255,.25); }
-
-/* Body */
-.efd-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px 22px 16px;
-  background: #f9fafb;
-}
-.efd--dark .efd-body { background: #111827; }
-
 /* Error */
 .efd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
   border-radius: 12px; padding: 12px 16px; font-size: 13.5px; margin-bottom: 20px;
+}
+
+/* Warning (non bloquant, ex. BUG-146 : ticketsScanned > ticketsSold) */
+.efd-warning {
+  display: flex; align-items: center; gap: 8px;
+  background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+  border-radius: 12px; padding: 10px 16px; font-size: 13px; margin-bottom: 16px;
+}
+.efd--dark .efd-warning {
+  background: rgba(217, 119, 6, .12); border-color: rgba(217, 119, 6, .35); color: #fbbf24;
 }
 
 /* Section labels */
@@ -1210,17 +1187,7 @@ export default {
   gap: 12px;
 }
 
-/* Footer */
-.efd-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 22px;
-  background: #fff;
-  border-top: 1px solid #e5e7eb;
-  flex-shrink: 0;
-}
-.efd--dark .efd-footer { background: #1f2937; border-color: #374151; }
+/* Footer buttons (le conteneur lui-même vient désormais de EventDrawerShell) */
 .efd-fbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 22px; height: 42px;
