@@ -449,29 +449,37 @@
   />
 
   <!-- Création d'équipe inline (scopée à la compétition de l'event). -->
-  <v-dialog v-model="teamDialogOpen" max-width="420" :persistent="teamCreateLoading">
-    <div style="background: var(--card, #fff); padding: 20px; border-radius: 12px;">
-      <h3 style="font-weight: 700; margin-bottom: 12px;">{{ t('eventsList.createTeamTitle') }}</h3>
-      <v-text-field
-        v-model="teamName"
-        :label="t('eventsList.createTeamLabel')"
-        :placeholder="t('eventsList.createTeamPlaceholder')"
-        variant="outlined"
-        density="comfortable"
-        hide-details
-        @keyup.enter="handleCreateTeam"
-      />
-      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-        <v-btn variant="text" :disabled="teamCreateLoading" @click="teamDialogOpen = false">{{ t('eventsList.createTeamCancel') }}</v-btn>
-        <v-btn color="primary" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
-      </div>
-    </div>
-  </v-dialog>
+  <EventDrawerShell
+    v-model="teamDialogOpen"
+    :is-dark="isDark"
+    :persistent="teamCreateLoading"
+    width="420"
+    :title="t('eventsList.createTeamTitle')"
+  >
+    <template #icon>
+      <Users :size="18" color="white" />
+    </template>
+
+    <v-text-field
+      v-model="teamName"
+      :label="t('eventsList.createTeamLabel')"
+      :placeholder="t('eventsList.createTeamPlaceholder')"
+      variant="outlined"
+      density="comfortable"
+      hide-details
+      @keyup.enter="handleCreateTeam"
+    />
+
+    <template #footer>
+      <v-btn variant="text" :disabled="teamCreateLoading" @click="teamDialogOpen = false">{{ t('eventsList.createTeamCancel') }}</v-btn>
+      <v-btn color="primary" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
+    </template>
+  </EventDrawerShell>
 </template>
 
 <script>
 import { t as translate, getCurrentLocale } from '@/i18n/translations';
-import { Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle } from 'lucide-vue-next';
+import { Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users } from 'lucide-vue-next';
 import EventDrawerShell from './EventDrawerShell.vue';
 import { createEvent, updateEvent } from '@/api/endpoints/event.api';
 import { getTeams as restGetTeams, createTeam as restCreateTeam } from '@/api/endpoints/team.api';
@@ -512,7 +520,7 @@ export default {
   name: 'EventFormDrawer',
 
   components: {
-    Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle,
+    Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users,
     EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog, EventDrawerShell,
   },
 

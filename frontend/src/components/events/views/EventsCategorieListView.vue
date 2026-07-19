@@ -74,6 +74,9 @@
           </template>
           <template #item.actions="{ item }">
             <div class="ecl-actions">
+              <div class="ecl-abtn ecl-abtn--info" @click.stop="openDetailsDrawer(item)">
+                <Eye :size="15" />
+              </div>
               <div class="ecl-abtn ecl-abtn--edit" @click.stop="openEditDialog(item)">
                 <Pencil :size="15" />
               </div>
@@ -98,32 +101,34 @@
       @updated="handleCategoryUpdated"
     />
 
-    <!-- Delete dialog -->
-    <v-dialog v-model="deleteDialog" max-width="440" :persistent="deleteLoading">
-      <div class="ecl-modal">
-        <div class="ecl-modal__head">
-          <div class="ecl-modal__icon-wrap"><Trash2 :size="18" color="#ff3131" /></div>
-          <div class="ecl-modal__headtext">
-            <div class="ecl-modal__title">{{ t('eventCategoryList.deleteTitle') }}</div>
-            <div class="ecl-modal__sub">{{ t('eventCategoryList.deleteSubtitle') }}</div>
-          </div>
-          <button class="ecl-modal__close" @click="closeDeleteDialog"><X :size="16" /></button>
-        </div>
-        <div class="ecl-modal__body">
-          <div v-if="deleteError" class="ecl-modal__error"><AlertCircle :size="14" /> {{ deleteError }}</div>
-          <p class="ecl-modal__text">
-            {{ t('eventCategoryList.deleteText') }} <strong>{{ deleteCategoryName }}</strong> ?
-          </p>
-        </div>
-        <div class="ecl-modal__foot">
-          <button class="ecl-mbtn ecl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventCategoryList.deleteCancel') }}</button>
-          <button class="ecl-mbtn ecl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
-            <Trash2 :size="14" />
-            {{ deleteLoading ? t('eventCategoryList.deleteConfirming') : t('eventCategoryList.deleteConfirm') }}
-          </button>
-        </div>
+    <!-- BUG-155 : tiroir (au lieu d'un v-dialog centré) — cohérence charte graphique, cf. BUG-153. -->
+    <EventDrawerShell
+      v-model="deleteDialog"
+      :is-dark="isDark"
+      :persistent="deleteLoading"
+      width="420"
+      :title="t('eventCategoryList.deleteTitle')"
+      :subtitle="t('eventCategoryList.deleteSubtitle')"
+    >
+      <template #icon>
+        <Trash2 :size="18" color="white" />
+      </template>
+
+      <div :class="{ 'ecl--dark': isDark }">
+        <div v-if="deleteError" class="ecl-delete-error"><AlertCircle :size="14" /> {{ deleteError }}</div>
+        <p class="ecl-delete-text">
+          {{ t('eventCategoryList.deleteText') }} <strong>{{ deleteCategoryName }}</strong> ?
+        </p>
       </div>
-    </v-dialog>
+
+      <template #footer>
+        <button class="ecl-mbtn ecl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventCategoryList.deleteCancel') }}</button>
+        <button class="ecl-mbtn ecl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
+          <Trash2 :size="14" />
+          {{ deleteLoading ? t('eventCategoryList.deleteConfirming') : t('eventCategoryList.deleteConfirm') }}
+        </button>
+      </template>
+    </EventDrawerShell>
 
     <TaxonomyImportDrawer
       v-model="taxonomyImportDrawer"
@@ -131,6 +136,10 @@
       :is-dark="isDark"
       @imported="loadCategories"
     />
+
+    <!-- BUG-153 : tiroir de détail (liste des événements liés, cliquables) — même composant partagé
+         qu'/event-types et /event-subcategories. -->
+    <TaxonomyDetailDrawer v-model="detailsDrawer" entity="category" :item="detailsCategory" :is-dark="isDark" />
   </div>
 </template>
 
@@ -138,10 +147,12 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { Upload, Download, Pencil, Plus, Trash2, X, Search, Shapes, AlertCircle } from "lucide-vue-next";
+import { Upload, Download, Eye, Pencil, Plus, Trash2, Search, Shapes, AlertCircle } from "lucide-vue-next";
 import { downloadCSV } from "@/utils/csv";
 import { deleteEventCategory } from "@/api/endpoints/event.api";
 import TaxonomyImportDrawer from '../drawers/TaxonomyImportDrawer.vue';
+import TaxonomyDetailDrawer from '../drawers/TaxonomyDetailDrawer.vue';
+import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 import EventCategoryDialog from '../dialogs/EventCategoryDialog.vue';
 
 export default {
@@ -149,14 +160,16 @@ export default {
   components: {
     Upload,
     Download,
+    Eye,
     Pencil,
     Plus,
     Trash2,
-    X,
     Search,
     Shapes,
     AlertCircle,
     TaxonomyImportDrawer,
+    TaxonomyDetailDrawer,
+    EventDrawerShell,
     EventCategoryDialog,
   },
   setup() {
@@ -176,6 +189,9 @@ export default {
       // EventCategoryDialog en mode édition ; null = mode création.
       categoryDialog: false,
       editingCategory: null,
+
+      detailsDrawer: false,
+      detailsCategory: null,
 
       deleteDialog: false,
       deleteLoading: false,
@@ -212,6 +228,10 @@ export default {
     openEditDialog(category) {
       this.editingCategory = category;
       this.categoryDialog = true;
+    },
+    openDetailsDrawer(category) {
+      this.detailsCategory = category;
+      this.detailsDrawer = true;
     },
     // BUG-145 : EventCategoryDialog gère désormais lui-même la création ET la sauvegarde
     // (create/update + dispatch store) — ces handlers ne font plus que refléter le résultat
@@ -420,41 +440,22 @@ export default {
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
 }
+.ecl-abtn--info { background: #f0f9ff; color: #0369a1; }
+.ecl-abtn--info:hover { background: #e0f2fe; }
 .ecl-abtn--edit { background: #eff6ff; color: #2563eb; }
 .ecl-abtn--edit:hover { background: #dbeafe; }
 .ecl-abtn--del { background: #fef2f2; color: #ff3131; }
 .ecl-abtn--del:hover { background: #fee2e2; }
 
-/* Delete modal */
-.ecl-modal {
-  background: #fff; border-radius: 20px; overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0,0,0,.15);
-}
-.ecl-modal__head { display: flex; align-items: flex-start; gap: 14px; padding: 22px 22px 16px; }
-.ecl-modal__icon-wrap {
-  width: 42px; height: 42px; border-radius: 12px; background: #fef2f2;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.ecl-modal__headtext { flex: 1; }
-.ecl-modal__title { font-size: 16px; font-weight: 700; color: #111827; }
-.ecl-modal__sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
-.ecl-modal__close {
-  width: 28px; height: 28px; border-radius: 8px; border: none;
-  background: #f3f4f6; display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: #6b7280;
-}
-.ecl-modal__close:hover { background: #e5e7eb; }
-.ecl-modal__body { padding: 0 22px 18px; }
-.ecl-modal__error {
+/* Delete drawer body */
+.ecl-delete-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
   border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
 }
-.ecl-modal__text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
-.ecl-modal__foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 14px 22px; background: #f9fafb; border-top: 1px solid #f3f4f6;
-}
+.ecl-delete-text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
+.ecl--dark .ecl-delete-text { color: #d1d5db; }
+
 .ecl-mbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 18px; height: 38px; border-radius: 50px;

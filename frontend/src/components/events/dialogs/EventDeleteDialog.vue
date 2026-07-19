@@ -1,45 +1,44 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="440" :persistent="loading">
-    <div class="edd-card" :class="{'edd--dark': isDark}">
-      <div class="edd-card__head">
-        <div class="edd-card__icon-wrap">
-          <Trash2 :size="20" color="#ff3131" />
-        </div>
-        <div class="edd-card__headtext">
-          <div class="edd-card__title">{{ t('eventsList.deleteTitle') }}</div>
-          <div class="edd-card__sub">{{ t('eventsList.deleteSubtitle') }}</div>
-        </div>
-        <button class="edd-card__close" @click="$emit('update:modelValue', false)">
-          <X :size="16" />
-        </button>
-      </div>
+  <EventDrawerShell
+    :model-value="modelValue"
+    @update:model-value="$emit('update:modelValue', $event)"
+    :is-dark="isDark"
+    :persistent="loading"
+    width="420"
+    :title="t('eventsList.deleteTitle')"
+    :subtitle="t('eventsList.deleteSubtitle')"
+  >
+    <template #icon>
+      <Trash2 :size="18" color="white" />
+    </template>
 
-      <div class="edd-card__body">
-        <div v-if="error" class="edd-error">
-          <AlertCircle :size="14" /> {{ error }}
-        </div>
-        <p class="edd-card__text">
-          {{ t('eventsList.deleteText') }} <strong>{{ eventName }}</strong> ?
-        </p>
+    <div :class="{ 'edd--dark': isDark }">
+      <div v-if="error" class="edd-error">
+        <AlertCircle :size="14" /> {{ error }}
       </div>
-
-      <div class="edd-card__foot">
-        <button class="edd-btn edd-btn--cancel" @click="$emit('update:modelValue', false)">{{ t('eventsList.deleteCancel') }}</button>
-        <button class="edd-btn edd-btn--danger" :disabled="loading" @click="$emit('confirm')">
-          <Trash2 :size="14" />
-          {{ loading ? t('eventsList.deleteConfirming') : t('eventsList.deleteConfirm') }}
-        </button>
-      </div>
+      <p class="edd-text">
+        {{ t('eventsList.deleteText') }} <strong>{{ eventName }}</strong> ?
+      </p>
     </div>
-  </v-dialog>
+
+    <template #footer>
+      <button class="edd-btn edd-btn--cancel" @click="$emit('update:modelValue', false)">{{ t('eventsList.deleteCancel') }}</button>
+      <button class="edd-btn edd-btn--danger" :disabled="loading" @click="$emit('confirm')">
+        <Trash2 :size="14" />
+        {{ loading ? t('eventsList.deleteConfirming') : t('eventsList.deleteConfirm') }}
+      </button>
+    </template>
+  </EventDrawerShell>
 </template>
 
 <script>
 import { useI18n } from '@/i18n/useI18n';
-import { Trash2, X, AlertCircle } from 'lucide-vue-next';
+import { Trash2, AlertCircle } from 'lucide-vue-next';
+import EventDrawerShell from '../drawers/EventDrawerShell.vue';
+
 export default {
   name: 'EventDeleteDialog',
-  components: { Trash2, X, AlertCircle },
+  components: { Trash2, AlertCircle, EventDrawerShell },
   setup() {
     const { t } = useI18n();
     return { t };
@@ -56,48 +55,12 @@ export default {
 </script>
 
 <style scoped>
-.edd-card {
-  background: #fff;
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0,0,0,.15);
-}
-.edd-card__head {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 22px 22px 16px;
-}
-.edd-card__icon-wrap {
-  width: 42px; height: 42px;
-  border-radius: 12px;
-  background: #fef2f2;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.edd-card__headtext { flex: 1; }
-.edd-card__title { font-size: 16px; font-weight: 700; color: #111827; }
-.edd-card__sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
-.edd-card__close {
-  width: 28px; height: 28px;
-  border-radius: 8px; border: none;
-  background: #f3f4f6;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: #6b7280; flex-shrink: 0;
-}
-.edd-card__close:hover { background: #e5e7eb; }
-.edd-card__body { padding: 0 22px 18px; }
-.edd-card__text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
+.edd-text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
 .edd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
   color: #991b1b; border-radius: 10px;
   padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
-}
-.edd-card__foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 14px 22px;
-  background: #f9fafb; border-top: 1px solid #f3f4f6;
 }
 .edd-btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -115,12 +78,6 @@ export default {
 }
 .edd-btn--danger:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 
-/* Dark */
-.edd--dark { background: #1f2937; }
-.edd--dark .edd-card__title { color: #f9fafb; }
-.edd--dark .edd-card__sub { color: #9ca3af; }
-.edd--dark .edd-card__text { color: #d1d5db; }
-.edd--dark .edd-card__close { background: #374151; color: #9ca3af; }
-.edd--dark .edd-card__foot { background: #111827; border-top-color: #374151; }
-.edd--dark .edd-btn--cancel { background: #374151; color: #d1d5db; border-color: #4b5563; }
+/* Dark mode */
+.edd--dark .edd-text { color: #d1d5db; }
 </style>

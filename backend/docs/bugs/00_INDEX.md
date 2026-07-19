@@ -88,6 +88,15 @@
 | [74](74_predictversionsservice_remove_findone_code_mort.md) | `PredictVersionsService.remove()`/`findOne()` : code mort (au-delà de BUG-13) | 🟢 Corrigé | 🟢 | Prévision |
 | [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | 🟢 Corrigé | 🟠 | Événements |
 | [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | 🟢 Corrigé | 🟢 | Prévision |
+| [77](77_createeventcategory_type_global_rejete_regression_bug66.md) | `createEventCategory` rejette les `eventTypeId` globaux (régression du fix BUG-66) | 🟢 Corrigé | 🟠 | Événements |
+
+**77 bugs au total**, 77 ajouté le 2026-07-18 suite à une relecture ciblée de `/event-categories`
+(frontend→backend) : le fix de BUG-66 (ajout d'une vérification d'ownership sur `eventTypeId` dans
+`createEventCategory`) utilisait le mauvais helper — `findOwnedEventTypeOrThrow` (strict) au lieu de
+`findAccessibleEventTypeOrThrow` (`OR: [{tenantId}, {tenantId: null}]`, pattern utilisé partout
+ailleurs pour cette même relation FK) — cassant la création de catégorie sous un type d'événement
+global alors que l'édition de la même catégorie l'acceptait sans problème. Corrigé en réutilisant le
+helper existant.
 
 **76 bugs au total**, 65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
 Events (`events.controller.ts`/`.service.ts`, taxonomies, Teams, couche API `predict-versions.*`) :

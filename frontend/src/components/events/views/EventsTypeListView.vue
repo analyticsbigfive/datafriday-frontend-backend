@@ -89,73 +89,39 @@
       </div>
     </div>
 
-    <!-- Details dialog -->
-    <v-dialog v-model="detailsDialog" max-width="560">
-      <div class="etl-modal">
-        <div class="etl-modal__head">
-          <div class="etl-modal__icon-wrap"><Eye :size="18" color="#2563eb" /></div>
-          <div class="etl-modal__headtext">
-            <div class="etl-modal__title">{{ detailsType?.name || '' }}</div>
-            <div class="etl-modal__sub">Détails du type d'événement</div>
-          </div>
-          <button class="etl-modal__close" @click="closeDetailsDialog"><X :size="16" /></button>
-        </div>
-        <div class="etl-modal__body">
-          <div v-if="detailsError" class="etl-modal__error"><AlertCircle :size="14" /> {{ detailsError }}</div>
+    <!-- BUG-153 : tiroir de détail partagé (sidebar, cohérent avec la charte graphique) — remplace
+         l'ancien v-dialog centré qui n'affichait qu'un compteur d'événements liés au lieu de la
+         liste réelle. -->
+    <TaxonomyDetailDrawer v-model="detailsDrawer" entity="type" :item="detailsType" :is-dark="isDark" />
 
-          <div class="etl-detail-status" :class="detailsEventsCount > 0 ? 'etl-detail-status--active' : 'etl-detail-status--inactive'">
-            <Info :size="16" />
-            {{ detailsEventsCount > 0 ? 'Ce type est utilisé activement' : 'Ce type n\'est pas encore utilisé' }}
-          </div>
+    <!-- BUG-155 : tiroir (au lieu d'un v-dialog centré) — cohérence charte graphique, cf. BUG-153. -->
+    <EventDrawerShell
+      v-model="deleteDialog"
+      :is-dark="isDark"
+      :persistent="deleteLoading"
+      width="420"
+      :title="t('eventTypeList.deleteTitle')"
+      :subtitle="t('eventTypeList.deleteSubtitle')"
+    >
+      <template #icon>
+        <Trash2 :size="18" color="white" />
+      </template>
 
-          <div class="etl-detail-section">
-            <div class="etl-detail-section__label">Catégories ({{ detailsCategories.length }})</div>
-            <div v-if="detailsCategories.length" class="etl-detail-cats">
-              <span v-for="(c, idx) in detailsCategories" :key="idx" class="etl-detail-cat-pill">{{ c }}</span>
-            </div>
-            <div v-else class="etl-detail-empty">Aucune catégorie</div>
-          </div>
-
-          <div class="etl-detail-section">
-            <div class="etl-detail-section__label">Événements</div>
-            <div class="etl-detail-val">
-              <template v-if="detailsLoading">Chargement…</template>
-              <template v-else>{{ detailsEventsCount }} événement{{ detailsEventsCount !== 1 ? 's' : '' }}</template>
-            </div>
-          </div>
-        </div>
-        <div class="etl-modal__foot">
-          <button class="etl-mbtn etl-mbtn--cancel" @click="closeDetailsDialog">Fermer</button>
-        </div>
+      <div :class="{ 'etl--dark': isDark }">
+        <div v-if="deleteError" class="etl-delete-error"><AlertCircle :size="14" /> {{ deleteError }}</div>
+        <p class="etl-delete-text">
+          {{ t('eventTypeList.deleteText') }} <strong>{{ deleteTypeName }}</strong> ?
+        </p>
       </div>
-    </v-dialog>
 
-    <!-- Delete dialog -->
-    <v-dialog v-model="deleteDialog" max-width="440" :persistent="deleteLoading">
-      <div class="etl-modal">
-        <div class="etl-modal__head">
-          <div class="etl-modal__icon-wrap etl-modal__icon-wrap--danger"><Trash2 :size="18" color="#ff3131" /></div>
-          <div class="etl-modal__headtext">
-            <div class="etl-modal__title">{{ t('eventTypeList.deleteTitle') }}</div>
-            <div class="etl-modal__sub">{{ t('eventTypeList.deleteSubtitle') }}</div>
-          </div>
-          <button class="etl-modal__close" @click="closeDeleteDialog"><X :size="16" /></button>
-        </div>
-        <div class="etl-modal__body">
-          <div v-if="deleteError" class="etl-modal__error"><AlertCircle :size="14" /> {{ deleteError }}</div>
-          <p class="etl-modal__text">
-            {{ t('eventTypeList.deleteText') }} <strong>{{ deleteTypeName }}</strong> ?
-          </p>
-        </div>
-        <div class="etl-modal__foot">
-          <button class="etl-mbtn etl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventTypeList.deleteCancel') }}</button>
-          <button class="etl-mbtn etl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
-            <Trash2 :size="14" />
-            {{ deleteLoading ? t('eventTypeList.deleteConfirming') : t('eventTypeList.deleteConfirm') }}
-          </button>
-        </div>
-      </div>
-    </v-dialog>
+      <template #footer>
+        <button class="etl-mbtn etl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventTypeList.deleteCancel') }}</button>
+        <button class="etl-mbtn etl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
+          <Trash2 :size="14" />
+          {{ deleteLoading ? t('eventTypeList.deleteConfirming') : t('eventTypeList.deleteConfirm') }}
+        </button>
+      </template>
+    </EventDrawerShell>
 
     <!-- Create/Edit drawer -->
     <v-navigation-drawer v-model="typeDialog" location="right" temporary :persistent="typeLoading" width="480" class="etl-type-drawer">
@@ -215,7 +181,7 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { Upload, Download, Eye, Info, Pencil, Plus, Save, Trash2, X, Search, Tag, AlertCircle } from "lucide-vue-next";
+import { Upload, Download, Eye, Pencil, Plus, Save, Trash2, X, Search, Tag, AlertCircle } from "lucide-vue-next";
 import { downloadCSV } from "@/utils/csv";
 import {
   createEventType,
@@ -223,6 +189,8 @@ import {
   updateEventType,
 } from "@/api/endpoints/event.api";
 import TaxonomyImportDrawer from '../drawers/TaxonomyImportDrawer.vue';
+import TaxonomyDetailDrawer from '../drawers/TaxonomyDetailDrawer.vue';
+import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 
 export default {
   name: "EventsTypeListView",
@@ -230,7 +198,6 @@ export default {
     Upload,
     Download,
     Eye,
-    Info,
     Pencil,
     Plus,
     Save,
@@ -240,6 +207,8 @@ export default {
     Tag,
     AlertCircle,
     TaxonomyImportDrawer,
+    TaxonomyDetailDrawer,
+    EventDrawerShell,
   },
   setup() {
     const theme = useTheme();
@@ -255,12 +224,8 @@ export default {
       loading: false,
       error: "",
 
-      detailsDialog: false,
-      detailsLoading: false,
-      detailsError: "",
+      detailsDrawer: false,
       detailsType: null,
-      detailsEventsCount: 0,
-      detailsCategories: [],
 
       deleteDialog: false,
       deleteLoading: false,
@@ -285,12 +250,6 @@ export default {
   },
 
   methods: {
-    normalizeCategoryLabel(value) {
-      if (!value) return "";
-      if (typeof value === 'string') return value;
-      if (typeof value === 'object') return value.name || value.label || value.id || value._id || "";
-      return String(value);
-    },
     formatDate(value) {
       if (!value) return "";
       const d = new Date(value);
@@ -315,34 +274,9 @@ export default {
       }
     },
 
-    async openDetailsDialog(type) {
+    openDetailsDialog(type) {
       this.detailsType = type;
-      this.detailsDialog = true;
-      this.detailsError = "";
-      this.detailsLoading = true;
-      this.detailsEventsCount = 0;
-
-      const categories = Array.isArray(type?.categories) ? type.categories : [];
-      this.detailsCategories = categories.map(this.normalizeCategoryLabel).filter(Boolean);
-
-      try {
-        await this.$store.dispatch('events/fetchEvents')
-        const events = this.$store.getters['events/events']
-        const typeId = type?.id || type?._id || null;
-        this.detailsEventsCount = events.filter((e) => String(e?.eventTypeId) === String(typeId)).length;
-      } catch (e) {
-        this.detailsError = e?.response?.data?.message || e?.message || "Failed to load usage details";
-      } finally {
-        this.detailsLoading = false;
-      }
-    },
-    closeDetailsDialog() {
-      this.detailsDialog = false;
-      this.detailsLoading = false;
-      this.detailsError = "";
-      this.detailsType = null;
-      this.detailsEventsCount = 0;
-      this.detailsCategories = [];
+      this.detailsDrawer = true;
     },
 
     openDeleteDialog(type) {
@@ -588,41 +522,15 @@ export default {
 .etl-abtn--del { background: #fef2f2; color: #ff3131; }
 .etl-abtn--del:hover { background: #fee2e2; }
 
-/* Modals (dialogs) */
-.etl-modal {
-  background: #fff; border-radius: 20px; overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0,0,0,.15);
-}
-.etl-modal__head {
-  display: flex; align-items: flex-start; gap: 14px;
-  padding: 22px 22px 16px;
-}
-.etl-modal__icon-wrap {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: #eff6ff;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.etl-modal__icon-wrap--danger { background: #fef2f2; }
-.etl-modal__headtext { flex: 1; }
-.etl-modal__title { font-size: 16px; font-weight: 700; color: #111827; }
-.etl-modal__sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
-.etl-modal__close {
-  width: 28px; height: 28px; border-radius: 8px; border: none;
-  background: #f3f4f6; display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: #6b7280; flex-shrink: 0;
-}
-.etl-modal__close:hover { background: #e5e7eb; }
-.etl-modal__body { padding: 0 22px 18px; }
-.etl-modal__error {
+/* Delete drawer body */
+.etl-delete-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
   border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
 }
-.etl-modal__text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
-.etl-modal__foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 14px 22px; background: #f9fafb; border-top: 1px solid #f3f4f6;
-}
+.etl-delete-text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
+.etl--dark .etl-delete-text { color: #d1d5db; }
+
 .etl-mbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 18px; height: 38px; border-radius: 50px;
@@ -633,25 +541,6 @@ export default {
 .etl-mbtn--cancel:hover { background: #e9ecef; }
 .etl-mbtn--danger { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3); }
 .etl-mbtn--danger:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
-
-/* Detail sections */
-.etl-detail-status {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; border-radius: 12px;
-  font-size: 13.5px; font-weight: 500; margin-bottom: 18px;
-}
-.etl-detail-status--active { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
-.etl-detail-status--inactive { background: #f9fafb; color: #6b7280; border: 1px solid #e5e7eb; }
-.etl-detail-section { margin-bottom: 16px; }
-.etl-detail-section__label { font-size: 12.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
-.etl-detail-cats { display: flex; flex-wrap: wrap; gap: 6px; }
-.etl-detail-cat-pill {
-  display: inline-flex; align-items: center;
-  background: #f3f4f6; color: #374151; border-radius: 50px;
-  padding: 3px 12px; font-size: 13px;
-}
-.etl-detail-empty { font-size: 13.5px; color: #9ca3af; }
-.etl-detail-val { font-size: 15px; font-weight: 600; color: #111827; }
 
 /* Drawer */
 .etl-type-drawer :deep(.v-navigation-drawer__content) {

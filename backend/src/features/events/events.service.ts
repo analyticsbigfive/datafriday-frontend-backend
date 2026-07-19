@@ -319,7 +319,10 @@ export class EventsService {
   }
 
   async createEventCategory(tenantId: string, data: { name: string; eventTypeId: string; hasHomeTeam?: boolean }) {
-    await this.findOwnedEventTypeOrThrow(data.eventTypeId, tenantId);
+    // BUG-77 : findOwnedEventTypeOrThrow (strict tenantId) rejetait les eventTypeId globaux
+    // (tenantId=null), pourtant proposés par GET /event-types et acceptés par updateEventCategory
+    // — même pattern "accessible" que Event.create()/update() pour cette même relation.
+    await this.findAccessibleEventTypeOrThrow(data.eventTypeId, tenantId);
     try {
       return await this.prisma.eventCategory.create({
         data: { name: data.name, eventTypeId: data.eventTypeId, hasHomeTeam: data.hasHomeTeam ?? false, tenantId },

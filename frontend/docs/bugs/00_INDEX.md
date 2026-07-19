@@ -165,6 +165,45 @@
 | [149](149_taxonomie_evenements_optimistic_write_objets_partiels.md) | Taxonomie Événements : écritures Vuex optimistes avec objets partiels (perte de champs après édition/création inline/import CSV) | 🟢 Corrigé | 🟡 | Événements |
 | [150](150_eventsubcategorielist_exportcsv_champ_categoryid_toujours_vide.md) | `EventsSubcategorieListView.vue exportToCSV` : colonne "Event Category" systématiquement vide | 🟢 Corrigé | 🟡 | Événements |
 | [151](151_taxonomyimportdrawer_fk_parente_non_forcee_avant_import.md) | `TaxonomyImportDrawer.vue` : FK parente (type/catégorie) non forcée avant import, échec 400 brut ligne par ligne | 🟢 Corrigé | 🟡 | Événements |
+| [152](152_appcopy_arbre_orphelin_duplique_domaine_evenements.md) | `appCopy.vue` : arbre de 8 fichiers (~5000 lignes) orphelin, dupliquant tout le domaine Événements | 🟢 Corrigé | 🟡 | Événements |
+| [153](153_taxonomie_view_popup_non_conforme_liste_evenements_absente.md) | Taxonomie Événements : popup "view" non conforme à la charte graphique + liste d'événements liés absente (et action absente sur Categories/Subcategories) | 🟢 Corrigé | 🟡 | Événements |
+| [154](154_eventslistview_deeplink_editeventid_casse_keepalive.md) | `EventsListView.vue` : deep-link `?editEventId=` cassé par `keep-alive` après la première visite | 🟢 Corrigé | 🟠 | Événements |
+| [155](155_events_domaine_popups_v_dialog_remplaces_par_tiroirs.md) | Domaine Événements : popups `v-dialog` remplacés par des tiroirs (cohérence charte graphique) | 🟢 Corrigé | 🟡 | Événements |
+| [156](156_taxonomydetaildrawer_i18n_texte_en_dur.md) | `TaxonomyDetailDrawer.vue` : texte en dur (FR), i18n non branché + 3 boutons "Enregistrement…" en dur | 🟢 Corrigé | 🟡 | Événements |
+
+**156 bugs au total**, 155-156 ajoutés et corrigés le 2026-07-18 suite à un retour utilisateur
+direct sur BUG-153 : "on ne doit pas avoir de popups sur ces pages d'events" et "la traduction n'est
+pas gérée". BUG-155 migre les 8 derniers `v-dialog` du domaine Événements
+(`EventTypeDialog.vue`/`EventCategoryDialog.vue`/`EventSubcategoryDialog.vue`/
+`EventDeleteDialog.vue`, le mini-dialog "Créer une équipe" d'`EventFormDrawer.vue`, et les 3 dialogs
+de suppression inline des écrans taxonomie) vers `EventDrawerShell.vue`, avec ajout du support dark
+mode qui manquait sur les 4 premiers (fond blanc codé en dur jusque-là). BUG-156 branche l'i18n sur
+`TaxonomyDetailDrawer.vue` (texte français en dur depuis sa création par BUG-153) et corrige au
+passage 3 boutons "Enregistrement…" en dur pré-existants sur les dialogs de taxonomie repérés durant
+le même passage.
+
+**154 bugs au total**, 153-154 ajoutés et corrigés le 2026-07-18 suite à un retour utilisateur sur
+capture d'écran de `/event-types` : l'action "view" (icône œil) ouvrait un `v-dialog` centré non
+conforme à la charte graphique (sidebar) et n'affichait qu'un compteur d'événements liés au lieu de
+la liste réelle — `/event-categories` et `/event-subcategories` n'avaient quant à elles aucune
+action "view". Nouveau composant partagé `TaxonomyDetailDrawer.vue` (même précédent que
+`TaxonomyImportDrawer.vue`, prop `entity`) construit sur `EventDrawerShell.vue`, avec liste
+d'événements liés cliquables naviguant vers `/events?editEventId=<id>` (BUG-153). En câblant cette
+navigation, découverte que le deep-link `?editEventId=` d'`EventsListView.vue` ne fonctionnait qu'à
+la toute première visite de `/events` dans la session — `keep-alive` empêchant `mounted()` de se
+redéclencher, sans `activated()` pour compenser (même mécanisme que BUG-122, jamais répliqué ici).
+Corrigé par ajout d'un hook `activated()`, avec garde contre une régression de perte de deep-link
+sur la toute première activation (BUG-154).
+
+**152 bugs au total**, 152 ajouté et corrigé le 2026-07-18 suite à une relecture ciblée de
+`/event-categories` (frontend→backend) : un grep sur les consommateurs de `createEventCategory` a
+remonté `EventCategoriesView.vue`, une implémentation entière alternative (706 lignes) hors du
+domaine `events/` réellement routé — racine d'un arbre mort de 8 fichiers (~5000 lignes) partant de
+`appCopy.vue` (aucun importeur), jamais nettoyé après la bascule vers l'implémentation actuelle.
+Supprimé après vérification qu'aucun fichier réel ne le référence. Voir aussi
+[BUG-77](../../../api-datafriday-staging/docs/bugs/77_createeventcategory_type_global_rejete_regression_bug66.md)
+(fiche miroir backend, même session : régression du fix BUG-66 empêchant la création d'une catégorie
+sous un type d'événement global).
 
 **148 bugs au total**, 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
 complet du domaine Événements (`/events`, `/event-types`, `/event-categories`,
