@@ -56,7 +56,6 @@
           :items="serverRows"
           :items-length="serverTotal"
           :items-per-page="serverItemsPerPage"
-          :loading="serverLoading"
           item-value="id"
           density="compact"
           class="ctl-table"

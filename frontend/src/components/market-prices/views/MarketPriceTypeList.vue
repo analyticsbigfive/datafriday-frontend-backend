@@ -56,7 +56,6 @@
           :items="types"
           :items-length="serverTotal"
           :items-per-page="serverItemsPerPage"
-          :loading="serverLoading"
           @update:options="onUpdateOptions"
           item-value="id"
           density="compact"

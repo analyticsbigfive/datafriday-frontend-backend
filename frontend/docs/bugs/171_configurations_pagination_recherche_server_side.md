@@ -70,10 +70,25 @@ modifié (rechargement de la page courante au lieu du mécanisme précédent), l
 touché. Confirmé : les 4 référentiels plats n'avaient pas cette logique `blockedBy`/`actionLink`
 (hors périmètre de BUG-170, qui ciblait uniquement les 3 paires ayant un écran cible filtrable).
 
+**Correctif du même jour — double barre de chargement introduite par ce fix** : passer en mode
+serveur a ajouté `:loading="serverLoading"` (booléen) sur les 7 `v-data-table` concernés (6 écrans
+individuels + `FlatReferentialListView.vue`). Comme diagnostiqué pour
+[BUG-157](157_events_domaine_loading_tableaux_noir_et_navigation_event_lie_retiree.md) (même
+mécanisme, domaine Événements) : passer un booléen à `:loading` fait retomber Vuetify sur sa couleur
+de barre par défaut (noir/gris), indépendamment du thème rouge de marque (`#ff3131`) configuré.
+Ici, chacun des 7 écrans a en plus **déjà** son propre `v-progress-linear` explicite en
+`color="#ff3131"` juste au-dessus du tableau (retour utilisateur : "2 loaders, 1 en noir, 1 en
+rouge") — donc contrairement au fix BUG-157 (qui recolorait la barre de `v-data-table` faute
+d'alternative), la barre interne de `v-data-table` a ici été **retirée** (`:loading="serverLoading"`
+supprimé des 7 fichiers) plutôt que recolorée, puisque la barre rouge dédiée assure déjà le retour
+visuel — évite d'avoir deux barres rouges superposées.
+
 ## Risque de régression / à surveiller
 
 Non testé en navigateur (pas de `pnpm dev` dans cette session) — à valider manuellement sur les 10
 écrans, en particulier :
+- Une seule barre de chargement rouge doit s'afficher pendant un fetch (plus de barre noire) sur
+  les 7 fichiers touchés par ce correctif du loader.
 - Recherche : taper un terme doit filtrer côté serveur (pas de latence de frappe non désirée grâce
   au debounce 300 ms), le compteur doit refléter le total filtré (sauf PackingType, qui affiche le
   total non filtré via `loadGrandTotal()`).

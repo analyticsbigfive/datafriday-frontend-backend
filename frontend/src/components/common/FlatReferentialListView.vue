@@ -62,7 +62,6 @@
           density="comfortable"
           :items-length="serverTotal"
           :items-per-page="serverItemsPerPage"
-          :loading="serverLoading"
           @update:options="onUpdateOptions"
           class="frlv-table"
         >

@@ -60,7 +60,6 @@
           :items-per-page="serverItemsPerPage"
           item-value="id"
           density="compact"
-          :loading="serverLoading"
           class="ccl-table"
           @update:options="onUpdateOptions"
         >

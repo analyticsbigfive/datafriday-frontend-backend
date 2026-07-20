@@ -60,7 +60,6 @@
           density="compact"
           :items-length="serverTotal"
           :items-per-page="serverItemsPerPage"
-          :loading="serverLoading"
           @update:options="onUpdateOptions"
           class="pcl-table"
         >
