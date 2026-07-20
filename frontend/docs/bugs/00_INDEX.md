@@ -213,6 +213,13 @@
 | [197](197_analyse_predict_config_par_defaut_et_dedup_contexte.md) | Analyse/Prédire : aucune config pré-sélectionnée → union « All Configurations » (fan-out max) par défaut ; + contexte PdV dispatché 2× | 🟢 Corrigé | 🟠 | Analyse & agrégation |
 | [198](198_chargement_analyse_dedup_catalogues_et_phase2_en_vagues.md) | Chargement Analyse : `market-prices`/`packaging` sans dédup in-flight (2× ~60 s), phase 2 monolithique (graphes bloqués par les catalogues recette), contexte PdV rebâti à chaque demande | 🟢 Corrigé | 🟠 | Analyse & agrégation / Stock |
 | [199](199_shop_items_photo_base64_dupliquee_par_pdv.md) | `shop-items` : 5,6 Mo / 53 s — une photo base64 de 915 ko réémise une fois par PdV (14 Mo émis, 38 ko utiles), jamais lue côté front | 🟢 Corrigé | 🔴 | Analyse & agrégation / Stock / Menu |
+| [200](200_inventory_snapshot_kind_rejete_backend_perime.md) | Snapshot inventaire : `POST /inventory` 400 « property kind should not exist » — backend exécutant un build antérieur au DTO (`6491562`), aucun code fautif, fix = redéployer | ⚪ Diagnostiqué | 🔴 | Stock |
+
+**200 bugs au total** (200 ajouté le 2026-07-20 sur `feat/postEventInventory` : pas un bug de
+code — 400 `property kind should not exist` sur le save du snapshot inventaire alors que
+`CreateInventoryDto` déclare bien `kind` ; le serveur exécutait un build antérieur au commit
+`6491562`. Fiche gardée comme réflexe diagnostic : « property X should not exist » avec DTO à
+jour ⇒ vérifier la fraîcheur du build backend avant de chercher un bug).
 
 **199 bugs au total** (199 ajouté le 2026-07-20 sur `feat/postEventInventory`, sur capture DevTools
 de l'utilisateur : le vrai blocage de la page Analyse n'était **aucun** des lots du plan de
