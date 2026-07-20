@@ -696,10 +696,17 @@ domaine passe par deux fichiers génériques :
 - `store/modules/weezeventLocations.js` : enregistré (`store/index.js`), **aucun consommateur
   vivant** — `StepMapShops.vue` appelle `getWeezeventLocations` directement depuis
   `aggregation.api.js`, en court-circuitant le store. Quasi-mort.
-- `store/modules/weezeventProducts.js` : consommé, mais **pas par ce domaine** — uniquement par le
-  domaine Analyse/Predict (`useAnalyseItemRecords.js`, `analyseReconciliation.js`, `useSpaceData.js`,
-  `EventPredictView.vue`…). `StepMapMenuItems.vue` appelle lui aussi `getWeezeventProducts`
-  directement depuis `aggregation.api.js`.
+- `store/modules/weezeventProducts.js` : **correction du 2026-07-20** — cette page affirmait à tort
+  qu'il était consommé par le domaine Analyse/Predict. Vérifié par un audit de code frontend le
+  2026-07-20 : `useAnalyseItemRecords.js`, `EventPredictView.vue` etc. lisent en réalité
+  `store.state.analyse.weezeventProducts`, un champ **homonyme mais sans rapport** du module Vuex
+  `analyse` (alimenté par la mutation `SET_WEEZEVENT_PRODUCTS`), pas ce module namespacé
+  `weezeventProducts/`. Le seul vrai consommateur de ce module (`weezeventProducts/fetchForLocation`,
+  `weezeventProducts/forLocation`) est le composable `useMenuMapping.js` — lui-même mort (0
+  importeur). `store/modules/weezeventProducts.js` a donc exactement le même statut que
+  `weezeventLocations.js` : enregistré, quasi-mort. `StepMapMenuItems.vue` appelle lui aussi
+  `getWeezeventProducts` directement depuis `aggregation.api.js`, en court-circuitant le store
+  (comme `StepMapShops.vue` pour les locations).
 
 ---
 
@@ -741,6 +748,57 @@ domaine passe par deux fichiers génériques :
   par `COLLECTING`→`COMPLETED`/`FAILED`, `insert-worker` ne modifie que `WeezeventSyncChunk.status`,
   pas `WeezeventSyncJob.status`) — condition morte ou service tiers non localisé, à creuser si le
   sujet est repris.
+
+## Repasse du 2026-07-20 — audit ciblé du code frontend `/data-integration/fb`
+
+Passe complémentaire à celle du 2026-07-15 : là où cette page documente l'**architecture** du
+domaine (modèles, pièges inter-services, contrats API), la repasse du 2026-07-20 est allée lire
+**intégralement** chaque fichier frontend du domaine (8 agents, un par fichier/groupe de fichiers,
+~15 000 lignes au total) pour trouver les bugs et la dette technique au niveau du code lui-même.
+Résultat : **29 bugs concrets documentés en fiches individuelles, `BUG-193` à `BUG-221`** dans
+[`docs/bugs/`](../bugs/00_INDEX.md), et le reste (dette technique, code mort additionnel, a11y,
+i18n) consolidé dans
+[`docs/utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md`](../utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md).
+**Rien n'a été corrigé à ce stade** — audit de documentation seul, sur la branche
+`docs/audit-data-integration-fb`.
+
+Un point de cette page a été corrigé au passage : le statut de `store/modules/weezeventProducts.js`
+(voir §"Stores Vuex" ci-dessus) — il était présenté comme consommé par Analyse/Predict, il est en
+réalité quasi-mort comme son voisin `weezeventLocations.js`.
+
+### Nouveaux bugs les plus significatifs (voir fiches pour le détail complet)
+
+| # | Bug | Sévérité | Fichier |
+|---|---|---|---|
+| [BUG-193](../bugs/193_data_integration_delete_checkbox_sans_effet.md) | Case "supprimer aussi les données" sans effet réel (cascade Prisma inconditionnelle) | 🔴 | `DataIntegrationView.vue` |
+| [BUG-204](../bugs/204_syncprogress_jobid_jamais_reinitialise.md) | `syncJobId` jamais réinitialisé → le mode sync legacy affiche un état figé après un premier sync par job | 🔴 | `SyncProgressDialog.vue` |
+| [BUG-214](../bugs/214_stepprocesstimeline_weezeventmappings_jamais_rehydrate.md) | `weezEventMappings` jamais réhydraté → "Créer et lier tout" peut créer des `Event` en double | 🔴 | `StepProcessTimeline.vue` |
+| [BUG-215](../bugs/215_stepprocesstimeline_toast_succes_meme_si_echec_skip.md) | Toast "Agrégation terminée" affiché même en cas d'échec/skip du job | 🔴 | `StepProcessTimeline.vue` |
+| [BUG-200](../bugs/200_wizard_reprise_etape_non_fonctionnelle.md) | "Reprendre où on s'était arrêté" ne fonctionne pas (`completedSteps` jamais peuplé) | 🟠 | `IntegrationWizard.vue` |
+| [BUG-208](../bugs/208_stepmapshops_badge_etage_regression_multi_config.md) | Le fix du badge étage (BUG-003) régresse pour les tenants multi-configuration | 🟠 | `StepMapShops.vue` |
+| [BUG-210](../bugs/210_stepmapshops_updatemapping_sans_rollback_echec.md) / [BUG-211](../bugs/211_stepmapshops_delete_mapping_echec_invisible.md) | `updateMapping` sans rollback à l'échec → compteur de mapping gonflé, suppression en échec totalement invisible | 🟠 | `StepMapShops.vue` |
+| [BUG-213](../bugs/213_stepmapmenuitems_next_button_sans_garde_bulk.md) | Bouton "Suivant" du wizard pas gardé pendant un bulk-create/bulk-price-apply en cours | 🟠 | `StepMapMenuItems.vue` |
+| [BUG-221](../bugs/221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md) | 3 pans de code mort issus d'un refactor incomplet de l'étape 4 (voir aussi ci-dessous) | 🟠 | `StepProcessTimeline.vue` |
+
+Liste complète des 29 bugs : `docs/bugs/00_INDEX.md` (numéros 193-221).
+
+### Code mort supplémentaire confirmé (au-delà de la liste ci-dessus)
+
+- **`StepProcessTimeline.vue`** : le template n'a plus que 2 onglets vivants (`covered`/
+  `uncovered`), mais le script contient encore 3 pans complets et non câblés d'une itération
+  antérieure à 3 onglets — l'onglet "Événements Weezevent" (sync spectateurs, enrichissement via
+  `EnrichEventDialog`), une seconde table de timeline minute par minute avec export CSV (distincte
+  de celle réellement utilisée dans `EventBreakdownDrawer`), et le traitement en masse
+  (`handleProcessAll`/`processAllEvents`) — voir [BUG-221](../bugs/221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md).
+- **`StepMapShops.vue`** : cluster de code mort issu d'une UI antérieure à colonne "score de
+  match" jamais nettoyée (`headers`, `topMatchesMap`, `findTopElementMatches`,
+  `quickCreateSortedFloors`, `floorDialogFloorOptions`, `floorOptionIconColor`,
+  `_elementConfigMap`, CSS `.sms-match*`) — détail dans le document de dette technique lié
+  ci-dessus.
+- **`WizardSuccess.vue`/`IntegrationWizard.vue`** : la fonctionnalité "configurer la prochaine
+  location non mappée" (`otherLocations`/`configure-next`) est entièrement câblée entre ces deux
+  fichiers mais n'est jamais alimentée par `DataIntegrationView.vue` — voir
+  [BUG-201](../bugs/201_wizard_other_locations_configure_next_mort.md).
 
 ## Zones grises (points réellement non tranchés, pas des angles morts)
 
