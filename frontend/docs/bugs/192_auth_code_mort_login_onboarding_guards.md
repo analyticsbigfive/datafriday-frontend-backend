@@ -1,4 +1,4 @@
-# BUG-174 — Code mort du domaine Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards
+# BUG-192 — Code mort du domaine Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards
 
 - **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟢 Faible (dette — aucun impact fonctionnel, mais pièges de lecture actifs)

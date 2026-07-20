@@ -52,7 +52,7 @@ renverrait un utilisateur en plein travail sur la page de connexion, en lui fais
 saisie. À n'engager qu'avec une garde solide sur la distinction « purge réelle » vs « état
 transitoire au démarrage », et à tester sur les parcours longs (wizards, formulaires de création).
 
-Effort **S** · Risque **🟠** · À ouvrir en fiche dédiée, pas en élargissant BUG-172.
+Effort **S** · Risque **🟠** · À ouvrir en fiche dédiée, pas en élargissant BUG-190.
 
 ---
 
@@ -216,7 +216,7 @@ Vérifié au navigateur le 2026-07-18 : un token déjà chargé en mémoire cont
 backend quoi qu'on fasse côté stockage local.
 
 **Attention à l'effet de bord côté front** : raccourcir le JWT fait passer la rotation du refresh
-token d'exceptionnelle à routinière. Le correctif de [BUG-172](bugs/172_auth_signed_out_rotation_deconnexion_multi_onglets.md)
+token d'exceptionnelle à routinière. Le correctif de [BUG-190](bugs/190_auth_signed_out_rotation_deconnexion_multi_onglets.md)
 sera alors **bien plus sollicité** — à revérifier au moment de ce changement, et c'est aussi ce qui
 rendrait enfin le scénario de rotation testable à la main.
 
