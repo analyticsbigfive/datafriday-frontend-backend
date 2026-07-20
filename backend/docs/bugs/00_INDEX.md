@@ -46,7 +46,7 @@
 | [32](32_discardedquantity_colonnes_mortes.md) | discardedQuantity/discardedReason colonnes DB mortes | 🔴 Ouvert | 🟢 | Stock |
 | [33](33_event_kpis_champs_jamais_ecrits.md) | Event.revenue/transactionCount jamais écrits (pipeline mort) | 🔴 Ouvert | 🟡 | Événements |
 | [34](34_event_spaceid_sans_fk.md) | Event.spaceId/configurationId sans FK Prisma | 🔴 Ouvert | 🟡 | Événements |
-| [35](35_organizationscontroller_faille_cross_tenant.md) | OrganizationsController : faille cross-tenant (type P0-1) | 🔴 Ouvert | 🔴 | Auth & onboarding |
+| [35](35_organizationscontroller_faille_cross_tenant.md) | OrganizationsController : faille cross-tenant (type P0-1) | 🟡 Corrigé non déployé | 🔴 | Auth & onboarding |
 | [36](36_onboarding_join_slug_sans_verif.md) | POST /onboarding/join/:slug déprécié actif sans vérification | 🔴 Ouvert | 🟡 | Auth & onboarding |
 | [37](37_jwt_expiresin_7_jours.md) | JWT expiresIn = 7 jours | 🔴 Ouvert | 🟢 | Auth & onboarding |
 | [38](38_clonage_role_sans_resync_permissions.md) | Clonage de rôle ne resynchronise jamais les permissions | 🔴 Ouvert | 🟢 | Auth & onboarding (RBAC) |
