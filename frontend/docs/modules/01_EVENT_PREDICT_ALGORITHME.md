@@ -282,7 +282,7 @@ correctif).
   menu par PdV ». Changer la forme des entrées de `predictedRecords` (`shopId`, `menuItemId`,
   `itemName`, `totalQuantity`, `totalRevenue`) casse ces deux vues en silence — elles retombent sur
   « Non rattachés » ou sur du vide. Voir fiche
-  [170](../bugs/170_predict_vues_article_absentes_grain_shop_level.md).
+  [190](../bugs/190_predict_vues_article_absentes_grain_shop_level.md).
 - Le module **Réarmement** (`SpaceRestockView.vue`) lit `selectedPredictionEventIds` (comme
   `forcedPastEventIds`) et `predictedRecords` d'une version via `listEventPredictVersions` (import
   ligne 1042).

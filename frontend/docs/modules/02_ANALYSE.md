@@ -533,7 +533,7 @@ Ces deux vues consomment `articleRecords` (et non `chartRecords`). En mode **Ana
 (`EventPredictVersion.predictedRecords`, reconstruits par `regeneratePredictions` dans
 `state.predictScenarioItemRecords`, cf. `utils/predictScenarioRecords.js`). Les events prédits sans
 scénario sauvegardé n'ont donc aucun article et sont signalés par un compteur (`missingEventsCount`).
-Détail, limites et pièges : fiche [170](../bugs/170_predict_vues_article_absentes_grain_shop_level.md).
+Détail, limites et pièges : fiche [190](../bugs/190_predict_vues_article_absentes_grain_shop_level.md).
 | `panels/SummaryPanel.vue` | Colonne droite : assistant IA local + leaderboards cliquables |
 | `panels/FilterEditorPanel.vue` | Mini-éditeur multi-select ouvert depuis un chip du bandeau |
 | `charts/DonutChartCard.vue` | Donut Chart.js générique, réutilisé par les 2 composants donuts ci-dessus |
