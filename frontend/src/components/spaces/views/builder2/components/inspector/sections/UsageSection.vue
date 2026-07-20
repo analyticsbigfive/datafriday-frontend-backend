@@ -18,7 +18,7 @@
         <span v-if="menuCountOtherConfigs > 0" class="text-caption text-medium-emphasis">
           +{{ menuCountOtherConfigs }} {{ t('b2InOtherConfigs') }}
         </span>
-        <router-link to="/space-menus" class="text-caption">{{ t('b2ManageInSpaceMenu') }} ↗</router-link>
+        <router-link to="/menu-fb/space-menus" class="text-caption">{{ t('b2ManageInSpaceMenu') }} ↗</router-link>
       </div>
       <div class="text-caption text-medium-emphasis">
         {{ t('b2UsageLinksHint') }}

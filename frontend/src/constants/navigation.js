@@ -43,11 +43,11 @@ export const SETTINGS_NAVIGATION = [
         icon: 'UtensilsCrossed',
         title: 'navMenuFB',
         items: [
-          { title: 'suppliers', route: '/suppliers', permission: 'menu.fb.suppliers' },
-          { title: 'navMarketPricesList', route: '/market-prices', permission: 'menu.fb.marketPrices' },
-          { title: 'navComponents', route: '/components', permission: 'menu.fb.components' },
-          { title: 'navMenuItems', route: '/menu-items', permission: 'menu.fb.menuItems' },
-          { title: 'navSpaceMenu', route: '/space-menus', permission: 'menu.fb.spaceMenu' },
+          { title: 'suppliers', route: '/menu-fb/suppliers', permission: 'menu.fb.suppliers' },
+          { title: 'navMarketPricesList', route: '/menu-fb/market-prices', permission: 'menu.fb.marketPrices' },
+          { title: 'navComponents', route: '/menu-fb/components', permission: 'menu.fb.components' },
+          { title: 'navMenuItems', route: '/menu-fb/menu-items', permission: 'menu.fb.menuItems' },
+          { title: 'navSpaceMenu', route: '/menu-fb/space-menus', permission: 'menu.fb.spaceMenu' },
         ],
       },
       {

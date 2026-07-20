@@ -104,8 +104,8 @@ const resolvedPicture = computed(() => props.picture || props.item?.picture || n
  */
 const packNotConfiguredHref = computed(() => {
   const id = props.item?.marketPriceId
-  if (id) return `/market-prices?openId=${encodeURIComponent(id)}`
-  return `/market-prices?search=${encodeURIComponent(props.item?.name || '')}`
+  if (id) return `/menu-fb/market-prices?openId=${encodeURIComponent(id)}`
+  return `/menu-fb/market-prices?search=${encodeURIComponent(props.item?.name || '')}`
 })
 
 const localizedPackagingType = computed(() => translatePackagingType(props.item?.packagingType, locale.value))

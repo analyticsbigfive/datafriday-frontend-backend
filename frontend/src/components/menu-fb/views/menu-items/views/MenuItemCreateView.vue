@@ -963,7 +963,7 @@ export default {
           return;
         }
       }
-      this.$router.push({ path: "/menu-items" });
+      this.$router.push({ path: "/menu-fb/menu-items" });
     },
     async onCreate() {
       this.saveError = null;
@@ -1134,7 +1134,7 @@ export default {
           this._saveSuccessTimeout = setTimeout(() => { this.saveSuccess = null; }, 2500);
         } else {
           this.takeSnapshot();
-          this.$router.push({ path: "/menu-items" });
+          this.$router.push({ path: "/menu-fb/menu-items" });
         }
       } catch (e) {
         console.error("Error creating menu item:", e);
@@ -1278,7 +1278,7 @@ export default {
         
         if (!menuItem) {
           console.error('Menu item not found');
-          this.$router.push({ path: "/menu-items" });
+          this.$router.push({ path: "/menu-fb/menu-items" });
           return;
         }
         

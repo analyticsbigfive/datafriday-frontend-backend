@@ -987,12 +987,12 @@ export default {
       }
     },
     onAddMenuItem() {
-      this.$router.push({ path: '/menu-items/create' });
+      this.$router.push({ path: '/menu-fb/menu-items/create' });
     },
     onEditItem(item) {
       const id = item?.menuItemId || item?.id;
       if (!id) return;
-      this.$router.push({ path: `/menu-items/edit/${id}` });
+      this.$router.push({ path: `/menu-fb/menu-items/edit/${id}` });
     },
     onDeleteItem(item) {
       this.deleteTarget = item || null;

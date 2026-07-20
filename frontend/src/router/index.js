@@ -216,65 +216,75 @@ const routes = [
       { path: '/event-subcategories', redirect: '/events/event-subcategories' },
 
       {
-        path: '/suppliers',
+        path: '/menu-fb/suppliers',
         name: 'suppliers',
         component: SuppliersListView,
         meta: { title: 'Liste des fournisseurs', keepAlive: true, permission: 'menu.fb.suppliers' }
       },
+      { path: '/suppliers', redirect: '/menu-fb/suppliers' },
       {
-        path: '/market-prices',
+        path: '/menu-fb/market-prices',
         name: 'market-prices',
         component: MarketPriceListView,
         meta: { title: 'Liste des prix du marché', keepAlive: true, permission: 'menu.fb.marketPrices' }
       },
+      { path: '/market-prices', redirect: '/menu-fb/market-prices' },
       {
-        path: '/components',
+        path: '/menu-fb/components',
         name: 'components',
         component: componentListView,
         meta: { title: 'Liste des composants', keepAlive: true, permission: 'menu.fb.components' }
       },
+      { path: '/components', redirect: '/menu-fb/components' },
       {
-        path: '/components/new',
+        path: '/menu-fb/components/new',
         name: 'component-create',
         component: ComponentCreateView,
         meta: { title: 'Create component', permission: 'menu.fb.components' }
       },
+      { path: '/components/new', redirect: '/menu-fb/components/new' },
       {
-        path: '/components/edit/:id',
+        path: '/menu-fb/components/edit/:id',
         name: 'component-edit',
         component: ComponentCreateView,
         meta: { title: 'Edit component', permission: 'menu.fb.components' }
       },
+      { path: '/components/edit/:id', redirect: to => `/menu-fb/components/edit/${to.params.id}` },
       {
-        path: '/space-menus',
+        path: '/menu-fb/space-menus',
         name: 'space-menus',
         component: SpaceMenuView,
         meta: { title: 'Space Menu', keepAlive: true, permission: 'menu.fb.spaceMenu' }
       },
+      { path: '/space-menus', redirect: '/menu-fb/space-menus' },
       {
-        path: '/space-menus/:spaceId/shops/:shopId',
+        path: '/menu-fb/space-menus/:spaceId/shops/:shopId',
         name: 'shop-detail',
         component: ShopDetailView,
         meta: { title: 'Shop detail', permission: 'menu.fb.spaceMenu' }
       },
+      { path: '/space-menus/:spaceId/shops/:shopId', redirect: to => `/menu-fb/space-menus/${to.params.spaceId}/shops/${to.params.shopId}` },
       {
-        path: '/menu-items',
+        path: '/menu-fb/menu-items',
         name: 'menu-items',
         component: MenuItemView,
         meta: { title: 'Menu items', keepAlive: true, permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items', redirect: '/menu-fb/menu-items' },
       {
-        path: '/menu-items/create',
+        path: '/menu-fb/menu-items/create',
         name: 'menu-item-create',
         component: MenuItemCreateView,
         meta: { title: 'Create menu item', permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items/create', redirect: '/menu-fb/menu-items/create' },
       {
-        path: '/menu-items/edit/:id',
+        path: '/menu-fb/menu-items/edit/:id',
         name: 'menu-item-edit',
         component: MenuItemCreateView,
         meta: { title: 'Edit menu item', permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items/edit/:id', redirect: to => `/menu-fb/menu-items/edit/${to.params.id}` },
       {
         path: '/configurations/product-categories',
         name: 'product-categories',
