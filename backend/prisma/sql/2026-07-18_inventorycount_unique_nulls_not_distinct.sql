@@ -15,6 +15,17 @@
 -- le schema — un `prisma db push` ultérieur peut vouloir recréer l'index au
 -- défaut. Rejouer ce script après tout db push touchant InventoryCount.
 -- Rejouable (le DELETE ne matche plus rien une fois dédoublonné).
+--
+-- ⚠️ Fenêtre de maintenance recommandée : les étapes 1 et 2 sont enveloppées
+-- dans une transaction pour fermer la fenêtre de course entre le dédoublonnage
+-- et la pose de la contrainte (sans quoi le code applicatif — même patché pour
+-- gérer P2002 — pourrait réinsérer un doublon juste avant le CREATE UNIQUE
+-- INDEX et le faire échouer). Conséquence : CREATE INDEX CONCURRENTLY est
+-- impossible ici (interdit dans une transaction) — l'étape 2 prend un verrou
+-- ACCESS EXCLUSIVE sur InventoryCount pendant sa construction (lectures ET
+-- écritures bloquées). À lancer hors heures de forte activité.
+
+BEGIN;
 
 -- 1) Dédoublonnage (garde updatedAt max ; à updatedAt égal, id max)
 DELETE FROM "InventoryCount" a
@@ -33,3 +44,5 @@ DROP INDEX IF EXISTS "InventoryCount_tenantId_spaceId_eventId_shopId_itemId_key"
 CREATE UNIQUE INDEX "InventoryCount_tenantId_spaceId_eventId_shopId_itemId_key"
   ON "InventoryCount" ("tenantId", "spaceId", "eventId", "shopId", "itemId")
   NULLS NOT DISTINCT;
+
+COMMIT;

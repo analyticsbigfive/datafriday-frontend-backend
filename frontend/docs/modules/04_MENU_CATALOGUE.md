@@ -2,10 +2,18 @@
 
 > Domaine cartographie : **Menu & recettes** + **Achats & référentiels**. Owner produit : Ulrich.
 > Écrans : `/menu-items` (+create/edit), `/components` (+new/edit), `/space-menus` (+
-> `/space-menus/:spaceId/shops/:shopId`), `/suppliers`, `/market-prices`, référentiels
-> `/product-types`, `/product-categories`, `/component-types`, `/component-categories`,
-> `/market-price-types`, `/market-price-categories`, `/brand-names`, `/display-names`,
-> `/industrials`, `/packing-types`.
+> `/space-menus/:spaceId/shops/:shopId`), `/suppliers`, `/market-prices`, référentiels sous
+> `/configurations/` (préfixe ajouté le 2026-07-19, anciennes URLs redirigées automatiquement, voir
+> `frontend/src/router/index.js`) : `/configurations/product-types`,
+> `/configurations/product-categories`, `/configurations/component-types`,
+> `/configurations/component-categories`, `/configurations/market-price-types`,
+> `/configurations/market-price-categories`, `/configurations/brand-names`,
+> `/configurations/display-names`, `/configurations/industrials`,
+> `/configurations/packing-types`.
+>
+> ⚠️ Ces routes `/configurations/*` sont uniquement les URLs **frontend** (pages) — les routes
+> **backend** REST correspondantes (`/product-types`, `/component-types`, etc., voir
+> `src/api/endpoints/*.api.js`) n'ont pas changé et ne doivent pas être confondues avec elles.
 >
 > Vérifié exhaustivement le 2026-07-15 : chaque modèle Prisma, chaque route backend, chaque store
 > Vuex et chaque client API de ce domaine a été localisé et lu directement (pas de citation
@@ -386,12 +394,12 @@ Taxonomie dans un contrôleur séparé `market-price-taxonomy.controller.ts`.
 Quatre entités simples, même forme (`{id, name, tenantId}`, `@@unique([tenantId, name])`),
 **chacune avec son propre client API dédié** (pas d'ambiguïté ici) :
 
-| Modèle | Route | Client API | Store | Écran |
+| Modèle | Route API (backend) | Client API | Store | Écran |
 |---|---|---|---|---|
-| `Brand` | `/brand-names` | `brand-name.api.js` | `brandNames.js` | `BrandNameListView.vue` |
-| `DisplayName` | `/display-names` | `display-name.api.js` | `displayNames.js` | `DisplayNameListView.vue` |
-| `Industrial` | `/industrials` | `industrial.api.js` | `industrials.js` | `IndustrialListView.vue` |
-| `PackingType` | `/packing-types` | `packing-type.api.js` | `packingTypes.js` | `PackingTypeListView.vue` |
+| `Brand` | `/brand-names` | `brand-name.api.js` | `brandNames.js` | `BrandNameListView.vue` (page : `/configurations/brand-names`) |
+| `DisplayName` | `/display-names` | `display-name.api.js` | `displayNames.js` | `DisplayNameListView.vue` (page : `/configurations/display-names`) |
+| `Industrial` | `/industrials` | `industrial.api.js` | `industrials.js` | `IndustrialListView.vue` (page : `/configurations/industrials`) |
+| `PackingType` | `/packing-types` | `packing-type.api.js` | `packingTypes.js` | `PackingTypeListView.vue` (page : `/configurations/packing-types`) |
 
 `Brand`/`DisplayName` sont référencés par `MenuItem` (`brandId`/`displayNameId`). `Industrial` est
 référencé par `MarketPrice` (`industrialId`). `PackingType` n'est **pas une FK** — c'est un
@@ -424,6 +432,51 @@ une colonne enum Postgres → probablement rejetée. **Statut : documenté, non 
 | 3 | Deux règles d'expansion combo incompatibles | `EventPredictStockUpSection.vue` (readyForSale seul) vs `logistics.service.ts:407,904` (+ comboItem) |
 | 4 | `Supplier.sites` vide : "personne" (backend) vs "tout le monde" (1 composant front) | `space-menus.service.ts:466-472` vs `MarketPriceHierarchicalTable.vue:211` |
 | 5 | Dédup MarketPrice ignore prix/unité/quantité — risque de fusion excessive | `market-prices.service.ts` (`deduplicate`) |
+
+## Section Configurations (10 pages taxonomie/référentiels) — audit du 2026-07-19
+
+Les 10 écrans de la sidebar "Configurations" (Menu Item Types/Categories, Good Types/Categories,
+Component Types/Categories, Brand Names, Display Names, Industrials, Packing Types — routes listées
+dans l'en-tête de ce fichier) ont fait l'objet d'un audit dédié le 2026-07-19, en 5 passes parallèles
+(une par paire de taxonomie/référentiel). Détail complet dans les fiches bugs
+[`backend 78-88`](../../../backend/docs/bugs/00_INDEX.md) et
+[`frontend 159-169`](../bugs/00_INDEX.md). Synthèse des motifs récurrents trouvés :
+
+- **Suppression sans garde contre les entités dépendantes** — sur 5 des 6 taxonomies/référentiels
+  audités (`ProductType/Category`, `ComponentType/Category`, `MarketPriceType`, `Brand`/
+  `DisplayName`, `Industrial`), supprimer une entrée référencée ailleurs cascade ou `SetNull`
+  silencieusement, sans décompte ni confirmation — même famille que le bug déjà corrigé pour
+  `EventType`/`EventCategory` ([backend BUG-75](../../../backend/docs/bugs/75_eventtype_eventcategory_delete_cascade_sans_garde.md)),
+  jamais porté ici (backend BUG-79/81/82/85/86).
+- **Désynchronisation des valeurs texte libre miroir** — `MarketPrice.goodType`/`category` et les 3
+  champs `purchasePackaging`/`inventoryPackaging`/`inventoryPackaging` (Component) stockent le nom
+  de la taxonomie en texte libre en plus (ou à la place, pour `PackingType`) d'une FK ; renommer ou
+  supprimer l'entrée de taxonomie source ne propage jamais le changement vers ces colonnes miroir
+  (backend BUG-83/84). Symétrique côté front : la résolution de FK par correspondance de nom au
+  moment de la sauvegarde (au lieu de réutiliser l'id chargé) est le même problème sous un autre
+  angle, déjà connu ([BUG-62](../bugs/62_component_taxonomie_fk_resolution_fragile_par_nom.md)/
+  [BUG-81](../bugs/81_menu_items_fk_taxonomie_resolue_par_nom.md)) et retrouvé une nouvelle fois sur
+  les drawers MarketPrice (frontend BUG-162).
+- **Implémentation non uniforme des paires Type/Category** — sur 3 paires structurellement
+  identiques (`ProductType/Category`, `ComponentType/Category`, `MarketPriceType/Category`), seule
+  `ProductCategory` appelle son propre endpoint dédié pour la lecture ; les deux autres dérivent
+  leurs Categories du payload de l'endpoint Types (`flatMap` sur `categories[]` imbriqué),
+  laissant leur endpoint `GET .../categories` dédié totalement mort côté front et cassant
+  l'invalidation croisée de cache entre les deux écrans (frontend BUG-161/163).
+- **4 référentiels plats dupliqués à l'identique** — `Brand`/`DisplayName`/`Industrial`/
+  `PackingType` sont 4 implémentations quasi byte-for-byte (vue liste, drawer, dialog suppression,
+  store, client API), jamais factorisées en composant générique (frontend BUG-165) — ce qui explique
+  la répétition du même bug i18n sur les 10 écrans de la section (frontend BUG-166).
+- **Trou d'autorisation isolé** — `PATCH /product-types/:id` et `/product-categories/:id` n'ont
+  jamais eu de garde de permission, contrairement à `create`/`remove` sur les mêmes contrôleurs
+  (backend BUG-78, 🔴 le plus sévère de cette section).
+- **Trou d'ownership cross-tenant** — `MenuComponent.create()`/`update()` ne vérifie pas que
+  `componentTypeId`/`componentCategoryId` appartiennent au tenant courant, même famille que
+  [backend BUG-67](../../../backend/docs/bugs/67_event_taxonomy_fk_sans_ownership.md) (Events),
+  jamais porté ici (backend BUG-80).
+
+Aucun de ces bugs n'a été reproduit en navigateur (pas de `pnpm dev` dans cette session) — à valider
+manuellement avant correction.
 
 ## Code mort de ce domaine (à ne PAS prendre comme référence, ne pas modifier en pensant que ça sert)
 

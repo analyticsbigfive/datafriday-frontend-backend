@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { IsString, IsNotEmpty, MaxLength } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { IndustrialsService } from './industrials.service';
@@ -8,6 +8,8 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 
 class CreateIndustrialDto {
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name: string;
 }
 
@@ -21,9 +23,14 @@ export class IndustrialsController {
   constructor(private readonly industrialsService: IndustrialsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lister les industrials du tenant' })
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.industrialsService.findAll(tenantId);
+  @ApiOperation({ summary: 'Lister les industrials du tenant (paginé)' })
+  findAll(
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.industrialsService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 
   @RequirePermissions('menu.config.manage')

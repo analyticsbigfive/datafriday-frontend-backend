@@ -1,89 +1,83 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="480" :persistent="loading">
-    <div class="ecd-card">
-      <!-- Gradient header -->
-      <div class="ecd-grad-header">
-        <div class="ecd-grad-header__icon">
-          <Shapes :size="20" color="white" />
-        </div>
-        <div class="ecd-grad-header__text">
-          <div class="ecd-grad-header__title">{{ isEdit ? t('eventCategoryDialogEditTitle') : t('eventCategoryDialogTitle') }}</div>
-          <div class="ecd-grad-header__sub">{{ isEdit ? t('eventCategoryDialogEditSubtitle') : t('eventCategoryDialogSubtitle') }}</div>
-        </div>
-        <button class="ecd-grad-header__close" @click="close">
-          <X :size="16" />
-        </button>
+  <EventDrawerShell
+    :model-value="modelValue"
+    @update:model-value="$emit('update:modelValue', $event)"
+    :is-dark="isDark"
+    :persistent="loading"
+    width="480"
+    :title="isEdit ? t('eventCategoryDialogEditTitle') : t('eventCategoryDialogTitle')"
+    :subtitle="isEdit ? t('eventCategoryDialogEditSubtitle') : t('eventCategoryDialogSubtitle')"
+  >
+    <template #icon>
+      <Shapes :size="20" color="white" />
+    </template>
+
+    <div :class="{ 'ecd--dark': isDark }">
+      <div v-if="error" class="ecd-error">
+        <AlertCircle :size="14" /> {{ error }}
       </div>
 
-      <!-- Body -->
-      <div class="ecd-body">
-        <div v-if="error" class="ecd-error">
-          <AlertCircle :size="14" /> {{ error }}
+      <v-form ref="form" v-model="formValid" validate-on="submit">
+        <!-- Type select -->
+        <div class="ecd-field-wrap mb-4">
+          <label class="ecd-field-label">{{ t('eventCategoryDialogTypeLabel') }} <span class="ecd-star">*</span></label>
+          <v-select
+            v-model="eventTypeId"
+            :items="allowCreateType ? eventTypesWithCreate : eventTypes"
+            item-title="name"
+            item-value="id"
+            :placeholder="t('eventCategoryDialogTypePlaceholder')"
+            density="comfortable"
+            variant="outlined"
+            hide-details="auto"
+            :rules="[rules.required]"
+            class="ecd-v-select"
+            @update:modelValue="handleTypeSelect"
+          >
+            <template v-if="allowCreateType" #item="{ props, item }">
+              <v-list-item
+                v-bind="props"
+                :class="item.raw.id === '__create__' ? 'ecd-create-option' : ''"
+                @click="item.raw.id === '__create__' ? openCreateType() : null"
+              >
+                <template #prepend v-if="item.raw.id === '__create__'">
+                  <Plus :size="16" class="mr-2" />
+                </template>
+              </v-list-item>
+            </template>
+          </v-select>
         </div>
 
-        <v-form ref="form" v-model="formValid" validate-on="submit">
-          <!-- Type select -->
-          <div class="ecd-field-wrap mb-4">
-            <label class="ecd-field-label">{{ t('eventCategoryDialogTypeLabel') }} <span class="ecd-star">*</span></label>
-            <v-select
-              v-model="eventTypeId"
-              :items="allowCreateType ? eventTypesWithCreate : eventTypes"
-              item-title="name"
-              item-value="id"
-              :placeholder="t('eventCategoryDialogTypePlaceholder')"
-              density="comfortable"
-              variant="outlined"
-              hide-details="auto"
-              :rules="[rules.required]"
-              class="ecd-v-select"
-              @update:modelValue="handleTypeSelect"
-            >
-              <template v-if="allowCreateType" #item="{ props, item }">
-                <v-list-item
-                  v-bind="props"
-                  :class="item.raw.id === '__create__' ? 'ecd-create-option' : ''"
-                  @click="item.raw.id === '__create__' ? openCreateType() : null"
-                >
-                  <template #prepend v-if="item.raw.id === '__create__'">
-                    <Plus :size="16" class="mr-2" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
-          </div>
+        <!-- Name input -->
+        <div class="ecd-field-wrap mb-4">
+          <label class="ecd-field-label">{{ t('eventCategoryDialogNameLabel') }} <span class="ecd-star">*</span></label>
+          <v-text-field
+            v-model="name"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            class="ecd-v-select"
+          />
+        </div>
 
-          <!-- Name input -->
-          <div class="ecd-field-wrap mb-4">
-            <label class="ecd-field-label">{{ t('eventCategoryDialogNameLabel') }} <span class="ecd-star">*</span></label>
-            <v-text-field
-              v-model="name"
-              variant="outlined"
-              density="comfortable"
-              hide-details
-              class="ecd-v-select"
-            />
-          </div>
-
-          <!-- Has home team checkbox -->
-          <label class="ecd-checkbox">
-            <input type="checkbox" v-model="hasHomeTeam" class="ecd-checkbox__input" />
-            <span class="ecd-checkbox__label">{{ t('eventCategoryDialogHasHomeTeam') }}</span>
-          </label>
-        </v-form>
-      </div>
-
-      <!-- Footer -->
-      <div class="ecd-foot">
-        <button class="ecd-btn ecd-btn--cancel" @click="close">
-          {{ t('eventCategoryDialogCancel') }}
-        </button>
-        <button class="ecd-btn ecd-btn--primary" :disabled="loading" @click="submit">
-          <Save :size="14" />
-          {{ loading ? 'Enregistrement…' : t('eventCategoryDialogSave') }}
-        </button>
-      </div>
+        <!-- Has home team checkbox -->
+        <label class="ecd-checkbox">
+          <input type="checkbox" v-model="hasHomeTeam" class="ecd-checkbox__input" />
+          <span class="ecd-checkbox__label">{{ t('eventCategoryDialogHasHomeTeam') }}</span>
+        </label>
+      </v-form>
     </div>
-  </v-dialog>
+
+    <template #footer>
+      <button class="ecd-btn ecd-btn--cancel" @click="close">
+        {{ t('eventCategoryDialogCancel') }}
+      </button>
+      <button class="ecd-btn ecd-btn--primary" :disabled="loading" @click="submit">
+        <Save :size="14" />
+        {{ loading ? t('eventCategoryDialogSaving') : t('eventCategoryDialogSave') }}
+      </button>
+    </template>
+  </EventDrawerShell>
 
   <!-- BUG-145 : capacité "créer un type à la volée" auto-portée (uniquement si allowCreateType) —
        remplace la copie dupliquée qui vivait dans EventsCategorieListView.vue. -->
@@ -91,18 +85,23 @@
 </template>
 
 <script>
+import { computed } from 'vue';
+import { useTheme } from 'vuetify';
 import { useI18n } from '@/i18n/useI18n';
-import { X, Shapes, AlertCircle, Save, Plus } from 'lucide-vue-next';
+import { Shapes, AlertCircle, Save, Plus } from 'lucide-vue-next';
 import { createEventCategory, updateEventCategory } from '@/api/endpoints/event.api';
+import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 import EventTypeDialog from './EventTypeDialog.vue';
 
 export default {
   name: 'EventCategoryDialog',
-  components: { X, Shapes, AlertCircle, Save, Plus, EventTypeDialog },
+  components: { Shapes, AlertCircle, Save, Plus, EventDrawerShell, EventTypeDialog },
 
   setup() {
     const { t } = useI18n();
-    return { t };
+    const theme = useTheme();
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { t, isDark };
   },
 
   props: {
@@ -130,7 +129,7 @@ export default {
       error: '',
       formValid: false,
       typeDialogOpen: false,
-      rules: { required: (v) => !!v || 'Ce champ est obligatoire' },
+      rules: { required: (v) => !!v || this.t('required') },
     };
   },
 
@@ -233,37 +232,6 @@ export default {
 </script>
 
 <style scoped>
-.ecd-card {
-  background: #fff;
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0,0,0,.15);
-}
-
-/* Gradient header */
-.ecd-grad-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 20px 20px 18px;
-  background: #ff3131;
-}
-.ecd-grad-header__icon {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: rgba(255,255,255,.18);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.ecd-grad-header__text { flex: 1; }
-.ecd-grad-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.ecd-grad-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
-.ecd-grad-header__close {
-  width: 30px; height: 30px; border-radius: 8px; border: none;
-  background: rgba(255,255,255,.15);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85); flex-shrink: 0; transition: background .2s;
-}
-.ecd-grad-header__close:hover { background: rgba(255,255,255,.25); }
-
-/* Body */
-.ecd-body { padding: 22px 22px 16px; }
 .ecd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
@@ -279,6 +247,7 @@ export default {
   border: 1.5px solid #e5e7eb;
   border-radius: 11px;
   box-shadow: none;
+  background: #fff;
 }
 .ecd-v-select :deep(.v-field--focused) {
   border-color: #ff3131;
@@ -286,27 +255,6 @@ export default {
 }
 .ecd-v-select :deep(.v-field__outline) { display: none; }
 .ecd-v-select :deep(.v-field__input) { font-size: 14px; }
-
-/* form-floating */
-.ecd-input {
-  border: 1.5px solid #e5e7eb !important;
-  border-radius: 11px !important;
-  box-shadow: none !important;
-  font-size: 14px;
-  padding: 20px 14px 8px !important;
-  height: 52px;
-  transition: border-color .2s, box-shadow .2s;
-}
-.ecd-input:focus {
-  border-color: #ff3131 !important;
-  box-shadow: 0 0 0 3px rgba(255, 49, 49,.12) !important;
-}
-.form-floating > label { font-size: 14px; color: #9ca3af; padding: 14px 16px; }
-.form-floating > .ecd-input:focus ~ label,
-.form-floating > .ecd-input:not(:placeholder-shown) ~ label {
-  color: #ff3131; font-size: 11px;
-  transform: scale(.85) translateY(-0.5rem) translateX(0.15rem);
-}
 
 /* "Créer un nouveau type" option (BUG-145, allowCreateType) */
 :deep(.ecd-create-option) { color: #ff3131; font-weight: 600; }
@@ -323,10 +271,6 @@ export default {
 .ecd-checkbox__label { font-size: 14px; color: #374151; user-select: none; }
 
 /* Footer */
-.ecd-foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 14px 22px; background: #f9fafb; border-top: 1px solid #f3f4f6;
-}
 .ecd-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 38px;
@@ -341,4 +285,10 @@ export default {
   color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3);
 }
 .ecd-btn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
+
+/* Dark mode */
+.ecd--dark .ecd-field-label { color: #d1d5db; }
+.ecd--dark .ecd-checkbox__label { color: #d1d5db; }
+.ecd--dark .ecd-v-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
+.ecd--dark .ecd-v-select :deep(.v-field__input) { color: #f3f4f6; }
 </style>

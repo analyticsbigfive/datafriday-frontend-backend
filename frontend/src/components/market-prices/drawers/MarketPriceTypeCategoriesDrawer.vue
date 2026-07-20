@@ -40,7 +40,7 @@
                   <div class="mptcd-item-name">{{ cat.name }}</div>
                   <div class="mptcd-item-date">{{ formatDate(cat.createdAt) }}</div>
                 </div>
-                <v-chip size="small" color="primary" variant="tonal" rounded="lg" class="ml-auto">Category</v-chip>
+                <v-chip size="small" color="primary" variant="tonal" rounded="lg" class="ml-auto">{{ t('marketPriceTypeList.categoryChipLabel') }}</v-chip>
               </div>
             </div>
             <div v-else class="mptcd-empty">

@@ -531,7 +531,8 @@ export function useEventPredictVersions() {
    * PATCH 404 → la version n'existe pas en BDD : on la POST (upsert) et on
    * remappe l'id local → id serveur partout (versions, refs active/défaut/édition,
    * dbBackedIds, signatures). Retourne le nouvel id si OK, sinon null (l'appelant
-   * retombe en localStorage). manualQuantities reste front-only (non envoyé à l'API).
+   * retombe en localStorage). manualQuantities est envoyé à l'API via versionToPayload
+   * (BUG-08/100 : le backend l'attendait déjà, seul le front ne l'envoyait pas).
    */
   async function upsertOn404(eventId, versionId, partial) {
     const prev = versions.value.find((v) => v.id === versionId) || {}

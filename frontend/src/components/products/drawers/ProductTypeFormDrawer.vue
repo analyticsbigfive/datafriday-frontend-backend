@@ -109,13 +109,13 @@ export default {
     async submit() {
       this.error = '';
       const name = String(this.form.name || '').trim();
-      if (!name) { this.error = 'Le nom est requis'; return; }
+      if (!name) { this.error = this.t('productTypeList.nameRequired'); return; }
 
       this.loading = true;
       try {
         const payload = { name };
         if (this.mode === 'edit') {
-          if (!this.form.id) { this.error = 'Identifiant manquant'; return; }
+          if (!this.form.id) { this.error = this.t('productTypeList.missingId'); return; }
           await updateProductType(this.form.id, payload);
           await this.$store.dispatch('productTypes/updateProductType', { id: this.form.id, ...payload });
           this.$emit('saved', { id: this.form.id, ...payload });
@@ -130,7 +130,7 @@ export default {
         }
         this.close();
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Échec de la sauvegarde';
+        this.error = e?.response?.data?.message || e?.message || this.t('productTypeList.saveError');
       } finally {
         this.loading = false;
       }

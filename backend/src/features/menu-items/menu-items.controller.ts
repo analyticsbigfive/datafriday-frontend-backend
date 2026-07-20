@@ -392,10 +392,19 @@ export class ProductTypesController {
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les types de produits' })
-  @ApiResponse({ status: 200, description: 'Liste des types de produits' })
-  findAll(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
+  @ApiResponse({ status: 200, description: 'Liste paginée des types de produits' })
+  findAll(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
     this.logger.log(`GET /product-types - User: ${user?.id}`);
-    return this.menuItemsService.getProductTypes(tenantId);
+    return this.menuItemsService.getProductTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -407,6 +416,7 @@ export class ProductTypesController {
     return this.menuItemsService.createProductType(body.name, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un type de produit' })
   @ApiResponse({ status: 200, description: 'Type de produit mis à jour' })
@@ -444,10 +454,20 @@ export class ProductCategoriesController {
   @Get()
   @ApiOperation({ summary: 'Lister toutes les catégories de produits' })
   @ApiQuery({ name: 'typeId', required: false })
-  @ApiResponse({ status: 200, description: 'Liste des catégories de produits' })
-  findAll(@Query('typeId') typeId: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
+  @ApiResponse({ status: 200, description: 'Liste paginée des catégories de produits' })
+  findAll(
+    @Query('typeId') typeId: string,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
     this.logger.log(`GET /product-categories - User: ${user?.id}`);
-    return this.menuItemsService.getProductCategories(tenantId, typeId);
+    return this.menuItemsService.getProductCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -464,6 +484,7 @@ export class ProductCategoriesController {
     );
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une catégorie de produit' })
   @ApiResponse({ status: 200, description: 'Catégorie de produit mise à jour' })

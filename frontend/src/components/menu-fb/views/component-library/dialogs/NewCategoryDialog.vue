@@ -14,7 +14,7 @@
         <div v-else-if="!typeId" class="ncd-warning">
           <AlertCircle :size="14" />
           <span>
-            Choisissez d'abord un Type dans le formulaire<span v-if="typeName"> ({{ typeName }} n'est pas (encore) un Type reconnu)</span>.
+            {{ t('compCreateNewCategoryDialogChooseTypeFirst') }}<span v-if="typeName"> ({{ typeName }} {{ t('compCreateNewCategoryDialogTypeNotRecognized') }})</span>.
           </span>
         </div>
         <!-- Type du composant (hérité du formulaire, en lecture seule) -->
@@ -30,7 +30,7 @@
       <div class="ncd-foot">
         <button class="ncd-btn ncd-btn--cancel" @click="cancel">{{ t('compCreateDialogCancel') }}</button>
         <button class="ncd-btn ncd-btn--primary" :disabled="!name.trim() || !typeId || loading" @click="confirm">
-          <Save :size="14" /> {{ loading ? 'Création…' : t('compCreateDialogConfirm') }}
+          <Save :size="14" /> {{ loading ? t('compCreateNewCategoryDialogCreating') : t('compCreateDialogConfirm') }}
         </button>
       </div>
     </div>
@@ -77,7 +77,7 @@ export default {
       const trimmed = this.name.trim();
       if (!trimmed) return;
       if (!this.typeId) {
-        this.error = 'Choisissez un Type avant de créer une Category.';
+        this.error = this.t('compCreateNewCategoryDialogTypeRequiredError');
         return;
       }
       this.loading = true;
@@ -98,7 +98,7 @@ export default {
         this.name = '';
         this.$emit('update:modelValue', false);
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Une erreur est survenue.';
+        this.error = e?.response?.data?.message || e?.message || this.t('compCreateNewCategoryDialogGenericError');
       } finally {
         this.loading = false;
       }

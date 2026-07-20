@@ -1,4 +1,4 @@
-import { getMarketPriceTypes } from '@/api/endpoints/market.price.api'
+import { getMarketPriceCategories } from '@/api/endpoints/market.price.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes
 
@@ -40,31 +40,51 @@ export default {
   },
 
   actions: {
-    async fetchMarketPriceCategories({ state, commit, getters }, { forceRefresh = false } = {}) {
+    async fetchMarketPriceCategories({ state, commit, getters, rootGetters }, { forceRefresh = false } = {}) {
       if (state.fetching) return
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const data = await getMarketPriceTypes()
-        const typesRaw = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.data?.data)
-              ? data.data.data
-              : []
+        const limit = 200
+        let page = 1
+        let raw = []
+        // BUG-169: même boucle de pagination que marketPriceTypes.js/marketPrices.js —
+        // le backend plafonne chaque appel à `limit` lignes, on accumule toutes les pages
+        // avant de committer, pour que les dropdowns consommant cette liste complète
+        // (cf. fetchMarketPriceTypes ci-dessus) ne voient jamais une page partielle.
+        while (true) {
+          const result = await getMarketPriceCategories({ page, limit })
+          const pageRows = Array.isArray(result)
+            ? result
+            : Array.isArray(result?.data)
+              ? result.data
+              : Array.isArray(result?.data?.data)
+                ? result.data.data
+                : []
+          raw = raw.concat(pageRows)
+          const total = result?.meta?.total ?? result?.data?.meta?.total
+          if (!total || pageRows.length < limit || raw.length >= total) break
+          page += 1
+        }
 
-        const list = typesRaw
-          .flatMap((type) =>
-            Array.isArray(type.categories)
-              ? type.categories.map((c) => ({
-                  ...c,
-                  id: c?.id || c?._id,
-                  typeId: c?.typeId || type.id,
-                  typeName: type.name || '',
-                }))
-              : []
-          )
+        const types = rootGetters['marketPriceTypes/marketPriceTypes'] || []
+
+        const list = raw
+          .map((c) => {
+            const typeId = c?.typeId || c?.type?.id || c?.marketPriceTypeId
+            const typeName =
+              c?.typeName ||
+              c?.type?.name ||
+              c?.marketPriceType?.name ||
+              types.find((t) => t.id === typeId)?.name ||
+              ''
+            return {
+              ...c,
+              id: c?.id || c?._id,
+              typeId,
+              typeName,
+            }
+          })
           .filter((c) => !!c.id)
           .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
 
@@ -78,16 +98,19 @@ export default {
       commit('INVALIDATE')
     },
 
-    addMarketPriceCategory({ commit }, item) {
+    addMarketPriceCategory({ commit, dispatch }, item) {
       commit('ADD_MARKET_PRICE_CATEGORY', item)
+      dispatch('marketPriceTypes/invalidate', null, { root: true })
     },
 
-    updateMarketPriceCategory({ commit }, item) {
+    updateMarketPriceCategory({ commit, dispatch }, item) {
       commit('UPDATE_MARKET_PRICE_CATEGORY', item)
+      dispatch('marketPriceTypes/invalidate', null, { root: true })
     },
 
-    removeMarketPriceCategory({ commit }, id) {
+    removeMarketPriceCategory({ commit, dispatch }, id) {
       commit('REMOVE_MARKET_PRICE_CATEGORY', id)
+      dispatch('marketPriceTypes/invalidate', null, { root: true })
     },
   },
 }

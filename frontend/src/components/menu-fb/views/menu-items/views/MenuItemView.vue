@@ -540,6 +540,12 @@ export default {
     this.$store.dispatch('spaces/fetchSpaces');
     this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
     this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
+    // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
+    // (ex. suppression bloquée d'un ProductType par des MenuItem dépendants) de lier directement
+    // vers la liste déjà filtrée, plutôt que de laisser l'utilisateur chercher la bonne ligne à la
+    // main parmi potentiellement des milliers.
+    if (this.$route.query.type) this.typeFilter = String(this.$route.query.type);
+    if (this.$route.query.category) this.categoryFilter = String(this.$route.query.category);
     this.ensureDataLoaded();
   },
   activated() {

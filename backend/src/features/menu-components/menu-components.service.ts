@@ -85,6 +85,39 @@ export class MenuComponentsService {
     }
   }
 
+  // BUG-80 : componentTypeId/componentCategoryId étaient assignés directement depuis le payload
+  // client sans vérifier qu'ils pointent vers un ComponentType/ComponentCategory accessible au
+  // tenant courant (privé au tenant ou global) — la contrainte FK Prisma ne garantit que
+  // l'existence de la ligne, pas son appartenance tenant. Pattern "accessible"
+  // (OR: [{tenantId}, {tenantId: null}]) identique à findAccessibleEventTypeOrThrow
+  // (events.service.ts) — PAS la variante "owned" stricte, qui rejetterait à tort les entrées
+  // globales (voir BUG-77, régression évitée).
+  private async assertComponentTypeAccessible(componentTypeId: unknown, tenantId: string) {
+    if (componentTypeId === undefined || componentTypeId === null) return;
+    if (typeof componentTypeId !== 'string' || !componentTypeId.trim()) return;
+
+    const type = await this.prisma.componentType.findFirst({
+      where: { id: componentTypeId, OR: [{ tenantId }, { tenantId: null }] },
+      select: { id: true },
+    });
+    if (!type) {
+      throw new BadRequestException('componentTypeId must reference an accessible component type');
+    }
+  }
+
+  private async assertComponentCategoryAccessible(componentCategoryId: unknown, tenantId: string) {
+    if (componentCategoryId === undefined || componentCategoryId === null) return;
+    if (typeof componentCategoryId !== 'string' || !componentCategoryId.trim()) return;
+
+    const category = await this.prisma.componentCategory.findFirst({
+      where: { id: componentCategoryId, OR: [{ tenantId }, { tenantId: null }] },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new BadRequestException('componentCategoryId must reference an accessible component category');
+    }
+  }
+
   async replaceIngredients(
     componentId: string,
     ingredients: CreateMenuComponentDto['ingredients'],
@@ -266,6 +299,8 @@ export class MenuComponentsService {
           (childrenLines || []).map((l: any) => l?.childId),
           tenantId,
         ),
+        this.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
+        this.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
       ]);
 
       const component = await this.prisma.menuComponent.create({
@@ -431,6 +466,8 @@ export class MenuComponentsService {
         (childrenLines || []).map((l: any) => l?.childId),
         tenantId,
       ),
+      this.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
+      this.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
     ]);
 
     if (ingredientsLines) {

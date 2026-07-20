@@ -28,7 +28,7 @@ sont déjà prêts à le recevoir. `manualQuantities` n'a donc jamais quitté le
 (`manualQuantities Json @default("{}")`), DTO whitelisté (`predict-version.dto.ts:69,142`) et
 service (`predict-versions.service.ts:41,56`) étaient bien prêts. Le retry-sans-`predictedRecords`
 sur 400 est CONSERVÉ tant que le backend déployé peut être une version antérieure — à retirer
-après déploiement backend confirmé. Miroir backend : fiche 88.
+après déploiement backend confirmé. Miroir backend : fiche 100.
 
 ## Risque de régression / à surveiller
 

@@ -19,7 +19,6 @@
   Emits :
     - update:selectedMenuItems(Object)
     - update:quantityAdjustments(Object)
-    - update:viewMode('shop'|'item')
 -->
 
 <template>

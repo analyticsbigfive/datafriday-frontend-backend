@@ -387,7 +387,7 @@ correcte**, contrairement au pipeline pré-agrégé vivant du Piège n°1). Plaf
 par appel (`spaces.service.ts:1036`). C'est la source de toutes les vues item-level (donut par
 article, tableau « Menu items by shop », timeline minute par minute d'un event précis).
 
-**Corrigé 2026-07-18 (fiche back 91, non déployé)** : la jointure shop était un `INNER JOIN`
+**Corrigé 2026-07-18 (fiche back 103, non déployé)** : la jointure shop était un `INNER JOIN`
 `WeezeventLocationShopMapping` + `spaceElementId = ANY(shopIds)` — toute vente d'un PdV non mappé
 était supprimée, d'où un écran « 0 article / Aucun article disponible pour cette configuration »
 alors que le CA shop-level (RPC, LEFT JOIN + COALESCE) s'affichait. Désormais aligné sur la RPC :
@@ -395,7 +395,7 @@ alors que le CA shop-level (RPC, LEFT JOIN + COALESCE) s'affichait. Désormais a
 front), garde-fou : les non-mappés ne sont conservés que si un `integrationId` scope la requête.
 Attention : l'attribution event reste par **fenêtre de dates** (`[eventDate, eventEndDate+1j)`),
 différente du lien stocké utilisé par la RPC — règle canonique non tranchée (QUESTIONS 16). Le
-front ne masque plus un échec HTTP du batch en « 0 article » (fiche front 164, snackbar
+front ne masque plus un échec HTTP du batch en « 0 article » (fiche front 187, snackbar
 une fois/session).
 
 **Conséquence pour un correctif** : le CA total « par article » (toujours calculé en live, formule
@@ -578,7 +578,7 @@ contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analys
 > (pas de code tant que non tranché). #10 corrigé : getter store mort `futureEventsCount`
 > supprimé, seule reste la version locale d'`AnalyseView.vue` (condition `>=`, l'event du jour
 > compte comme futur). S'ajoute le bug majeur découvert ce jour — item-level vide alors que le
-> shop-level affiche du CA — corrigé côté backend (fiche back 91) et durci côté front (fiche 164),
+> shop-level affiche du CA — corrigé côté backend (fiche back 103) et durci côté front (fiche 187),
 > voir la section `GET /spaces/:id/event-timeline` ci-dessus.
 
 | # | Bug | Fichiers | Repro |
