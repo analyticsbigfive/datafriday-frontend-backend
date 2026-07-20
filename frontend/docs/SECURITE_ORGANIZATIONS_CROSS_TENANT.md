@@ -2,7 +2,7 @@
 
 > **Destinataire** : équipe backend (`api-datafriday-staging`, owner Ulrich).
 > **Rédigé le** : 2026-07-18 · **Auteur** : emmanuel · **Sévérité** : 🔴 Critique
-> **Statut** : ouvert, non corrigé.
+> **Statut** : 🟡 **Corrigé non déployé** (Option C, 2026-07-20) — vérifié contre le vrai code backend.
 >
 > ⚠️ **Portée de ce document.** Il est rédigé depuis le dépôt **frontend**, où le code backend n'est
 > pas disponible. Tout ce qui suit est dérivé de
@@ -13,6 +13,29 @@
 >
 > Ce fichier a vocation à être **transféré dans `api-datafriday-staging/docs/`**, où il rejoindra le
 > tracker de bugs backend. Il vit ici faute d'accès au dépôt concerné.
+
+---
+
+## ⏱️ Mise à jour du 2026-07-20 — vérifié contre le code backend, correctif appliqué
+
+Le backend est désormais disponible dans le monorepo. Le raisonnement de ce dossier a été **vérifié
+ligne à ligne contre le vrai code**. Bilan :
+
+- ✅ **La faille est confirmée réelle** : `OrganizationsController` ne portait que `JwtDatabaseGuard`,
+  le service tape `prisma.tenant` avec l'`id` de l'URL, et `Tenant` est bien exclu de l'auto-scoping.
+- ✅ **Correctif appliqué (Option C)** : `@AllowNoTenant()` + `@UseGuards(JwtDatabaseGuard, SuperAdminGuard)`,
+  symétrique à `TenantsController`. Détail : `api-datafriday/docs/CHANGELOG_BUG035_ORGANIZATIONS_HARDENING.md`
+  et fiche `api-datafriday/docs/bugs/35_organizationscontroller_faille_cross_tenant.md` (🟡).
+- 🟢 **§5 bis résolu — `IntegrationsController` N'A PAS la faille** : chaque handler passe par
+  `resolveTenantId(user, organizationId)` qui compare au `tenantId` du JWT (`ForbiddenException` sinon,
+  commentaire « OWASP A01 »). La question prioritaire de ce dossier est close : négatif.
+- 🟡 **Nuance §2** : `UpdateOrganizationDto` n'expose pas `status` et `forbidNonWhitelisted: true` rejette
+  les champs inconnus → `PATCH {status:...}` renvoyait déjà 400. Le vecteur de suspension était le
+  `DELETE` (soft-delete → `SUSPENDED`), pas le `PATCH`. Le `plan` (facturation), lui, était bien
+  modifiable cross-tenant. Tout est désormais super-admin only.
+
+**Reste avant 🟢** : repro manuelle staging (§7) + Option A (suppression du contrôleur redondant) à
+arbitrer par l'owner backend. Ce dossier peut être transféré tel quel dans `api-datafriday/docs/`.
 
 ---
 

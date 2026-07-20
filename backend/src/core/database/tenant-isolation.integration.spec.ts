@@ -113,6 +113,29 @@ const hasDatabase = !!process.env.DATABASE_URL;
     expect(intact?.name).toBe('B-protected');
   });
 
+  // BUG-035 — cause racine. Contrairement à `Space` (test ci-dessus), le modèle `Tenant`
+  // n'a pas de `tenantId` scalaire : il est EXCLU de l'auto-scoping Prisma. Une écriture
+  // cross-tenant sur `Tenant` N'EST donc PAS bloquée en base. C'est précisément pourquoi
+  // OrganizationsController et TenantsController doivent être protégés au niveau HTTP par
+  // SuperAdminGuard — le filet Prisma ne rattrape pas cette surface. Ce test verrouille la
+  // propriété : si un jour `Tenant` devenait scopé, il faudrait le savoir.
+  it('does NOT auto-scope the Tenant model (root cause of BUG-035)', async () => {
+    const hijacked = await inTenant(tenantA, () =>
+      prisma.tenant.updateMany({
+        where: { id: tenantB },
+        data: { name: `hijacked-${suffix}` },
+      }),
+    );
+    // Aucun scoping : depuis le contexte du tenant A, l'écriture atteint bien le tenant B.
+    expect(hijacked.count).toBe(1);
+
+    // Restauration pour ne pas polluer les autres assertions / le teardown.
+    await prisma.tenant.update({
+      where: { id: tenantB },
+      data: { name: `ISO B ${suffix}` },
+    });
+  });
+
   it('runWithoutTenantScope() bypasses scoping for legitimate cross-tenant ops', async () => {
     const all = await inTenant(tenantA, () =>
       tenantCtx.runWithoutTenantScope(() =>

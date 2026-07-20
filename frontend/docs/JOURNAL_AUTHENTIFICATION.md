@@ -350,7 +350,7 @@ seuls tests unitaires. Il ne deviendra testable à la main qu'avec
 
 | # | Bug | Statut |
 |---|---|---|
-| 1 | `OrganizationsController` — faille cross-tenant | 🔴 **Ouvert — backend, hors de ce dépôt** |
+| 1 | `OrganizationsController` — faille cross-tenant | 🟡 **Corrigé non déployé** — backend (Option C `SuperAdminGuard`, 2026-07-20 ; cf. `api-datafriday/docs/bugs/35`) |
 | 2 | Déconnexion multi-onglets | 🟢 Corrigé et vérifié |
 | 3 | `POST /onboarding/join/:slug` sans code d'invitation | 🔴 Ouvert — backend |
 | 4 | Bypass démo `?demo=1` | 🟢 Corrigé |
