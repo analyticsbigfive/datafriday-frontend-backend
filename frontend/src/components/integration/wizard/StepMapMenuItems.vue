@@ -334,9 +334,6 @@
           <div class="smi-qc-header__icon"><UtensilsCrossed :size="20" color="white" /></div>
           <div class="smi-qc-header__text">
             <p class="smi-qc-header__title">{{ t('smmCreateTitle') }}</p>
-            <p v-if="quickCreateProduct" class="smi-qc-header__sub">
-              {{ t('smmCreateFor') }} <strong style="color:#fff;">{{ quickCreateProduct.name }}</strong>
-            </p>
           </div>
           <button
             class="smi-qc-header__close"
@@ -435,7 +432,7 @@
           </div>
 
           <div class="smi-qc-row">
-            <div class="smi-qc-field-wrap">
+            <div class="smi-qc-field-wrap" :class="{ 'smi-qc-field-wrap--full': !quickCreateForm.discountType }">
               <label class="smi-qc-label">{{ t('smmCreateLabelDiscountType') }}</label>
               <select v-model="quickCreateForm.discountType" class="smi-select smi-select--full">
                 <option value="">{{ t('smmCreateDiscountNone') }}</option>
@@ -443,7 +440,7 @@
                 <option value="amount">{{ t('smmCreateDiscountAmount') }}</option>
               </select>
             </div>
-            <div class="smi-qc-field-wrap">
+            <div v-if="quickCreateForm.discountType" class="smi-qc-field-wrap">
               <label class="smi-qc-label">{{ t('smmCreateLabelDiscountValue') }}</label>
               <div class="smi-qc-input-wrap">
                 <span class="smi-qc-prefix">{{ quickCreateForm.discountType === 'amount' ? '€' : '%' }}</span>
@@ -452,7 +449,6 @@
                   type="number"
                   min="0"
                   step="0.01"
-                  :disabled="!quickCreateForm.discountType"
                   class="smi-qc-input smi-qc-input--prefixed"
                   placeholder="0"
                 />
@@ -462,7 +458,7 @@
 
           <!-- Décomposition live des prix -->
           <div class="smi-qc-pricing smi-mb-3">
-            <div class="smi-qc-pricing__row">
+            <div v-if="quickCreatePricing.hasDiscount" class="smi-qc-pricing__row">
               <span>{{ t('smmPriceGrossTtc') }}</span>
               <span>{{ fmtMoney(quickCreatePricing.grossTtc) }}</span>
             </div>
@@ -474,16 +470,9 @@
               <span>{{ t('smmPriceNetTtc') }}</span>
               <span>{{ fmtMoney(quickCreatePricing.netTtc) }}</span>
             </div>
-            <div class="smi-qc-pricing__sub">
-              <div class="smi-qc-pricing__row">
-                <span>{{ t('smmPriceHt') }}</span>
-                <span>{{ fmtMoney(quickCreatePricing.netHt) }}</span>
-              </div>
-              <div class="smi-qc-pricing__row">
-                <span>{{ t('smmPriceVat') }}</span>
-                <span>{{ fmtMoney(quickCreatePricing.netVat) }}</span>
-              </div>
-            </div>
+            <p class="smi-qc-pricing__detail">
+              {{ t('smmPriceHt') }} {{ fmtMoney(quickCreatePricing.netHt) }} · {{ t('smmPriceVat') }} {{ fmtMoney(quickCreatePricing.netVat) }}
+            </p>
             <p v-if="!quickCreatePricing.hasVat" class="smi-qc-pricing__hint">{{ t('smmPriceVatUnknown') }}</p>
           </div>
 
@@ -2452,6 +2441,7 @@ export default {
 }
 
 .smi-qc-field-wrap { display: flex; flex-direction: column; gap: 5px; }
+.smi-qc-field-wrap--full { grid-column: 1 / -1; }
 
 .smi-qc-label { font-size: 12px; font-weight: 600; color: #374151; display: block; }
 .smi-qc-dialog--dark .smi-qc-label { color: #d1d5db; }
@@ -2502,12 +2492,10 @@ export default {
   padding-top: 7px; margin-top: 4px; border-top: 1px solid #e5e7eb;
 }
 .smi-qc-dialog--dark .smi-qc-pricing__row--total { color: #f3f4f6; border-top-color: #374151; }
-.smi-qc-pricing__sub {
-  margin-top: 6px; padding-top: 6px; border-top: 1px dashed #e5e7eb;
+.smi-qc-pricing__detail {
+  margin: 4px 0 0; font-size: 12px; color: #6b7280; text-align: right;
 }
-.smi-qc-dialog--dark .smi-qc-pricing__sub { border-top-color: #374151; }
-.smi-qc-pricing__sub .smi-qc-pricing__row { font-size: 12px; color: #6b7280; }
-.smi-qc-dialog--dark .smi-qc-pricing__sub .smi-qc-pricing__row { color: #9ca3af; }
+.smi-qc-dialog--dark .smi-qc-pricing__detail { color: #9ca3af; }
 .smi-qc-pricing__hint {
   margin: 8px 0 0; font-size: 11px; line-height: 1.4; color: #9ca3af;
 }
