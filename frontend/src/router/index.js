@@ -170,7 +170,17 @@ const routes = [
         path: '/spaces/:spaceId/inventory',
         name: 'space-inventory',
         component: () => import('@/views/SpaceInventoryView.vue'),
-        meta: { title: 'Space Inventory', keepAlive: true, permission: 'front.fb.spaceInventory' }
+        meta: { title: 'Post-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'post' }
+      },
+
+      {
+        // Pre-event Inventory : MÊME composant en mode 'pre' (event FUTUR,
+        // quantités attendues gatées) — 2 instances keepAlive distinctes (key =
+        // route.path). Doc : docs/modules/10_POST_EVENT_INVENTORY.md §8.
+        path: '/spaces/:spaceId/pre-inventory',
+        name: 'space-pre-inventory',
+        component: () => import('@/views/SpaceInventoryView.vue'),
+        meta: { title: 'Pre-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'pre' }
       },
 
       {

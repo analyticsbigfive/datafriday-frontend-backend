@@ -207,6 +207,34 @@
 | [191](191_auth_console_log_jwt_en_clair.md) | JWT imprimé en clair dans la console lors de l'onboarding | 🟢 Corrigé | 🟢 | Auth & onboarding |
 | [192](192_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
 | [193](193_predict_vues_article_absentes_grain_shop_level.md) | Mode Predict : « Répartition du CA par article » et « Articles du menu par PdV » absents (prédiction shop-level sans dimension article) | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
+| [194](194_inventory_reconciliation_fallback_plus_vieux_match.md) | Réconciliation d'inventaire : fallback `pastEvents[0]` sur tri ascendant → rattachée au plus VIEUX match passé au lieu du dernier fini | 🟢 Corrigé | 🟠 | Stock |
+| [195](195_analyse_donut_zone_vide_pendant_contexte_differe.md) | Analyse : donut « Par zone » affiché vide (disque blanc) tant que le contexte PdV différé n'est pas chargé | 🟢 Corrigé | 🟢 | Analyse & agrégation |
+| [196](196_analyse_predict_outil_inventaire_pre_evenement_absent.md) | « Inventaire pré-événement » absent du sélecteur Outils sur Analyse et Prédire (`FilterPanel` jamais mis à jour) | 🟢 Corrigé | 🟢 | Analyse & agrégation / Stock |
+| [197](197_analyse_predict_config_par_defaut_et_dedup_contexte.md) | Analyse/Prédire : aucune config pré-sélectionnée → union « All Configurations » (fan-out max) par défaut ; + contexte PdV dispatché 2× | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [198](198_chargement_analyse_dedup_catalogues_et_phase2_en_vagues.md) | Chargement Analyse : `market-prices`/`packaging` sans dédup in-flight (2× ~60 s), phase 2 monolithique (graphes bloqués par les catalogues recette), contexte PdV rebâti à chaque demande | 🟢 Corrigé | 🟠 | Analyse & agrégation / Stock |
+| [199](199_shop_items_photo_base64_dupliquee_par_pdv.md) | `shop-items` : 5,6 Mo / 53 s — une photo base64 de 915 ko réémise une fois par PdV (14 Mo émis, 38 ko utiles), jamais lue côté front | 🟢 Corrigé | 🔴 | Analyse & agrégation / Stock / Menu |
+
+**199 bugs au total** (199 ajouté le 2026-07-20 sur `feat/postEventInventory`, sur capture DevTools
+de l'utilisateur : le vrai blocage de la page Analyse n'était **aucun** des lots du plan de
+chargement — c'était un payload, `getConfigShopMenuItemsLight` sélectionnant `picture` par ligne
+d'assignation. Le stockage base64 en base lui-même est ouvert en question #27).
+
+**198 bugs au total** (198 ajouté le 2026-07-20 sur `feat/postEventInventory` — lots A, D et B du
+[plan de chargement progressif](../PLAN_CHARGEMENT_PROGRESSIF_ANALYSE.md), demandé le jour même ;
+seul le lot C — unifier les 2 pipelines `shop-items` — reste ouvert).
+
+**197 bugs au total** (195-197 ajoutés le 2026-07-20 sur `feat/postEventInventory`, sur retour
+utilisateur direct : le donut « Par zone » d'Analyse n'a ni skeleton ni état vide pendant le
+chargement **différé** du contexte PdV — seule dimension sans sentinelle de repli (BUG-195) ;
+la liste « Outils » d'Analyse/Prédire (`FilterPanel.vue`, partagée par les deux modes) n'avait
+jamais reçu l'entrée `space-pre-inventory` ajoutée sur les 4 autres écrans (BUG-196) ; et le
+landing par défaut ne pré-sélectionnait aucune configuration, déclenchant systématiquement le
+fan-out le plus large du module (BUG-197, règle « 1re config avec events » tranchée le jour même
+avec l'utilisateur).
+
+**194 bugs au total** (194 ajouté le 2026-07-20 sur `feat/postEventInventory`, découvert en
+vérifiant la logique Pre/Post-event contre la spec métier — voir
+[`../modules/10_POST_EVENT_INVENTORY.md`](../modules/10_POST_EVENT_INVENTORY.md) § Vérification).
 
 **193 bugs au total** (190-192 ajoutés le 2026-07-20, branche `fix/currentBug-fixAuthentification`, domaine Auth & onboarding) : correctif de la déconnexion intempestive multi-onglets sur rotation du refresh token (BUG-190, décision extraite dans une fonction pure testée `src/utils/authSessionEvent.js`), du JWT imprimé en clair dans la console à l'onboarding (BUG-191), et suppression du code mort du domaine Auth (`Login.vue`, `api/endpoints/onboarding.js`, 4 guards jamais attachés — BUG-192). Voir aussi [BUG-27](27_bypass_demo_actif_sans_distinction_env.md) et [BUG-28](28_predict_test_sans_guard_auth.md), corrigés dans la même branche.
 

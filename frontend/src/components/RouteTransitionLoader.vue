@@ -85,7 +85,8 @@ export default {
       const p = String(path || '')
       if (/event-predict/.test(p)) return 'Chargement Event Predict…'
       if (/\/predict/.test(p)) return 'Chargement Predict…'
-      if (/\/inventory/.test(p)) return 'Chargement Space Inventory…'
+      if (/\/pre-inventory/.test(p)) return 'Chargement Pre-event Inventory…'
+      if (/\/inventory/.test(p)) return 'Chargement Post-event Inventory…'
       if (/\/builder/.test(p)) return 'Chargement Space Builder…'
       if (/\/spaces-overview/.test(p)) return 'Chargement vue d\'ensemble…'
       if (/\/spaces\/[^/]+$/.test(p)) return 'Chargement Analyse…'

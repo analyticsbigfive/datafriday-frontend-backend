@@ -221,10 +221,13 @@ export function useInventoryData(selectedConfigId) {
 
       // --- Menus pour TOUS les shops de l'union -----------------------------
       // BATCH D'ABORD (1 requête pour tout le config — même endpoint que la page
-      // Analyse, enrichi basePrice/picture le 2026-07-18) ; le fan-out borné
-      // per-shop ne sert plus que de FALLBACK (échec batch, ou backend déployé
-      // antérieur à l'enrichissement). Avant : 1 GET /space-menu/shop/:id par
-      // shop (N+1) + passe de retry — jusqu'à ~2× N requêtes au premier rendu.
+      // Analyse, enrichi basePrice le 2026-07-18) ; le fan-out borné per-shop ne
+      // sert plus que de FALLBACK (échec batch, ou backend déployé antérieur à
+      // l'enrichissement). Avant : 1 GET /space-menu/shop/:id par shop (N+1) +
+      // passe de retry — jusqu'à ~2× N requêtes au premier rendu.
+      // Ce batch ne porte PAS la photo des articles (BUG-199) : elle y était
+      // réémise une fois par PdV (5,6 Mo / 53 s). Les vignettes viennent du
+      // catalogue via `enrichForBuild` → `buildConsolidatedInventory`.
       const itemsByShopId = new Map()
       let batchOk = false
       try {
@@ -291,12 +294,14 @@ export function useInventoryData(selectedConfigId) {
           shopType: entry.shopType,
           shopArea: entry.shopArea,
           source: entry.source,
+          // Pas de `picture` ici : le batch ne la porte plus (BUG-199) et elle
+          // n'était de toute façon jamais lue — `enrichForBuild` reconstruit chaque
+          // item depuis le catalogue (`...catalog`), d'où viennent les vignettes.
           items: assigned.map((it) => ({
             id: it?.id ?? it?._id ?? it?.name,
             name: String(it?.name ?? '').trim(),
             basePrice: it?.basePrice,
             category: it?.productCategory?.name || it?.category || '',
-            picture: it?.picture || null,
           })),
         }
         if (shop.items.length) withItems += 1

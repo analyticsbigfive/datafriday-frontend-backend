@@ -563,6 +563,11 @@ const spaceInventoryPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/inventory` : '/spaces'
 })
+// Inventaire PRÉ-événement : même vue en mode 'pre' (cf. router `space-pre-inventory`).
+const spacePreInventoryPath = computed(() => {
+  const id = route.params?.spaceId
+  return id ? `/spaces/${id}/pre-inventory` : '/spaces'
+})
 const restockPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/restock` : '/spaces'
@@ -572,10 +577,14 @@ const logisticPath = computed(() => {
   return id ? `/spaces/${id}/logistic` : '/spaces'
 })
 
-// Selecting "Inventory" / "Logistic" / "Réarmement" in the Outils dropdown
+// Selecting "Pre/Post-event Inventory" / "Logistic" / "Réarmement" in the Outils dropdown
 // navigates to the dedicated view instead of mutating the toolbox state (which
 // only supports analyse / predict / event-predict).
 function onToolboxSelect(v) {
+  if (v === 'space-pre-inventory') {
+    router.push(spacePreInventoryPath.value)
+    return
+  }
   if (v === 'space-inventory') {
     router.push(spaceInventoryPath.value)
     return
@@ -597,6 +606,7 @@ const toolboxItems = computed(() => [
   { value: 'analyse', label: t('anToolAnalyse'), icon: 'mdi-chart-line' },
   { value: 'predict', label: t('anToolPredict'), icon: 'mdi-trending-up' },
   { value: 'event-predict', label: t('anToolEventPredict'), icon: 'mdi-lightning-bolt' },
+  { value: 'space-pre-inventory', label: t('anToolPreInventory'), icon: 'mdi-clipboard-arrow-up-outline' },
   { value: 'space-inventory', label: t('anToolInventory'), icon: 'mdi-package-variant' },
   { value: 'logistic', label: t('anToolLogistic'), icon: 'mdi-forklift' },
   { value: 'restock', label: t('anToolRestock'), icon: 'mdi-truck-delivery-outline' },

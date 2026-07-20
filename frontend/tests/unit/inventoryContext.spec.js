@@ -368,3 +368,73 @@ describe('useInventoryData.loadContext — TOUS les shops de la config', () => {
     expect(api.shops.value.map((s) => s.shopId)).toEqual(['el-1'])
   })
 })
+
+/**
+ * BUG-199 — la vignette d'un article vient du CATALOGUE, jamais du payload
+ * d'assignation. C'est ce qui a permis de retirer `picture` de
+ * getConfigShopMenuItemsLight (photo base64 réémise une fois par PdV : 5,6 Mo /
+ * 53 s). Sans ce test, une refonte de `enrichForBuild` casserait les vignettes de
+ * Space Inventory en silence — aucun autre test ne couvre ce chemin.
+ */
+describe('useInventoryData — vignette résolue depuis le catalogue (BUG-199)', () => {
+  const CFG = 'cfg-1'
+  const PIC = 'data:image/jpeg;base64,AAAA'
+
+  function makeStoreWithCatalog(menuItems) {
+    return createStore({
+      modules: {
+        spaceShops: { namespaced: true, ...spaceShops },
+        shopMenuItems: { namespaced: true, ...shopMenuItems },
+        analyse: { namespaced: true, state: () => ({ menuItems, components: [] }) },
+        inventory: { namespaced: true, state: () => ({ marketPrices: [] }) },
+      },
+    })
+  }
+
+  it('item d\'assignation SANS picture + catalogue porteur ⇒ photo du catalogue', async () => {
+    getSpaceShopList.mockResolvedValue([{ id: 's1', name: 'Bar', configId: CFG, isOpen: true }])
+    // Payload d'assignation tel qu'il est depuis le fix : aucune photo.
+    getShopMenuItems.mockResolvedValue({
+      menuItems: [{ id: 'mi-1', name: 'BURGER SEUL', enabled: true, basePrice: 9 }],
+    })
+
+    const store = makeStoreWithCatalog([{ id: 'mi-1', name: 'BURGER SEUL', picture: PIC }])
+    const api = mountComposable(store, CFG)
+    await api.loadContext('sp1', CFG)
+
+    // Le payload d'assignation ne transporte plus la photo…
+    expect(api.shops.value[0].items[0].picture).toBeUndefined()
+    // …et pourtant l'article affiché en porte une, résolue par id via le catalogue.
+    const shop = api.shopsWithInventory.value.find((s) => s.element.id === 's1')
+    expect(shop.availableMenuItems[0].picture).toBe(PIC)
+  })
+
+  it('repli par NOM normalisé quand l\'id d\'assignation diffère de l\'id catalogue', async () => {
+    getSpaceShopList.mockResolvedValue([{ id: 's1', name: 'Bar', configId: CFG, isOpen: true }])
+    getShopMenuItems.mockResolvedValue({
+      menuItems: [{ id: 'nest-42', name: 'Burger Seul', enabled: true }],
+    })
+
+    const store = makeStoreWithCatalog([{ id: 'mi-1', name: 'BURGER SEUL', picture: PIC }])
+    const api = mountComposable(store, CFG)
+    await api.loadContext('sp1', CFG)
+
+    const shop = api.shopsWithInventory.value.find((s) => s.element.id === 's1')
+    expect(shop.availableMenuItems[0].picture).toBe(PIC)
+  })
+
+  it('article absent du catalogue : pas de photo, pas de crash', async () => {
+    getSpaceShopList.mockResolvedValue([{ id: 's1', name: 'Bar', configId: CFG, isOpen: true }])
+    getShopMenuItems.mockResolvedValue({
+      menuItems: [{ id: 'ghost', name: 'Article hors catalogue', enabled: true }],
+    })
+
+    const store = makeStoreWithCatalog([])
+    const api = mountComposable(store, CFG)
+    await api.loadContext('sp1', CFG)
+
+    const shop = api.shopsWithInventory.value.find((s) => s.element.id === 's1')
+    expect(shop.availableMenuItems).toHaveLength(1)
+    expect(shop.availableMenuItems[0].picture).toBeUndefined()
+  })
+})
