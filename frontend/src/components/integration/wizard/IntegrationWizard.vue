@@ -14,7 +14,7 @@
               <div class="iw-header__sub">{{ t('intgWizardHeaderSub') }}</div>
             </div>
             <div v-if="!showOverview && !showSuccess" class="iw-header__badge">
-              {{ completedSteps }}/4 {{ t('intgWizardStepsLabel') }}
+              {{ completedSteps }}/{{ lastStep }} {{ t('intgWizardStepsLabel') }}
             </div>
             <button class="iw-header__close" :aria-label="t('intgWizardClose')" @click="$emit('close')">
               <X :size="18" color="white" />
@@ -41,8 +41,13 @@
                     'iw-progress__circle--done': completedStepsList.includes(step.value) && currentStep !== step.value,
                     'iw-progress__circle--idle': !completedStepsList.includes(step.value) && currentStep !== step.value,
                   }"
-                  :style="{ cursor: completedStepsList.includes(step.value) && currentStep !== step.value ? 'pointer' : 'default' }"
-                  @click="completedStepsList.includes(step.value) && currentStep !== step.value ? currentStep = step.value : null"
+                  :style="{ cursor: isStepNavigable(step.value) ? 'pointer' : 'default' }"
+                  role="button"
+                  :tabindex="isStepNavigable(step.value) ? 0 : -1"
+                  :aria-label="step.title"
+                  @click="goToStep(step.value)"
+                  @keydown.enter.prevent="goToStep(step.value)"
+                  @keydown.space.prevent="goToStep(step.value)"
                 >
                   <Check v-if="completedStepsList.includes(step.value) && currentStep !== step.value" :size="14" color="white" />
                   <span v-else>{{ step.value }}</span>
@@ -79,7 +84,7 @@
             />
 
             <!-- Step content -->
-            <template v-else>
+            <template v-else-if="!stepError">
               <StepMapSpace
                 v-if="currentStep === 1"
                 :location="location"
@@ -114,11 +119,19 @@
                 @completed="handleStepCompleted(4, $event)"
               />
             </template>
+
+            <!-- Fallback : erreur non interceptée dans une étape enfant -->
+            <div v-else class="iw-step-error">
+              <AlertTriangle :size="32" color="#ff3131" />
+              <p class="iw-step-error__title">{{ t('intgWizardStepErrorTitle') }}</p>
+              <p class="iw-step-error__hint">{{ t('intgWizardStepErrorHint') }}</p>
+              <button class="iw-btn iw-btn--ghost" @click="$emit('close')">{{ t('intgWizardClose') }}</button>
+            </div>
           </div>
 
           <!-- Footer -->
           <div
-            v-show="!showOverview && !showSuccess"
+            v-show="!showOverview && !showSuccess && !stepError"
             class="iw-footer"
             :class="{ 'iw-footer--dark': isDark }"
           >
@@ -136,14 +149,20 @@
 </template>
 
 <script>
-import { X, Check, ArrowLeft, MapPinCheck } from 'lucide-vue-next'
-import { t as translate } from '@/i18n'
+import { X, Check, ArrowLeft, MapPinCheck, AlertTriangle } from 'lucide-vue-next'
+import { useI18n } from '@/i18n/useI18n'
 import WizardOverview from './WizardOverview.vue'
 import WizardSuccess from './WizardSuccess.vue'
 import StepMapSpace from './StepMapSpace.vue'
 import StepMapShops from './StepMapShops.vue'
 import StepMapMenuItems from './StepMapMenuItems.vue'
 import StepProcessTimeline from './StepProcessTimeline.vue'
+
+// Seule source d'un thème persisté ailleurs que via l'événement `theme-changed`
+// (première lecture au montage, et repli si l'event ne porte pas de détail).
+function getStoredTheme() {
+  return localStorage.getItem('datafriday:theme') || localStorage.getItem('appTheme') || 'dataFridayLight'
+}
 
 export default {
   name: 'IntegrationWizard',
@@ -152,6 +171,7 @@ export default {
     Check,
     ArrowLeft,
     MapPinCheck,
+    AlertTriangle,
     WizardOverview,
     WizardSuccess,
     StepMapSpace,
@@ -166,6 +186,10 @@ export default {
     otherLocations: { type: Array, default: () => [] },
   },
   emits: ['close', 'completed', 'go-to-analytics', 'configure-next', 'request-csv-import'],
+  setup() {
+    const { t } = useI18n()
+    return { t }
+  },
   watch: {
     open(val) {
       document.body.style.overflow = val ? 'hidden' : ''
@@ -177,15 +201,22 @@ export default {
     },
   },
   mounted() {
-    this._onThemeChanged = (e) => { this.theme = e.detail?.theme || localStorage.getItem('datafriday:theme') || localStorage.getItem('appTheme') || 'dataFridayLight' }
+    this._onThemeChanged = (e) => { this.theme = e.detail?.theme || getStoredTheme() }
     window.addEventListener('theme-changed', this._onThemeChanged)
-    window.addEventListener('locale-changed', this.handleLocaleChange)
     this.footerEl = this.$refs.footerEl
   },
   beforeUnmount() {
     document.body.style.overflow = ''
     window.removeEventListener('theme-changed', this._onThemeChanged)
-    window.removeEventListener('locale-changed', this.handleLocaleChange)
+  },
+  // Filet de sécurité : une erreur synchrone non catchée dans une étape enfant
+  // laissait auparavant l'utilisateur sur un écran cassé sans recours autre que
+  // de forcer la fermeture depuis l'extérieur. On l'intercepte et on affiche un
+  // état de repli avec un bouton fermer.
+  errorCaptured(err, instance, info) {
+    console.error('[IntegrationWizard] step error captured:', err?.message, info)
+    this.stepError = true
+    return false
   },
   data() {
     // Reprise où l'utilisateur s'était arrêté : location.completedSteps (calculé par
@@ -194,15 +225,15 @@ export default {
     const lastStepForLocation = this.location?.type === 'digifood' ? 3 : 4
     const completed = Math.min(this.location?.completedSteps ?? 0, lastStepForLocation)
     return {
-      locale: localStorage.getItem('appLocale') || 'en',
       currentStep: Math.min(completed + 1, lastStepForLocation),
       completedStepsList: Array.from({ length: completed }, (_, i) => i + 1),
       footerEl: null,
       resolvedSpaceId: this.spaceId,
       showSuccess: false,
+      stepError: false,
       wizardSummary: { merchants: 0, products: 0, events: 0 },
       showOverview: !this.spaceId && completed === 0,
-      theme: localStorage.getItem('datafriday:theme') || localStorage.getItem('appTheme') || 'dataFridayLight',
+      theme: getStoredTheme(),
     }
   },
   computed: {
@@ -233,17 +264,26 @@ export default {
     },
   },
   methods: {
-    t(key) {
-      return translate(key, this.locale)
+    // Un cercle n'est cliquable que pour revenir à une étape déjà terminée, différente
+    // de l'étape courante — factorisé car répété à l'affichage, au clic et au clavier.
+    isStepNavigable(stepValue) {
+      return this.completedStepsList.includes(stepValue) && this.currentStep !== stepValue
     },
-    handleLocaleChange(event) {
-      this.locale = event.detail.locale
+    goToStep(stepValue) {
+      if (this.isStepNavigable(stepValue)) {
+        this.currentStep = stepValue
+      }
     },
     handleStepCompleted(step, data) {
       if (!this.completedStepsList.includes(step)) {
         this.completedStepsList.push(step)
       }
       if (step === 1 && data?.spaceId) {
+        // Revenir à l'étape 1 et choisir un autre Space invalide les étapes suivantes :
+        // leur mapping (PDV, menu, événements) a été vérifié contre l'ancien Space.
+        if (this.resolvedSpaceId && data.spaceId !== this.resolvedSpaceId) {
+          this.completedStepsList = this.completedStepsList.filter(s => s <= 1)
+        }
         this.resolvedSpaceId = data.spaceId
       }
       if (step === 2 && data?.merchants != null) {
@@ -459,6 +499,34 @@ export default {
 }
 .iw--dark .iw-body {
   background: #111827;
+}
+
+/* ── Step error fallback ── */
+.iw-step-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 64px 32px;
+}
+.iw-step-error__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  margin: 8px 0 0;
+}
+.iw--dark .iw-step-error__title {
+  color: #f3f4f6;
+}
+.iw-step-error__hint {
+  font-size: 13px;
+  color: #6b7280;
+  max-width: 360px;
+  margin: 0 0 8px;
+}
+.iw--dark .iw-step-error__hint {
+  color: #9ca3af;
 }
 
 /* ── Footer ── */

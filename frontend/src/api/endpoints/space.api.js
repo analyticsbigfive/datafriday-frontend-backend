@@ -388,18 +388,23 @@ export async function updateSpaceElement(elementId, data) {
  * `opts.width/length/height` are used only when a new floor/zone must be created.
  */
 export async function assignShopsFloor(spaceId, elementIds, level, opts = {}) {
-  const body = { elementIds, level }
-  if (opts.configId) body.configId = opts.configId
-  if (opts.width != null) body.width = opts.width
-  if (opts.length != null) body.length = opts.length
-  if (opts.height != null) body.height = opts.height
-  // Nom de zone + position/dimensions des shops : appliqués par le backend
-  // (remplace le getConfiguration + updateConfiguration full-save côté front).
-  if (opts.zoneName) body.zoneName = opts.zoneName
-  if (opts.position) body.position = opts.position
-  if (opts.shopDimensions) body.shopDimensions = opts.shopDimensions
-  const response = await api.post(`/spaces/${spaceId}/assign-floor`, body)
-  return response.data
+  try {
+    const body = { elementIds, level }
+    if (opts.configId) body.configId = opts.configId
+    if (opts.width != null) body.width = opts.width
+    if (opts.length != null) body.length = opts.length
+    if (opts.height != null) body.height = opts.height
+    // Nom de zone + position/dimensions des shops : appliqués par le backend
+    // (remplace le getConfiguration + updateConfiguration full-save côté front).
+    if (opts.zoneName) body.zoneName = opts.zoneName
+    if (opts.position) body.position = opts.position
+    if (opts.shopDimensions) body.shopDimensions = opts.shopDimensions
+    const response = await api.post(`/spaces/${spaceId}/assign-floor`, body)
+    return response.data
+  } catch (error) {
+    console.error(`[SPACES API] Error assigning floor for space ${spaceId}:`, error)
+    throw error
+  }
 }
 
 /**

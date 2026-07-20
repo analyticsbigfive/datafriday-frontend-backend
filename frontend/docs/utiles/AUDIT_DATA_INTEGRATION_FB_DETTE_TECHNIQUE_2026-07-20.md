@@ -13,6 +13,52 @@
 > chacun avec citation `fichier:ligne` vérifiée. Rien listé ici n'est un bug bloquant — pour la
 > vue d'ensemble priorisée, voir `docs/bugs/00_INDEX.md`.
 
+## Mise à jour 2026-07-20 (même jour) — quasi-totalité corrigée
+
+Une seconde vague de 6 agents (fichiers/groupes disjoints, même méthode que pour les bugs
+BUG-193-221) a traité **la quasi-totalité des points listés ci-dessous** : ils restent documentés
+tels quels pour l'historique (chaque section garde son contenu d'origine, non réécrit item par
+item), mais la plupart n'existent plus dans le code — se fier à `git diff`/l'état réel du fichier,
+pas à cette liste, pour savoir ce qui reste concrètement à faire.
+
+**Suppressions de code mort effectuées le jour même** (au-delà de ce qui était déjà listé) :
+`src/composables/useSpaceMapping.js`, `useShopMapping.js`, `useMenuMapping.js` ;
+`src/components/integration/IntegrationProviderCard.vue`, `LocationListItem.vue` ;
+`src/components/MenuMappingStep.vue` ; `src/store/modules/weezeventLocations.js`,
+`weezeventProducts.js` (+ leur désenregistrement dans `store/index.js`) ;
+`mapping.api.js::getIntegrationProgress`/`getAllIntegrationProgress` ;
+`src/components/integration/wizard/dialogs/EnrichEventDialog.vue` (devenu mort suite au fix de
+BUG-221) ; le cluster mort de `StepMapShops.vue` (`headers`, `topMatchesMap`,
+`findTopElementMatches`, `quickCreateSortedFloors`, `floorDialogFloorOptions`,
+`floorOptionIconColor`, `_elementConfigMap`) ; le cluster mort de `StepMapMenuItems.vue`
+(`headers`, `topMatchesMap`, `priceHt` divergent) ; 60 clés i18n `di*` orphelines dans
+`translations.js`.
+
+**Items explicitement laissés en l'état** (jugés trop risqués à corriger sans boucle
+build/test disponible dans la session, ou hors scope pur "dette") :
+- `DataIntegrationView.vue::handleSync` (~190 lignes) — pas décomposé, risque de régression sur
+  une logique de sync tout juste corrigée (BUG-195/196/197/204).
+- `StepMapShops.vue::appliedFloorDims` (cache de fusion à 3 branches) — pas simplifié.
+- `StepMapShops.vue` — pas scindé en sous-composants malgré sa taille (~2500 lignes) ; le dialog
+  d'attribution d'étage reste le candidat le plus net si repris plus tard.
+- La zone morte 51-69% de scores de matching non affichés (`StepMapShops.vue`) — nécessite une
+  décision produit (nouveau palier de suggestion), pas une correction mécanique.
+- `SyncProgressDialog.vue` : le couple `persistent`+`@update:model-value` quasi-inatteignable —
+  laissé, risque/bénéfice jugé défavorable.
+- `SyncJobFloatingWidget.vue::dismiss()` sans confirmation — laissé (pas de précédent
+  `window.confirm()` dans ce codebase, un dialog de confirmation dédié semblait disproportionné).
+- `CSV_TARGET_FIELDS` (`DataIntegrationView.vue`) — 19 libellés hardcodés en français pour le
+  mapping de colonnes CSV Digifood, non traduits — effort séparé, plus gros que le reste des
+  items i18n de cette liste.
+- `menuItemMatching.js::findTopMatches` — confirmé mort (0 appelant après suppression de
+  `topMatchesMap`) ; son bug interne (filtre prix avant égalité de nom) volontairement pas
+  corrigé puisqu'inatteignable.
+- Consolidation des 2-3 mécanismes de poll dupliqués (`SyncProgressDialog`/`SyncJobFloatingWidget`/
+  `StepProcessTimeline`) en un composable partagé — délibérément différée, changement
+  architectural plus lourd qu'un nettoyage de dette.
+- `space.id ?? space.data?.id` (`StepMapSpace.vue`) — contrat API non confirmé côté backend, pas
+  touché.
+
 ---
 
 ## `DataIntegrationView.vue` (2934 lignes)

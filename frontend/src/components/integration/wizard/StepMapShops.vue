@@ -80,7 +80,7 @@
         <div class="sms-search">
           <Search :size="15" class="sms-search__icon" />
           <input v-model="search" class="sms-search__input" :placeholder="t('intgShopsSearchPlaceholder')" />
-          <button v-if="search" class="sms-search__clear" @click="search = ''"><X :size="13" /></button>
+          <button v-if="search" class="sms-search__clear" :title="t('anClear')" @click="search = ''"><X :size="13" /></button>
         </div>
         <div class="sms-tabs">
           <button class="sms-tab" :class="{ 'sms-tab--active': activeTab === 'all' }" @click="activeTab = 'all'">
@@ -221,7 +221,7 @@
             <div class="sms-fd-header__title">{{ t('intgShopsAssignFloor') }}</div>
             <div class="sms-fd-header__sub">{{ anchorLocationName }}</div>
           </div>
-          <button class="sms-fd-header__close" :disabled="floorSaving" @click="floorDialogOpen = false"><X :size="16" /></button>
+          <button class="sms-fd-header__close" :title="t('close')" :disabled="floorSaving" @click="floorDialogOpen = false"><X :size="16" /></button>
         </div>
 
         <!-- Progress steps -->
@@ -294,7 +294,7 @@
                     <ChevronUp v-if="floor.level >= 0" :size="13" />
                     <ChevronDown v-else :size="13" />
                   </div>
-                  <div class="sms-fd-area-card__name">{{ floor.name || (floor.level === 0 ? t('intgShopsGroundFloorShort') : floor.level < 0 ? `SS${Math.abs(floor.level)}` : `É${floor.level}`) }}</div>
+                  <div class="sms-fd-area-card__name">{{ floor.name || (floor.level === 0 ? t('intgShopsGroundFloorShort') : floor.level < 0 ? `${t('intgShopsBasementWord')} ${Math.abs(floor.level)}` : `${t('intgShopsFloorWord')} ${floor.level}`) }}</div>
                   <div class="sms-fd-area-card__count">{{ (floor.elements || []).length }} {{ t('intgShopsElementsShort') }}</div>
                 </button>
 
@@ -575,7 +575,7 @@
             <p class="sms-qc-header__title">{{ t('intgShopsBulkMappingTitle') }}</p>
             <p class="sms-qc-header__sub">{{ bulkPlan.matched.length + bulkPlan.unmatched.length }} {{ t('intgShopsUnmappedLocations') }}</p>
           </div>
-          <button class="sms-qc-header__close" @click="bulkConfirmOpen = false">
+          <button class="sms-qc-header__close" :title="t('close')" @click="bulkConfirmOpen = false">
             <X :size="15" />
           </button>
         </div>
@@ -684,7 +684,7 @@
             <p class="sms-qc-header__title">{{ t('intgShopsCreateShopTitle') }}</p>
             <p class="sms-qc-header__sub">{{ quickCreateLocation?.name }}</p>
           </div>
-          <button class="sms-qc-header__close" :disabled="quickCreateSaving" @click="quickCreateOpen = false">
+          <button class="sms-qc-header__close" :title="t('close')" :disabled="quickCreateSaving" @click="quickCreateOpen = false">
             <X :size="15" />
           </button>
         </div>
@@ -766,21 +766,11 @@ import { getBuilderState, updateZone, createZone, createConfiguration as createC
 import { getLocationShopMappings, createLocationShopMapping, deleteLocationShopMapping, bulkLocationShopMappings } from '@/api/endpoints/mapping.api'
 import { getWeezeventLocations } from '@/api/endpoints/aggregation.api'
 
-// Icône + couleur pour chaque entrée du select Étage / Zone (étages, forecourt,
-// external, et options "Ajouter une zone")
-function floorOptionIconColor(value) {
-  if (value === '__add_zone__') return { icon: 'mdi-plus-circle-outline', color: '#10b981' }
-  if (value === '__new_floor__') return { icon: 'mdi-arrow-up-bold', color: '#ff3131' }
-  if (value === '__new_basement__') return { icon: 'mdi-arrow-down-bold', color: '#3b82f6' }
-  if (value === '__new_forecourt__' || value === 'forecourt') return { icon: 'mdi-storefront-outline', color: '#ff3131' }
-  if (value === '__new_externalmerch__' || value === 'externalmerch') return { icon: 'mdi-map-marker-radius-outline', color: '#10b981' }
-  if (typeof value === 'number') {
-    if (value < 0) return { icon: 'mdi-arrow-down-bold', color: '#3b82f6' }
-    if (value === 0) return { icon: 'mdi-minus-circle', color: '#10b981' }
-    return { icon: 'mdi-arrow-up-bold', color: '#ff3131' }
-  }
-  return { icon: 'mdi-layers', color: '#6b7280' }
-}
+// Seuils du matcher nom-de-location → shop (findBestElementMatch) : matchScore est
+// exposé en 0-100, MIN_CANDIDATE_SCORE est comparé au score interne 0-1.
+const PERFECT_MATCH_SCORE = 100   // égalité exacte des noms normalisés → mapping appliqué directement
+const SUGGESTED_MATCH_SCORE = 70  // score ≥ 70 → suggestion affichée (confirmation utilisateur requise)
+const MIN_CANDIDATE_SCORE = 0.5   // en-dessous, aucun candidat retenu
 
 export default {
   name: 'StepMapShops',
@@ -808,6 +798,8 @@ export default {
       error: null,
       // per-row save state: { [locationId]: 'saving' | 'saved' | 'error' }
       savingRows: {},
+      // sérialise les appels concurrents à updateMapping pour une même location
+      _updateMappingLocks: {},
       // UI state
       activeTab: 'all',
       itemsPerPage: 50,
@@ -854,7 +846,6 @@ export default {
       floorDialogShopDimensions: { width: 4, depth: 4, height: 4 },
       floorDialogConfigOverride: false,
       floorDialogBatchIds: [],
-      _elementConfigMap: {},
       floorSaving: false,
       isDraggingShop: false,
       shopDragStart: null,
@@ -891,10 +882,6 @@ export default {
       const l = this.selectedFloorData?.length || this.newFloorDimensions.length || 100
       return Math.round(l * this.floorPreviewScale)
     },
-    anchorLocationName() {
-      const loc = (this.locations || []).find(l => l.id === this.floorDialogAnchorLocationId)
-      return loc?.name || 'Shop'
-    },
     mappedCount() {
       // only count confirmed (user-chosen) mappings
       return Object.values(this.localMappings).filter(Boolean).length
@@ -929,13 +916,6 @@ export default {
         { label: 'Kitchen',       value: 'kitchen' },
       ]
     },
-    headers() {
-      return [
-        { title: this.t('smsColLocation'), key: 'name', width: '32%' },
-        { title: this.t('smsColShop'), key: 'element', width: '45%' },
-        { title: this.t('smsColMatch'), key: 'match', width: '13%', align: 'center' },
-      ]
-    },
     anchorLocationName() {
       const loc = this.locations.find(l => l.id === this.floorDialogAnchorLocationId)
       return loc?.name || ''
@@ -963,16 +943,6 @@ export default {
         .filter(c => !c.isSystem && c.name?.toLowerCase() !== 'weezevent import')
         .map(c => ({ label: c.name, value: c.id }))
     },
-    quickCreateSortedFloors() {
-      const seen = new Set()
-      return [...(this.quickCreateFloors || [])]
-        .sort((a, b) => b.level - a.level)
-        .filter(f => {
-          if (seen.has(f.level)) return false
-          seen.add(f.level)
-          return true
-        })
-    },
     quickCreateFloorOptions() {
       const seen = new Set()
       const items = [...(this.quickCreateFloors || [])]
@@ -988,38 +958,6 @@ export default {
         items.push({ label: this.quickCreateZones.externalMerch.name || this.t('intgShopsExternalAreaLong'), value: 'externalmerch' })
       return items
     },
-    floorDialogFloorOptions() {
-      const seen = new Set()
-      const floorItems = [...this.floorDialogFloors]
-        .sort((a, b) => a.level - b.level)
-        .filter(f => {
-          if (seen.has(f.level)) return false
-          seen.add(f.level)
-          return true
-        })
-        .map(f => ({
-          title: f.name || (f.level === 0 ? this.t('intgShopsGroundFloorShort') : f.level < 0 ? `${this.t('intgShopsBasementWord')} ${Math.abs(f.level)}` : `${this.t('intgShopsFloorWord')} ${f.level}`),
-          value: f.level,
-        }))
-
-      const items = [...floorItems]
-      if (this.floorDialogZones.forecourt) {
-        items.push({ title: this.floorDialogZones.forecourt.name || 'Forecourt', value: 'forecourt' })
-      }
-      if (this.floorDialogZones.externalMerch) {
-        items.push({ title: this.floorDialogZones.externalMerch.name || this.t('intgShopsExternalAreaLong'), value: 'externalmerch' })
-      }
-
-      // Élément "virtuel" représentant la nouvelle zone choisie via "Ajouter une zone",
-      // tant qu'elle n'a pas encore été créée côté backend (cf. resolveNewZoneLevel)
-      const pendingZone = this.floorDialogZoneOptions.find(opt => opt.value === this.floorDialogLevel)
-      if (pendingZone) {
-        items.push({ title: `${pendingZone.title} (${this.t('intgShopsNewLower')})`, value: pendingZone.value })
-      }
-
-      items.push({ title: this.t('intgShopsAddZone'), value: '__add_zone__' })
-      return items.map(item => ({ ...item, ...floorOptionIconColor(item.value) }))
-    },
     floorDialogZoneOptions() {
       const groundFloors = this.floorDialogFloors.filter(f => f.level >= 0)
       const nextFloorLevel = groundFloors.length
@@ -1028,14 +966,14 @@ export default {
       const nextBasementNumber = this.floorDialogFloors.filter(f => f.level < 0).length + 1
 
       const options = [
-        { title: `Floor ${nextFloorLevel}`, value: '__new_floor__', icon: 'mdi-arrow-up-bold' },
-        { title: nextBasementNumber === 1 ? 'Basement' : `Basement ${nextBasementNumber}`, value: '__new_basement__', icon: 'mdi-arrow-down-bold' },
+        { title: `${this.t('intgShopsFloorWord')} ${nextFloorLevel}`, value: '__new_floor__', icon: 'mdi-arrow-up-bold' },
+        { title: nextBasementNumber === 1 ? this.t('intgShopsBasementWord') : `${this.t('intgShopsBasementWord')} ${nextBasementNumber}`, value: '__new_basement__', icon: 'mdi-arrow-down-bold' },
       ]
       if (!this.floorDialogZones.forecourt) {
         options.push({ title: 'Forecourt', value: '__new_forecourt__', icon: 'mdi-storefront-outline' })
       }
       if (!this.floorDialogZones.externalMerch) {
-        options.push({ title: 'External Area', value: '__new_externalmerch__', icon: 'mdi-map-marker-radius-outline' })
+        options.push({ title: this.t('intgShopsExternalAreaLong'), value: '__new_externalmerch__', icon: 'mdi-map-marker-radius-outline' })
       }
       return options
     },
@@ -1064,15 +1002,10 @@ export default {
         }))
     },
     locationRows() {
-      return this.locations.map(m => {
-        const match = this.findBestElementMatch(m.name)
-        return {
-          id: m.id,
-          name: m.name || m.label || `Location ${m.weezeventId || m.id}`,
-          matchScore: match?.matchScore || null,
-          _matchId: match?.id || null,
-        }
-      })
+      return this.locations.map(m => ({
+        id: m.id,
+        name: m.name || m.label || `Location ${m.weezeventId || m.id}`,
+      }))
     },
     filteredRows() {
       if (this.activeTab === 'mapped') return this.locationRows.filter(r => !!this.localMappings[r.id])
@@ -1089,13 +1022,6 @@ export default {
     },
     hasPendingSaves() {
       return Object.values(this.savingRows).some(s => s === 'saving')
-    },
-    topMatchesMap() {
-      const result = {}
-      for (const item of this.displayedRows) {
-        result[item.id] = this.findTopElementMatches(item.name)
-      }
-      return result
     },
     floorDialogConfigName() {
       if (!this.floorDialogConfigId) return ''
@@ -1131,6 +1057,21 @@ export default {
       this.locale = event.detail.locale
     },
 
+    // Boucle sur toutes les pages backend (comme getWeezeventLocations) : au-delà
+    // de 1000 mappings, un seul appel {limit:1000} laisserait les mappings
+    // excédentaires manquants, et les locations correspondantes s'afficheraient
+    // à tort comme non mappées.
+    async fetchAllLocationShopMappings(spaceId) {
+      const first = await getLocationShopMappings(null, spaceId, { limit: 1000 })
+      const items = [...(first?.data || [])]
+      const totalPages = first?.meta?.totalPages ?? 1
+      for (let page = 2; page <= totalPages; page++) {
+        const res = await getLocationShopMappings(null, spaceId, { page, limit: 1000 })
+        items.push(...(res?.data || []))
+      }
+      return items
+    },
+
     async loadData(integrationId, spaceId) {
       this.loading = true
       this.error = null
@@ -1140,10 +1081,10 @@ export default {
         // - DataFriday shops for THIS space
         // - Existing location→shop mappings scoped to THIS space
         // - Space configurations (to extract real floors)
-        const [locRes, rawShops, mappingsRes, fetchedConfigs] = await Promise.all([
+        const [locRes, rawShops, allMappings, fetchedConfigs] = await Promise.all([
           getWeezeventLocations(integrationId),
           this.$store.dispatch('spaceShops/fetchForSpace', { spaceId, forceRefresh: true }),
-          getLocationShopMappings(null, spaceId, { limit: 1000 }),
+          this.fetchAllLocationShopMappings(spaceId),
           this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId, forceRefresh: true }),
         ])
         this._spaceConfigsCache = Array.isArray(fetchedConfigs) ? fetchedConfigs : []
@@ -1168,7 +1109,6 @@ export default {
 
         // Build confirmed mappings from saved API data (only for this integration)
         const locationIds = new Set(this.locations.map(m => m.id))
-        const allMappings = mappingsRes?.data || mappingsRes || []
         const map = {}
         for (const m of allMappings) {
           if (locationIds.has(m.weezeventLocationId)) {
@@ -1246,9 +1186,9 @@ export default {
           if (this.localMappings[location.id]) continue
           const match = this.findBestElementMatch(location.name)
           if (!match) continue
-          if (match.matchScore === 100) {
+          if (match.matchScore === PERFECT_MATCH_SCORE) {
             perfectMatches.push({ locationId: location.id, elementId: match.id })
-          } else if (match.matchScore >= 70) {
+          } else if (match.matchScore >= SUGGESTED_MATCH_SCORE) {
             suggestions[location.id] = match.id
           }
         }
@@ -1295,7 +1235,7 @@ export default {
         const normEl = normalize(el.name)
 
         // Exact match → perfect score, return immediately
-        if (normName === normEl) return { ...el, matchScore: 100 }
+        if (normName === normEl) return { ...el, matchScore: PERFECT_MATCH_SCORE }
 
         const elTokens = tokenize(el.name)
 
@@ -1316,46 +1256,12 @@ export default {
 
         const score = Math.max(tokenScore, levScore)
 
-        if (score > bestScore && score > 0.5) {
+        if (score > bestScore && score > MIN_CANDIDATE_SCORE) {
           bestScore = score
           best = { ...el, matchScore: Math.round(score * 100) }
         }
       }
       return best
-    },
-
-    findTopElementMatches(locationName, n = 5) {
-      if (!locationName || !this.elements.length) return []
-      const normalize = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
-      const tokenize = s => normalize(s).split(/\s+/).filter(w => w.length >= 2)
-      const normName = normalize(locationName)
-      const nameTokens = tokenize(locationName)
-      const candidates = []
-      for (const el of this.elements) {
-        if (!el.name) continue
-        const normEl = normalize(el.name)
-        let score
-        if (normName === normEl) {
-          score = 1.0
-        } else {
-          const elTokens = tokenize(el.name)
-          let tokenScore = 0
-          if (nameTokens.length > 0 && elTokens.length > 0) {
-            const common = nameTokens.filter(t =>
-              elTokens.some(e =>
-                e === t ||
-                (e.length >= 3 && t.length >= 3 && (e.startsWith(t) || t.startsWith(e)))
-              )
-            )
-            tokenScore = (common.length * 2) / (nameTokens.length + elTokens.length)
-          }
-          score = Math.max(tokenScore, this.similarity(normName, normEl))
-          if (score <= 0.3) continue
-        }
-        candidates.push({ ...el, matchScore: Math.round(score * 100) })
-      }
-      candidates.sort((a, b) => b.matchScore - a.matchScore)
-      return candidates.slice(0, n)
     },
 
     similarity(a, b) {
@@ -1380,7 +1286,17 @@ export default {
       return (longer.length - costs[shorter.length]) / longer.length
     },
 
-    async updateMapping(locationId, elementId) {
+    // Sérialise les appels concurrents pour une même location (double-clic / re-sélection
+    // rapide sur le select) : sans ce verrou, deux createLocationShopMapping peuvent
+    // partir en parallèle pour la même location, avec un ordre de résolution non garanti.
+    updateMapping(locationId, elementId) {
+      const previous = this._updateMappingLocks[locationId] || Promise.resolve()
+      const run = previous.then(() => this._updateMappingOne(locationId, elementId))
+      this._updateMappingLocks[locationId] = run.catch(() => {})
+      return run
+    },
+
+    async _updateMappingOne(locationId, elementId) {
       // Valeur avant la mise à jour optimiste, pour pouvoir faire un rollback
       // symétrique à applyAutoSuggestions en cas d'échec.
       const previousElementId = this.localMappings[locationId]
@@ -1434,6 +1350,7 @@ export default {
     async applyAutoSuggestions() {
       const pairs = Object.entries(this.autoSuggestions)
         .filter(([locationId, elementId]) => !this.localMappings[locationId] && elementId)
+      const clearedSuggestions = this.autoSuggestions
       this.autoSuggestions = {}
       if (!pairs.length) return
 
@@ -1464,9 +1381,14 @@ export default {
         }
         this.savingRows = savedRows
         this.localMappings = mappings
+        if (failedIds.size > 0) {
+          this.error = `${failedIds.size} ${this.t('intgShopsMappingFailedSuffix')}`
+        }
       } catch (err) {
         console.error('[StepMapShops] applyAutoSuggestions error:', err)
-        // Échec global : on annule l'optimisme et on marque les lignes en erreur
+        // Échec global : on annule l'optimisme, on marque les lignes en erreur et on
+        // restaure les suggestions effacées en amont (sinon elles disparaissent
+        // définitivement côté client alors que rien n'a été écrit côté serveur).
         const savedRows = { ...this.savingRows }
         const mappings = { ...this.localMappings }
         for (const [locationId] of pairs) {
@@ -1475,6 +1397,7 @@ export default {
         }
         this.savingRows = savedRows
         this.localMappings = mappings
+        this.autoSuggestions = clearedSuggestions
         this.error = err?.response?.data?.message || err.message
       }
     },
@@ -1505,6 +1428,11 @@ export default {
           setTimeout(check, 200)
           setTimeout(resolve, 5000) // safety timeout
         })
+      }
+      const erroredCount = Object.values(this.savingRows).filter(s => s === 'error').length
+      if (erroredCount > 0) {
+        this.error = `${erroredCount} ${this.t('intgShopsMappingFailedSuffix')}`
+        return
       }
       this.$emit('completed', { merchants: this.mappedCount })
     },
@@ -1954,17 +1882,17 @@ export default {
       if (zoneType === '__new_floor__') {
         const groundFloors = this.floorDialogFloors.filter(f => f.level >= 0)
         const nextLevel = groundFloors.length ? Math.max(...groundFloors.map(f => this.getFloorNumber(f))) + 1 : 0
-        this.floorDialogZoneName = nextLevel === 0 ? 'RDC' : `Floor ${nextLevel}`
+        this.floorDialogZoneName = nextLevel === 0 ? this.t('intgShopsGroundFloorShort') : `${this.t('intgShopsFloorWord')} ${nextLevel}`
         this.newFloorDimensions = this.defaultFloorDimensions(zoneType)
       } else if (zoneType === '__new_basement__') {
         const n = this.floorDialogFloors.filter(f => f.level < 0).length + 1
-        this.floorDialogZoneName = n === 1 ? 'Basement' : `Basement ${n}`
+        this.floorDialogZoneName = n === 1 ? this.t('intgShopsBasementWord') : `${this.t('intgShopsBasementWord')} ${n}`
         this.newFloorDimensions = this.defaultFloorDimensions(zoneType)
       } else if (zoneType === '__new_forecourt__') {
         this.floorDialogZoneName = 'Forecourt'
         this.newFloorDimensions = this.defaultFloorDimensions(zoneType)
       } else if (zoneType === '__new_externalmerch__') {
-        this.floorDialogZoneName = 'External'
+        this.floorDialogZoneName = this.t('intgShopsExternalAreaLong')
         this.newFloorDimensions = this.defaultFloorDimensions(zoneType)
       }
     },
@@ -2267,23 +2195,6 @@ export default {
 .sms-row__loc-dot--pending { color: #d1d5db; background: transparent; }
 .sms-row__loc-name { font-size: 13.5px; font-weight: 600; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sms--dark .sms-row__loc-name { color: #f3f4f6; }
-.sms-suggestions { display: flex; flex-wrap: wrap; gap: 4px; padding-left: 18px; }
-.sms-suggestion-pill {
-  display: inline-flex; align-items: center;
-  padding: 1px 7px; border-radius: 6px;
-  background: #f3f4f6; border: 1px solid #e5e7eb;
-  font-size: 11px; color: #6b7280; white-space: nowrap;
-}
-.sms-suggestion-pill em { font-style: normal; color: #9ca3af; font-size: 10px; }
-.sms--dark .sms-suggestion-pill { background: #374151; border-color: #4b5563; color: #d1d5db; }
-.sms--dark .sms-suggestion-pill em { color: #9ca3af; }
-
-.sms-match {
-  font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 100px; flex-shrink: 0;
-}
-.sms-match--green { background: #dcfce7; color: #16a34a; }
-.sms-match--amber { background: #fef9c3; color: #92400e; }
-.sms-match--gray  { background: #f3f4f6; color: #9ca3af; }
 
 /* Shop select */
 .sms-row__shop { min-width: 0; }

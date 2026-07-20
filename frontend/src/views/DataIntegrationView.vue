@@ -4,7 +4,7 @@
     <aside class="sidebar">
       <div class="sidebar-section">
         <h3 class="sidebar-title">{{ t('diTitle') }}</h3>
-        <button class="sidebar-item active">{{ t('diFB') }}</button>
+        <div class="sidebar-item active">{{ t('diFB') }}</div>
       </div>
     </aside>
 
@@ -56,7 +56,7 @@
               <div class="card-header-actions">
                 <v-tooltip :text="t('diReconfigure')" location="bottom">
                   <template #activator="{ props: tp }">
-                    <button v-bind="tp" class="card-action-btn" @click="openDrawer(integration.type === 'digifood' ? 'config-digifood' : 'config-weezevent', integration)">
+                    <button v-bind="tp" class="card-action-btn" :aria-label="t('diReconfigure')" @click="openDrawer(integration.type === 'digifood' ? 'config-digifood' : 'config-weezevent', integration)">
                       <v-icon size="15">mdi-pencil-outline</v-icon>
                     </button>
                   </template>
@@ -67,6 +67,7 @@
                       v-bind="tp"
                       class="card-action-btn card-action-btn--danger"
                       :disabled="isIntegrationSyncing(integration)"
+                      :aria-label="isIntegrationSyncing(integration) ? t('diRemoveIntegrationSyncWarning') : t('diRemove')"
                       @click="handleRemoveIntegration(integration.id)"
                     >
                       <v-icon size="15">mdi-trash-can-outline</v-icon>
@@ -81,7 +82,7 @@
               <div class="card-chips-row">
                 <span class="card-chip"><v-icon size="11" class="mr-1">mdi-calendar-outline</v-icon>{{ t('diCreated') }} {{ formatDate(integration.createdAt) }}</span>
                 <span v-if="integration.type === 'digifood'" class="card-chip"><v-icon size="11" class="mr-1">mdi-broadcast</v-icon>{{ t('diDigifoodRealtime') }}</span>
-                <span v-else class="card-chip"><v-icon size="11" class="mr-1">mdi-office-building-outline</v-icon>Org {{ integration.organizationId || '—' }}</span>
+                <span v-else class="card-chip"><v-icon size="11" class="mr-1">mdi-office-building-outline</v-icon>{{ t('diOrg') }} {{ integration.organizationId || '—' }}</span>
                 <span v-if="integration.type === 'digifood' && integration.posVersion" class="card-chip"><v-icon size="11" class="mr-1">mdi-cellphone-link</v-icon>{{ t('diDigifoodPosVersion') }} {{ integration.posVersion }}</span>
               </div>
 
@@ -90,7 +91,7 @@
                 <div class="card-section-label">{{ t('diDigifoodWebhookUrl') }}</div>
                 <div class="df-webhook-url">
                   <code>{{ integration.webhookUrl }}</code>
-                  <button type="button" class="df-copy-btn" @click="copyWebhookUrl(integration.webhookUrl)">
+                  <button type="button" class="df-copy-btn" :aria-label="t('diCopy')" @click="copyWebhookUrl(integration.webhookUrl)">
                     <v-icon size="13">{{ copiedUrl === integration.webhookUrl ? 'mdi-check' : 'mdi-content-copy' }}</v-icon>
                   </button>
                 </div>
@@ -110,7 +111,7 @@
                   <template v-if="receptionMap[integration.id].lastWebhook">
                     <v-icon size="13" color="success" class="mr-1">mdi-check-circle-outline</v-icon>
                     {{ t('diDigifoodLastWebhook') }} : {{ formatDate(receptionMap[integration.id].lastWebhook.createdAt) }}
-                    ({{ receptionMap[integration.id].lastWebhook.eventType }} · {{ receptionMap[integration.id].lastWebhook.processed ? 'OK' : (receptionMap[integration.id].lastWebhook.error ? 'erreur' : 'en attente') }})
+                    ({{ receptionMap[integration.id].lastWebhook.eventType }} · {{ receptionMap[integration.id].lastWebhook.processed ? t('diWebhookStatusOk') : (receptionMap[integration.id].lastWebhook.error ? t('diWebhookStatusError') : t('diWebhookStatusPending')) }})
                   </template>
                   <template v-else>
                     <v-icon size="13" color="warning" class="mr-1">mdi-timer-sand</v-icon>
@@ -126,7 +127,7 @@
 
               <!-- ── Weezevent : sync API par fenêtre de dates ── -->
               <template v-else>
-              <div class="card-section-label">Synchronisation</div>
+              <div class="card-section-label">{{ t('diSyncSectionLabel') }}</div>
               <!-- Date pickers for job-based sync -->
               <div class="sync-date-row">
                 <label class="date-input-wrap">
@@ -199,7 +200,7 @@
                       {{ formatDate(job.fromDate) }} → {{ formatDate(job.toDate) }}
                     </span>
                     <span class="sync-history-count">
-                      {{ job.totalCollected ? formatNumber(job.totalCollected) + ' items' : '' }}
+                      {{ job.totalCollected ? formatNumber(job.totalCollected) + ' ' + t('diItemsUnit') : '' }}
                     </span>
                     <span class="sync-history-date">
                       {{ formatDate(job.startedAt) }}
@@ -214,6 +215,7 @@
                       color="error"
                       class="ml-1"
                       :loading="deletingJobId === job.id"
+                      :aria-label="t('diDeleteSyncJob')"
                       @click.stop="deleteSyncJob(integration.id, job.id)"
                     >
                       <v-icon size="13">mdi-delete-outline</v-icon>
@@ -227,19 +229,19 @@
                       <div class="sync-job-stats-grid">
                         <div class="sync-job-stat-item">
                           <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].transactions) }}</span>
-                          <span class="sync-job-stat-label">transactions</span>
+                          <span class="sync-job-stat-label">{{ t('diJobStatTransactions') }}</span>
                         </div>
                         <div class="sync-job-stat-item">
                           <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].events) }}</span>
-                          <span class="sync-job-stat-label">événements</span>
+                          <span class="sync-job-stat-label">{{ t('diJobStatEvents') }}</span>
                         </div>
                         <div class="sync-job-stat-item">
                           <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].locations) }}</span>
-                          <span class="sync-job-stat-label">locations</span>
+                          <span class="sync-job-stat-label">{{ t('diJobStatLocations') }}</span>
                         </div>
                         <div class="sync-job-stat-item">
                           <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].products) }}</span>
-                          <span class="sync-job-stat-label">produits</span>
+                          <span class="sync-job-stat-label">{{ t('diJobStatProducts') }}</span>
                         </div>
                       </div>
                     </template>
@@ -275,7 +277,7 @@
                       <v-icon size="14" color="success" class="mr-1">mdi-check-circle-outline</v-icon>
                       <span>{{ getSpaceForIntegration(integration).spaceName || getSpaceForIntegration(integration).spaceId }}</span>
                     </div>
-                    <button class="location-map-btn" @click="openWizard(integration)">
+                    <button class="location-map-btn" :aria-label="t('diConfigureSpace')" @click="openWizard(integration)">
                       <v-icon size="14" color="#ff3131">mdi-pencil</v-icon>
                     </button>
                   </div>
@@ -313,13 +315,13 @@
             <div class="cd-header__title">{{ t('diAddIntegrationTitle') }}</div>
             <div class="cd-header__sub">{{ t('diAddIntegrationDesc') }}</div>
           </div>
-          <button class="cd-header__close" @click="closeDrawer">
+          <button class="cd-header__close" :aria-label="t('close')" @click="closeDrawer">
             <X :size="16" color="white" />
           </button>
         </div>
 
         <div class="cd-body">
-          <p class="cd-section-label">Providers disponibles</p>
+          <p class="cd-section-label">{{ t('diProvidersAvailable') }}</p>
 
           <!-- Weezevent option -->
           <button class="cd-provider-card" @click="openDrawer('config-weezevent', null)">
@@ -350,7 +352,7 @@
       <!-- ── Configure Digifood Panel ───────────────────────────────── -->
       <template v-if="drawerMode === 'config-digifood'">
         <div class="cd-header">
-          <button class="cd-header__back" @click="openDrawer('add', null)">
+          <button class="cd-header__back" :aria-label="t('back')" @click="openDrawer('add', null)">
             <ArrowLeft :size="16" color="white" />
           </button>
           <div class="cd-header__icon">
@@ -362,7 +364,7 @@
             </div>
             <div class="cd-header__sub">{{ t('diDigifoodRealtime') }}</div>
           </div>
-          <button class="cd-header__close" @click="closeDrawer">
+          <button class="cd-header__close" :aria-label="t('close')" @click="closeDrawer">
             <X :size="16" color="white" />
           </button>
         </div>
@@ -394,7 +396,7 @@
                 />
                 <label for="cd-df-secret">{{ t('diDigifoodSecret') }}</label>
               </div>
-              <button type="button" class="cd-eye-btn" @click="showSecret = !showSecret">
+              <button type="button" class="cd-eye-btn" :aria-label="showSecret ? t('diHideSecret') : t('diShowSecret')" @click="showSecret = !showSecret">
                 <EyeOff v-if="showSecret" :size="15" />
                 <Eye v-else :size="15" />
               </button>
@@ -404,7 +406,7 @@
             <!-- Error banner -->
             <div v-if="configError" class="cd-banner cd-banner--error mb-3">
               <span>{{ configError }}</span>
-              <button type="button" class="cd-banner__close" @click="configError = ''">
+              <button type="button" class="cd-banner__close" :aria-label="t('close')" @click="configError = ''">
                 <X :size="12" />
               </button>
             </div>
@@ -440,7 +442,7 @@
               class="cd-btn cd-btn--ghost"
               @click="closeDrawer"
             >
-              OK
+              {{ t('close') }}
             </button>
           </form>
         </div>
@@ -450,7 +452,7 @@
       <template v-if="drawerMode === 'config-weezevent'">
         <!-- Gradient header -->
         <div class="cd-header">
-          <button class="cd-header__back" @click="openDrawer('add', null)">
+          <button class="cd-header__back" :aria-label="t('back')" @click="openDrawer('add', null)">
             <ArrowLeft :size="16" color="white" />
           </button>
           <div class="cd-header__icon">
@@ -464,7 +466,7 @@
               {{ editingIntegrationId ? t('diReconfigureDesc') : t('diConfigureDesc') }}
             </div>
           </div>
-          <button class="cd-header__close" @click="closeDrawer">
+          <button class="cd-header__close" :aria-label="t('close')" @click="closeDrawer">
             <X :size="16" color="white" />
           </button>
         </div>
@@ -515,6 +517,7 @@
                 type="button"
                 class="cd-eye-btn"
                 :disabled="connectionVerified"
+                :aria-label="showSecret ? t('diHideSecret') : t('diShowSecret')"
                 @click="showSecret = !showSecret"
               >
                 <EyeOff v-if="showSecret" :size="15" />
@@ -538,7 +541,7 @@
             <!-- Error banner -->
             <div v-if="configError" class="cd-banner cd-banner--error mb-3">
               <span>{{ configError }}</span>
-              <button type="button" class="cd-banner__close" @click="configError = ''">
+              <button type="button" class="cd-banner__close" :aria-label="t('close')" @click="configError = ''">
                 <X :size="12" />
               </button>
             </div>
@@ -600,11 +603,9 @@
       :last-transaction-date="lastTransactionDate"
       :results="syncResultData"
       :has-more="syncHasMore"
-      :unmapped-locations="[]"
       :job-id="syncJobId"
       @cancel="closeSyncProgress"
       @done="onSyncProgressDone"
-      @configure-locations="handleConfigureLocations"
       @retry="retrySyncProgress"
       @job-minimized="onJobMinimized"
     />
@@ -714,12 +715,16 @@
 
           <div v-if="csvError" class="cd-banner cd-banner--error mb-3">
             <span>{{ csvError }}</span>
-            <button type="button" class="cd-banner__close" @click="csvError = ''"><X :size="12" /></button>
+            <button type="button" class="cd-banner__close" :aria-label="t('close')" @click="csvError = ''"><X :size="12" /></button>
           </div>
 
           <!-- 0 commande détectée alors que des lignes existent → mapping probablement faux -->
           <div v-if="csvReport && csvReport.ordersDetected === 0 && csvReport.rejectedRows.length" class="cd-banner cd-banner--error mb-3">
             <span>{{ t('diDigifoodMappingBadHint') }}</span>
+          </div>
+          <!-- 0 commande et rien à rejeter → fichier vide (en-tête seul) plutôt qu'un mapping erroné -->
+          <div v-else-if="csvReport && csvReport.ordersDetected === 0" class="cd-banner cd-banner--error mb-3">
+            <span>{{ t('diDigifoodEmptyCsvHint') }}</span>
           </div>
 
           <!-- Rapport (dry-run ou réel) -->
@@ -748,7 +753,7 @@
             </div>
             <div v-if="csvReport.rejectedRows.length" class="df-rejected">
               <div v-for="r in csvReport.rejectedRows.slice(0, 8)" :key="r.line" class="df-rejected-row">
-                ligne {{ r.line }} — {{ r.reason }}
+                {{ t('diRejectedRowLine') }} {{ r.line }} — {{ r.reason }}
               </div>
               <div v-if="csvReport.rejectedRows.length > 8" class="df-rejected-row text-medium-emphasis">
                 … +{{ csvReport.rejectedRows.length - 8 }}
@@ -759,7 +764,7 @@
         <v-card-actions class="px-5 pb-5 pt-3 gap-2">
           <v-spacer />
           <v-btn variant="text" :disabled="csvImporting" @click="closeCsvDialog">
-            {{ csvReport && !csvReport.dryRun ? 'Fermer' : 'Annuler' }}
+            {{ csvReport && !csvReport.dryRun ? t('close') : t('cancel') }}
           </v-btn>
           <!-- Phase 1 : aperçu dry-run ; phase 2 : import réel (interdit si 0 commande) -->
           <v-btn
@@ -819,16 +824,24 @@ import {
   importDigifoodCsv,
 } from '@/api/endpoints/aggregation.api'
 
-function toCard(instance) {
+// Champs communs aux deux providers ; toCard/toDigifoodCard n'ajoutent que leurs
+// champs spécifiques (identifiants API pour Weezevent, webhook pour Digifood).
+function toBaseCard(instance, provider, type) {
   return {
     id: instance.id,
-    provider: 'Weezevent',
-    type: 'weezevent',
+    provider,
+    type,
     name: instance.name,
-    clientId: instance.clientId,
-    organizationId: instance.organizationId,
     enabled: instance.enabled,
     createdAt: instance.createdAt,
+  }
+}
+
+function toCard(instance) {
+  return {
+    ...toBaseCard(instance, 'Weezevent', 'weezevent'),
+    clientId: instance.clientId,
+    organizationId: instance.organizationId,
   }
 }
 
@@ -871,12 +884,7 @@ const CSV_TEMPLATE = [
 
 function toDigifoodCard(instance) {
   return {
-    id: instance.id,
-    provider: 'Digifood',
-    type: 'digifood',
-    name: instance.name,
-    enabled: instance.enabled,
-    createdAt: instance.createdAt,
+    ...toBaseCard(instance, 'Digifood', 'digifood'),
     webhookUrl: instance.webhookUrl,
     webhookSecretMasked: instance.webhookSecretMasked,
     posVersion: instance.posVersion,
@@ -975,9 +983,13 @@ export default {
     isDark() {
       return this.theme === 'dark' || this.theme === 'dataFridayDark'
     },
+    // v-file-input émet un File ou un tableau de 1 File selon les versions de Vuetify —
+    // seul point de dérivation, consommé par parseCsvHeaders()/runCsvImport().
+    csvFileSelected() {
+      return Array.isArray(this.csvFile) ? this.csvFile[0] : this.csvFile
+    },
     csvFileReady() {
-      const f = Array.isArray(this.csvFile) ? this.csvFile[0] : this.csvFile
-      return !!f
+      return !!this.csvFileSelected
     },
     csvTargetFields() {
       return CSV_TARGET_FIELDS
@@ -1023,10 +1035,12 @@ export default {
   },
 
   activated() {
-    // La vue est keep-alive : mounted() ne se relance pas à chaque retour.
-    // On rafraîchit les mappings pour refléter les éventuelles modifications
-    // effectuées depuis la dernière visite.
+    // La vue est keep-alive : mounted() ne se relance pas à chaque retour. On
+    // rafraîchit tout ce qui a pu changer pendant que l'utilisateur était sur une
+    // autre route. La reception Digifood n'est pas incluse : c'est une vérification
+    // active côté serveur (testDigifoodInstance), pas une simple lecture.
     this.loadMappings()
+    this.fetchIntegrationsList().then(() => this.loadAllSyncJobs())
   },
 
   beforeUnmount() {
@@ -1103,6 +1117,18 @@ export default {
 
     closeDrawer() {
       this.drawerOpen = false
+      // Le composant est keep-alive : sans ça, les secrets saisis resteraient en
+      // mémoire réactive jusqu'à la prochaine ouverture du drawer.
+      this.cfClientSecret = ''
+      this.cfWebhookSecret = ''
+    },
+
+    // Fusionne une instance créée/mise à jour dans `integrations` : remplace l'entrée
+    // existante en édition, l'ajoute sinon. Partagé par les deux flux de sauvegarde.
+    mergeIntegration(existingId, card) {
+      this.integrations = existingId
+        ? this.integrations.map(i => i.id === card.id ? card : i)
+        : [...this.integrations, card]
     },
 
     resetConnectionTest() {
@@ -1151,7 +1177,7 @@ export default {
           const payload = { name, clientId: this.cfClientId, organizationId: this.cfOrganizationId }
           if (this.cfClientSecret) payload.clientSecret = this.cfClientSecret
           const updated = await updateWeezeventInstance(this.tenantId, this.editingIntegrationId, payload)
-          this.integrations = this.integrations.map(i => i.id === updated.id ? toCard(updated) : i)
+          this.mergeIntegration(this.editingIntegrationId, toCard(updated))
         } else {
           const created = await createWeezeventInstance(this.tenantId, {
             name,
@@ -1160,13 +1186,14 @@ export default {
             organizationId: this.cfOrganizationId,
             enabled: true,
           })
-          this.integrations = [...this.integrations, toCard(created)]
+          this.mergeIntegration(null, toCard(created))
         }
 
         this.configSuccess = true
         setTimeout(() => this.closeDrawer(), 1000)
       } catch (err) {
-        console.error('[Config] Error saving weezevent config:', err)
+        // err.config.data peut contenir le clientSecret soumis en clair — ne jamais logger l'objet complet.
+        console.error('[Config] Error saving weezevent config:', err?.message)
         this.configError = err?.response?.data?.message || this.t('diSaveFailed')
       } finally {
         this.configSaving = false
@@ -1189,20 +1216,21 @@ export default {
           const payload = { name }
           if (this.cfWebhookSecret) payload.webhookSecret = this.cfWebhookSecret
           saved = await updateDigifoodInstance(this.tenantId, this.editingIntegrationId, payload)
-          this.integrations = this.integrations.map(i => i.id === saved.id ? toDigifoodCard(saved) : i)
+          this.mergeIntegration(this.editingIntegrationId, toDigifoodCard(saved))
         } else {
           saved = await createDigifoodInstance(this.tenantId, {
             name,
             webhookSecret: this.cfWebhookSecret,
             enabled: true,
           })
-          this.integrations = [...this.integrations, toDigifoodCard(saved)]
+          this.mergeIntegration(null, toDigifoodCard(saved))
         }
         this.digifoodWebhookUrl = saved.webhookUrl || ''
         this.configSuccess = true
         // Pas de fermeture auto : l'utilisateur doit copier l'URL de webhook.
       } catch (err) {
-        console.error('[Config] Error saving digifood config:', err)
+        // err.config.data peut contenir le webhookSecret soumis en clair — ne jamais logger l'objet complet.
+        console.error('[Config] Error saving digifood config:', err?.message)
         this.configError = err?.response?.data?.message || this.t('diSaveFailed')
       } finally {
         this.configSaving = false
@@ -1249,16 +1277,35 @@ export default {
       this.csvMapping = {}
     },
 
-    /** Lit la ligne d'en-tête du fichier côté navigateur (8 Ko suffisent) et
-     *  pré-remplit le mapping par auto-détection (synonymes, accents/casse ignorés). */
+    /** Lit la ligne d'en-tête d'un fichier CSV : élargit la fenêtre de lecture si l'en-tête
+     *  dépasse 8 Ko (beaucoup de colonnes), et retente en windows-1252 si l'UTF-8 produit
+     *  des caractères de remplacement (export Excel/Windows en Latin-1 sur les en-têtes
+     *  accentués — Blob.text() décode toujours en UTF-8 par défaut). */
+    async readCsvHeaderLine(file) {
+      let sliceSize = 8192
+      let slice = file.slice(0, sliceSize)
+      let head = await slice.text()
+      if (!/\r?\n/.test(head) && file.size > sliceSize) {
+        sliceSize = 65536
+        slice = file.slice(0, sliceSize)
+        head = await slice.text()
+      }
+      if (head.includes('�')) {
+        head = new TextDecoder('windows-1252').decode(await slice.arrayBuffer())
+      }
+      return head
+    },
+
+    /** Lit la ligne d'en-tête du fichier côté navigateur et pré-remplit le mapping
+     *  par auto-détection (synonymes, accents/casse ignorés). */
     async parseCsvHeaders() {
-      const file = Array.isArray(this.csvFile) ? this.csvFile[0] : this.csvFile
+      const file = this.csvFileSelected
       this.csvColumns = []
       this.csvMapping = {}
       this.csvReport = null
       if (!file) return
       try {
-        const head = await file.slice(0, 8192).text()
+        const head = await this.readCsvHeaderLine(file)
         const firstLine = head.replace(/^\uFEFF/, '').split(/\r?\n/)[0] || ''
         // Délimiteur : TAB > ; > , (même heuristique que le backend)
         const delims = [
@@ -1306,7 +1353,7 @@ export default {
 
     /** dryRun=true : aperçu sans écriture ; false : import réel (après aperçu). */
     async runCsvImport(dryRun) {
-      const file = Array.isArray(this.csvFile) ? this.csvFile[0] : this.csvFile
+      const file = this.csvFileSelected
       if (!file || !this.csvIntegration) return
       this.csvImporting = true
       this.csvError = ''
@@ -1358,12 +1405,22 @@ export default {
           await deleteWeezeventInstance(this.tenantId, integration.id)
         }
         this.integrations = this.integrations.filter(i => i.id !== integration.id)
-        const sm = { ...this.syncingMap }
-        const ec = { ...this.expandedCards }
-        delete sm[integration.id]
-        delete ec[integration.id]
-        this.syncingMap = sm
-        this.expandedCards = ec
+
+        const id = integration.id
+        const jobIds = (this.syncJobsMap[id] || []).map(job => job.id)
+
+        const sm = { ...this.syncingMap }; delete sm[id]; this.syncingMap = sm
+        const ec = { ...this.expandedCards }; delete ec[id]; this.expandedCards = ec
+        const fd = { ...this.syncFromDates }; delete fd[id]; this.syncFromDates = fd
+        const td = { ...this.syncToDates }; delete td[id]; this.syncToDates = td
+        const sj = { ...this.syncJobsMap }; delete sj[id]; this.syncJobsMap = sj
+        const rm = { ...this.receptionMap }; delete rm[id]; this.receptionMap = rm
+        if (jobIds.length) {
+          const js = { ...this.jobStatsMap }
+          jobIds.forEach(jobId => delete js[jobId])
+          this.jobStatsMap = js
+        }
+
         this.removeDialogOpen = false
         this.removeDialogIntegration = null
       } catch (err) {
@@ -1400,11 +1457,11 @@ export default {
       }
 
       const STEPS = [
-        { key: 'transactions', label: 'Transactions' },
-        { key: 'events', label: 'Événements' },
-        { key: 'locations', label: 'Lieux' },
-        { key: 'products', label: 'Produits' },
-        { key: 'merchants', label: 'Marchands' },
+        { key: 'transactions', label: this.t('intgSyncProgStatTransactions') },
+        { key: 'events', label: this.t('intgSyncProgStatEvents') },
+        { key: 'locations', label: this.t('intgSyncProgStatLocations') },
+        { key: 'products', label: this.t('intgSyncProgStatProducts') },
+        { key: 'merchants', label: this.t('intgSyncProgStatMerchants') },
       ]
 
       this.syncSteps = STEPS.map(s => ({ ...s, status: 'pending', count: null, duration: null }))
@@ -1483,11 +1540,10 @@ export default {
             setStep('locations', { status: 'done', count: counts.locations, newCount: 0 })
             setStep('products',  { status: counts.products > 0 ? 'done' : 'pending', count: counts.products > 0 ? counts.products : null, newCount: 0 })
             setStep('merchants', { status: 'done', count: counts.merchants, newCount: 0 })
-            console.log(`[DataIntegrationView] transactions synced in ${elapsed}s — count=${counts.transactions}, events=${counts.events}, locations=${counts.locations}, products=${counts.products}, merchants=${counts.merchants}`)
             break // success → exit retry loop
           } catch (err) {
             const httpStatus = err?.response?.status
-            const errorMessage = err?.response?.data?.message || err?.message || 'Erreur de synchronisation'
+            const errorMessage = err?.response?.data?.message || err?.message || this.t('diSyncGenericError')
 
             if (httpStatus === 409) {
               if (!first409At) {
@@ -1505,7 +1561,7 @@ export default {
                 const waitedMs = Date.now() - first409At
                 if (waitedMs >= MAX_409_WAIT_MS) {
                   const elapsed = (waitedMs / 1000).toFixed(0)
-                  setStep('transactions', { status: 'error', errorMessage: `Sync serveur trop longue (${elapsed}s) — vérifiez les logs backend`, duration: `${elapsed}s` })
+                  setStep('transactions', { status: 'error', errorMessage: this.t('diSyncServerTooLong').replace('{s}', elapsed), duration: `${elapsed}s` })
                   console.error(`[DataIntegrationView] 409 for ${elapsed}s — giving up`)
                   timedOut = true
                   break
@@ -1541,10 +1597,10 @@ export default {
             } else {
               const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
               setStep('transactions', { status: 'error', errorMessage, duration: `${elapsed}s` })
-              setStep('events',    { status: 'error', errorMessage: 'Sync annulé' })
-              setStep('locations', { status: 'error', errorMessage: 'Sync annulé' })
-              setStep('products',  { status: 'error', errorMessage: 'Sync annulé' })
-              setStep('merchants', { status: 'error', errorMessage: 'Sync annulé' })
+              setStep('events',    { status: 'error', errorMessage: this.t('diSyncCancelled') })
+              setStep('locations', { status: 'error', errorMessage: this.t('diSyncCancelled') })
+              setStep('products',  { status: 'error', errorMessage: this.t('diSyncCancelled') })
+              setStep('merchants', { status: 'error', errorMessage: this.t('diSyncCancelled') })
               console.error(`[DataIntegrationView] transactions sync error after ${elapsed}s:`, err)
               break // fatal error → exit retry loop
             }
@@ -1663,7 +1719,7 @@ export default {
         this.loadSyncJobsFor(integration.id)
       } catch (err) {
         console.error('[DataIntegrationView] handleSyncJob error:', err)
-        this.$toast?.error?.(err?.response?.data?.message || 'Impossible de démarrer la synchronisation.')
+        this.$toast?.error?.(err?.response?.data?.message || this.t('diSyncJobStartFailed'))
         this.syncProgressOpen = false
       } finally {
         const sm = { ...this.syncingMap }
@@ -1712,16 +1768,6 @@ export default {
       delete sm[integration.id]
       this.syncingMap = sm
       this.handleSync(integration)
-    },
-
-    handleConfigureLocations() {
-      this.syncProgressOpen = false
-      // Open the wizard at step 1 for the first unmapped integration (or the one just synced)
-      const unmapped = this.integrations.filter(intg => !this.getSpaceForIntegration(intg))
-      const target = unmapped.length > 0 ? unmapped[0] : this.syncProgressIntegration
-      if (target) {
-        this.openWizard(target)
-      }
     },
 
     getMappingForLocation(locationId) {
@@ -1794,33 +1840,36 @@ export default {
       }
     },
 
+    // Recharge la liste des intégrations (les deux providers en parallèle ; l'ordre
+    // d'affichage = weezevent puis digifood). Partagé entre init() et activated(),
+    // où la vue keep-alive doit se resynchroniser sans repasser par le spinner plein écran.
+    async fetchIntegrationsList() {
+      if (!this.tenantId) return
+      const wz = listWeezeventInstances(this.tenantId)
+        .then((instances) => (instances || []).map(toCard))
+        .catch((err) => {
+          console.error('[DataIntegrationView] Failed to load weezevent instances:', err)
+          return []
+        })
+      const df = listDigifoodInstances(this.tenantId)
+        .then((instances) => (instances || []).map(toDigifoodCard))
+        .catch((err) => {
+          console.error('[DataIntegrationView] Failed to load digifood instances:', err)
+          return []
+        })
+      const [w, d] = await Promise.all([wz, df])
+      this.integrations = [...w, ...d]
+    },
+
     async init() {
       this.loading = true
       try {
-        const tasks = [
+        await Promise.all([
           this.loadMappings(),
           // Pre-fetch spaces so the wizard cache is warm when the user clicks configure
           this.$store.dispatch('spaces/fetchSpaces').catch(() => {}),
-        ]
-        if (this.tenantId) {
-          // Les deux providers en parallèle ; l'ordre d'affichage = weezevent puis digifood
-          const wz = listWeezeventInstances(this.tenantId)
-            .then((instances) => (instances || []).map(toCard))
-            .catch((err) => {
-              console.error('[DataIntegrationView] Failed to load weezevent instances:', err)
-              return []
-            })
-          const df = listDigifoodInstances(this.tenantId)
-            .then((instances) => (instances || []).map(toDigifoodCard))
-            .catch((err) => {
-              console.error('[DataIntegrationView] Failed to load digifood instances:', err)
-              return []
-            })
-          tasks.push(
-            Promise.all([wz, df]).then(([w, d]) => { this.integrations = [...w, ...d] })
-          )
-        }
-        await Promise.all(tasks)
+          this.fetchIntegrationsList(),
+        ])
         // Charger l'historique des jobs pour chaque intégration
         await this.loadAllSyncJobs()
       } finally {

@@ -191,6 +191,7 @@
               class="smi-select"
               :class="{ 'smi-select--suggested': !localMappings[item.id] && !!autoSuggestions[item.id] }"
               :value="localMappings[item.id] || autoSuggestions[item.id] || ''"
+              :aria-label="t('smmColMenuItem')"
               @change="updateMapping(item.id, $event.target.value || null)"
             >
               <option value="">{{ t('smmSelectOption') }}</option>
@@ -301,6 +302,12 @@
         </span>
       </div>
 
+      <!-- ── Catalogue tronqué (plafond de pagination atteint côté API) ── -->
+      <div v-if="!loading && productsTruncated" class="smi-infobar smi-infobar--warn smi-mt-2">
+        <AlertTriangle :size="14" style="flex-shrink: 0;" />
+        <span>{{ t('smmProductsTruncatedWarning') }}</span>
+      </div>
+
     </template>
 
     <!-- ── Footer (teleported) ── -->
@@ -331,7 +338,13 @@
               {{ t('smmCreateFor') }} <strong style="color:#fff;">{{ quickCreateProduct.name }}</strong>
             </p>
           </div>
-          <button class="smi-qc-header__close" :disabled="quickCreateSaving" @click="quickCreateOpen = false">
+          <button
+            class="smi-qc-header__close"
+            :disabled="quickCreateSaving"
+            :aria-label="t('smmClose')"
+            :title="t('smmClose')"
+            @click="quickCreateOpen = false"
+          >
             <X :size="16" />
           </button>
         </div>
@@ -503,7 +516,13 @@
       <div class="smi-mini-dialog" :class="{ 'smi-mini-dialog--dark': isDark }">
         <div class="smi-mini-dialog__header">
           <span>{{ t('smmCreateProductType') }}</span>
-          <button class="smi-mini-dialog__close" :disabled="typeCreateLoading" @click="typeCreateOpen = false">
+          <button
+            class="smi-mini-dialog__close"
+            :disabled="typeCreateLoading"
+            :aria-label="t('smmClose')"
+            :title="t('smmClose')"
+            @click="typeCreateOpen = false"
+          >
             <X :size="15" />
           </button>
         </div>
@@ -539,7 +558,13 @@
       <div class="smi-mini-dialog" :class="{ 'smi-mini-dialog--dark': isDark }">
         <div class="smi-mini-dialog__header">
           <span>{{ t('smmCreateCategory') }}</span>
-          <button class="smi-mini-dialog__close" :disabled="categoryCreateLoading" @click="categoryCreateOpen = false">
+          <button
+            class="smi-mini-dialog__close"
+            :disabled="categoryCreateLoading"
+            :aria-label="t('smmClose')"
+            :title="t('smmClose')"
+            @click="categoryCreateOpen = false"
+          >
             <X :size="15" />
           </button>
         </div>
@@ -666,7 +691,12 @@
             <p class="smi-qc-header__title">{{ t('smmAutoSuggestionsTitle') }}</p>
             <p class="smi-qc-header__sub">{{ suggestionList.length }} {{ suggestionList.length > 1 ? t('smmMatchesPlural') : t('smmMatch') }} {{ t('smmClickApplyHint') }}</p>
           </div>
-          <button class="smi-qc-header__close" @click="showSuggestionsDialog = false"><X :size="16" /></button>
+          <button
+            class="smi-qc-header__close"
+            :aria-label="t('smmClose')"
+            :title="t('smmClose')"
+            @click="showSuggestionsDialog = false"
+          ><X :size="16" /></button>
         </div>
 
         <div class="smi-qc-body" style="padding:0; max-height:420px; overflow-y:auto;">
@@ -722,7 +752,12 @@
               <strong style="color:#fff;">{{ priceHistoryItem.name }}</strong>
             </p>
           </div>
-          <button class="smi-qc-header__close" @click="priceHistoryOpen = false"><X :size="16" /></button>
+          <button
+            class="smi-qc-header__close"
+            :aria-label="t('smmClose')"
+            :title="t('smmClose')"
+            @click="priceHistoryOpen = false"
+          ><X :size="16" /></button>
         </div>
 
         <div class="smi-qc-body">
@@ -774,7 +809,6 @@ import { htFromTtc } from '@/utils/price'
 import { UtensilsCrossed, Check, X, Search, Zap, Plus, ChevronRight, AlertTriangle, Tag, History, Eye } from 'lucide-vue-next'
 import {
   findBestMatch as matchBestMenuItem,
-  findTopMatches as matchTopMenuItems,
   similarity as strSimilarity,
   isPriceCompatible as pricesCompatible,
 } from '@/utils/menuItemMatching'
@@ -857,6 +891,9 @@ export default {
       // catalogue (meta.total) pour afficher le nombre masqué. Interrupteur pour tout réafficher.
       hideUnsold: true,
       catalogTotal: 0,
+      // Plafond de pagination atteint côté API (getWeezeventProducts meta.truncated) : des
+      // produits vendus au-delà du plafond peuvent manquer de la liste.
+      productsTruncated: false,
     }
   },
 
@@ -890,13 +927,6 @@ export default {
       return this.bulkCreateRunning || this.applyAllRunning
         || Object.values(this.savingRows).some(s => s === 'saving')
     },
-    topMatchesMap() {
-      const result = {}
-      for (const item of this.pagedRows) {
-        result[item.id] = this.findTopMatches(item)
-      }
-      return result
-    },
     suggestionList() {
       return Object.entries(this.autoSuggestions)
         .filter(([id]) => !this.localMappings[id])
@@ -920,31 +950,17 @@ export default {
     applicablePriceCount() {
       return this.productRows.filter(row => this.canApplyPrice(row)).length
     },
-    headers() {
-      return [
-        { title: this.t('smmColProduct'), key: 'name', width: '40%' },
-        { title: this.t('smmColMenuItem'), key: 'menuItem', width: '45%' },
-        { title: this.t('smmColMatch'), key: 'match', width: '15%', align: 'center' },
-      ]
-    },
     menuItemOptions() {
       return this.menuItemsList.map(mi => ({ id: mi.id, label: mi.name }))
     },
     productRows() {
       return this.products.map(p => {
         const match = this.findBestMatch(p)
-        const basePrice = p.basePrice ?? null
-        const vatRate = p.vatRate ?? null
-        // HT exposé à côté du TTC (basePrice = TTC). null si TVA inconnue.
-        const priceHt = (basePrice != null && vatRate != null)
-          ? Math.round((Number(basePrice) / (1 + Number(vatRate) / 100)) * 100) / 100
-          : null
         return {
           id: p.id,
           name: p.name || p.label || `${this.t('smmProductFallback')} ${p.id}`,
-          basePrice,
-          vatRate,
-          priceHt,
+          basePrice: p.basePrice ?? null,
+          vatRate: p.vatRate ?? null,
           nature: p.nature ?? null,
           subnature: p.subnature ?? null,
           productType: p.productType ?? null,
@@ -1081,6 +1097,12 @@ export default {
   },
 
   methods: {
+    // Les VARIANT (déclinaisons) ne sont pas des produits mappables à part entière — écartées
+    // partout où le catalogue Weezevent est (re)chargé (loadData / bulkResyncCatalog).
+    filterNonVariantProducts(products) {
+      return (products || []).filter(p => p.productType !== 'VARIANT')
+    },
+
     async refreshMappingsAndStats() {
       const integrationId = this.location?.id
       const [mappingsRes, statsRes] = await Promise.all([
@@ -1112,9 +1134,10 @@ export default {
           getProductMappingStats(integrationId),
         ])
 
-        this.products = (productsRes?.data || productsRes || []).filter(p => p.productType !== 'VARIANT')
+        this.products = this.filterNonVariantProducts(productsRes?.data || productsRes || [])
         // meta.total = total catalogue NON filtré → sert à afficher le nombre de produits masqués.
         this.catalogTotal = productsRes?.meta?.total ?? this.products.length
+        this.productsTruncated = !!productsRes?.meta?.truncated
         this.mappingStats = statsRes?.data || statsRes || null
         this.menuItemsList = Array.isArray(menuItemsRes?.data)
           ? menuItemsRes.data
@@ -1165,10 +1188,6 @@ export default {
 
     findBestMatch(productOrName) {
       return matchBestMenuItem(productOrName, this.menuItemsList)
-    },
-
-    findTopMatches(productOrName, n = 5) {
-      return matchTopMenuItems(productOrName, this.menuItemsList, n)
     },
 
     similarity(a, b) {
@@ -1756,36 +1775,8 @@ export default {
       this.bulkCreateDialog = true
       this.bulkCreateRunning = true
 
-      let patchedCount = 0
-
       try {
-        // ── Phase 0 : Rattacher les articles existants au Space courant ──
-        if (toPatch.length > 0) {
-          const PATCH_BATCH = 10
-          for (let i = 0; i < toPatch.length; i += PATCH_BATCH) {
-            const batch = toPatch.slice(i, i + PATCH_BATCH)
-            const results = await Promise.allSettled(
-              batch.map(([, menuItemId]) => {
-                const item = this.menuItemsList.find(mi => mi.id === menuItemId)
-                const currentSpaceIds = Array.isArray(item?.spaceIds) ? item.spaceIds : []
-                return updateMenuItem(menuItemId, { spaceIds: [...currentSpaceIds, this.spaceId] })
-              })
-            )
-            for (const result of results) {
-              if (result.status === 'fulfilled') {
-                patchedCount++
-                const updated = result.value?.data || result.value
-                if (updated?.id) {
-                  const idx = this.menuItemsList.findIndex(mi => mi.id === updated.id)
-                  if (idx !== -1) this.menuItemsList[idx] = { ...this.menuItemsList[idx], spaceIds: updated.spaceIds ?? [...(this.menuItemsList[idx].spaceIds || []), this.spaceId] }
-                }
-              } else {
-                console.warn('[bulkCreateAndMap] patch space error:', result.reason)
-                this.bulkCreateErrors++
-              }
-            }
-          }
-        }
+        const patchedCount = await this.bulkPatchSpaceIds(toPatch)
 
         // Si rien à créer, on s'arrête après le patch.
         // A12 : si des erreurs de patch ont eu lieu, refléter l'état 'error' (pas un faux 'done').
@@ -1798,190 +1789,10 @@ export default {
           return
         }
 
-        // ── Phase 1 : Synchroniser tous les produits depuis l'API Weezevent ──
-        this.bulkCreatePhase = 'sync'
-        // Cela appelle GET /pay/v1/organizations/{org_id}/products en pages de 100
-        // et met à jour nature/subnature/productType/categoryId en DB pour tous les produits
-        await syncWeezeventData('products', { integrationId })
-
-        // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom)
-        const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold)
-        this.products = (productsRes?.data || productsRes || []).filter(p => p.productType !== 'VARIANT')
-        this.catalogTotal = productsRes?.meta?.total ?? this.products.length
-
-        // Recalculer les lignes non mappées avec les données fraîches
-        const freshUnmapped = this.productRows.filter(r => !this.localMappings[r.id])
-        this.bulkCreateTotal = freshUnmapped.length
-        this.bulkCreatePhase = 'preparing'
-
-        // ── Idempotence : réutiliser un MenuItem ACTIF de même nom au lieu d'en créer un doublon ──
-        // Cause racine du churn (496 noms pour 3304 lignes = ~6 ré-imports) : chaque ré-import
-        // recréait tout le catalogue. On réutilise par nom EXACT normalisé (pas de fuzzy, pour ne
-        // pas fusionner « Coca 33cl » et « Coca 50cl »). Les items soft-deleted sont ressuscités
-        // côté backend lors du mapping (bulkProductMappings).
-        const normalizeName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
-        const activeMenuItemByName = new Map()
-        for (const mi of this.menuItemsList) {
-          const key = normalizeName(mi.name)
-          if (key && !activeMenuItemByName.has(key)) activeMenuItemByName.set(key, mi)
-        }
-        const reusable = []   // { product, item } — produits rattachables à un item existant
-        const toCreate = []   // produits sans équivalent actif → création
-        for (const p of freshUnmapped) {
-          const match = activeMenuItemByName.get(normalizeName(p.name))
-          if (match?.id) reusable.push({ product: p, item: match })
-          else toCreate.push(p)
-        }
-
-        // Mapper d'emblée les produits réutilisant un item existant + les rattacher au Space.
-        const reuseMappings = []
-        for (const { product, item } of reusable) {
-          this.localMappings = { ...this.localMappings, [product.id]: item.id }
-          reuseMappings.push({ weezeventProductId: product.id, menuItemId: item.id, autoMapped: true })
-        }
-        if (this.spaceId && reusable.length) {
-          const PATCH_BATCH = 10
-          const needPatch = reusable.filter(({ item }) => !(item.spaceIds || []).includes(this.spaceId))
-          for (let i = 0; i < needPatch.length; i += PATCH_BATCH) {
-            const batch = needPatch.slice(i, i + PATCH_BATCH)
-            const patchResults = await Promise.allSettled(batch.map(({ item }) =>
-              updateMenuItem(item.id, { spaceIds: [...(item.spaceIds || []), this.spaceId] }),
-            ))
-            // Mettre à jour le state local pour que patchableItemsCount se remette à 0
-            patchResults.forEach((result, j) => {
-              if (result.status !== 'fulfilled') return
-              const { item } = batch[j]
-              const updated = result.value?.data || result.value
-              const idx = this.menuItemsList.findIndex(mi => mi.id === item.id)
-              if (idx !== -1) {
-                this.menuItemsList[idx] = {
-                  ...this.menuItemsList[idx],
-                  spaceIds: updated?.spaceIds ?? [...(item.spaceIds || []), this.spaceId],
-                }
-              }
-            })
-          }
-        }
-        this.bulkCreateProgress = reusable.length
-
-        // ── Phase 2 : S'assurer que tous les types et catégories existent ──
-        const typeMap = new Map()   // nature → typeId
-        const catMap = new Map()    // `${nature}::${subnature}` → categoryId
-
-        const uniqueNatures = [...new Set(toCreate.map(p => p.nature).filter(Boolean))]
-        for (const nature of uniqueNatures) {
-          const id = await this.ensureType(nature)
-          typeMap.set(nature, id)
-        }
-
-        const uniquePairs = [...new Set(
-          toCreate
-            .filter(p => p.nature && p.subnature)
-            .map(p => `${p.nature}::${p.subnature}`)
-        )]
-        for (const pair of uniquePairs) {
-          const [nature, subnature] = pair.split('::')
-          const typeId = typeMap.get(nature)
-          if (typeId) {
-            const id = await this.ensureCategory(subnature, typeId)
-            catMap.set(pair, id)
-          }
-        }
-
-        // ── Phase 3 : Créer les menu items SANS équivalent (toCreate) par batches et mapper ──
-        this.bulkCreatePhase = 'creating'
-        const BATCH = 500
-        const allMappings = [...reuseMappings]
-
-        for (let i = 0; i < toCreate.length; i += BATCH) {
-          const chunk = toCreate.slice(i, i + BATCH)
-          const items = chunk.map(p => ({
-            name: p.name,
-            typeId: (p.nature ? typeMap.get(p.nature) : null) || null,
-            categoryId: (p.nature && p.subnature ? catMap.get(`${p.nature}::${p.subnature}`) : null) || null,
-            basePrice: p.basePrice != null ? Number(p.basePrice) : 0,
-            // TVA réelle Weezevent (dérivée des ventes par le backend, cf. getProducts) :
-            // sans ça, tous les items auto-mappés naissaient avec vatRate null → taxe 0, HT=TTC.
-            vatRate: p.vatRate != null ? Number(p.vatRate) : null,
-            spaceIds: this.spaceId ? [this.spaceId] : [],
-          }))
-
-          try {
-            const res = await bulkCreateMenuItems(items)
-            const created = (res?.data || res)?.items || []
-
-            // Add new items to local list
-            this.menuItemsList = [...this.menuItemsList, ...created]
-
-            // Match created items back to products by index (same order)
-            for (let j = 0; j < chunk.length; j++) {
-              const product = chunk[j]
-              const newItem = created[j]
-              if (newItem?.id) {
-                this.localMappings = { ...this.localMappings, [product.id]: newItem.id }
-                allMappings.push({ weezeventProductId: product.id, menuItemId: newItem.id, autoMapped: true })
-              } else {
-                this.bulkCreateErrors++
-              }
-            }
-          } catch (err) {
-            console.error('[bulkCreateAndMap] batch error:', err)
-            this.bulkCreateMessage = err?.response?.data?.message || err?.message || this.t('smmBatchCreateFailed')
-            this.bulkCreateErrors += chunk.length
-          }
-
-          this.bulkCreateProgress = Math.min(reusable.length + i + BATCH, freshUnmapped.length)
-        }
-
-        // Step 3: bulk map all at once — passer spaceId pour que le backend attache
-        // le space à chaque item mappé en même temps que le mapping (pas d'action séparée).
-        let mappingFailed = 0
-        let mappingLastError = ''
-        if (allMappings.length > 0) {
-          const mappingRes = await bulkProductMappings(allMappings, this.spaceId)
-          mappingFailed = mappingRes?.failed || 0
-          this.bulkCreateErrors += mappingFailed
-          if (Array.isArray(mappingRes?.errors) && mappingRes.errors.length > 0) {
-            mappingLastError = mappingRes.errors[mappingRes.errors.length - 1]?.error || ''
-          }
-          // Mettre à jour le state local : marquer tous les items mappés comme rattachés au space
-          if (this.spaceId) {
-            const mappedItemIds = new Set(allMappings.map(m => m.menuItemId).filter(Boolean))
-            this.menuItemsList = this.menuItemsList.map(mi =>
-              mappedItemIds.has(mi.id) && !(mi.spaceIds || []).includes(this.spaceId)
-                ? { ...mi, spaceIds: [...(mi.spaceIds || []), this.spaceId] }
-                : mi,
-            )
-          }
-          await this.refreshMappingsAndStats()
-
-          // Auto-apply Weezevent prices for newly created items (not reused ones)
-          const priceItems = toCreate
-            .filter(p => this.localMappings[p.id] && p.basePrice != null)
-            .map(p => ({ menuItemId: this.localMappings[p.id], weezeventProductId: p.id, basePrice: p.basePrice, vatRate: p.vatRate }))
-          if (priceItems.length) {
-            try {
-              const priceRes = await applyWeezeventPrices(priceItems, this.spaceId || null)
-              for (const r of priceRes?.results || []) {
-                if (r.applied) this.patchLocalMenuItemPrice(r.menuItemId, r.applied.basePrice, r.applied.vatRate)
-              }
-            } catch (err) {
-              console.warn('[bulkCreateAndMap] auto-apply prices failed:', err?.message)
-            }
-          }
-        }
-        const mappedOk = Math.max(0, allMappings.length - mappingFailed)
-        const patchSummary = patchedCount > 0 ? `${patchedCount} ${this.t('smmItemsAttachedToSpace')} ` : ''
-        if (this.bulkCreateErrors > 0) {
-          const lastError = mappingLastError
-            ? ` ${this.t('smmLastError')} ${mappingLastError}`
-            : (this.bulkCreateMessage ? ` ${this.t('smmLastError')} ${this.bulkCreateMessage}` : '')
-          this.bulkCreatePhase = 'error'
-          this.bulkCreateMessage = `${patchSummary}${mappedOk} ${this.t('smmProductsCreatedMappedOn')} ${freshUnmapped.length}. ${this.bulkCreateErrors} ${this.t('smmProductsNotProcessed')}${lastError}`
-        } else {
-          this.bulkCreatePhase = 'done'
-          this.bulkCreateMessage = `${patchSummary}${mappedOk} ${this.t('smmProductsCreatedMappedOn')} ${freshUnmapped.length}.`
-        }
+        const freshUnmapped = await this.bulkResyncCatalog(integrationId)
+        const { toCreate, reuseMappings } = await this.bulkDedupeByName(freshUnmapped)
+        const { typeMap, catMap } = await this.bulkEnsureTypesAndCategories(toCreate)
+        await this.bulkCreateMapAndApplyPrices({ toCreate, reuseMappings, freshUnmapped, typeMap, catMap, patchedCount })
       } catch (err) {
         console.error('[bulkCreateAndMap] fatal error:', err)
         this.bulkCreatePhase = 'error'
@@ -1992,15 +1803,249 @@ export default {
       }
     },
 
+    /** bulkCreateAndMap, phase 0 : rattache au Space courant les MenuItems déjà mappés qui ne l'ont pas encore. */
+    async bulkPatchSpaceIds(toPatch) {
+      let patchedCount = 0
+      if (toPatch.length > 0) {
+        const PATCH_BATCH = 10
+        for (let i = 0; i < toPatch.length; i += PATCH_BATCH) {
+          const batch = toPatch.slice(i, i + PATCH_BATCH)
+          const results = await Promise.allSettled(
+            batch.map(([, menuItemId]) => {
+              const item = this.menuItemsList.find(mi => mi.id === menuItemId)
+              const currentSpaceIds = Array.isArray(item?.spaceIds) ? item.spaceIds : []
+              return updateMenuItem(menuItemId, { spaceIds: [...currentSpaceIds, this.spaceId] })
+            })
+          )
+          for (const result of results) {
+            if (result.status === 'fulfilled') {
+              patchedCount++
+              const updated = result.value?.data || result.value
+              if (updated?.id) {
+                const idx = this.menuItemsList.findIndex(mi => mi.id === updated.id)
+                if (idx !== -1) this.menuItemsList[idx] = { ...this.menuItemsList[idx], spaceIds: updated.spaceIds ?? [...(this.menuItemsList[idx].spaceIds || []), this.spaceId] }
+              }
+            } else {
+              console.warn('[bulkCreateAndMap] patch space error:', result.reason)
+              this.bulkCreateErrors++
+            }
+          }
+        }
+      }
+      return patchedCount
+    },
+
+    /** bulkCreateAndMap, phase 1 : resynchronise le catalogue Weezevent puis recharge les produits locaux. */
+    async bulkResyncCatalog(integrationId) {
+      this.bulkCreatePhase = 'sync'
+      // Cela appelle GET /pay/v1/organizations/{org_id}/products en pages de 100
+      // et met à jour nature/subnature/productType/categoryId en DB pour tous les produits
+      await syncWeezeventData('products', { integrationId })
+
+      // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom)
+      const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold)
+      this.products = this.filterNonVariantProducts(productsRes?.data || productsRes || [])
+      this.catalogTotal = productsRes?.meta?.total ?? this.products.length
+      this.productsTruncated = !!productsRes?.meta?.truncated
+
+      // Recalculer les lignes non mappées avec les données fraîches
+      const freshUnmapped = this.productRows.filter(r => !this.localMappings[r.id])
+      this.bulkCreateTotal = freshUnmapped.length
+      this.bulkCreatePhase = 'preparing'
+      return freshUnmapped
+    },
+
+    /**
+     * bulkCreateAndMap, phase 2 : réutilise un MenuItem ACTIF de même nom au lieu d'en créer un
+     * doublon. Cause racine du churn (496 noms pour 3304 lignes = ~6 ré-imports) : chaque
+     * ré-import recréait tout le catalogue. On réutilise par nom EXACT normalisé (pas de fuzzy,
+     * pour ne pas fusionner « Coca 33cl » et « Coca 50cl »). Les items soft-deleted sont
+     * ressuscités côté backend lors du mapping (bulkProductMappings).
+     */
+    async bulkDedupeByName(freshUnmapped) {
+      const normalizeName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+      const activeMenuItemByName = new Map()
+      for (const mi of this.menuItemsList) {
+        const key = normalizeName(mi.name)
+        if (key && !activeMenuItemByName.has(key)) activeMenuItemByName.set(key, mi)
+      }
+      const reusable = []   // { product, item } — produits rattachables à un item existant
+      const toCreate = []   // produits sans équivalent actif → création
+      for (const p of freshUnmapped) {
+        const match = activeMenuItemByName.get(normalizeName(p.name))
+        if (match?.id) reusable.push({ product: p, item: match })
+        else toCreate.push(p)
+      }
+
+      // Mapper d'emblée les produits réutilisant un item existant + les rattacher au Space.
+      const reuseMappings = []
+      for (const { product, item } of reusable) {
+        this.localMappings = { ...this.localMappings, [product.id]: item.id }
+        reuseMappings.push({ weezeventProductId: product.id, menuItemId: item.id, autoMapped: true })
+      }
+      if (this.spaceId && reusable.length) {
+        const PATCH_BATCH = 10
+        const needPatch = reusable.filter(({ item }) => !(item.spaceIds || []).includes(this.spaceId))
+        for (let i = 0; i < needPatch.length; i += PATCH_BATCH) {
+          const batch = needPatch.slice(i, i + PATCH_BATCH)
+          const patchResults = await Promise.allSettled(batch.map(({ item }) =>
+            updateMenuItem(item.id, { spaceIds: [...(item.spaceIds || []), this.spaceId] }),
+          ))
+          // Mettre à jour le state local pour que patchableItemsCount se remette à 0
+          patchResults.forEach((result, j) => {
+            if (result.status !== 'fulfilled') return
+            const { item } = batch[j]
+            const updated = result.value?.data || result.value
+            const idx = this.menuItemsList.findIndex(mi => mi.id === item.id)
+            if (idx !== -1) {
+              this.menuItemsList[idx] = {
+                ...this.menuItemsList[idx],
+                spaceIds: updated?.spaceIds ?? [...(item.spaceIds || []), this.spaceId],
+              }
+            }
+          })
+        }
+      }
+      this.bulkCreateProgress = reusable.length
+
+      return { toCreate, reuseMappings }
+    },
+
+    /** bulkCreateAndMap, phase 3 : s'assure que tous les types/catégories requis par `toCreate` existent. */
+    async bulkEnsureTypesAndCategories(toCreate) {
+      const typeMap = new Map()   // nature → typeId
+      const catMap = new Map()    // `${nature}::${subnature}` → categoryId
+
+      const uniqueNatures = [...new Set(toCreate.map(p => p.nature).filter(Boolean))]
+      for (const nature of uniqueNatures) {
+        const id = await this.ensureType(nature)
+        typeMap.set(nature, id)
+      }
+
+      const uniquePairs = [...new Set(
+        toCreate
+          .filter(p => p.nature && p.subnature)
+          .map(p => `${p.nature}::${p.subnature}`)
+      )]
+      for (const pair of uniquePairs) {
+        const [nature, subnature] = pair.split('::')
+        const typeId = typeMap.get(nature)
+        if (typeId) {
+          const id = await this.ensureCategory(subnature, typeId)
+          catMap.set(pair, id)
+        }
+      }
+
+      return { typeMap, catMap }
+    },
+
+    /** bulkCreateAndMap, phase 4 : crée les menu items sans équivalent par batches, mappe tout en masse, applique les prix Weezevent. */
+    async bulkCreateMapAndApplyPrices({ toCreate, reuseMappings, freshUnmapped, typeMap, catMap, patchedCount }) {
+      this.bulkCreatePhase = 'creating'
+      const BATCH = 500
+      const allMappings = [...reuseMappings]
+      const reusableCount = reuseMappings.length
+
+      for (let i = 0; i < toCreate.length; i += BATCH) {
+        const chunk = toCreate.slice(i, i + BATCH)
+        const items = chunk.map(p => ({
+          name: p.name,
+          typeId: (p.nature ? typeMap.get(p.nature) : null) || null,
+          categoryId: (p.nature && p.subnature ? catMap.get(`${p.nature}::${p.subnature}`) : null) || null,
+          basePrice: p.basePrice != null ? Number(p.basePrice) : 0,
+          // TVA réelle Weezevent (dérivée des ventes par le backend, cf. getProducts) :
+          // sans ça, tous les items auto-mappés naissaient avec vatRate null → taxe 0, HT=TTC.
+          vatRate: p.vatRate != null ? Number(p.vatRate) : null,
+          spaceIds: this.spaceId ? [this.spaceId] : [],
+        }))
+
+        try {
+          const res = await bulkCreateMenuItems(items)
+          const created = (res?.data || res)?.items || []
+
+          // Add new items to local list
+          this.menuItemsList = [...this.menuItemsList, ...created]
+
+          // Match created items back to products by index (same order)
+          for (let j = 0; j < chunk.length; j++) {
+            const product = chunk[j]
+            const newItem = created[j]
+            if (newItem?.id) {
+              this.localMappings = { ...this.localMappings, [product.id]: newItem.id }
+              allMappings.push({ weezeventProductId: product.id, menuItemId: newItem.id, autoMapped: true })
+            } else {
+              this.bulkCreateErrors++
+            }
+          }
+        } catch (err) {
+          console.error('[bulkCreateAndMap] batch error:', err)
+          this.bulkCreateMessage = err?.response?.data?.message || err?.message || this.t('smmBatchCreateFailed')
+          this.bulkCreateErrors += chunk.length
+        }
+
+        this.bulkCreateProgress = Math.min(reusableCount + i + BATCH, freshUnmapped.length)
+      }
+
+      // Step 3: bulk map all at once — passer spaceId pour que le backend attache
+      // le space à chaque item mappé en même temps que le mapping (pas d'action séparée).
+      let mappingFailed = 0
+      let mappingLastError = ''
+      if (allMappings.length > 0) {
+        const mappingRes = await bulkProductMappings(allMappings, this.spaceId)
+        mappingFailed = mappingRes?.failed || 0
+        this.bulkCreateErrors += mappingFailed
+        if (Array.isArray(mappingRes?.errors) && mappingRes.errors.length > 0) {
+          mappingLastError = mappingRes.errors[mappingRes.errors.length - 1]?.error || ''
+        }
+        // Mettre à jour le state local : marquer tous les items mappés comme rattachés au space
+        if (this.spaceId) {
+          const mappedItemIds = new Set(allMappings.map(m => m.menuItemId).filter(Boolean))
+          this.menuItemsList = this.menuItemsList.map(mi =>
+            mappedItemIds.has(mi.id) && !(mi.spaceIds || []).includes(this.spaceId)
+              ? { ...mi, spaceIds: [...(mi.spaceIds || []), this.spaceId] }
+              : mi,
+          )
+        }
+        await this.refreshMappingsAndStats()
+
+        // Auto-apply Weezevent prices for newly created items (not reused ones)
+        const priceItems = toCreate
+          .filter(p => this.localMappings[p.id] && p.basePrice != null)
+          .map(p => ({ menuItemId: this.localMappings[p.id], weezeventProductId: p.id, basePrice: p.basePrice, vatRate: p.vatRate }))
+        if (priceItems.length) {
+          try {
+            const priceRes = await applyWeezeventPrices(priceItems, this.spaceId || null)
+            for (const r of priceRes?.results || []) {
+              if (r.applied) this.patchLocalMenuItemPrice(r.menuItemId, r.applied.basePrice, r.applied.vatRate)
+            }
+          } catch (err) {
+            console.warn('[bulkCreateAndMap] auto-apply prices failed:', err?.message)
+          }
+        }
+      }
+      const mappedOk = Math.max(0, allMappings.length - mappingFailed)
+      const patchSummary = patchedCount > 0 ? `${patchedCount} ${this.t('smmItemsAttachedToSpace')} ` : ''
+      if (this.bulkCreateErrors > 0) {
+        const lastError = mappingLastError
+          ? ` ${this.t('smmLastError')} ${mappingLastError}`
+          : (this.bulkCreateMessage ? ` ${this.t('smmLastError')} ${this.bulkCreateMessage}` : '')
+        this.bulkCreatePhase = 'error'
+        this.bulkCreateMessage = `${patchSummary}${mappedOk} ${this.t('smmProductsCreatedMappedOn')} ${freshUnmapped.length}. ${this.bulkCreateErrors} ${this.t('smmProductsNotProcessed')}${lastError}`
+      } else {
+        this.bulkCreatePhase = 'done'
+        this.bulkCreateMessage = `${patchSummary}${mappedOk} ${this.t('smmProductsCreatedMappedOn')} ${freshUnmapped.length}.`
+      }
+    },
+
     async handleSave() {
+      // Watch réactif sur hasPendingSaves plutôt qu'un délai fixe : chaque sauvegarde
+      // sous-jacente est de toute façon bornée par le timeout Axios, donc pas de risque
+      // d'attente infinie ici.
       if (this.hasPendingSaves) {
         await new Promise(resolve => {
-          const check = () => {
-            if (!Object.values(this.savingRows).some(s => s === 'saving')) return resolve()
-            setTimeout(check, 200)
-          }
-          setTimeout(check, 200)
-          setTimeout(resolve, 5000)
+          const stop = this.$watch('hasPendingSaves', (pending) => {
+            if (!pending) { stop(); resolve() }
+          })
         })
       }
       this.$emit('completed', { products: this.mappedCount })

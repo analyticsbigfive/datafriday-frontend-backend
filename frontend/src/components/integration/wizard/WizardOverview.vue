@@ -8,7 +8,7 @@
       </div>
       <div class="wo-header__body">
         <p class="wo-header__title">{{ t('intgOverviewTitle') }}</p>
-        <p class="wo-header__sub">« {{ locationName }} »</p>
+        <p class="wo-header__sub">{{ locationName }}</p>
       </div>
     </div>
 
@@ -57,31 +57,27 @@
 
 <script>
 import { Check, ArrowRight, MapPinCheck } from 'lucide-vue-next'
-import { t as translate } from '@/i18n'
+import { useI18n } from '@/i18n/useI18n'
 
 const STEP_DEFINITIONS = [
   {
     key: 'space',
     labelKey: 'intgOverviewStepSpaceLabel',
-    icon: 'mdi-stadium',
     descriptionKey: 'intgOverviewStepSpaceDesc',
   },
   {
     key: 'shops',
     labelKey: 'intgOverviewStepShopsLabel',
-    icon: 'mdi-store',
     descriptionKey: 'intgOverviewStepShopsDesc',
   },
   {
     key: 'products',
     labelKey: 'intgOverviewStepProductsLabel',
-    icon: 'mdi-food',
     descriptionKey: 'intgOverviewStepProductsDesc',
   },
   {
     key: 'events',
     labelKey: 'intgOverviewStepEventsLabel',
-    icon: 'mdi-calendar',
     descriptionKey: 'intgOverviewStepEventsDesc',
   },
 ]
@@ -95,22 +91,9 @@ export default {
     isDark: { type: Boolean, default: false },
   },
   emits: ['start'],
-  data() {
-    return { locale: localStorage.getItem('appLocale') || 'en' }
-  },
-  mounted() {
-    window.addEventListener('locale-changed', this.handleLocaleChange)
-  },
-  beforeUnmount() {
-    window.removeEventListener('locale-changed', this.handleLocaleChange)
-  },
-  methods: {
-    t(key) {
-      return translate(key, this.locale)
-    },
-    handleLocaleChange(event) {
-      this.locale = event.detail.locale
-    },
+  setup() {
+    const { t } = useI18n()
+    return { t }
   },
   computed: {
     locationName() {

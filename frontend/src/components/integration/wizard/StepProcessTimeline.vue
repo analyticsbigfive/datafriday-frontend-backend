@@ -536,6 +536,7 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import { formatDateMedium } from '@/utils/dateFr'
 import { useTimelineProcessing } from '@/composables/useTimelineProcessing'
 import { useSynchronization } from '@/composables/useSynchronization'
 import { getJobProgress, getEventBreakdown, getEventMinuteChart } from '@/api/endpoints/aggregation.api'
@@ -545,6 +546,17 @@ import EventTimelineProgressIndicator from '@/components/EventTimelineProgressIn
 import MapEventToExistingDialog from './dialogs/MapEventToExistingDialog.vue'
 import CreateEventDialog from './dialogs/CreateEventDialog.vue'
 import EventBreakdownDrawer from './dialogs/EventBreakdownDrawer.vue'
+
+// Poll cadence for a single event's aggregation job (handleProcessSingle)
+const SINGLE_EVENT_POLL_INTERVAL_MS = 1000
+const SINGLE_EVENT_POLL_MAX_ATTEMPTS = 120 // ~2 min
+const SINGLE_EVENT_RETRY_DELAY_MS = 5000 // network/timeout retry before reloading the timeline
+// Poll cadence for the final sync job (waitForSyncJob)
+const SYNC_JOB_POLL_INTERVAL_MS = 2500
+const SYNC_JOB_POLL_MAX_WAIT_MS = 10 * 60 * 1000 // 10 min
+// Batch sizes for bulkCreateEvents
+const BULK_PATCH_BATCH_SIZE = 10
+const BULK_CREATE_BATCH_SIZE = 5
 
 export default {
   name: 'StepProcessTimeline',
@@ -820,16 +832,7 @@ export default {
         : `${dateValue}T00:00:00.000Z`
     },
     formatDate(dateStr) {
-      if (!dateStr) return '—'
-      // Date-only strings (YYYY-MM-DD) must be parsed with time to avoid UTC timezone shift
-      const d = /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))
-        ? new Date(`${dateStr}T00:00:00`)
-        : new Date(dateStr)
-      return d.toLocaleDateString('fr-FR', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      })
+      return formatDateMedium(dateStr) || '—'
     },
     // A19 : méthode checkMappings() supprimée — code mort jamais appelé, superseded par
     // step4-context (hasMappings fourni par loadTimeline). hasMappings reste exposé.
@@ -854,8 +857,7 @@ export default {
         // Backend queue-based: attendre l'état terminal du job avant de rafraîchir la timeline.
         if (jobId) {
           const TERMINAL = ['completed', 'failed', 'skipped']
-          const MAX_POLLS = 120 // ~2 min
-          for (let i = 0; i < MAX_POLLS; i++) {
+          for (let i = 0; i < SINGLE_EVENT_POLL_MAX_ATTEMPTS; i++) {
             try {
               const progress = await getJobProgress(jobId)
               if (progress) {
@@ -866,8 +868,8 @@ export default {
               // Erreur de polling non critique: continuer
             }
 
-            if (i < MAX_POLLS - 1) {
-              await new Promise((resolve) => setTimeout(resolve, 1000))
+            if (i < SINGLE_EVENT_POLL_MAX_ATTEMPTS - 1) {
+              await new Promise((resolve) => setTimeout(resolve, SINGLE_EVENT_POLL_INTERVAL_MS))
             }
           }
         } else {
@@ -921,7 +923,7 @@ export default {
           this.feedbackSnackbarText = this.t('intgTimelineProcessingBackground')
           this.feedbackSnackbarColor = 'info'
           this.feedbackSnackbar = true
-          setTimeout(() => this.loadTimeline(this.spaceId, this.location.id), 5000)
+          setTimeout(() => this.loadTimeline(this.spaceId, this.location.id), SINGLE_EVENT_RETRY_DELAY_MS)
         } else {
           // Vraie erreur (validation, permission, ...) — pas un timeout : on peut relâcher
           // le verrou et laisser l'utilisateur réessayer immédiatement.
@@ -997,14 +999,12 @@ export default {
     },
 
     async waitForSyncJob() {
-      const INTERVAL_MS = 2500
-      const MAX_WAIT_MS = 10 * 60 * 1000 // 10 min max
       const start = Date.now()
-      while (Date.now() - start < MAX_WAIT_MS) {
+      while (Date.now() - start < SYNC_JOB_POLL_MAX_WAIT_MS) {
         // Le composant a été démonté (changement d'étape du wizard, fermeture) : on
         // arrête le polling au lieu de continuer en arrière-plan jusqu'à 10 min.
         if (this.syncPollAbandoned) return
-        await new Promise(resolve => setTimeout(resolve, INTERVAL_MS))
+        await new Promise(resolve => setTimeout(resolve, SYNC_JOB_POLL_INTERVAL_MS))
         if (this.syncPollAbandoned) return
         const progress = await this.checkProgress()
         if (this.syncPollAbandoned) return
@@ -1168,9 +1168,8 @@ export default {
       try {
         // ── Phase 0 : rattacher les events DF existants au Space ──
         if (toPatch.length > 0) {
-          const PATCH_BATCH = 10
-          for (let i = 0; i < toPatch.length; i += PATCH_BATCH) {
-            const batch = toPatch.slice(i, i + PATCH_BATCH)
+          for (let i = 0; i < toPatch.length; i += BULK_PATCH_BATCH_SIZE) {
+            const batch = toPatch.slice(i, i + BULK_PATCH_BATCH_SIZE)
             const results = await Promise.allSettled(
               batch.map(dfId => updateEvent(dfId, { spaceId: this.spaceId }))
             )
@@ -1195,10 +1194,9 @@ export default {
         this.bulkCreateEventsPhase = 'creating'
         let createdCount = 0
         let skippedCount = 0
-        const BATCH = 5
 
-        for (let i = 0; i < toCreate.length; i += BATCH) {
-          const chunk = toCreate.slice(i, i + BATCH)
+        for (let i = 0; i < toCreate.length; i += BULK_CREATE_BATCH_SIZE) {
+          const chunk = toCreate.slice(i, i + BULK_CREATE_BATCH_SIZE)
           const results = await Promise.allSettled(
             chunk.map(async (weezEvent) => {
               const toDate = d => (d ? String(d).slice(0, 10) : null)
@@ -1294,8 +1292,8 @@ export default {
     // saveWeezEventMapping/openEnrichDialog/saveEnrichment (onglet "Événements Weezevent"
     // mort) supprimées : aucun point d'appel dans le template. EnrichEventDialog n'était
     // de toute façon jamais ouvrable (son seul déclencheur, openEnrichDialog, n'était
-    // jamais invoqué) — le mount a été retiré du template, le fichier EnrichEventDialog.vue
-    // reste sur le disque (hors scope de suppression).
+    // jamais invoqué) — le mount a été retiré du template, et le fichier
+    // EnrichEventDialog.vue (devenu sans importeur) a été supprimé.
     // toggleTimeline/loadEventTimeline/timelineShops/timelineArticles/filteredTimeline/
     // timelineSummary/exportTimelineCsv (table de timeline minute par minute) supprimées :
     // aucun point d'appel dans le template, fonctionnalité distincte de et remplacée par

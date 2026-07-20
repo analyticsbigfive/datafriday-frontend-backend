@@ -172,7 +172,8 @@ export async function getWeezeventProducts(merchantId, integrationId, spaceId, o
     const firstData = first.data
     const totalPages = firstData?.meta?.total_pages ?? 1
     const pagesToFetch = Math.min(totalPages, MAX_PAGES)
-    if (totalPages > MAX_PAGES) {
+    const truncated = totalPages > MAX_PAGES
+    if (truncated) {
       console.warn(
         `[AGGREGATION API] weezevent/products tronqué à ${MAX_PAGES * PER_PAGE} produits (${totalPages} pages dispo) — filtre serveur tenant/space manquant`,
       )
@@ -189,7 +190,9 @@ export async function getWeezeventProducts(merchantId, integrationId, spaceId, o
       for (const res of rest) allItems.push(...(res.data?.data ?? []))
     }
 
-    return { data: allItems, meta: { ...firstData?.meta, current_page: 1, per_page: allItems.length, total_pages: 1 } }
+    // truncated : signale au caller (StepMapMenuItems) que des produits au-delà du plafond
+    // MAX_PAGES ont été omis, pour permettre l'affichage d'un avertissement dans l'UI.
+    return { data: allItems, meta: { ...firstData?.meta, current_page: 1, per_page: allItems.length, total_pages: 1, truncated } }
   } catch (error) {
     console.error('[AGGREGATION API] Error fetching weezevent products:', error)
     throw error

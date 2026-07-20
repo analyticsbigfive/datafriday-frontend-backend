@@ -202,15 +202,15 @@
           <div class="spd-section-label mb-3">{{ t('intgSyncProgDataInDb') }}</div>
           <div class="spd-stat-row mb-2">
             <div class="spd-stat-card spd-stat-card--red">
-              <div class="spd-stat-card__value">{{ formatCount(results.transactions) }}</div>
+              <div class="spd-stat-card__value">{{ formatCount(results.transactions ?? 0) }}</div>
               <div class="spd-stat-card__label">{{ t('intgSyncProgStatTransactions') }}</div>
             </div>
             <div class="spd-stat-card" :class="results.events > 0 ? 'spd-stat-card--blue' : 'spd-stat-card--warn'">
-              <div class="spd-stat-card__value">{{ formatCount(results.events) }}</div>
+              <div class="spd-stat-card__value">{{ formatCount(results.events ?? 0) }}</div>
               <div class="spd-stat-card__label">{{ t('intgSyncProgStatEvents') }}</div>
             </div>
             <div class="spd-stat-card" :class="results.products > 0 ? 'spd-stat-card--purple' : 'spd-stat-card--warn'">
-              <div class="spd-stat-card__value">{{ formatCount(results.products) }}</div>
+              <div class="spd-stat-card__value">{{ formatCount(results.products ?? 0) }}</div>
               <div class="spd-stat-card__label">{{ t('intgSyncProgStatProducts') }}</div>
             </div>
           </div>
@@ -229,28 +229,6 @@
             <v-icon size="15" color="#1e40af">mdi-information-outline</v-icon>
             <span>{{ t('intgSyncProgHasMore') }}</span>
           </div>
-
-          <template v-if="unmappedLocations.length > 0">
-            <div class="spd-divider my-4" />
-            <div class="d-flex align-center justify-space-between mb-2">
-              <div class="spd-section-label">{{ t('intgSyncProgLocationsDetected') }} ({{ unmappedLocations.length }})</div>
-              <span class="spd-warn-chip">
-                <v-icon size="12">mdi-alert</v-icon>
-                {{ unmappedLocations.length }} {{ t('intgSyncProgUnmapped') }}
-              </span>
-            </div>
-            <div class="location-list mb-3">
-              <div v-for="loc in unmappedLocations" :key="loc.id" class="location-unmapped-item">
-                <v-icon size="16" color="warning" class="mr-2">mdi-alert-circle-outline</v-icon>
-                <span class="text-body-2">{{ loc.name }}</span>
-                <span class="text-caption text-medium-emphasis ml-auto">{{ t('intgSyncProgNotYetMapped') }}</span>
-              </div>
-            </div>
-            <div class="spd-alert spd-alert--warning">
-              <v-icon size="15" color="#92400e">mdi-information-outline</v-icon>
-              <span>{{ t('intgSyncProgLocationsHint') }}</span>
-            </div>
-          </template>
         </template>
 
         <template v-if="!jobId && (!isAllDone || isAllDone)">
@@ -309,11 +287,6 @@
             <v-icon size="15" class="me-1">mdi-refresh</v-icon>
             {{ t('intgSyncProgRetrySync') }}
           </button>
-          <button v-if="isAllDone && unmappedLocations.length > 0" class="iw-btn iw-btn--primary" @click="$emit('configure-locations')">
-            <v-icon size="15" class="me-1">mdi-map-marker-plus</v-icon>
-            {{ t('intgSyncProgConfigureLocations') }}
-            <v-icon size="15" class="ms-1">mdi-arrow-right</v-icon>
-          </button>
         </template>
       </div>
 
@@ -342,11 +315,10 @@ export default {
     lastTransactionDate: { type: String, default: null },
     results: { type: Object, default: null },
     hasMore: { type: Boolean, default: false },
-    unmappedLocations: { type: Array, default: () => [] },
     /** Job mode — lorsque défini, bascule en mode polling bissection */
     jobId: { type: String, default: null },
   },
-  emits: ['cancel', 'done', 'configure-locations', 'retry', 'job-minimized'],
+  emits: ['cancel', 'done', 'retry', 'job-minimized'],
   data() {
     return {
       elapsed: {},
@@ -354,19 +326,7 @@ export default {
       _startTimes: {},
       _ticker: null,
       // Job mode state
-      jobData: {
-        status: 'PENDING',
-        totalCollected: 0,
-        totalInserted: 0,
-        totalChunks: 0,
-        processedChunks: 0,
-        collectDone: false,
-        errorMessage: null,
-        startedAt: null,
-        completedAt: null,
-        fromDate: null,
-        toDate: null,
-      },
+      jobData: this.freshJobData(),
       _pollTimer: null,
     }
   },
@@ -398,6 +358,9 @@ export default {
       immediate: true,
       handler(id) {
         this._stopJobPoll()
+        // Sans ce reset, un nouvel id peut afficher brièvement les données COMPLETED
+        // de l'ancien job le temps que le premier poll réponde.
+        this.jobData = this.freshJobData()
         if (id) this._startJobPoll(id)
       },
     },
@@ -440,6 +403,21 @@ export default {
     this._stopJobPoll()
   },
   methods: {
+    freshJobData() {
+      return {
+        status: 'PENDING',
+        totalCollected: 0,
+        totalInserted: 0,
+        totalChunks: 0,
+        processedChunks: 0,
+        collectDone: false,
+        errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        fromDate: null,
+        toDate: null,
+      }
+    },
     async _startJobPoll(jobId) {
       const { getWeezeventJobStatus } = await import('@/api/endpoints/aggregation.api.js')
       // Aligné sur le MAX_WAIT_MS de StepProcessTimeline.vue : un job qui n'atteint
@@ -646,19 +624,6 @@ export default {
   height: 1px;
   background: #f0f0f0;
 }
-.spd-warn-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  padding: 3px 10px;
-  border-radius: 100px;
-}
-
 /* ── Meta info ── */
 .spd-meta {
   display: flex;
@@ -746,20 +711,5 @@ export default {
 }
 .sync-step--pending .sync-step__body span.text-body-2 {
   opacity: 0.5;
-}
-
-/* ── Unmapped locations list ── */
-.location-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.location-unmapped-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 8px;
 }
 </style>

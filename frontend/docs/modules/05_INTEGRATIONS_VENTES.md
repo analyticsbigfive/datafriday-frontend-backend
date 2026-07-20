@@ -691,10 +691,16 @@ domaine passe par deux fichiers génériques :
 | `src/api/endpoints/mapping.api.js` | `getLocationSpaceMapping(s)`, `createLocationSpaceMapping`, `getLocationShopMapping(s)`, `createLocationShopMapping`, `bulkLocationShopMappings`, `getProductMapping(s)`, `createProductMapping`, `bulkProductMappings`, `getIntegrationProgress`, `getAllIntegrationProgress`, `getLocationSummary` | `StepMapSpace.vue`, `StepMapShops.vue`, `StepMapMenuItems.vue`, `DataIntegrationView.vue`. `getIntegrationProgress`/`getAllIntegrationProgress` : **plus aucun appelant vivant** (leur seul consommateur, `useSpaceMapping.js`, est mort — voir Code mort) |
 | `src/api/endpoints/aggregation.api.js` | Toutes les fonctions Weezevent (`testWeezeventCredentials`, `list/create/update/deleteWeezeventInstance`, `startWeezeventSyncJob`, `getWeezeventJobStatus`, `syncWeezeventData`, `getWeezeventLocations/Events/Products`, `refreshWeezeventProduct`, `purgeWeezeventData`…) **et** Digifood (`list/create/update/deleteDigifoodInstance`, `testDigifoodInstance`, `importDigifoodCsv`) **et** agrégation (`getEventsTimeline`, `getStep4Context`, `processEvents`, `synchronize`, `getJobProgress`, `getEventBreakdown`) | `DataIntegrationView.vue`, `StepMapShops.vue`, `StepMapMenuItems.vue`, `StepProcessTimeline.vue` — malgré son nom (« aggregation »), ce fichier est en réalité **le client API de tout le domaine Intégrations** en plus de l'agrégation. À savoir avant de chercher une fonction Weezevent/Digifood ailleurs. |
 
-### Stores Vuex — enregistrés mais pas consommés par le wizard
+### Stores Vuex — étaient enregistrés mais non consommés (supprimés le 2026-07-20)
+
+> Section conservée pour l'historique — `store/modules/weezeventLocations.js` et
+> `weezeventProducts.js` ont été **supprimés le 2026-07-20** (avec leur désenregistrement dans
+> `store/index.js`), suite au constat ci-dessous. `StepMapShops.vue`/`StepMapMenuItems.vue`
+> continuent d'appeler `getWeezeventLocations`/`getWeezeventProducts` directement depuis
+> `aggregation.api.js`, comme avant.
 
 - `store/modules/weezeventLocations.js` : enregistré (`store/index.js`), **aucun consommateur
-  vivant** — `StepMapShops.vue` appelle `getWeezeventLocations` directement depuis
+  vivant** — `StepMapShops.vue` appelait `getWeezeventLocations` directement depuis
   `aggregation.api.js`, en court-circuitant le store. Quasi-mort.
 - `store/modules/weezeventProducts.js` : **correction du 2026-07-20** — cette page affirmait à tort
   qu'il était consommé par le domaine Analyse/Predict. Vérifié par un audit de code frontend le
@@ -702,11 +708,9 @@ domaine passe par deux fichiers génériques :
   `store.state.analyse.weezeventProducts`, un champ **homonyme mais sans rapport** du module Vuex
   `analyse` (alimenté par la mutation `SET_WEEZEVENT_PRODUCTS`), pas ce module namespacé
   `weezeventProducts/`. Le seul vrai consommateur de ce module (`weezeventProducts/fetchForLocation`,
-  `weezeventProducts/forLocation`) est le composable `useMenuMapping.js` — lui-même mort (0
-  importeur). `store/modules/weezeventProducts.js` a donc exactement le même statut que
-  `weezeventLocations.js` : enregistré, quasi-mort. `StepMapMenuItems.vue` appelle lui aussi
-  `getWeezeventProducts` directement depuis `aggregation.api.js`, en court-circuitant le store
-  (comme `StepMapShops.vue` pour les locations).
+  `weezeventProducts/forLocation`) était le composable `useMenuMapping.js` — lui-même mort (0
+  importeur, également supprimé le 2026-07-20). `store/modules/weezeventProducts.js` avait donc
+  exactement le même statut que `weezeventLocations.js` : enregistré, quasi-mort.
 
 ---
 
@@ -723,31 +727,59 @@ domaine passe par deux fichiers génériques :
 
 ## Code mort de ce domaine (à ne PAS prendre comme référence)
 
-- `src/components/integration/wizard/StepSynchronize.vue` — `@deprecated` **explicite** dans son
+> **Mise à jour 2026-07-20** : tous les items frontend ci-dessous (sauf `StepSynchronize.vue`) ont
+> été **supprimés** ce jour-là — cette section garde la trace de ce qui existait et pourquoi, mais
+> plus aucun de ces fichiers/fonctions n'est présent dans le code. Les deux items backend
+> (`SyncTrackerService`, `WeezeventSyncJob.status`) n'ont pas été touchés (hors scope frontend).
+
+- `src/components/integration/wizard/StepSynchronize.vue` — **toujours présent, toujours mort**,
+  volontairement non supprimé (hors scope de la passe du 2026-07-20, qui portait sur le frontend
+  du domaine mais n'a pas retouché ce fichier spécifique). `@deprecated` **explicite** dans son
   propre en-tête (« Remplacé par StepProcessTimeline.vue… Ne pas modifier ni réutiliser »), 0
-  importeur confirmé par grep.
-- `src/components/integration/IntegrationProviderCard.vue` — 0 importeur, ancien style visuel
-  (dégradé violet) incohérent avec le rouge `#ff3131` du reste du domaine vivant.
-- `src/components/integration/LocationListItem.vue` — mort par transitivité (seul consommateur =
-  `IntegrationProviderCard.vue`, lui-même mort).
-- `src/components/MenuMappingStep.vue` (racine, hors dossier `integration/`) — 0 importeur, style
-  Tailwind/shadcn incohérent avec le reste du domaine (Vuetify + BEM `smi-*`/`sms-*`/`iw-*`) —
-  ancêtre conceptuel mort de `StepMapMenuItems.vue`.
-- `src/composables/useSpaceMapping.js`, `useShopMapping.js`, `useMenuMapping.js` — 0 importeur
-  (grep frais confirmé). `useSpaceMapping.js` réimplémente exactement la logique de
-  `StepMapSpace.vue` (même Levenshtein maison) — vraisemblablement le composable d'origine,
-  abandonné quand l'étape a été réécrite en inlinant sa propre logique.
-- `mapping.api.js::getIntegrationProgress`/`getAllIntegrationProgress` — plus aucun appelant vivant
-  (seul appelant, `useSpaceMapping.js`, est mort).
-- `store/modules/weezeventLocations.js` — enregistré, quasi-mort (0 dispatch/getter consommé).
-- `SyncTrackerService.startSync/completeSync/failSync` — jamais appelés dans tout le backend (grep
-  exhaustif hors module Weezevent également) ; la classe reste injectée dans le cron et le
-  contrôleur mais ne sert plus qu'à une lecture (`getRunningSyncs`) qui retourne toujours vide.
-- `WeezeventSyncJob.status === 'INSERTING'` — testé dans `weezevent.controller.ts:1632`
+  importeur confirmé par grep (reconfirmé le 2026-07-20).
+- `src/components/integration/IntegrationProviderCard.vue` — **supprimé le 2026-07-20**. 0
+  importeur, ancien style visuel (dégradé violet) incohérent avec le rouge `#ff3131` du reste du
+  domaine vivant.
+- `src/components/integration/LocationListItem.vue` — **supprimé le 2026-07-20**. Mort par
+  transitivité (seul consommateur = `IntegrationProviderCard.vue`, lui-même mort).
+- `src/components/MenuMappingStep.vue` (racine, hors dossier `integration/`) — **supprimé le
+  2026-07-20**. 0 importeur, style Tailwind/shadcn incohérent avec le reste du domaine (Vuetify +
+  BEM `smi-*`/`sms-*`/`iw-*`) — ancêtre conceptuel mort de `StepMapMenuItems.vue`.
+- `src/composables/useSpaceMapping.js`, `useShopMapping.js`, `useMenuMapping.js` — **supprimés le
+  2026-07-20**. 0 importeur (reconfirmé). `useSpaceMapping.js` réimplémentait exactement la
+  logique de `StepMapSpace.vue` (même Levenshtein maison) — vraisemblablement le composable
+  d'origine, abandonné quand l'étape avait été réécrite en inlinant sa propre logique.
+- `mapping.api.js::getIntegrationProgress`/`getAllIntegrationProgress` — **supprimés le
+  2026-07-20**. Plus aucun appelant vivant depuis la suppression de `useSpaceMapping.js`
+  (son seul appelant).
+- `store/modules/weezeventLocations.js` et `store/modules/weezeventProducts.js` — **supprimés le
+  2026-07-20** (avec leur désenregistrement dans `store/index.js`). Les deux étaient enregistrés
+  mais quasi-morts (0 dispatch/getter consommé) — voir §"Stores Vuex" ci-dessus pour le détail sur
+  `weezeventProducts.js`, dont le statut avait été mal documenté avant cette passe.
+- `src/components/integration/wizard/dialogs/EnrichEventDialog.vue` — **supprimé le 2026-07-20**,
+  conséquence du fix de BUG-221 (suppression de l'onglet "Événements Weezevent" mort de
+  `StepProcessTimeline.vue`, son seul point de montage).
+- Cluster mort de `StepMapShops.vue` — **supprimé le 2026-07-20** : `headers`, `topMatchesMap`,
+  `findTopElementMatches`, `quickCreateSortedFloors`, `floorDialogFloorOptions`,
+  `floorOptionIconColor`, `_elementConfigMap`, CSS `.sms-match*`/`.sms-suggestion-pill*` — reliquat
+  d'une UI antérieure à colonne "score de match" jamais nettoyée.
+- Cluster mort de `StepMapMenuItems.vue` — **supprimé le 2026-07-20** : `headers`, `topMatchesMap`,
+  la formule `priceHt` divergente et jamais lue (le template utilise `productHt()`/`htFromTtc`
+  partagé). `menuItemMatching.js::findTopMatches` reste présent mais confirmé mort (0 appelant
+  après suppression de `topMatchesMap`) — pas supprimé du fichier partagé par prudence (utilisé par
+  d'autres domaines pour `findBestMatch`).
+- 60 clés i18n `di*` orphelines dans `src/i18n/translations.js` — **supprimées le 2026-07-20**
+  (en+fr), après vérification individuelle par grep. Deux faux positifs de l'audit initial
+  (`diConfigureSpace`, `diOrg`, réellement utilisées) ont été correctement conservées.
+- `SyncTrackerService.startSync/completeSync/failSync` (backend) — jamais appelés dans tout le
+  backend (grep exhaustif hors module Weezevent également) ; la classe reste injectée dans le cron
+  et le contrôleur mais ne sert plus qu'à une lecture (`getRunningSyncs`) qui retourne toujours
+  vide. Non touché par la passe du 2026-07-20 (frontend uniquement).
+- `WeezeventSyncJob.status === 'INSERTING'` (backend) — testé dans `weezevent.controller.ts:1632`
   (`DELETE sync/jobs/:jobId`) mais **jamais écrit** par aucun service trouvé (`collect-worker` passe
   par `COLLECTING`→`COMPLETED`/`FAILED`, `insert-worker` ne modifie que `WeezeventSyncChunk.status`,
   pas `WeezeventSyncJob.status`) — condition morte ou service tiers non localisé, à creuser si le
-  sujet est repris.
+  sujet est repris. Non touché par la passe du 2026-07-20 (frontend uniquement).
 
 ## Repasse du 2026-07-20 — audit ciblé du code frontend `/data-integration/fb`
 
@@ -761,13 +793,14 @@ i18n) consolidé dans
 [`docs/utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md`](../utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md).
 **Les 29 bugs ont ensuite été corrigés le jour même** (2ème vague de 5 agents, un par
 fichier/groupe de fichiers disjoint, sur la même branche `docs/audit-data-integration-fb`) — voir
-le `## Correction` de chaque fiche pour le détail exact. Non traité par cette repasse (hors scope
-"correction de bugs identifiés") : la dette technique du fichier ci-dessus (accessibilité, i18n
-mineur, duplication).
+le `## Correction` de chaque fiche pour le détail exact. **Puis, toujours le même jour, une 3ème
+vague de 6 agents a fermé la quasi-totalité de la dette technique** listée dans le document
+ci-dessus (accessibilité, i18n, duplication, code mort) — voir le bandeau "Mise à jour 2026-07-20"
+en tête de ce document pour la liste de ce qui a été corrigé vs. volontairement laissé en l'état.
 
 Un point de cette page a été corrigé au passage : le statut de `store/modules/weezeventProducts.js`
-(voir §"Stores Vuex" ci-dessus) — il était présenté comme consommé par Analyse/Predict, il est en
-réalité quasi-mort comme son voisin `weezeventLocations.js`.
+(voir §"Stores Vuex" ci-dessus) — il était présenté comme consommé par Analyse/Predict, il était en
+réalité quasi-mort comme son voisin `weezeventLocations.js` (les deux supprimés le 2026-07-20).
 
 ### Nouveaux bugs les plus significatifs (voir fiches pour le détail complet)
 
@@ -795,14 +828,15 @@ Liste complète des 29 bugs : `docs/bugs/00_INDEX.md` (numéros 193-221).
   timeline minute par minute avec export CSV (distincte de celle réellement utilisée dans
   `EventBreakdownDrawer`, conservée), et le traitement en masse (`handleProcessAll`/
   `processAllEvents`). Décision produit : suppression plutôt que réactivation. `EventBreakdownDrawer.vue`
-  reste le seul écran de timeline minute par minute du domaine ; `EnrichEventDialog.vue` reste sur
-  le disque (fichier non supprimé) mais n'est plus monté nulle part.
+  reste le seul écran de timeline minute par minute du domaine ; `EnrichEventDialog.vue`, devenu
+  sans importeur suite à cette suppression, a lui aussi été **supprimé** (même jour, lors de la
+  fermeture de dette technique qui a suivi).
 - **`StepMapShops.vue`** : cluster de code mort issu d'une UI antérieure à colonne "score de
   match" jamais nettoyée (`headers`, `topMatchesMap`, `findTopElementMatches`,
   `quickCreateSortedFloors`, `floorDialogFloorOptions`, `floorOptionIconColor`,
-  `_elementConfigMap`, CSS `.sms-match*`) — **toujours présent**, volontairement laissé hors scope
-  de la vague de correctifs du 2026-07-20 (qui portait uniquement sur les 4 bugs fonctionnels
-  BUG-208 à 211) ; détail dans le document de dette technique lié ci-dessus.
+  `_elementConfigMap`, CSS `.sms-match*`) — **supprimé le 2026-07-20** (fermeture de dette
+  technique, plus tard le même jour que les correctifs de bugs BUG-208 à 211) ; détail dans le
+  document de dette technique lié ci-dessus.
 - **`WizardSuccess.vue`/`IntegrationWizard.vue`** — **câblé** le 2026-07-20 en même temps que le
   fix de [BUG-201](../bugs/201_wizard_other_locations_configure_next_mort.md) : la fonctionnalité
   "configurer la prochaine location non mappée" (`otherLocations`/`configure-next`), déjà
