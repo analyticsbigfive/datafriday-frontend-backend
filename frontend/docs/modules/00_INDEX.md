@@ -33,6 +33,11 @@ préalable pour travailler sur le code.
 | [07_EVENEMENTS.md](07_EVENEMENTS.md) | Événements | Ulrich | 5 |
 | [08_AUTH_ONBOARDING.md](08_AUTH_ONBOARDING.md) | Auth & onboarding, RBAC | Emmanuel | 8 |
 | [09_TECHNIQUE.md](09_TECHNIQUE.md) | Technique (Orchestrator/Health/Audit/Webhooks) | — | 6 |
+| [10_LIVE.md](10_LIVE.md) 🔵 | Live events (**conception — à construire**) | Ulrich (back) / Jean-Luc (front) | — |
+
+> 🔵 **Exception** : `10_LIVE.md` est une **conception d'un module à construire**, pas une
+> cartographie vérifiée contre le code (le code n'existe pas encore). Elle passera au format vérifié
+> une fois le module livré. Toutes les autres pages décrivent du code réel.
 
 **~61 bugs/gaps actifs confirmés au total**, chacun avec sa citation `fichier:ligne` — voir la
 section "Bugs actifs confirmés" de chaque page. **Ce n'est volontairement pas dupliqué ici** (la
