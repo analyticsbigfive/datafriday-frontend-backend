@@ -110,6 +110,12 @@ export interface SystemRoleDefinition {
   permissions: string[];
 }
 
+// ⚠️ BUG-038 — Ajouter une permission par défaut à un rôle métier ci-dessous ne la propage PAS
+// aux tenants DÉJÀ créés : `cloneSystemRolesForTenant` ne pose les permissions qu'à la CRÉATION du
+// rôle (pour préserver les personnalisations admin ; le resync aveugle est volontairement évité).
+// Pour propager un nouveau code aux tenants existants : l'ajouter à `ADDITIVE_ROLE_GRANTS` dans
+// `prisma/backfill-rbac.ts` (additif, ne retire jamais rien) PUIS lancer `npm run rbac:backfill`.
+// Détail : `docs/bugs/38_clonage_role_sans_resync_permissions.md`.
 export const SYSTEM_ROLES: SystemRoleDefinition[] = [
   {
     systemKey: UserRole.ADMIN,
