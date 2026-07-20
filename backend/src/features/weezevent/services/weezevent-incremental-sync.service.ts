@@ -851,7 +851,7 @@ export class WeezeventIncrementalSyncService {
                     const qty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 1), 0) || 1;
                     itemsToInsert.push({
                         transactionId: tx.id,
-                        weezeventItemId: row.id?.toString() ?? null,
+                        externalItemId: row.id?.toString() ?? null,
                         productId: resolvedProductId,
                         productName: row.item_name ?? null,
                         compoundId: null,

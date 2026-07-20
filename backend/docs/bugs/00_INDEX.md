@@ -116,6 +116,20 @@
 | [102](102_simulatesale_pollution_reset_race.md) | `simulateSale` visible dans les analytics ; fenêtre de course du `reset` | ⚪ Diagnostiqué | 🟡 | Stock |
 | [103](103_event_timeline_articles_vides_jointure_mapping.md) | `event-timeline` : item-level vide (0 article) malgré CA shop-level — INNER JOIN mapping trop strict | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation |
 | [104](104_weezevent_sync_job_organizationid_manquant.md) | Sync par job Weezevent échoue systématiquement (`organizationId manquant`, lu au mauvais endroit) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+
+**105 bugs au total**, 105 ajouté et corrigé le 2026-07-20, découvert en creusant BUG-104 : une fois
+l'`organizationId` corrigé, le job de sync par job restait bloqué à "0 inséré" pour toujours. Preuve
+en base (requête directe, les logs applicatifs de ce service n'apparaissant pas dans la sortie
+consultée) : les transactions s'inséraient bien (1 824 lignes) mais leurs lignes de détail
+(`WeezeventTransactionItem`) jamais — `weezeventItemId` (nom de colonne SQL) utilisé au lieu
+d'`externalItemId` (nom du champ Prisma) dans les deux services d'insertion (sync par lot ET sync
+temps réel webhook), présent depuis le tout premier commit suivi de ce repo. Aucune purge
+nécessaire : le pipeline "backfill" déjà en place comble les items manquants des transactions
+existantes dès la prochaine sync. Colonne `WeezeventSyncChunk.errorMessage` ajoutée au passage
+(ajout surgical via `ALTER TABLE`, `prisma migrate dev`/`db push` bloqués par un drift de schéma
+préexistant sans rapport — voir la fiche pour le détail) pour diagnostiquer un futur échec de chunk
+sans dépendre des logs serveur.
 
 **104 bugs au total**, 104 ajouté et corrigé le 2026-07-20, découvert en test manuel dans le
 navigateur pendant la validation de l'audit `/data-integration/fb` (voir le pendant frontend

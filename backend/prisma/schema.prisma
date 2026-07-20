@@ -1417,14 +1417,15 @@ model WeezeventSyncJob {
 }
 
 model WeezeventSyncChunk {
-  id        String   @id @default(cuid())
-  jobId     String
-  fromDate  DateTime
-  toDate    DateTime
-  status    String   @default("PENDING") // PENDING | PROCESSING | DONE | FAILED
-  itemCount Int      @default(0)
-  rawData   Json
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  jobId        String
+  fromDate     DateTime
+  toDate       DateTime
+  status       String   @default("PENDING") // PENDING | PROCESSING | DONE | FAILED
+  itemCount    Int      @default(0)
+  errorMessage String?
+  rawData      Json
+  createdAt    DateTime @default(now())
 
   job WeezeventSyncJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
