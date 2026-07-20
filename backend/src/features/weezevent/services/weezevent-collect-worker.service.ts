@@ -29,11 +29,11 @@ export class WeezeventCollectWorkerService {
             const job = await this.prisma.weezeventSyncJob.update({
                 where: { id: jobId },
                 data: { status: 'COLLECTING' },
-                include: { integration: true },
+                include: { integration: { include: { weezevent: true } } },
             });
 
             const tenantId = job.tenantId;
-            const organizationId = (job as any).integration.organizationId as string | null;
+            const organizationId = job.integration.weezevent?.organizationId ?? null;
 
             if (!organizationId) {
                 throw new Error(`organizationId manquant pour l'intégration ${job.integrationId}`);
@@ -75,6 +75,18 @@ export class WeezeventCollectWorkerService {
         fromIso: string,
         toIso: string,
     ): Promise<void> {
+        // Annulation manuelle (PATCH sync/jobs/:jobId/cancel) : on arrête la bissection au
+        // prochain nœud de récursion plutôt que de continuer à consommer l'API Weezevent
+        // pour un job dont l'utilisateur ne veut plus attendre le résultat.
+        const current = await this.prisma.weezeventSyncJob.findUnique({
+            where: { id: jobId },
+            select: { status: true },
+        });
+        if (current?.status === 'CANCELLED') {
+            this.logger.log(`[fetchChunk] Job ${jobId} annulé — arrêt de la bissection.`);
+            return;
+        }
+
         const result = await this.weezeventClient.getTransactions(tenantId, organizationId, {
             fromDate: new Date(fromIso),
             toDate: new Date(toIso),

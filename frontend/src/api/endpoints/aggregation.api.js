@@ -400,6 +400,18 @@ export async function deleteWeezeventSyncJob(jobId) {
   }
 }
 
+// Annule un job de sync en conservant son historique (contrairement à deleteWeezeventSyncJob,
+// qui supprime la fiche) — le job passe au statut CANCELLED avec un errorMessage explicite.
+export async function cancelWeezeventSyncJob(jobId) {
+  try {
+    const response = await api.patch(`/weezevent/sync/jobs/${jobId}/cancel`)
+    return response.data
+  } catch (error) {
+    console.error('[AGGREGATION API] Error cancelling sync job:', error)
+    throw error
+  }
+}
+
 export async function getWeezeventJobStats(jobId) {
   try {
     const response = await api.get(`/weezevent/sync/jobs/${jobId}/stats`)

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Prisma } from '@prisma/client';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
@@ -1556,6 +1556,7 @@ export class WeezeventController {
                 totalInserted: true,
                 startedAt: true,
                 completedAt: true,
+                errorMessage: true,
             },
         });
         return { data: jobs };
@@ -1613,6 +1614,48 @@ export class WeezeventController {
             locations: locationGroups.length,
             products: productGroups.length,
         };
+    }
+
+    /**
+     * Annule un job de sync bloqué/en cours SANS supprimer son historique — contrairement à
+     * DELETE sync/jobs/:jobId (suppression définitive de la fiche). Marque le job CANCELLED ;
+     * les workers (collect/insert) vérifient ce statut et s'arrêtent au prochain cycle plutôt
+     * que d'être tués immédiatement (cf. WeezeventCollectWorkerService/WeezeventInsertWorkerService).
+     */
+    @RequirePermissions('menu.integration.fb')
+    @Patch('sync/jobs/:jobId/cancel')
+    @ApiOperation({ summary: 'Annuler un job de sync en conservant son historique' })
+    @ApiParam({ name: 'jobId', description: 'ID du job à annuler' })
+    @ApiResponse({ status: 200, description: 'Job annulé' })
+    async cancelSyncJob(
+        @CurrentUser() user: any,
+        @Param('jobId') jobId: string,
+    ) {
+        const tenantId = user.tenantId;
+
+        const job = await this.prisma.weezeventSyncJob.findFirst({
+            where: { id: jobId, tenantId },
+            select: { id: true, status: true },
+        });
+
+        if (!job) {
+            throw new NotFoundException(`Job de sync ${jobId} introuvable.`);
+        }
+
+        if (job.status === 'COMPLETED' || job.status === 'FAILED' || job.status === 'CANCELLED') {
+            throw new BadRequestException(`Impossible d'annuler un job déjà terminé (status: ${job.status}).`);
+        }
+
+        await this.prisma.weezeventSyncJob.update({
+            where: { id: jobId },
+            data: {
+                status: 'CANCELLED',
+                errorMessage: 'Synchronisation annulée manuellement.',
+                completedAt: new Date(),
+            },
+        });
+
+        return { cancelled: true, jobId };
     }
 
     /**

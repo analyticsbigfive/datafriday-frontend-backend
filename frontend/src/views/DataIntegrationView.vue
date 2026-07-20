@@ -165,35 +165,25 @@
                 {{ syncingMap[integration.id] ? t('diSyncing') : t('diSyncImport') }}
               </button>
 
-              <!-- Import de l'historique N-1 : préremplit une fenêtre de 12 mois
-                   avant la plus ancienne donnée connue puis lance le job borné.
-                   Débloque les comparaisons N-1 de la page Analyse (gap G9). -->
-              <button
-                class="sync-btn sync-btn--history"
-                :disabled="syncingMap[integration.id]"
-                @click="importPreviousYear(integration)"
-              >
-                <v-icon size="15" class="mr-2">mdi-history</v-icon>
-                {{ t('diImportHistory') }}
-              </button>
-
               <!-- Historique des syncs -->
-              <div v-if="syncJobsMap[integration.id] && syncJobsMap[integration.id].length" class="sync-history">
-                <p class="card-section-label" style="margin-bottom:8px;">{{ t('diSyncHistory') }}</p>
+              <template v-if="syncJobsMap[integration.id] && syncJobsMap[integration.id].length">
+                <p class="card-section-label" style="margin-top: 20px; margin-bottom:8px;">{{ t('diSyncHistory') }}</p>
+                <div class="sync-history">
                 <div
                   v-for="job in syncJobsMap[integration.id].slice(0, 5)"
                   :key="job.id"
                 >
                   <div
                     class="sync-history-item"
-                    @click="toggleJobStats(job.id)"
+                    @click="toggleJobStats(job.id, job)"
                   >
                     <span
                       class="sync-status-dot"
                       :class="{
                         'sync-status-dot--success': job.status === 'COMPLETED',
                         'sync-status-dot--error': job.status === 'FAILED',
-                        'sync-status-dot--warning': job.status !== 'COMPLETED' && job.status !== 'FAILED',
+                        'sync-status-dot--cancelled': job.status === 'CANCELLED',
+                        'sync-status-dot--warning': isJobActive(job),
                       }"
                     />
                     <span class="sync-history-range">
@@ -212,19 +202,26 @@
                       icon
                       size="x-small"
                       variant="text"
-                      color="error"
-                      class="ml-1"
-                      :loading="deletingJobId === job.id"
-                      :aria-label="t('diDeleteSyncJob')"
-                      @click.stop="deleteSyncJob(integration.id, job.id)"
+                      color="#ff3131"
+                      class="ml-1 sync-history-item__action"
+                      :loading="deletingJobId === job.id || cancellingJobId === job.id"
+                      :aria-label="isJobActive(job) ? t('diCancelStuckSync') : t('diDeleteSyncJob')"
+                      @click.stop="isJobActive(job) ? cancelSyncJob(integration.id, job.id) : deleteSyncJob(integration.id, job.id)"
                     >
-                      <v-icon size="13">mdi-delete-outline</v-icon>
+                      <v-tooltip activator="parent" location="top">
+                        {{ isJobActive(job) ? t('diCancelStuckSync') : t('diDeleteSyncJob') }}
+                      </v-tooltip>
+                      <v-icon size="13">{{ isJobActive(job) ? 'mdi-close-circle-outline' : 'mdi-delete-outline' }}</v-icon>
                     </v-btn>
                   </div>
 
                   <!-- Panel stats détaillées -->
                   <div v-if="expandedJobId === job.id" class="sync-job-stats">
                     <v-progress-linear v-if="loadingStatsJobId === job.id" indeterminate height="2" color="primary" class="mb-2" />
+                    <div v-if="(job.status === 'FAILED' || job.status === 'CANCELLED') && job.errorMessage" class="cd-banner" :class="job.status === 'CANCELLED' ? 'cd-banner--neutral' : 'cd-banner--error'">
+                      <v-icon size="14" class="mr-1">{{ job.status === 'CANCELLED' ? 'mdi-cancel' : 'mdi-alert-circle-outline' }}</v-icon>
+                      <span>{{ job.errorMessage }}</span>
+                    </div>
                     <template v-else-if="jobStatsMap[job.id]">
                       <div class="sync-job-stats-grid">
                         <div class="sync-job-stat-item">
@@ -248,6 +245,7 @@
                   </div>
                 </div>
               </div>
+              </template>
               </template>
 
               <div class="card-divider" />
@@ -639,7 +637,7 @@
             {{ t('cancel') }}
           </v-btn>
           <v-btn
-            color="error"
+            color="#ff3131"
             variant="flat"
             :loading="removing"
             :disabled="isIntegrationSyncing(removeDialogIntegration)"
@@ -815,6 +813,7 @@ import {
   startWeezeventSyncJob,
   listWeezeventSyncJobs,
   deleteWeezeventSyncJob,
+  cancelWeezeventSyncJob,
   getWeezeventJobStats,
   listDigifoodInstances,
   createDigifoodInstance,
@@ -925,6 +924,7 @@ export default {
       // Historique des jobs par intégration
       syncJobsMap: {},
       deletingJobId: null,
+      cancellingJobId: null,
       expandedJobId: null,
       jobStatsMap: {},
       loadingStatsJobId: null,
@@ -1384,7 +1384,7 @@ export default {
       if (!integration) return false
       if (this.syncingMap[integration.id]) return true
       const jobs = this.syncJobsMap[integration.id] || []
-      return jobs.some(job => job.status !== 'COMPLETED' && job.status !== 'FAILED')
+      return jobs.some(job => this.isJobActive(job))
     },
 
     handleRemoveIntegration(id) {
@@ -1654,6 +1654,12 @@ export default {
       }
     },
 
+    // Un job "actif" (ni terminé, ni échoué, ni annulé) bloque isIntegrationSyncing() et
+    // affiche le bouton "annuler" (conserve l'historique) plutôt que "supprimer" (le retire).
+    isJobActive(job) {
+      return job.status !== 'COMPLETED' && job.status !== 'FAILED' && job.status !== 'CANCELLED'
+    },
+
     async deleteSyncJob(integrationId, jobId) {
       if (this.deletingJobId) return
       this.deletingJobId = jobId
@@ -1668,12 +1674,30 @@ export default {
       }
     },
 
-    async toggleJobStats(jobId) {
+    // Annule un job bloqué en conservant sa ligne d'historique (status → CANCELLED),
+    // contrairement à deleteSyncJob qui supprime la fiche.
+    async cancelSyncJob(integrationId, jobId) {
+      if (this.cancellingJobId) return
+      this.cancellingJobId = jobId
+      try {
+        await cancelWeezeventSyncJob(jobId)
+        await this.loadSyncJobsFor(integrationId)
+      } catch (err) {
+        console.error('[DataIntegrationView] cancelSyncJob error:', err)
+      } finally {
+        this.cancellingJobId = null
+      }
+    },
+
+    async toggleJobStats(jobId, job) {
       if (this.expandedJobId === jobId) {
         this.expandedJobId = null
         return
       }
       this.expandedJobId = jobId
+      // Un job FAILED/CANCELLED avec un message affiche ce message plutôt que les stats
+      // (voir template) — inutile d'appeler l'API de stats dans ce cas.
+      if ((job?.status === 'FAILED' || job?.status === 'CANCELLED') && job?.errorMessage) return
       if (this.jobStatsMap[jobId]) return
       this.loadingStatsJobId = jobId
       try {
@@ -1726,30 +1750,6 @@ export default {
         delete sm[integration.id]
         this.syncingMap = sm
       }
-    },
-
-    // Import de l'historique N-1 : fenêtre de 12 mois se terminant à la plus
-    // ancienne donnée déjà synchronisée (repli : il y a 12 mois), préremplie dans
-    // les pickers puis job borné lancé. Débloque les comparaisons N-1 d'Analyse
-    // (gap G9 — pas de données passées en base tant qu'on ne les importe pas).
-    async importPreviousYear(integration) {
-      if (!integration) return
-      let oldest = null
-      try {
-        const status = await getWeezeventSyncStatus(integration.id)
-        oldest =
-          status?.transactions?.firstTransactionDate ||
-          status?.firstTransactionDate ||
-          null
-      } catch (_) { /* non bloquant : repli fixe */ }
-      const end = oldest ? new Date(oldest) : new Date(Date.now() - 365 * 864e5)
-      if (isNaN(end)) end.setTime(Date.now() - 365 * 864e5)
-      const start = new Date(end)
-      start.setFullYear(start.getFullYear() - 1)
-      const iso = (d) => d.toISOString().slice(0, 10)
-      this.syncFromDates = { ...this.syncFromDates, [integration.id]: iso(start) }
-      this.syncToDates = { ...this.syncToDates, [integration.id]: iso(end) }
-      await this.handleSyncJob(integration, iso(start), iso(end))
     },
 
     onSyncProgressDone() {
@@ -2186,10 +2186,10 @@ export default {
 .sync-history-item {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   font-size: 12px;
   color: #374151;
-  padding: 6px 10px;
+  padding: 10px 14px;
   border-bottom: 1px solid #f3f4f6;
   cursor: pointer;
   background: white;
@@ -2202,7 +2202,7 @@ export default {
   background: #fafafa;
 }
 .sync-history-item :deep(.v-btn) {
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 0.15s;
   flex-shrink: 0;
 }
@@ -2215,9 +2215,10 @@ export default {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.sync-status-dot--success { background: #22c55e; }
-.sync-status-dot--error   { background: #ff3131; }
-.sync-status-dot--warning { background: #f59e0b; }
+.sync-status-dot--success   { background: #22c55e; }
+.sync-status-dot--error     { background: #ff3131; }
+.sync-status-dot--warning   { background: #f59e0b; }
+.sync-status-dot--cancelled { background: #9ca3af; }
 .sync-history-range {
   flex: 1;
   color: #374151;
@@ -2239,13 +2240,13 @@ export default {
   text-align: right;
 }
 .sync-job-stats {
-  padding: 6px 4px 4px;
+  padding: 10px 14px 12px;
   border-bottom: 1px solid #e5e7eb;
 }
 .sync-job-stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  gap: 8px;
 }
 .sync-job-stat-item {
   display: flex;
@@ -2592,6 +2593,11 @@ export default {
   border: 1.5px solid #86efac;
   color: #15803d;
 }
+.cd-banner--neutral {
+  background: #f9fafb;
+  border: 1.5px solid #e5e7eb;
+  color: #6b7280;
+}
 .cd-banner__close {
   margin-left: auto;
   background: none;
@@ -2679,6 +2685,11 @@ export default {
   background: rgba(22,163,74,0.12);
   border-color: rgba(134,239,172,0.3);
   color: #4ade80;
+}
+.di--dark .cd-banner--neutral {
+  background: rgba(156,163,175,0.12);
+  border-color: rgba(156,163,175,0.3);
+  color: #9ca3af;
 }
 .di--dark .cd-btn--ghost {
   border-color: #374151;

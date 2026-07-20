@@ -41,7 +41,7 @@ export class WeezeventInsertWorkerService {
                     select: { collectDone: true, totalChunks: true, processedChunks: true, status: true },
                 });
 
-                if (!job || job.status === 'FAILED') break;
+                if (!job || job.status === 'FAILED' || job.status === 'CANCELLED') break;
 
                 if (job.collectDone && job.processedChunks >= job.totalChunks) {
                     await this.prisma.weezeventSyncJob.update({

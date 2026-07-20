@@ -1397,7 +1397,7 @@ model WeezeventSyncJob {
   integrationId String
   fromDate      DateTime
   toDate        DateTime
-  status        String   @default("PENDING") // PENDING | COLLECTING | COMPLETED | FAILED
+  status        String   @default("PENDING") // PENDING | COLLECTING | INSERTING | COMPLETED | FAILED | CANCELLED
 
   totalCollected  Int     @default(0)
   totalInserted   Int     @default(0)

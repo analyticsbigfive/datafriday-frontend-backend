@@ -1399,6 +1399,7 @@ export const translations = {
     diShowSecret: 'Show secret',
     diHideSecret: 'Hide secret',
     diDeleteSyncJob: 'Delete this sync',
+    diCancelStuckSync: 'Cancel this stuck synchronization',
     diSyncGenericError: 'Synchronization error',
     diSyncCancelled: 'Sync cancelled',
     diSyncServerTooLong: 'Server sync taking too long ({s}s) — check backend logs',
@@ -1514,7 +1515,6 @@ export const translations = {
     anItemTimelineLoadError: 'Item-level sales could not be loaded — article views may be empty. Reload the page to retry.',
     anRetry: 'Retry',
     anNoComparisonData: 'No comparison data for this period',
-    diImportHistory: 'Import history (N-1)',
     anOpenMenuItem: 'Open the menu item (verify mapping)',
 
     // Analyse module
@@ -5120,6 +5120,7 @@ export const translations = {
     diShowSecret: 'Afficher le secret',
     diHideSecret: 'Masquer le secret',
     diDeleteSyncJob: 'Supprimer cette synchronisation',
+    diCancelStuckSync: 'Annuler cette synchronisation bloquée',
     diSyncGenericError: 'Erreur de synchronisation',
     diSyncCancelled: 'Sync annulé',
     diSyncServerTooLong: 'Sync serveur trop longue ({s}s) — vérifiez les logs backend',
@@ -5235,7 +5236,6 @@ export const translations = {
     anItemTimelineLoadError: "Les ventes par article n'ont pas pu être chargées — les vues articles peuvent être vides. Rechargez la page pour réessayer.",
     anRetry: 'Réessayer',
     anNoComparisonData: 'Pas de données N-1 / période précédente sur la période',
-    diImportHistory: "Importer l'historique (N-1)",
     anOpenMenuItem: "Ouvrir l'article (vérifier le mapping)",
 
     // Module Analyse

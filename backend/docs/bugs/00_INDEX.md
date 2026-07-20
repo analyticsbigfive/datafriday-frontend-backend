@@ -115,6 +115,16 @@
 | [101](101_stocklevel_elementid_sans_fk.md) | `StockLevel.elementId` sans FK : niveaux orphelins, workarounds en lecture | ⚪ Diagnostiqué | 🟡 | Stock |
 | [102](102_simulatesale_pollution_reset_race.md) | `simulateSale` visible dans les analytics ; fenêtre de course du `reset` | ⚪ Diagnostiqué | 🟡 | Stock |
 | [103](103_event_timeline_articles_vides_jointure_mapping.md) | `event-timeline` : item-level vide (0 article) malgré CA shop-level — INNER JOIN mapping trop strict | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation |
+| [104](104_weezevent_sync_job_organizationid_manquant.md) | Sync par job Weezevent échoue systématiquement (`organizationId manquant`, lu au mauvais endroit) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+
+**104 bugs au total**, 104 ajouté et corrigé le 2026-07-20, découvert en test manuel dans le
+navigateur pendant la validation de l'audit `/data-integration/fb` (voir le pendant frontend
+[`datafriday-web/docs/bugs/193-221`](../../../datafriday-web/docs/bugs/00_INDEX.md)) : le moteur de
+sync par job (bissection) lisait `organizationId` directement sur `Integration` via un cast
+`(job as any)`, alors que ce champ a été déplacé sur `WeezeventIntegrationConfig` lors d'une
+migration de schéma antérieure — échec à 100% de toute sync avec dates renseignées, sur toutes les
+intégrations, indépendamment de leur configuration. Le mécanisme legacy (sync sans dates) n'était
+pas affecté.
 
 **103 bugs au total.** 78-88 ajoutés le 2026-07-19 suite à un audit complet de la section
 "Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component
