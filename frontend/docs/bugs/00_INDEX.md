@@ -170,6 +170,159 @@
 | [154](154_eventslistview_deeplink_editeventid_casse_keepalive.md) | `EventsListView.vue` : deep-link `?editEventId=` cassé par `keep-alive` après la première visite | 🟢 Corrigé | 🟠 | Événements |
 | [155](155_events_domaine_popups_v_dialog_remplaces_par_tiroirs.md) | Domaine Événements : popups `v-dialog` remplacés par des tiroirs (cohérence charte graphique) | 🟢 Corrigé | 🟡 | Événements |
 | [156](156_taxonomydetaildrawer_i18n_texte_en_dur.md) | `TaxonomyDetailDrawer.vue` : texte en dur (FR), i18n non branché + 3 boutons "Enregistrement…" en dur | 🟢 Corrigé | 🟡 | Événements |
+| [157](157_events_domaine_loading_tableaux_noir_et_navigation_event_lie_retiree.md) | Domaine Événements : loading des `v-data-table` en noir (au lieu du rouge de marque) + navigation "événement lié" retirée (non fiable) | 🟢 Corrigé (partiel) | 🟡 | Événements |
+| [158](158_eventformdrawer_createteam_bouton_color_primary_vire_violet_en_dark.md) | `EventFormDrawer.vue` : bouton "Créer" (équipe inline) en `color="primary"` — vire violet en dark mode au lieu du rouge de marque | 🟢 Corrigé | 🟢 | Événements |
+| [159](159_producttype_optimistic_write_objet_partiel.md) | `ProductType` : écriture Vuex optimiste avec objet partiel écrase `categories`/`createdAt` après édition | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [160](160_brand_displayname_optimistic_write_objet_partiel.md) | `Brand`/`DisplayName` : écriture Vuex optimiste avec objet partiel après édition | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
+| [161](161_good_component_categories_derivees_endpoint_types.md) | Good/Component Categories : dérivées de l'endpoint Types au lieu de leur propre endpoint dédié | 🟢 Corrigé | 🟡 | Achats & référentiels / Menu & recettes (Configurations) |
+| [162](162_marketprice_selectedtype_category_resolu_par_nom.md) | MarketPrice : `selectedTypeId`/`selectedCategoryId` résolus par nom, pas par la FK chargée | 🟢 Corrigé | 🟡 | Achats & référentiels (Configurations) |
+| [163](163_good_component_cross_invalidation_absente.md) | Good/Component Types↔Categories : pas d'invalidation croisée de cache, actions `invalidate` mortes | 🟢 Corrigé | 🟡 | Achats & référentiels / Menu & recettes (Configurations) |
+| [164](164_menuapi_code_mort_routes_inexistantes.md) | `menu.api.js` : code mort pointant vers des routes backend inexistantes (`/categories`, `/types`) | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
+| [165](165_referentiels_plats_duplication_non_factorisee.md) | Référentiels plats (Brand/Display/Industrial/PackingType) : duplication quasi totale, jamais factorisée | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [166](166_taxonomies_configurations_i18n_texte_en_dur.md) | Taxonomies Configurations : chaînes FR/EN codées en dur dans les drawers/dialogs (10 écrans) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [167](167_nav_configurations_fr_non_traduit.md) | Sidebar Configurations : 4 libellés jamais traduits en français (texte anglais copié-collé) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [168](168_productcategorylist_force_refresh_cache_ttl_contourne.md) | `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
+| [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [170](170_delete_bloque_sans_moyen_de_trouver_les_dependants.md) | Suppression bloquée (BUG-79/81/82) sans moyen de retrouver les lignes dépendantes | 🟢 Corrigé | 🟠 | Menu & recettes / Achats & référentiels (Configurations) |
+| [171](171_configurations_pagination_recherche_server_side.md) | Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [172](172_chaine_analyse_api_morte_supprimee.md) | Chaîne `/analyse/*` entièrement morte (action jamais dispatchée, buckets jamais lus) — supprimée | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [173](173_timeline_batch_inflight_empoisonne_sur_rejet.md) | `getSpaceEventTimelineBatch` : in-flight jamais nettoyé sur échec → erreurs permanentes | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [174](174_loadspace_sans_cache_first.md) | `/analyse` : chaque re-mount re-payait la phase 1 (pas de cache-first 15 min) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [175](175_fetchallmenucomponents_pagination_sequentielle.md) | `fetchAllMenuComponents` : pagination page-à-page séquentielle | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [176](176_phase2_endpoints_unscoped_tradeoff.md) | Phase 2 : endpoints tenant-wide non scopés (tradeoff délibéré documenté) | ⚫ Won't fix | 🟡 | Analyse & agrégation |
+| [177](177_hydration_recettes_n1_background.md) | Hydration recettes : N fetchs détail `/menu-components/:id` en phase 2 | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [178](178_double_cache_timeline.md) | Trois couches de cache timeline indépendantes (store / module API / predict) | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [179](179_getters_analyse_lourds.md) | Getters analyse : ré-itération des tableaux complets à chaque changement de filtre | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [180](180_predict_timeline_single_vers_batch.md) | (miroir) Moteur predict : N GET single event-timeline → batch adopté — canonique back 10 | 🟢 Corrigé | 🟠 | Prévision |
+| [181](181_cascade_duplication_versions_predict.md) | Cascade historique de versions dupliquées, tenue par des workarounds fragiles | ⚪ Diagnostiqué | 🟠 | Prévision |
+| [182](182_scoring_predict_client_3_8s.md) | Scoring predict client-side 3-8s : incompatible < 300ms (limitation documentée) | ⚪ Diagnostiqué | 🟢 | Prévision |
+| [183](183_double_persistance_comptages.md) | Inventaire : chaque comptage écrit deux fois (POST par item + snapshot blob) | ⚪ Diagnostiqué | 🟡 | Stock |
+| [184](184_nettoyages_stock_analyse.md) | Nettoyages : actions Vuex dupliquées (inventory), précédence non parenthésée (revenue) | 🟢 Corrigé | 🟢 | Stock / Analyse |
+| [185](185_inventaire_adopte_batch_shop_items.md) | (miroir) Space Inventory : adoption du batch shop-items, fin du N+1 — canonique back 96 | 🟢 Corrigé | 🟠 | Stock |
+| [186](186_predict_snapshot_brouillon_date_perimee_calendrier.md) | EventPredict : date périmée du snapshot/brouillon écrase la canonique → event disparu du calendrier | 🟢 Corrigé | 🟠 | Prévision |
+| [187](187_analyse_articles_echec_event_timeline_silencieux.md) | Analyse : échec du batch event-timeline avalé → « Aucun article disponible » trompeur — miroir cause back 103 | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [188](188_stockup_explosion_ignore_comboitem.md) | Stock up : explosion recette ignore `comboItem` (seul `readyForSale` décide) — règle métier → Bertrand #18 | ⚪ Diagnostiqué | 🟠 | Prévision |
+| [189](189_analyse_futureeventscount_double_implementation.md) | Analyse : `futureEventsCount` en double — getter store mort (`>`) supprimé, computed vivant (`>=`) conservé | 🟢 Corrigé | 🟢 | Analyse & agrégation |
+
+**189 bugs au total.** 172-189 ajoutés le 2026-07-18 sur `feat/analyse` (numérotés à l'origine
+149-166 sur cette branche ; renumérotés 172-189 au merge du 2026-07-20 dans `develop` pour éviter la
+collision avec 149-171 ci-dessus, ajoutés en parallèle sur `develop` le 2026-07-19). Trois fiches
+supplémentaires de `feat/analyse` (initialement 167-169 sur cette branche, elles-mêmes déjà
+renumérotées depuis 149-151 lors d'un merge interne antérieur) étaient des doublons strictement
+identiques aux fiches 149-151 ci-dessus (même bug, même correctif) — supprimées au merge, 149-151
+restent la version canonique. Audit croisé /analyse + Event Predict + Stock
+(inventory/logistics/restock), mené avec le backend (fiches 89-102) et un objectif de performance
+« contenu initial des vues < 300ms ». Découverte structurante : toute la chaîne `/analyse/*` du
+front (action `loadSpaceLightweight`, 4 buckets d'état, `analyse.api.js`, mock 39KB) était MORTE —
+jamais dispatchée, jamais lue — et a été supprimée (172) ; le vrai chemin est `loadSpace →
+useSpaceData` two-phase, qui reçoit : cache-first 15 min stale-while-revalidate au re-mount (174),
+pagination composants parallélisée (175), et côté backend le cache Redis de la RPC shop-details
+(~300ms économisés, back 92). Deux N+1 majeurs éteints par adoption de batchs existants : le moteur
+predict passe au batch event-timeline (180, avec fix préalable de l'empoisonnement in-flight du
+batch sur rejet — 173) et Space Inventory au batch shop-items enrichi (185) — soldant le BUG-010
+backend. Predict : `manualQuantities` enfin envoyé (fiche 08 → 🟢, le backend était prêt depuis le
+début). Restock : alerte explicite sur 403 + envoi de `stockExcluded`/`currentStep` (fiche 19 mise à
+jour ; le choix de permissions backend reste à Bertrand). Laissés volontairement en ⚪/⚫ après
+diagnostic : le tradeoff phase-2 unscoped (176, annoté en code — ne pas « re-scoper » sans lever les
+gotchas), l'hydration N+1 des recettes (177, en arrière-plan, vrai fix côté backend), la triple
+couche de cache timeline (178), les getters lourds (179, plan de fix par index `Map` posé), la
+cascade de duplication des versions predict (181, bloquée par le nettoyage des doublons prod) et la
+double persistance des comptages (183, décision d'architecture → `QUESTIONS_A_BERTRAND.md`). État de
+la suite unit après session : 397/401 verts — les 4 échecs restants (suites `apiOrMock.spec.js`
+[teste le fallback mock supprimé], `spaceMenusInventory.spec.js`, `eventDetailsEditor.spec.js`) sont
+PRÉEXISTANTS, vérifiés identiques à HEAD avant toute modification de cette session ; corrigé au
+passage un unhandledRejection réel dans le batch timeline (promesses dérivées sans handler) révélé
+par la nouvelle spec `spaceApiTimelineBatch.spec.js`.
+
+**171 bugs au total**, 171 ajouté et corrigé le 2026-07-19, même session, suite à un nouveau retour
+utilisateur sur le fix BUG-169 : la pagination bornée évitait bien la requête non bornée, mais les
+10 écrans de liste téléchargeaient quand même la totalité des données pour n'en afficher que 10 via
+la pagination client Vuetify. Basculé en pagination + recherche réelles côté serveur, en 4 chantiers
+parallèles (Product, Component, MarketPrice, référentiels plats — ce dernier réduit à un seul point
+de changement grâce à BUG-165), tous copiant le pattern déjà en production pour `/menu-items`
+(`MenuItemView.vue`/`getMenuItemsPage`). Le mécanisme "liste complète" utilisé par les dropdowns
+ailleurs dans l'app (formulaires de création, wizards CSV) a été délibérément laissé intact et
+découplé de ce nouveau mécanisme, pour ne rien casser. Non testé en navigateur (pas de `pnpm dev`
+cette session).
+
+**170 bugs au total**, 170 ajouté et corrigé le 2026-07-19 suite à un retour utilisateur en test
+live : les gardes de suppression de BUG-79/81/82 bloquaient correctement la suppression d'une
+taxonomie encore référencée, mais sans aucun moyen de retrouver les lignes bloquantes parmi
+potentiellement des milliers. Les 6 `ConflictException` backend concernées portent maintenant un
+payload structuré (`blockedBy`/`filterField`/`filterValue`), et les 6 écrans de suppression
+affichent un lien direct vers l'écran cible déjà filtré (`/menu-items`, `/components`,
+`/market-prices` lisent désormais `?type=`/`?category=` au montage). Non testé en navigateur (pas
+de `pnpm dev` cette session).
+
+**169 bugs au total**, 159-169 ajoutés le 2026-07-19 suite à un audit complet de la section
+"Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component
+Types/Categories, Brand Names, Display Names, Industrials, Packing Types), en miroir de l'audit
+backend (BUG-78 à 88, voir `api-datafriday-staging/docs/bugs/00_INDEX.md`). Motifs récurrents :
+écritures Vuex optimistes avec objet partiel écrasant des champs (BUG-159/160, même famille que
+BUG-149 déjà corrigé pour Events, jamais porté sur les taxonomies Menu/Configurations) ; deux des
+trois paires Type/Category (Good, Component) dérivent leurs Categories de l'endpoint Types au lieu
+d'appeler leur propre endpoint dédié pourtant implémenté côté backend, avec pour conséquence une
+absence d'invalidation croisée de cache (BUG-161/163) ; résolution de FK par correspondance de nom
+plutôt que par l'id chargé, même famille que BUG-62/81 déjà connus dans ce domaine mais jamais
+corrigée sur les drawers MarketPrice (BUG-162) ; code mort ciblant des routes backend inexistantes
+(BUG-164) ; duplication quasi totale des 4 référentiels plats jamais factorisée en composant
+générique (BUG-165), qui explique la répétition du bug i18n sur 10 écrans (BUG-166) ; 4 clés de
+traduction FR de la sidebar Configurations jamais traduites, laissées en anglais (BUG-167). Aucun de
+ces bugs n'a été reproduit en navigateur (pas de `pnpm dev` dans cette session) — à valider
+manuellement avant correction. Fiche de domaine étendue :
+[`docs/modules/04_MENU_CATALOGUE.md`](../modules/04_MENU_CATALOGUE.md).
+
+**159-164, 166-168 corrigés le 2026-07-19**, même jour, en parallèle par cluster de fichiers
+(Product/Component/Brand/Display i18n+cache ; Good/Component Categories endpoint dédié ; MarketPrice
+FK ; i18n Good ; i18n Industrial/PackingType). BUG-161 tranché en faveur de l'alignement sur le
+pattern `productCategories.js` (appel direct de l'endpoint dédié) plutôt que de garder la dérivation
+depuis Types ; a résolu l'essentiel de BUG-163 au passage, complété par un câblage d'invalidation
+croisée Categories→Types. BUG-162 : en creusant le fix, l'agent a découvert que
+`MarketPriceListView.vue` omettait `marketPriceTypeId`/`marketPriceCategoryId` de l'item agrégé
+transmis aux drawers — sans quoi le correctif restait inerte (fallback silencieux sur l'ancien
+comportement, pas de régression mais aucun bénéfice réel) — corrigé dans la foulée dans le même
+fichier. BUG-165 (refactor de factorisation des 4 référentiels plats) et BUG-169 (pagination)
+volontairement non traités dans cette passe initiale : chantiers jugés distincts d'un bugfix
+isolé — voir plus bas, tous deux corrigés le même jour dans une seconde passe après une demande
+explicite de ne pas laisser cette dette de côté. Aucun de ces correctifs n'a été testé en navigateur
+(pas de `pnpm dev` dans cette session) — chaque fiche
+liste les points de validation manuelle à faire avant déploiement.
+
+**165 et 169 corrigés le 2026-07-19**, même jour, seconde passe. BUG-165 : extraction d'une factory
+Vuex générique (`store/modules/factories/flatReferentialModule.js`) + 3 composants génériques
+(`FlatReferentialListView`/`FormDrawer`/`DeleteDialog` sous `components/common/`), les 12 fichiers
+per-entité devenus des thin wrappers (~30-40 lignes chacun au lieu de 163-353) plutôt que supprimés
+— `BrandNameFormDrawer.vue`/`DisplayNameFormDrawer.vue` sont importés directement par
+`MenuItemCreateView.vue` en dehors du contexte liste, la suppression aurait cassé cet import. Le
+refactor a mis au jour 2 divergences comportementales réelles jamais unifiées silencieusement
+(`mergeOnUpdate` jamais porté sur Industrial/PackingType par le fix BUG-160,
+`loadErrorFallback` jamais traduit par BUG-166 sur ces 2 mêmes écrans) — préservées telles quelles
+dans le refactor puis closes séparément juste après, chacune devenue une correction d'une ligne une
+fois la factorisation en place. BUG-169 : l'arbitrage initial "cardinalité faible, pas de risque
+actif" a été explicitement rejeté (croissance attendue à plusieurs centaines de lignes par tenant
+d'ici la fin du mois) — les 10 endpoints paginés en 3 passes (MarketPrice, Product+Component,
+référentiels plats, cette dernière réduite à un seul point de changement côté store grâce au
+refactor BUG-165 tout juste terminé), chacune suivant le contrat déjà établi par `marketPrices.js`
+(le store boucle sur des pages serveur bornées à 200 lignes et reconstitue la liste complète avant
+de la committer) — choisi précisément pour ne PAS reproduire la classe de bug "plafond silencieux"
+déjà documentée et corrigée ailleurs dans ce projet (BUG-52/54/89/139) : aucun consommateur
+dropdown/picker (une recherche exhaustive en a confirmé au moins 2 par module, aucune exception) ne
+reçoit de liste tronquée.
+
+**158 bugs au total**, 158 ajouté et corrigé le 2026-07-19 suite à un balayage de complétude
+("on a tout couvert ? pour les events") : seul bouton natif Vuetify du domaine sur `color="primary"`
+au lieu du rouge codé en dur `#ff3131` utilisé partout ailleurs — invisible en thème clair (où
+`primary` vaut justement `#ff3131`) mais viré violet en thème sombre (palette d'accent dark
+volontairement distincte, `plugins/vuetify.js`). Corrigé par cohérence avec le reste du domaine.
+
+**157 bugs au total**, 157 ajouté le 2026-07-19 suite à 2 retours utilisateur sur le passage
+BUG-155/156 : (1) barre de chargement des 4 `v-data-table` du domaine rendue en gris/noir Vuetify
+par défaut au lieu du rouge de marque — `loading` booléen ne suffit pas, Vuetify n'applique le thème
+`primary` que si une couleur est explicitement déduite, corrigé en passant la couleur directement en
+chaîne (`loading ? '#ff3131' : false`) ; (2) navigation "cliquer un événement lié" (introduite par
+BUG-153) n'ouvrait pas la bonne fiche en usage réel — cause racine non identifiée sans navigateur,
+retirée sur demande explicite de l'utilisateur plutôt que corrigée à l'aveugle (liste des événements
+liés conservée, non cliquable).
 
 **156 bugs au total**, 155-156 ajoutés et corrigés le 2026-07-18 suite à un retour utilisateur
 direct sur BUG-153 : "on ne doit pas avoir de popups sur ces pages d'events" et "la traduction n'est

@@ -217,6 +217,11 @@ export default {
     this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes');
     this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories');
     this.$store.dispatch('spaces/fetchSpaces');
+    // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
+    // (suppression bloquée par des MarketPrice dépendants) de lier directement vers la liste déjà
+    // filtrée, plutôt que de chercher la bonne ligne à la main.
+    if (this.$route.query.type) this.selectedType = String(this.$route.query.type);
+    if (this.$route.query.category) this.selectedCategory = String(this.$route.query.category);
     await this.loadMarketPrices();
     this.openFromQuery();
     window.addEventListener('theme-changed', this.handleThemeChange);
@@ -271,6 +276,8 @@ export default {
         const id = r?.id || r?._id || itemName;
         const goodType = r?.goodType || '';
         const category = r?.category || '';
+        const marketPriceTypeId = r?.marketPriceTypeId || '';
+        const marketPriceCategoryId = r?.marketPriceCategoryId || '';
         const recipeUnit = r?.recipeUnit || '';
         const purchaseUnitConversion = r?.purchaseUnitConversion ?? '';
         const image = r?.image || '';
@@ -338,6 +345,8 @@ export default {
             purchaseUnitConversion,
             goodType,
             category,
+            marketPriceTypeId,
+            marketPriceCategoryId,
             type: goodType,
             image,
             unit,
@@ -357,6 +366,8 @@ export default {
         if (image && !agg.image) agg.image = image;
         if (goodType && !agg.goodType) agg.goodType = goodType;
         if (category && !agg.category) agg.category = category;
+        if (marketPriceTypeId && !agg.marketPriceTypeId) agg.marketPriceTypeId = marketPriceTypeId;
+        if (marketPriceCategoryId && !agg.marketPriceCategoryId) agg.marketPriceCategoryId = marketPriceCategoryId;
         if (recipeUnit && !agg.recipeUnit) agg.recipeUnit = recipeUnit;
         if (purchaseUnitConversion !== '' && agg.purchaseUnitConversion === '') {
           agg.purchaseUnitConversion = purchaseUnitConversion;

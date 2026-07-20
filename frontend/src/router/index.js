@@ -273,65 +273,75 @@ const routes = [
         meta: { title: 'Edit menu item', permission: 'menu.fb.menuItems' }
       },
       {
-        path: '/product-categories',
+        path: '/configurations/product-categories',
         name: 'product-categories',
         component: ProductCategoryList,
         meta: { title: 'Liste des catégories de produits', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/product-categories', redirect: '/configurations/product-categories' },
       {
-        path: '/product-types',
+        path: '/configurations/product-types',
         name: 'product-types',
         component: ProductTypeList,
         meta: { title: 'Liste des types de produits', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/product-types', redirect: '/configurations/product-types' },
       {
-        path: '/market-price-categories',
+        path: '/configurations/market-price-categories',
         name: 'market-price-categories',
         component: MarketPriceCategoryList,
         meta: { title: 'Market Price Categories', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/market-price-categories', redirect: '/configurations/market-price-categories' },
       {
-        path: '/market-price-types',
+        path: '/configurations/market-price-types',
         name: 'market-price-types',
         component: MarketPriceTypeList,
         meta: { title: 'Market Price Types', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/market-price-types', redirect: '/configurations/market-price-types' },
       {
-        path: '/component-categories',
+        path: '/configurations/component-categories',
         name: 'component-categories',
         component: ComponentCategoryList,
         meta: { title: 'Component Categories', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/component-categories', redirect: '/configurations/component-categories' },
       {
-        path: '/component-types',
+        path: '/configurations/component-types',
         name: 'component-types',
         component: ComponentTypeList,
         meta: { title: 'Component Types', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/component-types', redirect: '/configurations/component-types' },
       {
-        path: '/brand-names',
+        path: '/configurations/brand-names',
         name: 'brand-names',
         component: BrandNameListView,
         meta: { title: 'Liste des marques', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/brand-names', redirect: '/configurations/brand-names' },
       {
-        path: '/display-names',
+        path: '/configurations/display-names',
         name: 'display-names',
         component: DisplayNameListView,
         meta: { title: "Liste des noms d'affichage", keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/display-names', redirect: '/configurations/display-names' },
       {
-        path: '/industrials',
+        path: '/configurations/industrials',
         name: 'industrials',
         component: IndustrialListView,
         meta: { title: 'Liste des industriels', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/industrials', redirect: '/configurations/industrials' },
       {
-        path: '/packing-types',
+        path: '/configurations/packing-types',
         name: 'packing-types',
         component: PackingTypeListView,
         meta: { title: 'Liste des packing types', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/packing-types', redirect: '/configurations/packing-types' },
       {
         path: '/permissions',
         name: 'permissions',

@@ -72,7 +72,7 @@
         <v-data-table
           :headers="tableHeaders"
           :items="filteredEvents"
-          :loading="loading"
+          :loading="loading ? '#ff3131' : false"
           item-value="id"
           :items-per-page="25"
           :items-per-page-options="[10, 25, 50, 100]"

@@ -7,6 +7,11 @@ import store from '@/store'
 
 const MAX_EVENTS = 50
 
+// Une seule alerte par session, tous composables confondus (AnalyseView monte
+// deux instances : courante + comparaison) — même pattern que
+// `_warnedPredictionDegraded` (SpaceRestockView, fiche 19).
+let _warnedBatchKo = false
+
 /**
  * Source item-level pour les vues « par article » de l'Analyse (Item performance,
  * Menu items by POS). `shop-details` (shopGranularData) est shop-level : aucun
@@ -22,12 +27,13 @@ const MAX_EVENTS = 50
  * @param {import('vue').ComputedRef<Array<{id:string}>>} filteredEvents
  * @param {{ maxEvents?: number }} [options] — cap de fetch (défaut MAX_EVENTS) ;
  *   l'instance comparaison (fenêtres prev∪N-1 jusqu'à 24 mois) passe un cap élevé.
- * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>> }}
+ * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>>, fetchError: import('vue').Ref<string|null> }}
  */
 export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS } = {}) {
   const route = useRoute()
   const cache = ref({}) // eventId -> records[] (preprocessés). [] = tenté/vide.
   const loading = ref(false)
+  const fetchError = ref(null)
   let abortController = null
 
   async function ensureLoaded(events) {
@@ -60,6 +66,12 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     } catch (err) {
       if (controller.signal.aborted) return
       console.warn(`[useAnalyseItemRecords] event-timeline batch KO (${err?.message})`)
+      // Sans signalement, l'échec est indistinguable d'un « 0 article pour cette
+      // configuration » (fiche 164) — on remonte l'erreur une fois par session.
+      if (!_warnedBatchKo) {
+        _warnedBatchKo = true
+        fetchError.value = err?.message || 'event-timeline batch failed'
+      }
       // marque tout comme tenté → pas de refetch en boucle
       const patch = {}
       for (const id of ids) patch[id] = []
@@ -105,5 +117,5 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   // records effectivement disponibles.
   const loadedEventIds = computed(() => new Set(Object.keys(cache.value)))
 
-  return { itemRecords, loading, loadedEventIds }
+  return { itemRecords, loading, loadedEventIds, fetchError }
 }

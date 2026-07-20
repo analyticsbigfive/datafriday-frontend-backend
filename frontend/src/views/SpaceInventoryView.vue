@@ -144,8 +144,26 @@
                 <template #prepend><v-icon size="18">mdi-file-delimited-outline</v-icon></template>
                 <v-list-item-title>{{ t('invExportInventory') }}</v-list-item-title>
               </v-list-item>
+              <v-divider />
+              <!-- Couverture stock ↔ menus : entrée desktop du drawer (BUG-022). -->
+              <v-list-item @click="coverageDrawerOpen = true">
+                <template #prepend><v-icon size="18">mdi-clipboard-check-outline</v-icon></template>
+                <v-list-item-title>{{ t('invVerifyCoverage') }}</v-list-item-title>
+              </v-list-item>
             </v-list>
           </v-menu>
+          <!-- Options mobiles (outils/recherche/print/drawers) : le bouton qui
+               ouvrait cette sheet a disparu avec l'ancien header gris (BUG-022). -->
+          <v-btn
+            v-if="isMobile"
+            icon
+            variant="text"
+            class="si-band-btn"
+            :aria-label="t('invOptionsTitle')"
+            @click="mobileActionsSheet = true"
+          >
+            <v-icon size="20">mdi-dots-vertical</v-icon>
+          </v-btn>
           <v-btn
             :loading="saving"
             :disabled="saving"
@@ -471,6 +489,16 @@
             />
 
             <div class="si-mobile-sheet-actions">
+              <!-- Déclencheurs des drawers (BUG-022) : perdus à la suppression de
+                   l'ancien header gris — réintroduits ici, seul point d'entrée mobile. -->
+              <v-btn variant="outlined" @click="mobileActionsSheet = false; filterDrawerOpen = true">
+                <v-icon size="16" class="mr-1">mdi-filter-variant</v-icon>
+                {{ t('invFiltersBtn') }}
+              </v-btn>
+              <v-btn variant="outlined" @click="mobileActionsSheet = false; coverageDrawerOpen = true">
+                <v-icon size="16" class="mr-1">mdi-clipboard-check-outline</v-icon>
+                {{ t('invVerifyCoverage') }}
+              </v-btn>
               <v-btn variant="outlined" @click="mobileActionsSheet = false; printInventory()">
                 <v-icon size="16" class="mr-1">mdi-clipboard-list-outline</v-icon>
                 {{ t('invPrintInventory') }}

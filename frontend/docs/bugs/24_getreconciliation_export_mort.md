@@ -1,6 +1,6 @@
 # BUG-024 — getReconciliation (singulier, logistics.api.js) : export mort
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟢 Faible (code mort)
 - **Domaine** : Stock (Logistics)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -18,7 +18,9 @@ ailleurs.
 
 ## Correction
 
-Aucune à ce jour — à supprimer si confirmé définitivement mort.
+2026-07-18 : export supprimé de `logistics.api.js` (grep exhaustif reconfirmé : zéro importeur).
+La route backend `GET /logistics/reconciliations/:id` existe toujours ; `getReconciliations`
+(pluriel) et `downloadReconciliationCsv` restent les chemins vivants.
 
 ## Risque de régression / à surveiller
 

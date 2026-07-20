@@ -1,6 +1,6 @@
 # BUG-012 — usePredictiveTimeline.js : fonctions de persistance mortes, écrivent vers un Edge Function legacy
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟢 Mineur (sans conséquence, try/catch silencieux)
 - **Domaine** : Prévision (Event Predict)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -20,7 +20,10 @@ mécanisme réel de sauvegarde de la sélection manuelle.
 
 ## Correction
 
-Aucune à ce jour — code mort à supprimer ou à ne pas prendre comme référence.
+2026-07-18 : `persistSelection` et `updatePredictionEvents` supprimées de
+`usePredictiveTimeline.js`, ainsi que la constante `API_BASE` (Edge Function legacy
+`make-server-eb31619c`) et l'import `projectId`/`publicAnonKey` de `utils/supabase/info` —
+tous devenus sans usage dans ce fichier. Aucun appelant externe (grep exhaustif).
 
 ## Risque de régression / à surveiller
 

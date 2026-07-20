@@ -57,7 +57,7 @@
           :filter-keys="['name']"
           :headers="tableHeaders"
           :items="subcategories"
-          :loading="loading"
+          :loading="loading ? '#ff3131' : false"
           :items-per-page="25"
           :items-per-page-options="[10, 25, 50, 100]"
           density="compact"

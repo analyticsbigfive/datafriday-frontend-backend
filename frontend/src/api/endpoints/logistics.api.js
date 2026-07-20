@@ -74,14 +74,6 @@ export async function getReconciliations(spaceId) {
 }
 
 /**
- * Détail d'une réconciliation (lignes d'écart).
- * GET /logistics/reconciliations/:id
- */
-export async function getReconciliation(id) {
-  return api.get(`/logistics/reconciliations/${id}`)
-}
-
-/**
  * Export CSV d'une réconciliation — déclenche un téléchargement navigateur.
  * GET /logistics/reconciliations/:id/export
  */

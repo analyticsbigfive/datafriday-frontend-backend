@@ -21,7 +21,7 @@
 | [07](07_prix_fnb_weezevent_absent.md) | Prix F&B Weezevent absent du catalogue | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [08](08_tva_defaut_20_incorrecte.md) | TVA par défaut 20% incorrecte | 🟢 Corrigé | 🟠 | Menu & recettes |
 | [09](09_deconnexion_intempestive_multi_onglets.md) | Déconnexion intempestive pendant l'édition (multi-onglets) | 🟡 Corrigé partiel | 🔴 | Auth & onboarding |
-| [10](10_n1_queries_toolbox_predict.md) | Requêtes N+1 dans le toolbox Event Predict | 🔴 Ouvert | 🟡 | Prévision |
+| [10](10_n1_queries_toolbox_predict.md) | Requêtes N+1 dans le toolbox Event Predict | 🟢 Corrigé | 🟡 | Prévision |
 | [11](11_routes_kv_mortes.md) | Routes /kv mortes (KvModule non enregistré) | 🔴 Ouvert | 🟡 | Technique |
 | [12](12_scoping_config_manquant_spacemenus.md) | Scoping config manquant perf/staff/inventory Space Menus | 🟢 Corrigé | 🟠 | Espaces & builder |
 | [13](13_predictversion_update_jamais_appelee.md) | PredictVersionsService.update() jamais appelée | 🟢 Corrigé | 🟢 | Prévision |
@@ -89,8 +89,64 @@
 | [75](75_eventtype_eventcategory_delete_cascade_sans_garde.md) | Suppression `EventType`/`EventCategory` : cascade silencieuse sans garde "en cours d'utilisation" | 🟢 Corrigé | 🟠 | Événements |
 | [76](76_predictversion_create_eventid_non_verifie.md) | `EventPredictVersion.create()` : `eventId` non vérifié (existence/tenant) | 🟢 Corrigé | 🟢 | Prévision |
 | [77](77_createeventcategory_type_global_rejete_regression_bug66.md) | `createEventCategory` rejette les `eventTypeId` globaux (régression du fix BUG-66) | 🟢 Corrigé | 🟠 | Événements |
+| [78](78_product_taxonomy_update_sans_permission_guard.md) | `PATCH /product-types/:id` et `/product-categories/:id` sans `@RequirePermissions` (contrôle d'accès contourné) | 🟢 Corrigé | 🔴 | Menu & recettes (Configurations) |
+| [79](79_suppression_producttype_category_sans_garde_dependances.md) | Suppression `ProductType`/`ProductCategory` sans garde contre les `MenuItem` dépendants | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [80](80_menucomponent_taxonomy_fk_sans_ownership.md) | `MenuComponent.create()`/`update()` : aucune vérification d'ownership sur `componentTypeId`/`componentCategoryId` | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [81](81_suppression_componenttype_category_sans_garde_dependances.md) | Suppression `ComponentType`/`ComponentCategory` sans garde contre les `MenuComponent` dépendants | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [82](82_suppression_marketpricetype_sans_garde_categories.md) | Suppression `MarketPriceType` sans garde contre les `MarketPriceCategory` dépendantes | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [83](83_marketprice_goodtype_category_desync_rename_delete.md) | `MarketPrice.goodType`/`category` (texte libre) jamais resynchronisés au rename/delete de la taxonomie Good Type/Category | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [84](84_packingtype_desync_rename_delete_texte_libre.md) | `PackingType` (texte libre, sans FK) jamais resynchronisé au rename/delete | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [85](85_suppression_brand_displayname_sans_garde_usage.md) | Suppression `Brand`/`DisplayName` sans garde ni avertissement d'usage | 🟢 Corrigé | 🟠 | Menu & recettes (Configurations) |
+| [86](86_suppression_industrial_sans_garde_usage.md) | Suppression `Industrial` sans garde ni avertissement d'usage | 🟢 Corrigé | 🟠 | Achats & référentiels (Configurations) |
+| [87](87_taxonomies_configurations_doublon_insensible_casse.md) | Pas de protection anti-doublon insensible à la casse sur les taxonomies/référentiels de Configurations | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [88](88_taxonomies_configurations_dto_name_incoherents.md) | DTOs de création incohérents entre Type et Category (`name` sans `@IsNotEmpty`/`@MaxLength`) sur plusieurs taxonomies | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [89](89_analyse_swagger_faux_spaceid_ignore.md) | `/analyse/*` : Swagger mensonger + `?spaceId=` silencieusement ignoré | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [90](90_analyse_timeline_sans_garde_event_troncature.md) | `/analyse/timeline/:eventId` : eventId jamais vérifié, troncature LIMIT silencieuse | 🟢 Corrigé (garde) / ⚪ (flag) | 🟡 | Analyse & agrégation |
+| [91](91_analyse_kpis_findmany_reduce_tenant_entier.md) | `getMenuKpis`/`getEventKpis` : findMany du tenant entier + reduce JS | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [92](92_shopdetails_rpc_non_cachee.md) | `getShopDetails` : RPC ~300ms du premier rendu /analyse jamais cachée | 🟢 Corrigé | 🟠 | Espaces & builder |
+| [93](93_inventorycount_toctou_unique_nulls.md) | `saveInventoryCounts` : TOCTOU + unique inopérant avec NULLs (doublons) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [94](94_buildinventorycounts_perd_lignes_shopid_null.md) | Inventaire vide malgré données : lignes `shopId=null` perdues + early-return | 🟢 Corrigé | 🟠 | Stock |
+| [95](95_logistics_reset_updates_sequentiels_transaction.md) | `reset` logistique : updates StockLevel un-par-un dans la transaction 30s | 🟢 Corrigé | 🟡 | Stock |
+| [96](96_shop_items_batch_incomplet_n1_inventaire.md) | Inventaire : N+1 GET shop/:shopId alors qu'un batch existe (payload trop maigre) | 🟢 Corrigé | 🟠 | Stock |
+| [97](97_double_persistance_counts_miroir.md) | (miroir) Double persistance des comptages — canonique front 183 | ⚪ Diagnostiqué | 🟡 | Stock |
+| [98](98_eventpredictversion_tenantid_nullable.md) | `EventPredictVersion.tenantId` nullable : lignes legacy invisibles | ⚪ Diagnostiqué | 🟡 | Prévision |
+| [99](99_index_perf_manquants_predict_inventory.md) | Index manquants : EventPredictVersion (tenantId,eventId) + InventoryCount (tenantId,spaceId,updatedAt) | 🟡 Corrigé non déployé | 🟡 | Prévision / Stock |
+| [100](100_manualquantities_miroir.md) | (miroir) `manualQuantities` : backend prêt, front ne l'envoyait pas — canonique front 08 | 🟢 Corrigé | 🟠 | Prévision |
+| [101](101_stocklevel_elementid_sans_fk.md) | `StockLevel.elementId` sans FK : niveaux orphelins, workarounds en lecture | ⚪ Diagnostiqué | 🟡 | Stock |
+| [102](102_simulatesale_pollution_reset_race.md) | `simulateSale` visible dans les analytics ; fenêtre de course du `reset` | ⚪ Diagnostiqué | 🟡 | Stock |
+| [103](103_event_timeline_articles_vides_jointure_mapping.md) | `event-timeline` : item-level vide (0 article) malgré CA shop-level — INNER JOIN mapping trop strict | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation |
 
-**77 bugs au total**, 77 ajouté le 2026-07-18 suite à une relecture ciblée de `/event-categories`
+**103 bugs au total.** 78-88 ajoutés le 2026-07-19 suite à un audit complet de la section
+"Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component
+Types/Categories, Brand Names, Display Names, Industrials, Packing Types), mené en 5 audits
+parallèles (un par paire de taxonomie/référentiel). Le finding le plus sévère (BUG-78) est une
+faille d'autorisation : `update()` sur ProductTypes/Categories n'a jamais eu de garde de permission,
+contrairement à `create`/`remove` sur les mêmes contrôleurs. Motif récurrent sur les 6 taxonomies
+Type/Category et référentiels plats de cette section : suppression sans garde contre les entités
+dépendantes (BUG-79/81/82/85/86, même famille que BUG-75 déjà corrigée pour Events, jamais portée
+ici) et désynchronisation des valeurs texte libre miroir lors d'un rename/delete de la taxonomie
+source (BUG-83/84, même famille que les bugs 62/81 déjà connus côté frontend, mais côté
+update/delete backend cette fois). BUG-80 est un trou d'ownership cross-tenant sur les FK de
+taxonomie de `MenuComponent`, même famille que BUG-67 (Events) jamais porté ici. Voir aussi l'audit
+miroir côté `datafriday-web` (frontend bugs 159-169) pour les findings purement frontend de la même
+session. Fiche de domaine étendue : [`frontend/docs/modules/04_MENU_CATALOGUE.md`](../../../frontend/docs/modules/04_MENU_CATALOGUE.md).
+
+**78-88 corrigés le 2026-07-19**, même jour, en 3 passes parallèles par cluster de fichiers (menu-items
++ menu-components ; market-price-taxonomy + packing-types ; brands/display-names/industrials).
+Politique uniformisée sur les 6 gardes de suppression (BUG-79/81/82/85/86) : blocage total
+(`ConflictException`, pattern BUG-75) si une entité dépendante existe encore, plutôt que
+l'avertissement optionnel initialement envisagé pour Brand/DisplayName/Industrial — choisi pour
+rester cohérent avec le reste de la section plutôt que de trancher au cas par cas. BUG-83/84
+(désynchronisation texte libre) corrigés par propagation transactionnelle du rename
+(`prisma.$transaction`) plutôt que par promotion en FK réelle (chantier plus lourd, jugé non
+nécessaire une fois la garde de suppression en place) ; `PackingType` (BUG-84, sans FK du tout)
+utilise en plus un blocage de suppression basé sur un `count()` par égalité de texte, faute de FK à
+vérifier. BUG-87/88 étendus à l'ensemble des 10 taxonomies/référentiels de la section (pas
+seulement les 3 initialement citées dans chaque fiche). Revue de code uniquement — **aucun test
+`pnpm dev`/navigateur exécuté dans cette session**, chaque fiche liste les points de validation
+manuelle à faire avant déploiement.
+
+**77 bugs au total (à ce stade)**, 77 ajouté le 2026-07-18 suite à une relecture ciblée de `/event-categories`
 (frontend→backend) : le fix de BUG-66 (ajout d'une vérification d'ownership sur `eventTypeId` dans
 `createEventCategory`) utilisait le mauvais helper — `findOwnedEventTypeOrThrow` (strict) au lieu de
 `findAccessibleEventTypeOrThrow` (`OR: [{tenantId}, {tenantId: null}]`, pattern utilisé partout
@@ -98,7 +154,31 @@ ailleurs pour cette même relation FK) — cassant la création de catégorie so
 global alors que l'édition de la même catégorie l'acceptait sans problème. Corrigé en réutilisant le
 helper existant.
 
-**76 bugs au total**, 65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
+**89-103 ajoutés le 2026-07-18** (numérotés à l'origine 77-91 sur `feat/analyse`, renumérotés au
+merge du 2026-07-20 pour éviter la collision avec 77-88 ci-dessus, ajoutés en parallèle sur
+`develop`) suite à l'audit croisé /analyse + Event Predict + Stock (inventory/logistics/restock),
+mené conjointement côté front (fiches front 172-185) avec objectif de performance « contenu initial
+des vues < 300ms ». Côté backend : les 4 endpoints `/analyse/*` documentaient dans Swagger des
+réponses qui n'ont jamais existé et ignoraient le `?spaceId=` que le front leur envoyait — sans
+témoin, car la découverte centrale de l'audit est que leur unique consommateur front était du code
+mort jamais dispatché (fiche front 172) ; agrégations réécrites en SQL (91), garde d'ownership sur
+la timeline (90), et surtout mise en cache Redis 60s de la RPC `get_space_shop_details` (~300ms,
+chemin critique du premier rendu /analyse — 92). Stock : le couple TOCTOU + contrainte unique
+inopérante sur NULLs expliquant les doublons de comptage (93, script SQL `NULLS NOT DISTINCT` +
+rattrapage P2002), l'inventaire « vide malgré données » (94), le bulk-update du reset (95), et
+l'extension du batch shop-items qui permet au front de tuer le N+1 inventaire (96 — ce qui, avec
+l'adoption du batch event-timeline par le moteur predict côté front, solde le vieux BUG-010 passé à
+🟢). Restock : BUG-31 mis à jour — le front alerte désormais sur 403 (fiche front 19), le choix de
+permissions PUT/DELETE reste posé à Bertrand. Laissés en ⚪ après diagnostic : 97/98/101/102
+(décisions produit/architecture ou nettoyages de données prod préalables — cf.
+`QUESTIONS_A_BERTRAND.md`). Deux scripts SQL rejouables livrés dans `prisma/sql/` (2026-07-18_*) —
+**non branchés à `prisma migrate deploy`, à exécuter manuellement au déploiement** (93/99, voir
+`QUESTIONS_A_BERTRAND.md` #4). Au passage : 3 specs préexistantes réparées (mocks obsolètes —
+`zone`/`configurationElement` manquants dans spaces.service.spec qui tuaient le process jest en
+silence, `event` manquant + `eventName` non attendu dans inventory.service.spec, caches RecipeCtx
+manquants dans logistics.service.spec).
+
+65-76 ajoutés le 2026-07-17 suite à un audit complet du module backend
 Events (`events.controller.ts`/`.service.ts`, taxonomies, Teams, couche API `predict-versions.*`) :
 une faille cross-tenant P0 sur `PUT .../predict-versions/default` (aucun scoping tenant sur
 l'update, corrigée + couverte par un nouveau fichier de tests — ce module n'en avait aucun) ;

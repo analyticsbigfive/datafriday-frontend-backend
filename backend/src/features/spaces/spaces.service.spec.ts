@@ -80,6 +80,22 @@ describe('SpacesService', () => {
       count: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // Builder v2 : le service passe désormais par les zones + adhésions
+    // (quickCreateElement / assignElements* → ensureZone / configurationElement).
+    // Sans ces mocks, `this.prisma.zone.count` jetait un TypeError non géré qui
+    // TUAIT le process jest avant le résumé (4 tests Wizard cassés en silence).
+    zone: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    configurationElement: {
+      createMany: jest.fn(),
+      findMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
 
@@ -95,7 +111,10 @@ describe('SpacesService', () => {
           provide: WeezeventClientService,
           useValue: {},
         },
-        { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), getClient: jest.fn() } },
+        // getOrSet en passthrough (exécute la factory) : les tests vérifient la logique
+        // métier, pas le cache — sans lui, getShopDetails (désormais caché) courtcircuiterait
+        // silencieusement ses assertions.
+        { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), deletePattern: jest.fn(), getOrSet: jest.fn((key, factory) => factory()), getClient: jest.fn() } },
         // Accès complet par défaut dans les tests (pas de restriction d'espace)
         { provide: SpaceAccessService, useValue: { getAccessibleSpaceIds: jest.fn().mockResolvedValue('ALL'), hasFullAccess: jest.fn().mockReturnValue(true), canAccessSpace: jest.fn().mockResolvedValue(true) } },
         // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
@@ -799,6 +818,31 @@ describe('SpacesService', () => {
     });
   });
 
+  describe('getShopDetails — cache Redis (chemin critique premier rendu /analyse)', () => {
+    it('délègue à redis.getOrSet avec une clé tenant+space+params et TTL 60s', async () => {
+      const redis = (service as any).redis;
+      (mockPrismaService as any).$queryRaw = jest
+        .fn()
+        .mockResolvedValue([{ get_space_shop_details: { shops: [] } }]);
+
+      await service.getShopDetails('space-1', 'tenant-1', 2, 50, true);
+
+      expect(redis.getOrSet).toHaveBeenCalledWith(
+        'spaces:shopdetails:tenant-1:space-1:2:50:1',
+        expect.any(Function),
+        { ttl: 60 },
+      );
+    });
+
+    it('ne met pas en cache une erreur space_not_found (la factory jette)', async () => {
+      (mockPrismaService as any).$queryRaw = jest
+        .fn()
+        .mockResolvedValue([{ get_space_shop_details: { __error: 'space_not_found' } }]);
+
+      await expect(service.getShopDetails('space-x', 'tenant-1')).rejects.toThrow();
+    });
+  });
+
   describe('getShopDetails — status filter', () => {
     it('should use status = V (not completed) in the shop granular SQL', async () => {
       const tenantId = 'tenant-123';
@@ -860,6 +904,16 @@ describe('SpacesService', () => {
       mockPrismaService.floor.findMany.mockResolvedValue([]);
       mockPrismaService.menuAssignment.findMany.mockResolvedValue([]);
       mockPrismaService.locationShopMapping.findMany.mockResolvedValue([]);
+      // Chemins v2 (zones) : défauts « espace sans zone » — resetAllMocks purge les
+      // implémentations, on ré-amorce ici comme pour les autres modèles.
+      mockPrismaService.zone.findFirst.mockResolvedValue(null);
+      mockPrismaService.zone.findMany.mockResolvedValue([]);
+      mockPrismaService.zone.count.mockResolvedValue(0);
+      mockPrismaService.zone.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'zone-test', ...data }),
+      );
+      mockPrismaService.configurationElement.createMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.configurationElement.findMany.mockResolvedValue([]);
     });
 
     it('A1 — assignElementsToFloorLevel("externalmerch") crée la zone ExternalMerch et y déplace les éléments', async () => {

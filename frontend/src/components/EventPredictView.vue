@@ -826,7 +826,6 @@
                 @update:selected-menu-items="onMenuConfigChange"
                 @update:quantity-adjustments="onAdjustmentsChange"
                 @update:manual-quantities="onManualQuantitiesChange"
-                @update:view-mode="setViewMode"
                 @manual-info="showManualInfo"
                 @remap-request="openRemapDialog"
                 @assign-shop-item="handleAssignShopItem"
@@ -4599,6 +4598,10 @@ export default {
      *  - configurationId → scope shops + filtre dur ;
      *  - sessions (showTime) → décalage temporel de la courbe ;
      *  - eventDate / numberOfSessions / *Name → cohérence d'affichage.
+     * NB : les dates restent dans la whitelist pour le chemin d'ÉDITION
+     * fraîche (applyEventOverrideLocal au Save) mais sont volontairement
+     * IGNORÉES au restore brouillon/version par omitEventIdentity — la date
+     * canonique gagne (BUG-163).
      */
     pickEventOverride(ev) {
       if (!ev || typeof ev !== "object") return {};
@@ -5659,17 +5662,25 @@ export default {
       }
     },
     /**
-     * Retire les champs d'IDENTITÉ (nom) d'un snapshot/override avant de le
-     * ré-appliquer sur l'event live. Le snapshot fige l'event au moment du
-     * save de version (et le brouillon au moment de l'édition) : un rename
-     * fait ensuite dans Settings/Profile serait silencieusement écrasé par
-     * l'ancien nom à chaque ouverture. Le nom canonique de l'event gagne.
+     * Retire les champs d'IDENTITÉ (nom) et de CHRONOLOGIE (dates) d'un
+     * snapshot/override avant de le ré-appliquer sur l'event live. Le snapshot
+     * fige l'event au moment du save de version (et le brouillon au moment de
+     * l'édition) : un rename OU un changement de date fait ensuite dans
+     * Settings/Profile serait silencieusement écrasé par l'ancienne valeur à
+     * chaque sélection. Pire pour la date : une `eventDate` périmée (passée)
+     * sort l'event de `futureEvents`/`futureDateValues` → son badge disparaît
+     * du calendrier dès qu'il est désélectionné (BUG-163). La valeur canonique
+     * gagne ; `eventDate` n'est qu'un champ d'affichage pour l'algo (cf.
+     * docblock pickEventOverride), la prédiction est inchangée.
      */
     omitEventIdentity(obj) {
       if (!obj || typeof obj !== "object") return obj;
       const out = { ...obj };
       delete out.name;
       delete out.eventName;
+      delete out.date;
+      delete out.eventDate;
+      delete out.eventEndDate;
       return out;
     },
     async applyVersion(v, { persistActive = false, silent = false } = {}) {

@@ -622,6 +622,11 @@ export default {
   mounted() {
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
+    // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
+    // (suppression bloquée par des MenuComponent dépendants) de lier directement vers la liste déjà
+    // filtrée, plutôt que de chercher la bonne ligne à la main.
+    if (this.$route.query.type) this.selectedType = String(this.$route.query.type);
+    if (this.$route.query.category) this.selectedCategory = String(this.$route.query.category);
     this.loadComponents();
   },
 };

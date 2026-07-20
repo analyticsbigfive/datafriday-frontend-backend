@@ -1,4 +1,4 @@
-// API functions for teams (équipes) — API NestJS (projet alsgd).
+// API functions for teams (équipes) — API NestJS.
 //
 // `TeamsController` (GET/POST/PATCH/DELETE `/teams`) est déployé et
 // fonctionnel côté backend depuis la migration hors make-server. `getTeams`

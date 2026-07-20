@@ -14,59 +14,53 @@ export class AnalyseController {
   @Get('dashboard')
   @RequirePermissions('front.fb.analyse')
   @ApiOperation({
-    summary: 'Tableau de bord analytique global',
-    description: 'Retourne les KPIs agrégés du tenant : chiffre d\'affaires total, nombre d\'événements, coût total, marge moyenne et top articles.',
+    summary: 'Compteurs d\'entités du tenant (dashboard analytique)',
+    description:
+      'Retourne les compteurs d\'entités du tenant : menu items, composants, ingrédients, ' +
+      'fournisseurs, événements et espaces. `spaceId` (optionnel) scope le compteur ' +
+      'd\'événements sur cet espace — les autres compteurs sont des référentiels tenant-level. ' +
+      'Pour les KPIs financiers (CA, marge), voir GET /analyse/kpis/events et /analyse/kpis/menu.',
   })
+  @ApiQuery({ name: 'spaceId', required: false, description: 'Scoper le compteur d\'événements sur cet espace' })
   @ApiResponse({
     status: 200,
-    description: 'KPIs agrégés du dashboard',
+    description: 'Compteurs d\'entités',
     schema: {
       type: 'object',
       properties: {
-        totalRevenue: { type: 'number', example: 12500.50 },
-        totalEvents: { type: 'number', example: 8 },
-        totalCost: { type: 'number', example: 4800.25 },
-        averageMargin: { type: 'number', example: 61.6, description: 'Marge moyenne en %' },
-        topMenuItems: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              revenue: { type: 'number' },
-              quantity: { type: 'number' },
-            },
-          },
-        },
+        menuItems: { type: 'number', example: 42 },
+        components: { type: 'number', example: 17 },
+        ingredients: { type: 'number', example: 120 },
+        suppliers: { type: 'number', example: 6 },
+        events: { type: 'number', example: 8 },
+        spaces: { type: 'number', example: 2 },
       },
     },
   })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
-  getDashboard(@Req() req) {
-    return this.analyseService.getDashboard(req.user.tenantId);
+  getDashboard(@Req() req, @Query('spaceId') spaceId?: string) {
+    return this.analyseService.getDashboard(req.user.tenantId, spaceId || undefined);
   }
 
   @Get('kpis/menu')
   @RequirePermissions('front.fb.analyse')
   @ApiOperation({
-    summary: 'KPIs par article de menu',
-    description: 'Retourne les indicateurs de performance par article de menu : ventes, coût, marge, quantité vendue.',
+    summary: 'KPIs agrégés du catalogue menu du tenant',
+    description: 'Retourne les KPIs agrégés du catalogue : total items, prix/coût/marge moyens, items à marge faible/haute, répartition par type.',
   })
   @ApiResponse({
     status: 200,
-    description: 'KPIs par article de menu',
+    description: 'KPIs agrégés du catalogue menu',
     schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          menuItemId: { type: 'string' },
-          menuItemName: { type: 'string' },
-          totalRevenue: { type: 'number' },
-          totalCost: { type: 'number' },
-          margin: { type: 'number', description: 'Marge en %' },
-          quantitySold: { type: 'number' },
-        },
+      type: 'object',
+      properties: {
+        totalItems: { type: 'number', example: 42 },
+        avgPrice: { type: 'number', example: 8.5 },
+        avgCost: { type: 'number', example: 3.2 },
+        avgMargin: { type: 'number', example: 61.6, description: 'Marge moyenne en %' },
+        lowMarginItems: { type: 'number', description: 'Items avec 0 < marge < 30%' },
+        highMarginItems: { type: 'number', description: 'Items avec marge >= 60%' },
+        byType: { type: 'object', additionalProperties: { type: 'number' }, description: 'Compteur d\'items par typeId (« unclassified » si non typé)' },
       },
     },
   })
@@ -78,30 +72,30 @@ export class AnalyseController {
   @Get('kpis/events')
   @RequirePermissions('front.fb.analyse')
   @ApiOperation({
-    summary: 'KPIs par événement',
-    description: 'Retourne les indicateurs de performance par événement : revenus, coûts, marge, articles les plus vendus.',
+    summary: 'KPIs agrégés des événements du tenant',
+    description:
+      'Retourne les KPIs agrégés des événements : total, CA total/moyen, transactions, ' +
+      'à venir, terminés. `spaceId` (optionnel) scope l\'agrégat sur cet espace.',
   })
+  @ApiQuery({ name: 'spaceId', required: false, description: 'Scoper les KPIs sur cet espace' })
   @ApiResponse({
     status: 200,
-    description: 'KPIs par événement',
+    description: 'KPIs agrégés des événements',
     schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          eventId: { type: 'string' },
-          eventName: { type: 'string' },
-          eventDate: { type: 'string', format: 'date-time' },
-          totalRevenue: { type: 'number' },
-          totalCost: { type: 'number' },
-          margin: { type: 'number' },
-        },
+      type: 'object',
+      properties: {
+        totalEvents: { type: 'number', example: 8 },
+        totalRevenue: { type: 'number', example: 12500.5 },
+        avgRevenue: { type: 'number', example: 1562.56 },
+        totalTransactions: { type: 'number', example: 4200 },
+        upcoming: { type: 'number', description: 'Événements à date future' },
+        completed: { type: 'number', description: 'Événements status success/completed' },
       },
     },
   })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
-  getEventKpis(@Req() req) {
-    return this.analyseService.getEventKpis(req.user.tenantId);
+  getEventKpis(@Req() req, @Query('spaceId') spaceId?: string) {
+    return this.analyseService.getEventKpis(req.user.tenantId, spaceId || undefined);
   }
 
   @Get('timeline/:eventId')
@@ -162,25 +156,24 @@ export class AnalyseController {
   @Get('cost-breakdown')
   @RequirePermissions('back.fb.costTracking')
   @ApiOperation({
-    summary: 'Ventilation des coûts',
-    description: 'Retourne la décomposition des coûts par catégorie (ingrédients, packaging, composants) et par article de menu.',
+    summary: 'Articles à plus faible marge (top 20)',
+    description: 'Retourne les 20 articles du tenant à plus faible marge, avec prix, coût total, type et catégorie.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Ventilation des coûts et marges par article',
+    description: 'Top 20 articles par marge croissante',
     schema: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
-          menuItemId: { type: 'string' },
-          menuItemName: { type: 'string' },
-          ingredientsCost: { type: 'number' },
-          packagingCost: { type: 'number' },
-          componentsCost: { type: 'number' },
-          totalCost: { type: 'number' },
+          id: { type: 'string' },
+          name: { type: 'string' },
           basePrice: { type: 'number' },
-          margin: { type: 'number' },
+          totalCost: { type: 'number' },
+          margin: { type: 'number', description: 'Marge en %' },
+          type: { type: 'string', description: 'Nom du type produit (« N/A » si absent)' },
+          category: { type: 'string', description: 'Nom de la catégorie (« N/A » si absente)' },
         },
       },
     },

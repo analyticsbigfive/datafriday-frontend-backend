@@ -536,6 +536,7 @@ const {
   itemRecords: globalItemRecords,
   loading: itemRecordsLoading,
   loadedEventIds: mainLoadedEventIds,
+  fetchError: itemRecordsError,
 } = useAnalyseItemRecords(filteredEvents)
 
 // On y réapplique les filtres globaux en miroir du getter store
@@ -633,6 +634,7 @@ const {
   itemRecords: comparisonItemRecords,
   loading: comparisonLoading,
   loadedEventIds: comparisonLoadedEventIds,
+  fetchError: comparisonItemRecordsError,
 } = useAnalyseItemRecords(comparisonEventsGated, { maxEvents: 100 })
 
 // État explicite « pas de données de comparaison » (au lieu du silence) : bornes
@@ -792,6 +794,16 @@ function onCloseTimeline() {
 // ---- Capture / partage (html2canvas, clipboard, Web Share API) -----------
 const { copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare } =
   useAnalyseCapture({ spaceName })
+
+// Échec du batch event-timeline (item-level) : sans signalement, l'écran est
+// indistinguable d'un « 0 article pour cette configuration » (fiche 164). Le
+// composable garantit une seule alerte par session (flag module _warnedBatchKo).
+watch([itemRecordsError, comparisonItemRecordsError], ([mainErr, compErr]) => {
+  if (!mainErr && !compErr) return
+  snackbarText.value = t('anItemTimelineLoadError')
+  snackbarColor.value = 'warning'
+  snackbar.value = true
+})
 
 // Contexte PdV (shops DataFriday + assignation item↔PdV) rechargé à chaque
 // changement de configuration → la réconciliation (getters shop-level + item-level)
@@ -1123,6 +1135,9 @@ const toolTitle = computed(() => {
 })
 const predictionsGenerating = computed(() => store.state.analyse.predictionsGenerating)
 const showPredictOverlay = computed(() => selectedToolbox.value === 'event-predict')
+// Seule implémentation vivante (le getter store homonyme, jamais lu et avec une
+// condition `>` stricte divergente, a été supprimé — bug #10 doc 02_ANALYSE).
+// `>=` : un event ayant lieu AUJOURD'HUI compte comme futur (prédictible).
 const futureEventsCount = computed(() => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)

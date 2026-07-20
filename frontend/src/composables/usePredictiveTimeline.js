@@ -17,7 +17,6 @@ import {
   findAndScorePastEvents,
   findAndScorePastEventsWithTrace,
 } from '@/utils/predictiveAnalytics'
-import { projectId, publicAnonKey } from '@/utils/supabase/info'
 import { parseEventDate as parseEventDateFr } from '@/utils/dateFr'
 import {
   TIMELINE_BUCKET_STRATEGIES,
@@ -27,8 +26,6 @@ import {
   preprocessTimelineRecords,
 } from '@/utils/timelineBucketing'
 import { runWithConcurrency } from '@/utils/asyncPool'
-
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-eb31619c`
 
 // Clé d'IDENTITÉ d'un tableau granular pour le mémo de résultat. Remplace le
 // proxy « longueur » (`readGranular().length`) qui laissait le mémo servir un
@@ -285,21 +282,67 @@ export function usePredictiveTimeline(options) {
       : []
   }
 
-  async function persistSelection(eventId, eventIds) {
+  // Normalisation d'une ligne REST /event-timeline vers la forme pipeline
+  // (`totalRevenue`/`totalQuantity`/`itemName`). Partagée entre le fetch single
+  // et le prefetch batch — même mapping, même cache.
+  function mapRestTimelineRow(r) {
+    return {
+      minute: toHHMM(r.minute) ?? '19:00',
+      shopId: r.shopId ?? r.elementId ?? r.shop ?? r.shopName ?? '',
+      shopName: r.shopName ?? r.elementName ?? null,
+      weezeventProductId: r.weezeventProductId ?? null,
+      menuItemId: r.menuItemId ?? r.mappedMenuItemId ?? r.itemId ?? '',
+      itemName: r.menuItemName ?? r.itemName ?? r.name ?? '',
+      mappedMenuItemId: r.mappedMenuItemId ?? r.menuItemId ?? r.itemId ?? '',
+      mappedMenuItemName: r.mappedMenuItemName ?? r.menuItemName ?? r.itemName ?? r.name ?? '',
+      totalRevenue: Number(r.revenueHt ?? r.totalRevenue ?? r.revenue ?? 0),
+      totalQuantity: Number(r.quantity ?? r.totalQuantity ?? 0),
+      transactionCount: Number(r.transactionCount ?? r.transactions ?? 0),
+    }
+  }
+
+  // Horaire local d'un record granular (minute ISO/HH:MM, ou `hour` mock).
+  const computeLocalMinute = (r) => {
+    const m = toHHMM(r.minute ?? r.time)
+    if (m) return m
+    if (r.hour != null) return `${String(r.hour).padStart(2, '0')}:00`
+    return null
+  }
+
+  /**
+   * BUG-010 (backend) : préchauffe le cache REST via l'endpoint BATCH
+   * `/spaces/:id/event-timeline?eventIds=` — 1 requête pour N events passés au
+   * lieu de N GET single (le backend résout ownership/shopIds UNE fois et fait
+   * un seul agrégat SQL). Les events déjà servis par le granular local, le cache
+   * ou un fetch en vol sont exclus. En cas d'échec batch, on ne jette PAS : la
+   * boucle single-event existante (fetchEventTimeline) sert de fallback.
+   */
+  async function prefetchEventTimelinesBatch(eventIds, signal) {
+    const sid = readSpaceId()
+    if (!sid || !eventIds?.length) return
+    const granular = readGranular()
+    const missing = eventIds.filter((eventId) => {
+      const cacheKey = `${sid}:${eventId}`
+      if (restTimelineCache.has(cacheKey) || restTimelineInFlight.has(cacheKey)) return false
+      // Servi par la source locale ? (même critère que fetchEventTimeline)
+      const localRecords = granular.filter((r) => r.eventId === eventId)
+      return !(localRecords.length > 0 && localRecords.some((r) => computeLocalMinute(r) != null))
+    })
+    if (!missing.length || signal?.aborted) return
     try {
-      await fetch(
-        `${API_BASE}/predictive-event-selection/${encodeURIComponent(eventId)}`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ eventIds }),
-        },
-      )
+      const { getSpaceEventTimelineBatch } = await import('@/api/endpoints/space.api')
+      const byEventId = await getSpaceEventTimelineBatch(sid, missing)
+      for (const eventId of missing) {
+        const rows = byEventId.get(eventId)
+        if (Array.isArray(rows)) {
+          restTimelineCache.set(`${sid}:${eventId}`, rows.map(mapRestTimelineRow))
+        }
+      }
     } catch (err) {
-      console.error('[PREDICTIVE TIMELINE] error saving selection:', err)
+      console.warn(
+        '[PREDICTIVE TIMELINE] batch timeline prefetch failed, falling back to per-event fetches:',
+        err?.message,
+      )
     }
   }
 
@@ -309,12 +352,6 @@ export function usePredictiveTimeline(options) {
     // agrégé event-level, sans minute) on NE l'utilise PAS — on retombe sur la
     // source REST minute-level du backend, sans quoi tout s'écraserait sur une
     // seule minute (timeline plate).
-    const computeLocalMinute = (r) => {
-      const m = toHHMM(r.minute ?? r.time)
-      if (m) return m
-      if (r.hour != null) return `${String(r.hour).padStart(2, '0')}:00`
-      return null
-    }
     const localRecords = readGranular().filter((r) => r.eventId === eventId)
     const localHasMinute = localRecords.some((r) => computeLocalMinute(r) != null)
     if (localRecords.length > 0 && localHasMinute) {
@@ -359,19 +396,7 @@ export function usePredictiveTimeline(options) {
           const { getSpaceEventTimeline } = await import('@/api/endpoints/space.api')
           const rows = await getSpaceEventTimeline(sid, eventId)
           if (!Array.isArray(rows)) return null
-          const mapped = rows.map((r) => ({
-            minute: toHHMM(r.minute) ?? '19:00',
-            shopId: r.shopId ?? r.elementId ?? r.shop ?? r.shopName ?? '',
-            shopName: r.shopName ?? r.elementName ?? null,
-            weezeventProductId: r.weezeventProductId ?? null,
-            menuItemId: r.menuItemId ?? r.mappedMenuItemId ?? r.itemId ?? '',
-            itemName: r.menuItemName ?? r.itemName ?? r.name ?? '',
-            mappedMenuItemId: r.mappedMenuItemId ?? r.menuItemId ?? r.itemId ?? '',
-            mappedMenuItemName: r.mappedMenuItemName ?? r.menuItemName ?? r.itemName ?? r.name ?? '',
-            totalRevenue: Number(r.revenueHt ?? r.totalRevenue ?? r.revenue ?? 0),
-            totalQuantity: Number(r.quantity ?? r.totalQuantity ?? 0),
-            transactionCount: Number(r.transactionCount ?? r.transactions ?? 0),
-          }))
+          const mapped = rows.map(mapRestTimelineRow)
           // Ne cache QUE les succès (Array). Les échecs transitoires restent
           // re-tentables au prochain appel.
           restTimelineCache.set(cacheKey, mapped)
@@ -915,6 +940,10 @@ export function usePredictiveTimeline(options) {
       // non déterministes (réconciliation par nom instable entre deux runs).
       const eventIds = pastEvents.map((e) => e.id)
       const timelineResults = new Array(eventIds.length).fill(null)
+      // 1 requête batch pour tous les events manquants (BUG-010) ; la boucle
+      // ci-dessous est alors servie par restTimelineCache (0 réseau). Si le batch
+      // échoue, elle re-fetche en single-event comme avant (fallback intact).
+      await prefetchEventTimelinesBatch(eventIds, signal)
       await runWithConcurrency(eventIds, 5, async (eId) => {
         const idx = eventIds.indexOf(eId)
         const records = await fetchEventTimeline(eId, signal)
@@ -1087,16 +1116,6 @@ export function usePredictiveTimeline(options) {
     }
   }
 
-  async function updatePredictionEvents(selectedIds) {
-    if (!predictiveFutureEventId.value) return
-    await persistSelection(predictiveFutureEventId.value, selectedIds)
-    const allEvents = readEvents()
-    const futureEvent = allEvents.find((e) => e.id === predictiveFutureEventId.value)
-    if (futureEvent) {
-      await loadPredictiveTimeline(futureEvent, selectedIds)
-    }
-  }
-
   return {
     // state
     timelineLoading,
@@ -1122,7 +1141,6 @@ export function usePredictiveTimeline(options) {
     timelineDebugTrace,
     // actions
     loadPredictiveTimeline,
-    updatePredictionEvents,
     setSelectedEvents,
     reset,
   }

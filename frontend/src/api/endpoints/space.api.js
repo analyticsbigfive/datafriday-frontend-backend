@@ -190,13 +190,29 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds) {
       throw error
     }
   })()
-  for (const eventId of missing) _eventTimelineInflight.set(`${spaceId}:${eventId}`, inflight.then((data) => data[eventId] || []))
+  for (const eventId of missing) {
+    const derived = inflight.then((data) => data[eventId] || [])
+    // Marque la promesse dérivée comme « handled » : si AUCUN appel concurrent ne
+    // l'await avant l'échec du batch, son rejet devenait une unhandledRejection
+    // (crash process en test, warning console en navigateur). Les awaiters
+    // concurrents reçoivent toujours le rejet via `derived`.
+    derived.catch(() => {})
+    _eventTimelineInflight.set(`${spaceId}:${eventId}`, derived)
+  }
 
-  const byEventId = await inflight
+  // Nettoyage inflight en finally (pas seulement sur succès) : si la requête batch
+  // rejette, les entrées laissées en Map seraient des promesses rejetées permanentes —
+  // tout appel ultérieur pour ces events re-lèverait la même erreur jusqu'au reload.
+  // Même pattern que le `finally` de getSpaceEventTimeline ci-dessus.
+  let byEventId
+  try {
+    byEventId = await inflight
+  } finally {
+    for (const eventId of missing) _eventTimelineInflight.delete(`${spaceId}:${eventId}`)
+  }
   for (const eventId of missing) {
     const data = byEventId[eventId] || []
     if (Array.isArray(data) && data.length) _eventTimelineCache.set(`${spaceId}:${eventId}`, data)
-    _eventTimelineInflight.delete(`${spaceId}:${eventId}`)
     result.set(eventId, data)
   }
   return result

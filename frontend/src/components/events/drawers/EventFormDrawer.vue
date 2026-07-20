@@ -472,7 +472,7 @@
 
     <template #footer>
       <v-btn variant="text" :disabled="teamCreateLoading" @click="teamDialogOpen = false">{{ t('eventsList.createTeamCancel') }}</v-btn>
-      <v-btn color="primary" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
+      <v-btn color="#ff3131" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
     </template>
   </EventDrawerShell>
 </template>

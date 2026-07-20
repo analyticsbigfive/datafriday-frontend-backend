@@ -23,6 +23,11 @@
       <div class="pdd-card__body">
         <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
           {{ error }}
+          <div v-if="actionLink" class="pdd-card__action-link">
+            <router-link :to="actionLink.to" @click="$emit('update:modelValue', false)">
+              {{ actionLink.label }}
+            </router-link>
+          </div>
         </v-alert>
         <p class="pdd-card__msg">
           {{ message }} <strong>{{ itemName }}</strong>&nbsp;?
@@ -58,6 +63,11 @@ export default {
     itemName: { type: String, default: '' },
     loading: { type: Boolean, default: false },
     error: { type: String, default: '' },
+    // { label: string, to: RouteLocation } — rendu comme lien cliquable sous le message d'erreur
+    // quand la suppression est bloquée par des lignes dépendantes (ex. "Voir les N menu items
+    // concernés" → /menu-items?type=<name> déjà filtré). Évite d'obliger l'utilisateur à chercher
+    // à la main la bonne ligne parmi potentiellement des milliers.
+    actionLink: { type: Object, default: null },
     isDark: { type: Boolean, default: false },
     title: { type: String, default: 'Supprimer' },
     subtitle: { type: String, default: '' },
@@ -127,6 +137,15 @@ export default {
 
 .pdd-card__body {
   padding: 0 22px 20px;
+}
+
+.pdd-card__action-link {
+  margin-top: 6px;
+}
+.pdd-card__action-link a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 .pdd-card__msg {

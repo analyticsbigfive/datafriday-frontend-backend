@@ -32,10 +32,19 @@ export class MarketPriceTypesController {
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les Market Price Types' })
-  @ApiResponse({ status: 200, description: 'Liste des Market Price Types' })
-  findAll(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
+  @ApiResponse({ status: 200, description: 'Liste paginée des Market Price Types' })
+  findAll(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
     this.logger.log(`GET /market-price-types - User: ${user?.id}`);
-    return this.taxonomyService.getTypes(tenantId);
+    return this.taxonomyService.getTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.marketPrices')
@@ -85,10 +94,20 @@ export class MarketPriceCategoriesController {
   @Get()
   @ApiOperation({ summary: 'Lister toutes les Market Price Categories' })
   @ApiQuery({ name: 'typeId', required: false })
-  @ApiResponse({ status: 200, description: 'Liste des Market Price Categories' })
-  findAll(@Query('typeId') typeId: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
+  @ApiResponse({ status: 200, description: 'Liste paginée des Market Price Categories' })
+  findAll(
+    @Query('typeId') typeId: string,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
     this.logger.log(`GET /market-price-categories - User: ${user?.id}`);
-    return this.taxonomyService.getCategories(tenantId, typeId);
+    return this.taxonomyService.getCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.marketPrices')

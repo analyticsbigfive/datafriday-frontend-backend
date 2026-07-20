@@ -19,7 +19,7 @@
       <div class="ntd-foot">
         <button class="ntd-btn ntd-btn--cancel" @click="cancel">{{ t('compCreateDialogCancel') }}</button>
         <button class="ntd-btn ntd-btn--primary" :disabled="!name.trim() || loading" @click="confirm">
-          <Save :size="14" /> {{ loading ? 'Création…' : t('compCreateDialogConfirm') }}
+          <Save :size="14" /> {{ loading ? t('compCreateNewTypeDialogCreating') : t('compCreateDialogConfirm') }}
         </button>
       </div>
     </div>
@@ -71,7 +71,7 @@ export default {
         this.name = '';
         this.$emit('update:modelValue', false);
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Une erreur est survenue.';
+        this.error = e?.response?.data?.message || e?.message || this.t('compCreateNewTypeDialogGenericError');
       } finally {
         this.loading = false;
       }
