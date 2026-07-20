@@ -217,6 +217,11 @@ export default {
     this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes');
     this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories');
     this.$store.dispatch('spaces/fetchSpaces');
+    // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
+    // (suppression bloquée par des MarketPrice dépendants) de lier directement vers la liste déjà
+    // filtrée, plutôt que de chercher la bonne ligne à la main.
+    if (this.$route.query.type) this.selectedType = String(this.$route.query.type);
+    if (this.$route.query.category) this.selectedCategory = String(this.$route.query.category);
     await this.loadMarketPrices();
     this.openFromQuery();
     window.addEventListener('theme-changed', this.handleThemeChange);

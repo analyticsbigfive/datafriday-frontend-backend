@@ -106,6 +106,7 @@
       :item-name="deleteTarget?.name"
       :loading="deleteLoading"
       :error="deleteError"
+      :action-link="deleteActionLink"
       :is-dark="isDark"
       :title="t('marketPriceCategoryList.deleteTitle')"
       :subtitle="t('marketPriceCategoryList.deleteSubtitle')"
@@ -156,6 +157,7 @@ export default {
       deleteDialog: false,
       deleteLoading: false,
       deleteError: "",
+      deleteActionLink: null,
       deleteTarget: null,
     };
   },
@@ -228,6 +230,7 @@ export default {
     openDeleteDialog(item) {
       const raw = item && item.raw ? item.raw : item;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteLoading = false;
       this.deleteTarget = raw;
       this.deleteDialog = true;
@@ -236,11 +239,13 @@ export default {
       this.deleteDialog = false;
       this.deleteLoading = false;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteTarget = null;
     },
     async confirmDelete() {
       this.deleteLoading = true;
       this.deleteError = "";
+      this.deleteActionLink = null;
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
@@ -251,11 +256,20 @@ export default {
         await this.$store.dispatch('marketPriceCategories/removeMarketPriceCategory', id);
         this.closeDeleteDialog();
       } catch (e) {
-        const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global market price category') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
+        const data = e?.response?.data;
+        if (data?.blockedBy === 'marketPrices' && data?.filterField && data?.filterValue) {
+          this.deleteError = data.message || this.t('marketPriceCategoryList.deleteError');
+          this.deleteActionLink = {
+            label: `${this.t('marketPriceCategoryList.viewLinkedItems')} (${data.count ?? '?'})`,
+            to: { path: '/market-prices', query: { [data.filterField]: data.filterValue } },
+          };
+          return;
+        }
+        const msg = String(data?.message || e?.message || '').toLowerCase();
+        if (msg.includes('cannot delete global market price category')) {
           this.deleteError = this.t('marketPriceCategoryList.deleteBlockedUsed');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || this.t('marketPriceCategoryList.deleteError');
+          this.deleteError = data?.message || e?.message || this.t('marketPriceCategoryList.deleteError');
         }
       } finally {
         this.deleteLoading = false;

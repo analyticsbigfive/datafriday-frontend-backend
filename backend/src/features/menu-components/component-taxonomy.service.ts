@@ -127,9 +127,15 @@ export class ComponentTaxonomyService {
     }
     const componentCount = await this.prisma.menuComponent.count({ where: { componentTypeId: id } });
     if (componentCount > 0) {
-      throw new ConflictException(
-        `Impossible de supprimer ce type : ${componentCount} composant(s) de menu en dépendent encore. Réassignez-les d'abord.`,
-      );
+      // Payload structuré pour que le front propose un lien direct vers /components filtré sur ce
+      // type, plutôt que de laisser l'utilisateur chercher le bon composant à la main.
+      throw new ConflictException({
+        message: `Impossible de supprimer ce type : ${componentCount} composant(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'menuComponents',
+        count: componentCount,
+        filterField: 'type',
+        filterValue: type.name,
+      });
     }
     await this.prisma.componentType.delete({ where: { id } });
     this.logger.log(`Component type ${id} deleted`);
@@ -274,9 +280,13 @@ export class ComponentTaxonomyService {
     // MenuComponent.componentCategoryId. Même pattern que deleteEventCategory (BUG-75).
     const componentCount = await this.prisma.menuComponent.count({ where: { componentCategoryId: id } });
     if (componentCount > 0) {
-      throw new ConflictException(
-        `Impossible de supprimer cette catégorie : ${componentCount} composant(s) de menu en dépendent encore. Réassignez-les d'abord.`,
-      );
+      throw new ConflictException({
+        message: `Impossible de supprimer cette catégorie : ${componentCount} composant(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'menuComponents',
+        count: componentCount,
+        filterField: 'category',
+        filterValue: category.name,
+      });
     }
     await this.prisma.componentCategory.delete({ where: { id } });
     this.logger.log(`Component category ${id} deleted`);

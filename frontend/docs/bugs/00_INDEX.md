@@ -183,6 +183,16 @@
 | [167](167_nav_configurations_fr_non_traduit.md) | Sidebar Configurations : 4 libellés jamais traduits en français (texte anglais copié-collé) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [168](168_productcategorylist_force_refresh_cache_ttl_contourne.md) | `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
 | [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [170](170_delete_bloque_sans_moyen_de_trouver_les_dependants.md) | Suppression bloquée (BUG-79/81/82) sans moyen de retrouver les lignes dépendantes | 🟢 Corrigé | 🟠 | Menu & recettes / Achats & référentiels (Configurations) |
+
+**170 bugs au total**, 170 ajouté et corrigé le 2026-07-19 suite à un retour utilisateur en test
+live : les gardes de suppression de BUG-79/81/82 bloquaient correctement la suppression d'une
+taxonomie encore référencée, mais sans aucun moyen de retrouver les lignes bloquantes parmi
+potentiellement des milliers. Les 6 `ConflictException` backend concernées portent maintenant un
+payload structuré (`blockedBy`/`filterField`/`filterValue`), et les 6 écrans de suppression
+affichent un lien direct vers l'écran cible déjà filtré (`/menu-items`, `/components`,
+`/market-prices` lisent désormais `?type=`/`?category=` au montage). Non testé en navigateur (pas
+de `pnpm dev` cette session).
 
 **169 bugs au total**, 159-169 ajoutés le 2026-07-19 suite à un audit complet de la section
 "Configurations" (10 pages : Menu Item Types/Categories, Good Types/Categories, Component

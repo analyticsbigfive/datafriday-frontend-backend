@@ -141,14 +141,23 @@ export class MarketPriceTaxonomyService {
     // deleting a MarketPriceType silently cascade-deleted its MarketPriceCategory
     // children. Same blocking pattern as BUG-75 (EventType/EventCategory), extended
     // to also block if any MarketPrice row still references this type directly.
-    const [categoryCount, marketPriceCount] = await Promise.all([
-      this.prisma.marketPriceCategory.count({ where: { typeId: id } }),
-      this.prisma.marketPrice.count({ where: { marketPriceTypeId: id } }),
-    ]);
-    if (categoryCount > 0 || marketPriceCount > 0) {
+    const categoryCount = await this.prisma.marketPriceCategory.count({ where: { typeId: id } });
+    if (categoryCount > 0) {
       throw new ConflictException(
-        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) et ${marketPriceCount} prix marché en dépendent encore. Supprimez/réassignez-les d'abord.`,
+        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
       );
+    }
+    const marketPriceCount = await this.prisma.marketPrice.count({ where: { marketPriceTypeId: id } });
+    if (marketPriceCount > 0) {
+      // Payload structuré pour que le front propose un lien direct vers /market-prices filtré sur
+      // ce type, plutôt que de laisser l'utilisateur chercher la bonne ligne à la main.
+      throw new ConflictException({
+        message: `Impossible de supprimer ce type : ${marketPriceCount} prix marché en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'marketPrices',
+        count: marketPriceCount,
+        filterField: 'type',
+        filterValue: type.name,
+      });
     }
     await this.prisma.marketPriceType.delete({ where: { id } });
     this.logger.log(`Market price type ${id} deleted`);
@@ -308,9 +317,13 @@ export class MarketPriceTaxonomyService {
       where: { marketPriceCategoryId: id },
     });
     if (marketPriceCount > 0) {
-      throw new ConflictException(
-        `Impossible de supprimer cette catégorie : ${marketPriceCount} prix marché en dépendent encore. Réassignez-les d'abord.`,
-      );
+      throw new ConflictException({
+        message: `Impossible de supprimer cette catégorie : ${marketPriceCount} prix marché en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'marketPrices',
+        count: marketPriceCount,
+        filterField: 'category',
+        filterValue: category.name,
+      });
     }
     await this.prisma.marketPriceCategory.delete({ where: { id } });
     this.logger.log(`Market price category ${id} deleted`);

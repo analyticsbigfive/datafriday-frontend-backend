@@ -112,6 +112,7 @@
       :item-name="deleteTarget?.name"
       :loading="deleteLoading"
       :error="deleteError"
+      :action-link="deleteActionLink"
       :is-dark="isDark"
       :title="t('componentTypeList.deleteTitle')"
       :subtitle="t('componentTypeList.deleteSubtitle')"
@@ -164,6 +165,7 @@ export default {
       deleteDialog: false,
       deleteLoading: false,
       deleteError: "",
+      deleteActionLink: null,
       deleteTarget: null,
 
       categoriesDialog: false,
@@ -234,6 +236,7 @@ export default {
     openDeleteDialog(item) {
       const raw = item && item.raw ? item.raw : item;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteLoading = false;
       this.deleteTarget = raw;
       this.deleteDialog = true;
@@ -242,6 +245,7 @@ export default {
       this.deleteDialog = false;
       this.deleteLoading = false;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteTarget = null;
     },
 
@@ -252,6 +256,7 @@ export default {
     async confirmDelete() {
       this.deleteLoading = true;
       this.deleteError = "";
+      this.deleteActionLink = null;
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
@@ -268,11 +273,20 @@ export default {
         await this.$store.dispatch('componentTypes/removeComponentType', id);
         this.closeDeleteDialog();
       } catch (e) {
-        const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global component type') || msg.includes('categor') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
+        const data = e?.response?.data;
+        if (data?.blockedBy === 'menuComponents' && data?.filterField && data?.filterValue) {
+          this.deleteError = data.message || this.t('componentTypeList.deleteError');
+          this.deleteActionLink = {
+            label: `${this.t('componentTypeList.viewLinkedItems')} (${data.count ?? '?'})`,
+            to: { path: '/components', query: { [data.filterField]: data.filterValue } },
+          };
+          return;
+        }
+        const msg = String(data?.message || e?.message || '').toLowerCase();
+        if (msg.includes('cannot delete global component type') || msg.includes('categor')) {
           this.deleteError = this.t('componentTypeList.deleteBlockedCategories');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || this.t('componentTypeList.deleteError');
+          this.deleteError = data?.message || e?.message || this.t('componentTypeList.deleteError');
         }
       } finally {
         this.deleteLoading = false;

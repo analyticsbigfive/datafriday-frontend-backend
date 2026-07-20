@@ -106,6 +106,7 @@
       :item-name="deleteTarget?.name"
       :loading="deleteLoading"
       :error="deleteError"
+      :action-link="deleteActionLink"
       :is-dark="isDark"
       :title="t('productCategoryList.deleteTitle')"
       :subtitle="t('productCategoryList.deleteSubtitle')"
@@ -156,6 +157,7 @@ export default {
       deleteDialog: false,
       deleteLoading: false,
       deleteError: "",
+      deleteActionLink: null,
       deleteTarget: null,
     };
   },
@@ -252,6 +254,7 @@ export default {
     openDeleteDialog(item) {
       const raw = item && item.raw ? item.raw : item;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteLoading = false;
       this.deleteTarget = raw;
       this.deleteDialog = true;
@@ -260,11 +263,13 @@ export default {
       this.deleteDialog = false;
       this.deleteLoading = false;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteTarget = null;
     },
     async confirmDelete() {
       this.deleteLoading = true;
       this.deleteError = "";
+      this.deleteActionLink = null;
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
@@ -275,8 +280,17 @@ export default {
         await this.$store.dispatch('productCategories/removeProductCategory', id);
         this.closeDeleteDialog();
       } catch (e) {
-        const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global product category') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
+        const data = e?.response?.data;
+        if (data?.blockedBy === 'menuItems' && data?.filterField && data?.filterValue) {
+          this.deleteError = data.message || this.t('productCategoryList.deleteError');
+          this.deleteActionLink = {
+            label: `${this.t('productCategoryList.viewLinkedItems')} (${data.count ?? '?'})`,
+            to: { path: '/menu-items', query: { [data.filterField]: data.filterValue } },
+          };
+          return;
+        }
+        const msg = String(data?.message || e?.message || '').toLowerCase();
+        if (msg.includes('cannot delete global product category')) {
           this.deleteError = this.t('productCategoryList.deleteBlockedUsed');
         } else {
           this.deleteError = e?.response?.data?.message || e?.message || this.t('productCategoryList.deleteError');

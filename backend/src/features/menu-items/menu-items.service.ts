@@ -1650,9 +1650,16 @@ export class MenuItemsService {
     }
     const menuItemCount = await this.prisma.menuItem.count({ where: { typeId: id } });
     if (menuItemCount > 0) {
-      throw new ConflictException(
-        `Impossible de supprimer ce type : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
-      );
+      // Payload structuré (au-delà du `message`) pour que le front puisse proposer un lien direct
+      // vers la liste des Menu Items déjà filtrée sur ce type, plutôt que de laisser l'utilisateur
+      // chercher "le bon menu item" à la main parmi potentiellement des milliers de lignes.
+      throw new ConflictException({
+        message: `Impossible de supprimer ce type : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'menuItems',
+        count: menuItemCount,
+        filterField: 'type',
+        filterValue: productType.name,
+      });
     }
 
     await this.prisma.productType.delete({ where: { id } });
@@ -1798,9 +1805,13 @@ export class MenuItemsService {
     // MenuItem.categoryId. Même pattern que deleteEventCategory (BUG-75).
     const menuItemCount = await this.prisma.menuItem.count({ where: { categoryId: id } });
     if (menuItemCount > 0) {
-      throw new ConflictException(
-        `Impossible de supprimer cette catégorie : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
-      );
+      throw new ConflictException({
+        message: `Impossible de supprimer cette catégorie : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'menuItems',
+        count: menuItemCount,
+        filterField: 'category',
+        filterValue: productCategory.name,
+      });
     }
 
     await this.prisma.productCategory.delete({ where: { id } });

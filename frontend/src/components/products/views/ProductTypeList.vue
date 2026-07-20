@@ -112,6 +112,7 @@
       :item-name="deleteTarget?.name"
       :loading="deleteLoading"
       :error="deleteError"
+      :action-link="deleteActionLink"
       :is-dark="isDark"
       :title="t('productTypeList.deleteTitle')"
       :subtitle="t('productTypeList.deleteSubtitle')"
@@ -164,6 +165,7 @@ export default {
       deleteDialog: false,
       deleteLoading: false,
       deleteError: "",
+      deleteActionLink: null,
       deleteTarget: null,
 
       categoriesDialog: false,
@@ -240,6 +242,7 @@ export default {
     openDeleteDialog(item) {
       const raw = item && item.raw ? item.raw : item;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteLoading = false;
       this.deleteTarget = raw;
       this.deleteDialog = true;
@@ -248,6 +251,7 @@ export default {
       this.deleteDialog = false;
       this.deleteLoading = false;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteTarget = null;
     },
 
@@ -258,6 +262,7 @@ export default {
     async confirmDelete() {
       this.deleteLoading = true;
       this.deleteError = "";
+      this.deleteActionLink = null;
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
@@ -273,11 +278,24 @@ export default {
         await this.$store.dispatch('productTypes/removeProductType', id);
         this.closeDeleteDialog();
       } catch (e) {
-        const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global product type') || msg.includes('categor') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
+        // BUG-79 fournit un payload structuré (blockedBy/filterField/filterValue) quand le blocage
+        // vient de MenuItem dépendants — on l'utilise pour proposer un lien direct vers la liste déjà
+        // filtrée, plutôt que de laisser l'utilisateur chercher la bonne ligne parmi potentiellement
+        // des milliers de Menu Items.
+        const data = e?.response?.data;
+        if (data?.blockedBy === 'menuItems' && data?.filterField && data?.filterValue) {
+          this.deleteError = data.message || this.t('productTypeList.deleteError');
+          this.deleteActionLink = {
+            label: `${this.t('productTypeList.viewLinkedItems')} (${data.count ?? '?'})`,
+            to: { path: '/menu-items', query: { [data.filterField]: data.filterValue } },
+          };
+          return;
+        }
+        const msg = String(data?.message || e?.message || '').toLowerCase();
+        if (msg.includes('cannot delete global product type') || msg.includes('categor')) {
           this.deleteError = this.t('productTypeList.deleteBlockedCategories');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || this.t('productTypeList.deleteError');
+          this.deleteError = data?.message || e?.message || this.t('productTypeList.deleteError');
         }
       } finally {
         this.deleteLoading = false;
