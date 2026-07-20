@@ -61,14 +61,9 @@ duplication qui avait produit ce code mort.
 
 De même, pour modifier le comportement d'onboarding côté front, éditer `store/modules/auth.js` —
 il n'y a plus de fichier d'endpoints à mettre à jour, et c'est volontaire tant que `auth.js` n'a pas
-été découpé (voir [`../AMELIORATIONS_AUTHENTIFICATION.md`](../AMELIORATIONS_AUTHENTIFICATION.md)
-A6/A7).
+été découpé.
 
 ## Références
 
 - [`../modules/08_AUTH_ONBOARDING.md`](../modules/08_AUTH_ONBOARDING.md) §"Code mort de ce domaine",
   §"Piège n°3" (`Login.vue`), §"Piège n°4" (`onboarding.js`)
-- [`../MODULE_AUTHENTIFICATION.md`](../MODULE_AUTHENTIFICATION.md) §6
-- [`../JOURNAL_AUTHENTIFICATION.md`](../JOURNAL_AUTHENTIFICATION.md)
-- [`../AMELIORATIONS_AUTHENTIFICATION.md`](../AMELIORATIONS_AUTHENTIFICATION.md) — A6/A7, suite du
-  chantier sur la couche API du domaine

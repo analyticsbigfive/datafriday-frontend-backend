@@ -183,6 +183,5 @@ repose sur les tests unitaires de la fonction pure, et non sur le navigateur seu
 
 - [`../modules/08_AUTH_ONBOARDING.md`](../modules/08_AUTH_ONBOARDING.md) — bug actif n°2, contexte
   complet du domaine
-- [`../MODULE_AUTHENTIFICATION.md`](../MODULE_AUTHENTIFICATION.md) — synthèse opérationnelle
 - [[191_auth_console_log_jwt_en_clair]] — corrigé dans la même PR
 - `src/utils/authSessionEvent.js`, `tests/unit/authSessionEvent.spec.js`

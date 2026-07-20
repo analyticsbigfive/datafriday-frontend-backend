@@ -60,7 +60,6 @@ session antérieure) n'a plus d'accès privilégié.
 
 - [`../modules/08_AUTH_ONBOARDING.md`](../modules/08_AUTH_ONBOARDING.md) §"Récapitulatif — bugs
   actifs confirmés" #4
-- [`../MODULE_AUTHENTIFICATION.md`](../MODULE_AUTHENTIFICATION.md)
 - `src/utils/demoMode.js` — l'état débranché qui motive la suppression
 - [[28_predict_test_sans_guard_auth]] — corrigé dans la même PR (même famille : surfaces non
   authentifiées)

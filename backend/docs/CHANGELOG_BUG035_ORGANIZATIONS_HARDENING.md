@@ -91,7 +91,6 @@ un super-admin plateforme sans tenant courant avant que le `SuperAdminGuard` ne 
 
 ## 6. Références
 
-- Dossier technique frontend : `datafriday-web/docs/SECURITE_ORGANIZATIONS_CROSS_TENANT.md`
 - Plan de remédiation : `docs/PLAN_REMEDIATION_AUTH_PROD.md` (§1.1, §1.3 A/B/C)
 - Précédents de fix cross-tenant : BUG-065 (`predict-versions`), BUG-066 (ownership taxonomie)
 - Surface jumelle déjà durcie : `tenants.controller.ts:30-31` (P0-1)

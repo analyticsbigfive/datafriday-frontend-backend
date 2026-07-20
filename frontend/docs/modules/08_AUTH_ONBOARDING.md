@@ -5,9 +5,6 @@
 > `/verify-email`, `/auth/callback`, `/onboarding`, `/profile`, `/users` (+`/users/create`),
 > `/roles`, `/permissions`.
 >
-> **Historique des interventions sur ce module** (auteur, date, heure, description) :
-> [`../JOURNAL_AUTHENTIFICATION.md`](../JOURNAL_AUTHENTIFICATION.md).
->
 > Vérifié exhaustivement le 2026-07-15 : chaque modèle Prisma, chaque guard/stratégie
 > d'authentification, chaque route des 7 contrôleurs backend du domaine, chaque store Vuex,
 > chaque route/guard frontend et chaque client API a été localisé et lu directement dans le code

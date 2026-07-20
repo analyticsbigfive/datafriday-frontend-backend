@@ -52,5 +52,4 @@ publication assumée).
 
 - [`../modules/08_AUTH_ONBOARDING.md`](../modules/08_AUTH_ONBOARDING.md) §"Récapitulatif — bugs
   actifs confirmés" #5
-- [`../MODULE_AUTHENTIFICATION.md`](../MODULE_AUTHENTIFICATION.md)
 - [[27_bypass_demo_actif_sans_distinction_env]] — corrigé dans la même PR
