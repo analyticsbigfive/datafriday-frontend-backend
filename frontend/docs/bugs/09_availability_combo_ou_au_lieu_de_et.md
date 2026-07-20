@@ -1,6 +1,6 @@
 # BUG-009 — Availability Combo utilise ∨ (OU) au lieu de ∧ (ET)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟠 Majeur (visibilité produit incorrecte)
 - **Domaine** : Prévision (Event Predict)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -19,7 +19,10 @@ La branche `Combo` de `menuItemsPerElement` teste `food ∨ beverages` (OU) au l
 
 ## Correction
 
-Aucune à ce jour.
+2026-07-18 : branche `Combo` de `menuItemsPerElement` passée de
+`fbTypes.includes('food') || fbTypes.includes('beverages')` à `&&` (ET), conformément à la spec
+§5.3. Les shops à `shopType` vide / `gppremium` / `temporary` restent non filtrés (acceptent
+tout), comme avant.
 
 ## Risque de régression / à surveiller
 

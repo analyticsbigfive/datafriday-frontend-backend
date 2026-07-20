@@ -37,6 +37,13 @@ export class SpacesService {
     `spaces:shops:${tenantId}:${spaceId}`;
   private readonly SPACE_CONFIGS_CACHE_KEY = (tenantId: string, spaceId: string) =>
     `spaces:configs:${tenantId}:${spaceId}`;
+  // RPC get_space_shop_details ≈ 300ms à elle seule (cf. commentaire getShopDetails) et
+  // sur le chemin critique du premier rendu /analyse (phase 1 de useSpaceData) — cachée
+  // 60s. Données alimentées par sync/agrégation (pas d'écriture utilisateur directe),
+  // invalidées avec les autres clés spaces:* dans invalidateSpaceCache.
+  private readonly SPACE_SHOPDETAILS_CACHE_TTL = 60;
+  private readonly SPACE_SHOPDETAILS_CACHE_KEY = (tenantId: string, spaceId: string) =>
+    `spaces:shopdetails:${tenantId}:${spaceId}`;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -71,6 +78,8 @@ export class SpacesService {
       keys.push(this.redis.deletePattern(`${this.SPACE_SHOPS_CACHE_KEY(tenantId, spaceId)}*`) as unknown as Promise<void>);
       keys.push(this.redis.delete(this.SPACE_CONFIGS_CACHE_KEY(tenantId, spaceId)));
       keys.push(this.redis.delete(this.SPACE_SHOPIDS_CACHE_KEY(tenantId, spaceId)));
+      // deletePattern : getShopDetails écrit des clés suffixées ":page:limit:granular"
+      keys.push(this.redis.deletePattern(`${this.SPACE_SHOPDETAILS_CACHE_KEY(tenantId, spaceId)}*`) as unknown as Promise<void>);
     }
     await Promise.all(keys);
   }
@@ -967,14 +976,22 @@ export class SpacesService {
    * collapsing 8 sequential DB round-trips into a single network call (~2s → ~300ms).
    */
   async getShopDetails(spaceId: string, tenantId: string, page = 1, limit = 20, includeGranular = false) {
-    const rows = await this.prisma.$queryRaw<Array<{ get_space_shop_details: any }>>`
-      SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int, ${includeGranular}::boolean)
-    `;
-    const data = rows[0]?.get_space_shop_details;
-    if (!data || data.__error === 'space_not_found') {
-      throw new NotFoundException(`Space with ID ${spaceId} not found`);
-    }
-    return data;
+    // Cache Redis (60s) : la RPC est le poste dominant du premier rendu /analyse.
+    // Une erreur (space_not_found) jette depuis la factory → rien n'est mis en cache.
+    return this.redis.getOrSet(
+      `${this.SPACE_SHOPDETAILS_CACHE_KEY(tenantId, spaceId)}:${page}:${limit}:${includeGranular ? 1 : 0}`,
+      async () => {
+        const rows = await this.prisma.$queryRaw<Array<{ get_space_shop_details: any }>>`
+          SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int, ${includeGranular}::boolean)
+        `;
+        const data = rows[0]?.get_space_shop_details;
+        if (!data || data.__error === 'space_not_found') {
+          throw new NotFoundException(`Space with ID ${spaceId} not found`);
+        }
+        return data;
+      },
+      { ttl: this.SPACE_SHOPDETAILS_CACHE_TTL },
+    );
   }
 
   private readonly SPACE_SHOPIDS_CACHE_TTL = 30; // seconds — même durée que SPACE_SHOPS_CACHE_TTL
@@ -1036,6 +1053,10 @@ export class SpacesService {
    * event) instead of once per event, then runs a single raw-SQL aggregate for all events
    * via a VALUES CTE joined by date-range predicate — instead of one query per event.
    * Returns a map keyed by the requested eventId (missing/not-found events map to []).
+   * Sales whose location has no shop mapping are KEPT (shopId falls back to the raw
+   * locationId, shopName to locationName) — same resilience as the shop-details RPC;
+   * the frontend buckets them as "unattached" (grey). Only when the space has no
+   * integration mapping (tenant-wide degraded scope) are unmapped rows excluded.
    */
   async getEventTimelineBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
     const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
@@ -1099,6 +1120,18 @@ export class SpacesService {
       ? Prisma.sql`AND t."integrationId" = ${integrationId}`
       : Prisma.sql``;
 
+    // Shop scoping aligned with the get_space_shop_details RPC: keep sales whose
+    // location has no shop mapping (they surface as the frontend's grey
+    // "unattached" bucket, UNATTACHED_SHOP_KEY) instead of silently dropping them
+    // — an unmapped POS previously zeroed out every item-level view while the
+    // shop-level aggregate kept showing revenue. Rows mapped to another space's
+    // shops stay excluded. Without an integration scope the query is tenant-wide,
+    // so the unmapped branch would leak other spaces' sales into this space's
+    // date windows — in that degraded mode, require the mapping.
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
+      : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
+
     const valuesSql = Prisma.join(
       windows.map(w => Prisma.sql`(${w.id}::text, ${w.eventDate}::timestamp, ${w.windowEnd}::timestamp)`),
       ', ',
@@ -1109,8 +1142,8 @@ export class SpacesService {
       SELECT
         ev."eventId"                                                      AS "eventId",
         TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')    AS minute,
-        mem."spaceElementId"                                              AS "shopId",
-        se.name                                                           AS "shopName",
+        COALESCE(mem."spaceElementId", t."locationId")                    AS "shopId",
+        COALESCE(se.name, t."locationName", t."locationId")               AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
         se.attributes::jsonb->>'area'                                     AS "shopArea",
         ti."productId"                                                    AS "weezeventProductId",
@@ -1133,11 +1166,10 @@ export class SpacesService {
        AND t.status = 'V'
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
-      INNER JOIN "WeezeventLocationShopMapping" mem
+      LEFT JOIN "WeezeventLocationShopMapping" mem
         ON mem."weezeventLocationId" = t."locationId"
        AND mem."tenantId"         = ${tenantId}
-       AND mem."spaceElementId"   = ANY(${shopIds})
-      INNER JOIN "SpaceElement" se
+      LEFT JOIN "SpaceElement" se
         ON se.id = mem."spaceElementId"
       LEFT JOIN "WeezeventProductMapping" wpm
         ON wpm."weezeventProductId" = ti."productId"
@@ -1148,9 +1180,12 @@ export class SpacesService {
         ON pt.id = mi."typeId"
       LEFT JOIN "ProductCategory" pc
         ON pc.id = mi."categoryId"
+      WHERE ${shopScopeClause}
       GROUP BY
         ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
-        mem."spaceElementId", se.name, se.type, se.attributes,
+        COALESCE(mem."spaceElementId", t."locationId"),
+        COALESCE(se.name, t."locationName", t."locationId"),
+        se.type, se.attributes,
         ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name
       ORDER BY ev."eventId", minute ASC
     `);

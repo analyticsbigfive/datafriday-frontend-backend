@@ -185,6 +185,54 @@
 | [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [170](170_delete_bloque_sans_moyen_de_trouver_les_dependants.md) | Suppression bloquée (BUG-79/81/82) sans moyen de retrouver les lignes dépendantes | 🟢 Corrigé | 🟠 | Menu & recettes / Achats & référentiels (Configurations) |
 | [171](171_configurations_pagination_recherche_server_side.md) | Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [172](172_chaine_analyse_api_morte_supprimee.md) | Chaîne `/analyse/*` entièrement morte (action jamais dispatchée, buckets jamais lus) — supprimée | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [173](173_timeline_batch_inflight_empoisonne_sur_rejet.md) | `getSpaceEventTimelineBatch` : in-flight jamais nettoyé sur échec → erreurs permanentes | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [174](174_loadspace_sans_cache_first.md) | `/analyse` : chaque re-mount re-payait la phase 1 (pas de cache-first 15 min) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [175](175_fetchallmenucomponents_pagination_sequentielle.md) | `fetchAllMenuComponents` : pagination page-à-page séquentielle | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [176](176_phase2_endpoints_unscoped_tradeoff.md) | Phase 2 : endpoints tenant-wide non scopés (tradeoff délibéré documenté) | ⚫ Won't fix | 🟡 | Analyse & agrégation |
+| [177](177_hydration_recettes_n1_background.md) | Hydration recettes : N fetchs détail `/menu-components/:id` en phase 2 | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [178](178_double_cache_timeline.md) | Trois couches de cache timeline indépendantes (store / module API / predict) | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [179](179_getters_analyse_lourds.md) | Getters analyse : ré-itération des tableaux complets à chaque changement de filtre | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [180](180_predict_timeline_single_vers_batch.md) | (miroir) Moteur predict : N GET single event-timeline → batch adopté — canonique back 10 | 🟢 Corrigé | 🟠 | Prévision |
+| [181](181_cascade_duplication_versions_predict.md) | Cascade historique de versions dupliquées, tenue par des workarounds fragiles | ⚪ Diagnostiqué | 🟠 | Prévision |
+| [182](182_scoring_predict_client_3_8s.md) | Scoring predict client-side 3-8s : incompatible < 300ms (limitation documentée) | ⚪ Diagnostiqué | 🟢 | Prévision |
+| [183](183_double_persistance_comptages.md) | Inventaire : chaque comptage écrit deux fois (POST par item + snapshot blob) | ⚪ Diagnostiqué | 🟡 | Stock |
+| [184](184_nettoyages_stock_analyse.md) | Nettoyages : actions Vuex dupliquées (inventory), précédence non parenthésée (revenue) | 🟢 Corrigé | 🟢 | Stock / Analyse |
+| [185](185_inventaire_adopte_batch_shop_items.md) | (miroir) Space Inventory : adoption du batch shop-items, fin du N+1 — canonique back 96 | 🟢 Corrigé | 🟠 | Stock |
+| [186](186_predict_snapshot_brouillon_date_perimee_calendrier.md) | EventPredict : date périmée du snapshot/brouillon écrase la canonique → event disparu du calendrier | 🟢 Corrigé | 🟠 | Prévision |
+| [187](187_analyse_articles_echec_event_timeline_silencieux.md) | Analyse : échec du batch event-timeline avalé → « Aucun article disponible » trompeur — miroir cause back 103 | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [188](188_stockup_explosion_ignore_comboitem.md) | Stock up : explosion recette ignore `comboItem` (seul `readyForSale` décide) — règle métier → Bertrand #18 | ⚪ Diagnostiqué | 🟠 | Prévision |
+| [189](189_analyse_futureeventscount_double_implementation.md) | Analyse : `futureEventsCount` en double — getter store mort (`>`) supprimé, computed vivant (`>=`) conservé | 🟢 Corrigé | 🟢 | Analyse & agrégation |
+
+**189 bugs au total.** 172-189 ajoutés le 2026-07-18 sur `feat/analyse` (numérotés à l'origine
+149-166 sur cette branche ; renumérotés 172-189 au merge du 2026-07-20 dans `develop` pour éviter la
+collision avec 149-171 ci-dessus, ajoutés en parallèle sur `develop` le 2026-07-19). Trois fiches
+supplémentaires de `feat/analyse` (initialement 167-169 sur cette branche, elles-mêmes déjà
+renumérotées depuis 149-151 lors d'un merge interne antérieur) étaient des doublons strictement
+identiques aux fiches 149-151 ci-dessus (même bug, même correctif) — supprimées au merge, 149-151
+restent la version canonique. Audit croisé /analyse + Event Predict + Stock
+(inventory/logistics/restock), mené avec le backend (fiches 89-102) et un objectif de performance
+« contenu initial des vues < 300ms ». Découverte structurante : toute la chaîne `/analyse/*` du
+front (action `loadSpaceLightweight`, 4 buckets d'état, `analyse.api.js`, mock 39KB) était MORTE —
+jamais dispatchée, jamais lue — et a été supprimée (172) ; le vrai chemin est `loadSpace →
+useSpaceData` two-phase, qui reçoit : cache-first 15 min stale-while-revalidate au re-mount (174),
+pagination composants parallélisée (175), et côté backend le cache Redis de la RPC shop-details
+(~300ms économisés, back 92). Deux N+1 majeurs éteints par adoption de batchs existants : le moteur
+predict passe au batch event-timeline (180, avec fix préalable de l'empoisonnement in-flight du
+batch sur rejet — 173) et Space Inventory au batch shop-items enrichi (185) — soldant le BUG-010
+backend. Predict : `manualQuantities` enfin envoyé (fiche 08 → 🟢, le backend était prêt depuis le
+début). Restock : alerte explicite sur 403 + envoi de `stockExcluded`/`currentStep` (fiche 19 mise à
+jour ; le choix de permissions backend reste à Bertrand). Laissés volontairement en ⚪/⚫ après
+diagnostic : le tradeoff phase-2 unscoped (176, annoté en code — ne pas « re-scoper » sans lever les
+gotchas), l'hydration N+1 des recettes (177, en arrière-plan, vrai fix côté backend), la triple
+couche de cache timeline (178), les getters lourds (179, plan de fix par index `Map` posé), la
+cascade de duplication des versions predict (181, bloquée par le nettoyage des doublons prod) et la
+double persistance des comptages (183, décision d'architecture → `QUESTIONS_A_BERTRAND.md`). État de
+la suite unit après session : 397/401 verts — les 4 échecs restants (suites `apiOrMock.spec.js`
+[teste le fallback mock supprimé], `spaceMenusInventory.spec.js`, `eventDetailsEditor.spec.js`) sont
+PRÉEXISTANTS, vérifiés identiques à HEAD avant toute modification de cette session ; corrigé au
+passage un unhandledRejection réel dans le batch timeline (promesses dérivées sans handler) révélé
+par la nouvelle spec `spaceApiTimelineBatch.spec.js`.
 
 **171 bugs au total**, 171 ajouté et corrigé le 2026-07-19, même session, suite à un nouveau retour
 utilisateur sur le fix BUG-169 : la pagination bornée évitait bien la requête non bornée, mais les

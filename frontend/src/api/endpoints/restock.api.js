@@ -43,13 +43,15 @@ export async function getRestockState(spaceId) {
  * @returns {Promise<object|null>}
  */
 export async function putRestockState(spaceId, snapshot) {
-  // DTO backend = les 9 champs du contrat, À PLAT (forbidNonWhitelisted) : ni
-  // wrapper `state` (→ 400 « property state should not exist »), ni champs
-  // ajoutés après le contrat (stockExcluded, currentStep → 400). Ces 2 derniers
-  // restent persistés en localStorage ; à ajouter au DTO backend si on les veut
-  // cross-machine.
+  // Le backend actuel stocke le snapshot comme blob jsonb OPAQUE (champs
+  // additionnels tolérés — cf. restock-state.controller.ts). On envoie donc
+  // AUSSI stockExcluded/currentStep (avant : localStorage only → perdus au
+  // changement de machine, cf. fiches front BUG-019 / back BUG-31).
+  // Rétro-compat : si le backend DÉPLOYÉ est une version antérieure encore en
+  // whitelist stricte (forbidNonWhitelisted → 400 « should not exist »), on
+  // retente une fois avec le noyau des 9 champs du contrat historique.
   const s = snapshot || {}
-  const body = {
+  const core = {
     objectiveSource: s.objectiveSource,
     referenceEventId: s.referenceEventId,
     selectedEventIds: s.selectedEventIds,
@@ -60,10 +62,20 @@ export async function putRestockState(spaceId, snapshot) {
     shoppingGenerated: s.shoppingGenerated,
     restockViewMode: s.restockViewMode,
   }
-  const res = await api.put(
-    `/spaces/${encodeURIComponent(spaceId)}/restock-state`,
-    body,
-    { suppressGlobalError: true },
-  )
-  return res?.state ?? null
+  const extras = {}
+  if (s.stockExcluded !== undefined) extras.stockExcluded = s.stockExcluded
+  if (s.currentStep !== undefined) extras.currentStep = s.currentStep
+  const url = `/spaces/${encodeURIComponent(spaceId)}/restock-state`
+  try {
+    const res = await api.put(url, { ...core, ...extras }, { suppressGlobalError: true })
+    return res?.state ?? null
+  } catch (err) {
+    const isWhitelist400 =
+      err?.response?.status === 400 &&
+      Object.keys(extras).length > 0 &&
+      /should not exist/i.test(JSON.stringify(err?.response?.data?.message ?? ''))
+    if (!isWhitelist400) throw err
+    const res = await api.put(url, core, { suppressGlobalError: true })
+    return res?.state ?? null
+  }
 }

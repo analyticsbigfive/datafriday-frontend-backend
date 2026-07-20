@@ -1,28 +1,28 @@
 <template>
   <!-- Sélecteur de réarmement : liste des évènements PRÉDITS (qui ont une
-       prévision/version sauvegardée dans Event Predict), sélection UNIQUE, +
-       choix du scénario (version) + date de l'évènement. Remplace l'ancien
-       calendrier. Utilisé en desktop et en sheet mobile (DRY). -->
+       prévision/version sauvegardée dans Event Predict), sélection MULTIPLE
+       (l'objectif de réarmement = somme des besoins des évènements cochés), +
+       choix du scénario (version) par évènement. Utilisé en desktop et en
+       sheet mobile (DRY). -->
   <div class="resp">
     <div v-if="!events.length" class="resp-empty">
       Aucun évènement prédit. Créez une prévision dans Event Predict.
     </div>
 
-    <v-radio-group
-      v-else
-      :model-value="selectedEventId"
-      hide-details
-      density="compact"
-      class="resp-list"
-      @update:model-value="$emit('select-event', $event)"
-    >
+    <div v-else class="resp-list">
       <div
         v-for="ev in events"
         :key="ev.id"
         class="resp-item"
-        :class="{ 'is-selected': ev.id === selectedEventId }"
+        :class="{ 'is-selected': isSelected(ev.id) }"
       >
-        <v-radio :value="ev.id" class="resp-radio">
+        <v-checkbox
+          :model-value="isSelected(ev.id)"
+          hide-details
+          density="compact"
+          class="resp-check"
+          @update:model-value="$emit('select-event', ev.id)"
+        >
           <template #label>
             <span class="resp-main">
               <span class="resp-name">{{ ev.name }}</span>
@@ -33,11 +33,12 @@
               </span>
             </span>
           </template>
-        </v-radio>
+        </v-checkbox>
 
         <!-- Scénarios : cartes (mirror EventPredict « Saved Versions ») —
-             radio custom + nom + badge Active + stats revenue/units. -->
-        <div v-if="ev.id === selectedEventId && ev.scenarios.length" class="resp-scenarios">
+             radio custom + nom + badge Active + stats revenue/units.
+             Affichées pour CHAQUE évènement coché (scénario par évènement). -->
+        <div v-if="isSelected(ev.id) && ev.scenarios.length" class="resp-scenarios">
           <span class="resp-scenarios-label">Scénario</span>
           <div class="resp-scenario-cards">
             <div
@@ -81,13 +82,13 @@
           </div>
         </div>
         <div
-          v-else-if="ev.id === selectedEventId && !ev.scenarios.length"
+          v-else-if="isSelected(ev.id) && !ev.scenarios.length"
           class="resp-noscenario"
         >
           Prédiction courante (aucun scénario sauvegardé).
         </div>
       </div>
-    </v-radio-group>
+    </div>
   </div>
 </template>
 
@@ -96,15 +97,20 @@ import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
 
-defineProps({
+const props = defineProps({
   // Évènements prédits enrichis : { id, name, dateLabel, showTime, configName,
   //   date, scenarios: [{ id, name, revenue, units }] }.
   events: { type: Array, default: () => [] },
-  selectedEventId: { type: String, default: null },
+  // Sélection multiple : le parent toggle via l'évènement `select-event`.
+  selectedEventIds: { type: Array, default: () => [] },
   selectedScenarioByEventId: { type: Object, default: () => ({}) },
 })
 
 defineEmits(['select-event', 'select-scenario'])
+
+function isSelected(id) {
+  return props.selectedEventIds.includes(id)
+}
 
 function formatRevenue(n) {
   const v = Number(n) || 0
@@ -120,7 +126,9 @@ function formatRevenue(n) {
   text-align: center;
   padding: 16px 8px;
 }
-.resp-list { margin: 0; }
+.resp-list { margin: 0; display: flex; flex-direction: column; }
+/* Label du v-checkbox : pleine largeur + pas d'atténuation Vuetify. */
+.resp-check :deep(.v-label) { opacity: 1; width: 100%; }
 .resp-item {
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 10px;

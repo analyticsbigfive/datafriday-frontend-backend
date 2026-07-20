@@ -11,7 +11,17 @@ describe('LogisticsService — readyForSale display logic', () => {
     marketPrice: { findMany: jest.fn() },
   };
 
-  const emptyCtx = () => ({ comboByName: new Map(), mpByName: new Map(), componentById: new Map() });
+  // itemRefsCache/componentRefsCache/perUnitCache : caches par requête ajoutés à
+  // RecipeCtx après l'écriture de cette spec — sans eux, `ctx.itemRefsCache.get`
+  // jetait TypeError (10 tests cassés).
+  const emptyCtx = () => ({
+    comboByName: new Map(),
+    mpByName: new Map(),
+    componentById: new Map(),
+    itemRefsCache: new Map(),
+    componentRefsCache: new Map(),
+    perUnitCache: new Map(),
+  });
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({

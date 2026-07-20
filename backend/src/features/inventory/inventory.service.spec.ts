@@ -53,6 +53,11 @@ const mockPrisma = {
     create: jest.fn(),
     update: jest.fn(),
   },
+  // getLatestBySpace dénormalise eventName via event.findFirst (ajout postérieur
+  // à cette spec — son absence faisait jeter TypeError, 3 tests cassés).
+  event: {
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
 };
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -133,6 +138,22 @@ describe('InventoryService', () => {
       expect(result.inventoryCounts).toEqual({});
     });
 
+    it('falls back to the snapshot when ALL counts have null shopId (fix 2026-07-18)', async () => {
+      // Avant le fix : l'early-return « counts.length > 0 » servait
+      // inventoryCounts: {} en ignorant un snapshot pourtant présent →
+      // inventaire affiché vide malgré des données sauvegardées.
+      const snapshot = makeSnapshot();
+      mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snapshot);
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ id: 'c1', shopId: null }),
+        makeCount({ id: 'c2', shopId: null, itemId: 'item-2' }),
+      ]);
+
+      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+
+      expect(result).toEqual(snapshot);
+    });
+
     it('groups multiple counts by shopId correctly', async () => {
       const c1 = makeCount({ id: 'c1', shopId: 'shop-A', itemId: 'item-1', packedUnits: 2, looseUnits: 0 });
       const c2 = makeCount({ id: 'c2', shopId: 'shop-A', itemId: 'item-2', packedUnits: 0, looseUnits: 5 });
@@ -166,7 +187,8 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
 
       const result = await service.getLatestBySpace('space-1', 'tenant-1');
-      expect(result).toEqual(snap);
+      // eventName : dénormalisation additive (event.findFirst mocké → null ici).
+      expect(result).toEqual({ ...snap, eventName: null });
     });
 
     it('returns counts-based response when count is newer than snapshot', async () => {
@@ -192,7 +214,8 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
 
       const result = await service.getLatestBySpace('space-1', 'tenant-1');
-      expect(result).toEqual(snap);
+      // eventName : dénormalisation additive (event.findFirst mocké → null ici).
+      expect(result).toEqual({ ...snap, eventName: null });
     });
   });
 
@@ -318,6 +341,38 @@ describe('InventoryService', () => {
           data: expect.objectContaining({ countingStatus: 'pending' }),
         }),
       );
+    });
+
+    it('TOCTOU : rattrape P2002 (save concurrent) et met à jour la ligne gagnante (fix 2026-07-18)', async () => {
+      // Deux saves concurrents : les deux voient existing=null. Le nôtre perd la
+      // course au create → violation d'unicité P2002 (index unique NULLS NOT
+      // DISTINCT, cf. prisma/sql/2026-07-18_...) → fallback update de la ligne créée
+      // par le gagnant, au lieu de propager une 500 (ou, avant l'index, de créer
+      // un DOUBLON silencieux).
+      const winner = makeCount({ id: 'cnt-winner' });
+      mockPrisma.inventoryCount.findFirst
+        .mockResolvedValueOnce(null)        // lookup initial : rien
+        .mockResolvedValueOnce(winner);     // re-lookup après P2002 : ligne du gagnant
+      const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+      mockPrisma.inventoryCount.create.mockRejectedValue(p2002);
+      const updated = { ...winner, packedUnits: 3 };
+      mockPrisma.inventoryCount.update.mockResolvedValue(updated);
+
+      const result = await service.saveInventoryCounts(dto, 'tenant-1', 'user-1');
+
+      expect(mockPrisma.inventoryCount.update).toHaveBeenCalledWith({
+        where: { id: 'cnt-winner' },
+        data: expect.objectContaining({ packedUnits: 3 }),
+      });
+      expect(result).toEqual(updated);
+    });
+
+    it('propage toute erreur de create qui n\'est pas P2002', async () => {
+      mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
+      mockPrisma.inventoryCount.create.mockRejectedValue(new Error('db down'));
+
+      await expect(service.saveInventoryCounts(dto, 'tenant-1')).rejects.toThrow('db down');
+      expect(mockPrisma.inventoryCount.update).not.toHaveBeenCalled();
     });
   });
 });

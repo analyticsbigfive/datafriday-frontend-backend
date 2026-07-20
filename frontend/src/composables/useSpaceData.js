@@ -29,22 +29,34 @@ const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
  */
 async function fetchAllMenuComponents() {
   const limit = 100
-  let page = 1
-  let rows = []
-  while (true) {
-    const res = await getMenuComponents({ page, limit })
-    const pageRows = Array.isArray(res)
+  const extractRows = (res) => (
+    Array.isArray(res)
       ? res
       : Array.isArray(res?.data)
         ? res.data
         : Array.isArray(res?.items)
           ? res.items
           : []
-    rows = rows.concat(pageRows)
-    const total = res?.meta?.total ?? res?.data?.meta?.total
-    if (!total || pageRows.length < limit || rows.length >= total) break
-    page += 1
-  }
+  )
+  // Page 1 séquentielle pour connaître `meta.total`, puis pages restantes en
+  // PARALLÈLE borné (asyncPool, concurrence 4) au lieu de la boucle page-à-page
+  // séquentielle : un tenant à 800 composants passait de 8 allers-retours en
+  // série à 1 + 7 en parallèle. Ordre des rows préservé (concat par index).
+  const first = await getMenuComponents({ page: 1, limit })
+  const firstRows = extractRows(first)
+  const total = first?.meta?.total ?? first?.data?.meta?.total
+  if (!total || firstRows.length < limit || firstRows.length >= total) return firstRows
+
+  const pageCount = Math.ceil(total / limit)
+  const remainingPages = Array.from({ length: pageCount - 1 }, (_, i) => i + 2)
+  const { runWithConcurrency } = await import('@/utils/asyncPool')
+  const byPage = new Map()
+  await runWithConcurrency(remainingPages, 4, async (page) => {
+    const res = await getMenuComponents({ page, limit })
+    byPage.set(page, extractRows(res))
+  })
+  let rows = firstRows
+  for (const page of remainingPages) rows = rows.concat(byPage.get(page) || [])
   return rows
 }
 
@@ -197,8 +209,9 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         : catalogComponents
       // shop-details ne porte PAS la recette (`subComponents`/`numberOfUnitsRecipe`) :
       // on l'enrichit depuis /menu-components (catalogComponents) par id puis nom.
-      // REQUIS à la décomposition composant→ingrédients (Space Inventory / Restock, F6) :
-      // sans subComponents, un composant reste compté/réarmé en 1 ligne.
+      // REQUIS à la décomposition composant→ingrédients (Restock, F6) : sans
+      // subComponents, un composant reste réarmé en 1 ligne. NB : Space Inventory
+      // ne décompose PLUS (décision 2026-07-18) — seul le restock éclate encore.
       const cnorm = (s) => String(s ?? '').trim().toLowerCase()
       const catBy = new Map()
       for (const c of catalogComponents) {
@@ -216,7 +229,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       // La LISTE /menu-components ne renvoie PAS `subComponents` (seul le détail
       // /menu-components/:id les porte). On hydrate la recette par fetch détail pour
       // les composants qui en manquent — REQUIS à la décomposition composant→ingrédients
-      // (F6). Borné (runWithConcurrency) + toléré (échec = composant non éclaté).
+      // côté Restock (F6). Borné (runWithConcurrency) + toléré (échec = composant non éclaté).
       const needDetail = components.filter((c) => c?.id && !(c?.subComponents?.length))
       if (needDetail.length) {
         try {
@@ -303,8 +316,10 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       // Normalise revenue field: the SQL RPC historically returned 'revenueHt' only.
       // The new migration adds 'revenue' as an alias, but we normalise defensively
       // here so old cached/pre-migration responses still work correctly.
+      // Parenthèses explicites : la version sans parenthèses reposait sur la
+      // précédence && > || (comportement identique, lisibilité fragile).
       const revenueNormalizedData = rawGranularData.map((r) => (
-        r.revenue == null || r.revenue === 0 && r.revenueHt != null
+        r.revenue == null || (r.revenue === 0 && r.revenueHt != null)
           ? { ...r, revenue: r.revenueHt ?? 0 }
           : r
       ))

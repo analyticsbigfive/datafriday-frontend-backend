@@ -22,8 +22,18 @@ indéfiniment, sans jamais prévenir l'utilisateur.
 
 ## Correction
 
-Aucune à ce jour — indépendamment du fix côté permissions backend, le front doit aussi remonter une
-alerte explicite sur un 403 plutôt que le traiter comme "API joignable, retenter en silence".
+**Volet front corrigé (2026-07-18)** : `persistRestockState` (`SpaceRestockView.vue`) alerte
+désormais explicitement sur 401/403 — snackbar erreur (clé i18n `srSnackSaveForbidden`), une fois
+par session (le PUT part à chaque frappe débouncée, pas de spam). L'utilisateur sait que ses
+modifications ne sont conservées que sur son navigateur.
+
+**Bonus même zone** : `putRestockState` (`restock.api.js`) envoie désormais aussi
+`stockExcluded`/`currentStep` (le backend actuel stocke un blob jsonb opaque — champs tolérés),
+avec retry défensif sur le noyau 9-champs si le backend déployé est une version antérieure encore
+en whitelist stricte.
+
+**Le fond (permissions backend, rôles restockBoard) reste à trancher** — voir fiche backend BUG-31
+(mise à jour 2026-07-18) et `QUESTIONS_A_BERTRAND.md`.
 
 ## Risque de régression / à surveiller
 
