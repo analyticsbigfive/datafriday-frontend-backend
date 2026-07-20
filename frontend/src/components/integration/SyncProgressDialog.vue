@@ -442,7 +442,16 @@ export default {
   methods: {
     async _startJobPoll(jobId) {
       const { getWeezeventJobStatus } = await import('@/api/endpoints/aggregation.api.js')
+      // Aligné sur le MAX_WAIT_MS de StepProcessTimeline.vue : un job qui n'atteint
+      // jamais d'état terminal (worker orphelin…) ne doit pas poller indéfiniment.
+      const MAX_WAIT_MS = 10 * 60 * 1000
+      const startedPollingAt = Date.now()
       const poll = async () => {
+        if (Date.now() - startedPollingAt >= MAX_WAIT_MS) {
+          this.jobData = { ...this.jobData, status: 'FAILED', errorMessage: this.t('intgSyncProgTimeout') }
+          this._stopJobPoll()
+          return
+        }
         try {
           const data = await getWeezeventJobStatus(jobId)
           this.jobData = {
@@ -480,6 +489,9 @@ export default {
       if (this.jobId) {
         localStorage.setItem('weezevent_active_job_id', this.jobId)
       }
+      // Le widget flottant reprend le polling à partir d'ici — sans ça, les deux
+      // tourneraient en parallèle sur le même job.
+      this._stopJobPoll()
       this.$emit('job-minimized', this.jobId)
       this.$emit('done')
     },

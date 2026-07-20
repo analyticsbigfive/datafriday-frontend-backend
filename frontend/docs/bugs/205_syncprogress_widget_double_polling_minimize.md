@@ -1,6 +1,6 @@
 # BUG-205 — Double polling confirmé entre le dialog et le widget flottant après minimisation d'un job
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -31,7 +31,10 @@ transfère pas réellement la responsabilité.
 
 ## Correction
 
-Rien à ce jour. Appeler `_stopJobPoll()` dans `minimizeJob()` avant d'émettre `job-minimized`.
+`minimizeJob()` dans `SyncProgressDialog.vue` appelle désormais `this._stopJobPoll()` juste avant
+`$emit('job-minimized', ...)`/`$emit('done')`. Le dialog arrête donc son propre `_pollTimer` (3s)
+avant que le widget flottant ne prenne le relais (5s) — plus de double interrogation parallèle de
+`getWeezeventJobStatus(jobId)`.
 
 ## Risque de régression / à surveiller
 

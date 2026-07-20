@@ -1,6 +1,6 @@
 # BUG-210 — `updateMapping` ne fait jamais de rollback en cas d'échec de sauvegarde : compteur et onglets mentent
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 2)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -34,8 +34,12 @@ chemin ligne-par-ligne.
 
 ## Correction
 
-Rien à ce jour. Ajouter le rollback de `localMappings[locationId]` dans le `catch` de
-`updateMapping`, symétriquement à `applyAutoSuggestions`.
+`updateMapping` capture désormais `previousElementId = this.localMappings[locationId]` avant la
+mise à jour optimiste. Dans la branche `catch` non-409, en plus de
+`savingRows[locationId] = 'error'`, `localMappings[locationId]` est restauré à
+`previousElementId` (ou supprimé si `previousElementId` était `null`/`undefined`), symétriquement
+à ce que fait déjà `applyAutoSuggestions`. Le compteur `mappedCount`/`unmappedCount` et l'onglet
+de la ligne reflètent donc à nouveau l'état réellement persisté côté serveur après un échec.
 
 ## Risque de régression / à surveiller
 

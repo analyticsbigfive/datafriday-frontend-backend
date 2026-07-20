@@ -10,6 +10,10 @@
       <!-- <DemoModeBanner /> -->
       <!-- Toaster vue-sonner global : style notif de l'app (n'était pas monté). -->
       <Toaster position="top-right" rich-colors close-button />
+      <!-- Widget flottant de sync Weezevent : monté ici (racine toujours montée) pour
+           survivre à la navigation inter-routes. Il s'auto-active via localStorage et
+           écoute l'événement `weezevent-job-minimized`. -->
+      <SyncJobFloatingWidget />
     </v-main>
   </v-app>
 </template>
@@ -20,10 +24,11 @@ import 'vue-sonner/style.css'
 import RouteTransitionLoader from '@/components/RouteTransitionLoader.vue'
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog.vue'
 import DemoModeBanner from '@/components/DemoModeBanner.vue'
+import SyncJobFloatingWidget from '@/components/SyncJobFloatingWidget.vue'
 
 export default {
   name: 'App',
-  components: { RouteTransitionLoader, GlobalConfirmDialog, DemoModeBanner, Toaster },
+  components: { RouteTransitionLoader, GlobalConfirmDialog, DemoModeBanner, Toaster, SyncJobFloatingWidget },
 
   data: () => ({
     //

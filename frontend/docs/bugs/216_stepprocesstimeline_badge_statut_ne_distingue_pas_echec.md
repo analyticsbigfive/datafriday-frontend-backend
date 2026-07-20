@@ -1,6 +1,6 @@
 # BUG-216 — Le badge de statut par événement ne distingue pas échec/skip de "jamais traité"
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 4)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -23,8 +23,12 @@ Classification binaire `completed`/sinon, aucune branche `failed`/`skipped`.
 
 ## Correction
 
-Rien à ce jour. Ajouter des classes/libellés dédiés pour `failed` (rouge, "Échec") et `skipped`
-(ambre, "Ignoré").
+Le badge de statut par ligne distingue désormais 4 états au lieu de 2 : `completed` (vert,
+"Agrégé"), `failed` (rouge, `spt-badge--red`, nouvelle clé `intgTimelineStatusFailed` = "Échec"),
+`skipped` (ambre, `spt-badge--amber`, nouvelle clé `intgTimelineStatusSkipped` = "Ignoré"), et
+tout le reste — `pending`/undefined — (gris, "Non traité", inchangé). Les classes CSS
+`spt-badge--red`/`spt-badge--amber` existaient déjà dans la feuille de style (utilisées
+ailleurs) ; aucun changement CSS nécessaire.
 
 ## Risque de régression / à surveiller
 

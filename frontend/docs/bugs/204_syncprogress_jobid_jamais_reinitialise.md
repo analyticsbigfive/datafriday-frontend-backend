@@ -1,6 +1,6 @@
 # BUG-204 — `syncJobId` n'est jamais réinitialisé : le mode legacy devient inutilisable après un premier sync par job
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🔴 Bloquant/impact business
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -33,9 +33,12 @@ la prop plutôt qu'à une prop `mode` explicite.
 
 ## Correction
 
-Rien à ce jour. Réinitialiser `syncJobId = null` dans `closeSyncProgress`, `onSyncProgressDone`, et
-au début de la branche legacy de `handleSync`. À terme, envisager une prop `mode` explicite
-(`'legacy' | 'job'`) plutôt qu'un test de vérité sur `jobId`.
+`this.syncJobId = null` ajouté dans `DataIntegrationView.vue` à trois endroits : `closeSyncProgress()`,
+`onSyncProgressDone()`, et en tout début de la branche `// ---- Legacy synchronous sync ----` de
+`handleSync()` (avant même le test `syncingMap[integration.id]`). `SyncProgressDialog` ne reçoit
+donc plus jamais un `jobId` obsolète d'une session job précédente lors d'une sync legacy — le test
+`v-if="jobId"` du dialog redevient fiable. La prop `mode` explicite évoquée en piste long terme n'a
+pas été introduite (hors scope, non demandée).
 
 ## Risque de régression / à surveiller
 

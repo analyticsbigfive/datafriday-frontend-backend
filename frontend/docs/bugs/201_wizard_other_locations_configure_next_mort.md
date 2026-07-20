@@ -1,6 +1,6 @@
 # BUG-201 — Fonctionnalité "configurer la prochaine location" entièrement câblée mais jamais utilisée
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur (fonctionnalité entière non fonctionnelle, silencieusement)
 - **Domaine** : Intégrations & ventes (wizard)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -27,9 +27,16 @@ mais l'appelant en production n'a jamais été mis à jour pour fournir `otherLo
 
 ## Correction
 
-Rien à ce jour. Décider si la fonctionnalité doit être finie côté `DataIntegrationView.vue` (lui
-passer la liste des locations non encore mappées + gérer l'événement pour enchaîner l'ouverture du
-wizard sur la suivante) ou si le code doit être retiré comme mort.
+Fonctionnalité câblée côté `DataIntegrationView.vue` (décision produit : finir, pas supprimer).
+Nouveau computed `otherLocationsForWizard` filtre `this.integrations` sur même `type` que
+`wizardLocation`, id différent, et `!getSpaceForIntegration(intg)` (pas encore mappée à un espace),
+en enrichissant chaque entrée avec `completedSteps` (même helper que BUG-200). Passé au wizard via
+`:other-locations="otherLocationsForWizard"`. Le nouvel événement `@configure-next="
+handleConfigureNext"` ferme le wizard courant (`closeWizard()`), attend `$nextTick()` pour garantir
+un vrai démontage/remontage du composant (son `currentStep`/`completedStepsList` ne sont
+initialisés qu'une fois dans `data()`), puis rouvre `openWizard(location)` pour la location
+suivante — identique au comportement d'un clic sur le bouton de configuration de cette intégration
+depuis la liste.
 
 ## Risque de régression / à surveiller
 

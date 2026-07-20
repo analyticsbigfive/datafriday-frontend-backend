@@ -1,6 +1,6 @@
 # BUG-220 — Décalage de fuseau horaire (UTC vs local) lors de la création d'événement depuis une date non couverte
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 4)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -29,8 +29,16 @@ la même chaîne de méthodes. Le fichier connaît déjà cette classe de bug (l
 
 ## Correction
 
-Rien à ce jour. Unifier sur une seule base de calcul (de préférence UTC, cohérent avec
-`toInputDate`) pour tout le calcul de date/heure de fin.
+Unifié les deux calculs sur une base UTC exclusive, cohérente avec `toInputDate` :
+- `roundUpToQuarterHour` utilise maintenant `setUTCHours`/`setUTCDate`/`getUTCHours`/
+  `getUTCMinutes` au lieu des équivalents locaux (`setHours`/`setDate`/`getHours`/`getMinutes`)
+  pour déterminer l'heure arrondie et si `addDay` doit basculer au jour calendaire suivant.
+- `handleCreateEventFromDate` construit désormais `new Date(baseEndDate + 'T00:00:00Z')` (au lieu
+  de `'T00:00:00'`, interprété en local) et incrémente via `setUTCDate` avant de re-tronquer via
+  `toInputDate`/`toISOString`, pour l'incrément de jour calendaire quand `addDay` est vrai.
+
+Les deux fonctions raisonnent maintenant en UTC de bout en bout ; plus de mélange UTC/local dans
+la même chaîne de calcul.
 
 ## Risque de régression / à surveiller
 

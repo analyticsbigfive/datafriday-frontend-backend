@@ -17,6 +17,8 @@
       <!-- Scrollable body -->
       <div class="ced-body">
 
+        <v-alert v-if="createEventError" type="error" variant="tonal" density="compact" class="mb-4">{{ createEventError }}</v-alert>
+
         <!-- Informations -->
         <div class="ced-section-label">
           <v-icon size="12" color="#ff3131">mdi-information-outline</v-icon>
@@ -324,6 +326,9 @@ export default {
       eventCategoriesList: [],
       eventSubcategoriesList: [],
       creatingEvent: false,
+      // État d'erreur pour le chemin de soumission principal (symétrique aux
+      // sous-dialogs type/catégorie/sous-catégorie ci-dessous)
+      createEventError: '',
       // inline create: type
       evtTypeCreateOpen: false,
       evtTypeCreateName: '',
@@ -381,6 +386,7 @@ export default {
         this.newEventSessionCount = 1
         this.newEventSessions = [{ doorsOpening: '', showTime: '' }]
         this.newEventOptionalOpen = false
+        this.createEventError = ''
       }
     },
   },
@@ -495,6 +501,7 @@ export default {
     async submitCreateEvent() {
       if (!this.newEventName) return
       this.creatingEvent = true
+      this.createEventError = ''
       try {
         const created = await createEvent({
           name: this.newEventName,
@@ -518,6 +525,9 @@ export default {
         this.$emit('update:modelValue', false)
       } catch (err) {
         console.error('[CreateEventDialog] Failed to create event:', err)
+        // Afficher un état d'erreur visible (comme les sous-dialogs) au lieu d'avaler
+        // l'erreur silencieusement ; le dialog reste ouvert, formulaire conservé.
+        this.createEventError = err?.response?.data?.message || err?.message || this.t('intgCreateEvtCreateFailed')
       } finally {
         this.creatingEvent = false
       }

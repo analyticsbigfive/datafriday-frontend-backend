@@ -1,6 +1,6 @@
 # BUG-199 — Le dialog de confirmation de suppression est 100% en français, ne passe jamais par `t()`
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -22,8 +22,13 @@ Le dialog a apparemment été ajouté/réécrit après coup sans câbler de clé
 
 ## Correction
 
-Rien à ce jour. Ajouter les clés `di*` correspondantes dans `src/i18n/translations.js` (`en`/`fr`)
-et les câbler dans le template.
+Fait en même temps que la réécriture du dialog pour BUG-193. Nouvelles clés `en`/`fr` ajoutées dans
+`src/i18n/translations.js` : `diRemoveIntegrationTitle`, `diRemoveIntegrationConfirm` (placeholder
+`{name}`), `diRemoveIntegrationDataWarning`, `diRemoveIntegrationSyncWarning`. Le titre, le texte de
+confirmation et le nouveau bandeau d'avertissement passent tous par `t()` dans le template ; les
+boutons "Annuler"/"Supprimer" réutilisent les clés génériques déjà existantes `cancel`/`delete`
+(convention déjà utilisée par d'autres dialogs de suppression du repo, ex.
+`DeleteZoneDialog.vue`).
 
 ## Risque de régression / à surveiller
 

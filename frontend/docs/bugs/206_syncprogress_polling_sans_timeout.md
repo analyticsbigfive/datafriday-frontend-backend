@@ -1,6 +1,6 @@
 # BUG-206 — Le polling d'un job de sync (dialog et widget) n'a aucun timeout/abandon
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -25,9 +25,15 @@ filet de sécurité côté client dans les deux cas.
 
 ## Correction
 
-Rien à ce jour. Ajouter un timeout explicite (ex. aligné sur le `MAX_WAIT_MS` de 10 minutes déjà
-utilisé ailleurs dans le domaine, `StepProcessTimeline.vue:977-978`) avec message d'erreur clair, et
-un plafond de tentatives consécutives en échec avant d'afficher un état d'erreur.
+Ajout d'un `MAX_WAIT_MS = 10 * 60 * 1000` (même valeur que `StepProcessTimeline.vue:978`) dans les
+deux pollers. `SyncProgressDialog.vue::_startJobPoll` mesure `Date.now() - startedPollingAt` à
+chaque tick ; au-delà du seuil, il force `jobData = { status: 'FAILED', errorMessage:
+t('intgSyncProgTimeout') }` (nouvelle clé i18n en/fr) et appelle `_stopJobPoll()` — l'UI existante
+pour l'état `FAILED` s'affiche automatiquement. `SyncJobFloatingWidget.vue::_startPoll` fait la même
+chose (même seuil), avec un message hardcodé cohérent avec le reste du widget (non traduit avant
+cette correction, hors scope du bug). Le plafond de tentatives consécutives en échec (backoff) n'a
+pas été ajouté — seul le timeout de durée totale était demandé pour ce ticket ; les erreurs de
+polling individuelles restent journalisées sans compteur dédié.
 
 ## Risque de régression / à surveiller
 

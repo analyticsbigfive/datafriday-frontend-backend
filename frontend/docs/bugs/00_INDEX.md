@@ -206,41 +206,46 @@
 | [190](190_auth_signed_out_rotation_deconnexion_multi_onglets.md) | Déconnexion intempestive multi-onglets sur rotation du refresh token | 🟢 Corrigé | 🟠 | Auth & onboarding |
 | [191](191_auth_console_log_jwt_en_clair.md) | JWT imprimé en clair dans la console lors de l'onboarding | 🟢 Corrigé | 🟢 | Auth & onboarding |
 | [192](192_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
-| [193](193_data_integration_delete_checkbox_sans_effet.md) | Case "supprimer aussi les données synchronisées" sans effet réel (cascade Prisma inconditionnelle) | 🔴 Ouvert | 🔴 | Intégrations & ventes |
-| [194](194_data_integration_purge_echec_avale_avant_suppression.md) | Échec de purge des données avalé silencieusement avant suppression de l'intégration | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [195](195_data_integration_suppression_sans_garde_sync_en_cours.md) | Aucune protection contre la suppression d'une intégration en cours de sync | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [196](196_data_integration_sync_job_sans_syncing_map.md) | Sync par job ne bascule jamais `syncingMap` (pas de spinner, pas de garde anti double-clic) | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [197](197_data_integration_polling_sync_non_nettoye_destroy.md) | Boucle de polling du sync legacy non nettoyée si le composant est détruit en plein sync | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [198](198_data_integration_dates_nombres_fr_fr_hardcode.md) | Dates/nombres toujours formatés en `fr-FR`, ignorent le switch de langue | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [199](199_data_integration_dialog_suppression_non_traduit.md) | Dialog de confirmation de suppression 100% en français, bypass `t()` | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [200](200_wizard_reprise_etape_non_fonctionnelle.md) | "Reprendre où on s'était arrêté" ne fonctionne pas dans le wizard d'intégration | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [201](201_wizard_other_locations_configure_next_mort.md) | Fonctionnalité "configurer la prochaine location" entièrement câblée mais jamais utilisée | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [202](202_stepmapspace_creation_config_echec_avale.md) | Échec de création de configuration silencieusement avalé (StepMapSpace) | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [203](203_stepmapspace_similarite_sans_normalisation_accents.md) | Suggestion de mapping d'espace : aucune normalisation des accents/espaces | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [204](204_syncprogress_jobid_jamais_reinitialise.md) | `syncJobId` jamais réinitialisé : le mode legacy devient inutilisable après un sync par job | 🔴 Ouvert | 🔴 | Intégrations & ventes |
-| [205](205_syncprogress_widget_double_polling_minimize.md) | Double polling confirmé entre dialog et widget flottant après minimisation d'un job | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [206](206_syncprogress_polling_sans_timeout.md) | Le polling d'un job de sync (dialog et widget) n'a aucun timeout/abandon | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [207](207_syncjobwidget_ne_persiste_pas_navigation.md) | Le widget flottant de sync ne survit pas à la navigation, contrairement à sa promesse | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [208](208_stepmapshops_badge_etage_regression_multi_config.md) | Le correctif du badge étage (BUG-003) régresse pour les tenants à plusieurs configurations | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [209](209_stepmapshops_bulk_create_matching_naif_doublons.md) | Le plan de création en masse utilise un matching naïf, risque de créer des shops en doublon | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [210](210_stepmapshops_updatemapping_sans_rollback_echec.md) | `updateMapping` sans rollback à l'échec : compteur de mapping et onglets mentent | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [211](211_stepmapshops_delete_mapping_echec_invisible.md) | Échec de suppression de mapping strictement invisible | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [212](212_stepmapmenuitems_unpriced_item_score_gonfle.md) | Un menu item sans prix peut gonfler le score de similarité au-dessus du seuil d'auto-suggestion | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [213](213_stepmapmenuitems_next_button_sans_garde_bulk.md) | Bouton "Suivant" du wizard non bloqué pendant un bulk-create/bulk-price-apply en cours | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [214](214_stepprocesstimeline_weezeventmappings_jamais_rehydrate.md) | `weezEventMappings` jamais réhydraté : "Créer et lier tout" peut créer des Events en double | 🔴 Ouvert | 🔴 | Intégrations & ventes |
-| [215](215_stepprocesstimeline_toast_succes_meme_si_echec_skip.md) | Toast "Agrégation terminée" affiché en succès même en cas d'échec/skip | 🔴 Ouvert | 🔴 | Intégrations & ventes |
-| [216](216_stepprocesstimeline_badge_statut_ne_distingue_pas_echec.md) | Le badge de statut par événement ne distingue pas échec/skip de "jamais traité" | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [217](217_stepprocesstimeline_double_soumission_apres_timeout_poll.md) | Fenêtre de double-soumission après timeout du polling par événement | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [218](218_stepprocesstimeline_waitforsyncjob_non_annule_unmount.md) | `waitForSyncJob` (poll 2.5s/10min) jamais annulé si le composant est démonté | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [219](219_stepprocesstimeline_createeventdialog_avale_erreurs.md) | `CreateEventDialog` avale les erreurs de création sans retour utilisateur | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [220](220_stepprocesstimeline_decalage_fuseau_horaire_creation_event.md) | Décalage de fuseau horaire (UTC vs local) lors de la création d'événement depuis une date non couverte | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [221](221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md) | 3 pans de code mort issus d'un refactor incomplet de l'étape 4 | 🔴 Ouvert | 🟠 | Intégrations & ventes |
+| [193](193_data_integration_delete_checkbox_sans_effet.md) | Case "supprimer aussi les données synchronisées" sans effet réel (cascade Prisma inconditionnelle) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [194](194_data_integration_purge_echec_avale_avant_suppression.md) | Échec de purge des données avalé silencieusement avant suppression de l'intégration | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [195](195_data_integration_suppression_sans_garde_sync_en_cours.md) | Aucune protection contre la suppression d'une intégration en cours de sync | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [196](196_data_integration_sync_job_sans_syncing_map.md) | Sync par job ne bascule jamais `syncingMap` (pas de spinner, pas de garde anti double-clic) | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [197](197_data_integration_polling_sync_non_nettoye_destroy.md) | Boucle de polling du sync legacy non nettoyée si le composant est détruit en plein sync | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [198](198_data_integration_dates_nombres_fr_fr_hardcode.md) | Dates/nombres toujours formatés en `fr-FR`, ignorent le switch de langue | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [199](199_data_integration_dialog_suppression_non_traduit.md) | Dialog de confirmation de suppression 100% en français, bypass `t()` | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [200](200_wizard_reprise_etape_non_fonctionnelle.md) | "Reprendre où on s'était arrêté" ne fonctionne pas dans le wizard d'intégration | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [201](201_wizard_other_locations_configure_next_mort.md) | Fonctionnalité "configurer la prochaine location" entièrement câblée mais jamais utilisée | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [202](202_stepmapspace_creation_config_echec_avale.md) | Échec de création de configuration silencieusement avalé (StepMapSpace) | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [203](203_stepmapspace_similarite_sans_normalisation_accents.md) | Suggestion de mapping d'espace : aucune normalisation des accents/espaces | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [204](204_syncprogress_jobid_jamais_reinitialise.md) | `syncJobId` jamais réinitialisé : le mode legacy devient inutilisable après un sync par job | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [205](205_syncprogress_widget_double_polling_minimize.md) | Double polling confirmé entre dialog et widget flottant après minimisation d'un job | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [206](206_syncprogress_polling_sans_timeout.md) | Le polling d'un job de sync (dialog et widget) n'a aucun timeout/abandon | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [207](207_syncjobwidget_ne_persiste_pas_navigation.md) | Le widget flottant de sync ne survit pas à la navigation, contrairement à sa promesse | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [208](208_stepmapshops_badge_etage_regression_multi_config.md) | Le correctif du badge étage (BUG-003) régresse pour les tenants à plusieurs configurations | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [209](209_stepmapshops_bulk_create_matching_naif_doublons.md) | Le plan de création en masse utilise un matching naïf, risque de créer des shops en doublon | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [210](210_stepmapshops_updatemapping_sans_rollback_echec.md) | `updateMapping` sans rollback à l'échec : compteur de mapping et onglets mentent | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [211](211_stepmapshops_delete_mapping_echec_invisible.md) | Échec de suppression de mapping strictement invisible | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [212](212_stepmapmenuitems_unpriced_item_score_gonfle.md) | Un menu item sans prix peut gonfler le score de similarité au-dessus du seuil d'auto-suggestion | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [213](213_stepmapmenuitems_next_button_sans_garde_bulk.md) | Bouton "Suivant" du wizard non bloqué pendant un bulk-create/bulk-price-apply en cours | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [214](214_stepprocesstimeline_weezeventmappings_jamais_rehydrate.md) | `weezEventMappings` jamais réhydraté : "Créer et lier tout" peut créer des Events en double | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [215](215_stepprocesstimeline_toast_succes_meme_si_echec_skip.md) | Toast "Agrégation terminée" affiché en succès même en cas d'échec/skip | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [216](216_stepprocesstimeline_badge_statut_ne_distingue_pas_echec.md) | Le badge de statut par événement ne distingue pas échec/skip de "jamais traité" | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [217](217_stepprocesstimeline_double_soumission_apres_timeout_poll.md) | Fenêtre de double-soumission après timeout du polling par événement | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [218](218_stepprocesstimeline_waitforsyncjob_non_annule_unmount.md) | `waitForSyncJob` (poll 2.5s/10min) jamais annulé si le composant est démonté | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [219](219_stepprocesstimeline_createeventdialog_avale_erreurs.md) | `CreateEventDialog` avale les erreurs de création sans retour utilisateur | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [220](220_stepprocesstimeline_decalage_fuseau_horaire_creation_event.md) | Décalage de fuseau horaire (UTC vs local) lors de la création d'événement depuis une date non couverte | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [221](221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md) | 3 pans de code mort issus d'un refactor incomplet de l'étape 4 | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 
-**221 bugs au total**, 193-221 ajoutés le 2026-07-20 sur la branche `docs/audit-data-integration-fb`
-suite à un audit ciblé et approfondi de toute la page `/data-integration/fb` (8 agents en lecture
-intégrale, un par fichier/groupe de fichiers — `DataIntegrationView.vue`, le wizard et ses 4 étapes,
-les 4 dialogs de l'étape 4, `SyncProgressDialog`/`SyncJobFloatingWidget`, la couche API/store).
-Documentation seule à ce stade, **aucun correctif appliqué**. Détail architectural et code mort
+**221 bugs au total**, 193-221 ajoutés puis corrigés le 2026-07-20 sur la branche
+`docs/audit-data-integration-fb` suite à un audit ciblé et approfondi de toute la page
+`/data-integration/fb` (8 agents en lecture intégrale, un par fichier/groupe de fichiers —
+`DataIntegrationView.vue`, le wizard et ses 4 étapes, les 4 dialogs de l'étape 4,
+`SyncProgressDialog`/`SyncJobFloatingWidget`, la couche API/store), suivi d'une seconde vague de
+5 agents de correction (fichiers disjoints, aucun conflit) qui a fixé les 29 bugs le jour même —
+détail du correctif dans chaque fiche individuelle (`## Correction`). Décision produit tranchée en
+amont pour BUG-193 (case de suppression retirée plutôt que rendue fonctionnelle côté backend, pas
+de changement de schéma) et pour BUG-221 (code mort supprimé plutôt que réintégré). Détail architectural et
+code mort
 supplémentaire dans [`docs/modules/05_INTEGRATIONS_VENTES.md`](../modules/05_INTEGRATIONS_VENTES.md#repasse-du-2026-07-20--audit-ciblé-du-code-frontend-data-integrationfb) ;
 dette technique non promue en fiche individuelle (a11y, i18n, duplication, code mort mineur) dans
 [`docs/utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md`](../utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md).

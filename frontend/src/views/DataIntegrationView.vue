@@ -61,9 +61,14 @@
                     </button>
                   </template>
                 </v-tooltip>
-                <v-tooltip :text="t('diRemove')" location="bottom">
+                <v-tooltip :text="isIntegrationSyncing(integration) ? t('diRemoveIntegrationSyncWarning') : t('diRemove')" location="bottom">
                   <template #activator="{ props: tp }">
-                    <button v-bind="tp" class="card-action-btn card-action-btn--danger" @click="handleRemoveIntegration(integration.id)">
+                    <button
+                      v-bind="tp"
+                      class="card-action-btn card-action-btn--danger"
+                      :disabled="isIntegrationSyncing(integration)"
+                      @click="handleRemoveIntegration(integration.id)"
+                    >
                       <v-icon size="15">mdi-trash-can-outline</v-icon>
                     </button>
                   </template>
@@ -194,7 +199,7 @@
                       {{ formatDate(job.fromDate) }} → {{ formatDate(job.toDate) }}
                     </span>
                     <span class="sync-history-count">
-                      {{ job.totalCollected ? job.totalCollected.toLocaleString('fr-FR') + ' items' : '' }}
+                      {{ job.totalCollected ? formatNumber(job.totalCollected) + ' items' : '' }}
                     </span>
                     <span class="sync-history-date">
                       {{ formatDate(job.startedAt) }}
@@ -221,19 +226,19 @@
                     <template v-else-if="jobStatsMap[job.id]">
                       <div class="sync-job-stats-grid">
                         <div class="sync-job-stat-item">
-                          <span class="sync-job-stat-value">{{ jobStatsMap[job.id].transactions.toLocaleString('fr-FR') }}</span>
+                          <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].transactions) }}</span>
                           <span class="sync-job-stat-label">transactions</span>
                         </div>
                         <div class="sync-job-stat-item">
-                          <span class="sync-job-stat-value">{{ jobStatsMap[job.id].events.toLocaleString('fr-FR') }}</span>
+                          <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].events) }}</span>
                           <span class="sync-job-stat-label">événements</span>
                         </div>
                         <div class="sync-job-stat-item">
-                          <span class="sync-job-stat-value">{{ jobStatsMap[job.id].locations.toLocaleString('fr-FR') }}</span>
+                          <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].locations) }}</span>
                           <span class="sync-job-stat-label">locations</span>
                         </div>
                         <div class="sync-job-stat-item">
-                          <span class="sync-job-stat-value">{{ jobStatsMap[job.id].products.toLocaleString('fr-FR') }}</span>
+                          <span class="sync-job-stat-value">{{ formatNumber(jobStatsMap[job.id].products) }}</span>
                           <span class="sync-job-stat-label">produits</span>
                         </div>
                       </div>
@@ -604,35 +609,24 @@
       @job-minimized="onJobMinimized"
     />
 
-    <!-- Floating widget for background sync job -->
-    <SyncJobFloatingWidget ref="syncJobWidget" />
-
     <!-- Remove integration confirmation dialog -->
     <v-dialog v-model="removeDialogOpen" max-width="480" persistent>
       <v-card rounded="lg">
         <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">
-          Supprimer l'intégration
+          {{ t('diRemoveIntegrationTitle') }}
         </v-card-title>
         <v-card-text class="px-5 pb-2">
-          <p class="text-body-2 mb-4">
-            Vous êtes sur le point de supprimer l'intégration
-            <strong>{{ removeDialogIntegration?.name || 'Weezevent' }}</strong>.
-            Cette action est irréversible.
+          <p class="text-body-2 mb-3">
+            {{ t('diRemoveIntegrationConfirm').replace('{name}', removeDialogIntegration?.name || 'Weezevent') }}
           </p>
-          <v-checkbox
-            v-if="removeDialogIntegration?.type !== 'digifood'"
-            v-model="removeDeleteData"
-            color="error"
-            density="compact"
-            hide-details
-          >
-            <template #label>
-              <span class="text-body-2">
-                Supprimer également toutes les données synchronisées
-                <span class="text-medium-emphasis">(transactions, produits, événements…)</span>
-              </span>
-            </template>
-          </v-checkbox>
+          <div class="cd-banner cd-banner--error mb-1">
+            <v-icon size="15" class="mr-1">mdi-alert-outline</v-icon>
+            <span>{{ t('diRemoveIntegrationDataWarning') }}</span>
+          </div>
+          <p v-if="isIntegrationSyncing(removeDialogIntegration)" class="text-caption text-warning mt-3 mb-0">
+            <v-icon size="13" color="warning" class="mr-1">mdi-alert</v-icon>
+            {{ t('diRemoveIntegrationSyncWarning') }}
+          </p>
         </v-card-text>
         <v-card-actions class="px-5 pb-5 pt-3 gap-2">
           <v-spacer />
@@ -641,15 +635,16 @@
             :disabled="removing"
             @click="cancelRemoveIntegration"
           >
-            Annuler
+            {{ t('cancel') }}
           </v-btn>
           <v-btn
             color="error"
             variant="flat"
             :loading="removing"
+            :disabled="isIntegrationSyncing(removeDialogIntegration)"
             @click="confirmRemoveIntegration"
           >
-            Supprimer
+            {{ t('delete') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -787,10 +782,12 @@
       :open="wizardOpen"
       :location="wizardLocation"
       :space-id="wizardSpaceId"
+      :other-locations="otherLocationsForWizard"
       @close="closeWizard"
       @completed="handleWizardCompleted"
       @go-to-analytics="handleGoToAnalytics"
       @request-csv-import="handleWizardCsvRequest"
+      @configure-next="handleConfigureNext"
     />
   </div>
 </template>
@@ -800,7 +797,6 @@ import { t as translate } from '@/i18n'
 import { getLocationSpaceMappings } from '@/api/endpoints/mapping.api'
 import IntegrationWizard from '@/components/integration/wizard/IntegrationWizard.vue'
 import SyncProgressDialog from '@/components/integration/SyncProgressDialog.vue'
-import SyncJobFloatingWidget from '@/components/SyncJobFloatingWidget.vue'
 import { X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings } from 'lucide-vue-next'
 import {
   syncWeezeventData,
@@ -811,7 +807,6 @@ import {
   deleteWeezeventInstance,
   testWeezeventInstance,
   testWeezeventCredentials,
-  purgeWeezeventData,
   startWeezeventSyncJob,
   listWeezeventSyncJobs,
   deleteWeezeventSyncJob,
@@ -892,7 +887,7 @@ function toDigifoodCard(instance) {
 export default {
   name: 'DataIntegrationView',
 
-  components: { IntegrationWizard, SyncProgressDialog, SyncJobFloatingWidget, X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings },
+  components: { IntegrationWizard, SyncProgressDialog, X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings },
 
   data() {
     return {
@@ -961,8 +956,11 @@ export default {
       // Remove dialog
       removeDialogOpen: false,
       removeDialogIntegration: null,
-      removeDeleteData: false,
       removing: false,
+
+      // Set to true in beforeUnmount(): checked inside the legacy sync's retry/poll
+      // loops so they stop making requests if the component is destroyed mid-sync.
+      syncAbandoned: false,
 
       // i18n
       locale: localStorage.getItem('appLocale') || 'en',
@@ -997,6 +995,18 @@ export default {
           .filter(Boolean)
       )
     },
+    // BCP-47 tag derived from the app locale, used for date/number formatting.
+    localeTag() {
+      return this.locale === 'fr' ? 'fr-FR' : 'en-US'
+    },
+    // Other integrations of the same provider type, not yet mapped to a space —
+    // fed to the wizard's "configure next location" card (WizardSuccess.vue).
+    otherLocationsForWizard() {
+      if (!this.wizardLocation) return []
+      return this.integrations
+        .filter(intg => intg.id !== this.wizardLocation.id && intg.type === this.wizardLocation.type && !this.getSpaceForIntegration(intg))
+        .map(intg => ({ ...intg, completedSteps: this.getCompletedStepsForIntegration(intg) }))
+    },
   },
 
   watch: {
@@ -1022,6 +1032,7 @@ export default {
   beforeUnmount() {
     window.removeEventListener('locale-changed', this.handleLocaleChange)
     window.removeEventListener('theme-changed', this._onThemeChanged)
+    this.syncAbandoned = true
   },
 
   methods: {
@@ -1039,16 +1050,21 @@ export default {
 
     formatDate(dateStr) {
       if (!dateStr) return ''
-      return new Date(dateStr).toLocaleDateString('fr-FR', {
+      return new Date(dateStr).toLocaleDateString(this.localeTag, {
         day: '2-digit', month: '2-digit', year: 'numeric',
       })
     },
 
     formatDateTime(dateStr) {
       if (!dateStr) return ''
-      return new Date(dateStr).toLocaleString('fr-FR', {
+      return new Date(dateStr).toLocaleString(this.localeTag, {
         day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
       })
+    },
+
+    formatNumber(n) {
+      if (n == null) return ''
+      return n.toLocaleString(this.localeTag)
     },
 
     toggleExpand(id) {
@@ -1315,26 +1331,27 @@ export default {
       }
     },
 
+    // A running sync (legacy syncingMap flag or an active job) must block removal —
+    // deleting mid-sync leaves the sync loop hitting a backend id that no longer exists.
+    isIntegrationSyncing(integration) {
+      if (!integration) return false
+      if (this.syncingMap[integration.id]) return true
+      const jobs = this.syncJobsMap[integration.id] || []
+      return jobs.some(job => job.status !== 'COMPLETED' && job.status !== 'FAILED')
+    },
+
     handleRemoveIntegration(id) {
       const integration = this.integrations.find(i => i.id === id)
-      if (!integration) return
+      if (!integration || this.isIntegrationSyncing(integration)) return
       this.removeDialogIntegration = integration
-      this.removeDeleteData = false
       this.removeDialogOpen = true
     },
 
     async confirmRemoveIntegration() {
       const integration = this.removeDialogIntegration
-      if (!integration) return
+      if (!integration || this.isIntegrationSyncing(integration)) return
       this.removing = true
       try {
-        if (this.removeDeleteData && integration.type !== 'digifood') {
-          try {
-            await purgeWeezeventData(integration.id)
-          } catch (err) {
-            console.error('[DataIntegrationView] Failed to purge data:', err)
-          }
-        }
         if (integration.type === 'digifood') {
           await deleteDigifoodInstance(this.tenantId, integration.id)
         } else {
@@ -1359,7 +1376,6 @@ export default {
     cancelRemoveIntegration() {
       this.removeDialogOpen = false
       this.removeDialogIntegration = null
-      this.removeDeleteData = false
     },
 
     async handleSync(integration) {
@@ -1375,6 +1391,7 @@ export default {
       }
 
       // ---- Legacy synchronous sync ----
+      this.syncJobId = null
       // If a sync is already running for this integration, just re-show the dialog
       if (this.syncingMap[integration.id]) {
         this.syncProgressIntegration = integration
@@ -1449,6 +1466,7 @@ export default {
 
         let res = null
         while (true) {
+          if (this.syncAbandoned) break
           const t0 = Date.now()
           try {
             res = await syncWeezeventData('transactions', { integrationId: integration.id })
@@ -1483,6 +1501,7 @@ export default {
               // We never retry POST while syncRunning === true — that just generates 409 noise.
               let timedOut = false
               while (true) {
+                if (this.syncAbandoned) break
                 const waitedMs = Date.now() - first409At
                 if (waitedMs >= MAX_409_WAIT_MS) {
                   const elapsed = (waitedMs / 1000).toFixed(0)
@@ -1613,15 +1632,20 @@ export default {
 
     closeSyncProgress() {
       this.syncProgressOpen = false
+      this.syncJobId = null
     },
 
+    // Le widget flottant vit désormais dans App.vue (persistant inter-routes) : on
+    // ne peut plus l'atteindre par ref, on relaie l'activation par CustomEvent —
+    // même convention que locale-changed/theme-changed dans ce composant.
     onJobMinimized(jobId) {
-      if (jobId && this.$refs.syncJobWidget) {
-        this.$refs.syncJobWidget.activate(jobId)
+      if (jobId) {
+        window.dispatchEvent(new CustomEvent('weezevent-job-minimized', { detail: { jobId } }))
       }
     },
 
     async handleSyncJob(integration, fromDate, toDate) {
+      this.syncingMap = { ...this.syncingMap, [integration.id]: true }
       try {
         this.syncJobId = null
         this.syncSteps = []
@@ -1641,6 +1665,10 @@ export default {
         console.error('[DataIntegrationView] handleSyncJob error:', err)
         this.$toast?.error?.(err?.response?.data?.message || 'Impossible de démarrer la synchronisation.')
         this.syncProgressOpen = false
+      } finally {
+        const sm = { ...this.syncingMap }
+        delete sm[integration.id]
+        this.syncingMap = sm
       }
     },
 
@@ -1670,6 +1698,7 @@ export default {
 
     onSyncProgressDone() {
       this.syncProgressOpen = false
+      this.syncJobId = null
       if (this.syncProgressIntegration) {
         this.loadSyncJobsFor(this.syncProgressIntegration.id)
       }
@@ -1708,10 +1737,16 @@ export default {
       return mapping
     },
 
+    // Progression réelle connue depuis ici (sans appel API supplémentaire) : seul le
+    // mapping espace est déjà chargé dans this.mappings, donc étape 1 done ou non.
+    getCompletedStepsForIntegration(integration) {
+      return this.getSpaceForIntegration(integration) ? 1 : 0
+    },
+
     // Open wizard at integration level — the integration object is passed as the 'location'
     // so that StepMapSpace uses integration.id as the mapping key (1 instance → 1 space)
     openWizard(integration) {
-      this.wizardLocation = integration
+      this.wizardLocation = { ...integration, completedSteps: this.getCompletedStepsForIntegration(integration) }
       const mapping = this.getSpaceForIntegration(integration)
       this.wizardSpaceId = mapping?.spaceId || null
       this.wizardOpen = true
@@ -1724,6 +1759,16 @@ export default {
       // Toujours rafraîchir les mappings à la fermeture : couvre aussi le cas où
       // l'utilisateur ferme le wizard après l'étape 1 seulement (mapping déjà créé).
       this.loadMappings()
+    },
+
+    // "Configurer la prochaine location" (WizardSuccess) : ferme le wizard courant
+    // et le rouvre pour la location suivante — identique à un clic sur son bouton
+    // de configuration depuis la liste. Le nextTick garantit un vrai remount
+    // (currentStep/completedStepsList sont initialisés une seule fois dans data()).
+    async handleConfigureNext(location) {
+      this.closeWizard()
+      await this.$nextTick()
+      if (location) this.openWizard(location)
     },
 
     async handleWizardCompleted() {
@@ -1948,12 +1993,16 @@ export default {
   color: rgba(255,255,255,0.85);
   transition: background 0.15s;
 }
-.card-action-btn:hover {
+.card-action-btn:hover:not(:disabled) {
   background: rgba(255,255,255,0.25);
   color: white;
 }
-.card-action-btn--danger:hover {
+.card-action-btn--danger:hover:not(:disabled) {
   background: rgba(255,80,80,0.4);
+}
+.card-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .card-body {

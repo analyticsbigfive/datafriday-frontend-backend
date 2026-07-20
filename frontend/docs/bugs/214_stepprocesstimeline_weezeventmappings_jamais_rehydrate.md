@@ -1,6 +1,6 @@
 # BUG-214 — `weezEventMappings` jamais réhydraté au chargement : "Créer et lier tout" peut créer des Events en double
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🔴 Bloquant/impact business
 - **Domaine** : Intégrations & ventes (wizard, étape 4)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -31,8 +31,11 @@ jamais câblée dans `mounted()` ni dans le watcher `spaceId`, contrairement à 
 
 ## Correction
 
-Rien à ce jour. Appeler `loadWeezeventEvents()` dans `mounted()` (et dans le watcher `spaceId` s'il
-existe), symétriquement à `loadTimeline`.
+Ajouté un appel à `loadWeezeventEvents()` dans `mounted()` (juste après `loadTimeline(...)`) et
+dans le watcher `spaceId`, symétriquement à `loadTimeline`. `weezEventMappings` est désormais
+réhydraté à chaque montage/rechargement d'espace, donc `bulkCreateEvents` (`toCreate =
+weezeventEvents.filter(e => !weezEventMappings[e.id])`) exclut correctement les événements déjà
+liés dès le premier calcul.
 
 ## Risque de régression / à surveiller
 

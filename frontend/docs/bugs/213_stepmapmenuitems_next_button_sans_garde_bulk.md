@@ -1,6 +1,6 @@
 # BUG-213 — Le bouton "Suivant" du wizard n'est pas bloqué pendant un bulk-create/bulk-price-apply en cours
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 3)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -28,8 +28,22 @@ ont été ajoutées.
 
 ## Correction
 
-Rien à ce jour. Inclure `bulkCreateRunning`/`applyAllRunning` dans la condition qui désactive le
-bouton "Suivant" (et idéalement dans `hasPendingSaves` lui-même).
+`hasPendingSaves` (computed, `StepMapMenuItems.vue`) étend désormais sa condition à
+`bulkCreateRunning` et `applyAllRunning`, en plus de `savingRows` :
+
+```js
+hasPendingSaves() {
+  return this.bulkCreateRunning || this.applyAllRunning
+    || Object.values(this.savingRows).some(s => s === 'saving')
+},
+```
+
+Choix : étendre `hasPendingSaves` lui-même plutôt que d'ajouter les deux flags directement dans le
+binding `:disabled` du bouton, car c'est le seul point de vérité déjà utilisé à la fois par le
+bouton "Suivant" (`:disabled`, spinner) et par `handleSave` (garde en tête de méthode) — un seul
+endroit à maintenir si d'autres flags "opération longue" apparaissent. Le bouton "Suivant" est
+donc désormais aussi bloqué pendant `bulkCreateAndMap` et `applyAllPrices`, pas seulement pendant
+une sauvegarde ligne-par-ligne.
 
 ## Risque de régression / à surveiller
 

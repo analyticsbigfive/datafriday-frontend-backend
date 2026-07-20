@@ -87,12 +87,13 @@ export function findBestMatch(productOrName, menuItemsList) {
     }
 
     let combined;
-    if (priceKnown) {
-      const priceExact =
-        mi.basePrice != null && Math.abs(Number(productPrice) - Number(mi.basePrice)) < 0.01;
+    if (priceKnown && mi.basePrice != null) {
+      const priceExact = Math.abs(Number(productPrice) - Number(mi.basePrice)) < 0.01;
       const priceScore = priceExact ? 1.0 : 0.85;
       combined = nameScore * 0.4 + priceScore * 0.6;
     } else {
+      // Prix du menu item inconnu (mi.basePrice == null) : ne pas gonfler le score
+      // composite avec un priceScore par défaut proche du max — nom seul.
       combined = nameScore;
     }
 

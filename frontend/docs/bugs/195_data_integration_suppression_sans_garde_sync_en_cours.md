@@ -1,6 +1,6 @@
 # BUG-195 — Aucune protection contre la suppression d'une intégration en cours de synchronisation
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -25,8 +25,13 @@ suppression.
 
 ## Correction
 
-Rien à ce jour. Désactiver le bouton de suppression (ou avertir explicitement dans le dialog de
-confirmation) tant qu'un sync est en cours pour cette intégration.
+Ajout d'une méthode `isIntegrationSyncing(integration)` dans `DataIntegrationView.vue` qui renvoie
+`true` si `syncingMap[integration.id]` est vrai OU si `syncJobsMap[integration.id]` contient un job
+dont le statut n'est ni `COMPLETED` ni `FAILED` (couvre legacy et sync par job). Le bouton
+poubelle de la carte est `:disabled` sur ce test (avec tooltip expliquant pourquoi), et
+`handleRemoveIntegration`/`confirmRemoveIntegration` re-vérifient la même garde avant d'ouvrir le
+dialog / d'exécuter la suppression. Le dialog affiche aussi un message d'avertissement dédié
+(`diRemoveIntegrationSyncWarning`) et désactive le bouton "Supprimer" tant que le test est vrai.
 
 ## Risque de régression / à surveiller
 

@@ -1,6 +1,6 @@
 # BUG-208 — Le correctif du badge étage (BUG-003) régresse pour les tenants à plusieurs configurations
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur (régression du comportement corrigé par BUG-003, dans une condition
   plus étroite)
 - **Domaine** : Intégrations & ventes (wizard, étape 2)
@@ -32,8 +32,11 @@ fusionnées, seulement écrasées.
 
 ## Correction
 
-Rien à ce jour. Fusionner les deux passes plutôt que de laisser la seconde écraser la première
-pour les locations hors de `userConfigs[0]`.
+Dans `loadData`, la 2ème passe (scopée à `userConfigs[0]`) part maintenant de `{ ...this.floorMap }`
+/ `{ ...this.floorNameMap }` (résultat de la 1ère passe, space-wide) au lieu de deux objets vides,
+puis n'écrase que les entrées trouvées dans `elementFloorIndex`. Les locations dont le shop
+appartient à une config utilisateur autre que `userConfigs[0]` conservent donc désormais le niveau
+posé par la 1ère passe au lieu de le perdre.
 
 ## Risque de régression / à surveiller
 

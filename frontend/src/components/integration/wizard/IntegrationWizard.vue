@@ -188,15 +188,20 @@ export default {
     window.removeEventListener('locale-changed', this.handleLocaleChange)
   },
   data() {
+    // Reprise où l'utilisateur s'était arrêté : location.completedSteps (calculé par
+    // DataIntegrationView.vue à l'ouverture) donne le nombre d'étapes déjà faites —
+    // on saute directement à la première étape incomplète plutôt que de tout rejouer.
+    const lastStepForLocation = this.location?.type === 'digifood' ? 3 : 4
+    const completed = Math.min(this.location?.completedSteps ?? 0, lastStepForLocation)
     return {
       locale: localStorage.getItem('appLocale') || 'en',
-      currentStep: 1,
-      completedStepsList: [],
+      currentStep: Math.min(completed + 1, lastStepForLocation),
+      completedStepsList: Array.from({ length: completed }, (_, i) => i + 1),
       footerEl: null,
       resolvedSpaceId: this.spaceId,
       showSuccess: false,
       wizardSummary: { merchants: 0, products: 0, events: 0 },
-      showOverview: !this.spaceId && (this.location?.completedSteps ?? 0) === 0,
+      showOverview: !this.spaceId && completed === 0,
       theme: localStorage.getItem('datafriday:theme') || localStorage.getItem('appTheme') || 'dataFridayLight',
     }
   },

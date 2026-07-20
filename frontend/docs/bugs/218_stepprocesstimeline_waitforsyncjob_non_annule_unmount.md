@@ -1,6 +1,6 @@
 # BUG-218 — `waitForSyncJob` (poll 2.5s/10 min) n'est jamais annulé si le composant est démonté
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 4)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -25,8 +25,11 @@ Aucune vérification de flag "toujours monté"/abandon à l'intérieur de la bou
 
 ## Correction
 
-Rien à ce jour. Ajouter un flag d'abandon posé dans `unmounted()`, vérifié à chaque itération de la
-boucle.
+Ajouté un data flag `syncPollAbandoned` (false par défaut), mis à `true` dans `unmounted()` (en
+plus du `clearInterval` existant). La boucle `while` de `waitForSyncJob` le vérifie à 3 points :
+avant d'attendre l'intervalle, juste après l'attente, et juste après `checkProgress()` — si posé,
+la fonction retourne immédiatement sans continuer à poller ni écrire dans l'état réactif du
+composant démonté.
 
 ## Risque de régression / à surveiller
 

@@ -1220,8 +1220,12 @@ export default {
             }
           }
 
-          const newFloorMap = {}
-          const newFloorNameMap = {}
+          // Fusionne avec la 1ère passe (space-wide) au lieu d'écraser : les locations
+          // dont le shop appartient à une config utilisateur autre que userConfigs[0]
+          // ne seront pas trouvées dans elementFloorIndex (scopé à une seule config)
+          // et doivent conserver la valeur déjà posée par la 1ère passe.
+          const newFloorMap = { ...this.floorMap }
+          const newFloorNameMap = { ...this.floorNameMap }
           for (const [locationId, elementId] of Object.entries(map)) {
             const info = elementFloorIndex[elementId]
             if (info) {
@@ -1377,6 +1381,10 @@ export default {
     },
 
     async updateMapping(locationId, elementId) {
+      // Valeur avant la mise à jour optimiste, pour pouvoir faire un rollback
+      // symétrique à applyAutoSuggestions en cas d'échec.
+      const previousElementId = this.localMappings[locationId]
+
       // Update local state immediately
       const updated = { ...this.localMappings }
       if (elementId == null) {
@@ -1405,6 +1413,17 @@ export default {
           this.savingRows = { ...this.savingRows, [locationId]: 'saved' }
         } else {
           console.error('[StepMapShops] auto-save error:', err)
+          // Rollback de la mise à jour optimiste : on restaure l'état pré-appel
+          // (absent, ou mappé vers un autre élément) sinon la ligne reste
+          // faussement "mappée" (compteurs gonflés, badge d'erreur invisible
+          // dans la branche "non mappée").
+          const rolledBack = { ...this.localMappings }
+          if (previousElementId == null) {
+            delete rolledBack[locationId]
+          } else {
+            rolledBack[locationId] = previousElementId
+          }
+          this.localMappings = rolledBack
           this.savingRows = { ...this.savingRows, [locationId]: 'error' }
         }
       }
@@ -1579,9 +1598,10 @@ export default {
       const matched = []
       const unmatched = []
       for (const location of unmapped) {
-        const existing = this.elements.find(
-          e => e.name && location.name && e.name.toLowerCase() === location.name.toLowerCase()
-        )
+        // Réutilise le même matcher (token-overlap + Levenshtein, seuil > 0.5) que le
+        // reste du fichier, au lieu d'une égalité exacte naïve — sinon des noms
+        // quasi-identiques ("Bar - Central" vs "Bar Central") créent un doublon.
+        const existing = this.findBestElementMatch(location.name)
         if (existing) matched.push({ location, element: existing })
         else unmatched.push(location)
       }

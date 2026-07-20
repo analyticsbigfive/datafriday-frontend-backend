@@ -1,6 +1,6 @@
 # BUG-198 — Dates et nombres toujours formatés en `fr-FR`, ignorent le switch de langue de l'app
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -23,7 +23,10 @@ la française (`12 345`).
 
 ## Correction
 
-Rien à ce jour. Faire dépendre `'fr-FR'`/`'en-US'` (ou équivalent) de `this.locale`.
+Ajout d'un computed `localeTag()` dans `DataIntegrationView.vue` (`this.locale === 'fr' ? 'fr-FR' :
+'en-US'`). `formatDate`/`formatDateTime` utilisent désormais `this.localeTag` au lieu de `'fr-FR'`
+codé en dur. Les cinq `.toLocaleString('fr-FR')` du template (lignes ~197, 224, 228, 232, 236) ont
+été remplacés par un nouveau helper `formatNumber(n)` (`n.toLocaleString(this.localeTag)`).
 
 ## Risque de régression / à surveiller
 

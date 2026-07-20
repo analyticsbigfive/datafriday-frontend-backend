@@ -1,6 +1,6 @@
 # BUG-215 — Toast "Agrégation terminée" affiché en succès même quand le job a échoué ou a été sauté
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🔴 Bloquant/impact business
 - **Domaine** : Intégrations & ventes (wizard, étape 4)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -24,8 +24,12 @@ moment) avant de choisir le message "succès".
 
 ## Correction
 
-Rien à ce jour. Faire dépendre le message/couleur du snackbar de `progress.status` réel
-(`completed` → succès, `failed`/`skipped` → erreur/avertissement avec message explicite).
+Dans `handleProcessSingle`, la branche `reachedTerminal` inspecte désormais
+`this.currentEventProgress.status` avant de choisir le message/couleur du snackbar :
+`completed` → succès (vert, `intgTimelineAggDone`), `failed` → erreur (rouge,
+nouvelle clé `intgTimelineAggFailed`), `skipped` → avertissement (ambre, nouvelle clé
+`intgTimelineAggSkipped`). Le cas "timeout de polling, pas d'état terminal atteint" reste
+distinct (`intgTimelineAggSlow`, voir aussi BUG-217). Nouvelles clés i18n ajoutées en EN/FR.
 
 ## Risque de régression / à surveiller
 

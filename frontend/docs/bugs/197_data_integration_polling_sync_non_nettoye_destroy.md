@@ -1,6 +1,6 @@
 # BUG-197 — La boucle de polling du sync legacy n'est jamais interrompue si le composant est détruit en plein sync
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -25,8 +25,12 @@ jamais naturellement parce que le composant a été détruit plutôt que la bouc
 
 ## Correction
 
-Rien à ce jour. Ajouter un flag d'abandon vérifié à chaque itération, posé à `true` dans
-`beforeUnmount`.
+Ajout d'un data field `syncAbandoned: false` dans `DataIntegrationView.vue`, mis à `true` dans
+`beforeUnmount()`. Une vérification `if (this.syncAbandoned) break` a été ajoutée en tête de la
+boucle externe `while(true)` de `handleSync` (retry des POST transactions) et en tête de la boucle
+interne `while(true)` du polling 409 (celle qui peut tourner jusqu'à `MAX_409_WAIT_MS`). Les deux
+boucles s'arrêtent donc dès l'itération suivante si le composant est détruit en cours de sync, sans
+émettre de nouvelle requête réseau.
 
 ## Risque de régression / à surveiller
 

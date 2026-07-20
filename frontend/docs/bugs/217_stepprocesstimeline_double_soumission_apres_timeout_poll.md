@@ -1,6 +1,6 @@
 # BUG-217 — Fenêtre de double-soumission après timeout du polling par événement
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 4)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -24,9 +24,18 @@ backend confirmé.
 
 ## Correction
 
-Rien à ce jour. Ne réactiver le bouton qu'en cas de résultat confirmé (terminal ou timeout
-explicitement affiché comme tel à l'utilisateur, avec possibilité de vérifier l'état réel avant de
-permettre un nouveau clic).
+`handleProcessSingle` distingue maintenant explicitement un état terminal confirmé
+(`reachedTerminal`, hissé hors du `try` pour rester visible du `finally`) d'un simple timeout/erreur
+réseau (`stalled`) :
+- `finally` ne remet `processingEventId = null` (ré-active le bouton) que si `reachedTerminal` est
+  vrai — succès, échec ou skip réel, ou une vraie erreur (validation/permission, pas un timeout).
+- En cas de timeout de polling ou d'erreur réseau (`stalled = true`), l'id est ajouté à un nouveau
+  tableau `stalledEventIds` : le bouton reste désactivé et affiche un état dédié ("Toujours en
+  cours…", nouvelles clés `intgTimelineStillProcessingBtn`/`intgTimelineStillProcessingTooltip`)
+  au lieu de se ré-activer silencieusement.
+- Un nouveau watcher sur `events` (peuplé par `loadTimeline`) lève le verrou (`stalledEventIds` +
+  `processingEventId`) dès qu'un event stalled ressort avec un `aggregationStatus` différent de
+  `pending`, c'est-à-dire dès qu'un état terminal réel est confirmé côté backend.
 
 ## Risque de régression / à surveiller
 

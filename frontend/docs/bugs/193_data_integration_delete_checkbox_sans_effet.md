@@ -1,6 +1,6 @@
 # BUG-193 — La case "Supprimer aussi les données synchronisées" n'a aucun effet réel
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🔴 Bloquant/impact business
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : les deux (frontend trompeur, backend responsable du comportement réel)
@@ -27,11 +27,14 @@ façon. Un utilisateur qui laisse la case décochée pour "garder les données" 
 
 ## Correction
 
-Rien à ce jour. Deux options à trancher : (a) rendre la case réellement fonctionnelle en modifiant
-le comportement backend pour ne PAS cascader la suppression des données quand elle n'est pas
-demandée (nécessite un flag ou un endpoint de suppression "config seule"), ou (b) supprimer la
-case de l'UI si le produit veut que la suppression soit toujours totale (documenter clairement
-"cette action supprime aussi toutes les données" sans case à cocher trompeuse).
+Option (b) retenue par le PO : la case a été retirée de `DataIntegrationView.vue`, pas rendue
+fonctionnelle côté backend. Le dialog affiche désormais un bandeau d'avertissement inconditionnel
+(`diRemoveIntegrationDataWarning`, `cd-banner--error`) indiquant que la suppression de
+l'intégration supprime aussi irréversiblement toutes ses données synchronisées. Le champ de données
+`removeDeleteData` et l'appel `purgeWeezeventData` conditionné dessus ont été supprimés de
+`confirmRemoveIntegration` — seul `deleteWeezeventInstance`/`deleteDigifoodInstance` reste, la
+cascade backend fait le reste. Ceci résout aussi BUG-194 par effet de bord (plus d'appel de purge
+séparé pouvant échouer silencieusement).
 
 ## Risque de régression / à surveiller
 

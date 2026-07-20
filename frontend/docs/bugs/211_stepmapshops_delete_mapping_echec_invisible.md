@@ -1,6 +1,6 @@
 # BUG-211 — Un échec de suppression de mapping ne produit strictement aucun indicateur visible
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 2)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -31,9 +31,14 @@ censé signaler (un DELETE raté) est précisément le cas qui fait basculer la 
 
 ## Correction
 
-Rien à ce jour. Faire persister un état d'erreur visible indépendamment de la présence/absence de
-`localMappings[item.id]` (ex. un champ `rowErrors[locationId]` séparé, rendu dans les deux
-branches).
+Résolu par le rollback ajouté pour BUG-210 : `deleteLocationShopMapping` n'a qu'un seul point
+d'appel, dans `updateMapping` (branche `elementId == null`). Avec le rollback, un DELETE en échec
+restaure `localMappings[locationId]` à sa valeur précédente (le mapping existant, donc truthy) au
+lieu de le laisser supprimé — la ligne retombe donc dans la branche `v-else` ("mappée") du
+template, qui affiche déjà le badge d'erreur (`sms-status--error`) quand
+`savingRows[item.id] === 'error'`. Vérifié qu'aucun autre appelant de
+`deleteLocationShopMapping` n'existe dans le fichier ; aucune modification de template n'a donc été
+nécessaire.
 
 ## Risque de régression / à surveiller
 

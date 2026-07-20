@@ -119,10 +119,19 @@ export default {
       this.visible = true
       this._startPoll()
     }
+    // Le widget vit dans App.vue (persistant inter-routes) : la vue qui démarre un sync
+    // ne peut plus l'atteindre par ref, elle relaie via CustomEvent — même convention
+    // que locale-changed/theme-changed.
+    this._onJobMinimized = (event) => {
+      const jobId = event.detail?.jobId
+      if (jobId) this.activate(jobId)
+    }
+    window.addEventListener('weezevent-job-minimized', this._onJobMinimized)
   },
   beforeUnmount() {
     this._stopPoll()
     if (this._hideTimer) clearTimeout(this._hideTimer)
+    window.removeEventListener('weezevent-job-minimized', this._onJobMinimized)
   },
   methods: {
     /**
@@ -152,8 +161,19 @@ export default {
       localStorage.removeItem(STORAGE_KEY)
     },
     _startPoll() {
+      // Aligné sur le MAX_WAIT_MS de StepProcessTimeline.vue / SyncProgressDialog.vue :
+      // un job qui n'atteint jamais d'état terminal ne doit pas poller indéfiniment.
+      const MAX_WAIT_MS = 10 * 60 * 1000
+      const startedPollingAt = Date.now()
       const poll = async () => {
         if (!this.jobId) return
+        if (Date.now() - startedPollingAt >= MAX_WAIT_MS) {
+          this.jobData = { ...this.jobData, status: 'FAILED', errorMessage: this.jobData.errorMessage || 'Délai d\'attente dépassé — la synchronisation prend trop de temps.' }
+          this._stopPoll()
+          localStorage.removeItem(STORAGE_KEY)
+          this._hideTimer = setTimeout(() => { this.visible = false }, HIDE_AFTER_DONE_MS)
+          return
+        }
         try {
           const data = await getWeezeventJobStatus(this.jobId)
           this.jobData = {

@@ -1,6 +1,6 @@
 # BUG-202 — Échec de création de configuration silencieusement avalé (StepMapSpace)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 1)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -27,9 +27,21 @@ dialog est lue comme un signal de succès dans les deux cas.
 
 ## Correction
 
-Rien à ce jour. Ajouter un slot d'erreur dans le dialog lui-même (l'écran principal du composant
-n'est plus visible derrière le dialog au moment de l'échec) et ne fermer le dialog qu'en cas de
-succès réel.
+Dans `handleConfirmConfig` :
+- Ajout d'un nouvel état `configError` (data), réinitialisé à `null` en début d'appel.
+- `closePostCreate()` n'est plus appelé depuis le `finally` — il est désormais appelé
+  explicitement en fin de bloc `try`, uniquement après le succès de `createConfiguration()`.
+- Le `catch` renseigne `this.configError = err.message` (en plus du `console.error` existant),
+  et le dialog reste ouvert (`persistent`) pour que l'utilisateur voie l'erreur.
+- Le `finally` ne fait plus que `this.creatingConfig = false`.
+- Ajout d'un bloc d'erreur (`v-if="configError"`) dans le `<v-card-text>` du dialog
+  post-création (au lieu de réutiliser la bannière `error` de la page, masquée derrière le
+  dialog persistant à ce moment-là).
+- `closePostCreate()` réinitialise aussi `configError = null` pour ne pas la faire fuiter vers
+  la prochaine ouverture du dialog.
+
+L'utilisateur peut donc retenter (`handleConfirmConfig`) ou annuler (`skipPostCreate`)
+manuellement après un échec, au lieu que le dialog se ferme silencieusement.
 
 ## Risque de régression / à surveiller
 

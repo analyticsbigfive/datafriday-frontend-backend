@@ -1,6 +1,6 @@
 # BUG-203 — Suggestion de mapping d'espace : aucune normalisation des accents/espaces (faux négatifs)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 1)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -24,10 +24,20 @@ Ni `suggestSpace` (568-580) ni `calculateSimilarity` (582-605) n'appliquent
 
 ## Correction
 
-Rien à ce jour. Ajouter la normalisation avant comparaison. Corréler avec BUG-011 (dette,
-composable mort `useSpaceMapping.js` réimplémentant exactement la même logique sans cette
-correction non plus — s'assurer que la source vivante seule est corrigée, ou supprimer le
-composable mort pour éviter toute confusion future).
+Ajout d'une méthode `normalizeForComparison(str)` dans `StepMapSpace.vue` qui applique, dans
+l'ordre : `.toLowerCase()`, `.normalize('NFD').replace(/[̀-ͯ]/g, '')` (repli des accents,
+plage U+0300–U+036F des marques diacritiques combinantes) puis `.trim()` (espaces parasites en
+tête/fin).
+
+`suggestSpace` normalise désormais `locationName` et `space.name` via cette méthode avant de les
+passer à `calculateSimilarity` (qui reste un pur calcul de distance de Levenshtein, inchangé).
+Confirmé par relecture : `calculateSimilarity` dans ce fichier n'est utilisée que par
+`suggestSpace`, donc normaliser à l'entrée de `suggestSpace` couvre bien tout le chemin de
+comparaison utilisé par ce composant.
+
+Non traité (hors périmètre de ce ticket, qui porte uniquement sur `StepMapSpace.vue`) : le
+composable mort `useSpaceMapping.js` réimplémente la même logique sans cette correction — reste
+à corréler avec BUG-011 séparément.
 
 ## Risque de régression / à surveiller
 

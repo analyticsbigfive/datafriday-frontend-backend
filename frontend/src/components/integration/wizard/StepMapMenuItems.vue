@@ -887,7 +887,8 @@ export default {
       }).length
     },
     hasPendingSaves() {
-      return Object.values(this.savingRows).some(s => s === 'saving')
+      return this.bulkCreateRunning || this.applyAllRunning
+        || Object.values(this.savingRows).some(s => s === 'saving')
     },
     topMatchesMap() {
       const result = {}

@@ -1,6 +1,6 @@
 # BUG-219 — `CreateEventDialog` avale les erreurs de création sans aucun retour à l'utilisateur
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 4)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -23,8 +23,14 @@ soumission principal n'a aucune surface d'erreur équivalente.
 
 ## Correction
 
-Rien à ce jour. Ajouter un état d'erreur et une bannière visible, symétriquement aux sous-dialogs
-déjà présents dans le même fichier.
+Ajouté un ref `createEventError` (data), réinitialisé à l'ouverture du dialog (watcher
+`modelValue`) et avant chaque soumission. Le bloc `catch` de `submitCreateEvent` renseigne
+désormais `createEventError` (message serveur si disponible, sinon `err.message`, sinon
+`intgCreateEvtCreateFailed`) en plus du `console.error` existant. Une `v-alert` (type error,
+variant tonal, density compact) affiche ce message en haut du corps scrollable du dialog —
+même pattern que les sous-dialogs type/catégorie/sous-catégorie déjà présents dans ce fichier.
+Le dialog reste ouvert avec le formulaire rempli, comme avant, mais l'utilisateur voit maintenant
+pourquoi la création a échoué.
 
 ## Risque de régression / à surveiller
 

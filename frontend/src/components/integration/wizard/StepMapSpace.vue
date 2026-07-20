@@ -392,6 +392,13 @@
               </div>
             </div>
           </div>
+
+          <!-- Erreur affichée dans le dialog lui-même — la bannière de la page sous-jacente
+               est masquée derrière ce dialog persistant au moment de l'échec. -->
+          <div v-if="configError" class="smsp-infobar smsp-infobar--error mt-3">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>{{ configError }}</span>
+          </div>
         </v-card-text>
 
         <div class="smsp-dialog-footer">
@@ -479,6 +486,7 @@ export default {
       postCreateDialog: false,
       postCreateSpaceId: null,
       creatingConfig: false,
+      configError: null,
       configForm: {
         // A2 : ne PAS proposer "weezevent import" par défaut — ce nom entre en collision
         // avec la config interne backend "Weezevent Import" et serait masqué par le filtre
@@ -569,14 +577,25 @@ export default {
       if (!locationName || !this.spaces.length) return null
       let bestMatch = null
       let bestScore = 0
+      const normalizedLocationName = this.normalizeForComparison(locationName)
       for (const space of this.spaces) {
-        const score = this.calculateSimilarity(locationName.toLowerCase(), space.name.toLowerCase())
+        const score = this.calculateSimilarity(normalizedLocationName, this.normalizeForComparison(space.name))
         if (score > bestScore && score > 0.4) {
           bestScore = score
           bestMatch = { space, score: Math.round(score * 100) }
         }
       }
       return bestMatch
+    },
+
+    // Replie les accents et coupe les espaces parasites avant comparaison, pour éviter
+    // des faux négatifs de similarité (ex. "Café Nord" vs "Cafe Nord ").
+    normalizeForComparison(str) {
+      return (str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .trim()
     },
 
     calculateSimilarity(a, b) {
@@ -652,6 +671,7 @@ export default {
 
     async handleConfirmConfig() {
       this.creatingConfig = true
+      this.configError = null
       try {
         // A2 : garde-fou — un nom vide ou "weezevent import" est remplacé par un nom neutre,
         // sinon la config utilisateur serait masquée par le filtre du sélecteur d'étage.
@@ -681,11 +701,16 @@ export default {
             externalMerch: null,
           },
         })
+        // Succès uniquement : on referme le dialog et on nettoie son état.
+        this.closePostCreate()
       } catch (err) {
         console.error('[StepMapSpace] Error creating configuration:', err)
+        // Le dialog reste ouvert en cas d'échec — la bannière d'erreur de la page
+        // sous-jacente n'est pas visible derrière le dialog persistant. On affiche donc
+        // l'erreur ici pour que l'utilisateur puisse la voir et réessayer/annuler.
+        this.configError = err.message
       } finally {
         this.creatingConfig = false
-        this.closePostCreate()
       }
     },
 
@@ -696,6 +721,7 @@ export default {
     closePostCreate() {
       this.postCreateDialog = false
       this.postCreateSpaceId = null
+      this.configError = null
       this.newSpace = {
         name: '', spaceType: '', spaceTypeOther: '', maxCapacity: null,
         department: null, homeTeam: '', addressLine1: '', addressLine2: '',

@@ -1,6 +1,6 @@
 # BUG-209 — Le plan de création en masse utilise un matching naïf, risque de créer des shops en doublon
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard, étape 2)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -27,8 +27,10 @@ indépendamment avec une règle de matching beaucoup plus faible.
 
 ## Correction
 
-Rien à ce jour. Faire utiliser à `openBulkConfirm` le même matcher (`findBestElementMatch`) que le
-reste du fichier avant de proposer une création.
+`openBulkConfirm` appelle désormais `this.findBestElementMatch(location.name)` (token-overlap +
+Levenshtein, seuil > 0.5, déjà utilisé ailleurs dans le fichier) au lieu de l'égalité de chaîne
+exacte insensible à la casse. Le résultat (`{ ...el, matchScore }`) reste compatible avec
+`executeBulk`, qui ne consomme que `element.id`/`element.name`.
 
 ## Risque de régression / à surveiller
 

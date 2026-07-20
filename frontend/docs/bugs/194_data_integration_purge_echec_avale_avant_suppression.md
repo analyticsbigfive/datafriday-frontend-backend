@@ -1,6 +1,6 @@
 # BUG-194 — Échec de purge des données avalé silencieusement avant la suppression de l'intégration
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -30,8 +30,11 @@ tant que BUG-193 n'est pas corrigé dans un sens qui redonne un sens réel à la
 
 ## Correction
 
-Rien à ce jour. Propager l'échec (bannière d'erreur, interruption du flux ou proposition de
-réessayer) plutôt que de logger silencieusement.
+Résolu comme effet de bord de la correction de BUG-193 : la case à cocher et l'appel séparé
+`purgeWeezeventData(integration.id)` gated dessus ont été supprimés de `confirmRemoveIntegration`
+(`DataIntegrationView.vue`). Il n'y a plus de purge distincte dont l'échec pourrait être avalé —
+seule reste la suppression de l'instance (`deleteWeezeventInstance`/`deleteDigifoodInstance`), dont
+l'échec est déjà géré par le `catch` existant du même bloc. Rien d'autre à faire séparément.
 
 ## Risque de régression / à surveiller
 

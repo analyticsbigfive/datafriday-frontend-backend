@@ -1,6 +1,6 @@
 # BUG-200 — "Reprendre où on s'était arrêté" ne fonctionne pas dans le wizard d'intégration
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes (wizard)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -34,10 +34,17 @@ au-dessus, dans l'orchestrateur.
 
 ## Correction
 
-Rien à ce jour. Calculer `completedSteps`/`currentStep` à l'ouverture du wizard à partir de la
-progression réelle (ex. `getIntegrationProgress`, actuellement mort côté frontend — voir
-BUG-201-adjacent code mort — ou une dérivation locale des mappings déjà chargés par
-`DataIntegrationView.vue`).
+Dérivation locale (pas de réactivation de `getIntegrationProgress`, pas de nouvel appel API) :
+nouvelle méthode `getCompletedStepsForIntegration(integration)` dans `DataIntegrationView.vue`
+retourne `1` si `getSpaceForIntegration(integration)` trouve un mapping (espace déjà lié), `0`
+sinon — seule donnée de progression déjà chargée en mémoire (`this.mappings`). `openWizard()` passe
+maintenant `{ ...integration, completedSteps: this.getCompletedStepsForIntegration(integration) }`
+comme `location` au wizard au lieu de l'objet intégration brut (qui n'avait jamais `completedSteps`).
+Côté `IntegrationWizard.vue`, `data()` calcule `completed = min(location.completedSteps ?? 0,
+lastStepForLocation)` et initialise `currentStep = min(completed + 1, lastStepForLocation)` et
+`completedStepsList = [1..completed]` au lieu de `currentStep: 1` codé en dur — le wizard saute donc
+à l'étape 2 (au lieu de re-proposer l'étape 1 déjà faite) dès que l'espace est mappé. `showOverview`
+utilise la même variable locale `completed` plutôt que de relire `location.completedSteps`.
 
 ## Risque de régression / à surveiller
 

@@ -1,6 +1,6 @@
 # BUG-196 — La sync par job (bissection) ne bascule jamais `syncingMap` : pas de spinner, pas de garde anti double-clic
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -26,8 +26,12 @@ job.
 
 ## Correction
 
-Rien à ce jour. Poser `syncingMap[integration.id] = true` (et le nettoyer en `finally`) aussi dans
-`handleSyncJob`.
+`handleSyncJob` (`DataIntegrationView.vue`) pose désormais `syncingMap[integration.id] = true` en
+tout premier, avant l'appel `startWeezeventSyncJob`, et le nettoie dans un bloc `finally` (ajouté)
+qui retire la clé de `syncingMap`. Le bouton "Synchroniser" (`:disabled`/`sync-btn--loading` liés à
+`syncingMap[integration.id]`) est donc bien désactivé pendant la durée de l'appel de démarrage du
+job, empêchant les double-clics qui déclenchaient plusieurs `startWeezeventSyncJob` en parallèle.
+Le nettoyage est indépendant du polling du job/dialog qui prend le relais ensuite.
 
 ## Risque de régression / à surveiller
 

@@ -759,8 +759,11 @@ Résultat : **29 bugs concrets documentés en fiches individuelles, `BUG-193` à
 [`docs/bugs/`](../bugs/00_INDEX.md), et le reste (dette technique, code mort additionnel, a11y,
 i18n) consolidé dans
 [`docs/utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md`](../utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md).
-**Rien n'a été corrigé à ce stade** — audit de documentation seul, sur la branche
-`docs/audit-data-integration-fb`.
+**Les 29 bugs ont ensuite été corrigés le jour même** (2ème vague de 5 agents, un par
+fichier/groupe de fichiers disjoint, sur la même branche `docs/audit-data-integration-fb`) — voir
+le `## Correction` de chaque fiche pour le détail exact. Non traité par cette repasse (hors scope
+"correction de bugs identifiés") : la dette technique du fichier ci-dessus (accessibilité, i18n
+mineur, duplication).
 
 Un point de cette page a été corrigé au passage : le statut de `store/modules/weezeventProducts.js`
 (voir §"Stores Vuex" ci-dessus) — il était présenté comme consommé par Analyse/Predict, il est en
@@ -784,21 +787,27 @@ Liste complète des 29 bugs : `docs/bugs/00_INDEX.md` (numéros 193-221).
 
 ### Code mort supplémentaire confirmé (au-delà de la liste ci-dessus)
 
-- **`StepProcessTimeline.vue`** : le template n'a plus que 2 onglets vivants (`covered`/
-  `uncovered`), mais le script contient encore 3 pans complets et non câblés d'une itération
-  antérieure à 3 onglets — l'onglet "Événements Weezevent" (sync spectateurs, enrichissement via
-  `EnrichEventDialog`), une seconde table de timeline minute par minute avec export CSV (distincte
-  de celle réellement utilisée dans `EventBreakdownDrawer`), et le traitement en masse
-  (`handleProcessAll`/`processAllEvents`) — voir [BUG-221](../bugs/221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md).
+- **`StepProcessTimeline.vue`** — **supprimé** le 2026-07-20 en même temps que le fix de
+  [BUG-221](../bugs/221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md) : le template
+  n'avait plus que 2 onglets vivants (`covered`/`uncovered`), mais le script contenait encore 3
+  pans complets et non câblés d'une itération antérieure à 3 onglets — l'onglet "Événements
+  Weezevent" (sync spectateurs, enrichissement via `EnrichEventDialog`), une seconde table de
+  timeline minute par minute avec export CSV (distincte de celle réellement utilisée dans
+  `EventBreakdownDrawer`, conservée), et le traitement en masse (`handleProcessAll`/
+  `processAllEvents`). Décision produit : suppression plutôt que réactivation. `EventBreakdownDrawer.vue`
+  reste le seul écran de timeline minute par minute du domaine ; `EnrichEventDialog.vue` reste sur
+  le disque (fichier non supprimé) mais n'est plus monté nulle part.
 - **`StepMapShops.vue`** : cluster de code mort issu d'une UI antérieure à colonne "score de
   match" jamais nettoyée (`headers`, `topMatchesMap`, `findTopElementMatches`,
   `quickCreateSortedFloors`, `floorDialogFloorOptions`, `floorOptionIconColor`,
-  `_elementConfigMap`, CSS `.sms-match*`) — détail dans le document de dette technique lié
-  ci-dessus.
-- **`WizardSuccess.vue`/`IntegrationWizard.vue`** : la fonctionnalité "configurer la prochaine
-  location non mappée" (`otherLocations`/`configure-next`) est entièrement câblée entre ces deux
-  fichiers mais n'est jamais alimentée par `DataIntegrationView.vue` — voir
-  [BUG-201](../bugs/201_wizard_other_locations_configure_next_mort.md).
+  `_elementConfigMap`, CSS `.sms-match*`) — **toujours présent**, volontairement laissé hors scope
+  de la vague de correctifs du 2026-07-20 (qui portait uniquement sur les 4 bugs fonctionnels
+  BUG-208 à 211) ; détail dans le document de dette technique lié ci-dessus.
+- **`WizardSuccess.vue`/`IntegrationWizard.vue`** — **câblé** le 2026-07-20 en même temps que le
+  fix de [BUG-201](../bugs/201_wizard_other_locations_configure_next_mort.md) : la fonctionnalité
+  "configurer la prochaine location non mappée" (`otherLocations`/`configure-next`), déjà
+  entièrement construite entre ces deux fichiers, est désormais alimentée par
+  `DataIntegrationView.vue` (nouveau computed `otherLocationsForWizard` + `handleConfigureNext`).
 
 ## Zones grises (points réellement non tranchés, pas des angles morts)
 

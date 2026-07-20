@@ -1,6 +1,6 @@
 # BUG-207 — Le widget flottant de sync ne survit pas à la navigation, contrairement à sa promesse
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-20)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -34,9 +34,16 @@ cycle de vie d'une seule vue.
 
 ## Correction
 
-Rien à ce jour. Déplacer le montage de `SyncJobFloatingWidget` vers `App.vue` (ou équivalent
-toujours-monté), en lui laissant la responsabilité de lire `localStorage` pour savoir s'il doit
-s'auto-activer.
+`<SyncJobFloatingWidget ref="syncJobWidget" />` déplacé de `DataIntegrationView.vue` vers `App.vue`
+(monté sans `ref`, à côté de `RouteTransitionLoader`/`GlobalConfirmDialog`/`Toaster`). Comme le
+widget n'est plus un enfant de `DataIntegrationView.vue`, `this.$refs.syncJobWidget.activate(jobId)`
+ne fonctionnait plus : `onJobMinimized(jobId)` dans `DataIntegrationView.vue` fait maintenant
+`window.dispatchEvent(new CustomEvent('weezevent-job-minimized', { detail: { jobId } }))` — même
+convention que `locale-changed`/`theme-changed` déjà utilisée dans ce composant.
+`SyncJobFloatingWidget.vue` ajoute un listener `window.addEventListener('weezevent-job-minimized',
+...)` dans `mounted()` (appelle `this.activate(jobId)`) et le retire dans `beforeUnmount()`. Le
+comportement d'auto-activation via `localStorage` au montage est inchangé. Le widget survit donc
+désormais réellement à la navigation inter-routes puisqu'il est monté à la racine, toujours montée.
 
 ## Risque de régression / à surveiller
 
