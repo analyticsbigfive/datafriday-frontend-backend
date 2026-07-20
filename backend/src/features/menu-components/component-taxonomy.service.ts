@@ -54,10 +54,13 @@ export class ComponentTaxonomyService {
   // BUG-169 : pagination réelle (skip/take), même shape/clamp que menu-items findAll —
   // évite un findMany() non borné sur ce référentiel. Le front (store componentTypes.js)
   // boucle sur les pages pour reconstituer la liste complète (contrat inchangé côté UI).
-  async getTypes(tenantId: string, page = 1, limit = 200) {
+  // `search` : filtre serveur pour l'écran ComponentTypeList (pagination réelle), même
+  // pattern que menu-items findAll (contains/insensitive sur le nom).
+  async getTypes(tenantId: string, page = 1, limit = 200, search?: string) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const skip = (page - 1) * safeLimit;
-    const where = { OR: [{ tenantId }, { tenantId: null }] };
+    const where: any = { OR: [{ tenantId }, { tenantId: null }] };
+    if (search) where.name = { contains: search, mode: 'insensitive' };
     const [data, total] = await Promise.all([
       this.prisma.componentType.findMany({
         where,
@@ -144,7 +147,9 @@ export class ComponentTaxonomyService {
   // ---------------- Categories ----------------
 
   // BUG-169 : idem getTypes — pagination réelle, même shape/clamp que menu-items findAll.
-  async getCategories(tenantId: string, typeId?: string, page = 1, limit = 200) {
+  // `search` : filtre serveur pour l'écran ComponentCategoryList (pagination réelle), même
+  // pattern que menu-items findAll (contains/insensitive sur le nom).
+  async getCategories(tenantId: string, typeId?: string, page = 1, limit = 200, search?: string) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const skip = (page - 1) * safeLimit;
     const where: any = {
@@ -153,6 +158,7 @@ export class ComponentTaxonomyService {
         ...(typeId ? [{ typeId }] : []),
       ],
     };
+    if (search) where.name = { contains: search, mode: 'insensitive' };
     const [data, total] = await Promise.all([
       this.prisma.componentCategory.findMany({
         where,

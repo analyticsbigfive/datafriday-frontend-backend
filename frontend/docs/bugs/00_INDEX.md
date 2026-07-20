@@ -184,6 +184,18 @@
 | [168](168_productcategorylist_force_refresh_cache_ttl_contourne.md) | `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
 | [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [170](170_delete_bloque_sans_moyen_de_trouver_les_dependants.md) | Suppression bloquée (BUG-79/81/82) sans moyen de retrouver les lignes dépendantes | 🟢 Corrigé | 🟠 | Menu & recettes / Achats & référentiels (Configurations) |
+| [171](171_configurations_pagination_recherche_server_side.md) | Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+
+**171 bugs au total**, 171 ajouté et corrigé le 2026-07-19, même session, suite à un nouveau retour
+utilisateur sur le fix BUG-169 : la pagination bornée évitait bien la requête non bornée, mais les
+10 écrans de liste téléchargeaient quand même la totalité des données pour n'en afficher que 10 via
+la pagination client Vuetify. Basculé en pagination + recherche réelles côté serveur, en 4 chantiers
+parallèles (Product, Component, MarketPrice, référentiels plats — ce dernier réduit à un seul point
+de changement grâce à BUG-165), tous copiant le pattern déjà en production pour `/menu-items`
+(`MenuItemView.vue`/`getMenuItemsPage`). Le mécanisme "liste complète" utilisé par les dropdowns
+ailleurs dans l'app (formulaires de création, wizards CSV) a été délibérément laissé intact et
+découplé de ce nouveau mécanisme, pour ne rien casser. Non testé en navigateur (pas de `pnpm dev`
+cette session).
 
 **170 bugs au total**, 170 ajouté et corrigé le 2026-07-19 suite à un retour utilisateur en test
 live : les gardes de suppression de BUG-79/81/82 bloquaient correctement la suppression d'une

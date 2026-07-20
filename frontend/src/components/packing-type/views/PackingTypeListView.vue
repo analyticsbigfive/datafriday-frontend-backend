@@ -10,6 +10,7 @@
     :create-fn="createPackingType"
     :update-fn="updatePackingType"
     :delete-fn="deletePackingType"
+    :get-fn="getPackingTypes"
     add-button-key="packingTypeList.addPackingType"
     total-count-key="packingTypeList.totalPackingTypes"
     search-count-mode="total"
@@ -18,7 +19,7 @@
 
 <script>
 import { Box } from 'lucide-vue-next';
-import { createPackingType, updatePackingType, deletePackingType } from '@/api/endpoints/packing-type.api';
+import { createPackingType, updatePackingType, deletePackingType, getPackingTypes } from '@/api/endpoints/packing-type.api';
 import FlatReferentialListView from '@/components/common/FlatReferentialListView.vue';
 
 // BUG-165: thin per-entity config over the generic FlatReferentialListView.
@@ -26,12 +27,16 @@ import FlatReferentialListView from '@/components/common/FlatReferentialListView
 // `packingTypeListLoadError` exists in en/fr, falls through to `t('packingTypeList.loadError')`.
 // `search-count-mode="total"` reproduces a real divergence: PackingTypeListView's searchbar count
 // showed the *unfiltered* total (`packingTypes.length`) while Brand/DisplayName/Industrial show
-// the filtered count — kept as-is, not unified, per BUG-165 instructions.
+// the filtered count — kept as-is, not unified, per BUG-165 instructions. Since BUG-171, this
+// mode is served by FlatReferentialListView's separate lightweight `loadGrandTotal()` call
+// (limit=1, no search) rather than the full in-memory list length.
+// BUG-171: `getPackingTypes` (paginated GET) passed through for this screen's server-side
+// paginated/searched table.
 export default {
   name: 'PackingTypeListView',
   components: { FlatReferentialListView },
   data() {
-    return { Box, createPackingType, updatePackingType, deletePackingType };
+    return { Box, createPackingType, updatePackingType, deletePackingType, getPackingTypes };
   },
 };
 </script>

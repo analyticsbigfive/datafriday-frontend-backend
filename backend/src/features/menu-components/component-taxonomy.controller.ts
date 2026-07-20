@@ -34,15 +34,17 @@ export class ComponentTypesController {
   @ApiOperation({ summary: 'Lister tous les Component Types' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre sur le nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des Component Types' })
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
     this.logger.log(`GET /component-types - User: ${user?.id}`);
-    return this.taxonomyService.getTypes(tenantId, page ? +page : 1, limit ? +limit : 200);
+    return this.taxonomyService.getTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.components')
@@ -94,6 +96,7 @@ export class ComponentCategoriesController {
   @ApiQuery({ name: 'typeId', required: false })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre sur le nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des Component Categories' })
   findAll(
     @Query('typeId') typeId: string,
@@ -101,9 +104,10 @@ export class ComponentCategoriesController {
     @CurrentTenant() tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
     this.logger.log(`GET /component-categories - User: ${user?.id}`);
-    return this.taxonomyService.getCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200);
+    return this.taxonomyService.getCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.components')

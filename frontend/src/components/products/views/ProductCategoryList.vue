@@ -32,7 +32,7 @@
           class="pcl-searchbar__input"
           :placeholder="t('productCategoryList.searchPlaceholder')"
         />
-        <span class="pcl-searchbar__count">{{ filteredCategories.length }} {{ t('productCategoryList.totalCategories') }}</span>
+        <span class="pcl-searchbar__count">{{ serverTotal }} {{ t('productCategoryList.totalCategories') }}</span>
       </div>
     </div>
     </div><!-- /pcl-sticky-top -->
@@ -40,7 +40,7 @@
     <!-- Content -->
     <div class="pcl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -55,10 +55,13 @@
       <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredCategories"
+          :items="serverRows"
           item-value="id"
           density="compact"
-          :loading="loading"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
+          :loading="serverLoading"
+          @update:options="onUpdateOptions"
           class="pcl-table"
         >
           <template #item.typeName="{ item }">
@@ -99,7 +102,7 @@
       :types="types"
       :is-dark="isDark"
       @saved="onCategorySaved"
-    />
+    /><!-- onCategorySaved refresh la page serveur courante de CET écran, cf. script -->
 
     <ProductDeleteDialog
       v-model="deleteDialog"
@@ -123,7 +126,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Shapes, Search } from "lucide-vue-next";
-import { deleteProductCategory } from "@/api/endpoints/product.api";
+import { deleteProductCategory, getProductCategory } from "@/api/endpoints/product.api";
 import ProductCategoryFormDrawer from "@/components/products/drawers/ProductCategoryFormDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
 
@@ -146,9 +149,21 @@ export default {
   },
   data() {
     return {
-      loading: false,
       loadError: "",
       searchQuery: "",
+
+      // BUG-170 : pagination + recherche REELLES côté serveur pour cet écran (au lieu de
+      // télécharger la liste complète du store pour ne montrer que 10 lignes côté client) —
+      // même pattern que MenuItemView.vue (serverPage/serverItemsPerPage/serverTotal/
+      // serverLoading/serverRawItems + loadServerPage/reloadServerFirstPage/onUpdateOptions).
+      // Le store `productCategories` (liste complète en mémoire) reste utilisé ailleurs
+      // (dropdowns, wizards CSV, etc.) et n'est pas touché ici.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverLoading: false,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       categoryDialog: false,
       categoryMode: "create",
@@ -162,11 +177,20 @@ export default {
     };
   },
   computed: {
-    categories() {
-      return this.$store.getters['productCategories/productCategories']
-    },
+    // Types complets depuis le store — utilisé pour le dropdown de ProductCategoryFormDrawer
+    // (consommateur "liste complète" à ne pas toucher, cf. contexte BUG-169).
     types() {
       return this.$store.getters['productTypes/productTypes']
+    },
+    // Lignes de la page serveur courante, déjà filtrées par le backend (search). Le backend
+    // inclut `type` (getProductCategories: include: { type }) donc la colonne "Type" continue
+    // de fonctionner à l'identique.
+    serverRows() {
+      return this.serverRawItems.map((c) => {
+        const typeId = c?.typeId || c?.type?.id || c?.productTypeId;
+        const typeName = c?.typeName || c?.type?.name || c?.productType?.name || '';
+        return { ...c, id: c?.id || c?._id, typeId, typeName };
+      });
     },
     tableHeaders() {
       return [
@@ -176,57 +200,64 @@ export default {
         { title: this.t('productCategoryList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredCategories() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.categories;
-      return this.categories.filter(cat => {
-        const name = (cat.name || "").toLowerCase();
-        const typeName = (cat.typeName || "").toLowerCase();
-        return name.includes(query) || typeName.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   async mounted() {
     await Promise.all([
-      this.loadCategories(),
+      this.loadServerPage(),
       this.$store.dispatch('productTypes/fetchProductTypes'),
     ]);
   },
   methods: {
-    normalizeList(result) {
-      if (Array.isArray(result)) return result;
-      if (Array.isArray(result?.data)) return result.data;
-      if (Array.isArray(result?.data?.data)) return result.data.data;
-      return [];
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      this.loadServerPage();
     },
-    async loadTypes() {
-      try {
-        await this.$store.dispatch('productTypes/fetchProductTypes')
-      } catch (e) {
-        // silent
-      }
-    },
-    async loadCategories(forceRefresh = false) {
-      this.loading = true;
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh });
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[ProductCategoryList] categories loaded:', this.categories.length, this.categories);
-        }
+        const res = await getProductCategory({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = Array.isArray(res?.data) ? res.data : [];
+        this.serverTotal = res?.meta?.total || 0;
       } catch (e) {
+        console.error('[ProductCategoryList] loadServerPage error:', e);
         this.loadError = e?.response?.data?.message || e?.message || this.t('productCategoryList.loadError');
-        if (process.env.NODE_ENV === 'development') {
-          console.error('[ProductCategoryList] fetch error:', e);
-        }
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
       }
     },
-    // Après un create/edit, un refresh forcé est légitime (contourne le TTL) —
-    // cf. BUG-168. Le mount initial, lui, respecte le cache (loadCategories()).
+    // Cf. MenuItemView.vue : ignore l'émission initiale en double de v-data-table au montage.
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return;
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Appelé par ProductCategoryFormDrawer après un create/edit réussi. La drawer dispatch déjà
+    // productCategories/addProductCategory ou updateProductCategory (garde le cache store à
+    // jour pour les autres consommateurs) — ici on rafraîchit uniquement ce que CET écran affiche.
     onCategorySaved() {
-      this.loadCategories(true);
+      if (this.categoryMode === 'create') {
+        this.reloadServerFirstPage();
+      } else {
+        this.loadServerPage();
+      }
     },
     formatDate(value) {
       if (!value) return "-";
@@ -279,6 +310,7 @@ export default {
         await deleteProductCategory(id);
         await this.$store.dispatch('productCategories/removeProductCategory', id);
         this.closeDeleteDialog();
+        this.loadServerPage();
       } catch (e) {
         const data = e?.response?.data;
         if (data?.blockedBy === 'menuItems' && data?.filterField && data?.filterValue) {

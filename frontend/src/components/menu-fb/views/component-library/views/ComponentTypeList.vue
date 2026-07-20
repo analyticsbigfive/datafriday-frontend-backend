@@ -31,14 +31,14 @@
           class="ctl-searchbar__input"
           :placeholder="t('componentTypeList.searchPlaceholder')"
         />
-        <span class="ctl-searchbar__count">{{ filteredTypes.length }} {{ t('componentTypeList.totalTypes') }}</span>
+        <span class="ctl-searchbar__count">{{ serverTotal }} {{ t('componentTypeList.totalTypes') }}</span>
       </div>
     </div>
 
     <!-- Content -->
     <div class="ctl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -53,11 +53,14 @@
       <div class="ctl-table-wrap">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredTypes"
-          :loading="loading"
+          :items="serverRows"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
+          :loading="serverLoading"
           item-value="id"
           density="compact"
           class="ctl-table"
+          @update:options="onUpdateOptions"
         >
           <template #item.categories="{ item }">
             <div v-if="item.categoryList && item.categoryList.length > 0">
@@ -129,7 +132,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Tag, Search } from "lucide-vue-next";
-import { deleteComponentType } from "@/api/endpoints/menu.api";
+import { getComponentTypes, deleteComponentType } from "@/api/endpoints/menu.api";
 import ComponentTypeFormDrawer from "@/components/menu-fb/views/component-library/drawers/ComponentTypeFormDrawer.vue";
 import ComponentTypeCategoriesDrawer from "@/components/menu-fb/views/component-library/drawers/ComponentTypeCategoriesDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
@@ -154,9 +157,18 @@ export default {
   },
   data() {
     return {
-      loading: false,
+      serverLoading: false,
       loadError: "",
       searchQuery: "",
+
+      // BUG-170 : pagination + recherche RÉELLES côté serveur pour cet écran (contrairement
+      // au store componentTypes.js, qui reste utilisé tel quel par les autres consommateurs
+      // — dropdowns/pickers — et boucle sur les pages pour reconstituer la liste complète).
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       typeDialog: false,
       typeMode: "create",
@@ -173,8 +185,11 @@ export default {
     };
   },
   computed: {
-    types() {
-      return this.$store.getters['componentTypes/componentTypes'].map((t) => ({
+    // Page courante uniquement (pas le catalogue complet) — categoryList alimente toujours
+    // le chip "N catégories" / ComponentTypeCategoriesDrawer (backend getTypes garde
+    // `include: { categories }`).
+    serverRows() {
+      return this.serverRawItems.map((t) => ({
         ...t,
         id: t?.id || t?._id,
         categoryList: Array.isArray(t?.categories) ? t.categories : [],
@@ -188,28 +203,59 @@ export default {
         { title: this.t('componentTypeList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredTypes() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.types;
-      return this.types.filter(type => {
-        const name = (type.name || "").toLowerCase();
-        return name.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   mounted() {
-    this.$store.dispatch('componentTypes/fetchComponentTypes');
+    this.loadServerPage();
   },
   methods: {
-    async loadTypes() {
-      this.loading = true;
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('componentTypes/fetchComponentTypes', { forceRefresh: true })
+        const res = await getComponentTypes({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = res?.data || [];
+        this.serverTotal = res?.meta?.total || 0;
       } catch (e) {
         this.loadError = e?.response?.data?.message || e?.message || this.t('componentTypeList.loadError');
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
+      }
+    },
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      this.loadServerPage();
+    },
+    // Appelé par v-data-table à chaque changement de page/taille de page.
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return; // évite un fetch en double sur l'émission initiale de v-data-table au montage
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Déclenché par @saved du drawer de création/édition (celui-ci a déjà fait l'appel API
+    // et le dispatch Vuex addComponentType/updateComponentType — on ne fait ici que
+    // rafraîchir la page affichée par CET écran depuis le serveur).
+    loadTypes() {
+      if (this.typeMode === 'create') {
+        this.reloadServerFirstPage();
+      } else {
+        this.loadServerPage();
       }
     },
     formatDate(value) {
@@ -272,6 +318,7 @@ export default {
         await deleteComponentType(id);
         await this.$store.dispatch('componentTypes/removeComponentType', id);
         this.closeDeleteDialog();
+        this.loadServerPage();
       } catch (e) {
         const data = e?.response?.data;
         if (data?.blockedBy === 'menuComponents' && data?.filterField && data?.filterValue) {

@@ -32,7 +32,7 @@
           class="pcl-searchbar__input"
           :placeholder="t('marketPriceCategoryList.searchPlaceholder')"
         />
-        <span class="pcl-searchbar__count">{{ filteredCategories.length }} {{ t('marketPriceCategoryList.totalCategories') }}</span>
+        <span class="pcl-searchbar__count">{{ serverTotal }} {{ t('marketPriceCategoryList.totalCategories') }}</span>
       </div>
     </div>
     </div><!-- /pcl-sticky-top -->
@@ -40,7 +40,7 @@
     <!-- Content -->
     <div class="pcl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -55,10 +55,13 @@
       <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredCategories"
+          :items="categories"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
           item-value="id"
           density="compact"
-          :loading="loading"
+          :loading="serverLoading"
+          @update:options="onUpdateOptions"
           class="pcl-table"
         >
           <template #item.typeName="{ item }">
@@ -123,7 +126,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Shapes, Search } from "lucide-vue-next";
-import { deleteMarketPriceCategory } from "@/api/endpoints/market.price.api";
+import { getMarketPriceCategories, deleteMarketPriceCategory } from "@/api/endpoints/market.price.api";
 import MarketPriceCategoryFormDrawer from "@/components/market-prices/drawers/MarketPriceCategoryFormDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
 
@@ -146,9 +149,20 @@ export default {
   },
   data() {
     return {
-      loading: false,
       loadError: "",
       searchQuery: "",
+
+      // Real server-side pagination + search for THIS screen only (BUG-169 follow-up).
+      // The Vuex store's full-list cache (marketPriceCategories/marketPriceCategories)
+      // is left untouched — it still backs dropdown/picker consumers elsewhere in the
+      // app. `types` below still reads that store cache too, since the type-select in
+      // the create/edit drawer needs the full type list, not this screen's own page.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverLoading: false,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       categoryDialog: false,
       categoryMode: "create",
@@ -163,7 +177,16 @@ export default {
   },
   computed: {
     categories() {
-      return this.$store.getters['marketPriceCategories/marketPriceCategories']
+      return this.serverRawItems.map((c) => {
+        const typeId = c?.typeId || c?.type?.id || c?.marketPriceTypeId;
+        const typeName = c?.typeName || c?.type?.name || c?.marketPriceType?.name || '';
+        return {
+          ...c,
+          id: c?.id || c?._id,
+          typeId,
+          typeName,
+        };
+      });
     },
     types() {
       return this.$store.getters['marketPriceTypes/marketPriceTypes']
@@ -176,33 +199,60 @@ export default {
         { title: this.t('marketPriceCategoryList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredCategories() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.categories;
-      return this.categories.filter(cat => {
-        const name = (cat.name || "").toLowerCase();
-        const typeName = (cat.typeName || "").toLowerCase();
-        return name.includes(query) || typeName.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   async mounted() {
     await Promise.all([
-      this.loadCategories(),
+      this.loadServerPage(),
       this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes'),
     ]);
   },
   methods: {
-    async loadCategories() {
-      this.loading = true;
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      return this.loadServerPage();
+    },
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
+        const res = await getMarketPriceCategories({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = res.data;
+        this.serverTotal = res.meta?.total || 0;
       } catch (e) {
         this.loadError = e?.response?.data?.message || e?.message || this.t('marketPriceCategoryList.loadError');
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
       }
+    },
+    // Called by v-data-table on page/page-size change — guarded against the duplicate
+    // emission v-data-table fires on mount (same idiom as MenuItemView.vue).
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return;
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Handler for MarketPriceCategoryFormDrawer's @saved (fires for both create and
+    // edit). Create jumps back to page 1 (alpha sort may place the new row anywhere);
+    // edit just refreshes the current page since the edited row stays put.
+    loadCategories() {
+      return this.categoryMode === 'create' ? this.reloadServerFirstPage() : this.loadServerPage();
     },
     formatDate(value) {
       if (!value) return "-";
@@ -254,6 +304,7 @@ export default {
         }
         await deleteMarketPriceCategory(id);
         await this.$store.dispatch('marketPriceCategories/removeMarketPriceCategory', id);
+        await this.loadServerPage();
         this.closeDeleteDialog();
       } catch (e) {
         const data = e?.response?.data;

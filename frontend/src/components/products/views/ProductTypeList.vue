@@ -31,14 +31,14 @@
           class="ptl-searchbar__input"
           :placeholder="t('productTypeList.searchPlaceholder')"
         />
-        <span class="ptl-searchbar__count">{{ filteredTypes.length }} {{ t('productTypeList.totalTypes') }}</span>
+        <span class="ptl-searchbar__count">{{ serverTotal }} {{ t('productTypeList.totalTypes') }}</span>
       </div>
     </div>
 
     <!-- Content -->
     <div class="ptl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -53,10 +53,13 @@
       <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredTypes"
+          :items="serverRows"
           item-value="id"
           density="comfortable"
-          :loading="loading"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
+          :loading="serverLoading"
+          @update:options="onUpdateOptions"
           class="ptl-table"
         >
           <template #item.categories="{ item }">
@@ -98,7 +101,7 @@
       :mode="typeMode"
       :initial-data="selectedType"
       :is-dark="isDark"
-      @saved="loadTypes"
+      @saved="onTypeSaved"
     />
 
     <ProductTypeCategoriesDrawer
@@ -129,7 +132,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Tag, Search } from "lucide-vue-next";
-import { deleteProductType } from "@/api/endpoints/product.api";
+import { deleteProductType, getProductType } from "@/api/endpoints/product.api";
 import ProductTypeFormDrawer from "@/components/products/drawers/ProductTypeFormDrawer.vue";
 import ProductTypeCategoriesDrawer from "@/components/products/drawers/ProductTypeCategoriesDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
@@ -154,9 +157,21 @@ export default {
   },
   data() {
     return {
-      loading: false,
       loadError: "",
       searchQuery: "",
+
+      // BUG-170 : pagination + recherche REELLES côté serveur pour cet écran (au lieu de
+      // télécharger la liste complète du store pour ne montrer que 10 lignes côté client) —
+      // même pattern que MenuItemView.vue (serverPage/serverItemsPerPage/serverTotal/
+      // serverLoading/serverRawItems + loadServerPage/reloadServerFirstPage/onUpdateOptions).
+      // Le store `productTypes` (liste complète en mémoire) reste utilisé ailleurs (dropdowns,
+      // wizards CSV, etc.) et n'est pas touché ici.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverLoading: false,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       typeDialog: false,
       typeMode: "create",
@@ -173,12 +188,15 @@ export default {
     };
   },
   computed: {
-    types() {
-      return this.$store.getters['productTypes/productTypes'].map((t) => ({
+    // Lignes de la page serveur courante, déjà filtrées par le backend (search).
+    // Le backend inclut `categories` (getProductTypes: include: { categories }) donc le chip
+    // "N catégories" / ProductTypeCategoriesDrawer continuent de fonctionner à l'identique.
+    serverRows() {
+      return this.serverRawItems.map((t) => ({
         ...t,
         id: t?.id || t?._id,
         categoryList: Array.isArray(t?.categories) ? t.categories : [],
-      }))
+      }));
     },
     tableHeaders() {
       return [
@@ -188,34 +206,60 @@ export default {
         { title: this.t('productTypeList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredTypes() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.types;
-      return this.types.filter(type => {
-        const name = (type.name || "").toLowerCase();
-        return name.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   mounted() {
-    this.$store.dispatch('productTypes/fetchProductTypes');
+    this.loadServerPage();
   },
   methods: {
-    normalizeList(result) {
-      if (Array.isArray(result)) return result;
-      if (Array.isArray(result?.data)) return result.data;
-      if (Array.isArray(result?.data?.data)) return result.data.data;
-      return [];
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      this.loadServerPage();
     },
-    async loadTypes() {
-      this.loading = true;
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true })
+        const res = await getProductType({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = Array.isArray(res?.data) ? res.data : [];
+        this.serverTotal = res?.meta?.total || 0;
       } catch (e) {
+        console.error('[ProductTypeList] loadServerPage error:', e);
         this.loadError = e?.response?.data?.message || e?.message || this.t('productTypeList.loadError');
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
+      }
+    },
+    // Cf. MenuItemView.vue : ignore l'émission initiale en double de v-data-table au montage.
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return;
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Appelé par ProductTypeFormDrawer après un create/edit réussi. La drawer dispatch déjà
+    // productTypes/addProductType ou updateProductType (garde le cache store à jour pour les
+    // autres consommateurs) — ici on rafraîchit uniquement ce que CET écran affiche.
+    onTypeSaved() {
+      if (this.typeMode === 'create') {
+        this.reloadServerFirstPage();
+      } else {
+        this.loadServerPage();
       }
     },
     formatDate(value) {
@@ -277,6 +321,7 @@ export default {
         await deleteProductType(id);
         await this.$store.dispatch('productTypes/removeProductType', id);
         this.closeDeleteDialog();
+        this.loadServerPage();
       } catch (e) {
         // BUG-79 fournit un payload structuré (blockedBy/filterField/filterValue) quand le blocage
         // vient de MenuItem dépendants — on l'utilise pour proposer un lien direct vers la liste déjà

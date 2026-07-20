@@ -140,12 +140,15 @@ export async function repairMenuComponents() {
 /**
  * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
  * pages pour reconstituer la liste complète — voir store/modules/componentTypes.js).
- * @param {{ page?: number, limit?: number }} [opts]
+ * `search` : filtre serveur (contains/insensible à la casse sur le nom) — utilisé par
+ * ComponentTypeList.vue pour sa pagination + recherche réelles côté serveur.
+ * @param {{ page?: number, limit?: number, search?: string }} [opts]
  */
-export async function getComponentTypes({ page, limit } = {}) {
+export async function getComponentTypes({ page, limit, search } = {}) {
   const params = new URLSearchParams()
   if (page) params.set('page', page)
   if (limit) params.set('limit', limit)
+  if (search) params.set('search', search)
   const qs = params.toString()
   return api.get(`/component-types${qs ? '?' + qs : ''}`)
 }
@@ -165,12 +168,15 @@ export async function deleteComponentType(id) {
 /**
  * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
  * pages pour reconstituer la liste complète — voir store/modules/componentCategories.js).
- * @param {{ page?: number, limit?: number }} [opts]
+ * `search` : filtre serveur (contains/insensible à la casse sur le nom) — utilisé par
+ * ComponentCategoryList.vue pour sa pagination + recherche réelles côté serveur.
+ * @param {{ page?: number, limit?: number, search?: string }} [opts]
  */
-export async function getComponentCategories({ page, limit } = {}) {
+export async function getComponentCategories({ page, limit, search } = {}) {
   const params = new URLSearchParams()
   if (page) params.set('page', page)
   if (limit) params.set('limit', limit)
+  if (search) params.set('search', search)
   const qs = params.toString()
   return api.get(`/component-categories${qs ? '?' + qs : ''}`)
 }

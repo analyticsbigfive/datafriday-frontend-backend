@@ -32,7 +32,7 @@
           class="ccl-searchbar__input"
           :placeholder="t('componentCategoryList.searchPlaceholder')"
         />
-        <span class="ccl-searchbar__count">{{ filteredCategories.length }} {{ t('componentCategoryList.totalCategories') }}</span>
+        <span class="ccl-searchbar__count">{{ serverTotal }} {{ t('componentCategoryList.totalCategories') }}</span>
       </div>
     </div>
     </div><!-- /ccl-sticky-top -->
@@ -40,7 +40,7 @@
     <!-- Content -->
     <div class="ccl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -55,11 +55,14 @@
       <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredCategories"
+          :items="serverRows"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
           item-value="id"
           density="compact"
-          :loading="loading"
+          :loading="serverLoading"
           class="ccl-table"
+          @update:options="onUpdateOptions"
         >
           <template #item.typeName="{ item }">
             <v-chip
@@ -123,7 +126,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Shapes, Search } from "lucide-vue-next";
-import { deleteComponentCategory } from "@/api/endpoints/menu.api";
+import { getComponentCategories, deleteComponentCategory } from "@/api/endpoints/menu.api";
 import ComponentCategoryFormDrawer from "@/components/menu-fb/views/component-library/drawers/ComponentCategoryFormDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
 
@@ -146,9 +149,20 @@ export default {
   },
   data() {
     return {
-      loading: false,
+      serverLoading: false,
       loadError: "",
       searchQuery: "",
+
+      // BUG-170 : pagination + recherche RÉELLES côté serveur pour cet écran (contrairement
+      // au store componentCategories.js, qui reste utilisé tel quel par les autres
+      // consommateurs — dropdowns/pickers — et boucle sur les pages pour reconstituer la
+      // liste complète). `types` reste alimenté par le store componentTypes (dropdown du
+      // formulaire de création/édition), inchangé.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       categoryDialog: false,
       categoryMode: "create",
@@ -162,8 +176,17 @@ export default {
     };
   },
   computed: {
-    categories() {
-      return this.$store.getters['componentCategories/componentCategories']
+    // Page courante uniquement (pas le catalogue complet). Le backend inclut déjà
+    // `type: true` (getCategories) donc `typeName` est dérivable directement de la ligne,
+    // sans dépendre du store componentCategories (dont le cross-référencement avec le
+    // store componentTypes n'est utile qu'à la reconstitution de la liste complète).
+    serverRows() {
+      return this.serverRawItems.map((c) => ({
+        ...c,
+        id: c?.id || c?._id,
+        typeId: c?.typeId || c?.type?.id || c?.componentTypeId,
+        typeName: c?.typeName || c?.type?.name || c?.componentType?.name || '',
+      }))
     },
     types() {
       return this.$store.getters['componentTypes/componentTypes']
@@ -176,32 +199,62 @@ export default {
         { title: this.t('componentCategoryList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredCategories() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.categories;
-      return this.categories.filter(cat => {
-        const name = (cat.name || "").toLowerCase();
-        const typeName = (cat.typeName || "").toLowerCase();
-        return name.includes(query) || typeName.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   async mounted() {
     await Promise.all([
-      this.loadCategories(),
+      this.loadServerPage(),
       this.$store.dispatch('componentTypes/fetchComponentTypes'),
     ]);
   },
   methods: {
-    async loadCategories() {
-      this.loading = true;
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('componentCategories/fetchComponentCategories', { forceRefresh: true });
+        const res = await getComponentCategories({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = res?.data || [];
+        this.serverTotal = res?.meta?.total || 0;
       } catch (e) {
         this.loadError = e?.response?.data?.message || e?.message || this.t('componentCategoryList.loadError');
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
+      }
+    },
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      this.loadServerPage();
+    },
+    // Appelé par v-data-table à chaque changement de page/taille de page.
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return; // évite un fetch en double sur l'émission initiale de v-data-table au montage
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Déclenché par @saved du drawer de création/édition (celui-ci a déjà fait l'appel API
+    // et le dispatch Vuex addComponentCategory/updateComponentCategory — on ne fait ici que
+    // rafraîchir la page affichée par CET écran depuis le serveur).
+    loadCategories() {
+      if (this.categoryMode === 'create') {
+        this.reloadServerFirstPage();
+      } else {
+        this.loadServerPage();
       }
     },
     formatDate(value) {
@@ -255,6 +308,7 @@ export default {
         await deleteComponentCategory(id);
         await this.$store.dispatch('componentCategories/removeComponentCategory', id);
         this.closeDeleteDialog();
+        this.loadServerPage();
       } catch (e) {
         const data = e?.response?.data;
         if (data?.blockedBy === 'menuComponents' && data?.filterField && data?.filterValue) {

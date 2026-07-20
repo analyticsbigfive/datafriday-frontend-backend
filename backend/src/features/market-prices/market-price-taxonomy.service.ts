@@ -56,10 +56,17 @@ export class MarketPriceTaxonomyService {
   // ({ data, meta: { total, page, limit, totalPages } }, limit clamped to [1, 500],
   // default page=1/limit=200). Callers that need the full tenant list (dropdowns)
   // are expected to page through it client-side (see marketPriceTypes.js store).
-  async getTypes(tenantId: string, page = 1, limit = 200) {
+  // Optional `search` (name, contains, insensitive) added for the List screen's
+  // real server-side search, same idiom as menu-items.service.ts getProductTypes.
+  async getTypes(tenantId: string, page = 1, limit = 200, search?: string) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const skip = (page - 1) * safeLimit;
-    const where = { OR: [{ tenantId }, { tenantId: null }] };
+    const where: any = {
+      AND: [
+        { OR: [{ tenantId }, { tenantId: null }] },
+        ...(search ? [{ name: { contains: search, mode: 'insensitive' } }] : []),
+      ],
+    };
     const [data, total] = await Promise.all([
       this.prisma.marketPriceType.findMany({
         where,
@@ -165,14 +172,16 @@ export class MarketPriceTaxonomyService {
 
   // ---------------- Categories ----------------
 
-  // BUG-169: same bounded-pagination shape as getTypes above.
-  async getCategories(tenantId: string, typeId?: string, page = 1, limit = 200) {
+  // BUG-169: same bounded-pagination shape as getTypes above. Optional `search`
+  // (name, contains, insensitive) added for the List screen's real server-side search.
+  async getCategories(tenantId: string, typeId?: string, page = 1, limit = 200, search?: string) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const skip = (page - 1) * safeLimit;
-    const where = {
+    const where: any = {
       AND: [
         { OR: [{ tenantId }, { tenantId: null }] },
         ...(typeId ? [{ typeId }] : []),
+        ...(search ? [{ name: { contains: search, mode: 'insensitive' } }] : []),
       ],
     };
     const [data, total] = await Promise.all([

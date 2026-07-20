@@ -40,7 +40,7 @@
     <!-- ── Content ── -->
     <div class="frlv-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -53,12 +53,17 @@
       </v-alert>
 
       <v-card rounded="xl" elevation="0" class="frlv-table-card">
+        <!-- BUG-171: pagination + recherche SERVEUR — remplace le v-data-table client-side qui
+             téléchargeait la liste complète juste pour en afficher 10 lignes à la fois. -->
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredItems"
+          :items="serverRawItems"
           item-value="id"
           density="comfortable"
-          :loading="loading"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
+          :loading="serverLoading"
+          @update:options="onUpdateOptions"
           class="frlv-table"
         >
           <template #item.createdAt="{ item }">
@@ -149,6 +154,12 @@ export default {
     createFn: { type: Function, required: true },
     updateFn: { type: Function, required: true },
     deleteFn: { type: Function, required: true },
+    // BUG-171: paginated GET function for this entity (getBrandNames/getDisplayNames/
+    // getIndustrials/getPackingTypes), accepting { page, limit, search }. Drives THIS screen's
+    // v-data-table via real server-side pagination + search, separate from `fetchAction` above
+    // (which still loops through every page to reconstitute the full list for dropdown/picker
+    // consumers elsewhere in the app — untouched by this change).
+    getFn: { type: Function, required: true },
     // Full dotted i18n keys for the two strings whose suffix isn't a fixed convention across the
     // 4 entities (e.g. 'brandNameList.addBrand', 'brandNameList.totalBrands').
     addButtonKey: { type: String, required: true },
@@ -168,9 +179,22 @@ export default {
   },
   data() {
     return {
-      loading: false,
       loadError: '',
       searchQuery: '',
+      searchDebounceTimer: null,
+
+      // BUG-171: server-side pagination state for THIS screen's table — replaces the previous
+      // "download the full store list, paginate/filter client-side" approach (wasteful once a
+      // tenant has hundreds of rows). `serverItemsPerPage` defaults to 10 to match Vuetify's
+      // default / what this screen showed before.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverLoading: false,
+      serverRawItems: [],
+      // Unfiltered grand total, only fetched/used when searchCountMode === 'total' (PackingType):
+      // `serverTotal` reflects the current SEARCH-filtered count, which isn't what that mode wants.
+      serverGrandTotal: 0,
 
       formDrawer: false,
       formMode: 'create',
@@ -183,9 +207,6 @@ export default {
     };
   },
   computed: {
-    items() {
-      return this.$store.getters[`${this.storeModule}/${this.storeModule}`];
-    },
     tableHeaders() {
       return [
         { title: this.t(`${this.i18nPrefix}.colName`), key: 'name' },
@@ -193,29 +214,66 @@ export default {
         { title: this.t(`${this.i18nPrefix}.colActions`), key: 'actions', sortable: false, align: 'end', width: 120 },
       ];
     },
-    filteredItems() {
-      const q = (this.searchQuery || '').toLowerCase().trim();
-      if (!q) return this.items;
-      return this.items.filter(item => (item.name || '').toLowerCase().includes(q));
-    },
     searchCount() {
-      return this.searchCountMode === 'total' ? this.items.length : this.filteredItems.length;
+      return this.searchCountMode === 'total' ? this.serverGrandTotal : this.serverTotal;
+    },
+  },
+  watch: {
+    // Debounced server-side search (300ms) — same pattern as MenuItemView.vue.
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   mounted() {
-    this.loadItems();
+    this.loadServerPage();
+    if (this.searchCountMode === 'total') this.loadGrandTotal();
   },
   methods: {
-    async loadItems() {
-      this.loading = true;
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = '';
       try {
-        await this.$store.dispatch(`${this.storeModule}/${this.fetchAction}`);
+        const res = await this.getFn({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = res?.data || [];
+        this.serverTotal = res?.meta?.total || 0;
       } catch (e) {
+        this.serverRawItems = [];
+        this.serverTotal = 0;
         this.loadError = e?.response?.data?.message || e?.message || this.loadErrorFallback || this.t(`${this.i18nPrefix}.loadError`);
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
       }
+    },
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      this.loadServerPage();
+    },
+    // Lightweight unfiltered-total fetch (limit=1, no search) for `searchCountMode: 'total'` —
+    // avoids pulling the full list just to know its length.
+    async loadGrandTotal() {
+      try {
+        const res = await this.getFn({ page: 1, limit: 1 });
+        this.serverGrandTotal = res?.meta?.total || 0;
+      } catch (e) {
+        // non-blocking: le compteur "total" garde sa dernière valeur connue en cas d'erreur
+      }
+    },
+    // v-data-table emits :update:options on mount too — guard against a duplicate initial
+    // fetch (exact same guard as MenuItemView.vue's onUpdateOptions).
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return;
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
     },
     formatDate(value) {
       if (!value) return '-';
@@ -239,8 +297,20 @@ export default {
       this.deleteTarget = raw;
       this.deleteDialog = true;
     },
+    // BUG-171: FlatReferentialFormDrawer already keeps the store's full-list cache in sync
+    // itself (dispatches addAction/updateAction — ADD_ITEM/UPDATE_ITEM, no network call). This
+    // used to ALSO force a full re-fetch of every server page (`fetchAction, {forceRefresh:
+    // true}`) just so THIS screen's client-side-paginated table would pick up the change — that
+    // full re-fetch is exactly the wasteful download this bug removes. Refresh only what this
+    // screen displays instead: page 1 after a create (new row could sort anywhere, most likely
+    // to want it visible), the current page after an edit (row stays put, only its name changes).
     onSaved() {
-      this.$store.dispatch(`${this.storeModule}/${this.fetchAction}`, { forceRefresh: true });
+      if (this.formMode === 'create') {
+        this.reloadServerFirstPage();
+        if (this.searchCountMode === 'total') this.loadGrandTotal();
+      } else {
+        this.loadServerPage();
+      }
     },
     async confirmDelete() {
       this.deleteLoading = true;
@@ -252,6 +322,8 @@ export default {
         await this.$store.dispatch(`${this.storeModule}/${this.removeAction}`, id);
         this.deleteDialog = false;
         this.deleteTarget = null;
+        this.loadServerPage();
+        if (this.searchCountMode === 'total') this.loadGrandTotal();
       } catch (e) {
         this.deleteError = e?.response?.data?.message || e?.message || this.t(`${this.i18nPrefix}.deleteError`);
       } finally {

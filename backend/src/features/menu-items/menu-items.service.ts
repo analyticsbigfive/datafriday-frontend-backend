@@ -1555,10 +1555,15 @@ export class MenuItemsService {
   // BUG-169 : pagination réelle (skip/take), même shape/clamp que findAll (menu-items) —
   // évite un findMany() non borné sur ce référentiel. Le front (store productTypes.js)
   // boucle sur les pages pour reconstituer la liste complète (contrat inchangé côté UI).
-  async getProductTypes(tenantId: string, page = 1, limit = 200) {
+  async getProductTypes(tenantId: string, page = 1, limit = 200, search?: string) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const skip = (page - 1) * safeLimit;
-    const where = { OR: [{ tenantId }, { tenantId: null }] };
+    const where: any = {
+      AND: [
+        { OR: [{ tenantId }, { tenantId: null }] },
+        ...(search ? [{ name: { contains: search, mode: 'insensitive' } }] : []),
+      ],
+    };
     const [data, total] = await Promise.all([
       this.prisma.productType.findMany({
         where,
@@ -1693,13 +1698,14 @@ export class MenuItemsService {
   }
 
   // BUG-169 : idem getProductTypes — pagination réelle, même shape/clamp que findAll.
-  async getProductCategories(tenantId: string, typeId?: string, page = 1, limit = 200) {
+  async getProductCategories(tenantId: string, typeId?: string, page = 1, limit = 200, search?: string) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const skip = (page - 1) * safeLimit;
     const where: any = {
       AND: [
         { OR: [{ tenantId }, { tenantId: null }] },
         ...(typeId ? [{ typeId }] : []),
+        ...(search ? [{ name: { contains: search, mode: 'insensitive' } }] : []),
       ],
     };
     const [data, total] = await Promise.all([

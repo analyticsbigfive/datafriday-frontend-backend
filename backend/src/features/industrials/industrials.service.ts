@@ -9,17 +9,19 @@ export class IndustrialsService {
   // { data, meta: { total, page, limit, totalPages } }. Le store frontend boucle sur les
   // pages (voir flatReferentialModule.js) pour reconstituer la liste complète côté
   // dropdown/picker sans jamais tronquer silencieusement.
-  async findAll(tenantId: string, page = 1, limit = 200) {
+  async findAll(tenantId: string, page = 1, limit = 200, search?: string) {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const where: any = { tenantId };
+    if (search) where.name = { contains: search, mode: 'insensitive' };
     const [data, total] = await Promise.all([
       this.prisma.industrial.findMany({
-        where: { tenantId },
+        where,
         orderBy: { name: 'asc' },
         skip: (safePage - 1) * safeLimit,
         take: safeLimit,
       }),
-      this.prisma.industrial.count({ where: { tenantId } }),
+      this.prisma.industrial.count({ where }),
     ]);
     return {
       data,

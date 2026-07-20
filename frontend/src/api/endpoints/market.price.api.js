@@ -67,13 +67,14 @@ export async function synchronisePackaging() {
 
 /**
  * Récupérer une page de Market Price Types
- * @param {{page?: number, limit?: number}} [params]
+ * @param {{page?: number, limit?: number, search?: string}} [params]
  * @returns {Promise<{data: Array, meta: Object}>}
  */
-export async function getMarketPriceTypes({ page, limit } = {}) {
+export async function getMarketPriceTypes({ page, limit, search } = {}) {
   const params = new URLSearchParams()
   if (page) params.set('page', page)
   if (limit) params.set('limit', limit)
+  if (search) params.set('search', search)
   const qs = params.toString()
   return api.get(`/market-price-types${qs ? '?' + qs : ''}`)
 }
@@ -96,14 +97,15 @@ export async function deleteMarketPriceType(id) {
 
 /**
  * Récupérer une page de Market Price Categories
- * @param {{page?: number, limit?: number, typeId?: string}} [params]
+ * @param {{page?: number, limit?: number, typeId?: string, search?: string}} [params]
  * @returns {Promise<{data: Array, meta: Object}>}
  */
-export async function getMarketPriceCategories({ page, limit, typeId } = {}) {
+export async function getMarketPriceCategories({ page, limit, typeId, search } = {}) {
   const params = new URLSearchParams()
   if (page) params.set('page', page)
   if (limit) params.set('limit', limit)
   if (typeId) params.set('typeId', typeId)
+  if (search) params.set('search', search)
   const qs = params.toString()
   return api.get(`/market-price-categories${qs ? '?' + qs : ''}`)
 }

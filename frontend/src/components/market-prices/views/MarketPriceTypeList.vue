@@ -31,14 +31,14 @@
           class="ptl-searchbar__input"
           :placeholder="t('marketPriceTypeList.searchPlaceholder')"
         />
-        <span class="ptl-searchbar__count">{{ filteredTypes.length }} {{ t('marketPriceTypeList.totalTypes') }}</span>
+        <span class="ptl-searchbar__count">{{ serverTotal }} {{ t('marketPriceTypeList.totalTypes') }}</span>
       </div>
     </div>
 
     <!-- Content -->
     <div class="ptl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -53,8 +53,11 @@
       <div class="ptl-table-wrap">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredTypes"
-          :loading="loading"
+          :items="types"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
+          :loading="serverLoading"
+          @update:options="onUpdateOptions"
           item-value="id"
           density="compact"
           class="ptl-table"
@@ -129,7 +132,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Tag, Search } from "lucide-vue-next";
-import { deleteMarketPriceType } from "@/api/endpoints/market.price.api";
+import { getMarketPriceTypes, deleteMarketPriceType } from "@/api/endpoints/market.price.api";
 import MarketPriceTypeFormDrawer from "@/components/market-prices/drawers/MarketPriceTypeFormDrawer.vue";
 import MarketPriceTypeCategoriesDrawer from "@/components/market-prices/drawers/MarketPriceTypeCategoriesDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
@@ -154,9 +157,18 @@ export default {
   },
   data() {
     return {
-      loading: false,
       loadError: "",
       searchQuery: "",
+
+      // Real server-side pagination + search for THIS screen only (BUG-169 follow-up).
+      // The Vuex store's full-list cache (marketPriceTypes/marketPriceTypes) is left
+      // untouched — it still backs dropdown/picker consumers elsewhere in the app.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverLoading: false,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       typeDialog: false,
       typeMode: "create",
@@ -174,7 +186,7 @@ export default {
   },
   computed: {
     types() {
-      return this.$store.getters['marketPriceTypes/marketPriceTypes'].map((t) => ({
+      return this.serverRawItems.map((t) => ({
         ...t,
         id: t?.id || t?._id,
         categoryList: Array.isArray(t?.categories) ? t.categories : [],
@@ -188,29 +200,57 @@ export default {
         { title: this.t('marketPriceTypeList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredTypes() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.types;
-      return this.types.filter(type => {
-        const name = (type.name || "").toLowerCase();
-        return name.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   mounted() {
-    this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes');
+    this.loadServerPage();
   },
   methods: {
-    async loadTypes() {
-      this.loading = true;
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      return this.loadServerPage();
+    },
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true })
+        const res = await getMarketPriceTypes({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = res.data;
+        this.serverTotal = res.meta?.total || 0;
       } catch (e) {
         this.loadError = e?.response?.data?.message || e?.message || this.t('marketPriceTypeList.loadError');
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
       }
+    },
+    // Called by v-data-table on page/page-size change — guarded against the duplicate
+    // emission v-data-table fires on mount (same idiom as MenuItemView.vue).
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return;
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Handler for MarketPriceTypeFormDrawer's @saved (fires for both create and edit).
+    // Create jumps back to page 1 (alpha sort may place the new row anywhere); edit
+    // just refreshes the current page since the edited row stays put.
+    loadTypes() {
+      return this.typeMode === 'create' ? this.reloadServerFirstPage() : this.loadServerPage();
     },
     formatDate(value) {
       if (!value) return "-";
@@ -270,6 +310,7 @@ export default {
         }
         await deleteMarketPriceType(id);
         await this.$store.dispatch('marketPriceTypes/removeMarketPriceType', id);
+        await this.loadServerPage();
         this.closeDeleteDialog();
       } catch (e) {
         const data = e?.response?.data;

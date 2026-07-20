@@ -394,15 +394,17 @@ export class ProductTypesController {
   @ApiOperation({ summary: 'Lister tous les types de produits' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des types de produits' })
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
     this.logger.log(`GET /product-types - User: ${user?.id}`);
-    return this.menuItemsService.getProductTypes(tenantId, page ? +page : 1, limit ? +limit : 200);
+    return this.menuItemsService.getProductTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -454,6 +456,7 @@ export class ProductCategoriesController {
   @ApiQuery({ name: 'typeId', required: false })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des catégories de produits' })
   findAll(
     @Query('typeId') typeId: string,
@@ -461,9 +464,10 @@ export class ProductCategoriesController {
     @CurrentTenant() tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
     this.logger.log(`GET /product-categories - User: ${user?.id}`);
-    return this.menuItemsService.getProductCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200);
+    return this.menuItemsService.getProductCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.menuItems')

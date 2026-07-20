@@ -28,8 +28,9 @@ export class BrandsController {
     @CurrentTenant() tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
-    return this.brandsService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined);
+    return this.brandsService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 
   @RequirePermissions('menu.config.manage')
