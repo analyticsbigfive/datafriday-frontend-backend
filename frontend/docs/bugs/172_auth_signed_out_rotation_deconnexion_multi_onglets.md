@@ -1,4 +1,4 @@
-# BUG-149 — Déconnexion intempestive multi-onglets sur rotation du refresh token
+# BUG-172 — Déconnexion intempestive multi-onglets sur rotation du refresh token
 
 - **Statut** : 🟢 Corrigé (2026-07-18) — vérifié au navigateur, **avec une limite assumée** : le
   scénario de rotation du refresh token n'est pas reproductible à la main tant que le JWT vit 7
@@ -98,7 +98,7 @@ Garde de réentrance `resolvingSignedOut` autour de la relecture.
 **4. Souscription conservée** dans `authSubscription` et libérée avant tout ré-enregistrement.
 
 **5.** Suppression du `console.log('TOKEN au moment du post:', getters.token)` (`auth.js:351`) qui
-imprimait le JWT en clair dans la console — voir [[150_auth_console_log_jwt_en_clair]].
+imprimait le JWT en clair dans la console — voir [[173_auth_console_log_jwt_en_clair]].
 
 ## ⚠️ Régression introduite par la première version du correctif (2026-07-18)
 
@@ -184,5 +184,5 @@ repose sur les tests unitaires de la fonction pure, et non sur le navigateur seu
 - [`../modules/08_AUTH_ONBOARDING.md`](../modules/08_AUTH_ONBOARDING.md) — bug actif n°2, contexte
   complet du domaine
 - [`../MODULE_AUTHENTIFICATION.md`](../MODULE_AUTHENTIFICATION.md) — synthèse opérationnelle
-- [[150_auth_console_log_jwt_en_clair]] — corrigé dans la même PR
+- [[173_auth_console_log_jwt_en_clair]] — corrigé dans la même PR
 - `src/utils/authSessionEvent.js`, `tests/unit/authSessionEvent.spec.js`

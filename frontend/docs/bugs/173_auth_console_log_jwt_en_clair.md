@@ -1,4 +1,4 @@
-# BUG-150 — JWT imprimé en clair dans la console lors de l'onboarding
+# BUG-173 — JWT imprimé en clair dans la console lors de l'onboarding
 
 - **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟢 Faible (hygiène — pas d'exposition à un tiers distant)
@@ -52,4 +52,4 @@ dans `auth.js`, 10 dans `analyse.js`). Vérifier au passage qu'aucun autre n'imp
 
 - [`../modules/08_AUTH_ONBOARDING.md`](../modules/08_AUTH_ONBOARDING.md) — bug actif n°7
 - [`../AUDIT_VUEX_STORE.md`](../AUDIT_VUEX_STORE.md) — dette D5, logs de debug en production
-- [[149_auth_signed_out_rotation_deconnexion_multi_onglets]] — corrigé dans la même PR
+- [[172_auth_signed_out_rotation_deconnexion_multi_onglets]] — corrigé dans la même PR

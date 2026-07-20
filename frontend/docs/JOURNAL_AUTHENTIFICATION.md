@@ -22,15 +22,15 @@
 
 | Date | Heure | Auteur | Type | Objet | Statut |
 |---|---|---|---|---|---|
-| 2026-07-18 | 14:31–14:40 | emmanuel | Correctif | [BUG-149](bugs/149_auth_signed_out_rotation_deconnexion_multi_onglets.md) — déconnexion multi-onglets sur rotation du refresh token | 🟢 Corrigé |
-| 2026-07-18 | 14:34 | emmanuel | Correctif | [BUG-150](bugs/150_auth_console_log_jwt_en_clair.md) — JWT imprimé en clair dans la console | 🟢 Corrigé |
+| 2026-07-18 | 14:31–14:40 | emmanuel | Correctif | [BUG-172](bugs/172_auth_signed_out_rotation_deconnexion_multi_onglets.md) — déconnexion multi-onglets sur rotation du refresh token | 🟢 Corrigé |
+| 2026-07-18 | 14:34 | emmanuel | Correctif | [BUG-173](bugs/173_auth_console_log_jwt_en_clair.md) — JWT imprimé en clair dans la console | 🟢 Corrigé |
 | 2026-07-18 | 14:52 | emmanuel | Correctif | [BUG-028](bugs/28_predict_test_sans_guard_auth.md) — `/predict-test` sans guard | 🟢 Corrigé |
 | 2026-07-18 | 15:04–15:05 | emmanuel | Correctif | [BUG-027](bugs/27_bypass_demo_actif_sans_distinction_env.md) — bypass démo `?demo=1` | 🟢 Corrigé |
 | 2026-07-18 | 15:08 | emmanuel | Documentation | Création de [`MODULE_AUTHENTIFICATION.md`](MODULE_AUTHENTIFICATION.md) | ✅ |
 | 2026-07-18 | 15:16 | emmanuel | Configuration | `VUE_APP_API_URL` absente — 404 sur `POST /onboarding` | ⚠️ Local, non versionné |
-| 2026-07-18 | 17:57 | emmanuel | **Correctif de régression** | Interblocage du `signOut()` introduit par la 1ʳᵉ version de BUG-149 | 🟢 Corrigé, vérifié au navigateur |
+| 2026-07-18 | 17:57 | emmanuel | **Correctif de régression** | Interblocage du `signOut()` introduit par la 1ʳᵉ version de BUG-172 | 🟢 Corrigé, vérifié au navigateur |
 | 2026-07-18 | 18:59 | emmanuel | Documentation | Création de [`AMELIORATIONS_AUTHENTIFICATION.md`](AMELIORATIONS_AUTHENTIFICATION.md) | ✅ |
-| 2026-07-18 | 18:59 | emmanuel | Nettoyage | [BUG-151](bugs/151_auth_code_mort_login_onboarding_guards.md) — suppression du code mort du domaine | 🟢 Corrigé |
+| 2026-07-18 | 18:59 | emmanuel | Nettoyage | [BUG-174](bugs/174_auth_code_mort_login_onboarding_guards.md) — suppression du code mort du domaine | 🟢 Corrigé |
 | 2026-07-18 | 19:11 | emmanuel | **Vérification navigateur** | Recette des correctifs des lots 1 à 3 | ✅ 5/6 scénarios verts |
 
 Branche de travail : `fix/currentBug-fixAuthentification`. **Aucun commit effectué à ce jour** —
@@ -38,7 +38,7 @@ les changements sont dans l'arbre de travail.
 
 ---
 
-## [2026-07-18 14:31–14:40] — emmanuel — Correctif — BUG-149 : déconnexion intempestive multi-onglets
+## [2026-07-18 14:31–14:40] — emmanuel — Correctif — BUG-172 : déconnexion intempestive multi-onglets
 
 **Fichiers**
 - `src/utils/authSessionEvent.js` *(nouveau)*
@@ -94,7 +94,7 @@ décrites dans la fiche. Statut maintenu à 🟡 tant que ce n'est pas fait.
 
 ---
 
-## [2026-07-18 14:34] — emmanuel — Correctif — BUG-150 : JWT en clair dans la console
+## [2026-07-18 14:34] — emmanuel — Correctif — BUG-173 : JWT en clair dans la console
 
 **Fichiers** — `src/store/modules/auth.js:351` (avant correction)
 
@@ -233,7 +233,7 @@ développement**, `vue-cli-service` ne lisant les fichiers `.env` qu'au démarra
    chargement s'arrêtant après ~30 s, puis 401 à la navigation suivante.
 2. Un second onglet continuait de servir des données malgré la déconnexion.
 
-**Cause — régression introduite par la première version du correctif BUG-149 (14:40).**
+**Cause — régression introduite par la première version du correctif BUG-172 (14:40).**
 Celle-ci relisait la session via `getSessionOnce()` → `supabase.auth.getSession()` depuis le
 callback `onAuthStateChange`. Vérifié dans `@supabase/auth-js@2.91.0` : `signOut()` s'exécute sous
 verrou (`_acquireLock`, timeout 10 s) et **attend le retour de ses abonnés**
@@ -260,7 +260,7 @@ n'entraînant de redirection qu'à la navigation suivante. **À confirmer au ret
 
 ---
 
-## [2026-07-18 18:59] — emmanuel — Nettoyage — BUG-151 : suppression du code mort du domaine
+## [2026-07-18 18:59] — emmanuel — Nettoyage — BUG-174 : suppression du code mort du domaine
 
 **Fichiers**
 - `src/components/Login.vue` *(supprimé)*
@@ -339,7 +339,7 @@ changement de page. Que l'onglet B finisse par basculer **prouve** que la propag
 `BroadcastChannel` fonctionne. L'amélioration correspondante est consignée en
 [A1](AMELIORATIONS_AUTHENTIFICATION.md).
 
-**Conséquence sur les statuts** — [BUG-149](bugs/149_auth_signed_out_rotation_deconnexion_multi_onglets.md)
+**Conséquence sur les statuts** — [BUG-172](bugs/172_auth_signed_out_rotation_deconnexion_multi_onglets.md)
 passe en 🟢 **avec une limite assumée et consignée** : le scénario de rotation reste couvert par les
 seuls tests unitaires. Il ne deviendra testable à la main qu'avec
 [A11](AMELIORATIONS_AUTHENTIFICATION.md) (raccourcissement du JWT).
@@ -372,7 +372,7 @@ l'organisation d'un tiers. À escalader indépendamment de tout travail frontend
 
 ## Reste à faire sur le module
 
-**Vérification navigateur** (bloquant pour passer BUG-149 en 🟢)
+**Vérification navigateur** (bloquant pour passer BUG-172 en 🟢)
 1. Deux onglets, déconnexion volontaire dans l'un → les deux partent sur `/login`
 2. Deux onglets pendant une rotation de token → aucun ne tombe
 3. Session révoquée → redirection propre

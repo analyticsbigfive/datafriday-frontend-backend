@@ -231,12 +231,12 @@ fonctions de `user.api.js` sont appelées **directement par les vues**, hors cha
 | # | Bug | Sévérité |
 |---|---|---|
 | 1 | ~~**`OrganizationsController` — faille cross-tenant.**~~ **Corrigé le 2026-07-20** — 📄 Dossier technique complet : [`SECURITE_ORGANIZATIONS_CROSS_TENANT.md`](SECURITE_ORGANIZATIONS_CROSS_TENANT.md), voir aussi [BUG-035](../../backend/docs/bugs/35_organizationscontroller_faille_cross_tenant.md). `OrganizationsController` porte désormais `SuperAdminGuard` + `@AllowNoTenant()`, même pattern que `/tenants`. | 🟢 Corrigé |
-| 2 | ~~**Déconnexion multi-onglets.**~~ **Corrigé** — voir [BUG-149](bugs/149_auth_signed_out_rotation_deconnexion_multi_onglets.md). La décision est désormais une fonction pure testée (`utils/authSessionEvent.js`), qui distingue l'artefact de rotation du refresh token d'une vraie déconnexion, sans casser la propagation volontaire entre onglets. Vérifié au navigateur le 2026-07-18. | 🟢 Corrigé |
+| 2 | ~~**Déconnexion multi-onglets.**~~ **Corrigé** — voir [BUG-172](bugs/172_auth_signed_out_rotation_deconnexion_multi_onglets.md). La décision est désormais une fonction pure testée (`utils/authSessionEvent.js`), qui distingue l'artefact de rotation du refresh token d'une vraie déconnexion, sans casser la propagation volontaire entre onglets. Vérifié au navigateur le 2026-07-18. | 🟢 Corrigé |
 | 3 | `POST /onboarding/join/:slug` déprécié mais actif, **sans code d'invitation** — deviner le slug suffit pour rejoindre un tenant en VIEWER. | 🟡 Moyenne |
 | 4 | ~~Bypass démo `?demo=1` / `localStorage.analyse_demo`.~~ **Corrigé** — [BUG-027](bugs/27_bypass_demo_actif_sans_distinction_env.md). Retiré, et non restreint au dev : le mode démo est déjà débranché (`isDemoMode()` faux en dur), le flag n'accordait plus qu'un accès non authentifié. | 🟢 Corrigé |
 | 5 | ~~`/predict-test` monté sans guard.~~ **Corrigé** — [BUG-028](bugs/28_predict_test_sans_guard_auth.md). Route non montée en production, accès libre conservé hors production. | 🟢 Corrigé |
 | 6 | JWT `expiresIn` = 7 jours — une révocation de droits met jusqu'à 7 jours à expirer le token lui-même (mitigé par l'invalidation Redis pub/sub du cache d'auth). | 🟢 Faible |
-| 7 | ~~`console.log` du JWT en clair.~~ **Corrigé** — voir [BUG-150](bugs/150_auth_console_log_jwt_en_clair.md). | 🟢 Corrigé |
+| 7 | ~~`console.log` du JWT en clair.~~ **Corrigé** — voir [BUG-173](bugs/173_auth_console_log_jwt_en_clair.md). | 🟢 Corrigé |
 
 **Ordre de traitement recommandé** : le n°1 d'abord (exploitable en une requête HTTP), puis le n°2
 (perte de travail utilisateur en pleine édition), puis 3-4-5 qui sont trois surfaces non

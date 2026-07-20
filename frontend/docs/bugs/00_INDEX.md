@@ -162,11 +162,11 @@
 | [146](146_eventformdrawer_ticketsscanned_sans_validation_croisee.md) | `EventFormDrawer.vue` : aucune validation croisée `ticketsScanned` ≤ `ticketsSold` | ⚪ Diagnostiqué | 🟢 | Événements |
 | [147](147_events_store_ttl_5min_incoherent.md) | `events.js` : TTL de cache 5 min, contre 15 min pour les 3 stores de taxonomie | ⚪ Diagnostiqué | 🟢 | Événements |
 | [148](148_eventdrawershell_inutilise_duplication_markup.md) | `EventDrawerShell.vue` inutilisé dans le périmètre Événements, header/footer dupliqués 3× | ⚪ Diagnostiqué | 🟢 | Événements |
-| [149](149_auth_signed_out_rotation_deconnexion_multi_onglets.md) | Déconnexion intempestive multi-onglets sur rotation du refresh token | 🟢 Corrigé | 🟠 | Auth & onboarding |
-| [150](150_auth_console_log_jwt_en_clair.md) | JWT imprimé en clair dans la console lors de l'onboarding | 🟢 Corrigé | 🟢 | Auth & onboarding |
-| [151](151_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
+| [172](172_auth_signed_out_rotation_deconnexion_multi_onglets.md) | Déconnexion intempestive multi-onglets sur rotation du refresh token | 🟢 Corrigé | 🟠 | Auth & onboarding |
+| [173](173_auth_console_log_jwt_en_clair.md) | JWT imprimé en clair dans la console lors de l'onboarding | 🟢 Corrigé | 🟢 | Auth & onboarding |
+| [174](174_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
 
-**151 bugs au total** (149-151 ajoutés le 2026-07-18/20, domaine Auth & onboarding). 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
+**174 bugs au total** (172-174 ajoutés le 2026-07-18/20, domaine Auth & onboarding). 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
 complet du domaine Événements (`/events`, `/event-types`, `/event-categories`,
 `/event-subcategories` + module backend miroir) : `hasHomeTeam` jamais réellement sauvegardé
 depuis son seul écran de gestion dédié (2 bugs, cause racine = deux implémentations divergentes de
