@@ -56,9 +56,9 @@ export const SETTINGS_NAVIGATION = [
         title: 'navEvents',
         items: [
           { title: 'navEvents', route: '/events', permission: 'menu.events.manage' },
-          { title: 'navEventTypes', route: '/event-types', permission: 'menu.events.manage' },
-          { title: 'navEventCategories', route: '/event-categories', permission: 'menu.events.manage' },
-          { title: 'navEventSubcategories', route: '/event-subcategories', permission: 'menu.events.manage' },
+          { title: 'navEventTypes', route: '/events/event-types', permission: 'menu.events.manage' },
+          { title: 'navEventCategories', route: '/events/event-categories', permission: 'menu.events.manage' },
+          { title: 'navEventSubcategories', route: '/events/event-subcategories', permission: 'menu.events.manage' },
         ],
       },
       {

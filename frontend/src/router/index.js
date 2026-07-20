@@ -194,23 +194,26 @@ const routes = [
         meta: { title: 'Liste des événements', keepAlive: true, permission: 'menu.events.manage' }
       },
       {
-        path: '/event-types',
+        path: '/events/event-types',
         name: 'event-types',
         component: EventsTypeListView,
-        meta: { title: 'Liste des types d\'événements', keepAlive: true }
+        meta: { title: 'Liste des types d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-types', redirect: '/events/event-types' },
       {
-        path: '/event-categories',
+        path: '/events/event-categories',
         name: 'event-categories',
         component: EventsCategorieListView,
-        meta: { title: 'Liste des catégories d\'événements', keepAlive: true }
+        meta: { title: 'Liste des catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-categories', redirect: '/events/event-categories' },
       {
-        path: '/event-subcategories',
+        path: '/events/event-subcategories',
         name: 'event-subcategories',
         component: EventsSubcategorieListView,
-        meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true }
+        meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-subcategories', redirect: '/events/event-subcategories' },
 
       {
         path: '/suppliers',
