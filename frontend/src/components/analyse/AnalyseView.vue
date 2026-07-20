@@ -313,22 +313,23 @@
               @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
               @shop-area-click="(v) => toggleArrayFilter('selectedShopAreas', v)"
             />
-            <!-- Répartition/tableau ARTICLE : masqués en mode predict. La
-                 prédiction est au niveau PdV (shop-level) → aucune dimension
-                 article → ces vues seraient structurellement vides (0 article). -->
+            <!-- Répartition/tableau ARTICLE : `articleRecords` et non `chartRecords`.
+                 En mode Predict, le shop-level n'a aucune dimension article ; le grain
+                 article des prévisions vient des scénarios Event Predict. Les events
+                 prédits sans scénario n'en ont pas → compteur discret. -->
             <MenuItemRevenueDistribution
-              v-if="!isPredictMode"
-              :records="chartRecords"
-              :loading="itemRecordsLoading"
+              :records="articleRecords"
+              :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
+              :missing-events-count="predictEventsWithoutScenarioCount"
               @item-click="(v) => toggleArrayFilter('selectedMenuItemIds', v)"
               @type-click="(v) => toggleArrayFilter('selectedMenuItemTypes', v)"
               @category-click="(v) => toggleArrayFilter('selectedMenuItemCategories', v)"
               @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
             />
             <MenuItemsByShopTable
-              v-if="!isPredictMode"
-              :records="chartRecords"
-              :loading="itemRecordsLoading"
+              :records="articleRecords"
+              :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
+              :missing-events-count="predictEventsWithoutScenarioCount"
               @events-click="onTableEventsClick"
             />
           </template>
@@ -369,9 +370,13 @@
     />
 
     <!-- Dialog : liste des évènements pour un combo PdV × article (clic cellule Events) -->
+    <!-- Drill-down d'une cellule de MenuItemsByShopTable : MÊME dataset que la
+         table (`articleRecords`), sinon en mode Predict le dialog interrogerait le
+         shop-level sans nom d'article → toujours 0 event. Hors Predict,
+         articleRecords === chartRecords : aucun changement. -->
     <ShopItemEventsDialog
       v-model="shopItemEventsDialog"
-      :records="chartRecords"
+      :records="articleRecords"
       :shop-name="eventsDialogShop"
       :menu-item-name="eventsDialogItem"
       :events="filteredEvents"
@@ -435,7 +440,11 @@ import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
 import { parseEventDate as parseEventDateLocal, formatDateShort } from '@/utils/dateFr'
 import { resolveItemName, resolveItemType, resolveItemCategory, resolveShopType } from '@/utils/analyseDimensions'
-import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
+import {
+  UNATTACHED_ITEM_KEY,
+  buildReconciliationContext,
+  reconcileRecord,
+} from '@/utils/analyseReconciliation'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { isMinuteInRange } from '@/utils/timelineBucketing'
 import { useI18n } from '@/i18n/useI18n'
@@ -539,14 +548,20 @@ const {
   fetchError: itemRecordsError,
 } = useAnalyseItemRecords(filteredEvents)
 
-// On y réapplique les filtres globaux en miroir du getter store
-// `filteredShopGranularData` (NB : selectedShopIds contient des NOMS de PdV ;
-// selectedMenuItemIds des noms d'article résolus). Le filtre event est déjà
-// appliqué en amont (filteredEvents).
-const itemLevelRecords = computed(() => {
-  const recs = globalItemRecords.value || []
-  if (!recs.length) return []
-  const f = filters.value || {}
+// Prédicat des filtres globaux, en miroir du getter store `filteredShopGranularData`
+// (NB : selectedShopIds contient des NOMS de PdV ; selectedMenuItemIds des noms
+// d'article résolus). Le filtre event est déjà appliqué en amont (filteredEvents).
+// PARTAGÉ entre l'item-level réel et les records article des scénarios Predict :
+// une seule implémentation, sinon un clic sur une part de donut filtrerait le passé
+// mais pas les prédictions (règle d'or `analyseDimensions.js:184` — même `resolveX`
+// côté regroupement et côté filtre).
+// `skipMinute` : les records article des scénarios sont PRÉ-AGRÉGÉS par
+// (shop × article) et n'ont donc pas de champ `minute`. Or `isMinuteInRange`
+// renvoie false pour un `minute` absent dès qu'une borne est posée
+// (timelineBucketing.js:97) → sans cette option, poser le slider horaire les
+// ferait tous disparaître. La fenêtre horaire du scénario est déjà appliquée en
+// amont, côté EventPredict (`windowedPredictedRecords`).
+function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
   // Filtres shop/item stockent des NOMS ; comparaison NORMALISÉE des deux côtés
   // (miroir du store : la liste d'options vient du catalogue, casse possiblement ≠).
   const shopSet = (f.selectedShopIds || []).length ? new Set(f.selectedShopIds.map(normalizeStr)) : null
@@ -559,16 +574,22 @@ const itemLevelRecords = computed(() => {
   const itemTypes = f.selectedMenuItemTypes || []
   const itemCats = f.selectedMenuItemCategories || []
   const range = f.selectedTimeRange
-  return recs.filter((r) => {
+  return (r) => {
     if (shopSet && !shopSet.has(normalizeStr(r.shopName))) return false
     if (shopTypes.length && !shopTypes.includes(resolveShopType(r))) return false
     if (shopAreas.length && !shopAreas.includes(r.shopArea)) return false
     if (itemSet && !itemSet.has(normalizeStr(resolveItemName(r)))) return false
     if (itemTypes.length && !itemTypes.includes(resolveItemType(r))) return false
     if (itemCats.length && !itemCats.includes(resolveItemCategory(r))) return false
-    if (!isMinuteInRange(r.minute, range)) return false
+    if (!skipMinute && !isMinuteInRange(r.minute, range)) return false
     return true
-  })
+  }
+}
+
+const itemLevelRecords = computed(() => {
+  const recs = globalItemRecords.value || []
+  if (!recs.length) return []
+  return recs.filter(buildItemFilterPredicate(filters.value || {}))
 })
 
 // ─── Dataset UNIQUE data-driven (parité React) ─────────────────────────────
@@ -596,6 +617,66 @@ const kpiRecords = computed(() =>
     ? filteredRecords.value
     : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
 )
+
+// ─── Grain ARTICLE en mode Predict ─────────────────────────────────────────
+// `chartRecords` est shop-level en predict (menuItemId null partout) → les 2 vues
+// article seraient vides. Le grain article des prévisions vient des SCÉNARIOS
+// Event Predict (`version.predictedRecords`), reconstruits par le store dans
+// regeneratePredictions. Ils portent des libellés bruts → on les RÉCONCILIE avec
+// le même contexte que useAnalyseItemRecords (type/catégorie/zone catalogue).
+const predictScenarioRecords = computed(() => {
+  if (!isPredictRecords.value) return []
+  const raw = store.state.analyse.predictScenarioItemRecords || []
+  if (!raw.length) return []
+  const eventIds = new Set((filteredEvents.value || []).map((e) => e?.id))
+  const scoped = raw.filter((r) => eventIds.has(r.eventId))
+  if (!scoped.length) return []
+  const a = store.state.analyse
+  const ctx = buildReconciliationContext({
+    menuItems: a.menuItems || [],
+    productCategories: a.productCategoriesList || [],
+    productTypes: a.productTypesList || [],
+    floorElements: a.configShopContext?.floorElements || [],
+    assignment: a.configShopContext?.assignment || null,
+    assignmentItemsByShop: a.configShopContext?.assignmentItemsByShop || null,
+    weezeventProducts: a.weezeventProducts || [],
+  })
+  const keep = buildItemFilterPredicate(filters.value || {}, { skipMinute: true })
+  return scoped.map((r) => reconcileRecord(r, ctx)).filter(keep)
+})
+
+// Events couverts par un scénario — dérivé du state BRUT, jamais de
+// `predictScenarioRecords` (déjà filtré) : un event dont les filtres excluent tous
+// les articles sortirait de l'ensemble et ses ventes RÉELLES rentreraient par la
+// porte de derrière → double comptage partiel sous filtre PdV/article.
+const scenarioEventIds = computed(
+  () => new Set((store.state.analyse.predictScenarioItemRecords || []).map((r) => r.eventId)),
+)
+
+// Source des 2 vues article. Hors predict : inchangé (`chartRecords`). En predict :
+// même périmètre que le reste de la page — réel item-level pour les events sans
+// scénario, records de scénario pour les autres (un event passé AVEC scénario existe
+// en double côté shop-level : réel + copie prédictive scalée, cf. `pastPredictive`).
+const articleRecords = computed(() => {
+  if (!isPredictRecords.value) return chartRecords.value
+  const covered = scenarioEventIds.value
+  const actualPast = itemLevelRecords.value.filter((r) => !covered.has(r.eventId))
+  return [...actualPast, ...predictScenarioRecords.value]
+})
+
+// Events visibles qui ont une prédiction shop-level mais AUCUN scénario sauvegardé :
+// le moteur ne produit pas de dimension article → ils sont absents des 2 vues.
+// Compté ici pour l'afficher plutôt que sous-compter en silence.
+const predictEventsWithoutScenarioCount = computed(() => {
+  if (!isPredictRecords.value) return 0
+  const covered = scenarioEventIds.value
+  const predicted = new Set(
+    (filteredRecords.value || []).filter((r) => r.isPredictive).map((r) => r.eventId),
+  )
+  let n = 0
+  for (const id of predicted) if (!covered.has(id)) n += 1
+  return n
+})
 
 // Scope event strict (décision C) : une config sélectionnée sans aucun event rattaché
 // → message dédié plutôt qu'une page vide trompeuse.

@@ -7,6 +7,14 @@
         <div class="section-subtitle">
           {{ t('anTotalRevenue') }} : {{ formatCurrencyDetailed(totalRevenue) }}
         </div>
+        <!-- Mode Predict : les events prédits sans scénario Event Predict n'ont
+             aucune dimension article → exclus d'ici. Signalé plutôt que sous-compté
+             en silence. -->
+        <div v-if="missingEventsCount > 0" class="section-subtitle">
+          {{ missingEventsCount }}
+          {{ missingEventsCount > 1 ? t('anEventsPlural') : t('anEventSingular') }}
+          {{ t('anPredictNoItemDetail') }}
+        </div>
       </div>
       <v-btn-toggle
         v-model="localMode"
@@ -124,6 +132,9 @@ const props = defineProps({
   // Records item-level en cours de chargement → skeleton (évite le rendu
   // intermédiaire sur le fallback shop-level sans dimension article).
   loading: { type: Boolean, default: false },
+  // Mode Predict : nombre d'events prédits SANS scénario Event Predict sauvegardé.
+  // Le moteur ne prédit qu'au niveau PdV → ces events n'ont aucun article à montrer.
+  missingEventsCount: { type: Number, default: 0 },
 })
 
 const emit = defineEmits(['type-click', 'category-click', 'item-click', 'shop-type-click'])

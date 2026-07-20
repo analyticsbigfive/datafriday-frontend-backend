@@ -28,6 +28,7 @@ import {
 } from '@/constants/dateRangePresets'
 import { t as translate, getCurrentLocale } from '@/i18n/translations'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
+import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
 import { parseEventSessions } from '@/utils/eventSessions'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
@@ -519,6 +520,12 @@ const state = () => ({
   timelineCacheByEventId: {},                  // eventId → timelineRecords[]
   predictionCacheByEventConfigKey: {},         // `${eventId}::${configId}::${hash}` → predictionMetrics
   activePredictionVersionByEventId: {},        // eventId → versionId
+  // Records PRÉDICTIFS AU GRAIN ARTICLE (shop × menuItem), reconstruits depuis les
+  // `predictedRecords` du scénario actif/défaut de chaque event (cf.
+  // regeneratePredictions). shopGranularData reste shop-level → sans ce bucket, les
+  // vues « Répartition du CA par article » / « Articles du menu par PdV » n'ont
+  // aucune dimension article en mode Predict. Vidé par clearPredictions.
+  predictScenarioItemRecords: [],
 
   // Caches
   transactionRateCache: {},
@@ -1656,6 +1663,9 @@ const mutations = {
       [eventId]: versionId,
     }
   },
+  SET_PREDICT_SCENARIO_ITEM_RECORDS(state, records) {
+    state.predictScenarioItemRecords = Array.isArray(records) ? records : []
+  },
   APPLY_EVENT_PREDICT_VERSION(state, { eventId, version }) {
     if (!eventId || !version) return
     if (version.eventSnapshot) {
@@ -2106,6 +2116,17 @@ const actions = {
     const overrides = new Map() // eventId → { factor, versionId } (events futurs)
     const versionMap = new Map() // eventId → fullVersion
     const pastPredictive = [] // events passés avec scénario → copies prédictives scalées
+    // Grain ARTICLE des scénarios : shopGranularData est shop-level, seul
+    // `version.predictedRecords` (écrit par EventPredictView.buildPredictedRecords)
+    // porte le couple shop × menuItem. Alimente les vues « Répartition du CA par
+    // article » / « Articles du menu par PdV » en mode Predict.
+    const scenarioItemRecords = []
+    // shopId (elementId) → nom de PdV : les records de scénario portent `shop: null`
+    // pour les quantités manuelles, et le NOM est la clé de jointure de reconcileRecord.
+    const elementNameById = new Map()
+    for (const el of state.configShopContext?.floorElements || []) {
+      if (el?.id != null && el?.name) elementNameById.set(String(el.id), el.name)
+    }
     const predictedEventIds = new Set(predictiveRecords.map((r) => r.eventId))
     for (const ev of state.events) {
       const active = lsRead(`event-predict-active-version:${ev.id}`)
@@ -2120,6 +2141,10 @@ const actions = {
       const target = Number(version.adjustedTotalRevenue || version.totalRevenue || 0)
       if (!target) continue
       versionMap.set(ev.id, version)
+      // Grain article : indépendant de la branche futur/passé ci-dessous (celle-ci
+      // ne fait que rescaler du shop-level). Un scénario sauvegardé AVANT le calcul
+      // de sa timeline a `predictedRecords: []` → l'util renvoie [] sans bruit.
+      scenarioItemRecords.push(...scenarioRecordsToAnalyseRecords(version, ev, { elementNameById }))
       if (predictedEventIds.has(ev.id)) {
         // Event futur : on rescale les records prédits du moteur.
         const currentRev = predictiveRecords
@@ -2171,9 +2196,10 @@ const actions = {
     // satisfait malgré le changement de longueur du granular).
     const engineTagged = [...predictiveRecords, ...pastPredictive].map((r) => ({ ...r, _engine: true }))
     commit('SET_SHOP_GRANULAR', [...actualOnly, ...engineTagged])
+    commit('SET_PREDICT_SCENARIO_ITEM_RECORDS', scenarioItemRecords)
     commit('SET_PREDICTIONS_GENERATING', false)
     console.log(
-      `[perf] regeneratePredictions ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t0)}ms — ${engineTagged.length} records prédictifs`,
+      `[perf] regeneratePredictions ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t0)}ms — ${engineTagged.length} records prédictifs, ${scenarioItemRecords.length} records article (scénarios)`,
     )
   },
 
@@ -2181,6 +2207,12 @@ const actions = {
    * Purge les records prédictifs (ex. quand on quitte le mode predict).
    */
   clearPredictions({ state, commit }) {
+    // Le grain article des scénarios se purge INCONDITIONNELLEMENT : il ne vit pas
+    // dans shopGranularData, donc le garde ci-dessous ne le couvre pas (sortir du
+    // mode predict laisserait sinon des records article fantômes).
+    if (state.predictScenarioItemRecords.length) {
+      commit('SET_PREDICT_SCENARIO_ITEM_RECORDS', [])
+    }
     if (!state.shopGranularData.some((r) => r.isPredictive)) return
     commit('SET_SHOP_GRANULAR', state.shopGranularData.filter((r) => !r.isPredictive))
   },

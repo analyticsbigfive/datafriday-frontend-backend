@@ -524,8 +524,16 @@ sur le code React, voir Historique).
 | `charts/EventRevenueByShopChart.vue` (762 l.) | Carte CA par event/PdV, empilable par shop ou par type d'article, atténuation 50% des events passés en mode Predict |
 | `charts/EventTimelineChart.vue` (761 l., partagé avec `EventPredictView.vue`) | Timeline minute par minute, délègue le bucketing à `utils/timelineBucketing.js` (source unique partagée Analyse/Predict/EventPredict/Stockup) |
 | `charts/ShopDistributionPieChart.vue` | 3 donuts PdV/Type/Zone, sentinelle `UNATTACHED_SHOP_KEY` |
-| `tables/MenuItemRevenueDistribution.vue` | Cartes « by POS type » + 3 donuts article/type/catégorie, sentinelle `UNATTACHED_ITEM_KEY`, masqué en mode Predict (pas de dimension article en prédiction shop-level) |
+| `tables/MenuItemRevenueDistribution.vue` | Cartes « by POS type » + 3 donuts article/type/catégorie, sentinelle `UNATTACHED_ITEM_KEY` |
 | `tables/MenuItemsByShopTable.vue` | Double vue PdV/article, export XLSX, lien fiche catalogue si l'article est réellement rattaché |
+
+Ces deux vues consomment `articleRecords` (et non `chartRecords`). En mode **Analyse** c'est
+`chartRecords` à l'identique. En mode **Predict**, la prédiction du moteur est shop-level (aucun
+`menuItemId`) : le grain article vient alors des **scénarios Event Predict**
+(`EventPredictVersion.predictedRecords`, reconstruits par `regeneratePredictions` dans
+`state.predictScenarioItemRecords`, cf. `utils/predictScenarioRecords.js`). Les events prédits sans
+scénario sauvegardé n'ont donc aucun article et sont signalés par un compteur (`missingEventsCount`).
+Détail, limites et pièges : fiche [170](../bugs/170_predict_vues_article_absentes_grain_shop_level.md).
 | `panels/SummaryPanel.vue` | Colonne droite : assistant IA local + leaderboards cliquables |
 | `panels/FilterEditorPanel.vue` | Mini-éditeur multi-select ouvert depuis un chip du bandeau |
 | `charts/DonutChartCard.vue` | Donut Chart.js générique, réutilisé par les 2 composants donuts ci-dessus |

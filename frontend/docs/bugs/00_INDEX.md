@@ -183,8 +183,9 @@
 | [167](167_taxonomie_evenements_optimistic_write_objets_partiels.md) | Taxonomie Événements : écritures Vuex optimistes avec objets partiels (perte de champs après édition/création inline/import CSV) | 🟢 Corrigé | 🟡 | Événements |
 | [168](168_eventsubcategorielist_exportcsv_champ_categoryid_toujours_vide.md) | `EventsSubcategorieListView.vue exportToCSV` : colonne "Event Category" systématiquement vide | 🟢 Corrigé | 🟡 | Événements |
 | [169](169_taxonomyimportdrawer_fk_parente_non_forcee_avant_import.md) | `TaxonomyImportDrawer.vue` : FK parente (type/catégorie) non forcée avant import, échec 400 brut ligne par ligne | 🟢 Corrigé | 🟡 | Événements |
+| [170](170_predict_vues_article_absentes_grain_shop_level.md) | Mode Predict : « Répartition du CA par article » et « Articles du menu par PdV » absents (prédiction shop-level sans dimension article) | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
 
-**169 bugs au total** (les fiches « taxonomie Événements » du 2026-07-18 côté develop,
+**170 bugs au total** (les fiches « taxonomie Événements » du 2026-07-18 côté develop,
 initialement numérotées 149-151, ont été renumérotées **167-169** au merge — collision de
 numéros avec l'audit /analyse ci-dessous). 149-162 ajoutés le 2026-07-18 — audit croisé /analyse + Event Predict +
 Stock (inventory/logistics/restock), mené avec le backend (fiches 77-90) et un objectif de
