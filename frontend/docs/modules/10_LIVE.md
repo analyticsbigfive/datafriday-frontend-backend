@@ -33,7 +33,7 @@ chargement ponctuel « All history ».
    ⚠️ Doublon connu : `src/components/analyse/filters/FilterPanel.vue` porte la même liste — vérifier
    lequel est réellement importé avant de greffer.
 
-Les deux mènent à la même route Live de l'espace/event (ex. `/spaces/:id/live` — à confirmer, cf. §10).
+Les deux mènent à la même route Live de l'espace/event : **`/spaces/:id/live`** (route dédiée, tranché §10.3).
 
 ## 3. Contenu de l'écran Live
 
@@ -53,17 +53,47 @@ Base = l'écran Analyse (`src/components/analyse/AnalyseView.vue`) en mode flux 
 
 **Sans le flux backend, le front ne peut rien afficher de live.** La fondation est backend.
 
-## 5. ⚠️ Décision structurante n°1 : le transport temps réel
+## 5. ✅ Décision n°1 (tranchée 2026-07-20) : le transport temps réel
 
-**Rien n'existe aujourd'hui** — aucun WebSocket/SSE/socket.io dans le repo (vérifié par grep). Trois options :
+**Polling pour le v1.** Aucun WebSocket/SSE/socket.io dans le repo (vérifié par grep) ; pas de raison
+d'introduire cette complexité alors que le polling suffit à la fraîcheur réellement disponible côté
+données (voir ci-dessous), et qu'aucune info du repo ne garantit le comportement du plan Render FREE
+sur des connexions longues (spin-down, limites de connexions) — un risque à ne pas prendre sans
+nécessité.
 
 | Option | Coût | Remarque |
 |---|---|---|
-| **Polling** (le front re-fetch toutes les N s) | Faible | Réutilise les endpoints REST existants ; l'agrégation est déjà périodique, donc la fraîcheur est de toute façon bornée. **Reco pour un v1.** |
-| **SSE** (Server-Sent Events) | Moyen | Flux unidirectionnel serveur→client, simple, suffisant ici (pas d'interaction montante). |
-| **WebSocket** | Élevé | Bidirectionnel, overkill pour de l'affichage ; à réserver si besoin d'interactions live. |
+| **Polling** (le front re-fetch toutes les N s) | Faible | Réutilise les endpoints REST existants. **Retenu pour le v1.** |
+| SSE (Server-Sent Events) | Moyen | Non retenu au v1 — à réévaluer en v3 (§11) si la fraîcheur du polling s'avère insuffisante en usage réel. |
+| WebSocket | Élevé | Écarté — bidirectionnel, overkill pour de l'affichage seul. |
 
-👉 **À trancher avec Ulrich avant tout code.** C'est ce choix qui conditionne l'API et l'architecture front.
+**⚠️ Correction d'une hypothèse fausse de la conception initiale** : contrairement à ce qui était
+supposé ici (« l'agrégation est déjà périodique, donc la fraîcheur est de toute façon bornée »),
+l'agrégation vers `SpaceRevenueMinuteAgg` **n'est jamais déclenchée automatiquement** — seulement à
+la main via le wizard d'intégration (`aggregation.controller.ts` `POST /aggregation/process-events` /
+`/synchronize`, gardés par `@RequirePermissions('menu.integration.fb')`). Aucun appelant automatique
+(webhook ou cron) trouvé par grep. Conséquence directe :
+
+- **`event-timeline`** (`spaces.service.ts:1045-1214`) lit **directement** `WeezeventTransaction` en
+  SQL brut, sans cache, sans dépendre de cette agrégation — sa fraîcheur est déjà bornée uniquement
+  par le webhook Weezevent (quasi instantané, `webhook.controller.ts:105-153` → resync immédiat via
+  `setImmediate`) + le cron de fallback `EVERY_10_MINUTES` (`weezevent-cron.service.ts:30`). **Un
+  simple polling de cet endpoint donne des données déjà fraîches, sans rien construire de neuf.**
+  Reco : polling toutes les **15 s** pour la timeline / TX-par-minute (assez fin pour un ressenti
+  temps réel, sans matraquer le backend).
+- **`shop-details`** (KPI par shop, POS Performance) dépend en partie de `SpaceRevenueMinuteAgg` via
+  la RPC `get_space_shop_details` (cachée 60 s, cf. BUG-92) — **peu importe le transport choisi, ces
+  KPI resteront figés tant que rien ne déclenche l'agrégation automatiquement.**
+
+**Prérequis backend bloquant révélé par cette analyse (à ajouter au chantier Live, pas dans la
+conception initiale)** :
+1. Câbler un déclenchement automatique de `queueAggregationJob()` — soit juste après le resync d'une
+   transaction webhook (`webhook-event.handler.ts`), soit via un cron dédié courte fréquence (ex.
+   toutes les 5 min) en filet de sécurité si le déclenchement post-webhook échoue.
+2. Corriger **BUG-19** (`backend/docs/bugs/19_queue_agregation_sans_retry.md`) avant de s'appuyer sur
+   cette queue pour du live : `attempts: 1` en dur (`queue.service.ts:274`) écrase le retry/backoff
+   par défaut du module — un échec transitoire y reste aujourd'hui silencieux et invisible en
+   back-office ; en live, il se traduirait par des KPI par shop visiblement figés à l'écran.
 
 ## 6. Données & endpoints existants à réutiliser (ne pas repartir de zéro)
 
@@ -77,15 +107,32 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
   `IntegrationsModule` + queue d'agrégation).
 - Stock : les modèles/endpoints d'inventaire du domaine Stock (par shop/item) — à agréger « live ».
 
-## 7. Contrats API proposés (à valider côté backend)
+## 7. Contrats API proposés
 
-> Esquisse, non contractuelle — dépend de la décision §5.
+> Esquisse, non contractuelle sauf mention « tranché ».
 
-- **« Cet espace a-t-il un event live ? »** : signal pour afficher le bouton ◉. Ex. champ `liveEvent`
-  sur la liste des spaces, ou `GET /spaces/:id/live-status` (basé sur : dernier webhook reçu < seuil).
-- **Flux analytics live** : soit polling de `event-timeline`/`shop-details` avec un paramètre de
-  fenêtre, soit un canal SSE `GET /spaces/:id/live/stream`.
-- **Inventaire live** : `GET /spaces/:id/live/inventory` → arbre shop → items stockables, avec niveaux.
+- **« Cet espace a-t-il un event live ? »** — ✅ **définition tranchée 2026-07-20** (question #20) :
+  champ `liveEvent` sur la liste des spaces (ou `GET /spaces/:id/live-status`), calculé comme
+  **« au moins une vente réelle (`WeezeventTransaction`/équivalent Digifood) ingérée dans les 30
+  dernières minutes, pour les shops mappés à cet event, dans la fenêtre `[eventStartDate, eventEndDate]`
+  de l'`Event` »** — même logique de jointure par fenêtre de dates que `event-timeline`
+  (`spaces.service.ts:1094-1112`), + une marge de garde (ex. ne pas considérer live avant
+  `eventStartDate` ni plus de quelques heures après `eventEndDate`) pour éviter qu'une vente de test
+  pré-event ou un règlement tardif post-event déclenche un faux live.
+  - **Ne pas** utiliser `IntegrationWebhookEvent.createdAt` comme signal direct : **BUG-26**
+    (`backend/docs/bugs/26_dedup_webhook_event_inoperante.md`) montre que `externalDeliveryId` n'est
+    jamais renseigné côté Weezevent, donc la dédup webhook est inopérante — un simple retry Weezevent
+    créerait un nouveau timestamp sans vente réelle, faisant passer l'event à tort pour « live ».
+    Le signal doit porter sur la donnée métier (vente ingérée), pas sur l'audit brut du webhook.
+  - Seuil de 30 min choisi comme défaut raisonnable (couvre les creux normaux entre ventes pendant un
+    event — changement de set, pause) ; ajustable si l'usage réel montre un besoin différent.
+  - `Event.status` (`schema.prisma:2221`, texte libre, jamais écrit par le pipeline d'agrégation)
+    n'est **pas** une source utilisable pour ce signal.
+- **Flux analytics live** — polling de `event-timeline` (déjà quasi temps réel, voir §5) et de
+  `shop-details` (sous réserve du prérequis d'agrégation automatique, §5) ; pas de canal SSE au v1
+  (§5).
+- **Inventaire live** : `GET /spaces/:id/live/inventory` → arbre shop → items stockables, avec niveaux
+  — source du stock live encore ouverte (§10.4, question #22, hors périmètre de cette résolution).
 
 ## 8. Découpage en tâches
 
@@ -128,23 +175,53 @@ importe réellement **avant** de greffer, sinon l'entrée n'apparaît qu'à moit
 ## 9. Ownership & RBAC (branchement, pas un chantier)
 
 - Module **hors Auth/RBAC** : côté gating, il suffit d'exposer la route/entrée Tools derrière un code
-  de permission existant (probablement `front.fb.analyse` ou un nouveau `front.fb.live` à cataloguer) —
-  à décider avec le catalogue RBAC. Voir [../utiles/RBAC_SYSTEM.md](../utiles/RBAC_SYSTEM.md).
+  de permission existant. Voir [../utiles/RBAC_SYSTEM.md](../utiles/RBAC_SYSTEM.md).
+- ✅ **Découverte 2026-07-20** : le code `front.fb.live` **existe déjà** dans
+  `backend/src/core/rbac/permission-catalog.ts:52` (`SYSTEM_PERMISSIONS`), présent depuis le commit
+  initial du repo (2026-07-15, `8bf2429`) — **5 jours avant cette conception**. Déjà assigné par
+  défaut aux rôles système « Analyste F&B » (ligne 133) et « Achat F&B » (ligne 184). Le catalogue est
+  idempotent et auto-appliqué (`ensureSystemPermissionCatalog()`, seed + `OnboardingService` au
+  clonage de rôle) : **le code existe déjà en base pour tout tenant déjà onboardé — aucune migration
+  ni backfill à écrire.** Il y a même une affordance front déjà câblée dessus mais orpheline :
+  `frontend/src/components/BurgerMenu.vue:64-70` (`v-if="can('front.fb.live')"`) — ce composant n'est
+  monté nulle part dans l'app aujourd'hui, à réutiliser ou remplacer selon le point d'entrée
+  effectivement choisi (§2).
+- Le point ouvert n'est donc **plus** « quel code de permission » mais uniquement : réutiliser
+  `front.fb.live` tel quel (recommandé, déjà en place), ou l'étendre à d'autres rôles si besoin —
+  décision produit, pas technique.
 - **Assignation à trancher par le lead.** Backend = Ulrich (non contesté). Front : les écrans Analyse &
   Inventory réutilisés sont historiquement le domaine de **Jean-Luc**, mais **Emmanuel** s'est positionné
   sur la partie front (cf. §8). Cette greffe touchant `AnalyseView`/`SpaceInventoryView`, l'ownership
   front doit être acté nommément avant de démarrer — pas décidé unilatéralement.
 
-## 10. Zones grises — à trancher avant code
+## 10. Zones grises
 
-1. **Transport temps réel** : polling vs SSE vs WebSocket (§5) — bloquant.
-2. **Définition de « event live »** : quel signal exact (dernier webhook < N min ? statut d'event ?) ?
-3. **Route** : `/spaces/:id/live` dédiée, ou paramètre `?live=1` sur l'écran Analyse ?
+1. ✅ **Transport temps réel** : **polling**, tranché §5.
+2. ✅ **Définition de « event live »** : signal basé sur la vente réelle, pas le webhook brut, tranché §7.
+3. ✅ **Route** : **route dédiée** `/spaces/:id/live` (nom `space-live`), pas un paramètre `?live=1`.
+   Raison : Live comprend un **nouvel onglet Inventaire** (§3), qui n'est pas un simple mode
+   d'affichage de l'écran Analyse existant — contrairement à Predict/Event Predict qui, eux, sont de
+   vraies variantes de la même vue et justifient à eux le pattern `?toolbox=` déjà en place
+   (`AnalyseView.vue:1230-1254`). Le précédent le plus proche est `space-inventory`/`space-restock`
+   (route dédiée + `meta.keepAlive: true`), pas le mode query-param. Implique :
+   - Route enfant `space-live` dans `router/index.js`, après `space-restock` (comme prévu §8bis greffe
+     C), avec `meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }` — permission déjà
+     cataloguée, voir §9.
+   - `keepAlive: true` à poser explicitement (contrairement au mode query-param sur `space-analyse`,
+     qui n'en a pas besoin car son component ne remonte jamais sur changement de query — clé sur
+     `route.path`, `DashboardView.vue:288-299`).
+   - Ne pas ajouter `space-live` à `SPACE_SCREENS` (`router/guards.js:108-114`, utilisé par
+     `spaceEntryGuard` pour choisir le 1er écran d'un rôle) sauf si un rôle porte `front.fb.live` sans
+     autre permission d'espace — à date, les deux rôles qui l'ont (« Analyste F&B », « Achat F&B », §9)
+     ont vraisemblablement d'autres accès ; à vérifier si un rôle plus restreint est créé plus tard.
 4. **Inventaire live** : d'où vient le stock « en direct » (mouvements Restock ? décrément par vente) ?
-5. **Un seul event live par espace** à un instant T, ou plusieurs ?
+   — encore ouvert, question #22.
+5. **Un seul event live par espace** à un instant T, ou plusieurs ? — encore ouvert, question #23.
 
-> Portées à l'arbitrage dans [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md) — **questions #19 à #23**
-> (statut 🔴). Ne pas démarrer le code tant qu'elles ne sont pas tranchées.
+> Réponses 1-3 tranchées le 2026-07-20 par Ulrich (owner backend), sur la base d'une recherche
+> approfondie du code réel (webhook/queue d'agrégation, modèle `Event`, catalogue RBAC, router front)
+> — détail dans [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), questions #19-#21 (désormais
+> résolues). **4 et 5 restent bloquantes avant code** (#22, #23, statut 🔴).
 
 ## 11. Phasage proposé
 
@@ -161,13 +238,15 @@ importe réellement **avant** de greffer, sinon l'entrée n'apparaît qu'à moit
 
 > Le module ne démarre pas tant que ces points ne sont pas actés. Rien n'est implémenté à ce stade.
 
-- [ ] **Transport temps réel** (§5) — reco : polling pour v1.
-- [ ] **Définition de « event live »** (§10.2) — quel signal backend précis.
-- [ ] **Forme de la route** (§10.3) — `/spaces/:id/live` dédiée vs `?live=1` sur l'Analyse.
+- [x] **Transport temps réel** (§5) — **tranché : polling v1**. Prérequis backend additionnel révélé :
+      câbler le déclenchement automatique de l'agrégation (§5) avant que `shop-details` soit réellement live.
+- [x] **Définition de « event live »** (§10.2 / §7) — **tranchée** : vente réelle < 30 min dans la
+      fenêtre event, pas le webhook brut.
+- [x] **Forme de la route** (§10.3) — **tranchée : route dédiée `space-live`**, `keepAlive: true`.
 - [ ] **Source du stock live** (§10.4) et périmètre de l'onglet inventaire.
 - [ ] **Un ou plusieurs events live** par espace (§10.5).
-- [ ] **Permission RBAC** de la route (§9) — réutiliser `front.fb.analyse` ou créer `front.fb.live`
-      (si nouveau : seed catalogue + backfill — cf. tâches RBAC).
+- [x] **Permission RBAC** de la route (§9) — **`front.fb.live` existe déjà** dans le catalogue, aucun
+      seed/backfill à faire.
 - [ ] **Ownership front** (§9) — Jean-Luc vs Emmanuel, à acter nommément.
 - [ ] **Phasage** (§11) — v1 analytics d'abord, v2 inventaire.
 
@@ -177,3 +256,9 @@ importe réellement **avant** de greffer, sinon l'entrée n'apparaît qu'à moit
 
 - **2026-07-20** — Création (conception initiale d'après maquettes). Points d'insertion front vérifiés
   contre le code réel (§8bis) ; §2/§8 corrigés (`FilterPanel.vue`, pas `navigation.js`).
+- **2026-07-20** — Questions #19-#21 tranchées par Ulrich après recherche approfondie du code backend
+  réel (webhook/queue d'agrégation, modèle `Event`, catalogue RBAC, router front) : transport = polling
+  (§5, avec correction d'une hypothèse fausse sur la fraîcheur de l'agrégation + prérequis backend
+  révélé), définition « event live » = vente réelle < 30 min (§7), route dédiée `space-live` (§10.3).
+  Découverte notable : `front.fb.live` existe déjà dans le catalogue RBAC depuis avant cette conception
+  (§9) — aucun seed/backfill à faire.
