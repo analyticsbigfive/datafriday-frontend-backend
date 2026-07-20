@@ -335,7 +335,8 @@ const actions = {
           return { exists: false, hasOrganization: false }
         }
         // 5xx ou erreurs réseau inattendues : logguer sans crasher l'UI
-        console.error('[checkOnboardingStatus]', error.response?.status ?? error.message, error)
+        // Ne jamais logguer `error` en entier : error.config.headers.Authorization contient le JWT (BUG-150)
+        console.error('[checkOnboardingStatus]', error.response?.status ?? error.message)
         return { exists: false, hasOrganization: false }
       } finally {
         checkOnboardingStatusPromise = null
@@ -363,8 +364,8 @@ const actions = {
         organizationPhone,
       })
 
-      console.log('createOrganization response:', response)
-      
+      console.log('createOrganization response:', response.status)
+
       {
         const u = response.data.user
         const role = u.role
@@ -407,7 +408,7 @@ const actions = {
 
       return { success: true, data: response.data }
     } catch (error) {
-      console.log('createOrganization error:', error)
+      console.log('createOrganization error:', error.response?.status ?? error.message)
       let message = error.response?.data?.message || error.message
       if (error.code === 'ECONNABORTED' || /timeout/i.test(String(error.message))) {
         message = 'Le serveur met trop de temps à répondre. Vérifiez votre connexion et réessayez.'
@@ -529,7 +530,7 @@ const actions = {
 
         return data
       } catch (error) {
-        console.error('Error fetching current user:', error)
+        console.error('Error fetching current user:', error.response?.status ?? error.message)
         throw error
       } finally {
         fetchCurrentUserPromise = null

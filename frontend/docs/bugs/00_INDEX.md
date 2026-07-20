@@ -166,7 +166,7 @@
 | [150](150_auth_console_log_jwt_en_clair.md) | JWT imprimé en clair dans la console lors de l'onboarding | 🟢 Corrigé | 🟢 | Auth & onboarding |
 | [151](151_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
 
-**148 bugs au total**, 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
+**151 bugs au total** (149-151 ajoutés le 2026-07-18/20, domaine Auth & onboarding). 130-148 ajoutés et majoritairement corrigés le 2026-07-17 suite à un audit
 complet du domaine Événements (`/events`, `/event-types`, `/event-categories`,
 `/event-subcategories` + module backend miroir) : `hasHomeTeam` jamais réellement sauvegardé
 depuis son seul écran de gestion dédié (2 bugs, cause racine = deux implémentations divergentes de

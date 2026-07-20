@@ -33,10 +33,13 @@ localement. La gravité reste faible, mais un JWT porteur de 7 jours de validit�
 Branche `fix/currentBug-fixAuthentification`. Ligne supprimée. Le paramètre `getters` de l'action
 `createOrganization` devenait inutilisé — retiré de la déstructuration.
 
-Les autres `console.log` de `auth.js` (`createOrganization` réponse, `resetPassword` result…) n'ont
-**pas** été touchés : ils n'exposent pas de secret, et leur nettoyage relève de la dette D5
-inventoriée dans [`../AUDIT_VUEX_STORE.md`](../AUDIT_VUEX_STORE.md), à traiter en lot plutôt qu'au
-coup par coup.
+**Mise à jour du 2026-07-20** : revue de sécurité — contrairement à ce qui est indiqué ci-dessus, les
+`console.log`/`console.error` qui imprimaient l'objet `response`/`error` Axios complet
+(`checkOnboardingStatus:338`, `createOrganization:366,410`, `fetchCurrentUser:532`) exposaient bien
+un secret : `error.config.headers.Authorization` / `response.config.headers.Authorization` contient
+le JWT porteur. Ces quatre points ont été corrigés pour ne logguer que `status`/`message`. Le reste
+de la dette D5 (logs de debug non liés à un secret, `inventory.js`/`analyse.js`) reste hors scope,
+voir [`../AUDIT_VUEX_STORE.md`](../AUDIT_VUEX_STORE.md).
 
 ## Risque de régression / à surveiller
 
