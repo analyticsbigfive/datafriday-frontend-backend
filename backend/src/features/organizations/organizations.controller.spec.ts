@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { OrganizationsController } from './organizations.controller';
 import { OrganizationsService } from './organizations.service';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
+import { SuperAdminGuard } from '../../core/auth/guards/super-admin.guard';
+import { ALLOW_NO_TENANT_KEY } from '../../core/auth/decorators/allow-no-tenant.decorator';
 
 describe('OrganizationsController', () => {
   let controller: OrganizationsController;
@@ -44,6 +46,24 @@ describe('OrganizationsController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  // BUG-035 — Faille cross-tenant : ce contrôleur opère sur le modèle `Tenant`
+  // (non auto-scopé par Prisma) avec un `id` arbitraire. Il DOIT donc rester
+  // réservé au super-admin plateforme, comme TenantsController (classe P0-1).
+  // Ces tests vérifient le câblage des gardes au niveau de la classe : les tests
+  // unitaires ci-dessus n'exécutent pas les guards, ce sont ces métadonnées qui
+  // les appliquent réellement en production.
+  describe('BUG-035 — durcissement cross-tenant (guards de classe)', () => {
+    it('applique SuperAdminGuard sur le contrôleur', () => {
+      const guards = Reflect.getMetadata('__guards__', OrganizationsController) || [];
+      expect(guards).toContain(SuperAdminGuard);
+    });
+
+    it('est marqué @AllowNoTenant() (le super-admin peut ne pas avoir de tenant courant)', () => {
+      const allowNoTenant = Reflect.getMetadata(ALLOW_NO_TENANT_KEY, OrganizationsController);
+      expect(allowNoTenant).toBe(true);
+    });
   });
 
   describe('getOrganization', () => {

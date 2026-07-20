@@ -473,7 +473,7 @@ export default {
       }
     },
     onAddComponent() {
-      this.$router.push({ path: "/components/new" });
+      this.$router.push({ path: "/menu-fb/components/new" });
     },
     async onViewSubComponents(component) {
       const c = component?._raw || component?.raw || component;
@@ -581,7 +581,7 @@ export default {
       const c = component?._raw || component?.raw || component;
       const id = c?.id ?? c?._id ?? c?.uuid;
       if (id) {
-        this.$router.push({ path: `/components/edit/${id}` });
+        this.$router.push({ path: `/menu-fb/components/edit/${id}` });
       }
     },
     onDeleteComponent(component) {

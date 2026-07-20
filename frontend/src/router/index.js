@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import store from '@/store'
-import { requireAuth, requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard } from './guards'
+import { requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard } from './guards'
 
 // Views — PERF: imports LAZY (`() => import(...)`) au lieu de statiques. En
 // statique, ces ~31 vues étaient inlinées dans le chunk eager `app.js` (953KB),
@@ -194,84 +194,97 @@ const routes = [
         meta: { title: 'Liste des événements', keepAlive: true, permission: 'menu.events.manage' }
       },
       {
-        path: '/event-types',
+        path: '/events/event-types',
         name: 'event-types',
         component: EventsTypeListView,
-        meta: { title: 'Liste des types d\'événements', keepAlive: true }
+        meta: { title: 'Liste des types d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-types', redirect: '/events/event-types' },
       {
-        path: '/event-categories',
+        path: '/events/event-categories',
         name: 'event-categories',
         component: EventsCategorieListView,
-        meta: { title: 'Liste des catégories d\'événements', keepAlive: true }
+        meta: { title: 'Liste des catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-categories', redirect: '/events/event-categories' },
       {
-        path: '/event-subcategories',
+        path: '/events/event-subcategories',
         name: 'event-subcategories',
         component: EventsSubcategorieListView,
-        meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true }
+        meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-subcategories', redirect: '/events/event-subcategories' },
 
       {
-        path: '/suppliers',
+        path: '/menu-fb/suppliers',
         name: 'suppliers',
         component: SuppliersListView,
         meta: { title: 'Liste des fournisseurs', keepAlive: true, permission: 'menu.fb.suppliers' }
       },
+      { path: '/suppliers', redirect: '/menu-fb/suppliers' },
       {
-        path: '/market-prices',
+        path: '/menu-fb/market-prices',
         name: 'market-prices',
         component: MarketPriceListView,
         meta: { title: 'Liste des prix du marché', keepAlive: true, permission: 'menu.fb.marketPrices' }
       },
+      { path: '/market-prices', redirect: '/menu-fb/market-prices' },
       {
-        path: '/components',
+        path: '/menu-fb/components',
         name: 'components',
         component: componentListView,
         meta: { title: 'Liste des composants', keepAlive: true, permission: 'menu.fb.components' }
       },
+      { path: '/components', redirect: '/menu-fb/components' },
       {
-        path: '/components/new',
+        path: '/menu-fb/components/new',
         name: 'component-create',
         component: ComponentCreateView,
         meta: { title: 'Create component', permission: 'menu.fb.components' }
       },
+      { path: '/components/new', redirect: '/menu-fb/components/new' },
       {
-        path: '/components/edit/:id',
+        path: '/menu-fb/components/edit/:id',
         name: 'component-edit',
         component: ComponentCreateView,
         meta: { title: 'Edit component', permission: 'menu.fb.components' }
       },
+      { path: '/components/edit/:id', redirect: to => `/menu-fb/components/edit/${to.params.id}` },
       {
-        path: '/space-menus',
+        path: '/menu-fb/space-menus',
         name: 'space-menus',
         component: SpaceMenuView,
         meta: { title: 'Space Menu', keepAlive: true, permission: 'menu.fb.spaceMenu' }
       },
+      { path: '/space-menus', redirect: '/menu-fb/space-menus' },
       {
-        path: '/space-menus/:spaceId/shops/:shopId',
+        path: '/menu-fb/space-menus/:spaceId/shops/:shopId',
         name: 'shop-detail',
         component: ShopDetailView,
         meta: { title: 'Shop detail', permission: 'menu.fb.spaceMenu' }
       },
+      { path: '/space-menus/:spaceId/shops/:shopId', redirect: to => `/menu-fb/space-menus/${to.params.spaceId}/shops/${to.params.shopId}` },
       {
-        path: '/menu-items',
+        path: '/menu-fb/menu-items',
         name: 'menu-items',
         component: MenuItemView,
         meta: { title: 'Menu items', keepAlive: true, permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items', redirect: '/menu-fb/menu-items' },
       {
-        path: '/menu-items/create',
+        path: '/menu-fb/menu-items/create',
         name: 'menu-item-create',
         component: MenuItemCreateView,
         meta: { title: 'Create menu item', permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items/create', redirect: '/menu-fb/menu-items/create' },
       {
-        path: '/menu-items/edit/:id',
+        path: '/menu-fb/menu-items/edit/:id',
         name: 'menu-item-edit',
         component: MenuItemCreateView,
         meta: { title: 'Edit menu item', permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items/edit/:id', redirect: to => `/menu-fb/menu-items/edit/${to.params.id}` },
       {
         path: '/configurations/product-categories',
         name: 'product-categories',
@@ -381,13 +394,19 @@ const routes = [
     ]
   },
   
-  // Predict engine test harness (no auth, mock JSON data)
-  {
-    path: '/predict-test',
-    name: 'predict-test',
-    component: () => import('../views/PredictTestView.vue'),
-    meta: { title: 'Predict — Test Harness' }
-  },
+  // Banc de test du moteur predict (données mock, sans authentification).
+  // Non monté en production (BUG-028) : c'est un outil de développement, et l'exposer
+  // en prod ajoutait une surface non authentifiée sans contrepartie fonctionnelle.
+  // Volontairement laissé SANS guard hors production — c'est ce qui en fait un banc
+  // de test utilisable sans compte.
+  ...(process.env.NODE_ENV === 'production'
+    ? []
+    : [{
+      path: '/predict-test',
+      name: 'predict-test',
+      component: () => import('../views/PredictTestView.vue'),
+      meta: { title: 'Predict — Test Harness' }
+    }]),
 
   // Home redirect
   {

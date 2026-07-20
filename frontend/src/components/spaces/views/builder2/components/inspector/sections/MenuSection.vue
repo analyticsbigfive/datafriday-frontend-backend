@@ -47,7 +47,7 @@
       {{ t('b2NoMenuItemsAssigned') }}
     </div>
 
-    <router-link to="/space-menus" class="text-caption d-inline-block mt-2">
+    <router-link to="/menu-fb/space-menus" class="text-caption d-inline-block mt-2">
       {{ t('b2ManageMenuInSpaceMenu') }} ↗
     </router-link>
   </SectionCard>

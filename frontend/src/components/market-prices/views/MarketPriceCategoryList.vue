@@ -311,7 +311,7 @@ export default {
           this.deleteError = data.message || this.t('marketPriceCategoryList.deleteError');
           this.deleteActionLink = {
             label: `${this.t('marketPriceCategoryList.viewLinkedItems')} (${data.count ?? '?'})`,
-            to: { path: '/market-prices', query: { [data.filterField]: data.filterValue } },
+            to: { path: '/menu-fb/market-prices', query: { [data.filterField]: data.filterValue } },
           };
           return;
         }

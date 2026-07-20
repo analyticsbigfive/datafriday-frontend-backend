@@ -1,4 +1,4 @@
-# BUG-190 — Mode Predict : « Répartition du CA par article » et « Articles du menu par PdV » absents
+# BUG-193 — Mode Predict : « Répartition du CA par article » et « Articles du menu par PdV » absents
 
 - **Statut** : 🟡 Corrigé non déployé
 - **Sévérité** : 🟠 Majeur
