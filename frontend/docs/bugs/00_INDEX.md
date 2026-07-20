@@ -208,8 +208,11 @@
 | [192](192_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
 
 **192 bugs au total** (190-192 ajoutés le 2026-07-20, branche `fix/currentBug-fixAuthentification`, domaine Auth & onboarding) : correctif de la déconnexion intempestive multi-onglets sur rotation du refresh token (BUG-190, décision extraite dans une fonction pure testée `src/utils/authSessionEvent.js`), du JWT imprimé en clair dans la console à l'onboarding (BUG-191), et suppression du code mort du domaine Auth (`Login.vue`, `api/endpoints/onboarding.js`, 4 guards jamais attachés — BUG-192). Voir aussi [BUG-27](27_bypass_demo_actif_sans_distinction_env.md) et [BUG-28](28_predict_test_sans_guard_auth.md), corrigés dans la même branche.
+| [190](190_predict_vues_article_absentes_grain_shop_level.md) | Mode Predict : « Répartition du CA par article » et « Articles du menu par PdV » absents (prédiction shop-level sans dimension article) | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
 
-**189 bugs au total.** 172-189 ajoutés le 2026-07-18 sur `feat/analyse` (numérotés à l'origine
+**190-bis bugs au total.** 190 ajouté le 2026-07-20 sur `feat/analyse` (numéroté 170 à l'origine sur
+cette branche ; renuméroté **190** au merge dans `develop` — 170 y était déjà pris par
+`170_delete_bloque_sans_moyen_de_trouver_les_dependants.md`). 172-189 ajoutés le 2026-07-18 sur `feat/analyse` (numérotés à l'origine
 149-166 sur cette branche ; renumérotés 172-189 au merge du 2026-07-20 dans `develop` pour éviter la
 collision avec 149-171 ci-dessus, ajoutés en parallèle sur `develop` le 2026-07-19). Trois fiches
 supplémentaires de `feat/analyse` (initialement 167-169 sur cette branche, elles-mêmes déjà

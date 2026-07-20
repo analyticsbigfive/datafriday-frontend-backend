@@ -1685,6 +1685,8 @@ export const translations = {
     anAvgQty: 'Avg Qty',
     anTotalQty: 'Total Qty',
     anMenuItemDistTitle: 'Revenue distribution by item',
+    // Predict mode : preceded by the event count + anEventsPlural/anEventSingular.
+    anPredictNoItemDetail: 'with no item detail (no Event Predict scenario) — excluded here',
     anTotalRevenue: 'Total revenue',
     anQuantityMode: 'Quantity',
     anRevenueMode: 'Revenue',
@@ -5380,6 +5382,8 @@ export const translations = {
     anAvgQty: 'Qté moy.',
     anTotalQty: 'Qté totale',
     anMenuItemDistTitle: 'Répartition du CA par article',
+    // Mode Predict : précédé du nombre d'events + anEventsPlural/anEventSingular.
+    anPredictNoItemDetail: 'sans détail article (pas de scénario Event Predict) — exclu(s) ici',
     anTotalRevenue: 'CA total',
     anQuantityMode: 'Quantité',
     anRevenueMode: 'CA',

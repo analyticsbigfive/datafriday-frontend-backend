@@ -2,7 +2,16 @@
   <v-card flat rounded="lg" class="pa-5 mb-4">
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3">
-      <span class="section-title">{{ t('anMenuItemsByShop') }}</span>
+      <div>
+        <span class="section-title">{{ t('anMenuItemsByShop') }}</span>
+        <!-- Mode Predict : les events prédits sans scénario Event Predict n'ont
+             aucune dimension article → exclus de ce tableau. -->
+        <div v-if="missingEventsCount > 0" class="section-subtitle">
+          {{ missingEventsCount }}
+          {{ missingEventsCount > 1 ? t('anEventsPlural') : t('anEventSingular') }}
+          {{ t('anPredictNoItemDetail') }}
+        </div>
+      </div>
       <v-btn icon size="small" variant="text" @click="exportExcel">
         <v-icon>mdi-download</v-icon>
       </v-btn>
@@ -253,6 +262,9 @@ const props = defineProps({
   // Records item-level en cours de chargement → skeleton (évite le rendu
   // intermédiaire shop-level sans noms d'articles).
   loading: { type: Boolean, default: false },
+  // Mode Predict : nombre d'events prédits SANS scénario Event Predict sauvegardé.
+  // Le moteur ne prédit qu'au niveau PdV → ces events n'ont aucun article à montrer.
+  missingEventsCount: { type: Number, default: 0 },
 })
 
 // Point 18 — clic sur la cellule « Events » d'un combo PdV × article →
@@ -599,6 +611,12 @@ async function exportExcel() {
   font-size: 15px;
   font-weight: 600;
   color: #212121;
+}
+/* Aligné sur MenuItemRevenueDistribution.vue (même bandeau d'en-tête). */
+.section-subtitle {
+  font-size: 12px;
+  color: #757575;
+  margin-top: 2px;
 }
 .shop-name {
   font-weight: 500;
