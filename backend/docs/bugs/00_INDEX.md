@@ -118,11 +118,15 @@
 | [104](104_weezevent_sync_job_organizationid_manquant.md) | Sync par job Weezevent échoue systématiquement (`organizationId manquant`, lu au mauvais endroit) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [106](106_webhook_secret_tenant_global_pas_par_integration.md) | Secret de signature webhook Weezevent tenant-global, pas par intégration | 🟢 Corrigé | 🟡 | Intégrations & ventes |
+| [107](107_weezeventintegration_clientid_legacy_not_null_bloque_creation.md) | `WeezeventIntegration.clientId`/`clientSecret` legacy NOT NULL bloque toute création d'instance | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 
-**106 bugs au total**, 106 ajouté le 2026-07-21 en creusant BUG-025 (même famille : credentials
-tenant-global au lieu de par-intégration, sur le secret de signature webhook cette fois plutôt que
-l'OAuth) — volontairement non corrigé, voir la fiche pour la justification (aucune capacité de
-configuration par intégration n'existe aujourd'hui, donc aucun cas réel possible actuellement).
+**107 bugs au total**, 107 ajouté et corrigé le 2026-07-21 en testant end-to-end le fix de BUG-106 :
+la création d'une intégration Weezevent/Digifood échouait sur cette base (colonnes legacy
+`NOT NULL` jamais nettoyées après la migration multi-instance) — corrigé (`DROP NOT NULL`), voir la
+fiche pour la vérification avant/après. 106 ajouté le même jour en creusant BUG-025 (même famille :
+credentials tenant-global au lieu de par-intégration, sur le secret de signature webhook cette fois
+plutôt que l'OAuth) — également corrigé le même jour (secret par-intégration avec repli tenant),
+voir la fiche pour le détail.
 
 **BUG-16/17/20/25/26/27/28/29 corrigés et BUG-21 analysé en profondeur le 2026-07-21**, suite à une
 revue exhaustive de tous les bugs "Analyse & agrégation" / "Intégrations & ventes" restés 🔴 Ouvert

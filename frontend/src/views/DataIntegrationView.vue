@@ -43,7 +43,7 @@
             <div class="card-header">
               <div class="card-header-left">
                 <div class="card-logo-wrap">
-                  <v-img :src="integration.type === 'digifood' ? '/img/digifood-logo.png' : '/img/weezevent-logo.png'" width="26" height="26" />
+                  <v-img :src="integration.type === 'digifood' ? '/img/integration/digifood.png' : '/img/integration/weezevent.png'" width="26" height="26" />
                 </div>
                 <div>
                   <div class="card-header-title">{{ integration.name }}</div>
@@ -324,7 +324,7 @@
           <!-- Weezevent option -->
           <button class="cd-provider-card" @click="openDrawer('config-weezevent', null)">
             <div class="cd-provider-card__logo">
-              <v-img src="/img/weezevent-logo.png" width="24" height="24" />
+              <v-img src="/img/integration/weezevent.png" width="24" height="24" />
             </div>
             <div class="cd-provider-card__info">
               <div class="cd-provider-card__name">Weezevent</div>
@@ -336,7 +336,7 @@
           <!-- Digifood option -->
           <button class="cd-provider-card" @click="openDrawer('config-digifood', null)">
             <div class="cd-provider-card__logo cd-provider-card__logo--orange">
-              <v-img src="/img/digifood-logo.png" width="24" height="24" />
+              <v-img src="/img/integration/digifood.png" width="24" height="24" />
             </div>
             <div class="cd-provider-card__info">
               <div class="cd-provider-card__name">Digifood</div>
