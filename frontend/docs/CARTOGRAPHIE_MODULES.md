@@ -145,6 +145,9 @@ Client Axios central `src/api/client.js` (`baseURL = VUE_APP_API_URL`), 27 clien
 ### Événements (Ulrich)
 /events (`menu.events.manage`), /event-types, /event-categories, /event-subcategories — via `event.api`.
 
+### RH (Jean-Luc)
+/hr (`menu.hr.manage`, ?tab=suppliers|positions) — bibliothèques HR Suppliers / Staff Positions (`components/hr/` : HrView + onglets Vuetify/i18n, chrome WorkspaceAppHeader + rail, 2026-07-21 ; données **localStorage** via `utils/hrApi.js`, aucune table ni API backend — voir [`modules/11_RH_STAFFING.md`](modules/11_RH_STAFFING.md)).
+
 ### Menu F&B (Ulrich)
 /suppliers (`menu.fb.suppliers`), /market-prices (`menu.fb.marketPrices`), /components + new/edit (`menu.fb.components`), /space-menus + détail shop (`menu.fb.spaceMenu`), /menu-items + create/edit (`menu.fb.menuItems`).
 
@@ -165,9 +168,11 @@ Client Axios central `src/api/client.js` (`baseURL = VUE_APP_API_URL`), 27 clien
 |---|---|---|
 | `versionReact/` (5,7 Mo, 225 fichiers) | Prototype Figma Make React — 0 import, mais divergence métier non portée (règle attendance [0,5–2,0]) | Arbitrer la règle avec Jean-Luc → taguer → sortir du repo |
 | `api-datafriday-main/` (140 fichiers) | Copie d'un ancien backend DANS le repo front | Vérifier les tickets qui le ciblent → sortir du repo |
-| `appCopy.vue`, `MenuBuilder.vue`, Consolidated*(Events/HR/Account), HRSuppliersView | Vues jamais routées (~4 000 lignes) | Supprimer |
+| `appCopy.vue`, `MenuBuilder.vue`, Consolidated*(Events/HR/Account), HRSuppliersView, StaffPositionsView | Vues jamais routées (les 3 vues RH : brièvement routées le 2026-07-21, puis remplacées le même jour par `components/hr/` en Vuetify natif — dialogs shadcn cassés dans le layout, cf. BUG-203) | Supprimer |
+| `SpacesPage.vue` + `views/SpacesOverviewView.vue` (route `/spaces-overview`) | Cul-de-sac audité 2026-07-21 : **aucune entrée de navigation n'y mène** (restes : déf. de route, libellé RouteTransitionLoader, map AppHeader) ; style prototype, doublon de `/spaces` | Décision à acter : retirer la route ou assumer (cf. `modules/11_RH_STAFFING.md` 4ᵉ passe) |
 | `src/ui/` (94 composants), `src/figma/`, `src/hooks/`, `src/types/` | Vestiges du portage React | Audit d'usage puis purge de l'inutilisé |
-| `src/utils/api.js` (45 Ko) + `eventApi.js`, `hrApi.js`, `mockAPI.js`, `predictiveAnalytics.legacy.js`, `.bak` | Monolithe API legacy (encore appelé par Restock) | Migrer Restock vers `endpoints/`, puis supprimer |
+| `src/utils/api.js` (45 Ko) + `eventApi.js`, `mockAPI.js`, `predictiveAnalytics.legacy.js`, `.bak` | Monolithe API legacy (encore appelé par Restock ; ⚠️ son `baseUrl` = Edge Function KV morte `make-server-…` — les écrans RH l'ont quitté le 2026-07-21, cf. BUG-203) | Migrer Restock vers `endpoints/`, puis supprimer |
+| `src/utils/hrApi.js` | ~~Mort~~ → **couche de données localStorage des écrans RH routés** (2026-07-21) | Remplacer par tables + `endpoints/hr.api.js` (étape 2, Bertrand #29) |
 | `views/HomeView.vue` | Orpheline (route home = redirect) | Supprimer |
 | Backend : `src/features/kv/` + modèle KvStore, imports RouterModule/Reflector | Module jamais enregistré | Enregistrer ou supprimer (recommandé : supprimer) |
 

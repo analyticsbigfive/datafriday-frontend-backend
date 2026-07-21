@@ -23,6 +23,9 @@ const EventsTypeListView = () => import('../components/events/views/EventsTypeLi
 const EventsCategorieListView = () => import('../components/events/views/EventsCategorieListView.vue')
 const EventsSubcategorieListView = () => import('../components/events/views/EventsSubcategorieListView.vue')
 
+// Route HR View (Edit HR : bibliothèques Suppliers / Staff Positions)
+const HrView = () => import('../components/hr/views/HrView.vue')
+
 // Routes Menu FB Views — lazy comme le reste (en statique, ces 18 vues admin
 // étaient inlinées dans app.js et payées au premier paint de toutes les routes).
 const SuppliersListView = () => import('../components/menu-fb/views/suppliers/views/SuppliersListView.vue')
@@ -224,6 +227,13 @@ const routes = [
         meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
       { path: '/event-subcategories', redirect: '/events/event-subcategories' },
+
+      {
+        path: '/hr',
+        name: 'hr',
+        component: HrView,
+        meta: { title: 'Edit HR', keepAlive: true, permission: 'menu.hr.manage' }
+      },
 
       {
         path: '/menu-fb/suppliers',
