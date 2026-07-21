@@ -25,12 +25,12 @@
 | [11](11_routes_kv_mortes.md) | Routes /kv mortes (KvModule non enregistré) | 🔴 Ouvert | 🟡 | Technique |
 | [12](12_scoping_config_manquant_spacemenus.md) | Scoping config manquant perf/staff/inventory Space Menus | 🟢 Corrigé | 🟠 | Espaces & builder |
 | [13](13_predictversion_update_jamais_appelee.md) | PredictVersionsService.update() jamais appelée | 🟢 Corrigé | 🟢 | Prévision |
-| [14](14_aggregation_colonnes_mal_ecrites.md) | AggregationService écrit menuItemId/locationId dans les mauvaises colonnes | 🔴 Ouvert | 🔴 | Analyse & agrégation |
-| [15](15_agregation_ttc_ht_non_convertie.md) | Formule de CA ne convertit jamais TTC→HT | 🔴 Ouvert | 🔴 | Analyse & agrégation |
+| [14](14_aggregation_colonnes_mal_ecrites.md) | AggregationService écrit menuItemId/locationId dans les mauvaises colonnes | 🟢 Corrigé | 🔴 | Analyse & agrégation |
+| [15](15_agregation_ttc_ht_non_convertie.md) | Formule de CA ne convertit jamais TTC→HT | 🟢 Corrigé | 🔴 | Analyse & agrégation |
 | [16](16_agregats_perimetre_divergent.md) | SpaceProductRevenueDailyAgg vs SpaceRevenueMinuteAgg : périmètre divergent | 🔴 Ouvert | 🟠 | Analyse & agrégation |
 | [17](17_step2_shops_mapped_incoherent.md) | step2_shops_mapped calculé différemment unitaire vs bulk | 🔴 Ouvert | 🟡 | Analyse & agrégation |
-| [18](18_merchant_element_mapping_sans_ownership.md) | createMerchantElementMapping sans vérification ownership tenant | 🔴 Ouvert | 🟠 | Analyse & agrégation |
-| [19](19_queue_agregation_sans_retry.md) | Aucun retry BullMQ sur la queue d'agrégation | 🔴 Ouvert | 🟡 | Analyse & agrégation |
+| [18](18_merchant_element_mapping_sans_ownership.md) | createMerchantElementMapping sans vérification ownership tenant | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [19](19_queue_agregation_sans_retry.md) | Aucun retry BullMQ sur la queue d'agrégation | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [20](20_event_skipped_statut_trompeur.md) | Event "skipped" garde un statut trompeur après traitement réussi | 🔴 Ouvert | 🟡 | Analyse & agrégation |
 | [21](21_jointure_event_weezevent_par_date_seule.md) | Jointure Event↔WeezeventEvent par égalité de DATE seule | 🔴 Ouvert | 🟡 | Analyse & agrégation |
 | [22](22_configurations_v1_patch_upsert.md) | PATCH /configurations/:id (v1) se comporte comme un upsert | 🔴 Ouvert | 🟡 | Espaces & builder |
@@ -41,7 +41,7 @@
 | [27](27_cron_weezevent_garde_anti_doublerun_inoperante.md) | Garde anti-double-run du cron Weezevent inopérante | 🔴 Ouvert | 🟡 | Intégrations & ventes |
 | [28](28_marktransactionasdeleted_no_op.md) | markTransactionAsDeleted ne fait rien de réel | 🔴 Ouvert | 🟡 | Intégrations & ventes |
 | [29](29_mapping_fait_logique_dupliquee.md) | Logique "mapping fait ?" dupliquée Mappings vs Aggregation | 🔴 Ouvert | 🟡 | Intégrations & ventes |
-| [30](30_margin_analysis_gonflee_produits_non_mappes.md) | margin-analysis gonfle la marge sur produits non mappés | 🔴 Ouvert | 🟠 | Intégrations & ventes |
+| [30](30_margin_analysis_gonflee_produits_non_mappes.md) | margin-analysis gonfle la marge sur produits non mappés | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [31](31_restock_403_silencieux_roles_board.md) | Restock : rôles restockBoard-only en 403 silencieux permanent | 🔴 Ouvert | 🔴 | Stock |
 | [32](32_discardedquantity_colonnes_mortes.md) | discardedQuantity/discardedReason colonnes DB mortes | 🔴 Ouvert | 🟢 | Stock |
 | [33](33_event_kpis_champs_jamais_ecrits.md) | Event.revenue/transactionCount jamais écrits (pipeline mort) | 🔴 Ouvert | 🟡 | Événements |
@@ -117,6 +117,20 @@
 | [103](103_event_timeline_articles_vides_jointure_mapping.md) | `event-timeline` : item-level vide (0 article) malgré CA shop-level — INNER JOIN mapping trop strict | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation |
 | [104](104_weezevent_sync_job_organizationid_manquant.md) | Sync par job Weezevent échoue systématiquement (`organizationId manquant`, lu au mauvais endroit) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+
+**BUG-18, BUG-19 et BUG-30 corrigés le 2026-07-20**, en retriant les bugs déjà documentés mais
+jamais réellement corrigés des domaines "Analyse & agrégation" / "Intégrations & ventes" (même
+famille que BUG-014/015, découverts 🔴 Ouvert de longue date mais jamais portés en code malgré la
+fiche existante). BUG-19 : retiré l'écrasement `attempts: 1` de `queueAggregationJob`, hérite
+maintenant du retry global (3 tentatives + backoff). BUG-18 :
+`createMerchantElementMapping`/`bulkMerchantElementMappings` acceptaient un `spaceElementId` de la
+requête sans jamais vérifier qu'il appartient au tenant appelant — repris le pattern déjà correct de
+la fonction sœur `createLocationShopMapping` (vérification d'appartenance via
+`SpaceElement.findFirst`/`findMany` avec la clause `OR` floor/forecourt/externalMerch/zone avant
+tout upsert). BUG-30 : ajout d'un champ `summary.marginWarning` sur `GET .../margin-analysis`,
+non-null dès qu'au moins un item vendu n'est pas mappé à un MenuItem (la marge reste mécaniquement
+gonflée dans ce cas — coût exclu, vente comptée — corriger le calcul lui-même nécessite une décision
+produit non tranchée ; le front ne consomme pas encore ce champ, à brancher séparément).
 
 **105 bugs au total**, 105 ajouté et corrigé le 2026-07-20, découvert en creusant BUG-104 : une fois
 l'`organizationId` corrigé, le job de sync par job restait bloqué à "0 inséré" pour toujours. Preuve

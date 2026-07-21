@@ -261,6 +261,24 @@ export class AggregationService {
 
           // Agrégation DB-level : JOIN + GROUP BY + INSERT en une seule requête
           // Aucune donnée chargée en mémoire Node.js — élimination du findMany + JS loop
+          //
+          // BUG-014 (corrigé ici) : la version précédente écrivait pm."menuItemId" (un id de
+          // MenuItem, via une JOIN vers WeezeventProductMapping) dans la colonne "spaceElementId"
+          // — censée contenir le vrai id du shop/PDV mappé (WeezeventLocationShopMapping). Deux
+          // conséquences : (1) "Par shop" groupait en réalité par article vendu, pas par shop
+          // physique (une location vendant 17 articles devenait 17 "shops" fantômes) ; (2) la JOIN
+          // vers WeezeventProductMapping étant une INNER JOIN, toute vente d'un produit non encore
+          // mappé à un MenuItem disparaissait silencieusement de l'agrégat shop-level. Le vrai
+          // spaceElementId vient de "WeezeventLocationShopMapping" (LEFT JOIN : une location non
+          // mappée reste visible avec spaceElementId NULL, cohérent avec le comportement déjà
+          // documenté de get_space_shop_details). weezeventMerchantId venait aussi de
+          // t."locationId" dupliqué au lieu du vrai t."merchantId".
+          //
+          // BUG-015 (corrigé ici) : "revenueHt" ne divisait jamais par (1 + vat/100) — le montant
+          // stocké était en réalité du TTC, pas du HT, contrairement à getEventTimelineBatch
+          // (spaces.service.ts:1156-1159, référence "vivante" correcte : même formule
+          // ti."unitPrice" * ti.quantity / (1 + ti."vat" / 100), sans la remise — la remise n'est
+          // gérée que côté écriture ici, ordre : net TTC (après remise) puis détaxe).
           const dataPoints = await this.prisma.$executeRaw(Prisma.sql`
             INSERT INTO "SpaceRevenueMinuteAgg"
               ("id","tenantId","spaceId","minute","timezone","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId","revenueHt","transactionsCount","itemsCount","createdAt","updatedAt")
@@ -272,17 +290,17 @@ export class AggregationService {
               'Europe/Paris',
               ${event.id},
               t."locationId",
-              t."locationId",
-              pm."menuItemId",
-              SUM(ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)),
+              t."merchantId",
+              lsm."spaceElementId",
+              SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
               COUNT(ti."id")::int,
               SUM(ti."quantity")::int,
               NOW(),
               NOW()
             FROM "WeezeventTransaction" t
             JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t."id"
-            JOIN "WeezeventProductMapping" pm
-              ON pm."weezeventProductId" = ti."productId" AND pm."tenantId" = ${tenantId}
+            LEFT JOIN "WeezeventLocationShopMapping" lsm
+              ON lsm."weezeventLocationId" = t."locationId" AND lsm."tenantId" = ${tenantId}
             WHERE t."tenantId" = ${tenantId}
               ${integrationClause}
               AND t."transactionDate" >= ${eventDate}
@@ -290,7 +308,8 @@ export class AggregationService {
             GROUP BY
               date_trunc('minute', t."transactionDate"),
               t."locationId",
-              pm."menuItemId"
+              t."merchantId",
+              lsm."spaceElementId"
             ON CONFLICT ("tenantId","spaceId","minute","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId")
             DO UPDATE SET
               "revenueHt" = EXCLUDED."revenueHt",

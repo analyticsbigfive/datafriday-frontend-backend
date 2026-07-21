@@ -364,6 +364,22 @@ export class MappingsService {
   async createMerchantElementMapping(dto: CreateMerchantElementMappingDto, tenantId: string) {
     this.logger.log(`Mapping merchant ${dto.weezeventMerchantId} → element ${dto.spaceElementId}`);
 
+    const element = await this.prisma.spaceElement.findFirst({
+      where: {
+        id: dto.spaceElementId,
+        OR: [
+          { floor: { config: { space: { tenantId } } } },
+          { forecourt: { config: { space: { tenantId } } } },
+          { externalMerch: { config: { space: { tenantId } } } },
+          { zone: { space: { tenantId } } }, // Builder v2
+        ],
+      },
+      select: { id: true },
+    });
+    if (!element) {
+      throw new NotFoundException(`SpaceElement ${dto.spaceElementId} not found`);
+    }
+
     const mapping = await this.prisma.locationShopMapping.upsert({
       where: {
         tenantId_salesLocationId: {
@@ -392,9 +408,33 @@ export class MappingsService {
 
     for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
       const chunk = dto.mappings.slice(i, i + this.BULK_CHUNK_SIZE);
+
+      const ownedElements = await this.prisma.spaceElement.findMany({
+        where: {
+          id: { in: chunk.map((m) => m.spaceElementId) },
+          OR: [
+            { floor: { config: { space: { tenantId } } } },
+            { forecourt: { config: { space: { tenantId } } } },
+            { externalMerch: { config: { space: { tenantId } } } },
+            { zone: { space: { tenantId } } }, // Builder v2
+          ],
+        },
+        select: { id: true },
+      });
+      const ownedIds = new Set(ownedElements.map((e) => e.id));
+
+      const validItems = chunk.filter((m) => {
+        if (!ownedIds.has(m.spaceElementId)) {
+          errors.push({ weezeventMerchantId: m.weezeventMerchantId, error: `SpaceElement ${m.spaceElementId} not found` });
+          return false;
+        }
+        return true;
+      });
+      if (!validItems.length) continue;
+
       try {
         const results = await this.prisma.$transaction(
-          chunk.map((m) =>
+          validItems.map((m) =>
             this.prisma.locationShopMapping.upsert({
               where: {
                 tenantId_salesLocationId: {
@@ -417,16 +457,10 @@ export class MappingsService {
       } catch (err) {
         // Chunk-level failure: fallback to per-item upsert so a single bad row doesn't lose the whole chunk
         this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err instanceof Error ? err.message : String(err)}`);
-        for (const m of chunk) {
+        for (const m of validItems) {
           try {
-            const result = await this.prisma.locationShopMapping.upsert({
-              where: {
-                tenantId_salesLocationId: { tenantId, salesLocationId: m.weezeventMerchantId },
-              },
-              create: { tenantId, salesLocationId: m.weezeventMerchantId, spaceElementId: m.spaceElementId },
-              update: { spaceElementId: m.spaceElementId },
-            });
-            successes.push(this.withLegacyLocationKey(result));
+            const result = await this.createMerchantElementMapping(m, tenantId);
+            successes.push(result);
           } catch (itemErr) {
             errors.push({ weezeventMerchantId: m.weezeventMerchantId, error: itemErr instanceof Error ? itemErr.message : String(itemErr) });
           }
