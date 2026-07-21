@@ -33,6 +33,7 @@ export class WeezeventCollectWorkerService {
             });
 
             const tenantId = job.tenantId;
+            const integrationId = job.integrationId;
             const organizationId = job.integration.weezevent?.organizationId ?? null;
 
             if (!organizationId) {
@@ -41,6 +42,7 @@ export class WeezeventCollectWorkerService {
 
             await this.fetchChunk(
                 tenantId,
+                integrationId,
                 organizationId,
                 jobId,
                 job.fromDate.toISOString(),
@@ -70,6 +72,7 @@ export class WeezeventCollectWorkerService {
      */
     private async fetchChunk(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         jobId: string,
         fromIso: string,
@@ -87,7 +90,7 @@ export class WeezeventCollectWorkerService {
             return;
         }
 
-        const result = await this.weezeventClient.getTransactions(tenantId, organizationId, {
+        const result = await this.weezeventClient.getTransactions(tenantId, integrationId, organizationId, {
             fromDate: new Date(fromIso),
             toDate: new Date(toIso),
             perPage: WEEZEVENT_CAP,
@@ -114,8 +117,8 @@ export class WeezeventCollectWorkerService {
         }
 
         const midMs = Math.floor((startMs + endMs) / 2);
-        await this.fetchChunk(tenantId, organizationId, jobId, fromIso, new Date(midMs - 1).toISOString());
-        await this.fetchChunk(tenantId, organizationId, jobId, new Date(midMs).toISOString(), toIso);
+        await this.fetchChunk(tenantId, integrationId, organizationId, jobId, fromIso, new Date(midMs - 1).toISOString());
+        await this.fetchChunk(tenantId, integrationId, organizationId, jobId, new Date(midMs).toISOString(), toIso);
     }
 
     private async saveChunk(jobId: string, fromDate: string, toDate: string, data: any[]): Promise<void> {

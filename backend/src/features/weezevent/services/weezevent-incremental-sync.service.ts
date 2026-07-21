@@ -118,6 +118,7 @@ export class WeezeventIncrementalSyncService {
             while (hasMore && totalProcessed < maxItems) {
                 const response = await this.weezeventClient.getEvents(
                     tenantId,
+                    integrationId,
                     organizationId,
                     { ...apiParams, page },
                 );
@@ -271,6 +272,7 @@ export class WeezeventIncrementalSyncService {
             while (hasMore && totalProcessed < maxItems) {
                 const response = await this.weezeventClient.getTransactions(
                     tenantId,
+                    integrationId,
                     organizationId,
                     {
                         page,
@@ -942,6 +944,7 @@ export class WeezeventIncrementalSyncService {
                 while (hasMore) {
                     const response = await this.weezeventClient.getLocations(
                         tenantId,
+                        integrationId,
                         organizationId,
                         event.externalId,
                         { page, perPage: 100 },

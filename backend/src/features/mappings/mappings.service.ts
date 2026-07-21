@@ -766,6 +766,61 @@ export class MappingsService {
 
   // ─── Integration Progress ────────────────────────────────
 
+  /**
+   * Un point de vente de cette intégration (location cuid via createLocationShopMapping OU
+   * merchant id via createMerchantElementMapping — les deux écrivent dans LocationShopMapping.
+   * salesLocationId, cf. BUG-017) est-il mappé à un SpaceElement ?
+   *
+   * Source unique utilisée par getIntegrationProgress, getAllIntegrationProgress (step2) et
+   * AggregationService.getStep4Context (hasMappings) — BUG-017/BUG-029 corrigés ensemble : ces 3
+   * endroits réimplémentaient chacun leur propre logique de calcul, avec des définitions
+   * divergentes (l'une comptait par merchantId en filtrant le mauvais champ, l'autre par location
+   * cuid uniquement, la troisième ignorait complètement le scoping par intégration).
+   */
+  async hasShopMappingForIntegration(tenantId: string, integrationId: string): Promise<boolean> {
+    const mapped = await this.getShopMappedIntegrationIds(tenantId, [integrationId]);
+    return mapped.has(integrationId);
+  }
+
+  /**
+   * Version batchée de hasShopMappingForIntegration : pour un ensemble d'intégrations, une seule
+   * volée de requêtes (indépendante de N) plutôt que N×2 — utilisée par getAllIntegrationProgress.
+   */
+  private async getShopMappedIntegrationIds(
+    tenantId: string,
+    integrationIds: string[],
+  ): Promise<Set<string>> {
+    if (integrationIds.length === 0) return new Set();
+
+    const [locations, merchantTxs, mappings] = await Promise.all([
+      this.prisma.salesLocation.findMany({
+        where: { tenantId, integrationId: { in: integrationIds } },
+        select: { id: true, integrationId: true },
+      }),
+      this.prisma.salesTransaction.findMany({
+        where: { tenantId, integrationId: { in: integrationIds }, merchantId: { not: null } },
+        select: { merchantId: true, integrationId: true },
+        distinct: ['merchantId'],
+      }),
+      this.prisma.locationShopMapping.findMany({
+        where: { tenantId },
+        select: { salesLocationId: true },
+      }),
+    ]);
+
+    const mappedSalesLocationIds = new Set(mappings.map((m) => m.salesLocationId));
+    const result = new Set<string>();
+
+    for (const loc of locations) {
+      if (mappedSalesLocationIds.has(loc.id)) result.add(loc.integrationId);
+    }
+    for (const tx of merchantTxs) {
+      if (tx.merchantId && mappedSalesLocationIds.has(tx.merchantId)) result.add(tx.integrationId);
+    }
+
+    return result;
+  }
+
   async getIntegrationProgress(tenantId: string, weezeventLocationId: string) {
     // Step 1: Location→Space mapping exists?
     const locationMapping = await this.prisma.locationSpaceMapping.findUnique({
@@ -781,22 +836,13 @@ export class MappingsService {
     let step5 = false;
 
     if (locationMapping) {
-      // Step 2: Merchant→Element mappings exist?
-      const merchantTxs = await this.prisma.salesTransaction.findMany({
-        where: { tenantId, locationId: weezeventLocationId, merchantId: { not: null } },
-        select: { merchantId: true },
-        distinct: ['merchantId'],
-      });
-      const merchantIds = merchantTxs.map((m) => m.merchantId).filter(Boolean);
-      if (merchantIds.length > 0) {
-        const merchantMappings = await this.prisma.locationShopMapping.count({
-          where: {
-            tenantId,
-            salesLocationId: { in: merchantIds },
-          },
-        });
-        step2 = merchantMappings > 0;
-      }
+      // Step 2 (BUG-017 corrigé) : source unique partagée avec getAllIntegrationProgress et
+      // AggregationService.getStep4Context — auparavant cette route comptait les mappings par
+      // merchantId en filtrant WeezeventTransaction.locationId (mauvais espace d'id : ce champ
+      // contient un cuid WeezeventLocation, pas l'integrationId reçu ici), donnant quasi toujours
+      // step2=false. hasShopMappingForIntegration couvre les deux conventions réelles (location
+      // cuid ET merchant id).
+      step2 = await this.hasShopMappingForIntegration(tenantId, weezeventLocationId);
 
       // Step 3: Product→MenuItem mappings exist?
       const productMappings = await this.prisma.productMapping.count({
@@ -848,8 +894,9 @@ export class MappingsService {
    * Clé de conception :
    *  - L'entité primaire du wizard est WeezeventIntegration (= un compte Weezevent / "location" dans l'UI).
    *  - WeezeventLocationSpaceMapping.weezeventLocationId stocke l'integrationId (convention step1).
-   *  - WeezeventLocationShopMapping.weezeventLocationId stocke WeezeventLocation.id (cuid, convention step2).
-   *  - WeezeventTransaction.locationId est une FK vers WeezeventLocation.id (cuid).
+   *  - LocationShopMapping.salesLocationId stocke SOIT un WeezeventLocation.id (cuid), SOIT un
+   *    merchantId, selon que le mapping a été fait via la route location ou merchant (step2, voir
+   *    hasShopMappingForIntegration / getShopMappedIntegrationIds).
    */
   async getAllIntegrationProgress(tenantId: string) {
     this.logger.log(`Fetching integration progress for all integrations of tenant ${tenantId}`);
@@ -866,42 +913,21 @@ export class MappingsService {
 
     const integrationIds = integrations.map((i) => i.id);
 
-    // Résoudre les WeezeventLocation.id (cuids) par integrationId
-    // Nécessaire pour step2 : WeezeventLocationShopMapping.weezeventLocationId = WeezeventLocation.id
-    const locationsByIntegration = await this.prisma.salesLocation.findMany({
-      where: { tenantId, integrationId: { in: integrationIds } },
-      select: { id: true, integrationId: true },
-    });
-
-    const locationIdsByIntegration = new Map<string, string[]>();
-    for (const loc of locationsByIntegration) {
-      const list = locationIdsByIntegration.get(loc.integrationId) ?? [];
-      list.push(loc.id);
-      locationIdsByIntegration.set(loc.integrationId, list);
-    }
-    const allLocationCuids = locationsByIntegration.map((l) => l.id);
-
     // 2. Précharge en parallèle (évite N×5 queries série)
     const [
-      locationMappings,     // step1 : integrationId → spaceId
-      shopMappings,         // step2 : WeezeventLocation.id (cuid) → SpaceElement
-      productMappingsCount, // step3
-      aggJobs,              // step4 — completed jobs per spaceId
-      revenueAggs,          // step5
-      pastEvents,           // step4 — past events per spaceId
+      locationMappings,          // step1 : integrationId → spaceId
+      shopMappedIntegrationIds,  // step2 (BUG-017/029 : source unique, cf. plus bas)
+      productMappingsCount,      // step3
+      aggJobs,                   // step4 — completed jobs per spaceId
+      pastEvents,                // step4 — past events per spaceId
+      revenueAggs,               // step5
     ] = await Promise.all([
       // step1 : WeezeventLocationSpaceMapping.weezeventLocationId = integrationId (convention step1)
       this.prisma.locationSpaceMapping.findMany({
         where: { tenantId, salesLocationId: { in: integrationIds } },
         select: { salesLocationId: true, spaceId: true },
       }),
-      // step2 : WeezeventLocationShopMapping.weezeventLocationId = WeezeventLocation.id (cuid)
-      allLocationCuids.length > 0
-        ? this.prisma.locationShopMapping.findMany({
-            where: { tenantId, salesLocationId: { in: allLocationCuids } },
-            select: { salesLocationId: true },
-          })
-        : Promise.resolve([]),
+      this.getShopMappedIntegrationIds(tenantId, integrationIds),
       this.prisma.productMapping.count({ where: { tenantId } }),
       this.prisma.aggregationJobLog.groupBy({
         by: ['spaceId'],
@@ -922,7 +948,6 @@ export class MappingsService {
 
     // Index en Maps pour lookups O(1)
     const integSpaceMap = new Map(locationMappings.map((m) => [m.salesLocationId, m.spaceId]));
-    const mappedLocationCuidSet = new Set(shopMappings.map((m) => m.salesLocationId));
     const aggJobCountBySpace = new Map(aggJobs.filter((j) => j.spaceId).map((j) => [j.spaceId as string, j._count]));
     const pastEventCountBySpace = new Map(pastEvents.filter((e) => e.spaceId).map((e) => [e.spaceId as string, e._count]));
     const revenueBySpace = new Set(revenueAggs.map((r) => r.spaceId).filter(Boolean));
@@ -933,9 +958,8 @@ export class MappingsService {
       const spaceId = integSpaceMap.get(integ.id) ?? null;
       const step1 = !!spaceId;
 
-      // step2 : au moins un point de vente (WeezeventLocation) mappé à un SpaceElement ?
-      const locationCuids = locationIdsByIntegration.get(integ.id) ?? [];
-      const step2 = locationCuids.some((lid) => mappedLocationCuidSet.has(lid));
+      // step2 : au moins un point de vente (location ou merchant) mappé à un SpaceElement ?
+      const step2 = shopMappedIntegrationIds.has(integ.id);
 
       // step3 : global au tenant (pas par intégration)
       const step3 = productMappingsCount > 0;

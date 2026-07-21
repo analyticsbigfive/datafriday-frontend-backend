@@ -54,10 +54,11 @@ export class WeezeventApiService {
      */
     async get<T>(
         tenantId: string,
+        integrationId: string,
         endpoint: string,
         params?: Record<string, any>,
     ): Promise<T> {
-        return this.request<T>(tenantId, 'GET', endpoint, { params });
+        return this.request<T>(tenantId, integrationId, 'GET', endpoint, { params });
     }
 
     /**
@@ -65,10 +66,11 @@ export class WeezeventApiService {
      */
     async post<T>(
         tenantId: string,
+        integrationId: string,
         endpoint: string,
         data?: any,
     ): Promise<T> {
-        return this.request<T>(tenantId, 'POST', endpoint, { data });
+        return this.request<T>(tenantId, integrationId, 'POST', endpoint, { data });
     }
 
     /**
@@ -76,10 +78,11 @@ export class WeezeventApiService {
      */
     async put<T>(
         tenantId: string,
+        integrationId: string,
         endpoint: string,
         data?: any,
     ): Promise<T> {
-        return this.request<T>(tenantId, 'PUT', endpoint, { data });
+        return this.request<T>(tenantId, integrationId, 'PUT', endpoint, { data });
     }
 
     /**
@@ -87,22 +90,28 @@ export class WeezeventApiService {
      */
     async delete<T>(
         tenantId: string,
+        integrationId: string,
         endpoint: string,
     ): Promise<T> {
-        return this.request<T>(tenantId, 'DELETE', endpoint);
+        return this.request<T>(tenantId, integrationId, 'DELETE', endpoint);
     }
 
     /**
      * Execute HTTP request with authentication and retry logic
+     *
+     * BUG-025 (corrigé) : integrationId est maintenant obligatoire et propagé jusqu'à
+     * WeezeventAuthService.getAccessToken — auparavant le token OAuth était résolu par tenantId
+     * seul, donc partagé (à tort) entre toutes les intégrations Weezevent d'un même tenant.
      */
     private async request<T>(
         tenantId: string,
+        integrationId: string,
         method: string,
         endpoint: string,
         options: Partial<AxiosRequestConfig> = {},
     ): Promise<T> {
-        // Get access token
-        const token = await this.authService.getAccessToken(tenantId);
+        // Get access token — scopé à cette intégration précise
+        const token = await this.authService.getAccessToken(tenantId, integrationId);
 
         // Build request config
         // ⚠️ timeout placé APRÈS le spread pour qu'aucun appelant ne puisse l'écraser
@@ -120,7 +129,7 @@ export class WeezeventApiService {
             timeout: Math.min(options.timeout ?? HARD_TIMEOUT_MS, HARD_TIMEOUT_MS),
         };
 
-        return this.executeWithRetry<T>(config, tenantId);
+        return this.executeWithRetry<T>(config, integrationId);
     }
 
     /**
@@ -128,7 +137,7 @@ export class WeezeventApiService {
      */
     private async executeWithRetry<T>(
         config: AxiosRequestConfig,
-        tenantId: string,
+        integrationId: string,
         attempt = 1,
     ): Promise<T> {
         try {
@@ -163,11 +172,11 @@ export class WeezeventApiService {
                 );
 
                 await this.sleep(delay);
-                return this.executeWithRetry<T>(config, tenantId, attempt + 1);
+                return this.executeWithRetry<T>(config, integrationId, attempt + 1);
             }
 
             // No more retries, throw mapped error
-            throw this.mapError(error, tenantId);
+            throw this.mapError(error, integrationId);
         }
     }
 
@@ -201,7 +210,7 @@ export class WeezeventApiService {
     /**
      * Map HTTP errors to custom exceptions
      */
-    private mapError(error: any, tenantId: string): Error {
+    private mapError(error: any, integrationId: string): Error {
         if (!error.response) {
             this.logger.error('Network error occurred', error.stack);
             return new WeezeventApiException(
@@ -221,7 +230,7 @@ export class WeezeventApiService {
         switch (status) {
             case 401:
                 // Clear cached token on auth failure
-                this.authService.clearToken(tenantId);
+                this.authService.clearToken(integrationId);
                 return new WeezeventAuthException(
                     `Authentication failed: ${errorMessage}`,
                 );

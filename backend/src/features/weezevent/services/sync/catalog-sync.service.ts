@@ -51,7 +51,7 @@ export class WeezeventCatalogSyncService {
 
             this.logger.log(`Syncing events for tenant ${tenantId}, organization ${organizationId}`);
 
-            const response = await this.weezeventClient.getEvents(tenantId, organizationId, { perPage: 100 });
+            const response = await this.weezeventClient.getEvents(tenantId, integrationId, organizationId, { perPage: 100 });
 
             const parseDate = (dateStr: string | undefined): Date | null => {
                 if (!dateStr) return null;
@@ -179,7 +179,7 @@ export class WeezeventCatalogSyncService {
 
             this.logger.log(`Syncing products for tenant ${tenantId}, organization ${organizationId}`);
 
-            const response = await this.weezeventClient.getProducts(tenantId, organizationId, { perPage: 100 });
+            const response = await this.weezeventClient.getProducts(tenantId, integrationId, organizationId, { perPage: 100 });
 
             const weezeventIds = response.data.map(p => p.id.toString());
             const existingProducts = await this.prisma.salesProduct.findMany({
@@ -335,8 +335,8 @@ export class WeezeventCatalogSyncService {
         }
 
         const [variantsResult, componentsResult] = await Promise.allSettled([
-            this.weezeventClient.getProductVariants(tenantId, organizationId, productId),
-            this.weezeventClient.getProductComponents(tenantId, organizationId, productId),
+            this.weezeventClient.getProductVariants(tenantId, integrationId, organizationId, productId),
+            this.weezeventClient.getProductComponents(tenantId, integrationId, organizationId, productId),
         ]);
 
         if (variantsResult.status === 'fulfilled') {

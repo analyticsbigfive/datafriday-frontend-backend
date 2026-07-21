@@ -33,6 +33,7 @@ describe('WeezeventClientService', () => {
     });
 
     const tenantId = 'tenant-123';
+    const integrationId = 'integration-a';
     const organizationId = '456';
 
     describe('getTransactions', () => {
@@ -44,11 +45,12 @@ describe('WeezeventClientService', () => {
 
             mockApiService.get.mockResolvedValue(mockResponse);
 
-            const result = await service.getTransactions(tenantId, organizationId);
+            const result = await service.getTransactions(tenantId, integrationId, organizationId);
 
             expect(result).toEqual(mockResponse);
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/transactions`,
                 { page: 1, per_page: 50 },
             );
@@ -57,7 +59,7 @@ describe('WeezeventClientService', () => {
         it('should apply filters correctly', async () => {
             mockApiService.get.mockResolvedValue({ data: [], meta: {} });
 
-            await service.getTransactions(tenantId, organizationId, {
+            await service.getTransactions(tenantId, integrationId, organizationId, {
                 page: 2,
                 perPage: 100,
                 status: 'V',
@@ -68,6 +70,7 @@ describe('WeezeventClientService', () => {
 
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/transactions`,
                 expect.objectContaining({
                     page: 2,
@@ -77,6 +80,21 @@ describe('WeezeventClientService', () => {
                     created_at__lte: '2024-12-31T00:00:00.000Z',
                     event_id: 123,
                 }),
+            );
+        });
+
+        // BUG-025 (corrigé) : integrationId doit être propagé jusqu'à WeezeventApiService.get,
+        // pas seulement organizationId — c'est lui qui permet de résoudre le bon token OAuth.
+        it('propagates integrationId (not just organizationId) down to WeezeventApiService', async () => {
+            mockApiService.get.mockResolvedValue({ data: [], meta: {} });
+
+            await service.getTransactions(tenantId, 'integration-b', organizationId);
+
+            expect(mockApiService.get).toHaveBeenCalledWith(
+                tenantId,
+                'integration-b',
+                expect.any(String),
+                expect.any(Object),
             );
         });
     });
@@ -94,6 +112,7 @@ describe('WeezeventClientService', () => {
 
             const result = await service.getTransaction(
                 tenantId,
+                integrationId,
                 organizationId,
                 transactionId,
             );
@@ -101,6 +120,7 @@ describe('WeezeventClientService', () => {
             expect(result).toEqual(mockTransaction);
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/transactions/${transactionId}`,
             );
         });
@@ -119,6 +139,7 @@ describe('WeezeventClientService', () => {
 
             const result = await service.getWallet(
                 tenantId,
+                integrationId,
                 organizationId,
                 walletId,
             );
@@ -126,6 +147,7 @@ describe('WeezeventClientService', () => {
             expect(result).toEqual(mockWallet);
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/wallets/${walletId}`,
             );
         });
@@ -135,7 +157,7 @@ describe('WeezeventClientService', () => {
         it('should fetch wallets with filters', async () => {
             mockApiService.get.mockResolvedValue({ data: [], meta: {} });
 
-            await service.getWallets(tenantId, organizationId, {
+            await service.getWallets(tenantId, integrationId, organizationId, {
                 page: 1,
                 perPage: 20,
                 status: 'active',
@@ -144,6 +166,7 @@ describe('WeezeventClientService', () => {
 
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/wallets`,
                 {
                     page: 1,
@@ -167,11 +190,12 @@ describe('WeezeventClientService', () => {
 
             mockApiService.get.mockResolvedValue(mockUser);
 
-            const result = await service.getUser(tenantId, organizationId, userId);
+            const result = await service.getUser(tenantId, integrationId, organizationId, userId);
 
             expect(result).toEqual(mockUser);
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/users/${userId}`,
             );
         });
@@ -188,11 +212,12 @@ describe('WeezeventClientService', () => {
 
             mockApiService.get.mockResolvedValue(mockEvent);
 
-            const result = await service.getEvent(tenantId, organizationId, eventId);
+            const result = await service.getEvent(tenantId, integrationId, organizationId, eventId);
 
             expect(result).toEqual(mockEvent);
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/events/${eventId}`,
             );
         });
@@ -202,13 +227,14 @@ describe('WeezeventClientService', () => {
         it('should fetch events list', async () => {
             mockApiService.get.mockResolvedValue({ data: [], meta: {} });
 
-            await service.getEvents(tenantId, organizationId, {
+            await service.getEvents(tenantId, integrationId, organizationId, {
                 page: 1,
                 perPage: 10,
             });
 
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/events`,
                 { page: 1, per_page: 10 },
             );
@@ -228,6 +254,7 @@ describe('WeezeventClientService', () => {
 
             const result = await service.getProduct(
                 tenantId,
+                integrationId,
                 organizationId,
                 productId,
             );
@@ -235,6 +262,7 @@ describe('WeezeventClientService', () => {
             expect(result).toEqual(mockProduct);
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/products/${productId}`,
             );
         });
@@ -244,7 +272,7 @@ describe('WeezeventClientService', () => {
         it('should fetch products with category filter', async () => {
             mockApiService.get.mockResolvedValue({ data: [], meta: {} });
 
-            await service.getProducts(tenantId, organizationId, {
+            await service.getProducts(tenantId, integrationId, organizationId, {
                 page: 1,
                 perPage: 50,
                 category: 'food',
@@ -252,6 +280,7 @@ describe('WeezeventClientService', () => {
 
             expect(mockApiService.get).toHaveBeenCalledWith(
                 tenantId,
+                integrationId,
                 `/organizations/${organizationId}/products`,
                 {
                     page: 1,

@@ -36,6 +36,10 @@ describe('WeezeventCronService', () => {
 
     const mockSyncTracker = {
         getRunningSyncs: jest.fn().mockReturnValue([]),
+        isRunning: jest.fn().mockReturnValue(false),
+        startSync: jest.fn().mockReturnValue('job-id-1'),
+        completeSync: jest.fn(),
+        failSync: jest.fn(),
     };
 
     beforeEach(async () => {
@@ -88,31 +92,61 @@ describe('WeezeventCronService', () => {
             expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledTimes(2);
         });
 
-        it('should skip tenant if sync already running', async () => {
+        it('should skip integration if sync already running (BUG-027)', async () => {
             const mockTenants = [
                 { id: 'tenant-1', name: 'Tenant 1', weezeventOrganizationId: 'org-1' },
             ];
 
             mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
             mockPrismaService.integration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
-            mockSyncTracker.getRunningSyncs.mockReturnValue([{ type: 'transactions' }]);
+            mockSyncTracker.isRunning.mockReturnValue(true);
 
             await service.syncRecentTransactions();
 
+            expect(mockSyncTracker.isRunning).toHaveBeenCalledWith('tenant-1', 'transactions', 'integration-1');
             expect(mockIncrementalSyncService.syncTransactionsIncremental).not.toHaveBeenCalled();
+            expect(mockSyncTracker.startSync).not.toHaveBeenCalled();
         });
 
-        it('should handle errors gracefully', async () => {
+        it('should wrap each sync with startSync/completeSync (BUG-027)', async () => {
             const mockTenants = [
                 { id: 'tenant-1', name: 'Tenant 1', weezeventOrganizationId: 'org-1' },
             ];
 
             mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
             mockPrismaService.integration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
+            mockSyncTracker.isRunning.mockReturnValue(false);
+            mockIncrementalSyncService.syncTransactionsIncremental.mockResolvedValue({
+                isIncremental: true,
+                itemsSynced: 10,
+                itemsCreated: 5,
+                itemsSkipped: 0,
+                hasMore: false,
+                duration: 1000,
+            });
+
+            await service.syncRecentTransactions();
+
+            expect(mockSyncTracker.startSync).toHaveBeenCalledWith('tenant-1', 'transactions', 'integration-1');
+            expect(mockSyncTracker.completeSync).toHaveBeenCalledWith('job-id-1');
+            expect(mockSyncTracker.failSync).not.toHaveBeenCalled();
+        });
+
+        it('should mark the tracked job failed on error, without throwing (BUG-027)', async () => {
+            const mockTenants = [
+                { id: 'tenant-1', name: 'Tenant 1', weezeventOrganizationId: 'org-1' },
+            ];
+
+            mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.integration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
+            mockSyncTracker.isRunning.mockReturnValue(false);
             mockIncrementalSyncService.syncTransactionsIncremental.mockRejectedValue(new Error('API Error'));
 
             // Should not throw
             await expect(service.syncRecentTransactions()).resolves.not.toThrow();
+
+            expect(mockSyncTracker.failSync).toHaveBeenCalledWith('job-id-1', 'API Error');
+            expect(mockSyncTracker.completeSync).not.toHaveBeenCalled();
         });
     });
 

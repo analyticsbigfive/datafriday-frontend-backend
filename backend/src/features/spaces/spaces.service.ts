@@ -1383,6 +1383,7 @@ export class SpacesService {
     while (hasMore) {
       const response = await this.weezeventClient.getAttendees(
         tenantId,
+        event.integrationId,
         integration.weezevent.organizationId,
         event.externalId,
         { page, perPage: 100 },

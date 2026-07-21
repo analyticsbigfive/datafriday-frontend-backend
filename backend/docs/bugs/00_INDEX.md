@@ -27,20 +27,20 @@
 | [13](13_predictversion_update_jamais_appelee.md) | PredictVersionsService.update() jamais appelée | 🟢 Corrigé | 🟢 | Prévision |
 | [14](14_aggregation_colonnes_mal_ecrites.md) | AggregationService écrit menuItemId/locationId dans les mauvaises colonnes | 🟢 Corrigé | 🔴 | Analyse & agrégation |
 | [15](15_agregation_ttc_ht_non_convertie.md) | Formule de CA ne convertit jamais TTC→HT | 🟢 Corrigé | 🔴 | Analyse & agrégation |
-| [16](16_agregats_perimetre_divergent.md) | SpaceProductRevenueDailyAgg vs SpaceRevenueMinuteAgg : périmètre divergent | 🔴 Ouvert | 🟠 | Analyse & agrégation |
-| [17](17_step2_shops_mapped_incoherent.md) | step2_shops_mapped calculé différemment unitaire vs bulk | 🔴 Ouvert | 🟡 | Analyse & agrégation |
+| [16](16_agregats_perimetre_divergent.md) | SpaceProductRevenueDailyAgg vs SpaceRevenueMinuteAgg : périmètre divergent | 🟢 Corrigé par ricochet | 🟠 | Analyse & agrégation |
+| [17](17_step2_shops_mapped_incoherent.md) | step2_shops_mapped calculé différemment unitaire vs bulk | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [18](18_merchant_element_mapping_sans_ownership.md) | createMerchantElementMapping sans vérification ownership tenant | 🟢 Corrigé | 🟠 | Analyse & agrégation |
 | [19](19_queue_agregation_sans_retry.md) | Aucun retry BullMQ sur la queue d'agrégation | 🟢 Corrigé | 🟡 | Analyse & agrégation |
-| [20](20_event_skipped_statut_trompeur.md) | Event "skipped" garde un statut trompeur après traitement réussi | 🔴 Ouvert | 🟡 | Analyse & agrégation |
-| [21](21_jointure_event_weezevent_par_date_seule.md) | Jointure Event↔WeezeventEvent par égalité de DATE seule | 🔴 Ouvert | 🟡 | Analyse & agrégation |
+| [20](20_event_skipped_statut_trompeur.md) | Event "skipped" garde un statut trompeur après traitement réussi | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [21](21_jointure_event_weezevent_par_date_seule.md) | Jointure Event↔WeezeventEvent par égalité de DATE seule | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
 | [22](22_configurations_v1_patch_upsert.md) | PATCH /configurations/:id (v1) se comporte comme un upsert | 🔴 Ouvert | 🟡 | Espaces & builder |
 | [23](23_bascule_silencieuse_v1_v2_assign_floor.md) | Bascule silencieuse v1→v2 dès le 1er assign-floor | 🔴 Ouvert | 🟡 | Espaces & builder |
 | [24](24_dedup_marketprice_criteres_insuffisants.md) | Dédup MarketPrice ignore prix/unité/quantité | 🔴 Ouvert | 🟡 | Achats & référentiels |
-| [25](25_weezevent_multi_instance_auth_croisee.md) | Multi-instance Weezevent : auth OAuth croisée entre intégrations | 🔴 Ouvert | 🔴 | Intégrations & ventes |
-| [26](26_dedup_webhook_event_inoperante.md) | Dédup IntegrationWebhookEvent inopérante côté Weezevent | 🔴 Ouvert | 🟠 | Intégrations & ventes |
-| [27](27_cron_weezevent_garde_anti_doublerun_inoperante.md) | Garde anti-double-run du cron Weezevent inopérante | 🔴 Ouvert | 🟡 | Intégrations & ventes |
-| [28](28_marktransactionasdeleted_no_op.md) | markTransactionAsDeleted ne fait rien de réel | 🔴 Ouvert | 🟡 | Intégrations & ventes |
-| [29](29_mapping_fait_logique_dupliquee.md) | Logique "mapping fait ?" dupliquée Mappings vs Aggregation | 🔴 Ouvert | 🟡 | Intégrations & ventes |
+| [25](25_weezevent_multi_instance_auth_croisee.md) | Multi-instance Weezevent : auth OAuth croisée entre intégrations | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [26](26_dedup_webhook_event_inoperante.md) | Dédup IntegrationWebhookEvent inopérante côté Weezevent | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [27](27_cron_weezevent_garde_anti_doublerun_inoperante.md) | Garde anti-double-run du cron Weezevent inopérante | 🟢 Corrigé | 🟡 | Intégrations & ventes |
+| [28](28_marktransactionasdeleted_no_op.md) | markTransactionAsDeleted ne fait rien de réel | 🟢 Corrigé | 🟡 | Intégrations & ventes |
+| [29](29_mapping_fait_logique_dupliquee.md) | Logique "mapping fait ?" dupliquée Mappings vs Aggregation | 🟢 Corrigé | 🟡 | Intégrations & ventes |
 | [30](30_margin_analysis_gonflee_produits_non_mappes.md) | margin-analysis gonfle la marge sur produits non mappés | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [31](31_restock_403_silencieux_roles_board.md) | Restock : rôles restockBoard-only en 403 silencieux permanent | 🔴 Ouvert | 🔴 | Stock |
 | [32](32_discardedquantity_colonnes_mortes.md) | discardedQuantity/discardedReason colonnes DB mortes | 🔴 Ouvert | 🟢 | Stock |
@@ -117,6 +117,49 @@
 | [103](103_event_timeline_articles_vides_jointure_mapping.md) | `event-timeline` : item-level vide (0 article) malgré CA shop-level — INNER JOIN mapping trop strict | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation |
 | [104](104_weezevent_sync_job_organizationid_manquant.md) | Sync par job Weezevent échoue systématiquement (`organizationId manquant`, lu au mauvais endroit) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [106](106_webhook_secret_tenant_global_pas_par_integration.md) | Secret de signature webhook Weezevent tenant-global, pas par intégration | ⚪ Diagnostiqué | 🟡 | Intégrations & ventes |
+
+**106 bugs au total**, 106 ajouté le 2026-07-21 en creusant BUG-025 (même famille : credentials
+tenant-global au lieu de par-intégration, sur le secret de signature webhook cette fois plutôt que
+l'OAuth) — volontairement non corrigé, voir la fiche pour la justification (aucune capacité de
+configuration par intégration n'existe aujourd'hui, donc aucun cas réel possible actuellement).
+
+**BUG-16/17/20/25/26/27/28/29 corrigés et BUG-21 analysé en profondeur le 2026-07-21**, suite à une
+revue exhaustive de tous les bugs "Analyse & agrégation" / "Intégrations & ventes" restés 🔴 Ouvert
+malgré une fiche existante (même démarche que la session du 2026-07-20 pour BUG-18/19/30) :
+- **BUG-025** (🔴 critique, le plus sévère de cette revue) : confirmé en base — 2 tenants réels ont
+  aujourd'hui 3 et 4 intégrations Weezevent actives simultanément, chacune authentifiée à tort avec
+  les credentials OAuth de la première créée (`WeezeventAuthService`/`WeezeventApiService` cachaient
+  et résolvaient le token par `tenantId` seul). Corrigé en scopant tout par `integrationId` — cache
+  token, résolution des credentials (lecture directe de `WeezeventIntegrationConfig` au lieu du
+  miroir `Tenant.weezeventClientId`), et propagation dans les 15 méthodes de
+  `WeezeventClientService` + 18 points d'appel dans 7 fichiers. A fait découvrir BUG-106 (même
+  famille, sur le secret webhook — non corrigé, nécessite une nouvelle capacité produit).
+- **BUG-026/027/028** : trois gardes/mécanismes documentés comme inopérants et jamais réellement
+  câblés — dédup webhook (jamais d'`externalDeliveryId` renseigné : réutilise la signature HMAC,
+  déjà déterministe et déjà calculée, comme clé d'idempotence), garde anti-double-run du cron
+  (`SyncTrackerService.startSync/completeSync/failSync` jamais appelés — câblés, scopés par
+  intégration pour ne pas bloquer à tort 2 intégrations d'un même tenant en sync simultanée), et
+  `markTransactionAsDeleted` (ne touchait que `syncedAt` — ajout d'un vrai `deletedAt`, exclu de
+  l'agrégation ET des endpoints de listing/analytics qui lisent `SalesTransaction` directement).
+- **BUG-016** : refermé "par ricochet" — la divergence de périmètre documentée avait déjà disparu
+  comme effet de bord du fix BUG-014 (2026-07-20), vérifié a posteriori.
+- **BUG-017/029** : même racine, corrigés ensemble — deux implémentations divergentes de "shop
+  mappé ?" (l'une par merchantId sur le mauvais champ, l'autre par location cuid uniquement, la
+  troisième ignorant complètement le scope par intégration) unifiées dans
+  `MappingsService.hasShopMappingForIntegration`, seule source utilisée maintenant par
+  `getIntegrationProgress`, `getAllIntegrationProgress` et `AggregationService.getStep4Context`.
+- **BUG-020** : `skipEvent` purge maintenant les data points déjà agrégés de l'event (sinon un event
+  traité-puis-skip gardait des `dataPoints > 0` sous un statut affiché "Skipped").
+- **BUG-021** : analysé en profondeur, **délibérément laissé ouvert** — `Event` n'a aucune FK vers
+  `WeezeventEvent` (jointure par date, par conception d'origine) ; un fix "sans risque" suppose une
+  décision produit (comment désambiguïser 2 events le même jour) qu'une heuristique technique
+  (nom, proximité horaire) ne peut pas trancher à la place de l'utilisateur sans risquer une
+  mauvaise attribution silencieuse sur une RPC financière en production.
+- **Bonus découvert en cours de route** : `SpaceProductRevenueDailyAgg.revenueHt` (jumeau non
+  corrigé de BUG-015) ne divisait toujours pas par `(1 + vat/100)` — même défaut TTC/HT que
+  `SpaceRevenueMinuteAgg`, manqué lors du fix initial car dans une requête SQL distincte du même
+  bloc de code. Corrigé au passage.
 
 **BUG-18, BUG-19 et BUG-30 corrigés le 2026-07-20**, en retriant les bugs déjà documentés mais
 jamais réellement corrigés des domaines "Analyse & agrégation" / "Intégrations & ventes" (même

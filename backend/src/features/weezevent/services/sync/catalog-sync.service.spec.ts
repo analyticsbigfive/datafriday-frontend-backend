@@ -147,6 +147,7 @@ describe('WeezeventCatalogSyncService', () => {
 
             expect(client.getEvents).toHaveBeenCalledWith(
                 TENANT_ID,
+                INTEGRATION_ID,
                 ORG_ID,
                 expect.any(Object),
             );
@@ -179,6 +180,7 @@ describe('WeezeventCatalogSyncService', () => {
 
             expect(client.getProducts).toHaveBeenCalledWith(
                 TENANT_ID,
+                INTEGRATION_ID,
                 ORG_ID,
                 expect.any(Object),
             );

@@ -101,7 +101,25 @@ export class WebhookController {
 
             this.logger.log(`Signature validated for tenant ${tenantId}`);
 
-            // 3. Store webhook event for audit and processing
+            // 3. Dédup (BUG-026 corrigé) — Weezevent ne fournit pas d'UUID de livraison dans le
+            // payload (contrairement à Digifood, cf. IntegrationWebhookEvent.externalDeliveryId).
+            // La signature HMAC est déterministe sur le corps exact du payload (WebhookSignatureService
+            // : HMAC-SHA256(secret, JSON.stringify(payload))) : un retry Weezevent renvoie le même
+            // corps, donc la même signature — c'est une clé d'idempotence naturelle, déjà validée
+            // ci-dessus, aucune donnée supplémentaire à extraire.
+            const existing = await this.prisma.integrationWebhookEvent.findUnique({
+                where: {
+                    integrationId_externalDeliveryId: { integrationId, externalDeliveryId: signature },
+                },
+                select: { id: true, processed: true },
+            });
+
+            if (existing) {
+                this.logger.log(`Webhook déjà reçu (dédupliqué via signature) — event existant ${existing.id}`);
+                return { received: true, eventId: existing.id };
+            }
+
+            // 4. Store webhook event for audit and processing
             const webhookEvent = await this.prisma.integrationWebhookEvent.create({
                 data: {
                     tenantId,
@@ -110,17 +128,18 @@ export class WebhookController {
                     method: payload.method,
                     payload: payload as any,
                     signature,
+                    externalDeliveryId: signature,
                     processed: false,
                 },
             });
 
             this.logger.log(`Stored webhook event ${webhookEvent.id}`);
 
-            // 4. Process event asynchronously (don't wait for completion)
+            // 5. Process event asynchronously (don't wait for completion)
             // This ensures we return 200 quickly to Weezevent
             this.processEventAsync(webhookEvent.id);
 
-            // 5. Return success immediately
+            // 6. Return success immediately
             return {
                 received: true,
                 eventId: webhookEvent.id,

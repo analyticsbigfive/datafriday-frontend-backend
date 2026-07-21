@@ -52,6 +52,7 @@ describe('WebhookController', () => {
     integrationWebhookEvent: {
       create: jest.fn(),
       update: jest.fn(),
+      findUnique: jest.fn(),
     },
   };
 
@@ -99,6 +100,7 @@ describe('WebhookController', () => {
       mockPrismaService.integration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
       mockSignatureService.validateSignature.mockReturnValue(true);
+      mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(null);
       mockPrismaService.integrationWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
 
       const result = await controller.receiveWebhook(
@@ -112,7 +114,34 @@ describe('WebhookController', () => {
         received: true,
         eventId: 'event-123',
       });
-      expect(mockPrismaService.integrationWebhookEvent.create).toHaveBeenCalled();
+      expect(mockPrismaService.integrationWebhookEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ externalDeliveryId: 'valid-signature' }),
+        }),
+      );
+    });
+
+    // BUG-026 (corrigé) : un retry Weezevent renvoie le même payload → même signature HMAC
+    // (déterministe) → doit être détecté comme déjà traité, pas dupliqué en audit ni retraité.
+    it('should dedupe a retried webhook via signature (BUG-026)', async () => {
+      mockPrismaService.integration.findUnique.mockResolvedValue(mockIntegration);
+      mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
+      mockSignatureService.validateSignature.mockReturnValue(true);
+      mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue({
+        id: 'event-123',
+        processed: true,
+      });
+
+      const result = await controller.receiveWebhook(
+        'tenant-123',
+        'integration-123',
+        'valid-signature',
+        mockPayload as any,
+      );
+
+      expect(result).toEqual({ received: true, eventId: 'event-123' });
+      expect(mockPrismaService.integrationWebhookEvent.create).not.toHaveBeenCalled();
+      expect(mockEventHandler.processEvent).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException when tenant not found', async () => {

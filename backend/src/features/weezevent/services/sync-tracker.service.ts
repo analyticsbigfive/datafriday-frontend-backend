@@ -3,6 +3,11 @@ import { Injectable } from '@nestjs/common';
 export interface SyncJob {
     id: string;
     tenantId: string;
+    /** BUG-027 : scope optionnel par intégration — un tenant peut avoir plusieurs intégrations
+     *  Weezevent actives en parallèle (cf. BUG-025), chacune avec son propre cycle de sync. Sans ce
+     *  scope, un lock tenant-only bloquerait à tort la sync d'une 2ᵉ intégration pendant que la 1ère
+     *  tourne. */
+    integrationId?: string;
     type: 'transactions' | 'events' | 'products';
     status: 'running' | 'completed' | 'failed';
     startedAt: Date;
@@ -21,11 +26,14 @@ export class SyncTrackerService {
     /**
      * Start tracking a sync job
      */
-    startSync(tenantId: string, type: SyncJob['type']): string {
-        const id = `${tenantId}-${type}-${Date.now()}`;
+    startSync(tenantId: string, type: SyncJob['type'], integrationId?: string): string {
+        const id = integrationId
+            ? `${tenantId}-${integrationId}-${type}-${Date.now()}`
+            : `${tenantId}-${type}-${Date.now()}`;
         const job: SyncJob = {
             id,
             tenantId,
+            integrationId,
             type,
             status: 'running',
             startedAt: new Date(),
@@ -77,23 +85,28 @@ export class SyncTrackerService {
     }
 
     /**
-     * Get running syncs for a tenant
+     * Get running syncs for a tenant, optionnellement restreint à une intégration (BUG-027).
      */
-    getRunningSyncs(tenantId: string): SyncJob[] {
+    getRunningSyncs(tenantId: string, integrationId?: string): SyncJob[] {
         return Array.from(this.jobs.values()).filter(
-            (job) => job.tenantId === tenantId && job.status === 'running',
+            (job) =>
+                job.tenantId === tenantId &&
+                job.status === 'running' &&
+                (integrationId === undefined || job.integrationId === integrationId),
         );
     }
 
     /**
-     * Check if a sync is running for a tenant and type
+     * Check if a sync is running for a tenant and type, optionnellement restreint à une
+     * intégration (BUG-027).
      */
-    isRunning(tenantId: string, type: SyncJob['type']): boolean {
+    isRunning(tenantId: string, type: SyncJob['type'], integrationId?: string): boolean {
         return Array.from(this.jobs.values()).some(
             (job) =>
                 job.tenantId === tenantId &&
                 job.type === type &&
-                job.status === 'running',
+                job.status === 'running' &&
+                (integrationId === undefined || job.integrationId === integrationId),
         );
     }
 

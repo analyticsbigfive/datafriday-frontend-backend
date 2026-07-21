@@ -27,7 +27,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (eventId) where.eventId = eventId;
         if (fromDate || toDate) {
@@ -104,7 +106,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (fromDate || toDate) {
             where.transactionDate = {};
@@ -176,7 +180,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (eventId) where.eventId = eventId;
         if (fromDate || toDate) {
@@ -292,7 +298,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (eventId) where.eventId = eventId;
         if (fromDate || toDate) {

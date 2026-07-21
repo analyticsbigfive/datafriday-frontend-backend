@@ -90,6 +90,7 @@ export class WeezeventTransactionSyncService {
             while (hasMore) {
                 const response = await this.weezeventClient.getTransactions(
                     tenantId,
+                    integrationId,
                     organizationId,
                     {
                         page,
@@ -231,6 +232,7 @@ export class WeezeventTransactionSyncService {
 
         const apiTransaction = await this.weezeventClient.getTransaction(
             tenantId,
+            integrationId,
             organizationId,
             transactionId.toString(),
         );

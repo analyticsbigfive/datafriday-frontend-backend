@@ -50,7 +50,9 @@ export class WeezeventController {
         const tenantId = user.tenantId;
         const { integrationId, page = 1, perPage = 50, status, fromDate, toDate, eventId, merchantId } = query;
 
-        const where: any = { tenantId, integrationId };
+        // BUG-028 : une transaction supprimée côté Weezevent (webhook "delete", deletedAt renseigné)
+        // ne doit plus apparaître dans le listing par défaut.
+        const where: any = { tenantId, integrationId, deletedAt: null };
 
         if (status) where.status = status;
         if (eventId) where.eventId = eventId;
@@ -142,7 +144,7 @@ export class WeezeventController {
             throw new BadRequestException(`L\'organisation Weezevent n\'est pas configurée pour cette intégration.`);
         }
 
-        return this.weezeventClient.getTransactions(tenantId, integration.weezevent.organizationId, {
+        return this.weezeventClient.getTransactions(tenantId, integrationId, integration.weezevent.organizationId, {
             page,
             perPage,
             status,
@@ -955,6 +957,7 @@ export class WeezeventController {
         try {
             const apiProduct = await this.weezeventClient.getProduct(
                 tenantId,
+                product.integrationId,
                 product.integration.weezevent.organizationId,
                 product.externalId,
             );

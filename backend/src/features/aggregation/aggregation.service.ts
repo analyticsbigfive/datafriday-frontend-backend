@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.service';
+import { MappingsService } from '../mappings/mappings.service';
 
 @Injectable()
 export class AggregationService {
@@ -11,6 +12,7 @@ export class AggregationService {
   constructor(
     private prisma: PrismaService,
     private queueService: QueueService,
+    private mappingsService: MappingsService,
   ) {}
 
   /**
@@ -305,6 +307,7 @@ export class AggregationService {
               ${integrationClause}
               AND t."transactionDate" >= ${eventDate}
               AND t."transactionDate" < ${nextDay}
+              AND t."deletedAt" IS NULL
             GROUP BY
               date_trunc('minute', t."transactionDate"),
               t."locationId",
@@ -319,6 +322,9 @@ export class AggregationService {
           `);
 
           // SpaceProductRevenueDailyAgg — même approche DB-level
+          // Twin de BUG-015 : ce bloc ne divisait pas non plus par (1 + vat/100), écrivant du TTC
+          // dans une colonne "revenueHt" — même défaut que SpaceRevenueMinuteAgg, manqué lors du
+          // fix initial car dans une requête distincte du même bloc de code.
           await this.prisma.$executeRaw(Prisma.sql`
             INSERT INTO "SpaceProductRevenueDailyAgg"
               ("id","tenantId","spaceId","day","weezeventProductId","revenueHt","quantity","createdAt","updatedAt")
@@ -328,7 +334,7 @@ export class AggregationService {
               ${spaceId},
               ${eventDate}::date,
               ti."productId",
-              SUM(ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)),
+              SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
               SUM(ti."quantity")::int,
               NOW(),
               NOW()
@@ -338,6 +344,7 @@ export class AggregationService {
               ${integrationClause}
               AND t."transactionDate" >= ${eventDate}
               AND t."transactionDate" < ${nextDay}
+              AND t."deletedAt" IS NULL
               AND ti."productId" IS NOT NULL
             GROUP BY ti."productId"
             ON CONFLICT ("tenantId","spaceId","day","weezeventProductId")
@@ -566,7 +573,16 @@ export class AggregationService {
   }
 
   /**
-   * Mark an event as skipped — no sales data available or deliberately excluded
+   * Mark an event as skipped — no sales data available or deliberately excluded.
+   *
+   * BUG-020 (corrigé) : "skipped" doit vouloir dire "aucune donnée" — sans purge, un event
+   * traité avec succès puis marqué skip a posteriori gardait ses lignes SpaceRevenueMinuteAgg
+   * (dataPoints > 0) sous un statut affiché "Skipped", incohérent pour l'utilisateur. La purge et
+   * la création du job log sont dans une transaction pour rester cohérentes en cas d'échec partiel.
+   *
+   * SpaceProductRevenueDailyAgg n'est volontairement PAS purgée ici : elle est indexée par jour
+   * calendaire (pas par eventId — cf. BUG-021/BUG-016), donc purger par date risquerait de
+   * supprimer les données d'un second event légitime le même jour sur le même espace.
    */
   async skipEvent(tenantId: string, spaceId: string, eventId: string) {
     const event = await this.prisma.event.findFirst({
@@ -577,29 +593,43 @@ export class AggregationService {
       throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
     }
 
-    await this.prisma.aggregationJobLog.create({
-      data: {
-        tenantId,
-        spaceId,
-        jobType: 'skip',
-        status: 'skipped',
-        fromDate: event.eventDate,
-        toDate: event.eventDate,
-        metadata: { eventIds: [eventId] },
-      },
-    });
+    const [{ count: purgedDataPoints }] = await this.prisma.$transaction([
+      this.prisma.spaceRevenueMinuteAgg.deleteMany({
+        where: { tenantId, spaceId, weezeventEventId: eventId },
+      }),
+      this.prisma.aggregationJobLog.create({
+        data: {
+          tenantId,
+          spaceId,
+          jobType: 'skip',
+          status: 'skipped',
+          fromDate: event.eventDate,
+          toDate: event.eventDate,
+          metadata: { eventIds: [eventId] },
+        },
+      }),
+    ]);
 
-    this.logger.log(`Event ${eventId} marked as skipped for space ${spaceId}`);
-    return { eventId, status: 'skipped' };
+    this.logger.log(
+      `Event ${eventId} marked as skipped for space ${spaceId} (purged ${purgedDataPoints} existing data points)`,
+    );
+    return { eventId, status: 'skipped', purgedDataPoints };
   }
 
   /**
    * #10 — Contexte complet du step 4 en un seul appel.
    * Bundle : timeline + transactionStats + weezeventEvents + hasMappings.
    * Remplace les 7 appels séparés du mounted() du wizard.
+   *
+   * BUG-029 (corrigé) : hasMappings comptait tous les LocationShopMapping du TENANT entier, sans
+   * scoping par intégration — une intégration B sans aucun mapping affichait hasMappings:true dès
+   * qu'une intégration A du même tenant en avait un. Délègue maintenant à
+   * MappingsService.hasShopMappingForIntegration, la même source utilisée par le wizard de mapping
+   * (BUG-017), pour ne plus jamais diverger. Sans integrationId (legacy, paramètre optionnel),
+   * conserve l'ancien comportement tenant-wide en repli.
    */
   async getStep4Context(tenantId: string, spaceId: string, integrationId?: string) {
-    const [timeline, weezeventEvents, mappingCount] = await Promise.all([
+    const [timeline, weezeventEvents, hasMappings] = await Promise.all([
       this.getEventsTimelineStatus(tenantId, spaceId, integrationId),
       integrationId
         ? this.prisma.salesEvent.findMany({
@@ -607,13 +637,15 @@ export class AggregationService {
             orderBy: { startDate: 'asc' },
           })
         : Promise.resolve([]),
-      this.prisma.locationShopMapping.count({ where: { tenantId } }),
+      integrationId
+        ? this.mappingsService.hasShopMappingForIntegration(tenantId, integrationId)
+        : this.prisma.locationShopMapping.count({ where: { tenantId } }).then((count) => count > 0),
     ]);
 
     return {
       ...timeline,
       weezeventEvents,
-      hasMappings: mappingCount > 0,
+      hasMappings,
     };
   }
 

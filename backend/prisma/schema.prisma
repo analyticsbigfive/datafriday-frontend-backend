@@ -1133,6 +1133,11 @@ model SalesTransaction {
   updatedAt DateTime @updatedAt
   syncedAt  DateTime @default(now())
 
+  // BUG-028 : soft-delete réel — auparavant markTransactionAsDeleted() ne faisait que toucher
+  // syncedAt, ne marquant rien comme supprimé malgré son nom. Une transaction supprimée côté
+  // Weezevent (webhook "delete") est maintenant horodatée ici et exclue de l'agrégation.
+  deletedAt DateTime?
+
   // Relations
   tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   integration  Integration            @relation(fields: [integrationId], references: [id], onDelete: Cascade)
@@ -1151,6 +1156,7 @@ model SalesTransaction {
   @@index([locationId])
   @@index([status])
   @@index([transactionDate])
+  @@index([deletedAt])
   @@index([syncedAt])
   @@index([sellerWalletId]) // Added walletId index
   // Composite indexes for analytics
