@@ -146,6 +146,90 @@ describe('WeezeventIntegrationService', () => {
         });
     });
 
+    describe('BUG-106: webhook config per instance', () => {
+        describe('getWebhookConfig', () => {
+            it('returns enabled/configured from the instance config', async () => {
+                mockPrismaService.integration.findFirst.mockResolvedValue({
+                    weezevent: { webhookEnabled: true, webhookSecret: 'encrypted-secret' },
+                });
+
+                const result = await service.getWebhookConfig('org-123', 'inst-1');
+
+                expect(result).toEqual({ enabled: true, configured: true });
+            });
+
+            it('returns disabled/unconfigured when no webhook config exists yet', async () => {
+                mockPrismaService.integration.findFirst.mockResolvedValue({
+                    weezevent: { webhookEnabled: null, webhookSecret: null },
+                });
+
+                const result = await service.getWebhookConfig('org-123', 'inst-1');
+
+                expect(result).toEqual({ enabled: false, configured: false });
+            });
+
+            it('throws NotFound when instance missing', async () => {
+                mockPrismaService.integration.findFirst.mockResolvedValue(null);
+                await expect(service.getWebhookConfig('org-123', 'missing')).rejects.toThrow(
+                    NotFoundException,
+                );
+            });
+        });
+
+        describe('updateWebhookConfig', () => {
+            it('encrypts the secret before persisting', async () => {
+                mockPrismaService.integration.findFirst
+                    .mockResolvedValueOnce({ id: 'inst-1' })
+                    .mockResolvedValueOnce({
+                        weezevent: { webhookEnabled: true, webhookSecret: 'encrypted-secret' },
+                    });
+                mockPrismaService.integration.update.mockResolvedValue({});
+
+                await service.updateWebhookConfig('org-123', 'inst-1', {
+                    webhookSecret: 'plain-secret',
+                    webhookEnabled: true,
+                });
+
+                expect(mockEncryptionService.encrypt).toHaveBeenCalledWith('plain-secret');
+                expect(mockPrismaService.integration.update).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        where: { id: 'inst-1' },
+                        data: expect.objectContaining({
+                            weezevent: expect.objectContaining({
+                                upsert: expect.objectContaining({
+                                    update: expect.objectContaining({
+                                        webhookSecret: 'encrypted-secret',
+                                        webhookEnabled: true,
+                                    }),
+                                }),
+                            }),
+                        }),
+                    }),
+                );
+            });
+
+            it('keeps the existing secret when webhookSecret is omitted (rotation optional)', async () => {
+                mockPrismaService.integration.findFirst
+                    .mockResolvedValueOnce({ id: 'inst-1' })
+                    .mockResolvedValueOnce({
+                        weezevent: { webhookEnabled: false, webhookSecret: 'encrypted-secret' },
+                    });
+                mockPrismaService.integration.update.mockResolvedValue({});
+
+                await service.updateWebhookConfig('org-123', 'inst-1', { webhookEnabled: false });
+
+                expect(mockEncryptionService.encrypt).not.toHaveBeenCalled();
+            });
+
+            it('throws NotFound when instance missing', async () => {
+                mockPrismaService.integration.findFirst.mockResolvedValue(null);
+                await expect(
+                    service.updateWebhookConfig('org-123', 'missing', { webhookEnabled: true }),
+                ).rejects.toThrow(NotFoundException);
+            });
+        });
+    });
+
     describe('getConfig (legacy)', () => {
         it('returns first enabled instance when present', async () => {
             mockPrismaService.tenant.findUnique.mockResolvedValue({ id: 'org-123' });

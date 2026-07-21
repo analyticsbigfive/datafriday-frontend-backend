@@ -276,6 +276,11 @@ model WeezeventIntegrationConfig {
   clientSecret   String // Encrypted (EncryptionService)
   organizationId String? // Weezevent Organization ID
 
+  // BUG-106 : secret de signature webhook par intégration (au lieu du seul
+  // Tenant.weezeventWebhookSecret global). Repli sur les colonnes tenant si absent.
+  webhookSecret  String? // Encrypted (EncryptionService)
+  webhookEnabled Boolean?
+
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 }
 
@@ -887,6 +892,7 @@ model SalesEvent {
   orders       WeezeventOrder[]
   prices       WeezeventPrice[]
   attendees    WeezeventAttendee[]
+  events       Event[]             @relation("EventWeezeventEvent")
 
   @@unique([tenantId, integrationId, externalId])
   @@index([tenantId])
@@ -2169,9 +2175,6 @@ model Team {
   subcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
   visitingFor Event[]           @relation("EventVisitingTeam")
 
-  @@index([tenantId])
-  @@index([eventCategoryId])
-  @@index([eventSubcategoryId])
   // BUG-70 : backstop DB contre la race TOCTOU du check applicatif (createTeam fait un findFirst
   // avant create() ; deux requêtes concurrentes peuvent toutes deux passer le check). Limite
   // connue : Postgres traite NULL comme distinct de NULL — deux équipes "génériques" (les deux
@@ -2181,6 +2184,9 @@ model Team {
   // contrainte DB ; le check applicatif reste la défense principale pour ce cas, celle-ci n'est
   // qu'un filet de sécurité pour la race exact-match.
   @@unique([tenantId, eventCategoryId, eventSubcategoryId, name])
+  @@index([tenantId])
+  @@index([eventCategoryId])
+  @@index([eventSubcategoryId])
 }
 
 // Événements planifiés
@@ -2194,6 +2200,13 @@ model Event {
   eventCategoryId    String?
   eventSubcategoryId String?
   tenantId           String?
+
+  // BUG-021 : liaison explicite vers l'event Weezevent apparié (au lieu d'un
+  // rapprochement par date seule dans les RPC). Rempli automatiquement quand
+  // exactement 1 Event et 1 WeezeventEvent partagent tenant+date calendaire ;
+  // laissé null en cas d'ambiguïté (plusieurs candidats), à résoudre manuellement
+  // via l'API de désambiguïsation.
+  weezeventEventId String?
 
   // Event date/time details
   eventStartDate DateTime?
@@ -2236,6 +2249,7 @@ model Event {
   eventCategory    EventCategory?    @relation(fields: [eventCategoryId], references: [id])
   eventSubcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
   visitingTeam     Team?             @relation("EventVisitingTeam", fields: [visitingTeamId], references: [id])
+  weezeventEvent   SalesEvent?       @relation("EventWeezeventEvent", fields: [weezeventEventId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([spaceId])
@@ -2244,6 +2258,7 @@ model Event {
   @@index([eventCategoryId])
   @@index([eventSubcategoryId])
   @@index([visitingTeamId])
+  @@index([weezeventEventId])
 }
 
 // ==================== AUDIT TRAIL ====================

@@ -6,6 +6,7 @@ import {
     CreateWeezeventInstanceDto,
     UpdateWeezeventInstanceDto,
 } from '../dto/weezevent-instance.dto';
+import { UpdateWeezeventWebhookDto } from '../dto/weezevent-webhook-config.dto';
 
 type PublicInstance = {
     id: string;
@@ -187,6 +188,68 @@ export class WeezeventIntegrationService {
         await this.prisma.integration.delete({ where: { id: instanceId } });
         await this.mirrorActiveInstanceToTenant(tenantId);
         return { success: true };
+    }
+
+    // ==================== BUG-106 : webhook secret par instance ====================
+
+    async getWebhookConfig(
+        tenantId: string,
+        instanceId: string,
+    ): Promise<{ enabled: boolean; configured: boolean }> {
+        const row = await this.prisma.integration.findFirst({
+            where: { id: instanceId, tenantId, provider: 'WEEZEVENT' },
+            select: { weezevent: { select: { webhookEnabled: true, webhookSecret: true } } },
+        });
+        if (!row) {
+            throw new NotFoundException(`Weezevent instance ${instanceId} not found`);
+        }
+        return {
+            enabled: row.weezevent?.webhookEnabled ?? false,
+            configured: !!row.weezevent?.webhookSecret,
+        };
+    }
+
+    async updateWebhookConfig(
+        tenantId: string,
+        instanceId: string,
+        dto: UpdateWeezeventWebhookDto,
+    ): Promise<{ enabled: boolean; configured: boolean }> {
+        const existing = await this.prisma.integration.findFirst({
+            where: { id: instanceId, tenantId, provider: 'WEEZEVENT' },
+            select: { id: true },
+        });
+        if (!existing) {
+            throw new NotFoundException(`Weezevent instance ${instanceId} not found`);
+        }
+
+        const configData: any = {};
+        if (dto.webhookSecret) {
+            configData.webhookSecret = this.encryptionService.encrypt(dto.webhookSecret);
+        }
+        if (dto.webhookEnabled !== undefined) {
+            configData.webhookEnabled = dto.webhookEnabled;
+        }
+
+        await this.prisma.integration.update({
+            where: { id: instanceId },
+            data: {
+                // upsert : répare une intégration historique dont la ligne de config manquerait
+                // (même garde que updateInstance() pour clientId/clientSecret)
+                weezevent: {
+                    upsert: {
+                        create: {
+                            clientId: '',
+                            clientSecret: '',
+                            webhookSecret: configData.webhookSecret ?? null,
+                            webhookEnabled: configData.webhookEnabled ?? false,
+                        },
+                        update: configData,
+                    },
+                },
+            },
+        });
+
+        return this.getWebhookConfig(tenantId, instanceId);
     }
 
     /**

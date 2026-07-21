@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventCatalogSyncService } from './catalog-sync.service';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
+import { EventWeezeventLinkService } from '../../../events/services/event-weezevent-link.service';
 
 const TENANT_ID = 'tenant-001';
 const INTEGRATION_ID = 'integ-001';
@@ -82,16 +83,19 @@ describe('WeezeventCatalogSyncService', () => {
     let service: WeezeventCatalogSyncService;
     let prisma: ReturnType<typeof makePrismaMock>;
     let client: ReturnType<typeof makeClientMock>;
+    let linkService: { relinkForTenantDate: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrismaMock();
         client = makeClientMock();
+        linkService = { relinkForTenantDate: jest.fn().mockResolvedValue(undefined) };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 WeezeventCatalogSyncService,
                 { provide: PrismaService, useValue: prisma },
                 { provide: WeezeventClientService, useValue: client },
+                { provide: EventWeezeventLinkService, useValue: linkService },
             ],
         }).compile();
 
@@ -151,6 +155,26 @@ describe('WeezeventCatalogSyncService', () => {
                 ORG_ID,
                 expect.any(Object),
             );
+        });
+
+        it('BUG-021: attempts an Event <-> WeezeventEvent auto-link for each synced start date', async () => {
+            await service.syncEvents(TENANT_ID, INTEGRATION_ID);
+
+            expect(linkService.relinkForTenantDate).toHaveBeenCalledWith(
+                TENANT_ID,
+                new Date('2025-06-01'),
+            );
+        });
+
+        it('BUG-021: skips auto-link when no event has a startDate', async () => {
+            client.getEvents.mockResolvedValue({
+                data: [{ ...mockApiEvent, start_date: undefined, live_start: undefined }],
+                meta: { total_pages: 1, current_page: 1, total: 1 },
+            });
+
+            await service.syncEvents(TENANT_ID, INTEGRATION_ID);
+
+            expect(linkService.relinkForTenantDate).not.toHaveBeenCalled();
         });
     });
 

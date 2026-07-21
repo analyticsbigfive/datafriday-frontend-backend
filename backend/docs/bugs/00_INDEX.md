@@ -32,7 +32,7 @@
 | [18](18_merchant_element_mapping_sans_ownership.md) | createMerchantElementMapping sans vérification ownership tenant | 🟢 Corrigé | 🟠 | Analyse & agrégation |
 | [19](19_queue_agregation_sans_retry.md) | Aucun retry BullMQ sur la queue d'agrégation | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [20](20_event_skipped_statut_trompeur.md) | Event "skipped" garde un statut trompeur après traitement réussi | 🟢 Corrigé | 🟡 | Analyse & agrégation |
-| [21](21_jointure_event_weezevent_par_date_seule.md) | Jointure Event↔WeezeventEvent par égalité de DATE seule | ⚪ Diagnostiqué | 🟡 | Analyse & agrégation |
+| [21](21_jointure_event_weezevent_par_date_seule.md) | Jointure Event↔WeezeventEvent par égalité de DATE seule | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [22](22_configurations_v1_patch_upsert.md) | PATCH /configurations/:id (v1) se comporte comme un upsert | 🔴 Ouvert | 🟡 | Espaces & builder |
 | [23](23_bascule_silencieuse_v1_v2_assign_floor.md) | Bascule silencieuse v1→v2 dès le 1er assign-floor | 🔴 Ouvert | 🟡 | Espaces & builder |
 | [24](24_dedup_marketprice_criteres_insuffisants.md) | Dédup MarketPrice ignore prix/unité/quantité | 🔴 Ouvert | 🟡 | Achats & référentiels |
@@ -117,7 +117,7 @@
 | [103](103_event_timeline_articles_vides_jointure_mapping.md) | `event-timeline` : item-level vide (0 article) malgré CA shop-level — INNER JOIN mapping trop strict | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation |
 | [104](104_weezevent_sync_job_organizationid_manquant.md) | Sync par job Weezevent échoue systématiquement (`organizationId manquant`, lu au mauvais endroit) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
-| [106](106_webhook_secret_tenant_global_pas_par_integration.md) | Secret de signature webhook Weezevent tenant-global, pas par intégration | ⚪ Diagnostiqué | 🟡 | Intégrations & ventes |
+| [106](106_webhook_secret_tenant_global_pas_par_integration.md) | Secret de signature webhook Weezevent tenant-global, pas par intégration | 🟢 Corrigé | 🟡 | Intégrations & ventes |
 
 **106 bugs au total**, 106 ajouté le 2026-07-21 en creusant BUG-025 (même famille : credentials
 tenant-global au lieu de par-intégration, sur le secret de signature webhook cette fois plutôt que

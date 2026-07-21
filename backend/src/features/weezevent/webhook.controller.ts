@@ -13,6 +13,7 @@ import {
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Public } from '../../core/auth/decorators/public.decorator';
+import { EncryptionService } from '../../core/encryption/encryption.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { WeezeventWebhookPayloadDto } from './dto/webhook-payload.dto';
@@ -31,6 +32,7 @@ export class WebhookController {
         private readonly prisma: PrismaService,
         private readonly signatureService: WebhookSignatureService,
         private readonly eventHandler: WebhookEventHandler,
+        private readonly encryption: EncryptionService,
     ) { }
 
     /**
@@ -57,14 +59,19 @@ export class WebhookController {
         try {
             const integration = await this.prisma.integration.findUnique({
                 where: { id: integrationId },
-                select: { id: true, tenantId: true },
+                select: {
+                    id: true,
+                    tenantId: true,
+                    weezevent: { select: { webhookEnabled: true, webhookSecret: true } },
+                },
             });
 
             if (!integration || integration.tenantId !== tenantId) {
                 throw new BadRequestException('Integration not found');
             }
 
-            // 1. Get tenant configuration
+            // 1. Get tenant configuration — sert de repli BUG-106 tant qu'aucun secret
+            //    par-intégration n'est configuré (rétrocompatible, zéro action requise).
             const tenant = await this.prisma.tenant.findUnique({
                 where: { id: tenantId },
             });
@@ -73,13 +80,25 @@ export class WebhookController {
                 throw new BadRequestException('Tenant not found');
             }
 
-            if (!tenant.weezeventWebhookEnabled) {
+            // BUG-106 : secret par intégration (WeezeventIntegrationConfig.webhookSecret)
+            // prioritaire s'il est explicitement configuré ; sinon repli intégral sur
+            // Tenant.weezeventWebhookSecret/weezeventWebhookEnabled (comportement historique,
+            // seule option avant que cette capacité de configuration par-intégration existe).
+            const perIntegrationConfigured =
+                integration.weezevent?.webhookEnabled === true && !!integration.weezevent?.webhookSecret;
+
+            const webhookEnabled = perIntegrationConfigured ? true : tenant.weezeventWebhookEnabled;
+            if (!webhookEnabled) {
                 throw new UnauthorizedException('Webhooks not enabled for this tenant');
             }
 
             // 2. Validate signature (OBLIGATOIRE — fail-closed). Sans secret configuré
             //    ou sans signature valide, on rejette : pas de webhook anonyme/spoofable.
-            if (!tenant.weezeventWebhookSecret) {
+            const webhookSecret = perIntegrationConfigured
+                ? this.encryption.decrypt(integration.weezevent!.webhookSecret!)
+                : tenant.weezeventWebhookSecret;
+
+            if (!webhookSecret) {
                 this.logger.warn(`Webhook secret not configured for tenant ${tenantId}`);
                 throw new UnauthorizedException('Webhook secret not configured for this tenant');
             }
@@ -91,7 +110,7 @@ export class WebhookController {
             const isValid = this.signatureService.validateSignature(
                 payload,
                 signature,
-                tenant.weezeventWebhookSecret,
+                webhookSecret,
             );
 
             if (!isValid) {
@@ -99,7 +118,10 @@ export class WebhookController {
                 throw new UnauthorizedException('Invalid signature');
             }
 
-            this.logger.log(`Signature validated for tenant ${tenantId}`);
+            this.logger.log(
+                `Signature validated for tenant ${tenantId}` +
+                (perIntegrationConfigured ? ' (secret par intégration)' : ' (secret tenant, repli)'),
+            );
 
             // 3. Dédup (BUG-026 corrigé) — Weezevent ne fournit pas d'UUID de livraison dans le
             // payload (contrairement à Digifood, cf. IntegrationWebhookEvent.externalDeliveryId).

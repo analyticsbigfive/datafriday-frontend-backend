@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { EventsService } from './events.service';
+import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
 import { EventsController, EventTypesController, EventCategoriesController, EventSubcategoriesController, TeamsController } from './events.controller';
 import { PredictVersionsController, PredictVersionsStandaloneController } from './predict-versions.controller';
 import { PredictVersionsService } from './predict-versions.service';
@@ -16,7 +17,7 @@ import { PrismaModule } from '../../core/database/prisma.module';
     PredictVersionsController,
     PredictVersionsStandaloneController,
   ],
-  providers: [EventsService, PredictVersionsService],
-  exports: [EventsService, PredictVersionsService],
+  providers: [EventsService, EventWeezeventLinkService, PredictVersionsService],
+  exports: [EventsService, EventWeezeventLinkService, PredictVersionsService],
 })
 export class EventsModule {}
