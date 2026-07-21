@@ -15,7 +15,7 @@
 | [01](01_cout_menucomponent_surestime.md) | Coût MenuComponent surestimé (`numberOfUnitsRecipe` ignoré) | 🔴 Ouvert | 🔴 | Menu & recettes |
 | [02](02_double_regle_combo_incompatible.md) | Deux règles d'expansion combo incompatibles | 🔴 Ouvert | 🟠 | Menu & recettes / Stock |
 | [03](03_taxonomie_croisee_marketprice_menuitem.md) | Taxonomie croisée Market Price / Menu Item | 🟢 Corrigé | 🟠 | Achats & référentiels |
-| [04](04_mappings_orphelins_save_builder.md) | Mappings orphelins après sauvegarde du builder | ⚪ Diagnostiqué | 🟠 | Intégrations & ventes |
+| [04](04_mappings_orphelins_save_builder.md) | Mappings orphelins après sauvegarde du builder | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [05](05_menuitem_mappe_sans_espace.md) | Menu item mappé sans association Espace | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [06](06_perte_tva_bulk_automap.md) | Perte de TVA lors du bulk auto-map | 🟡 Corrigé partiel | 🟠 | Intégrations & ventes |
 | [07](07_prix_fnb_weezevent_absent.md) | Prix F&B Weezevent absent du catalogue | 🟢 Corrigé | 🟠 | Intégrations & ventes |
@@ -127,6 +127,21 @@ fiche pour la vérification avant/après. 106 ajouté le même jour en creusant 
 credentials tenant-global au lieu de par-intégration, sur le secret de signature webhook cette fois
 plutôt que l'OAuth) — également corrigé le même jour (secret par-intégration avec repli tenant),
 voir la fiche pour le détail.
+
+**BUG-004 confirmé corrigé le 2026-07-21**, en clôturant la revue du module Intégrations & ventes
+(dernier bug non 🟢 du domaine avec BUG-006) : le fix (reconcile/upsert remplaçant le
+`delete+recreate` de `saveConfiguration`, + vraie FK `WeezeventLocationShopMapping.spaceElementId
+→ SpaceElement.id`) existait déjà en code sans que la fiche ait jamais été mise à jour. Reproduit
+et vérifié avec le vrai `SpacesService.saveConfiguration()` sur tenant/espace jetables : resave à
+l'identique et resave avec élément mappé absent du payload préservent tous les deux le mapping.
+
+**BUG-006 : nettoyage des doublons orphelins fait le 2026-07-21** (résidu documenté depuis le
+30/06). Diagnostic en lecture seule d'abord : 641 groupes de doublons (1516 lignes), dont 800
+strictement orphelines (zéro référence nulle part), toutes sur le tenant Big Five, créées sur une
+seule semaine (14-21 mai 2026). Supprimées après confirmation explicite. Reste 55 groupes (156
+lignes) où plusieurs `MenuItem` du même nom ont chacun un `WeezeventProductMapping` actif —
+volontairement non fusionnés (risque de conflation de SKU Weezevent distincts), documentés comme
+chantier séparé nécessitant une décision produit.
 
 **BUG-16/17/20/25/26/27/28/29 corrigés et BUG-21 analysé en profondeur le 2026-07-21**, suite à une
 revue exhaustive de tous les bugs "Analyse & agrégation" / "Intégrations & ventes" restés 🔴 Ouvert
