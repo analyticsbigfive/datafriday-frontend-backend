@@ -59,11 +59,13 @@ d'espace) ; son UI a donc été retirée :
   reste lue par ce chemin. Un plan de bascule complet (migration des données existantes,
   dépréciation du backend v1) reste à faire — voir zones grises dans
   `docs/modules/03_BUILDER_ESPACES.md`.
-- **Laissé en l'état, décision à prendre par un humain** : `PATCH /configurations/:id` et
-  `DELETE /configurations/:id` (`ConfigurationsController`) n'ont plus de caller frontend connu
-  (leur seul déclencheur était `SpaceBuilderViewRoute.vue`), mais ce sont des routes REST publiques
-  documentées (Swagger) partageant leur logique avec la route `POST /configurations` (elle,
-  vivante) — pas supprimées unilatéralement faute de certitude sur d'éventuels appelants externes.
+- **Supprimé côté backend (2026-07-22, après confirmation explicite)** : `PATCH /configurations/:id`
+  et `DELETE /configurations/:id` (`ConfigurationsController`) — leur seul déclencheur était
+  `SpaceBuilderViewRoute.vue`, et aucun autre appelant (backend interne, test, doc) n'a été trouvé.
+  `SpacesService.deleteConfiguration()` a été supprimée avec la route (plus aucun appelant).
+  `saveConfiguration()` reste intacte : `POST /configurations` en dépend toujours (upsert par id
+  volontaire sur ce chemin, `CreateConfigDto.id` reste un champ optionnel documenté). Résout
+  `backend/docs/bugs/22_configurations_v1_patch_upsert.md`.
 
 ## Références
 

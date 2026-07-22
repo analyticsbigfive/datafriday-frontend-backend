@@ -349,8 +349,8 @@ modèles ont été scopés par config dans la même migration.
 |---|---|
 | `POST /configurations` | Créer OU sauvegarder une config — `saveConfiguration` (reconcile complet) |
 | `GET /configurations/:id` | `getConfiguration` — fusion JSON+relationnel+injection v2 |
-| `PATCH /configurations/:id` | Même service que POST (`saveConfiguration({...dto, id})`) — **upsert**, pas un vrai update (voir bugs) |
-| `DELETE /configurations/:id` | Suppression (avec rattrapage des éléments v2 orphelins, voir plus bas) |
+| ~~`PATCH /configurations/:id`~~ | **Supprimée le 2026-07-22** (seul appelant : `SpaceBuilderViewRoute.vue`, retiré le même jour) — `saveConfiguration()` reste intact, toujours utilisé par POST |
+| ~~`DELETE /configurations/:id`~~ | **Supprimée le 2026-07-22** avec `SpacesService.deleteConfiguration()` (aucun autre appelant identifié — ne pas confondre avec `DELETE /builder-v2/configurations/:id`, méthode différente, toujours vivante) |
 | `PATCH /configurations/elements/:elementId` | Update ciblé d'un `SpaceElement` (name/image/notes/type/shopTypes) — utilisé par Data Integration, **pas** par le builder v1 lui-même |
 | `POST /configurations/:id/quick-element` | Doublon de route pour `quickCreateElement` (même service, montée aussi sur ce contrôleur) |
 
@@ -413,14 +413,16 @@ Vérifié `spaces.service.ts:2912-3180` (floor) et confirmé symétrique pour fo
 créé la toute première Zone RDC. À partir de ce moment, les assignations suivantes sur CET espace
 passent en v2 même si l'utilisateur n'a jamais ouvert `/builder2`.
 
-### `deleteConfiguration` (v1) — rattrapage des orphelins v2
+### `deleteConfiguration` (v1) — SUPPRIMÉ le 2026-07-22 (historique)
 
-Vérifié `spaces.service.ts:3708-3775`. Supprimer une `Config` v1 cascade ses
-`ConfigurationElement` (v2). Pour ne pas laisser d'éléments v2 orphelins invisibles :
-- s'il existe une autre config utilisateur dans l'espace → les éléments dont c'était la SEULE
-  adhésion y sont rattachés automatiquement ;
-- sinon (dernière config utilisateur de l'espace) → purge réelle des `SpaceElement` sans plus
-  aucune adhésion, puis des `Zone` vides.
+Vivait `spaces.service.ts:3750` (`SpacesService.deleteConfiguration`, exposé par
+`DELETE /configurations/:id`) — supprimé faute d'appelant (ni frontend, ni ailleurs dans le
+backend). Pour le contexte : supprimer une `Config` v1 cascadait ses `ConfigurationElement` (v2) ;
+pour ne pas laisser d'éléments v2 orphelins invisibles, la méthode rattachait les éléments dont
+c'était la SEULE adhésion à une autre config utilisateur de l'espace si une existait, sinon
+purgeait réellement les `SpaceElement` sans plus aucune adhésion puis les `Zone` vides. **Ne pas
+confondre avec `BuilderV2Service.deleteConfiguration` (`DELETE /builder-v2/configurations/:id`),
+une méthode distincte et toujours vivante** — voir section Backend v2 plus haut.
 
 ### Caches Redis (`SpacesService`)
 
@@ -760,7 +762,7 @@ récapitulé ici) :
 | # | Sujet | Détail | Fichiers |
 |---|---|---|---|
 | 1 | ~~Pas de flag de rollout par tenant~~ — **résolu par le retrait du frontend v1** | Une seule route (`builder2`) reste montée ; plus de risque de confusion UI entre deux builders | `router/index.js` |
-| 2 | **`PATCH /configurations/:id` (v1) = upsert** — toujours vrai côté backend, plus de caller frontend connu | Un id inexistant CRÉE la config au lieu de renvoyer 404 — contraste volontaire avec v2 (`PATCH /builder-v2/configurations/:id` = 404 stricte). Route conservée (décision humaine à prendre, voir ADR-0002) malgré l'absence de caller frontend identifié | `spaces.controller.ts` (`updateConfiguration`), `spaces.service.ts:1508` (`saveConfiguration` → `config.upsert`) |
+| 2 | ~~`PATCH /configurations/:id` (v1) = upsert~~ — **résolu, route supprimée le 2026-07-22** | La route (`ConfigurationsController.updateConfiguration`) et `DELETE /configurations/:id` (`deleteConfiguration`) ont été retirées, faute de caller frontend ou backend identifié. `saveConfiguration()` reste intact pour `POST /configurations` (upsert par id toujours volontaire sur ce chemin) | (routes supprimées) — voir `backend/docs/bugs/22_configurations_v1_patch_upsert.md` |
 | 3 | ~~Synchro cross-config v1 non transactionnelle~~ — **résolu par le retrait du frontend v1** | `syncConfigurationIdChanges` vivait dans `PropertiesPanelView.vue`, supprimé — plus aucun code client ne déclenche ce chemin | (fichier supprimé) |
 | 4 | **Bascule silencieuse v1→v2 au 1ᵉʳ `assign-floor`** | Un espace "v1 pur" peut se retrouver à router SES assignations suivantes en v2 dès qu'une seule Zone existe (ex. créée par un `quick-element` antérieur) — invisible pour l'utilisateur, source possible de confusion en debug ("pourquoi ce shop est en Zone alors que je n'ai jamais ouvert builder2 ?"). Toujours d'actualité : ce mécanisme est backend, indépendant du retrait de l'UI v1 | `spaces.service.ts:2973` (`spaceHasZones`) |
 | 5 | **`useIsoProjection.js` dupliqué dans `IsoView.vue`** | Les fonctions de dessin (`drawBox` et consorts) sont réimplémentées inline dans `IsoView.vue` au lieu de réutiliser `boxFaces()` du composable — deux copies à maintenir en parallèle. Sans rapport avec builder v1 (composable builder2) | `IsoView.vue:556-657` vs `useIsoProjection.js:120-194` |
