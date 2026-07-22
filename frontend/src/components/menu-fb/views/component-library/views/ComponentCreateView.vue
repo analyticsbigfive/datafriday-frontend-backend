@@ -383,7 +383,7 @@
 
     <!-- Création d'un packaging type (depuis le select « stored in ») -->
     <v-dialog v-model="packagingCreateOpen" max-width="420" :persistent="packagingCreateLoading">
-      <div class="cc-pk-dialog">
+      <div class="cc-pk-dialog" :class="{ 'cc-pk-dialog--dark': isDark }">
         <div class="cc-pk-dialog__header">
           <Package :size="18" color="#fff" />
           <span style="flex:1">{{ locale === 'fr' ? 'Ajouter un packaging type' : 'Add packaging type' }}</span>
@@ -1488,6 +1488,13 @@ export default {
 .cc-pk-btn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
 .cc-pk-btn--primary { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255,49,49,.3); }
 .cc-pk-btn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255,49,49,.4); transform: translateY(-1px); }
+/* ── Dark : dialog « Add packaging type » (v-dialog téléporté → classe portée sur sa racine) ── */
+.cc-pk-dialog--dark { background: #1e293b; }
+.cc-pk-dialog--dark .cc-pk-dialog__error { background: rgba(255,49,49,.15); color: #fca5a5; }
+.cc-pk-dialog--dark .cc-info-card__field-label { color: #93c5fd; }
+.cc-pk-dialog--dark .cc-inline-input { background: #1a2332; border-color: rgba(37,99,235,.3); color: #e2e8f0; }
+.cc-pk-dialog--dark .cc-pk-dialog__footer { background: #1a2332; border-top-color: rgba(255,255,255,.06); }
+.cc-pk-dialog--dark .cc-pk-btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
 .cc-info-label--dot {
   font-size: 1rem;
   font-weight: 700;
