@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsObject, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsObject, IsOptional, IsString } from 'class-validator';
 
 export class CreateInventoryDto {
   @ApiProperty({ description: "ID de l'espace" })
@@ -10,6 +10,15 @@ export class CreateInventoryDto {
   @IsOptional()
   @IsString()
   eventId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Phase du comptage : 'pre-event' (avant match) | 'post-event' (après match). Absent = legacy.",
+    enum: ['pre-event', 'post-event'],
+  })
+  @IsOptional()
+  @IsIn(['pre-event', 'post-event'])
+  kind?: 'pre-event' | 'post-event';
 
   @ApiProperty({
     description:

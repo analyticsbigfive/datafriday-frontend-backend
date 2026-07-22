@@ -148,42 +148,61 @@
         </div>
 
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs">
-          <v-text-field
-            :model-value="getCount(shop.element.id, item.id).packedUnits"
-            type="number"
-            min="0"
-            :label="packedUnitsLabel(item)"
-            density="compact"
-            variant="outlined"
-            hide-details
-            @update:model-value="$emit('change-value', shop.element.id, item.id, 'packedUnits', $event)"
-          >
-            <template #prepend-inner>
-              <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">mdi-minus</v-icon>
-            </template>
-            <template #append-inner>
-              <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">mdi-plus</v-icon>
-            </template>
-          </v-text-field>
-          <v-text-field
-            :model-value="getCount(shop.element.id, item.id).looseUnits"
-            type="number"
-            min="0"
-            step="0.01"
-            inputmode="decimal"
-            :label="t('invCountLooseUnits')"
-            density="compact"
-            variant="outlined"
-            hide-details
-            @update:model-value="$emit('change-value', shop.element.id, item.id, 'looseUnits', $event)"
-          >
-            <template #prepend-inner>
-              <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">mdi-minus</v-icon>
-            </template>
-            <template #append-inner>
-              <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">mdi-plus</v-icon>
-            </template>
-          </v-text-field>
+          <div class="si-count-field">
+            <v-text-field
+              :model-value="getCount(shop.element.id, item.id).packedUnits"
+              type="number"
+              min="0"
+              :label="packedUnitsLabel(item)"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="$emit('change-value', shop.element.id, item.id, 'packedUnits', $event)"
+            >
+              <template #prepend-inner>
+                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">mdi-minus</v-icon>
+              </template>
+              <template #append-inner>
+                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">mdi-plus</v-icon>
+              </template>
+            </v-text-field>
+            <!-- Pre-event Inventory : quantité ATTENDUE (post-event précédent +
+                 mouvements Logistic) — rendue UNIQUEMENT si le parent fournit
+                 expectedFor (permission front.fb.preInventoryExpected). -->
+            <div
+              v-if="expectedFor && expectedFor(shop.element.id, item.id, 'packed') != null"
+              class="si-expected-hint"
+            >
+              {{ t('invExpectedHint') }} : {{ expectedFor(shop.element.id, item.id, 'packed') }}
+            </div>
+          </div>
+          <div class="si-count-field">
+            <v-text-field
+              :model-value="getCount(shop.element.id, item.id).looseUnits"
+              type="number"
+              min="0"
+              step="0.01"
+              inputmode="decimal"
+              :label="t('invCountLooseUnits')"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="$emit('change-value', shop.element.id, item.id, 'looseUnits', $event)"
+            >
+              <template #prepend-inner>
+                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">mdi-minus</v-icon>
+              </template>
+              <template #append-inner>
+                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">mdi-plus</v-icon>
+              </template>
+            </v-text-field>
+            <div
+              v-if="expectedFor && expectedFor(shop.element.id, item.id, 'loose') != null"
+              class="si-expected-hint"
+            >
+              {{ t('invExpectedHint') }} : {{ expectedFor(shop.element.id, item.id, 'loose') }}
+            </div>
+          </div>
           <div class="si-count-total">
             {{ t('invCountTotal') }} :
             <strong>{{ formatUnits(totalForItem(shop.element.id, item)) }}</strong>
@@ -224,6 +243,9 @@ const props = defineProps({
   getCount: { type: Function, required: true },
   totalForItem: { type: Function, required: true },
   isItemCounted: { type: Function, required: true },
+  // Pre-event Inventory : (shopId, itemId, 'packed'|'loose') → quantité attendue
+  // ou null. Absent/null → aucun hint (rendu Post-event strictement inchangé).
+  expectedFor: { type: Function, default: null },
 })
 
 const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop'])
@@ -434,6 +456,15 @@ function stepValue(shopId, itemId, field, delta) {
   row-gap: 14px;
 }
 .si-count-inputs :deep(.v-field) { min-height: 40px; }
+/* Hint « Attendu : N » sous un champ (Pre-event Inventory, permission requise). */
+.si-count-field { display: flex; flex-direction: column; gap: 3px; }
+.si-expected-hint {
+  font-size: 0.72rem;
+  color: #B45309;
+  font-weight: 600;
+  padding-left: 2px;
+  font-variant-numeric: tabular-nums;
+}
 .si-step-btn {
   cursor: pointer;
   color: #9E9E9E;

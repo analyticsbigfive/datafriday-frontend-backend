@@ -52,7 +52,7 @@
                 class="menu-item"
                 @click="handleMenuClick('space-inventory')"
               >
-                {{ showSpacesSubmenu ? 'SpI' : 'Space Inventory' }}
+                {{ showSpacesSubmenu ? 'PEI' : 'Post-event Inventory' }}
               </button>
               <button
                 v-if="can('front.fb.stockUp')"

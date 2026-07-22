@@ -2452,6 +2452,12 @@ model InventorySnapshot {
   tenantId        String
   spaceId         String
   eventId         String?
+  // Phase du comptage pour cet event. null = legacy (avant Pre-event Inventory) ;
+  // 'post-event' = compté après le match ; 'pre-event' = compté avant. Ferme le
+  // cycle : le « pré-event » de la réconciliation post-event = dernier snapshot
+  // kind='pre-event' du MÊME event. Migration :
+  // prisma/sql/2026-07-20_inventorysnapshot_kind.sql
+  kind            String?
   inventoryCounts Json
   createdBy       String?
   createdAt       DateTime @default(now())
@@ -2561,6 +2567,11 @@ model StockReconciliation {
   spaceId   String
   eventId   String?
   eventName String?
+  // Origine du document. null = reset logistique historique (ancre des ventes
+  // dérivées) ; 'post-event' = document généré par Post-event Inventory à la
+  // sauvegarde du comptage (lignes enrichies sold/pred/left/missing, ne touche
+  // PAS aux StockLevel). Migration : prisma/sql/2026-07-20_stockreconciliation_kind_post_event.sql
+  kind      String?
   lines     Json
   createdBy String?
   createdAt DateTime @default(now())

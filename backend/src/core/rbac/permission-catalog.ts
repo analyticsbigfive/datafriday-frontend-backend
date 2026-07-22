@@ -47,7 +47,16 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
   { code: 'front.fb.analyse', name: 'Analyse', category: 'F&B Front' },
   { code: 'front.fb.eventPredict', name: 'Event Predict', category: 'F&B Front' },
   { code: 'front.fb.predict', name: 'Predict', category: 'F&B Front' },
-  { code: 'front.fb.spaceInventory', name: 'Space Inventory', category: 'F&B Front' },
+  { code: 'front.fb.spaceInventory', name: 'Post-event Inventory', category: 'F&B Front' },
+  {
+    code: 'front.fb.preInventoryExpected',
+    name: 'Pre-event Inventory — Quantités attendues',
+    category: 'F&B Front',
+    description:
+      "Voir les quantités ATTENDUES (post-event précédent ± mouvements Logistic) sous les champs " +
+      "Packed/Loose de l'écran Pre-event Inventory. Sans cette permission, l'utilisateur compte à " +
+      "l'aveugle (l'endpoint baseline renvoie 403 — gating serveur, pas un simple masquage).",
+  },
   { code: 'front.fb.stockUp', name: 'Stock Up', category: 'F&B Front' },
   { code: 'front.fb.live', name: 'Live', category: 'F&B Front' },
   { code: 'front.fb.shoppingList', name: 'Liste de course', category: 'F&B Front' },
@@ -163,15 +172,31 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
     systemKey: null,
     name: 'Directeur de site',
     description:
-      "Directeur de site : écran Logistic complet, y compris le reset d'inventaire et la section Réconciliation.",
-    permissions: ['nav.spaces', 'front.fb.logistic', 'front.fb.logisticReconcile'],
+      "Directeur de site : écran Logistic complet (reset + Réconciliation), inventaires pré/post-événement " +
+      'avec quantités attendues visibles.',
+    // spaceInventory ajouté 2026-07-20 (Pre-event Inventory) : sans lui le rôle ne peut pas
+    // ouvrir les écrans d'inventaire dont il doit voir les quantités attendues (Q23 Bertrand).
+    permissions: [
+      'nav.spaces',
+      'front.fb.logistic',
+      'front.fb.logisticReconcile',
+      'front.fb.spaceInventory',
+      'front.fb.preInventoryExpected',
+    ],
   },
   {
     systemKey: null,
     name: 'Chef exécutif',
     description:
-      "Chef exécutif : écran Logistic complet, y compris le reset d'inventaire et la section Réconciliation.",
-    permissions: ['nav.spaces', 'front.fb.logistic', 'front.fb.logisticReconcile'],
+      "Chef exécutif : écran Logistic complet (reset + Réconciliation), inventaires pré/post-événement " +
+      'avec quantités attendues visibles.',
+    permissions: [
+      'nav.spaces',
+      'front.fb.logistic',
+      'front.fb.logisticReconcile',
+      'front.fb.spaceInventory',
+      'front.fb.preInventoryExpected',
+    ],
   },
   {
     systemKey: null,

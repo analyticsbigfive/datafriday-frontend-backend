@@ -10,9 +10,9 @@
     :on-open-data-integration="noop"
     :on-open-users="noop"
     :on-open-events="onOpenEvents"
-    :on-open-hr="noop"
+    :onOpenHR="onOpenHR"
     :on-open-account="noop"
-    :on-open-fb-integration="noop"
+    :onOpenFBIntegration="noop"
   />
 </template>
 
@@ -34,6 +34,12 @@ function onNewSpace() {
 }
 function onOpenEvents() {
   router.push('/events')
+}
+// Sous-menu Settings « Edit HR » : `view` = 'suppliers' | 'positions'.
+// Liaison camelCase côté template : `on-open-hr` camelise en `onOpenHr` et ne
+// matcherait jamais la prop `onOpenHR` (H/R séparés).
+function onOpenHR(view) {
+  router.push({ path: '/hr', query: { tab: view || 'suppliers' } })
 }
 function noop() {}
 </script>

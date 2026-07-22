@@ -58,8 +58,14 @@
       />
       <v-list-item
         v-if="can('front.fb.spaceInventory')"
+        prepend-icon="mdi-clipboard-arrow-up-outline"
+        title="Pre-event Inventory"
+        @click="trigger('space-pre-inventory')"
+      />
+      <v-list-item
+        v-if="can('front.fb.spaceInventory')"
         prepend-icon="mdi-clipboard-list-outline"
-        title="Space Inventory"
+        title="Post-event Inventory"
         @click="trigger('space-inventory')"
       />
       <v-list-item
@@ -118,6 +124,13 @@ function trigger(kind) {
   if (kind === 'space-inventory') {
     const spaceId = route.params?.spaceId
     if (spaceId) router.push(`/spaces/${spaceId}/inventory`)
+    else router.push('/spaces')
+    drawer.value = false
+    return
+  }
+  if (kind === 'space-pre-inventory') {
+    const spaceId = route.params?.spaceId
+    if (spaceId) router.push(`/spaces/${spaceId}/pre-inventory`)
     else router.push('/spaces')
     drawer.value = false
     return

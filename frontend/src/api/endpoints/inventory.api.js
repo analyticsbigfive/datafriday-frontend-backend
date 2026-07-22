@@ -42,6 +42,60 @@ export async function saveInventoryCount(inventoryCountData) {
   return api.post('/inventory-counts', inventoryCountData)
 }
 
+// ── Réconciliation post-événement (Post-event Inventory) ─────────────────────
+// Documents d'écarts « compté vs ce qui devrait rester après les ventes »,
+// StockReconciliation kind='post-event' côté backend. Voir
+// docs/modules/10_POST_EVENT_INVENTORY.md §7.
+
+/**
+ * Crée le document de réconciliation post-événement.
+ * POST /inventory/:spaceId/reconciliations
+ * @param {string} spaceId
+ * @param {{eventId: string, eventName?: string, lines: Array<object>}} payload
+ */
+export async function createPostEventReconciliation(spaceId, payload) {
+  return api.post(`/inventory/${spaceId}/reconciliations`, payload)
+}
+
+/**
+ * Liste COMMUNE des documents de réconciliation pre + post-événement (lines et
+ * kind inclus, du plus récent au plus ancien) — badge de type côté écran.
+ * GET /inventory/:spaceId/reconciliations
+ */
+export async function listInventoryReconciliations(spaceId) {
+  return api.get(`/inventory/${spaceId}/reconciliations`)
+}
+
+/**
+ * Inventaire de référence pré-événement (réco POST-event) : comptage Pre-event
+ * Inventory du même event (snapshot kind='pre-event'), repli legacy = dernier
+ * snapshot antérieur au JOUR de l'event. Renvoie null si aucun (jamais 404).
+ * GET /inventory/:spaceId/pre-event/:eventId
+ */
+export async function getPreEventInventory(spaceId, eventId) {
+  return api.get(`/inventory/${spaceId}/pre-event/${eventId}`)
+}
+
+/**
+ * Quantités ATTENDUES du Pre-event Inventory (post-event précédent + mouvements
+ * Logistic). ⚠️ Endpoint gaté par `front.fb.preInventoryExpected` (403 sinon) —
+ * l'appelant teste la permission AVANT d'appeler.
+ * GET /inventory/:spaceId/pre-event-baseline/:eventId
+ */
+export async function getPreEventBaseline(spaceId, eventId) {
+  return api.get(`/inventory/${spaceId}/pre-event-baseline/${eventId}`)
+}
+
+/**
+ * Crée la réconciliation PRE-event (attendu vs compté) — lignes construites
+ * CÔTÉ SERVEUR (le client, potentiellement sans la permission « attendus »,
+ * ne les fournit pas).
+ * POST /inventory/:spaceId/pre-event-reconciliations
+ */
+export async function createPreEventReconciliation(spaceId, eventId) {
+  return api.post(`/inventory/${spaceId}/pre-event-reconciliations`, { eventId })
+}
+
 /**
  * Liste tous les types de packaging (carton, palette, etc.).
  * Route backend réelle = GET /packaging (il n'existe PAS de /packaging-types → 404).

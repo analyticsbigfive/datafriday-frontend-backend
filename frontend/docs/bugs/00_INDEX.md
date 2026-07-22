@@ -237,7 +237,57 @@
 | [219](219_stepprocesstimeline_createeventdialog_avale_erreurs.md) | `CreateEventDialog` avale les erreurs de création sans retour utilisateur | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [220](220_stepprocesstimeline_decalage_fuseau_horaire_creation_event.md) | Décalage de fuseau horaire (UTC vs local) lors de la création d'événement depuis une date non couverte | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [221](221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md) | 3 pans de code mort issus d'un refactor incomplet de l'étape 4 | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [222](222_inventory_reconciliation_fallback_plus_vieux_match.md) | Réconciliation d'inventaire : fallback `pastEvents[0]` sur tri ascendant → rattachée au plus VIEUX match passé au lieu du dernier fini | 🟢 Corrigé | 🟠 | Stock |
+| [223](223_analyse_donut_zone_vide_pendant_contexte_differe.md) | Analyse : donut « Par zone » affiché vide (disque blanc) tant que le contexte PdV différé n'est pas chargé | 🟢 Corrigé | 🟢 | Analyse & agrégation |
+| [224](224_analyse_predict_outil_inventaire_pre_evenement_absent.md) | « Inventaire pré-événement » absent du sélecteur Outils sur Analyse et Prédire (`FilterPanel` jamais mis à jour) | 🟢 Corrigé | 🟢 | Analyse & agrégation / Stock |
+| [225](225_analyse_predict_config_par_defaut_et_dedup_contexte.md) | Analyse/Prédire : aucune config pré-sélectionnée → union « All Configurations » (fan-out max) par défaut ; + contexte PdV dispatché 2× | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [226](226_chargement_analyse_dedup_catalogues_et_phase2_en_vagues.md) | Chargement Analyse : `market-prices`/`packaging` sans dédup in-flight (2× ~60 s), phase 2 monolithique (graphes bloqués par les catalogues recette), contexte PdV rebâti à chaque demande | 🟢 Corrigé | 🟠 | Analyse & agrégation / Stock |
+| [227](227_shop_items_photo_base64_dupliquee_par_pdv.md) | `shop-items` : 5,6 Mo / 53 s — une photo base64 de 915 ko réémise une fois par PdV (14 Mo émis, 38 ko utiles), jamais lue côté front | 🟢 Corrigé | 🔴 | Analyse & agrégation / Stock / Menu |
+| [228](228_inventory_snapshot_kind_rejete_backend_perime.md) | Snapshot inventaire : `POST /inventory` 400 « property kind should not exist » — backend exécutant un build antérieur au DTO (`6491562`), aucun code fautif, fix = redéployer | ⚪ Diagnostiqué | 🔴 | Stock |
+| [229](229_props_double_majuscule_liaison_kebab_morte.md) | Props à double majuscule (`onOpenHR`, `onOpenFBIntegration`) : liaison kebab-case camelisée en `onOpenHr`/`onOpenFbIntegration` → ne matche jamais, câblage Settings « Edit HR » silencieusement mort ; liaisons passées en camelCase | 🟡 Corrigé non déployé | 🟠 | RH / Navigation |
+| [230](230_consolidated_views_double_navigation_onclose.md) | Consolidated* : `handleOpen*FromSettings` appelle le handler puis `onClose()` → en mode routé, la 2ᵉ navigation écrase la 1ʳᵉ ; contourné dans `HrView` (prop `onOpenEvents` omise, entrée MainNav masquée) | ⚪ Diagnostiqué | 🟡 | RH / Navigation |
+| [231](231_ecrans_rh_routes_restes_prototype.md) | Écrans RH routés : crashs dialog/`toast`/CSV, Edge Function KV morte, N+1, dialogs shadcn disloqués dans le layout Vuetify — corrigés puis **écrans prototype remplacés par `components/hr/` (Vuetify + i18n)** le 2026-07-21 ; vues prototype retournées en quarantaine | 🟡 Corrigé non déployé | 🟠 | RH |
 
+**231 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
+l'origine 193-203 sur cette branche, renumérotés au merge dans `develop` le 2026-07-22 pour éviter
+la collision avec 193-221, déjà pris par l'audit `data-integration/fb` et le fix RBAC ajoutés en
+parallèle sur `develop`. Le doublon 190/193 de la fiche Predict — grain article des scénarios est
+resté sur [BUG-190](190_predict_vues_article_absentes_grain_shop_level.md) : `feat/postEventInventory`
+l'avait lui-même renuméroté 193 sans changer le contenu, changement abandonné au merge puisque 190
+reste la version canonique dans `develop`.)
+
+**228** (ajouté le 2026-07-20) : pas un bug de code — 400 `property kind should not exist` sur le
+save du snapshot inventaire alors que `CreateInventoryDto` déclare bien `kind` ; le serveur
+exécutait un build antérieur au commit `6491562`. Fiche gardée comme réflexe diagnostic : « property
+X should not exist » avec DTO à jour ⇒ vérifier la fraîcheur du build backend avant de chercher un
+bug.
+
+**227** (ajouté le 2026-07-20, sur capture DevTools de l'utilisateur) : le vrai blocage de la page
+Analyse n'était **aucun** des lots du plan de chargement — c'était un payload,
+`getConfigShopMenuItemsLight` sélectionnant `picture` par ligne d'assignation. Le stockage base64 en
+base lui-même est ouvert en question #27.
+
+**226** (ajouté le 2026-07-20) : lots A, D et B du
+[plan de chargement progressif](../PLAN_CHARGEMENT_PROGRESSIF_ANALYSE.md), demandé le jour même ;
+seul le lot C — unifier les 2 pipelines `shop-items` — reste ouvert.
+
+**223-225** (ajoutés le 2026-07-20, sur retour utilisateur direct) : le donut « Par zone » d'Analyse
+n'a ni skeleton ni état vide pendant le chargement **différé** du contexte PdV — seule dimension
+sans sentinelle de repli (BUG-223) ; la liste « Outils » d'Analyse/Prédire (`FilterPanel.vue`,
+partagée par les deux modes) n'avait jamais reçu l'entrée `space-pre-inventory` ajoutée sur les 4
+autres écrans (BUG-224) ; et le landing par défaut ne pré-sélectionnait aucune configuration,
+déclenchant systématiquement le fan-out le plus large du module (BUG-225, règle « 1re config avec
+events » tranchée le jour même avec l'utilisateur).
+
+**222** (ajouté le 2026-07-20, découvert en vérifiant la logique Pre/Post-event contre la spec
+métier) : voir [`../modules/10_POST_EVENT_INVENTORY.md`](../modules/10_POST_EVENT_INVENTORY.md) §
+Vérification.
+
+**229-231** (ajoutés le 2026-07-20/21, audit `/hr` et `Settings`/`MainNav`) : props à double
+majuscule (`onOpenHR`, `onOpenFBIntegration`) cassant la liaison kebab-case, câblage Settings « Edit
+HR » silencieusement mort (BUG-229) ; famille Consolidated* enchaînant handler puis `onClose()` →
+double navigation (BUG-230) ; écrans RH routés avec crashs dialog/CSV, backend mort, N+1 — corrigés
+puis remplacés le 2026-07-21 par `components/hr/` (Vuetify + i18n) (BUG-231).
 **221 bugs au total**, 193-221 ajoutés puis corrigés le 2026-07-20 sur la branche
 `docs/audit-data-integration-fb` suite à un audit ciblé et approfondi de toute la page
 `/data-integration/fb` (8 agents en lecture intégrale, un par fichier/groupe de fichiers —
