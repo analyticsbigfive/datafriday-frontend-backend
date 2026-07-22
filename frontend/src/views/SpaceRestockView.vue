@@ -1062,6 +1062,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift' },
   { value: 'restock', labelKey: 'srToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
@@ -2239,6 +2240,13 @@ export default {
         const ev = this.selectedEventId || null
         this.router.push({
           name: 'space-inventory',
+          params: { spaceId },
+          query: ev ? { event: ev } : {},
+        })
+      } else if (tool.value === 'space-pre-inventory') {
+        const ev = this.selectedEventId || null
+        this.router.push({
+          name: 'space-pre-inventory',
           params: { spaceId },
           query: ev ? { event: ev } : {},
         })

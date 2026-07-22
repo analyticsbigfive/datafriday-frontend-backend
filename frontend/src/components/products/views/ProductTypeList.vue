@@ -331,7 +331,7 @@ export default {
           this.deleteError = data.message || this.t('productTypeList.deleteError');
           this.deleteActionLink = {
             label: `${this.t('productTypeList.viewLinkedItems')} (${data.count ?? '?'})`,
-            to: { path: '/menu-items', query: { [data.filterField]: data.filterValue } },
+            to: { path: '/menu-fb/menu-items', query: { [data.filterField]: data.filterValue } },
           };
           return;
         }

@@ -4,12 +4,16 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
+import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
 
 @Injectable()
 export class EventsService {
   private readonly logger = new Logger(EventsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly weezeventLinkService: EventWeezeventLinkService,
+  ) {}
 
   private readonly includeRelations = {
     eventType: true,
@@ -154,12 +158,14 @@ export class EventsService {
 
   async create(tenantId: string, dto: CreateEventDto) {
     this.logger.log(`Creating event "${dto.name}" for tenant ${tenantId}`);
+    let created;
     try {
-      return await this.prisma.event.create({
+      const eventDate = new Date(dto.eventDate);
+      created = await this.prisma.event.create({
         data: {
           tenantId,
           name: dto.name,
-          eventDate: new Date(dto.eventDate),
+          eventDate,
           spaceId: dto.spaceId,
           configurationId: dto.configurationId,
           location: dto.location,
@@ -186,6 +192,13 @@ export class EventsService {
       }
       throw error;
     }
+
+    // BUG-021 : tente un rapprochement automatique avec un WeezeventEvent du même
+    // jour (sans ambiguïté) — no-op silencieux si aucun candidat univoque.
+    if (tenantId) {
+      await this.weezeventLinkService.relinkForTenantDate(tenantId, created.eventDate);
+    }
+    return created;
   }
 
   async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string) {
@@ -219,13 +232,21 @@ export class EventsService {
   }
 
   async update(id: string, tenantId: string, dto: UpdateEventDto) {
-    await this.findOne(id, tenantId);
+    const existing = await this.findOne(id, tenantId);
+    // BUG-021 : un changement de date invalide le lien auto/manuel existant (il a été
+    // établi pour l'ancienne date) — repasse par relinkForTenantDate sur la nouvelle date
+    // plutôt que de garder silencieusement une association qui ne correspond plus.
+    const dateChanged =
+      dto.eventDate !== undefined && new Date(dto.eventDate).getTime() !== existing.eventDate.getTime();
+
+    let updated;
     try {
-      return await this.prisma.event.update({
+      updated = await this.prisma.event.update({
         where: { id },
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.eventDate !== undefined && { eventDate: new Date(dto.eventDate) }),
+          ...(dateChanged && { weezeventEventId: null }),
           ...(dto.spaceId !== undefined && { spaceId: dto.spaceId }),
           ...(dto.configurationId !== undefined && { configurationId: dto.configurationId }),
           ...(dto.location !== undefined && { location: dto.location }),
@@ -252,11 +273,81 @@ export class EventsService {
       }
       throw error;
     }
+
+    if (dateChanged && tenantId) {
+      await this.weezeventLinkService.relinkForTenantDate(tenantId, updated.eventDate);
+    }
+    return updated;
   }
 
   async remove(id: string, tenantId: string) {
     await this.findOne(id, tenantId);
     return this.prisma.event.delete({ where: { id } });
+  }
+
+  // ── BUG-021 : désambiguïsation manuelle Event <-> WeezeventEvent ──
+
+  /**
+   * Events non liés (`weezeventEventId` null) pour lesquels au moins un
+   * WeezeventEvent existe le même jour calendaire — cas laissés de côté par
+   * l'auto-link (EventWeezeventLinkService) faute d'appariement 1:1 univoque.
+   * Retourne les candidats WeezeventEvent pour chaque event, à choisir manuellement.
+   */
+  async listAmbiguousWeezeventMatches(tenantId: string) {
+    return this.prisma.$queryRaw<
+      { eventId: string; eventName: string; eventDate: Date; candidates: unknown }[]
+    >`
+      SELECT
+        e.id           AS "eventId",
+        e.name         AS "eventName",
+        e."eventDate"  AS "eventDate",
+        (
+          SELECT jsonb_agg(jsonb_build_object(
+            'id',         we.id,
+            'name',       we.name,
+            'startDate',  we."startDate",
+            'externalId', we."weezeventId"
+          ) ORDER BY we."startDate")
+          FROM "WeezeventEvent" we
+          WHERE we."tenantId" = e."tenantId"
+            AND we."startDate" IS NOT NULL
+            AND DATE(we."startDate") = DATE(e."eventDate")
+        ) AS candidates
+      FROM "Event" e
+      WHERE e."tenantId" = ${tenantId}
+        AND e."weezeventEventId" IS NULL
+        AND EXISTS (
+          SELECT 1 FROM "WeezeventEvent" we
+          WHERE we."tenantId" = e."tenantId"
+            AND we."startDate" IS NOT NULL
+            AND DATE(we."startDate") = DATE(e."eventDate")
+        )
+      ORDER BY e."eventDate" DESC
+    `;
+  }
+
+  /**
+   * Résolution manuelle d'un appariement Event <-> WeezeventEvent laissé ambigu.
+   * `weezeventEventId: null` délie explicitement un event déjà lié.
+   */
+  async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null) {
+    await this.findOne(id, tenantId);
+
+    if (weezeventEventId !== null) {
+      const target = await this.prisma.salesEvent.findFirst({
+        where: { id: weezeventEventId, tenantId },
+        select: { id: true },
+      });
+      if (!target) {
+        throw new BadRequestException(`WeezeventEvent ${weezeventEventId} not found for this tenant`);
+      }
+    }
+
+    return this.prisma.event.update({
+      where: { id },
+      data: { weezeventEventId },
+      include: this.includeRelations,
+    });
   }
 
   // ── Event Types CRUD ──

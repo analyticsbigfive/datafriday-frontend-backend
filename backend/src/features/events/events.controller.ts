@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse }
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { ResolveWeezeventLinkDto } from './dto/resolve-weezevent-link.dto';
 import { CreateEventTypeDto } from './dto/create-event-type.dto';
 import { UpdateEventTypeDto } from './dto/update-event-type.dto';
 import { CreateEventCategoryDto } from './dto/create-event-category.dto';
@@ -39,6 +40,14 @@ export class EventsController {
     return this.eventsService.findAll(req.user.tenantId, +page || 1, +limit || 50, spaceId);
   }
 
+  // NB: doit rester déclaré AVANT `GET /:id` pour ne pas être capturé par ce dernier.
+  @Get('weezevent-ambiguous-matches')
+  @ApiOperation({ summary: 'Lister les events sans lien Weezevent univoque (BUG-021)', description: 'Events dont weezeventEventId est null alors qu\'au moins un WeezeventEvent existe le même jour calendaire — cas laissés de côté par l\'auto-link faute d\'appariement 1:1 univoque, à résoudre manuellement.' })
+  @ApiResponse({ status: 200, description: 'Liste des events ambigus avec leurs candidats WeezeventEvent' })
+  listAmbiguousWeezeventMatches(@Req() req) {
+    return this.eventsService.listAmbiguousWeezeventMatches(req.user.tenantId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un événement par ID' })
   @ApiParam({ name: 'id', description: 'ID de l’événement' })
@@ -55,6 +64,16 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Événement mis à jour' })
   update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventDto) {
     return this.eventsService.update(id, req.user.tenantId, dto);
+  }
+
+  @RequirePermissions('menu.events.manage')
+  @Patch(':id/weezevent-link')
+  @ApiOperation({ summary: 'Résoudre manuellement le lien Weezevent d\'un event (BUG-021)', description: 'weezeventEventId: string pour lier, null pour délier explicitement un event déjà lié.' })
+  @ApiParam({ name: 'id', description: 'ID de l’événement' })
+  @ApiResponse({ status: 200, description: 'Lien mis à jour' })
+  @ApiResponse({ status: 400, description: 'weezeventEventId ne correspond à aucun WeezeventEvent de ce tenant' })
+  resolveWeezeventLink(@Req() req, @Param('id') id: string, @Body() dto: ResolveWeezeventLinkDto) {
+    return this.eventsService.resolveWeezeventLink(id, req.user.tenantId, dto.weezeventEventId);
   }
 
   @RequirePermissions('menu.events.manage')

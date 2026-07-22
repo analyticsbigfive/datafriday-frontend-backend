@@ -17,14 +17,17 @@
       <!-- Scrollable body -->
       <div class="ced-body">
 
+        <v-alert v-if="createEventError" type="error" variant="tonal" density="compact" class="mb-4">{{ createEventError }}</v-alert>
+
         <!-- Informations -->
         <div class="ced-section-label">
           <v-icon size="12" color="#ff3131">mdi-information-outline</v-icon>
           {{ t('intgCreateEvtSectionInfo') }}
         </div>
         <div class="ced-field-group mb-4">
-          <label class="ced-label">{{ t('intgCreateEvtNameLabel') }} <span class="ced-required">*</span></label>
+          <label class="ced-label" for="ced-event-name">{{ t('intgCreateEvtNameLabel') }} <span class="ced-required">*</span></label>
           <input
+            id="ced-event-name"
             v-model="newEventName"
             class="ced-input"
             type="text"
@@ -40,16 +43,16 @@
         </div>
         <div class="ced-dates-row mb-4">
           <div class="ced-field-group">
-            <label class="ced-label">{{ t('intgCreateEvtStartDate') }}</label>
-            <input v-model="newEventDate" class="ced-input" type="date" />
+            <label class="ced-label" for="ced-start-date">{{ t('intgCreateEvtStartDate') }} <span class="ced-required">*</span></label>
+            <input id="ced-start-date" v-model="newEventDate" class="ced-input" type="date" />
           </div>
           <div class="ced-field-group">
-            <label class="ced-label">{{ t('intgCreateEvtEndDate') }}</label>
-            <input v-model="newEventEndDate" class="ced-input" type="date" />
+            <label class="ced-label" for="ced-end-date">{{ t('intgCreateEvtEndDate') }}</label>
+            <input id="ced-end-date" v-model="newEventEndDate" class="ced-input" type="date" :min="newEventDate" />
           </div>
           <div class="ced-field-group ced-field-group--time">
-            <label class="ced-label">{{ t('intgCreateEvtEndTime') }}</label>
-            <input v-model="newEventEndTime" class="ced-input" type="time" placeholder="--:--" />
+            <label class="ced-label" for="ced-end-time">{{ t('intgCreateEvtEndTime') }}</label>
+            <input id="ced-end-time" v-model="newEventEndTime" class="ced-input" type="time" placeholder="--:--" />
           </div>
         </div>
 
@@ -61,11 +64,12 @@
 
         <div class="ced-field-group mb-3">
           <div class="ced-label-row">
-            <label class="ced-label">{{ t('intgCreateEvtTypeLabel') }}</label>
+            <label class="ced-label" for="ced-event-type">{{ t('intgCreateEvtTypeLabel') }}</label>
             <button class="ced-create-link" type="button" @click="evtTypeCreateOpen = true">{{ t('intgCreateEvtCreateType') }}</button>
           </div>
           <div class="ced-select-wrap">
             <select
+              id="ced-event-type"
               class="ced-input ced-select"
               :value="newEventType"
               @change="handleNewEventTypeChange($event.target.value)"
@@ -78,11 +82,12 @@
 
         <div class="ced-field-group mb-3">
           <div class="ced-label-row">
-            <label class="ced-label" :class="{ 'ced-label--disabled': !newEventType }">{{ t('intgCreateEvtCategoryLabel') }}</label>
+            <label class="ced-label" for="ced-event-category" :class="{ 'ced-label--disabled': !newEventType }">{{ t('intgCreateEvtCategoryLabel') }}</label>
             <button v-if="newEventType" class="ced-create-link" type="button" @click="evtCategoryCreateOpen = true">{{ t('intgCreateEvtCreateCategory') }}</button>
           </div>
           <div class="ced-select-wrap">
             <select
+              id="ced-event-category"
               class="ced-input ced-select"
               :value="newEventCategory"
               :disabled="!newEventType"
@@ -100,11 +105,12 @@
 
         <div class="ced-field-group mb-2">
           <div class="ced-label-row">
-            <label class="ced-label" :class="{ 'ced-label--disabled': !newEventCategory }">{{ t('intgCreateEvtSubcategoryLabel') }}</label>
+            <label class="ced-label" for="ced-event-subcategory" :class="{ 'ced-label--disabled': !newEventCategory }">{{ t('intgCreateEvtSubcategoryLabel') }}</label>
             <button v-if="newEventCategory" class="ced-create-link" type="button" @click="evtSubCreateOpen = true">{{ t('intgCreateEvtCreateSubcategory') }}</button>
           </div>
           <div class="ced-select-wrap">
             <select
+              id="ced-event-subcategory"
               class="ced-input ced-select"
               :value="newEventSubcategory"
               :disabled="!newEventCategory"
@@ -140,12 +146,12 @@
             </div>
             <div class="ced-row mb-4">
               <div class="ced-field-group">
-                <label class="ced-label">{{ t('intgCreateEvtTicketsSold') }}</label>
-                <input v-model.number="newEventTicketsSold" class="ced-input" type="number" min="0" placeholder="0" />
+                <label class="ced-label" for="ced-tickets-sold">{{ t('intgCreateEvtTicketsSold') }}</label>
+                <input id="ced-tickets-sold" v-model.number="newEventTicketsSold" class="ced-input" type="number" min="0" placeholder="0" />
               </div>
               <div class="ced-field-group">
-                <label class="ced-label">{{ t('intgCreateEvtTicketsScanned') }}</label>
-                <input v-model.number="newEventTicketsScanned" class="ced-input" type="number" min="0" placeholder="0" />
+                <label class="ced-label" for="ced-tickets-scanned">{{ t('intgCreateEvtTicketsScanned') }}</label>
+                <input id="ced-tickets-scanned" v-model.number="newEventTicketsScanned" class="ced-input" type="number" min="0" placeholder="0" />
               </div>
             </div>
 
@@ -179,8 +185,9 @@
               {{ t('intgCreateEvtSectionSessions') }}
             </div>
             <div class="ced-field-group mb-3">
-              <label class="ced-label">{{ t('intgCreateEvtSessionCount') }}</label>
+              <label class="ced-label" for="ced-session-count">{{ t('intgCreateEvtSessionCount') }}</label>
               <input
+                id="ced-session-count"
                 :value="newEventSessionCount"
                 class="ced-input"
                 type="number"
@@ -203,12 +210,12 @@
               <div class="ced-session-title">{{ t('intgCreateEvtSessionTitle') }} {{ i + 1 }}</div>
               <div class="ced-row">
                 <div class="ced-field-group">
-                  <label class="ced-label">{{ t('intgCreateEvtDoorsOpening') }}</label>
-                  <input v-model="session.doorsOpening" class="ced-input" type="time" />
+                  <label class="ced-label" :for="`ced-session-${i}-doors`">{{ t('intgCreateEvtDoorsOpening') }}</label>
+                  <input :id="`ced-session-${i}-doors`" v-model="session.doorsOpening" class="ced-input" type="time" />
                 </div>
                 <div class="ced-field-group">
-                  <label class="ced-label">{{ t('intgCreateEvtKickoff') }}</label>
-                  <input v-model="session.showTime" class="ced-input" type="time" />
+                  <label class="ced-label" :for="`ced-session-${i}-show`">{{ t('intgCreateEvtKickoff') }}</label>
+                  <input :id="`ced-session-${i}-show`" v-model="session.showTime" class="ced-input" type="time" />
                 </div>
               </div>
             </div>
@@ -224,7 +231,7 @@
         <button
           class="ced-btn ced-btn--primary"
           type="button"
-          :disabled="!newEventName || creatingEvent"
+          :disabled="!newEventName || !newEventDate || creatingEvent"
           @click="submitCreateEvent"
         >
           <v-icon v-if="!creatingEvent" size="15" color="white">mdi-check</v-icon>
@@ -324,6 +331,9 @@ export default {
       eventCategoriesList: [],
       eventSubcategoriesList: [],
       creatingEvent: false,
+      // État d'erreur pour le chemin de soumission principal (symétrique aux
+      // sous-dialogs type/catégorie/sous-catégorie ci-dessous)
+      createEventError: '',
       // inline create: type
       evtTypeCreateOpen: false,
       evtTypeCreateName: '',
@@ -381,6 +391,7 @@ export default {
         this.newEventSessionCount = 1
         this.newEventSessions = [{ doorsOpening: '', showTime: '' }]
         this.newEventOptionalOpen = false
+        this.createEventError = ''
       }
     },
   },
@@ -493,8 +504,13 @@ export default {
       }
     },
     async submitCreateEvent() {
-      if (!this.newEventName) return
+      if (!this.newEventName || !this.newEventDate) return
+      if (this.newEventEndDate && this.newEventEndDate < this.newEventDate) {
+        this.createEventError = this.t('intgCreateEvtEndBeforeStart')
+        return
+      }
       this.creatingEvent = true
+      this.createEventError = ''
       try {
         const created = await createEvent({
           name: this.newEventName,
@@ -518,6 +534,9 @@ export default {
         this.$emit('update:modelValue', false)
       } catch (err) {
         console.error('[CreateEventDialog] Failed to create event:', err)
+        // Afficher un état d'erreur visible (comme les sous-dialogs) au lieu d'avaler
+        // l'erreur silencieusement ; le dialog reste ouvert, formulaire conservé.
+        this.createEventError = err?.response?.data?.message || err?.message || this.t('intgCreateEvtCreateFailed')
       } finally {
         this.creatingEvent = false
       }

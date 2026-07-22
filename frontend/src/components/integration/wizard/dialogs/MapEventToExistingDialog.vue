@@ -18,7 +18,7 @@
           :label="t('intgMapEvtSelectLabel')"
           variant="outlined"
           density="comfortable"
-          :item-props="e => ({ subtitle: formattedItemDate(e.eventDate) })"
+          :item-props="e => ({ subtitle: formattedItemDate(e.startDate || e.endDate) })"
         />
       </v-card-text>
       <v-card-actions class="px-5 pb-4">
@@ -40,6 +40,7 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import { formatDateMedium } from '@/utils/dateFr'
 
 export default {
   name: 'MapEventToExistingDialog',
@@ -67,11 +68,7 @@ export default {
   },
   methods: {
     formattedItemDate(dateStr) {
-      if (!dateStr) return '—'
-      const d = /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))
-        ? new Date(`${dateStr}T00:00:00`)
-        : new Date(dateStr)
-      return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
+      return formatDateMedium(dateStr) || '—'
     },
   },
 }

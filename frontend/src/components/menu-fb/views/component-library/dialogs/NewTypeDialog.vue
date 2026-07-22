@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="460" persistent>
-    <div class="ntd-card">
+    <div class="ntd-card" :class="{ 'ntd-card--dark': isDark }">
       <div class="ntd-grad-header">
         <div class="ntd-grad-header__icon"><Tag :size="20" color="white" /></div>
         <div class="ntd-grad-header__text">
@@ -36,6 +36,7 @@ export default {
   components: { AlertCircle, Save, Tag, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'created'],
   setup() {
@@ -100,4 +101,13 @@ export default {
 .ntd-btn--primary { background:#ff3131; color:#fff; }
 .ntd-btn--primary:hover { box-shadow:0 4px 14px rgba(255, 49, 49,.4); transform:translateY(-1px); }
 .ntd-btn:disabled { opacity:.6; cursor:not-allowed; transform:none !important; }
+
+/* ── Dark mode ── */
+.ntd-card--dark { background:#1e293b; }
+.ntd-card--dark .ntd-body { color:#e2e8f0; }
+.ntd-card--dark .form-floating label { color:#94a3b8; }
+.ntd-card--dark .ntd-input { background:#1a2332 !important; color:#e2e8f0; border-color:rgba(255,255,255,.14) !important; }
+.ntd-card--dark .ntd-error { background:rgba(255,49,49,.15); border-color:rgba(255,49,49,.3); color:#fca5a5; }
+.ntd-card--dark .ntd-btn--cancel { background:rgba(255,255,255,.08); color:#cbd5e1; }
+.ntd-card--dark .ntd-btn--cancel:hover { background:rgba(255,255,255,.14); }
 </style>

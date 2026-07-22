@@ -1,5 +1,5 @@
 <template>
-  <v-app id="component-create-page">
+  <v-app id="component-create-page" :class="{ 'cc--dark': isDark }">
     <v-container fluid class="pa-0" style="height: 100%; overflow: hidden; display: flex; flex-direction: column;">
       <!-- ── Gradient Header ── -->
       <div class="cc-header">
@@ -376,10 +376,10 @@
       </v-container>
     </v-container>
 
-    <IngredientPickerDrawer v-model="ingredientDrawer" @add="onIngredientsAdded" />
-    <ComponentPickerDrawer v-model="componentDrawer" @add="onComponentsAdded" />
-    <NewCategoryDialog v-model="newCategoryDialog" :type-id="selectedComponentTypeId" :type-name="form.type" @created="onCategoryCreated" />
-    <NewTypeDialog v-model="newTypeDialog" @created="onTypeCreated" />
+    <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
+    <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
+    <NewCategoryDialog v-model="newCategoryDialog" :is-dark="isDark" :type-id="selectedComponentTypeId" :type-name="form.type" @created="onCategoryCreated" />
+    <NewTypeDialog v-model="newTypeDialog" :is-dark="isDark" @created="onTypeCreated" />
 
     <!-- Création d'un packaging type (depuis le select « stored in ») -->
     <v-dialog v-model="packagingCreateOpen" max-width="420" :persistent="packagingCreateLoading">
@@ -406,6 +406,8 @@
 </template>
 
 <script>
+import { computed } from "vue";
+import { useTheme } from "vuetify";
 import { Boxes, ChevronDown, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { createMenuComponent, getMenuComponent, updateMenuComponent } from "@/api/endpoints/menu.api";
@@ -433,7 +435,9 @@ export default {
   },
   setup() {
     const { t, locale } = useI18n();
-    return { t, locale };
+    const theme = useTheme();
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { t, locale, isDark };
   },
   data() {
     return {
@@ -1565,4 +1569,64 @@ export default {
   .cc-right-panel { position: static; height: auto; }
   .cc-add-btns { flex-wrap: wrap; }
 }
+
+/* ── Dark mode (classe racine .cc--dark, aligné sur ComponentTypeList) ── */
+/* Cartes & structure */
+.cc--dark .cc-left-card,
+.cc--dark .cc-right-panel { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.cc--dark .cc-card-head,
+.cc--dark .cc-form-head,
+.cc--dark .cc-stats,
+.cc--dark .cc-stat { border-color: rgba(255,255,255,.06) !important; }
+.cc--dark .cc-card-title,
+.cc--dark .cc-form-title,
+.cc--dark .cc-stat__value,
+.cc--dark .cc-row-name__text { color: #e2e8f0; }
+.cc--dark .cc-card-sub,
+.cc--dark .cc-form-sub { color: #94a3b8; }
+.cc--dark .cc-add-btn--outline { background: rgba(255,255,255,.06); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
+.cc--dark .cc-add-btn--outline:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.24); }
+.cc--dark .cc-empty__icon { background: rgba(255,255,255,.03); border-color: rgba(255,255,255,.12); }
+.cc--dark .cc-empty__title { color: #e2e8f0; }
+/* Table */
+.cc--dark .cc-table :deep(.v-data-table__th) { background: #1a2332 !important; color: #94a3b8 !important; border-bottom-color: rgba(255,255,255,.08) !important; }
+.cc--dark .cc-table :deep(.v-data-table__td) { color: #e2e8f0; border-bottom-color: rgba(255,255,255,.06) !important; }
+.cc--dark .cc-table :deep(.v-data-table__tr:hover .v-data-table__td) { background: rgba(255,49,49,.08) !important; }
+/* Badges */
+.cc--dark .ccv-badge--category { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.12); }
+.cc--dark .ccv-badge--ingredient { background: rgba(21,128,61,.18); color: #86efac; border-color: rgba(21,128,61,.35); }
+.cc--dark .ccv-badge--component { background: rgba(37,99,235,.15); color: #93c5fd; border-color: rgba(37,99,235,.3); }
+.cc--dark .ccv-badge--storage { background: rgba(234,88,12,.15); color: #fdba74; border-color: rgba(234,88,12,.3); }
+.cc--dark .ccv-badge--unit { background: rgba(139,92,246,.15); color: #c4b5fd; border-color: rgba(139,92,246,.3); }
+/* Qty input & delete */
+.cc--dark .cc-qty-input { border-color: rgba(255,255,255,.14); background: #1a2332; color: #e2e8f0; }
+.cc--dark .cc-qty-input:focus { background: #1a2332; }
+.cc--dark .cc-del-btn { background: rgba(255,49,49,.15); }
+/* Formulaire droit */
+.cc--dark .cc-form-footer { background: #1e293b; border-top-color: rgba(255,255,255,.06); }
+.cc--dark .ccf-field-label { color: #94a3b8; }
+.cc--dark .ccf-field :deep(.v-field) { border-color: rgba(255,255,255,.12) !important; background: #1a2332 !important; }
+.cc--dark .ccf-field :deep(.v-field--focused) { background: #1a2332 !important; }
+.cc--dark .ccf-field :deep(.v-field__input) { color: #e2e8f0 !important; }
+/* Calc card & info card (teintes bleues sombres) */
+.cc--dark .cc-calc-card { background: linear-gradient(135deg, #0f1e33 0%, #12233b 100%); border-color: rgba(37,99,235,.3); }
+.cc--dark .cc-calc-card__amount { color: #93c5fd; }
+.cc--dark .cc-calc-card__divider { border-top-color: rgba(37,99,235,.25); }
+.cc--dark .cc-info-card { background: linear-gradient(135deg, #12233b 0%, #0f1e33 100%); border-color: rgba(37,99,235,.3); }
+.cc--dark .cc-info-card__title,
+.cc--dark .cc-info-card__field-label { color: #93c5fd; }
+.cc--dark .cc-info-label { color: #cbd5e1; }
+.cc--dark .cc-info-label--dot { color: #94a3b8; }
+.cc--dark .cc-info-card__unit-badge,
+.cc--dark .cc-info-card__chip { background: rgba(37,99,235,.2); color: #93c5fd; border-color: rgba(37,99,235,.3); }
+.cc--dark .cc-inline-input,
+.cc--dark .cc-inline-select { border-color: rgba(37,99,235,.3); color: #e2e8f0; background: #1a2332; }
+/* Dialog packaging type */
+.cc--dark .cc-pk-dialog { background: #1e293b; }
+.cc--dark .cc-pk-dialog__error { background: rgba(255,49,49,.15); }
+.cc--dark .cc-pk-dialog__footer { background: #1a2332; border-top-color: rgba(255,255,255,.06); }
+.cc--dark .cc-pk-btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
+/* Pills */
+.cc--dark .cc-pill-btn--outline { border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.cc--dark .cc-pill-btn--outline:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.24); }
 </style>

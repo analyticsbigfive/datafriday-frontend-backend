@@ -854,7 +854,11 @@ export class LogisticsService {
       eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
       this.prisma.stockLevel.findMany({ where: { tenantId, spaceId } }),
       this.prisma.stockReconciliation.findFirst({
-        where: { tenantId, spaceId },
+        // kind:null = resets logistiques UNIQUEMENT. Les documents 'post-event'
+        // (Post-event Inventory) partagent la table mais ne matérialisent PAS les
+        // ventes en mouvements SALE — les laisser déplacer l'ancre réinjecterait
+        // les ventes antérieures en stock fantôme au prochain calcul dérivé.
+        where: { tenantId, spaceId, kind: null },
         orderBy: { createdAt: 'desc' },
         select: { id: true, createdAt: true, eventId: true },
       }),
@@ -1444,7 +1448,10 @@ export class LogisticsService {
   async listReconciliations(spaceId: string, tenantId: string) {
     await this.assertSpace(spaceId, tenantId);
     const rows = await this.prisma.stockReconciliation.findMany({
-      where: { tenantId, spaceId },
+      // kind:null : la vue Logistic ne liste que les archives de reset — les
+      // documents 'post-event' ont leur propre liste côté Post-event Inventory
+      // (GET /inventory/:spaceId/reconciliations).
+      where: { tenantId, spaceId, kind: null },
       orderBy: { createdAt: 'desc' },
       select: { id: true, eventId: true, eventName: true, createdAt: true, createdBy: true, lines: true },
     });

@@ -275,6 +275,14 @@ correctif).
   localStorage dans `useEventPredictVersions.js` (`VERSIONS_KEY`/`DEFAULT_VERSION_KEY`/
   `ACTIVE_VERSION_KEY`, lignes 62-65) casse silencieusement la rescale d'Analyse sans aucune erreur
   (le `lsRead` renvoie juste `null`, la boucle `continue`).
+- Le mode "predict" d'**Analyse** lit **aussi `predictedRecords`** (depuis la version résolue en
+  localStorage ci-dessus) : c'est la SEULE source de grain article de cet écran, la prédiction du
+  moteur étant shop-level. Traduit par `utils/predictScenarioRecords.js` puis stocké dans
+  `state.predictScenarioItemRecords`, il alimente « Répartition du CA par article » et « Articles du
+  menu par PdV ». Changer la forme des entrées de `predictedRecords` (`shopId`, `menuItemId`,
+  `itemName`, `totalQuantity`, `totalRevenue`) casse ces deux vues en silence — elles retombent sur
+  « Non rattachés » ou sur du vide. Voir fiche
+  [190](../bugs/190_predict_vues_article_absentes_grain_shop_level.md).
 - Le module **Réarmement** (`SpaceRestockView.vue`) lit `selectedPredictionEventIds` (comme
   `forcedPastEventIds`) et `predictedRecords` d'une version via `listEventPredictVersions` (import
   ligne 1042).

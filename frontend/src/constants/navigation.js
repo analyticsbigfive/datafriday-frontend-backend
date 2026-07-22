@@ -43,11 +43,11 @@ export const SETTINGS_NAVIGATION = [
         icon: 'UtensilsCrossed',
         title: 'navMenuFB',
         items: [
-          { title: 'suppliers', route: '/suppliers', permission: 'menu.fb.suppliers' },
-          { title: 'navMarketPricesList', route: '/market-prices', permission: 'menu.fb.marketPrices' },
-          { title: 'navComponents', route: '/components', permission: 'menu.fb.components' },
-          { title: 'navMenuItems', route: '/menu-items', permission: 'menu.fb.menuItems' },
-          { title: 'navSpaceMenu', route: '/space-menus', permission: 'menu.fb.spaceMenu' },
+          { title: 'suppliers', route: '/menu-fb/suppliers', permission: 'menu.fb.suppliers' },
+          { title: 'navMarketPricesList', route: '/menu-fb/market-prices', permission: 'menu.fb.marketPrices' },
+          { title: 'navComponents', route: '/menu-fb/components', permission: 'menu.fb.components' },
+          { title: 'navMenuItems', route: '/menu-fb/menu-items', permission: 'menu.fb.menuItems' },
+          { title: 'navSpaceMenu', route: '/menu-fb/space-menus', permission: 'menu.fb.spaceMenu' },
         ],
       },
       {
@@ -56,9 +56,18 @@ export const SETTINGS_NAVIGATION = [
         title: 'navEvents',
         items: [
           { title: 'navEvents', route: '/events', permission: 'menu.events.manage' },
-          { title: 'navEventTypes', route: '/event-types', permission: 'menu.events.manage' },
-          { title: 'navEventCategories', route: '/event-categories', permission: 'menu.events.manage' },
-          { title: 'navEventSubcategories', route: '/event-subcategories', permission: 'menu.events.manage' },
+          { title: 'navEventTypes', route: '/events/event-types', permission: 'menu.events.manage' },
+          { title: 'navEventCategories', route: '/events/event-categories', permission: 'menu.events.manage' },
+          { title: 'navEventSubcategories', route: '/events/event-subcategories', permission: 'menu.events.manage' },
+        ],
+      },
+      {
+        key: 'settings-hr',
+        icon: 'UserCog',
+        title: 'navEditHR',
+        items: [
+          { title: 'navHrSuppliers', route: { path: '/hr', query: { tab: 'suppliers' } }, permission: 'menu.hr.manage' },
+          { title: 'navHrPositions', route: { path: '/hr', query: { tab: 'positions' } }, permission: 'menu.hr.manage' },
         ],
       },
       {

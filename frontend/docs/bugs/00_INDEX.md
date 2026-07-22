@@ -40,8 +40,8 @@
 | [24](24_getreconciliation_export_mort.md) | getReconciliation (singulier) : export mort | 🔴 Ouvert | 🟢 | Stock |
 | [25](25_gating_team_incoherent.md) | Gating "Team" incohérent, deux écrans, deux comportements | 🔴 Ouvert | 🟠 | Événements |
 | [26](26_bulk_create_wizard_taxonomie_non_reportee.md) | Bulk-create du wizard ne reporte pas la taxonomie vers l'Event | 🔴 Ouvert | 🟡 | Événements |
-| [27](27_bypass_demo_actif_sans_distinction_env.md) | Bypass démo (?demo=1) actif sans distinction dev/prod | 🔴 Ouvert | 🟡 | Auth & onboarding |
-| [28](28_predict_test_sans_guard_auth.md) | /predict-test monté sans guard d'authentification | 🔴 Ouvert | 🟡 | Auth & onboarding |
+| [27](27_bypass_demo_actif_sans_distinction_env.md) | Bypass démo (?demo=1) actif sans distinction dev/prod | 🟢 Corrigé | 🟡 | Auth & onboarding |
+| [28](28_predict_test_sans_guard_auth.md) | /predict-test monté sans guard d'authentification | 🟢 Corrigé | 🟡 | Auth & onboarding |
 | [29](29_cle_anon_supabase_codee_en_dur.md) | Clé anonyme Supabase codée en dur (hygiène) | 🔴 Ouvert | 🟢 | Auth & onboarding |
 | [30](30_good_category_ecrase_watcher_race_market_price.md) | "Good Category" écrasé à l'ouverture du drawer Edit Item (Market Prices) | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [31](31_kitchentype_traductions_manquantes_inventory_menu_item.md) | Traductions "Kitchen Type" manquantes + design incohérent sur Inventory Information (Menu Item) | 🟢 Corrigé | 🟡 | Menu & recettes |
@@ -203,8 +203,113 @@
 | [187](187_analyse_articles_echec_event_timeline_silencieux.md) | Analyse : échec du batch event-timeline avalé → « Aucun article disponible » trompeur — miroir cause back 103 | 🟢 Corrigé | 🟠 | Analyse & agrégation |
 | [188](188_stockup_explosion_ignore_comboitem.md) | Stock up : explosion recette ignore `comboItem` (seul `readyForSale` décide) — règle métier → Bertrand #18 | ⚪ Diagnostiqué | 🟠 | Prévision |
 | [189](189_analyse_futureeventscount_double_implementation.md) | Analyse : `futureEventsCount` en double — getter store mort (`>`) supprimé, computed vivant (`>=`) conservé | 🟢 Corrigé | 🟢 | Analyse & agrégation |
+| [190](190_auth_signed_out_rotation_deconnexion_multi_onglets.md) | Déconnexion intempestive multi-onglets sur rotation du refresh token | 🟢 Corrigé | 🟠 | Auth & onboarding |
+| [191](191_auth_console_log_jwt_en_clair.md) | JWT imprimé en clair dans la console lors de l'onboarding | 🟢 Corrigé | 🟢 | Auth & onboarding |
+| [192](192_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
+| [193](193_data_integration_delete_checkbox_sans_effet.md) | Case "supprimer aussi les données synchronisées" sans effet réel (cascade Prisma inconditionnelle) | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [193](193_auth_ismanager_getter_mort.md) | Getter `isManager` mort (gating par nom de rôle, incompatible 6 rôles métier) | 🟢 Corrigé | 🟢 | Auth & onboarding (RBAC) |
+| [194](194_data_integration_purge_echec_avale_avant_suppression.md) | Échec de purge des données avalé silencieusement avant suppression de l'intégration | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [194](194_darkmode_incomplet_component_library_market_prices.md) | Dark mode incomplet sur `component-library` et `market-prices` (parents/enfants non alignés sur le pattern `isDark`/`--dark`) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels |
+| [195](195_data_integration_suppression_sans_garde_sync_en_cours.md) | Aucune protection contre la suppression d'une intégration en cours de sync | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [196](196_data_integration_sync_job_sans_syncing_map.md) | Sync par job ne bascule jamais `syncingMap` (pas de spinner, pas de garde anti double-clic) | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [197](197_data_integration_polling_sync_non_nettoye_destroy.md) | Boucle de polling du sync legacy non nettoyée si le composant est détruit en plein sync | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [198](198_data_integration_dates_nombres_fr_fr_hardcode.md) | Dates/nombres toujours formatés en `fr-FR`, ignorent le switch de langue | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [199](199_data_integration_dialog_suppression_non_traduit.md) | Dialog de confirmation de suppression 100% en français, bypass `t()` | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [200](200_wizard_reprise_etape_non_fonctionnelle.md) | "Reprendre où on s'était arrêté" ne fonctionne pas dans le wizard d'intégration | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [201](201_wizard_other_locations_configure_next_mort.md) | Fonctionnalité "configurer la prochaine location" entièrement câblée mais jamais utilisée | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [202](202_stepmapspace_creation_config_echec_avale.md) | Échec de création de configuration silencieusement avalé (StepMapSpace) | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [203](203_stepmapspace_similarite_sans_normalisation_accents.md) | Suggestion de mapping d'espace : aucune normalisation des accents/espaces | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [204](204_syncprogress_jobid_jamais_reinitialise.md) | `syncJobId` jamais réinitialisé : le mode legacy devient inutilisable après un sync par job | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [205](205_syncprogress_widget_double_polling_minimize.md) | Double polling confirmé entre dialog et widget flottant après minimisation d'un job | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [206](206_syncprogress_polling_sans_timeout.md) | Le polling d'un job de sync (dialog et widget) n'a aucun timeout/abandon | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [207](207_syncjobwidget_ne_persiste_pas_navigation.md) | Le widget flottant de sync ne survit pas à la navigation, contrairement à sa promesse | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [208](208_stepmapshops_badge_etage_regression_multi_config.md) | Le correctif du badge étage (BUG-003) régresse pour les tenants à plusieurs configurations | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [209](209_stepmapshops_bulk_create_matching_naif_doublons.md) | Le plan de création en masse utilise un matching naïf, risque de créer des shops en doublon | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [210](210_stepmapshops_updatemapping_sans_rollback_echec.md) | `updateMapping` sans rollback à l'échec : compteur de mapping et onglets mentent | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [211](211_stepmapshops_delete_mapping_echec_invisible.md) | Échec de suppression de mapping strictement invisible | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [212](212_stepmapmenuitems_unpriced_item_score_gonfle.md) | Un menu item sans prix peut gonfler le score de similarité au-dessus du seuil d'auto-suggestion | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [213](213_stepmapmenuitems_next_button_sans_garde_bulk.md) | Bouton "Suivant" du wizard non bloqué pendant un bulk-create/bulk-price-apply en cours | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [214](214_stepprocesstimeline_weezeventmappings_jamais_rehydrate.md) | `weezEventMappings` jamais réhydraté : "Créer et lier tout" peut créer des Events en double | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [215](215_stepprocesstimeline_toast_succes_meme_si_echec_skip.md) | Toast "Agrégation terminée" affiché en succès même en cas d'échec/skip | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [216](216_stepprocesstimeline_badge_statut_ne_distingue_pas_echec.md) | Le badge de statut par événement ne distingue pas échec/skip de "jamais traité" | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [217](217_stepprocesstimeline_double_soumission_apres_timeout_poll.md) | Fenêtre de double-soumission après timeout du polling par événement | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [218](218_stepprocesstimeline_waitforsyncjob_non_annule_unmount.md) | `waitForSyncJob` (poll 2.5s/10min) jamais annulé si le composant est démonté | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [219](219_stepprocesstimeline_createeventdialog_avale_erreurs.md) | `CreateEventDialog` avale les erreurs de création sans retour utilisateur | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [220](220_stepprocesstimeline_decalage_fuseau_horaire_creation_event.md) | Décalage de fuseau horaire (UTC vs local) lors de la création d'événement depuis une date non couverte | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [221](221_stepprocesstimeline_pans_code_morts_refactor_incomplet.md) | 3 pans de code mort issus d'un refactor incomplet de l'étape 4 | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [222](222_inventory_reconciliation_fallback_plus_vieux_match.md) | Réconciliation d'inventaire : fallback `pastEvents[0]` sur tri ascendant → rattachée au plus VIEUX match passé au lieu du dernier fini | 🟢 Corrigé | 🟠 | Stock |
+| [223](223_analyse_donut_zone_vide_pendant_contexte_differe.md) | Analyse : donut « Par zone » affiché vide (disque blanc) tant que le contexte PdV différé n'est pas chargé | 🟢 Corrigé | 🟢 | Analyse & agrégation |
+| [224](224_analyse_predict_outil_inventaire_pre_evenement_absent.md) | « Inventaire pré-événement » absent du sélecteur Outils sur Analyse et Prédire (`FilterPanel` jamais mis à jour) | 🟢 Corrigé | 🟢 | Analyse & agrégation / Stock |
+| [225](225_analyse_predict_config_par_defaut_et_dedup_contexte.md) | Analyse/Prédire : aucune config pré-sélectionnée → union « All Configurations » (fan-out max) par défaut ; + contexte PdV dispatché 2× | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [226](226_chargement_analyse_dedup_catalogues_et_phase2_en_vagues.md) | Chargement Analyse : `market-prices`/`packaging` sans dédup in-flight (2× ~60 s), phase 2 monolithique (graphes bloqués par les catalogues recette), contexte PdV rebâti à chaque demande | 🟢 Corrigé | 🟠 | Analyse & agrégation / Stock |
+| [227](227_shop_items_photo_base64_dupliquee_par_pdv.md) | `shop-items` : 5,6 Mo / 53 s — une photo base64 de 915 ko réémise une fois par PdV (14 Mo émis, 38 ko utiles), jamais lue côté front | 🟢 Corrigé | 🔴 | Analyse & agrégation / Stock / Menu |
+| [228](228_inventory_snapshot_kind_rejete_backend_perime.md) | Snapshot inventaire : `POST /inventory` 400 « property kind should not exist » — backend exécutant un build antérieur au DTO (`6491562`), aucun code fautif, fix = redéployer | ⚪ Diagnostiqué | 🔴 | Stock |
+| [229](229_props_double_majuscule_liaison_kebab_morte.md) | Props à double majuscule (`onOpenHR`, `onOpenFBIntegration`) : liaison kebab-case camelisée en `onOpenHr`/`onOpenFbIntegration` → ne matche jamais, câblage Settings « Edit HR » silencieusement mort ; liaisons passées en camelCase | 🟡 Corrigé non déployé | 🟠 | RH / Navigation |
+| [230](230_consolidated_views_double_navigation_onclose.md) | Consolidated* : `handleOpen*FromSettings` appelle le handler puis `onClose()` → en mode routé, la 2ᵉ navigation écrase la 1ʳᵉ ; contourné dans `HrView` (prop `onOpenEvents` omise, entrée MainNav masquée) | ⚪ Diagnostiqué | 🟡 | RH / Navigation |
+| [231](231_ecrans_rh_routes_restes_prototype.md) | Écrans RH routés : crashs dialog/`toast`/CSV, Edge Function KV morte, N+1, dialogs shadcn disloqués dans le layout Vuetify — corrigés puis **écrans prototype remplacés par `components/hr/` (Vuetify + i18n)** le 2026-07-21 ; vues prototype retournées en quarantaine | 🟡 Corrigé non déployé | 🟠 | RH |
 
-**189 bugs au total.** 172-189 ajoutés le 2026-07-18 sur `feat/analyse` (numérotés à l'origine
+**231 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
+l'origine 193-203 sur cette branche, renumérotés au merge dans `develop` le 2026-07-22 pour éviter
+la collision avec 193-221, déjà pris par l'audit `data-integration/fb` et le fix RBAC ajoutés en
+parallèle sur `develop`. Le doublon 190/193 de la fiche Predict — grain article des scénarios est
+resté sur [BUG-190](190_predict_vues_article_absentes_grain_shop_level.md) : `feat/postEventInventory`
+l'avait lui-même renuméroté 193 sans changer le contenu, changement abandonné au merge puisque 190
+reste la version canonique dans `develop`.)
+
+**228** (ajouté le 2026-07-20) : pas un bug de code — 400 `property kind should not exist` sur le
+save du snapshot inventaire alors que `CreateInventoryDto` déclare bien `kind` ; le serveur
+exécutait un build antérieur au commit `6491562`. Fiche gardée comme réflexe diagnostic : « property
+X should not exist » avec DTO à jour ⇒ vérifier la fraîcheur du build backend avant de chercher un
+bug.
+
+**227** (ajouté le 2026-07-20, sur capture DevTools de l'utilisateur) : le vrai blocage de la page
+Analyse n'était **aucun** des lots du plan de chargement — c'était un payload,
+`getConfigShopMenuItemsLight` sélectionnant `picture` par ligne d'assignation. Le stockage base64 en
+base lui-même est ouvert en question #27.
+
+**226** (ajouté le 2026-07-20) : lots A, D et B du
+[plan de chargement progressif](../PLAN_CHARGEMENT_PROGRESSIF_ANALYSE.md), demandé le jour même ;
+seul le lot C — unifier les 2 pipelines `shop-items` — reste ouvert.
+
+**223-225** (ajoutés le 2026-07-20, sur retour utilisateur direct) : le donut « Par zone » d'Analyse
+n'a ni skeleton ni état vide pendant le chargement **différé** du contexte PdV — seule dimension
+sans sentinelle de repli (BUG-223) ; la liste « Outils » d'Analyse/Prédire (`FilterPanel.vue`,
+partagée par les deux modes) n'avait jamais reçu l'entrée `space-pre-inventory` ajoutée sur les 4
+autres écrans (BUG-224) ; et le landing par défaut ne pré-sélectionnait aucune configuration,
+déclenchant systématiquement le fan-out le plus large du module (BUG-225, règle « 1re config avec
+events » tranchée le jour même avec l'utilisateur).
+
+**222** (ajouté le 2026-07-20, découvert en vérifiant la logique Pre/Post-event contre la spec
+métier) : voir [`../modules/10_POST_EVENT_INVENTORY.md`](../modules/10_POST_EVENT_INVENTORY.md) §
+Vérification.
+
+**229-231** (ajoutés le 2026-07-20/21, audit `/hr` et `Settings`/`MainNav`) : props à double
+majuscule (`onOpenHR`, `onOpenFBIntegration`) cassant la liaison kebab-case, câblage Settings « Edit
+HR » silencieusement mort (BUG-229) ; famille Consolidated* enchaînant handler puis `onClose()` →
+double navigation (BUG-230) ; écrans RH routés avec crashs dialog/CSV, backend mort, N+1 — corrigés
+puis remplacés le 2026-07-21 par `components/hr/` (Vuetify + i18n) (BUG-231).
+**221 bugs au total**, 193-221 ajoutés puis corrigés le 2026-07-20 sur la branche
+`docs/audit-data-integration-fb` suite à un audit ciblé et approfondi de toute la page
+`/data-integration/fb` (8 agents en lecture intégrale, un par fichier/groupe de fichiers —
+`DataIntegrationView.vue`, le wizard et ses 4 étapes, les 4 dialogs de l'étape 4,
+`SyncProgressDialog`/`SyncJobFloatingWidget`, la couche API/store), suivi d'une seconde vague de
+5 agents de correction (fichiers disjoints, aucun conflit) qui a fixé les 29 bugs le jour même —
+détail du correctif dans chaque fiche individuelle (`## Correction`). Décision produit tranchée en
+amont pour BUG-193 (case de suppression retirée plutôt que rendue fonctionnelle côté backend, pas
+de changement de schéma) et pour BUG-221 (code mort supprimé plutôt que réintégré). Détail architectural et
+code mort
+supplémentaire dans [`docs/modules/05_INTEGRATIONS_VENTES.md`](../modules/05_INTEGRATIONS_VENTES.md#repasse-du-2026-07-20--audit-ciblé-du-code-frontend-data-integrationfb) ;
+dette technique non promue en fiche individuelle (a11y, i18n, duplication, code mort mineur) dans
+[`docs/utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md`](../utiles/AUDIT_DATA_INTEGRATION_FB_DETTE_TECHNIQUE_2026-07-20.md).
+| [194](194_darkmode_incomplet_component_library_market_prices.md) | Dark mode incomplet sur `component-library` et `market-prices` (parents/enfants non alignés sur le pattern `isDark`/`--dark`) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels |
+| [193](193_auth_ismanager_getter_mort.md) | Getter `isManager` mort (gating par nom de rôle, incompatible 6 rôles métier) | 🟢 Corrigé | 🟢 | Auth & onboarding (RBAC) |
+
+**192 bugs au total** (190-192 ajoutés le 2026-07-20, branche `fix/currentBug-fixAuthentification`, domaine Auth & onboarding) : correctif de la déconnexion intempestive multi-onglets sur rotation du refresh token (BUG-190, décision extraite dans une fonction pure testée `src/utils/authSessionEvent.js`), du JWT imprimé en clair dans la console à l'onboarding (BUG-191), et suppression du code mort du domaine Auth (`Login.vue`, `api/endpoints/onboarding.js`, 4 guards jamais attachés — BUG-192). Voir aussi [BUG-27](27_bypass_demo_actif_sans_distinction_env.md) et [BUG-28](28_predict_test_sans_guard_auth.md), corrigés dans la même branche.
+| [190](190_predict_vues_article_absentes_grain_shop_level.md) | Mode Predict : « Répartition du CA par article » et « Articles du menu par PdV » absents (prédiction shop-level sans dimension article) | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
+
+**190-bis bugs au total.** 190 ajouté le 2026-07-20 sur `feat/analyse` (numéroté 170 à l'origine sur
+cette branche ; renuméroté **190** au merge dans `develop` — 170 y était déjà pris par
+`170_delete_bloque_sans_moyen_de_trouver_les_dependants.md`). 172-189 ajoutés le 2026-07-18 sur `feat/analyse` (numérotés à l'origine
 149-166 sur cette branche ; renumérotés 172-189 au merge du 2026-07-20 dans `develop` pour éviter la
 collision avec 149-171 ci-dessus, ajoutés en parallèle sur `develop` le 2026-07-19). Trois fiches
 supplémentaires de `feat/analyse` (initialement 167-169 sur cette branche, elles-mêmes déjà

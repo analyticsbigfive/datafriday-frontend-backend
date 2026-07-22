@@ -4,44 +4,16 @@
 import store from '@/store'
 
 /**
- * Guard pour les routes nécessitant une authentification
- */
-export async function requireAuth(to, from, next) {
-  // Attendre que l'auth soit initialisée
-  if (!store.getters['auth/isInitialized']) {
-    await store.dispatch('auth/initialize')
-  }
-  
-  const isAuthenticated = store.getters['auth/isAuthenticated']
-  
-  if (!isAuthenticated) {
-    // Sauvegarder la destination pour redirection après login
-    return next({
-      path: '/login',
-      query: { redirect: to.fullPath }
-    })
-  }
-  
-  next()
-}
-
-/**
  * Guard pour les routes nécessitant une organisation
  */
 export async function requireOrganization(to, from, next) {
-  // Mode démo : ?demo=1 dans l'URL court-circuite l'authentification pour
-  // permettre l'accès aux écrans (predict, analyse) en local sans login.
-  const demoFromQuery = to.query?.demo === '1' || /(?:^|[?&])demo=1(?:&|$)/.test(to.fullPath || '')
-  let demoFromStorage = false
-  try {
-    demoFromStorage =
-      typeof window !== 'undefined' && window.localStorage?.getItem('analyse_demo') === '1'
-  } catch (_) {
-    demoFromStorage = false
-  }
-  if (demoFromQuery || demoFromStorage) {
-    return next()
-  }
+  // NB : le bypass `?demo=1` / `localStorage.analyse_demo` qui court-circuitait
+  // l'authentification ici a été retiré (BUG-027). Le mode démo est débranché depuis
+  // que `utils/demoMode.js::isDemoMode()` retourne `false` en dur : le flag ne servait
+  // donc plus aucune donnée mock, il n'accordait plus qu'un accès non authentifié à des
+  // écrans qui, sans token, se faisaient de toute façon rejeter en 401 par l'API.
+  // Ne pas le réintroduire sans rebrancher d'abord le mode démo lui-même.
+
   // Attendre que l'auth soit initialisée
   if (!store.getters['auth/isInitialized']) {
     await store.dispatch('auth/initialize')
@@ -128,54 +100,6 @@ export async function guestOnly(to, from, next) {
 }
 
 /**
- * Guard pour les routes admin uniquement
- */
-export async function requireAdmin(to, from, next) {
-  // Attendre que l'auth soit initialisée
-  if (!store.getters['auth/isInitialized']) {
-    await store.dispatch('auth/initialize')
-  }
-  
-  const isAuthenticated = store.getters['auth/isAuthenticated']
-  const isAdmin = store.getters['auth/isAdmin']
-  
-  if (!isAuthenticated) {
-    return next({
-      path: '/login',
-      query: { redirect: to.fullPath }
-    })
-  }
-  
-  if (!isAdmin) {
-    return next('/dashboard')
-  }
-  
-  next()
-}
-
-/**
- * Guard pour les routes nécessitant une permission RBAC précise
- * (cf. docs/RBAC_SYSTEM.md §3.5 — le rôle ADMIN bypass toujours via le getter `auth/can`)
- */
-export function requirePermission(code) {
-  return async (to, from, next) => {
-    if (!store.getters['auth/isInitialized']) {
-      await store.dispatch('auth/initialize')
-    }
-
-    if (!store.getters['auth/isAuthenticated']) {
-      return next({ path: '/login', query: { redirect: to.fullPath } })
-    }
-
-    if (!store.getters['auth/can'](code)) {
-      return next('/dashboard')
-    }
-
-    next()
-  }
-}
-
-/**
  * Écrans front d'un espace, par ordre de préférence d'atterrissage.
  * Le 1er écran que le rôle de l'utilisateur autorise devient sa page d'accueil
  * quand il ouvre un espace (évite de bloquer un rôle qui n'a pas l'Analyse).
@@ -185,6 +109,9 @@ export const SPACE_SCREENS = [
   { code: 'front.fb.analyse', name: 'space-analyse' },
   { code: 'front.fb.eventPredict', name: 'space-predict' },
   { code: 'front.fb.spaceInventory', name: 'space-inventory' },
+  // Pre-event Inventory : même permission que le post-event, placé APRÈS lui
+  // pour ne pas changer l'écran d'atterrissage des rôles existants.
+  { code: 'front.fb.spaceInventory', name: 'space-pre-inventory' },
   { code: 'front.fb.logistic', name: 'space-logistic' },
   { code: ['front.fb.restock', 'front.fb.restockBoard'], name: 'space-restock' },
 ]
@@ -213,30 +140,4 @@ export async function spaceEntryGuard(to, from, next) {
     return next({ name: first.name, params: { spaceId: to.params.spaceId }, query: to.query })
   }
   return next('/spaces')
-}
-
-/**
- * Guard pour les routes manager+ (admin ou manager)
- */
-export async function requireManager(to, from, next) {
-  // Attendre que l'auth soit initialisée
-  if (!store.getters['auth/isInitialized']) {
-    await store.dispatch('auth/initialize')
-  }
-  
-  const isAuthenticated = store.getters['auth/isAuthenticated']
-  const isManager = store.getters['auth/isManager']
-  
-  if (!isAuthenticated) {
-    return next({
-      path: '/login',
-      query: { redirect: to.fullPath }
-    })
-  }
-  
-  if (!isManager) {
-    return next('/dashboard')
-  }
-  
-  next()
 }

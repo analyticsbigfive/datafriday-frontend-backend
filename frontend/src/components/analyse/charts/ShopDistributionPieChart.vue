@@ -5,7 +5,8 @@
       <div>
         <div class="section-title">{{ t('anPieDistributionTitle') }}</div>
         <div class="section-subtitle">
-          {{ t('anPieTotalRevenue') }} {{ formatCurrencyDetailed(totalRevenue) }}
+          <template v-if="loading">{{ t('anDonutLoading') }}</template>
+          <template v-else>{{ t('anPieTotalRevenue') }} {{ formatCurrencyDetailed(totalRevenue) }}</template>
         </div>
       </div>
       <v-btn-toggle
@@ -30,6 +31,7 @@
           :mode="localMode"
           :max-legend="5"
           clickable
+          :loading="loading"
           :selected-labels="selectedShopIds"
           @slice-click="(label) => emit('shop-click', label)"
         />
@@ -45,6 +47,7 @@
           :mode="localMode"
           :max-legend="6"
           clickable
+          :loading="loading"
           :selected-labels="selectedShopTypes"
           @slice-click="(label) => emit('shop-type-click', label)"
         />
@@ -59,6 +62,7 @@
           :mode="localMode"
           :max-legend="6"
           clickable
+          :loading="loading || areaPending"
           :selected-labels="selectedShopAreas"
           @slice-click="(label) => emit('shop-area-click', label)"
         />
@@ -86,6 +90,9 @@ const SHOP_TYPE_COLOR_MAP = { ...SHOP_TYPE_COLORS, [UNATTACHED_SHOP_KEY]: '#B0BE
 const props = defineProps({
   // Data-driven : tous les PdV vendeurs des records reçus (aucun scoping config).
   records: { type: Array, default: () => [] },
+  // Phase 2 (records) encore en vol → les 3 donuts affichent leur skeleton dans la
+  // carte réelle, au lieu du rectangle générique qui remplaçait toute la carte.
+  loading: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['shop-click', 'shop-type-click', 'shop-area-click'])
@@ -136,6 +143,20 @@ function shopTypeLabel(key) {
 const byShop = computed(() => groupBy((r) => r.shopName, valueFn))
 const byType = computed(() => groupBy(resolveShopType, valueFn, SHOP_TYPE_COLOR_MAP, shopTypeLabel))
 const byArea = computed(() => groupBy((r) => r.shopArea, valueFn, SHOP_AREA_COLORS))
+
+// `shopArea` n'existe sur un record QU'APRÈS réconciliation avec les FloorElements
+// du contexte config — contexte que AnalyseView charge en DIFFÉRÉ (union « All
+// Configurations » lancée après le 1er rendu). Entre les deux, byArea est vide :
+// on affiche le skeleton, pas un donut blanc. `configContextSettled` couvre la
+// fenêtre AVANT le dispatch (où configContextLoading est encore false).
+// Le skeleton ne remplace QU'UN donut vide : jamais de flash par-dessus des zones
+// déjà affichées (changement de config = les anciennes valeurs restent visibles).
+const areaPending = computed(() => {
+  const st = store.state.analyse
+  if (byArea.value.labels.length || !props.records.length) return false
+  if (st.configContextError) return false
+  return st.configContextLoading || !st.configContextSettled
+})
 </script>
 
 <style scoped>

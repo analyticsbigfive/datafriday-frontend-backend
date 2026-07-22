@@ -362,7 +362,7 @@ export default {
         this.$router.back();
         return;
       }
-      this.$router.push({ path: "/space-menus" });
+      this.$router.push({ path: "/menu-fb/space-menus" });
     },
 
     openEditDrawer() {

@@ -33,6 +33,8 @@ préalable pour travailler sur le code.
 | [07_EVENEMENTS.md](07_EVENEMENTS.md) | Événements | Ulrich | 5 |
 | [08_AUTH_ONBOARDING.md](08_AUTH_ONBOARDING.md) | Auth & onboarding, RBAC | Emmanuel | 8 |
 | [09_TECHNIQUE.md](09_TECHNIQUE.md) | Technique (Orchestrator/Health/Audit/Webhooks) | — | 6 |
+| [10_POST_EVENT_INVENTORY.md](10_POST_EVENT_INVENTORY.md) | Stock — écrans Pre-event + Post-event Inventory, cycle de réconciliation et ponts inter-modules (page feature, complète 06 sans le dupliquer) ; § 9 vérification logique vs spec métier + § 10 exemple live Auxerre (2026-07-20) | Jean-Luc | — |
+| [11_RH_STAFFING.md](11_RH_STAFFING.md) | RH / Staffing — étape 1 : écrans Suppliers/Positions branchés sur `/hr` (localStorage, sans BDD) ; cible complète (spec pptx + règles xlsx, algo à revalider Bertrand #28) conservée en § 6 (2026-07-21) | Jean-Luc | 3 (201-203) |
 
 **~61 bugs/gaps actifs confirmés au total**, chacun avec sa citation `fichier:ligne` — voir la
 section "Bugs actifs confirmés" de chaque page. **Ce n'est volontairement pas dupliqué ici** (la

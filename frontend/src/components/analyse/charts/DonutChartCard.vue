@@ -4,40 +4,59 @@
       <v-icon size="14" color="#5B8DEF" class="mr-1">mdi-circle</v-icon>
       <span class="donut-title">{{ title }}</span>
     </div>
-    <div class="donut-subtitle mb-2">{{ subtitle }}</div>
+    <div class="donut-subtitle mb-2">{{ loading ? t('anDonutLoading') : subtitle }}</div>
 
-    <div class="donut-wrapper">
-      <div class="donut-canvas">
-        <Doughnut :data="chartData" :options="chartOptions" />
+    <!-- Skeleton : la dimension n'est pas encore résolue (ex. zone = FloorElements
+         du contexte config, chargé en différé). Sans lui, le donut s'affiche VIDE
+         alors que la donnée est encore en route. -->
+    <template v-if="loading">
+      <div class="donut-wrapper">
+        <div class="donut-canvas donut-skeleton-ring" :aria-label="t('anDonutLoading')" role="img" />
       </div>
+      <div class="donut-skeleton-legend">
+        <span v-for="n in 3" :key="`sk-${n}`" class="donut-skeleton-line" />
+      </div>
+    </template>
+
+    <!-- Vide APRÈS résolution : message explicite plutôt qu'un donut blanc. -->
+    <div v-else-if="!labels.length" class="donut-empty">
+      {{ t('anDonutEmpty') }}
     </div>
 
-    <v-list density="compact" class="py-0">
-      <v-list-item
-        v-for="(label, idx) in visibleLabels"
-        :key="itemKeyAt(idx)"
-        min-height="28"
-        :class="['px-2 py-0', { 'legend-item--clickable': clickable, 'legend-item--selected': selectedLabels.includes(itemKeyAt(idx)) }]"
-        @click="clickable ? emit('slice-click', itemKeyAt(idx)) : null"
-      >
-        <template #prepend>
-          <span class="legend-dot" :style="{ background: colors[idx] }" />
-        </template>
-        <v-list-item-title class="legend-text">{{ label }}</v-list-item-title>
-        <template #append>
-          <span class="legend-value">{{ formatValue(values[idx]) }}</span>
-        </template>
-      </v-list-item>
-    </v-list>
+    <template v-else>
+      <div class="donut-wrapper">
+        <div class="donut-canvas">
+          <Doughnut :data="chartData" :options="chartOptions" />
+        </div>
+      </div>
 
-    <a
-      v-if="labels.length > maxLegend"
-      href="#"
-      class="show-all"
-      @click.prevent="expanded = !expanded"
-    >
-      {{ expanded ? t('anDonutCollapse') : `${t('anDonutShowAll')} (${labels.length})` }}
-    </a>
+      <v-list density="compact" class="py-0">
+        <v-list-item
+          v-for="(label, idx) in visibleLabels"
+          :key="itemKeyAt(idx)"
+          min-height="28"
+          :class="['px-2 py-0', { 'legend-item--clickable': clickable, 'legend-item--selected': selectedLabels.includes(itemKeyAt(idx)) }]"
+          @click="clickable ? emit('slice-click', itemKeyAt(idx)) : null"
+        >
+          <template #prepend>
+            <span class="legend-dot" :style="{ background: colors[idx] }" />
+          </template>
+          <v-list-item-title class="legend-text">{{ label }}</v-list-item-title>
+          <template #append>
+            <span class="legend-value">{{ formatValue(values[idx]) }}</span>
+          </template>
+        </v-list-item>
+      </v-list>
+
+      <a
+        v-if="labels.length > maxLegend"
+        href="#"
+        class="show-all"
+        @click.prevent="expanded = !expanded"
+      >
+        {{ expanded ? t('anDonutCollapse') : `${t('anDonutShowAll')} (${labels.length})` }}
+      </a>
+    </template>
   </v-card>
 </template>
 
@@ -63,6 +82,9 @@ const props = defineProps({
   clickable: { type: Boolean, default: false },
   selectedLabels: { type: Array, default: () => [] },
   itemKeys: { type: Array, default: () => [] },
+  // true tant que la dimension du donut n'est pas résolue → skeleton au lieu d'un
+  // donut vide (défaut false : les usages déjà data-driven ne changent pas).
+  loading: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['slice-click'])
@@ -146,6 +168,47 @@ const chartOptions = computed(() => ({
   height: 180px;
   position: relative;
 }
+/* Skeleton : anneau + 3 lignes de légende, même shimmer que SpacePredictView. */
+.donut-skeleton-ring {
+  border-radius: 50%;
+  background: linear-gradient(90deg, #EEEEEE 0%, #F7F7F7 42%, #EEEEEE 78%);
+  background-size: 220% 100%;
+  animation: donut-shimmer 1.3s ease-in-out infinite;
+  /* Trou central : reproduit le cutout 65% du Doughnut. */
+  mask: radial-gradient(circle at 50% 50%, transparent 0 32%, #000 33%);
+  -webkit-mask: radial-gradient(circle at 50% 50%, transparent 0 32%, #000 33%);
+}
+.donut-skeleton-legend {
+  display: grid;
+  gap: 10px;
+  padding: 6px 8px 2px;
+}
+.donut-skeleton-line {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #EEEEEE 0%, #F7F7F7 42%, #EEEEEE 78%);
+  background-size: 220% 100%;
+  animation: donut-shimmer 1.3s ease-in-out infinite;
+}
+.donut-skeleton-line:nth-child(2) { width: 78%; }
+.donut-skeleton-line:nth-child(3) { width: 56%; }
+
+@keyframes donut-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+
+.donut-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 0 12px;
+  text-align: center;
+  font-size: 11px;
+  color: #9E9E9E;
+}
+
 .legend-dot {
   width: 10px;
   height: 10px;

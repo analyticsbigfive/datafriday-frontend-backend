@@ -1257,6 +1257,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'epToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'epToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'epToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'epToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'epToolLogistic', icon: 'mdi-forklift', permission: 'front.fb.logistic' },
   { value: 'restock', labelKey: 'epToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
@@ -4403,7 +4404,7 @@ export default {
           this.$router.replace({ name: 'space-analyse', params: { spaceId }, query: nextQuery });
         } catch (_) { /* router not ready */ }
         this.$emit('close');
-      } else if (tool.value === 'space-inventory' || tool.value === 'restock' || tool.value === 'logistic') {
+      } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic') {
         // Inventaire/Réarmement scopent sur la config de l'event. On la joint
         // EXPLICITEMENT (?configuration=) : la config courante d'EventPredict vit
         // dans this.events LOCAL (change live sans Save) et n'est PAS reflétée dans
@@ -4420,9 +4421,11 @@ export default {
         const routeName =
           tool.value === 'space-inventory'
             ? 'space-inventory'
-            : tool.value === 'logistic'
-              ? 'space-logistic'
-              : 'space-restock';
+            : tool.value === 'space-pre-inventory'
+              ? 'space-pre-inventory'
+              : tool.value === 'logistic'
+                ? 'space-logistic'
+                : 'space-restock';
         this.$router.push({ name: routeName, params: { spaceId }, query: scopedQuery });
       }
     },

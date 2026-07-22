@@ -45,12 +45,16 @@ export class WeezeventCronService implements OnModuleInit {
             });
 
             for (const integration of integrations) {
-            // Skip if sync already running for this tenant/integration
-            if (this.syncTracker.getRunningSyncs(tenant.id).some(s => s.type === 'transactions')) {
+            // BUG-027 (corrigé) : la garde anti-double-run n'appelait jamais startSync/completeSync/
+            // failSync — getRunningSyncs() était donc toujours vide et cette condition ne bloquait
+            // jamais rien. Câblée ci-dessous, scopée par intégration (pas seulement par tenant) pour
+            // qu'un tenant multi-intégrations (cf. BUG-025) puisse syncer ses intégrations en parallèle.
+            if (this.syncTracker.isRunning(tenant.id, 'transactions', integration.id)) {
                 this.logger.warn(`Skipping tenant ${tenant.id}/integration ${integration.id} - transactions sync already running`);
                 continue;
             }
 
+            const jobId = this.syncTracker.startSync(tenant.id, 'transactions', integration.id);
             try {
                 // Use incremental sync - only fetches NEW transactions
                 const result = await this.incrementalSyncService.syncTransactionsIncremental(tenant.id, integration.id, {
@@ -66,10 +70,12 @@ export class WeezeventCronService implements OnModuleInit {
                 if (result.hasMore) {
                     this.logger.warn(`⚠️ Tenant ${tenant.id} [${integration.id}]: More transactions available, will continue next run`);
                 }
+                this.syncTracker.completeSync(jobId);
             } catch (error) {
                 this.logger.error(
                     `❌ Tenant ${tenant.id} [${integration.id}]: transactions sync failed - ${error.message}`,
                 );
+                this.syncTracker.failSync(jobId, error.message);
             }
             }
         }

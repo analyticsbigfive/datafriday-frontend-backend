@@ -1,6 +1,6 @@
 
 <template>
-  <div id="component-library-page">
+  <div id="component-library-page" :class="{ 'cl--dark': isDark }">
     <!-- ── Header ── -->
     <div class="cl-header cl-header--sticky">
       <div class="cl-header__inner">
@@ -163,6 +163,7 @@
 
     <ComponentDeleteDialog
       v-model="deleteDialog"
+      :is-dark="isDark"
       :title="t('compListDeleteTitle')"
       :subtitle="t('compListDeleteSubtitle')"
       :message="t('compListDeleteConfirm')"
@@ -241,6 +242,8 @@
 </template>
 
 <script>
+import { computed } from "vue";
+import { useTheme } from "vuetify";
 import { Boxes, Download, Pencil, Plus, Search, Trash2, X } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { deleteMenuComponent } from "@/api/endpoints/menu.api";
@@ -261,7 +264,9 @@ export default {
   },
   setup() {
     const { t, locale } = useI18n();
-    return { t, locale };
+    const theme = useTheme();
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { t, locale, isDark };
   },
   data() {
     return {
@@ -473,7 +478,7 @@ export default {
       }
     },
     onAddComponent() {
-      this.$router.push({ path: "/components/new" });
+      this.$router.push({ path: "/menu-fb/components/new" });
     },
     async onViewSubComponents(component) {
       const c = component?._raw || component?.raw || component;
@@ -581,7 +586,7 @@ export default {
       const c = component?._raw || component?.raw || component;
       const id = c?.id ?? c?._id ?? c?.uuid;
       if (id) {
-        this.$router.push({ path: `/components/edit/${id}` });
+        this.$router.push({ path: `/menu-fb/components/edit/${id}` });
       }
     },
     onDeleteComponent(component) {
@@ -1048,4 +1053,52 @@ export default {
   transition: background .15s;
 }
 .cl-drawer-foot-btn:hover { background: #e5e7eb; }
+
+/* ── Dark mode (classe racine .cl--dark, aligné sur ComponentTypeList) ── */
+.cl--dark .cl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-searchbar__input { color: #e2e8f0; }
+.cl--dark .cl-filter-sel :deep(.v-field) {
+  border-color: rgba(255, 255, 255, .12) !important;
+  background: #1a2332 !important;
+}
+.cl--dark .table-card { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-table :deep(.v-data-table__th) {
+  background: #1a2332 !important;
+  color: #94a3b8 !important;
+  border-bottom-color: rgba(255, 255, 255, .08) !important;
+}
+.cl--dark .cl-table :deep(.v-data-table__td) {
+  color: #e2e8f0;
+  border-bottom-color: rgba(255, 255, 255, .06) !important;
+}
+.cl--dark .cl-table :deep(.v-data-table__tr:hover .v-data-table__td) {
+  background: rgba(255, 49, 49, .08) !important;
+}
+.cl--dark .cl-row-name__text { color: #e2e8f0; }
+.cl--dark .cl-badge--category { background: rgba(255, 255, 255, .08); color: #cbd5e1; border-color: rgba(255, 255, 255, .12); }
+.cl--dark .cl-badge--type { background: rgba(255, 49, 49, .15); color: #fca5a5; border-color: rgba(255, 49, 49, .3); }
+.cl--dark .cl-badge--storage,
+.cl--dark .cl-badge--component { background: rgba(37, 99, 235, .15); color: #93c5fd; border-color: rgba(37, 99, 235, .3); }
+.cl--dark .cl-badge--ingredient { background: rgba(21, 128, 61, .18); color: #86efac; border-color: rgba(21, 128, 61, .35); }
+.cl--dark .cl-subitems-btn { background: rgba(37, 99, 235, .15); color: #93c5fd; border-color: rgba(37, 99, 235, .3); }
+.cl--dark .cl-subitems-btn:hover { background: rgba(37, 99, 235, .25); }
+.cl--dark .cl-act-btn--edit { background: rgba(37, 99, 235, .15); color: #93c5fd; }
+.cl--dark .cl-act-btn--edit:hover { background: rgba(37, 99, 235, .28); }
+.cl--dark .cl-act-btn--delete { background: rgba(255, 49, 49, .15); color: #fca5a5; }
+.cl--dark .cl-act-btn--delete:hover { background: rgba(255, 49, 49, .28); }
+/* Sub-items drawer */
+.cl--dark .drawer-body { background: #111827; }
+.cl--dark .sub-items-card { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-sub-table :deep(.v-data-table__th) {
+  background: #1a2332 !important;
+  color: #94a3b8 !important;
+  border-bottom-color: rgba(255, 255, 255, .08) !important;
+}
+.cl--dark .cl-sub-table :deep(.v-data-table__td) {
+  color: #e2e8f0;
+  border-bottom-color: rgba(255, 255, 255, .06) !important;
+}
+.cl--dark .drawer-footer { background: #1e293b; border-top-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-drawer-foot-btn { background: rgba(255, 255, 255, .08); color: #cbd5e1; }
+.cl--dark .cl-drawer-foot-btn:hover { background: rgba(255, 255, 255, .14); }
 </style>

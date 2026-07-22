@@ -1420,6 +1420,34 @@ export default {
 .mpesd-panel--dark .mpesd-label-sm {
   color: #9ca3af;
 }
+/* Champs du corps du drawer (les mini-dialogs de création, téléportés hors racine, restent clairs). */
+.mpesd-panel--dark .mpesd-field-label {
+  color: #e5e7eb;
+}
+.mpesd-panel--dark .mpesd-input.form-control,
+.mpesd-panel--dark .mpesd-select.form-select {
+  background: #111827;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+.mpesd-panel--dark .mpesd-input.form-control:focus,
+.mpesd-panel--dark .mpesd-select.form-select:focus {
+  background: #111827;
+}
+.mpesd-panel--dark .mpesd-input--readonly {
+  background: #263548 !important;
+  color: #9ca3af !important;
+}
+.mpesd-panel--dark .mpesd-item-select :deep(.v-field) {
+  background: #111827 !important;
+  border-color: #374151 !important;
+}
+.mpesd-panel--dark .mpesd-item-select :deep(.v-field--focused) {
+  background: #111827 !important;
+}
+.mpesd-panel--dark .mpesd-item-select :deep(.v-field__input) {
+  color: #e5e7eb !important;
+}
 
 /* Zone d'upload photo (dialogue de création fournisseur) */
 .mpesd-sc-photo {
