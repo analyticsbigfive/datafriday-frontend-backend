@@ -1219,8 +1219,6 @@ export default {
     element: { type: Object, required: true },
     configurations: { type: Array, default: () => [] },
     currentConfigId: { type: [String, null], default: null },
-    allShopMenuItems: { type: Array, default: () => [] },
-    allMerchShopItems: { type: Array, default: () => [] },
     availableMenuItems: { type: Array, default: () => [] },
     allFBElements: { type: Array, default: () => [] },
     currentSpace: { type: Object, default: null },

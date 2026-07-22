@@ -418,8 +418,6 @@ export default {
     selectedEntertainmentTypes: { type: Array, default: () => [] },
     selectedEntranceTypes: { type: Array, default: () => [] },
     selectedKitchenTypes: { type: Array, default: () => [] },
-    allShopMenuItems: { type: Array, default: () => [] },
-    allMerchShopItems: { type: Array, default: () => [] },
     onSelectElement: { type: Function, default: null },
     onSelectFloor: { type: Function, required: true },
     onSelectForecourt: { type: Function, required: true },
@@ -427,8 +425,6 @@ export default {
     onUpdateFloor: { type: Function, required: true },
     onUpdateForecourt: { type: Function, required: true },
     onUpdateExternalMerch: { type: Function, required: true },
-    onHighlightElements: { type: Function, default: null },
-    onSearchQueryChange: { type: Function, default: null },
     onShowSearchResults: { type: Function, default: null },
     configurations: { type: Array, default: () => [] },
     currentConfigId: { type: [String, null], default: null },
@@ -683,7 +679,6 @@ export default {
       });
       
       this.highlightedElementIds = matchingIds;
-      this.onHighlightElements && this.onHighlightElements(matchingIds);
     },
 
   // --- projection déjà présentes peut-être ---
