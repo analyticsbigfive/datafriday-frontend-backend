@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="460" persistent>
-    <div class="ncd-card">
+    <div class="ncd-card" :class="{ 'ncd-card--dark': isDark }">
       <div class="ncd-grad-header">
         <div class="ncd-grad-header__icon"><Shapes :size="20" color="white" /></div>
         <div class="ncd-grad-header__text">
@@ -47,6 +47,7 @@ export default {
   components: { AlertCircle, Save, Shapes, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
     // ID du Component Type sélectionné dans le formulaire parent — une
     // Component Category appartient toujours à un Type.
     typeId: { type: String, default: '' },
@@ -133,4 +134,15 @@ export default {
 .ncd-btn--primary { background:#ff3131; color:#fff; }
 .ncd-btn--primary:hover { box-shadow:0 4px 14px rgba(255, 49, 49,.4); transform:translateY(-1px); }
 .ncd-btn:disabled { opacity:.6; cursor:not-allowed; transform:none !important; }
+
+/* ── Dark mode ── */
+.ncd-card--dark { background:#1e293b; }
+.ncd-card--dark .ncd-body { color:#e2e8f0; }
+.ncd-card--dark .ncd-field-label { color:#94a3b8; }
+.ncd-card--dark .ncd-input { background:#1a2332 !important; color:#e2e8f0; border-color:rgba(255,255,255,.14) !important; }
+.ncd-card--dark .ncd-input--readonly { background:rgba(255,255,255,.04) !important; color:#94a3b8; }
+.ncd-card--dark .ncd-error { background:rgba(255,49,49,.15); border-color:rgba(255,49,49,.3); color:#fca5a5; }
+.ncd-card--dark .ncd-warning { background:rgba(245,158,11,.15); border-color:rgba(245,158,11,.3); color:#fcd34d; }
+.ncd-card--dark .ncd-btn--cancel { background:rgba(255,255,255,.08); color:#cbd5e1; }
+.ncd-card--dark .ncd-btn--cancel:hover { background:rgba(255,255,255,.14); }
 </style>
