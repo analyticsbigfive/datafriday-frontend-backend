@@ -49,7 +49,7 @@
 | [35](35_organizationscontroller_faille_cross_tenant.md) | OrganizationsController : faille cross-tenant (type P0-1) | 🟡 Corrigé non déployé | 🔴 | Auth & onboarding |
 | [36](36_onboarding_join_slug_sans_verif.md) | POST /onboarding/join/:slug déprécié actif sans vérification | 🔴 Ouvert | 🟡 | Auth & onboarding |
 | [37](37_jwt_expiresin_7_jours.md) | JWT expiresIn = 7 jours | 🔴 Ouvert | 🟢 | Auth & onboarding |
-| [38](38_clonage_role_sans_resync_permissions.md) | Clonage de rôle ne resynchronise jamais les permissions | 🟡 Documenté | 🟢 | Auth & onboarding (RBAC) |
+| [38](38_clonage_role_sans_resync_permissions.md) | Clonage de rôle ne resynchronise jamais les permissions | 🟢 Corrigé | 🟢 | Auth & onboarding (RBAC) |
 | [39](39_audit_webhooks_core_jamais_appeles.md) | Audit/Webhooks (core) : infra complète, zéro appelant | 🔴 Ouvert | 🟠 | Technique |
 | [40](40_orchestrator_tenantid_client_fourni.md) | Orchestrator fait confiance à un tenantId fourni par le client | 🔴 Ouvert | 🟡 | Technique |
 | [41](41_queue_exports_sans_processor.md) | Queue EXPORTS enregistrée sans processor | 🔴 Ouvert | 🟡 | Technique |

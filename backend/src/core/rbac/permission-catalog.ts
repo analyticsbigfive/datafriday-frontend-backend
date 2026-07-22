@@ -110,11 +110,10 @@ export interface SystemRoleDefinition {
   permissions: string[];
 }
 
-// ⚠️ BUG-038 — Ajouter une permission par défaut à un rôle métier ci-dessous ne la propage PAS
-// aux tenants DÉJÀ créés : `cloneSystemRolesForTenant` ne pose les permissions qu'à la CRÉATION du
-// rôle (pour préserver les personnalisations admin ; le resync aveugle est volontairement évité).
-// Pour propager un nouveau code aux tenants existants : l'ajouter à `ADDITIVE_ROLE_GRANTS` dans
-// `prisma/backfill-rbac.ts` (additif, ne retire jamais rien) PUIS lancer `npm run rbac:backfill`.
+// Ajouter une permission par défaut à un rôle métier ci-dessous est propagé automatiquement
+// aux tenants DÉJÀ créés dès le prochain appel à `ensureSystemPermissionCatalog` (seed/backfill) :
+// un code tout juste créé en base est par construction neuf pour tout le monde, donc aucune
+// personnalisation admin ne peut être écrasée (voir `ensureSystemPermissionCatalog` ci-dessous).
 // Détail : `docs/bugs/38_clonage_role_sans_resync_permissions.md`.
 export const SYSTEM_ROLES: SystemRoleDefinition[] = [
   {
@@ -205,10 +204,16 @@ type RbacClient = Pick<Prisma.TransactionClient, 'permission' | 'role' | 'rolePe
  * Insère/à jour le catalogue de permissions système (`tenantId = null`, `isSystem = true`).
  * Idempotent — peut être appelé à chaque seed/onboarding sans dupliquer les lignes.
  *
+ * Un code qui vient d'être créé ici (jamais vu en base avant) est, par construction, neuf pour
+ * tout le monde : il est donc automatiquement accordé aux rôles métier déjà existants qui
+ * l'incluent par défaut dans `SYSTEM_ROLES`, sur TOUS les tenants (cf. `docs/bugs/38_*.md`).
+ * Sûr — aucune personnalisation admin ne peut avoir retiré une permission qui n'existait pas.
+ *
  * Retourne une map `code -> permissionId` pour faciliter le clonage des rôles.
  */
 export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise<Record<string, string>> {
   const permissionIdByCode: Record<string, string> = {};
+  const newlyCreatedCodes: string[] = [];
 
   for (const perm of SYSTEM_PERMISSIONS) {
     const existing = await prisma.permission.findFirst({
@@ -241,12 +246,51 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
         },
       });
       permissionId = created.id;
+      newlyCreatedCodes.push(perm.code);
     }
 
     permissionIdByCode[perm.code] = permissionId;
   }
 
+  if (newlyCreatedCodes.length > 0) {
+    await grantNewPermissionsToExistingRoles(prisma, newlyCreatedCodes, permissionIdByCode);
+  }
+
   return permissionIdByCode;
+}
+
+/**
+ * Accorde chaque code neuf aux rôles métier déjà existants (tous tenants confondus) qui
+ * l'incluent par défaut dans `SYSTEM_ROLES`. Additif et idempotent (`skipDuplicates`) — ne
+ * touche jamais aux permissions retirées ou ajoutées manuellement par un admin sur d'autres codes.
+ */
+async function grantNewPermissionsToExistingRoles(
+  prisma: RbacClient,
+  newlyCreatedCodes: string[],
+  permissionIdByCode: Record<string, string>,
+): Promise<void> {
+  const newlyCreatedSet = new Set(newlyCreatedCodes);
+
+  for (const roleDef of SYSTEM_ROLES) {
+    const permissionIds = roleDef.permissions
+      .filter((code) => newlyCreatedSet.has(code))
+      .map((code) => permissionIdByCode[code])
+      .filter((id): id is string => Boolean(id));
+
+    if (!permissionIds.length) continue;
+
+    const existingRoles = await prisma.role.findMany({
+      where: { name: roleDef.name, isSystem: true },
+      select: { id: true },
+    });
+
+    for (const role of existingRoles) {
+      await prisma.rolePermission.createMany({
+        data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
+        skipDuplicates: true,
+      });
+    }
+  }
 }
 
 /**
@@ -254,9 +298,11 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
  * permissions par défaut (cf. SYSTEM_ROLES). Idempotent (upsert sur `[tenantId, name]`).
  *
  * Pour un rôle déjà présent, on met seulement à jour les métadonnées (description,
- * systemKey, isSystem) : on **ne touche pas** à ses permissions, afin de préserver
- * d'éventuelles personnalisations de l'admin (les rôles système hors ADMIN sont éditables).
- * Les permissions par défaut ne sont donc posées qu'à la **création** du rôle.
+ * systemKey, isSystem) : on **ne touche pas** à ses permissions déjà accordées/retirées,
+ * afin de préserver d'éventuelles personnalisations de l'admin (les rôles système hors ADMIN
+ * sont éditables). Les codes tout juste ajoutés au catalogue sont propagés séparément par
+ * `ensureSystemPermissionCatalog` (appelée juste avant, ligne suivante), qui les accorde
+ * automatiquement à tous les tenants existants.
  *
  * **Exception ADMIN** : le rôle ADMIN doit TOUJOURS posséder l'intégralité du catalogue
  * (invariant, jamais personnalisé). Ses permissions sont donc resynchronisées à chaque appel
