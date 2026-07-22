@@ -206,6 +206,7 @@
 | [190](190_auth_signed_out_rotation_deconnexion_multi_onglets.md) | Déconnexion intempestive multi-onglets sur rotation du refresh token | 🟢 Corrigé | 🟠 | Auth & onboarding |
 | [191](191_auth_console_log_jwt_en_clair.md) | JWT imprimé en clair dans la console lors de l'onboarding | 🟢 Corrigé | 🟢 | Auth & onboarding |
 | [192](192_auth_code_mort_login_onboarding_guards.md) | Code mort Auth : `Login.vue`, `endpoints/onboarding.js`, 4 guards | 🟢 Corrigé | 🟢 | Auth & onboarding |
+| [193](193_auth_ismanager_getter_mort.md) | Getter `isManager` mort (gating par nom de rôle, incompatible 6 rôles métier) | 🟢 Corrigé | 🟢 | Auth & onboarding (RBAC) |
 
 **192 bugs au total** (190-192 ajoutés le 2026-07-20, branche `fix/currentBug-fixAuthentification`, domaine Auth & onboarding) : correctif de la déconnexion intempestive multi-onglets sur rotation du refresh token (BUG-190, décision extraite dans une fonction pure testée `src/utils/authSessionEvent.js`), du JWT imprimé en clair dans la console à l'onboarding (BUG-191), et suppression du code mort du domaine Auth (`Login.vue`, `api/endpoints/onboarding.js`, 4 guards jamais attachés — BUG-192). Voir aussi [BUG-27](27_bypass_demo_actif_sans_distinction_env.md) et [BUG-28](28_predict_test_sans_guard_auth.md), corrigés dans la même branche.
 | [190](190_predict_vues_article_absentes_grain_shop_level.md) | Mode Predict : « Répartition du CA par article » et « Articles du menu par PdV » absents (prédiction shop-level sans dimension article) | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
