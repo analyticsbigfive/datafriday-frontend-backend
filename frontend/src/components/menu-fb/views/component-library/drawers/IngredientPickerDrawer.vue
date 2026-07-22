@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="ipd-slide">
       <div v-if="modelValue" class="ipd-overlay" @mousedown.self="close">
-        <div class="ipd-panel">
+        <div class="ipd-panel" :class="{ 'ipd-panel--dark': isDark }">
 
           <!-- ── Gradient Header ── -->
           <div class="ipd-header">
@@ -191,6 +191,7 @@ export default {
   components: { Check, ChevronDown, ChevronRight, Clock, Plus, Search, Truck, Wheat, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'add'],
   setup() {
@@ -646,4 +647,29 @@ export default {
 .ipd-btn--primary:hover:not(:disabled) {
   box-shadow: 0 6px 18px rgba(255, 49, 49,.38); transform: translateY(-1px);
 }
+
+/* ── Dark mode ── */
+.ipd-panel--dark { background: #1e293b; }
+.ipd-panel--dark .ipd-toolbar { background: #1a2332; border-bottom-color: rgba(255,255,255,.08); }
+.ipd-panel--dark .ipd-search { background: #0f172a; border-color: rgba(255,255,255,.12); }
+.ipd-panel--dark .ipd-search__input { color: #e2e8f0; }
+.ipd-panel--dark .ipd-pill { border-color: rgba(255,255,255,.12); background: #1a2332; color: #94a3b8; }
+.ipd-panel--dark .ipd-pill--active { background: rgba(255,49,49,.15); }
+.ipd-panel--dark .ipd-card { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.ipd-panel--dark .ipd-card__header:hover { background: rgba(255,255,255,.03); }
+.ipd-panel--dark .ipd-card__img { background: #0f172a; }
+.ipd-panel--dark .ipd-card__name { color: #e2e8f0; }
+.ipd-panel--dark .ipd-tag { background: rgba(255,255,255,.08); color: #94a3b8; }
+.ipd-panel--dark .ipd-tag--type { background: rgba(255,49,49,.15); color: #fca5a5; }
+.ipd-panel--dark .ipd-rows { border-top-color: rgba(255,255,255,.06); background: #0f172a; }
+.ipd-panel--dark .ipd-rows__header { border-bottom-color: rgba(255,255,255,.08); background: #1a2332; }
+.ipd-panel--dark .ipd-row { border-bottom-color: rgba(255,255,255,.06); }
+.ipd-panel--dark .ipd-row:hover { background: rgba(255,255,255,.03); }
+.ipd-panel--dark .ipd-row--selected { background: rgba(255,49,49,.1); }
+.ipd-panel--dark .ipd-checkbox { border-color: #475569; background: #0f172a; }
+.ipd-panel--dark .ipd-row__name { color: #e2e8f0; }
+.ipd-panel--dark .ipd-row__price-val { color: #e2e8f0; }
+.ipd-panel--dark .ipd-footer { background: #1e293b; border-top-color: rgba(255,255,255,.08); }
+.ipd-panel--dark .ipd-btn--cancel { border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.ipd-panel--dark .ipd-btn--cancel:hover:not(:disabled) { border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.06); }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <v-card rounded="lg" elevation="0" border>
+  <v-card rounded="lg" elevation="0" border :class="{ 'market-table--dark': isDark }">
     <v-card-text class="pa-0">
       <v-data-table
         :headers="headers"
@@ -139,6 +139,10 @@ export default {
     Trash2,
   },
   props: {
+    isDark: {
+      type: Boolean,
+      default: false,
+    },
     headers: {
       type: Array,
       required: true,
@@ -369,4 +373,17 @@ export default {
 .market-expanded__tbody-row:last-child .market-expanded__td {
   border-bottom: none;
 }
+
+/* ── Dark mode ── */
+.market-table--dark .market-table :deep(.v-data-table__th) { color: #94a3b8 !important; background: #1a2332 !important; }
+.market-table--dark .market-table :deep(tbody tr:hover td) { background: rgba(255,255,255,.03) !important; }
+.market-table--dark .mpt-chip-supplier { background: rgba(37,99,235,.15); color: #93c5fd; border-color: rgba(37,99,235,.3); }
+.market-table--dark .mpt-action-btn { background: rgba(255,255,255,.08); color: #94a3b8; }
+.market-table--dark .mpt-action-btn--edit:hover { background: rgba(255,255,255,.14); color: #e2e8f0; }
+.market-table--dark .market-table__expanded-cell { background: #0f172a !important; }
+.market-table--dark .market-expanded__inner { border-color: rgba(255,255,255,.08); background: #1e293b; }
+.market-table--dark .market-expanded__thead-row { background: #1a2332; }
+.market-table--dark .market-expanded__th { color: #94a3b8; border-bottom-color: rgba(255,255,255,.08); }
+.market-table--dark .market-expanded__tbody-row:hover .market-expanded__td { background: rgba(255,255,255,.03); }
+.market-table--dark .market-expanded__td { color: #cbd5e1; border-bottom-color: rgba(255,255,255,.06); }
 </style>
