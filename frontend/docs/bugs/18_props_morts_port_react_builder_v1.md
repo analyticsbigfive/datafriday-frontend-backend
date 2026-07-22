@@ -1,6 +1,7 @@
 # BUG-018 — Props morts hérités du port React (Builder v1)
 
-- **Statut** : 🟡 Corrigé non déployé (2026-07-22)
+- **Statut** : 🟢 Corrigé (2026-07-22 — devenu sans objet : le frontend builder v1 entier a été
+  retiré le même jour, voir [ADR-0002](../adr/0002_builder_v2_relationnel_seul.md))
 - **Sévérité** : 🟢 Faible (code mort, pas de défaut fonctionnel)
 - **Domaine** : Espaces & builder
 - **Repo(s) concerné(s)** : `datafriday-web`

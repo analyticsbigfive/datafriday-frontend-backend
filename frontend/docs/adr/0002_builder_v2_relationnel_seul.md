@@ -1,6 +1,9 @@
 # ADR-0002 — Builder v2 : le relationnel devient l'unique source de vérité
 
-- **Statut** : Accepté, migration en cours (v1/v2 cohabitent sans flag de rollout — dette assumée)
+- **Statut** : Accepté. Frontend v1 retiré le 2026-07-22 (route + composants
+  `spaces/views/builder/` supprimés — voir mise à jour en fin de document). Backend v1
+  (`Config.data` JSON, `Floor`/`Forecourt`/`ExternalMerch`, reconcile) toujours vivant — migration
+  des données existantes non faite.
 - **Date** : 2026-07-04
 - **Domaine** : Espaces & builder
 
@@ -32,10 +35,35 @@ taxonomie dupliquée). Ces sources de vérité doubles sont la cause directe de 
 
 ## Conséquences
 
-v1 et v2 **cohabitent aujourd'hui sans flag de rollout tenant** — dette assumée consciemment (voir
+v1 et v2 **cohabitaient sans flag de rollout tenant** — dette assumée consciemment (voir
 `docs/modules/03_BUILDER_ESPACES.md`). **Ne pas écrire de nouveau code sur v1** pour les
 zones/éléments : tout nouveau développement passe par le chemin v2, les blocs v1 restent séparés.
-Un plan de bascule complet (flag de rollout par tenant, dépréciation de v1) reste à faire.
+
+## Mise à jour — 2026-07-22 : retrait du frontend v1
+
+Le builder v1 n'était plus utilisé en pratique (builder2 est l'unique parcours d'édition
+d'espace) ; son UI a donc été retirée :
+
+- Supprimé : `frontend/src/components/spaces/views/builder/` (5 fichiers Vue) et la route
+  `SpaceBuilder` (`/spaces/:spaceId/builder`) dans `router/index.js`.
+- Nettoyé (dead code devenu orphelin par la suppression) : `configuration.api.js`
+  (`getAllConfigurations`, `getConfigurationsBySpace` — déjà mortes avant la suppression ;
+  `updateConfiguration`, `deleteConfiguration` — dont le seul appelant était `SpaceBuilderViewRoute.vue`)
+  et ~200 clés i18n `spaceBuilder*`/`elevationBuilder*`/`pp*` (EN+FR) qui n'étaient utilisées que
+  par les composants supprimés.
+- **Non touché, resté vivant côté backend** : le modèle v1 (`Config.data` JSON,
+  `Floor`/`Forecourt`/`ExternalMerch`, `SpacesService.saveConfiguration`/`reconcileElement`) reste
+  utilisé indépendamment de l'UI — `StepMapSpace.vue` (wizard Data Integration) crée la première
+  config d'un espace via ce chemin (`POST /configurations`), et `SpaceInventoryView.vue` dépend de
+  `assign-floor`/`floor-options`. La donnée `Config.data` de configs jamais migrées vers `Zone`
+  reste lue par ce chemin. Un plan de bascule complet (migration des données existantes,
+  dépréciation du backend v1) reste à faire — voir zones grises dans
+  `docs/modules/03_BUILDER_ESPACES.md`.
+- **Laissé en l'état, décision à prendre par un humain** : `PATCH /configurations/:id` et
+  `DELETE /configurations/:id` (`ConfigurationsController`) n'ont plus de caller frontend connu
+  (leur seul déclencheur était `SpaceBuilderViewRoute.vue`), mais ce sont des routes REST publiques
+  documentées (Swagger) partageant leur logique avec la route `POST /configurations` (elle,
+  vivante) — pas supprimées unilatéralement faute de certitude sur d'éventuels appelants externes.
 
 ## Références
 

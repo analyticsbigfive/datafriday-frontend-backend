@@ -1,8 +1,22 @@
-# Espaces & Builder — 3D Builder v1 / v2
+# Espaces & Builder — 3D Builder v1 (backend seul) / v2
 
 > Domaine cartographie : **Espaces & builder**. Owner produit : Ulrich.
-> Écrans : `/spaces`, `/spaces-overview`, `/spaces/:id` (Analyse), `/spaces/:id/builder` (v1),
-> `/spaces/:id/builder2` (v2).
+> Écrans : `/spaces`, `/spaces-overview`, `/spaces/:id` (Analyse), `/spaces/:id/builder2` (v2 —
+> unique parcours d'édition d'espace).
+>
+> **Mise à jour 2026-07-22 : le frontend v1 a été retiré** (`spaces/views/builder/` supprimé,
+> route `SpaceBuilder`/`/spaces/:id/builder` enlevée de `router/index.js` — voir
+> [ADR-0002](../adr/0002_builder_v2_relationnel_seul.md) pour le détail du retrait et ce qui a été
+> nettoyé avec). Le reste de ce document (rédigé le 2026-07-15, avant le retrait) décrit le state
+> backend qui, lui, **n'a pas changé** : `SpacesController`/`ConfigurationsController`,
+> `Config.data` JSON, `Floor`/`Forecourt`/`ExternalMerch`, et toute la logique de cohabitation avec
+> `Zone`/`ConfigurationElement` (v2) restent en place et actifs — utilisés par le wizard Data
+> Integration (`StepMapSpace.vue`) pour créer la première config d'un espace, par
+> `SpaceInventoryView.vue` (assign-floor/floor-options), et comme source de lecture pour les
+> espaces jamais migrés vers `Zone`. Les sections ci-dessous décrivant l'ancienne UI
+> (`spaces/views/builder/*.vue`) sont conservées à titre **historique** (elles expliquent le
+> "pourquoi" de plusieurs choix backend encore actifs) mais le code qu'elles décrivent n'existe
+> plus — ne pas y chercher de fichiers.
 >
 > Vérifié exhaustivement le 2026-07-15 : chaque modèle Prisma, chaque route backend (v1
 > `SpacesController`/`ConfigurationsController` ET v2 `BuilderV2Controller`), chaque composant
@@ -16,9 +30,10 @@
 > détaillé) et un doc de conception `docs/utiles/REFONTE_3D_BUILDER_V2.md` qui décrivait la v2
 > comme un plan à venir — dans les faits elle est **déjà construite et livrée** (voir plus bas).
 > Compléments historiques : `docs/utiles/ARCHITECTURE_3D_BUILDER.md` (v1 seule, très détaillé,
-> toujours à jour sur le v1) et `docs/utiles/prototypes/08_REACT_BUILDER_3D.md` (archéologie du
-> prototype React — utile pour comprendre le "pourquoi historique" de certains choix, jamais comme
-> source de vérité sur l'état actuel).
+> décrit l'ancienne UI, à lire comme archéologie depuis le retrait du 2026-07-22) et
+> `docs/utiles/prototypes/08_REACT_BUILDER_3D.md` (archéologie du prototype React — utile pour
+> comprendre le "pourquoi historique" de certains choix, jamais comme source de vérité sur l'état
+> actuel).
 
 ---
 
@@ -99,13 +114,24 @@ invariant par des chemins différents.
 
 ---
 
-## Le piège n°1 de ce domaine : DEUX builders actifs simultanément, même permission
+## Le piège n°1 de ce domaine (historique, résolu côté UI le 2026-07-22) : DEUX builders actifs simultanément, même permission
 
-`/spaces/:id/builder` (v1) et `/spaces/:id/builder2` (v2) sont **tous les deux montés en
+**Résolu au niveau UI** : depuis le retrait du frontend v1, `/spaces/:id/builder` n'existe plus —
+`builder2` est l'unique route montée. Le paragraphe suivant décrit l'état tel qu'il était avant ce
+retrait (utile pour comprendre pourquoi le backend protège encore les éléments v2 en lecture v1,
+cf. plus bas) :
+
+`/spaces/:id/builder` (v1) et `/spaces/:id/builder2` (v2) étaient **tous les deux montés en
 production, tous les deux accessibles à tout utilisateur ayant la permission `space.edit`**
-(vérifié `router/index.js:147-160` : les deux routes portent `meta.permission: 'space.edit'`,
-aucun flag tenant). Ce n'est pas un plan (`REFONTE_3D_BUILDER_V2.md` §6.2 prévoyait une bascule
-"tenant par tenant, jamais les deux actifs à la fois") — **c'est l'état réel du code aujourd'hui**.
+(vérifié `router/index.js:147-160` : les deux routes portaient `meta.permission: 'space.edit'`,
+aucun flag tenant). Ce n'était pas un plan (`REFONTE_3D_BUILDER_V2.md` §6.2 prévoyait une bascule
+"tenant par tenant, jamais les deux actifs à la fois") — **c'était l'état réel du code jusqu'au
+2026-07-22**.
+
+**Important — ceci ne résout que le risque de confusion UI.** Le risque de fond décrit ci-dessous
+(un espace peut avoir des éléments dans le système v1 relationnel, v2, ou les deux à la fois ;
+`Config.data` JSON toujours réécrit par le chemin v1) reste entier côté backend tant que la
+migration des données n'est pas faite — voir zones grises en fin de document.
 
 **Différence structurelle qui explique pourquoi ceci est risqué** : v1 garde son état dans
 `Floor`/`Forecourt`/`ExternalMerch` + le JSON `Config.data` ; v2 garde le sien dans `Zone` +
@@ -468,69 +494,30 @@ dans le plan.
 
 ---
 
-## Frontend v1 — `components/spaces/views/builder/`
+## Frontend v1 (historique — SUPPRIMÉ le 2026-07-22) — `components/spaces/views/builder/`
 
-**Où vit le code** :
-- `views/SpaceBuilderViewRoute.vue` (2561 lignes) — orchestrateur : état, appels API, sauvegarde.
-- `widgets/FloorListView.vue` (897 l.) — liste des Areas (floors/forecourt/external), sidebar
-  gauche haut.
-- `widgets/ElementPaletteView.vue` (441 l.) — palette d'outils, sidebar gauche bas.
-- `widgets/ElevationBuilderView.vue` (1414 l.) — vue "3D" (projection isométrique SVG).
-- `widgets/FloorPlanBuilderView.vue` (1617 l.) — plan 2D éditable SVG.
-- `widgets/PropertiesPanelView.vue` (2026 l.) — panneau propriétés, sidebar droite.
+**Ce code n'existe plus.** Il vivait sous `spaces/views/builder/` (`SpaceBuilderViewRoute.vue` +
+5 widgets : `FloorListView`, `ElementPaletteView`, `ElevationBuilderView`, `FloorPlanBuilderView`,
+`PropertiesPanelView`) et a été retiré une fois confirmé que `builder2` était l'unique parcours
+réellement utilisé (voir [ADR-0002](../adr/0002_builder_v2_relationnel_seul.md)). Résumé conservé
+pour le contexte historique :
 
-**Client API** : `space.api.js` + `configuration.api.js` (les deux vivants, voir section API
-clients plus bas). **Store Vuex** : `spaceConfigurations.js` (cache configs), `spaceShops.js`
-(cache shops).
-
-### Modèle d'édition : état local + bouton Save + verrous de sortie
-
-`SpaceBuilderViewRoute.vue` garde tout en mémoire locale (`floors[]`, `forecourt`, `externalMerch`
-= copie de travail de `config.data`), compare un `savedSnapshot` (JSON stringifié) pour calculer
-`hasUnsavedChanges` (vérifié `data()` ligne 672-739, `hasUnsavedChanges` ligne 928-935), et bloque
-la sortie (`beforeRouteLeave` + `beforeunload`) tant qu'il y a des changements non sauvés. C'est
-l'inverse exact du modèle v2 (autosave, aucun verrou de sortie sauf file d'attente non vide).
-
-**Confirmé vides en permanence** : `data().menuItems` et `data().inventoryItems` — recherche
-exhaustive de `this.menuItems =`/`this.inventoryItems =` dans tout le fichier : zéro affectation
-après la déclaration initiale. Ces deux tableaux sont passés en props à `PropertiesPanelView.vue`
-(`all-shop-menu-items`, `all-merch-shop-items`) mais **`SpaceBuilderViewRoute.vue` ne les lie à
-rien** — les props par défaut `[]` de `PropertiesPanelView.vue`/`ElevationBuilderView.vue`
-(`widgets/PropertiesPanelView.vue:1222-1223`, `widgets/ElevationBuilderView.vue:421-422`)
-s'appliquent donc toujours. `PropertiesPanelView.vue` s'appuie en réalité sur son propre
-`loadAllMenuItems()` (via `utils/api.js`, voir section API clients). De même,
-`onHighlightElements`/`onSearchQueryChange` (`ElevationBuilderView.vue:430-431`) ne reçoivent
-jamais de fonction réelle du parent : l'appel interne `this.onHighlightElements &&
-this.onHighlightElements(...)` (ligne 686) est un no-op permanent. Ce sont des résidus du portage
-React (voir `08_REACT_BUILDER_3D.md` : ces callbacks pilotaient une vraie recherche+surbrillance
-en React ; c'est le port Vue qui les a laissés orphelins, pas une dette héritée du prototype).
-
-### Synchro multi-config côté client (`syncConfigurationIdChanges`)
-
-Cocher/décocher une config dans `PropertiesPanelView.vue` déclenche, pour CHAQUE config
-ajoutée/retirée : un `GET /configurations/:id` de la config cible, un matching des éléments par
-**nom+type normalisés** (pas par id stable), puis un `PATCH /configurations/:id` complet. C'est
-`N GET + N PATCH séquencés depuis le navigateur`, non transactionnel — un échec partiel laisse les
-configs incohérentes (juste un `console.warn`, confirmé dans `ARCHITECTURE_3D_BUILDER.md` §9 et
-cohérent avec le code lu ici). **C'est exactement le problème que `ConfigurationElement` (v2)
-supprime mécaniquement** (1 `INSERT`/`DELETE`, jamais de matching par nom).
-
-### Storage lié à des shops + inventaire consolidé — VIVANT EN V1 (pas seulement en v2)
-
-Vérifié `PropertiesPanelView.vue:239-275` : pour un élément `type === 'storage'`, une section
-"Shops" liste tous les éléments F&B de la config (`relatedFBElements`, calculé depuis
-`allFBElements` — un **vrai** computed de `SpaceBuilderViewRoute.vue`, ligne 761-786, qui agrège
-floors+forecourt+externalMerch, contrairement à `menuItems`/`inventoryItems` qui restent vides).
-Cocher un shop pousse son id dans `element.selectedShops` (tableau **JSON-only**, pas de colonne
-relationnelle dédiée — persisté via le mécanisme JSON `Config.data` du save v1, jamais lu par
-`reconcileElement` qui ne connaît que les champs relationnels explicites). L'inventaire consolidé
-est calculé **entièrement côté client** par `buildConsolidatedInventory`/`expandInventoryItems`
-(`src/utils/inventoryUtils.js`), à partir des `menuItems` locaux de CHAQUE shop sélectionné (donnée
-elle-même chargée par `PropertiesPanelView.vue` via `utils/api.js`).
-
-**Pourquoi cette précision compte** : un état des lieux antérieur avait classé cette fonctionnalité
-comme "perdue depuis le prototype React, réintroduite en v2" — FAUX, elle a toujours existé en v1
-Vue. Voir la section dédiée plus bas pour la comparaison précise v1/v2 de cette même fonctionnalité.
+- **Modèle d'édition** : état local (`floors[]`/`forecourt`/`externalMerch`, copie de travail de
+  `config.data`) + bouton Save + verrous de sortie (`beforeRouteLeave`/`beforeunload`) tant qu'il y
+  avait des changements non sauvés — l'inverse du modèle v2 (autosave, aucun verrou hors file
+  d'attente non vide).
+- **Synchro multi-config côté client** (`syncConfigurationIdChanges`, `PropertiesPanelView.vue`) :
+  cocher/décocher une config déclenchait, par config affectée, un `GET`+matching par nom+type (pas
+  par id stable)+`PATCH /configurations/:id` complet — séquencé côté navigateur, non
+  transactionnel. **C'est exactement le problème que `ConfigurationElement` (v2) supprime
+  mécaniquement** (1 `INSERT`/`DELETE`, jamais de matching par nom) — cette comparaison reste la
+  meilleure explication du "pourquoi" du modèle v2 de jointure.
+- **Storage lié à des shops + inventaire consolidé** existait déjà en v1 (`element.selectedShops`
+  JSON-only + calcul 100% client `buildConsolidatedInventory`) — voir la section dédiée plus bas
+  pour la comparaison précise avec le calcul serveur v2.
+- Contenait aussi des résidus du portage React (props/callbacks jamais branchés,
+  `menuItems`/`inventoryItems` toujours vides) — supprimés avec le reste, plus de risque de
+  confusion pour un futur dev puisque le fichier n'existe plus.
 
 ---
 
@@ -688,49 +675,35 @@ disponibles" a changé (config en cours → config active + tous shops visibles 
 
 ## Client API — qui appelle quoi
 
+> Mis à jour 2026-07-22 après le retrait du frontend v1 (voir ADR-0002) : `configuration.api.js`
+> ne contient plus que les 2 fonctions ayant un appelant réel ; les 2 fonctions déjà mortes avant
+> le retrait (`getAllConfigurations`, `getConfigurationsBySpace`) et les 2 devenues mortes par le
+> retrait (`updateConfiguration`, `deleteConfiguration`, dont l'unique appelant était
+> `SpaceBuilderViewRoute.vue`) ont été supprimées — l'ancien "piège n°2" ci-dessous est résolu.
+
 | Fichier | Statut | Consommateurs confirmés |
 |---|---|---|
-| `src/api/endpoints/space.api.js` (402 l.) | **Vivant**, partagé v1 + Data Integration + Analyse | `store/modules/spaces.js`, `spaceShops.js`, `spaceConfigurations.js`, `store/modules/analyse.js`, composables `useSpaceMapping.js`/`useShopMapping.js`/`usePredictiveTimeline.js`/`useSpaceData.js`/`useAnalyseTimeline.js`/`useShopPerformance.js`/`useAnalyseItemRecords.js`, `SpaceBuilderViewRoute.vue`, wizard Data Integration (`StepMapSpace.vue`, `StepMapShops.vue`, `StepProcessTimeline.vue`), `SpaceMenuView.vue`, drawers menu-fb, `WorkspaceSpaceSwitcher.vue`, `SpaceCreateDrawer.vue`, `SpaceInventoryView.vue` |
-| `src/api/endpoints/configuration.api.js` (91 l.) | **Vivant pour 4 fonctions, MORT pour 2** — voir détail plus bas | `SpaceBuilderViewRoute.vue` (les 4 fonctions vivantes, usage intensif), `useInventoryData.js` (`getConfiguration` seul), `StepMapSpace.vue` (`createConfiguration` seul), `store/modules/analyse.js` (`getConfiguration` via import dynamique) |
+| `src/api/endpoints/space.api.js` (402 l.) | **Vivant**, partagé Data Integration + Analyse | `store/modules/spaces.js`, `spaceShops.js`, `spaceConfigurations.js`, `store/modules/analyse.js`, composables `useSpaceMapping.js`/`useShopMapping.js`/`usePredictiveTimeline.js`/`useSpaceData.js`/`useAnalyseTimeline.js`/`useShopPerformance.js`/`useAnalyseItemRecords.js`, wizard Data Integration (`StepMapSpace.vue`, `StepMapShops.vue`, `StepProcessTimeline.vue`), `SpaceMenuView.vue`, drawers menu-fb, `WorkspaceSpaceSwitcher.vue`, `SpaceCreateDrawer.vue`, `SpaceInventoryView.vue` |
+| `src/api/endpoints/configuration.api.js` (16 l., réduit de 91) | **Vivant, 2 fonctions seulement** (`getConfiguration`, `createConfiguration`) | `useInventoryData.js` (`getConfiguration`), `StepMapSpace.vue` (`createConfiguration`), `store/modules/analyse.js` (`getConfiguration` via import dynamique) |
 | `src/api/endpoints/builder-v2.api.js` (155 l.) | **Vivant, exclusif à builder2** | `stores/builderStore.js` (toutes les fonctions), sections inspecteur (`PerformanceSection.vue`, `StaffSection.vue`, `InventorySection.vue`, `StorageInventorySection.vue` pour les PUT scopés config) |
 | `src/api/endpoints/menu.api.js` (fonctions `getShopMenuItems`/`getShopAvailableMenuItems`/`getShopInventory`/`getStorageInventory`) | **Vivant**, partagé Space Menu + builder2 | `MenuSection.vue` (`getShopAvailableMenuItems`), `InventorySection.vue` (`getShopInventory`), `StorageInventorySection.vue` (`getStorageInventory`) — les 3 endpoints backend vivent dans le module **SpaceMenus**, pas Spaces ni BuilderV2 (`space-menus.controller.ts:364-444` pour `storage-inventory`) |
-| `src/utils/api.js` (monolithe legacy 45 Ko) | **Vivant, mais UNIQUEMENT pour `PropertiesPanelView.vue` (v1)** | `api.getAllMenuItems()` appelé ligne 1663 pour charger le catalogue du panneau Menu — aucun autre fichier vivant de ce domaine n'en dépend |
-
-### Le piège n°2 : deux fonctions mortes DANS un fichier par ailleurs vivant
-
-`configuration.api.js` expose `getAllConfigurations()` et `getConfigurationsBySpace(spaceId)`
-(lignes 7-15 et 33-41). **Recherche exhaustive de leurs appelants dans tout `datafriday-web/src`**
-(hors leur propre définition) : **zéro résultat.** Le seul autre endroit où ces noms apparaissent
-est une définition dupliquée et non liée dans le monolithe legacy `utils/api.js:335`
-(`getAllConfigurations`, elle-même sans appelant identifié dans ce domaine). Si tu dois ajouter un
-besoin "toutes les configs" ou "configs d'un espace", ces deux fonctions existent déjà mais
-**n'ont jamais été branchées** — vérifie s'il ne vaut pas mieux les brancher plutôt qu'écrire un
-troisième chemin, ou les supprimer si le besoin ne se présente plus.
-
-Les 4 fonctions vivantes de `configuration.api.js` (`getConfiguration`, `createConfiguration`,
-`updateConfiguration`, `deleteConfiguration`) sont, elles, au cœur du flux de sauvegarde v1 —
-`SpaceBuilderViewRoute.vue` les appelle **plus de 10 fois** dans son cycle de vie (chargement,
-save, duplication de config, synchro cross-config, voir citations relevées dans le fichier).
+| `src/utils/api.js` (monolithe legacy 45 Ko) | **`getAllMenuItems()` : plus aucun appelant vivant dans ce domaine** depuis le retrait de `PropertiesPanelView.vue` (v1) | Callers restants (`PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue`, `MenuItemMarginReport.vue` via `MenuBuilder.vue`) sont un cluster de code mort **préexistant, non lié à builder v1** — `MenuBuilder.vue` lui-même n'a aucun importeur repo-wide, confirmé lors de cette passe. Signalé, non nettoyé ici (hors scope du retrait builder v1, voir note de bas de section "Code mort") |
 
 ---
 
 ## Router & permissions
 
-Vérifié `router/index.js:146-160` :
+**Mis à jour 2026-07-22** : la route v1 (`SpaceBuilder`, `/spaces/:spaceId/builder`) a été retirée
+de `router/index.js`. Une seule route reste :
 
 ```js
-{ name: 'SpaceBuilder',  path: '/spaces/:spaceId/builder',  meta: { keepAlive: true,  permission: 'space.edit' } }
 { name: 'SpaceBuilder2', path: '/spaces/:spaceId/builder2', meta: { title: 'Builder v2', permission: 'space.edit' } }
 ```
 
-- **Même permission** (`space.edit`) sur les deux routes — tout utilisateur autorisé sur v1 l'est
-  aussi sur v2, dès aujourd'hui, sans opt-in ni flag par tenant. Le plan `REFONTE_3D_BUILDER_V2.md`
-  §6.2 prévoyait une bascule tenant par tenant "jamais les deux actifs à la fois" — **ce garde-fou
-  n'a jamais été posé dans le routeur.**
-- `keepAlive: true` sur v1 seulement — cohérent avec son modèle "état local + bouton Save" (il faut
-  préserver les modifications non sauvées lors d'une navigation type keep-alive). v2 n'en a pas
-  besoin : l'autosave signifie qu'il n'y a jamais d'état local "en attente" à préserver au-delà de
-  la file d'attente (gérée par son propre `beforeunload`).
+Pas de `keepAlive` (jamais nécessaire : l'autosave signifie qu'il n'y a jamais d'état local "en
+attente" à préserver au-delà de la file d'attente, gérée par son propre `beforeunload`). L'ancien
+risque "même permission sur deux routes v1/v2 sans flag de rollout" est résolu par construction :
+il n'y a plus qu'une route.
 
 ---
 
@@ -782,20 +755,25 @@ récapitulé ici) :
 
 ---
 
-## Récapitulatif — bugs actifs et risques confirmés (2026-07-15, non corrigés)
+## Récapitulatif — bugs actifs et risques confirmés (2026-07-15, mis à jour 2026-07-22)
 
 | # | Sujet | Détail | Fichiers |
 |---|---|---|---|
-| 1 | **Pas de flag de rollout par tenant** | v1 et v2 cohabitent pour TOUT utilisateur `space.edit`, contrairement au plan qui prévoyait une bascule contrôlée | `router/index.js:147-160` |
-| 2 | **`PATCH /configurations/:id` (v1) = upsert** | Un id inexistant CRÉE la config au lieu de renvoyer 404 — contraste volontaire avec v2 (`PATCH /builder-v2/configurations/:id` = 404 stricte) | `spaces.controller.ts` (`updateConfiguration`), `spaces.service.ts:1508` (`saveConfiguration` → `config.upsert`) |
-| 3 | **Synchro cross-config v1 non transactionnelle** | `syncConfigurationIdChanges` = N `GET`+`PATCH` séquencés côté navigateur, matching par nom+type (pas par id) ; un échec partiel laisse les configs incohérentes (juste un `console.warn`) | `PropertiesPanelView.vue` (cross-config toggle), confirmé par citations dans `SpaceBuilderViewRoute.vue` (`syncConfigurationIdChanges`) |
-| 4 | **Bascule silencieuse v1→v2 au 1ᵉʳ `assign-floor`** | Un espace "v1 pur" peut se retrouver à router SES assignations suivantes en v2 dès qu'une seule Zone existe (ex. créée par un `quick-element` antérieur) — invisible pour l'utilisateur, source possible de confusion en debug ("pourquoi ce shop est en Zone alors que je n'ai jamais ouvert builder2 ?") | `spaces.service.ts:2973` (`spaceHasZones`) |
-| 5 | **`useIsoProjection.js` dupliqué dans `IsoView.vue`** | Les fonctions de dessin (`drawBox` et consorts) sont réimplémentées inline dans `IsoView.vue` au lieu de réutiliser `boxFaces()` du composable — deux copies à maintenir en parallèle | `IsoView.vue:556-657` vs `useIsoProjection.js:120-194` |
-| 6 | **Props morts hérités du port React (v1)** | `menuItems`/`inventoryItems` (data toujours `[]`), `allShopMenuItems`/`allMerchShopItems` (props jamais liées), `onHighlightElements`/`onSearchQueryChange` (callbacks jamais fournis, no-op silencieux) | `SpaceBuilderViewRoute.vue` (data + template), `PropertiesPanelView.vue:1222-1223`, `ElevationBuilderView.vue:421-431,686` |
+| 1 | ~~Pas de flag de rollout par tenant~~ — **résolu par le retrait du frontend v1** | Une seule route (`builder2`) reste montée ; plus de risque de confusion UI entre deux builders | `router/index.js` |
+| 2 | **`PATCH /configurations/:id` (v1) = upsert** — toujours vrai côté backend, plus de caller frontend connu | Un id inexistant CRÉE la config au lieu de renvoyer 404 — contraste volontaire avec v2 (`PATCH /builder-v2/configurations/:id` = 404 stricte). Route conservée (décision humaine à prendre, voir ADR-0002) malgré l'absence de caller frontend identifié | `spaces.controller.ts` (`updateConfiguration`), `spaces.service.ts:1508` (`saveConfiguration` → `config.upsert`) |
+| 3 | ~~Synchro cross-config v1 non transactionnelle~~ — **résolu par le retrait du frontend v1** | `syncConfigurationIdChanges` vivait dans `PropertiesPanelView.vue`, supprimé — plus aucun code client ne déclenche ce chemin | (fichier supprimé) |
+| 4 | **Bascule silencieuse v1→v2 au 1ᵉʳ `assign-floor`** | Un espace "v1 pur" peut se retrouver à router SES assignations suivantes en v2 dès qu'une seule Zone existe (ex. créée par un `quick-element` antérieur) — invisible pour l'utilisateur, source possible de confusion en debug ("pourquoi ce shop est en Zone alors que je n'ai jamais ouvert builder2 ?"). Toujours d'actualité : ce mécanisme est backend, indépendant du retrait de l'UI v1 | `spaces.service.ts:2973` (`spaceHasZones`) |
+| 5 | **`useIsoProjection.js` dupliqué dans `IsoView.vue`** | Les fonctions de dessin (`drawBox` et consorts) sont réimplémentées inline dans `IsoView.vue` au lieu de réutiliser `boxFaces()` du composable — deux copies à maintenir en parallèle. Sans rapport avec builder v1 (composable builder2) | `IsoView.vue:556-657` vs `useIsoProjection.js:120-194` |
+| 6 | ~~Props morts hérités du port React (v1)~~ — **résolu par le retrait du frontend v1** | Les fichiers qui les portaient (`SpaceBuilderViewRoute.vue`, `PropertiesPanelView.vue`, `ElevationBuilderView.vue`) sont supprimés | (fichiers supprimés) |
 
 ---
 
 ## Code mort de ce domaine (preuve : zéro référence externe trouvée)
+
+> **Mis à jour 2026-07-22** : l'entrée `configuration.api.js` ci-dessous a été supprimée pour de
+> bon (voir section Client API plus haut). Une nouvelle entrée a été repérée pendant cette passe
+> (`utils/api.js: getAllMenuItems()`, cf. Client API) — non nettoyée ici, hors scope du retrait
+> builder v1.
 
 - **`src/components/PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue`** (racine
   de `src/components/`) — **différents** de leurs homonymes vivants sous
@@ -806,9 +784,6 @@ récapitulé ici) :
   tout `src/` : zéro résultat en dehors du fichier lui-même) et non routé (absent de
   `router/index.js`). Chaîne de code mort complète : `appCopy.vue` (mort) → référence ces 3
   fichiers (morts par transitivité).
-- **`configuration.api.js` : `getAllConfigurations()`, `getConfigurationsBySpace(spaceId)`**
-  (lignes 7-15, 33-41) — zéro appelant dans tout `datafriday-web/src` en dehors de leur propre
-  définition ; seul un doublon non lié existe dans `utils/api.js:335`.
 - **`builder2/components/inspector/sections/UsageBadges.vue`** (31 lignes) — composant écrit pour
   factoriser le badge "⚡ mappé Weezevent / 🍔 N menu items", mais **zéro importeur** dans tout le
   repo (`grep -rl "UsageBadges" datafriday-web/src` : aucun résultat en dehors du fichier

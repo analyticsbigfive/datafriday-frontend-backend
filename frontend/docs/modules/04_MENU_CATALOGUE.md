@@ -484,7 +484,8 @@ manuellement avant correction.
 - `src/components/SpaceMenusPanel.vue`, `SpaceMenusByMenuItem.vue` (racine) — référencés
   uniquement par `MenuBuilder.vue` (lui-même mort).
 - `src/components/PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue` (racine,
-  **différents** de leurs homonymes sous `components/spaces/views/builder/`, qui eux sont vivants)
+  **différents** de leurs homonymes qui vivaient sous `components/spaces/views/builder/` —
+  ce dossier a été supprimé le 2026-07-22, voir `docs/modules/03_BUILDER_ESPACES.md`)
   — zéro référence externe, mais contiennent des appels à `api.getAllMenuItems()` legacy qui
   auraient pu faire croire à un usage réel.
 - `src/components/MenuItemMarginReport.vue`, `CostTrackingChart.vue` — référencés uniquement par

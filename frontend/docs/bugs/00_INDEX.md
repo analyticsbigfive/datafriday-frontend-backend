@@ -29,9 +29,9 @@
 | [13](13_team_api_commentaire_obsolete.md) | team.api.js : commentaire obsolète sur /teams | 🟢 Corrigé | 🟢 | Prévision / Événements |
 | [14](14_triple_formule_ca_moyen_event.md) | Triple formule "CA moyen par event" incohérente | 🔴 Ouvert | 🟠 | Analyse & agrégation |
 | [15](15_futureeventscount_deux_implementations.md) | futureEventsCount : deux implémentations divergentes | 🟢 Corrigé | 🟡 | Analyse & agrégation |
-| [16](16_synchro_cross_config_v1_non_transactionnelle.md) | Synchro cross-config v1 non transactionnelle | 🔴 Ouvert | 🟠 | Espaces & builder |
+| [16](16_synchro_cross_config_v1_non_transactionnelle.md) | Synchro cross-config v1 non transactionnelle | 🟢 Corrigé | 🟠 | Espaces & builder |
 | [17](17_useisoprojection_duplique_isoview.md) | useIsoProjection.js dupliqué dans IsoView.vue | 🔴 Ouvert | 🟢 | Espaces & builder |
-| [18](18_props_morts_port_react_builder_v1.md) | Props morts hérités du port React (Builder v1) | 🟡 Corrigé non déployé | 🟢 | Espaces & builder |
+| [18](18_props_morts_port_react_builder_v1.md) | Props morts hérités du port React (Builder v1) | 🟢 Corrigé | 🟢 | Espaces & builder |
 | [19](19_restock_403_silencieux_front.md) | Restock 403 : le front avale l'erreur sans prévenir | 🔴 Ouvert | 🔴 | Stock |
 | [20](20_filtre_storage_material_jamais_match.md) | Filtre storage 'material' (Inventory) : jamais aucun article ne matche | 🟢 Corrigé | 🟠 | Stock |
 | [21](21_filtre_storage_merch_pas_de_filtre.md) | Filtre storage 'merch' (Inventory) : aucun filtre réel | 🟢 Corrigé | 🟠 | Stock |

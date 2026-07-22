@@ -1,5 +1,13 @@
-# Architecture complète — 3D Builder (`/spaces/:spaceId/builder`)
+# Architecture complète — 3D Builder v1 (historique — frontend retiré le 2026-07-22)
 
+> **Le frontend décrit ici n'existe plus.** `spaces/views/builder/` et la route
+> `/spaces/:spaceId/builder` ont été supprimés (voir
+> [ADR-0002](../adr/0002_builder_v2_relationnel_seul.md) et
+> [`docs/modules/03_BUILDER_ESPACES.md`](../modules/03_BUILDER_ESPACES.md), section "Frontend v1")
+> — `builder2` est l'unique parcours d'édition d'espace. Ce document reste utile comme archéologie
+> du "pourquoi" de certains choix backend encore actifs (`Config.data`, reconcile), mais ne
+> décrit plus un écran accessible.
+>
 > Analyse exhaustive du 2026-07-04. Couvre : frontend Vue (source de vérité `datafriday-web/src/`),
 > backend NestJS (`api-datafriday-staging`), modèle de données Prisma, relations avec
 > Data Integration et Space Menu, et comparaison avec la version React legacy (`versionReact/`).
