@@ -119,6 +119,16 @@
 | [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [106](106_webhook_secret_tenant_global_pas_par_integration.md) | Secret de signature webhook Weezevent tenant-global, pas par intégration | 🟢 Corrigé | 🟡 | Intégrations & ventes |
 | [107](107_weezeventintegration_clientid_legacy_not_null_bloque_creation.md) | `WeezeventIntegration.clientId`/`clientSecret` legacy NOT NULL bloque toute création d'instance | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [108](108_event_timeline_deletedat_non_filtre.md) | `getEventTimelineBatch` ne filtre pas `SalesTransaction.deletedAt` | 🔴 Ouvert | 🟠 | Analyse & agrégation / Live events |
+| [109](109_aggregation_jamais_declenchee_automatiquement.md) | `queueAggregationJob()` n'est jamais déclenché automatiquement | 🔴 Ouvert | 🟠 | Analyse & agrégation / Live events |
+
+**109 bugs au total**, 108 et 109 ajoutés le 2026-07-23 pendant la préparation backend du module Live
+(voir [`../api/LIVE_API_GUIDE.md`](../api/LIVE_API_GUIDE.md)) : BUG-109 est le prérequis backend déjà
+identifié en conception (agrégation jamais déclenchée automatiquement, seulement via le wizard
+d'intégration) ; BUG-108 est une découverte nouvelle faite en creusant ce prérequis — la requête
+`event-timeline` que le signal « event live » doit réutiliser (question #20 du tracker front) ne
+filtre pas les transactions annulées (`deletedAt`), contrairement au pipeline d'agrégation périodique
+qui les exclut déjà depuis BUG-028. Les deux sont à corriger avant d'implémenter le signal live.
 
 **107 bugs au total**, 107 ajouté et corrigé le 2026-07-21 en testant end-to-end le fix de BUG-106 :
 la création d'une intégration Weezevent/Digifood échouait sur cette base (colonnes legacy
