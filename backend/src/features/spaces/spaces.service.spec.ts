@@ -12,6 +12,11 @@ describe('SpacesService', () => {
   let service: SpacesService;
   let prismaService: PrismaService;
 
+  const mockLogisticsService = {
+    getStock: jest.fn(),
+    getLiveInventory: jest.fn(),
+  };
+
   const mockPrismaService = {
     space: {
       create: jest.fn(),
@@ -127,7 +132,7 @@ describe('SpacesService', () => {
         { provide: SpaceAccessService, useValue: { getAccessibleSpaceIds: jest.fn().mockResolvedValue('ALL'), hasFullAccess: jest.fn().mockReturnValue(true), canAccessSpace: jest.fn().mockResolvedValue(true) } },
         // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
         { provide: SupabaseStorageService, useValue: { resolveImage: jest.fn((value) => Promise.resolve(value)) } },
-        { provide: LogisticsService, useValue: { getStock: jest.fn() } },
+        { provide: LogisticsService, useValue: mockLogisticsService },
       ],
     }).compile();
 
@@ -1088,6 +1093,21 @@ describe('SpacesService', () => {
       const result = await service.getLiveStatus(spaceId, tenantId);
 
       expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
+    });
+  });
+
+  // Passthrough vers LogisticsService (tracker front #22, LIVE_API_GUIDE.md §3) — la logique vit
+  // dans LogisticsService.getLiveInventory (testée dans logistics.service.spec.ts), on vérifie
+  // uniquement le câblage ici.
+  describe('getLiveInventory', () => {
+    it('delegates to LogisticsService.getLiveInventory with the same spaceId/tenantId', async () => {
+      const expected = { shops: [], items: [] };
+      mockLogisticsService.getLiveInventory.mockResolvedValue(expected);
+
+      const result = await service.getLiveInventory('space-1', 'tenant-1');
+
+      expect(mockLogisticsService.getLiveInventory).toHaveBeenCalledWith('space-1', 'tenant-1');
+      expect(result).toBe(expected);
     });
   });
 });

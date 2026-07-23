@@ -937,6 +937,68 @@ export class LogisticsService {
     };
   }
 
+  /**
+   * Onglet Inventaire live du module Live (question #22 du tracker front, tranchée 2026-07-23) :
+   * combinaison mouvements Restock (StockLevel) + décrément par vente en temps réel (consumption),
+   * exactement le calcul de `getStock` — pas de source/formule neuve, juste reformaté en deux
+   * arbres. Granularité : celle par défaut de `readyForSale` (comme le Réarmement), pas d'override.
+   * Pas de configId/eventId : Live veut "maintenant", pas un instantané historique.
+   *
+   * Le "restant" (packedUnits/looseUnits moins consumedLoose) reste calculé côté front, comme pour
+   * `getStock` (`store/modules/logistics.js`) — pas de formule dupliquée ici.
+   */
+  async getLiveInventory(spaceId: string, tenantId: string) {
+    const { elements, levels, consumption } = await this.getStock(spaceId, tenantId);
+
+    const levelByKey = new Map(levels.map((l) => [`${l.elementId}::${l.itemKey}`, l]));
+    const consumedByKey = new Map(consumption.map((c) => [`${c.elementId}::${c.itemKey}`, c.quantity]));
+
+    const shops = elements
+      .filter((el) => SHOP_TYPES.includes(el.type))
+      .map((el) => ({
+        shopId: el.id,
+        shopName: el.name,
+        items: el.items.map((item) => {
+          const level = levelByKey.get(`${el.id}::${item.name}`);
+          return {
+            itemKey: item.name,
+            packedUnits: level?.packedUnits ?? 0,
+            looseUnits: level?.looseUnits ?? 0,
+            unitsPerPack: level?.unitsPerPack ?? item.unitsPerPack ?? null,
+            marketPriceId: level?.marketPriceId ?? item.marketPriceId ?? null,
+            consumedLoose: consumedByKey.get(`${el.id}::${item.name}`) ?? 0,
+          };
+        }),
+      }));
+
+    // Index inversé item → shops (11_LIVE.md §3.2) — n'existe nulle part ailleurs, seul vrai
+    // travail neuf de ce chantier : les deux vues partagent la même donnée déjà assemblée ci-dessus.
+    const itemsByKey = new Map<string, { itemKey: string; shops: any[] }>();
+    for (const shop of shops) {
+      for (const item of shop.items) {
+        let entry = itemsByKey.get(item.itemKey);
+        if (!entry) {
+          entry = { itemKey: item.itemKey, shops: [] };
+          itemsByKey.set(item.itemKey, entry);
+        }
+        entry.shops.push({
+          shopId: shop.shopId,
+          shopName: shop.shopName,
+          packedUnits: item.packedUnits,
+          looseUnits: item.looseUnits,
+          unitsPerPack: item.unitsPerPack,
+          marketPriceId: item.marketPriceId,
+          consumedLoose: item.consumedLoose,
+        });
+      }
+    }
+
+    return {
+      shops,
+      items: [...itemsByKey.values()].sort((a, b) => a.itemKey.localeCompare(b.itemKey, 'fr')),
+    };
+  }
+
   // ─── GET /logistics/element/:elementId/history ───────────────────────────────
 
   async getHistory(elementId: string, tenantId: string, limit = 50, cursor?: string) {

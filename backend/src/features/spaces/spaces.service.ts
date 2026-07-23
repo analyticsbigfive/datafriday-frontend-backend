@@ -1306,6 +1306,15 @@ export class SpacesService {
   }
 
   /**
+   * Onglet Inventaire live (tracker front #22, LIVE_API_GUIDE.md §3) — délègue au module
+   * Logistic, qui calcule déjà cette combinaison Restock + décrément par vente pour son propre
+   * écran. Passthrough volontairement fin : la logique vit dans LogisticsService, pas ici.
+   */
+  async getLiveInventory(spaceId: string, tenantId: string) {
+    return this.logisticsService.getLiveInventory(spaceId, tenantId);
+  }
+
+  /**
    * List all WeezeventEvents linked to a space (via integration scoped to tenant).
    * Returns event data with enrichment metadata (doorsOpening, showTime, category, etc.).
    */

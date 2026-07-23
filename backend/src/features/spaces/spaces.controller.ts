@@ -603,6 +603,73 @@ export class SpacesController {
   }
 
   /**
+   * Onglet Inventaire live (LIVE_API_GUIDE.md §3, tracker front #22) : arbre Shop → items ET
+   * Item → shops, combinant mouvements Restock + décrément par vente en temps réel — délègue au
+   * module Logistic, qui calcule déjà exactement ça pour son propre écran.
+   */
+  @Get(':id/live/inventory')
+  @RequirePermissions('front.fb.live')
+  @ApiOperation({
+    summary: 'Inventaire live d\'un espace',
+    description:
+      'Niveau de stock courant par shop et par item, combinant les mouvements de Réarmement ' +
+      '(StockLevel) et le décrément par vente en temps réel depuis la dernière réconciliation ' +
+      '(même calcul que GET /logistics/space/:spaceId/stock). Le "restant" affiché ' +
+      '(packedUnits/looseUnits − consumedLoose) se calcule côté front, comme pour l\'écran Logistic.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Arbre shop→items et item→shops',
+    schema: {
+      type: 'object',
+      properties: {
+        shops: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              shopId: { type: 'string' },
+              shopName: { type: 'string' },
+              items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    itemKey: { type: 'string' },
+                    packedUnits: { type: 'integer' },
+                    looseUnits: { type: 'number' },
+                    unitsPerPack: { type: 'number', nullable: true },
+                    marketPriceId: { type: 'string', nullable: true },
+                    consumedLoose: { type: 'number', description: 'Unités loose vendues depuis la dernière réconciliation' },
+                  },
+                },
+              },
+            },
+          },
+        },
+        items: {
+          type: 'array',
+          description: 'Index inversé — mêmes données, groupées par item',
+          items: {
+            type: 'object',
+            properties: {
+              itemKey: { type: 'string' },
+              shops: { type: 'array', items: { type: 'object' } },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getLiveInventory(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.getLiveInventory(id, user.tenantId);
+  }
+
+  /**
    * List WeezeventEvents for a space, including enrichment metadata
    */
   @Get(':id/weezevent-events')
