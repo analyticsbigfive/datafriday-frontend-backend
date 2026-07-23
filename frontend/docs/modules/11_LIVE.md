@@ -182,7 +182,7 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
 | B | Entrée « Live » dans Tools | `analyse/filters/FilterPanel.vue` — `toolboxItems` `:605-613`, handler `onToolboxSelect():583-601`, + `livePath` computed (près de `restockPath:571-574`) | Ajout | 🟢 | — |
 | C | Route `space-live` | `router/index.js` — route enfant après `space-restock` (`:184`), `meta:{ permission, keepAlive }` ; guard permission déjà en place (`:460`) | Ajout | 🟢 | code de permission (voir §9) |
 | D | Mode « flux » de l'Analyse | `analyse/AnalyseView.vue` — relancer `useAnalyseTimeline:529` / `useAnalyseItemRecords:549` / `useSpaceData` sur intervalle + badge « ● LIVE », nettoyage à l'unmount | Modif comportement | 🟡 | endpoint(s) de flux ou cible de polling |
-| E | Onglet Inventaire live | nouveau composant — réutilise `useInventoryData.js`, arbre dépliable Shop → items / Item → shops | **Nouvelle UI** | 🔴 | agrégat inventaire live par shop/item |
+| E | Onglet Inventaire live | nouveau composant — réutilise `useInventoryData.js`, arbre dépliable Shop → items / Item → shops | **Nouvelle UI** | 🔴 | ✅ disponible : `GET /spaces/:id/live/inventory` |
 
 ✅ **Dette résolue (greffe B, vérifié 2026-07-23)** : `AnalyseView.vue:417` importe bien
 `analyse/filters/FilterPanel.vue` — c'est la cible de greffe. `analyse/FilterPanel.vue` est mort/orphelin,
@@ -193,8 +193,8 @@ ne pas y toucher.
 1. 🟢 **Signal « event live »** — `GET /spaces/:id/live-status` implémenté et testé.
 2. 🟢 **Flux analytics live** — polling (§5) ; déclenchement automatique de l'agrégation câblé
    (BUG-109) : `shop-details` n'est plus figé.
-3. 🟡 **Agrégat inventaire live** par shop/item — question #22 tranchée (§10.4), implémentation en
-   cours : `GET /spaces/:id/live/inventory`, réutilise `LogisticsService.getStock`.
+3. 🟢 **Agrégat inventaire live** par shop/item — `GET /spaces/:id/live/inventory` implémenté et
+   testé (§10.4, question #22), réutilise `LogisticsService.getStock`.
 
 ## 9. Ownership & RBAC (branchement, pas un chantier)
 
@@ -289,8 +289,8 @@ ne pas y toucher.
 **Le socle backend du v1 est livré** (signal `GET /spaces/:id/live-status`, agrégation auto,
 `event-timeline`/`shop-details` fiables pour du live — `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`).
 **Plus aucun point bloquant avant code** : #22 (source du stock live) est tranchée, l'implémentation
-backend de `GET /spaces/:id/live/inventory` est en cours. Le v1 front (greffes A/B/C/D, §8bis) peut
-démarrer dès maintenant ; le v2/onglet Inventaire (greffe E) pourra suivre dès l'endpoint livré.
+backend de `GET /spaces/:id/live/inventory` est livrée et testée. **Tout le backend du module Live
+est prêt** — le front peut démarrer toutes les greffes (A/B/C/D/E, §8bis), v1 comme v2.
 
 ---
 

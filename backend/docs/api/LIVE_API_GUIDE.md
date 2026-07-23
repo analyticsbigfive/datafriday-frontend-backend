@@ -1,6 +1,6 @@
 # 🔴 API Live events — guide d'implémentation backend
 
-> **Statut : v1 analytics implémenté** (§1, §2, §5) — sauf mention contraire. Contrepartie backend de
+> **Statut : v1 + v2 implémentés côté backend** (§1, §2, §3, §5) — sauf mention contraire. Contrepartie backend de
 > [`datafriday-web/docs/modules/11_LIVE.md`](../../../datafriday-web/docs/modules/11_LIVE.md) (conception
 > UX/produit) — ce document ne redécide rien de ce qui y est déjà tranché, il précise *comment*
 > c'est implémenté contre le code réel : fichiers, lignes, requêtes, contrats.
@@ -194,12 +194,13 @@ Guard à poser sur les nouvelles routes, pattern identique à `LogisticControlle
    `@RequirePermissions('front.fb.live')`, testé.
 4. 🟢 **Rien côté backend pour le flux analytics** (§2) — les endpoints existants suffisent, déjà
    fiables ; le front peut brancher son polling dessus.
-5. ⏳ **Inventaire live** (§3) — **attend la décision #22**. Une fois tranchée : exposer
-   `GET /spaces/:id/live/inventory` selon l'option retenue.
+5. 🟢 **BUG-110** — filtre `deletedAt` sur `deriveSalesRaw` (module Logistic).
+6. 🟢 **Inventaire live** (§3) — `GET /spaces/:id/live/inventory` implémenté
+   (`LogisticsService.getLiveInventory`, exposé via `SpacesService`/`SpacesController`), testé.
 
-**Reste à faire pour boucler le v1 : rien côté backend.** Le front peut commencer les greffes A/B/C/D
-(`11_LIVE.md` §8bis) dès maintenant — bouton ◉ sur `space.liveEvent`/appel à `live-status`, entrée
-Tools, route `space-live`, mode flux de `AnalyseView.vue` pollant `event-timeline`/`shop-details`.
+**Le backend du module Live (v1 + v2) est entièrement livré.** Le front peut démarrer toutes les
+greffes (`11_LIVE.md` §8bis) — bouton ◉, entrée Tools, route `space-live`, mode flux de
+`AnalyseView.vue`, et l'onglet Inventaire live (arbre dépliable sur `GET /spaces/:id/live/inventory`).
 
 ---
 
