@@ -188,6 +188,16 @@ const routes = [
       },
 
       {
+        // Live (BUG/module Live, cf. docs/modules/11_LIVE.md) : l'écran Analyse en
+        // mode flux. Route dédiée (pas ?toolbox=) car Live comprendra un onglet
+        // Inventaire (v2). `front.fb.live` déjà catalogué. `keepAlive` explicite.
+        path: '/spaces/:spaceId/live',
+        name: 'space-live',
+        component: () => import('@/components/analyse/AnalyseView.vue'),
+        meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
+      },
+
+      {
         path: '/events',
         name: 'events',
         component: EventsListView,

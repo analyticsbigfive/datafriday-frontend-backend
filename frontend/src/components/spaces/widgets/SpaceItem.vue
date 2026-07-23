@@ -8,6 +8,20 @@
       <!-- Type badge -->
       <div v-if="space?.spaceType" class="si-type-badge">{{ space.spaceType }}</div>
 
+      <!-- Bouton Live (◉) : affiché EN CONTINU (hors .si-actions hover-only) si
+           l'espace a un event en cours. Gated backend : champ `space.liveEvent`
+           (cf. docs/modules/11_LIVE.md §7/§8bis-A) → masqué tant que le backend
+           ne l'expose pas. Mène à la route Live dédiée. -->
+      <button
+        v-if="space?.liveEvent"
+        class="si-live-btn"
+        title="Live"
+        aria-label="Live"
+        @click.stop="goLive"
+      >
+        <span class="si-live-dot"></span>
+      </button>
+
       <!-- Actions (top-right, visible on hover) — RBAC : édition d'espace
            (builder / modifier / supprimer) gardée par `space.edit`. Sans cette
            permission, l'utilisateur voit la carte (nav.spaces) mais pas les actions. -->
@@ -116,6 +130,14 @@ export default {
         this.$router.push({ name: 'SpaceBuilder2', params: { spaceId } });
       }
     },
+    // Module Live (docs/modules/11_LIVE.md, greffe A) : route dédiée /spaces/:id/live.
+    goLive() {
+      const spaceId = this.space?.id || this.space?._id;
+      if (spaceId) {
+        clearDemoMode();
+        this.$router.push(`/spaces/${spaceId}/live`);
+      }
+    },
     editSpaceItem() {
       if (this.editSpace) this.editSpace(this.space);
     },
@@ -186,6 +208,41 @@ export default {
   text-transform: uppercase;
   padding: 3px 10px;
   border-radius: 100px;
+}
+
+/* Bouton Live (◉) — module Live. Visible en continu (contrairement à .si-actions
+   hover-only). Point rouge « record » pulsant, coin haut-droit. */
+.si-live-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, .45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease;
+}
+.si-live-btn:hover { transform: scale(1.08); background: rgba(0, 0, 0, .6); }
+.si-live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff3131;
+  box-shadow: 0 0 0 0 rgba(255, 49, 49, .55);
+  animation: si-live-pulse 1.6s infinite;
+}
+@keyframes si-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 49, 49, .55); }
+  70%  { box-shadow: 0 0 0 9px rgba(255, 49, 49, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 49, 49, 0); }
 }
 
 /* ── Action buttons ── */

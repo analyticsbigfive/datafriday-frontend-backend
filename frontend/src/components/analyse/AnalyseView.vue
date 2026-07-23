@@ -35,6 +35,10 @@
                   @toggle="drawer = !drawer"
                 />
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
+                <!-- Badge Live (module Live, greffe D) : visible sur la route space-live. -->
+                <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
+                  <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
+                </span>
                 <v-spacer />
                 <v-btn
                   icon
@@ -402,7 +406,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDisplay } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
@@ -1404,8 +1408,36 @@ function onShowAverage() {
 // ---- Copier / Partager (screenshot) --------------------------------------
 // (délégué à useAnalyseCapture : copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare)
 
+// ── Mode flux « Live » (docs/modules/11_LIVE.md, greffe D) ──────────────────
+// Sur la route dédiée `space-live`, on rafraîchit périodiquement la source
+// RÉELLEMENT temps réel : `event-timeline` via loadTimelineForEvents (§5, déjà
+// quasi live grâce au webhook Weezevent + cron fallback).
+// Volontairement NON pollés au v1 :
+//  - loadSpace/shop-details : re-dispatch remet le sélecteur de config à null
+//    (bug connu, store analyse:351) ET les KPI par shop restent figés tant que
+//    l'agrégation backend n'est pas auto-déclenchée (§5, prérequis Ulrich) ;
+//  - useAnalyseItemRecords : cache sans API de refresh exposée.
+// keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
+const isLive = computed(() => route.name === 'space-live')
+const LIVE_POLL_MS = 15000
+let livePollTimer = null
+function livePoll() {
+  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value)
+}
+function startLivePolling() {
+  stopLivePolling()
+  if (isLive.value) livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
+}
+function stopLivePolling() {
+  if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
+}
+onActivated(startLivePolling)
+onDeactivated(stopLivePolling)
+onBeforeUnmount(stopLivePolling)
+
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
+  startLivePolling()
   // Deep-link : ?toolbox=predict|analyse|event-predict sync l'état toolbox.
   // L'URL est la SOURCE DE VÉRITÉ au montage : sans ?toolbox=, on force le
   // retour à 'analyse'. Sans ce reset, un selectedToolbox résiduel du store
@@ -1594,6 +1626,34 @@ async function ensureAuthAndLoad(spaceId) {
   border-radius: 18px;
   background: #ff3131;
   box-shadow: 0 8px 24px rgba(255, 49, 49, 0.28);
+}
+/* Badge Live (module Live) : pastille claire + point pulsant sur le bandeau rouge. */
+.av-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.av-live-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+  animation: av-live-pulse 1.4s infinite;
+}
+@keyframes av-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6); }
+  70%  { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
 }
 /* Ligne 1 : toggle + « Espace : Analyse » + copier/partager. */
 .av-header__row1 {

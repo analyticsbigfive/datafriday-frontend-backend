@@ -1,9 +1,11 @@
 # Live events — gestion temps réel (conception)
 
-> **Statut : 🔵 À construire — aucun code n'existe encore.** Contrairement aux autres pages de ce
-> dossier, cette page ne peut pas être « vérifiée contre le code réel » puisque le module n'est pas
-> écrit : c'est une **conception**. Elle décrit *ce qu'il faut bâtir* et *où ça se branche* sur
-> l'existant, et sera convertie en cartographie vérifiée une fois le module livré.
+> **Statut : 🟡 Front v1 livré (scaffolding + mode flux) — fondation backend en attente.**
+> Les greffes front **A/B/C/D** (bouton ◉, entrée Tools, route `space-live`, mode flux polling de
+> l'Analyse) sont écrites — détail et limites §13. Reste : les prérequis **backend** (signal
+> `liveEvent`, agrégation auto, agrégat inventaire — Ulrich) et l'**onglet Inventaire live (E, v2)**,
+> bloqué par les questions produit #22/#23. Cette page décrit *ce qu'il faut bâtir* et *où ça se
+> branche* ; elle sera convertie en cartographie vérifiée une fois le module complet.
 >
 > Domaine cartographie : **Live events** (nouveau). Owners pressentis : **Ulrich** (backend temps réel,
 > agrégation, spaces) + **Jean-Luc** (écrans Analyse & Inventory réutilisés). **Hors domaine Auth/RBAC
@@ -250,12 +252,45 @@ importe réellement **avant** de greffer, sinon l'entrée n'apparaît qu'à moit
 - [ ] **Ownership front** (§9) — Jean-Luc vs Emmanuel, à acter nommément.
 - [ ] **Phasage** (§11) — v1 analytics d'abord, v2 inventaire.
 
+## 13. État d'avancement (2026-07-23)
+
+**Front v1 « Live analytics » — livré** (greffes vérifiées contre le code actuel ; points d'insertion
+§8bis re-confirmés) :
+
+| Greffe | Fichier | Statut |
+|---|---|---|
+| **A** — bouton ◉ | `spaces/widgets/SpaceItem.vue` (`.si-img`, `v-if="space?.liveEvent"` → `/spaces/:id/live`) | ✅ écrit — **masqué** tant que le backend n'expose pas `liveEvent` (§7) |
+| **B** — entrée « Live » Tools | `analyse/filters/FilterPanel.vue` (`toolboxItems` + `onToolboxSelect` + `livePath`) + clé i18n `anToolLive` | ✅ livré (c'est bien `filters/FilterPanel.vue` qui est importé par `AnalyseView`, pas le doublon racine) |
+| **C** — route `space-live` | `router/index.js` après `space-restock` → rend `AnalyseView`, `meta:{ title:'Live', keepAlive:true, permission:'front.fb.live' }` | ✅ livré — **non** ajoutée à `SPACE_SCREENS` (§10.3) |
+| **D** — mode flux | `analyse/AnalyseView.vue` : `isLive` (route), badge ● LIVE, polling 15 s de la timeline, cleanup `onActivated/onDeactivated/onBeforeUnmount` | ✅ livré (voir limites ci-dessous) |
+| **E** — onglet Inventaire | — | 🔴 **v2, non commencé** (bloqué #22/#23) |
+
+**Limites v1 assumées (fidèles à §5)** — ce qui n'est PAS rafraîchi en live et pourquoi :
+
+- **`loadSpace` / `shop-details` (KPI par shop, POS Performance)** : NON pollé. Deux raisons — (1) le
+  re-dispatch remet `selectedConfigurationId` à `null` (bug connu, `store/modules/analyse.js:351`),
+  cassant les filtres ; (2) ces KPI restent **figés** tant que l'agrégation backend n'est pas
+  auto-déclenchée (§5, prérequis Ulrich). Les poller ne servirait à rien tout en cassant l'UX.
+- **`useAnalyseItemRecords` (records article)** : cache sans API de refresh exposée → non rafraîchi.
+  Petit ajout ultérieur possible (exposer un `refresh()` / bust de cache sur le composable).
+- **Effectivement live au v1** : la **timeline / TX-min** (`event-timeline` via `loadTimelineForEvents`),
+  seule source déjà quasi temps réel (§5), rafraîchie quand la timeline est ouverte.
+
+**Reste à faire** : backend Ulrich (signal `liveEvent`, agrégation auto + fix BUG-19, agrégat
+inventaire), onglet Inventaire E (v2, #22/#23), + décisions lead §12 (ownership front, phasage).
+
 ---
 
 ### Révisions
 
 - **2026-07-20** — Création (conception initiale d'après maquettes). Points d'insertion front vérifiés
   contre le code réel (§8bis) ; §2/§8 corrigés (`FilterPanel.vue`, pas `navigation.js`).
+- **2026-07-23** — Front v1 « Live analytics » implémenté (greffes A/B/C/D, §13) : bouton ◉
+  (`SpaceItem.vue`), entrée Tools + route `space-live`, mode flux `AnalyseView` (badge ● LIVE +
+  polling 15 s de la timeline + cleanup keepAlive). Points d'insertion re-vérifiés (c'est
+  `analyse/filters/FilterPanel.vue` qui est importé, pas le doublon). Limites v1 consignées §13
+  (shop-details/KPI non pollés — reset filtres + agrégation backend non auto ; item-records en cache).
+  Statut passé 🔵→🟡. Reste : fondation backend (Ulrich) + onglet Inventaire E (v2).
 - **2026-07-20** — Questions #19-#21 tranchées par Ulrich après recherche approfondie du code backend
   réel (webhook/queue d'agrégation, modèle `Event`, catalogue RBAC, router front) : transport = polling
   (§5, avec correction d'une hypothèse fausse sur la fraîcheur de l'agrégation + prérequis backend
