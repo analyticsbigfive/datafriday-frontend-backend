@@ -9,6 +9,7 @@ import { WeezeventClientService } from '../weezevent/services/weezevent-client.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { LogisticsService } from '../logistics/logistics.service';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -51,6 +52,7 @@ export class SpacesService {
     private readonly weezeventClient: WeezeventClientService,
     private readonly spaceAccess: SpaceAccessService,
     private readonly storage: SupabaseStorageService,
+    private readonly logisticsService: LogisticsService,
   ) {}
 
   /**

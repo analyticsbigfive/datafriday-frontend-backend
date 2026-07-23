@@ -12,22 +12,20 @@
 
 ## 0. Ce qui bloquait avant de coder — statut
 
-Deux bugs backend, trouvés en préparant ce document, **bloquaient** le signal live (ils en
-affectaient directement la fiabilité) — **les deux sont corrigés** :
+Trois bugs backend, trouvés en préparant ce document, **bloquaient** le signal live et/ou
+l'Inventaire live — **les trois sont corrigés** :
 
 - **[BUG-109](../bugs/109_aggregation_jamais_declenchee_automatiquement.md)** 🟢 — déclenchement
   automatique de l'agrégation câblé (post-webhook + cron de secours, voir la fiche pour le détail).
   `shop-details` (POS Performance, KPI par shop) se met désormais à jour toute seule.
 - **[BUG-108](../bugs/108_event_timeline_deletedat_non_filtre.md)** 🟢 — `getEventTimelineBatch`
   filtre maintenant `deletedAt IS NULL`, comme le signal live (§1) qui réutilise la même logique.
+- **[BUG-110](../bugs/110_derivesalesraw_deletedat_non_filtre.md)** 🟢 — même trou que BUG-108, sur
+  `deriveSalesRaw` (module Logistic) cette fois, réutilisé par l'Inventaire live (§3).
 
-Une question produit reste ouverte et bloque uniquement l'Inventaire live (§3, pas le v1 analytics) :
-
-- **Question #22** (tracker front) — source du stock « live ». §3 ci-dessous pose les options
-  concrètes trouvées en code pour trancher plus vite, sans décider à la place de Bertrand.
-
-Le v1 (§1, §2) est implémenté et testé (voir §5). Seul le §3 (Inventaire live) reste à faire, et
-attend #22.
+**Question #22 (tracker front) tranchée le 2026-07-23** : combinaison, réutilisation du calcul
+Logistic, granularité par défaut (§3). Plus aucun point bloquant — v1 (§1, §2) implémenté et testé,
+v2/Inventaire live (§3) en cours d'implémentation.
 
 ---
 
@@ -93,14 +91,15 @@ est une décision front, pas backend.
 
 ## 3. Inventaire live — bloqué par la question #22, options posées
 
-**Ne pas implémenter avant que #22 soit tranchée** (tracker front). Ce qui suit pose les options
-concrètes trouvées en code pour accélérer la décision et l'implémentation une fois tranchée — ce
-n'est **pas** une décision.
+**✅ Question #22 tranchée par l'utilisateur le 2026-07-23** (tracker front) : combinaison,
+réutilisation telle quelle du calcul déjà en production du module Logistic, granularité par défaut
+(`readyForSale`, comme le Réarmement — pas l'override Space Inventory de la question #13). Implémentation
+en cours ci-dessous.
 
-La question posée (`11_LIVE.md` §10.4) : d'où vient le niveau de stock « en direct » — décrément par
-vente, mouvements Restock, ou combinaison ?
+La question posée (`11_LIVE.md` §10.4) était : d'où vient le niveau de stock « en direct » —
+décrément par vente, mouvements Restock, ou combinaison ?
 
-### 3.1 Ce qui existe déjà en code, pertinent pour trancher
+### 3.1 Ce qui existe déjà en code, réutilisé
 
 Le module **Logistic** (`src/features/logistics/logistics.service.ts`) résout déjà exactement ce
 problème pour un autre écran, avec un pattern **combinaison** :
@@ -118,43 +117,57 @@ problème pour un autre écran, avec un pattern **combinaison** :
 - `getStock`-équivalent (`logistics.service.ts:~850-938`) combine les deux : `levels` (Restock) +
   `consumption` (ventes dérivées) → stock courant par élément.
 
-**Implication pour #22** : la combinaison "mouvements Restock + décrément par vente" n'est pas une
-option théorique à construire de zéro — c'est déjà le comportement de production du module Logistic,
-avec une fraîcheur déjà temps réel côté ventes (lecture directe `WeezeventTransaction`, comme
-`event-timeline`). C'est aussi probablement la seule réponse cohérente sur le principe : sales-only
-ignore les réassorts en cours d'event, movements-only ignore les ventes — ni l'un ni l'autre ne donne
-un vrai "stock restant maintenant". Réutiliser ce calcul pour l'onglet Inventaire live (au lieu de le
-réinventer sur les modèles `Inventory*`/`Stock*` séparés du domaine Post/Pre-event Inventory, cf.
-questions #11/#13 du tracker) est l'option la moins coûteuse trouvée en code.
-
-⚠️ **Réserve à trancher avant de réutiliser tel quel (ajoutée au tracker #22, 2026-07-23)** :
-`explodeSalesToConsumption` éclate les ventes en **ingrédients/composants** (même granularité F6 que
-le Réarmement) — alors que **Space Inventory a justement arrêté cet éclatement** sur demande
-explicite de l'utilisateur (question #13 du tracker, 2026-07-18) : un composant y reste une ligne
-comptable telle quelle. Réutiliser tel quel le calcul de Logistic reproduirait sur Live la même
-asymétrie de granularité que #13 documente déjà entre Logistic/Restock et Space Inventory — donc pas
-qu'une question de source de stock, aussi une question de *granularité d'affichage* (ingrédient vs
-composant) à trancher avec le produit, pas juste de câblage technique.
+**Décision** : la combinaison "mouvements Restock + décrément par vente" n'est pas construite de
+zéro — c'est le comportement de production du module Logistic, avec une fraîcheur déjà temps réel
+côté ventes (lecture directe `WeezeventTransaction`, comme `event-timeline`). Granularité : celle
+par défaut de `readyForSale` (même comportement que le Réarmement), **pas** l'override de Space
+Inventory (question #13) — donc pas de cas particulier à répliquer.
 
 ✅ **[BUG-110](../bugs/110_derivesalesraw_deletedat_non_filtre.md) corrigé (2026-07-23)** :
 `deriveSalesRaw` avait le même trou que BUG-108 (pas de filtre `deletedAt` sur
 `WeezeventTransaction`) — hors scope de BUG-108 (qui ne couvrait que `getEventTimelineBatch`), donc
-tracké et corrigé séparément. Plus un obstacle à la réutilisation de ce calcul pour le Live.
+tracké et corrigé séparément.
 
-### 3.2 Périmètre de l'arbre (autre point ouvert de #10.4)
+### 3.2 Implémentation
 
-`11_LIVE.md` §3 demande Shop → items stockables ET Item → shops (deux sens de dépliage). Le module
-Logistic n'expose aujourd'hui que le premier sens (par élément). Un index inversé (par item) serait à
-construire par-dessus, quelle que soit la source retenue — pas bloquant pour trancher #22 en premier.
+`LogisticsService.getLiveInventory(spaceId, tenantId)` (nouvelle méthode publique) : appelle
+`getStock(spaceId, tenantId)` (aucun `configId`/`eventId` — Live veut "maintenant", pas un
+instantané historique) puis reformate son résultat (`elements`, `levels`, `consumption`) en deux
+vues :
 
-### 3.3 Contrat API proposé (une fois #22 tranchée)
+- **Shop → items** : `elements` filtré aux types shop (`SHOP_TYPES`, pas les storages — cohérent
+  avec `11_LIVE.md` §3 qui parle de « par Shop », pas de stockage), chaque item enrichi de son
+  `StockLevel` (`packedUnits`/`looseUnits`/`unitsPerPack`) et de sa consommation dérivée
+  (`consumedLoose`, quantité vendue en unités loose depuis la dernière réconciliation).
+- **Item → shops** : index inversé construit à partir de la même donnée — un item n'existant nulle
+  part ailleurs dans le code, à construire (`11_LIVE.md` §3.2, seul vrai travail neuf de ce chantier,
+  indépendamment de la source retenue).
+
+`LogisticsModule` exporte désormais `LogisticsService` ; `SpacesModule` l'importe (aucun cycle : ni
+`LogisticsModule` ni ses dépendances n'importent `SpacesModule`, contrairement au cas
+`WeezeventModule`/`AggregationModule` de BUG-109).
+
+**Convention de calcul du "restant" côté front, inchangée** : `attendu affiché = level − consumption`
+(pack/loose côté vue) — `api/endpoints/logistics.api.js:12-15`, `store/modules/logistics.js:88-99`.
+L'endpoint expose les composants bruts (`packedUnits`/`looseUnits`/`consumedLoose`), pas un nombre
+déjà combiné, pour rester cohérent avec ce que `useInventoryData.js`/le store Logistic savent déjà
+faire — pas de nouvelle formule à maintenir en double.
+
+### 3.3 Contrat API
 
 ```
-GET /spaces/:id/live/inventory
-→ { shops: [{ shopId, shopName, items: [{ itemKey, packed, loose, ... }] }] }
+GET /spaces/:id/live/inventory   (@RequirePermissions('front.fb.live'))
+→ {
+    shops: [{
+      shopId, shopName,
+      items: [{ itemKey, packedUnits, looseUnits, unitsPerPack, marketPriceId, consumedLoose }]
+    }],
+    items: [{
+      itemKey,
+      shops: [{ shopId, shopName, packedUnits, looseUnits, unitsPerPack, marketPriceId, consumedLoose }]
+    }]
+  }
 ```
-
-Détail exact des champs à spécifier une fois la source de données actée (§3.1) — dépend du choix.
 
 ---
 

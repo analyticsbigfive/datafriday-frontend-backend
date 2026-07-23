@@ -143,8 +143,12 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
 - **Flux analytics live** — polling de `event-timeline` (déjà quasi temps réel, voir §5) et de
   `shop-details` (sous réserve du prérequis d'agrégation automatique, §5) ; pas de canal SSE au v1
   (§5).
-- **Inventaire live** : `GET /spaces/:id/live/inventory` → arbre shop → items stockables, avec niveaux
-  — source du stock live encore ouverte (§10.4, question #22, hors périmètre de cette résolution).
+- **Inventaire live** : ✅ **tranché le 2026-07-23** (question #22) — `GET /spaces/:id/live/inventory`
+  → arbre shop → items stockables ET item → shops (index inversé), réutilisant tel quel le calcul
+  déjà en production du module Logistic (`LogisticsService.getStock`, combinaison `StockLevel` +
+  décrément par vente en temps réel) avec la granularité par défaut (`readyForSale`, comme le
+  Réarmement — pas l'override Space Inventory de la question #13). Détail :
+  `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md` §3.
 
 ## 8. Découpage en tâches
 
@@ -184,12 +188,13 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
 `analyse/filters/FilterPanel.vue` — c'est la cible de greffe. `analyse/FilterPanel.vue` est mort/orphelin,
 ne pas y toucher.
 
-### Prérequis backend bloquants (sans eux, A / D / E n'affichent rien)
+### Prérequis backend (sans eux, A / D / E n'affichent rien)
 
-1. **Signal « event live »** exposé sur la liste d'espaces (champ) et/ou `GET /spaces/:id/live-status`.
-2. **Flux analytics live** — transport tranché (§5, polling), mais 🔴 **déclenchement automatique de
-   l'agrégation encore à câbler** (§5 prérequis 1) : sans lui, `shop-details` reste figé même en pollant.
-3. **Agrégat inventaire live** par shop/item — bloqué par #22 (§10.4).
+1. 🟢 **Signal « event live »** — `GET /spaces/:id/live-status` implémenté et testé.
+2. 🟢 **Flux analytics live** — polling (§5) ; déclenchement automatique de l'agrégation câblé
+   (BUG-109) : `shop-details` n'est plus figé.
+3. 🟡 **Agrégat inventaire live** par shop/item — question #22 tranchée (§10.4), implémentation en
+   cours : `GET /spaces/:id/live/inventory`, réutilise `LogisticsService.getStock`.
 
 ## 9. Ownership & RBAC (branchement, pas un chantier)
 
@@ -236,18 +241,18 @@ ne pas y toucher.
      `spaceEntryGuard` pour choisir le 1er écran d'un rôle) sauf si un rôle porte `front.fb.live` sans
      autre permission d'espace — à date, les deux rôles qui l'ont (« Analyste F&B », « Achat F&B », §9)
      ont vraisemblablement d'autres accès ; à vérifier si un rôle plus restreint est créé plus tard.
-4. **Inventaire live** : d'où vient le stock « en direct » (mouvements Restock ? décrément par vente) ?
-   — encore ouvert, question #22.
+4. ✅ **Inventaire live** : **combinaison** (mouvements Restock + décrément par vente en temps réel),
+   réutilisation telle quelle du calcul déjà en production du module Logistic, granularité par défaut
+   (`readyForSale`, comme le Réarmement) — tranché le 2026-07-23, question #22.
 5. ✅ **Cardinalité event/espace** : **un seul event live par espace** à un instant T. Le bouton ◉ et
    l'écran Live ciblent donc toujours un event unique — pas de sélecteur multi-event à construire (pas
    d'impact sur A/B/C/D ni sur l'onglet Inventaire E, qui restent scopés à l'espace).
 
 > Réponses 1-3 tranchées le 2026-07-20 par Ulrich (owner backend), sur la base d'une recherche
 > approfondie du code réel (webhook/queue d'agrégation, modèle `Event`, catalogue RBAC, router front) ;
-> réponse 5 tranchée le 2026-07-23 par l'utilisateur — détail dans
-> [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), questions #19-#21 et #23 (désormais
-> résolues). **4 reste bloquante avant code** (#22, statut 🔴) — mais ne bloque que l'onglet Inventaire
-> live (v2, greffe E) ; le socle v1 (A/B/C/D, §11) n'en dépend pas.
+> réponses 4 et 5 tranchées le 2026-07-23 par l'utilisateur — détail dans
+> [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), questions #19-#23 (toutes désormais
+> résolues). **Plus aucun point bloquant avant code.**
 
 ## 11. Phasage proposé
 
@@ -272,8 +277,8 @@ ne pas y toucher.
 - [x] **Définition de « event live »** (§10.2 / §7) — **tranchée** : vente réelle < 30 min dans la
       fenêtre event, pas le webhook brut.
 - [x] **Forme de la route** (§10.3) — **tranchée : route dédiée `space-live`**, `keepAlive: true`.
-- [ ] **Source du stock live** (§10.4) et périmètre de l'onglet inventaire — seul point encore ouvert
-      (#22), bloque uniquement l'onglet Inventaire (v2, greffe E), pas le socle v1.
+- [x] **Source du stock live** (§10.4) et périmètre de l'onglet inventaire — **tranché le
+      2026-07-23** : combinaison, réutilisation du calcul Logistic, granularité par défaut.
 - [x] **Cardinalité event/espace** (§10.5) — **tranchée le 2026-07-23 : un seul event live par espace.**
 - [x] **Permission RBAC** de la route (§9) — **`front.fb.live` existe déjà** dans le catalogue, aucun
       seed/backfill à faire.
@@ -283,8 +288,9 @@ ne pas y toucher.
 
 **Le socle backend du v1 est livré** (signal `GET /spaces/:id/live-status`, agrégation auto,
 `event-timeline`/`shop-details` fiables pour du live — `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`).
-**Il ne reste plus qu'un seul point bloquant avant code : #22 (source du stock live), et uniquement
-pour le v2/onglet Inventaire.** Le v1 front (greffes A/B/C/D, §8bis) peut démarrer dès maintenant.
+**Plus aucun point bloquant avant code** : #22 (source du stock live) est tranchée, l'implémentation
+backend de `GET /spaces/:id/live/inventory` est en cours. Le v1 front (greffes A/B/C/D, §8bis) peut
+démarrer dès maintenant ; le v2/onglet Inventaire (greffe E) pourra suivre dès l'endpoint livré.
 
 ---
 
@@ -312,3 +318,10 @@ pour le v2/onglet Inventaire.** Le v1 front (greffes A/B/C/D, §8bis) peut déma
   complet côté backend : `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`. Seul point encore
   bloquant avant code : #22 (source du stock live), et uniquement pour le v2/onglet Inventaire — le
   v1 front peut démarrer.
+- **2026-07-23 (suite 2)** — Question #22 (source du stock live) tranchée par l'utilisateur : combinaison,
+  réutilisation telle quelle du calcul déjà en production du module Logistic
+  (`LogisticsService.getStock`, `StockLevel` + `deriveSalesRaw`/`explodeSalesToConsumption`),
+  granularité par défaut (`readyForSale`, comme le Réarmement — pas l'override Space Inventory de la
+  question #13). Au passage, BUG-110 trouvé et corrigé : `deriveSalesRaw` avait le même trou que
+  BUG-108 (pas de filtre `deletedAt`). Implémentation backend de `GET /spaces/:id/live/inventory` en
+  cours (§8bis greffe E). **Plus aucun point bloquant avant code, v1 comme v2.**
