@@ -51,7 +51,7 @@ C'est le tableau qui répond à « que fait quoi, relié à quoi ».
 | **Auth & onboarding** | Onboarding, Me, Organizations, Tenants | /login, /signup, /forgot-password, /reset-password, /accept-invite, /verify-email, /auth/callback, /onboarding, /profile | Tenant, User, UserTenant |
 | **RBAC** | Users, Roles, Permissions | /users, /users/create, /roles, /permissions | User, Role, Permission, RolePermission, UserSpaceAccess |
 | **Intégrations & ventes** | Integrations, Weezevent, Digifood | /data-integration/fb (wizard mapping + sync) | Integration, Sales* (18 modèles), ProductMapping, CsvMapping, IntegrationWebhookEvent |
-| **Espaces & builder** | Spaces (+ configurations, dashboard, pinned), BuilderV2 | /spaces, /spaces-overview, /spaces/:id/builder (v1), /spaces/:id/builder2 (v2) | Space, Config, Zone, ConfigurationElement, Floor, SpaceElement, Element*(Perf/Staff/Inventory), MenuAssignment |
+| **Espaces & builder** | Spaces (+ configurations, dashboard, pinned), BuilderV2 | /spaces, /spaces-overview, /spaces/:id/builder2 (frontend v1 retiré le 2026-07-22) | Space, Config, Zone, ConfigurationElement, Floor, SpaceElement, Element*(Perf/Staff/Inventory), MenuAssignment |
 | **Analyse & agrégation** | Analyse, Aggregation, Mappings | /spaces/:id (Analyse), portions de /data-integration/fb | SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, AggregationJobLog, LocationSpaceMapping, LocationShopMapping |
 | **Prévision (Event Predict)** | Events → PredictVersions | /spaces/:id/predict, /predict-test (banc de test sans auth) | EventPredictVersion, Event |
 | **Événements** | Events (+ taxonomies, teams) | /events, /event-types, /event-categories, /event-subcategories | Event, EventType/Category/Subcategory, Team |
@@ -135,8 +135,7 @@ Client Axios central `src/api/client.js` (`baseURL = VUE_APP_API_URL`), 27 clien
 |---|---|---|---|---|---|
 | Liste espaces | /spaces | CRUD espaces | `space.api` | — | Ulrich |
 | **Analyse** | /spaces/:id | KPI/coûts/menu d'un espace | `analyse.api` (dashboard, kpis/events, kpis/menu, cost-breakdown) | front.fb.analyse | **Jean-Luc** |
-| Builder v1 | /spaces/:id/builder | Plan 3D historique | `space.api`, `configuration.api` | space.edit | Ulrich |
-| **Builder v2** | /spaces/:id/builder2 | Refonte builder (autosave granulaire) | `builder-v2.api` | space.edit | Ulrich |
+| **Builder v2** | /spaces/:id/builder2 | Éditeur de plan (autosave granulaire) — frontend v1 (`/spaces/:id/builder`) retiré le 2026-07-22 | `builder-v2.api` | space.edit | Ulrich |
 | **Event Predict** | /spaces/:id/predict | Prévision par événement | `eventPredict.api` (predict-versions) | front.fb.eventPredict | **Jean-Luc** |
 | **Inventaire** | /spaces/:id/inventory | Comptages par shop/storage | `inventory.api` | front.fb.spaceInventory | **Jean-Luc** |
 | **Logistique** | /spaces/:id/logistic | Stock attendu, mouvements, réconciliations | `logistics.api` | front.fb.logistic | Ulrich |

@@ -148,61 +148,18 @@
             </v-select>
           </div>
 
-          <!-- Dialog — Nouvelle catégorie -->
-          <v-dialog v-model="newCategoryOpen" max-width="420" :z-index="11000" :persistent="newCategoryLoading">
-            <div class="mpcd-mini-dialog">
-              <div class="mpcd-mini-dialog__header">
-                <Tag :size="18" color="white" />
-                <span>{{ locale === 'fr' ? 'Nouvelle catégorie' : 'New Category' }}</span>
-                <button class="mpcd-mini-dialog__close" :disabled="newCategoryLoading" @click="newCategoryOpen = false"><X :size="16" /></button>
-              </div>
-              <div class="mpcd-mini-dialog__body">
-                <v-alert v-if="newCategoryError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3" style="font-size:13px;">
-                  {{ newCategoryError }}
-                </v-alert>
-                <div class="mpcd-field-row">
-                  <label class="mpcd-field-label" for="mpcd-nc-name">{{ locale === 'fr' ? 'Nom de la catégorie' : 'Category name' }} <span class="mpcd-required">*</span></label>
-                  <input id="mpcd-nc-name" v-model="newCategoryValue" type="text" class="form-control mpcd-input" :disabled="newCategoryLoading" @keyup.enter="confirmNewCategory" />
-                </div>
-              </div>
-              <div class="mpcd-mini-dialog__footer">
-                <button class="mpcd-btn mpcd-btn--cancel" :disabled="newCategoryLoading" @click="newCategoryOpen = false">{{ t('cancel') }}</button>
-                <button class="mpcd-btn mpcd-btn--primary" :disabled="!newCategoryValue.trim() || newCategoryLoading" @click="confirmNewCategory">
-                  <v-progress-circular v-if="newCategoryLoading" indeterminate size="14" width="2" color="white" class="me-1" />
-                  <Check v-else :size="14" class="me-1" />
-                  {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                </button>
-              </div>
-            </div>
-          </v-dialog>
-
-          <!-- Dialog — Nouveau type -->
-          <v-dialog v-model="newTypeOpen" max-width="420" :z-index="11000" :persistent="newTypeLoading">
-            <div class="mpcd-mini-dialog">
-              <div class="mpcd-mini-dialog__header">
-                <Shapes :size="18" color="white" />
-                <span>{{ locale === 'fr' ? 'Nouveau type de produit' : 'New Good Type' }}</span>
-                <button class="mpcd-mini-dialog__close" :disabled="newTypeLoading" @click="newTypeOpen = false"><X :size="16" /></button>
-              </div>
-              <div class="mpcd-mini-dialog__body">
-                <v-alert v-if="newTypeError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3" style="font-size:13px;">
-                  {{ newTypeError }}
-                </v-alert>
-                <div class="mpcd-field-row">
-                  <label class="mpcd-field-label" for="mpcd-nt-name">{{ locale === 'fr' ? 'Nom du type' : 'Type name' }} <span class="mpcd-required">*</span></label>
-                  <input id="mpcd-nt-name" v-model="newTypeValue" type="text" class="form-control mpcd-input" :disabled="newTypeLoading" @keyup.enter="confirmNewType" />
-                </div>
-              </div>
-              <div class="mpcd-mini-dialog__footer">
-                <button class="mpcd-btn mpcd-btn--cancel" :disabled="newTypeLoading" @click="newTypeOpen = false">{{ t('cancel') }}</button>
-                <button class="mpcd-btn mpcd-btn--primary" :disabled="!newTypeValue.trim() || newTypeLoading" @click="confirmNewType">
-                  <v-progress-circular v-if="newTypeLoading" indeterminate size="14" width="2" color="white" class="me-1" />
-                  <Check v-else :size="14" class="me-1" />
-                  {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                </button>
-              </div>
-            </div>
-          </v-dialog>
+          <!-- Dialogs partagés « Nouvelle catégorie » / « Nouveau type » (extraits — voir composants) -->
+          <MarketPriceNewCategoryDialog
+            v-model="newCategoryOpen"
+            :is-dark="isDark"
+            :type-id="selectedTypeId"
+            @created="onCategoryCreated"
+          />
+          <MarketPriceNewTypeDialog
+            v-model="newTypeOpen"
+            :is-dark="isDark"
+            @created="onTypeCreated"
+          />
         </div>
 
         </template>
@@ -245,7 +202,7 @@
 
             <!-- Dialog — création d'un fournisseur -->
             <v-dialog v-model="supplierCreateOpen" max-width="540" :persistent="supplierCreateLoading" :z-index="11000">
-              <div class="sc-dialog">
+              <div class="sc-dialog" :class="{ 'sc-dialog--dark': isDark }">
 
                 <!-- Header -->
                 <div class="sc-dialog__header">
@@ -426,33 +383,12 @@
               </v-select>
             </div>
 
-            <!-- Dialog — Nouvel industriel -->
-            <v-dialog v-model="industrialCreateOpen" max-width="420" :z-index="11000" :persistent="industrialCreateLoading">
-              <div class="mpcd-mini-dialog">
-                <div class="mpcd-mini-dialog__header">
-                  <Tag :size="18" color="white" />
-                  <span>{{ locale === 'fr' ? 'Nouvel industriel' : 'New Industrial' }}</span>
-                  <button class="mpcd-mini-dialog__close" :disabled="industrialCreateLoading" @click="industrialCreateOpen = false"><X :size="16" /></button>
-                </div>
-                <div class="mpcd-mini-dialog__body">
-                  <v-alert v-if="industrialCreateError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3" style="font-size:13px;">
-                    {{ industrialCreateError }}
-                  </v-alert>
-                  <div class="mpcd-field-row">
-                    <label class="mpcd-field-label" for="mpcd-ind-name">{{ locale === 'fr' ? 'Nom' : 'Name' }} <span class="mpcd-required">*</span></label>
-                    <input id="mpcd-ind-name" v-model="industrialCreateValue" type="text" class="form-control mpcd-input" :disabled="industrialCreateLoading" @keyup.enter="confirmIndustrialCreate" />
-                  </div>
-                </div>
-                <div class="mpcd-mini-dialog__footer">
-                  <button class="mpcd-btn mpcd-btn--cancel" :disabled="industrialCreateLoading" @click="industrialCreateOpen = false">{{ t('cancel') }}</button>
-                  <button class="mpcd-btn mpcd-btn--primary" :disabled="!industrialCreateValue.trim() || industrialCreateLoading" @click="confirmIndustrialCreate">
-                    <v-progress-circular v-if="industrialCreateLoading" indeterminate size="14" width="2" color="white" class="me-1" />
-                    <Check v-else :size="14" class="me-1" />
-                    {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                  </button>
-                </div>
-              </div>
-            </v-dialog>
+            <!-- Dialog partagé « Nouvel industriel » (extrait — voir composant) -->
+            <MarketPriceNewIndustrialDialog
+              v-model="industrialCreateOpen"
+              :is-dark="isDark"
+              @created="onIndustrialCreated"
+            />
 
             <!-- Purchase Information -->
             <div class="info-card mb-4">
@@ -498,32 +434,11 @@
             </div>
 
             <!-- Dialog — Packaging creation -->
-            <v-dialog v-model="packagingCreateOpen" max-width="420" :z-index="11000" :persistent="packagingCreateLoading">
-              <div class="mpcd-mini-dialog">
-                <div class="mpcd-mini-dialog__header">
-                  <Package :size="18" color="white" />
-                  <span style="flex:1">{{ locale === 'fr' ? 'Ajouter un packaging' : 'Add a packaging' }}</span>
-                  <button class="mpcd-mini-dialog__close" :disabled="packagingCreateLoading" @click="packagingCreateOpen = false"><X :size="16" /></button>
-                </div>
-                <div v-if="packagingCreateError" style="padding:10px 16px; background:#fef2f2; font-size:13px; color:#ff3131; display:flex; align-items:center; gap:6px;">
-                  <AlertCircle :size="13" style="flex-shrink:0" />{{ packagingCreateError }}
-                </div>
-                <div class="mpcd-mini-dialog__body">
-                  <div class="mpcd-field-row">
-                    <label class="mpcd-field-label" for="mpcd-pk-name">{{ locale === 'fr' ? 'Nom du packaging' : 'Packaging name' }} <span class="mpcd-required">*</span></label>
-                    <input id="mpcd-pk-name" ref="packagingNameInput" v-model="packagingCreateForm.name" type="text" class="form-control mpcd-input" :disabled="packagingCreateLoading" @keyup.enter="submitPackagingCreate" />
-                  </div>
-                </div>
-                <div class="mpcd-mini-dialog__footer">
-                  <button class="mpcd-btn mpcd-btn--cancel" :disabled="packagingCreateLoading" @click="packagingCreateOpen = false">{{ t('cancel') }}</button>
-                  <button class="mpcd-btn mpcd-btn--primary" :disabled="!packagingCreateForm.name.trim() || packagingCreateLoading" @click="submitPackagingCreate">
-                    <span v-if="packagingCreateLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    <Check v-else :size="14" class="me-1" />
-                    {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                  </button>
-                </div>
-              </div>
-            </v-dialog>
+            <MarketPriceNewPackagingDialog
+              v-model="packagingCreateOpen"
+              :is-dark="isDark"
+              @created="onPackagingCreated"
+            />
 
             <!-- Packing Information -->
             <div class="info-card mt-0">
@@ -599,14 +514,15 @@
 <script>
 import { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X } from 'lucide-vue-next';
 import { createMarketPrice, createSupplier } from '@/api/endpoints/menu.api';
-import { createMarketPriceType, createMarketPriceCategory } from '@/api/endpoints/market.price.api';
-import { createPackingType } from '@/api/endpoints/packing-type.api';
-import { createIndustrial } from '@/api/endpoints/industrial.api';
+import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
+import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
+import MarketPriceNewIndustrialDialog from '../dialogs/MarketPriceNewIndustrialDialog.vue';
+import MarketPriceNewPackagingDialog from '../dialogs/MarketPriceNewPackagingDialog.vue';
 
 
 export default {
   name: 'MarketPriceCreateDrawer',
-  components: { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X },
+  components: { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog },
   props: {
     modelValue: { type: Boolean, default: false },
     // initialData: when set, pre-fills form for "add supplier to existing item" (step 2)
@@ -630,14 +546,8 @@ export default {
       imagePreview: '',
       localGoodTypeOptions: [],
       newTypeOpen: false,
-      newTypeValue: '',
-      newTypeLoading: false,
-      newTypeError: '',
       localGoodCategoryOptions: [],
       newCategoryOpen: false,
-      newCategoryValue: '',
-      newCategoryLoading: false,
-      newCategoryError: '',
       // FK type/catégorie chargées depuis l'API quand on ajoute un fournisseur à un item
       // existant (BUG-162) : réutilisées tant que le nom affiché n'a pas changé depuis le
       // chargement. Pour un item brand-new (pas d'initialData), reste à null → la
@@ -791,16 +701,8 @@ export default {
       // packaging inline creation
       localPackagingOptions: [],
       packagingCreateOpen: false,
-      packagingCreateLoading: false,
-      packagingCreateError: '',
-      packagingCreateForm: { name: '' },
       packagingTargetField: 'purchasePackaging',
-
-      // industrial inline creation
       industrialCreateOpen: false,
-      industrialCreateLoading: false,
-      industrialCreateError: '',
-      industrialCreateValue: '',
 
       // supplier inline creation
       supplierCreateOpen: false,
@@ -959,22 +861,10 @@ export default {
       this.localGoodTypeOptions = [...(this.goodTypeOptions || [])];
       this.localPackagingOptions = [...this.packagingCategoryItems];
       this.packagingCreateOpen = false;
-      this.packagingCreateLoading = false;
-      this.packagingCreateError = '';
-      this.packagingCreateForm = { name: '' };
       this.newTypeOpen = false;
-      this.newTypeValue = '';
-      this.newTypeLoading = false;
-      this.newTypeError = '';
       this.localGoodCategoryOptions = [];
       this.newCategoryOpen = false;
-      this.newCategoryValue = '';
-      this.newCategoryLoading = false;
-      this.newCategoryError = '';
       this.industrialCreateOpen = false;
-      this.industrialCreateValue = '';
-      this.industrialCreateLoading = false;
-      this.industrialCreateError = '';
 
       if (initialData) {
         // Adding supplier to existing item — go to step 2
@@ -1082,29 +972,10 @@ export default {
       )
       this.supplierCreateForm.configurationIds = this.supplierCreateForm.configurationIds.filter(id => validConfigIds.has(id))
     },
-    async confirmIndustrialCreate() {
-      const name = this.industrialCreateValue.trim();
-      if (!name) return;
-      this.industrialCreateLoading = true;
-      this.industrialCreateError = '';
-      try {
-        const res = await createIndustrial({ name });
-        const id = res?.id || res?._id;
-        if (!id) throw new Error('Industrial creation failed');
-        this.$store.dispatch('industrials/addIndustrial', { ...res, id });
-        this.$store.dispatch('industrials/fetchIndustrials', { forceRefresh: true });
-        this.form.industrialId = id;
-        this.industrialCreateValue = '';
-        this.industrialCreateOpen = false;
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        this.industrialCreateError = msgStr.includes('Unique constraint')
-          ? (this.locale === 'fr' ? `Un industriel "${name}" existe déjà.` : `An industrial "${name}" already exists.`)
-          : msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-      } finally {
-        this.industrialCreateLoading = false;
-      }
+    // Le dialog partagé a créé l'industriel (API + store) ; ici on ne fait que le
+    // sélectionner dans le formulaire (champ par id).
+    onIndustrialCreated(industrial) {
+      this.form.industrialId = industrial?.id || industrial?._id || null;
     },
     onPackagingSelectChange(field, e) {
       if (e.target.value === '__add_packaging__') {
@@ -1113,103 +984,27 @@ export default {
         this.packagingCreateOpen = true;
       }
     },
-    async submitPackagingCreate() {
-      const name = this.packagingCreateForm.name.trim();
-      if (!name) return;
-      this.packagingCreateLoading = true;
-      this.packagingCreateError = '';
-      try {
-        const res = await createPackingType({ name });
-        const id = res?.id || res?._id;
-        if (!id) throw new Error('Packing type creation failed');
-
-        this.$store.dispatch('packingTypes/addPackingType', { ...res, id });
-        this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
-
-        if (!this.localPackagingOptions.includes(name)) {
-          this.localPackagingOptions = [...this.localPackagingOptions, name];
-        }
-        this.form[this.packagingTargetField] = name;
-        this.packagingCreateOpen = false;
-        this.packagingCreateForm = { name: '' };
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        this.packagingCreateError = msgStr.includes('Unique constraint')
-          ? (this.locale === 'fr' ? `Un packing type "${name}" existe déjà.` : `A packing type "${name}" already exists.`)
-          : msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-      } finally {
-        this.packagingCreateLoading = false;
+    // Le dialog partagé a créé le packing type (API + store) ; ici on l'affecte au
+    // champ ciblé mémorisé par onPackagingSelectChange (purchase/inventory packaging).
+    onPackagingCreated(name) {
+      if (!this.localPackagingOptions.includes(name)) {
+        this.localPackagingOptions = [...this.localPackagingOptions, name];
       }
+      this.form[this.packagingTargetField] = name;
     },
-    async confirmNewType() {
-      const name = this.newTypeValue.trim();
-      if (!name) return;
-      this.newTypeLoading = true;
-      this.newTypeError = '';
-      try {
-        const res = await createMarketPriceType({ name });
-        const id = res?.id || res?._id;
-        if (!id) throw new Error('Type creation failed');
-        await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-        if (!this.localGoodTypeOptions.includes(name)) {
-          this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
-        }
-        this.form.goodType = name;
-        this.newTypeValue = '';
-        this.newTypeOpen = false;
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        if (msgStr.includes('Unique constraint')) {
-          await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-          if (!this.localGoodTypeOptions.includes(name)) {
-            this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
-          }
-          this.form.goodType = name;
-          this.newTypeValue = '';
-          this.newTypeOpen = false;
-        } else {
-          this.newTypeError = msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-        }
-      } finally {
-        this.newTypeLoading = false;
+    // Le dialog partagé a créé le type (API + refetch store) ; ici on ne fait que
+    // refléter la sélection dans le formulaire + l'affichage immédiat.
+    onTypeCreated(name) {
+      if (!this.localGoodTypeOptions.includes(name)) {
+        this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
       }
+      this.form.goodType = name;
     },
-    async confirmNewCategory() {
-      const name = this.newCategoryValue.trim();
-      if (!name) return;
-      if (!this.selectedTypeId) {
-        this.newCategoryError = this.locale === 'fr'
-          ? 'Choisis d\'abord un Good Type.'
-          : 'Pick a Good Type first.';
-        return;
+    onCategoryCreated(name) {
+      if (!this.localGoodCategoryOptions.includes(name)) {
+        this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
       }
-      this.newCategoryLoading = true;
-      this.newCategoryError = '';
-      try {
-        await createMarketPriceCategory({ name, typeId: this.selectedTypeId });
-        await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
-        if (!this.localGoodCategoryOptions.includes(name)) {
-          this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
-        }
-        this.form.category = name;
-        this.newCategoryValue = '';
-        this.newCategoryOpen = false;
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        if (msgStr.includes('Unique constraint')) {
-          await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
-          this.form.category = name;
-          this.newCategoryValue = '';
-          this.newCategoryOpen = false;
-        } else {
-          this.newCategoryError = msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-        }
-      } finally {
-        this.newCategoryLoading = false;
-      }
+      this.form.category = name;
     },
     async submitSupplierCreate() {
       const name = this.supplierCreateForm.name.trim()
@@ -1561,6 +1356,18 @@ export default {
   box-shadow: 0 0 0 2px rgba(37,99,235,.1);
   outline: none;
 }
+/* Dark : inputs inline (sections Purchase/Inventory Information) — fond bleu sombre, valeur claire. */
+.mpcd--dark .mpcd-inline-input,
+.mpcd--dark .mpcd-inline-select {
+  background: #1a2332;
+  border-color: rgba(37, 99, 235, .4);
+  color: #e2e8f0;
+}
+.mpcd--dark .mpcd-inline-input:focus,
+.mpcd--dark .mpcd-inline-select:focus {
+  border-color: #3b82f6;
+  background: #1a2332;
+}
 
 /* === Footer === */
 .mpcd__footer {
@@ -1711,6 +1518,25 @@ export default {
 .mpcd--dark :deep(.v-field) {
   background-color: #263548 !important;
 }
+/* Bordure des v-select (.mpcd-item-select pose `border:1.5px solid #e5e7eb` sur .v-field —
+   c'est ce liseré, pas l'outline Vuetify, qui restait blanc en dark). */
+.mpcd--dark :deep(.v-field__outline) {
+  color: #374151 !important;
+}
+.mpcd--dark .mpcd-item-select :deep(.v-field) {
+  border-color: #374151 !important;
+}
+.mpcd--dark .mpcd-item-select :deep(.v-field--focused) {
+  border-color: #ff3131 !important;
+  background: #263548 !important;
+}
+/* Icônes du champ (bouton clear « X » + flèche dropdown) : sombres → invisibles en dark. */
+.mpcd--dark .mpcd-item-select :deep(.v-field__clearable),
+.mpcd--dark .mpcd-item-select :deep(.v-field__append-inner),
+.mpcd--dark .mpcd-item-select :deep(.v-field__clearable .v-icon),
+.mpcd--dark .mpcd-item-select :deep(.v-field__append-inner .v-icon) {
+  color: #94a3b8 !important;
+}
 
 .mpcd--dark :deep(.v-field__input),
 .mpcd--dark :deep(input),
@@ -1820,6 +1646,19 @@ export default {
 .mpcd--dark .info-label--dot {
   color: #64748b;
 }
+/* Labels & inputs natifs du CORPS du drawer (étaient quasi-noirs / fond clair en dark).
+   Les mini-dialogs de création sont téléportés hors de la racine scopée → non couverts ici. */
+.mpcd--dark .mpcd-field-label,
+.mpcd--dark .mpcd-label { color: #cbd5e1; }
+.mpcd--dark .mpcd-input.form-control,
+.mpcd--dark .mpcd-select.form-select { background: #263548; border-color: #374151; }
+.mpcd--dark .mpcd-input.form-control:focus,
+.mpcd--dark .mpcd-select.form-select:focus { background: #263548; }
+/* Toggles « Select Existing » / « Create New » : conteneur sombre, onglet actif sombre + texte blanc */
+.mpcd--dark .mpcd-mode-tabs { background: #111827; }
+.mpcd--dark .mpcd-mode-tab { color: #94a3b8; }
+.mpcd--dark .mpcd-mode-tab--active { background: #334155; color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .4); }
+.mpcd--dark .mpcd-mode-tab:hover:not(.mpcd-mode-tab--active) { background: rgba(255, 255, 255, .06); color: #e2e8f0; }
 
 /* ── Supplier Create Dialog ── */
 .sc-dialog {
@@ -2164,6 +2003,27 @@ export default {
   box-shadow: 0 2px 8px rgba(255, 49, 49, 0.3);
 }
 
+/* ── Supplier Create Dialog — dark mode ──
+   Le v-dialog est téléporté hors de la racine scopée `.mpcd--dark` : la classe dark est donc
+   portée directement sur `.sc-dialog` (elle suit l'élément même téléporté). */
+.sc-dialog--dark { background: #1f2937; }
+.sc-dialog--dark .sc-dialog__header { background: linear-gradient(135deg, #2a2022 0%, #1f2937 60%); border-bottom-color: #374151; }
+.sc-dialog--dark .sc-dialog__title { color: #e5e7eb; }
+.sc-dialog--dark .sc-dialog__close:hover:not(:disabled) { background: rgba(255,255,255,.08); color: #e5e7eb; }
+.sc-dialog--dark .sc-dialog__alert { background: rgba(255,49,49,.15); border-color: rgba(255,49,49,.3); }
+.sc-dialog--dark .mpcd-field-label { color: #cbd5e1; }
+.sc-dialog--dark .sc-input.form-control { background: #263548; border-color: #374151; color: #e5e7eb; }
+.sc-dialog--dark .sc-input.form-control:focus { background: #263548; }
+.sc-dialog--dark .sc-photo { background: #263548; border-color: #374151; }
+.sc-dialog--dark .sc-photo:hover { background: #2a2022; }
+.sc-dialog--dark .sc-photo__label { color: #e5e7eb; }
+.sc-dialog--dark .sc-check-pill,
+.sc-dialog--dark .sc-sector-pill { background: #263548; border-color: #374151; color: #cbd5e1; }
+.sc-dialog--dark .sc-check-pill--active { background: rgba(255,49,49,.15); border-color: #ff3131; color: #fca5a5; }
+.sc-dialog--dark .sc-dialog__footer { background: #1a2332; border-top-color: #374151; }
+.sc-dialog--dark .sc-btn--cancel { border-color: #374151; color: #cbd5e1; }
+.sc-dialog--dark .sc-btn--cancel:hover:not(:disabled) { border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.06); color: #e5e7eb; }
+
 /* Transition for configurations section */
 .sc-fade-enter-active,
 .sc-fade-leave-active {
@@ -2184,45 +2044,5 @@ export default {
   background: #fffbeb;
   border: 1px solid #fde68a;
   border-radius: 10px;
-}
-
-/* Mini-dialog for inline type creation */
-.mpcd-mini-dialog {
-  background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.15);
-  overflow: hidden;
-  min-width: 280px;
-}
-.mpcd-mini-dialog__header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px 12px;
-  background: #ff3131;
-  color: #fff;
-}
-.mpcd-mini-dialog__title {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 600;
-}
-.mpcd-mini-dialog__close {
-  background: none;
-  border: none;
-  color: rgba(255,255,255,.8);
-  cursor: pointer;
-  padding: 2px;
-  line-height: 1;
-}
-.mpcd-mini-dialog__close:hover { color: #fff; }
-.mpcd-mini-dialog__body {
-  padding: 16px;
-}
-.mpcd-mini-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 0 16px 14px;
 }
 </style>

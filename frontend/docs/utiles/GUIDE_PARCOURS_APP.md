@@ -58,7 +58,7 @@ flowchart TD
   Spaces --> Overview[/spaces-overview/]
   Spaces --> S[Entrer dans un Space]
   S --> Analyse[/spaces/:id  Analyse/]
-  S --> Builder[/spaces/:id/builder/]
+  S --> Builder[/spaces/:id/builder2/]
   S --> Predict[/spaces/:id/predict/]
   S --> Inv[/spaces/:id/inventory/]
   S --> Restock[/spaces/:id/restock/]
@@ -155,7 +155,7 @@ Prédire (Predict) → Commander stock → Vendre pendant event
 | **Spaces** | `/spaces` | spaces | requireOrganization | Liste des spaces |
 | | `/spaces-overview` | spaces-overview | requireOrganization | Vue d'ensemble |
 | | `/spaces/:spaceId` | space-analyse | requireOrganization | **Analyse** d'un space |
-| | `/spaces/:spaceId/builder` | SpaceBuilder | requireOrganization | **Builder** plan 3D |
+| | `/spaces/:spaceId/builder2` | SpaceBuilder2 | requireOrganization | **Builder** plan 3D (autosave) |
 | | `/spaces/:spaceId/predict` | space-predict | requireOrganization | **Event Predict** |
 | | `/spaces/:spaceId/inventory` | space-inventory | requireOrganization | Inventaire du space |
 | | `/spaces/:spaceId/restock` | space-restock | requireOrganization | Réarmement |
@@ -241,29 +241,39 @@ Depuis une carte space, accès aux 5 onglets (via `MainNav` / `BurgerMenu`) :
 | Outil | Route | Rôle |
 |---|---|---|
 | Analyse | `/spaces/:id` | Bilan après-event |
-| Builder | `/spaces/:id/builder` | Dessiner le plan |
+| Builder | `/spaces/:id/builder2` | Dessiner le plan |
 | Predict | `/spaces/:id/predict` | Prévoir ventes/stock |
 | Inventory | `/spaces/:id/inventory` | Compter le stock |
 | Restock | `/spaces/:id/restock` | Réarmer |
 
 ---
 
-## 5. Parcours Builder (`/spaces/:spaceId/builder`)
+## 5. Parcours Builder (`/spaces/:spaceId/builder2`)
+
+> Frontend v1 (`/spaces/:spaceId/builder`, widgets `FloorPlanBuilderView`/`ElevationBuilderView`/
+> `ElementPaletteView`/`PropertiesPanelView`/`FloorListView`) retiré le 2026-07-22 — `builder2`
+> est l'unique parcours. Détail complet : `docs/modules/03_BUILDER_ESPACES.md`.
+
 But : modéliser physiquement le lieu et ses points de vente.
 
-Widgets : `FloorPlanBuilderView`, `ElevationBuilderView`, `ElementPaletteView`, `PropertiesPanelView`, `FloorListView`.
+Composants (`components/spaces/views/builder2/`) : `BuilderWorkspace` (layout 3 volets) —
+`ZonePanel`/`PalettePanel`/`ElementListPanel` (gauche), `PlanCanvas`/`IsoView` (centre, vues 2D/iso),
+`InspectorPanel` (droite, sections par type d'élément).
 
 ```
-1. Choisir/créer une Configuration (agencement pour "Match" vs "Concert")
-2. Gérer les niveaux (FloorList) : Floor / Forecourt / External — tailles, trous (hole), corner radius
-3. Depuis la palette, glisser un FBElement sur le plan :
+1. Choisir/créer une Configuration (agencement pour "Match" vs "Concert") — ConfigSelector
+2. Gérer les niveaux (ZonePanel) : Floor / Forecourt / External — tailles, trou (hole), corner radius
+3. Depuis la palette (PalettePanel), dessiner un élément sur le plan (PlanCanvas) :
       shop · storage · kitchen · entrance · hospitality · merchshop · access · entertainment
-4. Positionner : x/y, largeur/profondeur/hauteur, rotation, arrondis (PropertiesPanel)
-5. Vue 2D (FloorPlan) ↔ Vue 3D élévation (ElevationView)
-6. Lier l'élément à une Area, définir storageType / shopType / staffPositions
-7. Sauvegarder la configuration
+4. Positionner : x/y, largeur/profondeur/hauteur, rotation, arrondis (InspectorPanel → GeometrySection)
+5. Vue 2D (PlanCanvas) ↔ Vue iso (IsoView)
+6. Adhésion aux configurations, sous-types, performance/staff/menu/inventaire (autres sections InspectorPanel)
+7. Autosave : chaque geste part immédiatement en mutation débouncée — pas de bouton "Sauvegarder"
 ```
-Notion clé : `FBElementRegistry` (propriétés partagées) + `FBElementPlacement` (position **par configuration**). Même boutique, agencée différemment selon l'event.
+Notion clé : un élément (`SpaceElement`) est **unique par espace** ; une configuration en est une
+simple liste d'adhésions (`ConfigurationElement`). Contrairement au prototype React
+(`FBElementRegistry`/`FBElementPlacement`), la géométrie reste **unique par élément**, partagée par
+toutes ses configs membres — pas de position différente par configuration aujourd'hui.
 
 ---
 

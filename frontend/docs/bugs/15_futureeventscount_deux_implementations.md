@@ -1,6 +1,6 @@
 # BUG-015 — futureEventsCount : deux implémentations divergentes
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (constaté le 2026-07-22)
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -19,11 +19,15 @@ le composant vivant — avec des conditions légèrement différentes.
 
 ## Correction
 
-Aucune à ce jour — supprimer l'implémentation store si confirmée morte, garder une seule source.
+2026-07-22 : constaté que l'implémentation store (`analyse.js:1512-1519` au moment du diagnostic)
+n'existe déjà plus dans le code actuel — supprimée entre-temps par un commit antérieur non lié à
+cette fiche (grep exhaustif de `futureEventsCount` : zéro occurrence dans `analyse.js`, zéro
+appelant externe). Seule la version vivante `AnalyseView.vue:1227` subsiste désormais — c'est
+exactement l'état cible visé par cette fiche, aucune action de code nécessaire.
 
 ## Risque de régression / à surveiller
 
-Vérifier que le store est bien mort avant suppression (grep des appelants).
+—
 
 ## Références
 

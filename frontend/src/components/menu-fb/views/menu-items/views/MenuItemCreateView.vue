@@ -501,7 +501,7 @@
                 <div class="checkbox-grid">
                   <v-checkbox v-model="form.storageTypes" value="Dry" :label="t('menuItemCreate.storageDry')" hide-details density="compact" />
                   <v-checkbox v-model="form.storageTypes" value="Cold" :label="t('menuItemCreate.storageCold')" hide-details density="compact" />
-                  <v-checkbox v-model="form.storageTypes" value="Freezer" :label="t('menuItemCreate.storageFreezer')" hide-details density="compact" />
+                  <v-checkbox v-model="form.storageTypes" value="Frozen" :label="t('menuItemCreate.storageFreezer')" hide-details density="compact" />
                 </div>
               </div>
 

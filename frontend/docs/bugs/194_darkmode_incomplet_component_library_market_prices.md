@@ -49,16 +49,39 @@ conservées volontairement.
 - `dialogs/MarketPriceDeleteItemDialog.vue`, `dialogs/MarketPriceDeleteSupplierDialog.vue` — classe
   `--dark` branchée (prop déjà reçue) + CSS footer/bouton.
 - `drawers/MarketPriceEditSupplierDrawer.vue` — bloc `--dark` étendu (labels, inputs, v-select).
-- (Déjà OK, inchangés : `MarketPriceCreateDrawer`, `MarketPriceCsvImportDrawer`, `MarketPriceEditDrawer`.)
+- `drawers/MarketPriceCreateDrawer.vue` — complément : `.mpcd-field-label`/`.mpcd-label` (étaient
+  `#374151`, quasi-noirs en dark) + inputs natifs du corps `.mpcd-input.form-control` (fond `#fafafa`)
+  passés en dark. Le bloc dark initial couvrait les champs Vuetify/info-cards mais avait manqué ces
+  labels/inputs natifs.
+- (Déjà OK, inchangés : `MarketPriceCsvImportDrawer`, `MarketPriceEditDrawer`.)
+
+## Compléments (2026-07-22, suite)
+
+Après retours visuels, finalisation du dark sur les éléments manqués au premier passage :
+
+- **market-prices — champs des drawers** (`MarketPriceCreateDrawer`, `MarketPriceEditDrawer`,
+  `MarketPriceEditSupplierDrawer`) : suppression des **bordures blanches** des `v-select` outlined
+  (override de la bordure custom `.mp*-item-select :deep(.v-field)`, pas `.v-field__outline`), **toggles**
+  « Select Existing / Create New » passés en fond sombre + texte clair, **inputs inline** (Good Type /
+  Category / Supplier / Industriel) en fond bleu sombre (`#1a2332`, bordure `rgba(37,99,235,.4)`, texte
+  clair), et **icônes clear** des selects rendues visibles (`.v-field__clearable`).
+- **Dialogs téléportés désormais traités** (voir ci-dessous) : les mini-dialogs de création Type /
+  Category / Industriel / Packaging du domaine market-prices sont extraits en composants partagés
+  **nativement dark** (cf. [BUG-195](195_market_prices_dialogs_type_categorie_dupliques_create_edit.md)),
+  et le dialog « Add packaging type » de `ComponentCreateView.vue` reçoit la classe `--dark` **sur sa
+  propre racine** (pattern requis pour un `v-dialog` téléporté).
+- **component-library** : `ComponentCreateView.vue` — dialog packaging (`.cc-pk-dialog--dark` : fond,
+  erreur, label, input inline, footer, bouton Cancel) ; `ComponentPickerDrawer.vue` — inputs des champs
+  recherche/filtre (texte saisi, label, icônes clear/dropdown/loupe) rendus clairs sur fond sombre.
 
 ## Risque de régression / à surveiller
 
 - **Non testé en build** (règle de session : build côté dev) — à valider visuellement en dark sur
   `/menu-fb/components` et `/menu-fb/market-prices`.
-- **Limite connue non traitée (hors périmètre)** : les mini-dialogs de création (`v-dialog` téléportés
-  hors de la racine scopée `--dark`) restent en clair dans plusieurs drawers — défaut **pré-existant
-  commun à tout le dossier**, non introduit par ce correctif. À traiter séparément si besoin (nécessite
-  d'appliquer `isDark` directement sur la racine du mini-dialog, pas via sélecteur ancêtre).
+- **Dialogs téléportés — résolu** : la limite initiale (mini-dialogs `v-dialog` téléportés restant en
+  clair) est levée en appliquant `isDark` **directement sur la racine du dialog** (et non via un
+  sélecteur ancêtre `--dark`). Fait pour les dialogs market-prices (via extraction, BUG-195) et le
+  dialog packaging de `ComponentCreateView`.
 - **Composants morts non traités** : `MarketPriceFilters` (importé mais non rendu) et `MarketPriceStats`
   (ni importé ni rendu) — aucun impact visuel, laissés tels quels.
 
