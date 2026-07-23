@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { LogisticsService } from '../logistics/logistics.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
@@ -8,7 +9,10 @@ import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconc
 export class InventoryService {
   private readonly logger = new Logger(InventoryService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly logistics: LogisticsService,
+  ) {}
 
   // ── GET /inventory/:spaceId/:eventId ────────────────────────────────────────
   // Priority: InventoryCount rows (granular, always up-to-date)
@@ -363,31 +367,121 @@ export class InventoryService {
     return { previousEvent, snapshot };
   }
 
-  /** Agrège les mouvements Logistic postérieurs à `since` par
-   *  élément × (menuItemId prioritaire, sinon itemKey = nom libre). */
-  private async aggregateMovementsSince(spaceId: string, tenantId: string, since: Date) {
+  /** Calcule les quantités attendues normalisées (BUG-232) : seed = comptage
+   *  post-event précédent, puis REJEU SÉQUENTIEL des mouvements Logistic avec
+   *  `normalizeLevel` (casse de pack + clamp ≥ 0) après CHAQUE mouvement —
+   *  miroir exact du chemin non-strict d'`applyLevelDelta` côté Logistique.
+   *  Une normalisation unique en fin de somme divergerait dès qu'un
+   *  clamp/emprunt a eu lieu en cours de séquence.
+   *  Chemin unique consommé par le GET pre-event-baseline ET la création de
+   *  réconciliation pre-event : les deux ne peuvent plus diverger. */
+  private async computeExpected(spaceId: string, tenantId: string) {
+    const { previousEvent, snapshot } = await this.resolvePreEventBaseline(spaceId, tenantId);
+    const empty = {
+      previousEvent: previousEvent ?? null,
+      snapshot: null as typeof snapshot,
+      expected: null as Map<string, { packed: number; loose: number }> | null,
+      movements: [] as Array<{
+        elementId: string;
+        itemKey: string;
+        menuItemId: string | null;
+        packedDelta: number;
+        looseDelta: number;
+      }>,
+      unjoinedItemKeys: [] as string[],
+    };
+    if (!previousEvent || !snapshot) return empty;
+
     const rows = await this.prisma.stockMovement.findMany({
-      where: { tenantId, spaceId, createdAt: { gt: since } },
+      where: { tenantId, spaceId, createdAt: { gt: snapshot.createdAt } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { elementId: true, itemKey: true, menuItemId: true, packedDelta: true, looseDelta: true },
     });
-    const byKey = new Map<
+
+    // Jointure nom → MenuItem du tenant pour les mouvements sans menuItemId
+    // (StockMovement.itemKey = nom libre — piège n°1 du domaine Stock).
+    let idByNormName = new Map<string, string>();
+    if (rows.some((m) => !m.menuItemId)) {
+      const items = await this.prisma.menuItem.findMany({
+        where: { tenantId },
+        select: { id: true, name: true },
+      });
+      idByNormName = new Map(items.map((i) => [this.normalizeName(i.name), i.id]));
+    }
+
+    // unitsPerPack par itemKey — même chaîne de résolution que la Logistique
+    // (MarketPrice → MenuComponent → MenuItem.inventoryNumberOfUnits), mémoïsée.
+    const uppByNormKey = new Map<string, number | null>();
+    for (const m of rows) {
+      const nk = this.normalizeName(m.itemKey);
+      if (!uppByNormKey.has(nk)) {
+        uppByNormKey.set(nk, await this.logistics.resolveUnitsPerPackForItemKey(m.itemKey, tenantId));
+      }
+    }
+
+    // Seed depuis le blob baseline (comptage humain, supposé ≥ 0).
+    const expected = new Map<string, { packed: number; loose: number }>();
+    const baselineBlob = snapshot.inventoryCounts as Record<string, Record<string, any>> | null;
+    if (baselineBlob && typeof baselineBlob === 'object') {
+      for (const [shopId, byItem] of Object.entries(baselineBlob)) {
+        for (const [itemId, c] of Object.entries(byItem ?? {})) {
+          expected.set(`${shopId}::${itemId}`, {
+            packed: Number((c as any)?.packedUnits) || 0,
+            loose: Number((c as any)?.looseUnits) || 0,
+          });
+        }
+      }
+    }
+
+    // Agrégat legacy conservé pour la compat du GET (front pas encore redéployé).
+    const legacyByKey = new Map<
       string,
       { elementId: string; itemKey: string; menuItemId: string | null; packedDelta: number; looseDelta: number }
     >();
+    const unjoined = new Set<string>();
+
     for (const m of rows) {
-      const k = `${m.elementId}::${m.menuItemId ?? this.normalizeName(m.itemKey)}`;
-      const cur = byKey.get(k) ?? {
+      const lk = `${m.elementId}::${m.menuItemId ?? this.normalizeName(m.itemKey)}`;
+      const legacy = legacyByKey.get(lk) ?? {
         elementId: m.elementId,
         itemKey: m.itemKey,
         menuItemId: m.menuItemId ?? null,
         packedDelta: 0,
         looseDelta: 0,
       };
-      cur.packedDelta += m.packedDelta ?? 0;
-      cur.looseDelta += m.looseDelta ?? 0;
-      byKey.set(k, cur);
+      legacy.packedDelta += m.packedDelta ?? 0;
+      legacy.looseDelta += m.looseDelta ?? 0;
+      legacyByKey.set(lk, legacy);
+
+      const itemId = m.menuItemId ?? idByNormName.get(this.normalizeName(m.itemKey));
+      if (!itemId) {
+        unjoined.add(m.itemKey);
+        continue;
+      }
+      const k = `${m.elementId}::${itemId}`;
+      const cur = expected.get(k) ?? { packed: 0, loose: 0 };
+      const next = this.logistics.normalizeLevel(
+        cur.packed + (m.packedDelta ?? 0),
+        cur.loose + (m.looseDelta ?? 0),
+        uppByNormKey.get(this.normalizeName(m.itemKey)) ?? null,
+      );
+      expected.set(k, { packed: next.packed, loose: next.loose });
     }
-    return [...byKey.values()];
+
+    if (unjoined.size) {
+      this.logger.warn(
+        `Pre-event expected: ${unjoined.size} itemKey(s) non joignable(s) au référentiel, ` +
+          `mouvements ignorés (attendus sous-estimés) : ${[...unjoined].join(', ')}`,
+      );
+    }
+
+    return {
+      previousEvent,
+      snapshot,
+      expected,
+      movements: [...legacyByKey.values()],
+      unjoinedItemKeys: [...unjoined],
+    };
   }
 
   // ── GET /inventory/:spaceId/pre-event-baseline/:eventId ─────────────────────
@@ -402,15 +496,33 @@ export class InventoryService {
     });
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const { previousEvent, snapshot } = await this.resolvePreEventBaseline(spaceId, tenantId);
+    const { previousEvent, snapshot, expected, movements, unjoinedItemKeys } = await this.computeExpected(
+      spaceId,
+      tenantId,
+    );
     if (!previousEvent || !snapshot) {
-      return { previousEvent: previousEvent ?? null, baseline: null, movements: [] };
+      return {
+        previousEvent: previousEvent ?? null,
+        baseline: null,
+        movements: [],
+        expected: null,
+        unjoinedItemKeys: [],
+      };
     }
-    const movements = await this.aggregateMovementsSince(spaceId, tenantId, snapshot.createdAt);
+    // `expected` : blob normalisé (rejeu séquentiel + casse de pack, BUG-232) —
+    // la source à afficher. `baseline`/`movements` conservés pour compat (repli
+    // front tant que les deux côtés ne sont pas déployés ensemble).
+    const expectedBlob: Record<string, Record<string, { packed: number; loose: number }>> = {};
+    for (const [k, v] of expected ?? []) {
+      const [elementId, itemId] = k.split('::');
+      (expectedBlob[elementId] ??= {})[itemId] = { packed: v.packed, loose: v.loose };
+    }
     return {
       previousEvent: { id: previousEvent.id, name: previousEvent.name, snapshotAt: snapshot.createdAt },
       baseline: snapshot.inventoryCounts,
       movements,
+      expected: expectedBlob,
+      unjoinedItemKeys,
     };
   }
 
@@ -439,46 +551,11 @@ export class InventoryService {
     const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId);
     const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
 
-    const { snapshot } = await this.resolvePreEventBaseline(spaceId, tenantId);
-    const baselineBlob: Record<string, Record<string, any>> | null =
-      (snapshot?.inventoryCounts as any) ?? null;
-    const movements = snapshot
-      ? await this.aggregateMovementsSince(spaceId, tenantId, snapshot.createdAt)
-      : [];
-
-    // Attendu par elementId×itemId : baseline + deltas. Jointure des mouvements :
-    // menuItemId direct, sinon nom normalisé → MenuItem du tenant.
-    const expected = new Map<string, { packed: number; loose: number }>();
-    if (baselineBlob) {
-      for (const [shopId, byItem] of Object.entries(baselineBlob)) {
-        for (const [itemId, c] of Object.entries(byItem ?? {})) {
-          expected.set(`${shopId}::${itemId}`, {
-            packed: Number((c as any)?.packedUnits) || 0,
-            loose: Number((c as any)?.looseUnits) || 0,
-          });
-        }
-      }
-      if (movements.length) {
-        const unresolved = movements.filter((m) => !m.menuItemId);
-        let idByNormName = new Map<string, string>();
-        if (unresolved.length) {
-          const items = await this.prisma.menuItem.findMany({
-            where: { tenantId },
-            select: { id: true, name: true },
-          });
-          idByNormName = new Map(items.map((i) => [this.normalizeName(i.name), i.id]));
-        }
-        for (const m of movements) {
-          const itemId = m.menuItemId ?? idByNormName.get(this.normalizeName(m.itemKey));
-          if (!itemId) continue; // mouvement non joignable au référentiel inventaire → ignoré (documenté)
-          const k = `${m.elementId}::${itemId}`;
-          const cur = expected.get(k) ?? { packed: 0, loose: 0 };
-          cur.packed += m.packedDelta;
-          cur.loose += m.looseDelta;
-          expected.set(k, cur);
-        }
-      }
-    }
+    // Attendus normalisés (rejeu séquentiel + casse de pack) — même chemin que
+    // le GET pre-event-baseline (BUG-232) : hints à l'écran et lignes de
+    // réconciliation ne peuvent plus diverger.
+    const { snapshot, expected: expectedMap } = await this.computeExpected(spaceId, tenantId);
+    const expected = expectedMap ?? new Map<string, { packed: number; loose: number }>();
 
     // Union des clés attendu ∪ compté.
     const keys = new Set<string>(expected.keys());
@@ -516,7 +593,7 @@ export class InventoryService {
     );
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const hasBaseline = baselineBlob != null;
+    const hasBaseline = snapshot != null;
     const lines = [...keys].map((k) => {
       const [elementId, itemId] = k.split('::');
       const exp = expected.get(k) ?? null;
