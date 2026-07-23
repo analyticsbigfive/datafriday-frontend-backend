@@ -7,7 +7,7 @@
         <CheckCircle :size="28" color="white" />
       </div>
       <div class="ws-hero__body">
-        <div class="ws-hero__title">« {{ locationName }} » {{ t('intgSuccessReady') }}</div>
+        <div class="ws-hero__title">{{ locationName }} {{ t('intgSuccessReady') }}</div>
         <div class="ws-hero__sub">{{ t('intgSuccessSub') }}</div>
       </div>
     </div>
@@ -23,7 +23,7 @@
         <div class="ws-stat-card__value">{{ summary.products }}</div>
         <div class="ws-stat-card__label">{{ t('intgSuccessProducts') }}</div>
       </div>
-      <div class="ws-stat-card">
+      <div v-if="!isDigifood" class="ws-stat-card">
         <div class="ws-stat-card__value">{{ summary.events }}</div>
         <div class="ws-stat-card__label">{{ t('intgSuccessEvents') }}</div>
       </div>
@@ -64,7 +64,7 @@
 
 <script>
 import { CheckCircle, MapPin, ArrowRight, BarChart2 } from 'lucide-vue-next'
-import { t as translate } from '@/i18n'
+import { useI18n } from '@/i18n/useI18n'
 
 export default {
   name: 'WizardSuccess',
@@ -79,26 +79,18 @@ export default {
     isDark: { type: Boolean, default: false },
   },
   emits: ['close', 'go-to-analytics', 'configure-next'],
-  data() {
-    return { locale: localStorage.getItem('appLocale') || 'en' }
-  },
-  mounted() {
-    window.addEventListener('locale-changed', this.handleLocaleChange)
-  },
-  beforeUnmount() {
-    window.removeEventListener('locale-changed', this.handleLocaleChange)
-  },
-  methods: {
-    t(key) {
-      return translate(key, this.locale)
-    },
-    handleLocaleChange(event) {
-      this.locale = event.detail.locale
-    },
+  setup() {
+    const { t } = useI18n()
+    return { t }
   },
   computed: {
     locationName() {
       return this.location?.name || this.location?.label || this.t('intgSuccessFallbackName')
+    },
+    // Digifood n'a pas d'étape « Événements » (webhooks temps réel, pas de sync API) :
+    // la tuile resterait figée à 0 et se lirait comme un échec plutôt qu'un non-applicable.
+    isDigifood() {
+      return this.location?.type === 'digifood'
     },
   },
 }

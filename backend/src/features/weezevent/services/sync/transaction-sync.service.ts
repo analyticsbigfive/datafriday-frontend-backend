@@ -90,6 +90,7 @@ export class WeezeventTransactionSyncService {
             while (hasMore) {
                 const response = await this.weezeventClient.getTransactions(
                     tenantId,
+                    integrationId,
                     organizationId,
                     {
                         page,
@@ -231,6 +232,7 @@ export class WeezeventTransactionSyncService {
 
         const apiTransaction = await this.weezeventClient.getTransaction(
             tenantId,
+            integrationId,
             organizationId,
             transactionId.toString(),
         );
@@ -423,7 +425,7 @@ export class WeezeventTransactionSyncService {
             const totalQty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 0), 0);
             return {
                 transactionId,
-                weezeventItemId: row.id.toString(),
+                externalItemId: row.id.toString(),
                 productName: (row as any).item_name || `Item ${row.item_id}`,
                 productId: productIdMap.get(String(row.item_id)) ?? null,
                 compoundId: row.compound_id?.toString() || null,

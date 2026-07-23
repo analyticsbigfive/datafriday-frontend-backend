@@ -41,7 +41,7 @@ export class WeezeventInsertWorkerService {
                     select: { collectDone: true, totalChunks: true, processedChunks: true, status: true },
                 });
 
-                if (!job || job.status === 'FAILED') break;
+                if (!job || job.status === 'FAILED' || job.status === 'CANCELLED') break;
 
                 if (job.collectDone && job.processedChunks >= job.totalChunks) {
                     await this.prisma.weezeventSyncJob.update({
@@ -50,6 +50,30 @@ export class WeezeventInsertWorkerService {
                     });
                     this.logger.log(`[InsertWorker] Job ${jobId} COMPLETED — ${job.totalChunks} chunks traités`);
                     break;
+                }
+
+                // Plus aucun chunk PENDING à traiter, collecte terminée, mais tous les chunks
+                // n'ont pas été comptés en succès (processedChunks < totalChunks) : le manque
+                // ne peut venir que de chunks passés en FAILED dans processChunk() (les échecs y
+                // sont catch silencieusement — voir plus bas). Sans ce garde-fou, la boucle
+                // continuerait à poller indéfiniment sans jamais atteindre COMPLETED ni FAILED,
+                // laissant le job bloqué à "0/N" pour toujours sans erreur visible nulle part.
+                if (job.collectDone) {
+                    const failedCount = await this.prisma.weezeventSyncChunk.count({
+                        where: { jobId, status: 'FAILED' },
+                    });
+                    if (failedCount > 0) {
+                        await this.prisma.weezeventSyncJob.update({
+                            where: { id: jobId },
+                            data: {
+                                status: 'FAILED',
+                                errorMessage: `${failedCount} segment(s) sur ${job.totalChunks} ont échoué à l'insertion en base — voir les logs serveur pour le détail.`,
+                                completedAt: new Date(),
+                            },
+                        });
+                        this.logger.error(`[InsertWorker] Job ${jobId} FAILED — ${failedCount}/${job.totalChunks} chunks en échec`);
+                        break;
+                    }
                 }
 
                 // Collecte encore en cours, pause courte avant de reprendre
@@ -100,10 +124,10 @@ export class WeezeventInsertWorkerService {
 
             this.logger.debug(`[InsertWorker] Chunk ${chunk.id} traité — ${transactions.length} transactions`);
         } catch (err: any) {
-            this.logger.error(`[InsertWorker] Chunk ${chunk.id} failed: ${err.message}`);
+            this.logger.error(`[InsertWorker] Chunk ${chunk.id} failed: ${err.message}`, err.stack);
             await this.prisma.weezeventSyncChunk.update({
                 where: { id: chunk.id },
-                data: { status: 'FAILED' },
+                data: { status: 'FAILED', errorMessage: err.message?.slice(0, 2000) },
             }).catch(() => undefined);
             // On ne throw pas pour ne pas bloquer les autres chunks en parallèle
         }

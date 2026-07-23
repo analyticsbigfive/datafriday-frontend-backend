@@ -264,14 +264,15 @@ export class QueueService {
   /**
    * Enqueue un job d'agrégation (process-events ou synchronize).
    * Le jobLogId doit être pré-créé en DB pour que getJobProgress puisse suivre l'avancement.
-   * Pas de retry automatique (l'agrégation modifie l'état DB — une seule tentative).
+   * `attempts`/`backoff` hérités du défaut global (3 tentatives, backoff exponentiel) —
+   * l'opération est idempotente (delete-then-insert par event dans executeProcessEvents), donc
+   * un retry après un échec transitoire (timeout DB) est sûr et souhaitable (BUG-019).
    */
   async queueAggregationJob(data: AggregationJobEnqueueData): Promise<Job<AggregationJobEnqueueData>> {
     const job = await this.aggregationQueue.add(
       `aggregation-${data.type}`,
       data,
       {
-        attempts: 1,         // pas de retry — l'opération est déjà idempotente (upsert)
         removeOnComplete: 50,
         removeOnFail: 50,
       },

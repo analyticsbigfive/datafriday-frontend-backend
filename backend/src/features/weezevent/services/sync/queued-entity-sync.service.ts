@@ -35,7 +35,7 @@ export class WeezeventQueuedEntitySyncService {
     ): Promise<any> {
         this.logger.log(`Syncing wallet ${walletId} for tenant ${tenantId}`);
 
-        const apiWallet = await this.weezeventClient.getWallet(tenantId, organizationId, walletId);
+        const apiWallet = await this.weezeventClient.getWallet(tenantId, integrationId, organizationId, walletId);
         const weezeventId = apiWallet.id.toString();
         const walletStatus = apiWallet.status as any;
         const walletStatusValue = typeof walletStatus === 'object' && walletStatus?.name
@@ -76,7 +76,7 @@ export class WeezeventQueuedEntitySyncService {
     ): Promise<any> {
         this.logger.log(`Syncing user ${userId} for tenant ${tenantId}`);
 
-        const apiUser = await this.weezeventClient.getUser(tenantId, organizationId, userId);
+        const apiUser = await this.weezeventClient.getUser(tenantId, integrationId, organizationId, userId);
         const weezeventId = apiUser.id.toString();
 
         return this.prisma.weezeventUser.upsert({
@@ -138,7 +138,7 @@ export class WeezeventQueuedEntitySyncService {
 
             while (hasMore) {
                 const response = await this.weezeventClient.getOrders(
-                    tenantId, organizationId, eventId, { page, perPage: 100 },
+                    tenantId, integrationId, organizationId, eventId, { page, perPage: 100 },
                 );
 
                 for (const apiOrder of response.data) {
@@ -213,7 +213,7 @@ export class WeezeventQueuedEntitySyncService {
             this.logger.log(`Syncing prices${eventId ? ` for event ${eventId}` : ''}`);
 
             const response = await this.weezeventClient.getPrices(
-                tenantId, organizationId, eventId, { perPage: 100 },
+                tenantId, integrationId, organizationId, eventId, { perPage: 100 },
             );
 
             for (const apiPrice of response.data) {
@@ -290,7 +290,7 @@ export class WeezeventQueuedEntitySyncService {
 
             while (hasMore) {
                 const response = await this.weezeventClient.getAttendees(
-                    tenantId, organizationId, eventId, { page, perPage: 100 },
+                    tenantId, integrationId, organizationId, eventId, { page, perPage: 100 },
                 );
 
                 for (const apiAttendee of response.data) {

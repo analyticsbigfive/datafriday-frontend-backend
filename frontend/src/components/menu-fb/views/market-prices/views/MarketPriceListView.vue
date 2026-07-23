@@ -77,6 +77,7 @@
       <!-- List view -->
       <div class="mpl-table-wrap">
         <MarketPriceTable
+          :is-dark="isDark"
           :headers="tableHeaders"
           :items="filteredItems"
           :loading="marketPricesLoading"

@@ -22,7 +22,9 @@
 `src/store/modules/auth.js` :
 
 - État : `userId`, `token`, `tenantId`, `tenantName`, `userRole` (string brute, ex. `"ADMIN"`)
-- Getters : `isAdmin` (`userRole === 'ADMIN'`), `isManager` (`['ADMIN','MANAGER'].includes(userRole)`), `currentUser` (`{ id, role }`), `currentTenant`
+- Getters : `isAdmin` (`userRole === 'ADMIN'`), `currentUser` (`{ id, role }`), `currentTenant`
+  <!-- `isManager` (gating par nom de rôle) supprimé le 2026-07-22 — code mort incompatible avec les 6 rôles métier, cf. BUG-193. Gater sur `can('<code>')`, pas sur le nom de rôle. -->
+
 - `fetchCurrentUser()` (lignes 358-378) → `GET /me`, alimente `tenantId`/`userRole` via la mutation `SET_TENANT`
 
 → **Aucune notion de permissions**, uniquement le nom du rôle (string).
@@ -112,7 +114,7 @@ const getters = {
   roleSystemKey: (state) => state.roleSystemKey,
   isOwner: (state) => state.isOwner,
   isAdmin: (state) => state.roleSystemKey === 'ADMIN',
-  isManager: (state) => ['ADMIN', 'MANAGER'].includes(state.roleSystemKey),
+  // (isManager supprimé — BUG-193, gating par nom de rôle mort)
   // Nouveau : vérification de permission, ADMIN bypass toujours
   can: (state) => (code) =>
     state.roleSystemKey === 'ADMIN' || state.userPermissions.includes(code),

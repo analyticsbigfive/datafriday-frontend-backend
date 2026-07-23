@@ -110,6 +110,7 @@ describe('WeezeventAnalyticsController', () => {
             expect(mockPrismaService.salesTransaction.findMany).toHaveBeenCalledWith({
                 where: {
                     tenantId: 'tenant-123',
+                    deletedAt: null,
                     eventId: 'event-123',
                 },
                 include: {
@@ -130,6 +131,7 @@ describe('WeezeventAnalyticsController', () => {
             expect(mockPrismaService.salesTransaction.findMany).toHaveBeenCalledWith({
                 where: {
                     tenantId: 'tenant-123',
+                    deletedAt: null,
                     transactionDate: {
                         gte: new Date('2026-01-01'),
                         lte: new Date('2026-12-31'),

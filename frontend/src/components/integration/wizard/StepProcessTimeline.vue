@@ -248,9 +248,19 @@
                 <div class="spt-row__status">
                   <span
                     class="spt-badge"
-                    :class="item.aggregationStatus === 'completed' ? 'spt-badge--green' : 'spt-badge--gray'"
+                    :class="{
+                      'spt-badge--green': item.aggregationStatus === 'completed',
+                      'spt-badge--red': item.aggregationStatus === 'failed',
+                      'spt-badge--amber': item.aggregationStatus === 'skipped',
+                      'spt-badge--gray': !['completed', 'failed', 'skipped'].includes(item.aggregationStatus),
+                    }"
                   >
-                    {{ item.aggregationStatus === 'completed' ? t('intgTimelineStatusAggregated') : t('intgTimelineStatusUnprocessed') }}
+                    {{
+                      item.aggregationStatus === 'completed' ? t('intgTimelineStatusAggregated')
+                        : item.aggregationStatus === 'failed' ? t('intgTimelineStatusFailed')
+                        : item.aggregationStatus === 'skipped' ? t('intgTimelineStatusSkipped')
+                        : t('intgTimelineStatusUnprocessed')
+                    }}
                   </span>
                 </div>
 
@@ -269,13 +279,19 @@
                     <button
                       class="spt-act-btn"
                       :class="item.aggregationStatus === 'completed' ? 'spt-act-btn--gray' : 'spt-act-btn--purple'"
-                      :disabled="processingEventId === item.id"
-                      :title="item.aggregationStatus === 'completed' ? t('intgTimelineRerunAggTooltip') : t('intgTimelineRunAggTooltip')"
+                      :disabled="processingEventId === item.id || stalledEventIds.includes(item.id)"
+                      :title="stalledEventIds.includes(item.id)
+                        ? t('intgTimelineStillProcessingTooltip')
+                        : (item.aggregationStatus === 'completed' ? t('intgTimelineRerunAggTooltip') : t('intgTimelineRunAggTooltip'))"
                       @click="handleProcessSingle(item.id)"
                     >
                       <v-progress-circular v-if="processingEventId === item.id" indeterminate size="11" width="2" color="currentColor" />
+                      <v-icon v-else-if="stalledEventIds.includes(item.id)" size="12">mdi-clock-outline</v-icon>
                       <v-icon v-else size="12">mdi-cog-play</v-icon>
-                      {{ item.aggregationStatus === 'completed' ? t('intgTimelineBtnRerun') : t('intgTimelineBtnAggregate') }}
+                      {{
+                        stalledEventIds.includes(item.id) ? t('intgTimelineStillProcessingBtn')
+                          : (item.aggregationStatus === 'completed' ? t('intgTimelineBtnRerun') : t('intgTimelineBtnAggregate'))
+                      }}
                     </button>
                     <button
                       class="spt-act-btn spt-act-btn--red"
@@ -498,14 +514,6 @@
       @created="handleEventCreated"
     />
 
-    <!-- ── Dialog: enrichissement metadata ── -->
-    <EnrichEventDialog
-      v-model="enrichDialog"
-      :event="enrichingEvent"
-      :saving="enrichSaving"
-      @save="saveEnrichment"
-    />
-
     <!-- ── Snackbar feedback ── -->
     <v-snackbar v-model="feedbackSnackbar" :color="feedbackSnackbarColor" timeout="3000" location="bottom right">
       {{ feedbackSnackbarText }}
@@ -528,16 +536,27 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import { formatDateMedium } from '@/utils/dateFr'
 import { useTimelineProcessing } from '@/composables/useTimelineProcessing'
 import { useSynchronization } from '@/composables/useSynchronization'
 import { getJobProgress, getEventBreakdown, getEventMinuteChart } from '@/api/endpoints/aggregation.api'
 import { createEvent, updateEvent, deleteEvent } from '@/api/endpoints/event.api'
-import { updateWeezeventEventMetadata, syncWeezeventEventAttendees, getWeezeventEventsForSpace, getSpaceEventTimeline } from '@/api/endpoints/space.api'
+import { updateWeezeventEventMetadata, syncWeezeventEventAttendees, getWeezeventEventsForSpace } from '@/api/endpoints/space.api'
 import EventTimelineProgressIndicator from '@/components/EventTimelineProgressIndicator.vue'
 import MapEventToExistingDialog from './dialogs/MapEventToExistingDialog.vue'
 import CreateEventDialog from './dialogs/CreateEventDialog.vue'
-import EnrichEventDialog from './dialogs/EnrichEventDialog.vue'
 import EventBreakdownDrawer from './dialogs/EventBreakdownDrawer.vue'
+
+// Poll cadence for a single event's aggregation job (handleProcessSingle)
+const SINGLE_EVENT_POLL_INTERVAL_MS = 1000
+const SINGLE_EVENT_POLL_MAX_ATTEMPTS = 120 // ~2 min
+const SINGLE_EVENT_RETRY_DELAY_MS = 5000 // network/timeout retry before reloading the timeline
+// Poll cadence for the final sync job (waitForSyncJob)
+const SYNC_JOB_POLL_INTERVAL_MS = 2500
+const SYNC_JOB_POLL_MAX_WAIT_MS = 10 * 60 * 1000 // 10 min
+// Batch sizes for bulkCreateEvents
+const BULK_PATCH_BATCH_SIZE = 10
+const BULK_CREATE_BATCH_SIZE = 5
 
 export default {
   name: 'StepProcessTimeline',
@@ -545,7 +564,6 @@ export default {
     EventTimelineProgressIndicator,
     MapEventToExistingDialog,
     CreateEventDialog,
-    EnrichEventDialog,
     EventBreakdownDrawer,
   },
   props: {
@@ -561,9 +579,7 @@ export default {
       events, unregisteredDates, weezeventEvents,
       transactionStats, hasMappings,
       loading, processing, error,
-      loadTimeline, processAllEvents, processSingleEvent,
-      getProgressPercent,
-      cancelProcessing: composableCancelProcessing,
+      loadTimeline, processSingleEvent,
     } = useTimelineProcessing()
     const {
       loading: syncing, error: syncError, result: syncResult,
@@ -575,9 +591,7 @@ export default {
       events, unregisteredDates, weezeventEvents,
       transactionStats, hasMappings,
       loading, processing, error,
-      loadTimeline, processAllEvents, processSingleEvent,
-      getProgressPercent,
-      composableCancelProcessing,
+      loadTimeline, processSingleEvent,
       syncing, syncError, syncResult, syncComposablePhase, startSync, checkProgress, resetSync,
     }
   },
@@ -586,6 +600,11 @@ export default {
       activeTab: 'covered',
       showRegisteredEvents: true,
       processingEventId: null,
+      // Events whose single-event poll timed out without a confirmed terminal status:
+      // kept locked (no re-click) until loadTimeline reports a real resolved status.
+      stalledEventIds: [],
+      // Abandon flag checked inside waitForSyncJob's poll loop
+      syncPollAbandoned: false,
       // §2 — progress indicator
       currentEventProgress: null,
       // §1.2 — skip
@@ -602,31 +621,15 @@ export default {
       syncExecutionMode: 'full',
       elapsedSeconds: 0,
       timerInterval: null,
-      // Enrichissement metadata events Weezevent
-      enrichDialog: false,
-      enrichingEvent: null,
-      enrichSaving: false,
-      // Sync attendees par event { eventId: boolean }
-      syncingAttendees: {},
-      // Résultats sync attendees { eventId: number }
-      attendeesSynced: {},
       // Snackbar feedback
       feedbackSnackbar: false,
       feedbackSnackbarText: '',
       feedbackSnackbarColor: 'success',
-      // Timeline minute par minute (tab 3)
-      expandedTimelines: {},
-      timelineData: {},
-      timelineLoading: {},
-      timelineFilterShop: {},
-      timelineFilterArticle: {},
       // Minute chart (pré-agrégé depuis SpaceRevenueMinuteAgg)
       minuteChartData: {},      // { [eventId]: { data: [{ minute, revenueHt, ... }] } }
       minuteChartLoading: {},   // { [eventId]: boolean }
-      syncingAllAttendees: false,
       // Mapping WeezeventEvent → DataFriday Event { weezEventId: dfEventId }
       weezEventMappings: {},
-      weezEventMappingLoading: {},
       deletingEventId: null,
       // §breakdown
       expandedEventId: null,
@@ -674,9 +677,6 @@ export default {
         e => e.aggregationStatus !== 'completed' && !this.skippedEventIds.includes(e.id)
       )
     },
-    mappedCount() {
-      return (this.weezeventEvents || []).filter(e => this.weezEventMappings[e.id]).length
-    },
     unmappedCount() {
       return (this.weezeventEvents || []).filter(e => !this.weezEventMappings[e.id]).length
     },
@@ -686,12 +686,6 @@ export default {
       return Object.values(this.weezEventMappings)
         .filter(dfId => dfId && !currentSpaceIds.has(String(dfId)))
         .length
-    },
-    filteredWeezEvents() {
-      const events = this.weezeventEvents || []
-      if (this.activeTab === 'registered') return events.filter(e => this.weezEventMappings[e.id])
-      if (this.activeTab === 'unregistered') return events.filter(e => !this.weezEventMappings[e.id])
-      return events
     },
     uncoveredDateHeaders() {
       return [
@@ -721,9 +715,6 @@ export default {
     },
     totalEvents() {
       return this.registeredEvents.length
-    },
-    progressPercent() {
-      return this.getProgressPercent()
     },
     elapsedFormatted() {
       const m = Math.floor(this.elapsedSeconds / 60)
@@ -789,10 +780,16 @@ export default {
     if (this.spaceId) {
       // #10 — loadTimeline utilise step4-context (timeline + weezEvents + hasMappings en 1 appel)
       this.loadTimeline(this.spaceId, this.location.id)
+      // Réhydrate weezEventMappings (liens dfEventId persistés) au chargement,
+      // symétriquement à loadTimeline, pour que "Créer et lier tout" ne recrée pas de doublons.
+      this.loadWeezeventEvents()
     }
   },
   unmounted() {
     if (this.timerInterval) clearInterval(this.timerInterval)
+    // Signale à waitForSyncJob() d'arrêter son polling si le composant est démonté
+    // pendant l'attente (jusqu'à 10 min).
+    this.syncPollAbandoned = true
   },
   watch: {
     spaceId(val) {
@@ -800,11 +797,31 @@ export default {
         this.coveredPage = 1
         this.uncoveredPage = 1
         this.loadTimeline(val, this.location.id)
+        this.loadWeezeventEvents()
       }
     },
     activeTab() {
       this.coveredPage = 1
       this.uncoveredPage = 1
+    },
+    // Dès qu'un event ressort de "pending" via un rechargement de la timeline (statut
+    // terminal confirmé côté backend), on lève le verrou de re-soumission.
+    events: {
+      handler(list) {
+        if (!this.stalledEventIds.length) return
+        const resolvedIds = new Set(
+          (list || [])
+            .filter(e => e.aggregationStatus && e.aggregationStatus !== 'pending')
+            .map(e => e.id)
+        )
+        if (resolvedIds.size) {
+          this.stalledEventIds = this.stalledEventIds.filter(id => !resolvedIds.has(id))
+          if (resolvedIds.has(this.processingEventId)) {
+            this.processingEventId = null
+          }
+        }
+      },
+      deep: true,
     },
   },
   methods: {
@@ -815,50 +832,32 @@ export default {
         : `${dateValue}T00:00:00.000Z`
     },
     formatDate(dateStr) {
-      if (!dateStr) return '—'
-      // Date-only strings (YYYY-MM-DD) must be parsed with time to avoid UTC timezone shift
-      const d = /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))
-        ? new Date(`${dateStr}T00:00:00`)
-        : new Date(dateStr)
-      return d.toLocaleDateString('fr-FR', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      })
+      return formatDateMedium(dateStr) || '—'
     },
     // A19 : méthode checkMappings() supprimée — code mort jamais appelé, superseded par
     // step4-context (hasMappings fourni par loadTimeline). hasMappings reste exposé.
-    // §8 — Traiter tout / Tout retraiter
-    async handleProcessAll() {
-      this.processingEventId = null
-      this.skippedEventIds = []
-      if (this.allProcessed) {
-        // Réinitialise les statuts locaux pour que processAllEvents les reprenne
-        this.events = (this.events || []).map(e => ({ ...e, aggregationStatus: 'pending' }))
-      }
-      await this.processAllEvents(this.spaceId, this.location.id)
-      await this.loadTimeline(this.spaceId, this.location.id)
-    },
-    // §9 — cancelProcessing délègue au composable
-    cancelProcessing() {
-      this.processingEventId = null
-      this.currentEventProgress = null
-      this.composableCancelProcessing()
-    },
+    // handleProcessAll()/cancelProcessing() (traitement en masse) supprimées — aucun
+    // point d'appel dans le template (seul handleProcessSingle, câblé au bouton "Traiter"
+    // par ligne, est atteignable). Voir aussi useTimelineProcessing.js::processAllEvents,
+    // supprimé pour la même raison.
     // §2 — polling progress pendant le traitement d'un event
     async handleProcessSingle(eventId) {
       this.processingEventId = eventId
       this.currentEventProgress = { phase: this.t('intgTimelineInitializing'), percentage: 0, status: 'initializing' }
+      // reachedTerminal doit rester visible du bloc `finally` pour ne relâcher le verrou
+      // de re-soumission (processingEventId / stalledEventIds) qu'en cas d'état terminal
+      // confirmé. `stalled` marque au contraire un timeout/une erreur réseau où le job
+      // backend tourne peut-être toujours.
+      let reachedTerminal = false
+      let stalled = false
       try {
         const result = await this.processSingleEvent(this.spaceId, eventId, this.location.id)
         const jobId = result?.jobId
-        let reachedTerminal = false
 
         // Backend queue-based: attendre l'état terminal du job avant de rafraîchir la timeline.
         if (jobId) {
           const TERMINAL = ['completed', 'failed', 'skipped']
-          const MAX_POLLS = 120 // ~2 min
-          for (let i = 0; i < MAX_POLLS; i++) {
+          for (let i = 0; i < SINGLE_EVENT_POLL_MAX_ATTEMPTS; i++) {
             try {
               const progress = await getJobProgress(jobId)
               if (progress) {
@@ -869,8 +868,8 @@ export default {
               // Erreur de polling non critique: continuer
             }
 
-            if (i < MAX_POLLS - 1) {
-              await new Promise((resolve) => setTimeout(resolve, 1000))
+            if (i < SINGLE_EVENT_POLL_MAX_ATTEMPTS - 1) {
+              await new Promise((resolve) => setTimeout(resolve, SINGLE_EVENT_POLL_INTERVAL_MS))
             }
           }
         } else {
@@ -878,12 +877,23 @@ export default {
           reachedTerminal = true
         }
 
-        // Distinguer le timeout du polling d'un vrai succès (l'état est resynchronisé
-        // ensuite par loadTimeline ; ne pas afficher un faux "terminé").
+        // Distinguer le timeout du polling d'un vrai succès, ET distinguer un statut
+        // terminal 'failed'/'skipped' d'un 'completed' (l'état réel vient de
+        // this.currentEventProgress.status, pas seulement du booléen reachedTerminal).
         if (reachedTerminal) {
-          this.feedbackSnackbarText = this.t('intgTimelineAggDone')
-          this.feedbackSnackbarColor = 'success'
+          const terminalStatus = this.currentEventProgress?.status
+          if (terminalStatus === 'failed') {
+            this.feedbackSnackbarText = this.t('intgTimelineAggFailed')
+            this.feedbackSnackbarColor = 'error'
+          } else if (terminalStatus === 'skipped') {
+            this.feedbackSnackbarText = this.t('intgTimelineAggSkipped')
+            this.feedbackSnackbarColor = 'warning'
+          } else {
+            this.feedbackSnackbarText = this.t('intgTimelineAggDone')
+            this.feedbackSnackbarColor = 'success'
+          }
         } else {
+          stalled = true
           this.feedbackSnackbarText = this.t('intgTimelineAggSlow')
           this.feedbackSnackbarColor = 'warning'
         }
@@ -909,18 +919,33 @@ export default {
         // Network error = backend still running (timeout côté frontend)
         const isNetworkOrTimeout = !err.response || err.code === 'ERR_NETWORK' || err.code === 'ECONNABORTED'
         if (isNetworkOrTimeout) {
+          stalled = true
           this.feedbackSnackbarText = this.t('intgTimelineProcessingBackground')
           this.feedbackSnackbarColor = 'info'
           this.feedbackSnackbar = true
-          setTimeout(() => this.loadTimeline(this.spaceId, this.location.id), 5000)
+          setTimeout(() => this.loadTimeline(this.spaceId, this.location.id), SINGLE_EVENT_RETRY_DELAY_MS)
         } else {
+          // Vraie erreur (validation, permission, ...) — pas un timeout : on peut relâcher
+          // le verrou et laisser l'utilisateur réessayer immédiatement.
+          reachedTerminal = true
           this.feedbackSnackbarText = `${this.t('intgTimelineAggErrorPrefix')} ${err.message}`
           this.feedbackSnackbarColor = 'error'
           this.feedbackSnackbar = true
         }
       } finally {
         this.currentEventProgress = null
-        this.processingEventId = null
+        if (stalled) {
+          if (!this.stalledEventIds.includes(eventId)) this.stalledEventIds.push(eventId)
+        } else {
+          this.stalledEventIds = this.stalledEventIds.filter(id => id !== eventId)
+        }
+        // Ne relâcher le verrou (autoriser un nouveau clic sur "Traiter") que si un état
+        // terminal a réellement été confirmé. En cas de timeout/erreur réseau, le bouton
+        // reste verrouillé (voir stalledEventIds) jusqu'à ce que loadTimeline() (via le
+        // watcher `events`) rapporte un statut résolu.
+        if (reachedTerminal) {
+          this.processingEventId = null
+        }
       }
       await this.loadTimeline(this.spaceId, this.location.id)
     },
@@ -974,12 +999,15 @@ export default {
     },
 
     async waitForSyncJob() {
-      const INTERVAL_MS = 2500
-      const MAX_WAIT_MS = 10 * 60 * 1000 // 10 min max
       const start = Date.now()
-      while (Date.now() - start < MAX_WAIT_MS) {
-        await new Promise(resolve => setTimeout(resolve, INTERVAL_MS))
+      while (Date.now() - start < SYNC_JOB_POLL_MAX_WAIT_MS) {
+        // Le composant a été démonté (changement d'étape du wizard, fermeture) : on
+        // arrête le polling au lieu de continuer en arrière-plan jusqu'à 10 min.
+        if (this.syncPollAbandoned) return
+        await new Promise(resolve => setTimeout(resolve, SYNC_JOB_POLL_INTERVAL_MS))
+        if (this.syncPollAbandoned) return
         const progress = await this.checkProgress()
+        if (this.syncPollAbandoned) return
         if (!progress) continue
         const status = (progress.status || progress.state || '').toLowerCase()
         if (['completed', 'done', 'finished', 'success'].includes(status)) return
@@ -995,16 +1023,8 @@ export default {
       this.syncExecutionMode = 'full'
       this.elapsedSeconds = 0
     },
-    // §6 — ouvrir le dialog
-    handleCreateEventFromWeez(weezEvent) {
-      this.createEventPrefill = {
-        name: weezEvent.name || '',
-        date: weezEvent.startDate || weezEvent.start_date || '',
-        endDate: weezEvent.endDate || weezEvent.end_date || '',
-        pendingWeezEventLink: weezEvent,
-      }
-      this.createEventDialog = true
-    },
+    // handleCreateEventFromWeez() (ouverture du dialog de création depuis l'onglet
+    // "Événements Weezevent" mort) supprimée — aucun point d'appel dans le template.
     async handleDeleteEvent(event) {
       const label = event.name || event.eventName || event.id
       if (!confirm(`${this.t('intgTimelineDeleteConfirmPrefix')} « ${label} » ? ${this.t('intgTimelineDeleteConfirmSuffix')}`)) return
@@ -1080,9 +1100,12 @@ export default {
       if (rawLastTx) {
         const { time, addDay } = this.roundUpToQuarterHour(rawLastTx)
         endTime = time
+        // Rester en base UTC (cohérent avec toInputDate/roundUpToQuarterHour) plutôt que
+        // de construire un Date local ici : un mélange des deux peut faire basculer le
+        // jour calendaire dans le mauvais sens pour un utilisateur loin d'UTC.
         if (addDay && baseEndDate) {
-          const d = new Date(baseEndDate + 'T00:00:00')
-          d.setDate(d.getDate() + 1)
+          const d = new Date(baseEndDate + 'T00:00:00Z')
+          d.setUTCDate(d.getUTCDate() + 1)
           endDate = toInputDate(d.toISOString())
         }
       }
@@ -1102,13 +1125,17 @@ export default {
       if (isNaN(d.getTime())) return { time: '', addDay: false }
       const quarterMs = 15 * 60 * 1000
       const rounded = new Date(Math.ceil(d.getTime() / quarterMs) * quarterMs)
+      // Utiliser les accesseurs UTC (pas le fuseau local du navigateur) pour rester
+      // cohérent avec baseEndDate (toInputDate = troncature calendaire UTC de l'ISO
+      // backend). Mélanger UTC et local ici pouvait mal classer une transaction proche
+      // de minuit UTC pour un utilisateur loin d'UTC.
       const origMidnight = new Date(d)
-      origMidnight.setHours(0, 0, 0, 0)
+      origMidnight.setUTCHours(0, 0, 0, 0)
       const nextMidnight = new Date(origMidnight)
-      nextMidnight.setDate(origMidnight.getDate() + 1)
+      nextMidnight.setUTCDate(origMidnight.getUTCDate() + 1)
       const addDay = rounded.getTime() >= nextMidnight.getTime()
-      const h = rounded.getHours()
-      const m = rounded.getMinutes()
+      const h = rounded.getUTCHours()
+      const m = rounded.getUTCMinutes()
       return {
         time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
         addDay,
@@ -1141,9 +1168,8 @@ export default {
       try {
         // ── Phase 0 : rattacher les events DF existants au Space ──
         if (toPatch.length > 0) {
-          const PATCH_BATCH = 10
-          for (let i = 0; i < toPatch.length; i += PATCH_BATCH) {
-            const batch = toPatch.slice(i, i + PATCH_BATCH)
+          for (let i = 0; i < toPatch.length; i += BULK_PATCH_BATCH_SIZE) {
+            const batch = toPatch.slice(i, i + BULK_PATCH_BATCH_SIZE)
             const results = await Promise.allSettled(
               batch.map(dfId => updateEvent(dfId, { spaceId: this.spaceId }))
             )
@@ -1168,10 +1194,9 @@ export default {
         this.bulkCreateEventsPhase = 'creating'
         let createdCount = 0
         let skippedCount = 0
-        const BATCH = 5
 
-        for (let i = 0; i < toCreate.length; i += BATCH) {
-          const chunk = toCreate.slice(i, i + BATCH)
+        for (let i = 0; i < toCreate.length; i += BULK_CREATE_BATCH_SIZE) {
+          const chunk = toCreate.slice(i, i + BULK_CREATE_BATCH_SIZE)
           const results = await Promise.allSettled(
             chunk.map(async (weezEvent) => {
               const toDate = d => (d ? String(d).slice(0, 10) : null)
@@ -1229,11 +1254,12 @@ export default {
       }
     },
 
-    async handleEventCreated({ event, pendingWeezEventLink }) {
+    // Le paramètre pendingWeezEventLink n'est plus jamais renseigné par un appelant
+    // vivant depuis la suppression de handleCreateEventFromWeez (seule source qui le
+    // remplissait) ; saveWeezEventMapping (son seul consommateur) est supprimée pour la
+    // même raison.
+    async handleEventCreated({ event }) {
       this.$store.dispatch('events/addEvent', event)
-      if (pendingWeezEventLink && event?.id) {
-        await this.saveWeezEventMapping(pendingWeezEventLink, event.id)
-      }
       await this.loadTimeline(this.spaceId, this.location.id)
     },
 
@@ -1263,124 +1289,15 @@ export default {
         console.error('[StepProcessTimeline] Failed to load weezevent events:', err)
       }
     },
-    async saveWeezEventMapping(weezEvent, dfEventId) {
-      this.weezEventMappingLoading = { ...this.weezEventMappingLoading, [weezEvent.id]: true }
-      try {
-        await updateWeezeventEventMetadata(this.spaceId, weezEvent.id, { dfEventId: dfEventId || null })
-        // Delete key when unmapping so mappedCount stays accurate
-        const updated = { ...this.weezEventMappings }
-        if (dfEventId) {
-          updated[weezEvent.id] = dfEventId
-        } else {
-          delete updated[weezEvent.id]
-        }
-        this.weezEventMappings = updated
-        this.feedbackSnackbarText = dfEventId ? this.t('intgTimelineWeezLinked') : this.t('intgTimelineLinkRemoved')
-        this.feedbackSnackbarColor = 'success'
-        this.feedbackSnackbar = true
-      } catch (err) {
-        console.error('[StepProcessTimeline] Failed to save weez event mapping:', err)
-        this.feedbackSnackbarText = this.t('intgTimelineLinkSaveError')
-        this.feedbackSnackbarColor = 'error'
-        this.feedbackSnackbar = true
-      } finally {
-        this.weezEventMappingLoading = { ...this.weezEventMappingLoading, [weezEvent.id]: false }
-      }
-    },
-    openEnrichDialog(event) {
-      this.enrichingEvent = event
-      this.enrichDialog = true
-    },
-    async saveEnrichment(formData) {
-      if (!this.enrichingEvent) return
-      this.enrichSaving = true
-      try {
-        const updated = await updateWeezeventEventMetadata(
-          this.spaceId,
-          this.enrichingEvent.id,
-          formData,
-        )
-        // Update local event data
-        Object.assign(this.enrichingEvent, updated)
-        this.enrichDialog = false
-        this.feedbackSnackbarText = this.t('intgTimelineEnrichSuccess')
-        this.feedbackSnackbarColor = 'success'
-        this.feedbackSnackbar = true
-      } catch (err) {
-        console.error('[StepProcessTimeline] Failed to save enrichment:', err)
-        this.feedbackSnackbarText = this.t('intgTimelineSaveError')
-        this.feedbackSnackbarColor = 'error'
-        this.feedbackSnackbar = true
-      } finally {
-        this.enrichSaving = false
-      }
-    },
-    // ── Timeline minute par minute ─────────────────────────────────────
-    async toggleTimeline(event) {
-      const id = event.id
-      if (this.expandedTimelines[id]) {
-        this.expandedTimelines = { ...this.expandedTimelines, [id]: false }
-        return
-      }
-      if (!this.timelineData[id]) {
-        await this.loadEventTimeline(event)
-      }
-      this.expandedTimelines = { ...this.expandedTimelines, [id]: true }
-    },
-    async loadEventTimeline(event) {
-      const id = event.id
-      this.timelineLoading = { ...this.timelineLoading, [id]: true }
-      try {
-        const rows = await getSpaceEventTimeline(this.spaceId, id)
-        this.timelineData = { ...this.timelineData, [id]: Array.isArray(rows) ? rows : [] }
-      } catch (err) {
-        console.error('[StepProcessTimeline] Failed to load timeline:', err)
-        this.timelineData = { ...this.timelineData, [id]: [] }
-      } finally {
-        this.timelineLoading = { ...this.timelineLoading, [id]: false }
-      }
-    },
-    timelineShops(eventId) {
-      const rows = this.timelineData[eventId] || []
-      const seen = new Set()
-      return rows.filter(r => {
-        if (!r.shopId || seen.has(r.shopId)) return false
-        seen.add(r.shopId)
-        return true
-      }).map(r => ({ shopId: r.shopId, shopName: r.shopName }))
-    },
-    timelineArticles(eventId) {
-      const rows = this.timelineData[eventId] || []
-      const seen = new Set()
-      return rows.filter(r => {
-        const key = r.menuItemId || r.weezeventProductId
-        if (!key || seen.has(key)) return false
-        seen.add(key)
-        return true
-      }).map(r => ({
-        menuItemId: r.menuItemId || r.weezeventProductId,
-        menuItemName: r.menuItemName || r.weezeventProductId || '—',
-      }))
-    },
-    filteredTimeline(eventId) {
-      let rows = this.timelineData[eventId] || []
-      const shopFilter = this.timelineFilterShop[eventId]
-      const articleFilter = this.timelineFilterArticle[eventId]
-      if (shopFilter) rows = rows.filter(r => r.shopId === shopFilter)
-      if (articleFilter) rows = rows.filter(r => (r.menuItemId || r.weezeventProductId) === articleFilter)
-      return rows
-    },
-    timelineSummary(eventId) {
-      const rows = this.timelineData[eventId]
-      if (!rows || !rows.length) return null
-      const shops = new Set(rows.map(r => r.shopId))
-      return {
-        revenueHt:         rows.reduce((sum, r) => sum + Number(r.revenueHt || 0), 0),
-        shopCount:         shops.size,
-        totalQty:          rows.reduce((sum, r) => sum + Number(r.quantity || 0), 0),
-        totalTransactions: rows.reduce((sum, r) => sum + Number(r.transactionCount || 0), 0),
-      }
-    },
+    // saveWeezEventMapping/openEnrichDialog/saveEnrichment (onglet "Événements Weezevent"
+    // mort) supprimées : aucun point d'appel dans le template. EnrichEventDialog n'était
+    // de toute façon jamais ouvrable (son seul déclencheur, openEnrichDialog, n'était
+    // jamais invoqué) — le mount a été retiré du template, et le fichier
+    // EnrichEventDialog.vue (devenu sans importeur) a été supprimé.
+    // toggleTimeline/loadEventTimeline/timelineShops/timelineArticles/filteredTimeline/
+    // timelineSummary/exportTimelineCsv (table de timeline minute par minute) supprimées :
+    // aucun point d'appel dans le template, fonctionnalité distincte de et remplacée par
+    // EventBreakdownDrawer (onglet graphique, ci-dessous), qui reste vivant.
     async handleBreakdownChartTabClick(event) {
       const eventId = event.id
       if (this.minuteChartData[eventId] !== undefined) return // already loaded
@@ -1395,79 +1312,10 @@ export default {
         this.minuteChartLoading = { ...this.minuteChartLoading, [eventId]: false }
       }
     },
-    exportTimelineCsv(event) {
-      const rows = this.filteredTimeline(event.id)
-      if (!rows.length) return
-      const headers = [
-        this.t('intgTimelineCsvMinute'),
-        this.t('intgTimelineCsvShop'),
-        this.t('intgTimelineCsvShopType'),
-        this.t('intgTimelineCsvArticle'),
-        this.t('intgTimelineCsvCategory'),
-        this.t('intgTimelineCsvQuantity'),
-        this.t('intgTimelineCsvTransactions'),
-        this.t('intgTimelineCsvRevenueHt'),
-      ]
-      const lines = rows.map(r => [
-        r.minute,
-        r.shopName || '',
-        r.shopType || '',
-        r.menuItemName || r.weezeventProductId || '',
-        r.menuItemCategory || '',
-        r.quantity,
-        r.transactionCount,
-        Number(r.revenueHt || 0).toFixed(2),
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-      const csv = [headers.join(','), ...lines].join('\n')
-      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `timeline-${(event.name || event.id).replace(/\s+/g, '-')}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
-    },
-    async syncAllAttendees() {
-      this.syncingAllAttendees = true
-      let total = 0
-      try {
-        for (const event of this.weezeventEvents) {
-          try {
-            this.syncingAttendees = { ...this.syncingAttendees, [event.id]: true }
-            const result = await syncWeezeventEventAttendees(this.spaceId, event.id)
-            this.attendeesSynced = { ...this.attendeesSynced, [event.id]: result?.synced ?? 0 }
-            total += result?.synced ?? 0
-          } catch {
-            // continue on individual failure
-          } finally {
-            this.syncingAttendees = { ...this.syncingAttendees, [event.id]: false }
-          }
-        }
-        this.feedbackSnackbarText = `${total} ${this.t('intgTimelineAttendeesSyncedTotal')}`
-        this.feedbackSnackbarColor = 'success'
-        this.feedbackSnackbar = true
-      } finally {
-        this.syncingAllAttendees = false
-      }
-    },
-    // ─────────────────────────────────────────────────────────────────────
-    async syncAttendees(event) {
-      this.syncingAttendees = { ...this.syncingAttendees, [event.id]: true }
-      try {
-        const result = await syncWeezeventEventAttendees(this.spaceId, event.id)
-        this.attendeesSynced = { ...this.attendeesSynced, [event.id]: result?.synced ?? 0 }
-        this.feedbackSnackbarText = `${result?.synced ?? 0} ${this.t('intgTimelineAttendeesSynced')}`
-        this.feedbackSnackbarColor = 'success'
-        this.feedbackSnackbar = true
-      } catch (err) {
-        console.error('[StepProcessTimeline] Failed to sync attendees:', err)
-        this.feedbackSnackbarText = this.t('intgTimelineAttendeesSyncError')
-        this.feedbackSnackbarColor = 'error'
-        this.feedbackSnackbar = true
-      } finally {
-        this.syncingAttendees = { ...this.syncingAttendees, [event.id]: false }
-      }
-    },
+    // syncAllAttendees/syncAttendees (actions de l'onglet "Événements Weezevent" mort)
+    // supprimées : aucun point d'appel dans le template. L'enrichissement attendees pour
+    // le chemin vivant reste géré par l'appel direct à syncWeezeventEventAttendees() dans
+    // handleProcessSingle (non-bloquant, après agrégation d'un event).
   },
 }
 </script>

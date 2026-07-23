@@ -109,6 +109,9 @@ export const SPACE_SCREENS = [
   { code: 'front.fb.analyse', name: 'space-analyse' },
   { code: 'front.fb.eventPredict', name: 'space-predict' },
   { code: 'front.fb.spaceInventory', name: 'space-inventory' },
+  // Pre-event Inventory : même permission que le post-event, placé APRÈS lui
+  // pour ne pas changer l'écran d'atterrissage des rôles existants.
+  { code: 'front.fb.spaceInventory', name: 'space-pre-inventory' },
   { code: 'front.fb.logistic', name: 'space-logistic' },
   { code: ['front.fb.restock', 'front.fb.restockBoard'], name: 'space-restock' },
 ]

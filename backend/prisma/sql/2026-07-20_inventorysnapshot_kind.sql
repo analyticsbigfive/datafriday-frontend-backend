@@ -1,0 +1,21 @@
+-- InventorySnapshot — colonne `kind` (2026-07-20)
+--
+-- Pourquoi : l'écran Pre-event Inventory (branche feat/postEventInventory) fait
+-- coexister DEUX comptages pour le même événement : avant le match (pre-event)
+-- et après (post-event). Les deux écrans sauvegardent leur snapshot sous le même
+-- eventId — sans discriminant, impossible de retrouver « le comptage d'avant
+-- match » pour la réconciliation post-event, ni « le comptage d'après match de
+-- l'événement précédent » comme base des quantités attendues du pre-event.
+--
+-- Sémantique :
+--   NULL          = snapshot legacy (avant l'existence du kind)
+--   'post-event'  = compté après le match (écran Post-event Inventory)
+--   'pre-event'   = compté avant le match (écran Pre-event Inventory)
+--
+-- Le cycle fermé (docs/modules/10_POST_EVENT_INVENTORY.md) :
+--   post-event(N-1) + mouvements Logistic = attendu du pre-event(N)
+--   pre-event(N) − ventes(N)              = restant théorique du post-event(N)
+--
+-- Idempotent (IF NOT EXISTS) — exécutable plusieurs fois sans effet.
+
+ALTER TABLE "InventorySnapshot" ADD COLUMN IF NOT EXISTS "kind" TEXT;

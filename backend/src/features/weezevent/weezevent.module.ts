@@ -14,6 +14,7 @@ import { WebhookController } from './webhook.controller';
 import { WeezeventAnalyticsController } from './weezevent-analytics.controller';
 import { OnboardingModule } from '../onboarding/onboarding.module';
 import { PricingModule } from '../../shared/pricing/pricing.module';
+import { EventsModule } from '../events/events.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { WeezeventCronService } from './services/weezevent-cron.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
@@ -28,6 +29,7 @@ import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker
         }),
         OnboardingModule,
         PricingModule,
+        EventsModule,
     ],
     controllers: [WeezeventController, WebhookController, WeezeventAnalyticsController],
     providers: [

@@ -7,9 +7,9 @@
 > bloqué par les questions produit #22/#23. Cette page décrit *ce qu'il faut bâtir* et *où ça se
 > branche* ; elle sera convertie en cartographie vérifiée une fois le module complet.
 >
-> Domaine cartographie : **Live events** (nouveau). Owners pressentis : **Ulrich** (backend temps réel,
-> agrégation, spaces) + **Jean-Luc** (écrans Analyse & Inventory réutilisés). **Hors domaine Auth/RBAC
-> (Emmanuel)** — le gating RBAC est un simple branchement (voir §9).
+> Domaine cartographie : **Live events** (nouveau). Owner : **Ulrich, fullstack** (backend temps réel/
+> agrégation/spaces **et** front Analyse/Inventory) — pas de split front/back, décidé le 2026-07-23
+> (voir §9). **Hors domaine Auth/RBAC (Emmanuel)** — le gating RBAC est un simple branchement (voir §9).
 > Source : maquettes fournies le 2026-07-20 (2 captures : bouton Live sur la Home + entrée Tools).
 > Rédigé le 2026-07-20.
 
@@ -29,11 +29,14 @@ chargement ponctuel « All history ».
 1. **Carte d'espace sur la Home** (`/spaces`, `src/components/spaces/widgets/SpaceItem.vue`) : un bouton
    **◉ (rouge, « record »)** apparaît en haut à droite de la carte, **uniquement si l'espace a un event
    live**. À côté des icônes outils/éditer/supprimer existantes.
-2. **Dropdown « Tools »** d'un espace — liste définie dans `src/components/analyse/FilterPanel.vue:32-39`,
-   navigation dans `onToolboxSelect()` (`:468`) : ajouter une entrée **« Live »** à la liste actuelle
-   (Analyse, Predict, Event Predict, Inventory, Logistic, Restock).
-   ⚠️ Doublon connu : `src/components/analyse/filters/FilterPanel.vue` porte la même liste — vérifier
-   lequel est réellement importé avant de greffer.
+2. **Dropdown « Tools »** d'un espace — liste `toolboxItems` définie dans
+   `src/components/analyse/filters/FilterPanel.vue:605-613`, navigation dans `onToolboxSelect()`
+   (`:583-601`) : ajouter une entrée **« Live »** à la liste actuelle (Analyse, Predict, Event Predict,
+   Pre-Inventory, Inventory, Logistic, Restock).
+   ✅ **Ambiguïté résolue (vérifié 2026-07-23)** : `AnalyseView.vue:417` importe
+   `analyse/filters/FilterPanel.vue` (1124 lignes, 7 entrées Tools, dernière modif 2026-07-20) — c'est
+   le seul fichier vivant. `analyse/FilterPanel.vue` (707 lignes, 3 entrées Tools seulement, inchangé
+   depuis le commit initial 2026-07-15) est mort/orphelin, à ignorer.
 
 Les deux mènent à la même route Live de l'espace/event : **`/spaces/:id/live`** (route dédiée, tranché §10.3).
 
@@ -46,14 +49,19 @@ Base = l'écran Analyse (`src/components/analyse/AnalyseView.vue`) en mode flux 
 - **Onglet Inventaire live** (nouveau) : niveau de stock **par Shop** (dépliable → détail des éléments
   stockables du shop) et **par Item** (dépliable → détail par shop pour chaque item), rafraîchi en direct.
 
-## 4. Découpage front / back — le Live est full-stack, fondation backend
+## 4. Découpage des couches — le Live est full-stack, un seul owner
 
-| Couche | Responsabilité | Owner |
-|---|---|---|
-| **Backend** | Détecter « event live » ; exposer un flux temps réel (revenus/KPI + timeline + stock live) ; agréger l'inventaire par shop/item | Ulrich |
-| **Frontend** | Bouton ◉ conditionnel, entrée Tools, route Live, écran Analyse en mode flux + onglet Inventaire live | Jean-Luc |
+> Pas de split front/back par personne (décidé 2026-07-23, §9) — même owner sur les deux couches. La
+> distinction ci-dessous reste utile pour l'ordre de dépendance (le front ne peut rien afficher tant que
+> la couche backend correspondante n'existe pas), pas pour répartir le travail entre deux personnes.
 
-**Sans le flux backend, le front ne peut rien afficher de live.** La fondation est backend.
+| Couche | Responsabilité |
+|---|---|
+| **Backend** | Détecter « event live » ; exposer un flux temps réel (revenus/KPI + timeline + stock live) ; agréger l'inventaire par shop/item |
+| **Frontend** | Bouton ◉ conditionnel, entrée Tools, route Live, écran Analyse en mode flux + onglet Inventaire live |
+
+**Sans le flux backend, le front ne peut rien afficher de live.** La fondation est backend — à construire
+en premier même en solo fullstack.
 
 ## 5. ✅ Décision n°1 (tranchée 2026-07-20) : le transport temps réel
 
@@ -89,13 +97,17 @@ la main via le wizard d'intégration (`aggregation.controller.ts` `POST /aggrega
 
 **Prérequis backend bloquant révélé par cette analyse (à ajouter au chantier Live, pas dans la
 conception initiale)** :
-1. Câbler un déclenchement automatique de `queueAggregationJob()` — soit juste après le resync d'une
-   transaction webhook (`webhook-event.handler.ts`), soit via un cron dédié courte fréquence (ex.
-   toutes les 5 min) en filet de sécurité si le déclenchement post-webhook échoue.
-2. Corriger **BUG-19** (`backend/docs/bugs/19_queue_agregation_sans_retry.md`) avant de s'appuyer sur
-   cette queue pour du live : `attempts: 1` en dur (`queue.service.ts:274`) écrase le retry/backoff
-   par défaut du module — un échec transitoire y reste aujourd'hui silencieux et invisible en
-   back-office ; en live, il se traduirait par des KPI par shop visiblement figés à l'écran.
+1. ✅ **Corrigé le 2026-07-23** (BUG-109, `backend/docs/bugs/109_aggregation_jamais_declenchee_automatiquement.md`) —
+   `queueAggregationJob()` est maintenant déclenché automatiquement : (a) juste après le resync
+   d'une transaction webhook (`webhook-event.handler.ts`, `triggerLiveAggregation`), scopé à l'event
+   concerné ; (b) filet de sécurité `WeezeventCronService.triggerLiveAggregationSafetyNet()`
+   (`@Cron(EVERY_5_MINUTES)`) qui rejoue l'agrégation de tout event encore dans sa fenêtre live ±3h,
+   au cas où (a) aurait échoué ou manqué un event pas encore résolu. `shop-details` (POS Performance,
+   KPI par shop) se met désormais à jour toute seule pendant un event live.
+2. ✅ **Déjà corrigé** (vérifié en code le 2026-07-23, `backend/docs/bugs/19_queue_agregation_sans_retry.md`
+   statut 🟢) — `queue.service.ts:271-284` ne hardcode plus `attempts: 1` ; la queue hérite désormais du
+   défaut module `attempts: 3` + backoff exponentiel (`queue.module.ts:29-37`). Plus un prérequis, gardé
+   ici pour mémoire.
 
 ## 6. Données & endpoints existants à réutiliser (ne pas repartir de zéro)
 
@@ -133,24 +145,34 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
 - **Flux analytics live** — polling de `event-timeline` (déjà quasi temps réel, voir §5) et de
   `shop-details` (sous réserve du prérequis d'agrégation automatique, §5) ; pas de canal SSE au v1
   (§5).
-- **Inventaire live** : `GET /spaces/:id/live/inventory` → arbre shop → items stockables, avec niveaux
-  — source du stock live encore ouverte (§10.4, question #22, hors périmètre de cette résolution).
+- **Inventaire live** : ✅ **tranché le 2026-07-23** (question #22) — `GET /spaces/:id/live/inventory`
+  → arbre shop → items stockables ET item → shops (index inversé), réutilisant tel quel le calcul
+  déjà en production du module Logistic (`LogisticsService.getStock`, combinaison `StockLevel` +
+  décrément par vente en temps réel) avec la granularité par défaut (`readyForSale`, comme le
+  Réarmement — pas l'override Space Inventory de la question #13). Détail :
+  `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md` §3.
 
 ## 8. Découpage en tâches
 
-**Backend (Ulrich) — fondation**
-1. Définir et exposer le signal « event live » (§7).
-2. Choisir le transport (§5) et exposer le flux analytics.
-3. Exposer l'agrégat inventaire live par shop/item.
+> Fullstack, un seul owner (§9) — l'ordre ci-dessous reste la dépendance réelle (backend avant front),
+> pas une répartition entre deux personnes.
 
-**Frontend (Emmanuel) — consommation** (points d'insertion vérifiés le 2026-07-20)
-4. Bouton ◉ conditionnel dans `SpaceItem.vue` (nouveau, hors `.si-actions` qui est hover-only ; affiché
+**Backend — fondation**
+1. Câbler le déclenchement automatique de l'agrégation (§5, prérequis 1 — toujours ouvert).
+2. Définir et exposer le signal « event live » (§7).
+3. Choisir le transport (§5, déjà tranché : polling) et exposer le flux analytics.
+4. Exposer l'agrégat inventaire live par shop/item (bloqué par #22, §10.4).
+
+**Frontend — consommation** (points d'insertion vérifiés le 2026-07-20, cible FilterPanel reconfirmée le 2026-07-23)
+5. Bouton ◉ conditionnel dans `SpaceItem.vue` (nouveau, hors `.si-actions` qui est hover-only ; affiché
    si `space.liveEvent`) → `router.push('/spaces/:id/live')`.
-5. Entrée « Live » dans `FilterPanel.vue:32-39` + `onToolboxSelect():468` (+ `livePath` computed) ; route
-   enfant `space-live` dans `router/index.js` après `space-restock` (`meta.permission`).
-6. Mode flux de `AnalyseView.vue` : relancer les loaders existants (`useAnalyseTimeline:529`,
+6. Entrée « Live » dans `analyse/filters/FilterPanel.vue:605-613` (`toolboxItems`) + `onToolboxSelect()`
+   (`:583-601`) + `livePath` computed (sur le modèle de `restockPath:571-574`) ; route enfant
+   `space-live` dans `router/index.js` après `space-restock` (`meta.permission`).
+7. Mode flux de `AnalyseView.vue` : relancer les loaders existants (`useAnalyseTimeline:529`,
    `useAnalyseItemRecords:549`, `useSpaceData`) sur un intervalle + badge « ● LIVE » ; nettoyer à l'unmount.
-7. Onglet Inventaire live (seule nouvelle UI) : réutiliser `useInventoryData.js` + arbre shop/item dépliable.
+8. Onglet Inventaire live (seule nouvelle UI) : réutiliser `useInventoryData.js` + arbre shop/item dépliable
+   (bloqué par #22, comme la tâche backend 4).
 
 ## 8bis. Points d'insertion front — vérifiés contre le code le 2026-07-20
 
@@ -159,42 +181,47 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
 | # | Greffe | Fichier & ancrage | Nature | Poids | Prérequis backend |
 |---|---|---|---|---|---|
 | A | Bouton ◉ live | `SpaceItem.vue` — nouvel élément dans `.si-img`, **hors** `.si-actions` (hover-only, `:14-24`) ; `v-if="space?.liveEvent"` → `router.push('/spaces/:id/live')` | Ajout | 🟢 | champ `liveEvent`/`isLive` sur le payload liste d'espaces |
-| B | Entrée « Live » dans Tools | `analyse/FilterPanel.vue` — liste `:32-39`, handler `onToolboxSelect():468`, + `livePath` computed (près de `restockPath:456`) | Ajout | 🟢 | — |
+| B | Entrée « Live » dans Tools | `analyse/filters/FilterPanel.vue` — `toolboxItems` `:605-613`, handler `onToolboxSelect():583-601`, + `livePath` computed (près de `restockPath:571-574`) | Ajout | 🟢 | — |
 | C | Route `space-live` | `router/index.js` — route enfant après `space-restock` (`:184`), `meta:{ permission, keepAlive }` ; guard permission déjà en place (`:460`) | Ajout | 🟢 | code de permission (voir §9) |
 | D | Mode « flux » de l'Analyse | `analyse/AnalyseView.vue` — relancer `useAnalyseTimeline:529` / `useAnalyseItemRecords:549` / `useSpaceData` sur intervalle + badge « ● LIVE », nettoyage à l'unmount | Modif comportement | 🟡 | endpoint(s) de flux ou cible de polling |
-| E | Onglet Inventaire live | nouveau composant — réutilise `useInventoryData.js`, arbre dépliable Shop → items / Item → shops | **Nouvelle UI** | 🔴 | agrégat inventaire live par shop/item |
+| E | Onglet Inventaire live | nouveau composant — réutilise `useInventoryData.js`, arbre dépliable Shop → items / Item → shops | **Nouvelle UI** | 🔴 | ✅ disponible : `GET /spaces/:id/live/inventory` |
 
-⚠️ **Dette préalable (greffe B)** : le fichier `analyse/FilterPanel.vue` a un **doublon**
-`analyse/filters/FilterPanel.vue` portant la même liste d'outils. Identifier lequel `AnalyseView.vue`
-importe réellement **avant** de greffer, sinon l'entrée n'apparaît qu'à moitié.
+✅ **Dette résolue (greffe B, vérifié 2026-07-23)** : `AnalyseView.vue:417` importe bien
+`analyse/filters/FilterPanel.vue` — c'est la cible de greffe. `analyse/FilterPanel.vue` est mort/orphelin,
+ne pas y toucher.
 
-### Prérequis backend bloquants (sans eux, A / D / E n'affichent rien)
+### Prérequis backend (sans eux, A / D / E n'affichent rien)
 
-1. **Signal « event live »** exposé sur la liste d'espaces (champ) et/ou `GET /spaces/:id/live-status`.
-2. **Flux analytics live** — transport à trancher (§5) : polling des endpoints existants, ou canal dédié.
-3. **Agrégat inventaire live** par shop/item.
+1. 🟢 **Signal « event live »** — `GET /spaces/:id/live-status` implémenté et testé.
+2. 🟢 **Flux analytics live** — polling (§5) ; déclenchement automatique de l'agrégation câblé
+   (BUG-109) : `shop-details` n'est plus figé.
+3. 🟢 **Agrégat inventaire live** par shop/item — `GET /spaces/:id/live/inventory` implémenté et
+   testé (§10.4, question #22), réutilise `LogisticsService.getStock`.
 
 ## 9. Ownership & RBAC (branchement, pas un chantier)
 
 - Module **hors Auth/RBAC** : côté gating, il suffit d'exposer la route/entrée Tools derrière un code
   de permission existant. Voir [../utiles/RBAC_SYSTEM.md](../utiles/RBAC_SYSTEM.md).
 - ✅ **Découverte 2026-07-20** : le code `front.fb.live` **existe déjà** dans
-  `backend/src/core/rbac/permission-catalog.ts:52` (`SYSTEM_PERMISSIONS`), présent depuis le commit
+  `backend/src/core/rbac/permission-catalog.ts:61` (`SYSTEM_PERMISSIONS`), présent depuis le commit
   initial du repo (2026-07-15, `8bf2429`) — **5 jours avant cette conception**. Déjà assigné par
-  défaut aux rôles système « Analyste F&B » (ligne 133) et « Achat F&B » (ligne 184). Le catalogue est
-  idempotent et auto-appliqué (`ensureSystemPermissionCatalog()`, seed + `OnboardingService` au
-  clonage de rôle) : **le code existe déjà en base pour tout tenant déjà onboardé — aucune migration
-  ni backfill à écrire.** Il y a même une affordance front déjà câblée dessus mais orpheline :
-  `frontend/src/components/BurgerMenu.vue:64-70` (`v-if="can('front.fb.live')"`) — ce composant n'est
-  monté nulle part dans l'app aujourd'hui, à réutiliser ou remplacer selon le point d'entrée
-  effectivement choisi (§2).
+  défaut aux rôles système « Analyste F&B » et « Achat F&B » (ADMIN l'a aussi via `ALL_CODES`). Le
+  catalogue est idempotent et auto-appliqué (`ensureSystemPermissionCatalog()`, seed +
+  `OnboardingService` au clonage de rôle) : **le code existe déjà en base pour tout tenant déjà
+  onboardé — aucune migration ni backfill à écrire.** Il y a même une affordance front déjà câblée
+  dessus : `frontend/src/components/BurgerMenu.vue:65-67` (`v-if="can('front.fb.live')"`,
+  `@click="handleMenuClick('live')"`). ⚠️ **Précision 2026-07-23** : contrairement à ce que
+  supposait la version précédente de cette page, `BurgerMenu` **est** monté dans l'app (via
+  `AppHeader`, présent sur la quasi-totalité des vues) — l'entrée de menu est donc déjà visible aux
+  utilisateurs autorisés, juste sans destination câblée (`handleMenuClick('live')` ne fait rien
+  aujourd'hui). À brancher sur la route `space-live` une fois créée (greffe C).
 - Le point ouvert n'est donc **plus** « quel code de permission » mais uniquement : réutiliser
   `front.fb.live` tel quel (recommandé, déjà en place), ou l'étendre à d'autres rôles si besoin —
   décision produit, pas technique.
-- **Assignation à trancher par le lead.** Backend = Ulrich (non contesté). Front : les écrans Analyse &
-  Inventory réutilisés sont historiquement le domaine de **Jean-Luc**, mais **Emmanuel** s'est positionné
-  sur la partie front (cf. §8). Cette greffe touchant `AnalyseView`/`SpaceInventoryView`, l'ownership
-  front doit être acté nommément avant de démarrer — pas décidé unilatéralement.
+- ✅ **Ownership tranché le 2026-07-23** : pas de split front/back — **un seul owner fullstack**
+  (Ulrich) sur tout le module Live, backend et front. La distinction Backend/Frontend des §4/§8 sert
+  uniquement à ordonner le travail (fondation backend avant consommation front), plus à répartir entre
+  personnes.
 
 ## 10. Zones grises
 
@@ -216,14 +243,18 @@ importe réellement **avant** de greffer, sinon l'entrée n'apparaît qu'à moit
      `spaceEntryGuard` pour choisir le 1er écran d'un rôle) sauf si un rôle porte `front.fb.live` sans
      autre permission d'espace — à date, les deux rôles qui l'ont (« Analyste F&B », « Achat F&B », §9)
      ont vraisemblablement d'autres accès ; à vérifier si un rôle plus restreint est créé plus tard.
-4. **Inventaire live** : d'où vient le stock « en direct » (mouvements Restock ? décrément par vente) ?
-   — encore ouvert, question #22.
-5. **Un seul event live par espace** à un instant T, ou plusieurs ? — encore ouvert, question #23.
+4. ✅ **Inventaire live** : **combinaison** (mouvements Restock + décrément par vente en temps réel),
+   réutilisation telle quelle du calcul déjà en production du module Logistic, granularité par défaut
+   (`readyForSale`, comme le Réarmement) — tranché le 2026-07-23, question #22.
+5. ✅ **Cardinalité event/espace** : **un seul event live par espace** à un instant T. Le bouton ◉ et
+   l'écran Live ciblent donc toujours un event unique — pas de sélecteur multi-event à construire (pas
+   d'impact sur A/B/C/D ni sur l'onglet Inventaire E, qui restent scopés à l'espace).
 
 > Réponses 1-3 tranchées le 2026-07-20 par Ulrich (owner backend), sur la base d'une recherche
-> approfondie du code réel (webhook/queue d'agrégation, modèle `Event`, catalogue RBAC, router front)
-> — détail dans [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), questions #19-#21 (désormais
-> résolues). **4 et 5 restent bloquantes avant code** (#22, #23, statut 🔴).
+> approfondie du code réel (webhook/queue d'agrégation, modèle `Event`, catalogue RBAC, router front) ;
+> réponses 4 et 5 tranchées le 2026-07-23 par l'utilisateur — détail dans
+> [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), questions #19-#23 (toutes désormais
+> résolues). **Plus aucun point bloquant avant code.**
 
 ## 11. Phasage proposé
 
@@ -240,17 +271,28 @@ importe réellement **avant** de greffer, sinon l'entrée n'apparaît qu'à moit
 
 > Le module ne démarre pas tant que ces points ne sont pas actés. Rien n'est implémenté à ce stade.
 
-- [x] **Transport temps réel** (§5) — **tranché : polling v1**. Prérequis backend additionnel révélé :
-      câbler le déclenchement automatique de l'agrégation (§5) avant que `shop-details` soit réellement live.
+- [x] **Transport temps réel** (§5) — **tranché : polling v1**. 🟢 Prérequis backend additionnel
+      **corrigé le 2026-07-23** (backend BUG-109) : déclenchement automatique de l'agrégation câblé
+      (post-webhook + cron de secours) — `shop-details` se met désormais à jour toute seule. Détail
+      côté backend : `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md` §1-§2,
+      `docs/bugs/109_aggregation_jamais_declenchee_automatiquement.md`.
 - [x] **Définition de « event live »** (§10.2 / §7) — **tranchée** : vente réelle < 30 min dans la
       fenêtre event, pas le webhook brut.
 - [x] **Forme de la route** (§10.3) — **tranchée : route dédiée `space-live`**, `keepAlive: true`.
-- [ ] **Source du stock live** (§10.4) et périmètre de l'onglet inventaire.
-- [ ] **Un ou plusieurs events live** par espace (§10.5).
+- [x] **Source du stock live** (§10.4) et périmètre de l'onglet inventaire — **tranché le
+      2026-07-23** : combinaison, réutilisation du calcul Logistic, granularité par défaut.
+- [x] **Cardinalité event/espace** (§10.5) — **tranchée le 2026-07-23 : un seul event live par espace.**
 - [x] **Permission RBAC** de la route (§9) — **`front.fb.live` existe déjà** dans le catalogue, aucun
       seed/backfill à faire.
-- [ ] **Ownership front** (§9) — Jean-Luc vs Emmanuel, à acter nommément.
-- [ ] **Phasage** (§11) — v1 analytics d'abord, v2 inventaire.
+- [x] **Ownership** (§9) — **tranché le 2026-07-23 : fullstack, un seul owner (Ulrich)**, pas de split
+      front/back.
+- [x] **Phasage** (§11) — v1 analytics d'abord, v2 inventaire.
+
+**Le socle backend du v1 est livré** (signal `GET /spaces/:id/live-status`, agrégation auto,
+`event-timeline`/`shop-details` fiables pour du live — `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`).
+**Plus aucun point bloquant avant code** : #22 (source du stock live) est tranchée, l'implémentation
+backend de `GET /spaces/:id/live/inventory` est livrée et testée. **Tout le backend du module Live
+est prêt** — le front peut démarrer toutes les greffes (A/B/C/D/E, §8bis), v1 comme v2.
 
 ## 13. État d'avancement (2026-07-23)
 
@@ -297,3 +339,24 @@ inventaire), onglet Inventaire E (v2, #22/#23), + décisions lead §12 (ownershi
   révélé), définition « event live » = vente réelle < 30 min (§7), route dédiée `space-live` (§10.3).
   Découverte notable : `front.fb.live` existe déjà dans le catalogue RBAC depuis avant cette conception
   (§9) — aucun seed/backfill à faire.
+- **2026-07-23** — Question #23 (cardinalité event/espace) tranchée par l'utilisateur : un seul event
+  live par espace (§10.5, §12). Ownership tranché : fullstack, un seul owner (Ulrich), pas de split
+  front/back (§4, §8, §9). Vérification en code : BUG-19 déjà corrigé (§5, plus un prérequis) ; le
+  déclenchement automatique de l'agrégation, lui, était **encore manquant** à ce stade (§5,
+  prérequis 1) ; ambiguïté `FilterPanel.vue` résolue — `analyse/filters/FilterPanel.vue` est la seule
+  cible vivante (§2, §8bis) ; `BurgerMenu.vue` est bien monté dans l'app, contrairement à ce qui était
+  supposé (§9). Seul point encore bloquant avant code à ce stade : #22 (source du stock live) et le
+  prérequis d'agrégation auto.
+- **2026-07-23 (suite)** — Socle backend du v1 implémenté : BUG-108 (`deletedAt` sur
+  `getEventTimelineBatch`) et BUG-109 (déclenchement auto de l'agrégation, post-webhook + cron de
+  secours) corrigés ; signal `GET /spaces/:id/live-status` implémenté et testé (§1, §7, §12). Détail
+  complet côté backend : `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`. Seul point encore
+  bloquant avant code : #22 (source du stock live), et uniquement pour le v2/onglet Inventaire — le
+  v1 front peut démarrer.
+- **2026-07-23 (suite 2)** — Question #22 (source du stock live) tranchée par l'utilisateur : combinaison,
+  réutilisation telle quelle du calcul déjà en production du module Logistic
+  (`LogisticsService.getStock`, `StockLevel` + `deriveSalesRaw`/`explodeSalesToConsumption`),
+  granularité par défaut (`readyForSale`, comme le Réarmement — pas l'override Space Inventory de la
+  question #13). Au passage, BUG-110 trouvé et corrigé : `deriveSalesRaw` avait le même trou que
+  BUG-108 (pas de filtre `deletedAt`). Implémentation backend de `GET /spaces/:id/live/inventory` en
+  cours (§8bis greffe E). **Plus aucun point bloquant avant code, v1 comme v2.**

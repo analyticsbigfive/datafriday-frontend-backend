@@ -65,7 +65,7 @@
       <div v-if="showLeftFilters" class="si-left-filters wsl-side">
         <!-- Navigation inter-écrans (WorkspaceToolSelect partagé). -->
         <WorkspaceToolSelect
-          model-value="space-inventory"
+          :model-value="isPreMode ? 'space-pre-inventory' : 'space-inventory'"
           :items="toolboxSelectItems"
           :label="t('invToolsLabel')"
           :aria-label="t('invToolboxNav')"
@@ -101,6 +101,14 @@
         @update:selected-storage-floors="selectedStorageFloors = $event"
         @reset="resetInventoryFilters"
         />
+
+        <!-- Documents de réconciliation post-événement — sous les filtres. -->
+        <InventoryReconciliationSection
+          :items="reconciliations"
+          :selected-id="selectedReconciliationId"
+          :loading="recoLoading"
+          @select="selectedReconciliationId = $event"
+        />
       </div>
 
       <div class="si-main">
@@ -116,8 +124,12 @@
       />
       <!-- Titre du bandeau (parité Analyse / Réarmement / Logistique). -->
       <div class="si-band-title">
-        <h1 class="si-band-title__main">{{ t('invPageTitle') }}</h1>
-        <p v-if="spaceLabel" class="si-band-title__sub">{{ spaceLabel }}</p>
+        <h1 class="si-band-title__main">{{ t(isPreMode ? 'preInvPageTitle' : 'invPageTitle') }}</h1>
+        <!-- Vue réconciliation active → sous-titre « Réconciliation : {event} » (parité capture). -->
+        <p v-if="activeReconciliation" class="si-band-title__sub">
+          {{ t('invRecoSection') }} : {{ activeReconciliation.eventName || t('invRecoUnknownEvent') }}
+        </p>
+        <p v-else-if="spaceLabel" class="si-band-title__sub">{{ spaceLabel }}</p>
       </div>
 
       <div class="si-band-right justify-content-end d-flex align-center">
@@ -165,8 +177,8 @@
             <v-icon size="20">mdi-dots-vertical</v-icon>
           </v-btn>
           <v-btn
-            :loading="saving"
-            :disabled="saving"
+            :loading="saving || recoCreating"
+            :disabled="saving || recoCreating"
             class="si-band-btn si-band-btn--save"
             @click="onSaveAll"
           >
@@ -184,6 +196,9 @@
       </div>
     </div>
 
+    <!-- Contenu central NORMAL (recherche, onglets, cartes, comptage) — substitué
+         par la vue réconciliation quand un document est sélectionné. -->
+    <template v-if="!activeReconciliation">
     <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur. -->
     <div class="si-search-wrap">
       <AppSearchBar
@@ -261,6 +276,7 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
+          :expected-for="canSeeExpected ? expectedForField : null"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -292,7 +308,12 @@
           <template v-else-if="filteredCards.length === 0">
             <div class="si-empty">
               <!-- Pas de contexte Event Predict (?event absent/invalide). -->
-              <template v-if="noEventContext">
+              <template v-if="noEventContext && isPreMode">
+                <v-icon size="48" color="grey">mdi-calendar-blank-outline</v-icon>
+                <h3>{{ t('preInvPageTitle') }}</h3>
+                <p>{{ t('preInvNoUpcoming') }}</p>
+              </template>
+              <template v-else-if="noEventContext">
                 <v-icon size="48" color="grey">mdi-lightning-bolt-outline</v-icon>
                 <h3>{{ t('invOpenFromEventPredictTitle') }}</h3>
                 <p>{{ t('invOpenFromEventPredict') }}</p>
@@ -387,6 +408,15 @@
             </div>
           </template>
         </template>
+    </template>
+    <!-- Vue réconciliation : remplace tout le contenu central. -->
+    <InventoryReconciliationView
+      v-else
+      :reconciliation="activeReconciliation"
+      :units-per-item-id="unitsPerItemIdMap"
+      :cost-by-item-id="menuItemCostMapForReco"
+      @close="selectedReconciliationId = null"
+    />
       </div>
 
       <!-- Colonne DROITE : sous-statuts de comptage (segmented) AU-DESSUS du
@@ -470,7 +500,7 @@
             <div class="si-mobile-sheet-block">
               <span class="si-mobile-sheet-label">{{ t('invToolsLabel') }}</span>
               <WorkspaceToolSelect
-                model-value="space-inventory"
+                :model-value="isPreMode ? 'space-pre-inventory' : 'space-inventory'"
                 :items="toolboxSelectItems"
                 :aria-label="t('invToolboxNav')"
                 @update:model-value="mobileActionsSheet = false; onToolboxSelect($event)"
@@ -534,6 +564,7 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
+          :expected-for="canSeeExpected ? expectedForField : null"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -616,7 +647,24 @@ import InventoryMenuCoverageDrawer from '@/components/InventoryMenuCoverageDrawe
 import AppSearchBar from '@/components/common/AppSearchBar.vue'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 import { buildCoverageReports, totalCoverageIssues } from '@/utils/inventoryCoverage'
-import { getAllSpaces } from '@/api/endpoints/space.api'
+import { getAllSpaces, getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
+// Réconciliation post-événement (docs/modules/10_POST_EVENT_INVENTORY.md §7)
+import InventoryReconciliationSection from '@/components/InventoryReconciliationSection.vue'
+import InventoryReconciliationView from '@/components/InventoryReconciliationView.vue'
+import {
+  createPostEventReconciliation,
+  listInventoryReconciliations,
+  getPreEventInventory,
+  getPreEventBaseline,
+  createPreEventReconciliation,
+} from '@/api/endpoints/inventory.api'
+import { buildPreEventExpected, expectedKey } from '@/utils/preEventExpected'
+import {
+  reconciliationKey,
+  buildPostEventReconciliationLines,
+} from '@/utils/postEventReconciliation'
+import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
+import { normalizeStr } from '@/utils/predictiveAnalytics'
 
 const TOP_TABS = [
   { value: 'shops',   labelKey: 'invTabShops',   icon: 'mdi-store' },
@@ -634,6 +682,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'invToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'invToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'invToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'invToolInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic',        labelKey: 'invToolLogistic',     icon: 'mdi-forklift' },
   { value: 'restock', labelKey: 'invToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
@@ -654,6 +703,8 @@ export default {
     InventoryMenuCoverageDrawer,
     AppSearchBar,
     WorkspacePanelToggle,
+    InventoryReconciliationSection,
+    InventoryReconciliationView,
   },
   setup() {
     const store = useStore()
@@ -723,6 +774,16 @@ export default {
       isMobile: false,
       // Repli du panneau de filtres gauche via l'icône du bandeau rouge.
       filtersCollapsed: false,
+      // Réconciliation post-événement : documents du space (kind='post-event'),
+      // sélection courante (remplace le contenu central), états réseau.
+      reconciliations: [],
+      recoLoading: false,
+      recoCreating: false,
+      selectedReconciliationId: null,
+      // Pre-event Inventory : quantités attendues (null = pas de baseline OU
+      // permission absente OU mode post) — map `expectedKey(el,item)` → {packed, loose}.
+      preExpected: null,
+      preExpectedLoading: false,
       loading: false,
       availableSpaces: [],
       spacesLoading: false,
@@ -820,6 +881,43 @@ export default {
     },
     realMerch() {
       return this.merchWithInventory || []
+    },
+    /** Document de réconciliation sélectionné (vue centrale substituée) — null = comptage normal. */
+    activeReconciliation() {
+      if (!this.selectedReconciliationId) return null
+      return this.reconciliations.find((r) => r.id === this.selectedReconciliationId) || null
+    },
+    /** Mode de l'écran : 'pre' (Pre-event Inventory, event FUTUR) | 'post' (défaut).
+     *  Porté par la meta de route — même composant, 2 routes (docs modules/10 §8). */
+    inventoryMode() {
+      return this.route?.meta?.inventoryMode === 'pre' ? 'pre' : 'post'
+    },
+    isPreMode() {
+      return this.inventoryMode === 'pre'
+    },
+    /** Quantités attendues : permission dédiée (gating serveur en miroir — sans
+     *  elle, l'endpoint baseline répond 403 et on n'émet même pas l'appel). */
+    canSeeExpected() {
+      if (!this.isPreMode) return false
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? can('front.fb.preInventoryExpected') : false
+    },
+    /** itemId → inventoryQuantityPackaged (référentiel affiché) — la vue réco
+     *  pre-event convertit ses lignes packed/loose en unités avec cette map. */
+    unitsPerItemIdMap() {
+      const out = {}
+      const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
+      for (const entry of entries) {
+        const items = entry.consolidatedInventory || entry.storageInventory || entry.merchInventory || []
+        for (const it of items) {
+          if (it?.id != null) out[String(it.id)] = Number(it.inventoryQuantityPackaged || 1)
+        }
+      }
+      return out
+    },
+    /** itemId → coût unitaire (map partagée du store analyse) → Écart €. */
+    menuItemCostMapForReco() {
+      return this.store.state.analyse?.menuItemCostMap || {}
     },
     /** Vérification stocks ↔ menu items, par shop (cf. utils/inventoryCoverage). */
     menuCoverageReports() {
@@ -1278,6 +1376,13 @@ export default {
       // pas de ?configuration= valide) : plutôt que le cul-de-sac « Aucun
       // évènement sélectionné », retomber sur l'ancrage par défaut ci-dessous.
       if (ev && !resolveCfg(ev)) ev = null
+      // Mode PRE : l'écran affiche TOUJOURS le prochain événement futur (spec
+      // 2026-07-20). Un ?event= passé (deep-link venu d'un autre écran) est
+      // ignoré → repli sur l'ancrage futur ci-dessous.
+      if (ev && this.isPreMode) {
+        const t = new Date(ev.eventDate || ev.date).getTime()
+        if (Number.isNaN(t) || t <= Date.now()) ev = null
+      }
       // Entrée DIRECTE (sidebar / URL sans ?event=) : au lieu du cul-de-sac
       // « Aucun évènement sélectionné », ancrage par défaut sur le prochain
       // event FUTUR le plus proche (même règle qu'Event Predict), repli sur le
@@ -1292,7 +1397,9 @@ export default {
           .filter((x) => !Number.isNaN(x.t) && okCfg(x.e))
         const future = dated.filter((x) => x.t > now).sort((a, b) => a.t - b.t)
         const past = dated.filter((x) => x.t <= now).sort((a, b) => b.t - a.t)
-        ev = (future[0] || past[0])?.e || null
+        // Mode PRE : futur STRICT (aucun repli passé — sans event à venir,
+        // l'écran affiche l'état vide preInvNoUpcoming).
+        ev = this.isPreMode ? (future[0]?.e || null) : ((future[0] || past[0])?.e || null)
         if (ev && this.router) {
           this.router
             .replace({ query: { ...this.route.query, event: ev.id } })
@@ -1321,6 +1428,8 @@ export default {
     /** Charge toutes les données pour un space donné (mount + changement d'espace/event). */
     async loadForSpace(spaceId) {
       this.loading = true
+      // Documents de réconciliation : fire-and-forget, jamais bloquant pour le comptage.
+      this.loadReconciliations(spaceId)
       try {
         if (spaceId && (!this.currentSpace || String(this.currentSpace.id) !== String(spaceId))) {
           try {
@@ -1355,6 +1464,10 @@ export default {
             eventId: this.selectedEventId,
           }),
         ])
+
+        // Quantités attendues (mode pre + permission) : APRÈS loadContext — la
+        // résolution nom→item des mouvements a besoin du référentiel affiché.
+        this.fetchPreExpected()
 
         this.mock = buildSpaceInventoryMock()
         if (this.demo) {
@@ -1571,7 +1684,7 @@ export default {
     },
     async onSaveAll() {
       // Garde douce (option 2) : si l'inventaire est incomplet, on confirme sans
-      // jamais bloquer (Save reste toujours actif).
+      // jamais bloquer (le bouton reste toujours actif).
       if (!this.isCountComplete && this.inventoryStats.totalItems) {
         const { countedItems, totalItems } = this.inventoryStats
         const ok = await confirmDialog({
@@ -1586,22 +1699,265 @@ export default {
         if (!ok) return
       }
       try {
-        await this.store.dispatch('inventory/saveInventory')
+        // kind = phase du comptage → snapshots discriminés (cycle pre↔post, docs modules/10 §8).
+        await this.store.dispatch('inventory/saveInventory', {
+          kind: this.isPreMode ? 'pre-event' : 'post-event',
+        })
       } catch (e) {
-        // Échec API → toast et on NE navigue PAS vers le réarmement.
+        // Échec API → toast et on ne crée PAS de réconciliation.
         this.errorText = e?.userMessage || e?.message || this.t('invSaveError')
         this.errorSnackbar = true
         return
       }
-      // Après sauvegarde : on ouvre le réarmement à l'ÉTAPE 1 (Stock).
-      // L'ancien flux (?action=shopping → feuille de course auto + saut étape 3)
-      // est retiré à la demande user (2026-07-06) : toujours démarrer au début
-      // du wizard ; la feuille de course reste accessible via les étapes.
+      // Après sauvegarde : GÉNÉRATION du document de réconciliation (attendu vs
+      // compté en mode pre ; restant-théorique vs compté en mode post) puis
+      // ouverture de sa vue (spec 2026-07-20 — remplace l'ancienne navigation
+      // automatique vers le Réarmement du 2026-07-06 ; le Réarmement reste
+      // accessible par le dropdown Tools). Voir docs/modules/10_POST_EVENT_INVENTORY.md §7-8.
+      if (this.isPreMode) await this.createPreReconciliationAfterSave()
+      else await this.createReconciliationAfterSave()
+    },
+    /** Mode PRE : le backend construit les lignes (attendu vs compté) — le client,
+     *  potentiellement sans la permission « attendus », ne les a jamais eues. */
+    async createPreReconciliationAfterSave() {
       const spaceId = this.route.params.spaceId
-      const ev = this.selectedEventId || null
-      const query = { step: 'stock' }
-      if (ev) query.event = ev
-      this.router.push({ name: 'space-restock', params: { spaceId }, query })
+      const ev = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
+      if (!ev) return
+      this.recoCreating = true
+      try {
+        if (isDemoMode()) {
+          // Démo : pas de backend → document local minimal non persisté.
+          const doc = {
+            id: `demo-pre-${Date.now()}`,
+            eventId: ev.id,
+            eventName: ev.name || ev.eventName || null,
+            kind: 'pre-event',
+            createdAt: new Date().toISOString(),
+            lines: [],
+          }
+          this.reconciliations = [doc, ...this.reconciliations]
+          this.selectedReconciliationId = doc.id
+          return
+        }
+        const created = await createPreEventReconciliation(spaceId, ev.id)
+        this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
+        this.selectedReconciliationId = created.id
+      } catch (e) {
+        console.warn('[SpaceInventory] création réconciliation pre-event KO:', e?.message)
+        this.errorText = e?.userMessage || this.t('invRecoCreateError')
+        this.errorSnackbar = true
+      } finally {
+        this.recoCreating = false
+      }
+    },
+    /** Charge les quantités attendues (mode pre + permission uniquement). */
+    async fetchPreExpected() {
+      this.preExpected = null
+      if (!this.canSeeExpected || !this.selectedEventId || isDemoMode()) return
+      const spaceId = this.route.params.spaceId
+      this.preExpectedLoading = true
+      try {
+        const baseline = await getPreEventBaseline(spaceId, this.selectedEventId)
+        // Résolution nom→item des mouvements sans menuItemId : référentiel AFFICHÉ.
+        const itemIdByNormName = new Map()
+        const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
+        for (const entry of entries) {
+          const items = entry.consolidatedInventory || entry.storageInventory || entry.merchInventory || []
+          for (const it of items) {
+            const nk = normalizeStr(it?.name)
+            if (nk && it?.id && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, String(it.id))
+          }
+        }
+        this.preExpected = buildPreEventExpected(baseline, { itemIdByNormName })
+      } catch (e) {
+        // 403 (permission retirée côté serveur) ou réseau → pas de hints, comptage intact.
+        console.warn('[SpaceInventory] baseline pre-event KO (pas de hints):', e?.message)
+        this.preExpected = null
+      } finally {
+        this.preExpectedLoading = false
+      }
+    },
+    /** Accessor passé à InventoryCountingInterface — null quand pas de hint. */
+    expectedForField(shopId, itemId, field) {
+      const exp = this.preExpected?.[expectedKey(shopId, itemId)]
+      if (!exp) return null
+      return field === 'packed' ? exp.packed : exp.loose
+    },
+    /**
+     * Événement à réconcilier : l'event du contexte s'il a déjà eu lieu, sinon
+     * le dernier event passé du space (l'ancrage par défaut de l'écran vise le
+     * prochain event FUTUR — resolveEventContext — inutilisable pour comparer
+     * des ventes déjà réalisées).
+     */
+    resolveReconciliationEvent() {
+      const now = Date.now()
+      const isPast = (e) => {
+        const d = new Date(e?.date || e?.eventDate)
+        return !Number.isNaN(d.getTime()) && d.getTime() <= now
+      }
+      const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
+      if (current && isPast(current)) return current
+      // pastEvents est trié ascendant : le dernier élément est le dernier match fini.
+      const past = this.pastEvents || []
+      return past[past.length - 1] || null
+    },
+    async createReconciliationAfterSave() {
+      const spaceId = this.route.params.spaceId
+      const recoEvent = this.resolveReconciliationEvent()
+      if (!recoEvent) {
+        // Aucun event passé : le comptage est sauvegardé, on l'annonce sans créer.
+        this.errorText = this.t('invRecoNoPastEvent')
+        this.errorSnackbar = true
+        return
+      }
+      this.recoCreating = true
+      try {
+        const lines = await this.buildReconciliationLines(spaceId, recoEvent)
+        if (isDemoMode()) {
+          // Démo : document local non persisté (parité avec l'inventaire démo,
+          // qui vit déjà 100% en localStorage).
+          const doc = {
+            id: `demo-${Date.now()}`,
+            eventId: recoEvent.id,
+            eventName: recoEvent.name || recoEvent.eventName || null,
+            kind: 'post-event',
+            createdAt: new Date().toISOString(),
+            lines,
+          }
+          this.reconciliations = [doc, ...this.reconciliations]
+          this.selectedReconciliationId = doc.id
+          return
+        }
+        const created = await createPostEventReconciliation(spaceId, {
+          eventId: recoEvent.id,
+          eventName: recoEvent.name || recoEvent.eventName || undefined,
+          lines,
+        })
+        // La réponse API est le document complet (lines incluses) → en tête de liste.
+        this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
+        this.selectedReconciliationId = created.id
+      } catch (e) {
+        console.warn('[SpaceInventory] création réconciliation KO:', e?.message)
+        this.errorText = e?.userMessage || this.t('invRecoCreateError')
+        this.errorSnackbar = true
+      } finally {
+        this.recoCreating = false
+      }
+    },
+    /**
+     * Collecte les 4 sources et construit les lignes (util pur
+     * `buildPostEventReconciliationLines`). Les sources optionnelles qui
+     * échouent dégradent en null (colonnes « — »), jamais en 0 fabriqué.
+     */
+    async buildReconciliationLines(spaceId, recoEvent) {
+      // ── Compté (post-event) + référentiel noms/conditionnement ──────────────
+      const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
+      const countedUnitsByKey = {}
+      const elementNameById = {}
+      const itemNameById = {}
+      const packagedByItemId = {}
+      const elementIdByNormName = new Map()
+      for (const entry of entries) {
+        const el = entry.element || {}
+        if (!el.id) continue
+        elementNameById[String(el.id)] = el.name || ''
+        const nk = normalizeStr(el.name)
+        if (nk && !elementIdByNormName.has(nk)) elementIdByNormName.set(nk, String(el.id))
+        const items = entry.consolidatedInventory || entry.storageInventory || entry.merchInventory || []
+        for (const it of items) {
+          if (!it?.id) continue
+          itemNameById[String(it.id)] = it.name || ''
+          packagedByItemId[String(it.id)] = Number(it.inventoryQuantityPackaged || 1)
+          countedUnitsByKey[reconciliationKey(el.id, it.id)] = this.totalForItem(el.id, it)
+        }
+      }
+      const itemIdByNormName = new Map()
+      for (const [id, name] of Object.entries(itemNameById)) {
+        const nk = normalizeStr(name)
+        if (nk && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, id)
+      }
+
+      // ── Pré-event : dernier snapshot antérieur au jour de l'event ───────────
+      let preEventUnitsByKey = null
+      try {
+        const pre = isDemoMode() ? null : await getPreEventInventory(spaceId, recoEvent.id)
+        const blob = pre?.inventoryCounts
+        if (blob && typeof blob === 'object') {
+          preEventUnitsByKey = {}
+          for (const [shopId, byItem] of Object.entries(blob)) {
+            for (const [itemId, c] of Object.entries(byItem || {})) {
+              const q = packagedByItemId[String(itemId)] || 1
+              preEventUnitsByKey[reconciliationKey(shopId, itemId)] =
+                Number(c?.packedUnits || 0) * q + Number(c?.looseUnits || 0)
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[SpaceInventory] pré-event inventory KO (colonnes left/miss à « — »):', e?.message)
+        preEventUnitsByKey = null
+      }
+
+      // ── Vendu pendant l'event : event-timeline (grain article×PdV) ──────────
+      const soldUnitsByKey = {}
+      try {
+        const byEventId = await getSpaceEventTimelineBatch(spaceId, [recoEvent.id])
+        const raw = (byEventId.get(recoEvent.id) || []).map((r) => ({ ...r, eventId: recoEvent.id }))
+        const records = preprocessTimelineRecords(raw, {
+          menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
+        })
+        for (const r of records) {
+          const elId = elementIdByNormName.get(normalizeStr(r.shopName || r.shop || ''))
+          if (!elId) continue // PdV de vente non présent dans la config comptée
+          const itemId =
+            (r.menuItemId != null && String(r.menuItemId)) ||
+            (r.mappedMenuItemId != null && String(r.mappedMenuItemId)) ||
+            itemIdByNormName.get(normalizeStr(r.itemName || r.menuItemName || r.productName || '')) ||
+            null
+          if (!itemId) continue // vente non rattachable à un article inventorié
+          const key = reconciliationKey(elId, itemId)
+          soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + (Number(r.quantity) || 0)
+        }
+      } catch (e) {
+        console.warn('[SpaceInventory] event-timeline KO (Qty sold à 0) :', e?.message)
+      }
+
+      // ── Prédit : scénario Event Predict (pont localStorage, comme le Réarmement)
+      let predictedUnitsByKey = null
+      const predicted = localDb.getAnyPredictedRecords(spaceId, recoEvent.id)
+      if (predicted?.records?.length) {
+        predictedUnitsByKey = {}
+        for (const pr of predicted.records) {
+          const elId = pr.shopId || pr.elementId
+          const itemId = pr.menuItemId || pr.mappedMenuItemId
+          if (!elId || !itemId) continue
+          const key = reconciliationKey(elId, itemId)
+          predictedUnitsByKey[key] = (predictedUnitsByKey[key] || 0) + (Number(pr.totalQuantity) || 0)
+        }
+      }
+
+      return buildPostEventReconciliationLines({
+        countedUnitsByKey,
+        preEventUnitsByKey,
+        soldUnitsByKey,
+        predictedUnitsByKey,
+        // Coûts menu items (map partagée du store analyse) → Miss € au coût.
+        unitCostByItemId: this.store.state.analyse?.menuItemCostMap || {},
+        elementNameById,
+        itemNameById,
+      })
+    },
+    async loadReconciliations(spaceId) {
+      if (!spaceId || isDemoMode()) return
+      this.recoLoading = true
+      try {
+        const rows = await listInventoryReconciliations(spaceId)
+        this.reconciliations = Array.isArray(rows) ? rows : []
+      } catch (e) {
+        // Non bloquant : la section affiche « aucune » ; le comptage reste utilisable.
+        console.warn('[SpaceInventory] chargement réconciliations KO:', e?.message)
+      } finally {
+        this.recoLoading = false
+      }
     },
     closeMobileCounting() {
       this.mobileCountingOpen = false
@@ -1617,12 +1973,20 @@ export default {
       if (tool) this.navigateToTool(tool)
     },
     navigateToTool(tool) {
-      if (tool.value === 'space-inventory') return
+      // Garde d'auto-navigation : chaque mode ignore SA propre entrée mais peut
+      // basculer vers l'autre inventaire.
+      const selfValue = this.isPreMode ? 'space-pre-inventory' : 'space-inventory'
+      if (tool.value === selfValue) return
       const spaceId = this.route.params.spaceId
       // #7 — on propage l'event courant pour garder le contexte sur Réarmement
       // (source d'objectif) et Event Predict (event présélectionné).
       const ev = this.selectedEventId || null
-      if (tool.value === 'analyse') {
+      if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory') {
+        // Bascule pre↔post. Pas de ?event= : chaque mode résout SON ancre
+        // (post = contexte courant/passé récent, pre = prochain futur) — propager
+        // un event futur vers post (ou passé vers pre) serait rejeté de toute façon.
+        this.router.push({ name: tool.value, params: { spaceId } })
+      } else if (tool.value === 'analyse') {
         this.router.push({ name: 'space-analyse', params: { spaceId } })
       } else if (tool.value === 'logistic') {
         this.router.push({ name: 'space-logistic', params: { spaceId }, query: ev ? { event: ev } : {} })

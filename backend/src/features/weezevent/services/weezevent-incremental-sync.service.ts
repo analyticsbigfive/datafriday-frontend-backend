@@ -118,6 +118,7 @@ export class WeezeventIncrementalSyncService {
             while (hasMore && totalProcessed < maxItems) {
                 const response = await this.weezeventClient.getEvents(
                     tenantId,
+                    integrationId,
                     organizationId,
                     { ...apiParams, page },
                 );
@@ -271,6 +272,7 @@ export class WeezeventIncrementalSyncService {
             while (hasMore && totalProcessed < maxItems) {
                 const response = await this.weezeventClient.getTransactions(
                     tenantId,
+                    integrationId,
                     organizationId,
                     {
                         page,
@@ -851,7 +853,7 @@ export class WeezeventIncrementalSyncService {
                     const qty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 1), 0) || 1;
                     itemsToInsert.push({
                         transactionId: tx.id,
-                        weezeventItemId: row.id?.toString() ?? null,
+                        externalItemId: row.id?.toString() ?? null,
                         productId: resolvedProductId,
                         productName: row.item_name ?? null,
                         compoundId: null,
@@ -942,6 +944,7 @@ export class WeezeventIncrementalSyncService {
                 while (hasMore) {
                     const response = await this.weezeventClient.getLocations(
                         tenantId,
+                        integrationId,
                         organizationId,
                         event.externalId,
                         { page, perPage: 100 },

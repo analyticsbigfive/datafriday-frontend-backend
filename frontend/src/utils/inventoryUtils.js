@@ -785,7 +785,8 @@ export function buildStorageInventory(
         return 'dry';
       case 'Cold':
         return 'cold';
-      case 'Freezer':
+      case 'Frozen':
+      case 'Freezer': // legacy : valeur écrite par la checkbox avant correctif BUG-005
         return 'belowzero';
       case 'Material':
         return 'material';

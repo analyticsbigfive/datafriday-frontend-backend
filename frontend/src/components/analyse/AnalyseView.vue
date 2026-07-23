@@ -300,10 +300,21 @@
 
 
 
+          <!-- Camemberts : montés MÊME pendant la phase 2 (`:loading`) → 3 donuts
+               en skeleton dans la carte réelle, au lieu d'un rectangle générique
+               qui remplaçait toute la carte. Le donut « Par zone » garde en plus
+               son propre pending (contexte PdV différé — cf. BUG-223). -->
+          <ShopDistributionPieChart
+            :records="chartRecords"
+            :loading="chartsLoading"
+            @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
+            @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
+            @shop-area-click="(v) => toggleArrayFilter('selectedShopAreas', v)"
+          />
+
           <!-- Phase 2 : skeletons des graphes SOUS la carte (le skeleton des
                barres vit désormais dans la carte ci-dessus). -->
           <template v-if="chartsLoading">
-            <v-skeleton-loader type="image" class="mb-4 an-chart-skeleton" />
             <v-skeleton-loader type="image" class="mb-4 an-chart-skeleton" />
             <v-skeleton-loader type="table-heading, table-row-divider, table-row@4" class="mb-4 an-chart-skeleton" />
           </template>
@@ -311,12 +322,6 @@
           <!-- Distributions / tables (CA par shop/menu type) sous la carte. Toutes
                data-driven : tout ce qui est vendu s'affiche (parité React). -->
           <template v-else>
-            <ShopDistributionPieChart
-              :records="chartRecords"
-              @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
-              @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
-              @shop-area-click="(v) => toggleArrayFilter('selectedShopAreas', v)"
-            />
             <!-- Répartition/tableau ARTICLE : `articleRecords` et non `chartRecords`.
                  En mode Predict, le shop-level n'a aucune dimension article ; le grain
                  article des prévisions vient des scénarios Event Predict. Les events

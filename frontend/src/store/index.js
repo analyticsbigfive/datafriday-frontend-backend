@@ -30,8 +30,6 @@ import packaging from './modules/packaging'
 import spaceConfigurations from './modules/spaceConfigurations'
 import spaceShops from './modules/spaceShops'
 import shopMenuItems from './modules/shopMenuItems'
-import weezeventLocations from './modules/weezeventLocations'
-import weezeventProducts from './modules/weezeventProducts'
 import notifications from './modules/notifications'
 
 export default createStore({
@@ -75,8 +73,6 @@ export default createStore({
     spaceConfigurations,
     spaceShops,
     shopMenuItems,
-    weezeventLocations,
-    weezeventProducts,
     notifications,
   }
 })

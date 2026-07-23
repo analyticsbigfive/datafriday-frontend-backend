@@ -1,5 +1,6 @@
 <template>
-  <div class="flex flex-col h-screen bg-gray-50 dark:bg-gray-950">
+  <!-- h-full (et non h-screen) : hauteur fixée par le parent (HrView), cf. HRSuppliersView. -->
+  <div class="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
     <div
       v-if="onClose"
       class="border-b bg-white dark:bg-gray-900 p-4 flex items-center justify-between"
@@ -374,8 +375,16 @@ import SelectContent from '../ui/selectContent.vue';
 import SelectItem from '../ui/selectItem.vue';
 import SelectTrigger from '../ui/selectTrigger.vue';
 import SelectValue from '../ui/selectValue.vue';
-//import CSVMappingDialog from './CSVMappingDialog.vue';
-//import { toast } from 'sonner';
+import CSVMappingDialog from './CSVMappingDialog.vue';
+
+// Shim : le prototype importait `toast` de 'sonner' (lib React, jamais installée
+// côté Vue) en laissant les appels en place → ReferenceError au premier save/export
+// (BUG-231). Retours non bloquants via console en attendant la refonte.
+const toast = {
+  success: (msg) => console.info('[HR]', msg),
+  info: (msg) => console.info('[HR]', msg),
+  error: (msg) => console.error('[HR]', msg),
+};
 
 const SECTORS = [
   'F&B',
@@ -416,7 +425,7 @@ export default {
     SelectItem,
     SelectTrigger,
     SelectValue,
-    //CSVMappingDialog,
+    CSVMappingDialog,
   },
   props: {
     onClose: {
@@ -426,6 +435,9 @@ export default {
   },
   data() {
     return {
+      // Exposé au template (v-for sectors) : une const de module n'est PAS
+      // visible depuis un template Options API (BUG-231, cf. HRSuppliersView).
+      SECTORS,
       positions: [],
       positionNames: [],
       suppliers: [],
