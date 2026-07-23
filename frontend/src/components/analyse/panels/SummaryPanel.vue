@@ -2,7 +2,7 @@
   <!-- Colonne droite de la grille .an-body (ex v-navigation-drawer) : la
        largeur et le repli sont pilotés par la grille d'AnalyseView (pattern
        EventPredict .ep-metrics). -->
-  <aside class="summary-panel">
+  <aside class="summary-panel" :class="{ 'summary-panel--dark': isDark }">
     <div class="pa-4 sp-card">
       <!-- Sous-sections repliables (parité visuelle avec le menu de gauche :
            Affluence, Filtres avancés, etc.). Le chatbot est replié par défaut. -->
@@ -333,6 +333,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import { useTheme } from 'vuetify'
 import { RANK_COLORS } from '@/constants/analyseColors'
 import { resolveItemName } from '@/utils/analyseDimensions'
 import { formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
@@ -346,6 +347,10 @@ import { useI18n } from '@/i18n/useI18n'
 import store from '@/store'
 
 const { t } = useI18n()
+
+// Dark mode autonome : suit le thème global Vuetify.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const props = defineProps({
   modelValue: { type: Boolean, default: true },
@@ -832,5 +837,93 @@ function shareWidth(value, max) {
 }
 .sp-clickable.v-list-item--active {
   background-color: rgba(124, 77, 255, 0.12) !important;
+}
+
+/* ── Dark mode (autonome via isDark) : override des couleurs claires en dur.
+   Les internes Vuetify (accordéons, champs, switch, chips) suivent le thème
+   global sombre ; on ne force que le custom clair. #7C4DFF / #0E9F8F / #ff3131
+   et sémantiques conservés (éclaircis seulement si contraste faible). ── */
+.summary-panel--dark .sp-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.summary-panel--dark .section-title {
+  color: #94a3b8;
+}
+
+/* Leaderboard : cartes + piste + textes */
+.summary-panel--dark .lb-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.summary-panel--dark .lb-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.summary-panel--dark .lb-name {
+  color: #f9fafb;
+}
+.summary-panel--dark .lb-val {
+  color: #f9fafb !important;
+}
+.summary-panel--dark .lb-meter {
+  background: #1a2332;
+}
+
+/* Assistant / tour d'horizon */
+.summary-panel--dark .tour-panel {
+  background: #1a2332;
+  border-color: rgba(124, 77, 255, 0.35);
+}
+.summary-panel--dark .tour-group-header {
+  color: #94a3b8;
+}
+.summary-panel--dark .assistant-card {
+  background: #1e293b;
+  border-color: rgba(124, 77, 255, 0.35);
+}
+.summary-panel--dark .assistant-body {
+  color: #e2e8f0;
+}
+.summary-panel--dark .assistant-tip {
+  color: #94a3b8;
+}
+.summary-panel--dark .semantic-toggle {
+  background: #1a2332;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.summary-panel--dark .semantic-label {
+  color: #94a3b8;
+}
+.summary-panel--dark .semantic-hint {
+  color: #94a3b8;
+}
+
+/* Lignes leaderboard : libellés + valeurs */
+.summary-panel--dark .item-name {
+  color: #f9fafb;
+}
+.summary-panel--dark .item-units,
+.summary-panel--dark .item-units-below {
+  color: #94a3b8;
+}
+.summary-panel--dark .item-rate {
+  color: #94a3b8 !important;
+}
+/* Vert « valeur » éclairci pour le contraste sur fond sombre. */
+.summary-panel--dark .item-value {
+  color: #4ade80;
+}
+.summary-panel--dark .item-value.event-value {
+  color: #2dd4bf;
+}
+/* Chip txn/min : pilule violette adaptée au fond sombre. */
+.summary-panel--dark .txn-rate-chip {
+  background-color: rgba(124, 77, 255, 0.15);
+  color: #c4b5fd;
+}
+.summary-panel--dark .txn-rate-chip .v-icon {
+  color: #c4b5fd !important;
 }
 </style>

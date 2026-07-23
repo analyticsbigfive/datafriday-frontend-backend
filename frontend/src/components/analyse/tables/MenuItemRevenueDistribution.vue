@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'mird--dark': isDark }">
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3 flex-wrap">
       <div>
@@ -109,6 +109,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useTheme } from 'vuetify'
 import DonutChartCard from '../charts/DonutChartCard.vue'
 import { SHOP_COLORS } from '@/constants/analyseColors'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
@@ -122,6 +123,10 @@ import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 const BUCKET_COLORS = { Food: '#FF8A65', Beverage: '#5B8DEF', Beer: '#FFB74D', Combo: '#66BB6A' }
 
 const { t } = useI18n()
+
+// Dark mode autonome : suit le thème global Vuetify.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Libellé d'une clé de dimension : sentinelle « Non rattachés » localisée (résiduel),
 // sinon nom de catalogue tel quel. Les sentinelles sont normalement déjà exclues.
@@ -301,5 +306,25 @@ function onCategoryDimensionClick(key) {
   line-height: 1.1;
   letter-spacing: -0.3px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Dark mode (autonome via isDark) : override des couleurs claires en dur.
+   Les internes Vuetify (donuts, skeleton, btn-toggle) suivent le thème global. ── */
+.mird--dark .section-title {
+  color: #f9fafb;
+}
+.mird--dark .section-subtitle {
+  color: #94a3b8;
+}
+.mird--dark .category-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.mird--dark .cat-label {
+  color: #94a3b8;
+}
+.mird--dark .cat-value {
+  color: #f9fafb;
 }
 </style>

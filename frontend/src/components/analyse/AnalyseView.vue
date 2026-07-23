@@ -1,5 +1,5 @@
 <template>
-  <v-app class="analyse-app">
+  <v-app class="analyse-app" :class="{ 'analyse-app--dark': isDark }">
     <WorkspaceAppHeader
       :space-name="spaceName"
       :kpis="headerKpis"
@@ -404,7 +404,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useDisplay } from 'vuetify'
+import { useDisplay, useTheme } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
@@ -456,6 +456,12 @@ const router = useRouter()
 // Sur mobile / tablette, les drawers de filtre + résumé doivent être fermés
 // par défaut pour ne pas masquer le contenu (cf. version Figma responsive).
 const { mdAndDown } = useDisplay()
+
+// Dark mode : composant autonome via le thème Vuetify global (useTheme). Sert à
+// scoper les overrides CSS custom sous `.analyse-app--dark` (le thème Vuetify
+// gère déjà les v-card/v-btn/... ; ici on ne corrige que nos couleurs codées en dur).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const drawer = ref(!mdAndDown.value)
 // Panneau « Analyse des données » : ouvert par défaut sur desktop, fermé
@@ -1656,7 +1662,7 @@ async function ensureAuthAndLoad(spaceId) {
 .av-tags .chip-events,
 .av-tags .chip-events :deep(.v-chip__content) {
   background-color: #f1f3f5 !important;
-  color: #1f2937 !important;
+  color: #1e293b !important;
   border-radius: 999px !important;
   font-weight: 500;
 }
@@ -1734,6 +1740,54 @@ async function ensureAuthAndLoad(spaceId) {
   overflow: hidden;
   :deep(.v-skeleton-loader__image) {
     height: 280px;
+  }
+}
+
+/* ═══════════════════════════ DARK MODE ═══════════════════════════════════════
+   Toutes les règles sont scopées sous `.analyse-app--dark` → le mode clair n'est
+   JAMAIS modifié. On n'override QUE nos couleurs claires codées en dur : le rouge
+   de marque (#ff3131) et les v-card/v-btn/... Vuetify (thème global déjà sombre)
+   restent intacts. Le bandeau rouge (.av-header) et ses éléments blancs internes
+   sont conservés tels quels (contraste correct sur le rouge). */
+.analyse-app--dark {
+  /* Fonds de page (ex-#f6f8fb) → fond sombre unifié. */
+  background-color: #0f172a;
+
+  .main-content {
+    background-color: #0f172a;
+  }
+
+  /* Bloc sticky : couvre le contenu qui scrolle dessous → même fond sombre. */
+  .av-sticky {
+    background: #0f172a;
+  }
+
+  /* Tags des filtres actifs (fond neutre sous le bandeau rouge). */
+  .av-tags .chip-events,
+  .av-tags .chip-events :deep(.v-chip__content) {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    color: #e2e8f0 !important;
+  }
+  /* Chips filtre : identité VIOLETTE conservée, éclaircie pour le fond sombre. */
+  .av-tags .chip-filter,
+  .av-tags .chip-filter :deep(.v-chip__content) {
+    background-color: rgba(124, 77, 255, 0.20) !important;
+    color: #c4b5fd !important;
+  }
+  .av-tags .chip-filter :deep(.v-icon) {
+    color: #c4b5fd !important;
+  }
+  /* .av-tags__trash conserve le rouge de marque #ff3131 (déjà lisible). */
+
+  /* Overlay loader de la timeline : voile SOMBRE au lieu du blanc translucide. */
+  .ep-timeline-loader-overlay {
+    background: rgba(17, 24, 39, 0.72);
+  }
+
+  /* Skeleton des graphes : carte sombre + bordure discrète (ex-#fff / #e2e8f0). */
+  .an-chart-skeleton {
+    border-color: rgba(255, 255, 255, 0.10);
+    background: #1e293b;
   }
 }
 

@@ -22,7 +22,7 @@
   </v-btn>
 
   <v-bottom-sheet v-model="open" max-width="640" inset>
-    <v-card>
+    <v-card :class="{ 'an-filter-sheet--dark': isDark }">
       <v-card-title class="d-flex align-center">
         <v-icon class="mr-2" color="#ff3131">mdi-filter-variant</v-icon>
         {{ t('anActiveFilters') }}
@@ -85,11 +85,15 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useStore } from 'vuex'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 
 const store = useStore()
 const { t } = useI18n()
 const open = ref(false)
+
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const filters = computed(() => store.state.analyse.filters)
 const attendanceBounds = computed(() => store.getters['analyse/attendanceBounds'])
@@ -266,5 +270,12 @@ function onReset() {
   color: #212121;
   text-transform: uppercase;
   letter-spacing: 0.4px;
+}
+
+/* ===================== DARK MODE ===================== */
+/* v-card / titre / dividers suivent déjà le thème Vuetify global sombre :
+   on ne force que le custom clair (.group-title #212121). */
+.an-filter-sheet--dark .group-title {
+  color: #f9fafb;
 }
 </style>

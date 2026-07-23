@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'mibs--dark': isDark }">
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3">
       <div>
@@ -246,6 +246,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import { useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
@@ -274,6 +275,10 @@ const emit = defineEmits(['events-click'])
 const { t } = useI18n()
 const router = useRouter()
 const store = useStore()
+
+// Dark mode autonome : suit le thème global Vuetify.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Catalogue DataFriday (store analyse) — pour garantir que le lien pointe vers la
 // VRAIE fiche catalogue. Le `menuItemId` réconcilié peut être un id NestJS
@@ -651,7 +656,7 @@ async function exportExcel() {
   outline: 0;
   padding: 0 8px;
   font-size: 14px;
-  color: #111827;
+  color: #0f172a;
 }
 .mibs-search-input::placeholder {
   color: #6B7280;
@@ -663,7 +668,7 @@ async function exportExcel() {
   border-radius: 9999px;
   padding: 0 26px 0 12px;
   font-size: 12px;
-  color: #111827;
+  color: #0f172a;
   font-weight: 500;
   cursor: pointer;
   appearance: none;
@@ -771,4 +776,71 @@ async function exportExcel() {
 .mibs-events-clickable:hover {
   text-decoration: underline;
 }
+
+/* ── Dark mode (autonome via isDark) : override des couleurs claires en dur.
+   Les internes Vuetify (v-table, v-expansion-panels, v-select, pagination)
+   suivent le thème global sombre ; on ne force que le custom clair. ── */
+.mibs--dark .section-title {
+  color: #f9fafb;
+}
+.mibs--dark .section-subtitle {
+  color: #94a3b8;
+}
+.mibs--dark .shop-name {
+  color: #f9fafb;
+}
+.mibs--dark .shop-stats {
+  color: #94a3b8;
+}
+
+/* Barre de recherche en pilule */
+.mibs--dark .mibs-search {
+  background-color: #1a2332;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.mibs--dark .mibs-search-input {
+  color: #f9fafb;
+}
+.mibs--dark .mibs-search-input::placeholder {
+  color: #94a3b8;
+}
+.mibs--dark .mibs-search-scope {
+  background-color: #1e293b;
+  color: #f9fafb;
+  box-shadow: none;
+}
+
+/* Selects type/catégorie (fond blanc forcé → surface sombre) */
+.mibs--dark .mibs-select :deep(.v-field) {
+  background-color: #1e293b;
+}
+.mibs--dark .mibs-select :deep(.v-field__input input::placeholder) {
+  color: #94a3b8;
+}
+.mibs--dark .mibs-select :deep(.v-field__outline__start),
+.mibs--dark .mibs-select :deep(.v-field__outline__end) {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Tableau articles : en-têtes + vignettes + cellules */
+.mibs--dark .mibs-items-table :deep(th) {
+  color: #94a3b8;
+  background-color: #1a2332;
+}
+.mibs--dark .mibs-items-table .mibs-thumb {
+  background-color: #1a2332;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.mibs--dark .mibs-items-table .mibs-events-cell {
+  color: #94a3b8;
+}
+/* Lignes hover / bordures de colonnes (tables internes Vuetify) */
+.mibs--dark :deep(.v-table tbody tr:hover) {
+  background: rgba(255, 255, 255, 0.03);
+}
+.mibs--dark :deep(.v-table th),
+.mibs--dark :deep(.v-table td) {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+/* #ff3131 (liens article) et #7C3AED (events cliquables) conservés (sémantiques). */
 </style>

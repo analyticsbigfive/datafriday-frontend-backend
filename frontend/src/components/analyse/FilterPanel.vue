@@ -7,6 +7,7 @@
     width="260"
     color="surface"
     class="analyse-filter-panel"
+    :class="{ 'analyse-filter-panel--dark': isDark }"
   >
     <div class="pa-4">
       <!-- Configuration -->
@@ -439,6 +440,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import { t } from '@/i18n'
 import { useStore } from 'vuex'
 import { useRoute, useRouter } from 'vue-router'
@@ -449,6 +451,8 @@ import MultiSelectFilter from './MultiSelectFilter.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useStore()
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 const spaceInventoryPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/inventory` : '/spaces'
@@ -703,5 +707,48 @@ function isFuture(d) {
   text-transform: uppercase;
   letter-spacing: 0.6px;
   margin-bottom: 6px;
+}
+
+/* ===================== DARK MODE ===================== */
+/* .section-label et .range-label restent rouges #ff3131 (sémantique conservée). */
+.analyse-filter-panel--dark {
+  border-right-color: rgba(255, 255, 255, 0.10) !important;
+}
+.analyse-filter-panel--dark .section-title {
+  color: #f9fafb;
+}
+.analyse-filter-panel--dark .ms-label {
+  color: #94a3b8;
+}
+.analyse-filter-panel--dark .event-name {
+  color: #e2e8f0;
+}
+.analyse-filter-panel--dark .event-date {
+  color: #94a3b8 !important;
+}
+/* Accordéon : entêtes/corps clairs → sombre */
+.analyse-filter-panel--dark .filter-accordion :deep(.v-expansion-panel-title) {
+  background-color: #0f172a;
+}
+.analyse-filter-panel--dark .filter-accordion :deep(.v-expansion-panel-title--active) {
+  background-color: rgba(255, 49, 49, 0.12);
+  color: #ff3131;
+}
+.analyse-filter-panel--dark .filter-accordion :deep(.v-expansion-panel-text__wrapper) {
+  background-color: #1e293b;
+}
+/* Zones scrollables (listes events / shops) */
+.analyse-filter-panel--dark .events-scroll,
+.analyse-filter-panel--dark .shops-scroll {
+  background: #0f172a;
+}
+/* Champs (v-select / v-text-field) forcés en bg clair via bg-color="grey-lighten-5" */
+.analyse-filter-panel--dark :deep(.v-field.bg-grey-lighten-5) {
+  background-color: #0f172a !important;
+  color: #e2e8f0;
+}
+.analyse-filter-panel--dark :deep(.v-field.bg-grey-lighten-5 .v-field__input),
+.analyse-filter-panel--dark :deep(.v-field.bg-grey-lighten-5 input) {
+  color: #e2e8f0;
 }
 </style>
