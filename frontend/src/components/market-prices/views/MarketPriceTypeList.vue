@@ -502,4 +502,9 @@ export default {
 .ptl--dark .ptl-searchbar__input {
   color: #f9fafb;
 }
+.ptl--dark .ptl-searchbar__count { color: #94a3b8; }
+.ptl--dark .ptl-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.ptl--dark .ptl-abtn { background: #1f2937; color: #cbd5e1; }
+.ptl--dark .ptl-abtn--edit:hover { background: #374151; color: #f9fafb; }
+.ptl--dark .ptl-abtn--del:hover { background: rgba(255, 49, 49, .14); color: #fca5a5; }
 </style>

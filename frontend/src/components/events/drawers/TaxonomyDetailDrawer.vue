@@ -259,4 +259,7 @@ export default {
 .etd--dark .etd-empty { color: #6b7280; }
 .etd--dark .etd-event-row { background: #1a2332; border-color: rgba(255,255,255,.08); color: #9ca3af; }
 .etd--dark .etd-event-row__name { color: #e5e7eb; }
+.etd--dark .etd-status--active { background: rgba(34,197,94,.15); border-color: rgba(34,197,94,.35); color: #86efac; }
+.etd--dark .etd-parent-pill { background: rgba(37,99,235,.18); color: #93c5fd; }
+.etd--dark .etd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
 </style>

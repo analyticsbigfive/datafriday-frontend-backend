@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="mptfd-field-label">{{ t('marketPriceTypeList.labelName') }}</div>
+            <div class="mptfd-field-label">{{ t('marketPriceTypeList.labelName') }} <span class="mptfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -297,6 +297,14 @@ export default {
   opacity: .5;
   cursor: not-allowed;
 }
+
+/* Dark mode — compléments (champ + bouton Cancel) + étoile required */
+.mptfd-panel--dark .mptfd-field :deep(.v-field) { border-color: #374151 !important; background: #1f2937 !important; }
+.mptfd-panel--dark .mptfd-field :deep(.v-field input),
+.mptfd-panel--dark .mptfd-field :deep(.v-field__input) { color: #f9fafb; }
+.mptfd-panel--dark .mptfd-fbtn--cancel { background: #374151; color: #d1d5db; }
+.mptfd-panel--dark .mptfd-fbtn--cancel:hover { background: #4b5563; }
+.mptfd-star { color: #ff3131; }
 
 /* ── Transition ── */
 .mptfd-slide-enter-active,

@@ -166,4 +166,9 @@ export default {
 .frdd--dark .frdd-card__msg { color: #d1d5db; }
 .frdd--dark .frdd-card__foot { border-top-color: #374151; }
 .frdd--dark .frdd-btn--cancel { background: #374151; color: #d1d5db; }
+.frdd--dark .frdd-btn--cancel:hover { background: #4b5563; }
+.frdd--dark .frdd-card__icon-wrap { background: rgba(255, 49, 49, .15); }
+.frdd--dark .frdd-card__error { background: rgba(255, 49, 49, .12); border-color: rgba(255, 49, 49, .3); color: #fca5a5; }
+.frdd--dark .frdd-card__close { color: #9ca3af; }
+.frdd--dark .frdd-card__close:hover { color: #f9fafb; background: #374151; }
 </style>
