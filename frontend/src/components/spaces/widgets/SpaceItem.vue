@@ -13,9 +13,9 @@
            (cf. docs/modules/11_LIVE.md §7/§8bis-A) → masqué tant que le backend
            ne l'expose pas. Mène à la route Live dédiée. -->
       <button
-        v-if="space?.liveEvent"
+        v-if="isLive"
         class="si-live-btn"
-        title="Live"
+        :title="liveTitle"
         aria-label="Live"
         @click.stop="goLive"
       >
@@ -92,6 +92,7 @@ import {
   MapPin,
 } from "lucide-vue-next";
 import { clearDemoMode } from "@/utils/demoMode";
+import { getSpaceLiveStatus } from "@/api/endpoints/space.api";
 export default {
   name: 'SpaceItem',
   components: {
@@ -104,6 +105,13 @@ export default {
     deleteSpace:   { type: Function, default: null },
     fallbackImage: { type: String,   default: 'https://cdn.vuetifyjs.com/images/cards/docks.jpg' },
   },
+  data() {
+    return {
+      // Signal live (module Live, greffe A) — renseigné au montage via /live-status.
+      isLive: false,
+      liveSince: null,
+    };
+  },
   computed: {
     spaceImage() {
       return this.space?.image || this.fallbackImage
@@ -111,6 +119,16 @@ export default {
     // RBAC : autorise builder/édition/suppression d'espace (ADMIN bypass dans le getter).
     canEditSpace() {
       return this.$store.getters['auth/can']('space.edit')
+    },
+    // RBAC : permission de la route Live — sert aussi à ne PAS appeler /live-status
+    // (403) pour les rôles sans accès Live.
+    canLive() {
+      return this.$store.getters['auth/can']('front.fb.live')
+    },
+    liveTitle() {
+      if (!this.liveSince) return 'Live'
+      const mins = Math.max(0, Math.round((Date.now() - new Date(this.liveSince).getTime()) / 60000))
+      return mins > 0 ? `Live · depuis ${mins} min` : 'Live · à l\'instant'
     },
   },
   methods: {
@@ -138,6 +156,20 @@ export default {
         this.$router.push(`/spaces/${spaceId}/live`);
       }
     },
+    // Signal live par carte (LIVE_API_GUIDE.md §1.2 : endpoint dédié, pas de champ
+    // sur la liste /spaces). Appelé au montage, uniquement si l'utilisateur a la
+    // permission Live (sinon 403 inutile en masse sur la Home).
+    async checkLiveStatus() {
+      const spaceId = this.space?.id || this.space?._id;
+      if (!spaceId || !this.canLive) return;
+      try {
+        const res = await getSpaceLiveStatus(spaceId);
+        this.isLive = !!res?.isLive;
+        this.liveSince = res?.since || null;
+      } catch (_) {
+        this.isLive = false;
+      }
+    },
     editSpaceItem() {
       if (this.editSpace) this.editSpace(this.space);
     },
@@ -151,6 +183,9 @@ export default {
       const n = Number(value)
       return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '—'
     },
+  },
+  mounted() {
+    this.checkLiveStatus();
   },
 }
 </script>

@@ -118,9 +118,23 @@
               </v-btn>
             </div>
           </div>
+      <!-- Onglets Live (module Live v2, 11_LIVE.md §3) : bascule Analyse / Inventaire,
+           visibles uniquement sur la route space-live. -->
+      <div v-if="isLive" class="an-live-tabs">
+        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'analyse' }" @click="liveTab = 'analyse'">{{ t('anToolAnalyse') }}</button>
+        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'inventory' }" @click="liveTab = 'inventory'">{{ t('anLiveInvTitle') }}</button>
+      </div>
+
+      <LiveInventoryPanel
+        v-if="showInventory"
+        :space-id="route.params.spaceId"
+        :is-dark="isDark"
+        :active="showInventory"
+      />
+
       <!-- pa-0 : les gutters viennent de la grille .an-body (18/24), le
            container ne doit pas ré-indenter le contenu vs le bandeau rouge. -->
-      <v-container id="analyse-capture-root" fluid class="pa-0">
+      <v-container v-show="!showInventory" id="analyse-capture-root" fluid class="pa-0">
         <!-- Loading : skeleton fidèle à la structure de l'écran -->
         <template v-if="loading">
           <v-skeleton-loader
@@ -419,6 +433,7 @@ import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import FilterPanel from './filters/FilterPanel.vue'
+import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
 import FilterSummary from './filters/FilterSummary.vue'
 import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'
@@ -1424,6 +1439,9 @@ function onShowAverage() {
 //  - useAnalyseItemRecords : cache sans API de refresh exposée.
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
+// Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
+const liveTab = ref('analyse')
+const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 const LIVE_POLL_MS = 15000
 let livePollTimer = null
 function livePoll() {
@@ -1660,6 +1678,30 @@ async function ensureAuthAndLoad(spaceId) {
   70%  { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); }
   100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
 }
+/* Onglets Live (Analyse / Inventaire) — segmented control. */
+.an-live-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 2px 0 14px;
+  border-radius: 100px;
+  background: #f3f4f6;
+}
+.an-live-tab {
+  padding: 6px 18px;
+  border: none;
+  background: transparent;
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.an-live-tab--active { background: #ff3131; color: #fff; }
+.analyse-app--dark .an-live-tabs { background: #0f172a; }
+.analyse-app--dark .an-live-tab { color: #94a3b8; }
+.analyse-app--dark .an-live-tab--active { background: #ff3131; color: #fff; }
 /* Ligne 1 : toggle + « Espace : Analyse » + copier/partager. */
 .av-header__row1 {
   padding: 14px 22px 8px;
