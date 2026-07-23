@@ -1,0 +1,22 @@
+-- StockReconciliation — colonne `kind` (2026-07-20)
+--
+-- Pourquoi : Post-event Inventory (branche feat/postEventInventory) crée un 2e
+-- type de document de réconciliation dans la MÊME table que l'Inventory Reset
+-- logistique : le document post-événement (écarts compté vs "ce qui devrait
+-- rester après les ventes", lignes enrichies soldUnits/predictedUnits/
+-- leftFromSales/countedUnits/missingUnits — voir
+-- frontend/docs/modules/10_POST_EVENT_INVENTORY.md §7).
+--
+-- Sans discriminant, ces documents pollueraient la liste de la vue Logistic
+-- (qui lit toutes les StockReconciliation du space) et, inversement, les
+-- archives de reset apparaîtraient dans la section Réconciliation de
+-- Post-event Inventory.
+--
+-- Sémantique :
+--   NULL          = reset logistique historique (ancre temporelle des ventes
+--                   dérivées — comportement inchangé)
+--   'post-event'  = document généré à la sauvegarde d'un inventaire post-match
+--
+-- Idempotent (IF NOT EXISTS) — exécutable plusieurs fois sans effet.
+
+ALTER TABLE "StockReconciliation" ADD COLUMN IF NOT EXISTS "kind" TEXT;

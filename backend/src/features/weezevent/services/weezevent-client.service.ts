@@ -20,6 +20,11 @@ export interface GetTransactionsOptions {
     eventId?: number;
 }
 
+// BUG-025 (corrigé) : chaque méthode prend maintenant integrationId en plus de tenantId/
+// organizationId, propagé jusqu'à WeezeventApiService puis WeezeventAuthService.getAccessToken —
+// auparavant le token OAuth était résolu par tenantId seul, partagé à tort entre toutes les
+// intégrations Weezevent d'un même tenant (organizationId, lui, était déjà correctement résolu
+// par intégration par les appelants — seul le token ne l'était pas).
 @Injectable()
 export class WeezeventClientService {
     private readonly logger = new Logger(WeezeventClientService.name);
@@ -33,6 +38,7 @@ export class WeezeventClientService {
      */
     async getTransactions(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         options?: GetTransactionsOptions,
     ): Promise<WeezeventPaginatedResponse<WeezeventTransaction>> {
@@ -64,6 +70,7 @@ export class WeezeventClientService {
 
         const response = await this.apiService.get<any>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/transactions`,
             params,
         );
@@ -90,6 +97,7 @@ export class WeezeventClientService {
      */
     async getTransaction(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         transactionId: string,
     ): Promise<WeezeventTransaction> {
@@ -99,6 +107,7 @@ export class WeezeventClientService {
 
         return this.apiService.get<WeezeventTransaction>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/transactions/${transactionId}`,
         );
     }
@@ -110,6 +119,7 @@ export class WeezeventClientService {
      */
     async getWallet(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         walletId: string,
     ): Promise<WeezeventWallet> {
@@ -119,6 +129,7 @@ export class WeezeventClientService {
 
         return this.apiService.get<WeezeventWallet>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/wallets/${walletId}`,
         );
     }
@@ -128,6 +139,7 @@ export class WeezeventClientService {
      */
     async getWallets(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         options?: {
             page?: number;
@@ -151,6 +163,7 @@ export class WeezeventClientService {
 
         return this.apiService.get<WeezeventPaginatedResponse<WeezeventWallet>>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/wallets`,
             params,
         );
@@ -163,6 +176,7 @@ export class WeezeventClientService {
      */
     async getUser(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         userId: string,
     ): Promise<WeezeventUser> {
@@ -172,6 +186,7 @@ export class WeezeventClientService {
 
         return this.apiService.get<WeezeventUser>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/users/${userId}`,
         );
     }
@@ -183,6 +198,7 @@ export class WeezeventClientService {
      */
     async getEvent(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         eventId: string,
     ): Promise<WeezeventEvent> {
@@ -192,6 +208,7 @@ export class WeezeventClientService {
 
         return this.apiService.get<WeezeventEvent>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/events/${eventId}`,
         );
     }
@@ -201,6 +218,7 @@ export class WeezeventClientService {
      */
     async getEvents(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         options?: {
             page?: number;
@@ -214,6 +232,7 @@ export class WeezeventClientService {
 
         const response = await this.apiService.get<any>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/events`,
             params,
         );
@@ -243,6 +262,7 @@ export class WeezeventClientService {
      */
     async getProduct(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         productId: string,
     ): Promise<WeezeventProduct> {
@@ -252,6 +272,7 @@ export class WeezeventClientService {
 
         return this.apiService.get<WeezeventProduct>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/products/${productId}`,
         );
     }
@@ -261,6 +282,7 @@ export class WeezeventClientService {
      */
     async getProducts(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         options?: {
             page?: number;
@@ -279,6 +301,7 @@ export class WeezeventClientService {
 
         const response = await this.apiService.get<any>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/products`,
             params,
         );
@@ -306,6 +329,7 @@ export class WeezeventClientService {
      */
     async getProductVariants(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         productId: string,
         eventId?: string,
@@ -316,7 +340,7 @@ export class WeezeventClientService {
 
         this.logger.debug(`Fetching variants for product ${productId}`);
 
-        const response = await this.apiService.get<any>(tenantId, path);
+        const response = await this.apiService.get<any>(tenantId, integrationId, path);
         return Array.isArray(response) ? response : response.data || [];
     }
 
@@ -325,6 +349,7 @@ export class WeezeventClientService {
      */
     async getProductComponents(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         productId: string,
         eventId?: string,
@@ -335,7 +360,7 @@ export class WeezeventClientService {
 
         this.logger.debug(`Fetching components for product ${productId}`);
 
-        const response = await this.apiService.get<any>(tenantId, path);
+        const response = await this.apiService.get<any>(tenantId, integrationId, path);
         return Array.isArray(response) ? response : response.data || [];
     }
 
@@ -344,6 +369,7 @@ export class WeezeventClientService {
      */
     async getProductMenuSteps(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         productId: string,
         eventId?: string,
@@ -354,7 +380,7 @@ export class WeezeventClientService {
 
         this.logger.debug(`Fetching menu steps for product ${productId}`);
 
-        const response = await this.apiService.get<any>(tenantId, path);
+        const response = await this.apiService.get<any>(tenantId, integrationId, path);
         return Array.isArray(response) ? response : response.data || [];
     }
 
@@ -365,6 +391,7 @@ export class WeezeventClientService {
      */
     async getOrders(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         eventId: string,
         options?: {
@@ -388,6 +415,7 @@ export class WeezeventClientService {
 
         const response = await this.apiService.get<any>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/events/${eventId}/orders`,
             params,
         );
@@ -412,6 +440,7 @@ export class WeezeventClientService {
      */
     async getOrder(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         eventId: string,
         orderId: string,
@@ -420,6 +449,7 @@ export class WeezeventClientService {
 
         return this.apiService.get<any>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/events/${eventId}/orders/${orderId}`,
         );
     }
@@ -431,6 +461,7 @@ export class WeezeventClientService {
      */
     async getPrices(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         eventId?: string,
         options?: {
@@ -449,7 +480,7 @@ export class WeezeventClientService {
 
         this.logger.debug(`Fetching prices${eventId ? ` for event ${eventId}` : ''}`);
 
-        const response = await this.apiService.get<any>(tenantId, path, params);
+        const response = await this.apiService.get<any>(tenantId, integrationId, path, params);
 
         if (Array.isArray(response)) {
             return {
@@ -473,6 +504,7 @@ export class WeezeventClientService {
      */
     async getAttendees(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         eventId: string,
         options?: {
@@ -492,6 +524,7 @@ export class WeezeventClientService {
 
         const response = await this.apiService.get<any>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/events/${eventId}/attendees`,
             params,
         );
@@ -519,6 +552,7 @@ export class WeezeventClientService {
      */
     async getLocations(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         eventId: string,
         options?: { page?: number; perPage?: number },
@@ -532,6 +566,7 @@ export class WeezeventClientService {
 
         const response = await this.apiService.get<any>(
             tenantId,
+            integrationId,
             `/organizations/${organizationId}/events/${eventId}/locations`,
             params,
         );

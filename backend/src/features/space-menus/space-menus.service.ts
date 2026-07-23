@@ -1054,8 +1054,13 @@ export class SpaceMenusService {
    * appel/une seule requête au lieu de N appels à getShopMenu (un par shop), chacun
    * remontant la structure imbriquée complète (composants→ingrédients, pricing…).
    * Ne renvoie que ce dont la page Analyse a besoin pour reconstruire l'assignation
-   * par shop : id/nom/catégorie des articles ENABLED. Pas de pricing/recette ici —
-   * si un futur consommateur en a besoin, utiliser getShopMenu (par shop).
+   * par shop : id/nom/catégorie/basePrice des articles ENABLED. Pas de pricing/recette
+   * ici — si un futur consommateur en a besoin, utiliser getShopMenu (par shop).
+   *
+   * ⚠️ Règle DURE (BUG-199) : ne JAMAIS ajouter ici un champ volumineux porté par le
+   * MenuItem (photo, description longue, blob…). La sélection est par ligne
+   * d'assignation : tout champ ajouté est réémis autant de fois que l'article est
+   * assigné à un PdV. C'est ce qui a fait passer cette réponse à 5,6 Mo / 53 s.
    */
   async getConfigShopMenuItemsLight(spaceId: string, configId: string, tenantId: string) {
     const config = await this.prisma.config.findFirst({
@@ -1082,14 +1087,22 @@ export class SpaceMenusService {
           where: { configId, enabled: true, menuItem: { deletedAt: null } },
           select: {
             menuItem: {
-              // basePrice/picture : additifs (2026-07-18) — permettent à Space
-              // Inventory de consommer ce batch au lieu d'un GET shop/:shopId
-              // par shop (N+1, cf. fiche BUG-010 backend).
+              // basePrice : additif (2026-07-18) — permet à Space Inventory de
+              // consommer ce batch au lieu d'un GET shop/:shopId par shop
+              // (N+1, cf. fiche BUG-010 backend). Scalaire, coût nul.
+              //
+              // `picture` est VOLONTAIREMENT absent (BUG-199) : la sélection se fait
+              // par ligne d'assignation, donc un article présent dans N PdV voyait sa
+              // photo sérialisée N fois. Les photos sont stockées en base64 dans
+              // MenuItem.picture — un seul article de 915 ko × 15 assignations = 13 Mo
+              // sur une réponse dont tout le reste pèse 38 ko (53 s de chargement).
+              // La vignette se résout depuis le catalogue (GET /menu-items, qui porte
+              // `picture` UNE fois par article). Même réflexe que
+              // `marketPriceSelectNoImage` dans menu-items.service.ts.
               select: {
                 id: true,
                 name: true,
                 basePrice: true,
-                picture: true,
                 productCategory: { select: { name: true } },
               },
             },
@@ -1098,7 +1111,7 @@ export class SpaceMenusService {
       } as any,
     });
 
-    const out: Record<string, { shopName: string; items: { id: string; name: string; category: string; basePrice: number | null; picture: string | null }[] }> = {};
+    const out: Record<string, { shopName: string; items: { id: string; name: string; category: string; basePrice: number | null }[] }> = {};
     for (const el of elements as any[]) {
       const items = (el.menuAssignments || [])
         .map((a: any) => a.menuItem)
@@ -1108,7 +1121,6 @@ export class SpaceMenusService {
           name: mi.name,
           category: mi.productCategory?.name || '',
           basePrice: mi.basePrice != null ? Number(mi.basePrice) : null,
-          picture: mi.picture ?? null,
         }));
       if (items.length) out[el.id] = { shopName: el.name, items };
     }

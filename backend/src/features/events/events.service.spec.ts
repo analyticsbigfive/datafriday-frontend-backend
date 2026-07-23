@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventsService } from './events.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('EventsService', () => {
   let service: EventsService;
+  let mockWeezeventLinkService: { relinkForTenantDate: jest.Mock };
 
   const mockEvent = {
     id: 'evt-1',
@@ -59,14 +61,21 @@ describe('EventsService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    salesEvent: {
+      findFirst: jest.fn(),
+    },
     $transaction: jest.fn((ops) => Promise.all(ops)),
+    $queryRaw: jest.fn(),
   };
 
   beforeEach(async () => {
+    mockWeezeventLinkService = { relinkForTenantDate: jest.fn().mockResolvedValue(undefined) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EventsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: EventWeezeventLinkService, useValue: mockWeezeventLinkService },
       ],
     }).compile();
 
@@ -116,6 +125,19 @@ describe('EventsService', () => {
 
       await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
       expect(mockPrisma.event.create).not.toHaveBeenCalled();
+    });
+
+    it('BUG-021: attempts an auto-link with WeezeventEvent after creation', async () => {
+      const dto = { name: 'New Event', eventDate: '2024-08-01' };
+      const created = { ...mockEvent, ...dto, eventDate: new Date('2024-08-01') };
+      mockPrisma.event.create.mockResolvedValue(created);
+
+      await service.create('tenant-1', dto as any);
+
+      expect(mockWeezeventLinkService.relinkForTenantDate).toHaveBeenCalledWith(
+        'tenant-1',
+        created.eventDate,
+      );
     });
   });
 
@@ -171,6 +193,97 @@ describe('EventsService', () => {
       await expect(
         service.update('invalid', 'tenant-1', { name: 'Updated' } as any),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('BUG-021: does NOT reset weezeventEventId when eventDate is unchanged', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.event.update.mockResolvedValue(mockEvent);
+
+      await service.update('evt-1', 'tenant-1', { name: 'Updated' } as any);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.not.objectContaining({ weezeventEventId: null }),
+        }),
+      );
+      expect(mockWeezeventLinkService.relinkForTenantDate).not.toHaveBeenCalled();
+    });
+
+    it('BUG-021: resets weezeventEventId and re-attempts auto-link when eventDate changes', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      const updated = { ...mockEvent, eventDate: new Date('2024-09-01') };
+      mockPrisma.event.update.mockResolvedValue(updated);
+
+      await service.update('evt-1', 'tenant-1', { eventDate: '2024-09-01' } as any);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ weezeventEventId: null }),
+        }),
+      );
+      expect(mockWeezeventLinkService.relinkForTenantDate).toHaveBeenCalledWith(
+        'tenant-1',
+        updated.eventDate,
+      );
+    });
+  });
+
+  describe('BUG-021: listAmbiguousWeezeventMatches', () => {
+    it('returns the raw query result', async () => {
+      const rows = [
+        {
+          eventId: 'evt-1',
+          eventName: 'Festival 2024',
+          eventDate: new Date('2024-08-01'),
+          candidates: [{ id: 'we-1', name: 'Festival', startDate: new Date('2024-08-01'), externalId: '123' }],
+        },
+      ];
+      mockPrisma.$queryRaw.mockResolvedValue(rows);
+
+      const result = await service.listAmbiguousWeezeventMatches('tenant-1');
+      expect(result).toEqual(rows);
+      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+    });
+  });
+
+  describe('BUG-021: resolveWeezeventLink', () => {
+    it('links to the given WeezeventEvent when it belongs to the tenant', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.salesEvent.findFirst.mockResolvedValue({ id: 'we-1' });
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: 'we-1' });
+
+      const result = await service.resolveWeezeventLink('evt-1', 'tenant-1', 'we-1');
+
+      expect(mockPrisma.salesEvent.findFirst).toHaveBeenCalledWith({
+        where: { id: 'we-1', tenantId: 'tenant-1' },
+        select: { id: true },
+      });
+      expect(mockPrisma.event.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { weezeventEventId: 'we-1' } }),
+      );
+      expect(result.weezeventEventId).toBe('we-1');
+    });
+
+    it('rejects a WeezeventEvent belonging to another tenant', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.salesEvent.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.resolveWeezeventLink('evt-1', 'tenant-1', 'we-foreign'),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.update).not.toHaveBeenCalled();
+    });
+
+    it('allows explicitly unlinking with null', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: null });
+
+      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+
+      expect(mockPrisma.salesEvent.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.event.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { weezeventEventId: null } }),
+      );
     });
   });
 

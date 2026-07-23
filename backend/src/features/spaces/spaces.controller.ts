@@ -1009,47 +1009,6 @@ export class ConfigurationsController {
   }
 
   /**
-   * Delete a configuration
-   */
-  @Delete(':id')
-  @RequirePermissions('space.edit')
-  @ApiOperation({
-    summary: 'Supprimer une configuration',
-    description: 'Supprime définitivement une configuration.',
-  })
-  @ApiParam({ name: 'id', description: 'ID de la configuration' })
-  @ApiResponse({ status: 200, description: 'Configuration supprimée' })
-  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
-  @ApiResponse({ status: 403, description: 'Accès refusé' })
-  async deleteConfiguration(
-    @Param('id') id: string,
-    @CurrentTenant() tenantId: string,
-  ) {
-    return this.spacesService.deleteConfiguration(id, tenantId);
-  }
-
-  /**
-   * Update a configuration by ID
-   */
-  @Patch(':id')
-  @RequirePermissions('space.edit')
-  @ApiOperation({
-    summary: 'Mettre à jour une configuration',
-    description: 'Met à jour une configuration existante (floors, forecourt, capacity, etc.).',
-  })
-  @ApiParam({ name: 'id', description: 'ID de la configuration' })
-  @ApiResponse({ status: 200, description: 'Configuration mise à jour' })
-  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
-  @ApiResponse({ status: 403, description: 'Accès refusé' })
-  async updateConfiguration(
-    @Param('id') id: string,
-    @CurrentTenant() tenantId: string,
-    @Body() dto: any,
-  ) {
-    return this.spacesService.saveConfiguration({ ...dto, id }, tenantId);
-  }
-
-  /**
    * Update a shop (SpaceElement) — image, name, type, shopTypes
    */
   @Patch('elements/:elementId')

@@ -10,11 +10,7 @@ export function useTimelineProcessing() {
   const summary = ref({ total: 0, processed: 0, pending: 0, failed: 0 })
   const loading = ref(false)
   const processing = ref(false)
-  const processedCount = ref(0)
-  const totalCount = ref(0)
   const error = ref(null)
-  // §9 — flag d'annulation propre
-  const cancelled = ref(false)
 
   async function loadTimeline(spaceId, integrationId) {
     loading.value = true
@@ -112,48 +108,6 @@ export function useTimelineProcessing() {
     }
   }
 
-  async function processAllEvents(spaceId, integrationId) {
-    processing.value = true
-    error.value = null
-    processedCount.value = 0
-    const pendingIds = events.value
-      .filter(e => e.aggregationStatus !== 'completed')
-      .map(e => e.id)
-    totalCount.value = pendingIds.length
-
-    try {
-      // Process in chunks of 50 to avoid payload limits and give real-time progress
-      const CHUNK_SIZE = 50
-      for (let i = 0; i < pendingIds.length; i += CHUNK_SIZE) {
-        if (cancelled.value) break // §9 — annulation via flag dédié
-        const chunk = pendingIds.slice(i, i + CHUNK_SIZE)
-        const result = await processEvents(spaceId, chunk, integrationId)
-        processedCount.value = Math.min(i + chunk.length, pendingIds.length)
-        // Update local event statuses
-        if (result.results) {
-          for (const r of result.results) {
-            const idx = events.value.findIndex(e => e.id === r.eventId)
-            if (idx >= 0) {
-              events.value[idx] = {
-                ...events.value[idx],
-                aggregationStatus: r.status === 'success' ? 'completed' : 'failed',
-                transactionsProcessed: r.transactions || 0,
-              }
-            }
-          }
-        }
-      }
-
-      await loadTimeline(spaceId, integrationId)
-      return { processed: processedCount.value }
-    } catch (err) {
-      error.value = err.message
-      throw err
-    } finally {
-      processing.value = false
-    }
-  }
-
   async function processSingleEvent(spaceId, eventId, integrationId) {
     processing.value = true
     error.value = null
@@ -182,18 +136,7 @@ export function useTimelineProcessing() {
     }
   }
 
-  function getProgressPercent() {
-    if (totalCount.value === 0) return 0
-    return Math.round((processedCount.value / totalCount.value) * 100)
-  }
-
   const hasMappings = ref(null)
-
-  // §9 — annulation correcte de la boucle de traitement
-  function cancelProcessing() {
-    cancelled.value = true
-    processing.value = false
-  }
 
   return {
     events,
@@ -204,13 +147,8 @@ export function useTimelineProcessing() {
     summary,
     loading,
     processing,
-    processedCount,
-    totalCount,
     error,
     loadTimeline,
-    processAllEvents,
     processSingleEvent,
-    getProgressPercent,
-    cancelProcessing,
   }
 }

@@ -29,11 +29,12 @@ export class WeezeventCollectWorkerService {
             const job = await this.prisma.weezeventSyncJob.update({
                 where: { id: jobId },
                 data: { status: 'COLLECTING' },
-                include: { integration: true },
+                include: { integration: { include: { weezevent: true } } },
             });
 
             const tenantId = job.tenantId;
-            const organizationId = (job as any).integration.organizationId as string | null;
+            const integrationId = job.integrationId;
+            const organizationId = job.integration.weezevent?.organizationId ?? null;
 
             if (!organizationId) {
                 throw new Error(`organizationId manquant pour l'intégration ${job.integrationId}`);
@@ -41,6 +42,7 @@ export class WeezeventCollectWorkerService {
 
             await this.fetchChunk(
                 tenantId,
+                integrationId,
                 organizationId,
                 jobId,
                 job.fromDate.toISOString(),
@@ -70,12 +72,25 @@ export class WeezeventCollectWorkerService {
      */
     private async fetchChunk(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         jobId: string,
         fromIso: string,
         toIso: string,
     ): Promise<void> {
-        const result = await this.weezeventClient.getTransactions(tenantId, organizationId, {
+        // Annulation manuelle (PATCH sync/jobs/:jobId/cancel) : on arrête la bissection au
+        // prochain nœud de récursion plutôt que de continuer à consommer l'API Weezevent
+        // pour un job dont l'utilisateur ne veut plus attendre le résultat.
+        const current = await this.prisma.weezeventSyncJob.findUnique({
+            where: { id: jobId },
+            select: { status: true },
+        });
+        if (current?.status === 'CANCELLED') {
+            this.logger.log(`[fetchChunk] Job ${jobId} annulé — arrêt de la bissection.`);
+            return;
+        }
+
+        const result = await this.weezeventClient.getTransactions(tenantId, integrationId, organizationId, {
             fromDate: new Date(fromIso),
             toDate: new Date(toIso),
             perPage: WEEZEVENT_CAP,
@@ -102,8 +117,8 @@ export class WeezeventCollectWorkerService {
         }
 
         const midMs = Math.floor((startMs + endMs) / 2);
-        await this.fetchChunk(tenantId, organizationId, jobId, fromIso, new Date(midMs - 1).toISOString());
-        await this.fetchChunk(tenantId, organizationId, jobId, new Date(midMs).toISOString(), toIso);
+        await this.fetchChunk(tenantId, integrationId, organizationId, jobId, fromIso, new Date(midMs - 1).toISOString());
+        await this.fetchChunk(tenantId, integrationId, organizationId, jobId, new Date(midMs).toISOString(), toIso);
     }
 
     private async saveChunk(jobId: string, fromDate: string, toDate: string, data: any[]): Promise<void> {

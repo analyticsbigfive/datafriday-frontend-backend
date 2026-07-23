@@ -23,6 +23,9 @@ const EventsTypeListView = () => import('../components/events/views/EventsTypeLi
 const EventsCategorieListView = () => import('../components/events/views/EventsCategorieListView.vue')
 const EventsSubcategorieListView = () => import('../components/events/views/EventsSubcategorieListView.vue')
 
+// Route HR View (Edit HR : bibliothèques Suppliers / Staff Positions)
+const HrView = () => import('../components/hr/views/HrView.vue')
+
 // Routes Menu FB Views — lazy comme le reste (en statique, ces 18 vues admin
 // étaient inlinées dans app.js et payées au premier paint de toutes les routes).
 const SuppliersListView = () => import('../components/menu-fb/views/suppliers/views/SuppliersListView.vue')
@@ -144,15 +147,9 @@ const routes = [
       },
 
       {
-        name: 'SpaceBuilder',
-        path: '/spaces/:spaceId/builder',
-        component: () => import('@/components/spaces/views/builder/views/SpaceBuilderViewRoute.vue'),
-        meta: { keepAlive: true, permission: 'space.edit' }
-      },
-
-      {
         // Builder v2 (refonte — docs/REFONTE_3D_BUILDER_V2.md) : autosave granulaire,
-        // pas de keep-alive nécessaire (aucun état non sauvegardé à préserver).
+        // pas de keep-alive nécessaire (aucun état non sauvegardé à préserver). Builder v1
+        // (Config.data JSON blob) retiré — builder2 est l'unique parcours d'édition d'espace.
         name: 'SpaceBuilder2',
         path: '/spaces/:spaceId/builder2',
         component: () => import('@/components/spaces/views/builder2/BuilderPage.vue'),
@@ -170,7 +167,17 @@ const routes = [
         path: '/spaces/:spaceId/inventory',
         name: 'space-inventory',
         component: () => import('@/views/SpaceInventoryView.vue'),
-        meta: { title: 'Space Inventory', keepAlive: true, permission: 'front.fb.spaceInventory' }
+        meta: { title: 'Post-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'post' }
+      },
+
+      {
+        // Pre-event Inventory : MÊME composant en mode 'pre' (event FUTUR,
+        // quantités attendues gatées) — 2 instances keepAlive distinctes (key =
+        // route.path). Doc : docs/modules/10_POST_EVENT_INVENTORY.md §8.
+        path: '/spaces/:spaceId/pre-inventory',
+        name: 'space-pre-inventory',
+        component: () => import('@/views/SpaceInventoryView.vue'),
+        meta: { title: 'Pre-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'pre' }
       },
 
       {
@@ -214,6 +221,13 @@ const routes = [
         meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
       { path: '/event-subcategories', redirect: '/events/event-subcategories' },
+
+      {
+        path: '/hr',
+        name: 'hr',
+        component: HrView,
+        meta: { title: 'Edit HR', keepAlive: true, permission: 'menu.hr.manage' }
+      },
 
       {
         path: '/menu-fb/suppliers',

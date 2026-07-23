@@ -47,6 +47,7 @@ describe('WeezeventApiService', () => {
 
     describe('get', () => {
         const tenantId = 'tenant-123';
+        const integrationId = 'integration-a';
         const endpoint = '/organizations/123/transactions';
         const mockToken = 'mock-token';
 
@@ -56,9 +57,10 @@ describe('WeezeventApiService', () => {
                 data: { result: 'success' },
             });
 
-            const result = await service.get(tenantId, endpoint);
+            const result = await service.get(tenantId, integrationId, endpoint);
 
             expect(result).toEqual({ result: 'success' });
+            expect(mockAuthService.getAccessToken).toHaveBeenCalledWith(tenantId, integrationId);
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledWith(
                 expect.objectContaining({
                     method: 'GET',
@@ -76,7 +78,7 @@ describe('WeezeventApiService', () => {
                 data: {},
             });
 
-            await service.get(tenantId, endpoint, { page: 1, per_page: 50 });
+            await service.get(tenantId, integrationId, endpoint, { page: 1, per_page: 50 });
 
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -84,10 +86,23 @@ describe('WeezeventApiService', () => {
                 }),
             );
         });
+
+        // BUG-025 (corrigé) : le token doit être résolu par integrationId, pas par tenantId seul —
+        // deux intégrations du même tenant ne doivent jamais partager un appel getAccessToken.
+        it('resolves the access token scoped to the given integration, not just the tenant', async () => {
+            mockAuthService.getAccessToken.mockResolvedValue(mockToken);
+            mockHttpService.axiosRef.request.mockResolvedValue({ data: {} });
+
+            await service.get(tenantId, 'integration-b', endpoint);
+
+            expect(mockAuthService.getAccessToken).toHaveBeenCalledWith(tenantId, 'integration-b');
+            expect(mockAuthService.getAccessToken).not.toHaveBeenCalledWith(tenantId, integrationId);
+        });
     });
 
     describe('retry logic', () => {
         const tenantId = 'tenant-123';
+        const integrationId = 'integration-a';
         const endpoint = '/test';
 
         it('should retry on 5xx errors', async () => {
@@ -105,7 +120,7 @@ describe('WeezeventApiService', () => {
                     data: { success: true },
                 });
 
-            const result = await service.get(tenantId, endpoint);
+            const result = await service.get(tenantId, integrationId, endpoint);
 
             expect(result).toEqual({ success: true });
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledTimes(3);
@@ -122,7 +137,7 @@ describe('WeezeventApiService', () => {
                     data: { success: true },
                 });
 
-            const result = await service.get(tenantId, endpoint);
+            const result = await service.get(tenantId, integrationId, endpoint);
 
             expect(result).toEqual({ success: true });
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledTimes(2);
@@ -135,7 +150,7 @@ describe('WeezeventApiService', () => {
                 response: { status: 404, data: { message: 'Not found' } },
             });
 
-            await expect(service.get(tenantId, endpoint)).rejects.toThrow(
+            await expect(service.get(tenantId, integrationId, endpoint)).rejects.toThrow(
                 WeezeventApiException,
             );
 
@@ -151,7 +166,7 @@ describe('WeezeventApiService', () => {
                     data: { success: true },
                 });
 
-            const result = await service.get(tenantId, endpoint);
+            const result = await service.get(tenantId, integrationId, endpoint);
 
             expect(result).toEqual({ success: true });
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledTimes(2);
@@ -164,7 +179,7 @@ describe('WeezeventApiService', () => {
                 response: { status: 500, data: {} },
             });
 
-            await expect(service.get(tenantId, endpoint)).rejects.toThrow(
+            await expect(service.get(tenantId, integrationId, endpoint)).rejects.toThrow(
                 WeezeventApiException,
             );
 
@@ -175,6 +190,7 @@ describe('WeezeventApiService', () => {
 
     describe('error mapping', () => {
         const tenantId = 'tenant-123';
+        const integrationId = 'integration-a';
         const endpoint = '/test';
 
         beforeEach(() => {
@@ -186,12 +202,12 @@ describe('WeezeventApiService', () => {
                 response: { status: 401, data: { message: 'Unauthorized' } },
             });
 
-            await expect(service.get(tenantId, endpoint)).rejects.toThrow(
+            await expect(service.get(tenantId, integrationId, endpoint)).rejects.toThrow(
                 WeezeventAuthException,
             );
 
-            // Should clear token on auth failure
-            expect(mockAuthService.clearToken).toHaveBeenCalledWith(tenantId);
+            // Should clear token on auth failure, scoped by integrationId (BUG-025)
+            expect(mockAuthService.clearToken).toHaveBeenCalledWith(integrationId);
         });
 
         it('should map 403 to WeezeventApiException', async () => {
@@ -199,10 +215,10 @@ describe('WeezeventApiService', () => {
                 response: { status: 403, data: { message: 'Forbidden' } },
             });
 
-            await expect(service.get(tenantId, endpoint)).rejects.toThrow(
+            await expect(service.get(tenantId, integrationId, endpoint)).rejects.toThrow(
                 WeezeventApiException,
             );
-            await expect(service.get(tenantId, endpoint)).rejects.toThrow(
+            await expect(service.get(tenantId, integrationId, endpoint)).rejects.toThrow(
                 'Access forbidden',
             );
         });
@@ -212,7 +228,7 @@ describe('WeezeventApiService', () => {
                 response: { status: 404, data: { message: 'Not found' } },
             });
 
-            await expect(service.get(tenantId, endpoint)).rejects.toThrow(
+            await expect(service.get(tenantId, integrationId, endpoint)).rejects.toThrow(
                 'Resource not found',
             );
         });
@@ -222,7 +238,7 @@ describe('WeezeventApiService', () => {
                 new Error('Network error'),
             );
 
-            await expect(service.get(tenantId, endpoint)).rejects.toThrow(
+            await expect(service.get(tenantId, integrationId, endpoint)).rejects.toThrow(
                 'Network error',
             );
         });
@@ -230,6 +246,7 @@ describe('WeezeventApiService', () => {
 
     describe('HTTP methods', () => {
         const tenantId = 'tenant-123';
+        const integrationId = 'integration-a';
         const endpoint = '/test';
 
         beforeEach(() => {
@@ -240,7 +257,7 @@ describe('WeezeventApiService', () => {
         });
 
         it('should execute POST request', async () => {
-            await service.post(tenantId, endpoint, { key: 'value' });
+            await service.post(tenantId, integrationId, endpoint, { key: 'value' });
 
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -251,7 +268,7 @@ describe('WeezeventApiService', () => {
         });
 
         it('should execute PUT request', async () => {
-            await service.put(tenantId, endpoint, { key: 'value' });
+            await service.put(tenantId, integrationId, endpoint, { key: 'value' });
 
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -262,7 +279,7 @@ describe('WeezeventApiService', () => {
         });
 
         it('should execute DELETE request', async () => {
-            await service.delete(tenantId, endpoint);
+            await service.delete(tenantId, integrationId, endpoint);
 
             expect(mockHttpService.axiosRef.request).toHaveBeenCalledWith(
                 expect.objectContaining({

@@ -38,6 +38,7 @@ describe('WebhookEventHandler', () => {
     },
     salesTransaction: {
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     tenant: {
       findUnique: jest.fn(),
@@ -127,6 +128,26 @@ describe('WebhookEventHandler', () => {
           retryCount: { increment: 1 },
         }),
       });
+    });
+
+    // BUG-028 (corrigé) : markTransactionAsDeleted doit vraiment marquer un deletedAt, pas
+    // seulement toucher syncedAt.
+    it('should soft-delete the transaction (set deletedAt) on a transaction delete webhook', async () => {
+      mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue({
+        ...mockWebhookEvent,
+        method: 'delete',
+        payload: { type: 'transaction', method: 'delete', data: { id: 'tx-123' } },
+      });
+      mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
+      mockPrismaService.salesTransaction.updateMany.mockResolvedValue({ count: 1 });
+
+      await handler.processEvent('event-123');
+
+      expect(mockPrismaService.salesTransaction.updateMany).toHaveBeenCalledWith({
+        where: { externalId: 'tx-123', deletedAt: null },
+        data: { deletedAt: expect.any(Date), syncedAt: expect.any(Date) },
+      });
+      expect(mockSyncService.syncSingleTransaction).not.toHaveBeenCalled();
     });
 
     it('should handle unknown event type', async () => {

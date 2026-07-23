@@ -56,7 +56,6 @@ const getters = {
   isOwner: (state) => state.isOwner,
   isSuperAdmin: (state) => state.isSuperAdmin,
   isAdmin: (state) => state.roleSystemKey === 'ADMIN',
-  isManager: (state) => ['ADMIN', 'MANAGER'].includes(state.roleSystemKey),
   // Gating UI fin, cohérent avec @RequirePermissions côté backend.
   // ADMIN bypass : possède toujours toutes les permissions.
   // `code` falsy (ex. item de menu `permission: null`) => toujours visible

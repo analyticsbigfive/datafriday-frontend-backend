@@ -108,61 +108,18 @@
             </v-select>
           </div>
 
-          <!-- Dialog — Nouveau type -->
-          <v-dialog v-model="newTypeOpen" max-width="420" :z-index="11000" :persistent="newTypeLoading">
-            <div class="mped-mini-dialog">
-              <div class="mped-mini-dialog__header">
-                <Shapes :size="18" color="white" />
-                <span>{{ locale === 'fr' ? 'Nouveau type de produit' : 'New Good Type' }}</span>
-                <button class="mped-mini-dialog__close" :disabled="newTypeLoading" @click="newTypeOpen = false"><X :size="16" /></button>
-              </div>
-              <div class="mped-mini-dialog__body">
-                <v-alert v-if="newTypeError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3" style="font-size:13px;">
-                  {{ newTypeError }}
-                </v-alert>
-                <div class="mped-field-row">
-                  <label class="mped-field-label" for="mped-nt-name">{{ locale === 'fr' ? 'Nom du type' : 'Type name' }} <span class="mped-required">*</span></label>
-                  <input id="mped-nt-name" v-model="newTypeValue" type="text" class="form-control mped-input" :disabled="newTypeLoading" @keyup.enter="confirmNewType" />
-                </div>
-              </div>
-              <div class="mped-mini-dialog__footer">
-                <button class="mped-btn mped-btn--cancel" :disabled="newTypeLoading" @click="newTypeOpen = false">{{ t('cancel') }}</button>
-                <button class="mped-btn mped-btn--save" :disabled="!newTypeValue.trim() || newTypeLoading" @click="confirmNewType">
-                  <v-progress-circular v-if="newTypeLoading" indeterminate size="14" width="2" color="white" class="me-1" />
-                  <Check v-else :size="14" class="me-1" />
-                  {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                </button>
-              </div>
-            </div>
-          </v-dialog>
-
-          <!-- Dialog — Nouvelle catégorie -->
-          <v-dialog v-model="newCategoryOpen" max-width="420" :z-index="11000" :persistent="newCategoryLoading">
-            <div class="mped-mini-dialog">
-              <div class="mped-mini-dialog__header">
-                <Tag :size="18" color="white" />
-                <span>{{ locale === 'fr' ? 'Nouvelle catégorie' : 'New Category' }}</span>
-                <button class="mped-mini-dialog__close" :disabled="newCategoryLoading" @click="newCategoryOpen = false"><X :size="16" /></button>
-              </div>
-              <div class="mped-mini-dialog__body">
-                <v-alert v-if="newCategoryError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3" style="font-size:13px;">
-                  {{ newCategoryError }}
-                </v-alert>
-                <div class="mped-field-row">
-                  <label class="mped-field-label" for="mped-nc-name">{{ locale === 'fr' ? 'Nom de la catégorie' : 'Category name' }} <span class="mped-required">*</span></label>
-                  <input id="mped-nc-name" v-model="newCategoryValue" type="text" class="form-control mped-input" :disabled="newCategoryLoading" @keyup.enter="confirmNewCategory" />
-                </div>
-              </div>
-              <div class="mped-mini-dialog__footer">
-                <button class="mped-btn mped-btn--cancel" :disabled="newCategoryLoading" @click="newCategoryOpen = false">{{ t('cancel') }}</button>
-                <button class="mped-btn mped-btn--save" :disabled="!newCategoryValue.trim() || newCategoryLoading" @click="confirmNewCategory">
-                  <v-progress-circular v-if="newCategoryLoading" indeterminate size="14" width="2" color="white" class="me-1" />
-                  <Check v-else :size="14" class="me-1" />
-                  {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                </button>
-              </div>
-            </div>
-          </v-dialog>
+          <!-- Dialogs partagés « Nouveau type » / « Nouvelle catégorie » (extraits — voir composants) -->
+          <MarketPriceNewTypeDialog
+            v-model="newTypeOpen"
+            :is-dark="isDark"
+            @created="onTypeCreated"
+          />
+          <MarketPriceNewCategoryDialog
+            v-model="newCategoryOpen"
+            :is-dark="isDark"
+            :type-id="selectedTypeId"
+            @created="onCategoryCreated"
+          />
         </div>
 
         <!-- Unit & Conversion -->
@@ -208,13 +165,15 @@
 <script>
 import { AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus, Pencil, PlusCircle, Save, Scale, Shapes, Tag, X } from 'lucide-vue-next';
 import { updateMarketPrice } from '@/api/endpoints/menu.api';
-import { createMarketPriceType, createMarketPriceCategory } from '@/api/endpoints/market.price.api';
+import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
+import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
 
 export default {
   name: 'MarketPriceEditDrawer',
   components: {
     AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus,
     Pencil, PlusCircle, Save, Scale, Shapes, Tag, X,
+    MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog,
   },
   props: {
     modelValue: { type: Boolean, default: false },
@@ -242,13 +201,7 @@ export default {
       localGoodTypeOptions: [],
       localGoodCategoryOptions: [],
       newTypeOpen: false,
-      newTypeValue: '',
-      newTypeLoading: false,
-      newTypeError: '',
       newCategoryOpen: false,
-      newCategoryValue: '',
-      newCategoryLoading: false,
-      newCategoryError: '',
       form: {
         originalItemName: '',
         itemName: '',
@@ -425,9 +378,7 @@ export default {
         this.localGoodTypeOptions = [...(this.goodTypeOptions || [])];
         this.localGoodCategoryOptions = [];
         this.newTypeOpen = false;
-        this.newTypeValue = '';
         this.newCategoryOpen = false;
-        this.newCategoryValue = '';
         const raw = this.initialItem;
         this.isHydratingForm = true;
         this.form = {
@@ -518,70 +469,19 @@ export default {
         this.form.image = '';
       }
     },
-    async confirmNewType() {
-      const name = this.newTypeValue.trim();
-      if (!name) return;
-      this.newTypeLoading = true;
-      this.newTypeError = '';
-      try {
-        await createMarketPriceType({ name });
-        await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-        if (!this.localGoodTypeOptions.includes(name)) {
-          this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
-        }
-        this.form.goodType = name;
-        this.newTypeValue = '';
-        this.newTypeOpen = false;
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        if (msgStr.includes('Unique constraint')) {
-          // Le type existe déjà (créé entre-temps) : on le récupère quand même.
-          await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-          this.form.goodType = name;
-          this.newTypeValue = '';
-          this.newTypeOpen = false;
-        } else {
-          this.newTypeError = msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-        }
-      } finally {
-        this.newTypeLoading = false;
+    // Le dialog partagé a créé le type/catégorie (API + refetch store) ; ici on ne
+    // fait que refléter la sélection dans le formulaire + l'affichage immédiat.
+    onTypeCreated(name) {
+      if (!this.localGoodTypeOptions.includes(name)) {
+        this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
       }
+      this.form.goodType = name;
     },
-    async confirmNewCategory() {
-      const name = this.newCategoryValue.trim();
-      if (!name) return;
-      if (!this.selectedTypeId) {
-        this.newCategoryError = this.locale === 'fr'
-          ? 'Choisis d\'abord un Good Type.'
-          : 'Pick a Good Type first.';
-        return;
+    onCategoryCreated(name) {
+      if (!this.localGoodCategoryOptions.includes(name)) {
+        this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
       }
-      this.newCategoryLoading = true;
-      this.newCategoryError = '';
-      try {
-        await createMarketPriceCategory({ name, typeId: this.selectedTypeId });
-        await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
-        if (!this.localGoodCategoryOptions.includes(name)) {
-          this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
-        }
-        this.form.category = name;
-        this.newCategoryValue = '';
-        this.newCategoryOpen = false;
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        if (msgStr.includes('Unique constraint')) {
-          await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
-          this.form.category = name;
-          this.newCategoryValue = '';
-          this.newCategoryOpen = false;
-        } else {
-          this.newCategoryError = msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-        }
-      } finally {
-        this.newCategoryLoading = false;
-      }
+      this.form.category = name;
     },
     close() {
       this.$emit('update:modelValue', false);
@@ -826,41 +726,6 @@ export default {
 .mped-item-select :deep(.v-field__input) { font-size: 13.5px !important; color: #111827 !important; }
 .mped-item-select :deep(.v-select__selection-text) { font-size: 13.5px !important; }
 
-/* === Mini dialog (type / category creation) === */
-.mped-mini-dialog {
-  background: #fff;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0,0,0,.14);
-}
-.mped-mini-dialog__header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 20px;
-  background: #ff3131;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-}
-.mped-mini-dialog__close {
-  margin-left: auto;
-  background: rgba(255,255,255,.18);
-  border: none; border-radius: 6px;
-  width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85);
-}
-.mped-mini-dialog__close:hover { background: rgba(255,255,255,.3); }
-.mped-mini-dialog__body { padding: 20px 20px 16px; }
-.mped-mini-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 12px 20px;
-  border-top: 1px solid #f0f0f0;
-  background: #fafafa;
-}
 
 /* === Footer === */
 .mped__footer {
@@ -1038,6 +903,13 @@ export default {
 .mped--dark :deep(.v-field) {
   background-color: #263548 !important;
 }
+/* Bordure custom des v-select (.mped-item-select) + icônes clear/dropdown, sombres en dark. */
+.mped--dark .mped-item-select :deep(.v-field) { border-color: #374151 !important; }
+.mped--dark .mped-item-select :deep(.v-field--focused) { border-color: #ff3131 !important; background: #263548 !important; }
+.mped--dark .mped-item-select :deep(.v-field__clearable),
+.mped--dark .mped-item-select :deep(.v-field__append-inner),
+.mped--dark .mped-item-select :deep(.v-field__clearable .v-icon),
+.mped--dark .mped-item-select :deep(.v-field__append-inner .v-icon) { color: #94a3b8 !important; }
 
 .mped--dark :deep(.v-field__input),
 .mped--dark :deep(input),

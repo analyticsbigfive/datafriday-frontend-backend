@@ -51,12 +51,13 @@
 
       <!-- ── Space selector card ── -->
       <div class="smsp-card">
-        <div class="smsp-section-label smsp-section-label--red">
+        <label class="smsp-section-label smsp-section-label--red" for="smsp-space-select">
           <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff3131" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           <span>{{ t('intgSpaceExisting') }}</span>
-        </div>
+        </label>
         <div class="smsp-select-wrap">
           <select
+            id="smsp-space-select"
             v-model="selectedSpaceId"
             class="smsp-select"
             :disabled="saving"
@@ -64,7 +65,7 @@
             <option value="" disabled>{{ t('intgSpaceSelectPlaceholder') }}</option>
             <option v-for="item in spaceItems" :key="item.value" :value="item.value">{{ item.title }}</option>
           </select>
-          <button v-if="selectedSpaceId" class="smsp-select-clear" :title="t('intgSpaceDeselect')" @click="selectedSpaceId = null">
+          <button v-if="selectedSpaceId" class="smsp-select-clear" :title="t('intgSpaceDeselect')" :aria-label="t('intgSpaceDeselect')" @click="selectedSpaceId = null">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -82,6 +83,8 @@
         <button
           class="smsp-expand-trigger"
           :class="{ 'smsp-expand-trigger--open': createPanelOpen }"
+          :aria-expanded="createPanelOpen"
+          aria-controls="smsp-create-panel"
           @click="createPanelOpen = !createPanelOpen"
         >
           <div class="smsp-expand-trigger__left">
@@ -97,7 +100,7 @@
         </button>
 
         <Transition name="smsp-expand">
-          <div v-if="createPanelOpen" class="smsp-expand-body">
+          <div v-if="createPanelOpen" id="smsp-create-panel" class="smsp-expand-body">
 
             <!-- Identité -->
             <div class="smsp-section-label smsp-section-label--red mb-3">
@@ -122,7 +125,7 @@
               <label class="smsp-field-label">{{ t('intgSpaceFieldPlaceType') }}</label>
               <select v-model="newSpace.spaceType" class="smsp-select smsp-select--full">
                 <option value="">{{ t('intgSpaceSelectEmpty') }}</option>
-                <option v-for="opt in spaceTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
+                <option v-for="opt in spaceTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
             </div>
 
@@ -146,9 +149,9 @@
                 <div class="form-floating">
                   <input
                     id="smsp-dept"
-                    v-model.number="newSpace.department"
-                    type="number"
-                    min="1"
+                    v-model="newSpace.department"
+                    type="text"
+                    inputmode="text"
                     class="form-control smsp-input"
                     :class="{ 'is-invalid': formErrors.department }"
                     placeholder=" "
@@ -392,6 +395,13 @@
               </div>
             </div>
           </div>
+
+          <!-- Erreur affichée dans le dialog lui-même — la bannière de la page sous-jacente
+               est masquée derrière ce dialog persistant au moment de l'échec. -->
+          <div v-if="configError" class="smsp-infobar smsp-infobar--error mt-3">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>{{ configError }}</span>
+          </div>
         </v-card-text>
 
         <div class="smsp-dialog-footer">
@@ -431,6 +441,40 @@ import { createLocationSpaceMapping } from '@/api/endpoints/mapping.api'
 import { createConfiguration } from '@/api/endpoints/configuration.api'
 import { t as translate } from '@/i18n'
 
+const SIMILARITY_THRESHOLD = 0.4
+const MIN_NAME_LENGTH_FOR_SIMILARITY = 3
+const DEFAULT_CONFIG_NAME = 'Configuration principale'
+const DEFAULT_FLOOR_NAME = 'RDC'
+const DEFAULT_FLOOR_WIDTH = 100
+const DEFAULT_FLOOR_LENGTH = 100
+// A2 : nom de config interne backend, à ne jamais laisser un utilisateur reproduire
+// (cf. handleConfirmConfig) — collision avec le filtre isSystem/nom du sélecteur d'étage.
+const WEEZEVENT_IMPORT_CONFIG_NAME = 'weezevent import'
+
+function createEmptySpace() {
+  return {
+    name: '',
+    spaceType: '',
+    maxCapacity: null,
+    department: null,
+    homeTeam: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    postcode: '',
+    country: '',
+    email: '',
+    tel: '',
+    mainContactPerson: '',
+    contactEmail: '',
+    contactTel: '',
+    instagram: '',
+    tiktok: '',
+    facebook: '',
+    twitter: '',
+  }
+}
+
 export default {
   name: 'StepMapSpace',
 
@@ -450,43 +494,21 @@ export default {
       saving: false,
       error: null,
       selectedSpaceId: this.initialSpaceId,
-      suggestion: null,
       createPanelOpen: false,
-      spaceTypeOptions: ['Stadium', 'Arena', 'Zénith', 'Indoor Festival'],
       submitted: false,
-      newSpace: {
-        name: '',
-        spaceType: '',
-        spaceTypeOther: '',
-        maxCapacity: null,
-        department: null,
-        homeTeam: '',
-        addressLine1: '',
-        addressLine2: '',
-        city: '',
-        postcode: '',
-        country: '',
-        email: '',
-        tel: '',
-        mainContactPerson: '',
-        contactEmail: '',
-        contactTel: '',
-        instagram: '',
-        tiktok: '',
-        facebook: '',
-        twitter: '',
-      },
+      newSpace: createEmptySpace(),
       postCreateDialog: false,
       postCreateSpaceId: null,
       creatingConfig: false,
+      configError: null,
       configForm: {
         // A2 : ne PAS proposer "weezevent import" par défaut — ce nom entre en collision
         // avec la config interne backend "Weezevent Import" et serait masqué par le filtre
         // isSystem/nom du sélecteur d'étage (la config utilisateur deviendrait invisible).
-        configName: 'Configuration principale',
-        floorName: 'RDC',
-        floorWidth: 100,
-        floorLength: 100,
+        configName: DEFAULT_CONFIG_NAME,
+        floorName: DEFAULT_FLOOR_NAME,
+        floorWidth: DEFAULT_FLOOR_WIDTH,
+        floorLength: DEFAULT_FLOOR_LENGTH,
       },
     }
   },
@@ -496,16 +518,42 @@ export default {
       return this.$store.getters['spaces/spaces'] || []
     },
     spaceItems() {
-      return this.spaces.map(s => ({ title: s.name, value: s.id }))
+      const nameCounts = {}
+      for (const s of this.spaces) {
+        const key = (s.name || '').trim().toLowerCase()
+        nameCounts[key] = (nameCounts[key] || 0) + 1
+      }
+      return this.spaces.map(s => {
+        const key = (s.name || '').trim().toLowerCase()
+        const isDuplicate = nameCounts[key] > 1
+        const disambiguator = isDuplicate ? (s.city || `#${String(s.id).slice(0, 6)}`) : ''
+        return { title: disambiguator ? `${s.name} (${disambiguator})` : s.name, value: s.id }
+      })
     },
     selectedSpaceName() {
       return this.spaces.find(s => s.id === this.selectedSpaceId)?.name || ''
     },
+    spaceTypeOptions() {
+      return [
+        { value: 'Stadium', label: this.t('intgSpaceTypeStadium') },
+        { value: 'Arena', label: this.t('intgSpaceTypeArena') },
+        { value: 'Zénith', label: this.t('intgSpaceTypeZenith') },
+        { value: 'Indoor Festival', label: this.t('intgSpaceTypeIndoorFestival') },
+      ]
+    },
+    suggestion() {
+      if (this.selectedSpaceId) return null
+      return this.suggestSpace(this.location?.name)
+    },
     formErrors() {
       const e = {}
       const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      if (!this.newSpace.name?.trim()) {
+      const departmentRe = /^(2[AB]|\d{1,3})$/i
+      const trimmedName = this.newSpace.name?.trim() || ''
+      if (!trimmedName) {
         e.name = this.t('intgSpaceErrNameRequired')
+      } else if (this.spaces.some(s => (s.name || '').trim().toLowerCase() === trimmedName.toLowerCase())) {
+        e.name = this.t('intgSpaceErrNameDuplicate')
       }
       if (this.newSpace.email && !emailRe.test(this.newSpace.email)) {
         e.email = this.t('intgSpaceErrEmailInvalid')
@@ -516,7 +564,8 @@ export default {
       if (this.newSpace.maxCapacity !== null && this.newSpace.maxCapacity !== '' && Number(this.newSpace.maxCapacity) < 0) {
         e.maxCapacity = this.t('intgSpaceErrPositiveValue')
       }
-      if (this.newSpace.department !== null && this.newSpace.department !== '' && Number(this.newSpace.department) < 1) {
+      const trimmedDepartment = String(this.newSpace.department ?? '').trim()
+      if (trimmedDepartment && !departmentRe.test(trimmedDepartment)) {
         e.department = this.t('intgSpaceErrDepartmentInvalid')
       }
       return e
@@ -529,9 +578,6 @@ export default {
   async mounted() {
     window.addEventListener('locale-changed', this.handleLocaleChange)
     await this.loadAll()
-    if (!this.selectedSpaceId) {
-      this.suggestion = this.suggestSpace(this.location?.name)
-    }
   },
 
   beforeUnmount() {
@@ -562,21 +608,34 @@ export default {
 
     selectSpace(id) {
       this.selectedSpaceId = id
-      this.suggestion = null
     },
 
     suggestSpace(locationName) {
       if (!locationName || !this.spaces.length) return null
       let bestMatch = null
       let bestScore = 0
+      const normalizedLocationName = this.normalizeForComparison(locationName)
+      if (normalizedLocationName.length < MIN_NAME_LENGTH_FOR_SIMILARITY) return null
       for (const space of this.spaces) {
-        const score = this.calculateSimilarity(locationName.toLowerCase(), space.name.toLowerCase())
-        if (score > bestScore && score > 0.4) {
+        const normalizedSpaceName = this.normalizeForComparison(space.name)
+        if (normalizedSpaceName.length < MIN_NAME_LENGTH_FOR_SIMILARITY) continue
+        const score = this.calculateSimilarity(normalizedLocationName, normalizedSpaceName)
+        if (score > bestScore && score > SIMILARITY_THRESHOLD) {
           bestScore = score
           bestMatch = { space, score: Math.round(score * 100) }
         }
       }
       return bestMatch
+    },
+
+    // Replie les accents et coupe les espaces parasites avant comparaison, pour éviter
+    // des faux négatifs de similarité (ex. "Café Nord" vs "Cafe Nord ").
+    normalizeForComparison(str) {
+      return (str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .trim()
     },
 
     calculateSimilarity(a, b) {
@@ -611,10 +670,9 @@ export default {
       this.error = null
       try {
         const payload = { ...this.newSpace }
-        if (!payload.spaceType || payload.spaceType === 'Other') {
-          payload.spaceType = payload.spaceTypeOther || undefined
+        if (!payload.spaceType) {
+          payload.spaceType = undefined
         }
-        delete payload.spaceTypeOther
         const space = await createSpace(payload)
         if (space) {
           // Ajout optimiste immédiat → selectedSpaceName correct de suite
@@ -652,12 +710,13 @@ export default {
 
     async handleConfirmConfig() {
       this.creatingConfig = true
+      this.configError = null
       try {
         // A2 : garde-fou — un nom vide ou "weezevent import" est remplacé par un nom neutre,
         // sinon la config utilisateur serait masquée par le filtre du sélecteur d'étage.
         let configName = (this.configForm.configName || '').trim()
-        if (!configName || configName.toLowerCase() === 'weezevent import') {
-          configName = 'Configuration principale'
+        if (!configName || configName.toLowerCase() === WEEZEVENT_IMPORT_CONFIG_NAME) {
+          configName = DEFAULT_CONFIG_NAME
         }
         await createConfiguration({
           name: configName,
@@ -665,10 +724,10 @@ export default {
           capacity: 0,
           data: {
             floors: [{
-              name: this.configForm.floorName || 'RDC',
+              name: this.configForm.floorName || DEFAULT_FLOOR_NAME,
               level: 0,
-              width: this.configForm.floorWidth || 100,
-              length: this.configForm.floorLength || 100,
+              width: this.configForm.floorWidth || DEFAULT_FLOOR_WIDTH,
+              length: this.configForm.floorLength || DEFAULT_FLOOR_LENGTH,
               height: 4,
               elements: [],
               cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
@@ -681,11 +740,16 @@ export default {
             externalMerch: null,
           },
         })
+        // Succès uniquement : on referme le dialog et on nettoie son état.
+        this.closePostCreate()
       } catch (err) {
         console.error('[StepMapSpace] Error creating configuration:', err)
+        // Le dialog reste ouvert en cas d'échec — la bannière d'erreur de la page
+        // sous-jacente n'est pas visible derrière le dialog persistant. On affiche donc
+        // l'erreur ici pour que l'utilisateur puisse la voir et réessayer/annuler.
+        this.configError = err.message
       } finally {
         this.creatingConfig = false
-        this.closePostCreate()
       }
     },
 
@@ -696,16 +760,16 @@ export default {
     closePostCreate() {
       this.postCreateDialog = false
       this.postCreateSpaceId = null
-      this.newSpace = {
-        name: '', spaceType: '', spaceTypeOther: '', maxCapacity: null,
-        department: null, homeTeam: '', addressLine1: '', addressLine2: '',
-        city: '', postcode: '', country: '', email: '', tel: '',
-        mainContactPerson: '', contactEmail: '', contactTel: '',
-        instagram: '', tiktok: '', facebook: '', twitter: '',
-      }
+      this.configError = null
+      this.newSpace = createEmptySpace()
       this.submitted = false
       this.createPanelOpen = false
-      this.configForm = { configName: 'Configuration principale', floorName: 'RDC', floorWidth: 100, floorLength: 100 }
+      this.configForm = {
+        configName: DEFAULT_CONFIG_NAME,
+        floorName: DEFAULT_FLOOR_NAME,
+        floorWidth: DEFAULT_FLOOR_WIDTH,
+        floorLength: DEFAULT_FLOOR_LENGTH,
+      }
       this.$store.dispatch('spaces/fetchSpaces', { forceRefresh: true })
     },
   },

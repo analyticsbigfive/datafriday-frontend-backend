@@ -138,7 +138,7 @@ function buildVariations(curr, prev) {
  * {shopId, shopName, items[]}> }.
  */
 async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, commit }) {
-  const EMPTY = { shopRows: [], byName: new Map() }
+  const EMPTY = { shopRows: [], byName: new Map(), batchFailed: false }
   if (!spaceId || !configId) return EMPTY
   let allRows = []
   try {
@@ -175,11 +175,15 @@ async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, comm
   // remonte que id/nom/catégorie des articles ENABLED, pas la recette complète
   // (composants/ingrédients/pricing) inutile ici.
   let itemsByShopId = {}
+  // `batchFailed` remonte jusqu'au cache de `buildConfigShopEntry` : un blip réseau
+  // produit un contexte SANS articles, qu'il ne faut surtout pas mémoriser pour la
+  // session (l'appelant doit pouvoir retenter au prochain dispatch).
+  let batchFailed = false
   try {
     const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
     itemsByShopId = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
   } catch (_) {
-    /* noop */
+    batchFailed = true
   }
   const byName = new Map()
   for (const r of shopRows) {
@@ -191,7 +195,7 @@ async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, comm
     if (!key) continue
     byName.set(key, { shopId, shopName: name, items: entry.items })
   }
-  return { shopRows, byName }
+  return { shopRows, byName, batchFailed }
 }
 
 /**
@@ -292,7 +296,7 @@ async function buildConfigShopEntry(spaceId, configId, { state, dispatch, commit
     if (k) perimeterNameSet.add(k)
     if (el?.id != null) perimeterIdSet.add(String(el.id))
   }
-  const { shopRows, byName } = await fetchNestShopMenus({
+  const { shopRows, byName, batchFailed } = await fetchNestShopMenus({
     spaceId, configId, perimeter: { nameSet: perimeterNameSet, idSet: perimeterIdSet }, dispatch, commit, rootGetters,
   })
   const elByName = new Map()
@@ -340,8 +344,54 @@ async function buildConfigShopEntry(spaceId, configId, { state, dispatch, commit
   const assignment = mergeAssignments(edgeAssignment, { menuItems: nestMenuItems })
   return {
     floorElements, assignment, assignmentItemsByShop,
+    _batchFailed: batchFailed,
     _diag: { configElements: configElements.length, nest: byName.size, builder2Types: b2Hits },
   }
+}
+
+/**
+ * Cache de RÉSULTAT de buildConfigShopEntry, par (espace, config).
+ *
+ * Sans lui, chaque appel refaisait `getConfiguration` + le batch
+ * `getConfigShopMenuItemsLight` : l'union « All Configurations » rechargeait la config
+ * déjà chargée en mono-config, et un aller-retour A → B → A repayait A.
+ *
+ * Promise (pas résultat) → dédup AUSSI les appels concurrents : `loadConfigShopContext(cfg-1)`
+ * et `loadAllConfigsShopContext` (qui inclut cfg-1) peuvent se chevaucher.
+ *
+ * Durée de vie = la session de page, purgée par `resetConfigShopEntryCache()` appelé en
+ * tête de `loadSpace` — exactement le cycle du cache builder2 juste au-dessus. C'est CE
+ * point qui rend le cache sûr : revenir du Builder remonte AnalyseView → `loadSpace` →
+ * purge → refetch. (Cf. BUG-225, où une dédup « contexte déjà chargé » avait été REFUSÉE
+ * faute d'un tel point de purge.)
+ */
+const configShopEntryCache = new Map() // `${spaceId}::${configId}` → Promise<entry>
+
+export function resetConfigShopEntryCache() {
+  configShopEntryCache.clear()
+}
+
+function buildConfigShopEntryCached(spaceId, configId, ctx) {
+  const key = `${spaceId}::${configId}`
+  const hit = configShopEntryCache.get(key)
+  if (hit) return hit
+  const p = buildConfigShopEntry(spaceId, configId, ctx).then(
+    (entry) => {
+      // `buildConfigShopEntry` avale ses propres échecs (chaque fetch a son .catch) :
+      // un blip sur le batch shop-items renvoie donc un contexte SANS articles, qui
+      // « réussit ». Le mémoriser figerait des PdV sans menu pour toute la session —
+      // on ne cache que les builds dont le batch a abouti.
+      if (entry?._batchFailed) configShopEntryCache.delete(key)
+      return entry
+    },
+    (err) => {
+      // Filet pour une évolution future qui laisserait remonter une exception.
+      configShopEntryCache.delete(key)
+      throw err
+    },
+  )
+  configShopEntryCache.set(key, p)
+  return p
 }
 
 /**
@@ -355,6 +405,39 @@ async function buildConfigShopEntry(spaceId, configId, { state, dispatch, commit
 export function resolveConfigSelectionAfterLoad(currentId, configurations = []) {
   if (!currentId || currentId === 'cfg-all') return null
   return configurations.some((c) => c?.id === currentId) ? currentId : null
+}
+
+/**
+ * Configuration à PRÉ-SÉLECTIONNER à l'ouverture d'un espace (Analyse / Prédire),
+ * quand l'utilisateur n'a encore rien choisi. Règle validée : la PREMIÈRE config
+ * de la liste qui a réellement des events rattachés.
+ *
+ * Pourquoi la condition « avec events » : une config sélectionnée SCOPE STRICTEMENT
+ * les events (`eventsInActiveConfiguration`) — pré-sélectionner une config vide
+ * ouvrirait l'écran sur « Aucun event rattaché à cette configuration ».
+ *
+ * Repli `null` = « All Configurations » (comportement historique) si aucune config
+ * n'a d'event : mieux vaut l'union que l'écran vide.
+ *
+ * Le rattachement event↔config suit la MÊME double règle que
+ * `eventsInActiveConfiguration` : `config.eventIds` OU `event.configurationId`.
+ *
+ * @returns {string|null} id de configuration, ou null pour « All Configurations »
+ */
+export function pickDefaultConfiguration(configurations = [], events = []) {
+  const list = (configurations || []).filter((c) => c?.id && c.id !== 'cfg-all')
+  if (!list.length) return null
+  const evs = events || []
+  for (const c of list) {
+    // Intersection RÉELLE avec les events chargés : un `eventIds` qui pointe des
+    // events absents du space donnerait quand même un écran vide.
+    const ids = new Set(c.eventIds || [])
+    const hasEvents = evs.some(
+      (e) => ids.has(e?.id) || (e?.configurationId && e.configurationId === c.id),
+    )
+    if (hasEvents) return c.id
+  }
+  return null
 }
 
 // Statuts backend considérés comme « supprimé/invalide » (comparaison lowercase).
@@ -473,6 +556,15 @@ const state = () => ({
   configContextLoading: false,  // true tant que loadConfig(All)ShopContext fetch (pilote l'état loading des filtres)
   configContextError: null,     // message d'erreur si getConfiguration/getSpaceMenuConfiguration échoue (filtres = état error, pas vide silencieux)
   configContextReqId: 0,        // jeton de requête : seul le DERNIER loadConfig(All)ShopContext dispatché commit son résultat (anti-race fire-and-forget + watcher)
+  // false tant qu'AUCUN chargement de contexte PdV n'est allé au bout. Distingue
+  // « pas encore tenté » (union All Configurations DIFFÉRÉE par AnalyseView après le
+  // 1er rendu) de « chargé, réellement vide ». Sans ce flag, le donut « Par zone »
+  // (shopArea vient des FloorElements) s'affiche VIDE pendant tout le différé.
+  configContextSettled: false,
+  configContextLoadingId: null, // configId du chargement de contexte en cours (dédup des dispatchs concurrents)
+  // Espace pour lequel la pré-sélection auto de configuration a déjà été jouée.
+  // Garantit qu'elle ne s'applique QU'UNE fois par espace (cf. pickDefaultConfiguration).
+  configAutoSelectedSpaceId: null,
   // Options du filtre articles = articles VENDUS dans le scope events courant.
   // Remontées depuis AnalyseView (dataset item-level, hors store) via
   // setSoldItemOptions. Source des getters salesMenuItem* (data-driven : filtres
@@ -1542,6 +1634,9 @@ const mutations = {
   // L'action capture sa valeur et n'écrit le contexte QUE si elle est encore la dernière.
   BUMP_CONFIG_CTX_REQ(state) { state.configContextReqId = (state.configContextReqId || 0) + 1 },
   SET_CONFIG_CONTEXT_LOADING(state, v) { state.configContextLoading = !!v },
+  SET_CONFIG_CONTEXT_SETTLED(state, v) { state.configContextSettled = !!v },
+  SET_CONFIG_AUTO_SELECTED_SPACE_ID(state, id) { state.configAutoSelectedSpaceId = id || null },
+  SET_CONFIG_CONTEXT_LOADING_ID(state, id) { state.configContextLoadingId = id || null },
   SET_CONFIG_CONTEXT_ERROR(state, e) { state.configContextError = e || null },
   SET_SOLD_ITEM_OPTIONS(state, { names, types, categories } = {}) {
     state.soldItemOptions = {
@@ -1721,7 +1816,10 @@ const actions = {
     // Le cache contexte-PdV est clé par configId ; on le purge au (re)chargement d'un
     // espace pour ne jamais servir un périmètre d'un autre espace / d'un état périmé.
     // Idem pour les subtypes builder2 : re-fetch après édition dans le builder.
+    // C'est CE point de purge qui autorise `configShopEntryCache` à exister : sans lui,
+    // un retour du Builder servirait des PdV/zones périmés.
     resetBuilder2SubtypesCache()
+    resetConfigShopEntryCache()
 
     if (fresh) {
       // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
@@ -1753,16 +1851,22 @@ const actions = {
     // Phase 2 (enrichissement) rappelle onEnrichment en arrière-plan.
     const { fetchSpaceData } = await import('@/composables/useSpaceData')
     const data = await fetchSpaceData(spaceId, (enrichment) => {
-      // Appelé depuis le background quand menu-items/components/ingredients/granular arrivent
-      commit('SET_MENU_ITEMS', enrichment.menuItems || [])
+      // Appelé PLUSIEURS fois : vague 2a (graphes : menu-items + granular + taxonomie),
+      // puis vague 2b (catalogues recette). On ne commit QUE les clés réellement
+      // présentes — sinon la 2e passe, qui n'envoie que son delta, remettrait à []
+      // la taxonomie et les suppliers posés par la 1re (et le fallback d'erreur
+      // effacerait les menu items déjà affichés).
+      if (enrichment.menuItems) commit('SET_MENU_ITEMS', enrichment.menuItems)
       // Taxonomie catalogue → source unique des dimensions item (réconciliation).
-      commit('SET_TAXONOMY', {
-        productTypes: enrichment.productTypes,
-        productCategories: enrichment.productCategories,
-      })
-      commit('SET_SUPPLIERS', enrichment.suppliers || [])
-      commit('SET_INGREDIENTS', enrichment.ingredients || [])
-      commit('SET_COMPONENTS', enrichment.components || [])
+      if (enrichment.productTypes || enrichment.productCategories) {
+        commit('SET_TAXONOMY', {
+          productTypes: enrichment.productTypes,
+          productCategories: enrichment.productCategories,
+        })
+      }
+      if (enrichment.suppliers) commit('SET_SUPPLIERS', enrichment.suppliers)
+      if (enrichment.ingredients) commit('SET_INGREDIENTS', enrichment.ingredients)
+      if (enrichment.components) commit('SET_COMPONENTS', enrichment.components)
       // Coûts (MARGE) : complète le costMap de phase 1 (shop-details) avec les
       // coûts dérivés des menu items (phase 2). Shop-details prioritaire → on
       // n'écrase pas une valeur existante par celle des items.
@@ -1816,17 +1920,31 @@ const actions = {
     // l'id est périmé (hérité d'un autre espace, s'afficherait BRUT dans le select).
     // Le deep-link ?config=<id> restaure une config précise APRÈS loadSpace
     // (cf. AnalyseView.ensureAuthAndLoad). Non bloquant (fire-and-forget).
-    const preserved = resolveConfigSelectionAfterLoad(
-      state.filters.selectedConfigurationId,
-      filterValidConfigurations(data.configurations),
+    const validConfigs = filterValidConfigurations(data.configurations)
+    const previousCfg = state.filters.selectedConfigurationId
+    let preserved = resolveConfigSelectionAfterLoad(
+      previousCfg,
+      validConfigs,
     )
+    // Pré-sélection par défaut (1ère config AVEC events) à la PREMIÈRE ouverture de
+    // cet espace seulement. Le garde-fou `configAutoSelectedSpaceId` est ce qui
+    // empêche d'écraser un « All Configurations » choisi ensuite par l'utilisateur :
+    // loadSpace est re-dispatché par d'autres écrans (EventPredictView.loadAll…),
+    // sans lui on rejouerait la pré-sélection à chaque fois (bug « retombe sur X »).
+    if (!preserved && state.configAutoSelectedSpaceId !== spaceId) {
+      preserved = pickDefaultConfiguration(validConfigs, data.events || [])
+      commit('SET_CONFIG_AUTO_SELECTED_SPACE_ID', spaceId)
+    }
     commit('UPDATE_FILTER', { key: 'selectedConfigurationId', value: preserved })
-    // Valeur inchangée → le watcher AnalyseView ne re-firera PAS : on dispatch le
-    // contexte explicitement (le cache vient d'être purgé en tête de loadSpace).
     // PERF (décision user « différer seulement ») : le chemin « All Configurations »
     // (~2-3 requêtes/config depuis le batch getConfigShopMenuItemsLight) n'est PLUS
     // lancé ici — AnalyseView le déclenche APRÈS le premier rendu (watcher enriching/idle).
-    // Une config précise préservée reste chargée immédiatement (2-3 requêtes).
+    // Une config précise reste chargée immédiatement (2-3 requêtes).
+    //
+    // Dispatch INCONDITIONNEL (d'autres écrans que AnalyseView dispatchent loadSpace
+    // sans watcher `selectedConfigurationId` derrière). Le doublon avec le watcher —
+    // réel depuis la pré-sélection auto (null → cfg, la valeur CHANGE donc le watcher
+    // fire aussi) — est absorbé par la dédup interne de `loadConfigShopContext`.
     if (preserved) dispatch('loadConfigShopContext', preserved)
   },
 
@@ -1838,6 +1956,19 @@ const actions = {
    */
   async loadConfigShopContext({ state, commit, dispatch, rootGetters }, configId) {
     const spaceId = state.spaceId || state.space?.id
+    // Dédup (avant le jeton, sinon on annulerait la requête qu'on veut réutiliser) :
+    // `buildConfigShopEntry` n'a AUCUN cache de résultat — chaque appel refait le
+    // batch getConfigShopMenuItemsLight. Deux chemins dispatchent la même config au
+    // même moment (useSpaceDataFetch + watcher `selectedConfigurationId`), on ne
+    // garde donc que le premier.
+    // NB : dédup UNIQUEMENT sur le vol en cours, PAS sur « déjà chargé » —
+    // `configShopContext` n'est jamais purgé (loadSpace ne reset que le cache
+    // builder2), un short-circuit sur l'existant servirait des zones/PdV périmés
+    // après une édition dans le Builder.
+    if (configId && configId !== 'cfg-all'
+        && state.configContextLoading && state.configContextLoadingId === configId) {
+      return
+    }
     // Jeton anti-race : ce dispatch ne commit son résultat QUE s'il reste le dernier
     // (loadSpace fire-and-forget + watcher selectedConfigurationId peuvent se chevaucher).
     commit('BUMP_CONFIG_CTX_REQ')
@@ -1849,12 +1980,14 @@ const actions = {
       commit('SET_CONFIG_SHOP_CONTEXT', {
         configId: null, floorElements: [], assignment: null, assignmentItemsByShop: new Map(),
       })
+      commit('SET_CONFIG_CONTEXT_SETTLED', true)
       return
     }
     commit('SET_CONFIG_CONTEXT_LOADING', true)
+    commit('SET_CONFIG_CONTEXT_LOADING_ID', configId)
     try {
       // Build COMPLET extrait (réutilisé par l'union « All Configurations »).
-      const built = await buildConfigShopEntry(spaceId, configId, { state, dispatch, commit, rootGetters })
+      const built = await buildConfigShopEntryCached(spaceId, configId, { state, dispatch, commit, rootGetters })
       const { floorElements, assignment, assignmentItemsByShop } = built
 
       // Réponse obsolète (une autre config a été demandée entre-temps) → ne RIEN écrire.
@@ -1885,7 +2018,11 @@ const actions = {
     } finally {
       // Ne libère l'état loading que si on est encore la dernière requête (sinon on
       // masquerait le spinner d'un chargement plus récent encore en cours).
-      if (!stale()) commit('SET_CONFIG_CONTEXT_LOADING', false)
+      if (!stale()) {
+        commit('SET_CONFIG_CONTEXT_LOADING', false)
+        commit('SET_CONFIG_CONTEXT_LOADING_ID', null)
+        commit('SET_CONFIG_CONTEXT_SETTLED', true)
+      }
     }
   },
 
@@ -1905,10 +2042,11 @@ const actions = {
     if (!spaceId || !configs.length) {
       if (stale()) return
       commit('SET_CONFIG_SHOP_CONTEXT', { configId: null, floorElements: [], assignment: null, assignmentItemsByShop: new Map() })
+      commit('SET_CONFIG_CONTEXT_SETTLED', true)
       return
     }
     commit('SET_CONFIG_CONTEXT_LOADING', true)
-    const _t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+    const _t0 =(typeof performance !== 'undefined' ? performance.now() : Date.now())
     try {
       // Pool borné (3 configs à la fois, comme le pool shops de buildConfigShopEntry) :
       // avant, ce Promise.all lançait TOUTES les configs de l'espace en parallèle
@@ -1919,7 +2057,7 @@ const actions = {
         configs.map((c, i) => [c, i]),
         3,
         async ([c, i]) => {
-          const built = await buildConfigShopEntry(spaceId, c.id, { state, dispatch, commit, rootGetters })
+          const built = await buildConfigShopEntryCached(spaceId, c.id, { state, dispatch, commit, rootGetters })
           entries[i] = {
             floorElements: built.floorElements,
             assignment: built.assignment,
@@ -1977,7 +2115,10 @@ const actions = {
       }
       console.warn('[analyse] loadAllConfigsShopContext failed:', err?.message || err)
     } finally {
-      if (!stale()) commit('SET_CONFIG_CONTEXT_LOADING', false)
+      if (!stale()) {
+        commit('SET_CONFIG_CONTEXT_LOADING', false)
+        commit('SET_CONFIG_CONTEXT_SETTLED', true)
+      }
     }
   },
 

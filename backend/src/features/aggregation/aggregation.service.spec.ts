@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { AggregationService } from './aggregation.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
+import { MappingsService } from '../mappings/mappings.service';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
@@ -40,6 +41,10 @@ const mockPrisma: any = {
 
 const mockQueueService: any = {
   queueAggregationJob: jest.fn(),
+};
+
+const mockMappingsService: any = {
+  hasShopMappingForIntegration: jest.fn(),
 };
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
@@ -95,11 +100,15 @@ describe('AggregationService', () => {
         AggregationService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: mockQueueService },
+        { provide: MappingsService, useValue: mockMappingsService },
       ],
     }).compile();
 
     service = module.get<AggregationService>(AggregationService);
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation((arg: any) =>
+      Array.isArray(arg) ? Promise.all(arg) : arg(mockPrisma),
+    );
   });
 
   // ─── getEventsTimelineStatus ─────────────────────────────────────────────
@@ -531,19 +540,65 @@ describe('AggregationService', () => {
   describe('skipEvent', () => {
     it('crée un job log avec status "skipped"', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(makeEvent(EVENT_1));
+      mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.aggregationJobLog.create.mockResolvedValue({ id: 'skip-job' });
 
       const result = await service.skipEvent(TENANT, SPACE, EVENT_1);
 
-      expect(result).toMatchObject({ eventId: EVENT_1, status: 'skipped' });
+      expect(result).toMatchObject({ eventId: EVENT_1, status: 'skipped', purgedDataPoints: 0 });
       expect(mockPrisma.aggregationJobLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'skipped', jobType: 'skip' }) }),
       );
     });
 
+    it('purge les data points déjà agrégés pour cet event (BUG-020)', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(makeEvent(EVENT_1));
+      mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 42 });
+      mockPrisma.aggregationJobLog.create.mockResolvedValue({ id: 'skip-job' });
+
+      const result = await service.skipEvent(TENANT, SPACE, EVENT_1);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+      });
+      expect(result).toMatchObject({ purgedDataPoints: 42 });
+    });
+
     it('lance NotFoundException si event introuvable', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(null);
       await expect(service.skipEvent(TENANT, SPACE, 'bad')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── getStep4Context (BUG-029) ───────────────────────────────────────────
+  describe('getStep4Context', () => {
+    beforeEach(() => {
+      mockPrisma.space.findFirst.mockResolvedValue({ id: SPACE, tenantId: TENANT });
+      mockPrisma.event.findMany.mockResolvedValue([]);
+      mockPrisma.event.count.mockResolvedValue(0);
+      mockPrisma.aggregationJobLog.findMany.mockResolvedValue([]);
+      mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
+      mockPrisma.salesEvent.findMany.mockResolvedValue([]);
+    });
+
+    it('scope hasMappings par intégration via MappingsService (pas tenant-wide)', async () => {
+      mockMappingsService.hasShopMappingForIntegration.mockResolvedValue(true);
+
+      const result = await service.getStep4Context(TENANT, SPACE, INT_ID);
+
+      expect(mockMappingsService.hasShopMappingForIntegration).toHaveBeenCalledWith(TENANT, INT_ID);
+      expect(mockPrisma.locationShopMapping.count).not.toHaveBeenCalled();
+      expect(result.hasMappings).toBe(true);
+    });
+
+    it('retombe sur un count tenant-wide si integrationId absent (legacy)', async () => {
+      mockPrisma.locationShopMapping.count.mockResolvedValue(3);
+
+      const result = await service.getStep4Context(TENANT, SPACE);
+
+      expect(mockMappingsService.hasShopMappingForIntegration).not.toHaveBeenCalled();
+      expect(mockPrisma.locationShopMapping.count).toHaveBeenCalledWith({ where: { tenantId: TENANT } });
+      expect(result.hasMappings).toBe(true);
     });
   });
 

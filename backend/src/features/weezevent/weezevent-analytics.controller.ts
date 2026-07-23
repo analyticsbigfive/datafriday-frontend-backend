@@ -27,7 +27,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (eventId) where.eventId = eventId;
         if (fromDate || toDate) {
@@ -104,7 +106,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (fromDate || toDate) {
             where.transactionDate = {};
@@ -176,7 +180,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (eventId) where.eventId = eventId;
         if (fromDate || toDate) {
@@ -245,6 +251,9 @@ export class WeezeventAnalyticsController {
 
         const totalMargin = totalSales - totalCost;
         const marginPercent = totalSales > 0 ? (totalMargin / totalSales) * 100 : 0;
+        const mappingRate = mappedItems + unmappedItems > 0
+            ? Math.round((mappedItems / (mappedItems + unmappedItems)) * 100)
+            : 0;
 
         return {
             summary: {
@@ -254,9 +263,13 @@ export class WeezeventAnalyticsController {
                 marginPercent: Math.round(marginPercent * 100) / 100,
                 mappedItems,
                 unmappedItems,
-                mappingRate: mappedItems + unmappedItems > 0 
-                    ? Math.round((mappedItems / (mappedItems + unmappedItems)) * 100) 
-                    : 0,
+                mappingRate,
+                // Un item non mappé compte sa vente dans totalSales mais aucun coût (menuItem
+                // inconnu) dans totalCost — la marge est donc mécaniquement gonflée dès que
+                // unmappedItems > 0, pas seulement quand mappingRate est "bas".
+                marginWarning: unmappedItems > 0
+                    ? `Marge surestimée : ${unmappedItems} ligne(s) vendue(s) non mappée(s) à un MenuItem sont comptées dans le chiffre d'affaires sans coût connu (taux de mapping ${mappingRate}%).`
+                    : null,
             },
             productMargins: productMargins.sort((a, b) => b.margin - a.margin),
             meta: {
@@ -285,7 +298,9 @@ export class WeezeventAnalyticsController {
         @Query('toDate') toDate?: string,
     ) {
         const tenantId = user.tenantId;
-        const where: any = { tenantId };
+        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
+        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
+        const where: any = { tenantId, deletedAt: null };
 
         if (eventId) where.eventId = eventId;
         if (fromDate || toDate) {

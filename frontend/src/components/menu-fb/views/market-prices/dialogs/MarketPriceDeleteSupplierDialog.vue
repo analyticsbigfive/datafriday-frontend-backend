@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="420">
-    <div class="mpdsd">
+    <div class="mpdsd" :class="{ 'mpdsd--dark': isDark }">
       <!-- Header -->
       <div class="mpdsd__header">
         <button class="mpdsd__close" @click="close"><X :size="18" /></button>
@@ -212,4 +212,11 @@ export default {
   box-shadow: 0 6px 20px rgba(255, 49, 49,.4);
   transform: translateY(-1px);
 }
+
+/* ── Dark mode ── */
+.mpdsd.mpdsd--dark { background: #1e293b; }
+.mpdsd--dark .mpdsd__error { background: rgba(255,49,49,.15); border-bottom-color: rgba(255,49,49,.3); }
+.mpdsd--dark .mpdsd__footer { background: #1a2332; border-top-color: rgba(255,255,255,.08); }
+.mpdsd--dark .mpdsd-btn--cancel { border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.mpdsd--dark .mpdsd-btn--cancel:hover:not(:disabled) { border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.06); color: #e2e8f0; }
 </style>

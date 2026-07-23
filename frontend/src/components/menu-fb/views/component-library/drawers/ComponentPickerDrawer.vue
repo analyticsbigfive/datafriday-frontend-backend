@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="ccd-drawer">
       <div v-if="modelValue" class="ccd-overlay" @mousedown.self="close">
-        <div class="ccd-panel component-create__drawer">
+        <div class="ccd-panel component-create__drawer" :class="{ 'ccd-panel--dark': isDark }">
           <div class="cld-drawer__header">
             <div class="cld-drawer__header-icon"><Boxes :size="20" color="white" /></div>
             <div class="cld-drawer__header-text">
@@ -97,6 +97,7 @@ export default {
   components: { Boxes, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'add'],
   setup() {
@@ -381,4 +382,22 @@ export default {
 .ccd-drawer-leave-to {
   transform: translateX(100%);
 }
+
+/* ── Dark mode ── */
+.ccd-panel--dark .ccd-field :deep(.v-field) { border-color: rgba(255,255,255,.12) !important; background: #1a2332 !important; }
+.ccd-panel--dark .ccd-table-card { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.ccd-panel--dark .component-create__drawer-table :deep(.v-data-table__th) { background: #1a2332 !important; color: #94a3b8 !important; }
+.ccd-panel--dark .component-create__drawer-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.ccd-panel--dark .cld-drawer__footer { background: #1e293b; border-top-color: rgba(255,255,255,.08); }
+.ccd-panel--dark .cld-drawer__footer-count { color: #94a3b8; }
+.ccd-panel--dark .cld-fbtn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.ccd-panel--dark .cld-fbtn--cancel:hover { background: rgba(255,255,255,.14); }
+/* Inputs (recherche + filtre) : texte saisi, label et icônes clairs sur fond sombre. */
+.ccd-panel--dark .ccd-field :deep(.v-field__input),
+.ccd-panel--dark .ccd-field :deep(input),
+.ccd-panel--dark .ccd-field :deep(.v-select__selection-text) { color: #e2e8f0 !important; }
+.ccd-panel--dark .ccd-field :deep(.v-label) { color: #94a3b8 !important; }
+.ccd-panel--dark .ccd-field :deep(.v-field__clearable),
+.ccd-panel--dark .ccd-field :deep(.v-field__append-inner),
+.ccd-panel--dark .ccd-field :deep(.v-field__prepend-inner) { color: #94a3b8 !important; }
 </style>

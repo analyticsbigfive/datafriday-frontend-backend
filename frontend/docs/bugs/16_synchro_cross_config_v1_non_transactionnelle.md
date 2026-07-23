@@ -1,6 +1,9 @@
 # BUG-016 — Synchro cross-config v1 non transactionnelle
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-22 — devenu sans objet : `PropertiesPanelView.vue` et
+  `SpaceBuilderViewRoute.vue`, seuls porteurs de `syncConfigurationIdChanges`, ont été supprimés
+  avec le retrait complet du frontend builder v1, voir
+  [ADR-0002](../adr/0002_builder_v2_relationnel_seul.md))
 - **Sévérité** : 🟠 Majeur (incohérence entre configs possible)
 - **Domaine** : Espaces & builder
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -20,9 +23,10 @@ transaction serveur.
 
 ## Correction
 
-Aucune à ce jour — c'est exactement le problème que le Builder v2 corrige structurellement (voir
-[ADR-0002](../adr/0002_builder_v2_relationnel_seul.md)) ; en attendant la bascule complète, ce
-risque reste actif sur v1.
+2026-07-22 : le frontend builder v1 (`spaces/views/builder/`, dont `PropertiesPanelView.vue` et
+`SpaceBuilderViewRoute.vue`) a été retiré du produit — `builder2` (qui corrige structurellement ce
+problème via `ConfigurationElement`, voir [ADR-0002](../adr/0002_builder_v2_relationnel_seul.md))
+est l'unique parcours restant. Aucun code client ne peut plus déclencher ce chemin.
 
 ## Risque de régression / à surveiller
 

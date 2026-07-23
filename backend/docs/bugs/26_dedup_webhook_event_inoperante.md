@@ -1,11 +1,11 @@
 # BUG-026 — Dédup IntegrationWebhookEvent inopérante côté Weezevent
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-21)
 - **Sévérité** : 🟠 Modéré — doublons d'audit + retraitement complet à chaque retry
 - **Domaine** : Intégrations & ventes
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
-- **Découvert le** : 2026-07-15
-- **Fichiers** : `webhook.controller.ts:105-114`, `schema.prisma:1233`
+- **Découvert le** : 2026-07-15 ; corrigé le 2026-07-21
+- **Fichiers** : `webhook.controller.ts:100-135`, `schema.prisma` (`IntegrationWebhookEvent`)
 
 ## Symptôme
 
@@ -15,16 +15,25 @@ d'être détecté comme déjà traité.
 ## Cause racine
 
 `externalDeliveryId` n'est jamais renseigné côté Weezevent lors de la création de
-`IntegrationWebhookEvent`, alors que la dédup repose sur ce champ.
+`IntegrationWebhookEvent`, alors que la dédup (contrainte `@@unique([integrationId,
+externalDeliveryId])`) repose sur ce champ. Contrairement à Digifood, le payload Weezevent
+(`WeezeventWebhookPayloadDto`) ne contient aucun UUID de livraison stable à réutiliser.
 
 ## Correction
 
-Aucune à ce jour. Impact fonctionnel limité par l'idempotence en aval (le traitement lui-même ne
-duplique pas les effets), mais l'audit reste pollué.
+Réutilisé la **signature HMAC** (`x-weezevent-signature`, déjà reçue, déjà stockée dans
+`signature`) comme `externalDeliveryId`. Elle est déterministe sur le corps exact du payload
+(`WebhookSignatureService` : `HMAC-SHA256(secret, JSON.stringify(payload))`) — un retry Weezevent
+renvoie le même corps, donc la même signature, sans qu'aucune nouvelle donnée n'ait besoin d'être
+extraite du payload. `receiveWebhook` fait maintenant un `findUnique` sur `{integrationId,
+externalDeliveryId: signature}` avant `create` (même pattern que `digifood-webhook.controller.ts`)
+et retourne immédiatement `{ received: true, eventId }` sans recréer ni retraiter si déjà vu.
 
 ## Risque de régression / à surveiller
 
-—
+Tests ajoutés (`webhook.controller.spec.ts`) : le cas nominal vérifie que `externalDeliveryId` est
+bien passé à `create`, et un nouveau test dédié vérifie qu'un retry (même signature, `findUnique`
+retourne un event existant) ne recrée pas de ligne et ne redéclenche pas `processEvent`.
 
 ## Références
 

@@ -19,7 +19,9 @@
  *                                                  #   des anciens rôles (les rend éditables/supprimables)
  *
  * Étapes par tenant :
- *  1. (global) (ré)insère le catalogue de permissions système (nouveaux codes inclus).
+ *  1. (global) (ré)insère le catalogue de permissions système ; tout code tout juste créé est
+ *     automatiquement accordé aux rôles métier existants qui l'incluent par défaut, sur tous les
+ *     tenants (cf. `ensureSystemPermissionCatalog`, docs/bugs/38_*.md) — aucune liste à tenir à jour.
  *  2. crée les rôles système cibles manquants : ADMIN + 6 rôles métier (ne réécrit pas les perms existantes).
  *  3. (optionnel REMAP_LEGACY_TO) remap des users encore sur un ancien rôle vers le rôle nommé.
  *  4. (optionnel DESYSTEMATIZE_LEGACY=1, POST-DEPLOY) dé-systématise MANAGER/STAFF/VIEWER.
@@ -31,22 +33,14 @@ const prisma = new PrismaClient();
 
 const LEGACY_ROLE_NAMES = ['MANAGER', 'STAFF', 'VIEWER'];
 
-// Grants additifs ciblés : nouveaux codes à poser sur des rôles métier DÉJÀ créés
-// (cloneSystemRolesForTenant ne touche pas aux permissions des rôles existants).
-// Additif et idempotent — ne retire jamais rien. `front.fb.logisticReconcile` n'est
-// accordé à aucun rôle métier par défaut : l'admin l'assigne via l'écran Rôles.
-const ADDITIVE_ROLE_GRANTS: Record<string, string[]> = {
-  'Logistic F&B': ['front.fb.logistic'],
-};
-
 async function main() {
   const remapTo = process.env.REMAP_LEGACY_TO?.trim() || null;
   const desystematize = process.env.DESYSTEMATIZE_LEGACY === '1';
   console.log('🔧 RBAC backfill — début' + (desystematize ? ' (DÉ-SYSTÉMATISATION activée — post-deploy)' : ' (additif seul — sûr)'));
 
-  // 1. Catalogue global (idempotent)
+  // 1. Catalogue global (idempotent) — tout code nouveau est auto-propagé aux tenants existants.
   await ensureSystemPermissionCatalog(prisma);
-  console.log('✅ Catalogue de permissions système à jour');
+  console.log('✅ Catalogue de permissions système à jour (nouveaux codes propagés)');
 
   const tenants = await prisma.tenant.findMany({ select: { id: true, name: true } });
   console.log(`ℹ️  ${tenants.length} tenant(s) à traiter`);
@@ -57,23 +51,6 @@ async function main() {
     // 2. Rôles cibles (ADMIN + rôles métier) — crée les rôles manquants avec leurs
     //    permissions par défaut ; ne réécrit pas les permissions des rôles déjà présents.
     const roleIdByName = await cloneSystemRolesForTenant(prisma, tenant.id);
-
-    // 2bis. Grants additifs sur rôles existants (nouveaux codes du catalogue)
-    for (const [roleName, codes] of Object.entries(ADDITIVE_ROLE_GRANTS)) {
-      const roleId = roleIdByName[roleName];
-      if (!roleId) continue;
-      const perms = await prisma.permission.findMany({
-        where: { tenantId: null, code: { in: codes } },
-        select: { id: true },
-      });
-      if (perms.length) {
-        // @@id([roleId, permissionId]) → skipDuplicates rend le grant idempotent.
-        await prisma.rolePermission.createMany({
-          data: perms.map((perm) => ({ roleId, permissionId: perm.id })),
-          skipDuplicates: true,
-        });
-      }
-    }
 
     // Anciens rôles génériques restants (pour remap / dé-systématisation / reporting)
     const legacyRoles = await prisma.role.findMany({

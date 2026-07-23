@@ -149,22 +149,27 @@ export class WebhookEventHandler {
     }
 
     /**
-     * Mark a transaction as deleted (soft delete)
+     * Mark a transaction as deleted (soft delete).
+     *
+     * BUG-028 (corrigé) : ne mettait à jour que syncedAt, ne marquant rien comme réellement
+     * supprimé malgré son nom — une transaction supprimée côté Weezevent restait visible et
+     * comptée dans l'agrégation. deletedAt est maintenant exclu explicitement des requêtes
+     * d'agrégation (aggregation.service.ts, executeProcessEvents).
      */
     private async markTransactionAsDeleted(
         transactionId: string,
     ): Promise<void> {
+        const now = new Date();
         const updated = await this.prisma.salesTransaction.updateMany({
-            where: { externalId: transactionId },
+            where: { externalId: transactionId, deletedAt: null },
             data: {
-                // We could add a deletedAt field or update status
-                // For now, we'll just log it
-                syncedAt: new Date(),
+                deletedAt: now,
+                syncedAt: now,
             },
         });
 
         if (updated.count === 0) {
-            this.logger.warn(`Transaction ${transactionId} not found for deletion`);
+            this.logger.warn(`Transaction ${transactionId} not found (or already deleted)`);
         } else {
             this.logger.log(`Marked transaction ${transactionId} as deleted`);
         }

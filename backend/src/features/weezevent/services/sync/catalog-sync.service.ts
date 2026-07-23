@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
 import { SyncResult } from '../weezevent-sync.service';
+import { EventWeezeventLinkService } from '../../../events/services/event-weezevent-link.service';
 
 /**
  * WeezeventCatalogSyncService
@@ -18,6 +19,7 @@ export class WeezeventCatalogSyncService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly weezeventClient: WeezeventClientService,
+        private readonly eventWeezeventLinkService: EventWeezeventLinkService,
     ) {}
 
     // ─────────────────────────────────────────────────────────────
@@ -51,7 +53,7 @@ export class WeezeventCatalogSyncService {
 
             this.logger.log(`Syncing events for tenant ${tenantId}, organization ${organizationId}`);
 
-            const response = await this.weezeventClient.getEvents(tenantId, organizationId, { perPage: 100 });
+            const response = await this.weezeventClient.getEvents(tenantId, integrationId, organizationId, { perPage: 100 });
 
             const parseDate = (dateStr: string | undefined): Date | null => {
                 if (!dateStr) return null;
@@ -126,6 +128,19 @@ export class WeezeventCatalogSyncService {
             result.success = result.errors === 0;
             result.duration = Date.now() - startTime;
 
+            // BUG-021 : tente le rapprochement automatique Event <-> WeezeventEvent (par
+            // date, sans ambiguïté) pour chaque jour touché par ce sync — no-op silencieux
+            // si aucun Event DataFriday n'existe encore, ou si le jour reste ambigu.
+            const touchedDates = new Set<string>(
+                [...eventsToCreate, ...eventsToUpdate.map((e) => e.data)]
+                    .map((e) => e.startDate as Date | null)
+                    .filter((d): d is Date => d !== null)
+                    .map((d) => d.toISOString().slice(0, 10)),
+            );
+            for (const dateStr of touchedDates) {
+                await this.eventWeezeventLinkService.relinkForTenantDate(tenantId, new Date(dateStr));
+            }
+
             await this.prisma.weezeventSyncState.upsert({
                 where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType: 'events' } },
                 create: {
@@ -179,7 +194,7 @@ export class WeezeventCatalogSyncService {
 
             this.logger.log(`Syncing products for tenant ${tenantId}, organization ${organizationId}`);
 
-            const response = await this.weezeventClient.getProducts(tenantId, organizationId, { perPage: 100 });
+            const response = await this.weezeventClient.getProducts(tenantId, integrationId, organizationId, { perPage: 100 });
 
             const weezeventIds = response.data.map(p => p.id.toString());
             const existingProducts = await this.prisma.salesProduct.findMany({
@@ -335,8 +350,8 @@ export class WeezeventCatalogSyncService {
         }
 
         const [variantsResult, componentsResult] = await Promise.allSettled([
-            this.weezeventClient.getProductVariants(tenantId, organizationId, productId),
-            this.weezeventClient.getProductComponents(tenantId, organizationId, productId),
+            this.weezeventClient.getProductVariants(tenantId, integrationId, organizationId, productId),
+            this.weezeventClient.getProductComponents(tenantId, integrationId, organizationId, productId),
         ]);
 
         if (variantsResult.status === 'fulfilled') {

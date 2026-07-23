@@ -801,7 +801,7 @@ AUTH ONLY (requireAuth)
 PROTECTED (requireOrganization)
 └── /dashboard                → DashboardView (shell)
     ├── /spaces               → SpaceListView
-    ├── /spaces/:id/builder   → SpaceBuilderViewRoute
+    ├── /spaces/:id/builder2  → BuilderPage (frontend v1 `/spaces/:id/builder` retiré le 2026-07-22)
     ├── /events               → EventsListView
     ├── /event-types          → EventsTypeListView
     ├── /event-categories     → EventsCategorieListView

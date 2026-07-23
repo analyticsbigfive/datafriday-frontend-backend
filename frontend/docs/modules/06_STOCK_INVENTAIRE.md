@@ -362,6 +362,11 @@ dérivée **matérialisée** en un mouvement `SALE` avant que l'ancre ne bouge p
 sinon un reset partiel réinjecterait leurs ventes en "stock fantôme" au prochain calcul
 (commentaire explicite du code, `logistics.service.ts:991-1001`).
 
+**Voir aussi** : [10_POST_EVENT_INVENTORY.md](10_POST_EVENT_INVENTORY.md) — l'écran Inventory et
+ses ponts inter-modules ; sa section 7 spécifie un **2ᵉ point de création** de
+`StockReconciliation` (document post-événement depuis la sauvegarde d'inventaire, **sans** toucher
+aux StockLevel — à ne pas confondre avec le reset ci-dessus).
+
 ---
 
 ## RestockState — le snapshot UI du Réarmement (PAS une source de stock)
