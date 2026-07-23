@@ -581,6 +581,7 @@
     <BrandNameFormDrawer
       v-model="createBrandDrawer"
       mode="create"
+      :is-dark="isDark"
       @saved="onBrandCreated"
     />
 
@@ -592,14 +593,15 @@
     />
 
     <!-- Create Packing Type Dialog -->
-    <CreatePackingTypeDialog v-model="packingTypeCreateOpen" @created="onPackingTypeCreated" />
+    <CreatePackingTypeDialog v-model="packingTypeCreateOpen" :is-dark="isDark" @created="onPackingTypeCreated" />
 
     <!-- Create Type Dialog -->
-    <CreateTypeDialog v-model="createTypeDialog" @created="onTypeCreated" />
+    <CreateTypeDialog v-model="createTypeDialog" :is-dark="isDark" @created="onTypeCreated" />
 
     <!-- Create Category Dialog -->
     <CreateCategoryDialog
       v-model="createCategoryDialog"
+      :is-dark="isDark"
       :type-name="form.typeName"
       :type-id="currentTypeId"
       @created="onCategoryCreated"
@@ -608,6 +610,7 @@
     <!-- Space Group Drawer (view mode: liste du groupe de prix) -->
     <SpaceGroupDrawer
       v-model="groupDrawer"
+      :is-dark="isDark"
       :space-ids="activeGroupSpaceIds"
       :spaces="spaces"
       :group-price="activeGroupPrice"
@@ -618,6 +621,7 @@
     <!-- Space Group Drawer (selection mode: champ Space du formulaire) -->
     <SpaceGroupDrawer
       v-model="spaceDrawer"
+      :is-dark="isDark"
       :selectable="true"
       :spaces="spaces"
       :selected-ids="form.spaces"
@@ -1920,7 +1924,7 @@ export default {
   letter-spacing: 0.025em;
   white-space: nowrap;
   color: #374151 !important;
-  border-bottom: 1px solid #e5e7eb !important;
+  border-bottom: none !important;
 }
 
 .components-table :deep(tbody td),
@@ -2195,6 +2199,16 @@ label {
   border-color: #ff3131 !important;
   background: #263548 !important;
 }
+/* v-select (Type, Catégorie, Marque, Nom d'affichage, Ready for sale, Combo, Prix par space) :
+   valeur sélectionnée + placeholder + icônes clairs sur le champ sombre (sinon texte noir). */
+.mic--dark .right-section :deep(.v-field__input),
+.mic--dark .right-section :deep(.v-select__selection-text) { color: #f1f5f9 !important; }
+.mic--dark .right-section :deep(.v-field__input input::placeholder) { color: rgba(255, 255, 255, .35); }
+.mic--dark .right-section :deep(.v-field__append-inner .v-icon),
+.mic--dark .right-section :deep(.v-field__clearable .v-icon) { color: #94a3b8 !important; }
+/* Cartes « Prix par space » : pills de space + état vide. */
+.mic--dark .mic-space-name-pill { background: rgba(37, 99, 235, .18); color: #93c5fd; border-color: rgba(37, 99, 235, .35); }
+.mic--dark .mic-price-empty { background: #1a2535; border-color: rgba(255, 255, 255, .12); color: #94a3b8; }
 
 .form-section-divider {
   display: flex;
@@ -2521,6 +2535,17 @@ label {
   border-color: rgba(255, 255, 255, .12);
   color: #e5e7eb;
 }
+
+/* Contrôle quantité (dans la table) : texte + fond + boutons en dark. */
+.mic--dark .mic-qty-input {
+  background: #1e293b;
+  border-left-color: rgba(255, 255, 255, .12);
+  border-right-color: rgba(255, 255, 255, .12);
+  color: #f1f5f9;
+}
+.mic--dark .mic-qty-stepper { border-color: rgba(255, 255, 255, .12); }
+.mic--dark .mic-qty-btn { background: #263548; color: #cbd5e1; }
+.mic--dark .mic-qty-btn:hover { background: #2d3748; }
 
 .mic--dark .form-section-divider {
   color: #6b7280;
