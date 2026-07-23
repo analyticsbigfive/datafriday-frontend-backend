@@ -125,14 +125,23 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
 
 > Esquisse, non contractuelle sauf mention « tranché ».
 
-- **« Cet espace a-t-il un event live ? »** — ✅ **définition tranchée 2026-07-20** (question #20) :
-  champ `liveEvent` sur la liste des spaces (ou `GET /spaces/:id/live-status`), calculé comme
-  **« au moins une vente réelle (`WeezeventTransaction`/équivalent Digifood) ingérée dans les 30
-  dernières minutes, pour les shops mappés à cet event, dans la fenêtre `[eventStartDate, eventEndDate]`
-  de l'`Event` »** — même logique de jointure par fenêtre de dates que `event-timeline`
-  (`spaces.service.ts:1094-1112`), + une marge de garde (ex. ne pas considérer live avant
-  `eventStartDate` ni plus de quelques heures après `eventEndDate`) pour éviter qu'une vente de test
-  pré-event ou un règlement tardif post-event déclenche un faux live.
+- **« Cet espace a-t-il un event live ? »** — ✅ **définition tranchée 2026-07-20** (question #20),
+  calculée comme **« au moins une vente réelle (`WeezeventTransaction`/équivalent Digifood) ingérée
+  dans les 30 dernières minutes, pour les shops mappés à cet event, dans la fenêtre
+  `[eventStartDate, eventEndDate]` de l'`Event` »** — même logique de jointure par fenêtre de dates que
+  `event-timeline` (`spaces.service.ts:1094-1112`), + une marge de garde (ex. ne pas considérer live
+  avant `eventStartDate` ni plus de quelques heures après `eventEndDate`) pour éviter qu'une vente de
+  test pré-event ou un règlement tardif post-event déclenche un faux live.
+  ⚠️ **Précision 2026-07-23** : cette section mentionnait jusqu'ici un champ `liveEvent` sur la liste
+  des spaces « ou » l'endpoint dédié, comme si c'était équivalent — ce n'est **pas** le cas.
+  L'implémentation backend a tranché pour un **endpoint dédié uniquement**,
+  `GET /spaces/:id/live-status` (`LIVE_API_GUIDE.md` §1.2), précisément parce qu'un champ calculé à la
+  volée aurait cassé soit le cache Redis 60s de la liste (`SPACES_CACHE_TTL`), soit sa fraîcheur. Un
+  webhook ne peut pas non plus s'y substituer côté front : Weezevent/Digifood n'appellent que le
+  backend (`webhook.controller.ts`), jamais le navigateur — sans canal push (SSE/WebSocket, écarté au
+  v1, §5), le front ne peut qu'aller *chercher* ce signal (pull), pas le recevoir passivement.
+  Conséquence directe sur la greffe A (bouton ◉ sur la Home) : voir zone grise §10.6, **encore
+  ouverte**.
   - **Ne pas** utiliser `IntegrationWebhookEvent.createdAt` comme signal direct : **BUG-26**
     (`backend/docs/bugs/26_dedup_webhook_event_inoperante.md`) montre que `externalDeliveryId` n'est
     jamais renseigné côté Weezevent, donc la dédup webhook est inopérante — un simple retry Weezevent
@@ -180,7 +189,7 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
 
 | # | Greffe | Fichier & ancrage | Nature | Poids | Prérequis backend |
 |---|---|---|---|---|---|
-| A | Bouton ◉ live | `SpaceItem.vue` — nouvel élément dans `.si-img`, **hors** `.si-actions` (hover-only, `:14-24`) ; `v-if="space?.liveEvent"` → `router.push('/spaces/:id/live')` | Ajout | 🟢 | champ `liveEvent`/`isLive` sur le payload liste d'espaces |
+| A | Bouton ◉ live | `SpaceItem.vue` — nouvel élément dans `.si-img`, **hors** `.si-actions` (hover-only, `:14-24`) ; condition d'affichage **encore à trancher** (§10.6) → `router.push('/spaces/:id/live')` | Ajout | 🟡 | ⚠️ pas de champ sur la liste (décidé contre, §7) — nécessite soit un appel `live-status` par carte (polling Home), soit un report de l'affordance après entrée dans l'espace, voir §10.6 |
 | B | Entrée « Live » dans Tools | `analyse/filters/FilterPanel.vue` — `toolboxItems` `:605-613`, handler `onToolboxSelect():583-601`, + `livePath` computed (près de `restockPath:571-574`) | Ajout | 🟢 | — |
 | C | Route `space-live` | `router/index.js` — route enfant après `space-restock` (`:184`), `meta:{ permission, keepAlive }` ; guard permission déjà en place (`:460`) | Ajout | 🟢 | code de permission (voir §9) |
 | D | Mode « flux » de l'Analyse | `analyse/AnalyseView.vue` — relancer `useAnalyseTimeline:529` / `useAnalyseItemRecords:549` / `useSpaceData` sur intervalle + badge « ● LIVE », nettoyage à l'unmount | Modif comportement | 🟡 | endpoint(s) de flux ou cible de polling |
@@ -192,7 +201,9 @@ ne pas y toucher.
 
 ### Prérequis backend (sans eux, A / D / E n'affichent rien)
 
-1. 🟢 **Signal « event live »** — `GET /spaces/:id/live-status` implémenté et testé.
+1. 🟢 **Signal « event live »** — `GET /spaces/:id/live-status` implémenté et testé. ⚠️ Suffit pour
+   D/E (l'utilisateur est déjà dans l'espace) mais **pas** pour la greffe A telle que décrite plus
+   haut (bouton ◉ sur la Home, avant navigation) — voir la zone grise encore ouverte, §10.6.
 2. 🟢 **Flux analytics live** — polling (§5) ; déclenchement automatique de l'agrégation câblé
    (BUG-109) : `shop-details` n'est plus figé.
 3. 🟢 **Agrégat inventaire live** par shop/item — `GET /spaces/:id/live/inventory` implémenté et
@@ -249,12 +260,29 @@ ne pas y toucher.
 5. ✅ **Cardinalité event/espace** : **un seul event live par espace** à un instant T. Le bouton ◉ et
    l'écran Live ciblent donc toujours un event unique — pas de sélecteur multi-event à construire (pas
    d'impact sur A/B/C/D ni sur l'onglet Inventaire E, qui restent scopés à l'espace).
+6. 🔴 **Encore ouverte (2026-07-23)** — **Signal ◉ sur la Home, sans navigation** (greffe A) :
+   `GET /spaces/:id/live-status` est un endpoint dédié, pas un champ sur `GET /spaces` (§7) — donc
+   `SpaceItem.vue` ne peut pas lire `space.liveEvent` comme le supposait la v1 de cette page. Aucun
+   canal push disponible pour éviter l'appel explicite (pas de SSE/WebSocket au v1, §5 ; les webhooks
+   Weezevent/Digifood n'atteignent que le backend, jamais le navigateur). Deux options posées, ni
+   l'une ni l'autre tranchée :
+   - **(a)** Polling `live-status` par carte affichée sur la Home (ex. 60s, tant que la Home est
+     montée) — préserve l'intention UX du point d'entrée #1 (§2) au prix de N appels/60s (N = spaces
+     affichés ; audience déjà limitée par `front.fb.live`).
+   - **(b)** Le bouton ◉ n'apparaît qu'une fois l'utilisateur entré dans l'espace (ex. dans
+     `AnalyseView.vue`) — zéro coût réseau ajouté sur la Home, mais la carte ne sert plus de raccourci
+     direct vers un event live.
+   - Une 3e piste (reconsidérer SSE/WebSocket pour pousser ce signal) impliquerait de rouvrir la
+     décision transport déjà tranchée §5 — hors périmètre de ce chantier sauf décision explicite
+     contraire.
+   Tracké : [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), question #31. **Bloque
+   uniquement la greffe A** — B/C/D/E peuvent démarrer sans attendre cette décision.
 
 > Réponses 1-3 tranchées le 2026-07-20 par Ulrich (owner backend), sur la base d'une recherche
 > approfondie du code réel (webhook/queue d'agrégation, modèle `Event`, catalogue RBAC, router front) ;
 > réponses 4 et 5 tranchées le 2026-07-23 par l'utilisateur — détail dans
-> [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), questions #19-#23 (toutes désormais
-> résolues). **Plus aucun point bloquant avant code.**
+> [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), questions #19-#23 (toutes résolues).
+> **Point 6 reste ouvert** — bloque uniquement la greffe A (§8bis), pas le reste du module.
 
 ## 11. Phasage proposé
 
@@ -287,12 +315,14 @@ ne pas y toucher.
 - [x] **Ownership** (§9) — **tranché le 2026-07-23 : fullstack, un seul owner (Ulrich)**, pas de split
       front/back.
 - [x] **Phasage** (§11) — v1 analytics d'abord, v2 inventaire.
+- [ ] **Signal ◉ sur la Home sans navigation** (§10.6, greffe A) — **encore ouvert (2026-07-23)** :
+      polling `live-status` par carte, ou affordance reportée après entrée dans l'espace. Question #31.
 
-**Le socle backend du v1 est livré** (signal `GET /spaces/:id/live-status`, agrégation auto,
-`event-timeline`/`shop-details` fiables pour du live — `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`).
-**Plus aucun point bloquant avant code** : #22 (source du stock live) est tranchée, l'implémentation
-backend de `GET /spaces/:id/live/inventory` est livrée et testée. **Tout le backend du module Live
-est prêt** — le front peut démarrer toutes les greffes (A/B/C/D/E, §8bis), v1 comme v2.
+**Le backend du module Live (v1 + v2) est entièrement livré** (signal `GET /spaces/:id/live-status`,
+agrégation auto, `event-timeline`/`shop-details` fiables pour du live, `GET /spaces/:id/live/inventory`
+— `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`). **Le front peut démarrer les greffes B/C/D/E
+sans blocage.** Seule la greffe A (bouton ◉ sur la Home) reste bloquée le temps de trancher §10.6 —
+implémenter B/C/D/E en premier, ou trancher §10.6 avant d'écrire A, plutôt que de deviner.
 
 ## 13. État d'avancement (2026-07-23)
 
@@ -360,3 +390,13 @@ inventaire), onglet Inventaire E (v2, #22/#23), + décisions lead §12 (ownershi
   question #13). Au passage, BUG-110 trouvé et corrigé : `deriveSalesRaw` avait le même trou que
   BUG-108 (pas de filtre `deletedAt`). Implémentation backend de `GET /spaces/:id/live/inventory` en
   cours (§8bis greffe E). **Plus aucun point bloquant avant code, v1 comme v2.**
+- **2026-07-23 (suite 3)** — Démarrage effectif du front (Claude) : incohérence trouvée entre §7/§8bis
+  et l'implémentation backend réelle — ces sections décrivaient encore la greffe A comme lisant un
+  champ `space.liveEvent` sur `GET /spaces`, alors que le backend a tranché pour un endpoint dédié
+  uniquement (`GET /spaces/:id/live-status`, `LIVE_API_GUIDE.md` §1.2), précisément pour ne pas casser
+  le cache 60s de la liste. §7 et le tableau §8bis (ligne A) corrigés en conséquence. Nouvelle zone
+  grise **encore ouverte** ajoutée (§10.6, question #31 dans `QUESTIONS_A_BERTRAND.md`) : comment le
+  bouton ◉ de la Home obtient ce signal sans navigation, sachant qu'aucun canal push n'existe (pas de
+  SSE/WebSocket au v1 ; les webhooks Weezevent/Digifood n'atteignent que le backend, jamais le
+  navigateur) — deux options posées (polling `live-status` par carte, ou ◉ visible seulement après
+  entrée dans l'espace), aucune tranchée. **Ne bloque que la greffe A** — B/C/D/E peuvent démarrer.
