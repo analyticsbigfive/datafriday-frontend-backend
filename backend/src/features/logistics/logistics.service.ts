@@ -1001,6 +1001,10 @@ export class LogisticsService {
    * (location → SpaceElement, produit → MenuItem), bornées par `since` (exclus).
    * - `status = 'V'` : seules les ventes validées (les W/C/R — attente/annulée/
    *   remboursée — ne consomment pas de stock), même filtre que les agrégats revenu.
+   * - `deletedAt IS NULL` (BUG-110) : une transaction annulée après coup (webhook
+   *   `delete`) ne doit pas non plus consommer de stock — même trou que BUG-108 sur
+   *   `getEventTimelineBatch`, dupliqué ici car cette requête ne passe pas par la même
+   *   jointure.
    * - Jointure location via WeezeventLocation avec OR (id interne OU weezeventId
    *   externe) : certains mappings historiques stockent l'id externe
    *   (même OR-join que builder-v2.service getSpaceShops).
@@ -1025,6 +1029,7 @@ export class LogisticsService {
         ON pm."tenantId" = t."tenantId" AND pm."weezeventProductId" = ti."productId"
       WHERE t."tenantId" = ${tenantId}
         AND t."status" = 'V'
+        AND t."deletedAt" IS NULL
         AND m."spaceElementId" IN (${Prisma.join(elementIds)})
         ${sinceFilter}
       GROUP BY 1, 2, 3

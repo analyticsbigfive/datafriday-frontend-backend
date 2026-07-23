@@ -121,15 +121,25 @@ problème pour un autre écran, avec un pattern **combinaison** :
 **Implication pour #22** : la combinaison "mouvements Restock + décrément par vente" n'est pas une
 option théorique à construire de zéro — c'est déjà le comportement de production du module Logistic,
 avec une fraîcheur déjà temps réel côté ventes (lecture directe `WeezeventTransaction`, comme
-`event-timeline`). Réutiliser ce calcul pour l'onglet Inventaire live (au lieu de le réinventer sur
-les modèles `Inventory*`/`Stock*` séparés du domaine Post/Pre-event Inventory, cf. questions #11/#13
-du tracker) est l'option la moins coûteuse trouvée en code — à confirmer côté produit, pas une
-décision technique unilatérale.
+`event-timeline`). C'est aussi probablement la seule réponse cohérente sur le principe : sales-only
+ignore les réassorts en cours d'event, movements-only ignore les ventes — ni l'un ni l'autre ne donne
+un vrai "stock restant maintenant". Réutiliser ce calcul pour l'onglet Inventaire live (au lieu de le
+réinventer sur les modèles `Inventory*`/`Stock*` séparés du domaine Post/Pre-event Inventory, cf.
+questions #11/#13 du tracker) est l'option la moins coûteuse trouvée en code.
 
-⚠️ **Note découverte en marge** : `deriveSalesRaw` (`logistics.service.ts:1008-1033`) a le même trou
-que BUG-108 — pas de filtre `deletedAt` sur `WeezeventTransaction`. Hors scope de BUG-108 (qui ne
-couvre que `getEventTimelineBatch`), mais à vérifier/corriger dans la même veine si ce chemin est
-réutilisé pour le Live.
+⚠️ **Réserve à trancher avant de réutiliser tel quel (ajoutée au tracker #22, 2026-07-23)** :
+`explodeSalesToConsumption` éclate les ventes en **ingrédients/composants** (même granularité F6 que
+le Réarmement) — alors que **Space Inventory a justement arrêté cet éclatement** sur demande
+explicite de l'utilisateur (question #13 du tracker, 2026-07-18) : un composant y reste une ligne
+comptable telle quelle. Réutiliser tel quel le calcul de Logistic reproduirait sur Live la même
+asymétrie de granularité que #13 documente déjà entre Logistic/Restock et Space Inventory — donc pas
+qu'une question de source de stock, aussi une question de *granularité d'affichage* (ingrédient vs
+composant) à trancher avec le produit, pas juste de câblage technique.
+
+✅ **[BUG-110](../bugs/110_derivesalesraw_deletedat_non_filtre.md) corrigé (2026-07-23)** :
+`deriveSalesRaw` avait le même trou que BUG-108 (pas de filtre `deletedAt` sur
+`WeezeventTransaction`) — hors scope de BUG-108 (qui ne couvrait que `getEventTimelineBatch`), donc
+tracké et corrigé séparément. Plus un obstacle à la réutilisation de ce calcul pour le Live.
 
 ### 3.2 Périmètre de l'arbre (autre point ouvert de #10.4)
 
