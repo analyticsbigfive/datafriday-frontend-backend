@@ -136,6 +136,76 @@ export class SpacesService {
   }
 
   /**
+   * CA (total/F&B/merch), transactions et billets par espace — calculé à la volée depuis les
+   * agrégats réels (SpaceRevenueMinuteAgg, corrigé BUG-014/015) et Event, pas depuis les
+   * colonnes Space.avgEvent/avgTransaction/perCapita/cachedMetrics qui ne sont jamais écrites.
+   * Classification F&B/merch réutilise la convention déjà en place ailleurs (StorageShopsSection.vue,
+   * space-menus.service.ts:843) : isMerch = SpaceElement.type === 'merchshop'.
+   * Formules avgTransaction/avgEvent/perCapita alignées sur useMetricsCalculator.js (moteur Analyse).
+   */
+  private async getRevenueSummaries(tenantId: string, spaceIds: string[]) {
+    const summaries = new Map<string, {
+      totalRevenue: number;
+      fbRevenue: number;
+      merchRevenue: number;
+      ticketingCount: number;
+      avgTransaction: number;
+      avgEvent: number;
+      perCapita: number;
+    }>();
+    if (spaceIds.length === 0) return summaries;
+
+    const [revenueRows, ticketRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{
+        spaceId: string;
+        totalRevenue: number;
+        merchRevenue: number;
+        fbRevenue: number;
+        transactionsCount: number;
+        eventsWithRevenue: number;
+      }>>(Prisma.sql`
+        SELECT sra."spaceId",
+          SUM(sra."revenueHt")::float AS "totalRevenue",
+          SUM(CASE WHEN se."type" = 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "merchRevenue",
+          SUM(CASE WHEN se."type" IS DISTINCT FROM 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "fbRevenue",
+          SUM(sra."transactionsCount")::int AS "transactionsCount",
+          COUNT(DISTINCT CASE WHEN sra."revenueHt" > 0 THEN sra."weezeventEventId" END)::int AS "eventsWithRevenue"
+        FROM "SpaceRevenueMinuteAgg" sra
+        LEFT JOIN "SpaceElement" se ON se.id = sra."spaceElementId"
+        WHERE sra."tenantId" = ${tenantId} AND sra."spaceId" IN (${Prisma.join(spaceIds)})
+        GROUP BY sra."spaceId"
+      `),
+      this.prisma.$queryRaw<Array<{ spaceId: string; ticketsCount: number }>>(Prisma.sql`
+        SELECT "spaceId", SUM(COALESCE("ticketsScanned", "ticketsSold", 0))::int AS "ticketsCount"
+        FROM "Event"
+        WHERE "tenantId" = ${tenantId} AND "spaceId" IN (${Prisma.join(spaceIds)})
+        GROUP BY "spaceId"
+      `),
+    ]);
+
+    const ticketsBySpace = new Map(ticketRows.map((r) => [r.spaceId, Number(r.ticketsCount) || 0]));
+
+    for (const row of revenueRows) {
+      const totalRevenue = Number(row.totalRevenue) || 0;
+      const transactionsCount = Number(row.transactionsCount) || 0;
+      const eventsWithRevenue = Number(row.eventsWithRevenue) || 0;
+      const ticketsCount = ticketsBySpace.get(row.spaceId) ?? 0;
+
+      summaries.set(row.spaceId, {
+        totalRevenue,
+        fbRevenue: Number(row.fbRevenue) || 0,
+        merchRevenue: Number(row.merchRevenue) || 0,
+        ticketingCount: ticketsCount,
+        avgTransaction: transactionsCount > 0 ? totalRevenue / transactionsCount : 0,
+        avgEvent: eventsWithRevenue > 0 ? totalRevenue / eventsWithRevenue : 0,
+        perCapita: ticketsCount > 0 ? totalRevenue / ticketsCount : 0,
+      });
+    }
+
+    return summaries;
+  }
+
+  /**
    * Find all spaces for a tenant with pagination (Redis-cached, TTL 60s).
    * Cache is bypassed when a search filter is applied.
    */
@@ -203,10 +273,6 @@ export class SpacesService {
           instagram: true,
           twitter: true,
           tiktok: true,
-          avgEvent: true,
-          avgTransaction: true,
-          perCapita: true,
-          cachedMetrics: true,
           _count: {
             select: {
               configs: true,
@@ -218,8 +284,22 @@ export class SpacesService {
       this.prisma.space.count({ where }),
     ]);
 
+    const revenueSummaries = await this.getRevenueSummaries(tenantId, spaces.map((s) => s.id));
+    const spacesWithMetrics = spaces.map((s) => ({
+      ...s,
+      ...(revenueSummaries.get(s.id) ?? {
+        totalRevenue: 0,
+        fbRevenue: 0,
+        merchRevenue: 0,
+        ticketingCount: 0,
+        avgTransaction: 0,
+        avgEvent: 0,
+        perCapita: 0,
+      }),
+    }));
+
     const result = {
-      data: spaces,
+      data: spacesWithMetrics,
       meta: {
         total,
         page,
