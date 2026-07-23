@@ -1,10 +1,10 @@
 # BUG-108 — `getEventTimelineBatch` ne filtre pas `SalesTransaction.deletedAt`
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-23)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Analyse & agrégation / Live events
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
-- **Découvert le** : 2026-07-23 (audit préparatoire du module Live, voir `LIVE_API_GUIDE.md`)
+- **Découvert le** : 2026-07-23 (audit préparatoire du module Live, voir `LIVE_API_GUIDE.md`) ; corrigé le même jour
 - **Fichiers** : `src/features/spaces/spaces.service.ts:1140-1189` (`getEventTimelineBatch`)
 
 ## Symptôme
@@ -27,9 +27,8 @@ résultat). BUG-028 avait exclu `deletedAt` uniquement du pipeline d'agrégation
 
 ## Correction
 
-À faire : ajouter `AND t."deletedAt" IS NULL` à la clause `WHERE`/`INNER JOIN` sur
-`"WeezeventTransaction" t` dans `getEventTimelineBatch` (`spaces.service.ts:1161-1166`), au même
-niveau que `AND t.status = 'V'`.
+Ajouté `AND t."deletedAt" IS NULL` à la clause `INNER JOIN "WeezeventTransaction" t` de
+`getEventTimelineBatch` (`spaces.service.ts:1161-1167`), au même niveau que `AND t.status = 'V'`.
 
 **Pourquoi c'est bloquant pour le module Live** (`LIVE_API_GUIDE.md` §2) : la définition tranchée
 de « event live » (question #20 du tracker) réutilise explicitement *la même logique de jointure

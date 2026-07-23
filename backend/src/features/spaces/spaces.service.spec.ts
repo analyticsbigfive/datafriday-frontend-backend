@@ -96,6 +96,13 @@ describe('SpacesService', () => {
       findMany: jest.fn(),
       deleteMany: jest.fn(),
     },
+    event: {
+      findMany: jest.fn(),
+    },
+    locationSpaceMapping: {
+      findFirst: jest.fn(),
+    },
+    $queryRaw: jest.fn(),
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
 
@@ -1004,6 +1011,81 @@ describe('SpacesService', () => {
 
       expect(res.data.externalMerch).toEqual({ id: 'em-1', name: 'Espace Externe', elements: [] });
       expect(res.isSystem).toBe(false);
+    });
+  });
+
+  // Signal "event live" (tracker front #20/#23, LIVE_API_GUIDE.md §1) — piloté par le bouton ◉
+  // et la route Live, pollé par le front.
+  describe('getLiveStatus', () => {
+    const spaceId = 'space-1';
+    const tenantId = 'tenant-1';
+
+    beforeEach(() => {
+      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue(null);
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([]);
+      mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    it('is not live when no event window covers the present instant', async () => {
+      mockPrismaService.event.findMany.mockResolvedValue([]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: null, since: null });
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('is not live when the matching event is outside its window + grace', async () => {
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-old', eventDate: eightDaysAgo, eventStartDate: null, eventEndDate: null },
+      ]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      // graceEnd (eventDate + 3h) est bien avant "now" → rejeté par le filtre de fenêtre en mémoire.
+      expect(result).toEqual({ isLive: false, eventId: null, since: null });
+    });
+
+    it('resolves the event but stays not-live when the space has no shops', async () => {
+      const now = new Date();
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      // spaceElement.findMany déjà mocké à [] dans le beforeEach → shopIds = []
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('is live when a real sale landed within the last 30 minutes', async () => {
+      const now = new Date();
+      const since = new Date(now.getTime() - 5 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: true, eventId: 'event-1', since: since.toISOString() });
+    });
+
+    it('is not live when the shops have no sale in the freshness window (stale event)', async () => {
+      const now = new Date();
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since: null }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
     });
   });
 });

@@ -569,6 +569,40 @@ export class SpacesController {
   }
 
   /**
+   * "Cet espace a-t-il un event live ?" — signal pour le bouton ◉ et la route Live
+   * (LIVE_API_GUIDE.md §1, tracker front QUESTIONS_A_BERTRAND.md #20/#23).
+   */
+  @Get(':id/live-status')
+  @RequirePermissions('front.fb.live')
+  @ApiOperation({
+    summary: 'Statut live d\'un espace',
+    description:
+      'Un espace a un event "live" si au moins une vente réelle (non annulée) est arrivée dans ' +
+      'les 30 dernières minutes, pour un event dont la fenêtre [eventStartDate, eventEndDate] ' +
+      '(+ marge de quelques heures) couvre l\'instant présent. Un espace n\'a qu\'un seul event ' +
+      'live à la fois (cardinalité tranchée). Prévu pour être pollé par l\'écran Live (front).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Statut live de l\'espace',
+    schema: {
+      type: 'object',
+      properties: {
+        isLive: { type: 'boolean' },
+        eventId: { type: 'string', nullable: true, description: 'ID de l\'event DataFriday live (null si aucun)' },
+        since: { type: 'string', format: 'date-time', nullable: true, description: 'Timestamp de la 1ère vente de la fenêtre live courante' },
+      },
+    },
+  })
+  async getLiveStatus(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.getLiveStatus(id, user.tenantId);
+  }
+
+  /**
    * List WeezeventEvents for a space, including enrichment metadata
    */
   @Get(':id/weezevent-events')

@@ -4,17 +4,24 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
 import { SyncTrackerService } from './sync-tracker.service';
+import { QueueService } from '../../../core/queue/queue.service';
 
 @Injectable()
 export class WeezeventCronService implements OnModuleInit {
     private readonly logger = new Logger(WeezeventCronService.name);
     private isEnabled = true;
 
+    // BUG-109 : filet de sécurité pour le déclenchement post-webhook (WebhookEventHandler.
+    // triggerLiveAggregation) — combien d'heures après la fin d'un event on continue de le
+    // considérer "en direct" pour la re-agrégation (couvre un règlement tardif/webhook manqué).
+    private readonly LIVE_AGGREGATION_GRACE_HOURS = 3;
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly syncService: WeezeventSyncService,
         private readonly incrementalSyncService: WeezeventIncrementalSyncService,
         private readonly syncTracker: SyncTrackerService,
+        private readonly queueService: QueueService,
     ) {}
 
     onModuleInit() {
@@ -81,6 +88,79 @@ export class WeezeventCronService implements OnModuleInit {
         }
 
         this.logger.log('🔄 CRON: INCREMENTAL transactions sync completed');
+    }
+
+    /**
+     * BUG-109 — filet de sécurité pour l'agrégation live : re-déclenche queueAggregationJob()
+     * pour tout event actuellement "en direct" (fenêtre event ± marge), au cas où le
+     * déclenchement post-webhook (WebhookEventHandler.triggerLiveAggregation) aurait échoué ou
+     * été manqué pour cet event depuis le dernier passage. executeProcessEvents est idempotent
+     * (delete-then-insert par event, cf. BUG-019) — un appel redondant toutes les 5 min ne
+     * duplique rien, il rattrape juste un webhook manqué.
+     */
+    @Cron(CronExpression.EVERY_5_MINUTES)
+    async triggerLiveAggregationSafetyNet(): Promise<void> {
+        if (!this.isEnabled) return;
+
+        const now = new Date();
+        const tenants = await this.getWeezeventEnabledTenants();
+
+        for (const tenant of tenants) {
+            // Bornée à 7 jours en DB (perf) — le filtre de grâce précis (quelques heures) est
+            // appliqué ensuite en mémoire, cf. LIVE_AGGREGATION_GRACE_HOURS.
+            const recentEvents = await this.prisma.event.findMany({
+                where: {
+                    tenantId: tenant.id,
+                    spaceId: { not: null },
+                    eventDate: { lte: now, gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+                },
+                select: { id: true, spaceId: true, eventDate: true, eventEndDate: true },
+            });
+
+            const liveEvents = recentEvents.filter((e) => {
+                const windowEnd = e.eventEndDate ?? e.eventDate;
+                const graceEnd = new Date(windowEnd.getTime() + this.LIVE_AGGREGATION_GRACE_HOURS * 60 * 60 * 1000);
+                return now <= graceEnd;
+            });
+            if (!liveEvents.length) continue;
+
+            // Un job par space (pas par event) — process-events accepte une liste d'eventIds.
+            const eventIdsBySpace = new Map<string, string[]>();
+            for (const e of liveEvents) {
+                const list = eventIdsBySpace.get(e.spaceId as string) ?? [];
+                list.push(e.id);
+                eventIdsBySpace.set(e.spaceId as string, list);
+            }
+
+            for (const [spaceId, eventIds] of eventIdsBySpace) {
+                try {
+                    const events = liveEvents.filter((e) => e.spaceId === spaceId);
+                    const dates = events.map((e) => e.eventDate).sort((a, b) => a.getTime() - b.getTime());
+                    const jobLog = await this.prisma.aggregationJobLog.create({
+                        data: {
+                            tenantId: tenant.id,
+                            spaceId,
+                            jobType: 'incremental',
+                            status: 'pending',
+                            fromDate: dates[0],
+                            toDate: dates[dates.length - 1],
+                            metadata: { eventIds, trigger: 'live-safety-net' },
+                        },
+                    });
+                    await this.queueService.queueAggregationJob({
+                        type: 'process-events',
+                        tenantId: tenant.id,
+                        spaceId,
+                        jobLogId: jobLog.id,
+                        eventIds,
+                    });
+                } catch (error) {
+                    this.logger.warn(
+                        `Live aggregation safety net failed for tenant ${tenant.id}/space ${spaceId}: ${error.message}`,
+                    );
+                }
+            }
+        }
     }
 
     /**

@@ -1,10 +1,10 @@
 # BUG-109 — `queueAggregationJob()` n'est jamais déclenché automatiquement
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-23)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Analyse & agrégation / Live events
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
-- **Découvert le** : 2026-07-20 (conception module Live), confirmé en code le 2026-07-23
+- **Découvert le** : 2026-07-20 (conception module Live), confirmé en code et corrigé le 2026-07-23
 - **Fichiers** : `src/features/aggregation/aggregation.controller.ts:26-117`,
   `src/features/weezevent/services/webhook-event.handler.ts`,
   `src/features/weezevent/services/weezevent-cron.service.ts`
@@ -34,20 +34,33 @@ Vérifié qu'aucun autre appelant n'existe :
 
 ## Correction
 
-À faire — deux options non exclusives (déjà esquissées dans `LIVE_API_GUIDE.md` §3) :
+Les deux options envisagées ont été implémentées, non exclusives :
 
-1. Appeler `queueAggregationJob({ type: 'process-events', eventIds: [eventId] })` (limité à
-   l'event concerné, pas un `synchronize` complet) juste après le resync réussi d'une transaction
-   dans `WebhookEventHandler.syncTransactionById` (`webhook-event.handler.ts:120-141`) — nécessite
-   de résoudre `spaceId`/`tenantId` depuis la transaction synchronisée (voir
-   `locationSpaceMapping` déjà utilisé ailleurs dans `spaces.service.ts` pour ce même mapping).
-2. Cron dédié courte fréquence (ex. `EVERY_5_MINUTES`, à ajouter dans `WeezeventCronService` ou un
-   nouveau service à côté) en filet de sécurité si (1) échoue silencieusement ou est absent pour un
-   tenant.
+1. **Déclenchement post-webhook** : `WebhookEventHandler.triggerLiveAggregation()`
+   (`webhook-event.handler.ts`), appelée en best-effort juste après un `syncTransactionById`
+   réussi. Résout le `SalesTransaction.eventId` synchronisé → `Event.weezeventEventId`
+   (DataFriday) → `spaceId`, crée l'`AggregationJobLog` et appelle `queueAggregationJob({ type:
+   'process-events', eventIds: [eventId] })` (scope limité à l'event concerné, jamais un
+   `synchronize` complet). No-op silencieux si la transaction n'a pas d'event, ou si l'event n'a
+   pas encore de match DataFriday non-ambigu (BUG-021). Une erreur ici est catchée et loguée en
+   warning — ne fait jamais échouer le webhook (le sync, lui, a déjà réussi).
+   - **Note d'implémentation** : appelle `QueueService` directement (déjà `@Global()`, comme le
+     fait `AggregationService` lui-même) plutôt que d'injecter `AggregationService` — importer
+     `AggregationModule` dans `WeezeventModule` aurait fermé un cycle de modules
+     (`WeezeventModule → AggregationModule → MappingsModule → SpacesModule → WeezeventModule`,
+     `SpacesModule` important déjà `WeezeventModule`). La logique de création du job log + enqueue
+     est donc dupliquée en miroir de `AggregationService.processEvents` (~15 lignes), commentée en
+     conséquence.
+2. **Filet de sécurité** : `WeezeventCronService.triggerLiveAggregationSafetyNet()`
+   (`@Cron(EVERY_5_MINUTES)`) — pour chaque tenant Weezevent-enabled, retrouve les events dont la
+   fenêtre `[eventDate, eventEndDate ?? eventDate] + 3h de marge` couvre l'instant présent, groupe
+   par space et rejoue `process-events` pour chacun. Rattrape un échec silencieux ou un event non
+   résolu au moment du (1). Idempotent (`executeProcessEvents` fait un delete-then-insert par
+   event, cf. BUG-019) — un appel redondant toutes les 5 min ne duplique rien.
 
-Recommandé : les deux — (1) pour la fraîcheur en usage normal, (2) comme garde-fou (le pattern
-existe déjà pour les crons de sync, `weezevent-cron.service.ts:20-36`, `isEnabled` via
-`WEEZEVENT_CRON_ENABLED`).
+Tests ajoutés : `webhook-event.handler.spec.ts` (déclenchement, no-op sans event résolu, résilience
+si le lookup échoue) et `weezevent-cron.service.spec.ts` (fenêtre de grâce, regroupement par space,
+résilience best-effort).
 
 ## Risque de régression / à surveiller
 

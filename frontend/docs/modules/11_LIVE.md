@@ -95,12 +95,13 @@ la main via le wizard d'intégration (`aggregation.controller.ts` `POST /aggrega
 
 **Prérequis backend bloquant révélé par cette analyse (à ajouter au chantier Live, pas dans la
 conception initiale)** :
-1. 🔴 **Toujours vrai, vérifié en code le 2026-07-23** : câbler un déclenchement automatique de
-   `queueAggregationJob()` — soit juste après le resync d'une transaction webhook
-   (`webhook-event.handler.ts`, qui aujourd'hui ne fait que du sync, jamais d'agrégation), soit via un
-   cron dédié courte fréquence (ex. toutes les 5 min) en filet de sécurité si le déclenchement
-   post-webhook échoue. Sans ça, `shop-details` (POS Performance, KPI par shop) restera figé même avec
-   le polling branché.
+1. ✅ **Corrigé le 2026-07-23** (BUG-109, `backend/docs/bugs/109_aggregation_jamais_declenchee_automatiquement.md`) —
+   `queueAggregationJob()` est maintenant déclenché automatiquement : (a) juste après le resync
+   d'une transaction webhook (`webhook-event.handler.ts`, `triggerLiveAggregation`), scopé à l'event
+   concerné ; (b) filet de sécurité `WeezeventCronService.triggerLiveAggregationSafetyNet()`
+   (`@Cron(EVERY_5_MINUTES)`) qui rejoue l'agrégation de tout event encore dans sa fenêtre live ±3h,
+   au cas où (a) aurait échoué ou manqué un event pas encore résolu. `shop-details` (POS Performance,
+   KPI par shop) se met désormais à jour toute seule pendant un event live.
 2. ✅ **Déjà corrigé** (vérifié en code le 2026-07-23, `backend/docs/bugs/19_queue_agregation_sans_retry.md`
    statut 🟢) — `queue.service.ts:271-284` ne hardcode plus `attempts: 1` ; la queue hérite désormais du
    défaut module `attempts: 3` + backoff exponentiel (`queue.module.ts:29-37`). Plus un prérequis, gardé
@@ -263,10 +264,11 @@ ne pas y toucher.
 
 > Le module ne démarre pas tant que ces points ne sont pas actés. Rien n'est implémenté à ce stade.
 
-- [x] **Transport temps réel** (§5) — **tranché : polling v1**. 🔴 Prérequis backend additionnel
-      **toujours ouvert** (vérifié en code 2026-07-23) : câbler le déclenchement automatique de
-      l'agrégation (§5) avant que `shop-details` soit réellement live — sans ça, ces KPI resteront figés.
-      (BUG-19, l'autre prérequis listé initialement, est lui déjà corrigé.)
+- [x] **Transport temps réel** (§5) — **tranché : polling v1**. 🟢 Prérequis backend additionnel
+      **corrigé le 2026-07-23** (backend BUG-109) : déclenchement automatique de l'agrégation câblé
+      (post-webhook + cron de secours) — `shop-details` se met désormais à jour toute seule. Détail
+      côté backend : `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md` §1-§2,
+      `docs/bugs/109_aggregation_jamais_declenchee_automatiquement.md`.
 - [x] **Définition de « event live »** (§10.2 / §7) — **tranchée** : vente réelle < 30 min dans la
       fenêtre event, pas le webhook brut.
 - [x] **Forme de la route** (§10.3) — **tranchée : route dédiée `space-live`**, `keepAlive: true`.
@@ -279,9 +281,10 @@ ne pas y toucher.
       front/back.
 - [x] **Phasage** (§11) — v1 analytics d'abord, v2 inventaire.
 
+**Le socle backend du v1 est livré** (signal `GET /spaces/:id/live-status`, agrégation auto,
+`event-timeline`/`shop-details` fiables pour du live — `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`).
 **Il ne reste plus qu'un seul point bloquant avant code : #22 (source du stock live), et uniquement
-pour le v2/onglet Inventaire.** Le v1 (bouton ◉, entrée Tools, route, mode flux) peut démarrer dès que
-le prérequis backend d'agrégation auto (ci-dessus) est câblé.
+pour le v2/onglet Inventaire.** Le v1 front (greffes A/B/C/D, §8bis) peut démarrer dès maintenant.
 
 ---
 
@@ -298,7 +301,14 @@ le prérequis backend d'agrégation auto (ci-dessus) est câblé.
 - **2026-07-23** — Question #23 (cardinalité event/espace) tranchée par l'utilisateur : un seul event
   live par espace (§10.5, §12). Ownership tranché : fullstack, un seul owner (Ulrich), pas de split
   front/back (§4, §8, §9). Vérification en code : BUG-19 déjà corrigé (§5, plus un prérequis) ; le
-  déclenchement automatique de l'agrégation, lui, est **toujours manquant** (§5, prérequis 1 restant) ;
-  ambiguïté `FilterPanel.vue` résolue — `analyse/filters/FilterPanel.vue` est la seule cible vivante
-  (§2, §8bis) ; `BurgerMenu.vue` est bien monté dans l'app, contrairement à ce qui était supposé (§9).
-  Seul point encore bloquant avant code : #22 (source du stock live), et seulement pour le v2.
+  déclenchement automatique de l'agrégation, lui, était **encore manquant** à ce stade (§5,
+  prérequis 1) ; ambiguïté `FilterPanel.vue` résolue — `analyse/filters/FilterPanel.vue` est la seule
+  cible vivante (§2, §8bis) ; `BurgerMenu.vue` est bien monté dans l'app, contrairement à ce qui était
+  supposé (§9). Seul point encore bloquant avant code à ce stade : #22 (source du stock live) et le
+  prérequis d'agrégation auto.
+- **2026-07-23 (suite)** — Socle backend du v1 implémenté : BUG-108 (`deletedAt` sur
+  `getEventTimelineBatch`) et BUG-109 (déclenchement auto de l'agrégation, post-webhook + cron de
+  secours) corrigés ; signal `GET /spaces/:id/live-status` implémenté et testé (§1, §7, §12). Détail
+  complet côté backend : `api-datafriday-staging/docs/api/LIVE_API_GUIDE.md`. Seul point encore
+  bloquant avant code : #22 (source du stock live), et uniquement pour le v2/onglet Inventaire — le
+  v1 front peut démarrer.

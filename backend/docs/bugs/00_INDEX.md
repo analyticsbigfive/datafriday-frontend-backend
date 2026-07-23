@@ -119,8 +119,8 @@
 | [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [106](106_webhook_secret_tenant_global_pas_par_integration.md) | Secret de signature webhook Weezevent tenant-global, pas par intégration | 🟢 Corrigé | 🟡 | Intégrations & ventes |
 | [107](107_weezeventintegration_clientid_legacy_not_null_bloque_creation.md) | `WeezeventIntegration.clientId`/`clientSecret` legacy NOT NULL bloque toute création d'instance | 🟢 Corrigé | 🔴 | Intégrations & ventes |
-| [108](108_event_timeline_deletedat_non_filtre.md) | `getEventTimelineBatch` ne filtre pas `SalesTransaction.deletedAt` | 🔴 Ouvert | 🟠 | Analyse & agrégation / Live events |
-| [109](109_aggregation_jamais_declenchee_automatiquement.md) | `queueAggregationJob()` n'est jamais déclenché automatiquement | 🔴 Ouvert | 🟠 | Analyse & agrégation / Live events |
+| [108](108_event_timeline_deletedat_non_filtre.md) | `getEventTimelineBatch` ne filtre pas `SalesTransaction.deletedAt` | 🟢 Corrigé | 🟠 | Analyse & agrégation / Live events |
+| [109](109_aggregation_jamais_declenchee_automatiquement.md) | `queueAggregationJob()` n'est jamais déclenché automatiquement | 🟢 Corrigé | 🟠 | Analyse & agrégation / Live events |
 
 **109 bugs au total**, 108 et 109 ajoutés le 2026-07-23 pendant la préparation backend du module Live
 (voir [`../api/LIVE_API_GUIDE.md`](../api/LIVE_API_GUIDE.md)) : BUG-109 est le prérequis backend déjà

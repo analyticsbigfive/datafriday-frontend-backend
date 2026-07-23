@@ -1,38 +1,37 @@
 # 🔴 API Live events — guide d'implémentation backend
 
-> **Statut : conception prête pour le code**, sauf mention contraire. Contrepartie backend de
+> **Statut : v1 analytics implémenté** (§1, §2, §5) — sauf mention contraire. Contrepartie backend de
 > [`datafriday-web/docs/modules/11_LIVE.md`](../../../datafriday-web/docs/modules/11_LIVE.md) (conception
 > UX/produit) — ce document ne redécide rien de ce qui y est déjà tranché, il précise *comment*
-> l'implémenter contre le code réel : fichiers, lignes, requêtes, contrats.
+> c'est implémenté contre le code réel : fichiers, lignes, requêtes, contrats.
 >
 > Owner : **Ulrich, fullstack** (backend et front, pas de split — tranché 2026-07-23, voir
-> `11_LIVE.md` §9). Rédigé le 2026-07-23.
+> `11_LIVE.md` §9). Rédigé le 2026-07-23, mis à jour le 2026-07-23 (implémentation §0/§1/§5).
 
 ---
 
-## 0. Ce qui bloque encore avant de coder
+## 0. Ce qui bloquait avant de coder — statut
 
-Deux bugs backend, trouvés en préparant ce document, **doivent être corrigés avant** d'implémenter le
-signal live (ils affectent directement sa fiabilité) :
+Deux bugs backend, trouvés en préparant ce document, **bloquaient** le signal live (ils en
+affectaient directement la fiabilité) — **les deux sont corrigés** :
 
-- **[BUG-109](../bugs/109_aggregation_jamais_declenchee_automatiquement.md)** — rien ne déclenche
-  `queueAggregationJob()` automatiquement (ni webhook, ni cron). Sans ça, `shop-details`
-  (POS Performance, KPI par shop) reste figé même une fois le polling branché côté front.
-- **[BUG-108](../bugs/108_event_timeline_deletedat_non_filtre.md)** — `getEventTimelineBatch` ne
-  filtre pas `SalesTransaction.deletedAt`. Le signal « event live » (§1) doit réutiliser cette même
-  requête (décision déjà actée, question #20 du tracker front) : sans le fix, une transaction annulée
-  après un retry Weezevent peut déclencher un faux live.
+- **[BUG-109](../bugs/109_aggregation_jamais_declenchee_automatiquement.md)** 🟢 — déclenchement
+  automatique de l'agrégation câblé (post-webhook + cron de secours, voir la fiche pour le détail).
+  `shop-details` (POS Performance, KPI par shop) se met désormais à jour toute seule.
+- **[BUG-108](../bugs/108_event_timeline_deletedat_non_filtre.md)** 🟢 — `getEventTimelineBatch`
+  filtre maintenant `deletedAt IS NULL`, comme le signal live (§1) qui réutilise la même logique.
 
 Une question produit reste ouverte et bloque uniquement l'Inventaire live (§3, pas le v1 analytics) :
 
 - **Question #22** (tracker front) — source du stock « live ». §3 ci-dessous pose les options
   concrètes trouvées en code pour trancher plus vite, sans décider à la place de Bertrand.
 
-Tout le reste ci-dessous peut être codé dès que BUG-108/109 sont corrigés.
+Le v1 (§1, §2) est implémenté et testé (voir §5). Seul le §3 (Inventaire live) reste à faire, et
+attend #22.
 
 ---
 
-## 1. Signal « event live »
+## 1. Signal « event live » — 🟢 implémenté
 
 **Définition déjà tranchée** (tracker front #20, `11_LIVE.md` §7) : au moins une vente réelle
 ingérée dans les 30 dernières minutes, pour les shops mappés à l'event, dans la fenêtre
@@ -40,78 +39,55 @@ ingérée dans les 30 dernières minutes, pour les shops mappés à l'event, dan
 
 ### 1.1 Requête
 
-`getEventTimelineBatch` (`src/features/spaces/spaces.service.ts:1061-1189`) est la référence : elle
-résout déjà shopIds/scope d'intégration/fenêtre de dates par event pour un space. Le signal live est
-une variante allégée de la même jointure — pas besoin du détail minute × shop × item, juste
-`EXISTS (au moins une ligne WeezeventTransaction dans la fenêtre récente)`.
+`SpacesService.getLiveStatus()` (`spaces.service.ts`, juste avant `getWeezeventEventsForSpace`) :
 
-Squelette (à adapter, réutilisant `resolveShopIdsForSpace` et le pattern d'`integrationClause`
-existants) :
+1. Résout le (au plus un, cardinalité tranchée #23) event dont la fenêtre
+   `[eventStartDate ?? eventDate, (eventEndDate ?? eventDate) + 3h]` couvre l'instant présent —
+   candidats bornés à `eventDate >= now - 7j` côté DB (perf), filtre de fenêtre précis appliqué en
+   mémoire.
+2. Si un event est trouvé, résout `shopIds`/`integrationId` avec les mêmes helpers que
+   `getEventTimelineBatch` (`resolveShopIdsForSpace`, `locationSpaceMapping`).
+3. `$queryRaw` : `MIN(transactionDate)` sur `WeezeventTransaction` filtré `status='V'`,
+   `deletedAt IS NULL` (BUG-108), scope shop/intégration identique à `getEventTimelineBatch`, borné à
+   `GREATEST(now - 30min, eventStartDate)` — la vente doit être à la fois récente ET dans la fenêtre
+   de l'event (pas une vente de test pré-event, même garde que la définition #20).
 
-```sql
-SELECT EXISTS (
-  SELECT 1
-  FROM "WeezeventTransaction" t
-  JOIN "Event" e ON e."tenantId" = t."tenantId"  -- fenêtre par event, cf. §1.2
-  WHERE t."tenantId" = $tenantId
-    AND t.status = 'V'
-    AND t."deletedAt" IS NULL          -- fix BUG-108, obligatoire ici aussi
-    AND t."transactionDate" >= now() - interval '30 minutes'
-    AND e."spaceId" = $spaceId
-    AND now() BETWEEN e."eventStartDate" AND (e."eventEndDate" + garde)
-    -- + scope shopIds / integrationClause comme getEventTimelineBatch
-) AS "isLive"
-```
+Grace de 3h alignée avec `WeezeventCronService.LIVE_AGGREGATION_GRACE_HOURS` (filet de sécurité
+BUG-109) — les deux implémentent la même définition d'« event en direct ».
 
-- **Garde temporelle** (`11_LIVE.md` §7) : ne pas considérer live avant `eventStartDate`, ni plus de
-  quelques heures après `eventEndDate` — valeur exacte à fixer à l'implémentation (pas encore
-  spécifiée, raisonnable : 2-3h de marge post-event pour couvrir un règlement tardif sans laisser un
-  espace « live » toute la nuit).
-- `Event.eventStartDate`/`eventEndDate` sont nullables (`schema.prisma:2212-2213`) — repli sur
-  `eventDate` seule (comme `getEventTimelineBatch:1104-1108` le fait déjà pour `windowEnd`) si absents.
+### 1.2 Contrat API — implémenté
 
-### 1.2 Contrat API
-
-Deux options posées par la conception front (`11_LIVE.md` §7), non tranchées entre elles — choix
-d'implémentation, pas produit :
-
-- **(a)** champ `liveEvent: boolean` (+ `liveEventId?: string`) ajouté au payload de
-  `GET /spaces` (`SpacesController.findAll` → `SpacesService.findAll`,
-  `spaces.service.ts:142-237`).
-- **(b)** endpoint dédié `GET /spaces/:id/live-status`.
-
-**Recommandation** : (b) seul pour le v1. Raison trouvée en creusant `findAll` : la liste d'espaces
-a un cache Redis 60s (`SPACES_LIST_CACHE_KEY`, `SPACES_CACHE_TTL = 60`, `spaces.service.ts:22-27,232`)
-mais **seulement pour la requête par défaut sans filtre** (`isCacheable`, `:150`) — un champ `liveEvent`
-calculé à la volée casserait soit le cache (recalcul par requête sur liste non filtrée), soit la
-fraîcheur (valeur figée jusqu'à 60s). Le bouton ◉ (`11_LIVE.md` greffe A) n'a besoin de ce signal que
-sur les espaces affichés à l'écran, pas sur toute pagination — un léger polling dédié (b) évite de
-complexifier `findAll`. À réévaluer si le produit veut le badge ◉ visible sans naviguer (liste Home).
+Option retenue : **endpoint dédié**, pas un champ sur `GET /spaces` — raison : la liste d'espaces a
+un cache Redis 60s (`SPACES_LIST_CACHE_KEY`, `SPACES_CACHE_TTL = 60`, `spaces.service.ts:22-27,232`)
+mais **seulement pour la requête par défaut sans filtre** (`isCacheable`, `:150`) — un champ
+`liveEvent` calculé à la volée aurait cassé soit le cache, soit la fraîcheur. À réévaluer si le
+produit veut le badge ◉ visible sans naviguer (liste Home).
 
 ```
-GET /spaces/:id/live-status
+GET /spaces/:id/live-status   (spaces.controller.ts, @RequirePermissions('front.fb.live'))
 → { isLive: boolean, eventId: string | null, since: string | null }
 ```
 
-`since` = timestamp de la 1ère vente de la fenêtre courante (utile pour un badge « live depuis Xmin »
-front, pas dans la conception initiale mais gratuit à exposer).
-
-**Permission** : `front.fb.live` (déjà en catalogue, voir §4) — même garde que la route Live elle-même.
+`since` = timestamp ISO de la 1ère vente de la fenêtre live courante (badge « live depuis Xmin »
+front, gratuit à exposer). Tests : `spaces.service.spec.ts` describe `getLiveStatus` (5 cas : pas
+d'event dans la fenêtre, event hors grace, event sans shops, vente récente → live, event stale sans
+vente récente → pas live).
 
 ---
 
-## 2. Flux analytics live (v1)
+## 2. Flux analytics live (v1) — 🟢 prêt côté backend
 
 **Transport déjà tranché** : polling, pas de nouveau canal (`11_LIVE.md` §5). **Aucun nouvel
-endpoint requis** pour cette partie — le front re-fetch en boucle deux endpoints existants :
+endpoint requis** pour cette partie — le front re-fetch en boucle deux endpoints existants, tous
+deux maintenant fiables pour du live (les deux bugs de §0 étaient les seuls obstacles) :
 
-| Endpoint | Fraîcheur actuelle | Action requise |
-|---|---|---|
-| `GET /spaces/:id/event-timeline` (`spaces.controller.ts:506`) | Déjà quasi temps réel (lit `WeezeventTransaction` en direct, webhook + cron `EVERY_10_MINUTES` en filet) | Fixer BUG-108 (`deletedAt`) avant d'en dépendre pour du live — sinon transactions annulées comptées |
-| `GET /spaces/:id/shop-details` (`spaces.controller.ts:454`) | Dépend de `SpaceRevenueMinuteAgg` (RPC `get_space_shop_details`, cachée 60s côté Redis, BUG-092) — figée tant que l'agrégation n'est pas rejouée | Corriger BUG-109 (déclenchement auto) — sans ça cet endpoint reste inutilisable pour du live quel que soit le transport front |
+| Endpoint | Fraîcheur |
+|---|---|
+| `GET /spaces/:id/event-timeline` (`spaces.controller.ts:506`) | Quasi temps réel (lit `WeezeventTransaction` en direct) + `deletedAt` filtré (BUG-108) |
+| `GET /spaces/:id/shop-details` (`spaces.controller.ts:454`) | `SpaceRevenueMinuteAgg` maintenant réagrégée automatiquement (BUG-109) — reste cachée 60s côté Redis (RPC `get_space_shop_details`, BUG-092), donc légèrement en retrait de `event-timeline` mais plus figée indéfiniment |
 
-Rien à construire ici hors les deux bugs de §0. Le rythme de polling (15s recommandé pour
-`event-timeline`, `11_LIVE.md` §5) est une décision front, pas backend.
+Rien à construire ici. Le rythme de polling (15s recommandé pour `event-timeline`, `11_LIVE.md` §5)
+est une décision front, pas backend.
 
 ---
 
@@ -187,17 +163,20 @@ Guard à poser sur les nouvelles routes, pattern identique à `LogisticControlle
 
 ---
 
-## 5. Découpage d'implémentation (ordre de dépendance)
+## 5. Découpage d'implémentation (ordre de dépendance) — statut
 
-1. **BUG-108** — filtre `deletedAt` sur `getEventTimelineBatch` (petit fix, prérequis §1/§2).
-2. **BUG-109** — déclenchement auto de l'agrégation (voir la fiche pour le détail webhook/cron).
-   Prérequis pour que `shop-details` soit réellement live (§2).
-3. **Signal « event live »** (§1) — requête + endpoint `GET /spaces/:id/live-status` +
-   `@RequirePermissions('front.fb.live')`.
-4. **Rien côté backend pour le flux analytics** (§2) — les endpoints existants suffisent une fois
-   1-2 corrigés ; le front branche son polling dessus.
-5. **Inventaire live** (§3) — **attend la décision #22**. Une fois tranchée : exposer
+1. 🟢 **BUG-108** — filtre `deletedAt` sur `getEventTimelineBatch`.
+2. 🟢 **BUG-109** — déclenchement auto de l'agrégation (post-webhook + cron de secours).
+3. 🟢 **Signal « event live »** (§1) — `GET /spaces/:id/live-status`,
+   `@RequirePermissions('front.fb.live')`, testé.
+4. 🟢 **Rien côté backend pour le flux analytics** (§2) — les endpoints existants suffisent, déjà
+   fiables ; le front peut brancher son polling dessus.
+5. ⏳ **Inventaire live** (§3) — **attend la décision #22**. Une fois tranchée : exposer
    `GET /spaces/:id/live/inventory` selon l'option retenue.
+
+**Reste à faire pour boucler le v1 : rien côté backend.** Le front peut commencer les greffes A/B/C/D
+(`11_LIVE.md` §8bis) dès maintenant — bouton ◉ sur `space.liveEvent`/appel à `live-status`, entrée
+Tools, route `space-live`, mode flux de `AnalyseView.vue` pollant `event-timeline`/`shop-details`.
 
 ---
 
