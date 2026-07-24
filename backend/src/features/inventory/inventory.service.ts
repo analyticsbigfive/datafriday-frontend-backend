@@ -594,7 +594,23 @@ export class InventoryService {
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const hasBaseline = snapshot != null;
-    const lines = [...keys].map((k) => {
+    // Exclusion des lignes orphelines : comptages dont l'itemId/elementId ne résout plus aucun
+    // MenuItem/SpaceElement courant (catalogue ré-importé → anciens ids supprimés). Sans nom
+    // récupérable en base, ces lignes s'affichaient « — » ; on les retire du document plutôt que
+    // de les afficher sans nom. Filtre sur la PRÉSENCE de l'id dans la map (`.has`), pas sur le
+    // nom : un article courant au nom légitimement vide reste conservé.
+    const resolvableKeys = [...keys].filter((k) => {
+      const [elementId, itemId] = k.split('::');
+      return elementNameById.has(elementId) && itemNameById.has(itemId);
+    });
+    const orphanCount = keys.size - resolvableKeys.length;
+    if (orphanCount > 0) {
+      this.logger.warn(
+        `pre-event reconciliation ${spaceId}/${eventId}: ${orphanCount} orphan line(s) excluded ` +
+          `(itemId/elementId absent du catalogue courant)`,
+      );
+    }
+    const lines = resolvableKeys.map((k) => {
       const [elementId, itemId] = k.split('::');
       const exp = expected.get(k) ?? null;
       const counted = countedBlob?.[elementId]?.[itemId] ?? null;
