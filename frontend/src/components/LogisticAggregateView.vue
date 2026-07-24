@@ -171,10 +171,10 @@ export default {
 .lg-agg {
   /* Carte englobante = style « Résumé inventaire » de Space Inventory (look EP :
      radius 18, border #d9e2ec, ombre douce). Plus de simple border-left. */
-  background: #ffffff;
-  border: 1px solid #d9e2ec;
+  background: var(--fb-surface, #ffffff);
+  border: 1px solid var(--fb-border, #d9e2ec);
   border-radius: 18px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -232,9 +232,9 @@ export default {
      radius 10, fond blanc). */
   flex-shrink: 0;
   overflow: hidden;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 .lg-agg-group-card:hover {

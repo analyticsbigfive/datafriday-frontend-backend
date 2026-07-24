@@ -127,6 +127,14 @@ const chartOptions = computed(() => ({
 .donut-card {
   border-color: #EEEEEE !important;
 }
+/* En sombre, ce #EEEEEE dessinait un liseré blanc autour des 6 donuts
+   (Répartition des PdV par CA + Répartition du CA par article) : posé ici en
+   !important et injecté après App.vue à specificité égale, il l'emportait sur la
+   règle globale `.v-theme--dataFridayDark .donut-card`. Bordure retirée en dark,
+   le fond de la carte suffit à la détacher — mode clair inchangé. */
+.v-theme--dataFridayDark .donut-card {
+  border-color: transparent !important;
+}
 .donut-title {
   font-size: 13px;
   font-weight: 600;
