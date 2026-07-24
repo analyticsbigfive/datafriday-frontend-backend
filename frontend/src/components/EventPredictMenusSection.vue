@@ -2533,8 +2533,8 @@ export default {
   display: flex;
   align-items: center;
   height: 38px;
-  background-color: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background-color: var(--fb-border, #f3f4f6);
+  border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 9999px;
   padding: 0 14px;
   flex: 1 1 320px;
@@ -2542,7 +2542,7 @@ export default {
   max-width: 520px;
 }
 .ep-toolbar-search-icon {
-  color: #9ca3af;
+  color: var(--fb-faint, #9ca3af);
   margin-right: 6px;
 }
 .ep-toolbar-search-input {
@@ -2552,10 +2552,10 @@ export default {
   border: 0;
   outline: 0;
   font-size: 14px;
-  color: #111827;
+  color: var(--fb-text, #111827);
 }
 .ep-toolbar-search-input::placeholder {
-  color: #6b7280;
+  color: var(--fb-muted, #6b7280);
 }
 .ep-toolbar-tabs {
   height: 38px;
@@ -2590,15 +2590,15 @@ export default {
   width: 30px;
   height: 30px;
   border-radius: 9999px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  background: var(--fb-surface, #fff);
   color: #374151;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease;
 }
 .ep-cat-arrow:hover {
-  background: #f3f4f6;
-  border-color: #d1d5db;
+  background: var(--fb-border, #f3f4f6);
+  border-color: var(--fb-border-strong, #d1d5db);
 }
 /* Pills Open/Closed au gabarit Space Menus : 13px/500, actif 700, compteur
    rond 18px/10px (cf. .smv-status-pill / __count de SpaceMenuView). */
@@ -2630,15 +2630,15 @@ export default {
   display: flex;
   align-items: center;
   height: 34px;
-  background-color: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background-color: var(--fb-border, #f3f4f6);
+  border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 9999px;
   padding: 0 12px;
   width: 100%;
   margin-bottom: 8px;
 }
 .ep-shop-search-icon {
-  color: #9ca3af;
+  color: var(--fb-faint, #9ca3af);
   margin-right: 6px;
 }
 .ep-shop-search-input {
@@ -2648,10 +2648,10 @@ export default {
   border: 0;
   outline: 0;
   font-size: 13px;
-  color: #111827;
+  color: var(--fb-text, #111827);
 }
 .ep-shop-search-input::placeholder {
-  color: #6b7280;
+  color: var(--fb-muted, #6b7280);
 }
 /* 3 onglets ventes/non-attachés/sans-ventes par shop : la carte est plus
    étroite que la toolbar globale → autoriser le retour à la ligne. */
@@ -2684,7 +2684,7 @@ export default {
 .ep-shop-card {
   border-radius: 18px !important;
   border-color: #d6dbe3;
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .ep-shop-card :deep([data-slot="collapsible-trigger"]) {
@@ -2698,7 +2698,7 @@ export default {
 }
 .ep-shop-card-header {
   padding: 22px 24px !important;
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   /* Pin au scroll dans le shop déplié : reste visible jusqu'à ce que la carte
      suivante prenne le relais (comportement natif sticky, empilement séquentiel).
      Le conteneur scrollable réel est `.ep-predict-section-panel` (parent,
@@ -2709,7 +2709,7 @@ export default {
   z-index: 5;
 }
 .ep-shop-card-header:hover {
-  background: #f8fafc;
+  background: var(--fb-subtle, #f8fafc);
 }
 .ep-shop-card-grid {
   display: flex;
@@ -2730,7 +2730,7 @@ export default {
   border-radius: 10px;
   object-fit: cover;
   flex-shrink: 0;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--fb-border, #e5e7eb);
 }
 .ep-shop-card-content {
   flex: 1 1 auto;
@@ -2771,7 +2771,7 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
   white-space: nowrap;
 }
 .ep-revenue-pill,
@@ -2783,8 +2783,8 @@ export default {
   padding: 4px 9px;
   border: 1px solid #dbe4ee;
   border-radius: 9999px;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--fb-subtle, #f8fafc);
+  color: var(--fb-muted, #334155);
   font-size: 0.75rem;
   line-height: 1;
 }
@@ -2796,7 +2796,7 @@ export default {
 }
 .ep-revenue-label,
 .ep-quantity-pill span {
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   font-weight: 650;
 }
 .ep-revenue-pill-adjusted,
@@ -2832,7 +2832,7 @@ export default {
 .ep-shop-adjustment {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--fb-border, #e5e7eb);
 }
 .ep-shop-adjustment-row {
   display: flex;
@@ -2853,7 +2853,7 @@ export default {
 .ep-shop-slider-label {
   font-size: 0.8125rem;
   font-weight: 500;
-  color: #475569;
+  color: var(--fb-muted, #475569);
 }
 .ep-shop-slider-value {
   min-width: 44px;
@@ -2878,7 +2878,7 @@ export default {
   height: 18px;
   border-width: 2px;
   border-color: var(--df-primary, var(--primary, #3b82f6));
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   box-shadow: 0 1px 6px rgba(15, 23, 42, 0.2);
 }
 .ep-shop-reset-btn {
@@ -2887,7 +2887,7 @@ export default {
   height: 36px;
   padding: 0 !important;
   border-radius: 9999px !important;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-shop-reset-btn:hover {
   background: #eef2ff !important;
@@ -2903,7 +2903,7 @@ export default {
   border: 0;
   border-radius: 9999px;
   background: transparent;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -3228,4 +3228,12 @@ export default {
   }
 }
 
+/* ===================== DARK MODE — compléments =====================
+   Surfaces/bordures/textes héritent des `--fb-*`/`--ep-*` de l'overlay parent
+   (.event-predict-overlay) ; les accents map/remap/cost/add passent par
+   `--destructive`/`--success`/`--primary` (définis + éclaircis côté overlay).
+   Ne reste que la bordure bleu-gris pâle des pilules de quantité. */
+.dark .ep-quantity-pill {
+  border-color: var(--fb-border);
+}
 </style>
