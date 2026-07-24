@@ -1,0 +1,6 @@
+# Fichiers d'environnement (secrets) — ne JAMAIS committer.
+# NB : frontend/.gitignore couvre déjà frontend/.env* ; ce fichier-ci couvre la
+# racine du monorepo (.env, .env.development, .env.production, .env.staging…).
+.env
+.env.*
+!.env.example

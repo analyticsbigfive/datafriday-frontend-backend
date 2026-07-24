@@ -474,4 +474,6 @@ export default {
 .frlv--dark .frlv-content { background: #111827; }
 .frlv--dark .frlv-table-card { border-color: #374151; background: #1a2332; }
 .frlv--dark .frlv-table :deep(.v-data-table__th) { color: #9ca3af !important; background: #1a2332 !important; }
+.frlv--dark .frlv-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.frlv--dark .frlv-searchbar__count { color: #94a3b8; }
 </style>

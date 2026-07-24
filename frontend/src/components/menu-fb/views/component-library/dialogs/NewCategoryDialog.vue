@@ -19,11 +19,11 @@
         </div>
         <!-- Type du composant (hérité du formulaire, en lecture seule) -->
         <div class="ncd-field">
-          <label class="ncd-field-label">{{ t('compCreateFieldType') }}</label>
+          <label class="ncd-field-label">{{ t('compCreateFieldType') }} <span class="ncd-star">*</span></label>
           <input :value="typeName || '—'" class="form-control ncd-input ncd-input--readonly" readonly />
         </div>
         <div class="ncd-field">
-          <label class="ncd-field-label" for="ncd-name">{{ t('compCreateNewCategoryDialogLabel') }}</label>
+          <label class="ncd-field-label" for="ncd-name">{{ t('compCreateNewCategoryDialogLabel') }} <span class="ncd-star">*</span></label>
           <input id="ncd-name" v-model="name" class="form-control ncd-input" autofocus @keyup.enter="confirm" />
         </div>
       </div>
@@ -136,10 +136,11 @@ export default {
 .ncd-btn:disabled { opacity:.6; cursor:not-allowed; transform:none !important; }
 
 /* ── Dark mode ── */
-.ncd-card--dark { background:#1e293b; }
+.ncd-card--dark { background:#1f2937; }
 .ncd-card--dark .ncd-body { color:#e2e8f0; }
 .ncd-card--dark .ncd-field-label { color:#94a3b8; }
-.ncd-card--dark .ncd-input { background:#1a2332 !important; color:#e2e8f0; border-color:rgba(255,255,255,.14) !important; }
+.ncd-card--dark .ncd-input { background:#111827 !important; color:#e2e8f0; border-color:#374151 !important; }
+.ncd-star { color:#ff3131; }
 .ncd-card--dark .ncd-input--readonly { background:rgba(255,255,255,.04) !important; color:#94a3b8; }
 .ncd-card--dark .ncd-error { background:rgba(255,49,49,.15); border-color:rgba(255,49,49,.3); color:#fca5a5; }
 .ncd-card--dark .ncd-warning { background:rgba(245,158,11,.15); border-color:rgba(245,158,11,.3); color:#fcd34d; }

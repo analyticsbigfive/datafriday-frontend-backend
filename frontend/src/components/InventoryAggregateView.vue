@@ -464,8 +464,8 @@ export default {
 
 .agg-header {
   padding: 14px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fff;
+  border-bottom: 1px solid var(--fb-border, #e5e7eb);
+  background: var(--fb-surface, #fff);
 }
 
 .agg-title-row {
@@ -487,7 +487,7 @@ export default {
 
 .agg-title-row p {
   margin: 2px 0 0;
-  color: #6b7280;
+  color: var(--fb-muted, #6b7280);
   font-size: 11px;
 }
 
@@ -503,15 +503,16 @@ export default {
   gap: 1px;
   margin-top: 12px;
   overflow: hidden;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 9px;
-  background: #e5e7eb;
+  /* Fond = couleur des filets : c'est le `gap: 1px` qui dessine les séparateurs. */
+  background: var(--fb-border, #e5e7eb);
 }
 
 .agg-stats > div {
   min-width: 0;
   padding: 8px 7px;
-  background: #fafafa;
+  background: var(--fb-subtle, #fafafa);
 }
 
 .agg-stats span,
@@ -523,14 +524,14 @@ export default {
 }
 
 .agg-stats span {
-  color: #6b7280;
+  color: var(--fb-muted, #6b7280);
   font-size: 9px;
   font-weight: 600;
 }
 
 .agg-stats strong {
   margin-top: 2px;
-  color: #111827;
+  color: var(--fb-text, #111827);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
@@ -540,7 +541,7 @@ export default {
   margin-top: 10px;
   overflow: hidden;
   border-radius: 2px;
-  background: #e5e7eb;
+  background: var(--fb-border, #e5e7eb);
 }
 
 .agg-progress span {
@@ -599,7 +600,7 @@ export default {
   height: 34px;
   overflow: hidden;
   border-radius: 8px;
-  background: #f7f7f8;
+  background: var(--fb-subtle, #f7f7f8);
 }
 
 .agg-item-icon img {
@@ -628,7 +629,7 @@ export default {
 
 .agg-item-copy strong {
   overflow: hidden;
-  color: #111827;
+  color: var(--fb-text, #111827);
   font-size: 12px;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -638,7 +639,7 @@ export default {
 .agg-item-copy small,
 .agg-item-total small {
   margin-top: 2px;
-  color: #6b7280;
+  color: var(--fb-muted, #6b7280);
   font-size: 9.5px;
 }
 
@@ -648,7 +649,7 @@ export default {
 }
 
 .agg-item-total strong {
-  color: #111827;
+  color: var(--fb-text, #111827);
   font-size: 12px;
 }
 
@@ -664,7 +665,7 @@ export default {
 
 .agg-item-detail {
   padding: 0 10px 10px 53px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--fb-border, #f1f5f9);
 }
 
 .agg-facts {
@@ -681,10 +682,10 @@ export default {
   gap: 6px;
   padding: 5px 7px;
   border-radius: 6px;
-  background: #f7f7f8;
+  background: var(--fb-subtle, #f7f7f8);
 }
 
-.agg-facts small { color: #6b7280; font-size: 9.5px; }
+.agg-facts small { color: var(--fb-muted, #6b7280); font-size: 9.5px; }
 .agg-facts strong { font-size: 10.5px; font-variant-numeric: tabular-nums; }
 
 .agg-shop-list {
@@ -700,7 +701,7 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: #4b5563;
+  color: var(--fb-muted, #4b5563);
   font-size: 10px;
 }
 
@@ -718,7 +719,7 @@ export default {
 }
 
 .agg-shop-row strong {
-  color: #111827;
+  color: var(--fb-text, #111827);
   font-variant-numeric: tabular-nums;
 }
 
@@ -738,7 +739,7 @@ export default {
 /* PdV restant à compter */
 .agg-todo {
   padding: 12px 22px 4px;
-  border-bottom: 1px solid #EEEEEE;
+  border-bottom: 1px solid var(--fb-border, #EEEEEE);
 }
 .agg-todo-title {
   margin: 0 0 8px;
@@ -782,12 +783,12 @@ export default {
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  border: 1px solid #E5E7EB;
+  border: 1px solid var(--fb-border, #E5E7EB);
   border-radius: 9999px;
-  background: #fff;
+  background: var(--fb-surface, #fff);
   font-size: 11.5px;
   font-weight: 600;
-  color: #334155;
+  color: var(--fb-text, #334155);
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s;
 }
@@ -817,14 +818,14 @@ export default {
 }
 
 .si-aggregate-root > div:first-child {
-  background: #FFFFFF !important;
-  border-bottom-color: #EEEEEE !important;
+  background: var(--fb-surface, #FFFFFF) !important;
+  border-bottom-color: var(--fb-border, #EEEEEE) !important;
   padding: 14px 16px !important;
 }
 
 .si-aggregate-root h3,
 .si-aggregate-root h4 {
-  color: #212121;
+  color: var(--fb-text, #212121);
   letter-spacing: 0;
 }
 
@@ -847,10 +848,10 @@ export default {
 }
 
 .si-aggregate-root select {
-  background: #FFFFFF !important;
-  border-color: #EEEEEE !important;
+  background: var(--fb-surface, #FFFFFF) !important;
+  border-color: var(--fb-border, #EEEEEE) !important;
   border-radius: 8px !important;
-  color: #212121;
+  color: var(--fb-text, #212121);
   font-size: 12px !important;
   min-height: 32px;
 }
@@ -865,7 +866,7 @@ export default {
 .si-aggregate-root .border-b,
 .si-aggregate-root .border-t,
 .si-aggregate-root .border-l-2 {
-  border-color: #EEEEEE;
+  border-color: var(--fb-border, #EEEEEE);
 }
 
 .si-aggregate-root .bg-gray-100,
@@ -873,12 +874,12 @@ export default {
 .si-aggregate-root .bg-green-50,
 .si-aggregate-root .bg-orange-50,
 .si-aggregate-root .bg-purple-50 {
-  background-color: #FAFAFA !important;
+  background-color: var(--fb-subtle, #FAFAFA) !important;
 }
 
 .si-aggregate-root .text-gray-500,
 .si-aggregate-root .text-gray-600 {
-  color: #6B7280 !important;
+  color: var(--fb-muted, #6B7280) !important;
 }
 
 .si-aggregate-root summary {
@@ -996,5 +997,42 @@ export default {
 .agg-subtitle,
 .agg-meta {
   color: var(--fb-muted, #6B7280);
+}
+
+/* ===================== DARK MODE =====================
+   Fonds, bordures et textes passent par les `--fb-*` (bascule automatique).
+   Ne restent ici que les teintes sémantiques calibrées pour du texte sur fond
+   clair (rouge 700, vert 700, orange 700) : on prend la version claire de la
+   même famille, et les pastels de fond deviennent des voiles translucides. */
+.v-theme--dataFridayDark .agg-title-row h3,
+.v-theme--dataFridayDark .agg-todo-title {
+  color: #94a3b8;
+}
+.v-theme--dataFridayDark .agg-item.is-complete {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+.v-theme--dataFridayDark .agg-focus-hint {
+  background: rgba(255, 110, 64, 0.18);
+  color: #fdba74;
+}
+.v-theme--dataFridayDark .agg-todo-badge {
+  background: rgba(255, 49, 49, 0.15);
+  color: #fca5a5;
+}
+.v-theme--dataFridayDark .agg-todo-chip:hover {
+  background: rgba(255, 110, 64, 0.16);
+  color: #fdba74;
+}
+.v-theme--dataFridayDark .agg-done-badge {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+.v-theme--dataFridayDark .agg-done-chip,
+.v-theme--dataFridayDark .agg-done-chip:hover {
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+.v-theme--dataFridayDark .agg-done-chip:hover {
+  background: rgba(34, 197, 94, 0.16);
 }
 </style>

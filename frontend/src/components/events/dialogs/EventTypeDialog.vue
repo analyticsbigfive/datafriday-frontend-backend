@@ -17,6 +17,11 @@
         <AlertCircle :size="14" /> {{ error }}
       </div>
 
+      <div class="etd-section-label">
+        <Tag :size="12" />
+        <span>{{ t('eventTypeDialogSection') }}</span>
+      </div>
+
       <div class="etd-field-wrap">
         <label class="etd-field-label">{{ t('eventTypeDialogNameLabel') }} <span class="etd-star">*</span></label>
         <v-text-field
@@ -171,4 +176,15 @@ export default {
 .etd--dark .etd-field-label { color: #d1d5db; }
 .etd--dark .etd-v-field :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 .etd--dark .etd-v-field :deep(.v-field__input) { color: #f3f4f6; }
+.etd--dark .etd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+/* Bouton Cancel : slotté dans le footer d'EventDrawerShell → ciblé via .eds--dark. */
+.eds--dark .etd-btn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.eds--dark .etd-btn--cancel:hover { background: #374151; }
+/* Label de section (icône + span), calqué sur efd-section-label */
+.etd-section-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: #9ca3af; margin-bottom: 12px;
+}
+.etd--dark .etd-section-label { color: #6b7280; }
 </style>

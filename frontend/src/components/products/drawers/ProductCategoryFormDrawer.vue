@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="pcfd-field-label">{{ t('productCategoryList.labelType') }}</div>
+            <div class="pcfd-field-label">{{ t('productCategoryList.labelType') }} <span class="pcfd-star">*</span></div>
             <v-select
               v-model="form.typeId"
               :items="typesWithAdd"
@@ -48,7 +48,7 @@
               </template>
             </v-select>
 
-            <div class="pcfd-field-label">{{ t('productCategoryList.labelName') }}</div>
+            <div class="pcfd-field-label">{{ t('productCategoryList.labelName') }} <span class="pcfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -97,7 +97,7 @@
         <div class="pcfd-type-dialog__error" v-if="typeError">
           <AlertTriangle :size="13" /> {{ typeError }}
         </div>
-        <label class="pcfd-field-label">{{ t('productCategoryList.newTypeLabel') }}</label>
+        <label class="pcfd-field-label">{{ t('productCategoryList.newTypeLabel') }} <span class="pcfd-star">*</span></label>
         <input
           ref="typeInput"
           v-model="newTypeName"
@@ -347,6 +347,7 @@ export default {
   margin-bottom: 8px;
 }
 .pcfd-panel--dark .pcfd-field-label { color: #d1d5db; }
+.pcfd-star { color: #ff3131; }
 
 /* styled fields */
 .pcfd-field :deep(.v-field) {
@@ -359,6 +360,7 @@ export default {
   border-color: #ff3131 !important;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
 }
+.pcfd-panel--dark .pcfd-field :deep(.v-field) { border-color: #374151 !important; }
 
 /* ── Footer ── */
 .pcfd-footer {

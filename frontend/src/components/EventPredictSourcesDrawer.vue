@@ -3,6 +3,7 @@
     :model-value="modelValue"
     :title="t('epsdTitle')"
     :subtitle="t('epsdSubtitle')"
+    :is-dark="isDark"
     @update:model-value="$emit('update:modelValue', $event)"
   >
     <template #icon>
@@ -138,6 +139,8 @@
 </template>
 
 <script>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import EventDrawerShell from '@/components/events/drawers/EventDrawerShell.vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatDateShort as fmtDateShort } from '@/utils/dateFr'
@@ -155,7 +158,9 @@ export default {
   components: { EventDrawerShell },
   setup() {
     const { t } = useI18n()
-    return { t }
+    const theme = useTheme()
+    const isDark = computed(() => !!theme.global.current.value.dark)
+    return { t, isDark }
   },
   props: {
     modelValue: { type: Boolean, default: false },
@@ -370,5 +375,31 @@ export default {
 .eps-footer-btn--primary:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(255, 49, 49, 0.4);
+}
+
+/* ===================== DARK MODE =====================
+   Le drawer est TÉLÉPORTÉ dans <body> (EventDrawerShell) : ses `var(--foreground/
+   --muted-foreground/--border/--card, …)` ne peuvent pas hériter des `--fb-*` de
+   l'overlay parent → ils retombaient sur leur littéral clair. Le shell peint déjà
+   le fond en sombre via `.eds--dark` (fond #111827) ; on redéfinit ici ces tokens
+   sur la racine slottée pour que tout le contenu suive, et on traite le bouton
+   Annuler (couleurs en dur). Le rouge de marque #ff3131 est conservé. */
+.eds--dark .eps-drawer-scroll {
+  --muted-foreground: #94a3b8;
+  --border: #374151;
+  --foreground: #f9fafb;
+  --card: transparent;
+  color: #e5e7eb;
+}
+.eds--dark .eps-footer-count {
+  color: #94a3b8;
+}
+.eds--dark .eps-footer-btn--cancel {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #1f2937;
+  color: #e2e8f0;
+}
+.eds--dark .eps-footer-btn--cancel:hover {
+  background: #374151;
 }
 </style>

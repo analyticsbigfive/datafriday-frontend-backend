@@ -273,21 +273,25 @@ export default {
 <style scoped>
 .rid-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 4000; display: flex; justify-content: flex-end; }
 .rid-drawer { width: 520px; max-width: 96vw; height: 100%; background: #fff; display: flex; flex-direction: column; box-shadow: -8px 0 30px rgba(0,0,0,.18); }
-.rid--dark { background: #1e1e24; color: #eee; }
+.rid--dark { background: #1e293b; color: #e2e8f0; }
 .rid-header { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid #eee; }
-.rid--dark .rid-header { border-color: #333; }
+.rid--dark .rid-header { border-color: rgba(255,255,255,.08); }
 .rid-body { flex: 1; overflow-y: auto; }
 .rid-footer { display: flex; align-items: center; border-top: 1px solid #eee; }
-.rid--dark .rid-footer { border-color: #333; }
+.rid--dark .rid-footer { border-color: rgba(255,255,255,.08); }
 .rid-dropzone { border: 2px dashed #d0d0d0; border-radius: 12px; cursor: pointer; transition: border-color .15s; }
 .rid-dropzone:hover { border-color: #ff3131; }
+.rid--dark .rid-dropzone { border-color: rgba(255,255,255,.16); }
+.rid--dark .rid-dropzone:hover { border-color: #ff3131; }
 .rid-chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 9999px; }
 .rid-chip-green { background: #DCFCE7; color: #15803d; }
 .rid-chip-blue { background: #DBEAFE; color: #1d4ed8; }
 .rid-chip-amber { background: #FEF3C7; color: #b45309; }
 .rid-skip { background: #FAFAFA; border-radius: 8px; padding: 10px 12px; max-height: 180px; overflow-y: auto; }
-.rid--dark .rid-skip { background: #26262e; }
+.rid--dark .rid-skip { background: #0f172a; }
 .rid-result { background: #F0FDF4; border-radius: 8px; padding: 10px 12px; }
+.rid--dark .rid-result { background: rgba(34,197,94,.12); }
+.rid--dark code { background: rgba(255,255,255,.08); color: #cbd5e1; padding: 1px 5px; border-radius: 5px; }
 .rid-transition-enter-active, .rid-leave-active { transition: opacity .2s; }
 .rid-enter-from, .rid-leave-to { opacity: 0; }
 </style>

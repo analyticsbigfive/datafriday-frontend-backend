@@ -5,7 +5,7 @@
     scrollable
     @update:model-value="$emit('update:modelValue', $event)"
   >
-    <v-card rounded="lg" class="pa-4">
+    <v-card rounded="lg" class="pa-4 uae-card" :class="{ 'uae-card--dark': isDark }">
       <v-card-title class="d-flex align-center pa-0 mb-2">
         <v-icon color="#F59E0B" class="mr-2">mdi-clock-alert-outline</v-icon>
         <span class="text-h6">{{ t('anUnalignedDialogTitle') }}</span>
@@ -50,6 +50,8 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 
 defineProps({
@@ -60,6 +62,11 @@ defineProps({
 defineEmits(['update:modelValue', 'edit-event'])
 
 const { t } = useI18n()
+
+// Dark mode autonome : v-dialog téléporté → classe --dark sur la racine propre
+// du contenu (la v-card).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 </script>
 
 <style scoped>
@@ -78,5 +85,13 @@ const { t } = useI18n()
   font-size: 14px;
   font-weight: 500;
   color: #212121;
+}
+
+/* ── Dark mode ── */
+.uae-card--dark .uae-row {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.uae-card--dark .uae-name {
+  color: #f9fafb;
 }
 </style>

@@ -5,6 +5,7 @@
   <v-card
     flat
     class="kpi-card"
+    :class="{ 'kpi-card--dark': isDark }"
     :style="{ '--kpi-rail': config.accent }"
     @click="$emit('click')"
     hover
@@ -32,6 +33,9 @@
 </template>
 
 <script>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
+
 export default {
   name: 'KpiCard',
   props: {
@@ -42,6 +46,11 @@ export default {
     variationUnit: { type: String, default: '%' }, // % | pp
   },
   emits: ['click'],
+  setup() {
+    const theme = useTheme()
+    const isDark = computed(() => !!theme.global.current.value.dark)
+    return { isDark }
+  },
   computed: {
     variationLabel() {
       if (this.variation == null) return ''
@@ -112,5 +121,18 @@ export default {
   letter-spacing: -0.3px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* ===================== DARK MODE ===================== */
+.kpi-card--dark {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.kpi-card--dark:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.kpi-card--dark .kpi-value {
+  color: #f9fafb;
 }
 </style>

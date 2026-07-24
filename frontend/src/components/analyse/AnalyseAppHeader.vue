@@ -3,7 +3,7 @@
     color="surface"
     :elevation="isScrolled ? 4 : 1"
     density="compact"
-    :class="['analyse-header px-4', { 'analyse-header--scrolled': isScrolled }]"
+    :class="['analyse-header px-4', { 'analyse-header--scrolled': isScrolled, 'analyse-header--dark': isDark }]"
     height="104"
   >
     <!-- Gauche : chevron qui replie/déplie le rail de navigation du Dashboard
@@ -209,6 +209,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useTheme } from 'vuetify'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import { Bell, Building2, ChevronDown, ChevronLeft, ChevronRight, LogOut, Phone, Settings, TrendingDown, TrendingUp, UserCog } from 'lucide-vue-next'
@@ -227,6 +228,12 @@ const props = defineProps({
 const emit = defineEmits(['toggle-summary', 'open-chart'])
 const store = useStore()
 const router = useRouter()
+
+// Dark mode autonome (parité dossiers déjà traités) : la topbar suit déjà le
+// thème via `color="surface"`, mais les pastilles KPI sont volontairement
+// blanches en clair → on les repasse en sombre sous `.analyse-header--dark`.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // ---- Rail de navigation du Dashboard (chevron à gauche du header) ----------
 // navExpanded reflète l'état diffusé par DashboardView (déplié/replié) → oriente
@@ -933,5 +940,21 @@ async function onShare() {
 .ump-action-item--logout:hover {
   background-color: rgba(255, 49, 49, 0.07) !important;
   color: #ff3131;
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────────────────
+   Les pastilles KPI restent blanches en clair par choix (cf. commentaires
+   plus haut). En sombre, on les bascule sur la palette carte foncée pour
+   qu'elles ne "flashent" pas sur la topbar surface. */
+.analyse-header--dark .kpi-cell {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #1e293b;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.analyse-header--dark .kpi-label {
+  color: #94a3b8;
+}
+.analyse-header--dark .kpi-value {
+  color: #f9fafb;
 }
 </style>

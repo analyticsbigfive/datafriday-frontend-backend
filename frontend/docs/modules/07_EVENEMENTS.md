@@ -159,7 +159,10 @@ métadonnées de billetterie/déroulement. Source des events "passés" (comparab
 - Client API front : `src/api/endpoints/event.api.js` (fichier réel nommé `event.api.js` malgré le
   commentaire d'en-tête `// src/api/endpoints/events.api.js` — vestige d'un renommage, sans
   conséquence puisque tous les imports du code utilisent le bon chemin de fichier).
-- Store Vuex : `src/store/modules/events.js` (cache TTL 5 min, `fetchEvents()` **tenant-wide, sans
+- Store Vuex : `src/store/modules/events.js` (cache TTL **15 min**, aligné le 2026-07-18 sur la
+  convention du reste de l'app — [BUG-147](../bugs/147_events_store_ttl_5min_incoherent.md),
+  décision confirmée définitive le 2026-07-24 ; le futur module Live aura son propre mécanisme de
+  fraîcheur ~2 min, indépendant de ce TTL ; `fetchEvents()` **tenant-wide, sans
   scoping spaceId** — cohérent avec son unique consommateur, l'écran `/events`).
 - Écrans dédiés à la gestion (hors Event Predict) : `components/events/views/EventsListView.vue`,
   drawers `components/events/drawers/EventFormDrawer.vue` (création/édition complète),

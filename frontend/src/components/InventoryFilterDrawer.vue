@@ -291,8 +291,10 @@ export default {
 </script>
 
 <style scoped>
+/* Couleurs via les `--fb-*` de l'hôte (space-inventory-view / event-predict-overlay) :
+   elles basculent seules en thème sombre, cf. style.css. */
 .inventory-filter-drawer {
-  border-right: 1px solid #EEEEEE !important;
+  border-right: 1px solid var(--fb-border, #EEEEEE) !important;
 }
 
 .inventory-filter-drawer:not(.v-navigation-drawer--active) {
@@ -300,17 +302,17 @@ export default {
 }
 
 .inventory-filter-drawer :deep(.v-navigation-drawer__content) {
-  background: #FFFFFF;
+  background: var(--fb-surface, #FFFFFF);
 }
 
 .inventory-filter-drawer h3 {
-  color: #212121;
+  color: var(--fb-text, #212121);
   font-size: 13px;
   font-weight: 700;
 }
 
 .inventory-filter-drawer :deep(.v-field) {
   border-radius: 8px;
-  background: #FFFFFF;
+  background: var(--fb-surface, #FFFFFF);
 }
 </style>

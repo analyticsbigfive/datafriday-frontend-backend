@@ -94,6 +94,7 @@
          édition + création de type à la volée, les 2 besoins propres à cet écran. -->
     <EventCategoryDialog
       v-model="categoryDialog"
+      :is-dark="isDark"
       :event-types="eventTypes"
       :category="editingCategory"
       allow-create-type
@@ -466,4 +467,15 @@ export default {
 .ecl-mbtn--cancel:hover { background: #e9ecef; }
 .ecl-mbtn--danger { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3); }
 .ecl-mbtn--danger:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
+
+/* Dark mode — compléments */
+.ecl--dark .ecl-error-bar { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.ecl--dark .ecl-type-pill { background: #1f2937; color: #cbd5e1; }
+.ecl--dark .ecl-yes-badge { background: rgba(34,197,94,.15); color: #86efac; border-color: rgba(34,197,94,.35); }
+.ecl--dark .ecl-no-badge { background: #1f2937; color: #94a3b8; border-color: rgba(255,255,255,.12); }
+.ecl--dark .ecl-abtn { background: #1f2937; color: #cbd5e1; }
+.ecl--dark .ecl-abtn--info { background: rgba(37,99,235,.15); color: #93c5fd; }
+.ecl--dark .ecl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.ecl--dark .ecl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+.ecl--dark .ecl-mbtn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
 </style>

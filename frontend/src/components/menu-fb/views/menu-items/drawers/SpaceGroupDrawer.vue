@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="sgd">
       <div v-if="modelValue" class="sgd-overlay" @click.self="close">
-        <div class="sgd-panel">
+        <div class="sgd-panel" :class="{ 'sgd-panel--dark': isDark }">
 
           <!-- Header -->
           <div class="sgd-header">
@@ -131,6 +131,7 @@ export default {
   components: { X, Building2 },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
     // view mode
     spaceIds: { type: Array, default: () => [] },
     groupPrice: { type: Number, default: 0 },
@@ -400,6 +401,23 @@ export default {
 .sgd-fbtn--primary { background: #ff3131; color: #fff; }
 .sgd-fbtn--primary:hover { box-shadow: 0 4px 12px rgba(255, 49, 49,.35); }
 .sgd-fbtn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Dark mode ── */
+.sgd-panel--dark { background: #1e293b; }
+.sgd-panel--dark .sgd-search { border-bottom-color: rgba(255,255,255,.08); }
+.sgd-panel--dark .sgd-body { background: #0f172a; }
+.sgd-panel--dark .sgd-empty { color: #64748b; }
+.sgd-panel--dark .sgd-card { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.sgd-panel--dark .sgd-card--selected { border-color: #ff3131; background: rgba(255,49,49,.1); }
+.sgd-panel--dark .sgd-card:not(.sgd-card--selected):hover { border-color: rgba(255,255,255,.16); background: rgba(255,255,255,.03); }
+.sgd-panel--dark .sgd-card__name { color: #e2e8f0; }
+.sgd-panel--dark .sgd-card__meta { color: #94a3b8; }
+.sgd-panel--dark .sgd-meta-sep { color: #475569; }
+.sgd-panel--dark .sgd-footer { background: #1e293b; border-top-color: rgba(255,255,255,.08); }
+.sgd-panel--dark .sgd-footer__count { color: #94a3b8; }
+.sgd-panel--dark .sgd-fbtn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.sgd-panel--dark .sgd-fbtn--cancel:hover { background: rgba(255,255,255,.14); }
+.sgd-panel--dark .sgd-checkbox :deep(.v-selection-control__input > .v-icon) { color: #cbd5e1 !important; }
 
 /* Transition */
 .sgd-enter-active, .sgd-leave-active { transition: opacity 0.22s ease; }

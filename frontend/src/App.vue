@@ -123,13 +123,14 @@ export default {
   background-color: #353535 !important;
 }
 
-/* FilterSummary — bandeau sticky, chips et pills de comparaison. */
-.v-theme--dataFridayDark .filter-summary {
-  background-color: #1A1A1A;
-}
-.v-theme--dataFridayDark .filter-summary:hover {
-  border-bottom-color: rgba(255, 255, 255, 0.06);
-}
+/* FilterSummary — chips et pills de comparaison.
+   Plus de `background-color` ici : à l'époque de cette règle, FilterSummary était
+   un bandeau sticky autonome sur fond de page, d'où un fond sombre + une bordure
+   basse. Depuis, il est rendu DANS le bandeau rouge d'AnalyseView
+   (.av-header__row2) — le #1A1A1A repeignait donc la ligne « Tout l'historique »
+   en quasi-noir par-dessus le rouge, uniquement en thème sombre (en clair aucune
+   règle équivalente n'existait, le rouge restait visible). Le fond du bandeau est
+   la seule source de vérité : ce bloc ne gère plus que les éléments internes. */
 .v-theme--dataFridayDark .chip-events,
 .v-theme--dataFridayDark .chip-events :deep(.v-chip__content) {
   background-color: #2A2F36 !important;
@@ -335,9 +336,10 @@ export default {
   border-color: #3F3F46 !important;
 }
 
-/* DonutChartCard — bordure carte + textes des légendes (label + montant à droite). */
+/* DonutChartCard — fond carte + textes des légendes (label + montant à droite).
+   La bordure est gérée dans le composant (retirée en sombre) : la déclarer ici
+   ne servait à rien, la règle scopée du composant gagnait à specificité égale. */
 .v-theme--dataFridayDark .donut-card {
-  border-color: #3F3F46 !important;
   background-color: #1F1F1F !important;
 }
 .v-theme--dataFridayDark .legend-text {

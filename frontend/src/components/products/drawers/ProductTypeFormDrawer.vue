@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="ptfd-field-label">{{ t('productTypeList.labelName') }}</div>
+            <div class="ptfd-field-label">{{ t('productTypeList.labelName') }} <span class="ptfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -235,6 +235,7 @@ export default {
 .ptfd-panel--dark .ptfd-field-label {
   color: #d1d5db;
 }
+.ptfd-star { color: #ff3131; }
 
 /* styled field */
 .ptfd-field :deep(.v-field) {
@@ -249,6 +250,7 @@ export default {
   border-color: #ff3131 !important;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
 }
+.ptfd-panel--dark .ptfd-field :deep(.v-field) { border-color: #374151 !important; }
 
 /* ── Footer ── */
 .ptfd-footer {

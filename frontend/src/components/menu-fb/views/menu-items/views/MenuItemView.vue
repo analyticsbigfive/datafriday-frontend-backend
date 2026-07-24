@@ -408,6 +408,7 @@
     <!-- Delete Dialog (single) -->
     <MenuItemDeleteDialog
       v-model="deleteDialog"
+      :is-dark="isDark"
       :title="t('menuItemLib.deleteTitle')"
       :subtitle="t('menuItemLib.deleteSubtitle')"
       :message="t('menuItemLib.deleteConfirm')"
@@ -422,6 +423,7 @@
     <!-- Bulk Delete Dialog -->
     <MenuItemDeleteDialog
       v-model="bulkDeleteDialog"
+      :is-dark="isDark"
       :title="t('menuItemLib.deleteSelectedTitle')"
       :subtitle="t('menuItemLib.deleteSubtitle')"
       :message="`${t('menuItemLib.deleteSelectedMessagePrefix')} ${selectedItems.length} ${t('menuItemLib.itemsSelected')}`"
@@ -1469,7 +1471,7 @@ export default {
   font-size: 0.68rem !important;
   letter-spacing: 0.025em;
   color: #374151 !important;
-  border-bottom: 1px solid #e5e7eb !important;
+  border-bottom: none !important;
   white-space: nowrap;
 }
 

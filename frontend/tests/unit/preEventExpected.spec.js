@@ -10,6 +10,42 @@ describe('buildPreEventExpected', () => {
     expect(buildPreEventExpected({})).toBeNull()
   })
 
+  // ── Chemin nominal : blob `expected` normalisé côté serveur (BUG-232) ───────
+
+  it('uses the server-normalized `expected` blob when present (passthrough, flattened)', () => {
+    const out = buildPreEventExpected({
+      baseline: { el1: { beer: { packedUnits: 9, looseUnits: 9 } } },
+      expected: { el1: { beer: { packed: 2, loose: 8.505 } }, el2: { coke: { packed: 5, loose: 0 } } },
+      movements: [],
+    })
+    expect(out[K('el1', 'beer')]).toEqual({ packed: 2, loose: 8.51 })
+    expect(out[K('el2', 'coke')]).toEqual({ packed: 5, loose: 0 })
+    expect(Object.keys(out)).toHaveLength(2)
+  })
+
+  it('ignores `movements` entirely when `expected` is present (even contradictory ones)', () => {
+    const out = buildPreEventExpected({
+      baseline: { el1: { beer: { packedUnits: 1, looseUnits: 0 } } },
+      expected: { el1: { beer: { packed: 3, loose: 2 } } },
+      movements: [{ elementId: 'el1', menuItemId: 'beer', packedDelta: -99, looseDelta: -99 }],
+    })
+    expect(out[K('el1', 'beer')]).toEqual({ packed: 3, loose: 2 })
+  })
+
+  it('never returns negatives from the server blob (normalized upstream, BUG-232 repro)', () => {
+    // Barre chocolatée 1A : la Logistique casse un pack au lieu de laisser le
+    // vrac passer négatif — le blob serveur reflète déjà cette normalisation.
+    const out = buildPreEventExpected({
+      baseline: { el1: { choco: { packedUnits: 3, looseUnits: 0 } } },
+      expected: { el1: { choco: { packed: 2, loose: 5 } } },
+    })
+    expect(out[K('el1', 'choco')].packed).toBeGreaterThanOrEqual(0)
+    expect(out[K('el1', 'choco')].loose).toBeGreaterThanOrEqual(0)
+    expect(out[K('el1', 'choco')]).toEqual({ packed: 2, loose: 5 })
+  })
+
+  // ── Repli legacy (réponse d'un backend antérieur à BUG-232, sans `expected`) ─
+
   it('maps the baseline blob to packed/loose per element×item', () => {
     const out = buildPreEventExpected({
       baseline: { el1: { beer: { packedUnits: 4, looseUnits: 7.5 } } },
@@ -58,7 +94,7 @@ describe('buildPreEventExpected', () => {
     expect(out[K('el2', 'coke')]).toEqual({ packed: 5, loose: 0 })
   })
 
-  it('keeps negative expected values (double-counted movement is a signal, not clamped)', () => {
+  it('legacy fallback only: keeps negative values (no pack-breaking client-side — BUG-232, fixed server-side)', () => {
     const out = buildPreEventExpected({
       baseline: { el1: { beer: { packedUnits: 1, looseUnits: 0 } } },
       movements: [{ elementId: 'el1', menuItemId: 'beer', packedDelta: -4, looseDelta: -2 }],

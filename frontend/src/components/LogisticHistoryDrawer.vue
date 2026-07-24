@@ -281,7 +281,9 @@ export default {
   padding: 14px 16px;
 }
 .lgh-title { font-weight: 700; font-size: 1rem; }
-.lgh-subtitle { color: #6b7280; font-size: 0.82rem; }
+/* Couleurs via le contrat `--fb-*` de l'hôte (.space-logistic-view) : bascule
+   automatique en thème sombre, cf. style.css. */
+.lgh-subtitle { color: var(--fb-muted, #6b7280); font-size: 0.82rem; }
 .lgh-body { overflow-y: auto; }
 .lgh-date-header {
   appearance: none;
@@ -295,24 +297,24 @@ export default {
   z-index: 1;
   padding: 8px 16px;
   border: 0;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--fb-border, #f3f4f6);
   font: inherit;
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #6b7280;
-  background: #f9fafb;
+  color: var(--fb-muted, #6b7280);
+  background: var(--fb-subtle, #f9fafb);
   cursor: pointer;
 }
-.lgh-date-header:hover { background: #f3f4f6; }
-.lgh-date-header-right { display: flex; align-items: center; gap: 4px; color: #9ca3af; }
+.lgh-date-header:hover { background: var(--fb-border, #f3f4f6); }
+.lgh-date-header-right { display: flex; align-items: center; gap: 4px; color: var(--fb-faint, #9ca3af); }
 .lgh-date-count {
   min-width: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: #e5e7eb;
-  color: #4b5563;
+  background: var(--fb-border, #e5e7eb);
+  color: var(--fb-muted, #4b5563);
   font-size: 0.68rem;
   font-weight: 700;
   text-align: center;
@@ -320,12 +322,16 @@ export default {
   letter-spacing: normal;
 }
 .lgh-center { display: flex; justify-content: center; padding: 32px 16px; }
-.lgh-empty { color: #9ca3af; font-size: 0.9rem; }
-.lgh-row { border-bottom: 1px solid #f3f4f6; }
+.lgh-empty { color: var(--fb-faint, #9ca3af); font-size: 0.9rem; }
+.lgh-row { border-bottom: 1px solid var(--fb-border, #f3f4f6); }
 .lgh-row-title { font-size: 0.85rem; font-weight: 600; white-space: normal; }
 .lgh-row-sub { font-size: 0.75rem; }
 .lgh-qty { font-size: 0.8rem; font-weight: 700; white-space: nowrap; margin-left: 8px; }
 .lgh-qty-in { color: #16a34a; }
 .lgh-qty-out { color: #ff3131; }
 .lgh-more { display: flex; justify-content: center; padding: 8px 0 16px; }
+
+/* Vert 600 prévu pour du texte sur fond clair → version claire en sombre.
+   Le rouge de marque #ff3131 reste lisible sur les deux fonds. */
+.v-theme--dataFridayDark .lgh-qty-in { color: #86efac; }
 </style>

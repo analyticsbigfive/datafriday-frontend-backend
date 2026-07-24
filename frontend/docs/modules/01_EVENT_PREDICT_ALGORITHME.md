@@ -127,7 +127,10 @@ des events "passés" (comparables) et de l'event "futur" (cible) de toute prédi
   (`@Controller('events')`, + `EventTypesController`/`EventCategoriesController`/
   `EventSubcategoriesController`/`TeamsController` dans le même fichier contrôleur).
 - Client API front : `src/api/endpoints/event.api.js`.
-- Store Vuex : `src/store/modules/events.js` (cache TTL 5 min, dédup `fetching`).
+- Store Vuex : `src/store/modules/events.js` (cache TTL **15 min**, aligné le 2026-07-18 sur la
+  convention du reste de l'app — [BUG-147](../bugs/147_events_store_ttl_5min_incoherent.md),
+  décision confirmée définitive le 2026-07-24 ; le futur module Live aura son propre mécanisme de
+  fraîcheur ~2 min, indépendant de ce TTL, dédup `fetching`).
 - Écrans dédiés (hors Event Predict, gestion CRUD) : `components/events/views/EventsListView.vue`,
   `EventsTypeListView.vue`, drawers `EventFormDrawer.vue`/`CsvImportDrawer.vue`.
 
@@ -723,11 +726,17 @@ sont protégées par `RequirePermissions('menu.events.manage')`.
 > fiche 11) ; #7 corrigé (fonctions + `API_BASE`/import supabase legacy supprimés, fiche 12) ;
 > #8 corrigé (commentaire réécrit, fiche 13). Restent ouverts : #2 (règle métier combo →
 > `QUESTIONS_A_BERTRAND.md` #18, fiche 188) et #6 (code mort backend, sans fiche dédiée).
+>
+> **Mise à jour 2026-07-24** : #2 tranché par Bertrand — les combos **doivent être explosés** en
+> leurs menu items constitutifs, chaque constituant suivant ensuite les règles standard des menu
+> items. À répliquer aux 3 implémentations dupliquées à dessein (front `expandMenuItem`, backend
+> `logistics.service.ts` `deriveSales`, inventaire `buildConsolidatedInventory`) — **code pas
+> encore modifié**, voir fiche 188.
 
 | # | Bug | Fichiers | Repro / preuve |
 |---|---|---|---|
 | 1 | `manualQuantities` n'est **jamais envoyé** au backend bien que le DTO l'accepte déjà | `useEventPredictVersions.js:144-149` (payload construit sans le champ, commentaire dit d'attendre que "la colonne + le DTO existent") vs `predict-version.dto.ts` (`CreatePredictVersionDto.manualQuantities?: Record<string,number>` déjà déclaré, `@IsOptional() @IsObject()`) et `predict-versions.service.ts:49,73` (écrit déjà `manualQuantities: (dto.manualQuantities ?? {})`) | Éditer un item à quantité manuelle (prédiction=0), sauvegarder une version, recharger sur un **autre appareil/navigateur** (localStorage non partagé) : la quantité manuelle est perdue — seul `menuConfig`/`quantityAdjustments` survivent au changement d'appareil, `manualQuantities` retombe systématiquement à `{}` puisqu'il n'a jamais quitté le localStorage local. |
-| 2 | `EventPredictStockUpSection.vue` n'utilise que `readyForSale` pour décider d'éclater une ligne, jamais `comboItem` | `EventPredictStockUpSection.vue` (fonction `expandMenuItem`, ligne 644 ; zéro occurrence de `comboItem` dans tout le fichier) | Incohérent avec `logistics.service.ts` (backend, cf. `04_MENU_CATALOGUE.md` bug #3) qui combine les deux champs pour la même décision — un article `comboItem='Yes'` peut être traité différemment par Event Predict (Stock up) et par Logistics pour le même besoin d'approvisionnement. |
+| 2 | `EventPredictStockUpSection.vue` n'utilise que `readyForSale` pour décider d'éclater une ligne, jamais `comboItem` — **tranché 2026-07-24** : exploser les combos en constituants, règles standard menu item ensuite (Question #18), code pas encore modifié | `EventPredictStockUpSection.vue` (fonction `expandMenuItem`, ligne 644 ; zéro occurrence de `comboItem` dans tout le fichier) | Incohérent avec `logistics.service.ts` (backend, cf. `04_MENU_CATALOGUE.md` bug #3) qui combine les deux champs pour la même décision — un article `comboItem='Yes'` peut être traité différemment par Event Predict (Stock up) et par Logistics pour le même besoin d'approvisionnement. |
 | 3 | Availability Combo utilise `∨` (OU) au lieu de `∧` (ET) entre `food` et `beverages` | `EventPredictMenusSection.vue`, `menuItemsPerElement`, branche `Combo` (ligne ~1227) | Un shop taggé `shopType: ['food']` seul (sans `beverages`) admet déjà les items catégorie Combo — divergence vérifiée avec la spec archéologique `EVENT_PREDICT_SECTIONS.md` §5.3, qui documentait un `∧` d'après le prototype React d'origine. |
 | 4 | `assign-shop-items` (pluriel/batch) émis sans être déclaré dans `emits` | `EventPredictMenusSection.vue`, `handleSelectAllForShop` (ligne 2266) émet ; `emits` (lignes 932-941) ne liste que le singulier `assign-shop-item` | Fonctionnel en Options API (Vue ne bloque pas un émit non déclaré), mais absent de tout contrat/typage généré à partir de `emits` — un futur portage `<script setup>`/`defineEmits` perdrait cet événement silencieusement. |
 | 5 | `update:viewMode` déclaré mais jamais émis depuis `EventPredictMenusSection.vue` | `emits` (ligne 936) déclare l'événement ; grep exhaustif du fichier = zéro `$emit('update:viewMode', ...)` | Le changement de vue Shop/Item doit être piloté ailleurs (état local `shopStatusTab`/`itemTypeTab` ou contrôle côté `EventPredictView.vue`) — à vérifier avant de supposer que cocher un onglet ici remonte l'info au parent. |

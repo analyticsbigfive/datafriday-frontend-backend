@@ -538,4 +538,9 @@ export default {
 .cpd-panel--dark .cpd-row__price-val { color: #e2e8f0; }
 .cpd-panel--dark .cpd-checkbox { border-color: #475569; background: #1e293b; }
 .cpd-panel--dark .cpd-footer { background: #1f2937; border-top-color: rgba(255,255,255,0.08); }
+/* Pills de filtre + tags de catégorie */
+.cpd-panel--dark .cpd-pill { background: #1a2332; border-color: rgba(255,255,255,.12); color: #94a3b8; }
+.cpd-panel--dark .cpd-pill:hover { border-color: #ff3131; color: #fca5a5; }
+.cpd-panel--dark .cpd-tag { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.cpd-panel--dark .cpd-tag--type { background: rgba(59,130,246,.18); color: #93c5fd; }
 </style>
