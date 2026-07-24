@@ -2,7 +2,7 @@
   <!-- Ligne 2 du bandeau : sélecteur de période + « Comparer à » + toggle
        Précédent / N-1. (Les tags des filtres actifs sont rendus SOUS le bandeau
        rouge, sur fond neutre, par AnalyseView.) -->
-  <div class="filter-summary d-flex align-center flex-wrap ga-3">
+  <div class="filter-summary d-flex align-center flex-wrap ga-3" :class="{ 'filter-summary--dark': isDark }">
     <v-select
       :model-value="timeRange"
       :items="dateRangeItems"
@@ -57,9 +57,13 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 defineProps({
   comparisonMode: { type: String, default: null },
@@ -119,4 +123,18 @@ defineEmits(['update:comparisonMode', 'update:timeRange'])
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
 }
 .compare-pill--prev { font-size: 10px; letter-spacing: 0.2px; font-weight: 600; }
+
+/* ── Dark mode (autonome via useTheme) ──
+   Ce bandeau est rendu SUR le header rouge (#ff3131, conservé en sombre) :
+   texte blanc et pills bleu-clair/blanc restent lisibles dans les deux modes.
+   Le v-select `.fs-period` suit le thème Vuetify global (aucune couleur claire
+   custom à forcer). On assombrit seulement la piste du toggle « Comparer à »
+   pour garder un contraste correct avec les pills. */
+.filter-summary--dark .compare-toggle { background-color: rgba(255, 255, 255, 0.22); }
+.filter-summary--dark .compare-pill { color: #f9fafb; }
+.filter-summary--dark .compare-pill:hover { background-color: rgba(255, 255, 255, 0.32); }
+.filter-summary--dark .compare-pill--active {
+  background-color: #ffffff;
+  color: #1e3a8a;
+}
 </style>

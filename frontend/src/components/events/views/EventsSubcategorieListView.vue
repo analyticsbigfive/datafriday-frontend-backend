@@ -113,20 +113,22 @@
 
         <v-form ref="subForm" v-model="subFormValid" validate-on="submit">
           <!-- Name field -->
-          <v-text-field
-            v-model="subFormData.name"
-            :label="t('eventSubcategoryList.labelName')"
-            :placeholder="t('eventSubcategoryList.namePlaceholder')"
-            density="comfortable"
-            variant="outlined"
-            hide-details="auto"
-            :rules="[rules.required]"
-            class="esl-drawer-input mb-5"
-          />
+          <div class="esl-select-wrap mb-5">
+            <span class="esl-select-label">{{ t('eventSubcategoryList.labelName') }} <span class="esl-star">*</span></span>
+            <v-text-field
+              v-model="subFormData.name"
+              :placeholder="t('eventSubcategoryList.namePlaceholder')"
+              density="comfortable"
+              variant="outlined"
+              hide-details="auto"
+              :rules="[rules.required]"
+              class="esl-drawer-input"
+            />
+          </div>
 
           <!-- Category select (with __create__ option) -->
           <div class="esl-select-wrap">
-            <label class="esl-select-label">{{ t('eventSubcategoryList.labelCategory') }}</label>
+            <span class="esl-select-label">{{ t('eventSubcategoryList.labelCategory') }} <span class="esl-star">*</span></span>
             <v-select
               v-model="subFormData.categoryId"
               :items="categoriesWithCreate"
@@ -166,7 +168,7 @@
       </div>
     </v-navigation-drawer>
 
-    <EventCategoryDialog v-model="categoryDialog" :event-types="eventTypes" @created="handleCategoryCreated" />
+    <EventCategoryDialog v-model="categoryDialog" :is-dark="isDark" :event-types="eventTypes" @created="handleCategoryCreated" />
 
     <!-- BUG-155 : tiroir (au lieu d'un v-dialog centré) — cohérence charte graphique, cf. BUG-153. -->
     <EventDrawerShell
@@ -665,6 +667,7 @@ export default {
 .esl-select-wrap { display: flex; flex-direction: column; gap: 6px; }
 .esl-select-label { font-size: 12.5px; font-weight: 600; color: #374151; }
 .esl--dark .esl-select-label { color: #d1d5db; }
+.esl-star { color: #ff3131; }
 .esl-drawer-select :deep(.v-field) { border: 1.5px solid #e5e7eb; border-radius: 11px; box-shadow: none; }
 .esl-drawer-select :deep(.v-field--focused) { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255, 49, 49,.10); }
 .esl-drawer-select :deep(.v-field__outline) { display: none; }
@@ -703,4 +706,16 @@ export default {
 .esl-mbtn--cancel:hover { background: #e9ecef; }
 .esl-mbtn--danger { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3); }
 .esl-mbtn--danger:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
+
+/* Dark mode — compléments */
+.esl--dark .esl-drawer-input :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
+.esl--dark .esl-error-bar { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.esl--dark .esl-drawer-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.esl--dark .esl-cat-pill { background: #1f2937; color: #cbd5e1; }
+.esl--dark .esl-abtn { background: #1f2937; color: #cbd5e1; }
+.esl--dark .esl-abtn--info { background: rgba(37,99,235,.15); color: #93c5fd; }
+.esl--dark .esl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.esl--dark .esl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+.esl--dark .esl-fbtn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.esl--dark .esl-mbtn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
 </style>

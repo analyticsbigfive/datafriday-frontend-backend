@@ -846,18 +846,18 @@ export default {
   gap: 12px;
   align-items: center;
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--fb-border, #e2e8f0);
   border-radius: 8px;
-  background: #fff;
+  background: var(--fb-surface, #fff);
 }
 .ep-stockup-itemview-name {
   font-weight: 600;
   font-size: 0.85rem;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-stockup-itemview-qty {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-stockup-itemview-cost {
   font-weight: 600;
@@ -891,10 +891,10 @@ export default {
   flex-wrap: wrap;
   gap: 4px 8px;
   font-size: 0.72rem;
-  color: #475569;
+  color: var(--fb-muted, #475569);
 }
 .ep-stockup-itemview-shop {
-  background: #f1f5f9;
+  background: var(--fb-border, #f1f5f9);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -913,7 +913,7 @@ export default {
   text-align: left;
 }
 .ep-stockup-group-header:hover {
-  background: #f3f4f6;
+  background: var(--fb-border, #f3f4f6);
 }
 .ep-stockup-group-title,
 .ep-stockup-group-actions {
@@ -1148,5 +1148,13 @@ export default {
 }
 .ep-stockup-pkg-badge {
   background:  #ff3131 !important;
+}
+
+/* ===================== DARK MODE — compléments =====================
+   Fonds/textes héritent des `--fb-*` de l'overlay parent (dont le fond ambre du
+   costbar, déjà migré sur `--fb-warning-soft`/`--fb-warning`). Ne reste que la
+   bordure ambre pâle du costbar. */
+.dark .ep-stockup-costbar {
+  border-color: rgba(217, 119, 6, 0.35);
 }
 </style>

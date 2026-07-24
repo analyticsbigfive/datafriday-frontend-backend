@@ -1,5 +1,5 @@
 <template>
-  <div class="multi-select-filter mb-3">
+  <div class="multi-select-filter mb-3" :class="{ 'multi-select-filter--dark': isDark }">
     <div v-if="label" class="filter-label mb-1">{{ label }}</div>
     <v-select
       :model-value="modelValue"
@@ -13,7 +13,7 @@
       chips
       closable-chips
       clearable
-      :menu-props="{ maxHeight: 300, contentClass: 'ms-menu' }"
+      :menu-props="{ maxHeight: 300, contentClass: isDark ? 'ms-menu ms-menu--dark' : 'ms-menu' }"
       :placeholder="t('anAll')"
       @update:model-value="$emit('update:modelValue', $event || [])"
     >
@@ -37,9 +37,13 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const props = defineProps({
   label: { type: String, default: '' },
@@ -79,6 +83,19 @@ function removeItem(value) {
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .12);
 }
 .multi-select-filter :deep(.v-field__input) { font-size: 13px; min-height: 38px; }
+
+/* ── Dark mode (autonome via useTheme) ── */
+.multi-select-filter--dark :deep(.v-field) {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: #0f172a;
+}
+.multi-select-filter--dark :deep(.v-field:hover) { border-color: rgba(255, 255, 255, 0.18); }
+.multi-select-filter--dark :deep(.v-field--focused) {
+  border-color: #ff3131;
+  background: #1e293b;
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, .18);
+}
+.multi-select-filter--dark :deep(.v-field__input) { color: #e2e8f0; }
 </style>
 
 <!-- Dropdown téléporté hors du composant → style GLOBAL scellé par .ms-menu -->
@@ -111,4 +128,18 @@ function removeItem(value) {
 /* Scrollbar discrète */
 .ms-menu .v-list::-webkit-scrollbar { width: 8px; }
 .ms-menu .v-list::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 8px; }
+
+/* ── Dark mode du dropdown téléporté (classe sur sa racine propre) ── */
+.ms-menu--dark.v-overlay__content {
+  border-color: rgba(255, 255, 255, 0.10) !important;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .5) !important;
+}
+.ms-menu--dark .v-list { background: #1e293b; }
+.ms-menu--dark .v-list-item:hover { background: rgba(255, 255, 255, 0.05); }
+.ms-menu--dark .v-list-item--active {
+  background: rgba(255, 49, 49, .16) !important;
+  color: #ff5a5a !important;
+}
+.ms-menu--dark .v-list-item-title { color: #e2e8f0; }
+.ms-menu--dark .v-list::-webkit-scrollbar-thumb { background: #374151; }
 </style>

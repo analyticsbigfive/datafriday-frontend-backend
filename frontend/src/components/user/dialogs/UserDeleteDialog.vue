@@ -5,7 +5,7 @@
     max-width="460"
     :persistent="loading"
   >
-    <div class="udd-dialog">
+    <div class="udd-dialog" :class="{ 'udd--dark': isDark }">
 
       <div class="udd-header">
         <div class="udd-header__icon"><Trash2 :size="20" color="white" /></div>
@@ -126,4 +126,14 @@ export default {
 .udd-btn--ghost:hover:not(:disabled) { background: #e5e7eb; }
 .udd-btn--danger { background: #ff3131; color: #fff; }
 .udd-btn--danger:hover:not(:disabled) { box-shadow: 0 4px 12px rgba(255, 49, 49, 0.35); }
+
+/* ── Dark mode ── (v-dialog piloté par la prop isDark → .udd--dark ; header
+   rouge et bouton danger conservés). */
+.udd--dark.udd-dialog { background: #1f2937; }
+.udd--dark .udd-body { background: #111827; }
+.udd--dark .udd-confirm-text { color: #d1d5db; }
+.udd--dark .udd-confirm-text strong { color: #f9fafb; }
+.udd--dark .udd-footer { background: #1f2937; border-top-color: #374151; }
+.udd--dark .udd-btn--ghost { background: #374151; color: #f9fafb; }
+.udd--dark .udd-btn--ghost:hover:not(:disabled) { background: #4b5563; }
 </style>

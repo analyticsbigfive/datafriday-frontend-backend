@@ -3,6 +3,8 @@
     <Transition name="ccd-drawer">
       <div v-if="modelValue" class="ccd-overlay" @mousedown.self="close">
         <div class="ccd-panel component-create__drawer" :class="{ 'ccd-panel--dark': isDark }">
+
+          <!-- ── Header ── -->
           <div class="cld-drawer__header">
             <div class="cld-drawer__header-icon"><Boxes :size="20" color="white" /></div>
             <div class="cld-drawer__header-text">
@@ -12,69 +14,102 @@
             <button class="cld-drawer__close" @click="close"><X :size="16" /></button>
           </div>
 
-          <div class="component-create__drawer-body">
-            <div class="d-flex gap-3 ccd-toolbar">
-              <v-text-field
+          <!-- ── Toolbar (recherche + pills), natif comme IngredientPickerDrawer ── -->
+          <div class="ccd-toolbar">
+            <div class="ccd-search">
+              <Search :size="15" class="ccd-search__icon" />
+              <input
                 v-model="search"
-                variant="outlined"
-                density="compact"
-                rounded="lg"
-                hide-details
+                class="ccd-search__input"
                 :placeholder="t('compCreateCompSearchPlaceholder')"
-                prepend-inner-icon="mdi-magnify"
-                clearable
-                class="ccd-field"
               />
-              <v-select
-                v-model="category"
-                :items="categoryOptions"
-                item-title="title"
-                item-value="value"
-                variant="outlined"
-                density="compact"
-                rounded="lg"
-                hide-details
-                prepend-inner-icon="mdi-shape"
-                :loading="loading"
-                :menu-props="{ zIndex: 10000 }"
-                class="ccd-field"
-              />
+              <button v-if="search" class="ccd-search__clear" @click="search = ''">
+                <X :size="13" />
+              </button>
             </div>
 
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mt-3">
-              {{ error }}
-            </v-alert>
-
-            <div class="mt-3 ccd-table-card">
-              <v-data-table
-                v-model="selectedIds"
-                :headers="headers"
-                :items="filteredItems"
-                item-value="id"
-                show-select
-                density="compact"
-                :loading="loading"
-                class="component-create__drawer-table"
-              >
-                <template #item.category="{ item }">
-                  <v-chip size="small" variant="tonal" color="secondary" rounded="lg">
-                    {{ item?.raw?.category || item?.category || "-" }}
-                  </v-chip>
-                </template>
-
-                <template #item.type="{ item }">
-                  <v-chip size="small" color="#ff3131" rounded="lg" class="text-white">
-                    {{ item?.raw?.type || item?.type || "-" }}
-                  </v-chip>
-                </template>
-
-                <template #item.unitCost="{ item }">
-                  {{ formatCurrency(Number(item?.raw?.unitCost ?? item?.unitCost ?? 0)) }}
-                </template>
-              </v-data-table>
+            <div class="ccd-pills">
+              <button
+                class="ccd-pill"
+                :class="{ 'ccd-pill--active': !category }"
+                @click="category = null"
+              >{{ t('compListAllCategories') }}</button>
+              <button
+                v-for="opt in categoryList"
+                :key="opt"
+                class="ccd-pill"
+                :class="{ 'ccd-pill--active': category === opt }"
+                @click="category = opt"
+              >{{ opt }}</button>
             </div>
           </div>
 
+          <!-- ── Body ── -->
+          <div class="ccd-body">
+            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3">
+              {{ error }}
+            </v-alert>
+
+            <!-- Loading -->
+            <div v-if="loading" class="ccd-empty">
+              <v-progress-circular indeterminate color="#ff3131" size="32" width="3" />
+            </div>
+
+            <!-- Empty -->
+            <div v-else-if="!filteredItems.length" class="ccd-empty">
+              <div class="ccd-empty__icon"><Boxes :size="24" /></div>
+              <p class="ccd-empty__text">Aucun composant trouvé</p>
+            </div>
+
+            <!-- Table native -->
+            <div v-else class="ccd-table-card">
+              <table class="ccd-table">
+                <thead>
+                  <tr>
+                    <th class="ccd-th ccd-th--check">
+                      <div
+                        class="ccd-checkbox"
+                        :class="{ 'ccd-checkbox--on': allSelected }"
+                        @click="toggleAll"
+                      >
+                        <Check v-if="allSelected" :size="11" color="white" />
+                      </div>
+                    </th>
+                    <th class="ccd-th ccd-th--main">{{ t('compCreateCompColName') }}</th>
+                    <th class="ccd-th">{{ t('compCreateCompColType') }}</th>
+                    <th class="ccd-th">{{ t('compCreateCompColCategory') }}</th>
+                    <th class="ccd-th">{{ t('compCreateCompColUnit') }}</th>
+                    <th class="ccd-th ccd-th--end">{{ t('compCreateCompColUnitCost') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="item in filteredItems"
+                    :key="item.id"
+                    class="ccd-row"
+                    :class="{ 'ccd-row--selected': selectedIds.includes(item.id) }"
+                    @click="toggleSelection(item.id, !selectedIds.includes(item.id))"
+                  >
+                    <td class="ccd-td ccd-td--check">
+                      <div
+                        class="ccd-checkbox"
+                        :class="{ 'ccd-checkbox--on': selectedIds.includes(item.id) }"
+                      >
+                        <Check v-if="selectedIds.includes(item.id)" :size="11" color="white" />
+                      </div>
+                    </td>
+                    <td class="ccd-td ccd-td--main"><span class="ccd-cell-name">{{ item.name }}</span></td>
+                    <td class="ccd-td"><span class="ccd-tag ccd-tag--type">{{ item.type || '—' }}</span></td>
+                    <td class="ccd-td"><span class="ccd-tag">{{ item.category || '—' }}</span></td>
+                    <td class="ccd-td ccd-cell-muted">{{ item.unit || '—' }}</td>
+                    <td class="ccd-td ccd-td--end"><span class="ccd-cell-price">{{ formatCurrency(item.unitCost) }}</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── Footer ── -->
           <div class="cld-drawer__footer">
             <div class="cld-drawer__footer-count">{{ selectedIds.length }} sélectionné{{ selectedIds.length > 1 ? 's' : '' }}</div>
             <div class="cld-drawer__footer-actions">
@@ -89,12 +124,12 @@
 </template>
 
 <script>
-import { Boxes, X } from 'lucide-vue-next';
+import { Boxes, Check, Search, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 
 export default {
   name: 'ComponentPickerDrawer',
-  components: { Boxes, X },
+  components: { Boxes, Check, Search, X },
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -125,12 +160,9 @@ export default {
         .filter(c => c.id && c.name)
         .sort((a, b) => String(a.name).localeCompare(String(b.name)));
     },
-    categoryOptions() {
-      const cats = Array.from(new Set((this.items || []).map(c => c.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)));
-      return [
-        { value: null, title: this.t('compListAllCategories') },
-        ...cats.map(c => ({ value: c, title: c })),
-      ];
+    categoryList() {
+      return Array.from(new Set((this.items || []).map(c => c.category).filter(Boolean)))
+        .sort((a, b) => String(a).localeCompare(String(b)));
     },
     filteredItems() {
       const q = String(this.search || '').toLowerCase();
@@ -144,14 +176,9 @@ export default {
         return matchesSearch && matchesCategory;
       });
     },
-    headers() {
-      return [
-        { title: this.t('compCreateCompColName'), key: 'name', minWidth: '180px' },
-        { title: this.t('compCreateCompColType'), key: 'type', width: '110px' },
-        { title: this.t('compCreateCompColCategory'), key: 'category', width: '140px' },
-        { title: this.t('compCreateCompColUnit'), key: 'unit', width: '90px' },
-        { title: this.t('compCreateCompColUnitCost'), key: 'unitCost', width: '100px', align: 'end' },
-      ];
+    allSelected() {
+      const f = this.filteredItems || [];
+      return f.length > 0 && f.every(c => this.selectedIds.includes(c.id));
     },
   },
   methods: {
@@ -171,6 +198,23 @@ export default {
         this.error = e?.userMessage || e?.message || 'Failed to load components';
       } finally {
         this.loading = false;
+      }
+    },
+    toggleSelection(id, checked) {
+      const next = new Set(this.selectedIds || []);
+      if (checked) next.add(id);
+      else next.delete(id);
+      this.selectedIds = Array.from(next);
+    },
+    toggleAll() {
+      const ids = (this.filteredItems || []).map(c => c.id);
+      if (this.allSelected) {
+        const remove = new Set(ids);
+        this.selectedIds = this.selectedIds.filter(id => !remove.has(id));
+      } else {
+        const next = new Set(this.selectedIds || []);
+        ids.forEach(id => next.add(id));
+        this.selectedIds = Array.from(next);
       }
     },
     addSelected() {
@@ -216,6 +260,7 @@ export default {
 </script>
 
 <style scoped>
+/* ── Overlay + Panel ── */
 .ccd-overlay {
   position: fixed;
   inset: 0;
@@ -230,57 +275,23 @@ export default {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: rgb(var(--v-theme-surface));
+  background: #fff;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
 }
 
-.component-create__drawer {
-  overflow: hidden;
+.component-create__drawer { overflow: hidden; }
+
+/* ── Transition ── */
+.ccd-drawer-enter-active,
+.ccd-drawer-leave-active {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ccd-drawer-enter-from,
+.ccd-drawer-leave-to {
+  transform: translateX(100%);
 }
 
-.component-create__drawer-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px;
-}
-
-/* Champs de la toolbar (recherche + filtre catégorie) : même style doux que le reste de l'app
-   (bordure gris clair, coin arrondi) au lieu du contour noir par défaut de Vuetify. */
-.ccd-toolbar { align-items: flex-start; }
-.ccd-field { flex: 1; min-width: 0; }
-.ccd-field :deep(.v-field) {
-  border: 1.5px solid #e5e7eb !important;
-  border-radius: 12px !important;
-  background: #f9fafb !important;
-  box-shadow: none !important;
-}
-.ccd-field :deep(.v-field__outline) { display: none; }
-.ccd-field :deep(.v-field--focused) { border-color: #ff3131 !important; }
-.ccd-field :deep(.v-field__input) { font-size: 0.8125rem !important; }
-
-/* Tableau : carte blanche cohérente avec le reste de la page, en-têtes sur une seule ligne. */
-.ccd-table-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  overflow: hidden;
-}
-.component-create__drawer-table :deep(.v-data-table__th) {
-  background: #f9fafb !important;
-  color: #6b7280 !important;
-  font-size: 0.75rem !important;
-  font-weight: 700 !important;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-}
-.component-create__drawer-table :deep(.v-data-table__td) {
-  font-size: 0.8125rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* ── Header ── */
 .cld-drawer__header {
   flex-shrink: 0;
   display: flex;
@@ -290,7 +301,6 @@ export default {
   background: #ff3131;
   box-shadow: 0 2px 12px rgba(255, 49, 49, 0.2);
 }
-
 .cld-drawer__header-icon {
   width: 40px;
   height: 40px;
@@ -301,21 +311,17 @@ export default {
   justify-content: center;
   flex-shrink: 0;
 }
-
 .cld-drawer__header-text { flex: 1; }
-
 .cld-drawer__header-title {
   font-size: 1rem;
   font-weight: 700;
   color: #fff;
 }
-
 .cld-drawer__header-sub {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.72);
   margin-top: 2px;
 }
-
 .cld-drawer__close {
   background: rgba(255, 255, 255, 0.15);
   border: none;
@@ -329,9 +335,120 @@ export default {
   color: #fff;
   transition: background 0.15s;
 }
-
 .cld-drawer__close:hover { background: rgba(255, 255, 255, 0.25); }
 
+/* ── Toolbar (recherche + pills) ── */
+.ccd-toolbar {
+  flex-shrink: 0;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+.ccd-search {
+  display: flex; align-items: center; gap: 10px;
+  background: #fff; border: 1.5px solid #e5e7eb; border-radius: 12px;
+  padding: 9px 13px; margin-bottom: 11px;
+  transition: border-color .18s, box-shadow .18s;
+}
+.ccd-search:focus-within {
+  border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255, 49, 49, .1);
+}
+.ccd-search__icon { color: #9ca3af; flex-shrink: 0; }
+.ccd-search__input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-size: 0.875rem; color: #111827;
+}
+.ccd-search__input::placeholder { color: #9ca3af; }
+.ccd-search__clear {
+  border: none; background: none; color: #9ca3af; cursor: pointer;
+  padding: 0; display: flex; align-items: center;
+}
+.ccd-search__clear:hover { color: #374151; }
+
+.ccd-pills { display: flex; flex-wrap: wrap; gap: 7px; }
+.ccd-pill {
+  padding: 4px 12px; border-radius: 100px;
+  border: 1.5px solid #e5e7eb; background: #f9fafb;
+  font-size: 0.75rem; font-weight: 500; color: #6b7280;
+  cursor: pointer; user-select: none;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.ccd-pill:hover { border-color: #ff3131; color: #ff3131; background: #fff5f5; }
+.ccd-pill--active { background: #fef2f2; border-color: #ff3131; color: #ff3131; font-weight: 700; box-shadow: 0 0 0 2px rgba(255, 49, 49, .1); }
+
+/* ── Body ── */
+.ccd-body {
+  flex: 1 1 0; overflow-y: auto; padding: 16px 20px;
+  scrollbar-width: thin; scrollbar-color: #e5e7eb transparent;
+}
+.ccd-body::-webkit-scrollbar { width: 5px; }
+.ccd-body::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 5px; }
+
+/* Empty / loading */
+.ccd-empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; min-height: 180px; color: #9ca3af;
+}
+.ccd-empty__icon {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: linear-gradient(135deg, #fef2f2, #fee2e2);
+  display: flex; align-items: center; justify-content: center; color: #ff3131;
+}
+.ccd-empty__text { font-size: 0.8125rem; font-weight: 500; color: #6b7280; margin: 0; }
+
+/* ── Table native ── */
+.ccd-table-card {
+  border-radius: 14px;
+  border: 1.5px solid #e5e7eb;
+  overflow: hidden;
+  background: #fff;
+}
+.ccd-table { width: 100%; border-collapse: collapse; }
+.ccd-th {
+  text-align: left; padding: 9px 14px;
+  background: #f3f4f6;
+  font-size: 0.75rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .6px;
+  color: #9ca3af; white-space: nowrap;
+  border-bottom: 1px solid #e5e7eb;
+}
+.ccd-th--check { width: 44px; }
+.ccd-th--main { width: 40%; }
+.ccd-th--end { text-align: right; }
+.ccd-row { cursor: pointer; transition: background .15s; }
+.ccd-row:hover { background: #f9fafb; }
+.ccd-row--selected { background: #fff5f5; }
+.ccd-td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.8125rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ccd-row:last-child .ccd-td { border-bottom: none; }
+.ccd-td--check { width: 44px; }
+.ccd-td--end { text-align: right; }
+.ccd-cell-name { font-weight: 600; color: #111827; }
+.ccd-cell-muted { color: #6b7280; }
+.ccd-cell-price { font-weight: 700; color: #111827; }
+.ccd-tag {
+  display: inline-block;
+  font-size: 0.75rem; font-weight: 600;
+  padding: 2px 8px; border-radius: 100px;
+  background: #f3f4f6; color: #6b7280;
+}
+.ccd-tag--type { background: #fef2f2; color: #ff3131; }
+
+/* Checkbox maison (cf. IngredientPickerDrawer) */
+.ccd-checkbox {
+  width: 17px; height: 17px; border-radius: 5px;
+  border: 2px solid #d1d5db; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ccd-checkbox--on { background: #ff3131; border-color: #ff3131; }
+
+/* ── Footer ── */
 .cld-drawer__footer {
   flex-shrink: 0;
   display: flex;
@@ -342,17 +459,8 @@ export default {
   background: #fff;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
 }
-
-.cld-drawer__footer-count {
-  font-size: 0.8125rem;
-  color: #6b7280;
-}
-
-.cld-drawer__footer-actions {
-  display: flex;
-  gap: 10px;
-}
-
+.cld-drawer__footer-count { font-size: 0.8125rem; color: #6b7280; }
+.cld-drawer__footer-actions { display: flex; gap: 10px; }
 .cld-fbtn {
   display: inline-flex;
   align-items: center;
@@ -366,38 +474,32 @@ export default {
   border: none;
   transition: all 0.2s;
 }
-
 .cld-fbtn--cancel { background: #f3f4f6; color: #374151; }
 .cld-fbtn--cancel:hover { background: #e5e7eb; }
 .cld-fbtn--primary { background: #ff3131; color: #fff; }
 .cld-fbtn--primary:hover { box-shadow: 0 4px 12px rgba(255, 49, 49, 0.35); }
 .cld-fbtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.ccd-drawer-enter-active,
-.ccd-drawer-leave-active {
-  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ccd-drawer-enter-from,
-.ccd-drawer-leave-to {
-  transform: translateX(100%);
-}
-
 /* ── Dark mode ── */
-.ccd-panel--dark .ccd-field :deep(.v-field) { border-color: rgba(255,255,255,.12) !important; background: #1a2332 !important; }
+.ccd-panel--dark { background: #1e293b; }
+.ccd-panel--dark .ccd-toolbar { background: #1a2332; border-bottom-color: rgba(255,255,255,.08); }
+.ccd-panel--dark .ccd-search { background: #0f172a; border-color: rgba(255,255,255,.12); }
+.ccd-panel--dark .ccd-search__input { color: #e2e8f0; }
+.ccd-panel--dark .ccd-pill { border-color: rgba(255,255,255,.12); background: #1a2332; color: #94a3b8; }
+.ccd-panel--dark .ccd-pill--active { background: rgba(255,49,49,.15); border-color: #ff3131; color: #fca5a5; }
 .ccd-panel--dark .ccd-table-card { background: #1e293b; border-color: rgba(255,255,255,.08); }
-.ccd-panel--dark .component-create__drawer-table :deep(.v-data-table__th) { background: #1a2332 !important; color: #94a3b8 !important; }
-.ccd-panel--dark .component-create__drawer-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.ccd-panel--dark .ccd-th { background: #1a2332; color: #94a3b8; border-bottom-color: rgba(255,255,255,.08); }
+.ccd-panel--dark .ccd-row:hover { background: rgba(255,255,255,.03); }
+.ccd-panel--dark .ccd-row--selected { background: rgba(255,49,49,.1); }
+.ccd-panel--dark .ccd-td { border-bottom-color: rgba(255,255,255,.06); }
+.ccd-panel--dark .ccd-cell-name,
+.ccd-panel--dark .ccd-cell-price { color: #e2e8f0; }
+.ccd-panel--dark .ccd-cell-muted { color: #94a3b8; }
+.ccd-panel--dark .ccd-tag { background: rgba(255,255,255,.08); color: #94a3b8; }
+.ccd-panel--dark .ccd-tag--type { background: rgba(255,49,49,.15); color: #fca5a5; }
+.ccd-panel--dark .ccd-checkbox { border-color: #475569; background: #0f172a; }
 .ccd-panel--dark .cld-drawer__footer { background: #1e293b; border-top-color: rgba(255,255,255,.08); }
 .ccd-panel--dark .cld-drawer__footer-count { color: #94a3b8; }
 .ccd-panel--dark .cld-fbtn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; }
 .ccd-panel--dark .cld-fbtn--cancel:hover { background: rgba(255,255,255,.14); }
-/* Inputs (recherche + filtre) : texte saisi, label et icônes clairs sur fond sombre. */
-.ccd-panel--dark .ccd-field :deep(.v-field__input),
-.ccd-panel--dark .ccd-field :deep(input),
-.ccd-panel--dark .ccd-field :deep(.v-select__selection-text) { color: #e2e8f0 !important; }
-.ccd-panel--dark .ccd-field :deep(.v-label) { color: #94a3b8 !important; }
-.ccd-panel--dark .ccd-field :deep(.v-field__clearable),
-.ccd-panel--dark .ccd-field :deep(.v-field__append-inner),
-.ccd-panel--dark .ccd-field :deep(.v-field__prepend-inner) { color: #94a3b8 !important; }
 </style>

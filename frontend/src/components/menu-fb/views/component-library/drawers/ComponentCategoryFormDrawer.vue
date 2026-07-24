@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="ccfd-field-label">{{ t('componentCategoryList.labelType') }}</div>
+            <div class="ccfd-field-label">{{ t('componentCategoryList.labelType') }} <span class="ccfd-star">*</span></div>
             <v-select
               v-model="form.typeId"
               :items="types"
@@ -39,7 +39,7 @@
               class="mb-6 ccfd-field"
             />
 
-            <div class="ccfd-field-label">{{ t('componentCategoryList.labelName') }}</div>
+            <div class="ccfd-field-label">{{ t('componentCategoryList.labelName') }} <span class="ccfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -272,6 +272,12 @@ export default {
   border-color: #ff3131 !important;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
 }
+/* Dark : champs à l'image d'EventFormDrawer (fond #1f2937, bordure #4b5563, texte clair) */
+.ccfd-panel--dark .ccfd-field :deep(.v-field) { background: #1f2937 !important; border-color: #4b5563 !important; }
+.ccfd-panel--dark .ccfd-field :deep(.v-field input),
+.ccfd-panel--dark .ccfd-field :deep(.v-field__input),
+.ccfd-panel--dark .ccfd-field :deep(.v-select__selection-text) { color: #f3f4f6 !important; }
+.ccfd-star { color: #ff3131; }
 
 /* ── Footer ── */
 .ccfd-footer {
@@ -285,7 +291,7 @@ export default {
   box-shadow: 0 -4px 12px rgba(0, 0, 0, .06);
 }
 .ccfd-panel--dark .ccfd-footer {
-  background: #1a2332;
+  background: #1f2937;
   border-top-color: #374151;
 }
 

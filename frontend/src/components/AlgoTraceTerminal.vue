@@ -20,7 +20,7 @@
     </button>
 
     <v-dialog v-model="open" :max-width="debug ? 920 : 760" scrollable>
-      <div class="att-modal">
+      <div class="att-modal" :class="{ 'att--dark': isDark }">
         <div class="att-modal-head">
           <span class="att-dot" aria-hidden="true"></span>
           <span class="att-modal-title">
@@ -208,8 +208,18 @@ const DIM_LABELS = {
   attendance: 'affluence',
 };
 
+import { computed } from 'vue';
+import { useTheme } from 'vuetify';
+
 export default {
   name: 'AlgoTraceTerminal',
+  setup() {
+    const theme = useTheme();
+    // Le popup est un v-dialog téléporté : les tokens shadcn (--card, --muted…)
+    // n'héritent pas de l'overlay EventPredict → on pilote un thème local.
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { isDark };
+  },
   props: {
     // Éléments scorés (top-N) : { event, score, scorePercentage, breakdown }.
     candidates: { type: Array, default: () => [] },
@@ -540,5 +550,23 @@ export default {
 .att-card-sub {
   font-size: 0.74rem;
   color: var(--foreground, #0f172a);
+}
+
+/* ===================== DARK MODE =====================
+   Le popup est un v-dialog TÉLÉPORTÉ : ses tokens shadcn (--card/--muted/
+   --foreground/--muted-foreground/--border) n'héritent pas de l'overlay
+   EventPredict → ils retombaient sur leur littéral clair. On les redéfinit sur
+   la racine du modal, ce qui recolore tout le contenu d'un coup. Le déclencheur
+   `.att-trigger` reste inline dans l'overlay (héritage OK), rien à faire.
+   L'accent rouge #ff3131 (--primary) est conservé. */
+.att--dark {
+  --card: #1f2937;
+  --muted: #111827;
+  --foreground: #f9fafb;
+  --muted-foreground: #94a3b8;
+  --border: #374151;
+}
+.att--dark .att-ok {
+  color: #86efac;
 }
 </style>

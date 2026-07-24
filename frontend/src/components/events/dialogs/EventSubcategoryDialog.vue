@@ -18,6 +18,11 @@
       </div>
 
       <v-form ref="form" v-model="formValid" validate-on="submit">
+        <div class="escd-section-label">
+          <Layers :size="12" />
+          <span>{{ t('eventSubcategoryDialogSection') }}</span>
+        </div>
+
         <!-- Category select -->
         <div class="escd-field-wrap mb-4">
           <label class="escd-field-label">{{ t('eventSubcategoryDialogCategoryLabel') }} <span class="escd-star">*</span></label>
@@ -194,4 +199,17 @@ export default {
 .escd--dark .escd-field-label { color: #d1d5db; }
 .escd--dark .escd-v-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 .escd--dark .escd-v-select :deep(.v-field__input) { color: #f3f4f6; }
+.escd--dark .escd-v-select :deep(.v-select__selection-text) { color: #f3f4f6; }
+.escd--dark .escd-v-select :deep(.v-field__input input::placeholder) { color: #94a3b8; }
+.escd--dark .escd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+/* Bouton Cancel : slotté dans le footer d'EventDrawerShell → ciblé via .eds--dark. */
+.eds--dark .escd-btn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.eds--dark .escd-btn--cancel:hover { background: #374151; }
+/* Label de section (icône + span), calqué sur efd-section-label */
+.escd-section-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: #9ca3af; margin-bottom: 12px;
+}
+.escd--dark .escd-section-label { color: #6b7280; }
 </style>

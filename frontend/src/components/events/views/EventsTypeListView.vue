@@ -144,16 +144,18 @@
             <AlertCircle :size="14" /> {{ typeError }}
           </div>
           <v-form ref="typeForm" v-model="typeFormValid" validate-on="submit">
-            <v-text-field
-              v-model="typeFormData.name"
-              :label="t('eventTypeList.labelName')"
-              :placeholder="t('eventTypeList.namePlaceholder')"
-              density="comfortable"
-              variant="outlined"
-              hide-details="auto"
-              :rules="[rules.required]"
-              class="etl-type-input"
-            />
+            <div class="etl-field-wrap">
+              <span class="etl-field-label">{{ t('eventTypeList.labelName') }} <span class="etl-star">*</span></span>
+              <v-text-field
+                v-model="typeFormData.name"
+                :placeholder="t('eventTypeList.namePlaceholder')"
+                density="comfortable"
+                variant="outlined"
+                hide-details="auto"
+                :rules="[rules.required]"
+                class="etl-type-input"
+              />
+            </div>
           </v-form>
         </div>
 
@@ -577,6 +579,12 @@ export default {
   border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
 }
 
+/* Label de champ (span au-dessus du champ) */
+.etl-field-wrap { display: flex; flex-direction: column; gap: 6px; }
+.etl-field-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.etl--dark .etl-field-label { color: #d1d5db; }
+.etl-star { color: #ff3131; }
+
 /* Styled v-text-field */
 .etl-type-input :deep(.v-field) {
   border: 1.5px solid #e5e7eb;
@@ -606,4 +614,16 @@ export default {
 .etl-fbtn--cancel:hover { background: #e9ecef; }
 .etl-fbtn--primary { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3); }
 .etl-fbtn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
+
+/* Dark mode — compléments */
+.etl--dark .etl-drawer-body { background: #111827; }
+.etl--dark .etl-error-bar { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.etl--dark .etl-drawer-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.etl--dark .etl-cat-badge { background: rgba(3,105,161,.18); color: #7dd3fc; border-color: rgba(3,105,161,.4); }
+.etl--dark .etl-abtn { background: #1f2937; color: #cbd5e1; }
+.etl--dark .etl-abtn--info { background: rgba(37,99,235,.15); color: #93c5fd; }
+.etl--dark .etl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.etl--dark .etl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+.etl--dark .etl-fbtn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.etl--dark .etl-mbtn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
 </style>

@@ -296,6 +296,8 @@ export default {
 .mptcd-fbtn--cancel:hover {
   background: #e5e7eb;
 }
+.mptcd-panel--dark .mptcd-fbtn--cancel { background: #374151; color: #d1d5db; }
+.mptcd-panel--dark .mptcd-fbtn--cancel:hover { background: #4b5563; }
 
 /* ── Transition ── */
 .mptcd-slide-enter-active,

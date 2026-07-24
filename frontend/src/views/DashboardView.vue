@@ -1062,4 +1062,25 @@ export default {
    Le scroll vertical est géré par chaque page via son propre conteneur racine.
    On n'impose aucun overflow sur .v-main pour éviter le scroll horizontal
    parasite (overflow-y:auto force overflow-x:auto en CSS). */
+
+/* Dark mode — section « Configuration » du settings-drawer et ses sous-menus.
+   Le drawer suit déjà les variables de thème Vuetify ; on garantit ici que les
+   groupes (v-list-group) et surtout leurs sous-items DÉPLIÉS restent sur fond
+   sombre, texte clair, survol/actif cohérents. Scopé sous `.dark` → le mode
+   clair n'est jamais affecté. Placé en style non-scopé pour percer Vuetify. */
+.dark .settings-drawer .settings-drawer-content .v-list,
+.dark .settings-drawer .settings-drawer-content .v-list-group,
+.dark .settings-drawer .settings-drawer-content .v-list-group__items {
+  background: transparent !important;
+}
+.dark .settings-drawer .settings-drawer-content .v-list-item-title,
+.dark .settings-drawer .settings-drawer-content .v-list-item__content {
+  color: rgb(var(--v-theme-on-surface)) !important;
+}
+.dark .settings-drawer .settings-drawer-content .v-list-item:hover {
+  background-color: rgba(255, 49, 49, 0.08) !important;
+}
+.dark .settings-drawer .settings-drawer-content .v-list-item--active {
+  background: linear-gradient(90deg, rgba(255, 49, 49, 0.20) 0%, rgba(255, 49, 49, 0.08) 100%) !important;
+}
 </style>

@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" max-width="1100" @update:model-value="$emit('update:modelValue', $event)">
-    <div>
+    <div class="by-event-chart-dialog" :class="{ 'by-event-chart-dialog--dark': isDark }">
       <v-card
         v-if="!ready"
         flat
@@ -22,8 +22,15 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
+import { useTheme } from 'vuetify'
 import GenericByEventChart from '../charts/GenericByEventChart.vue'
+
+// Dark mode autonome. Ce dialog n'est qu'un conteneur (v-card flat + chart
+// enfant qui suivent déjà le thème global) : la classe --dark est exposée pour
+// parité/cohérence, aucune couleur claire n'est codée en dur ici.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

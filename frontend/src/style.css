@@ -18,11 +18,17 @@ body {
   overflow: hidden;
 }
 
-/* Shared F&B workspace language: EventPredict, Inventory and Restock.
-   Components keep local prefixes but consume this common internal contract. */
+/* Shared F&B workspace language: EventPredict, Inventory, Restock and Logistic.
+   Components keep local prefixes but consume this common internal contract.
+   `.lgmv-overlay` / `.lgsim-card` are the roots of the two Logistic dialogs:
+   both are teleported out of `.space-logistic-view`, so they need the contract
+   declared on themselves or every var() falls back to its light literal. */
 .event-predict-overlay,
 .space-inventory-view,
-.space-restock-view {
+.space-restock-view,
+.space-logistic-view,
+.lgmv-overlay,
+.lgsim-card {
   --fb-bg: #F5F5F5;
   --fb-surface: #FFFFFF;
   --fb-subtle: #FAFAFA;
@@ -58,9 +64,15 @@ body {
 .v-theme--dataFridayDark .event-predict-overlay,
 .v-theme--dataFridayDark .space-inventory-view,
 .v-theme--dataFridayDark .space-restock-view,
+.v-theme--dataFridayDark .space-logistic-view,
+.v-theme--dataFridayDark .lgmv-overlay,
+.v-theme--dataFridayDark .lgsim-card,
 .dark .event-predict-overlay,
 .dark .space-inventory-view,
-.dark .space-restock-view {
+.dark .space-restock-view,
+.dark .space-logistic-view,
+.dark .lgmv-overlay,
+.dark .lgsim-card {
   --fb-bg: #111827;
   --fb-surface: #1F2937;
   --fb-subtle: #172033;

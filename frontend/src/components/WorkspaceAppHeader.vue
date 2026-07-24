@@ -3,7 +3,7 @@
     flat
     density="compact"
     height="64"
-    :class="['workspace-app-bar px-2 px-sm-3', { 'workspace-app-bar--scrolled': isScrolled }]"
+    :class="['workspace-app-bar px-2 px-sm-3', { 'workspace-app-bar--scrolled': isScrolled, 'workspace-app-bar--dark': isDark }]"
   >
     <!-- Gauche : navigation principale + espace + accueil. -->
     <v-btn
@@ -86,8 +86,9 @@
 // Rendu DIRECTEMENT dans le <v-app> de chaque vue (Inventaire / Réarmement /
 // Predict) — pas de teleport. Les KPIs sont passés en prop (pas téléportés),
 // ce qui évite le crash __vnode rencontré avec l'approche teleport.
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useTheme } from 'vuetify'
 import { ChevronRight, Settings } from 'lucide-vue-next'
 import WorkspaceSpaceSwitcher from '@/components/WorkspaceSpaceSwitcher.vue'
 import WorkspaceUserMenu from '@/components/WorkspaceUserMenu.vue'
@@ -109,6 +110,11 @@ const props = defineProps({
 defineEmits(['kpi-click'])
 
 const router = useRouter()
+
+// Dark mode autonome : quand le thème Vuetify est sombre, on override le chrome
+// blanc translucide de la barre + les pastilles KPI (fond blanc en clair).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 function openMainNavigation() {
   window.dispatchEvent(new CustomEvent('datafriday:open-main-navigation'))
@@ -268,4 +274,23 @@ onBeforeUnmount(() => {
   padding: 0 4px 6px;
 }
 /* Styles profil utilisateur : déplacés dans WorkspaceUserMenu.vue. */
+
+/* ── Dark mode ── (override du chrome blanc translucide + pastilles KPI) */
+.workspace-app-bar--dark {
+  background: rgba(15, 23, 42, 0.94) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35) !important;
+}
+.workspace-app-bar--dark.workspace-app-bar--scrolled {
+  border-bottom-color: rgba(255, 255, 255, 0.14) !important;
+}
+.workspace-app-bar--dark .wsh-kpi-cell {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.workspace-app-bar--dark .wsh-kpi-label { color: #94a3b8; }
+.workspace-app-bar--dark .wsh-kpi-value { color: #f9fafb; }
+.workspace-app-bar--dark .wsh-kpi-var { color: #4ade80; }
+.workspace-app-bar--dark .wsh-kpi-var--bad { color: #ff6b6b; }
 </style>

@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="rfd-slide">
       <div v-if="modelValue" class="rfd-overlay" @mousedown.self="close">
-        <div class="rfd-panel">
+        <div class="rfd-panel" :class="{ 'rfd--dark': isDark }">
 
           <!-- Header dégradé -->
           <div class="rfd-header">
@@ -589,4 +589,37 @@ export default {
 .rfd-slide-leave-to { opacity: 0; }
 .rfd-slide-enter-from .rfd-panel,
 .rfd-slide-leave-to .rfd-panel { transform: translateX(100%); }
+
+/* ── Dark mode ── (drawer téléporté sur <body>, piloté par la prop isDark →
+   classe .rfd--dark posée sur le panel ; header rouge #ff3131, bouton primaire
+   et accents #ff3131 conservés). Palette alignée sur les drawers events. */
+.rfd--dark.rfd-panel { background: #1f2937; }
+.rfd--dark .rfd-body { background: #111827; }
+.rfd--dark .rfd-label { color: #d1d5db; }
+.rfd--dark .rfd-input {
+  background: #1f2937;
+  border-color: #374151;
+  color: #f9fafb;
+}
+.rfd--dark .rfd-input::placeholder { color: #9ca3af; }
+.rfd--dark .rfd-input[readonly] { background: #111827; color: #6b7280; }
+.rfd--dark .rfd-search-icon { color: #9ca3af; }
+.rfd--dark .rfd-section-divider { color: #9ca3af; }
+.rfd--dark .rfd-section-divider::after { background: #374151; }
+.rfd--dark .rfd-empty { color: #9ca3af; }
+.rfd--dark .rfd-info-note {
+  background: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+}
+.rfd--dark .rfd-permissions-list { background: #1f2937; border-color: #374151; }
+.rfd--dark .rfd-perm-row:hover { background: rgba(255, 49, 49, 0.12); }
+.rfd--dark .rfd-perm-row--selected { background: rgba(255, 49, 49, 0.14); }
+.rfd--dark .rfd-perm-check--off { color: #4b5563; }
+.rfd--dark .rfd-perm-name { color: #f9fafb; }
+.rfd--dark .rfd-perm-desc { color: #9ca3af; }
+.rfd--dark .rfd-selected-count { color: #9ca3af; }
+.rfd--dark .rfd-footer { background: #1f2937; border-top-color: #374151; }
+.rfd--dark .rfd-btn--ghost { background: #374151; color: #f9fafb; }
+.rfd--dark .rfd-btn--ghost:hover:not(:disabled) { background: #4b5563; }
 </style>

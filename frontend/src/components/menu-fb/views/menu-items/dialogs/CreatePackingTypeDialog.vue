@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="460" persistent>
-    <div class="cptd-card">
+    <div class="cptd-card" :class="{ 'cptd-card--dark': isDark }">
       <!-- Gradient header -->
       <div class="cptd-grad-header">
         <div class="cptd-grad-header__icon"><Package :size="20" color="white" /></div>
@@ -47,6 +47,7 @@ export default {
   components: { AlertCircle, Check, Package, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'created'],
   setup() {
@@ -145,4 +146,13 @@ export default {
 .cptd-btn--primary { background: #ff3131; color: #fff; }
 .cptd-btn--primary:hover { box-shadow: 0 4px 14px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 .cptd-btn:disabled { opacity: .6; cursor: not-allowed; transform: none !important; }
+
+/* ── Dark mode (v-dialog téléporté : classe sur la racine .cptd-card) ── */
+.cptd-card--dark { background: #1e293b; }
+.cptd-card--dark .cptd-error { background: rgba(255,49,49,.15); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+.cptd-card--dark .cptd-input { background: #0f172a !important; border-color: rgba(255,255,255,.12) !important; color: #e2e8f0 !important; }
+.cptd-card--dark .cptd-input:focus { background: #0f172a !important; border-color: #ff3131 !important; }
+.cptd-card--dark .form-floating > label { color: #94a3b8; }
+.cptd-card--dark .cptd-btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.cptd-card--dark .cptd-btn--cancel:hover { background: rgba(255,255,255,.14); }
 </style>

@@ -5,7 +5,7 @@
     scrollable
     @update:model-value="$emit('update:modelValue', $event)"
   >
-    <v-card rounded="lg" class="pa-4">
+    <v-card rounded="lg" class="pa-4 sie-card" :class="{ 'sie-card--dark': isDark }">
       <v-card-title class="text-h6 pa-0 mb-2">
         {{ t('anEventsDialogTitle') }}
       </v-card-title>
@@ -63,11 +63,17 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import { formatNumber, formatCurrencyDetailed } from '@/composables/useFormatters'
 import { formatDateMedium, compareEventDates } from '@/utils/dateFr'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+
+// Dark mode autonome : v-dialog téléporté → la classe --dark est portée par la
+// racine propre du contenu (la v-card), pas par un ancêtre.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -146,5 +152,18 @@ const eventsList = computed(() => {
 }
 .min-w-0 {
   min-width: 0;
+}
+
+/* ── Dark mode ── */
+.sie-card--dark .sie-row {
+  background-color: #1a2332;
+}
+.sie-card--dark .sie-index {
+  background-color: rgba(124, 58, 237, 0.22);
+  color: #c4b5fd;
+}
+.sie-card--dark .sie-name,
+.sie-card--dark .sie-qty {
+  color: #f9fafb;
 }
 </style>

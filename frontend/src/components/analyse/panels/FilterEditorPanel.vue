@@ -1,7 +1,7 @@
 <template>
   <!-- Éditeur d'une dimension de filtre, affiché AU-DESSUS du leaderboard dans la
        colonne droite quand un tag multi-select est cliqué (cf. FilterSummary). -->
-  <div class="fep-card">
+  <div class="fep-card" :class="{ 'fep-card--dark': isDark }">
     <div class="fep-head">
       <span class="fep-title">{{ t('anEditFilter') }} : {{ label }}</span>
       <v-btn
@@ -27,10 +27,15 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import CheckboxListFilter from '../filters/CheckboxListFilter.vue'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 defineProps({
   label: { type: String, default: '' },
@@ -60,7 +65,7 @@ defineEmits(['update:modelValue', 'close'])
 .fep-title {
   font-size: 12.5px;
   font-weight: 700;
-  color: #1f2937;
+  color: #1e293b;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -71,4 +76,20 @@ defineEmits(['update:modelValue', 'close'])
 /* Le label rouge interne de CheckboxListFilter est redondant avec le header. */
 .fep-body :deep(.cbf-label) { display: none; }
 .fep-body :deep(.cbf-list) { max-height: 320px; }
+
+/* ===================== DARK MODE ===================== */
+.fep-card--dark {
+  background: #1e293b;
+  /* border rouge #ff3131 conservé (sémantique) */
+}
+.fep-card--dark .fep-head {
+  background: rgba(255, 49, 49, 0.12);
+  border-bottom-color: rgba(255, 49, 49, 0.22);
+}
+.fep-card--dark .fep-title {
+  color: #f9fafb;
+}
+.fep-card--dark .fep-close {
+  color: #94a3b8;
+}
 </style>
