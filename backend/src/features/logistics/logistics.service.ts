@@ -229,7 +229,7 @@ export class LogisticsService {
    * fourni au mouvement — le seul cas où `createMovement` pouvait auparavant
    * apprendre `unitsPerPack` (BUG-033/049).
    */
-  private async resolveUnitsPerPackForItemKey(itemKey: string, tenantId: string): Promise<number | null> {
+  async resolveUnitsPerPackForItemKey(itemKey: string, tenantId: string): Promise<number | null> {
     const name = String(itemKey ?? '').trim();
     if (!name) return null;
 
