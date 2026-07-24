@@ -1,6 +1,6 @@
 # BUG-034 — Event.spaceId/configurationId sont des String, pas des FK Prisma
 
-- **Statut** : 🟡 Corrigé partiel
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟡 Mineur (orphelins possibles, pas de fuite de données)
 - **Domaine** : Événements
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -37,25 +37,33 @@ Correction en deux volets, dont un seul appliqué à ce jour :
    `spaceId`/`configurationId` possédé par le tenant appelant, rejette (`NotFoundException`) une
    référence appartenant à un autre tenant.
 
-2. **Non fait — vraie FK Prisma + migration** : un contrôle en lecture seule sur la base
-   pointée par `DATABASE_URL` (staging, Supabase) le 2026-07-24 a trouvé des orphelins déjà
-   existants :
-   - `Event.spaceId` : **20 lignes orphelines sur 61** événements avec `spaceId` non nul (pointent
-     vers un `Space.id` inexistant).
-   - `Event.configurationId` : **5 lignes orphelines sur 18** événements avec `configurationId` non
-     nul (pointent vers un `Config.id` inexistant).
-   Conformément à la procédure prévue pour ce ticket, la présence d'orphelins bloque l'ajout de la
-   FK/migration tant qu'ils n'ont pas été traités (nettoyage ou décision produit sur quoi faire de
-   ces événements) — **aucune modification de `schema.prisma` ni migration n'a été écrite**. À
-   traiter en suivi séparé : identifier ces 20+5 lignes, décider (réassigner, mettre `spaceId`/
-   `configurationId` à `null`, ou supprimer les events concernés), puis seulement ajouter la
-   `@relation` FK et la migration manuelle (voir ADR-0002 — migration à écrire à la main, jamais
-   appliquée automatiquement par la plateforme).
+2. **Fait le 2026-07-24 — vraie FK Prisma + migration**, en 3 étapes après confirmation explicite
+   de l'utilisateur (approche SET NULL validée) :
+   - **Constat** (lecture seule) : `Event.spaceId` — 20 lignes orphelines sur 61 événements avec
+     `spaceId` non nul ; `Event.configurationId` — 5 lignes orphelines sur 18. Vérifié en base
+     réelle que ce sont de **vrais événements historiques** (ex. séries "STADE FRANÇAIS"
+     2019-2026, "Paris SG vs OL Lyonnais", etc.), pas des données de test — pas de suppression ni
+     de rattachement deviné.
+   - **Nettoyage** : `UPDATE "Event" SET "spaceId" = NULL WHERE ...` (idem `configurationId`) sur
+     les seules lignes orphelines confirmées, exécuté contre la base pointée par `DATABASE_URL`.
+     Revérifié après coup : 0 orphelin restant, 61 `Event` toujours lisibles, aucune donnée
+     perdue (seule la référence cassée est vidée, le reste de l'event — CA, ventes, KPIs —
+     intact).
+   - **FK + migration** : `schema.prisma` porte désormais `space Space? @relation(fields:
+     [spaceId], ..., onDelete: SetNull)` et `configuration Config? @relation(fields:
+     [configurationId], ..., onDelete: SetNull)` (+ index ajouté sur `configurationId`, qui n'en
+     avait pas). `onDelete: SetNull` choisi délibérément (pas `Cascade`) — cohérent avec le
+     nettoyage : supprimer un Space/Config ne doit jamais supprimer l'historique d'un Event.
+     Migration écrite à la main (`prisma/migrations/20260724180000_event_space_config_fk/`, voir
+     ADR-0002) et **déployée** (`prisma migrate deploy`, sur autorisation explicite) — vérifié en
+     base après coup : `Event_spaceId_fkey`/`Event_configurationId_fkey` bien présentes,
+     `ON DELETE SET NULL`.
 
 ## Risque de régression / à surveiller
 
-- Ajouter la FK a posteriori nécessite toujours d'abord de traiter les orphelins déjà présents en
-  base (confirmés le 2026-07-24 : 20 `spaceId` + 5 `configurationId`).
+- Les 25 events touchés par le nettoyage affichent désormais "aucun espace"/"aucune config" côté
+  UI (comportement correct : l'espace/config d'origine n'existe effectivement plus) — vérifier
+  qu'aucun écran ne suppose `spaceId`/`configurationId` toujours non-null sur un event historique.
 - Vérifier que `PATCH /events/:id` sans `spaceId`/`configurationId` dans le payload ne déclenche
   aucune vérification (comportement partiel préservé, couvert par les tests existants du fichier).
 
@@ -63,4 +71,4 @@ Correction en deux volets, dont un seul appliqué à ce jour :
 
 - `datafriday-web/docs/modules/07_EVENEMENTS.md` §"Tableau récapitulatif — bugs et risques actifs" #4
 - [[67_event_taxonomy_fk_sans_ownership]] (même pattern d'ownership, appliqué ici à `spaceId`/`configurationId`)
-- `docs/adr/0002_migrations_manuelles_jamais_plateforme.md` (politique de migration manuelle, pour le volet FK non fait)
+- `docs/adr/0002_migrations_manuelles_jamais_plateforme.md` (politique de migration manuelle appliquée pour la FK)
