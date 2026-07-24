@@ -1818,6 +1818,16 @@ export const translations = {
     invRecoDeleteMsg: 'the document will be permanently deleted. You can recreate it with "Create Reconciliation".',
     invRecoDeleteConfirm: 'Delete',
     invRecoDeleteError: 'The reconciliation could not be deleted',
+    // Contexte de fabrication du document (BUG-238/241) — sources manquantes ou dégradées.
+    invRecoMetaBaselinePrev:
+      "Starting stock taken from the previous match's post-event count — Logistic movements in between are not deducted.",
+    invRecoMetaBaselineNone: 'No starting stock for this match — Qty left and Missing are unavailable.',
+    invRecoMetaSalesUnjoined:
+      'sold units could not be matched to a counted POS/item — Missing is overstated by that much',
+    invRecoMetaOrphans: 'orphan line(s) excluded (item or POS removed from the catalogue).',
+    invRecoMetaIncomplete: 'Count was incomplete when generated:',
+    invPostCarriedHint:
+      'Quantities shown come from the pre-match count — recount and validate each item.',
     invConfiguration: 'Configuration',
     invTools: 'Tools',
     invFilters: 'Filters',
@@ -5542,6 +5552,17 @@ export const translations = {
     invRecoDeleteMsg: 'le document sera définitivement supprimé. Vous pourrez le recréer avec « Générer la réconciliation ».',
     invRecoDeleteConfirm: 'Supprimer',
     invRecoDeleteError: "La réconciliation n'a pas pu être supprimée",
+    // Contexte de fabrication du document (BUG-238/241) — sources manquantes ou dégradées.
+    invRecoMetaBaselinePrev:
+      "Stock de départ repris du comptage d'après-match du match précédent — les mouvements Logistic intermédiaires ne sont pas déduits.",
+    invRecoMetaBaselineNone:
+      'Aucun stock de départ pour ce match — Restant et Manquant indisponibles.',
+    invRecoMetaSalesUnjoined:
+      'unité(s) vendue(s) non rattachée(s) à un PdV/article compté — le manquant est surévalué d’autant',
+    invRecoMetaOrphans: 'ligne(s) orpheline(s) exclue(s) (article ou PdV retiré du catalogue).',
+    invRecoMetaIncomplete: 'Comptage incomplet à la génération :',
+    invPostCarriedHint:
+      "Les quantités affichées viennent du comptage d'avant-match — recomptez et validez chaque article.",
     invConfiguration: 'Configuration',
     invTools: 'Outils',
     invFilters: 'Filtres',

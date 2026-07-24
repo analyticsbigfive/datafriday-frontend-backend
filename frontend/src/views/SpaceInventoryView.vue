@@ -205,6 +205,18 @@
     <!-- Contenu central NORMAL (recherche, onglets, cartes, comptage) — substitué
          par la vue réconciliation quand un document est sélectionné. -->
     <template v-if="!activeReconciliation">
+    <!-- Post-event ouvert sur des saisies d'AVANT-match (BUG-237) : les valeurs
+         sont une proposition, pas un comptage validé — le dire explicitement,
+         sinon l'écran « 100 % compté » invite à sauvegarder sans recompter. -->
+    <v-alert
+      v-if="hasCarriedCounts"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="si-carried-alert"
+    >
+      {{ t('invPostCarriedHint') }}
+    </v-alert>
     <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur. -->
     <div class="si-search-wrap">
       <AppSearchBar
@@ -902,6 +914,17 @@ export default {
     isPreMode() {
       return this.inventoryMode === 'pre'
     },
+    /** Mode post ouvert sur des lignes reprises du comptage d'avant-match
+     *  (drapeau serveur `carriedFromPreEvent`, BUG-237) → bandeau « à recompter ». */
+    hasCarriedCounts() {
+      if (this.isPreMode) return false
+      for (const byItem of Object.values(this.inventoryCounts || {})) {
+        for (const c of Object.values(byItem || {})) {
+          if (c?.carriedFromPreEvent) return true
+        }
+      }
+      return false
+    },
     /** Quantités attendues : permission dédiée (gating serveur en miroir — sans
      *  elle, l'endpoint baseline répond 403 et on n'émet même pas l'appel). */
     canSeeExpected() {
@@ -1475,6 +1498,11 @@ export default {
           this.store.dispatch('inventory/loadInventory', {
             spaceId,
             eventId: this.selectedEventId,
+            // Phase du comptage (BUG-237) : les deux écrans partagent l'eventId.
+            // En post, le serveur renvoie les saisies d'avant-match en simple
+            // proposition (valeurs gardées, « à compter ») au lieu d'un comptage
+            // déjà validé — sinon un clic archivait un post-event = pre-event.
+            phase: this.isPreMode ? 'pre-event' : 'post-event',
           }),
         ])
 
@@ -1781,7 +1809,13 @@ export default {
             if (nk && it?.id && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, String(it.id))
           }
         }
-        this.preExpected = buildPreEventExpected(baseline, { itemIdByNormName })
+        // `unitsPerItemId` (BUG-239) : le serveur peut avoir calculé l'attendu
+        // avec la taille de paquet de la Logistique — on le re-découpe dans celle
+        // du champ Packed affiché (total en unités inchangé).
+        this.preExpected = buildPreEventExpected(baseline, {
+          itemIdByNormName,
+          unitsPerItemId: this.unitsPerItemIdMap,
+        })
       } catch (e) {
         // 403 (permission retirée côté serveur) ou réseau → pas de hints, comptage intact.
         console.warn('[SpaceInventory] baseline pre-event KO (pas de hints):', e?.message)
@@ -1823,7 +1857,7 @@ export default {
       }
       this.recoCreating = true
       try {
-        const lines = await this.buildReconciliationLines(spaceId, recoEvent)
+        const { lines, meta } = await this.buildReconciliationLines(spaceId, recoEvent)
         if (isDemoMode()) {
           // Démo : document local non persisté (parité avec l'inventaire démo,
           // qui vit déjà 100% en localStorage).
@@ -1834,16 +1868,35 @@ export default {
             kind: 'post-event',
             createdAt: new Date().toISOString(),
             lines,
+            meta: { baseline: { source: meta.preEventSource }, salesUnjoined: meta.salesUnjoined },
           }
           this.reconciliations = [doc, ...this.reconciliations]
           this.selectedReconciliationId = doc.id
           return
         }
-        const created = await createPostEventReconciliation(spaceId, {
+        const basePayload = {
           eventId: recoEvent.id,
           eventName: recoEvent.name || recoEvent.eventName || undefined,
           lines,
-        })
+        }
+        let created
+        try {
+          created = await createPostEventReconciliation(spaceId, {
+            ...basePayload,
+            preEventSource: meta.preEventSource,
+            ...(meta.salesUnjoined ? { salesUnjoined: meta.salesUnjoined } : {}),
+            countedProgress: meta.countedProgress,
+          })
+        } catch (e) {
+          // Réflexe BUG-228 : le DTO backend est en whitelist stricte
+          // (`forbidNonWhitelisted`). Sur un serveur pas encore redéployé, les
+          // champs de contexte renvoient 400 « property X should not exist » —
+          // le document vaut mieux sans son contexte que pas de document du tout.
+          const msg = String(e?.response?.data?.message || e?.message || '')
+          if (e?.response?.status !== 400 || !/should not exist/i.test(msg)) throw e
+          console.warn('[SpaceInventory] backend sans contexte de réconciliation — repli sans meta:', msg)
+          created = await createPostEventReconciliation(spaceId, basePayload)
+        }
         // La réponse API est le document complet (lines incluses) → en tête de liste.
         this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
         this.selectedReconciliationId = created.id
@@ -1892,10 +1945,14 @@ export default {
         if (nk && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, id)
       }
 
-      // ── Pré-event : dernier snapshot antérieur au jour de l'event ───────────
+      // ── Pré-event : comptage d'avant-match du MÊME event, repli scopé sur le
+      //    post-event du match précédent (BUG-241). `source` est archivé dans le
+      //    document : un repli est une approximation, elle doit rester visible.
       let preEventUnitsByKey = null
+      let preEventSource = 'none'
       try {
         const pre = isDemoMode() ? null : await getPreEventInventory(spaceId, recoEvent.id)
+        if (pre?.source) preEventSource = pre.source
         const blob = pre?.inventoryCounts
         if (blob && typeof blob === 'object') {
           preEventUnitsByKey = {}
@@ -1918,6 +1975,12 @@ export default {
       // de fausses pertes. Hors démo, on ABANDONNE la création (le comptage est
       // déjà sauvegardé, recliquer retente) — philosophie « jamais de 0 fabriqué ».
       const soldUnitsByKey = {}
+      // BUG-238 : une vente non joignable n'est PAS « zéro vente » — elle sort du
+      // calcul et gonfle le manquant de la ligne concernée. On compte ce qui est
+      // écarté pour l'archiver dans le document et l'afficher.
+      const unjoinedShops = new Set()
+      const unjoinedItems = new Set()
+      let unjoinedUnits = 0
       try {
         const byEventId = await getSpaceEventTimelineBatch(spaceId, [recoEvent.id])
         const raw = (byEventId.get(recoEvent.id) || []).map((r) => ({ ...r, eventId: recoEvent.id }))
@@ -1925,16 +1988,37 @@ export default {
           menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
         })
         for (const r of records) {
-          const elId = elementIdByNormName.get(normalizeStr(r.shopName || r.shop || ''))
-          if (!elId) continue // PdV de vente non présent dans la config comptée
+          const qty = Number(r.quantity) || 0
+          const shopLabel = r.shopName || r.shop || ''
+          const elId = elementIdByNormName.get(normalizeStr(shopLabel))
+          if (!elId) {
+            // PdV de vente non présent dans la config comptée
+            if (shopLabel) unjoinedShops.add(String(shopLabel))
+            unjoinedUnits += qty
+            continue
+          }
+          const itemLabel = r.itemName || r.menuItemName || r.productName || ''
           const itemId =
             (r.menuItemId != null && String(r.menuItemId)) ||
             (r.mappedMenuItemId != null && String(r.mappedMenuItemId)) ||
-            itemIdByNormName.get(normalizeStr(r.itemName || r.menuItemName || r.productName || '')) ||
+            itemIdByNormName.get(normalizeStr(itemLabel)) ||
             null
-          if (!itemId) continue // vente non rattachable à un article inventorié
+          if (!itemId || !(itemId in itemNameById)) {
+            // Vente non rattachable à un article inventorié (id inconnu du
+            // référentiel compté OU nom sans correspondance).
+            if (itemLabel) unjoinedItems.add(String(itemLabel))
+            unjoinedUnits += qty
+            continue
+          }
           const key = reconciliationKey(elId, itemId)
-          soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + (Number(r.quantity) || 0)
+          soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + qty
+        }
+        if (unjoinedShops.size || unjoinedItems.size) {
+          console.warn(
+            `[SpaceInventory] réconciliation : ${Math.round(unjoinedUnits * 100) / 100} unité(s) vendue(s) non rattachée(s) — ` +
+              `PdV inconnus: ${[...unjoinedShops].join(', ') || '—'} ; ` +
+              `articles inconnus: ${[...unjoinedItems].join(', ') || '—'}`,
+          )
         }
       } catch (e) {
         if (!isDemoMode()) {
@@ -1960,7 +2044,7 @@ export default {
         }
       }
 
-      return buildPostEventReconciliationLines({
+      const lines = buildPostEventReconciliationLines({
         countedUnitsByKey,
         preEventUnitsByKey,
         soldUnitsByKey,
@@ -1970,6 +2054,25 @@ export default {
         elementNameById,
         itemNameById,
       })
+
+      // Contexte de fabrication archivé avec le document (BUG-238/241) : sans
+      // lui, un écart dû à une source manquante est indiscernable d'un manquant.
+      const meta = {
+        preEventSource,
+        salesUnjoined:
+          unjoinedShops.size || unjoinedItems.size
+            ? {
+                shopNames: [...unjoinedShops].slice(0, 50),
+                itemNames: [...unjoinedItems].slice(0, 50),
+                units: Math.round(unjoinedUnits * 100) / 100,
+              }
+            : null,
+        countedProgress: [
+          Number(this.inventoryStats?.countedItems) || 0,
+          Number(this.inventoryStats?.totalItems) || 0,
+        ],
+      }
+      return { lines, meta }
     },
     /** Sélection d'un document depuis le drawer mobile : fermer le drawer puis
      *  ouvrir la vue réconciliation (fiche 236). */
@@ -2462,6 +2565,7 @@ export default {
 .si-band-title__main { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .si-band-title__sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.78); }
 /* Search bar collé sous le bandeau, même largeur (colonne centre). */
+.si-carried-alert { margin: 10px 0 0; font-size: 13px; }
 .si-search-wrap {
   margin: 0 0 16px;
 }

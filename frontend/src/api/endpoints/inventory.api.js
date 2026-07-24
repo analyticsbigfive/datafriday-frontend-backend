@@ -8,9 +8,14 @@ import { api } from '../client'
  * GET /inventory/:spaceId/:eventId
  * @returns {Promise<{inventoryCounts: object} | null>}
  */
-export async function getInventory(spaceId, eventId) {
+export async function getInventory(spaceId, eventId, { phase } = {}) {
   // Backend retourne toujours 200 ({ inventoryCounts: {...} }, même vide) — plus de 404.
-  return api.get(`/inventory/${spaceId}/${eventId}`)
+  // `phase` ('pre-event'|'post-event', BUG-237) : les deux écrans partagent le
+  // même eventId ; en phase post, le serveur renvoie les lignes saisies AVANT la
+  // clôture du Pre-event comme proposition (valeurs gardées, isCounted=false)
+  // au lieu d'un comptage déjà validé. Paramètre omis = comportement historique.
+  const qs = phase ? `?phase=${encodeURIComponent(phase)}` : ''
+  return api.get(`/inventory/${spaceId}/${eventId}${qs}`)
 }
 
 /**
@@ -51,7 +56,13 @@ export async function saveInventoryCount(inventoryCountData) {
  * Crée le document de réconciliation post-événement.
  * POST /inventory/:spaceId/reconciliations
  * @param {string} spaceId
- * @param {{eventId: string, eventName?: string, lines: Array<object>}} payload
+ * @param {{eventId: string, eventName?: string, lines: Array<object>,
+ *   preEventSource?: string,
+ *   salesUnjoined?: {shopNames?: string[], itemNames?: string[], units?: number},
+ *   countedProgress?: number[]}} payload
+ *   `preEventSource`/`salesUnjoined`/`countedProgress` (BUG-238/241) : contexte de
+ *   fabrication archivé dans `StockReconciliation.meta` — un écart produit par une
+ *   source manquante doit rester distinguable d'un manquant réel.
  */
 export async function createPostEventReconciliation(spaceId, payload) {
   return api.post(`/inventory/${spaceId}/reconciliations`, payload)
@@ -78,8 +89,11 @@ export async function deleteInventoryReconciliation(spaceId, id) {
 
 /**
  * Inventaire de référence pré-événement (réco POST-event) : comptage Pre-event
- * Inventory du même event (snapshot kind='pre-event'), repli legacy = dernier
- * snapshot antérieur au JOUR de l'event. Renvoie null si aucun (jamais 404).
+ * Inventory du même event (snapshot kind='pre-event'), repli SCOPÉ = comptage
+ * post-event du match précédent (BUG-241 — plus « n'importe quel snapshot avant
+ * le jour du match »). Renvoie null si aucun (jamais 404).
+ * La réponse porte `source` ('pre-event' | 'previous-post-event') : l'appelant
+ * l'archive dans le document pour que l'approximation reste visible.
  * GET /inventory/:spaceId/pre-event/:eventId
  */
 export async function getPreEventInventory(spaceId, eventId) {

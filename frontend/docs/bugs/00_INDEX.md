@@ -252,6 +252,20 @@
 | [234](234_space_live_double_header_route_non_declaree_dashboardview.md) | Route `space-live` : double header (route Live non déclarée dans les listes self-headed / rail-push de DashboardView) | 🟢 Corrigé | 🟡 | Live events / Shell app |
 | [235](235_pre_event_reconciliation_lignes_orphelines_sans_nom.md) | Réconciliation pré-événement : lignes « — » = comptages orphelins pointant vers des articles/PdV supprimés (ids cuid absents après ré-import catalogue UUID) ; exclusion des lignes + nettoyage SQL des `InventoryCount` orphelins (fiche 234 sur `feat/postEventInventory`, renumérotée 235 au merge — collision avec la 234 Live de `develop`, même mécanique que le 2026-07-22) | 🟡 Corrigé non déployé | 🟠 | Stock |
 | [236](236_reconciliation_section_inaccessible_mobile.md) | Inventaire : la section Réconciliation n'était rendue que dans la colonne gauche desktop (`showLeftFilters` exige `!isMobile`) — aucun accès mobile aux documents ; corrigé en montant la section dans `InventoryFilterDrawer` | 🟡 Corrigé non déployé | 🟡 | Stock |
+| [237](237_post_event_prerempli_par_comptage_pre_event.md) | Post-event Inventory s'ouvre **pré-rempli et « 100 % compté »** avec les saisies du Pre-event du même match (`InventoryCount` keyé sans la phase, même `eventId` depuis §12.4) : garde « comptage incomplet » jamais déclenchée, un clic archive un snapshot post-event = comptage d'avant-match, qui devient la baseline du cycle suivant | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [238](238_reco_post_event_ventes_non_jointes_avalees.md) | Réconciliation post-event : ventes dont le PdV (nom normalisé) ou l'article ne joint pas le référentiel compté **écartées en silence** → `Qty Sold` 0, `Missing`/`Miss €` gonflés du volume vendu, aucun signal (le chemin pre-event, lui, remonte `unjoinedItemKeys`) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [239](239_pre_event_taille_de_paquet_divergente_serveur_front.md) | Pre-event : le serveur casse les packs avec la chaîne Logistique (MarketPrice → MenuComponent → MenuItem) et le front reconvertit avec `inventoryQuantityPackaged` (**MenuItem prioritaire**) — priorités inverses → attendus, hints « Attendu : N » et écarts faux dès que les deux valeurs diffèrent | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
+| [240](240_reconciliation_dark_mode_et_formats_fr_fr_en_dur.md) | Section + vue Réconciliation : 44 couleurs en littéraux, **0** `var(--fb-*)` → deux blocs blancs en thème sombre ; dates/nombres en `toLocaleString('fr-FR')` en dur malgré l'i18n maison | 🟡 Corrigé non déployé | 🟡 | Stock / Thème & i18n |
+| [241](241_getpreeventinventory_repli_legacy_hors_event.md) | `getPreEventInventory` : le repli legacy prend le dernier snapshot du space antérieur au jour du match, **sans filtre `eventId` ni `kind`** (contrairement à son commentaire) → stock de départ possiblement issu d'un autre match, non tracé ; contredit « un match = un eventId » (§12.4) | 🟡 Corrigé non déployé | 🟠 | Stock |
+
+**239 bugs au total** (237-241 ajoutés le 2026-07-24 : vérification de l'implémentation Pre/Post-event
+Inventory contre `modules/10_POST_EVENT_INVENTORY.md`, cf. §13 de ce document — le brief produit et
+les correctifs déjà documentés sont conformes, ces 5 fiches sont les écarts trouvés au-delà.
+**Tous corrigés le jour même** sur `feat/postEventInventory` : backend 41/41, front 478 tests verts
+(4 échecs préexistants hors périmètre, identiques avant/après). ⚠️ Déploiement **conjoint** requis —
+`prisma/sql/2026-07-24_stockreconciliation_meta.sql` + `prisma generate` + redémarrage backend, sans
+quoi la colonne `meta` reste absente ; le front, lui, retombe automatiquement sur un POST sans
+contexte plutôt que d'échouer, réflexe [BUG-228](228_inventory_snapshot_kind_rejete_backend_perime.md).)
 
 **234 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
 l'origine 193-203 sur cette branche, renumérotés au merge dans `develop` le 2026-07-22 pour éviter

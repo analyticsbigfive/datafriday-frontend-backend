@@ -108,8 +108,11 @@ const mutations = {
 }
 
 const actions = {
-  loadInventory({ commit, state }, { spaceId, eventId }) {
-    const key = `${spaceId}::${eventId}`
+  // `phase` ('pre-event'|'post-event', BUG-237) : discrimine la lecture des
+  // comptages entre les deux écrans, qui partagent le même eventId. Fait partie
+  // de la clé de déduplication : deux phases = deux réponses différentes.
+  loadInventory({ commit, state }, { spaceId, eventId, phase }) {
+    const key = `${spaceId}::${eventId}::${phase || ''}`
     // Si un chargement identique est déjà en vol, on le réutilise (pas de 2e GET).
     if (_loadInFlight && _loadInFlightKey === key) return _loadInFlight
 
@@ -136,8 +139,8 @@ const actions = {
 
         // Mode réel : l'API est la source de vérité. Le backend doit retourner
         // { inventoryCounts: {...} } (même vide) — plus de 404, plus de merge local.
-        console.log(`[inventory] 📥 loadInventory — GET /inventory/${spaceId}/${eventId} …`)
-        const remote = await apiGetInventory(spaceId, eventId)
+        console.log(`[inventory] 📥 loadInventory — GET /inventory/${spaceId}/${eventId} (phase=${phase || 'none'}) …`)
+        const remote = await apiGetInventory(spaceId, eventId, { phase })
         const counts = remote?.inventoryCounts ?? {}
         const shopCount = Object.keys(counts).length
         const itemCount = Object.values(counts).reduce((n, s) => n + Object.keys(s || {}).length, 0)

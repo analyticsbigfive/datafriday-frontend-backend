@@ -5,12 +5,13 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
@@ -171,15 +172,26 @@ export class InventoryController {
   @ApiOperation({ summary: "Dernier snapshot d'inventaire pour un espace+événement" })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   @ApiParam({ name: 'eventId', description: "ID de l'événement" })
+  @ApiQuery({
+    name: 'phase',
+    required: false,
+    enum: ['pre-event', 'post-event'],
+    description:
+      "Phase du comptage demandé (BUG-237). 'post-event' : les lignes figées avant la clôture du " +
+      'Pre-event sont renvoyées comme proposition (valeurs conservées, isCounted=false) — sans ce ' +
+      "paramètre, comportement historique inchangé.",
+  })
   @ApiResponse({ status: 200, description: 'Snapshot avec inventoryCounts' })
   @ApiResponse({ status: 404, description: 'Aucun snapshot trouvé' })
   async getBySpaceAndEvent(
     @Param('spaceId') spaceId: string,
     @Param('eventId') eventId: string,
     @CurrentUser() user: any,
+    @Query('phase') phase?: string,
   ) {
-    this.logger.log(`GET /inventory/${spaceId}/${eventId}`);
-    return this.inventoryService.getBySpaceAndEvent(spaceId, eventId, user.tenantId);
+    this.logger.log(`GET /inventory/${spaceId}/${eventId} phase=${phase ?? 'none'}`);
+    const validPhase = phase === 'pre-event' || phase === 'post-event' ? phase : undefined;
+    return this.inventoryService.getBySpaceAndEvent(spaceId, eventId, user.tenantId, validPhase);
   }
 
   @Post()
