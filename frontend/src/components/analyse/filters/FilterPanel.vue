@@ -575,6 +575,10 @@ const restockPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/restock` : '/spaces'
 })
+const livePath = computed(() => {
+  const id = route.params?.spaceId
+  return id ? `/spaces/${id}/live` : '/spaces'
+})
 const logisticPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/logistic` : '/spaces'
@@ -600,6 +604,10 @@ function onToolboxSelect(v) {
     router.push(restockPath.value)
     return
   }
+  if (v === 'live') {
+    router.push(livePath.value)
+    return
+  }
   localToolbox.value = v
 }
 
@@ -609,7 +617,7 @@ const toolboxItems = computed(() => [
   { value: 'analyse', label: t('anToolAnalyse'), icon: 'mdi-chart-line' },
   { value: 'predict', label: t('anToolPredict'), icon: 'mdi-trending-up' },
   { value: 'event-predict', label: t('anToolEventPredict'), icon: 'mdi-lightning-bolt' },
-  { value: 'space-pre-inventory', label: t('anToolPreInventory'), icon: 'mdi-clipboard-arrow-up-outline' },
+  { value: 'live', label: t('anToolLive'), icon: 'mdi-record-circle-outline' },
   { value: 'space-inventory', label: t('anToolInventory'), icon: 'mdi-package-variant' },
   { value: 'logistic', label: t('anToolLogistic'), icon: 'mdi-forklift' },
   { value: 'restock', label: t('anToolRestock'), icon: 'mdi-truck-delivery-outline' },

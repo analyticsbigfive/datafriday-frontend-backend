@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WebhookEventHandler } from './webhook-event.handler';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
+import { QueueService } from '../../../core/queue/queue.service';
 
 describe('WebhookEventHandler', () => {
   let handler: WebhookEventHandler;
@@ -39,6 +40,13 @@ describe('WebhookEventHandler', () => {
     salesTransaction: {
       update: jest.fn(),
       updateMany: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    event: {
+      findFirst: jest.fn(),
+    },
+    aggregationJobLog: {
+      create: jest.fn(),
     },
     tenant: {
       findUnique: jest.fn(),
@@ -48,6 +56,10 @@ describe('WebhookEventHandler', () => {
   const mockSyncService = {
     syncTransactions: jest.fn(),
     syncSingleTransaction: jest.fn(),
+  };
+
+  const mockQueueService = {
+    queueAggregationJob: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -62,6 +74,10 @@ describe('WebhookEventHandler', () => {
           provide: WeezeventSyncService,
           useValue: mockSyncService,
         },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
+        },
       ],
     }).compile();
 
@@ -70,6 +86,9 @@ describe('WebhookEventHandler', () => {
     syncService = module.get<WeezeventSyncService>(WeezeventSyncService);
 
     jest.clearAllMocks();
+    // Défaut : pas de transaction/event trouvé → triggerLiveAggregation no-op (BUG-109).
+    // Les tests qui veulent vérifier le déclenchement d'agrégation surchargent ces mocks.
+    mockPrismaService.salesTransaction.findFirst.mockResolvedValue(null);
   });
 
   it('should be defined', () => {
@@ -148,6 +167,85 @@ describe('WebhookEventHandler', () => {
         data: { deletedAt: expect.any(Date), syncedAt: expect.any(Date) },
       });
       expect(mockSyncService.syncSingleTransaction).not.toHaveBeenCalled();
+    });
+
+    // BUG-109 : après un sync réussi, l'agrégation doit être re-déclenchée automatiquement
+    // pour l'event DataFriday concerné (queueAggregationJob n'avait jusqu'ici aucun appelant
+    // automatique — seulement le wizard d'intégration).
+    describe('BUG-109 — déclenchement automatique de l\'agrégation post-webhook', () => {
+      const eventWithIntegration = {
+        ...mockWebhookEvent,
+        integrationId: 'integration-123',
+      };
+
+      it('queues aggregation for the matched DataFriday event after a successful sync', async () => {
+        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(eventWithIntegration);
+        mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
+        mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
+        mockPrismaService.salesTransaction.findFirst.mockResolvedValue({ eventId: 'wz-event-1' });
+        mockPrismaService.event.findFirst.mockResolvedValue({
+          id: 'df-event-1',
+          spaceId: 'space-1',
+          eventDate: new Date('2026-07-20T20:00:00Z'),
+        });
+        mockPrismaService.aggregationJobLog.create.mockResolvedValue({ id: 'job-log-1' });
+
+        await handler.processEvent('event-123');
+
+        expect(mockPrismaService.salesTransaction.findFirst).toHaveBeenCalledWith({
+          where: { tenantId: 'tenant-123', integrationId: 'integration-123', externalId: 'tx-123' },
+          select: { eventId: true },
+        });
+        expect(mockPrismaService.event.findFirst).toHaveBeenCalledWith({
+          where: { tenantId: 'tenant-123', weezeventEventId: 'wz-event-1', spaceId: { not: null } },
+          select: { id: true, spaceId: true, eventDate: true },
+        });
+        expect(mockPrismaService.aggregationJobLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              tenantId: 'tenant-123',
+              spaceId: 'space-1',
+              metadata: { eventIds: ['df-event-1'], trigger: 'webhook-live' },
+            }),
+          }),
+        );
+        expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith({
+          type: 'process-events',
+          tenantId: 'tenant-123',
+          spaceId: 'space-1',
+          jobLogId: 'job-log-1',
+          eventIds: ['df-event-1'],
+          integrationId: 'integration-123',
+        });
+      });
+
+      it('does not queue aggregation when the transaction has no matched DataFriday event (unresolved, BUG-021)', async () => {
+        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(eventWithIntegration);
+        mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
+        mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
+        mockPrismaService.salesTransaction.findFirst.mockResolvedValue({ eventId: 'wz-event-1' });
+        mockPrismaService.event.findFirst.mockResolvedValue(null);
+
+        await handler.processEvent('event-123');
+
+        expect(mockPrismaService.aggregationJobLog.create).not.toHaveBeenCalled();
+        expect(mockQueueService.queueAggregationJob).not.toHaveBeenCalled();
+      });
+
+      it('does not fail webhook processing when the aggregation trigger itself errors', async () => {
+        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(eventWithIntegration);
+        mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
+        mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
+        mockPrismaService.salesTransaction.findFirst.mockRejectedValue(new Error('DB timeout'));
+
+        await expect(handler.processEvent('event-123')).resolves.not.toThrow();
+
+        // Le webhook reste marqué "processed" — le sync a réussi, seule la re-agrégation a échoué.
+        expect(mockPrismaService.integrationWebhookEvent.update).toHaveBeenCalledWith({
+          where: { id: 'event-123' },
+          data: expect.objectContaining({ processed: true }),
+        });
+      });
     });
 
     it('should handle unknown event type', async () => {

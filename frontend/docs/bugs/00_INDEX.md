@@ -249,6 +249,7 @@
 | [231](231_ecrans_rh_routes_restes_prototype.md) | Écrans RH routés : crashs dialog/`toast`/CSV, Edge Function KV morte, N+1, dialogs shadcn disloqués dans le layout Vuetify — corrigés puis **écrans prototype remplacés par `components/hr/` (Vuetify + i18n)** le 2026-07-21 ; vues prototype retournées en quarantaine | 🟡 Corrigé non déployé | 🟠 | RH |
 | [232](232_pre_event_expected_non_normalise_negatifs.md) | Pre-event Inventory : attendus divergents de la Logistique et vrac **négatif** (Loose -1/-2) — somme brute baseline+deltas sans casse de pack (`normalizeLevel`) ni rejeu séquentiel, mouvements non joignables avalés ; fix = calcul serveur normalisé, chemin unique baseline/réconciliation | 🟡 Corrigé non déployé | 🔴 | Stock |
 | [233](233_pre_event_expected_fuite_via_reconciliations.md) | Pre-event Inventory : les attendus gatés par `preInventoryExpected` **fuient** via `POST pre-event-reconciliations` (réponse avec `expectedPacked/Loose`) et `GET reconciliations` (lignes complètes) — permission de classe seule sur ces routes ; expurgation conditionnelle à trancher | 🔴 Ouvert | 🟠 | Stock / RBAC |
+| [234](234_space_live_double_header_route_non_declaree_dashboardview.md) | Route `space-live` : double header (route Live non déclarée dans les listes self-headed / rail-push de DashboardView) | 🟢 Corrigé | 🟡 | Live events / Shell app |
 
 **231 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
 l'origine 193-203 sur cette branche, renumérotés au merge dans `develop` le 2026-07-22 pour éviter

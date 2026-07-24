@@ -9,6 +9,7 @@ import { WeezeventClientService } from '../weezevent/services/weezevent-client.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { LogisticsService } from '../logistics/logistics.service';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -51,6 +52,7 @@ export class SpacesService {
     private readonly weezeventClient: WeezeventClientService,
     private readonly spaceAccess: SpaceAccessService,
     private readonly storage: SupabaseStorageService,
+    private readonly logisticsService: LogisticsService,
   ) {}
 
   /**
@@ -1217,6 +1219,9 @@ export class SpacesService {
       ', ',
     );
 
+    // BUG-108 : contrairement au pipeline d'agrégation périodique (executeProcessEvents,
+    // exclu depuis BUG-028), cette lecture directe de WeezeventTransaction ne filtrait pas
+    // deletedAt — une transaction annulée après un retry webhook restait comptée ici.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
       WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql})
       SELECT
@@ -1244,6 +1249,7 @@ export class SpacesService {
        AND t."tenantId" = ${tenantId}
        ${integrationClause}
        AND t.status = 'V'
+       AND t."deletedAt" IS NULL
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
       LEFT JOIN "WeezeventLocationShopMapping" mem
@@ -1291,6 +1297,101 @@ export class SpacesService {
       });
     }
     return out;
+  }
+
+  // Fenêtre de fraîcheur : au moins une vente dans les N dernières minutes (question #20 du
+  // tracker front, tranchée par Ulrich 2026-07-20 : signal = vente réelle, pas le webhook brut).
+  private readonly LIVE_STATUS_WINDOW_MINUTES = 30;
+  // Marge après eventEndDate pendant laquelle un event reste considéré "live" (règlement tardif) —
+  // même valeur que WeezeventCronService.LIVE_AGGREGATION_GRACE_HOURS (filet de sécurité BUG-109),
+  // les deux implémentant la même définition d'"event en direct".
+  private readonly LIVE_STATUS_GRACE_HOURS = 3;
+
+  /**
+   * "Cet espace a-t-il un event live ?" (tracker front #20, LIVE_API_GUIDE.md §1). Un espace n'a
+   * qu'un seul event live à la fois (cardinalité tranchée le 2026-07-23, tracker #23) : l'event le
+   * plus récent dont la fenêtre [eventStartDate, eventEndDate + grace] couvre l'instant présent est
+   * live si au moins une vente réelle (non annulée, cf. BUG-108) est arrivée dans les 30 dernières
+   * minutes pour les shops de cet espace.
+   */
+  async getLiveStatus(
+    spaceId: string,
+    tenantId: string,
+  ): Promise<{ isLive: boolean; eventId: string | null; since: string | null }> {
+    const now = new Date();
+    const graceMs = this.LIVE_STATUS_GRACE_HOURS * 60 * 60 * 1000;
+
+    // Candidats : events récents dont la fenêtre pourrait couvrir "now" — bornés à quelques
+    // jours pour éviter un scan de tout l'historique (aucun event de plus de quelques jours ne
+    // peut encore être dans sa fenêtre + grace).
+    const candidates = await this.prisma.event.findMany({
+      where: {
+        tenantId,
+        spaceId,
+        eventDate: { lte: now, gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+      },
+      select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true },
+      orderBy: { eventDate: 'desc' },
+    });
+
+    const event = candidates.find((e) => {
+      const start = e.eventStartDate ?? e.eventDate;
+      const end = e.eventEndDate ?? e.eventDate;
+      const graceEnd = new Date(end.getTime() + graceMs);
+      return now >= start && now <= graceEnd;
+    });
+    if (!event) return { isLive: false, eventId: null, since: null };
+
+    const [locationMapping, shopIds] = await Promise.all([
+      this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { salesLocationId: true },
+      }),
+      this.resolveShopIdsForSpace(spaceId, tenantId),
+    ]);
+    if (shopIds.length === 0) return { isLive: false, eventId: event.id, since: null };
+
+    const integrationId = locationMapping?.salesLocationId ?? null;
+    const integrationClause = integrationId
+      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+      : Prisma.sql``;
+    // Même repli "unmapped = gardé" que getEventTimelineBatch (§ ci-dessus) — un PdV pas encore
+    // mappé shop-level ne doit pas faire manquer un vrai signal live.
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
+      : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
+
+    const windowStart = new Date(now.getTime() - this.LIVE_STATUS_WINDOW_MINUTES * 60 * 1000);
+    const eventStart = event.eventStartDate ?? event.eventDate;
+    // La vente doit être à la fois récente (30 dernières minutes) ET dans la fenêtre de l'event
+    // (pas une vente de test pré-event) — les deux bornes de la définition tranchée #20.
+    const effectiveWindowStart = windowStart > eventStart ? windowStart : eventStart;
+
+    const rows: { since: Date | null }[] = await this.prisma.$queryRaw(Prisma.sql`
+      SELECT MIN(t."transactionDate") AS since
+      FROM "WeezeventTransaction" t
+      LEFT JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
+       AND mem."tenantId" = ${tenantId}
+      WHERE t."tenantId" = ${tenantId}
+        ${integrationClause}
+        AND t.status = 'V'
+        AND t."deletedAt" IS NULL
+        AND t."transactionDate" >= ${effectiveWindowStart}
+        AND ${shopScopeClause}
+    `);
+
+    const since = rows[0]?.since ?? null;
+    return { isLive: !!since, eventId: event.id, since: since ? since.toISOString() : null };
+  }
+
+  /**
+   * Onglet Inventaire live (tracker front #22, LIVE_API_GUIDE.md §3) — délègue au module
+   * Logistic, qui calcule déjà cette combinaison Restock + décrément par vente pour son propre
+   * écran. Passthrough volontairement fin : la logique vit dans LogisticsService, pas ici.
+   */
+  async getLiveInventory(spaceId: string, tenantId: string) {
+    return this.logisticsService.getLiveInventory(spaceId, tenantId);
   }
 
   /**
