@@ -22,7 +22,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="frfd-field-label">{{ t(`${i18nPrefix}.labelName`) }}</div>
+            <div class="frfd-field-label">{{ t(`${i18nPrefix}.labelName`) }} <span class="frfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               class="frfd-field"
@@ -235,6 +235,7 @@ export default {
   margin-bottom: 8px;
 }
 .frfd-panel--dark .frfd-field-label { color: #d1d5db; }
+.frfd-star { color: #ff3131; }
 
 /* Styled input */
 .frfd-field :deep(.v-field) {
@@ -289,6 +290,7 @@ export default {
 .frfd-fbtn--primary:hover { box-shadow: 0 4px 12px rgba(255, 49, 49, .35); }
 .frfd-fbtn:disabled { opacity: .5; cursor: not-allowed; }
 .frfd-panel--dark .frfd-fbtn--cancel { background: #374151; color: #d1d5db; }
+.frfd-panel--dark .frfd-fbtn--cancel:hover { background: #4b5563; }
 
 /* ── Transitions ── */
 .frfd-slide-enter-active,

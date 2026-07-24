@@ -1,5 +1,5 @@
 <template>
-  <div id="user-create-page">
+  <div id="user-create-page" :class="{ 'ucp--dark': isDark }">
 
     <!-- Header dégradé -->
     <div class="ucp-header">
@@ -681,4 +681,56 @@ export default {
 .ucp-hint { font-size: 0.75rem; color: #9ca3af; margin: 0; }
 .ucp-hint--err { color: #ff3131; }
 .ucp-link { background: none; border: none; cursor: pointer; color: #ff3131; font-weight: 600; font-size: 0.75rem; text-decoration: underline; padding: 0; }
+
+/* ── Dark mode ── (racine ID #user-create-page ; header rouge + accents #ff3131
+   conservés). */
+#user-create-page.ucp--dark { background: #111827; }
+.ucp--dark .ucp-left { background: #111827; border-right-color: #374151; }
+.ucp--dark .ucp-right { background: #1a2332; }
+.ucp--dark .ucp-right__header { border-bottom-color: #374151; }
+.ucp--dark .ucp-right__sub { color: #9ca3af; }
+.ucp--dark .ucp-right__footer { background: #1a2332; border-top-color: #374151; }
+.ucp--dark .ucp-section-title { color: #f9fafb; }
+
+/* Wizard : étapes */
+.ucp--dark .ucp-step-dot { background: #1f2937; border-color: #374151; color: #9ca3af; }
+.ucp--dark .ucp-step-label { color: #9ca3af; }
+.ucp--dark .ucp-step.active .ucp-step-label,
+.ucp--dark .ucp-step.done .ucp-step-label { color: #e5e7eb; }
+.ucp--dark .ucp-step-line { background: #374151; }
+
+/* Formulaire */
+.ucp--dark .ucp-section { color: #9ca3af; }
+.ucp--dark .ucp-section::after { background: #374151; }
+.ucp--dark .ucp-label { color: #d1d5db; }
+.ucp--dark .ucp-input,
+.ucp--dark .ucp-select { background: #1f2937; border-color: #374151; color: #f9fafb; }
+.ucp--dark .ucp-input::placeholder { color: #9ca3af; }
+.ucp--dark .ucp-select-chevron { color: #9ca3af; }
+.ucp--dark .ucp-space-mode { background: #1f2937; border-color: #374151; color: #d1d5db; }
+.ucp--dark .ucp-space-mode:hover { border-color: #4b5563; }
+.ucp--dark .ucp-space-list { border-color: #374151; }
+.ucp--dark .ucp-space-check { color: #d1d5db; }
+.ucp--dark .ucp-space-check:hover { background: #1f2937; }
+.ucp--dark .ucp-hint { color: #9ca3af; }
+
+/* Table (colonne gauche) */
+.ucp--dark .ucp-table-wrap { background: #1a2332; border-color: #374151; }
+.ucp--dark .ucp-table :deep(thead tr th) { background: #1f2937 !important; color: #9ca3af !important; border-bottom-color: #374151 !important; }
+.ucp--dark .ucp-table :deep(tbody td) { color: #e5e7eb; }
+.ucp--dark .ucp-user-name { color: #f9fafb; }
+.ucp--dark .ucp-icon-btn { background: #374151; color: #d1d5db; }
+.ucp--dark .ucp-icon-btn:hover { background: #4b5563; color: #f9fafb; }
+.ucp--dark .ucp-empty__icon { background: #1f2937; color: #6b7280; }
+.ucp--dark .ucp-empty__title { color: #f9fafb; }
+.ucp--dark .ucp-empty__sub { color: #9ca3af; }
+
+/* Badges statut (soft bg + texte foncé → voile + clair) */
+.ucp--dark .ucp-badge--blue { background: rgba(9, 132, 227, 0.2); color: #74b9ff; }
+.ucp--dark .ucp-badge--green { background: rgba(0, 184, 148, 0.2); color: #55efc4; }
+.ucp--dark .ucp-badge--gray { background: #374151; color: #9ca3af; }
+
+/* Boutons */
+.ucp--dark .ucp-btn--ghost { background: #374151; color: #f9fafb; }
+.ucp--dark .ucp-btn--ghost:hover:not(:disabled) { background: #4b5563; }
 </style>

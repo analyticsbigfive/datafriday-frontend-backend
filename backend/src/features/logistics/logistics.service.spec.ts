@@ -201,4 +201,93 @@ describe('LogisticsService — readyForSale display logic', () => {
       expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Flour', quantity: 3 }]);
     });
   });
+
+  // Onglet Inventaire live (tracker front #22, LIVE_API_GUIDE.md §3) : reformate getStock() en
+  // arbre Shop→items + index inversé Item→shops. Pas de nouvelle source/formule — on spy sur
+  // getStock (déjà réel en production, non testé unitairement ici faute de mocks Prisma pour ses
+  // nombreuses dépendances) pour isoler la seule logique neuve : le reformatage.
+  describe('getLiveInventory', () => {
+    it('builds the shop→items tree, enriching each item with its StockLevel and derived consumption', async () => {
+      jest.spyOn(service, 'getStock').mockResolvedValue({
+        elements: [
+          {
+            id: 'shop-1', name: 'Bar Nord', type: 'fnb_bar',
+            items: [{ name: 'Heineken 33cl', id: 'mi-1', kind: 'product', unitsPerPack: 24, marketPriceId: 'mp-1' }],
+          },
+          {
+            id: 'storage-1', name: 'Réserve', type: 'storage',
+            items: [{ name: 'Heineken 33cl', id: 'mi-1', kind: 'product', unitsPerPack: 24, marketPriceId: 'mp-1' }],
+          },
+        ],
+        levels: [{ elementId: 'shop-1', itemKey: 'Heineken 33cl', packedUnits: 5, looseUnits: 3, unitsPerPack: 24, marketPriceId: 'mp-1' }],
+        consumption: [{ elementId: 'shop-1', itemKey: 'Heineken 33cl', quantity: 12 }],
+      } as any);
+
+      const result = await service.getLiveInventory('space-1', 'tenant-1');
+
+      // Storage exclu — l'onglet Live est scopé aux shops (11_LIVE.md §3 : "par Shop", pas storage).
+      expect(result.shops).toEqual([
+        {
+          shopId: 'shop-1',
+          shopName: 'Bar Nord',
+          items: [{
+            itemKey: 'Heineken 33cl',
+            packedUnits: 5,
+            looseUnits: 3,
+            unitsPerPack: 24,
+            marketPriceId: 'mp-1',
+            consumedLoose: 12,
+          }],
+        },
+      ]);
+    });
+
+    it('defaults packedUnits/looseUnits/consumedLoose to 0 when no StockLevel/consumption row exists yet', async () => {
+      jest.spyOn(service, 'getStock').mockResolvedValue({
+        elements: [
+          { id: 'shop-1', name: 'Bar Nord', type: 'fnb_bar', items: [{ name: 'Nouveau Cocktail', id: 'mi-2', kind: 'product', unitsPerPack: null, marketPriceId: null }] },
+        ],
+        levels: [],
+        consumption: [],
+      } as any);
+
+      const result = await service.getLiveInventory('space-1', 'tenant-1');
+
+      expect(result.shops[0].items[0]).toEqual({
+        itemKey: 'Nouveau Cocktail',
+        packedUnits: 0,
+        looseUnits: 0,
+        unitsPerPack: null,
+        marketPriceId: null,
+        consumedLoose: 0,
+      });
+    });
+
+    it('builds the inverted item→shops index from the same data, sorted by itemKey', async () => {
+      jest.spyOn(service, 'getStock').mockResolvedValue({
+        elements: [
+          { id: 'shop-1', name: 'Bar Nord', type: 'fnb_bar', items: [{ name: 'Heineken 33cl', id: 'mi-1', kind: 'product', unitsPerPack: 24, marketPriceId: 'mp-1' }] },
+          { id: 'shop-2', name: 'Bar Sud', type: 'fnb_bar', items: [{ name: 'Heineken 33cl', id: 'mi-1', kind: 'product', unitsPerPack: 24, marketPriceId: 'mp-1' }, { name: 'Coca-Cola', id: 'mi-3', kind: 'product', unitsPerPack: null, marketPriceId: null }] },
+        ],
+        levels: [
+          { elementId: 'shop-1', itemKey: 'Heineken 33cl', packedUnits: 5, looseUnits: 0, unitsPerPack: 24, marketPriceId: 'mp-1' },
+          { elementId: 'shop-2', itemKey: 'Heineken 33cl', packedUnits: 2, looseUnits: 1, unitsPerPack: 24, marketPriceId: 'mp-1' },
+        ],
+        consumption: [],
+      } as any);
+
+      const result = await service.getLiveInventory('space-1', 'tenant-1');
+
+      expect(result.items).toEqual([
+        { itemKey: 'Coca-Cola', shops: [{ shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 0, looseUnits: 0, unitsPerPack: null, marketPriceId: null, consumedLoose: 0 }] },
+        {
+          itemKey: 'Heineken 33cl',
+          shops: [
+            { shopId: 'shop-1', shopName: 'Bar Nord', packedUnits: 5, looseUnits: 0, unitsPerPack: 24, marketPriceId: 'mp-1', consumedLoose: 0 },
+            { shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 2, looseUnits: 1, unitsPerPack: 24, marketPriceId: 'mp-1', consumedLoose: 0 },
+          ],
+        },
+      ]);
+    });
+  });
 });

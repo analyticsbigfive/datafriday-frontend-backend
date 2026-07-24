@@ -4,6 +4,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
 import { SyncTrackerService } from './sync-tracker.service';
+import { QueueService } from '../../../core/queue/queue.service';
 
 describe('WeezeventCronService', () => {
     let service: WeezeventCronService;
@@ -19,6 +20,16 @@ describe('WeezeventCronService', () => {
         integration: {
             findMany: jest.fn(),
         },
+        event: {
+            findMany: jest.fn(),
+        },
+        aggregationJobLog: {
+            create: jest.fn(),
+        },
+    };
+
+    const mockQueueService = {
+        queueAggregationJob: jest.fn(),
     };
 
     const mockSyncService = {
@@ -50,6 +61,7 @@ describe('WeezeventCronService', () => {
                 { provide: WeezeventSyncService, useValue: mockSyncService },
                 { provide: WeezeventIncrementalSyncService, useValue: mockIncrementalSyncService },
                 { provide: SyncTrackerService, useValue: mockSyncTracker },
+                { provide: QueueService, useValue: mockQueueService },
             ],
         }).compile();
 
@@ -147,6 +159,82 @@ describe('WeezeventCronService', () => {
 
             expect(mockSyncTracker.failSync).toHaveBeenCalledWith('job-id-1', 'API Error');
             expect(mockSyncTracker.completeSync).not.toHaveBeenCalled();
+        });
+    });
+
+    // BUG-109 : filet de sécurité — re-déclenche l'agrégation pour tout event "en direct"
+    // (fenêtre event ± marge), au cas où le déclenchement post-webhook aurait été manqué.
+    describe('triggerLiveAggregationSafetyNet', () => {
+        const mockTenants = [{ id: 'tenant-1', name: 'Tenant 1', weezeventOrganizationId: 'org-1' }];
+
+        it('queues aggregation for events currently within their live window', async () => {
+            mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.event.findMany.mockResolvedValue([
+                { id: 'event-1', spaceId: 'space-1', eventDate: new Date(), eventEndDate: null },
+            ]);
+            mockPrismaService.aggregationJobLog.create.mockResolvedValue({ id: 'job-log-1' });
+
+            await service.triggerLiveAggregationSafetyNet();
+
+            expect(mockPrismaService.aggregationJobLog.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        tenantId: 'tenant-1',
+                        spaceId: 'space-1',
+                        metadata: { eventIds: ['event-1'], trigger: 'live-safety-net' },
+                    }),
+                }),
+            );
+            expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith({
+                type: 'process-events',
+                tenantId: 'tenant-1',
+                spaceId: 'space-1',
+                jobLogId: 'job-log-1',
+                eventIds: ['event-1'],
+            });
+        });
+
+        it('groups multiple live events of the same space into a single job', async () => {
+            mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.event.findMany.mockResolvedValue([
+                { id: 'event-1', spaceId: 'space-1', eventDate: new Date(), eventEndDate: null },
+                { id: 'event-2', spaceId: 'space-1', eventDate: new Date(), eventEndDate: null },
+            ]);
+            mockPrismaService.aggregationJobLog.create.mockResolvedValue({ id: 'job-log-1' });
+
+            await service.triggerLiveAggregationSafetyNet();
+
+            expect(mockPrismaService.aggregationJobLog.create).toHaveBeenCalledTimes(1);
+            expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith(
+                expect.objectContaining({ eventIds: ['event-1', 'event-2'] }),
+            );
+        });
+
+        it('skips events whose grace window (eventEndDate + 3h) has already passed', async () => {
+            mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.event.findMany.mockResolvedValue([
+                {
+                    id: 'event-old',
+                    spaceId: 'space-1',
+                    eventDate: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+                    eventEndDate: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000),
+                },
+            ]);
+
+            await service.triggerLiveAggregationSafetyNet();
+
+            expect(mockPrismaService.aggregationJobLog.create).not.toHaveBeenCalled();
+            expect(mockQueueService.queueAggregationJob).not.toHaveBeenCalled();
+        });
+
+        it('does not throw when queuing fails for one space (best-effort)', async () => {
+            mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.event.findMany.mockResolvedValue([
+                { id: 'event-1', spaceId: 'space-1', eventDate: new Date(), eventEndDate: null },
+            ]);
+            mockPrismaService.aggregationJobLog.create.mockRejectedValue(new Error('DB error'));
+
+            await expect(service.triggerLiveAggregationSafetyNet()).resolves.not.toThrow();
         });
     });
 

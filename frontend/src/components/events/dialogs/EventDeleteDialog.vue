@@ -80,4 +80,9 @@ export default {
 
 /* Dark mode */
 .edd--dark .edd-text { color: #d1d5db; }
+.edd--dark .edd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+/* Bouton Cancel : slotté dans le footer d'EventDrawerShell (hors du wrapper .edd--dark) ;
+   on le cible via .eds--dark, la racine dark du shell qui l'englobe réellement. */
+.eds--dark .edd-btn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.eds--dark .edd-btn--cancel:hover { background: #374151; }
 </style>

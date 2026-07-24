@@ -588,4 +588,9 @@ export default {
 .ppd-panel--dark .ppd-row__name { color: #e2e8f0; }
 .ppd-panel--dark .ppd-checkbox { border-color: #475569; background: #1e293b; }
 .ppd-panel--dark .ppd-footer { background: #1f2937; border-top-color: rgba(255,255,255,0.08); }
+/* Pills de filtre + tags de catégorie */
+.ppd-panel--dark .ppd-pill { background: #1a2332; border-color: rgba(255,255,255,.12); color: #94a3b8; }
+.ppd-panel--dark .ppd-pill:hover { border-color: #ff3131; color: #fca5a5; }
+.ppd-panel--dark .ppd-tag { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.ppd-panel--dark .ppd-tag--type { background: rgba(255,49,49,.15); color: #fca5a5; }
 </style>

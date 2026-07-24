@@ -354,7 +354,7 @@ function stepValue(shopId, itemId, field, delta) {
   display: flex; align-items: center; gap: 12px;
   margin-bottom: 18px;
   padding-bottom: 14px;
-  border-bottom: 1px solid #EEEEEE;
+  border-bottom: 1px solid var(--fb-border, #EEEEEE);
 }
 .si-counting-title {
   flex: 1;
@@ -364,7 +364,7 @@ function stepValue(shopId, itemId, field, delta) {
   margin: 0 0 8px;
   font-size: 1.1rem;
   font-weight: 700;
-  color: #212121;
+  color: var(--fb-text, #212121);
 }
 .si-shop-switch {
   display: inline-flex;
@@ -376,9 +376,9 @@ function stepValue(shopId, itemId, field, delta) {
   margin: -2px -6px 0;
   border-radius: 8px;
   cursor: pointer;
-  color: #212121;
+  color: var(--fb-text, #212121);
 }
-.si-shop-switch:hover { background: #f1f5f9; }
+.si-shop-switch:hover { background: var(--fb-subtle, #f1f5f9); }
 .si-shop-switch h2 { margin: 0; }
 .si-counting-meta {
   display: flex;
@@ -444,11 +444,11 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-count-img-placeholder {
   display: flex; align-items: center; justify-content: center;
-  background: #FAFAFA;
-  border: 1px solid #EEEEEE;
+  background: var(--fb-subtle, #FAFAFA);
+  border: 1px solid var(--fb-border, #EEEEEE);
 }
-.si-count-name { font-weight: 600; color: #212121; }
-.si-count-usedin { font-size: 0.72rem; color: #6B7280; margin-top: 2px; font-weight: 500; }
+.si-count-name { font-weight: 600; color: var(--fb-text, #212121); }
+.si-count-usedin { font-size: 0.72rem; color: var(--fb-muted, #6B7280); margin-top: 2px; font-weight: 500; }
 .si-count-inputs {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -467,28 +467,28 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-step-btn {
   cursor: pointer;
-  color: #9E9E9E;
+  color: var(--fb-faint, #9E9E9E);
   transition: color 0.12s;
 }
-.si-step-btn:hover { color: #212121; }
+.si-step-btn:hover { color: var(--fb-text, #212121); }
 .si-count-total {
   grid-column: 1 / -1;
-  background: #FAFAFA;
+  background: var(--fb-subtle, #FAFAFA);
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 0.85rem;
-  color: #6B7280;
+  color: var(--fb-muted, #6B7280);
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.si-count-total strong { color: #212121; }
+.si-count-total strong { color: var(--fb-text, #212121); }
 .si-count-actions {
   display: flex; gap: 8px;
   justify-content: flex-end;
   flex-wrap: wrap;
   padding-top: 6px;
-  border-top: 1px dashed #EEEEEE;
+  border-top: 1px dashed var(--fb-border, #EEEEEE);
 }
 
 /* État vide */
@@ -500,11 +500,11 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-count-empty-title {
   font-weight: 700;
-  color: #334155;
+  color: var(--fb-text, #334155);
   font-size: 1rem;
 }
 .si-count-empty-hint {
-  color: #9E9E9E;
+  color: var(--fb-muted, #9E9E9E);
   font-size: 0.85rem;
   max-width: 420px;
 }
@@ -649,5 +649,15 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-counting-mobile .si-counting-head {
   background: var(--fb-surface, #FFFFFF);
+}
+
+/* ===================== DARK MODE =====================
+   Le reste suit les `--fb-*` ; ici les deux teintes prévues pour du texte sur
+   fond clair (kicker ardoise, « compté » vert 600). */
+.v-theme--dataFridayDark .si-counting-meta {
+  color: #94a3b8;
+}
+.v-theme--dataFridayDark .si-shop-switch-done {
+  color: #86efac;
 }
 </style>

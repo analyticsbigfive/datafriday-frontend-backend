@@ -81,7 +81,7 @@
 | [67](67_event_taxonomy_fk_sans_ownership.md) | `Event.create()`/`update()` : aucune vérification d'ownership sur les FK de taxonomie | 🟢 Corrigé | 🟠 | Événements |
 | [68](68_updateteam_rename_non_transactionnel.md) | `updateTeam` : renommage + repropagation `Event.visitingTeamName` non transactionnels | 🟢 Corrigé | 🟡 | Événements |
 | [69](69_events_module_pas_de_traduction_p2002_p2003.md) | Module Events : aucune traduction des erreurs Prisma P2002/P2003 (500 générique) | 🟢 Corrigé | 🟠 | Événements |
-| [70](70_team_duplicate_toctou_sans_unique_index.md) | `Team` : vérification de doublon TOCTOU, aucune contrainte `@@unique` en base | 🟡 Corrigé non déployé | 🟡 | Événements |
+| [70](70_team_duplicate_toctou_sans_unique_index.md) | `Team` : vérification de doublon TOCTOU, aucune contrainte `@@unique` en base | 🟢 Corrigé (déployé 2026-07-18, vérifié en base le 2026-07-24) | 🟡 | Événements |
 | [71](71_get_events_page_limit_negatifs_sans_borne.md) | `GET /events` : `page`/`limit` négatifs acceptés, `limit` sans borne haute | 🟢 Corrigé | 🟡 | Événements |
 | [72](72_createeventdto_createteamdto_name_vide.md) | `CreateEventDto.name`/`CreateTeamDto.name` : chaîne vide acceptée | 🟢 Corrigé | 🟡 | Événements |
 | [73](73_createeventdto_champs_numeriques_sans_borne_min.md) | `CreateEventDto` : `ticketsSold`/`ticketsScanned`/`numberOfSessions` sans borne minimale | 🟢 Corrigé | 🟡 | Événements |
@@ -119,6 +119,19 @@
 | [105](105_weezevent_transactionitem_champ_inconnu_insertion_bloquee.md) | `WeezeventTransactionItem` jamais inséré (mauvais nom de champ `weezeventItemId`/`externalItemId`), sur les 2 mécanismes de sync | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [106](106_webhook_secret_tenant_global_pas_par_integration.md) | Secret de signature webhook Weezevent tenant-global, pas par intégration | 🟢 Corrigé | 🟡 | Intégrations & ventes |
 | [107](107_weezeventintegration_clientid_legacy_not_null_bloque_creation.md) | `WeezeventIntegration.clientId`/`clientSecret` legacy NOT NULL bloque toute création d'instance | 🟢 Corrigé | 🔴 | Intégrations & ventes |
+| [108](108_event_timeline_deletedat_non_filtre.md) | `getEventTimelineBatch` ne filtre pas `SalesTransaction.deletedAt` | 🟢 Corrigé | 🟠 | Analyse & agrégation / Live events |
+| [109](109_aggregation_jamais_declenchee_automatiquement.md) | `queueAggregationJob()` n'est jamais déclenché automatiquement | 🟢 Corrigé | 🟠 | Analyse & agrégation / Live events |
+| [110](110_derivesalesraw_deletedat_non_filtre.md) | `deriveSalesRaw` (Logistic) ne filtre pas `SalesTransaction.deletedAt` | 🟢 Corrigé | 🟠 | Stock (Logistic) / Live events |
+
+**110 bugs au total**, 110 ajouté et corrigé le 2026-07-23 en préparant le v2 du module Live (même
+trou que BUG-108, cette fois dans `deriveSalesRaw` du module Logistic — voir la fiche pour le détail).
+108 et 109 ajoutés le même jour pendant la préparation backend du module Live
+(voir [`../api/LIVE_API_GUIDE.md`](../api/LIVE_API_GUIDE.md)) : BUG-109 est le prérequis backend déjà
+identifié en conception (agrégation jamais déclenchée automatiquement, seulement via le wizard
+d'intégration) ; BUG-108 est une découverte nouvelle faite en creusant ce prérequis — la requête
+`event-timeline` que le signal « event live » doit réutiliser (question #20 du tracker front) ne
+filtre pas les transactions annulées (`deletedAt`), contrairement au pipeline d'agrégation périodique
+qui les exclut déjà depuis BUG-028. Les deux sont à corriger avant d'implémenter le signal live.
 
 **107 bugs au total**, 107 ajouté et corrigé le 2026-07-21 en testant end-to-end le fix de BUG-106 :
 la création d'une intégration Weezevent/Digifood échouait sur cette base (colonnes legacy

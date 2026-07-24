@@ -478,7 +478,7 @@ export default {
 .ifp-top {
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--fb-border, #e5e7eb);
 }
 .ifp-head {
   display: flex;
@@ -568,5 +568,38 @@ export default {
 }
 .filter-accordion :deep(.v-expansion-panel-text__wrapper) {
   background: var(--fb-surface, #FFFFFF);
+}
+
+/* Champs de recherche (3 × `bg-color="grey-lighten-5"`) : Vuetify pose la classe
+   `bg-grey-lighten-5` sur .v-field, avec `background-color` ET `color` en
+   !important — une règle sans !important ne la bat pas, d'où des champs restés
+   blancs à texte sombre en thème sombre (cause n°4 de BUG-196). On repasse par
+   les variables : `--fb-subtle` vaut #FAFAFA en clair, soit exactement
+   grey-lighten-5 → aucun changement de rendu en thème clair. */
+.inventory-filter-panel :deep(.v-field.bg-grey-lighten-5) {
+  background-color: var(--fb-subtle, #FAFAFA) !important;
+  color: var(--fb-text, #212121) !important;
+}
+.inventory-filter-panel :deep(.v-field.bg-grey-lighten-5 .v-field__input),
+.inventory-filter-panel :deep(.v-field.bg-grey-lighten-5 input) {
+  color: var(--fb-text, #212121) !important;
+}
+.inventory-filter-panel :deep(.v-field.bg-grey-lighten-5 input::placeholder) {
+  color: var(--fb-faint, #9CA3AF) !important;
+  opacity: 1;
+}
+.inventory-filter-panel :deep(.v-field.bg-grey-lighten-5 .v-icon) {
+  color: var(--fb-muted, #6B7280);
+}
+
+/* ===================== DARK MODE =====================
+   Fonds/bordures suivent déjà les `--fb-*` (déclarées par l'hôte). Restent le
+   kicker de section, trop sombre sur fond foncé, et la surface des panneaux
+   d'expansion que Vuetify peint en `surface` du thème. */
+.v-theme--dataFridayDark .section-title {
+  color: #94a3b8;
+}
+.v-theme--dataFridayDark .filter-accordion :deep(.v-expansion-panel) {
+  background: transparent;
 }
 </style>

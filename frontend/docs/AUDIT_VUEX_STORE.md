@@ -32,7 +32,9 @@ La grande majorité des modules — tous les référentiels/catalogues (users, r
 
 ```js
 // Template du module Vuex standard du projet — à copier pour tout nouveau référentiel
-const TTL = 15 * 60 * 1000 // 15 min — 5 min seulement pour events.js, cas particulier documenté
+const TTL = 15 * 60 * 1000 // 15 min partout, y compris events.js (5→15 min le 2026-07-18, BUG-147,
+                           // confirmé définitif le 2026-07-24) — le futur module Live aura son
+                           // propre mécanisme de fraîcheur ~2 min, séparé de ce TTL
 
 export default {
   namespaced: true,
@@ -68,7 +70,7 @@ export default {
 
 Points positifs constatés et à préserver :
 - **Aucune mutation ne fait d'appel API** — 100 % des 34 modules respectent la séparation mutations (synchrones, pures) / actions (asynchrones, réseau). C'est la règle la plus importante du store et elle est tenue sans exception.
-- Le TTL de cache est cohérent (15 min partout sauf `events.js` à 5 min, choix documenté par la nature plus volatile de la donnée).
+- Le TTL de cache est cohérent (15 min partout, y compris `events.js` depuis le 2026-07-18 — cf. [BUG-147](bugs/147_events_store_ttl_5min_incoherent.md), décision confirmée définitive le 2026-07-24 ; le futur module Live gèrera sa propre fraîcheur ~2 min séparément).
 
 ---
 

@@ -468,4 +468,7 @@ export default {
   color: #9ca3af !important;
   background: #1a2332 !important;
 }
+.pcl--dark .pcl-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.pcl--dark .pcl-searchbar__count { color: #94a3b8; }
+.pcl--dark .pcl-content :deep(.v-card) { background: #1e293b !important; border-color: rgba(255, 255, 255, .08) !important; }
 </style>

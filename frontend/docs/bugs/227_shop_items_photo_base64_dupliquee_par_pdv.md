@@ -119,7 +119,10 @@ Inventory en silence.
 
 - [Question #27](../QUESTIONS_A_BERTRAND.md) — le stockage base64 en base lui-même (migration vers
   Supabase Storage, normalisation des `''` en `NULL`, plafond d'upload) : **hors périmètre de ce
-  correctif**, tranché ainsi le 2026-07-20.
+  correctif**, tranché ainsi le 2026-07-20. **Réponse Bertrand du 2026-07-24** : redimensionnement
+  côté client **nécessaire** pour limiter la taille en mémoire (recoupe BUG-082) — migration des 3
+  lignes legacy vers Supabase Storage et normalisation des 79 `''` en `NULL` à traiter dans la
+  foulée. **Non implémenté** à ce jour.
 - [BUG-082](82_menu_items_upload_image_sans_validation.md) — plafond d'upload à 5 Mo, sans
   redimensionnement client.
 - [BUG-223](223_analyse_donut_zone_vide_pendant_contexte_differe.md) — le skeleton du donut

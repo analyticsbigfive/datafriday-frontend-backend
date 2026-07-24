@@ -661,4 +661,9 @@ export default {
 .ipd-panel--dark .ipd-row__price-val { color: #e2e8f0; }
 .ipd-panel--dark .ipd-checkbox { border-color: #475569; background: #1e293b; }
 .ipd-panel--dark .ipd-footer { background: #1f2937; border-top-color: rgba(255,255,255,0.08); }
+/* Pills de filtre + tags de catégorie */
+.ipd-panel--dark .ipd-pill { background: #1a2332; border-color: rgba(255,255,255,.12); color: #94a3b8; }
+.ipd-panel--dark .ipd-pill:hover { border-color: #ff3131; color: #fca5a5; }
+.ipd-panel--dark .ipd-tag { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.ipd-panel--dark .ipd-tag--type { background: rgba(255,49,49,.15); color: #fca5a5; }
 </style>

@@ -94,4 +94,29 @@ defineEmits(['update:modelValue'])
   color: var(--fb-text, #212121);
   font-weight: 700;
 }
+
+/* ===================== DARK MODE ===================== */
+/* Les `--fb-*` ne sont déclarées que sous .event-predict-overlay /
+   .space-inventory-view / .space-restock-view (style.css) : dans les autres
+   hôtes (Analyse, Logistic) chaque var() retombait sur son littéral CLAIR, d'où
+   un champ blanc en thème sombre. On garde donc la var en priorité (les hôtes
+   qui la définissent gardent leur palette) et on bascule seulement le
+   FALLBACK sur les valeurs sombres de style.css. */
+.v-theme--dataFridayDark .wts-label {
+  color: var(--fb-muted, #d1d5db);
+}
+
+.v-theme--dataFridayDark .wts-select :deep(.v-field) {
+  border-color: var(--fb-border, #374151);
+  background: var(--fb-surface, #1f2937);
+}
+
+.v-theme--dataFridayDark .wts-select :deep(.v-field:hover) {
+  border-color: var(--fb-border-strong, #4b5563);
+  background: var(--fb-subtle, #172033);
+}
+
+.v-theme--dataFridayDark .wts-selection {
+  color: var(--fb-text, #f9fafb);
+}
 </style>

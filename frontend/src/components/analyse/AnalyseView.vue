@@ -1,5 +1,5 @@
 <template>
-  <v-app class="analyse-app">
+  <v-app class="analyse-app" :class="{ 'analyse-app--dark': isDark }">
     <WorkspaceAppHeader
       :space-name="spaceName"
       :kpis="headerKpis"
@@ -35,6 +35,10 @@
                   @toggle="drawer = !drawer"
                 />
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
+                <!-- Badge Live (module Live, greffe D) : visible sur la route space-live. -->
+                <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
+                  <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
+                </span>
                 <v-spacer />
                 <v-btn
                   icon
@@ -114,9 +118,23 @@
               </v-btn>
             </div>
           </div>
+      <!-- Onglets Live (module Live v2, 11_LIVE.md §3) : bascule Analyse / Inventaire,
+           visibles uniquement sur la route space-live. -->
+      <div v-if="isLive" class="an-live-tabs">
+        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'analyse' }" @click="liveTab = 'analyse'">{{ t('anToolAnalyse') }}</button>
+        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'inventory' }" @click="liveTab = 'inventory'">{{ t('anLiveInvTitle') }}</button>
+      </div>
+
+      <LiveInventoryPanel
+        v-if="showInventory"
+        :space-id="route.params.spaceId"
+        :is-dark="isDark"
+        :active="showInventory"
+      />
+
       <!-- pa-0 : les gutters viennent de la grille .an-body (18/24), le
            container ne doit pas ré-indenter le contenu vs le bandeau rouge. -->
-      <v-container id="analyse-capture-root" fluid class="pa-0">
+      <v-container v-show="!showInventory" id="analyse-capture-root" fluid class="pa-0">
         <!-- Loading : skeleton fidèle à la structure de l'écran -->
         <template v-if="loading">
           <v-skeleton-loader
@@ -407,14 +425,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useDisplay } from 'vuetify'
+import { useDisplay, useTheme } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import FilterPanel from './filters/FilterPanel.vue'
+import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
 import FilterSummary from './filters/FilterSummary.vue'
 import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'
@@ -461,6 +480,12 @@ const router = useRouter()
 // Sur mobile / tablette, les drawers de filtre + résumé doivent être fermés
 // par défaut pour ne pas masquer le contenu (cf. version Figma responsive).
 const { mdAndDown } = useDisplay()
+
+// Dark mode : composant autonome via le thème Vuetify global (useTheme). Sert à
+// scoper les overrides CSS custom sous `.analyse-app--dark` (le thème Vuetify
+// gère déjà les v-card/v-btn/... ; ici on ne corrige que nos couleurs codées en dur).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const drawer = ref(!mdAndDown.value)
 // Panneau « Analyse des données » : ouvert par défaut sur desktop, fermé
@@ -1409,8 +1434,39 @@ function onShowAverage() {
 // ---- Copier / Partager (screenshot) --------------------------------------
 // (délégué à useAnalyseCapture : copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare)
 
+// ── Mode flux « Live » (docs/modules/11_LIVE.md, greffe D) ──────────────────
+// Sur la route dédiée `space-live`, on rafraîchit périodiquement la source
+// RÉELLEMENT temps réel : `event-timeline` via loadTimelineForEvents (§5, déjà
+// quasi live grâce au webhook Weezevent + cron fallback).
+// Volontairement NON pollés au v1 :
+//  - loadSpace/shop-details : re-dispatch remet le sélecteur de config à null
+//    (bug connu, store analyse:351) ET les KPI par shop restent figés tant que
+//    l'agrégation backend n'est pas auto-déclenchée (§5, prérequis Ulrich) ;
+//  - useAnalyseItemRecords : cache sans API de refresh exposée.
+// keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
+const isLive = computed(() => route.name === 'space-live')
+// Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
+const liveTab = ref('analyse')
+const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
+const LIVE_POLL_MS = 15000
+let livePollTimer = null
+function livePoll() {
+  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value)
+}
+function startLivePolling() {
+  stopLivePolling()
+  if (isLive.value) livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
+}
+function stopLivePolling() {
+  if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
+}
+onActivated(startLivePolling)
+onDeactivated(stopLivePolling)
+onBeforeUnmount(stopLivePolling)
+
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
+  startLivePolling()
   // Deep-link : ?toolbox=predict|analyse|event-predict sync l'état toolbox.
   // L'URL est la SOURCE DE VÉRITÉ au montage : sans ?toolbox=, on force le
   // retour à 'analyse'. Sans ce reset, un selectedToolbox résiduel du store
@@ -1600,6 +1656,58 @@ async function ensureAuthAndLoad(spaceId) {
   background: #ff3131;
   box-shadow: 0 8px 24px rgba(255, 49, 49, 0.28);
 }
+/* Badge Live (module Live) : pastille claire + point pulsant sur le bandeau rouge. */
+.av-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.av-live-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+  animation: av-live-pulse 1.4s infinite;
+}
+@keyframes av-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6); }
+  70%  { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+/* Onglets Live (Analyse / Inventaire) — segmented control. */
+.an-live-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 2px 0 14px;
+  border-radius: 100px;
+  background: #f3f4f6;
+}
+.an-live-tab {
+  padding: 6px 18px;
+  border: none;
+  background: transparent;
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.an-live-tab--active { background: #ff3131; color: #fff; }
+.analyse-app--dark .an-live-tabs { background: #0f172a; }
+.analyse-app--dark .an-live-tab { color: #94a3b8; }
+.analyse-app--dark .an-live-tab--active { background: #ff3131; color: #fff; }
 /* Ligne 1 : toggle + « Espace : Analyse » + copier/partager. */
 .av-header__row1 {
   padding: 14px 22px 8px;
@@ -1661,7 +1769,7 @@ async function ensureAuthAndLoad(spaceId) {
 .av-tags .chip-events,
 .av-tags .chip-events :deep(.v-chip__content) {
   background-color: #f1f3f5 !important;
-  color: #1f2937 !important;
+  color: #1e293b !important;
   border-radius: 999px !important;
   font-weight: 500;
 }
@@ -1739,6 +1847,54 @@ async function ensureAuthAndLoad(spaceId) {
   overflow: hidden;
   :deep(.v-skeleton-loader__image) {
     height: 280px;
+  }
+}
+
+/* ═══════════════════════════ DARK MODE ═══════════════════════════════════════
+   Toutes les règles sont scopées sous `.analyse-app--dark` → le mode clair n'est
+   JAMAIS modifié. On n'override QUE nos couleurs claires codées en dur : le rouge
+   de marque (#ff3131) et les v-card/v-btn/... Vuetify (thème global déjà sombre)
+   restent intacts. Le bandeau rouge (.av-header) et ses éléments blancs internes
+   sont conservés tels quels (contraste correct sur le rouge). */
+.analyse-app--dark {
+  /* Fonds de page (ex-#f6f8fb) → fond sombre unifié. */
+  background-color: #0f172a;
+
+  .main-content {
+    background-color: #0f172a;
+  }
+
+  /* Bloc sticky : couvre le contenu qui scrolle dessous → même fond sombre. */
+  .av-sticky {
+    background: #0f172a;
+  }
+
+  /* Tags des filtres actifs (fond neutre sous le bandeau rouge). */
+  .av-tags .chip-events,
+  .av-tags .chip-events :deep(.v-chip__content) {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    color: #e2e8f0 !important;
+  }
+  /* Chips filtre : identité VIOLETTE conservée, éclaircie pour le fond sombre. */
+  .av-tags .chip-filter,
+  .av-tags .chip-filter :deep(.v-chip__content) {
+    background-color: rgba(124, 77, 255, 0.20) !important;
+    color: #c4b5fd !important;
+  }
+  .av-tags .chip-filter :deep(.v-icon) {
+    color: #c4b5fd !important;
+  }
+  /* .av-tags__trash conserve le rouge de marque #ff3131 (déjà lisible). */
+
+  /* Overlay loader de la timeline : voile SOMBRE au lieu du blanc translucide. */
+  .ep-timeline-loader-overlay {
+    background: rgba(17, 24, 39, 0.72);
+  }
+
+  /* Skeleton des graphes : carte sombre + bordure discrète (ex-#fff / #e2e8f0). */
+  .an-chart-skeleton {
+    border-color: rgba(255, 255, 255, 0.10);
+    background: #1e293b;
   }
 }
 

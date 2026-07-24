@@ -223,4 +223,15 @@ const actionIcon = computed(() =>
   outline: 3px solid rgba(255, 49, 49, 0.18);
   outline-offset: 2px;
 }
+
+/* ===================== DARK MODE =====================
+   Fond/bordure/texte suivent les `--fb-*`. Restent les deux teintes sémantiques
+   « ambre 700 » et « vert 700 », prévues pour du texte sur fond clair et
+   illisibles sur fond sombre → versions claires de la même famille. */
+.v-theme--dataFridayDark .si-row-no-menu {
+  color: #fcd34d;
+}
+.v-theme--dataFridayDark .si-row-status.is-complete {
+  color: #86efac;
+}
 </style>

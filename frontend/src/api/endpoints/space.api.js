@@ -24,6 +24,26 @@ export async function getSpace(spaceId) {
 }
 
 /**
+ * Signal « event live » d'un espace (module Live — LIVE_API_GUIDE.md §1.2).
+ * Endpoint dédié (pas un champ sur la liste /spaces). Guard backend `front.fb.live`.
+ * @returns {Promise<{ isLive: boolean, eventId: string|null, since: string|null }>}
+ */
+export async function getSpaceLiveStatus(spaceId) {
+  const response = await api.get(`/spaces/${spaceId}/live-status`)
+  return response.data
+}
+
+/**
+ * Inventaire live d'un espace (module Live v2 — LIVE_API_GUIDE.md §3.3).
+ * Arbre Shop→items et Item→shops (stock brut : packed/loose/consumed).
+ * @returns {Promise<{ shops: Array<object>, items: Array<object> }>}
+ */
+export async function getSpaceLiveInventory(spaceId) {
+  const response = await api.get(`/spaces/${spaceId}/live/inventory`)
+  return response.data
+}
+
+/**
  * Get all configurations for a space
  */
 export async function getSpaceConfigurations(spaceId) {

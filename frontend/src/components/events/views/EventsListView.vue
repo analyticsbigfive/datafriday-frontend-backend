@@ -602,4 +602,11 @@ export default {
 .elv-abtn--edit:hover { background: #dbeafe; }
 .elv-abtn--del { background: #fef2f2; color: #ff3131; }
 .elv-abtn--del:hover { background: #fee2e2; }
+
+/* Dark mode — compléments */
+.elv--dark .elv-error-bar { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.elv--dark .elv-abtn { background: #1f2937; color: #cbd5e1; }
+.elv--dark .elv-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.elv--dark .elv-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+.elv--dark .elv-table :deep(.v-data-table__td) { color: #e2e8f0; }
 </style>

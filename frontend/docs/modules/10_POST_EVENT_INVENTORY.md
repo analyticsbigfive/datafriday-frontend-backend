@@ -372,9 +372,11 @@ Miroir exact du mode post qui, lui, réconcilie le dernier passé.
 
 - Permission dédiée **`front.fb.preInventoryExpected`**
   ([permission-catalog.ts](../../../backend/src/core/rbac/permission-catalog.ts)) — attribuée aux
-  rôles système « Directeur de site » et « Chef exécutif » (+ ADMIN via ALL_CODES). ⚠️ Ces deux
+  rôles système « Directeur de site » et « Chef exécutif » (+ ADMIN via ALL_CODES). Ces deux
   rôles reçoivent AUSSI `front.fb.spaceInventory` au passage (ils ne pouvaient pas ouvrir les
-  écrans d'inventaire — Q23). Provisioning : seed RBAC idempotent à relancer.
+  écrans d'inventaire) — élargissement **validé par Bertrand le 2026-07-24**
+  ([Question #23](../QUESTIONS_A_BERTRAND.md)). Provisioning : seed RBAC idempotent **reste à
+  rejouer en prod** pour que l'élargissement soit effectif sur les tenants existants.
 - `GET /inventory/:spaceId/pre-event-baseline/:eventId` — **décorateur méthode**
   `@RequirePermissions('front.fb.preInventoryExpected')` (getAllAndOverride → remplace la
   permission de classe) : un compteur sans le droit reçoit un 403, pas des données masquées.
@@ -423,8 +425,13 @@ Miroir exact du mode post qui, lui, réconcilie le dernier passé.
    archives de chaque phase = les **snapshots kindés** figés au « Générer la réconciliation » ;
    rouvrir l'écran Pre-event après le début du comptage post affiche les saisies post (assumé).
 2. **Fenêtre des mouvements** bornée au snapshot post-event précédent : un Inventory Reset
-   logistique intercalé (qui SET les niveaux) n'est pas déduit — possibles doubles comptages
-   (Q24, défaut : deltas seuls).
+   logistique intercalé (qui SET les niveaux) n'est pas déduit — possibles doubles comptages.
+   **Tranché le 2026-07-24 (réponse Bertrand — [Question #24](../QUESTIONS_A_BERTRAND.md))** :
+   l'inventaire reste attaché à son event, avec un **reset automatique déclenché à l'ouverture des
+   portes** (« Door opening »), sa réconciliation étant sauvegardée rattachée à l'événement
+   correspondant — l'ancrage devient l'event lui-même plutôt qu'une fenêtre de mouvements ouverte.
+   **Non implémenté** : reste à définir le déclencheur technique du reset « Door opening » et à
+   articuler avec la fenêtre de mouvements (recoupe Q25, toujours ouverte, et Q31).
 3. Attendus figés au chargement de l'écran (pas de refresh live si un mouvement Logistic arrive
    pendant le comptage).
 4. Jointure par nom des mouvements sans `menuItemId` : normalisation identique front/back, mais
@@ -477,7 +484,7 @@ Post-event : Qty left   = départ (pre-event du même match) − Qty Sold
 |---|---|---|---|
 | D1 | L'attendu rejoue **toutes** les raisons de `StockMovement` (DELIVERY, TRANSFER, EXPIRY, SALE, INVENTORY_RESET, OTHER — signe `direction==='add' ? +1 : −1`), pas seulement livraisons − retraits comme la spec le formule | `computeExpected` ([inventory.service.ts](../../../backend/src/features/inventory/inventory.service.ts)), [logistics.service.ts:319-321](../../../backend/src/features/logistics/logistics.service.ts) | Q25 |
 | D2 | Fenêtre des mouvements **sans borne haute** (`createdAt > snapshot` seulement) et baseline ancrée au **dernier match passé global** (`eventDate <= now`), pas au match précédant le match cible | `resolvePreEventBaseline` / `computeExpected` ([inventory.service.ts](../../../backend/src/features/inventory/inventory.service.ts)) | Q25 (recoupe Q24) |
-| D3 | Métriques post-event (`soldUnits`, `predictedUnits`, `leftFromSales`, `missingUnits`, `missingValue`) fournies par le **client** et stockées verbatim — aucun recalcul/contrôle serveur | [create-post-event-reconciliation.dto.ts:19-77](../../../backend/src/features/inventory/dto/create-post-event-reconciliation.dto.ts), service :214-247 | Q26 |
+| D3 | Métriques post-event (`soldUnits`, `predictedUnits`, `leftFromSales`, `missingUnits`, `missingValue`) fournies par le **client** et stockées verbatim — aucun recalcul/contrôle serveur. **Tranché 2026-07-24** ([Question #26](../QUESTIONS_A_BERTRAND.md)) : mettre en place le recalcul/contrôle serveur, résultat visible **uniquement par Directeur de site et Admin** — **non implémenté**. | [create-post-event-reconciliation.dto.ts:19-77](../../../backend/src/features/inventory/dto/create-post-event-reconciliation.dto.ts), service :214-247 | Q26 (tranchée, à coder) |
 | D4 | Lignes pre-event serveur : `delta = compté − attendu` (signe inversé vs « missing ») ; la vue reconvertit (`missing = −delta` positifs, `preSummary` [InventoryReconciliationView.vue:223-245](../../src/components/InventoryReconciliationView.vue)) — cohérent à l'affichage, mais deux conventions de signe coexistent en base | schéma de lignes § 8.4 | documenté, pas de question |
 
 Anomalie mineure sous surveillance (pas de fiche) : le repli legacy de

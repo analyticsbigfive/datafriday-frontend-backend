@@ -5,11 +5,17 @@ import { WeezeventClientService } from '../weezevent/services/weezevent-client.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { LogisticsService } from '../logistics/logistics.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
   let service: SpacesService;
   let prismaService: PrismaService;
+
+  const mockLogisticsService = {
+    getStock: jest.fn(),
+    getLiveInventory: jest.fn(),
+  };
 
   const mockPrismaService = {
     space: {
@@ -96,6 +102,13 @@ describe('SpacesService', () => {
       findMany: jest.fn(),
       deleteMany: jest.fn(),
     },
+    event: {
+      findMany: jest.fn(),
+    },
+    locationSpaceMapping: {
+      findFirst: jest.fn(),
+    },
+    $queryRaw: jest.fn(),
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
 
@@ -119,6 +132,7 @@ describe('SpacesService', () => {
         { provide: SpaceAccessService, useValue: { getAccessibleSpaceIds: jest.fn().mockResolvedValue('ALL'), hasFullAccess: jest.fn().mockReturnValue(true), canAccessSpace: jest.fn().mockResolvedValue(true) } },
         // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
         { provide: SupabaseStorageService, useValue: { resolveImage: jest.fn((value) => Promise.resolve(value)) } },
+        { provide: LogisticsService, useValue: mockLogisticsService },
       ],
     }).compile();
 
@@ -1004,6 +1018,96 @@ describe('SpacesService', () => {
 
       expect(res.data.externalMerch).toEqual({ id: 'em-1', name: 'Espace Externe', elements: [] });
       expect(res.isSystem).toBe(false);
+    });
+  });
+
+  // Signal "event live" (tracker front #20/#23, LIVE_API_GUIDE.md §1) — piloté par le bouton ◉
+  // et la route Live, pollé par le front.
+  describe('getLiveStatus', () => {
+    const spaceId = 'space-1';
+    const tenantId = 'tenant-1';
+
+    beforeEach(() => {
+      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue(null);
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([]);
+      mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    it('is not live when no event window covers the present instant', async () => {
+      mockPrismaService.event.findMany.mockResolvedValue([]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: null, since: null });
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('is not live when the matching event is outside its window + grace', async () => {
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-old', eventDate: eightDaysAgo, eventStartDate: null, eventEndDate: null },
+      ]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      // graceEnd (eventDate + 3h) est bien avant "now" → rejeté par le filtre de fenêtre en mémoire.
+      expect(result).toEqual({ isLive: false, eventId: null, since: null });
+    });
+
+    it('resolves the event but stays not-live when the space has no shops', async () => {
+      const now = new Date();
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      // spaceElement.findMany déjà mocké à [] dans le beforeEach → shopIds = []
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('is live when a real sale landed within the last 30 minutes', async () => {
+      const now = new Date();
+      const since = new Date(now.getTime() - 5 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: true, eventId: 'event-1', since: since.toISOString() });
+    });
+
+    it('is not live when the shops have no sale in the freshness window (stale event)', async () => {
+      const now = new Date();
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since: null }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
+    });
+  });
+
+  // Passthrough vers LogisticsService (tracker front #22, LIVE_API_GUIDE.md §3) — la logique vit
+  // dans LogisticsService.getLiveInventory (testée dans logistics.service.spec.ts), on vérifie
+  // uniquement le câblage ici.
+  describe('getLiveInventory', () => {
+    it('delegates to LogisticsService.getLiveInventory with the same spaceId/tenantId', async () => {
+      const expected = { shops: [], items: [] };
+      mockLogisticsService.getLiveInventory.mockResolvedValue(expected);
+
+      const result = await service.getLiveInventory('space-1', 'tenant-1');
+
+      expect(mockLogisticsService.getLiveInventory).toHaveBeenCalledWith('space-1', 'tenant-1');
+      expect(result).toBe(expected);
     });
   });
 });

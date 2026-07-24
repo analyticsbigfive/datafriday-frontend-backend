@@ -2058,7 +2058,7 @@ export default {
 
 <style scoped>
 .space-inventory-view {
-  --si-bg: #f6f8fb; /* fond unifié EventPredict */
+  --si-bg: var(--fb-bg, #f6f8fb); /* fond unifié EventPredict */
   --si-surface: var(--fb-surface, #FFFFFF);
   --si-subtle: var(--fb-subtle, #FAFAFA);
   --si-border: var(--fb-border, #E5E7EB);
@@ -2651,10 +2651,10 @@ export default {
 .si-main { min-width: 0; }
 .si-aggregate {
   /* Carte résumé droite = look EventPredict. */
-  background: #ffffff;
-  border: 1px solid #d9e2ec;
+  background: var(--si-surface);
+  border: 1px solid var(--si-border);
   border-radius: 18px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
   overflow: hidden;
 }
 /* Colonne droite : le segmented reste en tête, la carte agrégat prend le reste
@@ -2778,7 +2778,7 @@ export default {
   text-align: center;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #6B7280;
+  color: var(--si-muted);
 }
 .si-shop-carousel-count strong {
   color: #ff3131;
@@ -2789,14 +2789,14 @@ export default {
   border: 1px solid var(--si-border);
   /* Aligné Components Library : rounded-xl (~16px) + ombre subtile. */
   border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
   transition: box-shadow 0.3s ease;
   padding: 14px;
   display: flex; flex-direction: column; gap: 10px;
   min-height: 164px;
 }
 .si-card:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--fb-shadow-hover, 0 4px 20px rgba(0, 0, 0, 0.08));
 }
 .si-card-head {
   display: flex; justify-content: space-between; align-items: flex-start;
@@ -3134,5 +3134,47 @@ export default {
   .si-title {
     font-size: 1rem;
   }
+}
+
+/* ===================== DARK MODE — compléments =====================
+   Le gros de la vue suit déjà les `--fb-*` (dark déclaré dans style.css sous
+   .space-inventory-view). Restent ici les valeurs qui n'ont pas de variable :
+   translucides noirs, ascenseurs, shimmer du skeleton, état désactivé.
+   Le bandeau rouge (#ff3131 + contrôles blancs) est volontairement identique
+   dans les deux thèmes — parité Space Menus, cf. commentaire plus haut. */
+.v-theme--dataFridayDark .space-inventory-view .si-substatus-count,
+.v-theme--dataFridayDark .space-inventory-view .si-sort-chip-count {
+  background: rgba(255, 255, 255, 0.12);
+}
+/* Le chip de tri actif reste rouge : son compteur garde son blanc translucide. */
+.v-theme--dataFridayDark .space-inventory-view .si-sort-chip-active .si-sort-chip-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+.v-theme--dataFridayDark .space-inventory-view .si-substatus-help:hover {
+  color: #e2e8f0;
+}
+.v-theme--dataFridayDark .space-inventory-view .si-substatus-btn-active {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+/* Ascenseurs : le gris clair #D1D5DB tranchait sur le fond sombre. */
+.v-theme--dataFridayDark .space-inventory-view .si-main,
+.v-theme--dataFridayDark .space-inventory-view .si-aggregate {
+  scrollbar-color: #4b5563 transparent;
+}
+.v-theme--dataFridayDark .space-inventory-view .si-main::-webkit-scrollbar-thumb,
+.v-theme--dataFridayDark .space-inventory-view .si-aggregate::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+/* Skeleton : dégradé clair → gris sombres (même amplitude de contraste). */
+.v-theme--dataFridayDark .space-inventory-view .si-skeleton-dot,
+.v-theme--dataFridayDark .space-inventory-view .si-skeleton-pill,
+.v-theme--dataFridayDark .space-inventory-view .si-skeleton-line {
+  background: linear-gradient(90deg, #1f2937 0%, #374151 42%, #1f2937 78%);
+  background-size: 220% 100%;
+}
+.v-theme--dataFridayDark .space-inventory-view .si-btn-primary:disabled {
+  background: #4b5563;
+  border-color: #4b5563;
+  color: #9ca3af;
 }
 </style>

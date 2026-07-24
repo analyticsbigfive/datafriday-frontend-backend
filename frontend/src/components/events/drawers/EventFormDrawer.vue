@@ -52,6 +52,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
         />
       </div>
 
@@ -68,6 +69,7 @@
           hide-details
           clearable
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
         />
       </div>
 
@@ -146,6 +148,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleEventTypeChange"
         >
           <template #item="{ props, item }">
@@ -175,6 +178,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleCategorySelectChange"
         >
           <template #item="{ props, item }">
@@ -204,6 +208,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleSubcategorySelectChange"
         >
           <template #item="{ props, item }">
@@ -240,6 +245,7 @@
           auto-select-first
           :custom-filter="teamFilter"
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleHomeTeamSelectChange"
         >
           <template #item="{ props, item }">
@@ -273,6 +279,7 @@
           auto-select-first
           :custom-filter="teamFilter"
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleTeamSelectChange"
         >
           <template #item="{ props, item }">

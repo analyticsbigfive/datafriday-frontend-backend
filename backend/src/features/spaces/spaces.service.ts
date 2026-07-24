@@ -9,6 +9,7 @@ import { WeezeventClientService } from '../weezevent/services/weezevent-client.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { LogisticsService } from '../logistics/logistics.service';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -51,6 +52,7 @@ export class SpacesService {
     private readonly weezeventClient: WeezeventClientService,
     private readonly spaceAccess: SpaceAccessService,
     private readonly storage: SupabaseStorageService,
+    private readonly logisticsService: LogisticsService,
   ) {}
 
   /**
@@ -136,6 +138,76 @@ export class SpacesService {
   }
 
   /**
+   * CA (total/F&B/merch), transactions et billets par espace — calculé à la volée depuis les
+   * agrégats réels (SpaceRevenueMinuteAgg, corrigé BUG-014/015) et Event, pas depuis les
+   * colonnes Space.avgEvent/avgTransaction/perCapita/cachedMetrics qui ne sont jamais écrites.
+   * Classification F&B/merch réutilise la convention déjà en place ailleurs (StorageShopsSection.vue,
+   * space-menus.service.ts:843) : isMerch = SpaceElement.type === 'merchshop'.
+   * Formules avgTransaction/avgEvent/perCapita alignées sur useMetricsCalculator.js (moteur Analyse).
+   */
+  private async getRevenueSummaries(tenantId: string, spaceIds: string[]) {
+    const summaries = new Map<string, {
+      totalRevenue: number;
+      fbRevenue: number;
+      merchRevenue: number;
+      ticketingCount: number;
+      avgTransaction: number;
+      avgEvent: number;
+      perCapita: number;
+    }>();
+    if (spaceIds.length === 0) return summaries;
+
+    const [revenueRows, ticketRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{
+        spaceId: string;
+        totalRevenue: number;
+        merchRevenue: number;
+        fbRevenue: number;
+        transactionsCount: number;
+        eventsWithRevenue: number;
+      }>>(Prisma.sql`
+        SELECT sra."spaceId",
+          SUM(sra."revenueHt")::float AS "totalRevenue",
+          SUM(CASE WHEN se."type" = 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "merchRevenue",
+          SUM(CASE WHEN se."type" IS DISTINCT FROM 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "fbRevenue",
+          SUM(sra."transactionsCount")::int AS "transactionsCount",
+          COUNT(DISTINCT CASE WHEN sra."revenueHt" > 0 THEN sra."weezeventEventId" END)::int AS "eventsWithRevenue"
+        FROM "SpaceRevenueMinuteAgg" sra
+        LEFT JOIN "SpaceElement" se ON se.id = sra."spaceElementId"
+        WHERE sra."tenantId" = ${tenantId} AND sra."spaceId" IN (${Prisma.join(spaceIds)})
+        GROUP BY sra."spaceId"
+      `),
+      this.prisma.$queryRaw<Array<{ spaceId: string; ticketsCount: number }>>(Prisma.sql`
+        SELECT "spaceId", SUM(COALESCE("ticketsScanned", "ticketsSold", 0))::int AS "ticketsCount"
+        FROM "Event"
+        WHERE "tenantId" = ${tenantId} AND "spaceId" IN (${Prisma.join(spaceIds)})
+        GROUP BY "spaceId"
+      `),
+    ]);
+
+    const ticketsBySpace = new Map(ticketRows.map((r) => [r.spaceId, Number(r.ticketsCount) || 0]));
+
+    for (const row of revenueRows) {
+      const totalRevenue = Number(row.totalRevenue) || 0;
+      const transactionsCount = Number(row.transactionsCount) || 0;
+      const eventsWithRevenue = Number(row.eventsWithRevenue) || 0;
+      const ticketsCount = ticketsBySpace.get(row.spaceId) ?? 0;
+
+      summaries.set(row.spaceId, {
+        totalRevenue,
+        fbRevenue: Number(row.fbRevenue) || 0,
+        merchRevenue: Number(row.merchRevenue) || 0,
+        ticketingCount: ticketsCount,
+        avgTransaction: transactionsCount > 0 ? totalRevenue / transactionsCount : 0,
+        avgEvent: eventsWithRevenue > 0 ? totalRevenue / eventsWithRevenue : 0,
+        perCapita: ticketsCount > 0 ? totalRevenue / ticketsCount : 0,
+      });
+    }
+
+    return summaries;
+  }
+
+  /**
    * Find all spaces for a tenant with pagination (Redis-cached, TTL 60s).
    * Cache is bypassed when a search filter is applied.
    */
@@ -203,10 +275,6 @@ export class SpacesService {
           instagram: true,
           twitter: true,
           tiktok: true,
-          avgEvent: true,
-          avgTransaction: true,
-          perCapita: true,
-          cachedMetrics: true,
           _count: {
             select: {
               configs: true,
@@ -218,8 +286,22 @@ export class SpacesService {
       this.prisma.space.count({ where }),
     ]);
 
+    const revenueSummaries = await this.getRevenueSummaries(tenantId, spaces.map((s) => s.id));
+    const spacesWithMetrics = spaces.map((s) => ({
+      ...s,
+      ...(revenueSummaries.get(s.id) ?? {
+        totalRevenue: 0,
+        fbRevenue: 0,
+        merchRevenue: 0,
+        ticketingCount: 0,
+        avgTransaction: 0,
+        avgEvent: 0,
+        perCapita: 0,
+      }),
+    }));
+
     const result = {
-      data: spaces,
+      data: spacesWithMetrics,
       meta: {
         total,
         page,
@@ -1137,6 +1219,9 @@ export class SpacesService {
       ', ',
     );
 
+    // BUG-108 : contrairement au pipeline d'agrégation périodique (executeProcessEvents,
+    // exclu depuis BUG-028), cette lecture directe de WeezeventTransaction ne filtrait pas
+    // deletedAt — une transaction annulée après un retry webhook restait comptée ici.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
       WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql})
       SELECT
@@ -1164,6 +1249,7 @@ export class SpacesService {
        AND t."tenantId" = ${tenantId}
        ${integrationClause}
        AND t.status = 'V'
+       AND t."deletedAt" IS NULL
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
       LEFT JOIN "WeezeventLocationShopMapping" mem
@@ -1211,6 +1297,101 @@ export class SpacesService {
       });
     }
     return out;
+  }
+
+  // Fenêtre de fraîcheur : au moins une vente dans les N dernières minutes (question #20 du
+  // tracker front, tranchée par Ulrich 2026-07-20 : signal = vente réelle, pas le webhook brut).
+  private readonly LIVE_STATUS_WINDOW_MINUTES = 30;
+  // Marge après eventEndDate pendant laquelle un event reste considéré "live" (règlement tardif) —
+  // même valeur que WeezeventCronService.LIVE_AGGREGATION_GRACE_HOURS (filet de sécurité BUG-109),
+  // les deux implémentant la même définition d'"event en direct".
+  private readonly LIVE_STATUS_GRACE_HOURS = 3;
+
+  /**
+   * "Cet espace a-t-il un event live ?" (tracker front #20, LIVE_API_GUIDE.md §1). Un espace n'a
+   * qu'un seul event live à la fois (cardinalité tranchée le 2026-07-23, tracker #23) : l'event le
+   * plus récent dont la fenêtre [eventStartDate, eventEndDate + grace] couvre l'instant présent est
+   * live si au moins une vente réelle (non annulée, cf. BUG-108) est arrivée dans les 30 dernières
+   * minutes pour les shops de cet espace.
+   */
+  async getLiveStatus(
+    spaceId: string,
+    tenantId: string,
+  ): Promise<{ isLive: boolean; eventId: string | null; since: string | null }> {
+    const now = new Date();
+    const graceMs = this.LIVE_STATUS_GRACE_HOURS * 60 * 60 * 1000;
+
+    // Candidats : events récents dont la fenêtre pourrait couvrir "now" — bornés à quelques
+    // jours pour éviter un scan de tout l'historique (aucun event de plus de quelques jours ne
+    // peut encore être dans sa fenêtre + grace).
+    const candidates = await this.prisma.event.findMany({
+      where: {
+        tenantId,
+        spaceId,
+        eventDate: { lte: now, gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+      },
+      select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true },
+      orderBy: { eventDate: 'desc' },
+    });
+
+    const event = candidates.find((e) => {
+      const start = e.eventStartDate ?? e.eventDate;
+      const end = e.eventEndDate ?? e.eventDate;
+      const graceEnd = new Date(end.getTime() + graceMs);
+      return now >= start && now <= graceEnd;
+    });
+    if (!event) return { isLive: false, eventId: null, since: null };
+
+    const [locationMapping, shopIds] = await Promise.all([
+      this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { salesLocationId: true },
+      }),
+      this.resolveShopIdsForSpace(spaceId, tenantId),
+    ]);
+    if (shopIds.length === 0) return { isLive: false, eventId: event.id, since: null };
+
+    const integrationId = locationMapping?.salesLocationId ?? null;
+    const integrationClause = integrationId
+      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+      : Prisma.sql``;
+    // Même repli "unmapped = gardé" que getEventTimelineBatch (§ ci-dessus) — un PdV pas encore
+    // mappé shop-level ne doit pas faire manquer un vrai signal live.
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
+      : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
+
+    const windowStart = new Date(now.getTime() - this.LIVE_STATUS_WINDOW_MINUTES * 60 * 1000);
+    const eventStart = event.eventStartDate ?? event.eventDate;
+    // La vente doit être à la fois récente (30 dernières minutes) ET dans la fenêtre de l'event
+    // (pas une vente de test pré-event) — les deux bornes de la définition tranchée #20.
+    const effectiveWindowStart = windowStart > eventStart ? windowStart : eventStart;
+
+    const rows: { since: Date | null }[] = await this.prisma.$queryRaw(Prisma.sql`
+      SELECT MIN(t."transactionDate") AS since
+      FROM "WeezeventTransaction" t
+      LEFT JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
+       AND mem."tenantId" = ${tenantId}
+      WHERE t."tenantId" = ${tenantId}
+        ${integrationClause}
+        AND t.status = 'V'
+        AND t."deletedAt" IS NULL
+        AND t."transactionDate" >= ${effectiveWindowStart}
+        AND ${shopScopeClause}
+    `);
+
+    const since = rows[0]?.since ?? null;
+    return { isLive: !!since, eventId: event.id, since: since ? since.toISOString() : null };
+  }
+
+  /**
+   * Onglet Inventaire live (tracker front #22, LIVE_API_GUIDE.md §3) — délègue au module
+   * Logistic, qui calcule déjà cette combinaison Restock + décrément par vente pour son propre
+   * écran. Passthrough volontairement fin : la logique vit dans LogisticsService, pas ici.
+   */
+  async getLiveInventory(spaceId: string, tenantId: string) {
+    return this.logisticsService.getLiveInventory(spaceId, tenantId);
   }
 
   /**

@@ -18,9 +18,14 @@
       </div>
 
       <v-form ref="form" v-model="formValid" validate-on="submit">
+        <div class="ecd-section-label">
+          <Shapes :size="12" />
+          <span>{{ t('eventCategoryDialogSectionInfo') }}</span>
+        </div>
+
         <!-- Type select -->
         <div class="ecd-field-wrap mb-4">
-          <label class="ecd-field-label">{{ t('eventCategoryDialogTypeLabel') }} <span class="ecd-star">*</span></label>
+          <span class="ecd-field-label">{{ t('eventCategoryDialogTypeLabel') }} <span class="ecd-star">*</span></span>
           <v-select
             v-model="eventTypeId"
             :items="allowCreateType ? eventTypesWithCreate : eventTypes"
@@ -50,7 +55,7 @@
 
         <!-- Name input -->
         <div class="ecd-field-wrap mb-4">
-          <label class="ecd-field-label">{{ t('eventCategoryDialogNameLabel') }} <span class="ecd-star">*</span></label>
+          <span class="ecd-field-label">{{ t('eventCategoryDialogNameLabel') }} <span class="ecd-star">*</span></span>
           <v-text-field
             v-model="name"
             variant="outlined"
@@ -58,6 +63,11 @@
             hide-details
             class="ecd-v-select"
           />
+        </div>
+
+        <div class="ecd-section-label">
+          <Settings :size="12" />
+          <span>{{ t('eventCategoryDialogSectionOptions') }}</span>
         </div>
 
         <!-- Has home team checkbox -->
@@ -88,14 +98,14 @@
 import { computed } from 'vue';
 import { useTheme } from 'vuetify';
 import { useI18n } from '@/i18n/useI18n';
-import { Shapes, AlertCircle, Save, Plus } from 'lucide-vue-next';
+import { Shapes, AlertCircle, Save, Plus, Settings } from 'lucide-vue-next';
 import { createEventCategory, updateEventCategory } from '@/api/endpoints/event.api';
 import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 import EventTypeDialog from './EventTypeDialog.vue';
 
 export default {
   name: 'EventCategoryDialog',
-  components: { Shapes, AlertCircle, Save, Plus, EventDrawerShell, EventTypeDialog },
+  components: { Shapes, AlertCircle, Save, Plus, Settings, EventDrawerShell, EventTypeDialog },
 
   setup() {
     const { t } = useI18n();
@@ -291,4 +301,19 @@ export default {
 .ecd--dark .ecd-checkbox__label { color: #d1d5db; }
 .ecd--dark .ecd-v-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 .ecd--dark .ecd-v-select :deep(.v-field__input) { color: #f3f4f6; }
+.ecd--dark .ecd-v-select :deep(.v-select__selection-text) { color: #f3f4f6; }
+.ecd--dark .ecd-v-select :deep(.v-field__input input::placeholder) { color: #94a3b8; }
+.ecd--dark .ecd-checkbox__input { color-scheme: dark; }
+.ecd--dark .ecd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+/* Bouton Cancel : slotté dans le footer d'EventDrawerShell → ciblé via .eds--dark. */
+.eds--dark .ecd-btn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.eds--dark .ecd-btn--cancel:hover { background: #374151; }
+/* Labels de section (icône + span), calqués sur efd-section-label */
+.ecd-section-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: #9ca3af; margin-bottom: 12px;
+}
+.ecd-section-label:not(:first-child) { margin-top: 20px; }
+.ecd--dark .ecd-section-label { color: #6b7280; }
 </style>

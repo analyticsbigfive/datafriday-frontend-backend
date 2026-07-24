@@ -6233,9 +6233,9 @@ export default {
 .ep-predict-section-tabs {
   margin-top: 16px;
   padding: 14px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--fb-border, #e2e8f0);
   border-radius: 18px;
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 .ep-predict-section-header {
@@ -6359,10 +6359,10 @@ export default {
   flex-shrink: 0;
 }
 .ep-timeline-chart :deep(.v-card) {
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid var(--fb-border, #e2e8f0) !important;
   border-radius: 18px !important;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
-  background: #ffffff !important;
+  background: var(--fb-surface, #ffffff) !important;
 }
 .ep-timeline-chart :deep(.chart-wrap) {
   min-height: 340px;
@@ -6457,7 +6457,7 @@ export default {
   gap: 12px;
   padding: 10px 24px;
   min-height: 64px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--fb-border, #e2e8f0);
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(10px);
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
@@ -6501,13 +6501,13 @@ export default {
   font-size: 1.15rem;
   font-weight: 750;
   margin: 0;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
   letter-spacing: 0;
 }
 .ep-subtitle {
   margin: 0;
   font-size: 0.8125rem;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
 }
 .ep-header-actions {
   margin-left: auto;
@@ -6525,8 +6525,8 @@ export default {
   padding: 4px 10px;
   border: 1px solid #dbe4ee;
   border-radius: 9999px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--fb-subtle, #f8fafc);
+  color: var(--fb-muted, #475569);
   font-size: 0.75rem;
   font-weight: 650;
   white-space: nowrap;
@@ -6584,18 +6584,18 @@ export default {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--fb-border, #d9e2ec);
   border-radius: 8px;
-  background: #ffffff;
-  color: #64748b;
+  background: var(--fb-surface, #ffffff);
+  color: var(--fb-muted, #64748b);
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
   transition: background-color 0.15s, color 0.15s, border-color 0.15s, left 0.2s ease;
 }
 .ep-side-toggle:hover {
-  background: #f1f5f9;
-  color: #0f172a;
-  border-color: #cbd5e1;
+  background: var(--fb-border, #f1f5f9);
+  color: var(--fb-text, #0f172a);
+  border-color: var(--fb-border-strong, #cbd5e1);
 }
 /* Repliée : track gauche à 0, le centre s'élargit ; le bouton glisse à gauche. */
 .ep-body.ep-side-collapsed {
@@ -6612,9 +6612,9 @@ export default {
 }
 .ep-event-selector-card {
   border-radius: 18px !important;
-  border-color: #d9e2ec !important;
+  border-color: var(--fb-border, #d9e2ec) !important;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   overflow:auto !important;
 }
 .ep-event-selector-header {
@@ -6626,7 +6626,7 @@ export default {
   gap: 8px;
   font-size: 1rem;
   font-weight: 750;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-event-selector-subtitle {
   margin: 8px 0 0;
@@ -6637,8 +6637,8 @@ export default {
   padding: 3px 9px;
   border: 1px solid #dbe4ee;
   border-radius: 9999px;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--fb-subtle, #f8fafc);
+  color: var(--fb-muted, #64748b);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -6646,7 +6646,7 @@ export default {
   margin: 4px 0 0;
   font-size: 0.75rem;
   line-height: 1.4;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
 }
 /* ===== Sélecteur recherche + calendrier secondaire ===== */
 .ep-event-search {
@@ -6657,11 +6657,11 @@ export default {
 .ep-event-search :deep(.v-field),
 .ep-empty-state-select :deep(.v-field) {
   border-radius: 0;
-  background: #fff;
+  background: var(--fb-surface, #fff);
   transition: border-color 0.2s ease;
 }
-.v-theme--dataFridayDark .ep-event-search :deep(.v-field),
-.v-theme--dataFridayDark .ep-empty-state-select :deep(.v-field) {
+.dark .ep-event-search :deep(.v-field),
+.dark .ep-empty-state-select :deep(.v-field) {
   background: #1e293b;
 }
 .ep-event-search :deep(.v-field:hover),
@@ -6684,16 +6684,16 @@ export default {
   color: #1d4ed8;
 }
 .ep-event-opt-badge.is-past {
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--fb-border, #f1f5f9);
+  color: var(--fb-muted, #64748b);
 }
 .ep-calendar-wrap {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--fb-border, #e2e8f0);
   border-radius: 12px;
   padding: 2px 4px 4px;
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   /* Pas de box-shadow (demande UX) — calendrier plat et compact. */
 }
 .ep-calendar-wrap .ep-date-picker {
@@ -6722,9 +6722,9 @@ export default {
   gap: 6px;
   max-width: 100%;
   padding: 3px 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--fb-border, #e2e8f0);
   border-radius: 9999px;
-  background: #f8fafc;
+  background: var(--fb-subtle, #f8fafc);
   font-size: 0.72rem;
   line-height: 1.2;
 }
@@ -6733,7 +6733,7 @@ export default {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 130px;
-  color: #475569;
+  color: var(--fb-muted, #475569);
 }
 .ep-used-chip-ca {
   font-weight: 700;
@@ -6771,8 +6771,8 @@ export default {
   white-space: nowrap;
 }
 .ep-side-badge-secondary {
-  background: #e5e7eb;
-  color: #111827;
+  background: var(--fb-border, #e5e7eb);
+  color: var(--fb-text, #111827);
 }
 .ep-side-badge-outline {
   border: 1px solid var(--border, #e5e7eb);
@@ -6914,7 +6914,7 @@ export default {
   justify-content: flex-end;
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px dashed #e2e8f0;
+  border-top: 1px dashed var(--fb-border, #e2e8f0);
 }
 .ep-config-inv-link a {
   display: inline-flex;
@@ -7084,12 +7084,12 @@ export default {
   font-size: 1.35rem;
   font-weight: 800;
   margin: 0;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-empty-state-text {
   font-size: 0.875rem;
   line-height: 1.5;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   margin: 0;
 }
 .ep-empty-state-select {
@@ -7109,8 +7109,8 @@ export default {
   padding: 4px 12px;
   border-radius: 9999px;
   border: 1px solid #dbe4ee;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--fb-subtle, #f8fafc);
+  color: var(--fb-muted, #475569);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -7155,7 +7155,7 @@ export default {
   height: 18px;
   font-size: 0.6875rem;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--fb-faint, #94a3b8);
 }
 .ep-date-picker :deep(.v-date-picker-month__day) {
   height: 26px;
@@ -7199,7 +7199,7 @@ export default {
 /* Dates désactivées (passées / sans évènement) : estompées, neutres. */
 .ep-date-picker :deep(.v-date-picker-month__day .v-btn--disabled) {
   opacity: 0.3;
-  color: #94a3b8;
+  color: var(--fb-faint, #94a3b8);
   background: transparent;
 }
 .ep-date-picker :deep(.v-date-picker-month__days) {
@@ -7244,7 +7244,7 @@ export default {
 .ep-metrics {
   width: 400px;
   flex-shrink: 0;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--fb-border, #e2e8f0);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -7256,13 +7256,13 @@ export default {
 .ep-metrics-head {
   padding: 4px 2px 14px;
   margin-bottom: 4px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--fb-border, #e2e8f0);
 }
 .ep-metrics-kicker {
   margin: 0 0 4px;
   font-size: 0.6875rem;
   font-weight: 800;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -7271,11 +7271,11 @@ export default {
   font-size: 1rem;
   line-height: 1.25;
   font-weight: 750;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-metrics-subtitle {
   margin: 5px 0 0;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   font-size: 0.75rem;
   font-weight: 500;
 }
@@ -7289,24 +7289,24 @@ export default {
   flex-wrap: wrap;
   gap: 6px 12px;
   padding: 6px 12px 10px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--fb-border, #e2e8f0);
   margin-bottom: 10px;
 }
 .ep-metrics-anchors a {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--fb-muted, #475569);
   text-decoration: none;
   padding: 2px 6px;
   border-radius: 6px;
 }
 .ep-metrics-anchors a:hover {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--fb-border, #f1f5f9);
+  color: var(--fb-text, #0f172a);
 }
 .ep-metric-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--fb-surface, #ffffff);
+  border: 1px solid var(--fb-border, #e2e8f0);
   border-radius: 12px;
   padding: 14px;
   display: flex;
@@ -7339,14 +7339,14 @@ export default {
 .ep-metric-label {
   font-size: 0.75rem;
   font-weight: 750;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   margin: 0;
 }
 .ep-metric-value {
   font-size: 1.35rem;
   line-height: 1.1;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
   margin: 0;
   letter-spacing: 0;
   word-break: break-word;
@@ -7354,11 +7354,11 @@ export default {
 .ep-metric-adjusted {
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--fb-border, #e2e8f0);
 }
 .ep-metric-adjusted-label {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   margin: 0 0 2px;
 }
 .ep-metric-adjusted-value {
@@ -7400,16 +7400,16 @@ export default {
   width: 100%;
   text-align: left;
   padding: 11px 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--fb-border, #e2e8f0);
   border-radius: 10px;
   margin-bottom: 8px;
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   cursor: pointer;
   transition: background 120ms, border-color 120ms, box-shadow 120ms, transform 120ms;
 }
 .ep-event-item:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: var(--fb-subtle, #f8fafc);
+  border-color: var(--fb-border-strong, #cbd5e1);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 .ep-event-item.is-selected {
@@ -7440,9 +7440,9 @@ export default {
   appearance: none;
   width: 16px;
   height: 16px;
-  border: 2px solid #cbd5e1;
+  border: 2px solid var(--fb-border-strong, #cbd5e1);
   border-radius: 9999px;
-  background: #fff;
+  background: var(--fb-surface, #fff);
   cursor: pointer;
   flex-shrink: 0;
   display: inline-grid;
@@ -7678,7 +7678,7 @@ export default {
   padding: 0;
   border: 1.5px solid rgba(255, 49, 49, 0.35);
   border-radius: 100px;
-  background: #ffffff;
+  background: var(--fb-surface, #ffffff);
   color: #ff3131;
   cursor: pointer;
   font-size: 12.5px;
@@ -7701,8 +7701,8 @@ export default {
 }
 .ep-prediction-base {
   border-radius: 18px !important;
-  border-color: #d9e2ec !important;
-  background: #ffffff;
+  border-color: var(--fb-border, #d9e2ec) !important;
+  background: var(--fb-surface, #ffffff);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 .ep-prediction-base-header {
@@ -7741,10 +7741,10 @@ export default {
   width: 100%;
   padding: 8px 6px;
   border: 0;
-  border-bottom: 1px solid #eef2f6;
+  border-bottom: 1px solid var(--fb-border, #eef2f6);
   border-radius: 0;
   background: transparent;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
   text-align: left;
   cursor: pointer;
   opacity: 0.72;
@@ -7770,10 +7770,10 @@ export default {
   width: 24px;
   height: 24px;
   margin-top: 2px;
-  border: 2px solid #cbd5e1;
+  border: 2px solid var(--fb-border-strong, #cbd5e1);
   border-radius: 9999px;
-  background: #ffffff;
-  color: #94a3b8;
+  background: var(--fb-surface, #ffffff);
+  color: var(--fb-faint, #94a3b8);
   flex-shrink: 0;
 }
 .ep-past-source-card.is-active .ep-past-source-toggle {
@@ -7807,7 +7807,7 @@ export default {
 }
 .ep-past-source-date {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
 }
 .ep-past-source-metrics {
   display: flex;
@@ -7824,15 +7824,15 @@ export default {
   border: 0;
   background: transparent;
   font-size: 0.6875rem;
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
 }
 .ep-past-source-metric strong {
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
   font-size: 0.8125rem;
   line-height: 1.1;
 }
 .ep-past-source-metric small {
-  color: #64748b;
+  color: var(--fb-muted, #64748b);
   font-size: 0.6875rem;
   font-weight: 650;
 }
@@ -7841,7 +7841,7 @@ export default {
   width: 100%;
   height: 6px;
   border-radius: 9999px;
-  background: #e5e7eb;
+  background: var(--fb-border, #e5e7eb);
   overflow: hidden;
 }
 .ep-past-source-scorebar span {
@@ -7988,7 +7988,7 @@ export default {
   cursor: pointer;
 }
 .ep-timeline-info {
-  background: #f3f4f6;
+  background: var(--fb-border, #f3f4f6);
   color: #374151;
   border-radius: 6px;
   padding: 10px 12px;
@@ -8009,7 +8009,7 @@ export default {
 .ep-timeline-table th,
 .ep-timeline-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--fb-border, #e5e7eb);
   text-align: left;
 }
 .ep-score-badge {
@@ -8032,7 +8032,7 @@ export default {
   color: #991b1b;
 }
 .ep-timeline-summary {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--fb-border, #e5e7eb);
   padding-top: 12px;
   margin-top: 8px;
 }
@@ -8043,14 +8043,14 @@ export default {
 }
 .ep-timeline-label {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fb-muted, #6b7280);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .ep-timeline-value {
   font-weight: 700;
   font-size: 1.05rem;
-  color: #111827;
+  color: var(--fb-text, #111827);
 }
 .ep-timeline-spark {
   width: 100%;
@@ -8065,7 +8065,7 @@ export default {
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fb-muted, #6b7280);
   margin-top: 4px;
 }
 .ep-spin {
@@ -8096,9 +8096,29 @@ export default {
   --muted: var(--fb-subtle, #FAFAFA);
   --muted-foreground: var(--fb-muted, #6B7280);
   --border: var(--fb-border, #E5E7EB);
+  /* Accents sémantiques consommés par les composants portés ET les sections
+     enfants (héritage) via `var(--destructive/--success/--warning, …)`. Étaient
+     indéfinis → repli sur le littéral clair. On les définit ici : valeurs claires
+     identiques (mode clair inchangé), éclaircies en sombre par le bloc plus bas. */
+  --destructive: #b91c1c;
+  --success: #16a34a;
+  --warning: #d97706;
 
   background: var(--ep-bg);
   color: var(--ep-text);
+}
+
+/* Accents sémantiques : versions claires pour le fond sombre (texte + rails +
+   voiles color-mix des badges map/cost/remap/add héritent automatiquement). */
+.dark .event-predict-overlay {
+  --destructive: #fca5a5;
+  --success: #86efac;
+  --warning: #fcd34d;
+  /* Le fond de l'overlay est écrasé par une 3e déclaration `background:
+     linear-gradient(135deg, #f6f7fb, #fafbfc)` (dégradé clair, ignoré par la
+     conversion car gradient) qui gagne dans la cascade sur `var(--ep-bg)`. On la
+     recouvre ici en sombre (spécificité .dark > sélecteur nu). */
+  background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
 }
 
 .ep-header {
@@ -8150,7 +8170,7 @@ export default {
   align-items: center;
   gap: 4px;
   padding: 2px 24px 0;
-  color: #6B7280;
+  color: var(--fb-muted, #6B7280);
 }
 
 .ep-toolbox-nav {
@@ -8321,7 +8341,7 @@ export default {
 .ep-event-radio,
 .ep-past-source-toggle,
 .ep-side-radio {
-  border-color: #D1D5DB;
+  border-color: var(--fb-border-strong, #D1D5DB);
 }
 
 .ep-event-radio::before,
@@ -9202,6 +9222,86 @@ export default {
   .ep-metrics-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===================== DARK MODE — compléments ciblés =====================
+   L'overlay `.event-predict-overlay` est déclaré dans le contrat `--fb-*`
+   (style.css) : surfaces, bordures et textes basculent déjà via les tokens
+   `--ep-*`/`--fb-*` (y compris les chips de score `.ep-score-*`, migrés sur
+   `--fb-*-soft`). Ne restent ici que les valeurs SANS token : dégradés,
+   skeletons, bordures bleutées, et les badges de statut « soft bg + texte
+   foncé » calibrés pour un fond clair. Le rouge de marque #ff3131 et l'accent
+   bleu `--primary` #3b82f6 (lisibles sur fond sombre) sont conservés. */
+
+/* Skeletons : dégradés clairs → gris sombres (même amplitude). */
+.dark .ep-adjusted-shimmer,
+.dark .ep-skeleton-line,
+.dark .ep-skeleton-pill,
+.dark .ep-skeleton-dot,
+.dark .ep-skeleton-event,
+.dark .ep-skeleton-row,
+.dark .ep-skeleton-metric,
+.dark .ep-skeleton-chart,
+.dark .ep-skel-value {
+  background: linear-gradient(90deg, #1f2937 25%, #374151 50%, #1f2937 75%);
+  background-size: 220% 100%;
+}
+
+/* Cartes/encarts à dégradé bleu pâle → surface sombre unie. */
+.dark .ep-empty-state,
+.dark .ep-stockup-cta {
+  background: var(--fb-subtle);
+  border-color: var(--fb-border);
+}
+
+/* Bordures bleu-gris pâle des chips d'en-tête. */
+.dark .ep-header-chip,
+.dark .ep-event-selector-subtitle,
+.dark .ep-empty-state-chip {
+  border-color: var(--fb-border);
+}
+
+/* Badge « futur » et icône d'état vide : bleu pâle → voile bleu + texte clair. */
+.dark .ep-event-opt-badge.is-future,
+.dark .ep-empty-state-icon {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+/* Badge « brouillon » (ambre) : soft bg + texte ambre foncé → voile + clair. */
+.dark .ep-side-badge-dirty {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* Encarts multi-événements / avertissements timeline (ambre pâle). */
+.dark .ep-event-item.is-multi:not(.is-selected),
+.dark .ep-multi-bar,
+.dark .ep-timeline-warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* Placeholder « verse » (vert pâle) et astuce (bleu pâle). */
+.dark .ep-multi-placeholder {
+  background: rgba(34, 197, 94, 0.12);
+}
+.dark .ep-multi-tip {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+/* Actions danger (rouge) : soft bg + texte rouge foncé → voile + clair. */
+.dark .ep-side-icon-danger:hover,
+.dark .ep-link-btn.ep-danger:hover {
+  background: rgba(220, 38, 38, 0.16);
+}
+.dark .ep-link-btn.ep-danger,
+.dark .ep-side-icon-danger:hover {
+  color: #fca5a5;
+}
+.dark .ep-link-btn.ep-danger {
+  border-color: rgba(220, 38, 38, 0.4);
 }
 </style>
 <!-- force 1 nouveau buiild -->

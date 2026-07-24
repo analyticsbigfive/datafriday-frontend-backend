@@ -491,4 +491,6 @@ export default {
   color: #9ca3af !important;
   background: #1a2332 !important;
 }
+/* Retire la bordure blanche (inline #e5e7eb) de la carte du tableau en dark. */
+.ptl--dark .ptl-content :deep(.v-card) { border-color: transparent !important; }
 </style>

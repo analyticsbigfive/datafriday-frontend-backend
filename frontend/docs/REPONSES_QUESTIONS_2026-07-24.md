@@ -67,13 +67,37 @@ canonique (module/bug/ADR), puis passage 🔴 → 🟢 dans le tracker.
 
 ## 3. Prochaines étapes
 
-1. Reporter chaque réponse métier (§1) dans la doc canonique concernée, puis passer la ligne
-   correspondante à 🟢 dans [`QUESTIONS_A_BERTRAND.md`](QUESTIONS_A_BERTRAND.md).
+1. ✅ **Fait le 2026-07-24** : réponses métier (§1) reportées dans la doc canonique concernée
+   (`02_ANALYSE.md`, `01_EVENT_PREDICT_ALGORITHME.md` + fiche 188, `11_RH_STAFFING.md`,
+   `10_POST_EVENT_INVENTORY.md`, fiches bugs 147/227/82), lignes correspondantes passées 🟢
+   (résolues) dans [`QUESTIONS_A_BERTRAND.md`](QUESTIONS_A_BERTRAND.md). **Aucune de ces 8 réponses
+   n'est encore codée** — voir chaque fiche pour le détail du reste à faire (§4 ci-dessous).
 2. Traiter les actions « coût zéro » de §2.1 (retrait colonnes CSV, vérif `eventId` à la création
    des versions predict, contrainte unique predict, nettoyage code merchant legacy) — chacune sur
-   sa fiche bug existante.
+   sa fiche bug existante. **Toujours à faire.**
 3. Clarifier l'origine des doublons de la fiche 181 (autre base ? localStorage ?) avant de la clore.
-4. Questions restantes pour Bertrand : 6, 9, 13, 20, 28, 29, 30, 31 — plus la validation des
-   recommandations de §2.2.
+4. ✅ **Fait le 2026-07-24 (2ᵉ passe, plus tard le même jour)** : les 23 questions du tracker (+ 4
+   dormantes de l'ancien tracker backend) ont été rejouées une à une contre le code réel pour
+   séparer ce qui est authentiquement produit de ce qui est technique/déjà résolu. Résultat : 6
+   fermées (déjà résolues dans le code), 12 décisions techniques déplacées vers
+   [`DECISIONS_TECHNIQUES.md`](DECISIONS_TECHNIQUES.md) (Ulrich, pas Bertrand), 9 questions
+   produit authentiques restantes dans
+   [`QUESTIONS_A_BERTRAND.md`](QUESTIONS_A_BERTRAND.md) : #2, #13, #14, #20, #25, #28, #30, #31,
+   #33.
+
+## 4. Code restant à écrire pour les réponses du §1 (2026-07-24)
+
+Chaque réponse ci-dessus est une **décision**, pas un fix livré :
+
+| # | Fix à coder | Fichiers |
+|---|---|---|
+| 8 | Aucun — `events.js` reste à 15 min (confirmé). Le « 2 min » vise le futur module Live, mécanisme séparé à concevoir avec ce module, pas une modif de ce store. | — |
+| 17 | Unifier la formule CA moyen/event (total ÷ nb, sans filtre) | `useMetricsCalculator.js`, `store/modules/analyse.js`, `AnalyseView.vue` |
+| 18 | Brancher `comboItem` dans l'explosion Stock up (3 endroits) | `EventPredictStockUpSection.vue`, `logistics.service.ts` (backend), `utils/inventoryUtils.js` |
+| 22 | Implémenter l'onglet Staff (bloqué sur #28) | — planifié séparément |
+| 23 | Rejouer le seed RBAC en prod (spaceInventory/preInventoryExpected) | `backend/prisma` seed RBAC |
+| 24 | Reset auto sur Door opening, ancrage attendu sur l'event | `backend/src/features/inventory/inventory.service.ts`, `logistics.service.ts` |
+| 26 | Recalcul/contrôle serveur des métriques post-event + gate visibilité Directeur/Admin | `backend/src/features/inventory/*` (dto + service), permission catalog |
+| 27 | Redimensionnement client à l'upload + migration Storage des 3 lignes + normalisation des 79 `''` | `MenuItemCreateView.vue`, backend Supabase Storage |
 
 — JLH, 2026-07-24

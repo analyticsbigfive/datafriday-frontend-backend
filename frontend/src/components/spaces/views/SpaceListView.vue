@@ -7,7 +7,7 @@
         <SpaceStats
           :total-revenue="totalRevenue"
           :total-f-b-revenue="totalFBRevenue"
-          :total-ticketing-revenue="totalTicketingRevenue"
+          :total-ticketing-count="totalTicketingCount"
           :total-merch-revenue="totalMerchRevenue"
         />
 
@@ -325,7 +325,7 @@ export default {
         spaces = spaces.filter((s) => s.spaceType === this.typeFilter);
       }
       if (this.sortBy === "name") spaces.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      else if (this.sortBy === "revenue") spaces.sort((a, b) => (b.fbRevenue || 0) - (a.fbRevenue || 0));
+      else if (this.sortBy === "revenue") spaces.sort((a, b) => (b.totalRevenue || 0) - (a.totalRevenue || 0));
       else if (this.sortBy === "capacity") spaces.sort((a, b) => (b.maxCapacity || 0) - (a.maxCapacity || 0));
       else if (this.sortBy === "created") spaces.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
       return spaces;
@@ -343,13 +343,13 @@ export default {
     },
 
     totalRevenue() {
-      return this.spaceList.reduce((sum, s) => sum + (s.fbRevenue || 0), 0);
+      return this.spaceList.reduce((sum, s) => sum + (s.totalRevenue || 0), 0);
     },
     totalFBRevenue() {
       return this.spaceList.reduce((sum, s) => sum + (s.fbRevenue || 0), 0);
     },
-    totalTicketingRevenue() {
-      return this.spaceList.reduce((sum, s) => sum + (s.ticketingRevenue || 0), 0);
+    totalTicketingCount() {
+      return this.spaceList.reduce((sum, s) => sum + (s.ticketingCount || 0), 0);
     },
     totalMerchRevenue() {
       return this.spaceList.reduce((sum, s) => sum + (s.merchRevenue || 0), 0);

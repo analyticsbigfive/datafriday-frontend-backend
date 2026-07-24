@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="mpcfd-field-label">{{ t('marketPriceCategoryList.labelType') }}</div>
+            <div class="mpcfd-field-label">{{ t('marketPriceCategoryList.labelType') }} <span class="mpcfd-star">*</span></div>
             <v-select
               v-model="form.typeId"
               :items="types"
@@ -39,7 +39,7 @@
               class="mb-6 mpcfd-field"
             />
 
-            <div class="mpcfd-field-label">{{ t('marketPriceCategoryList.labelName') }}</div>
+            <div class="mpcfd-field-label">{{ t('marketPriceCategoryList.labelName') }} <span class="mpcfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -320,6 +320,15 @@ export default {
   opacity: .5;
   cursor: not-allowed;
 }
+
+/* Dark mode — compléments (champ/select + bouton Cancel) + étoiles required */
+.mpcfd-panel--dark .mpcfd-field :deep(.v-field) { border-color: #374151 !important; background: #1f2937 !important; }
+.mpcfd-panel--dark .mpcfd-field :deep(.v-field input),
+.mpcfd-panel--dark .mpcfd-field :deep(.v-field__input),
+.mpcfd-panel--dark .mpcfd-field :deep(.v-select__selection-text) { color: #f9fafb; }
+.mpcfd-panel--dark .mpcfd-fbtn--cancel { background: #374151; color: #d1d5db; }
+.mpcfd-panel--dark .mpcfd-fbtn--cancel:hover { background: #4b5563; }
+.mpcfd-star { color: #ff3131; }
 
 /* ── Transition ── */
 .mpcfd-slide-enter-active,

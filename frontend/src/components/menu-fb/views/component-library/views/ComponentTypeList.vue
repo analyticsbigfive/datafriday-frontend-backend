@@ -461,7 +461,7 @@ export default {
 }
 .ctl--dark .ctl-table-wrap {
   background: #1e293b;
-  border-color: rgba(255, 255, 255, .08);
+  border-color: transparent;
 }
 
 /* ── Table ── */
