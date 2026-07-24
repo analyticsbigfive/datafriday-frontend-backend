@@ -153,7 +153,11 @@ Sources : `RH.pptx` (spec UI, 4 slides) + `Règles RH.xlsx` (règles de calcul),
 ### 6.1 Spec UI (pptx)
 
 1. Onglet **« Staff »** dans EventPredict *Configuration settings* (3ᵉ onglet à côté de
-   `configuration`/`stockup`, [EventPredictView.vue:738-753](../../src/components/EventPredictView.vue)) — c'est l'objet de la question Bertrand **#22**, toujours ouverte.
+   `configuration`/`stockup`, [EventPredictView.vue:738-753](../../src/components/EventPredictView.vue)) —
+   contenu de référence pour cet onglet : **la Google Slide interface** (réponse Bertrand
+   2026-07-24, [Question #22](../QUESTIONS_A_BERTRAND.md)). Reste **planifié séparément** de
+   `feat/postEventInventory`, non implémenté — l'algo de calcul reste à revalider avant
+   implémentation (question **#28**, toujours ouverte).
 2. Par PDV : nom, Peak Transaction/Min, coût staff prédit vs ajusté, bouton « + staff »,
    slider horaires d'ouverture.
 3. Une ligne par staff suggéré (pattern lignes Menu Items) : checkbox désactivation, rôle,
@@ -199,7 +203,7 @@ Vuex TTL. Ensuite seulement : formulaire de Rôle complet, employés, algo + ong
 
 | # | Sujet | Statut |
 |---|---|---|
-| [#22](../QUESTIONS_A_BERTRAND.md) | Onglet Staff dans EventPredict Configuration Settings (contenu attendu) | 🔴 — non traité par l'étape 1 |
+| [#22](../QUESTIONS_A_BERTRAND.md) | Onglet Staff dans EventPredict Configuration Settings (contenu attendu) | 🟡 — spec de référence donnée (Google Slide interface, 2026-07-24), implémentation non traitée, bloquée sur #28 |
 | [#28](../QUESTIONS_A_BERTRAND.md) | Règles xlsx « buguées » : lesquelles, et formules validées ? | 🔴 |
 | [#29](../QUESTIONS_A_BERTRAND.md) | Persistance BDD des suppliers/positions (étape 2) | 🔴 |
 | [#30](../QUESTIONS_A_BERTRAND.md) | Devenir d'`ElementStaff` (builder) vs bibliothèque RH | 🔴 |

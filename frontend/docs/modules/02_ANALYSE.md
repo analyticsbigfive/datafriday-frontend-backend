@@ -455,6 +455,13 @@ l'infrastructure de cache timeline du store est shadow-implémentée en dehors d
 
 ### Formules KPI — trois implémentations concurrentes de « CA moyen par event »
 
+> **Tranché le 2026-07-24 (réponse Bertrand — [Question #17](../QUESTIONS_A_BERTRAND.md))** :
+> formule canonique = **total des CA des events enregistrés ÷ nombre d'events enregistrés**. Pas de
+> filtre « CA > 0 », pas de repli conditionnel — donc ni la formule A (repli sur `events.length`
+> uniquement si le Set est vide) ni B/C (exclusion stricte des events à CA nul) ne sont
+> correctes telles quelles : le dénominateur doit être **tous** les events, sans filtrer sur le CA.
+> **Code pas encore aligné** — les 3 implémentations ci-dessous sont toujours en place.
+
 | Formule | Fichier:lignes | Définition d'« event avec CA » | Pilote |
 |---|---|---|---|
 | A | `useMetricsCalculator.js:39-80` | `eventsWithRevenueCount` = events avec `rowRevenue>0`, **repli sur `events.length` (tous, même à 0) si le Set est vide** | La **valeur** KPI affichée (carte « Moy./Évén. ») |
@@ -465,7 +472,8 @@ En usage normal, **la valeur vient de A et la variation % vient de C** — deux 
 avec des définitions différentes d'« event valide » affichées côte à côte sur la même carte. Risque
 de divergence visuelle réel, pas hypothétique (déjà présent dans le prototype React avec des
 dénominateurs différents encore, voir Historique — la divergence a changé de forme au portage Vue
-mais n'a jamais été résolue).
+mais n'a jamais été résolue). **À unifier sur la formule tranchée ci-dessus** (total CA ÷ nb
+events, sans filtre) dans les 3 fichiers.
 
 `isSingleEventMode` (`useMetricsCalculator.js:37`) = strictement `selectedEventIds.length === 1`
 dans le filtre — indépendant du nombre d'events affichés après les autres filtres, et différent de
@@ -575,7 +583,9 @@ contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analys
 ## Bugs actifs confirmés (2026-07-15 ; statuts mis à jour 2026-07-18)
 
 > **Mise à jour 2026-07-18** : #9 → décision de formule portée à `QUESTIONS_A_BERTRAND.md` #17
-> (pas de code tant que non tranché). #10 corrigé : getter store mort `futureEventsCount`
+> (pas de code tant que non tranché). **Mise à jour 2026-07-24** : #9 tranché par Bertrand (total
+> CA ÷ nb events enregistrés, sans filtre `CA > 0`) — code des 3 implémentations pas encore
+> unifié. #10 corrigé : getter store mort `futureEventsCount`
 > supprimé, seule reste la version locale d'`AnalyseView.vue` (condition `>=`, l'event du jour
 > compte comme futur). S'ajoute le bug majeur découvert ce jour — item-level vide alors que le
 > shop-level affiche du CA — corrigé côté backend (fiche back 103) et durci côté front (fiche 187),
@@ -591,7 +601,7 @@ contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analys
 | 6 | Aucun retry BullMQ sur la queue d'agrégation (`attempts:1`), malgré un défaut global `attempts:3`+backoff explicitement écrasé | `queue.service.ts:274` vs `queue.module.ts:29-37` | Provoquer un timeout DB transitoire pendant un `synchronize` : le job échoue définitivement, aucune notification de relance automatique |
 | 7 | `getEventsTimelineStatus` : un event marqué « skipped » après un traitement réussi conserve ses données déjà agrégées mais affiche un statut trompeur (le comptage `dataPoints` et le statut ne sont pas garantis cohérents) | `aggregation.service.ts:51-70` | Traiter un event avec succès, puis appeler `skip-event` dessus, puis relire `events-timeline` |
 | 8 | Jointure `Event` DataFriday ↔ `WeezeventEvent` par égalité de DATE seule dans la RPC `get_space_shop_details` | `20260704200000_...sql:175-178,224-227` | Deux events Weezevent le même jour calendaire sur le même espace |
-| 9 | Triple formule « CA moyen par event », deux définitions différentes d'« event valide » affichées côte à côte (valeur vs variation) | `useMetricsCalculator.js:39-80`, `analyse.js:71-107`, `AnalyseView.vue:695-727` | Sélectionner une période avec un event à CA nul parmi d'autres à CA positif |
+| 9 | Triple formule « CA moyen par event », deux définitions différentes d'« event valide » affichées côte à côte (valeur vs variation) — **tranché 2026-07-24** : total CA ÷ nb events, sans filtre (Question #17), code à unifier | `useMetricsCalculator.js:39-80`, `analyse.js:71-107`, `AnalyseView.vue:695-727` | Sélectionner une période avec un event à CA nul parmi d'autres à CA positif |
 | 10 | `futureEventsCount` : deux implémentations (store mort, composant vivant) avec des conditions `>` vs `>=` légèrement différentes | `analyse.js:1512-1519` vs `AnalyseView.vue:1126-1133` | Un event ayant lieu le jour même de la consultation |
 
 ---

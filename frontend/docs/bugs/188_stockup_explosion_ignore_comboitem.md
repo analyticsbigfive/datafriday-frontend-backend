@@ -1,6 +1,7 @@
 # BUG-188 — Stock up : l'explosion recette ne considère que `readyForSale`, jamais `comboItem`
 
-- **Statut** : ⚪ Diagnostiqué (règle métier à trancher — QUESTIONS_A_BERTRAND #18)
+- **Statut** : 🔴 Ouvert (règle métier tranchée le 2026-07-24 — QUESTIONS_A_BERTRAND #18 — code pas
+  encore modifié)
 - **Sévérité** : 🟠 Majeur (quantités de préparation potentiellement fausses pour les combos)
 - **Domaine** : Prévision (Event Predict) — miroir backend : `logistics.service.ts` (`deriveSales`)
 - **Repo(s) concerné(s)** : `datafriday-web` (+ backend si la règle change : duplication à dessein)
@@ -26,13 +27,22 @@ s'accordent pas sur ce que signifie « combo » pour l'explosion.
 
 ## Correction
 
-Aucune — **volontairement**. La règle attendue n'est pas tranchée : un combo
-`readyForSale='Yes'` doit-il être explosé en ses constituants pour le Stock up (préparation),
-ou compté comme une pièce vendue telle quelle ? Décision portée à `QUESTIONS_A_BERTRAND.md` #18.
+**Décision (2026-07-24, réponse Bertrand — [Question #18](../QUESTIONS_A_BERTRAND.md))** : « Combo
+item doivent être explosé par menu items et les règles de menu item s'appliquent pour les menu
+items qui composent le combo item. » — un combo `readyForSale='Yes'` doit donc être **explosé en
+ses constituants** pour le Stock up, exactement comme un item non-`comboItem`, puis chaque
+constituant suit les règles standard des menu items (mono-ingrédient, `unitsPerPack`, etc.).
 
-⚠️ Contrainte pour le fix futur : l'explosion recette est **dupliquée à dessein** côté backend
-(`logistics.service.ts`, `deriveSales` — cf. doc module 06, piège « readyForSale explosion
-duplicated ») — toute évolution de la règle doit être portée aux deux endroits, même passe.
+**Code pas encore modifié** — reste à faire : brancher `comboItem` dans `expandMenuItem`
+(`EventPredictStockUpSection.vue:644`) pour déclencher l'explosion récursive au lieu du traitement
+"pièce" actuel.
+
+⚠️ Contrainte pour le fix : l'explosion recette est **dupliquée à dessein** aux 3 endroits suivants
+— toute évolution de la règle doit être portée aux trois, même passe :
+- Front Stock up : `EventPredictStockUpSection.vue` (`expandMenuItem`)
+- Backend Logistics : `logistics.service.ts` (`deriveSales` — cf. doc module 06, piège
+  « readyForSale explosion duplicated »)
+- Inventaire : `buildConsolidatedInventory` (`utils/inventoryUtils.js`)
 
 ## Risque de régression / à surveiller
 
