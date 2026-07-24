@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   UseGuards,
@@ -29,6 +30,18 @@ export class InventoryController {
 
   constructor(private readonly inventoryService: InventoryService) {}
 
+  /** BUG-233 — l'appelant a-t-il le droit de VOIR les quantités attendues ?
+   *  Même logique que PermissionsGuard (ADMIN systemKey = tout, sinon OR sur
+   *  `user.role.permissions`) : sans ce droit, les lignes pre-event des
+   *  réconciliations sont expurgées côté service (le POST reste autorisé —
+   *  le flux « Sauvegarder → réconciliation » d'un compteur ne casse pas). */
+  private canSeeExpected(user: any): boolean {
+    return (
+      user?.role?.systemKey === 'ADMIN' ||
+      ((user?.role?.permissions ?? []) as string[]).includes('front.fb.preInventoryExpected')
+    );
+  }
+
   // ':spaceId/latest' MUST come before ':spaceId/:eventId' — otherwise Fastify
   // would route GET /inventory/abc/latest to the /:eventId handler with eventId='latest'.
   @Get(':spaceId/latest')
@@ -55,7 +68,29 @@ export class InventoryController {
   @ApiResponse({ status: 200, description: 'Liste commune triée du plus récent au plus ancien' })
   async listInventoryReconciliations(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
     this.logger.log(`GET /inventory/${spaceId}/reconciliations`);
-    return this.inventoryService.listInventoryReconciliations(spaceId, user.tenantId);
+    return this.inventoryService.listInventoryReconciliations(
+      spaceId,
+      user.tenantId,
+      this.canSeeExpected(user),
+    );
+  }
+
+  // Suppression d'un document pre/post-event (« repartir de zéro » : delete puis
+  // regénérer). Segment statique à 3 niveaux — pas de conflit avec ':spaceId/:eventId'.
+  @Delete(':spaceId/reconciliations/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Supprimer un document de réconciliation pre/post-event' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'id', description: 'ID du document (kind pre/post-event uniquement)' })
+  @ApiResponse({ status: 200, description: 'Document supprimé' })
+  @ApiResponse({ status: 404, description: 'Document inconnu ou hors périmètre (resets logistiques exclus)' })
+  async deleteInventoryReconciliation(
+    @Param('spaceId') spaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`DELETE /inventory/${spaceId}/reconciliations/${id}`);
+    return this.inventoryService.deleteInventoryReconciliation(spaceId, id, user.tenantId);
   }
 
   // Quantités ATTENDUES du Pre-event Inventory — gating par PERMISSION DÉDIÉE
@@ -93,7 +128,13 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${dto.eventId}`);
-    return this.inventoryService.createPreEventReconciliation(spaceId, dto.eventId, user.tenantId, user.id);
+    return this.inventoryService.createPreEventReconciliation(
+      spaceId,
+      dto.eventId,
+      user.tenantId,
+      user.id,
+      this.canSeeExpected(user),
+    );
   }
 
   @Get(':spaceId/pre-event/:eventId')

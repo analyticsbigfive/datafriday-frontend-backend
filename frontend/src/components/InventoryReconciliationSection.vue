@@ -14,21 +14,35 @@
       <div v-if="loading" class="irs-empty">{{ t('invRecoLoading') }}</div>
       <div v-else-if="!items.length" class="irs-empty">{{ t('invRecoEmpty') }}</div>
       <template v-else>
-        <button
+        <div
           v-for="reco in items"
           :key="reco.id"
-          type="button"
-          class="irs-item"
-          :class="{ 'irs-item-active': reco.id === selectedId }"
-          @click="$emit('select', reco.id)"
+          class="irs-row"
         >
-          <span class="irs-item-name">{{ reco.eventName || t('invRecoUnknownEvent') }}</span>
-          <!-- Liste COMMUNE pre + post (décision user 2026-07-20) → badge de type. -->
-          <span class="irs-item-kind" :class="{ 'irs-item-kind--pre': reco.kind === 'pre-event' }">
-            {{ t(reco.kind === 'pre-event' ? 'invRecoKindPre' : 'invRecoKindPost') }}
-          </span>
-          <span class="irs-item-date">{{ formatDate(reco.createdAt) }}</span>
-        </button>
+          <button
+            type="button"
+            class="irs-item"
+            :class="{ 'irs-item-active': reco.id === selectedId }"
+            @click="$emit('select', reco.id)"
+          >
+            <span class="irs-item-name">{{ reco.eventName || t('invRecoUnknownEvent') }}</span>
+            <!-- Liste COMMUNE pre + post (décision user 2026-07-20) → badge de type. -->
+            <span class="irs-item-kind" :class="{ 'irs-item-kind--pre': reco.kind === 'pre-event' }">
+              {{ t(reco.kind === 'pre-event' ? 'invRecoKindPre' : 'invRecoKindPost') }}
+            </span>
+            <span class="irs-item-date">{{ formatDate(reco.createdAt) }}</span>
+          </button>
+          <!-- Suppression (« repartir de zéro » : supprimer puis regénérer). -->
+          <button
+            type="button"
+            class="irs-delete"
+            :aria-label="t('invRecoDelete')"
+            :title="t('invRecoDelete')"
+            @click.stop="$emit('delete', reco.id)"
+          >
+            <v-icon size="15">mdi-trash-can-outline</v-icon>
+          </button>
+        </div>
       </template>
     </div>
   </div>
@@ -43,7 +57,7 @@ defineProps({
   selectedId: { type: String, default: null },
   loading: { type: Boolean, default: false },
 })
-defineEmits(['select'])
+defineEmits(['select', 'delete'])
 
 const { t } = useI18n()
 const open = ref(true)
@@ -95,19 +109,41 @@ function formatDate(v) {
   color: #9E9E9E;
   padding: 2px 0 6px;
 }
+.irs-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 -8px;
+}
 .irs-item {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: baseline;
   gap: 8px;
   padding: 7px 8px;
-  margin: 0 -8px;
-  width: calc(100% + 16px);
   border: 0;
   background: none;
   border-radius: 8px;
   cursor: pointer;
   text-align: left;
+}
+.irs-delete {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #9E9E9E;
+}
+.irs-delete:hover {
+  color: #C62828;
+  background: #FDECEA;
 }
 .irs-item:hover { background: #FAFAFA; }
 .irs-item-active { background: #FDECEA; }

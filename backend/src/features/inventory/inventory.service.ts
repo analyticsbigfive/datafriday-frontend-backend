@@ -256,9 +256,11 @@ export class InventoryService {
   // incluses : un space compte quelques documents, pas des milliers — la vue
   // réconciliation lit `lines` tel quel, aucun 2e fetch. Les resets logistiques
   // (kind null) restent EXCLUS (liste propre à la vue Logistic).
-  async listInventoryReconciliations(spaceId: string, tenantId: string) {
+  // `canSeeExpected=false` (BUG-233) : les lignes des documents pre-event sont
+  // EXPURGÉES de leurs attendus avant envoi — le document en base reste complet.
+  async listInventoryReconciliations(spaceId: string, tenantId: string, canSeeExpected = true) {
     await this.assertSpace(spaceId, tenantId);
-    return this.prisma.stockReconciliation.findMany({
+    const docs = await this.prisma.stockReconciliation.findMany({
       where: { tenantId, spaceId, kind: { in: ['post-event', 'pre-event'] } },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -271,6 +273,39 @@ export class InventoryService {
         lines: true,
       },
     });
+    return canSeeExpected ? docs : docs.map((d) => this.redactPreEventDoc(d));
+  }
+
+  // ── DELETE /inventory/:spaceId/reconciliations/:id ───────────────────────────
+  // « Repartir de zéro » : supprimer le document puis recliquer « Générer la
+  // réconciliation » (le document est une photo figée — pas d'édition, une
+  // régénération). Périmètre STRICT kind pre/post-event : les resets logistiques
+  // (kind null, ancre temporelle des ventes dérivées) sont hors d'atteinte.
+  async deleteInventoryReconciliation(spaceId: string, id: string, tenantId: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const doc = await this.prisma.stockReconciliation.findFirst({
+      where: { id, tenantId, spaceId, kind: { in: ['post-event', 'pre-event'] } },
+      select: { id: true },
+    });
+    if (!doc) throw new NotFoundException(`Reconciliation ${id} not found in space ${spaceId}`);
+    await this.prisma.stockReconciliation.delete({ where: { id: doc.id } });
+    return { id: doc.id, deleted: true };
+  }
+
+  /** BUG-233 — retire des lignes pre-event tout ce qui révèle l'attendu :
+   *  `expectedPacked/Loose` ET `deltaPacked/Loose` (sinon reconstructible :
+   *  expected = counted − delta). Les post-event (lignes fournies par le
+   *  client, aucune donnée cachée) passent inchangés. */
+  private redactPreEventDoc<T extends { kind?: string | null; lines?: any }>(doc: T): T {
+    if (doc?.kind !== 'pre-event' || !Array.isArray(doc.lines)) return doc;
+    return {
+      ...doc,
+      lines: doc.lines.map((l: any) => {
+        if (l == null || typeof l !== 'object') return l;
+        const { expectedPacked, expectedLoose, deltaPacked, deltaLoose, ...rest } = l;
+        return rest;
+      }),
+    };
   }
 
   // ── GET /inventory/:spaceId/pre-event/:eventId ───────────────────────────────
@@ -536,6 +571,7 @@ export class InventoryService {
     eventId: string,
     tenantId: string,
     userId?: string,
+    canSeeExpected = true,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${eventId}`);
     await this.assertSpace(spaceId, tenantId);
@@ -633,7 +669,7 @@ export class InventoryService {
       };
     });
 
-    return this.prisma.stockReconciliation.create({
+    const created = await this.prisma.stockReconciliation.create({
       data: {
         tenantId,
         spaceId,
@@ -644,6 +680,10 @@ export class InventoryService {
         createdBy: userId ?? null,
       },
     });
+    // BUG-233 : le document persisté est complet ; la RÉPONSE est expurgée pour
+    // un appelant sans `front.fb.preInventoryExpected` (il a le droit de créer,
+    // pas de voir les attendus).
+    return canSeeExpected ? created : this.redactPreEventDoc(created as any);
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

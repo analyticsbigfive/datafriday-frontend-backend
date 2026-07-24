@@ -234,15 +234,28 @@
           @update:model-value="$emit('update:selectedItemCategories', $event)"
         />
       </template>
+
+      <!-- Documents de réconciliation — miroir de la colonne gauche desktop
+           (section sous les filtres) : seul point d'entrée MOBILE de la liste
+           (docs/modules/10 §7.4, fiche 234). -->
+      <InventoryReconciliationSection
+        :items="reconciliations"
+        :selected-id="selectedReconciliationId"
+        :loading="recoLoading"
+        @select="$emit('select-reconciliation', $event)"
+        @delete="$emit('delete-reconciliation', $event)"
+      />
     </div>
   </v-navigation-drawer>
 </template>
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import InventoryReconciliationSection from '@/components/InventoryReconciliationSection.vue'
 
 export default {
   name: 'InventoryFilterDrawer',
+  components: { InventoryReconciliationSection },
   setup() {
     return { t: useI18n().t }
   },
@@ -271,6 +284,10 @@ export default {
     selectedItemCategories: { type: Array, default: () => [] },
     selectedStorages: { type: Array, default: () => [] },
     selectedStorageFloors: { type: Array, default: () => [] },
+    // Section Réconciliation (accès mobile — fiche 234).
+    reconciliations: { type: Array, default: () => [] },
+    selectedReconciliationId: { type: String, default: null },
+    recoLoading: { type: Boolean, default: false },
   },
   emits: [
     'update:modelValue',
@@ -285,6 +302,8 @@ export default {
     'update:selectedItemCategories',
     'update:selectedStorages',
     'update:selectedStorageFloors',
+    'select-reconciliation',
+    'delete-reconciliation',
     'reset',
   ],
 }

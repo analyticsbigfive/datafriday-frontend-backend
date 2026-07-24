@@ -40,6 +40,11 @@
         :selected-menu-items="selectedMenuItems"
         :selected-item-types="selectedItemTypes"
         :selected-item-categories="selectedItemCategories"
+        :reconciliations="reconciliations"
+        :selected-reconciliation-id="selectedReconciliationId"
+        :reco-loading="recoLoading"
+        @select-reconciliation="onDrawerSelectReconciliation"
+        @delete-reconciliation="onDeleteReconciliation"
         @update:selected-event-id="selectedEventId = $event"
         @update:search="search = $event"
         @update:counting-status-tab="countingStatusTab = $event"
@@ -108,6 +113,7 @@
           :selected-id="selectedReconciliationId"
           :loading="recoLoading"
           @select="selectedReconciliationId = $event"
+          @delete="onDeleteReconciliation"
         />
       </div>
 
@@ -654,6 +660,7 @@ import InventoryReconciliationView from '@/components/InventoryReconciliationVie
 import {
   createPostEventReconciliation,
   listInventoryReconciliations,
+  deleteInventoryReconciliation,
   getPreEventInventory,
   getPreEventBaseline,
   createPreEventReconciliation,
@@ -1376,19 +1383,23 @@ export default {
       // pas de ?configuration= valide) : plutôt que le cul-de-sac « Aucun
       // évènement sélectionné », retomber sur l'ancrage par défaut ci-dessous.
       if (ev && !resolveCfg(ev)) ev = null
-      // Mode PRE : l'écran affiche TOUJOURS le prochain événement futur (spec
-      // 2026-07-20). Un ?event= passé (deep-link venu d'un autre écran) est
-      // ignoré → repli sur l'ancrage futur ci-dessous.
-      if (ev && this.isPreMode) {
+      // ── Ancrage STRICT « un match = un eventId » (décision owner 2026-07-24,
+      // Q32/Q35 résolues) : plus aucune bascule silencieuse de match.
+      // - Mode PRE : l'écran affiche TOUJOURS le prochain événement futur — tout
+      //   ?event= est ignoré (même un futur lointain), le prochain strict est
+      //   recalculé ci-dessous.
+      // - Mode POST : l'écran est lié au dernier événement FINI — un ?event=
+      //   FUTUR (deep-link Event Predict) est ignoré → repli dernier passé ;
+      //   un ?event= passé explicite reste respecté (réconcilier un vieux match
+      //   est un choix délibéré, pas une bascule silencieuse).
+      if (ev && this.isPreMode) ev = null
+      if (ev && !this.isPreMode) {
         const t = new Date(ev.eventDate || ev.date).getTime()
-        if (Number.isNaN(t) || t <= Date.now()) ev = null
+        if (Number.isNaN(t) || t > Date.now()) ev = null
       }
-      // Entrée DIRECTE (sidebar / URL sans ?event=) : au lieu du cul-de-sac
-      // « Aucun évènement sélectionné », ancrage par défaut sur le prochain
-      // event FUTUR le plus proche (même règle qu'Event Predict), repli sur le
-      // passé le plus récent — premier dont la config est résoluble. L'URL est
-      // synchronisée (replace, pas de watcher route ici → pas de re-run) pour
-      // rester partageable et cohérente avec Event Predict.
+      // Ancrage par défaut (entrée directe ou ?event= rejeté ci-dessus). L'URL
+      // est synchronisée (replace, pas de watcher route ici → pas de re-run)
+      // pour rester partageable.
       if (!ev) {
         const okCfg = (e) => inConfigs(urlCfg) || inConfigs(e?.configurationId)
         const now = Date.now()
@@ -1397,9 +1408,11 @@ export default {
           .filter((x) => !Number.isNaN(x.t) && okCfg(x.e))
         const future = dated.filter((x) => x.t > now).sort((a, b) => a.t - b.t)
         const past = dated.filter((x) => x.t <= now).sort((a, b) => b.t - a.t)
-        // Mode PRE : futur STRICT (aucun repli passé — sans event à venir,
-        // l'écran affiche l'état vide preInvNoUpcoming).
-        ev = this.isPreMode ? (future[0]?.e || null) : ((future[0] || past[0])?.e || null)
+        // PRE : prochain futur STRICT (aucun repli passé — sans event à venir,
+        // état vide preInvNoUpcoming). POST : dernier passé STRICT (aucun repli
+        // futur — un comptage post-event tagué sur un match à venir empoisonnait
+        // la baseline du pre-event suivant, écart §11.3 clos).
+        ev = this.isPreMode ? (future[0]?.e || null) : (past[0]?.e || null)
         if (ev && this.router) {
           this.router
             .replace({ query: { ...this.route.query, event: ev.id } })
@@ -1784,29 +1797,27 @@ export default {
       return field === 'packed' ? exp.packed : exp.loose
     },
     /**
-     * Événement à réconcilier : l'event du contexte s'il a déjà eu lieu, sinon
-     * le dernier event passé du space (l'ancrage par défaut de l'écran vise le
-     * prochain event FUTUR — resolveEventContext — inutilisable pour comparer
-     * des ventes déjà réalisées).
+     * Événement à réconcilier = l'event de l'ÉCRAN, strictement (« un match =
+     * un eventId », décision owner 2026-07-24 — Q32 résolue). L'ancien repli
+     * silencieux « dernier event passé du space » pouvait sauvegarder le
+     * comptage sous MATCH-B et créer la réconciliation sous MATCH-A. Event
+     * absent ou non fini → null, le caller affiche un refus explicite.
      */
     resolveReconciliationEvent() {
-      const now = Date.now()
-      const isPast = (e) => {
-        const d = new Date(e?.date || e?.eventDate)
-        return !Number.isNaN(d.getTime()) && d.getTime() <= now
-      }
       const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
-      if (current && isPast(current)) return current
-      // pastEvents est trié ascendant : le dernier élément est le dernier match fini.
-      const past = this.pastEvents || []
-      return past[past.length - 1] || null
+      if (!current) return null
+      const d = new Date(current.date || current.eventDate)
+      return !Number.isNaN(d.getTime()) && d.getTime() <= Date.now() ? current : null
     },
     async createReconciliationAfterSave() {
       const spaceId = this.route.params.spaceId
       const recoEvent = this.resolveReconciliationEvent()
       if (!recoEvent) {
-        // Aucun event passé : le comptage est sauvegardé, on l'annonce sans créer.
-        this.errorText = this.t('invRecoNoPastEvent')
+        // Refus EXPLICITE (plus de repli vers un autre match) : event de l'écran
+        // non fini → message dédié ; aucun event résolu → message existant.
+        // Le comptage, lui, est déjà sauvegardé.
+        const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
+        this.errorText = current ? this.t('invRecoEventNotFinished') : this.t('invRecoNoPastEvent')
         this.errorSnackbar = true
         return
       }
@@ -1838,7 +1849,11 @@ export default {
         this.selectedReconciliationId = created.id
       } catch (e) {
         console.warn('[SpaceInventory] création réconciliation KO:', e?.message)
-        this.errorText = e?.userMessage || this.t('invRecoCreateError')
+        // Ventes indisponibles (réseau) : message dédié — pas de document créé,
+        // le comptage est déjà sauvegardé, recliquer le bouton retente.
+        this.errorText = e?.salesFetchFailed
+          ? this.t('invRecoSalesError')
+          : (e?.userMessage || this.t('invRecoCreateError'))
         this.errorSnackbar = true
       } finally {
         this.recoCreating = false
@@ -1898,6 +1913,10 @@ export default {
       }
 
       // ── Vendu pendant l'event : event-timeline (grain article×PdV) ──────────
+      // Échec de chargement ≠ « aucune vente » : avec un pré-event présent, des
+      // ventes à 0 gonfleraient missing = (preEvent − 0) − compté et archiveraient
+      // de fausses pertes. Hors démo, on ABANDONNE la création (le comptage est
+      // déjà sauvegardé, recliquer retente) — philosophie « jamais de 0 fabriqué ».
       const soldUnitsByKey = {}
       try {
         const byEventId = await getSpaceEventTimelineBatch(spaceId, [recoEvent.id])
@@ -1918,7 +1937,13 @@ export default {
           soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + (Number(r.quantity) || 0)
         }
       } catch (e) {
-        console.warn('[SpaceInventory] event-timeline KO (Qty sold à 0) :', e?.message)
+        if (!isDemoMode()) {
+          const err = new Error(e?.message || 'event-timeline failed')
+          err.salesFetchFailed = true
+          throw err
+        }
+        // Démo : pas de backend, on tolère (document local d'illustration).
+        console.warn('[SpaceInventory] event-timeline KO (démo, Qty sold à 0) :', e?.message)
       }
 
       // ── Prédit : scénario Event Predict (pont localStorage, comme le Réarmement)
@@ -1945,6 +1970,40 @@ export default {
         elementNameById,
         itemNameById,
       })
+    },
+    /** Sélection d'un document depuis le drawer mobile : fermer le drawer puis
+     *  ouvrir la vue réconciliation (fiche 234). */
+    onDrawerSelectReconciliation(id) {
+      this.filterDrawerOpen = false
+      this.selectedReconciliationId = id
+    },
+    /** Suppression d'un document (« repartir de zéro » : supprimer puis recliquer
+     *  « Générer la réconciliation » — le document est une photo figée, pas
+     *  d'édition). Confirmation obligatoire : suppression définitive. */
+    async onDeleteReconciliation(id) {
+      const doc = this.reconciliations.find((r) => r.id === id)
+      const ok = await confirmDialog({
+        title: this.t('invRecoDeleteTitle'),
+        message: `${doc?.eventName || this.t('invRecoUnknownEvent')} — ${this.t('invRecoDeleteMsg')}`,
+        confirmText: this.t('invRecoDeleteConfirm'),
+        cancelText: this.t('invClose'),
+        confirmColor: 'error',
+        icon: 'mdi-trash-can-outline',
+        iconColor: 'error',
+      })
+      if (!ok) return
+      try {
+        // Démo : documents locaux (demo-*) jamais persistés → pas d'appel API.
+        if (!isDemoMode() && !String(id).startsWith('demo-')) {
+          await deleteInventoryReconciliation(this.route.params.spaceId, id)
+        }
+        this.reconciliations = this.reconciliations.filter((r) => r.id !== id)
+        if (this.selectedReconciliationId === id) this.selectedReconciliationId = null
+      } catch (e) {
+        console.warn('[SpaceInventory] suppression réconciliation KO:', e?.message)
+        this.errorText = e?.userMessage || this.t('invRecoDeleteError')
+        this.errorSnackbar = true
+      }
     },
     async loadReconciliations(spaceId) {
       if (!spaceId || isDemoMode()) return

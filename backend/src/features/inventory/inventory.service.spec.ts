@@ -69,6 +69,9 @@ const mockPrisma = {
   },
   stockReconciliation: {
     create: jest.fn(),
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null),
+    delete: jest.fn(),
   },
   spaceElement: {
     findMany: jest.fn().mockResolvedValue([]),
@@ -102,6 +105,8 @@ describe('InventoryService', () => {
     mockPrisma.menuItem.findFirst.mockResolvedValue(null);
     mockPrisma.marketPrice.findFirst.mockResolvedValue(null);
     mockPrisma.menuComponent.findFirst.mockResolvedValue(null);
+    mockPrisma.stockReconciliation.findMany.mockResolvedValue([]);
+    mockPrisma.stockReconciliation.findFirst.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InventoryService,
@@ -562,6 +567,9 @@ describe('InventoryService', () => {
         makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-choco', packedUnits: 2, looseUnits: 3 }),
       ]);
       mockPrisma.menuItem.findMany.mockResolvedValue([{ id: 'item-choco', name: 'Barre chocolatée' }]);
+      // Filtre orphelins (ajout postérieur à cette spec) : l'elementId doit
+      // résoudre un SpaceElement courant, sinon la ligne est exclue du document.
+      mockPrisma.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1', name: 'Buvette 1' }]);
       mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) => Promise.resolve({ id: 'reco-1', ...data }));
 
       const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
@@ -575,6 +583,147 @@ describe('InventoryService', () => {
       expect(line.deltaPacked).toBe(0);
       expect(line.deltaLoose).toBe(-1);
       expect(reco.kind).toBe('pre-event');
+    });
+  });
+
+  // ── BUG-233 : expurgation des attendus pour les non-porteurs ────────────────
+
+  describe('expurgation des attendus (BUG-233, canSeeExpected=false)', () => {
+    const preDoc = {
+      id: 'reco-pre',
+      eventId: 'event-1',
+      eventName: 'Match A',
+      kind: 'pre-event',
+      createdAt: new Date('2026-07-01T10:00:00Z'),
+      createdBy: 'user-1',
+      lines: [
+        {
+          elementId: 'shop-1',
+          elementName: 'Buvette 1',
+          itemKey: 'item-1',
+          itemName: 'Coca',
+          expectedPacked: 19,
+          expectedLoose: 14,
+          countedPacked: 19,
+          countedLoose: 12,
+          deltaPacked: 0,
+          deltaLoose: -2,
+        },
+      ],
+    };
+    const postDoc = {
+      id: 'reco-post',
+      eventId: 'event-0',
+      eventName: 'Match B',
+      kind: 'post-event',
+      createdAt: new Date('2026-06-01T10:00:00Z'),
+      createdBy: 'user-1',
+      lines: [{ elementId: 'shop-1', itemKey: 'item-1', soldUnits: 380, countedUnits: 85, missingUnits: 3 }],
+    };
+
+    it('listInventoryReconciliations : lignes pre-event expurgées (expected ET delta), post-event intactes', async () => {
+      mockPrisma.stockReconciliation.findMany.mockResolvedValue([preDoc, postDoc]);
+
+      const docs = await service.listInventoryReconciliations('space-1', 'tenant-1', false);
+
+      const pre = docs.find((d: any) => d.id === 'reco-pre');
+      // Attendus ET deltas retirés (delta seul suffirait à reconstruire :
+      // expected = counted − delta). Le compté et les identités restent.
+      expect(pre.lines[0]).toEqual({
+        elementId: 'shop-1',
+        elementName: 'Buvette 1',
+        itemKey: 'item-1',
+        itemName: 'Coca',
+        countedPacked: 19,
+        countedLoose: 12,
+      });
+      // Post-event : lignes fournies par le client, aucune donnée cachée → intactes.
+      const post = docs.find((d: any) => d.id === 'reco-post');
+      expect(post.lines).toEqual(postDoc.lines);
+    });
+
+    it('listInventoryReconciliations : porteur de la permission → documents complets', async () => {
+      mockPrisma.stockReconciliation.findMany.mockResolvedValue([preDoc]);
+
+      const docs = await service.listInventoryReconciliations('space-1', 'tenant-1', true);
+
+      expect(docs[0].lines[0].expectedPacked).toBe(19);
+      expect(docs[0].lines[0].deltaLoose).toBe(-2);
+    });
+
+    it('createPreEventReconciliation : réponse expurgée mais document PERSISTÉ complet', async () => {
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.id) return Promise.resolve({ id: 'event-next', name: 'Prochain match' });
+        if (where?.eventDate) return Promise.resolve({ id: 'event-prev', name: 'Match précédent' });
+        return Promise.resolve(null);
+      });
+      mockPrisma.inventorySnapshot.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.kind === 'post-event') {
+          return Promise.resolve(
+            makeSnapshot({
+              eventId: 'event-prev',
+              kind: 'post-event',
+              inventoryCounts: { 'shop-1': { 'item-choco': { packedUnits: 3, looseUnits: 2 } } },
+            }),
+          );
+        }
+        return Promise.resolve(null);
+      });
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-choco', packedUnits: 2, looseUnits: 3 }),
+      ]);
+      mockPrisma.menuItem.findMany.mockResolvedValue([{ id: 'item-choco', name: 'Barre chocolatée' }]);
+      mockPrisma.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1', name: 'Buvette 1' }]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'reco-1', ...data }),
+      );
+
+      const reco = await service.createPreEventReconciliation(
+        'space-1',
+        'event-next',
+        'tenant-1',
+        'user-1',
+        false, // appelant SANS front.fb.preInventoryExpected
+      );
+
+      // Réponse : ni attendus ni deltas, compté conservé.
+      const line = (reco.lines as any[])[0];
+      expect(line.expectedPacked).toBeUndefined();
+      expect(line.expectedLoose).toBeUndefined();
+      expect(line.deltaPacked).toBeUndefined();
+      expect(line.deltaLoose).toBeUndefined();
+      expect(line.countedPacked).toBe(2);
+      // Base : le document créé porte les lignes COMPLÈTES (l'expurgation ne
+      // concerne que la réponse).
+      const persisted = mockPrisma.stockReconciliation.create.mock.calls[0][0].data;
+      expect((persisted.lines as any[])[0].expectedPacked).toBe(3);
+    });
+  });
+
+  // ── Suppression d'un document (repartir de zéro) ────────────────────────────
+
+  describe('deleteInventoryReconciliation', () => {
+    it('supprime un document pre/post-event du space', async () => {
+      mockPrisma.stockReconciliation.findFirst.mockResolvedValue({ id: 'reco-1', kind: 'post-event' });
+      mockPrisma.stockReconciliation.delete.mockResolvedValue({ id: 'reco-1' });
+
+      const result = await service.deleteInventoryReconciliation('space-1', 'reco-1', 'tenant-1');
+
+      expect(mockPrisma.stockReconciliation.findFirst).toHaveBeenCalledWith({
+        where: { id: 'reco-1', tenantId: 'tenant-1', spaceId: 'space-1', kind: { in: ['post-event', 'pre-event'] } },
+        select: { id: true },
+      });
+      expect(mockPrisma.stockReconciliation.delete).toHaveBeenCalledWith({ where: { id: 'reco-1' } });
+      expect(result).toEqual({ id: 'reco-1', deleted: true });
+    });
+
+    it('404 sur un document inconnu ou hors périmètre (reset logistique kind null protégé)', async () => {
+      mockPrisma.stockReconciliation.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.deleteInventoryReconciliation('space-1', 'reco-logistic', 'tenant-1'),
+      ).rejects.toThrow('not found');
+      expect(mockPrisma.stockReconciliation.delete).not.toHaveBeenCalled();
     });
   });
 });

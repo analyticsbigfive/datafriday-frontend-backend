@@ -67,6 +67,16 @@ export async function listInventoryReconciliations(spaceId) {
 }
 
 /**
+ * Supprime un document de réconciliation pre/post-event (« repartir de zéro » :
+ * supprimer puis recliquer « Générer la réconciliation »). Les resets
+ * logistiques (kind null) sont hors périmètre → 404.
+ * DELETE \inventory:spaceId/reconciliations/:id
+ */
+export async function deleteInventoryReconciliation(spaceId, id) {
+  return api.delete(`/inventory/${spaceId}/reconciliations/${id}`)
+}
+
+/**
  * Inventaire de référence pré-événement (réco POST-event) : comptage Pre-event
  * Inventory du même event (snapshot kind='pre-event'), repli legacy = dernier
  * snapshot antérieur au JOUR de l'event. Renvoie null si aucun (jamais 404).

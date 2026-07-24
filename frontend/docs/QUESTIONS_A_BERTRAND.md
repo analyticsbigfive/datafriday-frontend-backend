@@ -74,6 +74,21 @@ définitif.
 
 | 34 | Live — le bouton ◉ sur la carte Home (`SpaceItem.vue`, greffe A) doit-il signaler un event live **sans** que l'utilisateur entre dans l'espace ? Le signal `GET /spaces/:id/live-status` est un endpoint dédié, pas un champ sur `GET /spaces` (décision volontaire, pour ne pas casser le cache 60s de la liste — `LIVE_API_GUIDE.md` §1.2) ; aucun canal push n'existe (pas de SSE/WebSocket au v1, `11_LIVE.md` §5) et les webhooks Weezevent/Digifood n'atteignent que le backend, jamais le navigateur. Deux options : **(a)** polling `live-status` par carte affichée sur la Home (ex. 60s) ; **(b)** ◉ visible seulement après être entré dans l'espace (zéro coût réseau ajouté, mais la Home ne sert plus de raccourci direct). | Live | Démarrage front module Live (Claude, session 2026-07-23) | 2026-07-23 | 🔴 | [`modules/11_LIVE.md`](modules/11_LIVE.md) §10.6, §8bis (greffe A) |
 
+| 35 | Réco post-event — les ventes POS sont jointes aux articles d'inventaire par `menuItemId` puis nom normalisé, **sans explosion BOM** : la vente d'un article composé (cocktail, menu) n'impute jamais la consommation de ses ingrédients/emballages → sur tout stock compté au grain ingrédient, `Qty Sold` reste 0 et le document affiche de faux manquants. La Logistique fait déjà l'explosion (`deriveSales` → `explodeSalesToConsumption`). Décomposer aussi les ventes de la réco (réutiliser la cascade), ou assumer le grain « article vendable » (les ingrédients hors périmètre du document) ? (recoupe #13 asymétrie inventaire/restock et #18 combos) | Stock (Post-event) | Contre-audit vérifié (Claude, session 2026-07-24) | 2026-07-24 | 🔴 | [`modules/10_POST_EVENT_INVENTORY.md`](modules/10_POST_EVENT_INVENTORY.md) §12, `SpaceInventoryView.vue` (`buildReconciliationLines`) |
+
+| 36 | Réco pre/post — la **garde douce** (décision 2026-07-06/20 : confirmer sans jamais bloquer) laisse générer un document alors que des articles ne sont pas comptés : ils entrent avec `counted=0` → faux manquants **persistés** dans un document à vocation anti-perte. Maintenir la garde douce (avec un marquage « comptage incomplet N/M » sur le document ?), ou bloquer la génération tant que le comptage n'est pas complet ? | Stock (Pre/Post-event) | Contre-audit vérifié (Claude, session 2026-07-24) | 2026-07-24 | 🔴 | [`modules/10_POST_EVENT_INVENTORY.md`](modules/10_POST_EVENT_INVENTORY.md) §12, `SpaceInventoryView.vue` (`onSaveAll`) |
+
+| 37 | Réco pre/post — la **suppression** d'un document (`DELETE /inventory/:spaceId/reconciliations/:id`, ajout 2026-07-24 « repartir de zéro ») est ouverte à tout porteur de `front.fb.spaceInventory` — donc à un simple compteur, sur un document à vocation anti-perte/vol (un compteur pourrait supprimer un document qui l'incrimine puis regénérer après ajustement). Restreindre à un rôle de supervision (`preInventoryExpected` ? permission dédiée ?) ou assumer ? Même question pour la **consultation** des documents pre-event (l'expurgation BUG-233 cache les attendus, mais la liste reste visible de tous) | Stock / RBAC | Feature suppression (JLH / Claude, session 2026-07-24) | 2026-07-24 | 🔴 | [`bugs/233_pre_event_expected_fuite_via_reconciliations.md`](bugs/233_pre_event_expected_fuite_via_reconciliations.md), [`modules/10_POST_EVENT_INVENTORY.md`](modules/10_POST_EVENT_INVENTORY.md) §12.3 |
+
+> **Décision owner (Jean-Luc) du 2026-07-24, hors tracker Bertrand** — ancrage strict « un match =
+> un eventId, aucune bascule silencieuse » : le Post-event ancre le dernier événement FINI (un
+> `?event=` futur est ignoré), le Pre-event verrouille le prochain futur strict (tout `?event=`
+> ignoré), la réconciliation se crée sur l'event de l'écran uniquement (repli silencieux supprimé).
+> Implémenté le 2026-07-24 ; détail et table avant/après :
+> [`modules/10_POST_EVENT_INVENTORY.md`](modules/10_POST_EVENT_INVENTORY.md) §12.4. (Absorbe les
+> ex-questions #32 et #35 de l'ancienne numérotation, ouvertes les 2026-07-23/24 puis résolues le
+> jour même — recoupe le volet fenêtre/ancrage recentré de #25.)
+
 ## Fermées — déjà résolues dans le code
 
 > Trouvées lors de la revue du 2026-07-24 : ces questions avaient déjà leur réponse implémentée en
