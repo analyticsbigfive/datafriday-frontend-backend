@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="ued-slide">
       <div v-if="modelValue" class="ued-overlay" @mousedown.self="close">
-        <div class="ued-panel">
+        <div class="ued-panel" :class="{ 'ued--dark': isDark }">
 
           <!-- Header dégradé -->
           <div class="ued-header">
@@ -518,4 +518,32 @@ export default {
 .ued-slide-enter-active .ued-panel, .ued-slide-leave-active .ued-panel { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
 .ued-slide-enter-from, .ued-slide-leave-to { opacity: 0; }
 .ued-slide-enter-from .ued-panel, .ued-slide-leave-to .ued-panel { transform: translateX(100%); }
+
+/* ── Dark mode ── (drawer téléporté sur <body>, piloté par la prop isDark →
+   .ued--dark ; header rouge #ff3131 + bouton primaire conservés). */
+.ued--dark.ued-panel { background: #1f2937; }
+.ued--dark .ued-avatar-row { background: #111827; }
+.ued--dark .ued-avatar__name { color: #f9fafb; }
+.ued--dark .ued-avatar__email { color: #9ca3af; }
+.ued--dark .ued-step-dot { background: #1f2937; border-color: #374151; color: #9ca3af; }
+.ued--dark .ued-step-label { color: #9ca3af; }
+.ued--dark .ued-step.active .ued-step-label,
+.ued--dark .ued-step.done .ued-step-label { color: #e5e7eb; }
+.ued--dark .ued-step-line { background: #374151; }
+.ued--dark .ued-section { color: #9ca3af; }
+.ued--dark .ued-section::after { background: #374151; }
+.ued--dark .ued-label { color: #d1d5db; }
+.ued--dark .ued-input,
+.ued--dark .ued-select { background: #1f2937; border-color: #374151; color: #f9fafb; }
+.ued--dark .ued-input::placeholder { color: #9ca3af; }
+.ued--dark .ued-select-chevron { color: #9ca3af; }
+.ued--dark .ued-space-mode { background: #1f2937; border-color: #374151; color: #d1d5db; }
+.ued--dark .ued-space-mode:hover { border-color: #4b5563; }
+.ued--dark .ued-space-list { border-color: #374151; }
+.ued--dark .ued-space-check { color: #d1d5db; }
+.ued--dark .ued-space-check:hover { background: #1f2937; }
+.ued--dark .ued-hint { color: #9ca3af; }
+.ued--dark .ued-footer { background: #1f2937; border-top-color: #374151; }
+.ued--dark .ued-btn--ghost { background: #374151; color: #f9fafb; }
+.ued--dark .ued-btn--ghost:hover:not(:disabled) { background: #4b5563; }
 </style>

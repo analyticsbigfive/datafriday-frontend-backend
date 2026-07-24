@@ -1,5 +1,5 @@
   <template>
-  <div id="user-list-page">
+  <div id="user-list-page" :class="{ 'ul--dark': isDark }">
 
     <!-- ── Gradient Header ── -->
     <div class="ul-header">
@@ -533,4 +533,23 @@ export default {
 }
 .ul-empty__title { font-size: 15px; font-weight: 700; color: #111827; margin: 0 0 6px; }
 .ul-empty__sub { font-size: 13.5px; color: #6b7280; margin: 0; }
+
+/* ── Dark mode ── (racine #user-list-page → sélecteur combiné pour battre la
+   spécificité de l'ID sur le fond ; header rouge conservé). */
+#user-list-page.ul--dark { background: #111827; }
+.ul--dark .ul-searchbar { background: #1a2332; border-bottom-color: #374151; }
+.ul--dark .ul-searchbar__input { color: #f3f4f6; }
+.ul--dark .ul-filter-select { background: #1f2937; border-color: #374151; color: #e5e7eb; }
+.ul--dark .ul-table-wrap { background: #1a2332; border-color: #374151; }
+.ul--dark .ul-table :deep(thead tr th) { background: #1f2937 !important; color: #9ca3af !important; border-bottom-color: #374151 !important; }
+.ul--dark .ul-table :deep(tbody td) { color: #e5e7eb; border-bottom-color: #374151 !important; }
+.ul--dark .ul-table :deep(tbody tr:hover td) { background: #1f2937 !important; }
+.ul--dark .ul-user-name { color: #f9fafb; }
+.ul--dark .ul-icon-btn { background: #374151; color: #d1d5db; }
+.ul--dark .ul-icon-btn:hover { background: #4b5563; color: #f9fafb; }
+.ul--dark .ul-empty__icon { background: #1f2937; color: #6b7280; }
+.ul--dark .ul-empty__title { color: #f9fafb; }
+/* Badges statut : soft bg + texte foncé (calibrés fond clair) → voile + clair. */
+.ul--dark .ul-badge--active { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; }
+.ul--dark .ul-badge--pending { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
 </style>

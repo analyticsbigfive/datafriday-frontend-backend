@@ -633,5 +633,10 @@ export default {
 .rl--dark .rl-searchbar { background: #1a2332; border-bottom-color: #374151; }
 .rl--dark .rl-searchbar__input { color: #f3f4f6; }
 .rl--dark .rl-empty__title { color: #f9fafb; }
+.rl--dark .rl-empty__sub { color: #9ca3af; }
 .rl--dark .rl-card__desc { color: #9ca3af; }
+/* Hover d'action : le gris clair #f3f4f6 tranchait en blanc sur la carte sombre. */
+.rl--dark .rl-action-btn:hover { background: #374151; color: #e5e7eb; }
+/* Chip « +N » : pastille grise claire → grise sombre. */
+.rl--dark .rl-chip--more { background: #374151; border-color: #4b5563; color: #9ca3af; }
 </style>
