@@ -1,10 +1,10 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
 
 export class InvalidateCacheDto {
-  @ApiProperty({ description: 'ID du tenant', example: 'tenant-123' })
-  @IsString()
-  tenantId: string;
+  // Le tenantId n'est plus lu depuis le body : BUG-40, il est dérivé du tenant
+  // authentifié via @CurrentTenant() côté controller pour éviter qu'un client
+  // ne cible le cache d'un autre tenant.
 
   @ApiPropertyOptional({ description: 'ID de l’espace ciblé', example: 'space-123' })
   @IsOptional()

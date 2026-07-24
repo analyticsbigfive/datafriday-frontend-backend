@@ -129,7 +129,12 @@ export class OrchestratorService {
           return this.processViaQueue(context, startTime);
 
         case 'edge':
-          return this.processViaEdgeFunction(context, startTime);
+          // BUG-43: la route Edge Function ('heavy-processing') a été supprimée —
+          // elle référençait une table Supabase inexistante et était du code mort
+          // (aucun appelant). En attendant une éventuelle réécriture, les décisions
+          // 'edge' sont traitées via la queue, qui était déjà le fallback historique
+          // en cas d'échec de l'Edge Function.
+          return this.processViaQueue(context, startTime);
 
         default:
           throw new Error(`Unknown strategy: ${decision.strategy}`);
@@ -312,47 +317,6 @@ export class OrchestratorService {
       processingTime: Date.now() - startTime,
       strategy: 'queue',
     };
-  }
-
-  private async processViaEdgeFunction(
-    context: ProcessingContext,
-    startTime: number,
-  ): Promise<ProcessingResult> {
-    const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
-    
-    try {
-      const response = await fetch(`${this.edgeFunctionUrl}/heavy-processing`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseKey}`,
-        },
-        body: JSON.stringify({
-          tenantId: context.tenantId,
-          operation: context.operation,
-          estimatedItems: context.estimatedItems,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Edge function failed: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      return {
-        success: true,
-        data,
-        processingTime: Date.now() - startTime,
-        strategy: 'edge',
-      };
-    } catch (error) {
-      this.logger.error(`[HEOS] Edge function error: ${error.message}`);
-      
-      // Fallback to queue
-      this.logger.warn('[HEOS] Falling back to queue processing');
-      return this.processViaQueue(context, startTime);
-    }
   }
 
   /**

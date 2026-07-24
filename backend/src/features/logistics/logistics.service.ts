@@ -294,9 +294,20 @@ export class LogisticsService {
     if (dto.marketPriceId) {
       const mp = await this.prisma.marketPrice.findFirst({
         where: { id: dto.marketPriceId, tenantId, deletedAt: null },
-        select: { packedUnits: true },
+        select: { packedUnits: true, itemName: true },
       });
       if (!mp) throw new NotFoundException(`Market price ${dto.marketPriceId} not found`);
+      // BUG-049 : le marketPriceId fourni doit correspondre à la denrée (itemKey) du
+      // mouvement — même résolution nom↔MarketPrice que resolveUnitsPerPackForItemKey
+      // (itemName insensible à la casse/espaces), sinon un appel API direct pourrait
+      // écraser unitsPerPack avec un pack size sans rapport avec l'itemKey (BUG-032).
+      const itemKeyName = String(dto.itemKey ?? '').trim().toLowerCase();
+      const mpItemName = String(mp.itemName ?? '').trim().toLowerCase();
+      if (!mpItemName || mpItemName !== itemKeyName) {
+        throw new BadRequestException(
+          `Market price ${dto.marketPriceId} ne correspond pas à l'item ${dto.itemKey}`,
+        );
+      }
       unitsPerPack = mp.packedUnits ?? null;
     } else {
       // Aucun marketPriceId (toujours le cas pour un produit fini/component, cf. BUG-032/049 :
@@ -499,9 +510,10 @@ export class LogisticsService {
         where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
         select,
       });
-      frontier = candidates.filter(
-        (c) => this.normYesNo(c.comboItem) === 'Yes' && this.normYesNo(c.readyForSale) === 'No',
-      );
+      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+      // ses constituants, indépendamment de son propre readyForSale — ne plus
+      // exiger readyForSale='No' en plus de comboItem='Yes'.
+      frontier = candidates.filter((c) => this.normYesNo(c.comboItem) === 'Yes');
       for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
     }
 
@@ -574,12 +586,15 @@ export class LogisticsService {
       refs.push({ key: name, id: pkg.id, kind: 'packaging', unit: pkg.recipeUnit ?? null, marketPriceId: null, unitsPerPack: null, packagingType: null, picture: null });
     }
 
-    if (this.normYesNo(item.readyForSale) === 'Yes') {
+    const isCombo = this.normYesNo(item.comboItem) === 'Yes';
+    if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') {
       // readyForSale=Yes prime toujours sur lui-même, sans exception pour le cas
       // mono-ingrédient (BUG-048) : un item readyForSale=Yes n'est JAMAIS fondu
       // dans la Market Price de son ingrédient, même si sa recette n'en a qu'un
       // seul — il est compté comme son propre produit, avec son propre packaging
-      // (inventoryPackagingType/inventoryNumberOfUnits/inventoryUnit).
+      // (inventoryPackagingType/inventoryNumberOfUnits/inventoryUnit). Exception :
+      // comboItem='Yes' (BUG-002/Q18 Bertrand, 2026-07-24) explose TOUJOURS en ses
+      // constituants, indépendamment de son propre readyForSale — cf. `isCombo` ci-dessus.
       const selfName = item.name?.trim();
       if (selfName) {
         refs.push({
@@ -591,8 +606,9 @@ export class LogisticsService {
       return refs;
     }
 
-    // readyForSale = No (ou non défini) : ingrédients directs + composants (combo
-    // récursif par nom, packaging déjà traité au-dessus, non récursif).
+    // readyForSale = No (ou non défini), OU comboItem='Yes' (toujours exploser,
+    // BUG-002/Q18) : ingrédients directs + composants (combo récursif par nom,
+    // packaging déjà traité au-dessus, non récursif).
     let leafCount = 0;
     for (const line of item.ingredients ?? []) {
       const ing = line.ingredient;
@@ -1182,9 +1198,10 @@ export class LogisticsService {
         where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
         select: recipeSelect,
       });
-      frontier = candidates.filter(
-        (c) => this.normYesNo(c.comboItem) === 'Yes' && this.normYesNo(c.readyForSale) === 'No',
-      );
+      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+      // ses constituants, indépendamment de son propre readyForSale — ne plus
+      // exiger readyForSale='No' en plus de comboItem='Yes'.
+      frontier = candidates.filter((c) => this.normYesNo(c.comboItem) === 'Yes');
       for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
     }
 
@@ -1273,7 +1290,10 @@ export class LogisticsService {
         if (!k || !Number.isFinite(qty) || qty <= 0) return;
         result.set(k, (result.get(k) ?? 0) + qty);
       };
-      if (this.normYesNo(item.readyForSale) === 'Yes') {
+      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+      // ses constituants, indépendamment de son propre readyForSale.
+      const isCombo = this.normYesNo(item.comboItem) === 'Yes';
+      if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') {
         add(item.name, 1);
       } else {
         const pieces = Number(item.numberOfPiecesRecipe) > 0 ? Number(item.numberOfPiecesRecipe) : 1;

@@ -25,7 +25,7 @@ export const AppConfig = {
 
   // JWT configuration
   jwt: {
-    expiresIn: '7d',
+    expiresIn: '1d',
   },
 
   // Weezevent integration
