@@ -373,7 +373,7 @@ Route `/spaces/:spaceId/pre-inventory` (name `space-pre-inventory`, permission
 keepAlive keyé par `route.path` → deux instances indépendantes. Entrées de nav : MainNav,
 toolbox des 4 écrans stock, AppHeader (`hdrSecPreInventory`), loader de route.
 
-**Ancrage événement** (durci le 2026-07-24, règle owner « un match = un eventId », Q35) :
+**Ancrage événement** (durci le 2026-07-24, règle owner « un match = un eventId », § 12.4) :
 mode pre = **prochain futur strict** — `resolveEventContext` ignore TOUT `?event=` (même un
 futur lointain) et recalcule le prochain événement à venir ; aucun futur → état vide
 `preInvNoUpcoming`. Miroir exact du mode post qui, lui, ancre le **dernier événement fini**
@@ -631,7 +631,8 @@ MATCH-A (snapshot `kind='post-event'` rattaché au mauvais `eventId` → baselin
 suivant empoisonnée).
 
 **Tranché par l'owner (2026-07-24)** : règle « un match = un eventId, aucune bascule
-silencieuse » — implémentation § 12.4. Q32 résolue.
+silencieuse » — implémentation § 12.4 (ex-question #32 de l'ancienne numérotation du tracker,
+absorbée par la décision — note dans `QUESTIONS_A_BERTRAND.md`).
 
 ---
 
@@ -651,18 +652,18 @@ contre-audit les présentait comme des découvertes.
 | Finding | Vérif | Traitement |
 |---|---|---|
 | Fuite des attendus via les réponses réconciliation | = BUG-233 (déjà fiché) | **Corrigé** : expurgation conditionnelle (fiche 233) |
-| Section Réconciliation inaccessible sur mobile | `showLeftFilters` exige `!isMobile`, drawer sans section | **Corrigé** : section montée dans le drawer ([BUG-235](../bugs/235_reconciliation_section_inaccessible_mobile.md)) |
+| Section Réconciliation inaccessible sur mobile | `showLeftFilters` exige `!isMobile`, drawer sans section | **Corrigé** : section montée dans le drawer ([BUG-236](../bugs/236_reconciliation_section_inaccessible_mobile.md)) |
 | Échec du chargement des ventes → `sold=0` → fausses pertes **persistées** | catch qui continuait ([SpaceInventoryView.vue](../../src/views/SpaceInventoryView.vue) `buildReconciliationLines`) | **Corrigé** : hors démo, échec ventes = pas de création (toast `invRecoSalesError`, comptage sauvegardé, recliquer retente) |
-| Ventes d'articles composés jamais décomposées vers les ingrédients (faux manquants sur stock d'ingrédients) | jointure directe `menuItemId`/nom, aucune explosion BOM | **Question métier** (Q33, recoupe Q13/Q18) |
+| Ventes d'articles composés jamais décomposées vers les ingrédients (faux manquants sur stock d'ingrédients) | jointure directe `menuItemId`/nom, aucune explosion BOM | **Question métier** (Q35, recoupe Q13/Q18) |
 
 ### 12.2 Claims du contre-audit réfutés ou nuancés
 
 - « Dernier correctif uniquement sur la branche feature » — **faux** : le HEAD de
   `feat/postEventInventory` est contenu dans `origin/develop` ET `origin/staging` (git vérifié).
 - « Un inventaire incomplet peut produire un document » — exact mécaniquement, mais c'est la
-  **garde douce décidée** (2026-07-06/20) ; requalifié en question métier (Q34), pas en bug.
+  **garde douce décidée** (2026-07-06/20) ; requalifié en question métier (Q36), pas en bug.
 - « 24/25 tests backend » — exact au moment de l'audit : l'échec était un **mock obsolète** de la
-  spec (`spaceElement.findMany` non câblé après l'ajout du filtre orphelins BUG-234), corrigé le
+  spec (`spaceElement.findMany` non câblé après l'ajout du filtre orphelins BUG-235), corrigé le
   2026-07-24 (30/30 avec les nouveaux tests d'expurgation).
 
 ### 12.3 Ajouts de la même session (hors contre-audit)
@@ -672,7 +673,7 @@ contre-audit les présentait comme des découvertes.
   (desktop + drawer), confirmation. « Repartir de zéro » = supprimer puis recliquer « Générer la
   réconciliation » — pas d'édition (un document est une photo figée, l'éditer fausserait
   l'archive). Périmètre strict kind pre/post-event (resets logistiques intouchables). Qui a le
-  droit de supprimer reste à trancher (Q36 — aujourd'hui : tout porteur de `spaceInventory`).
+  droit de supprimer reste à trancher (Q37 — aujourd'hui : tout porteur de `spaceInventory`).
 
 ### 12.4 Ancrage strict « un match = un eventId » (décision owner 2026-07-24)
 
@@ -685,7 +686,7 @@ Implémentation (`resolveEventContext` / `resolveReconciliationEvent`, SpaceInve
 | Post, entrée directe | `future[0] \|\| past[0]` (futur d'abord !) | **dernier passé strict** (`past[0]`), aucun repli futur |
 | Post, `?event=` futur (deep-link Event Predict) | accepté → comptage tagué sur un match à venir | **ignoré** → repli dernier passé, URL resynchronisée |
 | Post, `?event=` passé explicite | accepté | accepté (réconcilier un vieux match = choix délibéré, pas une bascule) |
-| Pre, `?event=` quelconque | futur lointain accepté (Q35) | **ignoré** — toujours le prochain futur strict |
+| Pre, `?event=` quelconque | futur lointain accepté (ex-Q35, absorbée par la décision) | **ignoré** — toujours le prochain futur strict |
 | Réco post | event de l'écran si passé, sinon repli silencieux « dernier passé » (source du décalage MATCH-B/MATCH-A) | **event de l'écran strictement** ; non fini → refus explicite (toast `invRecoEventNotFinished`), comptage sauvegardé |
 
 Reste ouvert (chantiers non retenus dans cette passe, à planifier) : « passé » = date de FIN

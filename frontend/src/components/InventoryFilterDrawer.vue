@@ -237,7 +237,7 @@
 
       <!-- Documents de réconciliation — miroir de la colonne gauche desktop
            (section sous les filtres) : seul point d'entrée MOBILE de la liste
-           (docs/modules/10 §7.4, fiche 234). -->
+           (docs/modules/10 §7.4, fiche 236). -->
       <InventoryReconciliationSection
         :items="reconciliations"
         :selected-id="selectedReconciliationId"
@@ -284,7 +284,7 @@ export default {
     selectedItemCategories: { type: Array, default: () => [] },
     selectedStorages: { type: Array, default: () => [] },
     selectedStorageFloors: { type: Array, default: () => [] },
-    // Section Réconciliation (accès mobile — fiche 234).
+    // Section Réconciliation (accès mobile — fiche 236).
     reconciliations: { type: Array, default: () => [] },
     selectedReconciliationId: { type: String, default: null },
     recoLoading: { type: Boolean, default: false },

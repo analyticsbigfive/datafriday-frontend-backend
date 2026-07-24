@@ -1384,7 +1384,7 @@ export default {
       // évènement sélectionné », retomber sur l'ancrage par défaut ci-dessous.
       if (ev && !resolveCfg(ev)) ev = null
       // ── Ancrage STRICT « un match = un eventId » (décision owner 2026-07-24,
-      // Q32/Q35 résolues) : plus aucune bascule silencieuse de match.
+      // décision détaillée docs modules/10 §12.4) : plus aucune bascule silencieuse de match.
       // - Mode PRE : l'écran affiche TOUJOURS le prochain événement futur — tout
       //   ?event= est ignoré (même un futur lointain), le prochain strict est
       //   recalculé ci-dessous.
@@ -1972,7 +1972,7 @@ export default {
       })
     },
     /** Sélection d'un document depuis le drawer mobile : fermer le drawer puis
-     *  ouvrir la vue réconciliation (fiche 234). */
+     *  ouvrir la vue réconciliation (fiche 236). */
     onDrawerSelectReconciliation(id) {
       this.filterDrawerOpen = false
       this.selectedReconciliationId = id
