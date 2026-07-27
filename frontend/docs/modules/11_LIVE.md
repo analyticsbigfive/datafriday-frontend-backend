@@ -1,11 +1,12 @@
 # Live events — gestion temps réel (conception)
 
-> **Statut : 🟡 Front v1 livré (scaffolding + mode flux) — fondation backend en attente.**
-> Les greffes front **A/B/C/D** (bouton ◉, entrée Tools, route `space-live`, mode flux polling de
-> l'Analyse) sont écrites — détail et limites §13. Reste : les prérequis **backend** (signal
-> `liveEvent`, agrégation auto, agrégat inventaire — Ulrich) et l'**onglet Inventaire live (E, v2)**,
-> bloqué par les questions produit #22/#23. Cette page décrit *ce qu'il faut bâtir* et *où ça se
-> branche* ; elle sera convertie en cartographie vérifiée une fois le module complet.
+> **Statut : 🟢 Front (A→E) + backend (v1+v2) livrés, mergés dans `develop`. Reste : déploiement backend + question #34.**
+> Toutes les greffes front sont écrites (bouton ◉ câblé sur `/live-status`, entrée Tools, route
+> `space-live`, mode flux polling, **onglet Inventaire live E**) — détail §13. Le backend Live
+> (`/spaces/:id/live-status`, `/live/inventory`, agrégation auto) est implémenté et documenté dans
+> `backend/docs/api/LIVE_API_GUIDE.md`. **Reste** : (1) **déployer `develop` sur Render** — les
+> endpoints Live renvoient 404 tant que ce n'est pas fait ; (2) question ouverte **#34** (◉ sur la
+> Home sans naviguer). Cette page sera convertie en cartographie vérifiée une fois déployé.
 >
 > Domaine cartographie : **Live events** (nouveau). Owner : **Ulrich, fullstack** (backend temps réel/
 > agrégation/spaces **et** front Analyse/Inventory) — pas de split front/back, décidé le 2026-07-23
@@ -275,7 +276,7 @@ ne pas y toucher.
    - Une 3e piste (reconsidérer SSE/WebSocket pour pousser ce signal) impliquerait de rouvrir la
      décision transport déjà tranchée §5 — hors périmètre de ce chantier sauf décision explicite
      contraire.
-   Tracké : [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), question #31. **Bloque
+   Tracké : [../QUESTIONS_A_BERTRAND.md](../QUESTIONS_A_BERTRAND.md), question #34. **Bloque
    uniquement la greffe A** — B/C/D/E peuvent démarrer sans attendre cette décision.
 
 > Réponses 1-3 tranchées le 2026-07-20 par Ulrich (owner backend), sur la base d'une recherche
@@ -316,7 +317,7 @@ ne pas y toucher.
       front/back.
 - [x] **Phasage** (§11) — v1 analytics d'abord, v2 inventaire.
 - [ ] **Signal ◉ sur la Home sans navigation** (§10.6, greffe A) — **encore ouvert (2026-07-23)** :
-      polling `live-status` par carte, ou affordance reportée après entrée dans l'espace. Question #31.
+      polling `live-status` par carte, ou affordance reportée après entrée dans l'espace. Question #34.
 
 **Le backend du module Live (v1 + v2) est entièrement livré** (signal `GET /spaces/:id/live-status`,
 agrégation auto, `event-timeline`/`shop-details` fiables pour du live, `GET /spaces/:id/live/inventory`
@@ -331,11 +332,11 @@ implémenter B/C/D/E en premier, ou trancher §10.6 avant d'écrire A, plutôt q
 
 | Greffe | Fichier | Statut |
 |---|---|---|
-| **A** — bouton ◉ | `spaces/widgets/SpaceItem.vue` (`.si-img`, `v-if="space?.liveEvent"` → `/spaces/:id/live`) | ✅ écrit — **masqué** tant que le backend n'expose pas `liveEvent` (§7) |
+| **A** — bouton ◉ | `spaces/widgets/SpaceItem.vue` (`.si-img`, appel `GET /spaces/:id/live-status` au montage, gardé par `front.fb.live`) | ✅ **livré** — câblé sur le **vrai signal** (endpoint dédié `live-status`, PAS un champ `liveEvent` — §7/§10.6) ; ◉ + tooltip « live depuis X min » via `since` |
 | **B** — entrée « Live » Tools | `analyse/filters/FilterPanel.vue` (`toolboxItems` + `onToolboxSelect` + `livePath`) + clé i18n `anToolLive` | ✅ livré (c'est bien `filters/FilterPanel.vue` qui est importé par `AnalyseView`, pas le doublon racine) |
 | **C** — route `space-live` | `router/index.js` après `space-restock` → rend `AnalyseView`, `meta:{ title:'Live', keepAlive:true, permission:'front.fb.live' }` | ✅ livré — **non** ajoutée à `SPACE_SCREENS` (§10.3) |
 | **D** — mode flux | `analyse/AnalyseView.vue` : `isLive` (route), badge ● LIVE, polling 15 s de la timeline, cleanup `onActivated/onDeactivated/onBeforeUnmount` | ✅ livré (voir limites ci-dessous) |
-| **E** — onglet Inventaire | — | 🔴 **v2, non commencé** (bloqué #22/#23) |
+| **E** — onglet Inventaire | `analyse/panels/LiveInventoryPanel.vue` + onglets « Analyse/Inventaire » dans `AnalyseView` ; API `getSpaceLiveInventory` | ✅ **livré (v2)** — arbre dépliable Shop→items / Item→shops sur `GET /spaces/:id/live/inventory`, « restant » = level − consumption (repack), colonne Consommé, polling 15 s, dark mode (#22/#23 tranchées) |
 
 **Limites v1 assumées (fidèles à §5)** — ce qui n'est PAS rafraîchi en live et pourquoi :
 
@@ -348,8 +349,12 @@ implémenter B/C/D/E en premier, ou trancher §10.6 avant d'écrire A, plutôt q
 - **Effectivement live au v1** : la **timeline / TX-min** (`event-timeline` via `loadTimelineForEvents`),
   seule source déjà quasi temps réel (§5), rafraîchie quand la timeline est ouverte.
 
-**Reste à faire** : backend Ulrich (signal `liveEvent`, agrégation auto + fix BUG-19, agrégat
-inventaire), onglet Inventaire E (v2, #22/#23), + décisions lead §12 (ownership front, phasage).
+**Reste à faire** : le front (A→E) **et** le backend (v1+v2, cf. `backend/docs/api/LIVE_API_GUIDE.md`)
+sont **livrés et mergés dans `develop`**. Reste : (1) **déploiement backend** sur Render (endpoints
+Live en 404 tant que `develop` n'est pas déployé) ; (2) **question #34** — ◉ sur la Home sans
+naviguer (aujourd'hui : `live-status` par carte, N requêtes — décision perf à acter) ; (3) finitions
+optionnelles (`refresh()` sur `useAnalyseItemRecords`, « Restant » sur lignes repliées, TTL cache
+events 2 min en mode Live — réponse Q8). Double-header de `space-live` corrigé (BUG-234).
 
 ---
 
@@ -395,7 +400,7 @@ inventaire), onglet Inventaire E (v2, #22/#23), + décisions lead §12 (ownershi
   champ `space.liveEvent` sur `GET /spaces`, alors que le backend a tranché pour un endpoint dédié
   uniquement (`GET /spaces/:id/live-status`, `LIVE_API_GUIDE.md` §1.2), précisément pour ne pas casser
   le cache 60s de la liste. §7 et le tableau §8bis (ligne A) corrigés en conséquence. Nouvelle zone
-  grise **encore ouverte** ajoutée (§10.6, question #31 dans `QUESTIONS_A_BERTRAND.md`) : comment le
+  grise **encore ouverte** ajoutée (§10.6, question #34 dans `QUESTIONS_A_BERTRAND.md`) : comment le
   bouton ◉ de la Home obtient ce signal sans navigation, sachant qu'aucun canal push n'existe (pas de
   SSE/WebSocket au v1 ; les webhooks Weezevent/Digifood n'atteignent que le backend, jamais le
   navigateur) — deux options posées (polling `live-status` par carte, ou ◉ visible seulement après
