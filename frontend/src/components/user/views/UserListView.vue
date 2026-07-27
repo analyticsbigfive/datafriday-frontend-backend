@@ -380,14 +380,14 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .ul-header__body { flex: 1; min-width: 0; }
-.ul-header__title { font-size: 16px; font-weight: 700; color: #fff; margin: 0 0 2px; }
-.ul-header__sub { font-size: 12px; color: rgba(255, 255, 255, 0.72); margin: 0; }
+.ul-header__title { font-size: var(--fs-lg); font-weight: 700; color: #fff; margin: 0 0 2px; }
+.ul-header__sub { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.72); margin: 0; }
 .ul-header__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .ul-hbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 14px; height: 34px; border-radius: 50px;
-  font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+  font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
 }
 .ul-hbtn--ghost {
   background: rgba(255, 255, 255, 0.15); color: #fff;
@@ -410,7 +410,7 @@ export default {
 .ul-searchbar__icon { color: #9ca3af; flex-shrink: 0; }
 .ul-searchbar__input {
   flex: 1; min-width: 140px; border: none; outline: none;
-  background: transparent; font-size: 14px; color: #111827; font-family: inherit;
+  background: transparent; font-size: var(--fs-md); color: #111827; font-family: inherit;
 }
 .ul-searchbar__input::placeholder { color: #9ca3af; }
 
@@ -420,7 +420,7 @@ export default {
   appearance: none;
   border: 1.5px solid #e5e7eb; border-radius: 100px;
   padding: 5px 30px 5px 12px;
-  font-size: 12.5px; font-weight: 500; color: #374151;
+  font-size: var(--fs-sm); font-weight: 500; color: #374151;
   background: #f9fafb; cursor: pointer; outline: none;
   transition: border-color 0.18s;
 }
@@ -430,7 +430,7 @@ export default {
   color: #9ca3af; pointer-events: none;
 }
 
-.ul-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; }
+.ul-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; }
 .ul-searchbar__clear {
   background: none; border: none; padding: 2px;
   cursor: pointer; color: #9ca3af;
@@ -445,7 +445,7 @@ export default {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; margin-bottom: 16px;
   background: rgba(255, 49, 49, 0.08); border: 1px solid rgba(255, 49, 49, 0.2);
-  border-radius: 10px; font-size: 13px; color: #ff3131;
+  border-radius: 10px; font-size: var(--fs-base); color: #ff3131;
 }
 
 /* ── Table ── */
@@ -456,14 +456,14 @@ export default {
 }
 .ul-table :deep(thead tr th) {
   background: #f9fafb !important;
-  font-size: 11px !important; font-weight: 700 !important;
+  font-size: var(--fs-xs)!important; font-weight: 700 !important;
   text-transform: uppercase; letter-spacing: 0.05em;
   color: #6b7280 !important; border-bottom: 1px solid #e5e7eb !important;
 }
 .ul-table :deep(tbody td) {
   padding-top: 12px !important; padding-bottom: 12px !important;
   border-bottom: 1px solid #f3f4f6 !important;
-  font-size: 13.5px; color: #374151;
+  font-size: var(--fs-base); color: #374151;
 }
 .ul-table :deep(tbody tr:last-child td) { border-bottom: none !important; }
 .ul-table :deep(tbody tr:hover td) { background: #fafafa !important; }
@@ -474,25 +474,25 @@ export default {
   width: 34px; height: 34px; border-radius: 50%;
   background: linear-gradient(135deg, #ff3131, #b91c1c);
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 800; color: #fff; flex-shrink: 0;
+  font-size: var(--fs-sm); font-weight: var(--fw-bold); color: #fff; flex-shrink: 0;
 }
 .ul-user-info { display: flex; flex-direction: column; gap: 1px; }
-.ul-user-name { font-size: 13.5px; font-weight: 600; color: #111827; }
-.ul-user-email { font-size: 11.5px; color: #9ca3af; }
+.ul-user-name { font-size: var(--fs-base); font-weight: 600; color: #111827; }
+.ul-user-email { font-size: var(--fs-xs); color: #9ca3af; }
 
 /* ── Badges ── */
 .ul-badge {
   display: inline-flex; align-items: center;
   padding: 2px 10px; border-radius: 20px;
-  font-size: 11.5px; font-weight: 600;
+  font-size: var(--fs-xs); font-weight: 600;
 }
 .ul-badge--role { background: rgba(255, 49, 49, 0.08); color: #b91c1c; }
 .ul-badge--active { background: rgba(16, 185, 129, 0.1); color: #059669; }
 .ul-badge--pending { background: rgba(245, 158, 11, 0.1); color: #d97706; }
 
-.ul-empty-cell { font-size: 13.5px; color: #d1d5db; }
-.ul-text-muted { font-size: 13px; color: #6b7280; }
-.ul-date { font-size: 12.5px; color: #6b7280; }
+.ul-empty-cell { font-size: var(--fs-base); color: #d1d5db; }
+.ul-text-muted { font-size: var(--fs-base); color: #6b7280; }
+.ul-date { font-size: var(--fs-sm); color: #6b7280; }
 
 /* ── Actions ── */
 .ul-actions { display: flex; justify-content: flex-end; gap: 4px; }
@@ -510,7 +510,7 @@ export default {
 .ul-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 18px; height: 38px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+  font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
 }
 .ul-btn--primary { background: #ff3131; color: #fff; }
 .ul-btn--primary:hover { box-shadow: 0 4px 12px rgba(255, 49, 49, 0.35); }
@@ -531,8 +531,8 @@ export default {
   display: flex; align-items: center; justify-content: center;
   margin: 0 auto 14px;
 }
-.ul-empty__title { font-size: 15px; font-weight: 700; color: #111827; margin: 0 0 6px; }
-.ul-empty__sub { font-size: 13.5px; color: #6b7280; margin: 0; }
+.ul-empty__title { font-size: var(--fs-md); font-weight: 700; color: #111827; margin: 0 0 6px; }
+.ul-empty__sub { font-size: var(--fs-base); color: #6b7280; margin: 0; }
 
 /* ── Dark mode ── (racine #user-list-page → sélecteur combiné pour battre la
    spécificité de l'ID sur le fond ; header rouge conservé). */

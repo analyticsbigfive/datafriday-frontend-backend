@@ -313,8 +313,8 @@ export default {
 }
 
 .rl-header__title {
-  font-size: 1.375rem;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
   line-height: 1.2;
@@ -373,12 +373,12 @@ export default {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #111827;
   font-family: inherit;
 }
 .rl-searchbar__input::placeholder { color: #9ca3af; }
-.rl-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; }
+.rl-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; }
 .rl-searchbar__clear {
   background: none;
   border: none;
@@ -434,8 +434,8 @@ export default {
 .rl-empty__icon--dark { background: #1f2937; color: #6b7280; }
 
 .rl-empty__title {
-  font-size: 1.125rem;
-  font-weight: 700;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
   color: #111827;
   margin-bottom: 8px;
 }

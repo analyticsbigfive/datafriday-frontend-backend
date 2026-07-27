@@ -100,15 +100,15 @@ export default {
 .rdd-header__text { flex: 1; min-width: 0; }
 
 .rdd-header__title {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
   line-height: 1.3;
 }
 
 .rdd-header__sub {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, 0.72);
   margin: 2px 0 0;
 }
@@ -177,8 +177,8 @@ export default {
   padding: 0 20px;
   height: 38px;
   border-radius: 50px;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
   border: none;
   transition: all 0.2s;
