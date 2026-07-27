@@ -1069,13 +1069,29 @@ describe('SpacesService', () => {
       mockPrismaService.$queryRaw.mockResolvedValue([]);
     });
 
-    it('is not live when no event window covers the present instant', async () => {
+    it('is not live when no event window covers the present instant (and no shop resolved)', async () => {
       mockPrismaService.event.findMany.mockResolvedValue([]);
 
       const result = await service.getLiveStatus(spaceId, tenantId);
 
+      // Court-circuité par shopIds vide (beforeEach), pas par l'absence d'event — le early-return
+      // sur "aucun Event" a été retiré (revue de la définition "event live").
       expect(result).toEqual({ isLive: false, eventId: null, since: null });
       expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('is live from a real sale alone when no Event covers the present instant', async () => {
+      const now = new Date();
+      const since = new Date(now.getTime() - 5 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      // Aucun Event saisi en amont : le live est ancré uniquement sur la vente réelle
+      // (fenêtre glissante de 30 min), eventId reste null.
+      expect(result).toEqual({ isLive: true, eventId: null, since: since.toISOString() });
     });
 
     it('is not live when the matching event is outside its window + grace', async () => {

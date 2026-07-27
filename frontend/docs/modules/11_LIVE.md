@@ -151,6 +151,16 @@ D'après [02_ANALYSE.md](02_ANALYSE.md) et [06_STOCK_INVENTAIRE.md](06_STOCK_INV
     event — changement de set, pause) ; ajustable si l'usage réel montre un besoin différent.
   - `Event.status` (`schema.prisma:2221`, texte libre, jamais écrit par le pipeline d'agrégation)
     n'est **pas** une source utilisable pour ce signal.
+  - ⚠️ **Révision 2026-07-27** (Ulrich) : la définition ci-dessus exigeait implicitement qu'un
+    `Event` DataFriday soit **déjà créé** avec une fenêtre `[eventStartDate, eventEndDate+grâce]`
+    couvrant l'instant présent — sans ça, `getLiveStatus` retournait `isLive:false`
+    inconditionnellement, même si de vraies ventes arrivaient (cas : event non saisi à l'avance).
+    Assoupli : si **aucun** Event ne couvre l'instant présent, une vente réelle seule dans la
+    fenêtre glissante de 30 min suffit désormais à ancrer le live (`eventId:null` dans ce cas,
+    le contrat `{isLive,eventId,since}` autorise déjà `eventId` non-corrélé à `isLive`). Quand un
+    Event existe et couvre l'instant présent, comportement inchangé (fenêtre bornée par
+    `eventStartDate`, garde-fou anti-vente-de-test-pré-event toujours actif dans ce cas).
+    Implémenté dans `spaces.service.ts` `getLiveStatus`.
 - **Flux analytics live** — polling de `event-timeline` (déjà quasi temps réel, voir §5) et de
   `shop-details` (sous réserve du prérequis d'agrégation automatique, §5) ; pas de canal SSE au v1
   (§5).

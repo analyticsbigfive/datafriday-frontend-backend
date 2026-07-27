@@ -73,7 +73,17 @@ const { t } = useI18n()
 // le endpoint backend l'exige de toute façon, pas la peine d'élargir la permission
 // juste pour ce point d'entrée.
 const canUse = computed(() => store.getters['auth/can']('front.fb.logisticReconcile'))
-const shops = computed(() => store.getters['logistics/shopElements'] || [])
+// `logistics/shopElements` renvoie les éléments à plat ({id,name,type,items,provider}).
+// LogisticSimulateSaleDialog (partagé avec SpaceLogisticView.vue) attend la forme
+// enveloppée { element:{id,name,provider}, items } — même transformation que
+// SpaceLogisticView.vue:571-573 (shopEntries). Sans ça, s.element est undefined
+// (crash "Cannot read properties of undefined (reading 'provider')").
+const shops = computed(() =>
+  (store.getters['logistics/shopElements'] || []).map((e) => ({
+    element: { id: e.id, name: e.name, provider: e.provider },
+    items: e.items || [],
+  })),
+)
 
 const dialogOpen = ref(false)
 const saving = ref(false)

@@ -454,6 +454,7 @@ import SummaryPanel from './panels/SummaryPanel.vue'
 import FilterEditorPanel from './panels/FilterEditorPanel.vue'
 import ShopPerformanceByTransactionRate from './charts/ShopPerformanceByTransactionRate.vue'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
+import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
@@ -1487,7 +1488,13 @@ function stopLivePolling() {
   if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
   if (liveShopDetailsTimer) { clearInterval(liveShopDetailsTimer); liveShopDetailsTimer = null }
 }
-onActivated(startLivePolling)
+onActivated(() => {
+  startLivePolling()
+  // Le composant reste en mémoire (keepAlive) : revenir sur /live après être
+  // passé par un autre outil ne redéclenche pas onMounted — on resynchronise
+  // quand même sur l'event réellement live à chaque retour sur l'écran.
+  applyLiveScope()
+})
 onDeactivated(stopLivePolling)
 onBeforeUnmount(stopLivePolling)
 
@@ -1581,10 +1588,37 @@ async function ensureAuthAndLoad(spaceId) {
         store.dispatch('analyse/updateFilter', { key: 'selectedConfigurationId', value: urlConfig })
       }
     }
+    await applyLiveScope()
   } finally {
     // Navigation rapide entre spaces : ancienne requête ne doit pas masquer
     // skeleton de nouvelle requête encore active.
     if (requestId === analyseLoadRequestId) initialLoadPending.value = false
+  }
+}
+
+// Module Live : sans ça, /live hérite tel quel du dernier filtre actif sur Analyse
+// classique (même state.filters partagé) — un `timeRange:'all'` résiduel affiche
+// tout l'historique de l'espace au lieu du seul event en cours. Scope explicitement
+// sur l'event live (selectedEventIds + configuration remise à "Toutes" pour ne pas
+// l'exclure silencieusement, cf. filteredEvents) ; à défaut, repli sur "Aujourd'hui"
+// plutôt que "Tout l'historique". Best-effort (comme SpaceItem.vue checkLiveStatus) :
+// n'empêche jamais l'affichage si l'appel échoue.
+async function applyLiveScope() {
+  if (!isLive.value) return
+  const spaceId = route.params.spaceId
+  if (!spaceId) return
+  try {
+    const res = await getSpaceLiveStatus(spaceId)
+    if (res?.isLive && res?.eventId) {
+      setFilterImmediate('selectedConfigurationId', null)
+      setFilterImmediate('timeRange', 'all')
+      setFilterImmediate('selectedEventIds', [res.eventId])
+    } else {
+      setFilterImmediate('selectedEventIds', [])
+      setFilterImmediate('timeRange', 'today')
+    }
+  } catch (e) {
+    console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
   }
 }
 </script>

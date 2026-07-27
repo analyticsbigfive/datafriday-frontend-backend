@@ -1314,6 +1314,11 @@ export class SpacesService {
    * plus récent dont la fenêtre [eventStartDate, eventEndDate + grace] couvre l'instant présent est
    * live si au moins une vente réelle (non annulée, cf. BUG-108) est arrivée dans les 30 dernières
    * minutes pour les shops de cet espace.
+   *
+   * Si AUCUN Event ne couvre l'instant présent (pas créé à l'avance, ou oublié), ne pas se
+   * refermer sur `isLive:false` par principe : une vente réelle dans la fenêtre glissante de 30
+   * min suffit à elle seule à ancrer le live (`eventId:null` dans ce cas — décision revue, il
+   * n'est plus nécessaire d'avoir saisi un Event en amont pour détecter un live réel).
    */
   async getLiveStatus(
     spaceId: string,
@@ -1335,13 +1340,14 @@ export class SpacesService {
       orderBy: { eventDate: 'desc' },
     });
 
+    // Ne bloque plus sur l'absence d'Event : `event` peut rester `undefined` — le live sera
+    // alors détecté (ou non) sur la seule base des ventes réelles, cf. doc de la méthode.
     const event = candidates.find((e) => {
       const start = e.eventStartDate ?? e.eventDate;
       const end = e.eventEndDate ?? e.eventDate;
       const graceEnd = new Date(end.getTime() + graceMs);
       return now >= start && now <= graceEnd;
     });
-    if (!event) return { isLive: false, eventId: null, since: null };
 
     const [locationMapping, shopIds] = await Promise.all([
       this.prisma.locationSpaceMapping.findFirst({
@@ -1350,7 +1356,7 @@ export class SpacesService {
       }),
       this.resolveShopIdsForSpace(spaceId, tenantId),
     ]);
-    if (shopIds.length === 0) return { isLive: false, eventId: event.id, since: null };
+    if (shopIds.length === 0) return { isLive: false, eventId: event?.id ?? null, since: null };
 
     const integrationId = locationMapping?.salesLocationId ?? null;
     const integrationClause = integrationId
@@ -1363,10 +1369,12 @@ export class SpacesService {
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
 
     const windowStart = new Date(now.getTime() - this.LIVE_STATUS_WINDOW_MINUTES * 60 * 1000);
-    const eventStart = event.eventStartDate ?? event.eventDate;
-    // La vente doit être à la fois récente (30 dernières minutes) ET dans la fenêtre de l'event
-    // (pas une vente de test pré-event) — les deux bornes de la définition tranchée #20.
-    const effectiveWindowStart = windowStart > eventStart ? windowStart : eventStart;
+    // Avec un Event trouvé : la vente doit être à la fois récente (30 dernières minutes) ET
+    // dans la fenêtre de l'event (pas une vente de test pré-event) — définition tranchée #20,
+    // inchangée. Sans Event : fenêtre glissante de 30 min pure, aucun ancrage supplémentaire —
+    // une vente isolée suffit, et le live retombe naturellement 30 min après la dernière vente.
+    const eventStart = event ? (event.eventStartDate ?? event.eventDate) : null;
+    const effectiveWindowStart = eventStart && eventStart > windowStart ? eventStart : windowStart;
 
     const rows: { since: Date | null }[] = await this.prisma.$queryRaw(Prisma.sql`
       SELECT MIN(t."transactionDate") AS since
@@ -1383,7 +1391,7 @@ export class SpacesService {
     `);
 
     const since = rows[0]?.since ?? null;
-    return { isLive: !!since, eventId: event.id, since: since ? since.toISOString() : null };
+    return { isLive: !!since, eventId: event?.id ?? null, since: since ? since.toISOString() : null };
   }
 
   /**
