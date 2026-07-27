@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Prisma, ElementType } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -20,6 +20,7 @@ export const WEEZEVENT_IMPORT_CONFIG_NAME = 'Weezevent Import';
 
 @Injectable()
 export class SpacesService {
+  private readonly logger = new Logger(SpacesService.name);
   private readonly SPACES_CACHE_TTL = 60; // 60 seconds
   private readonly SPACE_DETAIL_CACHE_TTL = 120; // 2 minutes for individual space
   private readonly SPACE_SHOPS_CACHE_TTL = 30; // 30 seconds — lecture chaude pour SpaceMenuView
@@ -3128,6 +3129,26 @@ export class SpacesService {
   }
 
   /**
+   * BUG-23 — Journalise la bascule v1→v2 lorsqu'un espace "v1 pur" route une assignation
+   * en v2 uniquement parce qu'au moins une `Zone` existe déjà pour cet espace (ex. créée
+   * par un `quick-element` antérieur). Purement observabilité : ne change AUCUN
+   * comportement de routage, ne fait que rendre la bascule visible en log (cf.
+   * docs/bugs/23_bascule_silencieuse_v1_v2_assign_floor.md).
+   */
+  private logBuilderV2Switch(
+    origin: 'assignElementsToFloorLevel' | 'assignElementsToForecourt' | 'assignElementsToExternalMerch',
+    spaceId: string,
+    tenantId: string,
+    zoneCount: number,
+  ): void {
+    this.logger.warn(
+      `[BUG-23] Bascule v1→v2 (builderVersion=v2) pour spaceId=${spaceId} tenantId=${tenantId} ` +
+        `dans ${origin} : l'espace possède déjà ${zoneCount} zone(s), toute nouvelle assignation ` +
+        `est routée en v2 même si l'utilisateur n'a jamais ouvert le builder v2.`,
+    );
+  }
+
+  /**
    * Assign a list of SpaceElements to a given floor level (or to the forecourt/"Parvis")
    * within the same space. Le Floor/Forecourt est trouvé/créé dans la configuration cible
    * (`opts.configId`, sinon la config utilisateur principale via `resolveTargetConfig`).
@@ -3194,6 +3215,9 @@ export class SpacesService {
     ]);
     if (!space) throw new NotFoundException('Space not found or access denied');
     const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToFloorLevel', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX : le Floor v1 n'est créé que si un élément v1 doit y aller
     // (ne pas polluer un espace géré en v2), la Zone v2 que si un élément v2 arrive.
@@ -3393,12 +3417,15 @@ export class SpacesService {
     }
 
     // Réponse en union discriminée (`kind`) cohérente entre floor / forecourt / externalmerch.
+    // `builderVersion` (BUG-23) : champ additif indiquant le routage effectif de cet appel,
+    // pour que le frontend/debug n'ait plus à le déduire silencieusement du payload.
     return {
       kind: 'floor' as const,
       floorId: floor?.id ?? targetZone?.id ?? null,
       floorName: zoneName ?? floorName,
       level,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 
@@ -3425,7 +3452,11 @@ export class SpacesService {
     // Cible : la config utilisateur (étape 1 / 3D Builder), pas « Weezevent Import ».
     const config = await this.resolveTargetConfig(spaceId, opts.configId);
     // Espace géré en v2 → toute assignation ADOPTE l'élément en v2 (zone + adhésion).
-    const spaceHasZones = (await this.prisma.zone.count({ where: { spaceId } })) > 0;
+    const zoneCount = await this.prisma.zone.count({ where: { spaceId } });
+    const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToForecourt', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX (cf. assignElementsToFloorLevel) : v1 Forecourt / v2 Zone.
     let forecourt: any = null;
@@ -3614,12 +3645,14 @@ export class SpacesService {
     if (updated.length === 0 && updatedV2.length > 0) {
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
+    // `builderVersion` (BUG-23) : voir commentaire dans assignElementsToFloorLevel.
     return {
       kind: 'forecourt' as const,
       forecourtId: forecourt?.id ?? targetZone?.id ?? null,
       forecourtName: forecourt?.name ?? targetZone?.name ?? 'Parvis',
       level: null,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 
@@ -3646,7 +3679,11 @@ export class SpacesService {
     // Cible : la config utilisateur (étape 1 / 3D Builder), pas « Weezevent Import ».
     const config = await this.resolveTargetConfig(spaceId, opts.configId);
     // Espace géré en v2 → toute assignation ADOPTE l'élément en v2 (zone + adhésion).
-    const spaceHasZones = (await this.prisma.zone.count({ where: { spaceId } })) > 0;
+    const zoneCount = await this.prisma.zone.count({ where: { spaceId } });
+    const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToExternalMerch', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX (cf. assignElementsToFloorLevel) : v1 ExternalMerch / v2 Zone.
     let externalMerch: any = null;
@@ -3839,12 +3876,14 @@ export class SpacesService {
     if (updated.length === 0 && updatedV2.length > 0) {
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
+    // `builderVersion` (BUG-23) : voir commentaire dans assignElementsToFloorLevel.
     return {
       kind: 'externalmerch' as const,
       externalMerchId: externalMerch?.id ?? targetZone?.id ?? null,
       externalMerchName: externalMerch?.name ?? targetZone?.name ?? 'Espace externe',
       level: null,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 

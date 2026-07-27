@@ -12,17 +12,17 @@
 
 | # | Titre | Statut | Sévérité | Domaine |
 |---|---|---|---|---|
-| [01](01_cout_menucomponent_surestime.md) | Coût MenuComponent surestimé (`numberOfUnitsRecipe` ignoré) | 🔴 Ouvert | 🔴 | Menu & recettes |
-| [02](02_double_regle_combo_incompatible.md) | Deux règles d'expansion combo incompatibles | 🔴 Ouvert | 🟠 | Menu & recettes / Stock |
+| [01](01_cout_menucomponent_surestime.md) | Coût MenuComponent surestimé (`numberOfUnitsRecipe` ignoré) | 🟡 Corrigé (backfill des coûts persistés à faire) | 🔴 | Menu & recettes |
+| [02](02_double_regle_combo_incompatible.md) | Deux règles d'expansion combo incompatibles | 🟢 Corrigé | 🟠 | Menu & recettes / Stock |
 | [03](03_taxonomie_croisee_marketprice_menuitem.md) | Taxonomie croisée Market Price / Menu Item | 🟢 Corrigé | 🟠 | Achats & référentiels |
 | [04](04_mappings_orphelins_save_builder.md) | Mappings orphelins après sauvegarde du builder | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [05](05_menuitem_mappe_sans_espace.md) | Menu item mappé sans association Espace | 🟢 Corrigé | 🟠 | Intégrations & ventes |
-| [06](06_perte_tva_bulk_automap.md) | Perte de TVA lors du bulk auto-map | 🟡 Corrigé partiel | 🟠 | Intégrations & ventes |
+| [06](06_perte_tva_bulk_automap.md) | Perte de TVA lors du bulk auto-map | 🟡 Corrigé partiel (dédup forward faite, 55 groupes historiques restent à qualifier) | 🟠 | Intégrations & ventes |
 | [07](07_prix_fnb_weezevent_absent.md) | Prix F&B Weezevent absent du catalogue | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [08](08_tva_defaut_20_incorrecte.md) | TVA par défaut 20% incorrecte | 🟢 Corrigé | 🟠 | Menu & recettes |
-| [09](09_deconnexion_intempestive_multi_onglets.md) | Déconnexion intempestive pendant l'édition (multi-onglets) | 🟡 Corrigé partiel | 🔴 | Auth & onboarding |
+| [09](09_deconnexion_intempestive_multi_onglets.md) | Déconnexion intempestive pendant l'édition (multi-onglets) | 🟢 Corrigé | 🔴 | Auth & onboarding |
 | [10](10_n1_queries_toolbox_predict.md) | Requêtes N+1 dans le toolbox Event Predict | 🟢 Corrigé | 🟡 | Prévision |
-| [11](11_routes_kv_mortes.md) | Routes /kv mortes (KvModule non enregistré) | 🔴 Ouvert | 🟡 | Technique |
+| [11](11_routes_kv_mortes.md) | Routes /kv mortes (KvModule non enregistré) | 🟢 Corrigé (module supprimé) | 🟡 | Technique |
 | [12](12_scoping_config_manquant_spacemenus.md) | Scoping config manquant perf/staff/inventory Space Menus | 🟢 Corrigé | 🟠 | Espaces & builder |
 | [13](13_predictversion_update_jamais_appelee.md) | PredictVersionsService.update() jamais appelée | 🟢 Corrigé | 🟢 | Prévision |
 | [14](14_aggregation_colonnes_mal_ecrites.md) | AggregationService écrit menuItemId/locationId dans les mauvaises colonnes | 🟢 Corrigé | 🔴 | Analyse & agrégation |
@@ -34,8 +34,8 @@
 | [20](20_event_skipped_statut_trompeur.md) | Event "skipped" garde un statut trompeur après traitement réussi | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [21](21_jointure_event_weezevent_par_date_seule.md) | Jointure Event↔WeezeventEvent par égalité de DATE seule | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [22](22_configurations_v1_patch_upsert.md) | PATCH /configurations/:id (v1) se comporte comme un upsert | 🟢 Corrigé | 🟡 | Espaces & builder |
-| [23](23_bascule_silencieuse_v1_v2_assign_floor.md) | Bascule silencieuse v1→v2 dès le 1er assign-floor | 🔴 Ouvert | 🟡 | Espaces & builder |
-| [24](24_dedup_marketprice_criteres_insuffisants.md) | Dédup MarketPrice ignore prix/unité/quantité | 🔴 Ouvert | 🟡 | Achats & référentiels |
+| [23](23_bascule_silencieuse_v1_v2_assign_floor.md) | Bascule silencieuse v1→v2 dès le 1er assign-floor | 🟢 Corrigé (observabilité — retrait de v1 reste une question à part) | 🟡 | Espaces & builder |
+| [24](24_dedup_marketprice_criteres_insuffisants.md) | Dédup MarketPrice ignore prix/unité/quantité | 🟢 Corrigé | 🟡 | Achats & référentiels |
 | [25](25_weezevent_multi_instance_auth_croisee.md) | Multi-instance Weezevent : auth OAuth croisée entre intégrations | 🟢 Corrigé | 🔴 | Intégrations & ventes |
 | [26](26_dedup_webhook_event_inoperante.md) | Dédup IntegrationWebhookEvent inopérante côté Weezevent | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [27](27_cron_weezevent_garde_anti_doublerun_inoperante.md) | Garde anti-double-run du cron Weezevent inopérante | 🟢 Corrigé | 🟡 | Intégrations & ventes |
@@ -44,23 +44,23 @@
 | [30](30_margin_analysis_gonflee_produits_non_mappes.md) | margin-analysis gonfle la marge sur produits non mappés | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [31](31_restock_403_silencieux_roles_board.md) | Restock : rôles restockBoard-only en 403 silencieux permanent | 🔴 Ouvert | 🔴 | Stock |
 | [32](32_discardedquantity_colonnes_mortes.md) | discardedQuantity/discardedReason colonnes DB mortes | 🔴 Ouvert | 🟢 | Stock |
-| [33](33_event_kpis_champs_jamais_ecrits.md) | Event.revenue/transactionCount jamais écrits (pipeline mort) | 🔴 Ouvert | 🟡 | Événements |
-| [34](34_event_spaceid_sans_fk.md) | Event.spaceId/configurationId sans FK Prisma | 🔴 Ouvert | 🟡 | Événements |
+| [33](33_event_kpis_champs_jamais_ecrits.md) | Event.revenue/transactionCount jamais écrits (pipeline mort) | 🟢 Corrigé | 🟡 | Événements |
+| [34](34_event_spaceid_sans_fk.md) | Event.spaceId/configurationId sans FK Prisma | 🟢 Corrigé (orphelins nettoyés, FK `onDelete: SetNull` déployée) | 🟡 | Événements |
 | [35](35_organizationscontroller_faille_cross_tenant.md) | OrganizationsController : faille cross-tenant (type P0-1) | 🟡 Corrigé non déployé | 🔴 | Auth & onboarding |
-| [36](36_onboarding_join_slug_sans_verif.md) | POST /onboarding/join/:slug déprécié actif sans vérification | 🔴 Ouvert | 🟡 | Auth & onboarding |
-| [37](37_jwt_expiresin_7_jours.md) | JWT expiresIn = 7 jours | 🔴 Ouvert | 🟢 | Auth & onboarding |
+| [36](36_onboarding_join_slug_sans_verif.md) | POST /onboarding/join/:slug déprécié actif sans vérification | 🟢 Corrigé (route supprimée) | 🟡 | Auth & onboarding |
+| [37](37_jwt_expiresin_7_jours.md) | JWT expiresIn = 7 jours | 🟢 Corrigé (ramené à 1 jour) | 🟢 | Auth & onboarding |
 | [38](38_clonage_role_sans_resync_permissions.md) | Clonage de rôle ne resynchronise jamais les permissions | 🟢 Corrigé | 🟢 | Auth & onboarding (RBAC) |
 | [39](39_audit_webhooks_core_jamais_appeles.md) | Audit/Webhooks (core) : infra complète, zéro appelant | 🔴 Ouvert | 🟠 | Technique |
-| [40](40_orchestrator_tenantid_client_fourni.md) | Orchestrator fait confiance à un tenantId fourni par le client | 🔴 Ouvert | 🟡 | Technique |
-| [41](41_queue_exports_sans_processor.md) | Queue EXPORTS enregistrée sans processor | 🔴 Ouvert | 🟡 | Technique |
+| [40](40_orchestrator_tenantid_client_fourni.md) | Orchestrator fait confiance à un tenantId fourni par le client | 🟢 Corrigé | 🟡 | Technique |
+| [41](41_queue_exports_sans_processor.md) | Queue EXPORTS enregistrée sans processor | 🟢 Corrigé (processor placeholder, même pattern que Notifications/Analytics) | 🟡 | Technique |
 | [42](42_queues_analytics_notifications_placeholder.md) | Queues ANALYTICS/NOTIFICATIONS 100% placeholder | 🔴 Ouvert | 🟢 | Technique |
-| [43](43_edge_function_heavy_processing_table_inexistante.md) | Edge Function heavy-processing référence une table inexistante | 🔴 Ouvert | 🟢 | Technique |
+| [43](43_edge_function_heavy_processing_table_inexistante.md) | Edge Function heavy-processing référence une table inexistante | 🟢 Corrigé (code mort supprimé) | 🟢 | Technique |
 | [44](44_stock_payload_lent_et_volumineux.md) | `GET /logistics/:spaceId/stock` lent et volumineux (jusqu'à ~180 Mo / 52s) | 🟢 Corrigé | 🟠 | Stock |
 | [45](45_unit_null_codee_en_dur_readyforsale_yes.md) | `unit` codé en dur à `null` pour un menu item mono-ingrédient `readyForSale=Yes` | 🟢 Corrigé | 🟡 | Stock |
 | [46](46_inventoryunit_jamais_persiste_menuitem.md) | `inventoryUnit` (unité conditionnement) jamais persisté sur `MenuItem` | 🟢 Corrigé | 🟡 | Menu & recettes / Stock |
 | [47](47_prisma_client_desync_apres_switch_branche.md) | Prisma Client désynchronisé du schéma après switch de branche (`Unknown argument` sur champ existant) | 🟢 Corrigé | 🟡 | Technique |
 | [48](48_readyforsale_yes_mono_ingredient_masque_par_marketprice.md) | Menu item `readyForSale=Yes` mono-ingrédient masqué par la Market Price de l'ingrédient (jamais affiché sous son propre nom) | 🟢 Corrigé | 🟠 | Stock |
-| [49](49_marketpriceid_mouvement_non_valide_contre_itemkey.md) | `createMovement` accepte un `marketPriceId` sans le valider contre `itemKey` | ⚪ Diagnostiqué | 🟠 | Stock |
+| [49](49_marketpriceid_mouvement_non_valide_contre_itemkey.md) | `createMovement` accepte un `marketPriceId` sans le valider contre `itemKey` | 🟢 Corrigé | 🟠 | Stock |
 | [50](50_unitsperpack_jamais_resolu_hors_marketprice_bloque_casse_de_pack.md) | `unitsPerPack` jamais résolu pour un produit fini/component : casse de pack impossible, retraits valides rejetés | 🟢 Corrigé | 🔴 | Stock |
 | [51](51_spacemenuitem_orphelins_apres_soft_delete_menuitem.md) | `SpaceMenuItem` orphelins après soft-delete d'un `MenuItem` (espace Auxerre : 89% des lignes mortes) | 🟢 Corrigé | 🟠 | Intégrations & ventes / Espaces & builder |
 | [52](52_quickcreate_sans_dedoublonnage_par_nom.md) | Quick-create Data Integration sans dédoublonnage par nom (cause racine de BUG-051) | 🟢 Corrigé | 🟠 | Intégrations & ventes |

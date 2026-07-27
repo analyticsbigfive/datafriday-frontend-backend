@@ -1,7 +1,6 @@
 # BUG-188 — Stock up : l'explosion recette ne considère que `readyForSale`, jamais `comboItem`
 
-- **Statut** : 🔴 Ouvert (règle métier tranchée le 2026-07-24 — QUESTIONS_A_BERTRAND #18 — code pas
-  encore modifié)
+- **Statut** : 🟢 Corrigé (2026-07-24 — règle métier QUESTIONS_A_BERTRAND #18)
 - **Sévérité** : 🟠 Majeur (quantités de préparation potentiellement fausses pour les combos)
 - **Domaine** : Prévision (Event Predict) — miroir backend : `logistics.service.ts` (`deriveSales`)
 - **Repo(s) concerné(s)** : `datafriday-web` (+ backend si la règle change : duplication à dessein)
@@ -33,9 +32,14 @@ items qui composent le combo item. » — un combo `readyForSale='Yes'` doit don
 ses constituants** pour le Stock up, exactement comme un item non-`comboItem`, puis chaque
 constituant suit les règles standard des menu items (mono-ingrédient, `unitsPerPack`, etc.).
 
-**Code pas encore modifié** — reste à faire : brancher `comboItem` dans `expandMenuItem`
-(`EventPredictStockUpSection.vue:644`) pour déclencher l'explosion récursive au lieu du traitement
-"pièce" actuel.
+**Correction appliquée (2026-07-24)** — `expandMenuItem` (`EventPredictStockUpSection.vue:649-708`)
+branche désormais sur `comboItem==='Yes'` (variable `isCombo`) en plus de `readyForSale` : un combo
+n'entre plus jamais dans la branche "1 pièce" et déclenche l'explosion récursive via `components[]`
+même quand `readyForSale==='Yes'` ; un constituant résolu qui est lui-même
+`comboItem==='Yes'` (et pas seulement `readyForSale==='No'`) est aussi récursé. Même règle portée
+aux 3 endroits dupliqués à dessein (backend `logistics.service.ts`, inventaire
+`inventoryUtils.js`) — voir `backend/docs/bugs/02_double_regle_combo_incompatible.md` pour le
+détail des 3 correctifs. Test : `frontend/tests/unit/eventPredictStockUpExpansion.spec.js`.
 
 ⚠️ Contrainte pour le fix : l'explosion recette est **dupliquée à dessein** aux 3 endroits suivants
 — toute évolution de la règle doit être portée aux trois, même passe :

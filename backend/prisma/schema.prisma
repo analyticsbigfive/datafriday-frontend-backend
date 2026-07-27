@@ -516,6 +516,7 @@ model Space {
   userAccess    UserSpaceAccess[]
   menus         Menu[]
   menuItemLinks SpaceMenuItem[]
+  events        Event[]
 
   @@index([tenantId])
   @@index([name])
@@ -547,6 +548,7 @@ model Config {
   elementPerformances   ElementPerformance[]
   elementStaff          ElementStaff[]
   elementInventories    ElementInventory[]
+  events                Event[]
 
   @@index([spaceId])
 }
@@ -2245,6 +2247,8 @@ model Event {
   updatedAt DateTime @updatedAt
 
   // Relations
+  space            Space?            @relation(fields: [spaceId], references: [id], onDelete: SetNull)
+  configuration    Config?           @relation(fields: [configurationId], references: [id], onDelete: SetNull)
   eventType        EventType?        @relation(fields: [eventTypeId], references: [id])
   eventCategory    EventCategory?    @relation(fields: [eventCategoryId], references: [id])
   eventSubcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
@@ -2253,6 +2257,7 @@ model Event {
 
   @@index([tenantId])
   @@index([spaceId])
+  @@index([configurationId])
   @@index([eventDate])
   @@index([eventTypeId])
   @@index([eventCategoryId])

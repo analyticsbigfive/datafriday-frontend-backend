@@ -254,11 +254,9 @@ export function buildConsolidatedInventory(
         mi => mi.name === component.name || mi.id === component.sourceId,
       );
 
-      if (
-        componentMenuItem &&
-        componentMenuItem.comboItem === 'Yes' &&
-        componentMenuItem.readyForSale === 'No'
-      ) {
+      if (componentMenuItem && componentMenuItem.comboItem === 'Yes') {
+        // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+        // ses constituants, indépendamment de son propre readyForSale.
         // This is a combo item that should be expanded - recursively get its components
         const subComponents = getAllComponentsAndIngredients(
           componentMenuItem,
@@ -287,7 +285,9 @@ export function buildConsolidatedInventory(
     // Market Price, even when the recipe has exactly one Ingredient.
 
     // For menu items that are ready for sale, they appear as inventory items themselves
-    if (menuItem.readyForSale === 'Yes') {
+    // Exception : comboItem='Yes' (BUG-002/Q18, décision Bertrand 2026-07-24) explose
+    // TOUJOURS en ses constituants, indépendamment de son propre readyForSale.
+    if (menuItem.readyForSale === 'Yes' && menuItem.comboItem !== 'Yes') {
       // This item is sold directly - add the item itself to inventory
       if (!inventoryMap.has(menuItem.name)) {
         inventoryMap.set(menuItem.name, {

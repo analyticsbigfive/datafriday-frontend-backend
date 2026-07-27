@@ -395,13 +395,66 @@ export class MenuItemsService {
 
   async bulkCreate(dtos: CreateMenuItemDto[], tenantId: string) {
     if (!Array.isArray(dtos) || dtos.length === 0) {
-      return { count: 0, items: [] };
+      return { count: 0, items: [], duplicatesCount: 0, duplicates: [] };
     }
 
     this.logger.log(`Bulk creating ${dtos.length} menu items for tenant ${tenantId}`);
     try {
-      const items = await Promise.all(dtos.map(async (dto) => ({
-        id: randomUUID(),
+      // BUG-006 (partie dédup forward) / même famille que BUG-052 (create()::dedupeByName,
+      // ligne 271) : bulkCreate n'avait aucun garde-fou par nom — chaque essai/retry de mapping
+      // en masse recréait un MenuItem même si un item du même nom existait déjà pour ce tenant,
+      // d'où les doublons accumulés (cf. fiche BUG-006). On recherche les noms déjà présents pour
+      // ce tenant (trim + insensible à la casse, même pattern que create()) et on réutilise
+      // l'existant au lieu d'insérer un doublon ; le même contrôle s'applique aux doublons internes
+      // au payload lui-même (deux lignes du même import portant le même nom).
+      const existingByName = new Map(
+        (
+          await this.prisma.menuItem.findMany({
+            where: { tenantId, deletedAt: null },
+            select: { id: true, name: true, typeId: true, categoryId: true, basePrice: true },
+          })
+        ).map((m) => [m.name.trim().toLowerCase(), m]),
+      );
+
+      type Duplicate = { index: number; name: string; reusedItemId: string; reason: 'existing_tenant_item' | 'duplicate_in_batch' };
+      const duplicates: Duplicate[] = [];
+      const batchNameToId = new Map<string, string>();
+      // Résultat positionnel : une entrée par dto en entrée, dans le même ordre — pour ne pas
+      // casser un appelant qui apparie la réponse à sa requête par index (contrat non-breaking).
+      const resultByIndex: any[] = new Array(dtos.length).fill(null);
+      const toInsert: { dto: CreateMenuItemDto; index: number; id: string }[] = [];
+
+      dtos.forEach((dto, index) => {
+        const key = dto.name?.trim().toLowerCase();
+        const existing = key ? existingByName.get(key) : undefined;
+        if (existing) {
+          duplicates.push({ index, name: dto.name, reusedItemId: existing.id, reason: 'existing_tenant_item' });
+          resultByIndex[index] = {
+            id: existing.id,
+            name: existing.name,
+            typeId: existing.typeId,
+            categoryId: existing.categoryId,
+            basePrice: existing.basePrice,
+            tenantId,
+            spaceIds: [],
+            duplicate: true,
+          };
+          return;
+        }
+        const batchId = key ? batchNameToId.get(key) : undefined;
+        if (batchId) {
+          duplicates.push({ index, name: dto.name, reusedItemId: batchId, reason: 'duplicate_in_batch' });
+          const original = resultByIndex.find((r) => r?.id === batchId);
+          resultByIndex[index] = original ? { ...original, duplicate: true } : { id: batchId, name: dto.name, duplicate: true };
+          return;
+        }
+        const id = randomUUID();
+        if (key) batchNameToId.set(key, id);
+        toInsert.push({ dto, index, id });
+      });
+
+      const insertedItems = await Promise.all(toInsert.map(async ({ dto, id }) => ({
+        id,
         tenantId,
         name: dto.name,
         typeId: dto.typeId || null,
@@ -429,14 +482,15 @@ export class MenuItemsService {
         inventoryUnit: (dto as any).inventoryUnit ?? null,
       })));
 
-      await this.prisma.menuItem.createMany({
-        data: items as any[],
-      });
+      if (insertedItems.length) {
+        await this.prisma.menuItem.createMany({
+          data: insertedItems as any[],
+        });
+      }
 
-      await this.invalidateCache(tenantId);
-      return {
-        count: items.length,
-        items: items.map((item) => ({
+      toInsert.forEach(({ index }, i) => {
+        const item = insertedItems[i];
+        resultByIndex[index] = {
           id: item.id,
           name: item.name,
           typeId: item.typeId,
@@ -444,7 +498,20 @@ export class MenuItemsService {
           basePrice: item.basePrice,
           tenantId: item.tenantId,
           spaceIds: [],
-        })),
+        };
+      });
+
+      await this.invalidateCache(tenantId);
+      if (duplicates.length) {
+        this.logger.log(
+          `bulkCreate: skipped ${duplicates.length} duplicate name(s) out of ${dtos.length} for tenant ${tenantId} (reused existing item instead of inserting)`,
+        );
+      }
+      return {
+        count: insertedItems.length,
+        items: resultByIndex,
+        duplicatesCount: duplicates.length,
+        duplicates,
       };
     } catch (error) {
       this.logger.error(`Failed to bulk create menu items: ${error.message}`, error.stack);

@@ -6,6 +6,7 @@ import { QUEUES } from './queue.constants';
 import { DataSyncProcessor } from './processors/data-sync.processor';
 import { AnalyticsProcessor } from './processors/analytics.processor';
 import { NotificationProcessor } from './processors/notification.processor';
+import { ExportProcessor } from './processors/export.processor';
 import { WeezeventModule } from '../../features/weezevent/weezevent.module';
 import { RedisModule } from '../redis/redis.module';
 
@@ -53,6 +54,7 @@ export { QUEUES } from './queue.constants';
     DataSyncProcessor,
     AnalyticsProcessor,
     NotificationProcessor,
+    ExportProcessor,
   ],
   exports: [BullModule, QueueService],
 })

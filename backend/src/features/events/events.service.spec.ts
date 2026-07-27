@@ -54,6 +54,12 @@ describe('EventsService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    space: {
+      findFirst: jest.fn(),
+    },
+    config: {
+      findFirst: jest.fn(),
+    },
     team: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -124,6 +130,49 @@ describe('EventsService', () => {
       mockPrisma.eventType.findFirst.mockResolvedValue(null);
 
       await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a spaceId/configurationId owned by the caller tenant (BUG-34 regression)', async () => {
+      const dto = {
+        name: 'New Event',
+        eventDate: '2024-08-01',
+        spaceId: 'space-1',
+        configurationId: 'config-1',
+      };
+      mockPrisma.space.findFirst.mockResolvedValue({ id: 'space-1', tenantId: 'tenant-1' });
+      mockPrisma.config.findFirst.mockResolvedValue({ id: 'config-1', spaceId: 'space-1' });
+      mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
+
+      const result = await service.create('tenant-1', dto as any);
+
+      expect(result).toBeDefined();
+      expect(mockPrisma.space.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'space-1', tenantId: 'tenant-1' } }),
+      );
+      expect(mockPrisma.config.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'config-1', space: { tenantId: 'tenant-1' } } }),
+      );
+      expect(mockPrisma.event.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ spaceId: 'space-1', configurationId: 'config-1' }),
+        }),
+      );
+    });
+
+    it('rejects a spaceId belonging to another tenant (BUG-34 regression)', async () => {
+      const dto = { name: 'New Event', eventDate: '2024-08-01', spaceId: 'foreign-space-1' };
+      mockPrisma.space.findFirst.mockResolvedValue(null);
+
+      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.event.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a configurationId belonging to another tenant (BUG-34 regression)', async () => {
+      const dto = { name: 'New Event', eventDate: '2024-08-01', configurationId: 'foreign-config-1' };
+      mockPrisma.config.findFirst.mockResolvedValue(null);
+
+      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(NotFoundException);
       expect(mockPrisma.event.create).not.toHaveBeenCalled();
     });
 
@@ -225,6 +274,50 @@ describe('EventsService', () => {
         'tenant-1',
         updated.eventDate,
       );
+    });
+
+    it('accepts a spaceId/configurationId owned by the caller tenant (BUG-34 regression)', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.space.findFirst.mockResolvedValue({ id: 'space-2', tenantId: 'tenant-1' });
+      mockPrisma.config.findFirst.mockResolvedValue({ id: 'config-2', spaceId: 'space-2' });
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, spaceId: 'space-2' });
+
+      await service.update('evt-1', 'tenant-1', {
+        spaceId: 'space-2',
+        configurationId: 'config-2',
+      } as any);
+
+      expect(mockPrisma.space.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'space-2', tenantId: 'tenant-1' } }),
+      );
+      expect(mockPrisma.config.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'config-2', space: { tenantId: 'tenant-1' } } }),
+      );
+      expect(mockPrisma.event.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ spaceId: 'space-2', configurationId: 'config-2' }),
+        }),
+      );
+    });
+
+    it('rejects a spaceId belonging to another tenant (BUG-34 regression)', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.space.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('evt-1', 'tenant-1', { spaceId: 'foreign-space-1' } as any),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.event.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a configurationId belonging to another tenant (BUG-34 regression)', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.config.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('evt-1', 'tenant-1', { configurationId: 'foreign-config-1' } as any),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.event.update).not.toHaveBeenCalled();
     });
   });
 

@@ -8,7 +8,7 @@ import { MappingsService } from '../mappings/mappings.service';
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
   space: { findFirst: jest.fn() },
-  event: { findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn() },
+  event: { findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn(), update: jest.fn() },
   aggregationJobLog: {
     findMany: jest.fn(),
     findFirst: jest.fn(),
@@ -271,6 +271,10 @@ describe('AggregationService', () => {
       mockPrisma.$executeRaw.mockResolvedValue(0);
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.salesEvent.findMany.mockResolvedValue([]);
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '150.00', transactionsCount: 3 },
+      });
+      mockPrisma.event.update.mockResolvedValue({});
     });
 
     it('upsert sur spaceRevenueMinuteAgg (pas spaceRevenueDailyAgg)', async () => {
@@ -398,6 +402,43 @@ describe('AggregationService', () => {
       await service.executeProcessEvents(job);
 
       expect(job.updateProgress).toHaveBeenCalledWith(100);
+    });
+
+    // ─── BUG-033 ─────────────────────────────────────────────────────────────
+    it('écrit Event.revenue/transactionCount depuis le rollup SpaceRevenueMinuteAgg (BUG-033)', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '287.50', transactionsCount: 12 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.aggregate).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+        _sum: { revenueHt: true, transactionsCount: true },
+      });
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({
+          revenue: 287.5,
+          transactionCount: 12,
+          calculatedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it('écrit revenue=0/transactionCount=0 (pas null) si aucune vente agrégée pour l\'event (BUG-033)', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: null, transactionsCount: null },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ revenue: 0, transactionCount: 0 }),
+      });
     });
   });
 

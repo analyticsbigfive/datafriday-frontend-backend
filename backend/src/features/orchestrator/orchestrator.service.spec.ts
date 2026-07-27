@@ -176,6 +176,26 @@ describe('OrchestratorService', () => {
       expect(result.jobId).toBe('job-123');
       expect(queueService.queueWeezeventSync).toHaveBeenCalled();
     });
+
+    // BUG-43: processViaEdgeFunction (et l'Edge Function Supabase 'heavy-processing'
+    // qu'il appelait) ont été supprimés car c'était du code mort référençant une
+    // table inexistante. Les décisions 'edge' passent désormais par la queue.
+    it('should route large datasets to the queue now that the edge function path has been removed', async () => {
+      const context: ProcessingContext = {
+        tenantId: 'tenant-123',
+        operation: 'sync',
+        estimatedItems: 100000,
+      };
+      const syncFn = jest.fn();
+
+      const result = await service.processSync(context, syncFn);
+
+      expect(result.success).toBe(true);
+      expect(result.strategy).toBe('queue');
+      expect(result.jobId).toBe('job-123');
+      expect(queueService.queueWeezeventSync).toHaveBeenCalled();
+      expect((service as any).processViaEdgeFunction).toBeUndefined();
+    });
   });
 
   describe('processAnalytics', () => {

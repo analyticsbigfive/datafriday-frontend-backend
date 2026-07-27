@@ -47,6 +47,22 @@ describe('Règle 2 — expansion inventaire (inventoryUtils)', () => {
     expect(names(res)).not.toContain('Burger Combo')
   })
 
+  it('BUG-002/Q18 (2026-07-24) : un combo comboItem=Yes/readyForSale=Yes apparaît AUSSI comme ses composants, pas comme le combo', () => {
+    const menu = {
+      id: 'mi-menu',
+      name: 'Menu Burger',
+      comboItem: 'Yes',
+      readyForSale: 'Yes',
+      components: [
+        { id: 'ing-bun', name: 'Bun', itemType: 'Ingredient' },
+        { id: 'ing-fries', name: 'Frites', itemType: 'Ingredient' },
+      ],
+    }
+    const res = buildConsolidatedInventory([menu], [menu])
+    expect(names(res)).toEqual(['Bun', 'Frites'])
+    expect(names(res)).not.toContain('Menu Burger')
+  })
+
   it('un readyForSale=Yes multi-ingrédient garde l’item + son packaging direct, sans les ingrédients', () => {
     const meal = {
       id: 'mi-meal',

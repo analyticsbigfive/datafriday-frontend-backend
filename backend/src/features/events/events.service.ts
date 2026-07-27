@@ -108,6 +108,44 @@ export class EventsService {
   }
 
   /**
+   * BUG-34 : `Event.spaceId`/`configurationId` sont des String sans FK Prisma
+   * (voir docs/bugs/34_event_spaceid_sans_fk.md) — contrairement à
+   * eventTypeId/eventCategoryId/eventSubcategoryId (BUG-67), aucune vérification
+   * d'appartenance tenant n'existait avant ce fix, ouvrant une référence
+   * cross-tenant possible. `Space.tenantId` est obligatoire (pas de socle global
+   * comme EventType/EventCategory) — même nullabilité que `Team`, d'où le même
+   * helper "Owned" strict (et non "Accessible" avec `OR tenantId: null`).
+   */
+  private async findOwnedSpaceOrThrow(id: string, tenantId: string) {
+    const space = await this.prisma.space.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!space) {
+      throw new NotFoundException(`Space ${id} not found`);
+    }
+
+    return space;
+  }
+
+  /**
+   * BUG-34 : `Config` (configuration d'espace) n'a pas de `tenantId` propre — son
+   * appartenance tenant est portée par l'espace parent (`Config.spaceId` ->
+   * `Space.tenantId`). Vérifie donc via la relation plutôt qu'un champ direct.
+   */
+  private async findOwnedConfigOrThrow(id: string, tenantId: string) {
+    const config = await this.prisma.config.findFirst({
+      where: { id, space: { tenantId } },
+    });
+
+    if (!config) {
+      throw new NotFoundException(`Configuration ${id} not found`);
+    }
+
+    return config;
+  }
+
+  /**
    * Champs équipe d'un event : valide que visitingTeamId appartient au tenant
    * (sinon référence cross-tenant possible) et dérive visitingTeamName côté
    * serveur dès que la FK est posée — le nom client n'est pris qu'en repli
@@ -132,6 +170,29 @@ export class EventsService {
       }
     } else if (dto.visitingTeamName !== undefined) {
       data.visitingTeamName = dto.visitingTeamName;
+    }
+    return data;
+  }
+
+  /**
+   * BUG-34 : valide spaceId/configurationId (appartenance tenant) avant écriture —
+   * même rôle que resolveEventTaxonomyFields/resolveEventTeamFields pour les autres
+   * FK de Event. Ni l'un ni l'autre n'est nullable côté DTO (pas de désassignation
+   * explicite `null` comme pour visitingTeamId), seul `undefined` (absent du payload
+   * PATCH) doit sauter la vérification.
+   */
+  private async resolveEventSpaceFields(
+    dto: CreateEventDto | UpdateEventDto,
+    tenantId: string,
+  ): Promise<Record<string, string>> {
+    const data: Record<string, string> = {};
+    if (dto.spaceId !== undefined) {
+      await this.findOwnedSpaceOrThrow(dto.spaceId, tenantId);
+      data.spaceId = dto.spaceId;
+    }
+    if (dto.configurationId !== undefined) {
+      await this.findOwnedConfigOrThrow(dto.configurationId, tenantId);
+      data.configurationId = dto.configurationId;
     }
     return data;
   }
@@ -166,8 +227,6 @@ export class EventsService {
           tenantId,
           name: dto.name,
           eventDate,
-          spaceId: dto.spaceId,
-          configurationId: dto.configurationId,
           location: dto.location,
           spaceName: dto.spaceName,
           sessions: dto.sessions ? JSON.stringify(dto.sessions) : null,
@@ -180,6 +239,7 @@ export class EventsService {
           ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
           ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
           ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
+          ...(await this.resolveEventSpaceFields(dto, tenantId)),
           ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
           ...(await this.resolveEventTeamFields(dto, tenantId)),
         },
@@ -247,8 +307,6 @@ export class EventsService {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.eventDate !== undefined && { eventDate: new Date(dto.eventDate) }),
           ...(dateChanged && { weezeventEventId: null }),
-          ...(dto.spaceId !== undefined && { spaceId: dto.spaceId }),
-          ...(dto.configurationId !== undefined && { configurationId: dto.configurationId }),
           ...(dto.location !== undefined && { location: dto.location }),
           ...(dto.spaceName !== undefined && { spaceName: dto.spaceName }),
           ...(dto.sessions !== undefined && { sessions: dto.sessions ? JSON.stringify(dto.sessions) : null }),
@@ -261,6 +319,7 @@ export class EventsService {
           ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
           ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
           ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
+          ...(await this.resolveEventSpaceFields(dto, tenantId)),
           ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
           ...(await this.resolveEventTeamFields(dto, tenantId)),
         },

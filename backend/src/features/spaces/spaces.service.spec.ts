@@ -6,7 +6,7 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
   let service: SpacesService;
@@ -955,6 +955,41 @@ describe('SpacesService', () => {
         where: { id: 'el-1' },
         data: { floorId: null, forecourtId: null, externalMerchId: 'em-1' },
       });
+    });
+
+    it('BUG-23 — bascule v1→v2 silencieuse rendue observable (log + builderVersion) quand une Zone existe déjà', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+      try {
+        mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+        mockPrismaService.config.findFirst.mockResolvedValue({ id: 'cfg-user', name: 'Stade', isSystem: false, spaceId });
+        // L'espace a déjà 1 Zone (ex. créée par un quick-element antérieur) → bascule v1→v2
+        // silencieuse pour CETTE assignation, alors même que l'élément assigné n'a lui-même
+        // jamais été en v2 (zoneId null).
+        mockPrismaService.zone.count.mockResolvedValue(1);
+        mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1', zoneId: null, floorId: null }]);
+        mockPrismaService.spaceElement.update.mockResolvedValue({ id: 'el-1' });
+        mockPrismaService.$transaction.mockImplementation((arg: any) =>
+          Array.isArray(arg) ? Promise.all(arg) : arg(mockPrismaService),
+        );
+
+        const res: any = await service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 0);
+
+        // 1. La réponse porte désormais un indicateur explicite du routage effectif.
+        expect(res.builderVersion).toBe('v2');
+        expect(res.updatedElementIds).toEqual(['el-1']);
+
+        // 2. La bascule est journalisée avec spaceId/tenantId pour traçabilité debug.
+        expect(warnSpy).toHaveBeenCalled();
+        const loggedSwitch = warnSpy.mock.calls.some(([msg]) =>
+          typeof msg === 'string' &&
+          msg.includes('[BUG-23]') &&
+          msg.includes(`spaceId=${spaceId}`) &&
+          msg.includes(`tenantId=${tenantId}`),
+        );
+        expect(loggedSwitch).toBe(true);
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     it('A4 — assignElementsToFloorLevel rejette un level non entier (BadRequestException)', async () => {

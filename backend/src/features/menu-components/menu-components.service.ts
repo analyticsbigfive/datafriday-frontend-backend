@@ -265,7 +265,14 @@ export class MenuComponentsService {
       total += childUnitCost * (Number(childLine.quantity) || 0);
     }
 
-    return Math.round(total * 10000) / 10000;
+    // BUG-001: `total` est le coût de la fournée entière. Une recette qui produit plusieurs
+    // unités (numberOfUnitsRecipe > 1) doit voir son coût divisé par ce nombre pour obtenir le
+    // coût UNITAIRE. `numberOfUnitsRecipe` est nullable/optionnel : falsy (null/undefined/0) est
+    // traité comme 1 (cas par défaut d'une recette qui produit une seule unité), pour ne jamais
+    // diviser par zéro.
+    const numberOfUnitsRecipe = Number(component.numberOfUnitsRecipe) || 1;
+
+    return Math.round((total / numberOfUnitsRecipe) * 10000) / 10000;
   }
 
   private readonly includeRelations = {
