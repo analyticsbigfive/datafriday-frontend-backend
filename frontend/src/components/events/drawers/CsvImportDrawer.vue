@@ -30,12 +30,12 @@
               }"
             >
               <CheckCircle2 v-if="step > i + 1" :size="12" />
-              <span v-else style="font-size: 10px; font-weight: 700;">{{ i + 1 }}</span>
+              <span v-else style="font-size: var(--fs-xs); font-weight: var(--fw-bold);">{{ i + 1 }}</span>
             </div>
             <span
               class="text-caption"
               :class="step >= i + 1 ? 'font-weight-medium' : 'text-disabled'"
-              style="white-space: nowrap; font-size: 11px;"
+              style="white-space: nowrap; font-size: var(--fs-xs);"
             >{{ s }}</span>
           </div>
           <div

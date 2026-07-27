@@ -133,12 +133,12 @@ export default {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
   color: #991b1b; border-radius: 10px;
-  padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
+  padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 16px;
 }
 
 /* Champ : label statique visible au-dessus + v-text-field outlined (parité EventFormDrawer). */
 .etd-field-wrap { display: flex; flex-direction: column; gap: 6px; }
-.etd-field-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.etd-field-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
 .etd-star { color: #ff3131; }
 .etd-v-field :deep(.v-field) {
   border: 1.5px solid #e5e7eb;
@@ -152,14 +152,14 @@ export default {
 }
 .etd-v-field :deep(.v-field--error) { border-color: #ff3131; }
 .etd-v-field :deep(.v-field__outline) { display: none; }
-.etd-v-field :deep(.v-field__input) { font-size: 14px; }
-.etd-field-error { font-size: 12px; color: #ff3131; margin-top: 4px; }
+.etd-v-field :deep(.v-field__input) { font-size: var(--fs-md); }
+.etd-field-error { font-size: var(--fs-sm); color: #ff3131; margin-top: 4px; }
 
 /* Footer */
 .etd-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 38px;
-  border-radius: 50px; font-size: 13.5px; font-weight: 500;
+  border-radius: 50px; font-size: var(--fs-base); font-weight: 500;
   border: none; cursor: pointer; transition: all .2s;
 }
 .etd-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -183,7 +183,7 @@ export default {
 /* Label de section (icône + span), calqué sur efd-section-label */
 .etd-section-label {
   display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase;
   letter-spacing: .06em; color: #9ca3af; margin-bottom: 12px;
 }
 .etd--dark .etd-section-label { color: #6b7280; }

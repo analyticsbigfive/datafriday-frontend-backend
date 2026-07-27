@@ -349,8 +349,8 @@ export default {
   background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.ecl-header__title { font-size: 20px; font-weight: 800; color: #fff; margin: 0; line-height: 1.2; }
-.ecl-header__subtitle { font-size: 12.5px; color: rgba(255,255,255,.72); margin: 3px 0 0; }
+.ecl-header__title { font-size: var(--fs-xl); font-weight: var(--fw-bold); color: #fff; margin: 0; line-height: 1.2; }
+.ecl-header__subtitle { font-size: var(--fs-sm); color: rgba(255,255,255,.72); margin: 3px 0 0; }
 .ecl-header__right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .ecl-header__sep { width: 1px; height: 32px; background: rgba(255,255,255,.25); }
 .ecl-header__actions { display: flex; align-items: center; gap: 8px; }
@@ -359,7 +359,7 @@ export default {
   padding: 7px 14px; border-radius: 100px;
   border: 1.5px solid rgba(255,255,255,.6);
   background: transparent; color: rgba(255,255,255,.9);
-  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .ecl-action-hbtn:hover { background: rgba(255,255,255,.15); border-color: #fff; }
@@ -368,7 +368,7 @@ export default {
   padding: 9px 18px; border-radius: 100px;
   border: 2px solid rgba(255,255,255,.85);
   background: transparent; color: #fff;
-  font-size: 13px; font-weight: 700; cursor: pointer;
+  font-size: var(--fs-base); font-weight: 700; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .ecl-add-btn:hover { background: #fff; color: #ff3131; }
@@ -383,11 +383,11 @@ export default {
 .ecl-searchbar__icon { color: #9ca3af; flex-shrink: 0; }
 .ecl-searchbar__input {
   flex: 1; min-width: 140px; border: none; outline: none;
-  background: transparent; font-size: 14px; color: #111827;
+  background: transparent; font-size: var(--fs-md); color: #111827;
 }
 .ecl--dark .ecl-searchbar__input { color: #e5e7eb; }
 .ecl-searchbar__input::placeholder { color: #9ca3af; }
-.ecl-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.ecl-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 
 /* ── Content ── */
 .ecl-content { padding: 24px 28px; }
@@ -396,7 +396,7 @@ export default {
 .ecl-error-bar {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 12px; padding: 12px 16px; font-size: 13.5px;
+  border-radius: 12px; padding: 12px 16px; font-size: var(--fs-base);
 }
 
 /* Table */
@@ -408,12 +408,12 @@ export default {
 
 .ecl-table :deep(.v-data-table__th),
 .ecl-table :deep(.v-data-table__td) {
-  font-size: 13px; padding-top: 10px; padding-bottom: 10px;
+  font-size: var(--fs-base); padding-top: 10px; padding-bottom: 10px;
   padding-left: 16px; padding-right: 16px;
 }
 .ecl-table :deep(.v-data-table__td) { vertical-align: middle; }
 .ecl-table :deep(.v-data-table__th) {
-  font-size: 11px !important; font-weight: 600;
+  font-size: var(--fs-xs)!important; font-weight: 600;
   text-transform: uppercase; letter-spacing: .06em;
   color: #9ca3af !important; background: #fafafa !important;
 }
@@ -424,15 +424,15 @@ export default {
 .ecl-type-pill {
   display: inline-flex; align-items: center;
   background: #f3f4f6; color: #374151; border-radius: 50px;
-  padding: 2px 10px; font-size: 12.5px;
+  padding: 2px 10px; font-size: var(--fs-sm);
 }
 .ecl-yes-badge {
   display: inline-flex; background: #f0fdf4; color: #15803d;
-  border: 1px solid #bbf7d0; border-radius: 50px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+  border: 1px solid #bbf7d0; border-radius: 50px; padding: 2px 10px; font-size: var(--fs-sm); font-weight: 600;
 }
 .ecl-no-badge {
   display: inline-flex; background: #f9fafb; color: #9ca3af;
-  border: 1px solid #e5e7eb; border-radius: 50px; padding: 2px 10px; font-size: 12px;
+  border: 1px solid #e5e7eb; border-radius: 50px; padding: 2px 10px; font-size: var(--fs-sm);
 }
 .ecl-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .ecl-abtn {
@@ -452,15 +452,15 @@ export default {
 .ecl-delete-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
+  border-radius: 10px; padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 14px;
 }
-.ecl-delete-text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
+.ecl-delete-text { font-size: var(--fs-md); color: #374151; line-height: 1.6; margin: 0; }
 .ecl--dark .ecl-delete-text { color: #d1d5db; }
 
 .ecl-mbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 18px; height: 38px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 500; border: none; cursor: pointer; transition: all .2s;
+  font-size: var(--fs-base); font-weight: 500; border: none; cursor: pointer; transition: all .2s;
 }
 .ecl-mbtn:disabled { opacity: .5; cursor: not-allowed; }
 .ecl-mbtn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
