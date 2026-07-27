@@ -478,8 +478,21 @@ futur lointain) et recalcule le prochain événement à venir ; aucun futur → 
    ([BUG-233](../bugs/233_pre_event_expected_fuite_via_reconciliations.md), **corrigé 2026-07-24** :
    expurgation conditionnelle des réponses — `expected*` ET `delta*` retirés des lignes pre-event
    pour les non-porteurs, document en base complet).
-6. Consommation dérivée des ventes (vue Stock Logistic) non rejouée par l'attendu — assumé
-   « mouvements seuls », à trancher (Q31).
+6. Consommation dérivée des ventes (vue Stock Logistic) non rejouée par l'attendu — **« mouvements
+   seuls » désormais tranché, ce n'est plus une limite mais une règle** : décision owner (JLH) du
+   2026-07-27, [Question #31](../QUESTIONS_A_BERTRAND.md) →
+   [`REPONSES_QUESTIONS_2026-07-27.md`](../REPONSES_QUESTIONS_2026-07-27.md) §1. On ne vend pas hors
+   match sur l'espace, et une vente hors match (privatisation, kiosque) **ne sort pas du stock
+   inventorié** — déduire la consommation dérivée serait donc *faux*, pas seulement superflu.
+   `computeExpected` reste `post-event précédent + mouvements Logistic`.
+   ⚠️ **Suivi non implémenté** : garde-fou non bloquant (log serveur) quand des ventes existent
+   malgré tout dans la fenêtre de calcul — mesuré le 2026-07-27 sur le seul cycle post→pre de la
+   base staging : 0 mouvement, mais 661 unités de consommation dérivée calculables. Origine
+   vérifiée : élément PARVIS (`shop`) **correctement** mappé, transactions portant l'`eventName`
+   « AJ AUXERRE - Saison 26/27 » (event Weezevent **de saison**) → de vraies ventes de match pour un
+   match **absent du calendrier `Event`**, pas un PDV mal rattaché. C'est précisément ce qu'un
+   garde-fou révélerait. Indépendant du point 2 ci-dessus (Q24/Q25), qui déplacera le point de départ
+   du calcul.
 
 ---
 
