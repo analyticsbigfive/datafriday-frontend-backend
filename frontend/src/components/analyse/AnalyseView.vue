@@ -132,6 +132,14 @@
         :active="showInventory"
       />
 
+      <!-- Bouton flottant QA (module Live) : simuler une vraie vente Weezevent/Digifood
+           pour tester le mode Live sans attendre un vrai event. -->
+      <LiveSaleSimulatorWidget
+        v-if="isLive"
+        :space-id="route.params.spaceId"
+        @simulated="livePoll"
+      />
+
       <!-- pa-0 : les gutters viennent de la grille .an-body (18/24), le
            container ne doit pas ré-indenter le contenu vs le bandeau rouge. -->
       <v-container v-show="!showInventory" id="analyse-capture-root" fluid class="pa-0">
@@ -434,6 +442,7 @@ import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import FilterPanel from './filters/FilterPanel.vue'
 import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
+import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
 import FilterSummary from './filters/FilterSummary.vue'
 import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'

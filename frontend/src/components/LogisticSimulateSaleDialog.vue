@@ -163,7 +163,16 @@ export default {
   },
   computed: {
     shopOptions() {
-      return this.shops.map((s) => ({ title: s.element.name, value: s.element.id }))
+      // `element.provider` (WEEZEVENT/DIGIFOOD) est optionnel — absent tant que
+      // le backend appelant ne le fournit pas (rétrocompatible, ex. Logistique
+      // avant ce champ) ; affiché seulement quand présent (ex. picker Live).
+      const providerLabel = { WEEZEVENT: 'Weezevent', DIGIFOOD: 'Digifood' }
+      return this.shops.map((s) => ({
+        title: providerLabel[s.element.provider]
+          ? `${s.element.name} (${providerLabel[s.element.provider]})`
+          : s.element.name,
+        value: s.element.id,
+      }))
     },
     /** Menu items sellable sur le PDV sélectionné, déduits de items[].usedIn (déjà résolu côté serveur). */
     menuItemOptions() {

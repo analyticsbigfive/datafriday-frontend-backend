@@ -786,14 +786,29 @@ export class LogisticsService {
     // ne pas l'afficher du tout (pas juste à 0 denrée).
     const configuredShops = shops.filter((shop) => (enabledByShop.get(shop.id) ?? []).length > 0);
 
+    // Provider (Weezevent/Digifood) par PDV — dérivé de la même jointure que
+    // simulateSale (LocationShopMapping → SalesLocation.provider). Purement
+    // informatif (ex. badge dans le picker « simuler une vente ») : absent si le
+    // PDV n'est pas encore mappé, sans impact sur le reste de la réponse.
+    const providerByElementId = await this.getProviderByShopElementId(
+      configuredShops.map((s) => s.id),
+      tenantId,
+    );
+
     const itemMapByShop = new Map<string, Map<string, ElementItem>>();
-    const elements: Array<{ id: string; name: string; type: string; items: ElementItem[] }> = [];
+    const elements: Array<{ id: string; name: string; type: string; items: ElementItem[]; provider?: string | null }> = [];
     for (const shop of configuredShops) {
       const ids = enabledByShop.get(shop.id) ?? [];
       const menuItems = ids.map((id) => byId.get(id)).filter(Boolean).map((mi: any) => ({ id: mi.id, name: mi.name }));
       const map = this.aggregateItems(menuItems, byId, ctx);
       itemMapByShop.set(shop.id, map);
-      elements.push({ id: shop.id, name: shop.name, type: shop.type, items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')) });
+      elements.push({
+        id: shop.id,
+        name: shop.name,
+        type: shop.type,
+        items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+        provider: providerByElementId.get(shop.id) ?? null,
+      });
     }
 
     for (const storage of storages) {
@@ -820,6 +835,37 @@ export class LogisticsService {
     }
 
     return elements;
+  }
+
+  /**
+   * Provider (Weezevent/Digifood) par PDV, dérivé de LocationShopMapping → SalesLocation
+   * (même jointure que simulateSale/purgeSimulatedSales). Purement informatif — sert au
+   * front à afficher un badge dans le picker « simuler une vente » ; absent (`null`) si le
+   * PDV n'est pas encore mappé à une location réelle.
+   */
+  private async getProviderByShopElementId(elementIds: string[], tenantId: string) {
+    const result = new Map<string, string | null>();
+    if (!elementIds.length) return result;
+    const mappings = await this.prisma.locationShopMapping.findMany({
+      where: { tenantId, spaceElementId: { in: elementIds } },
+      select: { spaceElementId: true, salesLocationId: true },
+    });
+    if (!mappings.length) return result;
+    const salesLocationIds = [...new Set(mappings.map((m) => m.salesLocationId))];
+    const locations = await this.prisma.salesLocation.findMany({
+      where: { tenantId, OR: [{ id: { in: salesLocationIds } }, { externalId: { in: salesLocationIds } }] },
+      select: { id: true, externalId: true, provider: true },
+    });
+    const locationByKey = new Map<string, (typeof locations)[number]>();
+    for (const loc of locations) {
+      locationByKey.set(loc.id, loc);
+      locationByKey.set(loc.externalId, loc);
+    }
+    for (const m of mappings) {
+      const loc = locationByKey.get(m.salesLocationId);
+      if (loc) result.set(m.spaceElementId, loc.provider);
+    }
+    return result;
   }
 
   /** Market prices candidats pour le dropdown du popup +/− (itemKey donné, sans le catalogue complet). */
@@ -1687,6 +1733,11 @@ export class LogisticsService {
         externalId: `SIM-${randomUUID()}`,
         tenantId,
         integrationId: location.integrationId,
+        // Sans ce champ explicite, Prisma applique le défaut du schéma (WEEZEVENT)
+        // même si `location` est en réalité une location Digifood — la transaction
+        // simulée porterait alors un tag faux. `location.provider` est déjà fiable
+        // (posé explicitement à l'ingestion réelle, cf. digifood-ingestion.service.ts).
+        provider: location.provider,
         amount,
         status: 'V',
         transactionDate,
