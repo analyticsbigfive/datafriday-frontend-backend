@@ -576,6 +576,7 @@ const {
   loading: itemRecordsLoading,
   loadedEventIds: mainLoadedEventIds,
   fetchError: itemRecordsError,
+  refresh: refreshItemRecords,
 } = useAnalyseItemRecords(filteredEvents)
 
 // Prédicat des filtres globaux, en miroir du getter store `filteredShopGranularData`
@@ -1435,30 +1436,47 @@ function onShowAverage() {
 // (délégué à useAnalyseCapture : copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare)
 
 // ── Mode flux « Live » (docs/modules/11_LIVE.md, greffe D) ──────────────────
-// Sur la route dédiée `space-live`, on rafraîchit périodiquement la source
-// RÉELLEMENT temps réel : `event-timeline` via loadTimelineForEvents (§5, déjà
-// quasi live grâce au webhook Weezevent + cron fallback).
-// Volontairement NON pollés au v1 :
-//  - loadSpace/shop-details : re-dispatch remet le sélecteur de config à null
-//    (bug connu, store analyse:351) ET les KPI par shop restent figés tant que
-//    l'agrégation backend n'est pas auto-déclenchée (§5, prérequis Ulrich) ;
-//  - useAnalyseItemRecords : cache sans API de refresh exposée.
+// Sur la route dédiée `space-live`, on rafraîchit périodiquement TOUTES les
+// sources KPI, pas seulement la timeline :
+//  - `event-timeline` (loadTimelineForEvents) ET `useAnalyseItemRecords`
+//    (Revenue/Per Cap/Margin/Avg-Tx en dépendent, cf. kpiRecords) sont repollés
+//    avec `bypassCache: true` : le cache session de `getSpaceEventTimelineBatch`
+//    (`space.api.js`) suppose un event IMMUABLE (vrai une fois l'event terminé,
+//    faux pendant un live) — sans ce bypass, tout poll après le 1er est servi
+//    depuis ce cache mémoire et n'atteint jamais le réseau.
+//  - `loadSpace` (shop-details/shopGranularData → Shop Performance, Event
+//    Revenue by Shop, Shop distribution) : le bug historique qui remettait
+//    `selectedConfigurationId` à null a été corrigé (bug 225,
+//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js) — un
+//    re-dispatch régulier est donc sûr, à un intervalle plus large (ce payload
+//    recharge aussi catalogue/ingrédients, inutile de le faire aussi souvent
+//    que la timeline).
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 const LIVE_POLL_MS = 15000
+const LIVE_SHOP_DETAILS_POLL_MS = 45000
 let livePollTimer = null
+let liveShopDetailsTimer = null
 function livePoll() {
-  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value)
+  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
+  refreshItemRecords()
+}
+function liveShopDetailsPoll() {
+  const spaceId = route.params.spaceId
+  if (spaceId) store.dispatch('analyse/loadSpace', spaceId)
 }
 function startLivePolling() {
   stopLivePolling()
-  if (isLive.value) livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
+  if (!isLive.value) return
+  livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
+  liveShopDetailsTimer = setInterval(liveShopDetailsPoll, LIVE_SHOP_DETAILS_POLL_MS)
 }
 function stopLivePolling() {
   if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
+  if (liveShopDetailsTimer) { clearInterval(liveShopDetailsTimer); liveShopDetailsTimer = null }
 }
 onActivated(startLivePolling)
 onDeactivated(stopLivePolling)

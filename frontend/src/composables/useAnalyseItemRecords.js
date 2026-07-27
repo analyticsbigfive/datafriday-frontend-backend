@@ -27,7 +27,7 @@ let _warnedBatchKo = false
  * @param {import('vue').ComputedRef<Array<{id:string}>>} filteredEvents
  * @param {{ maxEvents?: number }} [options] — cap de fetch (défaut MAX_EVENTS) ;
  *   l'instance comparaison (fenêtres prev∪N-1 jusqu'à 24 mois) passe un cap élevé.
- * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>>, fetchError: import('vue').Ref<string|null> }}
+ * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>>, fetchError: import('vue').Ref<string|null>, refresh: () => Promise<void> }}
  */
 export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS } = {}) {
   const route = useRoute()
@@ -88,6 +88,43 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     { immediate: true },
   )
 
+  // Module Live (docs/modules/11_LIVE.md) : re-fetch en bypassant le cache session
+  // de `getSpaceEventTimelineBatch` pour les events actuellement visibles — un event
+  // EN COURS n'est pas immuable comme le suppose ce cache pour un event passé.
+  // N'affecte pas `ensureLoaded`/le cache par défaut pour les autres consommateurs.
+  async function refresh() {
+    const list = (filteredEvents.value || []).filter((e) => e?.id)
+    if (!list.length) return
+
+    if (abortController) abortController.abort()
+    const controller = new AbortController()
+    abortController = controller
+    loading.value = true
+
+    const spaceId = route.params.spaceId
+    const ids = list.map((e) => e.id)
+    try {
+      const byEventId = await getSpaceEventTimelineBatch(spaceId, ids, { bypassCache: true })
+      if (controller.signal.aborted) return
+      const patch = {}
+      for (const id of ids) {
+        const data = byEventId.get(id) || []
+        const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
+        patch[id] = preprocessTimelineRecords(raw, {
+          menuItemCostMap: store.state.analyse.menuItemCostMap || {},
+        })
+      }
+      cache.value = { ...cache.value, ...patch }
+      _warnedBatchKo = false
+    } catch (err) {
+      if (controller.signal.aborted) return
+      console.warn(`[useAnalyseItemRecords] refresh KO (${err?.message})`)
+    } finally {
+      if (!controller.signal.aborted) loading.value = false
+      if (abortController === controller) abortController = null
+    }
+  }
+
   // Records agrégés de tous les events VISIBLES (restreints en amont par
   // sélection / configuration via filteredEvents). Les records event-timeline portent
   // des libellés bruts Weezevent → on les RÉCONCILIE (MÊME util que le getter
@@ -117,5 +154,5 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   // records effectivement disponibles.
   const loadedEventIds = computed(() => new Set(Object.keys(cache.value)))
 
-  return { itemRecords, loading, loadedEventIds, fetchError }
+  return { itemRecords, loading, loadedEventIds, fetchError, refresh }
 }
