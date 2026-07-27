@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma, StockMovementReason } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
+import { QueueService } from '../../core/queue/queue.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
 
 type ElementRef = { id: string; name: string; spaceId: string };
@@ -75,7 +76,15 @@ type RecipeCtx = {
 export class LogisticsService {
   private readonly logger = new Logger(LogisticsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // QueueService vient de QueueModule (@Global()) — pas besoin de l'importer dans
+    // LogisticsModule. Volontairement pas AggregationService : LogisticsModule est
+    // importé par SpacesModule, et AggregationModule → MappingsModule → SpacesModule
+    // fermerait un cycle (même raison documentée dans
+    // weezevent/services/webhook-event.handler.ts).
+    private readonly queueService: QueueService,
+  ) {}
 
   // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
 
@@ -1753,6 +1762,17 @@ export class LogisticsService {
       include: { items: true },
     });
 
+    // Best-effort, miroir du chemin webhook réel (WebhookEventHandler.triggerLiveAggregation) :
+    // sans ça, une vente simulée n'avance jamais Shop Performance/POS Performance/Event
+    // Revenue by Shop (alimentés par SpaceRevenueMinuteAgg, pas par la transaction brute),
+    // sauf rattrapage par le cron 5 min ET seulement si un Event DataFriday est actif.
+    // Ne doit jamais faire échouer simulateSale : la transaction est déjà committée.
+    try {
+      await this.triggerLiveAggregationForEvent(tenantId, location.integrationId, location.eventId);
+    } catch (e: any) {
+      this.logger.warn(`[simulateSale] agrégation live non déclenchée : ${e?.message}`);
+    }
+
     return {
       transactionId: transaction.id,
       elementId,
@@ -1760,6 +1780,49 @@ export class LogisticsService {
       items: itemsData.map((it) => ({ menuItemId: it.menuItemId, productName: it.productName, quantity: it.quantity })),
       consumptionPreview,
     };
+  }
+
+  /**
+   * Miroir de WebhookEventHandler.triggerLiveAggregation
+   * (weezevent/services/webhook-event.handler.ts:179-215) — dupliqué plutôt que
+   * partagé pour éviter un cycle de modules (LogisticsModule est importé par
+   * SpacesModule, qui est dans la chaîne de dépendance d'AggregationModule via
+   * MappingsModule → SpacesModule ; même raison documentée côté weezevent).
+   * No-op silencieux si `weezeventEventId` est vide ou ne résout à aucun Event
+   * DataFriday scopé à un space (BUG-021 disambiguation) — reflète fidèlement ce
+   * qu'un vrai webhook ferait dans ce cas.
+   */
+  private async triggerLiveAggregationForEvent(
+    tenantId: string,
+    integrationId: string,
+    weezeventEventId: string | null,
+  ): Promise<void> {
+    if (!weezeventEventId) return;
+    const dfEvent = await this.prisma.event.findFirst({
+      where: { tenantId, weezeventEventId, spaceId: { not: null } },
+      select: { id: true, spaceId: true, eventDate: true },
+    });
+    if (!dfEvent?.spaceId) return;
+
+    const jobLog = await this.prisma.aggregationJobLog.create({
+      data: {
+        tenantId,
+        spaceId: dfEvent.spaceId,
+        jobType: 'incremental',
+        status: 'pending',
+        fromDate: dfEvent.eventDate,
+        toDate: dfEvent.eventDate,
+        metadata: { eventIds: [dfEvent.id], trigger: 'simulate-sale' },
+      },
+    });
+    await this.queueService.queueAggregationJob({
+      type: 'process-events',
+      tenantId,
+      spaceId: dfEvent.spaceId,
+      jobLogId: jobLog.id,
+      eventIds: [dfEvent.id],
+      integrationId,
+    });
   }
 
   /**

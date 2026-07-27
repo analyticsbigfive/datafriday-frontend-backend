@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { LogisticsService } from './logistics.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { QueueService } from '../../core/queue/queue.service';
 
 describe('LogisticsService — readyForSale display logic', () => {
   let service: any;
@@ -27,7 +28,11 @@ describe('LogisticsService — readyForSale display logic', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [LogisticsService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        LogisticsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: QueueService, useValue: { queueAggregationJob: jest.fn() } },
+      ],
     }).compile();
     service = module.get<LogisticsService>(LogisticsService);
     jest.clearAllMocks();
