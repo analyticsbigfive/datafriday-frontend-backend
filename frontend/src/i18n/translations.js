@@ -1825,6 +1825,8 @@ export const translations = {
     invRecoMetaSalesUnjoined:
       'sold units could not be matched to a counted POS/item — Missing is overstated by that much',
     invRecoMetaOrphans: 'orphan line(s) excluded (item or POS removed from the catalogue).',
+    invRecoMetaSalesTimeline:
+      'Sales counted at sold-item level (older backend at generation time) — ingredient-level lines show 0 sold; read their Missing with that bias.',
     invRecoMetaIncomplete: 'Count was incomplete when generated:',
     invPostCarriedHint:
       'Quantities shown come from the pre-match count — recount and validate each item.',
@@ -5560,6 +5562,8 @@ export const translations = {
     invRecoMetaSalesUnjoined:
       'unité(s) vendue(s) non rattachée(s) à un PdV/article compté — le manquant est surévalué d’autant',
     invRecoMetaOrphans: 'ligne(s) orpheline(s) exclue(s) (article ou PdV retiré du catalogue).',
+    invRecoMetaSalesTimeline:
+      'Ventes comptées au grain article vendu (backend antérieur à la génération) — les lignes au grain ingrédient affichent 0 vendu ; leur Manquant se lit avec ce biais.',
     invRecoMetaIncomplete: 'Comptage incomplet à la génération :',
     invPostCarriedHint:
       "Les quantités affichées viennent du comptage d'avant-match — recomptez et validez chaque article.",

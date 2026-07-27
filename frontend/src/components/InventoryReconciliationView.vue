@@ -220,6 +220,13 @@ const notices = computed(() => {
   if (Number(meta.orphanLinesExcluded) > 0) {
     out.push({ level: 'info', text: `${meta.orphanLinesExcluded} ${t('invRecoMetaOrphans')}` })
   }
+  // Q35 : grain de la source « Vendu ». 'timeline' = ventes brutes au grain
+  // article (backend antérieur au moment de la génération) — les lignes au grain
+  // ingrédient ont alors Vendu=0, leurs manquants sont à lire avec ce biais.
+  // 'consumption' (régime nominal) et absent (document pré-Q35) : pas de bandeau.
+  if (meta.salesSource === 'timeline' && !isPre.value) {
+    out.push({ level: 'info', text: t('invRecoMetaSalesTimeline') })
+  }
   const cp = meta.countedProgress
   if (Array.isArray(cp) && cp.length === 2 && cp[1] > 0 && cp[0] < cp[1]) {
     out.push({ level: 'warn', text: `${t('invRecoMetaIncomplete')} ${cp[0]}/${cp[1]}` })

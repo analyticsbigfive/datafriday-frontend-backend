@@ -111,6 +111,19 @@ export async function getPreEventBaseline(spaceId, eventId) {
 }
 
 /**
+ * Ventes de l'événement EXPLOSÉES en consommation d'ingrédients par la cascade
+ * Logistic (Q35 Option 1) — source « Vendu » de la réco post-event : une ligne
+ * comptée au grain ingrédient (fût, bidon) reçoit enfin la consommation des
+ * produits préparés vendus. Réponse : { lines: [{elementId, itemKey, quantity}],
+ * unjoined } — itemKey = NOM du référentiel (jointure par nom normalisé côté
+ * appelant), unjoined = ventes non rattachables (jamais avalées, BUG-238).
+ * GET /inventory/:spaceId/event-consumption/:eventId
+ */
+export async function getEventSalesConsumption(spaceId, eventId) {
+  return api.get(`/inventory/${spaceId}/event-consumption/${eventId}`)
+}
+
+/**
  * Crée la réconciliation PRE-event (attendu vs compté) — lignes construites
  * CÔTÉ SERVEUR (le client, potentiellement sans la permission « attendus »,
  * ne les fournit pas).

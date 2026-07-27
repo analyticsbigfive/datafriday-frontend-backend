@@ -138,6 +138,24 @@ export class InventoryController {
     );
   }
 
+  @Get(':spaceId/event-consumption/:eventId')
+  @ApiOperation({
+    summary:
+      "Ventes de l'événement explosées en consommation d'ingrédients (cascade Logistic) — source « Vendu » de la réconciliation post-event (Q35 Option 1). Les ventes non rattachables (PdV non mappé, produit sans mapping) sortent dans `unjoined`, jamais écartées en silence.",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'eventId', description: "ID de l'événement (fenêtre eventDate → fin+1j)" })
+  @ApiResponse({ status: 200, description: '{ lines: [{elementId, itemKey, quantity}], unjoined }' })
+  @ApiResponse({ status: 404, description: 'Espace ou événement inconnu pour ce tenant' })
+  async getEventSalesConsumption(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`GET /inventory/${spaceId}/event-consumption/${eventId}`);
+    return this.inventoryService.getEventSalesConsumption(spaceId, eventId, user.tenantId);
+  }
+
   @Get(':spaceId/pre-event/:eventId')
   @ApiOperation({
     summary: "Inventaire de référence pré-événement (dernier snapshot antérieur au jour de l'event)",

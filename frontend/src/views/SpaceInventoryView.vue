@@ -676,11 +676,13 @@ import {
   getPreEventInventory,
   getPreEventBaseline,
   createPreEventReconciliation,
+  getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey } from '@/utils/preEventExpected'
 import {
   reconciliationKey,
   buildPostEventReconciliationLines,
+  buildSoldUnitsFromConsumption,
 } from '@/utils/postEventReconciliation'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
@@ -1868,7 +1870,7 @@ export default {
             kind: 'post-event',
             createdAt: new Date().toISOString(),
             lines,
-            meta: { baseline: { source: meta.preEventSource }, salesUnjoined: meta.salesUnjoined },
+            meta: { baseline: { source: meta.preEventSource }, salesUnjoined: meta.salesUnjoined, salesSource: meta.salesSource },
           }
           this.reconciliations = [doc, ...this.reconciliations]
           this.selectedReconciliationId = doc.id
@@ -1886,6 +1888,9 @@ export default {
             preEventSource: meta.preEventSource,
             ...(meta.salesUnjoined ? { salesUnjoined: meta.salesUnjoined } : {}),
             countedProgress: meta.countedProgress,
+            // Q35 : grain de la source « Vendu » — un backend antérieur le rejette
+            // en 400 « should not exist » → repli basePayload ci-dessous (BUG-228).
+            salesSource: meta.salesSource,
           })
         } catch (e) {
           // Réflexe BUG-228 : le DTO backend est en whitelist stricte
@@ -1969,65 +1974,115 @@ export default {
         preEventUnitsByKey = null
       }
 
-      // ── Vendu pendant l'event : event-timeline (grain article×PdV) ──────────
-      // Échec de chargement ≠ « aucune vente » : avec un pré-event présent, des
-      // ventes à 0 gonfleraient missing = (preEvent − 0) − compté et archiveraient
-      // de fausses pertes. Hors démo, on ABANDONNE la création (le comptage est
-      // déjà sauvegardé, recliquer retente) — philosophie « jamais de 0 fabriqué ».
-      const soldUnitsByKey = {}
+      // ── Vendu pendant l'event ────────────────────────────────────────────────
+      // Q35 Option 1 (décision owner 2026-07-27) : source primaire = ventes
+      // EXPLOSÉES en consommation d'ingrédients par la cascade Logistic
+      // (event-consumption). Une ligne comptée au grain ingrédient (fût, bidon)
+      // reçoit enfin la consommation des produits préparés vendus — fini le
+      // « Vendu = 0 → manquant fantôme ». Repli grain article (timeline brut) si
+      // le backend n'expose pas encore la route (404) ; `salesSource` archivé
+      // dans le document pour que chaque archive dise son grain.
+      // Échec RÉSEAU ≠ « aucune vente » : avec un pré-event présent, des ventes à
+      // 0 gonfleraient missing = (preEvent − 0) − compté et archiveraient de
+      // fausses pertes. Hors démo, on ABANDONNE la création (le comptage est déjà
+      // sauvegardé, recliquer retente) — philosophie « jamais de 0 fabriqué ».
+      let soldUnitsByKey = {}
       // BUG-238 : une vente non joignable n'est PAS « zéro vente » — elle sort du
       // calcul et gonfle le manquant de la ligne concernée. On compte ce qui est
       // écarté pour l'archiver dans le document et l'afficher.
       const unjoinedShops = new Set()
       const unjoinedItems = new Set()
       let unjoinedUnits = 0
-      try {
-        const byEventId = await getSpaceEventTimelineBatch(spaceId, [recoEvent.id])
-        const raw = (byEventId.get(recoEvent.id) || []).map((r) => ({ ...r, eventId: recoEvent.id }))
-        const records = preprocessTimelineRecords(raw, {
-          menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
+      let salesSource = 'consumption'
+      let consumption = null
+      if (isDemoMode()) {
+        salesSource = 'timeline'
+      } else {
+        try {
+          consumption = await getEventSalesConsumption(spaceId, recoEvent.id)
+        } catch (e) {
+          if (e?.response?.status === 404) {
+            // Backend antérieur à Q35 : la route n'existe pas → repli assumé.
+            salesSource = 'timeline'
+            console.warn(
+              '[SpaceInventory] event-consumption absent (backend antérieur) — repli ventes au grain article',
+            )
+          } else {
+            const err = new Error(e?.message || 'event-consumption failed')
+            err.salesFetchFailed = true
+            throw err
+          }
+        }
+      }
+
+      if (consumption) {
+        const joined = buildSoldUnitsFromConsumption(consumption.lines || [], {
+          elementIdSet: new Set(Object.keys(elementNameById)),
+          itemIdByNormName,
+          normalize: normalizeStr,
         })
-        for (const r of records) {
-          const qty = Number(r.quantity) || 0
-          const shopLabel = r.shopName || r.shop || ''
-          const elId = elementIdByNormName.get(normalizeStr(shopLabel))
-          if (!elId) {
-            // PdV de vente non présent dans la config comptée
-            if (shopLabel) unjoinedShops.add(String(shopLabel))
-            unjoinedUnits += qty
-            continue
+        soldUnitsByKey = joined.soldUnitsByKey
+        joined.unjoinedItems.forEach((n) => unjoinedItems.add(n))
+        joined.unjoinedShops.forEach((n) => unjoinedShops.add(n))
+        unjoinedUnits += joined.unjoinedUnits
+        // Écartés côté serveur (PdV non mappé Weezevent, produit sans mapping) :
+        // même bandeau que les non-joints côté client.
+        const su = consumption.unjoined
+        if (su) {
+          for (const n of su.shopNames || []) unjoinedShops.add(String(n))
+          for (const n of su.productNames || []) unjoinedItems.add(String(n))
+          unjoinedUnits += Number(su.units) || 0
+        }
+      } else {
+        // ── Repli grain article : event-timeline brut (chemin pré-Q35, inchangé).
+        try {
+          const byEventId = await getSpaceEventTimelineBatch(spaceId, [recoEvent.id])
+          const raw = (byEventId.get(recoEvent.id) || []).map((r) => ({ ...r, eventId: recoEvent.id }))
+          const records = preprocessTimelineRecords(raw, {
+            menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
+          })
+          for (const r of records) {
+            const qty = Number(r.quantity) || 0
+            const shopLabel = r.shopName || r.shop || ''
+            const elId = elementIdByNormName.get(normalizeStr(shopLabel))
+            if (!elId) {
+              // PdV de vente non présent dans la config comptée
+              if (shopLabel) unjoinedShops.add(String(shopLabel))
+              unjoinedUnits += qty
+              continue
+            }
+            const itemLabel = r.itemName || r.menuItemName || r.productName || ''
+            const itemId =
+              (r.menuItemId != null && String(r.menuItemId)) ||
+              (r.mappedMenuItemId != null && String(r.mappedMenuItemId)) ||
+              itemIdByNormName.get(normalizeStr(itemLabel)) ||
+              null
+            if (!itemId || !(itemId in itemNameById)) {
+              // Vente non rattachable à un article inventorié (id inconnu du
+              // référentiel compté OU nom sans correspondance).
+              if (itemLabel) unjoinedItems.add(String(itemLabel))
+              unjoinedUnits += qty
+              continue
+            }
+            const key = reconciliationKey(elId, itemId)
+            soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + qty
           }
-          const itemLabel = r.itemName || r.menuItemName || r.productName || ''
-          const itemId =
-            (r.menuItemId != null && String(r.menuItemId)) ||
-            (r.mappedMenuItemId != null && String(r.mappedMenuItemId)) ||
-            itemIdByNormName.get(normalizeStr(itemLabel)) ||
-            null
-          if (!itemId || !(itemId in itemNameById)) {
-            // Vente non rattachable à un article inventorié (id inconnu du
-            // référentiel compté OU nom sans correspondance).
-            if (itemLabel) unjoinedItems.add(String(itemLabel))
-            unjoinedUnits += qty
-            continue
+        } catch (e) {
+          if (!isDemoMode()) {
+            const err = new Error(e?.message || 'event-timeline failed')
+            err.salesFetchFailed = true
+            throw err
           }
-          const key = reconciliationKey(elId, itemId)
-          soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + qty
+          // Démo : pas de backend, on tolère (document local d'illustration).
+          console.warn('[SpaceInventory] event-timeline KO (démo, Qty sold à 0) :', e?.message)
         }
-        if (unjoinedShops.size || unjoinedItems.size) {
-          console.warn(
-            `[SpaceInventory] réconciliation : ${Math.round(unjoinedUnits * 100) / 100} unité(s) vendue(s) non rattachée(s) — ` +
-              `PdV inconnus: ${[...unjoinedShops].join(', ') || '—'} ; ` +
-              `articles inconnus: ${[...unjoinedItems].join(', ') || '—'}`,
-          )
-        }
-      } catch (e) {
-        if (!isDemoMode()) {
-          const err = new Error(e?.message || 'event-timeline failed')
-          err.salesFetchFailed = true
-          throw err
-        }
-        // Démo : pas de backend, on tolère (document local d'illustration).
-        console.warn('[SpaceInventory] event-timeline KO (démo, Qty sold à 0) :', e?.message)
+      }
+      if (unjoinedShops.size || unjoinedItems.size) {
+        console.warn(
+          `[SpaceInventory] réconciliation : ${Math.round(unjoinedUnits * 100) / 100} unité(s) vendue(s) non rattachée(s) — ` +
+            `PdV inconnus: ${[...unjoinedShops].join(', ') || '—'} ; ` +
+            `articles inconnus: ${[...unjoinedItems].join(', ') || '—'}`,
+        )
       }
 
       // ── Prédit : scénario Event Predict (pont localStorage, comme le Réarmement)
@@ -2044,21 +2099,30 @@ export default {
         }
       }
 
+      // Q35 : le scénario prédit des ventes d'ARTICLES — une ligne au grain
+      // ingrédient (id de ligne de recette, hors catalogue) garde predicted null.
+      // Catalogue pas encore chargé → null (régime inchangé), pas un Set vide qui
+      // éteindrait le prédit de toutes les lignes.
+      const catalogItemIds = new Set(
+        (this.store.state.analyse?.menuItems || []).map((mi) => String(mi?.id)).filter(Boolean),
+      )
       const lines = buildPostEventReconciliationLines({
         countedUnitsByKey,
         preEventUnitsByKey,
         soldUnitsByKey,
         predictedUnitsByKey,
+        predictableItemIds: catalogItemIds.size ? catalogItemIds : null,
         // Coûts menu items (map partagée du store analyse) → Miss € au coût.
         unitCostByItemId: this.store.state.analyse?.menuItemCostMap || {},
         elementNameById,
         itemNameById,
       })
 
-      // Contexte de fabrication archivé avec le document (BUG-238/241) : sans
+      // Contexte de fabrication archivé avec le document (BUG-238/241/Q35) : sans
       // lui, un écart dû à une source manquante est indiscernable d'un manquant.
       const meta = {
         preEventSource,
+        salesSource,
         salesUnjoined:
           unjoinedShops.size || unjoinedItems.size
             ? {

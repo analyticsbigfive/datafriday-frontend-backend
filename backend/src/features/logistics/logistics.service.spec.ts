@@ -379,4 +379,72 @@ describe('LogisticsService — readyForSale display logic', () => {
       ).resolves.toBeDefined();
     });
   });
+
+  describe('deriveEventConsumption — ventes d’un event explosées (Q35 Option 1)', () => {
+    // Le mock partagé du haut de fichier ne porte que menuItem/menuComponent/
+    // marketPrice — on greffe ici les tables de la méthode (cast any : objet
+    // littéral figé par l'inférence TS).
+    const p = mockPrisma as any;
+    const mockPrismaFull = () => {
+      p.space = { findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }) };
+      p.event = {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'ev-1',
+          name: 'Match test',
+          eventDate: new Date('2026-07-30T00:00:00Z'),
+          eventEndDate: null,
+        }),
+      };
+      p.spaceElement = { findMany: jest.fn().mockResolvedValue([{ id: 'shop-1' }, { id: 'shop-2' }]) };
+      p.locationSpaceMapping = { findFirst: jest.fn().mockResolvedValue({ salesLocationId: 'integ-1' }) };
+      p.$queryRaw = jest.fn().mockResolvedValue([]);
+    };
+
+    beforeEach(() => mockPrismaFull());
+
+    it('404 quand l’event n’appartient pas au space/tenant (pas de fenêtre arbitraire)', async () => {
+      p.event.findFirst.mockResolvedValueOnce(null);
+      await expect(service.deriveEventConsumption('space-1', 'ev-x', 'tenant-1')).rejects.toThrow(
+        'Event ev-x not found in space space-1',
+      );
+    });
+
+    it('partitionne : ligne mappée → explosion ; PdV hors espace et produit non mappé → unjoined, jamais avalés', async () => {
+      p.$queryRaw.mockResolvedValueOnce([
+        { elementId: 'shop-1', menuItemId: 'mi-1', locationName: 'Buvette Nord', productName: 'PINTE', qty: 140 },
+        { elementId: null, menuItemId: 'mi-1', locationName: 'POS fantôme', productName: 'PINTE', qty: 3 },
+        { elementId: 'shop-1', menuItemId: null, locationName: 'Buvette Nord', productName: 'Produit inconnu', qty: 2 },
+      ]);
+      const explode = jest
+        .spyOn(service, 'explodeSalesToConsumption')
+        .mockResolvedValue([{ elementId: 'shop-1', itemKey: 'Budweiser Fût', quantity: 7 }]);
+
+      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+
+      expect(explode).toHaveBeenCalledWith(
+        [expect.objectContaining({ elementId: 'shop-1', menuItemId: 'mi-1', qty: 140 })],
+        'tenant-1',
+      );
+      expect(result.lines).toEqual([{ elementId: 'shop-1', itemKey: 'Budweiser Fût', quantity: 7 }]);
+      expect(result.unjoined).toEqual({
+        shopNames: ['POS fantôme'],
+        productNames: ['Produit inconnu'],
+        units: 5,
+      });
+    });
+
+    it('aucune vente → lines vides, unjoined null (le front distingue « 0 vente » de « échec réseau »)', async () => {
+      const explode = jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
+      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      expect(explode).toHaveBeenCalledWith([], 'tenant-1');
+      expect(result).toEqual({ eventId: 'ev-1', eventName: 'Match test', lines: [], unjoined: null });
+    });
+
+    it('espace sans PdV → réponse vide sans requête ventes (pas de fenêtre tenant-wide)', async () => {
+      p.spaceElement.findMany.mockResolvedValueOnce([]);
+      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      expect(p.$queryRaw).not.toHaveBeenCalled();
+      expect(result.lines).toEqual([]);
+    });
+  });
 });

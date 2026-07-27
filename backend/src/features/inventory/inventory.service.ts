@@ -280,6 +280,9 @@ export class InventoryService {
           baseline: { source: dto.preEventSource ?? 'none' },
           salesUnjoined: dto.salesUnjoined ?? null,
           countedProgress: dto.countedProgress ?? null,
+          // Q35 Option 1 : grain de la source « Vendu » ('consumption' = explosé
+          // ingrédients, 'timeline' = brut article). null = document d'avant Q35.
+          salesSource: dto.salesSource ?? null,
         },
         createdBy: userId ?? null,
       } as any,
@@ -345,6 +348,16 @@ export class InventoryService {
         return rest;
       }),
     };
+  }
+
+  // ── GET /inventory/:spaceId/event-consumption/:eventId ──────────────────────
+  // Ventes de l'événement EXPLOSÉES en consommation d'ingrédients (Q35 Option 1) —
+  // source « Vendu » de la réconciliation post-event. Délégué à LogisticsService
+  // (propriétaire de la cascade d'explosion) ; exposé ici pour porter la
+  // permission de l'écran inventaire (front.fb.spaceInventory), pas celle de la
+  // Logistique.
+  async getEventSalesConsumption(spaceId: string, eventId: string, tenantId: string) {
+    return this.logistics.deriveEventConsumption(spaceId, eventId, tenantId);
   }
 
   // ── GET /inventory/:spaceId/pre-event/:eventId ───────────────────────────────

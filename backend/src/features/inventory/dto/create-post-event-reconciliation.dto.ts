@@ -124,6 +124,18 @@ export class CreatePostEventReconciliationDto {
   @Type(() => SalesUnjoinedDto)
   salesUnjoined?: SalesUnjoinedDto;
 
+  @ApiPropertyOptional({
+    description:
+      "Grain de la source « Vendu » (Q35 Option 1) : 'consumption' = ventes explosées en " +
+      "ingrédients par la cascade Logistic (event-consumption) ; 'timeline' = ventes brutes au " +
+      "grain article (repli backend antérieur). Absent = document d'avant Q35. ⚠️ Le front " +
+      "n'envoie ce champ QUE sur le chemin 'consumption' (un backend antérieur, " +
+      'forbidNonWhitelisted, rejetterait le champ inconnu).',
+  })
+  @IsOptional()
+  @IsString()
+  salesSource?: string;
+
   @ApiPropertyOptional({ description: 'Comptage au moment de la génération (articles comptés / total)', type: [Number] })
   @IsOptional()
   @IsArray()

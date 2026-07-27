@@ -257,8 +257,12 @@
 | [239](239_pre_event_taille_de_paquet_divergente_serveur_front.md) | Pre-event : le serveur casse les packs avec la chaîne Logistique (MarketPrice → MenuComponent → MenuItem) et le front reconvertit avec `inventoryQuantityPackaged` (**MenuItem prioritaire**) — priorités inverses → attendus, hints « Attendu : N » et écarts faux dès que les deux valeurs diffèrent | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
 | [240](240_reconciliation_dark_mode_et_formats_fr_fr_en_dur.md) | Section + vue Réconciliation : 44 couleurs en littéraux, **0** `var(--fb-*)` → deux blocs blancs en thème sombre ; dates/nombres en `toLocaleString('fr-FR')` en dur malgré l'i18n maison | 🟡 Corrigé non déployé | 🟡 | Stock / Thème & i18n |
 | [241](241_getpreeventinventory_repli_legacy_hors_event.md) | `getPreEventInventory` : le repli legacy prend le dernier snapshot du space antérieur au jour du match, **sans filtre `eventId` ni `kind`** (contrairement à son commentaire) → stock de départ possiblement issu d'un autre match, non tracé ; contredit « un match = un eventId » (§12.4) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [242](242_reco_post_event_ventes_composees_non_explosees.md) | Réco post-event : ventes de produits préparés jamais explosées vers les ingrédients → sur toute ligne comptée au grain ingrédient, `Qty Sold` 0 et `Missing` = 100 % de la consommation réelle (ex-Q35, tranchée owner 2026-07-27 : Option 1 — la réco consomme `explodeSalesToConsumption` via `GET event-consumption`) | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
 
-**239 bugs au total** (237-241 ajoutés le 2026-07-24 : vérification de l'implémentation Pre/Post-event
+**240 bugs au total** (242 ajouté le 2026-07-27 : ex-Q35 tranchée par l'owner — Option 1, la réco
+post-event consomme les ventes explosées en ingrédients par la cascade Logistique ; déploiement
+backend requis, repli automatique au grain article sinon, `meta.salesSource` archivé. 237-241
+ajoutés le 2026-07-24 : vérification de l'implémentation Pre/Post-event
 Inventory contre `modules/10_POST_EVENT_INVENTORY.md`, cf. §13 de ce document — le brief produit et
 les correctifs déjà documentés sont conformes, ces 5 fiches sont les écarts trouvés au-delà.
 **Tous corrigés le jour même** sur `feat/postEventInventory` : backend 41/41, front 478 tests verts
