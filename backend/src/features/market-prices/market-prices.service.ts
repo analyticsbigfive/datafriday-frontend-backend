@@ -367,9 +367,10 @@ export class MarketPricesService {
       try {
         // Dédoublonnage exact à l'insertion : évite de recréer une ligne identique à chaque
         // réimport du même CSV (cf. BUG connu : aucune contrainte @@unique en base sur
-        // MarketPrice). Volontairement plus strict que `deduplicate()` (nom+fournisseur
-        // uniquement) : on inclut aussi unit/price pour ne jamais fusionner deux prix
-        // réellement différents pour le même article/fournisseur.
+        // MarketPrice). `deduplicate()` (méthode séparée ci-dessous, corrigée par BUG-24)
+        // compare désormais les mêmes champs identitaires (nom/fournisseur/prix/unit/quantité) ;
+        // on inclut ici aussi unit/price pour ne jamais fusionner deux prix réellement différents
+        // pour le même article/fournisseur.
         //
         // Le rapprochement fournisseur ne peut PAS reposer sur `supplierId` seul : les lignes
         // créées manuellement (MarketPriceCreateDrawer) n'enregistrent jamais de `supplier`
@@ -679,8 +680,24 @@ export class MarketPricesService {
       const seen = new Map<string, string>();
       const toDelete: string[] = [];
 
+      // BUG-24 : la clé ne comparait que itemName + fournisseur, donc deux lignes légitimement
+      // différentes (même produit/fournisseur mais prix différent, ou conditionnement différent)
+      // pouvaient être fusionnées à tort. On resserre la clé pour inclure aussi price/unit/quantity
+      // (unitsPerPurchase), comme le faisait une version antérieure du produit — deux lignes ne
+      // sont désormais des doublons QUE si TOUS ces champs sont identiques.
+      // `price` est un champ Prisma `Decimal` (voir BUG-57 : comparer un Decimal à un `number` JS
+      // brut échoue silencieusement dans un `where` Prisma). Ici il ne s'agit pas d'un `where`
+      // Prisma mais d'une clé de Map côté JS ; on convertit explicitement via `.toString()`
+      // (plutôt que de compter sur la coercition implicite d'un template literal) pour rester
+      // cohérent avec le pattern établi par ce fix et garantir une représentation stable.
       for (const price of allPrices) {
-        const key = `${price.itemName}::${price.supplierId || price.supplier || ''}`;
+        const key = [
+          price.itemName,
+          price.supplierId || price.supplier || '',
+          price.price.toString(),
+          price.unit,
+          price.unitsPerPurchase ?? '',
+        ].join('::');
         if (seen.has(key)) {
           toDelete.push(price.id);
         } else {

@@ -132,6 +132,14 @@
         :active="showInventory"
       />
 
+      <!-- Bouton flottant QA (module Live) : simuler une vraie vente Weezevent/Digifood
+           pour tester le mode Live sans attendre un vrai event. -->
+      <LiveSaleSimulatorWidget
+        v-if="isLive"
+        :space-id="route.params.spaceId"
+        @simulated="livePoll"
+      />
+
       <!-- pa-0 : les gutters viennent de la grille .an-body (18/24), le
            container ne doit pas ré-indenter le contenu vs le bandeau rouge. -->
       <v-container v-show="!showInventory" id="analyse-capture-root" fluid class="pa-0">
@@ -434,6 +442,7 @@ import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import FilterPanel from './filters/FilterPanel.vue'
 import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
+import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
 import FilterSummary from './filters/FilterSummary.vue'
 import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'
@@ -445,6 +454,7 @@ import SummaryPanel from './panels/SummaryPanel.vue'
 import FilterEditorPanel from './panels/FilterEditorPanel.vue'
 import ShopPerformanceByTransactionRate from './charts/ShopPerformanceByTransactionRate.vue'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
+import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
@@ -576,6 +586,7 @@ const {
   loading: itemRecordsLoading,
   loadedEventIds: mainLoadedEventIds,
   fetchError: itemRecordsError,
+  refresh: refreshItemRecords,
 } = useAnalyseItemRecords(filteredEvents)
 
 // Prédicat des filtres globaux, en miroir du getter store `filteredShopGranularData`
@@ -1435,32 +1446,55 @@ function onShowAverage() {
 // (délégué à useAnalyseCapture : copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare)
 
 // ── Mode flux « Live » (docs/modules/11_LIVE.md, greffe D) ──────────────────
-// Sur la route dédiée `space-live`, on rafraîchit périodiquement la source
-// RÉELLEMENT temps réel : `event-timeline` via loadTimelineForEvents (§5, déjà
-// quasi live grâce au webhook Weezevent + cron fallback).
-// Volontairement NON pollés au v1 :
-//  - loadSpace/shop-details : re-dispatch remet le sélecteur de config à null
-//    (bug connu, store analyse:351) ET les KPI par shop restent figés tant que
-//    l'agrégation backend n'est pas auto-déclenchée (§5, prérequis Ulrich) ;
-//  - useAnalyseItemRecords : cache sans API de refresh exposée.
+// Sur la route dédiée `space-live`, on rafraîchit périodiquement TOUTES les
+// sources KPI, pas seulement la timeline :
+//  - `event-timeline` (loadTimelineForEvents) ET `useAnalyseItemRecords`
+//    (Revenue/Per Cap/Margin/Avg-Tx en dépendent, cf. kpiRecords) sont repollés
+//    avec `bypassCache: true` : le cache session de `getSpaceEventTimelineBatch`
+//    (`space.api.js`) suppose un event IMMUABLE (vrai une fois l'event terminé,
+//    faux pendant un live) — sans ce bypass, tout poll après le 1er est servi
+//    depuis ce cache mémoire et n'atteint jamais le réseau.
+//  - `loadSpace` (shop-details/shopGranularData → Shop Performance, Event
+//    Revenue by Shop, Shop distribution) : le bug historique qui remettait
+//    `selectedConfigurationId` à null a été corrigé (bug 225,
+//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js) — un
+//    re-dispatch régulier est donc sûr, à un intervalle plus large (ce payload
+//    recharge aussi catalogue/ingrédients, inutile de le faire aussi souvent
+//    que la timeline).
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 const LIVE_POLL_MS = 15000
+const LIVE_SHOP_DETAILS_POLL_MS = 45000
 let livePollTimer = null
+let liveShopDetailsTimer = null
 function livePoll() {
-  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value)
+  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
+  refreshItemRecords()
+}
+function liveShopDetailsPoll() {
+  const spaceId = route.params.spaceId
+  if (spaceId) store.dispatch('analyse/loadSpace', spaceId)
 }
 function startLivePolling() {
   stopLivePolling()
-  if (isLive.value) livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
+  if (!isLive.value) return
+  livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
+  liveShopDetailsTimer = setInterval(liveShopDetailsPoll, LIVE_SHOP_DETAILS_POLL_MS)
 }
 function stopLivePolling() {
   if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
+  if (liveShopDetailsTimer) { clearInterval(liveShopDetailsTimer); liveShopDetailsTimer = null }
 }
-onActivated(startLivePolling)
+onActivated(() => {
+  startLivePolling()
+  // Le composant reste en mémoire (keepAlive) : revenir sur /live après être
+  // passé par un autre outil ne redéclenche pas onMounted — on resynchronise
+  // quand même sur l'event réellement live à chaque retour sur l'écran.
+  applyLiveScope()
+})
 onDeactivated(stopLivePolling)
 onBeforeUnmount(stopLivePolling)
 
@@ -1554,10 +1588,37 @@ async function ensureAuthAndLoad(spaceId) {
         store.dispatch('analyse/updateFilter', { key: 'selectedConfigurationId', value: urlConfig })
       }
     }
+    await applyLiveScope()
   } finally {
     // Navigation rapide entre spaces : ancienne requête ne doit pas masquer
     // skeleton de nouvelle requête encore active.
     if (requestId === analyseLoadRequestId) initialLoadPending.value = false
+  }
+}
+
+// Module Live : sans ça, /live hérite tel quel du dernier filtre actif sur Analyse
+// classique (même state.filters partagé) — un `timeRange:'all'` résiduel affiche
+// tout l'historique de l'espace au lieu du seul event en cours. Scope explicitement
+// sur l'event live (selectedEventIds + configuration remise à "Toutes" pour ne pas
+// l'exclure silencieusement, cf. filteredEvents) ; à défaut, repli sur "Aujourd'hui"
+// plutôt que "Tout l'historique". Best-effort (comme SpaceItem.vue checkLiveStatus) :
+// n'empêche jamais l'affichage si l'appel échoue.
+async function applyLiveScope() {
+  if (!isLive.value) return
+  const spaceId = route.params.spaceId
+  if (!spaceId) return
+  try {
+    const res = await getSpaceLiveStatus(spaceId)
+    if (res?.isLive && res?.eventId) {
+      setFilterImmediate('selectedConfigurationId', null)
+      setFilterImmediate('timeRange', 'all')
+      setFilterImmediate('selectedEventIds', [res.eventId])
+    } else {
+      setFilterImmediate('selectedEventIds', [])
+      setFilterImmediate('timeRange', 'today')
+    }
+  } catch (e) {
+    console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
   }
 }
 </script>

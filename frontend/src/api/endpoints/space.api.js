@@ -134,7 +134,7 @@ const _eventTimelineCache = new Map()
 // comparaison) peuvent demander le même event avant que le cache ne soit rempli.
 const _eventTimelineInflight = new Map()
 
-export async function getSpaceEventTimeline(spaceId, eventId) {
+export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = false } = {}) {
   // Mode démo : pas de backend → on reconstruit la timeline minute-level de
   // l'event à partir des records du mock (mêmes données minute que le graphe
   // Analyse). Corrige d'un coup (a) la timeline d'event « No timeline data
@@ -149,8 +149,14 @@ export async function getSpaceEventTimeline(spaceId, eventId) {
     )
   }
   const cacheKey = `${spaceId}:${eventId}`
-  if (_eventTimelineCache.has(cacheKey)) return _eventTimelineCache.get(cacheKey)
-  if (_eventTimelineInflight.has(cacheKey)) return _eventTimelineInflight.get(cacheKey)
+  // bypassCache (module Live) : un event EN COURS n'est pas immuable, contrairement
+  // à l'hypothèse qui justifie ce cache pour un event passé — on force le réseau,
+  // mais on réécrit quand même le cache avec la réponse fraîche pour les autres
+  // consommateurs (useAnalyseTimeline, usePredictiveTimeline, etc.).
+  if (!bypassCache) {
+    if (_eventTimelineCache.has(cacheKey)) return _eventTimelineCache.get(cacheKey)
+    if (_eventTimelineInflight.has(cacheKey)) return _eventTimelineInflight.get(cacheKey)
+  }
   const inflight = (async () => {
     try {
       const response = await api.get(`/spaces/${spaceId}/event-timeline/${eventId}`)
@@ -175,7 +181,7 @@ export async function getSpaceEventTimeline(spaceId, eventId) {
  * shopIds/ownership/integration-scope once for the space either way). Returns a Map
  * keyed by eventId, same record shape as getSpaceEventTimeline per event.
  */
-export async function getSpaceEventTimelineBatch(spaceId, eventIds) {
+export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCache = false } = {}) {
   const ids = [...new Set((eventIds || []).filter(Boolean))]
   const result = new Map()
   if (!ids.length) return result
@@ -188,10 +194,14 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds) {
     return result
   }
 
+  // bypassCache (module Live) : mêmes raisons que getSpaceEventTimeline ci-dessus —
+  // tout va au réseau, mais le cache est quand même réécrit avec la réponse fraîche.
   const missing = []
   for (const eventId of ids) {
     const cacheKey = `${spaceId}:${eventId}`
-    if (_eventTimelineCache.has(cacheKey)) {
+    if (bypassCache) {
+      missing.push(eventId)
+    } else if (_eventTimelineCache.has(cacheKey)) {
       result.set(eventId, _eventTimelineCache.get(cacheKey))
     } else if (_eventTimelineInflight.has(cacheKey)) {
       result.set(eventId, await _eventTimelineInflight.get(cacheKey))

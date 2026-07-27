@@ -1,6 +1,6 @@
 # BUG-049 — `createMovement` accepte un `marketPriceId` sans le valider contre `itemKey`
 
-- **Statut** : ⚪ Diagnostiqué (root cause connue, fix à faire)
+- **Statut** : 🟢 Corrigé (2026-07-24)
 - **Sévérité** : 🟠 Majeur (peut corrompre `StockLevel.unitsPerPack`, donc le Total affiché)
 - **Domaine** : Stock (Logistic)
 - **Repo(s) concerné(s)** : les deux — fiche complète et fix côté front :
@@ -26,16 +26,17 @@ silencieusement le pack size utilisé pour le calcul du Total côté front.
 
 ## Correction
 
-Non corrigée dans cette passe. Le risque via le parcours UI normal a été éliminé côté front
-(`datafriday-web` BUG-032 : le dropdown ne propose plus que les Market Prices dont `itemName`
-correspond réellement à la denrée). Reste ouvert : un appel API direct au endpoint pourrait encore
-envoyer un `marketPriceId` incohérent avec `itemKey`.
+**Correction appliquée (2026-07-24)** — `createMovement` (`logistics.service.ts:294-311`) charge
+désormais `itemName` en plus de `packedUnits` sur le `MarketPrice` résolu, et compare
+`mp.itemName` (trim + lowercase) à `dto.itemKey` — même normalisation que
+`resolveUnitsPerPackForItemKey` (comparaison insensible casse/espaces). Sur mismatch (ou
+`itemName` vide), rejet en `BadRequestException` (400), cohérent avec le pattern
+`NotFoundException` déjà en place juste au-dessus pour un `marketPriceId` inexistant. Le risque via
+le parcours UI normal restait déjà éliminé côté front (BUG-032) ; ce correctif ferme le trou côté
+appel API direct.
 
-Piste de correction possible (non arbitrée) : dans `createMovement`, si `dto.marketPriceId` est
-fourni, vérifier que `marketPrice.itemName` correspond à `dto.itemKey` (ou qu'il existe un lien
-`Ingredient.marketPriceId` résolvant vers ce nom) avant de l'utiliser pour dériver `unitsPerPack` —
-sinon rejeter en 400 ou ignorer silencieusement le `marketPriceId` fourni (à trancher avec le
-owner du domaine, Ulrich).
+Test : `backend/src/features/logistics/logistics.service.spec.ts` (describe "createMovement —
+BUG-049").
 
 ## Risque de régression / à surveiller
 

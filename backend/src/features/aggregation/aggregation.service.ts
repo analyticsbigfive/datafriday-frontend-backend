@@ -354,6 +354,27 @@ export class AggregationService {
               "updatedAt" = NOW()
           `);
 
+          // BUG-033 (corrigé) : Event.revenue/transactionCount n'étaient jamais écrits par le
+          // pipeline — SpaceRevenueMinuteAgg était alimenté ci-dessus mais le rollup n'était jamais
+          // remonté sur l'Event lui-même, laissant ces colonnes null/0 à vie. On réutilise le même
+          // agrégat que getEventStats() (cf. plus bas dans ce fichier) : SUM(revenueHt) /
+          // SUM(transactionsCount) sur SpaceRevenueMinuteAgg pour cet event, juste après avoir écrit
+          // les lignes ci-dessus — même source de données, même calcul, pas de nouvelle logique.
+          const eventRollup = await this.prisma.spaceRevenueMinuteAgg.aggregate({
+            where: { tenantId, spaceId, weezeventEventId: event.id },
+            _sum: { revenueHt: true, transactionsCount: true },
+          });
+          const eventRevenue = Number(eventRollup._sum.revenueHt ?? 0);
+          const eventTransactionCount = eventRollup._sum.transactionsCount ?? 0;
+          await this.prisma.event.update({
+            where: { id: event.id },
+            data: {
+              revenue: eventRevenue,
+              transactionCount: eventTransactionCount,
+              calculatedAt: new Date(),
+            },
+          });
+
           processedCount++;
           results.push({
             eventId: event.id, eventName: event.name, date: event.eventDate,
@@ -393,16 +414,20 @@ export class AggregationService {
                 integrationId,
                 startDate: { gte: eventDate, lt: nextDay },
               },
-              select: { id: true },
+              select: { id: true, externalId: true },
             });
             for (const we of weezeventEvents) {
+              // BUG : `we.id` est le cuid interne DataFriday du SalesEvent, pas l'id
+              // Weezevent réel — l'API attendees (`/events/:eventId/attendees`) attend
+              // `externalId`. Avec `we.id`, cette synchro 404 systématiquement, pour
+              // n'importe quel event, réel ou simulé (BUG-XXX, cf. docs/bugs/).
               await this.queueService.queueWeezeventSyncType(
                 tenantId,
                 'attendees',
-                { eventId: we.id },
+                { eventId: we.externalId },
                 integrationId,
               );
-              this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.id} (event ${r.eventId})`);
+              this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
             }
           } catch (e) {
             // Non-blocking — attendees sync failure must not fail the aggregation job

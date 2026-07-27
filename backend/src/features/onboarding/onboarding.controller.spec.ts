@@ -35,7 +35,6 @@ describe('OnboardingController', () => {
     getUserStatus: jest.fn(),
     createOrganization: jest.fn(),
     joinByInvitationCode: jest.fn(),
-    joinTenant: jest.fn(),
   };
 
   beforeEach(async () => {

@@ -83,7 +83,7 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
     })
   }
 
-  async function loadTimelineForEvents(eventList) {
+  async function loadTimelineForEvents(eventList, { bypassCache = false } = {}) {
     if (!eventList || eventList.length < 1) {
       console.warn('[useAnalyseTimeline] aucun évènement à charger')
       return
@@ -167,7 +167,7 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
 
     try {
       const spaceId = route.params.spaceId
-      const byEventId = await getSpaceEventTimelineBatch(spaceId, idsToFetch)
+      const byEventId = await getSpaceEventTimelineBatch(spaceId, idsToFetch, { bypassCache })
       if (controller.signal.aborted) return
 
       // Dénominateur = nb d'events alignés, figé AVANT fetch (parité EP : les

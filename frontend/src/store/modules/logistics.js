@@ -232,8 +232,8 @@ const actions = {
    * `loadStock`, pour afficher le récap avant/après) — c'est à l'appelant de
    * dispatcher `loadStock` après coup.
    */
-  async simulateSale(_ctx, { spaceId, elementId, lines }) {
-    return simulateSale(spaceId, { elementId, lines })
+  async simulateSale(_ctx, { spaceId, elementId, lines, realMode, ensureLiveEvent }) {
+    return simulateSale(spaceId, { elementId, lines, realMode, ensureLiveEvent })
   },
 
   /** QA — purge les ventes simulées d'un PDV puis recharge le stock. */

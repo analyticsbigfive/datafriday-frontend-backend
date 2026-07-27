@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -164,4 +165,20 @@ export class SimulateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => SimulateSaleLineDto)
   lines: SimulateSaleLineDto[];
+
+  @ApiPropertyOptional({
+    description:
+      "Mode réel : ignore le refus checkConsumptionFeasibility (config de stock incomplète) et se comporte comme le pipeline webhook réel, qui n'a jamais ce garde-fou. Défaut false (mode strict, comportement historique).",
+  })
+  @IsOptional()
+  @IsBoolean()
+  realMode?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      "Rattache la vente à un Event/SalesEvent datés aujourd'hui (créés/réutilisés si besoin, tagués isSimulated) au lieu du SalesEvent déjà stocké sur la location — sinon la vente n'apparaît jamais sous un filtre \"Aujourd'hui\" côté Analyse/Live. Défaut false (comportement historique, inchangé).",
+  })
+  @IsOptional()
+  @IsBoolean()
+  ensureLiveEvent?: boolean;
 }

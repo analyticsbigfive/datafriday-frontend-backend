@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Prisma, ElementType } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -20,6 +20,7 @@ export const WEEZEVENT_IMPORT_CONFIG_NAME = 'Weezevent Import';
 
 @Injectable()
 export class SpacesService {
+  private readonly logger = new Logger(SpacesService.name);
   private readonly SPACES_CACHE_TTL = 60; // 60 seconds
   private readonly SPACE_DETAIL_CACHE_TTL = 120; // 2 minutes for individual space
   private readonly SPACE_SHOPS_CACHE_TTL = 30; // 30 seconds — lecture chaude pour SpaceMenuView
@@ -1313,6 +1314,11 @@ export class SpacesService {
    * plus récent dont la fenêtre [eventStartDate, eventEndDate + grace] couvre l'instant présent est
    * live si au moins une vente réelle (non annulée, cf. BUG-108) est arrivée dans les 30 dernières
    * minutes pour les shops de cet espace.
+   *
+   * Si AUCUN Event ne couvre l'instant présent (pas créé à l'avance, ou oublié), ne pas se
+   * refermer sur `isLive:false` par principe : une vente réelle dans la fenêtre glissante de 30
+   * min suffit à elle seule à ancrer le live (`eventId:null` dans ce cas — décision revue, il
+   * n'est plus nécessaire d'avoir saisi un Event en amont pour détecter un live réel).
    */
   async getLiveStatus(
     spaceId: string,
@@ -1334,13 +1340,14 @@ export class SpacesService {
       orderBy: { eventDate: 'desc' },
     });
 
+    // Ne bloque plus sur l'absence d'Event : `event` peut rester `undefined` — le live sera
+    // alors détecté (ou non) sur la seule base des ventes réelles, cf. doc de la méthode.
     const event = candidates.find((e) => {
       const start = e.eventStartDate ?? e.eventDate;
       const end = e.eventEndDate ?? e.eventDate;
       const graceEnd = new Date(end.getTime() + graceMs);
       return now >= start && now <= graceEnd;
     });
-    if (!event) return { isLive: false, eventId: null, since: null };
 
     const [locationMapping, shopIds] = await Promise.all([
       this.prisma.locationSpaceMapping.findFirst({
@@ -1349,7 +1356,7 @@ export class SpacesService {
       }),
       this.resolveShopIdsForSpace(spaceId, tenantId),
     ]);
-    if (shopIds.length === 0) return { isLive: false, eventId: event.id, since: null };
+    if (shopIds.length === 0) return { isLive: false, eventId: event?.id ?? null, since: null };
 
     const integrationId = locationMapping?.salesLocationId ?? null;
     const integrationClause = integrationId
@@ -1362,10 +1369,12 @@ export class SpacesService {
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
 
     const windowStart = new Date(now.getTime() - this.LIVE_STATUS_WINDOW_MINUTES * 60 * 1000);
-    const eventStart = event.eventStartDate ?? event.eventDate;
-    // La vente doit être à la fois récente (30 dernières minutes) ET dans la fenêtre de l'event
-    // (pas une vente de test pré-event) — les deux bornes de la définition tranchée #20.
-    const effectiveWindowStart = windowStart > eventStart ? windowStart : eventStart;
+    // Avec un Event trouvé : la vente doit être à la fois récente (30 dernières minutes) ET
+    // dans la fenêtre de l'event (pas une vente de test pré-event) — définition tranchée #20,
+    // inchangée. Sans Event : fenêtre glissante de 30 min pure, aucun ancrage supplémentaire —
+    // une vente isolée suffit, et le live retombe naturellement 30 min après la dernière vente.
+    const eventStart = event ? (event.eventStartDate ?? event.eventDate) : null;
+    const effectiveWindowStart = eventStart && eventStart > windowStart ? eventStart : windowStart;
 
     const rows: { since: Date | null }[] = await this.prisma.$queryRaw(Prisma.sql`
       SELECT MIN(t."transactionDate") AS since
@@ -1382,7 +1391,7 @@ export class SpacesService {
     `);
 
     const since = rows[0]?.since ?? null;
-    return { isLive: !!since, eventId: event.id, since: since ? since.toISOString() : null };
+    return { isLive: !!since, eventId: event?.id ?? null, since: since ? since.toISOString() : null };
   }
 
   /**
@@ -3128,6 +3137,26 @@ export class SpacesService {
   }
 
   /**
+   * BUG-23 — Journalise la bascule v1→v2 lorsqu'un espace "v1 pur" route une assignation
+   * en v2 uniquement parce qu'au moins une `Zone` existe déjà pour cet espace (ex. créée
+   * par un `quick-element` antérieur). Purement observabilité : ne change AUCUN
+   * comportement de routage, ne fait que rendre la bascule visible en log (cf.
+   * docs/bugs/23_bascule_silencieuse_v1_v2_assign_floor.md).
+   */
+  private logBuilderV2Switch(
+    origin: 'assignElementsToFloorLevel' | 'assignElementsToForecourt' | 'assignElementsToExternalMerch',
+    spaceId: string,
+    tenantId: string,
+    zoneCount: number,
+  ): void {
+    this.logger.warn(
+      `[BUG-23] Bascule v1→v2 (builderVersion=v2) pour spaceId=${spaceId} tenantId=${tenantId} ` +
+        `dans ${origin} : l'espace possède déjà ${zoneCount} zone(s), toute nouvelle assignation ` +
+        `est routée en v2 même si l'utilisateur n'a jamais ouvert le builder v2.`,
+    );
+  }
+
+  /**
    * Assign a list of SpaceElements to a given floor level (or to the forecourt/"Parvis")
    * within the same space. Le Floor/Forecourt est trouvé/créé dans la configuration cible
    * (`opts.configId`, sinon la config utilisateur principale via `resolveTargetConfig`).
@@ -3194,6 +3223,9 @@ export class SpacesService {
     ]);
     if (!space) throw new NotFoundException('Space not found or access denied');
     const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToFloorLevel', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX : le Floor v1 n'est créé que si un élément v1 doit y aller
     // (ne pas polluer un espace géré en v2), la Zone v2 que si un élément v2 arrive.
@@ -3393,12 +3425,15 @@ export class SpacesService {
     }
 
     // Réponse en union discriminée (`kind`) cohérente entre floor / forecourt / externalmerch.
+    // `builderVersion` (BUG-23) : champ additif indiquant le routage effectif de cet appel,
+    // pour que le frontend/debug n'ait plus à le déduire silencieusement du payload.
     return {
       kind: 'floor' as const,
       floorId: floor?.id ?? targetZone?.id ?? null,
       floorName: zoneName ?? floorName,
       level,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 
@@ -3425,7 +3460,11 @@ export class SpacesService {
     // Cible : la config utilisateur (étape 1 / 3D Builder), pas « Weezevent Import ».
     const config = await this.resolveTargetConfig(spaceId, opts.configId);
     // Espace géré en v2 → toute assignation ADOPTE l'élément en v2 (zone + adhésion).
-    const spaceHasZones = (await this.prisma.zone.count({ where: { spaceId } })) > 0;
+    const zoneCount = await this.prisma.zone.count({ where: { spaceId } });
+    const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToForecourt', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX (cf. assignElementsToFloorLevel) : v1 Forecourt / v2 Zone.
     let forecourt: any = null;
@@ -3614,12 +3653,14 @@ export class SpacesService {
     if (updated.length === 0 && updatedV2.length > 0) {
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
+    // `builderVersion` (BUG-23) : voir commentaire dans assignElementsToFloorLevel.
     return {
       kind: 'forecourt' as const,
       forecourtId: forecourt?.id ?? targetZone?.id ?? null,
       forecourtName: forecourt?.name ?? targetZone?.name ?? 'Parvis',
       level: null,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 
@@ -3646,7 +3687,11 @@ export class SpacesService {
     // Cible : la config utilisateur (étape 1 / 3D Builder), pas « Weezevent Import ».
     const config = await this.resolveTargetConfig(spaceId, opts.configId);
     // Espace géré en v2 → toute assignation ADOPTE l'élément en v2 (zone + adhésion).
-    const spaceHasZones = (await this.prisma.zone.count({ where: { spaceId } })) > 0;
+    const zoneCount = await this.prisma.zone.count({ where: { spaceId } });
+    const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToExternalMerch', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX (cf. assignElementsToFloorLevel) : v1 ExternalMerch / v2 Zone.
     let externalMerch: any = null;
@@ -3839,12 +3884,14 @@ export class SpacesService {
     if (updated.length === 0 && updatedV2.length > 0) {
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
+    // `builderVersion` (BUG-23) : voir commentaire dans assignElementsToFloorLevel.
     return {
       kind: 'externalmerch' as const,
       externalMerchId: externalMerch?.id ?? targetZone?.id ?? null,
       externalMerchName: externalMerch?.name ?? targetZone?.name ?? 'Espace externe',
       level: null,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma, StockMovementReason } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
+import { QueueService } from '../../core/queue/queue.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
 
 type ElementRef = { id: string; name: string; spaceId: string };
@@ -75,7 +76,15 @@ type RecipeCtx = {
 export class LogisticsService {
   private readonly logger = new Logger(LogisticsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // QueueService vient de QueueModule (@Global()) — pas besoin de l'importer dans
+    // LogisticsModule. Volontairement pas AggregationService : LogisticsModule est
+    // importé par SpacesModule, et AggregationModule → MappingsModule → SpacesModule
+    // fermerait un cycle (même raison documentée dans
+    // weezevent/services/webhook-event.handler.ts).
+    private readonly queueService: QueueService,
+  ) {}
 
   // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
 
@@ -294,9 +303,20 @@ export class LogisticsService {
     if (dto.marketPriceId) {
       const mp = await this.prisma.marketPrice.findFirst({
         where: { id: dto.marketPriceId, tenantId, deletedAt: null },
-        select: { packedUnits: true },
+        select: { packedUnits: true, itemName: true },
       });
       if (!mp) throw new NotFoundException(`Market price ${dto.marketPriceId} not found`);
+      // BUG-049 : le marketPriceId fourni doit correspondre à la denrée (itemKey) du
+      // mouvement — même résolution nom↔MarketPrice que resolveUnitsPerPackForItemKey
+      // (itemName insensible à la casse/espaces), sinon un appel API direct pourrait
+      // écraser unitsPerPack avec un pack size sans rapport avec l'itemKey (BUG-032).
+      const itemKeyName = String(dto.itemKey ?? '').trim().toLowerCase();
+      const mpItemName = String(mp.itemName ?? '').trim().toLowerCase();
+      if (!mpItemName || mpItemName !== itemKeyName) {
+        throw new BadRequestException(
+          `Market price ${dto.marketPriceId} ne correspond pas à l'item ${dto.itemKey}`,
+        );
+      }
       unitsPerPack = mp.packedUnits ?? null;
     } else {
       // Aucun marketPriceId (toujours le cas pour un produit fini/component, cf. BUG-032/049 :
@@ -499,9 +519,10 @@ export class LogisticsService {
         where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
         select,
       });
-      frontier = candidates.filter(
-        (c) => this.normYesNo(c.comboItem) === 'Yes' && this.normYesNo(c.readyForSale) === 'No',
-      );
+      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+      // ses constituants, indépendamment de son propre readyForSale — ne plus
+      // exiger readyForSale='No' en plus de comboItem='Yes'.
+      frontier = candidates.filter((c) => this.normYesNo(c.comboItem) === 'Yes');
       for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
     }
 
@@ -574,12 +595,15 @@ export class LogisticsService {
       refs.push({ key: name, id: pkg.id, kind: 'packaging', unit: pkg.recipeUnit ?? null, marketPriceId: null, unitsPerPack: null, packagingType: null, picture: null });
     }
 
-    if (this.normYesNo(item.readyForSale) === 'Yes') {
+    const isCombo = this.normYesNo(item.comboItem) === 'Yes';
+    if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') {
       // readyForSale=Yes prime toujours sur lui-même, sans exception pour le cas
       // mono-ingrédient (BUG-048) : un item readyForSale=Yes n'est JAMAIS fondu
       // dans la Market Price de son ingrédient, même si sa recette n'en a qu'un
       // seul — il est compté comme son propre produit, avec son propre packaging
-      // (inventoryPackagingType/inventoryNumberOfUnits/inventoryUnit).
+      // (inventoryPackagingType/inventoryNumberOfUnits/inventoryUnit). Exception :
+      // comboItem='Yes' (BUG-002/Q18 Bertrand, 2026-07-24) explose TOUJOURS en ses
+      // constituants, indépendamment de son propre readyForSale — cf. `isCombo` ci-dessus.
       const selfName = item.name?.trim();
       if (selfName) {
         refs.push({
@@ -591,8 +615,9 @@ export class LogisticsService {
       return refs;
     }
 
-    // readyForSale = No (ou non défini) : ingrédients directs + composants (combo
-    // récursif par nom, packaging déjà traité au-dessus, non récursif).
+    // readyForSale = No (ou non défini), OU comboItem='Yes' (toujours exploser,
+    // BUG-002/Q18) : ingrédients directs + composants (combo récursif par nom,
+    // packaging déjà traité au-dessus, non récursif).
     let leafCount = 0;
     for (const line of item.ingredients ?? []) {
       const ing = line.ingredient;
@@ -770,14 +795,29 @@ export class LogisticsService {
     // ne pas l'afficher du tout (pas juste à 0 denrée).
     const configuredShops = shops.filter((shop) => (enabledByShop.get(shop.id) ?? []).length > 0);
 
+    // Provider (Weezevent/Digifood) par PDV — dérivé de la même jointure que
+    // simulateSale (LocationShopMapping → SalesLocation.provider). Purement
+    // informatif (ex. badge dans le picker « simuler une vente ») : absent si le
+    // PDV n'est pas encore mappé, sans impact sur le reste de la réponse.
+    const providerByElementId = await this.getProviderByShopElementId(
+      configuredShops.map((s) => s.id),
+      tenantId,
+    );
+
     const itemMapByShop = new Map<string, Map<string, ElementItem>>();
-    const elements: Array<{ id: string; name: string; type: string; items: ElementItem[] }> = [];
+    const elements: Array<{ id: string; name: string; type: string; items: ElementItem[]; provider?: string | null }> = [];
     for (const shop of configuredShops) {
       const ids = enabledByShop.get(shop.id) ?? [];
       const menuItems = ids.map((id) => byId.get(id)).filter(Boolean).map((mi: any) => ({ id: mi.id, name: mi.name }));
       const map = this.aggregateItems(menuItems, byId, ctx);
       itemMapByShop.set(shop.id, map);
-      elements.push({ id: shop.id, name: shop.name, type: shop.type, items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')) });
+      elements.push({
+        id: shop.id,
+        name: shop.name,
+        type: shop.type,
+        items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+        provider: providerByElementId.get(shop.id) ?? null,
+      });
     }
 
     for (const storage of storages) {
@@ -804,6 +844,37 @@ export class LogisticsService {
     }
 
     return elements;
+  }
+
+  /**
+   * Provider (Weezevent/Digifood) par PDV, dérivé de LocationShopMapping → SalesLocation
+   * (même jointure que simulateSale/purgeSimulatedSales). Purement informatif — sert au
+   * front à afficher un badge dans le picker « simuler une vente » ; absent (`null`) si le
+   * PDV n'est pas encore mappé à une location réelle.
+   */
+  private async getProviderByShopElementId(elementIds: string[], tenantId: string) {
+    const result = new Map<string, string | null>();
+    if (!elementIds.length) return result;
+    const mappings = await this.prisma.locationShopMapping.findMany({
+      where: { tenantId, spaceElementId: { in: elementIds } },
+      select: { spaceElementId: true, salesLocationId: true },
+    });
+    if (!mappings.length) return result;
+    const salesLocationIds = [...new Set(mappings.map((m) => m.salesLocationId))];
+    const locations = await this.prisma.salesLocation.findMany({
+      where: { tenantId, OR: [{ id: { in: salesLocationIds } }, { externalId: { in: salesLocationIds } }] },
+      select: { id: true, externalId: true, provider: true },
+    });
+    const locationByKey = new Map<string, (typeof locations)[number]>();
+    for (const loc of locations) {
+      locationByKey.set(loc.id, loc);
+      locationByKey.set(loc.externalId, loc);
+    }
+    for (const m of mappings) {
+      const loc = locationByKey.get(m.salesLocationId);
+      if (loc) result.set(m.spaceElementId, loc.provider);
+    }
+    return result;
   }
 
   /** Market prices candidats pour le dropdown du popup +/− (itemKey donné, sans le catalogue complet). */
@@ -1182,9 +1253,10 @@ export class LogisticsService {
         where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
         select: recipeSelect,
       });
-      frontier = candidates.filter(
-        (c) => this.normYesNo(c.comboItem) === 'Yes' && this.normYesNo(c.readyForSale) === 'No',
-      );
+      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+      // ses constituants, indépendamment de son propre readyForSale — ne plus
+      // exiger readyForSale='No' en plus de comboItem='Yes'.
+      frontier = candidates.filter((c) => this.normYesNo(c.comboItem) === 'Yes');
       for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
     }
 
@@ -1273,7 +1345,10 @@ export class LogisticsService {
         if (!k || !Number.isFinite(qty) || qty <= 0) return;
         result.set(k, (result.get(k) ?? 0) + qty);
       };
-      if (this.normYesNo(item.readyForSale) === 'Yes') {
+      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+      // ses constituants, indépendamment de son propre readyForSale.
+      const isCombo = this.normYesNo(item.comboItem) === 'Yes';
+      if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') {
         add(item.name, 1);
       } else {
         const pieces = Number(item.numberOfPiecesRecipe) > 0 ? Number(item.numberOfPiecesRecipe) : 1;
@@ -1590,7 +1665,15 @@ export class LogisticsService {
    * \u26A0\uFE0F Non filtr\u00E9e des autres endpoints (dashboards revenus/analytics) : purger
    * via purgeSimulatedSales une fois le test termin\u00E9.
    */
-  async simulateSale(spaceId: string, elementId: string, lines: SimulateSaleLineDto[], tenantId: string, userId?: string) {
+  async simulateSale(
+    spaceId: string,
+    elementId: string,
+    lines: SimulateSaleLineDto[],
+    tenantId: string,
+    userId?: string,
+    realMode = false,
+    ensureLiveEvent = false,
+  ) {
     if (!lines?.length) throw new BadRequestException('Aucune ligne \u00E0 simuler');
     const element = await this.getElementOrThrow(elementId, tenantId);
     if (element.spaceId !== spaceId) {
@@ -1609,6 +1692,15 @@ export class LogisticsService {
     if (!location) {
       throw new BadRequestException(`Location Weezevent introuvable pour "${element.name}".`);
     }
+
+    // Sans ça, la vente reste rattachée au SalesEvent déjà stocké sur la location — sur
+    // un tenant de test, souvent un event réel synchronisé il y a des mois : rien ne
+    // s'affiche jamais sous "Aujourd'hui" (toute la chaîne d'agrégation/affichage pivote
+    // sur Event.eventDate, jamais sur SalesLocation.eventId directement). `ensureLiveEvent`
+    // crée/réutilise un Event+SalesEvent datés aujourd'hui pour que le test soit visible.
+    const salesEventId = ensureLiveEvent
+      ? await this.ensureTodaySalesEvent(tenantId, location, spaceId, element)
+      : location.eventId;
 
     const menuItemIds = [...new Set(lines.map((l) => l.menuItemId))];
     const [menuItems, productMappings] = await Promise.all([
@@ -1651,14 +1743,17 @@ export class LogisticsService {
     const raw: SalesRawRow[] = lines.map((line) => ({
       elementId,
       menuItemId: line.menuItemId,
-      eventId: location.eventId,
+      eventId: salesEventId,
       eventName: null,
       qty: line.quantity,
       lastAt: transactionDate,
     }));
     const consumptionPreview = await this.explodeSalesToConsumption(raw, tenantId);
     const problems = await this.checkConsumptionFeasibility(tenantId, elementId, consumptionPreview);
-    if (problems.length) {
+    // Mode réel : se comporte comme le pipeline webhook, qui n'a jamais ce garde-fou —
+    // la vente est enregistrée quoi qu'il arrive, quitte à ce que normalizeLevel clampe
+    // silencieusement le stock mal configuré à 0 (comportement réel, pas un bug).
+    if (!realMode && problems.length) {
       throw new BadRequestException(`Vente non simulable — configuration de stock incomplète : ${problems.join(' ; ')}`);
     }
 
@@ -1667,10 +1762,15 @@ export class LogisticsService {
         externalId: `SIM-${randomUUID()}`,
         tenantId,
         integrationId: location.integrationId,
+        // Sans ce champ explicite, Prisma applique le défaut du schéma (WEEZEVENT)
+        // même si `location` est en réalité une location Digifood — la transaction
+        // simulée porterait alors un tag faux. `location.provider` est déjà fiable
+        // (posé explicitement à l'ingestion réelle, cf. digifood-ingestion.service.ts).
+        provider: location.provider,
         amount,
         status: 'V',
         transactionDate,
-        eventId: location.eventId,
+        eventId: salesEventId,
         locationId: location.id,
         locationName: location.name,
         metadata: { isSimulated: true, simulatedByUserId: userId ?? null, simulatedElementId: elementId },
@@ -1682,6 +1782,17 @@ export class LogisticsService {
       include: { items: true },
     });
 
+    // Best-effort, miroir du chemin webhook réel (WebhookEventHandler.triggerLiveAggregation) :
+    // sans ça, une vente simulée n'avance jamais Shop Performance/POS Performance/Event
+    // Revenue by Shop (alimentés par SpaceRevenueMinuteAgg, pas par la transaction brute),
+    // sauf rattrapage par le cron 5 min ET seulement si un Event DataFriday est actif.
+    // Ne doit jamais faire échouer simulateSale : la transaction est déjà committée.
+    try {
+      await this.triggerLiveAggregationForEvent(tenantId, location.integrationId, salesEventId);
+    } catch (e: any) {
+      this.logger.warn(`[simulateSale] agrégation live non déclenchée : ${e?.message}`);
+    }
+
     return {
       transactionId: transaction.id,
       elementId,
@@ -1689,6 +1800,121 @@ export class LogisticsService {
       items: itemsData.map((it) => ({ menuItemId: it.menuItemId, productName: it.productName, quantity: it.quantity })),
       consumptionPreview,
     };
+  }
+
+  /**
+   * Rattache une vente simulée à un Event/SalesEvent datés AUJOURD'HUI plutôt qu'au
+   * `SalesEvent` déjà stocké sur `SalesLocation.eventId` (souvent un event réel synchronisé
+   * il y a des mois sur un tenant de test). Toute la chaîne d'agrégation/affichage
+   * (`getLiveStatus`, `triggerLiveAggregationForEvent`, `AggregationService`,
+   * `getEventTimelineBatch`, et le getter front `filteredEvents`) pivote sur
+   * `Event.eventDate` (DataFriday) — jamais sur `SalesLocation.eventId` directement. Sans
+   * ce rattachement explicite, une vente simulée ne s'affiche jamais sous "Aujourd'hui".
+   * Idempotent : réutilise l'Event/SalesEvent du jour s'il en existe déjà un pour cet
+   * espace (pas de duplication à chaque vente simulée le même jour). Tagué
+   * `metadata.isSimulated=true` côté SalesEvent et nommé `[Simulé] ...` côté Event, pour
+   * rester identifiable/purgeable (cf. purgeSimulatedSales).
+   */
+  private async ensureTodaySalesEvent(
+    tenantId: string,
+    location: { integrationId: string },
+    spaceId: string,
+    element: { name: string },
+  ): Promise<string> {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const label = `[Simulé] ${element.name} — ${todayStart.toISOString().slice(0, 10)}`;
+
+    // 1. Event DataFriday du jour déjà lié à un SalesEvent pour cet espace → réutiliser tel quel.
+    const existingLinkedEvent = await this.prisma.event.findFirst({
+      where: { tenantId, spaceId, eventDate: { gte: todayStart, lt: tomorrowStart }, weezeventEventId: { not: null } },
+      select: { weezeventEventId: true },
+    });
+    if (existingLinkedEvent?.weezeventEventId) return existingLinkedEvent.weezeventEventId;
+
+    // 2. SalesEvent du jour pour cette intégration → réutiliser, sinon créer.
+    let salesEvent = await this.prisma.salesEvent.findFirst({
+      where: { tenantId, integrationId: location.integrationId, startDate: { gte: todayStart, lt: tomorrowStart } },
+      select: { id: true },
+    });
+    if (!salesEvent) {
+      salesEvent = await this.prisma.salesEvent.create({
+        data: {
+          externalId: `SIM-EVT-${randomUUID()}`,
+          tenantId,
+          integrationId: location.integrationId,
+          name: label,
+          organizationId: 'simulated',
+          startDate: now,
+          metadata: { isSimulated: true },
+          rawData: { simulated: true },
+        },
+        select: { id: true },
+      });
+    }
+
+    // 3. Event DataFriday du jour pour cet espace → réutiliser (et lier si besoin), sinon créer.
+    const existingEvent = await this.prisma.event.findFirst({
+      where: { tenantId, spaceId, eventDate: { gte: todayStart, lt: tomorrowStart } },
+      select: { id: true, weezeventEventId: true },
+    });
+    if (existingEvent) {
+      if (!existingEvent.weezeventEventId) {
+        await this.prisma.event.update({ where: { id: existingEvent.id }, data: { weezeventEventId: salesEvent.id } });
+      }
+    } else {
+      await this.prisma.event.create({
+        data: { name: label, eventDate: now, spaceId, tenantId, weezeventEventId: salesEvent.id },
+      });
+    }
+
+    return salesEvent.id;
+  }
+
+  /**
+   * Miroir de WebhookEventHandler.triggerLiveAggregation
+   * (weezevent/services/webhook-event.handler.ts:179-215) — dupliqué plutôt que
+   * partagé pour éviter un cycle de modules (LogisticsModule est importé par
+   * SpacesModule, qui est dans la chaîne de dépendance d'AggregationModule via
+   * MappingsModule → SpacesModule ; même raison documentée côté weezevent).
+   * No-op silencieux si `weezeventEventId` est vide ou ne résout à aucun Event
+   * DataFriday scopé à un space (BUG-021 disambiguation) — reflète fidèlement ce
+   * qu'un vrai webhook ferait dans ce cas.
+   */
+  private async triggerLiveAggregationForEvent(
+    tenantId: string,
+    integrationId: string,
+    weezeventEventId: string | null,
+  ): Promise<void> {
+    if (!weezeventEventId) return;
+    const dfEvent = await this.prisma.event.findFirst({
+      where: { tenantId, weezeventEventId, spaceId: { not: null } },
+      select: { id: true, spaceId: true, eventDate: true },
+    });
+    if (!dfEvent?.spaceId) return;
+
+    const jobLog = await this.prisma.aggregationJobLog.create({
+      data: {
+        tenantId,
+        spaceId: dfEvent.spaceId,
+        jobType: 'incremental',
+        status: 'pending',
+        fromDate: dfEvent.eventDate,
+        toDate: dfEvent.eventDate,
+        metadata: { eventIds: [dfEvent.id], trigger: 'simulate-sale' },
+      },
+    });
+    await this.queueService.queueAggregationJob({
+      type: 'process-events',
+      tenantId,
+      spaceId: dfEvent.spaceId,
+      jobLogId: jobLog.id,
+      eventIds: [dfEvent.id],
+      integrationId,
+    });
   }
 
   /**
@@ -1749,12 +1975,21 @@ export class LogisticsService {
     const shopMapping = await this.prisma.locationShopMapping.findFirst({
       where: { tenantId, spaceElementId: elementId },
     });
-    if (!shopMapping) return { deletedCount: 0 };
+    if (!shopMapping) return { deletedCount: 0, deletedEventCount: 0 };
     const location = await this.prisma.salesLocation.findFirst({
       where: { tenantId, OR: [{ id: shopMapping.salesLocationId }, { externalId: shopMapping.salesLocationId }] },
       select: { id: true },
     });
-    if (!location) return { deletedCount: 0 };
+    if (!location) return { deletedCount: 0, deletedEventCount: 0 };
+
+    // Capture les SalesEvent concern\u00E9s AVANT suppression, pour pouvoir nettoyer ceux
+    // cr\u00E9\u00E9s par ensureTodaySalesEvent qui ne servent plus \u00E0 rien apr\u00E8s ce purge.
+    const toDelete = await this.prisma.salesTransaction.findMany({
+      where: { tenantId, locationId: location.id, metadata: { path: ['isSimulated'], equals: true } },
+      select: { eventId: true },
+    });
+    const candidateEventIds = [...new Set(toDelete.map((t) => t.eventId).filter((id): id is string => !!id))];
+
     const { count } = await this.prisma.salesTransaction.deleteMany({
       where: {
         tenantId,
@@ -1762,6 +1997,35 @@ export class LogisticsService {
         metadata: { path: ['isSimulated'], equals: true },
       },
     });
-    return { deletedCount: count };
+
+    // Ne nettoie QUE les SalesEvent que ce m\u00E9canisme a lui-m\u00EAme cr\u00E9\u00E9s (metadata.isSimulated),
+    // jamais un event r\u00E9el \u2014 et seulement si plus AUCUNE transaction (simul\u00E9e ou r\u00E9elle) ne
+    // le r\u00E9f\u00E9rence encore (peut \u00EAtre partag\u00E9 par d'autres PDV/tests du m\u00EAme jour).
+    let deletedEventCount = 0;
+    for (const salesEventId of candidateEventIds) {
+      const salesEvent = await this.prisma.salesEvent.findUnique({
+        where: { id: salesEventId },
+        select: { id: true, metadata: true },
+      });
+      if (!(salesEvent?.metadata as any)?.isSimulated) continue;
+
+      const remaining = await this.prisma.salesTransaction.count({ where: { tenantId, eventId: salesEventId } });
+      if (remaining > 0) continue;
+
+      const dfEvent = await this.prisma.event.findFirst({
+        where: { tenantId, weezeventEventId: salesEventId },
+        select: { id: true, spaceId: true },
+      });
+      if (dfEvent) {
+        await this.prisma.spaceRevenueMinuteAgg.deleteMany({
+          where: { tenantId, spaceId: dfEvent.spaceId ?? undefined, weezeventEventId: dfEvent.id },
+        });
+        await this.prisma.event.delete({ where: { id: dfEvent.id } });
+      }
+      await this.prisma.salesEvent.delete({ where: { id: salesEventId } });
+      deletedEventCount++;
+    }
+
+    return { deletedCount: count, deletedEventCount };
   }
 }

@@ -3,7 +3,6 @@ import {
   Post,
   Body,
   UseGuards,
-  Param,
   Get,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
@@ -13,7 +12,6 @@ import { Public } from '../../core/auth/decorators/public.decorator';
 import { OnboardingService } from './onboarding.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { JoinByCodeDto } from './dto/join-by-code.dto';
-import { JoinTenantDto } from './dto/join-tenant.dto';
 
 @ApiTags('Onboarding')
 @ApiBearerAuth('supabase-jwt')
@@ -171,30 +169,6 @@ export class OnboardingController {
       user.id,
       user.email,
       dto.invitationCode,
-      dto.firstName,
-      dto.lastName,
-    );
-  }
-
-  /**
-   * @deprecated Use join-by-code instead for security
-   */
-  @Post('join/:slug')
-  @ApiOperation({
-    summary: '[DÉPRÉCIÉ] Rejoindre par slug',
-    description: '⚠️ DÉPRÉCIÉ - Utilisez /join-by-code à la place. Cet endpoint sera supprimé dans une future version.',
-    deprecated: true,
-  })
-  @ApiBody({ type: JoinTenantDto })
-  async joinTenant(
-    @CurrentUser() user: any,
-    @Param('slug') slug: string,
-    @Body() dto: JoinTenantDto,
-  ) {
-    return this.onboardingService.joinTenant(
-      user.id,
-      user.email,
-      slug,
       dto.firstName,
       dto.lastName,
     );
