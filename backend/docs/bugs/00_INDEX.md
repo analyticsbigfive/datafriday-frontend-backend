@@ -122,8 +122,12 @@
 | [108](108_event_timeline_deletedat_non_filtre.md) | `getEventTimelineBatch` ne filtre pas `SalesTransaction.deletedAt` | 🟢 Corrigé | 🟠 | Analyse & agrégation / Live events |
 | [109](109_aggregation_jamais_declenchee_automatiquement.md) | `queueAggregationJob()` n'est jamais déclenché automatiquement | 🟢 Corrigé | 🟠 | Analyse & agrégation / Live events |
 | [110](110_derivesalesraw_deletedat_non_filtre.md) | `deriveSalesRaw` (Logistic) ne filtre pas `SalesTransaction.deletedAt` | 🟢 Corrigé | 🟠 | Stock (Logistic) / Live events |
+| [111](111_aggregation_attendees_sync_mauvais_id.md) | Auto-sync attendees post-agrégation envoie le mauvais id à l'API Weezevent (404 systématique) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 
-**110 bugs au total**, 110 ajouté et corrigé le 2026-07-23 en préparant le v2 du module Live (même
+**111 bugs au total**, 111 découvert et corrigé le 2026-07-27 en testant le widget QA "simuler une
+vente" du module Live — le déclenchement d'agrégation qu'il partage avec le webhook réel a exposé
+un bug préexistant (auto-sync attendees passait le cuid interne du SalesEvent au lieu de son id
+Weezevent réel, 404 garanti pour tout event réel ou simulé). 110 ajouté et corrigé le 2026-07-23 en préparant le v2 du module Live (même
 trou que BUG-108, cette fois dans `deriveSalesRaw` du module Logistic — voir la fiche pour le détail).
 108 et 109 ajoutés le même jour pendant la préparation backend du module Live
 (voir [`../api/LIVE_API_GUIDE.md`](../api/LIVE_API_GUIDE.md)) : BUG-109 est le prérequis backend déjà

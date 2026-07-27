@@ -944,13 +944,13 @@ export default {
      * réellement impactées (consumptionPreview renvoyé par le backend). L'« avant »
      * DOIT être lu du state courant AVANT le loadStock qui suit (sinon écrasé).
      */
-    async submitSimulateSale({ elementId, lines }) {
+    async submitSimulateSale({ elementId, lines, realMode }) {
       const spaceId = this.currentSpaceId
       if (!spaceId) return
       this.simulateSaving = true
       this.simulateError = null
       try {
-        const res = await this.store.dispatch('logistics/simulateSale', { spaceId, elementId, lines })
+        const res = await this.store.dispatch('logistics/simulateSale', { spaceId, elementId, lines, realMode })
         const itemKeys = [...new Set((res?.consumptionPreview || []).map((c) => c.itemKey))]
         const before = {}
         for (const key of itemKeys) before[key] = this.expectedDisplay(elementId, { name: key })

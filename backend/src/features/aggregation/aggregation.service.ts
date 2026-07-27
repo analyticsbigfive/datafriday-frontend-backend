@@ -414,16 +414,20 @@ export class AggregationService {
                 integrationId,
                 startDate: { gte: eventDate, lt: nextDay },
               },
-              select: { id: true },
+              select: { id: true, externalId: true },
             });
             for (const we of weezeventEvents) {
+              // BUG : `we.id` est le cuid interne DataFriday du SalesEvent, pas l'id
+              // Weezevent réel — l'API attendees (`/events/:eventId/attendees`) attend
+              // `externalId`. Avec `we.id`, cette synchro 404 systématiquement, pour
+              // n'importe quel event, réel ou simulé (BUG-XXX, cf. docs/bugs/).
               await this.queueService.queueWeezeventSyncType(
                 tenantId,
                 'attendees',
-                { eventId: we.id },
+                { eventId: we.externalId },
                 integrationId,
               );
-              this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.id} (event ${r.eventId})`);
+              this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
             }
           } catch (e) {
             // Non-blocking — attendees sync failure must not fail the aggregation job

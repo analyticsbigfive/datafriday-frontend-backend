@@ -1665,7 +1665,15 @@ export class LogisticsService {
    * \u26A0\uFE0F Non filtr\u00E9e des autres endpoints (dashboards revenus/analytics) : purger
    * via purgeSimulatedSales une fois le test termin\u00E9.
    */
-  async simulateSale(spaceId: string, elementId: string, lines: SimulateSaleLineDto[], tenantId: string, userId?: string) {
+  async simulateSale(
+    spaceId: string,
+    elementId: string,
+    lines: SimulateSaleLineDto[],
+    tenantId: string,
+    userId?: string,
+    realMode = false,
+    ensureLiveEvent = false,
+  ) {
     if (!lines?.length) throw new BadRequestException('Aucune ligne \u00E0 simuler');
     const element = await this.getElementOrThrow(elementId, tenantId);
     if (element.spaceId !== spaceId) {
@@ -1684,6 +1692,15 @@ export class LogisticsService {
     if (!location) {
       throw new BadRequestException(`Location Weezevent introuvable pour "${element.name}".`);
     }
+
+    // Sans ça, la vente reste rattachée au SalesEvent déjà stocké sur la location — sur
+    // un tenant de test, souvent un event réel synchronisé il y a des mois : rien ne
+    // s'affiche jamais sous "Aujourd'hui" (toute la chaîne d'agrégation/affichage pivote
+    // sur Event.eventDate, jamais sur SalesLocation.eventId directement). `ensureLiveEvent`
+    // crée/réutilise un Event+SalesEvent datés aujourd'hui pour que le test soit visible.
+    const salesEventId = ensureLiveEvent
+      ? await this.ensureTodaySalesEvent(tenantId, location, spaceId, element)
+      : location.eventId;
 
     const menuItemIds = [...new Set(lines.map((l) => l.menuItemId))];
     const [menuItems, productMappings] = await Promise.all([
@@ -1726,14 +1743,17 @@ export class LogisticsService {
     const raw: SalesRawRow[] = lines.map((line) => ({
       elementId,
       menuItemId: line.menuItemId,
-      eventId: location.eventId,
+      eventId: salesEventId,
       eventName: null,
       qty: line.quantity,
       lastAt: transactionDate,
     }));
     const consumptionPreview = await this.explodeSalesToConsumption(raw, tenantId);
     const problems = await this.checkConsumptionFeasibility(tenantId, elementId, consumptionPreview);
-    if (problems.length) {
+    // Mode réel : se comporte comme le pipeline webhook, qui n'a jamais ce garde-fou —
+    // la vente est enregistrée quoi qu'il arrive, quitte à ce que normalizeLevel clampe
+    // silencieusement le stock mal configuré à 0 (comportement réel, pas un bug).
+    if (!realMode && problems.length) {
       throw new BadRequestException(`Vente non simulable — configuration de stock incomplète : ${problems.join(' ; ')}`);
     }
 
@@ -1750,7 +1770,7 @@ export class LogisticsService {
         amount,
         status: 'V',
         transactionDate,
-        eventId: location.eventId,
+        eventId: salesEventId,
         locationId: location.id,
         locationName: location.name,
         metadata: { isSimulated: true, simulatedByUserId: userId ?? null, simulatedElementId: elementId },
@@ -1768,7 +1788,7 @@ export class LogisticsService {
     // sauf rattrapage par le cron 5 min ET seulement si un Event DataFriday est actif.
     // Ne doit jamais faire échouer simulateSale : la transaction est déjà committée.
     try {
-      await this.triggerLiveAggregationForEvent(tenantId, location.integrationId, location.eventId);
+      await this.triggerLiveAggregationForEvent(tenantId, location.integrationId, salesEventId);
     } catch (e: any) {
       this.logger.warn(`[simulateSale] agrégation live non déclenchée : ${e?.message}`);
     }
@@ -1780,6 +1800,78 @@ export class LogisticsService {
       items: itemsData.map((it) => ({ menuItemId: it.menuItemId, productName: it.productName, quantity: it.quantity })),
       consumptionPreview,
     };
+  }
+
+  /**
+   * Rattache une vente simulée à un Event/SalesEvent datés AUJOURD'HUI plutôt qu'au
+   * `SalesEvent` déjà stocké sur `SalesLocation.eventId` (souvent un event réel synchronisé
+   * il y a des mois sur un tenant de test). Toute la chaîne d'agrégation/affichage
+   * (`getLiveStatus`, `triggerLiveAggregationForEvent`, `AggregationService`,
+   * `getEventTimelineBatch`, et le getter front `filteredEvents`) pivote sur
+   * `Event.eventDate` (DataFriday) — jamais sur `SalesLocation.eventId` directement. Sans
+   * ce rattachement explicite, une vente simulée ne s'affiche jamais sous "Aujourd'hui".
+   * Idempotent : réutilise l'Event/SalesEvent du jour s'il en existe déjà un pour cet
+   * espace (pas de duplication à chaque vente simulée le même jour). Tagué
+   * `metadata.isSimulated=true` côté SalesEvent et nommé `[Simulé] ...` côté Event, pour
+   * rester identifiable/purgeable (cf. purgeSimulatedSales).
+   */
+  private async ensureTodaySalesEvent(
+    tenantId: string,
+    location: { integrationId: string },
+    spaceId: string,
+    element: { name: string },
+  ): Promise<string> {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const label = `[Simulé] ${element.name} — ${todayStart.toISOString().slice(0, 10)}`;
+
+    // 1. Event DataFriday du jour déjà lié à un SalesEvent pour cet espace → réutiliser tel quel.
+    const existingLinkedEvent = await this.prisma.event.findFirst({
+      where: { tenantId, spaceId, eventDate: { gte: todayStart, lt: tomorrowStart }, weezeventEventId: { not: null } },
+      select: { weezeventEventId: true },
+    });
+    if (existingLinkedEvent?.weezeventEventId) return existingLinkedEvent.weezeventEventId;
+
+    // 2. SalesEvent du jour pour cette intégration → réutiliser, sinon créer.
+    let salesEvent = await this.prisma.salesEvent.findFirst({
+      where: { tenantId, integrationId: location.integrationId, startDate: { gte: todayStart, lt: tomorrowStart } },
+      select: { id: true },
+    });
+    if (!salesEvent) {
+      salesEvent = await this.prisma.salesEvent.create({
+        data: {
+          externalId: `SIM-EVT-${randomUUID()}`,
+          tenantId,
+          integrationId: location.integrationId,
+          name: label,
+          organizationId: 'simulated',
+          startDate: now,
+          metadata: { isSimulated: true },
+          rawData: { simulated: true },
+        },
+        select: { id: true },
+      });
+    }
+
+    // 3. Event DataFriday du jour pour cet espace → réutiliser (et lier si besoin), sinon créer.
+    const existingEvent = await this.prisma.event.findFirst({
+      where: { tenantId, spaceId, eventDate: { gte: todayStart, lt: tomorrowStart } },
+      select: { id: true, weezeventEventId: true },
+    });
+    if (existingEvent) {
+      if (!existingEvent.weezeventEventId) {
+        await this.prisma.event.update({ where: { id: existingEvent.id }, data: { weezeventEventId: salesEvent.id } });
+      }
+    } else {
+      await this.prisma.event.create({
+        data: { name: label, eventDate: now, spaceId, tenantId, weezeventEventId: salesEvent.id },
+      });
+    }
+
+    return salesEvent.id;
   }
 
   /**
@@ -1883,12 +1975,21 @@ export class LogisticsService {
     const shopMapping = await this.prisma.locationShopMapping.findFirst({
       where: { tenantId, spaceElementId: elementId },
     });
-    if (!shopMapping) return { deletedCount: 0 };
+    if (!shopMapping) return { deletedCount: 0, deletedEventCount: 0 };
     const location = await this.prisma.salesLocation.findFirst({
       where: { tenantId, OR: [{ id: shopMapping.salesLocationId }, { externalId: shopMapping.salesLocationId }] },
       select: { id: true },
     });
-    if (!location) return { deletedCount: 0 };
+    if (!location) return { deletedCount: 0, deletedEventCount: 0 };
+
+    // Capture les SalesEvent concern\u00E9s AVANT suppression, pour pouvoir nettoyer ceux
+    // cr\u00E9\u00E9s par ensureTodaySalesEvent qui ne servent plus \u00E0 rien apr\u00E8s ce purge.
+    const toDelete = await this.prisma.salesTransaction.findMany({
+      where: { tenantId, locationId: location.id, metadata: { path: ['isSimulated'], equals: true } },
+      select: { eventId: true },
+    });
+    const candidateEventIds = [...new Set(toDelete.map((t) => t.eventId).filter((id): id is string => !!id))];
+
     const { count } = await this.prisma.salesTransaction.deleteMany({
       where: {
         tenantId,
@@ -1896,6 +1997,35 @@ export class LogisticsService {
         metadata: { path: ['isSimulated'], equals: true },
       },
     });
-    return { deletedCount: count };
+
+    // Ne nettoie QUE les SalesEvent que ce m\u00E9canisme a lui-m\u00EAme cr\u00E9\u00E9s (metadata.isSimulated),
+    // jamais un event r\u00E9el \u2014 et seulement si plus AUCUNE transaction (simul\u00E9e ou r\u00E9elle) ne
+    // le r\u00E9f\u00E9rence encore (peut \u00EAtre partag\u00E9 par d'autres PDV/tests du m\u00EAme jour).
+    let deletedEventCount = 0;
+    for (const salesEventId of candidateEventIds) {
+      const salesEvent = await this.prisma.salesEvent.findUnique({
+        where: { id: salesEventId },
+        select: { id: true, metadata: true },
+      });
+      if (!(salesEvent?.metadata as any)?.isSimulated) continue;
+
+      const remaining = await this.prisma.salesTransaction.count({ where: { tenantId, eventId: salesEventId } });
+      if (remaining > 0) continue;
+
+      const dfEvent = await this.prisma.event.findFirst({
+        where: { tenantId, weezeventEventId: salesEventId },
+        select: { id: true, spaceId: true },
+      });
+      if (dfEvent) {
+        await this.prisma.spaceRevenueMinuteAgg.deleteMany({
+          where: { tenantId, spaceId: dfEvent.spaceId ?? undefined, weezeventEventId: dfEvent.id },
+        });
+        await this.prisma.event.delete({ where: { id: dfEvent.id } });
+      }
+      await this.prisma.salesEvent.delete({ where: { id: salesEventId } });
+      deletedEventCount++;
+    }
+
+    return { deletedCount: count, deletedEventCount };
   }
 }

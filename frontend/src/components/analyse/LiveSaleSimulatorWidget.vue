@@ -1,6 +1,10 @@
 <template>
   <div v-if="canUse" class="lssw-wrap">
     <div class="lssw-auto">
+      <label class="lssw-auto-realmode" :title="t('anLiveSimulateRealModeHint')">
+        <input type="checkbox" v-model="autoRealMode" />
+        {{ t('anLiveSimulateRealMode') }}
+      </label>
       <select v-model.number="autoIntervalMs" class="lssw-auto-select" :disabled="autoRunning">
         <option :value="10000">10s</option>
         <option :value="30000">30s</option>
@@ -41,6 +45,7 @@
       :purging="false"
       :error="error"
       :result="null"
+      :default-real-mode="true"
       @submit="onSubmit"
     />
 
@@ -105,11 +110,11 @@ async function openDialog() {
   dialogOpen.value = true
 }
 
-async function onSubmit({ elementId, lines }) {
+async function onSubmit({ elementId, lines, realMode }) {
   saving.value = true
   error.value = null
   try {
-    const res = await store.dispatch('logistics/simulateSale', { spaceId: props.spaceId, elementId, lines })
+    const res = await store.dispatch('logistics/simulateSale', { spaceId: props.spaceId, elementId, lines, realMode, ensureLiveEvent: true })
     lastElementId.value = elementId
     lastElementName.value = res?.elementName || shops.value.find((s) => s.element.id === elementId)?.element?.name || ''
     dialogOpen.value = false
@@ -143,6 +148,9 @@ async function purgeLast() {
 // ── Mode auto : simule une vente à intervalle réglable, sans ouvrir la dialog ──
 const autoIntervalMs = ref(30000)
 const autoRunning = ref(false)
+// Défaut true : l'auto tire des PDV/items au hasard — en mode strict, il resterait
+// bloqué en boucle dès le premier article à la config de stock incomplète.
+const autoRealMode = ref(true)
 let autoTimer = null
 
 /** Même dérivation que LogisticSimulateSaleDialog.menuItemOptions (usedIn résolu côté serveur). */
@@ -178,6 +186,8 @@ async function autoSimulateOnce() {
       spaceId: props.spaceId,
       elementId: shop.element.id,
       lines: [{ menuItemId: menuItem.value, quantity: 1 }],
+      realMode: autoRealMode.value,
+      ensureLiveEvent: true,
     })
     lastElementId.value = shop.element.id
     lastElementName.value = res?.elementName || shop.element.name
@@ -261,6 +271,14 @@ onBeforeUnmount(stopAuto)
   color: #fff;
   border-radius: 8px;
   padding: 4px 6px;
+}
+.lssw-auto-realmode {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  cursor: pointer;
 }
 .lssw-auto-select {
   background: transparent;
