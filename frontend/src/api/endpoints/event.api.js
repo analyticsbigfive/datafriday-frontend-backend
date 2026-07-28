@@ -8,13 +8,14 @@ import { api } from '../client'
 // ============================================
 
 /**
- * Récupérer tous les événements
- * @param {{spaceId?: string, limit?: number}} [opts] scope optionnel par space
- * @returns {Promise<Array>}
+ * Récupérer les événements (paginé côté backend, défaut limit=50).
+ * @param {{spaceId?: string, page?: number, limit?: number}} [opts]
+ * @returns {Promise<Object>} { data, meta: { total, page, limit, totalPages } }
  */
-export async function getEvents({ spaceId, limit } = {}) {
+export async function getEvents({ spaceId, page, limit } = {}) {
   const params = {}
   if (spaceId) params.spaceId = spaceId
+  if (page) params.page = page
   if (limit) params.limit = limit
   return api.get('/events', { params })
 }

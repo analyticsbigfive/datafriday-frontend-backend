@@ -219,9 +219,32 @@ export function useInventoryData(selectedConfigId) {
       const union = buildConfigShopList(rows, floors)
       if (rowsFailed && union.length) contextWarning.value = 'assignment-partial'
 
-      // --- Menus pour TOUS les shops de l'union (fan-out borné, échec partiel
-      //     toléré). Pas de skip sur menuItemsCount : champ non fiable. -------
+      // --- Menus pour TOUS les shops de l'union -----------------------------
+      // BATCH D'ABORD (1 requête pour tout le config — même endpoint que la page
+      // Analyse, enrichi basePrice le 2026-07-18) ; le fan-out borné per-shop ne
+      // sert plus que de FALLBACK (échec batch, ou backend déployé antérieur à
+      // l'enrichissement). Avant : 1 GET /space-menu/shop/:id par shop (N+1) +
+      // passe de retry — jusqu'à ~2× N requêtes au premier rendu.
+      // Ce batch ne porte PAS la photo des articles (BUG-227) : elle y était
+      // réémise une fois par PdV (5,6 Mo / 53 s). Les vignettes viennent du
+      // catalogue via `enrichForBuild` → `buildConsolidatedInventory`.
       const itemsByShopId = new Map()
+      let batchOk = false
+      try {
+        const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
+        const byShop = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
+        // Le batch omet les shops sans item activé : absence = « 0 item » (l'union
+        // des shops est déjà connue), PAS un échec.
+        for (const entry of union) {
+          itemsByShopId.set(entry.shopId, byShop[entry.shopId]?.items || [])
+        }
+        batchOk = true
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[inventory] batch shop-items indisponible, fallback per-shop:', e?.message)
+      }
+      if (stale()) return
+
       const fetchShopMenu = async (entry) => {
         try {
           // configId OBLIGATOIRE : l'assignation menu est scopée par config côté
@@ -238,16 +261,18 @@ export function useInventoryData(selectedConfigId) {
           // Autre échec : laissé hors de la map → retenté ci-dessous.
         }
       }
-      await runWithConcurrency(union, 6, fetchShopMenu)
-      if (stale()) return
-
-      // Retry ciblé des shops en échec (backend lent / cold-start Render → timeouts
-      // transitoires). Une seule passe, concurrence réduite, avant de conclure au
-      // bandeau « chargement partiel ».
-      const failedEntries = union.filter((e) => !itemsByShopId.has(e.shopId))
-      if (failedEntries.length) {
-        await runWithConcurrency(failedEntries, 3, fetchShopMenu)
+      if (!batchOk) {
+        await runWithConcurrency(union, 6, fetchShopMenu)
         if (stale()) return
+
+        // Retry ciblé des shops en échec (backend lent / cold-start Render → timeouts
+        // transitoires). Une seule passe, concurrence réduite, avant de conclure au
+        // bandeau « chargement partiel ».
+        const failedEntries = union.filter((e) => !itemsByShopId.has(e.shopId))
+        if (failedEntries.length) {
+          await runWithConcurrency(failedEntries, 3, fetchShopMenu)
+          if (stale()) return
+        }
       }
       let failures = 0
       for (const e of union) if (!itemsByShopId.has(e.shopId)) failures += 1
@@ -269,12 +294,14 @@ export function useInventoryData(selectedConfigId) {
           shopType: entry.shopType,
           shopArea: entry.shopArea,
           source: entry.source,
+          // Pas de `picture` ici : le batch ne la porte plus (BUG-227) et elle
+          // n'était de toute façon jamais lue — `enrichForBuild` reconstruit chaque
+          // item depuis le catalogue (`...catalog`), d'où viennent les vignettes.
           items: assigned.map((it) => ({
             id: it?.id ?? it?._id ?? it?.name,
             name: String(it?.name ?? '').trim(),
             basePrice: it?.basePrice,
             category: it?.productCategory?.name || it?.category || '',
-            picture: it?.picture || null,
           })),
         }
         if (shop.items.length) withItems += 1
@@ -372,15 +399,22 @@ export function useInventoryData(selectedConfigId) {
       name: s.element.name,
       availableMenuItems: s.availableMenuItems,
     }))
-    return storageElements.value.map((el) => {
-      const types = Array.isArray(el.storageType) ? el.storageType : []
-      // marketPrices : même renommage market-price que côté shops (clé de denrée
-      // identique shop↔storage — indispensable au ledger Logistic keyé par nom).
-      const storageInventory = buildStorageInventory(
-        types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value,
-      )
-      return { element: el, storageInventory }
-    })
+    return storageElements.value
+      // Un Storage typé UNIQUEMENT 'merch' est servi par merchWithInventory
+      // (carte scopée, BUG-021) — pas de doublon de carte F&B vide ici.
+      .filter((el) => {
+        const types = Array.isArray(el.storageType) ? el.storageType : []
+        return !(types.length && types.every((t) => t === 'merch'))
+      })
+      .map((el) => {
+        const types = Array.isArray(el.storageType) ? el.storageType : []
+        // marketPrices : même renommage market-price que côté shops (clé de denrée
+        // identique shop↔storage — indispensable au ledger Logistic keyé par nom).
+        const storageInventory = buildStorageInventory(
+          types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value,
+        )
+        return { element: el, storageInventory }
+      })
   })
 
   const merchWithInventory = computed(() => {
@@ -389,6 +423,26 @@ export function useInventoryData(selectedConfigId) {
       name: m.name,
       merchItems: Array.isArray(m.merchItems) ? m.merchItems : [],
     }))
+    // BUG-021 : un Storage typé 'merch' donne désormais une carte scopée à SES
+    // merchshops (attributes.selectedShops ; vide = tous, même convention que
+    // buildStorageInventory côté F&B). L'agrégat unique « Merch Aggregate »
+    // n'est conservé qu'en repli, quand aucun Storage 'merch' n'existe dans la
+    // config (comportement historique).
+    const merchStorages = storageElements.value.filter((el) => {
+      const types = Array.isArray(el.storageType) ? el.storageType : []
+      return types.includes('merch')
+    })
+    if (merchStorages.length) {
+      return merchStorages
+        .map((el) => {
+          const selected = Array.isArray(el.selectedShops) ? el.selectedShops : []
+          const scoped = selected.length
+            ? merchEls.filter((m) => selected.includes(m.id))
+            : merchEls
+          return { element: el, merchInventory: buildMerchStorageInventory(scoped) }
+        })
+        .filter((s) => s.merchInventory.length)
+    }
     const merchInventory = buildMerchStorageInventory(merchEls)
     return merchInventory.length
       ? [{ element: { id: 'merch-aggregate', name: 'Merch Aggregate' }, merchInventory }]

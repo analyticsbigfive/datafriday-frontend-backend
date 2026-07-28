@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { OrchestratorService } from './orchestrator.service';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { InvalidateCacheDto } from './dto/invalidate-cache.dto';
 import { GetStrategyQueryDto } from './dto/get-strategy-query.dto';
 
@@ -25,22 +26,22 @@ export class OrchestratorController {
   @ApiResponse({ status: 200, description: 'Cache invalidated successfully' })
   async invalidateCache(
     @Body() body: InvalidateCacheDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    await this.orchestratorService.invalidateCache(body.tenantId, body.spaceId);
+    await this.orchestratorService.invalidateCache(tenantId, body.spaceId);
     return { success: true, message: 'Cache invalidated' };
   }
 
   @Get('strategy')
   @UseGuards(JwtDatabaseGuard)
   @ApiOperation({ summary: 'Get recommended processing strategy for a context' })
-  @ApiQuery({ name: 'tenantId', required: true, type: String })
   @ApiQuery({ name: 'operation', required: true, type: String })
   @ApiQuery({ name: 'estimatedItems', required: false, type: Number })
   @ApiQuery({ name: 'priority', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Processing strategy recommendation' })
-  getStrategy(@Query() query: GetStrategyQueryDto) {
+  getStrategy(@Query() query: GetStrategyQueryDto, @CurrentTenant() tenantId: string) {
     return this.orchestratorService.decideStrategy({
-      tenantId: query.tenantId,
+      tenantId,
       operation: query.operation,
       estimatedItems: query.estimatedItems,
       priority: query.priority,

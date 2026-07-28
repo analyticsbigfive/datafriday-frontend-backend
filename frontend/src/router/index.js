@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import store from '@/store'
-import { requireAuth, requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard } from './guards'
+import { requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard } from './guards'
 
 // Views — PERF: imports LAZY (`() => import(...)`) au lieu de statiques. En
 // statique, ces ~31 vues étaient inlinées dans le chunk eager `app.js` (953KB),
@@ -22,6 +22,9 @@ const EventsListView = () => import('../components/events/views/EventsListView.v
 const EventsTypeListView = () => import('../components/events/views/EventsTypeListView.vue')
 const EventsCategorieListView = () => import('../components/events/views/EventsCategorieListView.vue')
 const EventsSubcategorieListView = () => import('../components/events/views/EventsSubcategorieListView.vue')
+
+// Route HR View (Edit HR : bibliothèques Suppliers / Staff Positions)
+const HrView = () => import('../components/hr/views/HrView.vue')
 
 // Routes Menu FB Views — lazy comme le reste (en statique, ces 18 vues admin
 // étaient inlinées dans app.js et payées au premier paint de toutes les routes).
@@ -144,15 +147,9 @@ const routes = [
       },
 
       {
-        name: 'SpaceBuilder',
-        path: '/spaces/:spaceId/builder',
-        component: () => import('@/components/spaces/views/builder/views/SpaceBuilderViewRoute.vue'),
-        meta: { keepAlive: true, permission: 'space.edit' }
-      },
-
-      {
         // Builder v2 (refonte — docs/REFONTE_3D_BUILDER_V2.md) : autosave granulaire,
-        // pas de keep-alive nécessaire (aucun état non sauvegardé à préserver).
+        // pas de keep-alive nécessaire (aucun état non sauvegardé à préserver). Builder v1
+        // (Config.data JSON blob) retiré — builder2 est l'unique parcours d'édition d'espace.
         name: 'SpaceBuilder2',
         path: '/spaces/:spaceId/builder2',
         component: () => import('@/components/spaces/views/builder2/BuilderPage.vue'),
@@ -170,7 +167,17 @@ const routes = [
         path: '/spaces/:spaceId/inventory',
         name: 'space-inventory',
         component: () => import('@/views/SpaceInventoryView.vue'),
-        meta: { title: 'Space Inventory', keepAlive: true, permission: 'front.fb.spaceInventory' }
+        meta: { title: 'Post-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'post' }
+      },
+
+      {
+        // Pre-event Inventory : MÊME composant en mode 'pre' (event FUTUR,
+        // quantités attendues gatées) — 2 instances keepAlive distinctes (key =
+        // route.path). Doc : docs/modules/10_POST_EVENT_INVENTORY.md §8.
+        path: '/spaces/:spaceId/pre-inventory',
+        name: 'space-pre-inventory',
+        component: () => import('@/views/SpaceInventoryView.vue'),
+        meta: { title: 'Pre-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'pre' }
       },
 
       {
@@ -188,150 +195,190 @@ const routes = [
       },
 
       {
+        // Live (BUG/module Live, cf. docs/modules/11_LIVE.md) : l'écran Analyse en
+        // mode flux. Route dédiée (pas ?toolbox=) car Live comprendra un onglet
+        // Inventaire (v2). `front.fb.live` déjà catalogué. `keepAlive` explicite.
+        path: '/spaces/:spaceId/live',
+        name: 'space-live',
+        component: () => import('@/components/analyse/AnalyseView.vue'),
+        meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
+      },
+
+      {
         path: '/events',
         name: 'events',
         component: EventsListView,
         meta: { title: 'Liste des événements', keepAlive: true, permission: 'menu.events.manage' }
       },
       {
-        path: '/event-types',
+        path: '/events/event-types',
         name: 'event-types',
         component: EventsTypeListView,
-        meta: { title: 'Liste des types d\'événements', keepAlive: true }
+        meta: { title: 'Liste des types d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-types', redirect: '/events/event-types' },
       {
-        path: '/event-categories',
+        path: '/events/event-categories',
         name: 'event-categories',
         component: EventsCategorieListView,
-        meta: { title: 'Liste des catégories d\'événements', keepAlive: true }
+        meta: { title: 'Liste des catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
       },
+      { path: '/event-categories', redirect: '/events/event-categories' },
       {
-        path: '/event-subcategories',
+        path: '/events/event-subcategories',
         name: 'event-subcategories',
         component: EventsSubcategorieListView,
-        meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true }
+        meta: { title: 'Liste des sous catégories d\'événements', keepAlive: true, permission: 'menu.events.manage' }
+      },
+      { path: '/event-subcategories', redirect: '/events/event-subcategories' },
+
+      {
+        path: '/hr',
+        name: 'hr',
+        component: HrView,
+        meta: { title: 'Edit HR', keepAlive: true, permission: 'menu.hr.manage' }
       },
 
       {
-        path: '/suppliers',
+        path: '/menu-fb/suppliers',
         name: 'suppliers',
         component: SuppliersListView,
         meta: { title: 'Liste des fournisseurs', keepAlive: true, permission: 'menu.fb.suppliers' }
       },
+      { path: '/suppliers', redirect: '/menu-fb/suppliers' },
       {
-        path: '/market-prices',
+        path: '/menu-fb/market-prices',
         name: 'market-prices',
         component: MarketPriceListView,
         meta: { title: 'Liste des prix du marché', keepAlive: true, permission: 'menu.fb.marketPrices' }
       },
+      { path: '/market-prices', redirect: '/menu-fb/market-prices' },
       {
-        path: '/components',
+        path: '/menu-fb/components',
         name: 'components',
         component: componentListView,
         meta: { title: 'Liste des composants', keepAlive: true, permission: 'menu.fb.components' }
       },
+      { path: '/components', redirect: '/menu-fb/components' },
       {
-        path: '/components/new',
+        path: '/menu-fb/components/new',
         name: 'component-create',
         component: ComponentCreateView,
         meta: { title: 'Create component', permission: 'menu.fb.components' }
       },
+      { path: '/components/new', redirect: '/menu-fb/components/new' },
       {
-        path: '/components/edit/:id',
+        path: '/menu-fb/components/edit/:id',
         name: 'component-edit',
         component: ComponentCreateView,
         meta: { title: 'Edit component', permission: 'menu.fb.components' }
       },
+      { path: '/components/edit/:id', redirect: to => `/menu-fb/components/edit/${to.params.id}` },
       {
-        path: '/space-menus',
+        path: '/menu-fb/space-menus',
         name: 'space-menus',
         component: SpaceMenuView,
         meta: { title: 'Space Menu', keepAlive: true, permission: 'menu.fb.spaceMenu' }
       },
+      { path: '/space-menus', redirect: '/menu-fb/space-menus' },
       {
-        path: '/space-menus/:spaceId/shops/:shopId',
+        path: '/menu-fb/space-menus/:spaceId/shops/:shopId',
         name: 'shop-detail',
         component: ShopDetailView,
         meta: { title: 'Shop detail', permission: 'menu.fb.spaceMenu' }
       },
+      { path: '/space-menus/:spaceId/shops/:shopId', redirect: to => `/menu-fb/space-menus/${to.params.spaceId}/shops/${to.params.shopId}` },
       {
-        path: '/menu-items',
+        path: '/menu-fb/menu-items',
         name: 'menu-items',
         component: MenuItemView,
         meta: { title: 'Menu items', keepAlive: true, permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items', redirect: '/menu-fb/menu-items' },
       {
-        path: '/menu-items/create',
+        path: '/menu-fb/menu-items/create',
         name: 'menu-item-create',
         component: MenuItemCreateView,
         meta: { title: 'Create menu item', permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items/create', redirect: '/menu-fb/menu-items/create' },
       {
-        path: '/menu-items/edit/:id',
+        path: '/menu-fb/menu-items/edit/:id',
         name: 'menu-item-edit',
         component: MenuItemCreateView,
         meta: { title: 'Edit menu item', permission: 'menu.fb.menuItems' }
       },
+      { path: '/menu-items/edit/:id', redirect: to => `/menu-fb/menu-items/edit/${to.params.id}` },
       {
-        path: '/product-categories',
+        path: '/configurations/product-categories',
         name: 'product-categories',
         component: ProductCategoryList,
         meta: { title: 'Liste des catégories de produits', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/product-categories', redirect: '/configurations/product-categories' },
       {
-        path: '/product-types',
+        path: '/configurations/product-types',
         name: 'product-types',
         component: ProductTypeList,
         meta: { title: 'Liste des types de produits', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/product-types', redirect: '/configurations/product-types' },
       {
-        path: '/market-price-categories',
+        path: '/configurations/market-price-categories',
         name: 'market-price-categories',
         component: MarketPriceCategoryList,
         meta: { title: 'Market Price Categories', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/market-price-categories', redirect: '/configurations/market-price-categories' },
       {
-        path: '/market-price-types',
+        path: '/configurations/market-price-types',
         name: 'market-price-types',
         component: MarketPriceTypeList,
         meta: { title: 'Market Price Types', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/market-price-types', redirect: '/configurations/market-price-types' },
       {
-        path: '/component-categories',
+        path: '/configurations/component-categories',
         name: 'component-categories',
         component: ComponentCategoryList,
         meta: { title: 'Component Categories', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/component-categories', redirect: '/configurations/component-categories' },
       {
-        path: '/component-types',
+        path: '/configurations/component-types',
         name: 'component-types',
         component: ComponentTypeList,
         meta: { title: 'Component Types', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/component-types', redirect: '/configurations/component-types' },
       {
-        path: '/brand-names',
+        path: '/configurations/brand-names',
         name: 'brand-names',
         component: BrandNameListView,
         meta: { title: 'Liste des marques', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/brand-names', redirect: '/configurations/brand-names' },
       {
-        path: '/display-names',
+        path: '/configurations/display-names',
         name: 'display-names',
         component: DisplayNameListView,
         meta: { title: "Liste des noms d'affichage", keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/display-names', redirect: '/configurations/display-names' },
       {
-        path: '/industrials',
+        path: '/configurations/industrials',
         name: 'industrials',
         component: IndustrialListView,
         meta: { title: 'Liste des industriels', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/industrials', redirect: '/configurations/industrials' },
       {
-        path: '/packing-types',
+        path: '/configurations/packing-types',
         name: 'packing-types',
         component: PackingTypeListView,
         meta: { title: 'Liste des packing types', keepAlive: true, permission: 'menu.config.manage' }
       },
+      { path: '/packing-types', redirect: '/configurations/packing-types' },
       {
         path: '/permissions',
         name: 'permissions',
@@ -371,13 +418,19 @@ const routes = [
     ]
   },
   
-  // Predict engine test harness (no auth, mock JSON data)
-  {
-    path: '/predict-test',
-    name: 'predict-test',
-    component: () => import('../views/PredictTestView.vue'),
-    meta: { title: 'Predict — Test Harness' }
-  },
+  // Banc de test du moteur predict (données mock, sans authentification).
+  // Non monté en production (BUG-028) : c'est un outil de développement, et l'exposer
+  // en prod ajoutait une surface non authentifiée sans contrepartie fonctionnelle.
+  // Volontairement laissé SANS guard hors production — c'est ce qui en fait un banc
+  // de test utilisable sans compte.
+  ...(process.env.NODE_ENV === 'production'
+    ? []
+    : [{
+      path: '/predict-test',
+      name: 'predict-test',
+      component: () => import('../views/PredictTestView.vue'),
+      meta: { title: 'Predict — Test Harness' }
+    }]),
 
   // Home redirect
   {

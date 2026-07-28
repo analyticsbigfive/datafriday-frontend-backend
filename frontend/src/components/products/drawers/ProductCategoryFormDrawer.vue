@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="pcfd-field-label">{{ t('productCategoryList.labelType') }}</div>
+            <div class="pcfd-field-label">{{ t('productCategoryList.labelType') }} <span class="pcfd-star">*</span></div>
             <v-select
               v-model="form.typeId"
               :items="typesWithAdd"
@@ -48,7 +48,7 @@
               </template>
             </v-select>
 
-            <div class="pcfd-field-label">{{ t('productCategoryList.labelName') }}</div>
+            <div class="pcfd-field-label">{{ t('productCategoryList.labelName') }} <span class="pcfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -86,8 +86,8 @@
       <div class="pcfd-type-dialog__header">
         <div class="pcfd-type-dialog__icon"><Tag :size="18" color="#fff" /></div>
         <div class="pcfd-type-dialog__text">
-          <p class="pcfd-type-dialog__title">Nouveau type</p>
-          <p class="pcfd-type-dialog__sub">Créer un type de catégorie</p>
+          <p class="pcfd-type-dialog__title">{{ t('productCategoryList.newTypeTitle') }}</p>
+          <p class="pcfd-type-dialog__sub">{{ t('productCategoryList.newTypeSubtitle') }}</p>
         </div>
         <button class="pcfd-type-dialog__close" :disabled="creatingType" @click="showCreateTypeDialog = false">
           <X :size="14" />
@@ -97,19 +97,19 @@
         <div class="pcfd-type-dialog__error" v-if="typeError">
           <AlertTriangle :size="13" /> {{ typeError }}
         </div>
-        <label class="pcfd-field-label">Nom du type</label>
+        <label class="pcfd-field-label">{{ t('productCategoryList.newTypeLabel') }} <span class="pcfd-star">*</span></label>
         <input
           ref="typeInput"
           v-model="newTypeName"
           class="pcfd-type-input"
-          placeholder="Ex : Boisson, Nourriture…"
+          :placeholder="t('productCategoryList.newTypePlaceholder')"
           @keydown.enter="confirmCreateType"
           @keydown.esc="showCreateTypeDialog = false"
         />
       </div>
       <div class="pcfd-type-dialog__footer">
         <button class="pcfd-fbtn pcfd-fbtn--cancel" :disabled="creatingType" @click="showCreateTypeDialog = false">
-          Annuler
+          {{ t('productCategoryList.cancel') }}
         </button>
         <button
           class="pcfd-fbtn pcfd-fbtn--primary"
@@ -118,7 +118,7 @@
         >
           <v-progress-circular v-if="creatingType" indeterminate size="13" width="2" color="white" />
           <Plus v-else :size="14" />
-          Créer
+          {{ t('productCategoryList.create') }}
         </button>
       </div>
     </div>
@@ -218,8 +218,8 @@ export default {
       } catch (e) {
         const msg = e?.response?.data?.message || e?.message || '';
         this.typeError = msg.includes('Unique constraint')
-          ? `Un type "${name}" existe déjà.`
-          : msg || 'Échec de la création du type';
+          ? this.t('productCategoryList.typeExists').replace('{name}', name)
+          : msg || this.t('productCategoryList.typeCreateError');
       } finally {
         this.creatingType = false;
       }
@@ -227,8 +227,8 @@ export default {
     async submit() {
       this.error = '';
       const name = String(this.form.name || '').trim();
-      if (!name) { this.error = 'Le nom est requis'; return; }
-      if (!this.form.typeId) { this.error = 'Le type est requis'; return; }
+      if (!name) { this.error = this.t('productCategoryList.nameRequired'); return; }
+      if (!this.form.typeId) { this.error = this.t('productCategoryList.typeRequired'); return; }
 
       this.loading = true;
       try {
@@ -236,7 +236,7 @@ export default {
         const typeName = (this.types.find(t => t.id === payload.typeId) || {}).name || '';
 
         if (this.mode === 'edit') {
-          if (!this.form.id) { this.error = 'Identifiant manquant'; return; }
+          if (!this.form.id) { this.error = this.t('productCategoryList.missingId'); return; }
           await updateProductCategory(this.form.id, payload);
           await this.$store.dispatch('productCategories/updateProductCategory', {
             id: this.form.id, ...payload, typeName,
@@ -257,7 +257,7 @@ export default {
         this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
         this.close();
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Échec de la sauvegarde';
+        this.error = e?.response?.data?.message || e?.message || this.t('productCategoryList.saveError');
       } finally {
         this.loading = false;
       }
@@ -347,6 +347,7 @@ export default {
   margin-bottom: 8px;
 }
 .pcfd-panel--dark .pcfd-field-label { color: #d1d5db; }
+.pcfd-star { color: #ff3131; }
 
 /* styled fields */
 .pcfd-field :deep(.v-field) {
@@ -359,6 +360,7 @@ export default {
   border-color: #ff3131 !important;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
 }
+.pcfd-panel--dark .pcfd-field :deep(.v-field) { border-color: #374151 !important; }
 
 /* ── Footer ── */
 .pcfd-footer {

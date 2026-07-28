@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Prisma, ElementType } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -9,6 +9,7 @@ import { WeezeventClientService } from '../weezevent/services/weezevent-client.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { LogisticsService } from '../logistics/logistics.service';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -19,6 +20,7 @@ export const WEEZEVENT_IMPORT_CONFIG_NAME = 'Weezevent Import';
 
 @Injectable()
 export class SpacesService {
+  private readonly logger = new Logger(SpacesService.name);
   private readonly SPACES_CACHE_TTL = 60; // 60 seconds
   private readonly SPACE_DETAIL_CACHE_TTL = 120; // 2 minutes for individual space
   private readonly SPACE_SHOPS_CACHE_TTL = 30; // 30 seconds — lecture chaude pour SpaceMenuView
@@ -37,6 +39,13 @@ export class SpacesService {
     `spaces:shops:${tenantId}:${spaceId}`;
   private readonly SPACE_CONFIGS_CACHE_KEY = (tenantId: string, spaceId: string) =>
     `spaces:configs:${tenantId}:${spaceId}`;
+  // RPC get_space_shop_details ≈ 300ms à elle seule (cf. commentaire getShopDetails) et
+  // sur le chemin critique du premier rendu /analyse (phase 1 de useSpaceData) — cachée
+  // 60s. Données alimentées par sync/agrégation (pas d'écriture utilisateur directe),
+  // invalidées avec les autres clés spaces:* dans invalidateSpaceCache.
+  private readonly SPACE_SHOPDETAILS_CACHE_TTL = 60;
+  private readonly SPACE_SHOPDETAILS_CACHE_KEY = (tenantId: string, spaceId: string) =>
+    `spaces:shopdetails:${tenantId}:${spaceId}`;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -44,6 +53,7 @@ export class SpacesService {
     private readonly weezeventClient: WeezeventClientService,
     private readonly spaceAccess: SpaceAccessService,
     private readonly storage: SupabaseStorageService,
+    private readonly logisticsService: LogisticsService,
   ) {}
 
   /**
@@ -71,6 +81,8 @@ export class SpacesService {
       keys.push(this.redis.deletePattern(`${this.SPACE_SHOPS_CACHE_KEY(tenantId, spaceId)}*`) as unknown as Promise<void>);
       keys.push(this.redis.delete(this.SPACE_CONFIGS_CACHE_KEY(tenantId, spaceId)));
       keys.push(this.redis.delete(this.SPACE_SHOPIDS_CACHE_KEY(tenantId, spaceId)));
+      // deletePattern : getShopDetails écrit des clés suffixées ":page:limit:granular"
+      keys.push(this.redis.deletePattern(`${this.SPACE_SHOPDETAILS_CACHE_KEY(tenantId, spaceId)}*`) as unknown as Promise<void>);
     }
     await Promise.all(keys);
   }
@@ -124,6 +136,76 @@ export class SpacesService {
 
     await this.invalidateSpaceCache(tenantId);
     return space;
+  }
+
+  /**
+   * CA (total/F&B/merch), transactions et billets par espace — calculé à la volée depuis les
+   * agrégats réels (SpaceRevenueMinuteAgg, corrigé BUG-014/015) et Event, pas depuis les
+   * colonnes Space.avgEvent/avgTransaction/perCapita/cachedMetrics qui ne sont jamais écrites.
+   * Classification F&B/merch réutilise la convention déjà en place ailleurs (StorageShopsSection.vue,
+   * space-menus.service.ts:843) : isMerch = SpaceElement.type === 'merchshop'.
+   * Formules avgTransaction/avgEvent/perCapita alignées sur useMetricsCalculator.js (moteur Analyse).
+   */
+  private async getRevenueSummaries(tenantId: string, spaceIds: string[]) {
+    const summaries = new Map<string, {
+      totalRevenue: number;
+      fbRevenue: number;
+      merchRevenue: number;
+      ticketingCount: number;
+      avgTransaction: number;
+      avgEvent: number;
+      perCapita: number;
+    }>();
+    if (spaceIds.length === 0) return summaries;
+
+    const [revenueRows, ticketRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{
+        spaceId: string;
+        totalRevenue: number;
+        merchRevenue: number;
+        fbRevenue: number;
+        transactionsCount: number;
+        eventsWithRevenue: number;
+      }>>(Prisma.sql`
+        SELECT sra."spaceId",
+          SUM(sra."revenueHt")::float AS "totalRevenue",
+          SUM(CASE WHEN se."type" = 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "merchRevenue",
+          SUM(CASE WHEN se."type" IS DISTINCT FROM 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "fbRevenue",
+          SUM(sra."transactionsCount")::int AS "transactionsCount",
+          COUNT(DISTINCT CASE WHEN sra."revenueHt" > 0 THEN sra."weezeventEventId" END)::int AS "eventsWithRevenue"
+        FROM "SpaceRevenueMinuteAgg" sra
+        LEFT JOIN "SpaceElement" se ON se.id = sra."spaceElementId"
+        WHERE sra."tenantId" = ${tenantId} AND sra."spaceId" IN (${Prisma.join(spaceIds)})
+        GROUP BY sra."spaceId"
+      `),
+      this.prisma.$queryRaw<Array<{ spaceId: string; ticketsCount: number }>>(Prisma.sql`
+        SELECT "spaceId", SUM(COALESCE("ticketsScanned", "ticketsSold", 0))::int AS "ticketsCount"
+        FROM "Event"
+        WHERE "tenantId" = ${tenantId} AND "spaceId" IN (${Prisma.join(spaceIds)})
+        GROUP BY "spaceId"
+      `),
+    ]);
+
+    const ticketsBySpace = new Map(ticketRows.map((r) => [r.spaceId, Number(r.ticketsCount) || 0]));
+
+    for (const row of revenueRows) {
+      const totalRevenue = Number(row.totalRevenue) || 0;
+      const transactionsCount = Number(row.transactionsCount) || 0;
+      const eventsWithRevenue = Number(row.eventsWithRevenue) || 0;
+      const ticketsCount = ticketsBySpace.get(row.spaceId) ?? 0;
+
+      summaries.set(row.spaceId, {
+        totalRevenue,
+        fbRevenue: Number(row.fbRevenue) || 0,
+        merchRevenue: Number(row.merchRevenue) || 0,
+        ticketingCount: ticketsCount,
+        avgTransaction: transactionsCount > 0 ? totalRevenue / transactionsCount : 0,
+        avgEvent: eventsWithRevenue > 0 ? totalRevenue / eventsWithRevenue : 0,
+        perCapita: ticketsCount > 0 ? totalRevenue / ticketsCount : 0,
+      });
+    }
+
+    return summaries;
   }
 
   /**
@@ -194,10 +276,6 @@ export class SpacesService {
           instagram: true,
           twitter: true,
           tiktok: true,
-          avgEvent: true,
-          avgTransaction: true,
-          perCapita: true,
-          cachedMetrics: true,
           _count: {
             select: {
               configs: true,
@@ -209,8 +287,22 @@ export class SpacesService {
       this.prisma.space.count({ where }),
     ]);
 
+    const revenueSummaries = await this.getRevenueSummaries(tenantId, spaces.map((s) => s.id));
+    const spacesWithMetrics = spaces.map((s) => ({
+      ...s,
+      ...(revenueSummaries.get(s.id) ?? {
+        totalRevenue: 0,
+        fbRevenue: 0,
+        merchRevenue: 0,
+        ticketingCount: 0,
+        avgTransaction: 0,
+        avgEvent: 0,
+        perCapita: 0,
+      }),
+    }));
+
     const result = {
-      data: spaces,
+      data: spacesWithMetrics,
       meta: {
         total,
         page,
@@ -967,14 +1059,22 @@ export class SpacesService {
    * collapsing 8 sequential DB round-trips into a single network call (~2s → ~300ms).
    */
   async getShopDetails(spaceId: string, tenantId: string, page = 1, limit = 20, includeGranular = false) {
-    const rows = await this.prisma.$queryRaw<Array<{ get_space_shop_details: any }>>`
-      SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int, ${includeGranular}::boolean)
-    `;
-    const data = rows[0]?.get_space_shop_details;
-    if (!data || data.__error === 'space_not_found') {
-      throw new NotFoundException(`Space with ID ${spaceId} not found`);
-    }
-    return data;
+    // Cache Redis (60s) : la RPC est le poste dominant du premier rendu /analyse.
+    // Une erreur (space_not_found) jette depuis la factory → rien n'est mis en cache.
+    return this.redis.getOrSet(
+      `${this.SPACE_SHOPDETAILS_CACHE_KEY(tenantId, spaceId)}:${page}:${limit}:${includeGranular ? 1 : 0}`,
+      async () => {
+        const rows = await this.prisma.$queryRaw<Array<{ get_space_shop_details: any }>>`
+          SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int, ${includeGranular}::boolean)
+        `;
+        const data = rows[0]?.get_space_shop_details;
+        if (!data || data.__error === 'space_not_found') {
+          throw new NotFoundException(`Space with ID ${spaceId} not found`);
+        }
+        return data;
+      },
+      { ttl: this.SPACE_SHOPDETAILS_CACHE_TTL },
+    );
   }
 
   private readonly SPACE_SHOPIDS_CACHE_TTL = 30; // seconds — même durée que SPACE_SHOPS_CACHE_TTL
@@ -1036,6 +1136,10 @@ export class SpacesService {
    * event) instead of once per event, then runs a single raw-SQL aggregate for all events
    * via a VALUES CTE joined by date-range predicate — instead of one query per event.
    * Returns a map keyed by the requested eventId (missing/not-found events map to []).
+   * Sales whose location has no shop mapping are KEPT (shopId falls back to the raw
+   * locationId, shopName to locationName) — same resilience as the shop-details RPC;
+   * the frontend buckets them as "unattached" (grey). Only when the space has no
+   * integration mapping (tenant-wide degraded scope) are unmapped rows excluded.
    */
   async getEventTimelineBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
     const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
@@ -1099,18 +1203,33 @@ export class SpacesService {
       ? Prisma.sql`AND t."integrationId" = ${integrationId}`
       : Prisma.sql``;
 
+    // Shop scoping aligned with the get_space_shop_details RPC: keep sales whose
+    // location has no shop mapping (they surface as the frontend's grey
+    // "unattached" bucket, UNATTACHED_SHOP_KEY) instead of silently dropping them
+    // — an unmapped POS previously zeroed out every item-level view while the
+    // shop-level aggregate kept showing revenue. Rows mapped to another space's
+    // shops stay excluded. Without an integration scope the query is tenant-wide,
+    // so the unmapped branch would leak other spaces' sales into this space's
+    // date windows — in that degraded mode, require the mapping.
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
+      : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
+
     const valuesSql = Prisma.join(
       windows.map(w => Prisma.sql`(${w.id}::text, ${w.eventDate}::timestamp, ${w.windowEnd}::timestamp)`),
       ', ',
     );
 
+    // BUG-108 : contrairement au pipeline d'agrégation périodique (executeProcessEvents,
+    // exclu depuis BUG-028), cette lecture directe de WeezeventTransaction ne filtrait pas
+    // deletedAt — une transaction annulée après un retry webhook restait comptée ici.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
       WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql})
       SELECT
         ev."eventId"                                                      AS "eventId",
         TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')    AS minute,
-        mem."spaceElementId"                                              AS "shopId",
-        se.name                                                           AS "shopName",
+        COALESCE(mem."spaceElementId", t."locationId")                    AS "shopId",
+        COALESCE(se.name, t."locationName", t."locationId")               AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
         se.attributes::jsonb->>'area'                                     AS "shopArea",
         ti."productId"                                                    AS "weezeventProductId",
@@ -1131,13 +1250,13 @@ export class SpacesService {
        AND t."tenantId" = ${tenantId}
        ${integrationClause}
        AND t.status = 'V'
+       AND t."deletedAt" IS NULL
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
-      INNER JOIN "WeezeventLocationShopMapping" mem
+      LEFT JOIN "WeezeventLocationShopMapping" mem
         ON mem."weezeventLocationId" = t."locationId"
        AND mem."tenantId"         = ${tenantId}
-       AND mem."spaceElementId"   = ANY(${shopIds})
-      INNER JOIN "SpaceElement" se
+      LEFT JOIN "SpaceElement" se
         ON se.id = mem."spaceElementId"
       LEFT JOIN "WeezeventProductMapping" wpm
         ON wpm."weezeventProductId" = ti."productId"
@@ -1148,9 +1267,12 @@ export class SpacesService {
         ON pt.id = mi."typeId"
       LEFT JOIN "ProductCategory" pc
         ON pc.id = mi."categoryId"
+      WHERE ${shopScopeClause}
       GROUP BY
         ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
-        mem."spaceElementId", se.name, se.type, se.attributes,
+        COALESCE(mem."spaceElementId", t."locationId"),
+        COALESCE(se.name, t."locationName", t."locationId"),
+        se.type, se.attributes,
         ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name
       ORDER BY ev."eventId", minute ASC
     `);
@@ -1176,6 +1298,109 @@ export class SpacesService {
       });
     }
     return out;
+  }
+
+  // Fenêtre de fraîcheur : au moins une vente dans les N dernières minutes (question #20 du
+  // tracker front, tranchée par Ulrich 2026-07-20 : signal = vente réelle, pas le webhook brut).
+  private readonly LIVE_STATUS_WINDOW_MINUTES = 30;
+  // Marge après eventEndDate pendant laquelle un event reste considéré "live" (règlement tardif) —
+  // même valeur que WeezeventCronService.LIVE_AGGREGATION_GRACE_HOURS (filet de sécurité BUG-109),
+  // les deux implémentant la même définition d'"event en direct".
+  private readonly LIVE_STATUS_GRACE_HOURS = 3;
+
+  /**
+   * "Cet espace a-t-il un event live ?" (tracker front #20, LIVE_API_GUIDE.md §1). Un espace n'a
+   * qu'un seul event live à la fois (cardinalité tranchée le 2026-07-23, tracker #23) : l'event le
+   * plus récent dont la fenêtre [eventStartDate, eventEndDate + grace] couvre l'instant présent est
+   * live si au moins une vente réelle (non annulée, cf. BUG-108) est arrivée dans les 30 dernières
+   * minutes pour les shops de cet espace.
+   *
+   * Si AUCUN Event ne couvre l'instant présent (pas créé à l'avance, ou oublié), ne pas se
+   * refermer sur `isLive:false` par principe : une vente réelle dans la fenêtre glissante de 30
+   * min suffit à elle seule à ancrer le live (`eventId:null` dans ce cas — décision revue, il
+   * n'est plus nécessaire d'avoir saisi un Event en amont pour détecter un live réel).
+   */
+  async getLiveStatus(
+    spaceId: string,
+    tenantId: string,
+  ): Promise<{ isLive: boolean; eventId: string | null; since: string | null }> {
+    const now = new Date();
+    const graceMs = this.LIVE_STATUS_GRACE_HOURS * 60 * 60 * 1000;
+
+    // Candidats : events récents dont la fenêtre pourrait couvrir "now" — bornés à quelques
+    // jours pour éviter un scan de tout l'historique (aucun event de plus de quelques jours ne
+    // peut encore être dans sa fenêtre + grace).
+    const candidates = await this.prisma.event.findMany({
+      where: {
+        tenantId,
+        spaceId,
+        eventDate: { lte: now, gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
+      },
+      select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true },
+      orderBy: { eventDate: 'desc' },
+    });
+
+    // Ne bloque plus sur l'absence d'Event : `event` peut rester `undefined` — le live sera
+    // alors détecté (ou non) sur la seule base des ventes réelles, cf. doc de la méthode.
+    const event = candidates.find((e) => {
+      const start = e.eventStartDate ?? e.eventDate;
+      const end = e.eventEndDate ?? e.eventDate;
+      const graceEnd = new Date(end.getTime() + graceMs);
+      return now >= start && now <= graceEnd;
+    });
+
+    const [locationMapping, shopIds] = await Promise.all([
+      this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { salesLocationId: true },
+      }),
+      this.resolveShopIdsForSpace(spaceId, tenantId),
+    ]);
+    if (shopIds.length === 0) return { isLive: false, eventId: event?.id ?? null, since: null };
+
+    const integrationId = locationMapping?.salesLocationId ?? null;
+    const integrationClause = integrationId
+      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+      : Prisma.sql``;
+    // Même repli "unmapped = gardé" que getEventTimelineBatch (§ ci-dessus) — un PdV pas encore
+    // mappé shop-level ne doit pas faire manquer un vrai signal live.
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
+      : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
+
+    const windowStart = new Date(now.getTime() - this.LIVE_STATUS_WINDOW_MINUTES * 60 * 1000);
+    // Avec un Event trouvé : la vente doit être à la fois récente (30 dernières minutes) ET
+    // dans la fenêtre de l'event (pas une vente de test pré-event) — définition tranchée #20,
+    // inchangée. Sans Event : fenêtre glissante de 30 min pure, aucun ancrage supplémentaire —
+    // une vente isolée suffit, et le live retombe naturellement 30 min après la dernière vente.
+    const eventStart = event ? (event.eventStartDate ?? event.eventDate) : null;
+    const effectiveWindowStart = eventStart && eventStart > windowStart ? eventStart : windowStart;
+
+    const rows: { since: Date | null }[] = await this.prisma.$queryRaw(Prisma.sql`
+      SELECT MIN(t."transactionDate") AS since
+      FROM "WeezeventTransaction" t
+      LEFT JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
+       AND mem."tenantId" = ${tenantId}
+      WHERE t."tenantId" = ${tenantId}
+        ${integrationClause}
+        AND t.status = 'V'
+        AND t."deletedAt" IS NULL
+        AND t."transactionDate" >= ${effectiveWindowStart}
+        AND ${shopScopeClause}
+    `);
+
+    const since = rows[0]?.since ?? null;
+    return { isLive: !!since, eventId: event?.id ?? null, since: since ? since.toISOString() : null };
+  }
+
+  /**
+   * Onglet Inventaire live (tracker front #22, LIVE_API_GUIDE.md §3) — délègue au module
+   * Logistic, qui calcule déjà cette combinaison Restock + décrément par vente pour son propre
+   * écran. Passthrough volontairement fin : la logique vit dans LogisticsService, pas ici.
+   */
+  async getLiveInventory(spaceId: string, tenantId: string) {
+    return this.logisticsService.getLiveInventory(spaceId, tenantId);
   }
 
   /**
@@ -1348,6 +1573,7 @@ export class SpacesService {
     while (hasMore) {
       const response = await this.weezeventClient.getAttendees(
         tenantId,
+        event.integrationId,
         integration.weezevent.organizationId,
         event.externalId,
         { page, perPage: 100 },
@@ -2911,6 +3137,26 @@ export class SpacesService {
   }
 
   /**
+   * BUG-23 — Journalise la bascule v1→v2 lorsqu'un espace "v1 pur" route une assignation
+   * en v2 uniquement parce qu'au moins une `Zone` existe déjà pour cet espace (ex. créée
+   * par un `quick-element` antérieur). Purement observabilité : ne change AUCUN
+   * comportement de routage, ne fait que rendre la bascule visible en log (cf.
+   * docs/bugs/23_bascule_silencieuse_v1_v2_assign_floor.md).
+   */
+  private logBuilderV2Switch(
+    origin: 'assignElementsToFloorLevel' | 'assignElementsToForecourt' | 'assignElementsToExternalMerch',
+    spaceId: string,
+    tenantId: string,
+    zoneCount: number,
+  ): void {
+    this.logger.warn(
+      `[BUG-23] Bascule v1→v2 (builderVersion=v2) pour spaceId=${spaceId} tenantId=${tenantId} ` +
+        `dans ${origin} : l'espace possède déjà ${zoneCount} zone(s), toute nouvelle assignation ` +
+        `est routée en v2 même si l'utilisateur n'a jamais ouvert le builder v2.`,
+    );
+  }
+
+  /**
    * Assign a list of SpaceElements to a given floor level (or to the forecourt/"Parvis")
    * within the same space. Le Floor/Forecourt est trouvé/créé dans la configuration cible
    * (`opts.configId`, sinon la config utilisateur principale via `resolveTargetConfig`).
@@ -2977,6 +3223,9 @@ export class SpacesService {
     ]);
     if (!space) throw new NotFoundException('Space not found or access denied');
     const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToFloorLevel', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX : le Floor v1 n'est créé que si un élément v1 doit y aller
     // (ne pas polluer un espace géré en v2), la Zone v2 que si un élément v2 arrive.
@@ -3176,12 +3425,15 @@ export class SpacesService {
     }
 
     // Réponse en union discriminée (`kind`) cohérente entre floor / forecourt / externalmerch.
+    // `builderVersion` (BUG-23) : champ additif indiquant le routage effectif de cet appel,
+    // pour que le frontend/debug n'ait plus à le déduire silencieusement du payload.
     return {
       kind: 'floor' as const,
       floorId: floor?.id ?? targetZone?.id ?? null,
       floorName: zoneName ?? floorName,
       level,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 
@@ -3208,7 +3460,11 @@ export class SpacesService {
     // Cible : la config utilisateur (étape 1 / 3D Builder), pas « Weezevent Import ».
     const config = await this.resolveTargetConfig(spaceId, opts.configId);
     // Espace géré en v2 → toute assignation ADOPTE l'élément en v2 (zone + adhésion).
-    const spaceHasZones = (await this.prisma.zone.count({ where: { spaceId } })) > 0;
+    const zoneCount = await this.prisma.zone.count({ where: { spaceId } });
+    const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToForecourt', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX (cf. assignElementsToFloorLevel) : v1 Forecourt / v2 Zone.
     let forecourt: any = null;
@@ -3397,12 +3653,14 @@ export class SpacesService {
     if (updated.length === 0 && updatedV2.length > 0) {
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
+    // `builderVersion` (BUG-23) : voir commentaire dans assignElementsToFloorLevel.
     return {
       kind: 'forecourt' as const,
       forecourtId: forecourt?.id ?? targetZone?.id ?? null,
       forecourtName: forecourt?.name ?? targetZone?.name ?? 'Parvis',
       level: null,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 
@@ -3429,7 +3687,11 @@ export class SpacesService {
     // Cible : la config utilisateur (étape 1 / 3D Builder), pas « Weezevent Import ».
     const config = await this.resolveTargetConfig(spaceId, opts.configId);
     // Espace géré en v2 → toute assignation ADOPTE l'élément en v2 (zone + adhésion).
-    const spaceHasZones = (await this.prisma.zone.count({ where: { spaceId } })) > 0;
+    const zoneCount = await this.prisma.zone.count({ where: { spaceId } });
+    const spaceHasZones = zoneCount > 0;
+    if (spaceHasZones) {
+      this.logBuilderV2Switch('assignElementsToExternalMerch', spaceId, tenantId, zoneCount);
+    }
 
     // Containers PARESSEUX (cf. assignElementsToFloorLevel) : v1 ExternalMerch / v2 Zone.
     let externalMerch: any = null;
@@ -3622,12 +3884,14 @@ export class SpacesService {
     if (updated.length === 0 && updatedV2.length > 0) {
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
+    // `builderVersion` (BUG-23) : voir commentaire dans assignElementsToFloorLevel.
     return {
       kind: 'externalmerch' as const,
       externalMerchId: externalMerch?.id ?? targetZone?.id ?? null,
       externalMerchName: externalMerch?.name ?? targetZone?.name ?? 'Espace externe',
       level: null,
       updatedElementIds: [...updated, ...updatedV2],
+      builderVersion: spaceHasZones ? ('v2' as const) : ('v1' as const),
     };
   }
 
@@ -3706,77 +3970,5 @@ export class SpacesService {
 
     await this.invalidateSpaceCache(tenantId, space.id);
     return true;
-  }
-
-  /**
-   * Delete a configuration
-   */
-  async deleteConfiguration(configId: string, tenantId: string) {
-    // Verify configuration exists and belongs to tenant
-    const config = await this.getConfiguration(configId, tenantId);
-
-    // Cohabitation builder v2 : supprimer une Config cascade ses ConfigurationElement.
-    // Les éléments v2 dont c'était la DERNIÈRE adhésion seraient orphelins silencieux
-    // (invisible dans aucune config) → on les rattache à la plus ancienne config
-    // utilisateur restante de l'espace, s'il y en a une. S'il n'y en a AUCUNE
-    // (suppression de la dernière config utilisateur), on purge réellement les
-    // éléments sans adhésion restante puis les zones vides — sinon ils survivent
-    // en base et regonflent les comptages à la passe de mapping suivante.
-    const [memberships, fallback] = await Promise.all([
-      this.prisma.configurationElement.findMany({
-        where: { configId },
-        select: { elementId: true },
-      }),
-      this.prisma.config.findFirst({
-        where: { spaceId: config.spaceId, isSystem: false, id: { not: configId } },
-        orderBy: { createdAt: 'asc' },
-        select: { id: true },
-      }),
-    ]);
-    if (fallback && memberships.length > 0) {
-      const elementIds = memberships.map((m) => m.elementId);
-      const counts = await this.prisma.configurationElement.groupBy({
-        by: ['elementId'],
-        where: { elementId: { in: elementIds } },
-        _count: { _all: true },
-      });
-      const orphanIds = (counts as any[])
-        .filter((c) => c._count._all === 1)
-        .map((c) => c.elementId);
-      if (orphanIds.length > 0) {
-        await this.prisma.configurationElement.createMany({
-          data: orphanIds.map((elementId) => ({ configId: fallback.id, elementId })),
-          skipDuplicates: true,
-        });
-      }
-    }
-
-    let purgedElements = 0;
-    let purgedZones = 0;
-    if (fallback) {
-      await this.prisma.config.delete({
-        where: { id: configId },
-      });
-    } else {
-      // Le delete de la config cascade ses adhésions AVANT les deleteMany (même tx,
-      // exécution séquentielle) : les orphelins de cette config tombent donc dans le
-      // filtre `none`. Les éléments encore membres d'une config système sont préservés,
-      // et leurs zones avec. Toutes les FK élément (mappings Weezevent, menu
-      // assignments, perf/staff/inventaire) sont onDelete: Cascade.
-      const [, elementsRes, zonesRes] = await this.prisma.$transaction([
-        this.prisma.config.delete({ where: { id: configId } }),
-        this.prisma.spaceElement.deleteMany({
-          where: { zone: { spaceId: config.spaceId }, configurationElements: { none: {} } },
-        }),
-        this.prisma.zone.deleteMany({
-          where: { spaceId: config.spaceId, elements: { none: {} } },
-        }),
-      ]);
-      purgedElements = elementsRes.count;
-      purgedZones = zonesRes.count;
-    }
-
-    await this.invalidateSpaceCache(tenantId, config.spaceId);
-    return { message: 'Configuration deleted successfully', purgedElements, purgedZones };
   }
 }

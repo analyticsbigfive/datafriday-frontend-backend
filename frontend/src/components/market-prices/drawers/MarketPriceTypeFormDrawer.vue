@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="mptfd-field-label">{{ t('marketPriceTypeList.labelName') }}</div>
+            <div class="mptfd-field-label">{{ t('marketPriceTypeList.labelName') }} <span class="mptfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -109,13 +109,13 @@ export default {
     async submit() {
       this.error = '';
       const name = String(this.form.name || '').trim();
-      if (!name) { this.error = 'Le nom est requis'; return; }
+      if (!name) { this.error = this.t('marketPriceTypeList.nameRequired'); return; }
 
       this.loading = true;
       try {
         const payload = { name };
         if (this.mode === 'edit') {
-          if (!this.form.id) { this.error = 'Identifiant manquant'; return; }
+          if (!this.form.id) { this.error = this.t('marketPriceTypeList.missingId'); return; }
           await updateMarketPriceType(this.form.id, payload);
           await this.$store.dispatch('marketPriceTypes/updateMarketPriceType', { id: this.form.id, ...payload });
           this.$emit('saved', { id: this.form.id, ...payload });
@@ -130,7 +130,7 @@ export default {
         }
         this.close();
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Échec de la sauvegarde';
+        this.error = e?.response?.data?.message || e?.message || this.t('marketPriceTypeList.saveError');
       } finally {
         this.loading = false;
       }
@@ -192,12 +192,12 @@ export default {
   min-width: 0;
 }
 .mptfd-header__title {
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #fff;
 }
 .mptfd-header__subtitle {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, .72);
   margin-top: 2px;
 }
@@ -273,7 +273,7 @@ export default {
   padding: 0 20px;
   height: 40px;
   border-radius: 50px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 600;
   cursor: pointer;
   border: none;
@@ -297,6 +297,14 @@ export default {
   opacity: .5;
   cursor: not-allowed;
 }
+
+/* Dark mode — compléments (champ + bouton Cancel) + étoile required */
+.mptfd-panel--dark .mptfd-field :deep(.v-field) { border-color: #374151 !important; background: #1f2937 !important; }
+.mptfd-panel--dark .mptfd-field :deep(.v-field input),
+.mptfd-panel--dark .mptfd-field :deep(.v-field__input) { color: #f9fafb; }
+.mptfd-panel--dark .mptfd-fbtn--cancel { background: #374151; color: #d1d5db; }
+.mptfd-panel--dark .mptfd-fbtn--cancel:hover { background: #4b5563; }
+.mptfd-star { color: #ff3131; }
 
 /* ── Transition ── */
 .mptfd-slide-enter-active,

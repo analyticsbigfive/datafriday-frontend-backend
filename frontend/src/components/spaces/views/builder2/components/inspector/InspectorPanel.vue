@@ -161,7 +161,7 @@ function closeInspector() {
 .ip-header__title {
   flex: 1;
   min-width: 0;
-  font-size: 19px;
+  font-size: var(--fs-xl);
   font-weight: 700;
   line-height: 1.2;
   color: rgb(var(--v-theme-on-surface));
@@ -195,7 +195,7 @@ function closeInspector() {
   display: inline-block;
   padding: 3px 12px;
   border-radius: 100px;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
 }
 
@@ -235,8 +235,8 @@ function closeInspector() {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ip-header__type-over { font-size: 13px; font-weight: 600; }
-.ip-header__name-over { font-size: 18px; font-weight: 700; }
+.ip-header__type-over { font-size: var(--fs-base); font-weight: 600; }
+.ip-header__name-over { font-size: var(--fs-lg); font-weight: 700; }
 
 /* Actions en blanc par-dessus l'image (override bleu/rouge). */
 .ip-header--image .ip-act,
@@ -264,7 +264,7 @@ function closeInspector() {
 :deep(.v-field--variant-outlined.v-field--focused) {
   box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.12);
 }
-:deep(.v-field__input) { font-size: 13px; }
+:deep(.v-field__input) { font-size: var(--fs-base); }
 :deep(.v-field--density-compact .v-field__input) { min-height: 36px; }
-:deep(.v-label) { font-size: 12px; }
+:deep(.v-label) { font-size: var(--fs-sm); }
 </style>

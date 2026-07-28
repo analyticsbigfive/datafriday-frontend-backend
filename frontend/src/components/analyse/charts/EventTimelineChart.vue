@@ -124,6 +124,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { Line } from 'vue-chartjs'
+import { useTheme } from 'vuetify'
 import { registerChartJs } from '@/lib/chartjs'
 import { useI18n } from '@/i18n/useI18n'
 import { Clock, LineChart, RotateCcw, X } from 'lucide-vue-next'
@@ -132,6 +133,12 @@ import { formatDateShort } from '@/utils/dateFr'
 registerChartJs()
 
 const { t } = useI18n()
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
+// Chart.js peint sur <canvas> : hors du CSS, donc insensible au thème. On dérive
+// grille + ticks de `isDark` (la palette des séries reste lisible sur les 2 fonds).
+const gridColor = computed(() => (isDark.value ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'))
+const tickColor = computed(() => (isDark.value ? '#94a3b8' : '#64748b'))
 
 const MENU_COLORS = [
   '#3b82f6', '#ff3131', '#10b981', '#f59e0b', '#8b5cf6',
@@ -532,13 +539,14 @@ const chartOptions = computed(() => ({
   scales: {
     x: {
       stacked: true,
-      ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+      ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12, color: tickColor.value },
       grid: { display: false },
     },
     y: {
       stacked: true,
       beginAtZero: true,
       ticks: {
+        color: tickColor.value,
         callback: (v) =>
           viewMode.value === 'revenue'
             ? new Intl.NumberFormat('fr-FR', {
@@ -547,7 +555,7 @@ const chartOptions = computed(() => ({
               }).format(v) + ' €'
             : new Intl.NumberFormat('fr-FR').format(v),
       },
-      grid: { color: 'rgba(0,0,0,0.06)' },
+      grid: { color: gridColor.value },
     },
   },
 }))
@@ -680,19 +688,19 @@ watch(
 }
 .etc-timefield .input-group-text {
   background: rgba(var(--v-theme-on-surface), 0.03);
-  border-color: #e5e7eb;
-  color: #9ca3af;
+  border-color: var(--fb-border, #e5e7eb);
+  color: var(--fb-faint, #9ca3af);
 }
 .etc-timefield .form-control {
   background: rgba(var(--v-theme-on-surface), 0.03);
-  border-color: #e5e7eb;
+  border-color: var(--fb-border, #e5e7eb);
   color: rgb(var(--v-theme-on-surface));
   cursor: pointer;
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 .etc-timefield:hover .form-control,
-.etc-timefield:hover .input-group-text { border-color: #d1d5db; }
+.etc-timefield:hover .input-group-text { border-color: var(--fb-border-strong, #d1d5db); }
 .etc-timefield .form-control:focus { box-shadow: none; }
 
 /* ── Popup HH:mm ── */
@@ -709,10 +717,10 @@ watch(
 
 /* ── Toggles segmentés (btn-group Bootstrap + accent rouge) ── */
 .etc-toggle .btn {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--fb-border, #e5e7eb);
   background: transparent;
   color: rgba(var(--v-theme-on-surface), 0.7);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   padding: 4px 12px;
 }
@@ -729,7 +737,7 @@ watch(
   border: 0;
   background: transparent;
   color: rgba(var(--v-theme-on-surface), 0.7);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 .etc-btn-ghost:hover { background: rgba(255, 49, 49, 0.08); color: #ff3131; }
@@ -757,5 +765,14 @@ watch(
     flex: 1 1 45%;
     max-width: none;
   }
+}
+
+/* ===================== DARK MODE =====================
+   Le chart vit dans l'overlay .event-predict-overlay (non téléporté) : bordures/
+   textes suivent les `--fb-*` hérités ou `--v-theme-on-surface` (déjà theme-aware).
+   Grille et ticks du <canvas> sont pilotés en JS (isDark). Ne reste que le texte
+   ambre du badge d'avertissement (calibré pour fond clair). */
+.dark .etc-badge-warning {
+  color: #fcd34d;
 }
 </style>

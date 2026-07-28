@@ -30,10 +30,16 @@ l'utilisateur.
 
 ## Correction
 
-Aucune à ce jour. Corrections possibles : élargir `RequirePermissions` du `PUT`/`DELETE` à
-(`front.fb.restock`, `front.fb.restockBoard`) si `restockBoard` doit pouvoir éditer (ce que son
-usage réel suggère), ou distinguer le nom du rôle ("Tableau de Réarmement" sonne comme "lecture
-seule") et gater le front en conséquence.
+**Partielle (2026-07-18, côté front)** : le volet « erreur avalée » est corrigé — un 401/403 sur le
+`PUT` déclenche désormais un snackbar explicite (une fois par session) : « Sauvegarde serveur
+refusée (droits insuffisants)… » (cf. fiche miroir front BUG-019, mise à jour). L'utilisateur des
+rôles concernés SAIT désormais que son travail ne traverse pas.
+
+**Le fond (permissions backend) reste à trancher** — deux options produit incompatibles :
+élargir `RequirePermissions` du `PUT`/`DELETE` à (`front.fb.restock`, `front.fb.restockBoard`) si
+`restockBoard` doit pouvoir éditer (ce que son usage réel suggère), ou distinguer le rôle
+("Tableau de Réarmement" = lecture seule) et gater le front en conséquence. Question posée dans
+`docs/QUESTIONS_A_BERTRAND.md` (2026-07-18) — non tranché unilatéralement (règle projet).
 
 ## Risque de régression / à surveiller
 

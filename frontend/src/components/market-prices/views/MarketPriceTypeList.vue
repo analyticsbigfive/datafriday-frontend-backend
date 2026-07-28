@@ -31,14 +31,14 @@
           class="ptl-searchbar__input"
           :placeholder="t('marketPriceTypeList.searchPlaceholder')"
         />
-        <span class="ptl-searchbar__count">{{ filteredTypes.length }} {{ t('marketPriceTypeList.totalTypes') }}</span>
+        <span class="ptl-searchbar__count">{{ serverTotal }} {{ t('marketPriceTypeList.totalTypes') }}</span>
       </div>
     </div>
 
     <!-- Content -->
     <div class="ptl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -53,8 +53,10 @@
       <div class="ptl-table-wrap">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredTypes"
-          :loading="loading"
+          :items="types"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
+          @update:options="onUpdateOptions"
           item-value="id"
           density="compact"
           class="ptl-table"
@@ -112,6 +114,7 @@
       :item-name="deleteTarget?.name"
       :loading="deleteLoading"
       :error="deleteError"
+      :action-link="deleteActionLink"
       :is-dark="isDark"
       :title="t('marketPriceTypeList.deleteTitle')"
       :subtitle="t('marketPriceTypeList.deleteSubtitle')"
@@ -128,7 +131,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Tag, Search } from "lucide-vue-next";
-import { deleteMarketPriceType } from "@/api/endpoints/market.price.api";
+import { getMarketPriceTypes, deleteMarketPriceType } from "@/api/endpoints/market.price.api";
 import MarketPriceTypeFormDrawer from "@/components/market-prices/drawers/MarketPriceTypeFormDrawer.vue";
 import MarketPriceTypeCategoriesDrawer from "@/components/market-prices/drawers/MarketPriceTypeCategoriesDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
@@ -153,9 +156,18 @@ export default {
   },
   data() {
     return {
-      loading: false,
       loadError: "",
       searchQuery: "",
+
+      // Real server-side pagination + search for THIS screen only (BUG-169 follow-up).
+      // The Vuex store's full-list cache (marketPriceTypes/marketPriceTypes) is left
+      // untouched — it still backs dropdown/picker consumers elsewhere in the app.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverLoading: false,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       typeDialog: false,
       typeMode: "create",
@@ -164,6 +176,7 @@ export default {
       deleteDialog: false,
       deleteLoading: false,
       deleteError: "",
+      deleteActionLink: null,
       deleteTarget: null,
 
       categoriesDialog: false,
@@ -172,7 +185,7 @@ export default {
   },
   computed: {
     types() {
-      return this.$store.getters['marketPriceTypes/marketPriceTypes'].map((t) => ({
+      return this.serverRawItems.map((t) => ({
         ...t,
         id: t?.id || t?._id,
         categoryList: Array.isArray(t?.categories) ? t.categories : [],
@@ -186,29 +199,57 @@ export default {
         { title: this.t('marketPriceTypeList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredTypes() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.types;
-      return this.types.filter(type => {
-        const name = (type.name || "").toLowerCase();
-        return name.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   mounted() {
-    this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes');
+    this.loadServerPage();
   },
   methods: {
-    async loadTypes() {
-      this.loading = true;
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      return this.loadServerPage();
+    },
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true })
+        const res = await getMarketPriceTypes({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = res.data;
+        this.serverTotal = res.meta?.total || 0;
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || "Failed to load types";
+        this.loadError = e?.response?.data?.message || e?.message || this.t('marketPriceTypeList.loadError');
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
       }
+    },
+    // Called by v-data-table on page/page-size change — guarded against the duplicate
+    // emission v-data-table fires on mount (same idiom as MenuItemView.vue).
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return;
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Handler for MarketPriceTypeFormDrawer's @saved (fires for both create and edit).
+    // Create jumps back to page 1 (alpha sort may place the new row anywhere); edit
+    // just refreshes the current page since the edited row stays put.
+    loadTypes() {
+      return this.typeMode === 'create' ? this.reloadServerFirstPage() : this.loadServerPage();
     },
     formatDate(value) {
       if (!value) return "-";
@@ -234,6 +275,7 @@ export default {
     openDeleteDialog(item) {
       const raw = item && item.raw ? item.raw : item;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteLoading = false;
       this.deleteTarget = raw;
       this.deleteDialog = true;
@@ -242,6 +284,7 @@ export default {
       this.deleteDialog = false;
       this.deleteLoading = false;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteTarget = null;
     },
 
@@ -252,26 +295,37 @@ export default {
     async confirmDelete() {
       this.deleteLoading = true;
       this.deleteError = "";
+      this.deleteActionLink = null;
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
-          this.deleteError = "Identifiant manquant";
+          this.deleteError = this.t('marketPriceTypeList.missingId');
           return;
         }
         // Pré-vérification : le type a des catégories liées
         if (this.deleteTarget?.categoryList?.length > 0) {
-          this.deleteError = "Impossible de supprimer un Good Type lié à des catégories.";
+          this.deleteError = this.t('marketPriceTypeList.deleteBlockedCategories');
           return;
         }
         await deleteMarketPriceType(id);
         await this.$store.dispatch('marketPriceTypes/removeMarketPriceType', id);
+        await this.loadServerPage();
         this.closeDeleteDialog();
       } catch (e) {
-        const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global market price type') || msg.includes('categor') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
-          this.deleteError = "Impossible de supprimer un Good Type lié à des catégories.";
+        const data = e?.response?.data;
+        if (data?.blockedBy === 'marketPrices' && data?.filterField && data?.filterValue) {
+          this.deleteError = data.message || this.t('marketPriceTypeList.deleteError');
+          this.deleteActionLink = {
+            label: `${this.t('marketPriceTypeList.viewLinkedItems')} (${data.count ?? '?'})`,
+            to: { path: '/menu-fb/market-prices', query: { [data.filterField]: data.filterValue } },
+          };
+          return;
+        }
+        const msg = String(data?.message || e?.message || '').toLowerCase();
+        if (msg.includes('cannot delete global market price type') || msg.includes('categor')) {
+          this.deleteError = this.t('marketPriceTypeList.deleteBlockedCategories');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || "Échec de la suppression";
+          this.deleteError = data?.message || e?.message || this.t('marketPriceTypeList.deleteError');
         }
       } finally {
         this.deleteLoading = false;
@@ -318,13 +372,13 @@ export default {
   flex-shrink: 0;
 }
 .ptl-header__title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
 }
 .ptl-header__subtitle {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, .72);
   margin: 3px 0 0;
 }
@@ -339,7 +393,7 @@ export default {
   border: 2px solid rgba(255, 255, 255, .85);
   background: transparent;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 700;
   cursor: pointer;
   transition: all .2s;
@@ -374,14 +428,14 @@ export default {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #111827;
 }
 .ptl-searchbar__input::placeholder {
   color: #9ca3af;
 }
 .ptl-searchbar__count {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #9ca3af;
   white-space: nowrap;
 }
@@ -406,7 +460,7 @@ export default {
 /* ── Table (reference: MarketPriceListView) ── */
 .ptl-table :deep(.v-data-table__th),
 .ptl-table :deep(.v-data-table__td) {
-  font-size: 13px;
+  font-size: var(--fs-base);
   padding-top: 10px;
   padding-bottom: 10px;
   padding-left: 16px;
@@ -414,7 +468,7 @@ export default {
 }
 .ptl-table :deep(.v-data-table__td) { vertical-align: middle; }
 .ptl-table :deep(.v-data-table__th) {
-  font-size: 11px !important;
+  font-size: var(--fs-xs)!important;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -448,4 +502,9 @@ export default {
 .ptl--dark .ptl-searchbar__input {
   color: #f9fafb;
 }
+.ptl--dark .ptl-searchbar__count { color: #94a3b8; }
+.ptl--dark .ptl-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.ptl--dark .ptl-abtn { background: #1f2937; color: #cbd5e1; }
+.ptl--dark .ptl-abtn--edit:hover { background: #374151; color: #f9fafb; }
+.ptl--dark .ptl-abtn--del:hover { background: rgba(255, 49, 49, .14); color: #fca5a5; }
 </style>

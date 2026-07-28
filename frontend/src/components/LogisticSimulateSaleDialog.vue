@@ -68,6 +68,17 @@
             {{ t('logiSimulateAddLine') }}
           </button>
 
+          <div class="lgsim-realmode">
+            <v-switch
+              v-model="form.realMode"
+              color="#ff3131"
+              density="compact"
+              hide-details
+              :label="t('logiSimulateRealMode')"
+            />
+            <div class="lgsim-realmode-hint">{{ t('logiSimulateRealModeHint') }}</div>
+          </div>
+
           <v-alert v-if="error" type="error" density="compact" variant="tonal" class="mt-3">
             {{ error }}
           </v-alert>
@@ -150,6 +161,8 @@ export default {
     error: { type: String, default: null },
     /** { elementId, elementName, lines:[{itemKey, before:{packed,loose}, after:{packed,loose}}] } | null */
     result: { type: Object, default: null },
+    /** Valeur initiale du toggle "mode réel" à l'ouverture (Live en a besoin à true, Logistique reste à false). */
+    defaultRealMode: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'submit', 'purge', 'reset-result'],
   setup() {
@@ -158,12 +171,21 @@ export default {
   },
   data() {
     return {
-      form: { elementId: null, lines: [{ menuItemId: null, quantity: 1 }] },
+      form: { elementId: null, lines: [{ menuItemId: null, quantity: 1 }], realMode: this.defaultRealMode },
     }
   },
   computed: {
     shopOptions() {
-      return this.shops.map((s) => ({ title: s.element.name, value: s.element.id }))
+      // `element.provider` (WEEZEVENT/DIGIFOOD) est optionnel — absent tant que
+      // le backend appelant ne le fournit pas (rétrocompatible, ex. Logistique
+      // avant ce champ) ; affiché seulement quand présent (ex. picker Live).
+      const providerLabel = { WEEZEVENT: 'Weezevent', DIGIFOOD: 'Digifood' }
+      return this.shops.map((s) => ({
+        title: providerLabel[s.element.provider]
+          ? `${s.element.name} (${providerLabel[s.element.provider]})`
+          : s.element.name,
+        value: s.element.id,
+      }))
     },
     /** Menu items sellable sur le PDV sélectionné, déduits de items[].usedIn (déjà résolu côté serveur). */
     menuItemOptions() {
@@ -198,7 +220,11 @@ export default {
       this.$emit('update:modelValue', false)
     },
     resetForm() {
-      this.form = { elementId: this.shops[0]?.element?.id ?? null, lines: [{ menuItemId: null, quantity: 1 }] }
+      this.form = {
+        elementId: this.shops[0]?.element?.id ?? null,
+        lines: [{ menuItemId: null, quantity: 1 }],
+        realMode: this.defaultRealMode,
+      }
     },
     simulateAnother() {
       this.resetForm()
@@ -219,6 +245,7 @@ export default {
           menuItemId: l.menuItemId,
           quantity: Math.max(1, Math.round(Number(l.quantity) || 1)),
         })),
+        realMode: this.form.realMode,
       })
     },
   },
@@ -261,6 +288,8 @@ export default {
   cursor: pointer;
   padding: 4px 0;
 }
+.lgsim-realmode { margin: 4px 0 2px; }
+.lgsim-realmode-hint { font-size: 0.76rem; color: var(--fb-muted, #6b7280); margin: -6px 0 4px 2px; }
 .lgsim-result-shop { font-weight: 700; font-size: 0.95rem; margin-bottom: 10px; }
 .lgsim-result-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
 .lgsim-result-table th {

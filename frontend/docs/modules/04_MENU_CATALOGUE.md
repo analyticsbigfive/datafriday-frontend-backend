@@ -2,10 +2,18 @@
 
 > Domaine cartographie : **Menu & recettes** + **Achats & référentiels**. Owner produit : Ulrich.
 > Écrans : `/menu-items` (+create/edit), `/components` (+new/edit), `/space-menus` (+
-> `/space-menus/:spaceId/shops/:shopId`), `/suppliers`, `/market-prices`, référentiels
-> `/product-types`, `/product-categories`, `/component-types`, `/component-categories`,
-> `/market-price-types`, `/market-price-categories`, `/brand-names`, `/display-names`,
-> `/industrials`, `/packing-types`.
+> `/space-menus/:spaceId/shops/:shopId`), `/suppliers`, `/market-prices`, référentiels sous
+> `/configurations/` (préfixe ajouté le 2026-07-19, anciennes URLs redirigées automatiquement, voir
+> `frontend/src/router/index.js`) : `/configurations/product-types`,
+> `/configurations/product-categories`, `/configurations/component-types`,
+> `/configurations/component-categories`, `/configurations/market-price-types`,
+> `/configurations/market-price-categories`, `/configurations/brand-names`,
+> `/configurations/display-names`, `/configurations/industrials`,
+> `/configurations/packing-types`.
+>
+> ⚠️ Ces routes `/configurations/*` sont uniquement les URLs **frontend** (pages) — les routes
+> **backend** REST correspondantes (`/product-types`, `/component-types`, etc., voir
+> `src/api/endpoints/*.api.js`) n'ont pas changé et ne doivent pas être confondues avec elles.
 >
 > Vérifié exhaustivement le 2026-07-15 : chaque modèle Prisma, chaque route backend, chaque store
 > Vuex et chaque client API de ce domaine a été localisé et lu directement (pas de citation
@@ -51,7 +59,7 @@ chemin mort et rien ne change en prod, ou inversement on croit qu'un chemin est 
 
 | Entité | Client **réellement vivant** | Consommateurs confirmés | Client(s) mort/legacy en parallèle |
 |---|---|---|---|
-| **MenuItem** | `src/api/endpoints/menu-item.api.js` | `store/modules/menuItems.js`, `MenuItemCreateView.vue`, `MenuItemView.vue`, `MenuItemFormDrawer.vue`, `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue`, `ShopDetailView.vue`, `EventPredictView.vue`, `StepMapMenuItems.vue` (wizard), `useSpaceData.js` | `menu.api.js` expose aussi `getMenuItems/createMenuItem/...` (lignes 14-70) — **zéro appelant en dehors de lui-même**, mort pour MenuItem. `utils/api.js` (legacy 45 Ko) expose aussi `getAllMenuItems/saveMenuItem/...` — encore appelé, mais **uniquement par le builder v1** (`PropertiesPanelView.vue:1663`, live) et par des fichiers eux-mêmes morts (`PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue` racine, `MenuItemMarginReport.vue` — 0 référence externe, voir Code mort) |
+| **MenuItem** | `src/api/endpoints/menu-item.api.js` | `store/modules/menuItems.js`, `MenuItemCreateView.vue`, `MenuItemView.vue`, `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue`, `ShopDetailView.vue`, `EventPredictView.vue`, `StepMapMenuItems.vue` (wizard), `useSpaceData.js` (`MenuItemFormDrawer.vue` supprimé le 2026-07-17, jamais branché) | `menu.api.js` expose aussi `getMenuItems/createMenuItem/...` (lignes 14-70) — **zéro appelant en dehors de lui-même**, mort pour MenuItem. `utils/api.js` (legacy 45 Ko) expose aussi `getAllMenuItems/saveMenuItem/...` — encore appelé, mais **uniquement par le builder v1** (`PropertiesPanelView.vue:1663`, live) et par des fichiers eux-mêmes morts (`PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue` racine, `MenuItemMarginReport.vue` — 0 référence externe, voir Code mort) |
 | **MenuComponent** | `src/api/endpoints/menu.api.js` (`getMenuComponents` etc., lignes 82-131) | `store/modules/menuComponents.js` — donc l'écran `/components` passe par le **monolithe**, contrairement à MenuItem qui en est sorti | `component.api.js` (34 lignes, mêmes fonctions dupliquées) — utilisé uniquement par `useSpaceData.js`, pas par l'écran Components lui-même |
 | Suppliers, Packaging, MarketPrices, MarketPriceIngredients | `menu.api.js` | `store/modules/suppliers.js`, `packaging.js`, `marketPrices.js`, `marketPriceIngredients.js` | — (pas de client dédié pour ces 4, tout passe par le monolithe) |
 | Brand/DisplayName/Industrial/PackingType/ProductType-Category | Clients dédiés propres | `brand-name.api.js`, `display-name.api.js`, `industrial.api.js`, `packing-type.api.js`, `product.api.js` — chacun avec son store correspondant, **aucune ambiguïté** | — |
@@ -77,7 +85,8 @@ un pack de chips). C'est la fiche produit du menu d'un espace.
 - Client API live : `datafriday-web/src/api/endpoints/menu-item.api.js`
 - Écrans : `datafriday-web/src/components/menu-fb/views/menu-items/views/`
   (`MenuItemView.vue` = liste, `MenuItemCreateView.vue` = création/édition), drawers
-  `MenuItemFormDrawer.vue`, `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue`
+  `MenuItemCsvImportDrawer.vue`, `RecipeImportDrawer.vue` (`MenuItemFormDrawer.vue`, ancien
+  drawer parallèle jamais branché, supprimé le 2026-07-17 — voir Code mort de ce domaine)
 
 **Toutes les routes backend** (`menu-items.controller.ts`) :
 
@@ -246,13 +255,26 @@ apparaissait à tort en config B »*. La contrainte `@@unique([elementId, menuIt
 scoping, tu réintroduis la fuite entre configurations.
 
 **Frontend — deux consommateurs distincts, pour deux usages différents** :
-- **Édition** (l'écran `/space-menus/:spaceId/shops/:shopId` lui-même, cocher/décocher les items
-  d'un shop) : `src/composables/useSpaceMenu.js` (état `Map<elementId, Set<menuItemId>>`) +
-  `useSpaceMenuReconciliation.js` (règle de réconciliation "souple" : au rechargement, ne réinjecte
-  **jamais** un item retiré manuellement sur un shop déjà sauvegardé — `savedElementIds` marque les
-  shops déjà configurés par l'utilisateur). Écrans :
+- **Édition** (l'écran `/space-menus` — cocher/décocher les items d'un shop) : état géré **inline**
+  dans les composants (`SpaceMenuView.vue` `data()`), appels directs à `menu.api.js`
+  (`getSpaceMenuConfiguration`, `assignMenuItemsToShop` en delta partiel — une paire shop×item ou
+  les seuls items modifiés selon l'appelant). Écrans :
   `components/menu-fb/views/space-menus/views/SpaceMenuView.vue`, `ShopDetailView.vue` (+
-  `SpaceMenuShopView.vue`, `SpaceMenuItemView.vue`), drawers associés.
+  `SpaceMenuShopView.vue`, `SpaceMenuItemView.vue`), drawers associés (`ShopMenuItemsDrawer.vue`,
+  `SpaceMenuEditShopDrawer.vue`, `ShopDetailEditDrawer.vue`).
+  **Historique** : ce paragraphe décrivait auparavant `src/composables/useSpaceMenu.js` /
+  `useSpaceMenuReconciliation.js` / `useShopElementMapping.js` comme la couche d'édition live —
+  c'était faux. Ces 3 fichiers implémentaient une approche différente et jamais branchée à un
+  écran réel (état `Map<elementId, Set<menuItemId>>`, sauvegarde POST complète via
+  `saveSpaceMenuConfiguration`, réconciliation "souple" avec pré-remplissage suggéré depuis un
+  mapping Weezevent shop↔élément + badge non bloquant de divergence), dépendant d'une route
+  backend `GET /shop-element-mappings/:spaceId` qui n'a jamais existé dans `api-datafriday-staging`
+  (vérifié le 2026-07-17). **Supprimés le 2026-07-17** (audit
+  [BUG-116](../bugs/116_spacemenus_composables_morts_doc_obsolete.md)) après confirmation qu'ils
+  étaient un prototype abandonné (aucune trace git d'un branchement passé, aucun spec document,
+  et un concept concurrent déjà en production sous un autre nom — `LocationSpaceMapping` /
+  module `mappings/`). Si ce besoin (suggestion + badge de divergence non bloquant) redevient
+  pertinent, repartir de zéro côté backend plutôt que de chercher à réanimer ce code.
 - **Lecture ailleurs dans l'app** (savoir quels items sont activés sur un shop, sans les éditer) :
   `src/store/modules/shopMenuItems.js`, qui appelle `getShopMenuItems` (`menu.api.js`) →
   `GET /space-menu/shop/:id?configId=...`. **Piège déjà corrigé, documenté dans le code
@@ -299,7 +321,7 @@ Deux entités sœurs, dérivées d'un `MarketPrice`. **Où vit le code** : modè
 `schema.prisma:1538-1594` ; contrôleurs `ingredients.controller.ts` (`@Controller('ingredients')`,
 +`GET by-market-price/:marketPriceId`) et `packaging.controller.ts` (`@Controller('packaging')`) ;
 stores `store/modules/` correspondants (via `menu.api.js`, sauf `ingredient.api.js` qui existe et
-est utilisé par `MenuItemFormDrawer.vue`/`RecipeImportDrawer.vue`/`useSpaceData.js` pour des besoins
+est utilisé par `RecipeImportDrawer.vue`/`useSpaceData.js` pour des besoins
 ponctuels — vérifier lequel des deux clients avant de modifier).
 
 **Champs clés** (identiques sur les deux modèles sauf mention) :
@@ -372,12 +394,12 @@ Taxonomie dans un contrôleur séparé `market-price-taxonomy.controller.ts`.
 Quatre entités simples, même forme (`{id, name, tenantId}`, `@@unique([tenantId, name])`),
 **chacune avec son propre client API dédié** (pas d'ambiguïté ici) :
 
-| Modèle | Route | Client API | Store | Écran |
+| Modèle | Route API (backend) | Client API | Store | Écran |
 |---|---|---|---|---|
-| `Brand` | `/brand-names` | `brand-name.api.js` | `brandNames.js` | `BrandNameListView.vue` |
-| `DisplayName` | `/display-names` | `display-name.api.js` | `displayNames.js` | `DisplayNameListView.vue` |
-| `Industrial` | `/industrials` | `industrial.api.js` | `industrials.js` | `IndustrialListView.vue` |
-| `PackingType` | `/packing-types` | `packing-type.api.js` | `packingTypes.js` | `PackingTypeListView.vue` |
+| `Brand` | `/brand-names` | `brand-name.api.js` | `brandNames.js` | `BrandNameListView.vue` (page : `/configurations/brand-names`) |
+| `DisplayName` | `/display-names` | `display-name.api.js` | `displayNames.js` | `DisplayNameListView.vue` (page : `/configurations/display-names`) |
+| `Industrial` | `/industrials` | `industrial.api.js` | `industrials.js` | `IndustrialListView.vue` (page : `/configurations/industrials`) |
+| `PackingType` | `/packing-types` | `packing-type.api.js` | `packingTypes.js` | `PackingTypeListView.vue` (page : `/configurations/packing-types`) |
 
 `Brand`/`DisplayName` sont référencés par `MenuItem` (`brandId`/`displayNameId`). `Industrial` est
 référencé par `MarketPrice` (`industrialId`). `PackingType` n'est **pas une FK** — c'est un
@@ -394,10 +416,10 @@ avaient 3 enums incompatibles — ils ont convergé vers celui-ci.
 
 ### 🔴 Bug de saisie actif — `"Freezer"` n'existe pas dans l'enum
 
-Deux formulaires MenuItem envoient encore `"Freezer"` (`MenuItemFormDrawer.vue:225`,
-`MenuItemCreateView.vue:513`) alors que la vraie valeur d'enum est `Frozen`. Écriture d'une string
-invalide dans une colonne enum Postgres → probablement rejetée. **Statut : documenté, non
-corrigé.**
+`MenuItemCreateView.vue:504` envoie encore `"Freezer"` (l'autre occurrence,
+`MenuItemFormDrawer.vue:225`, a disparu avec la suppression de ce fichier orphelin le
+2026-07-17) alors que la vraie valeur d'enum est `Frozen`. Écriture d'une string invalide dans
+une colonne enum Postgres → probablement rejetée. **Statut : documenté, non corrigé.**
 
 ---
 
@@ -406,10 +428,55 @@ corrigé.**
 | # | Bug | Fichiers |
 |---|---|---|
 | 1 | Coût `MenuComponent` surestimé (ignore `numberOfUnitsRecipe`) → `MenuItem.totalCost` faux | `menu-components.service.ts:196-236`, `menu-items.service.ts:1398-1409` |
-| 2 | `"Freezer"` (front) vs `Frozen` (enum) | `MenuItemFormDrawer.vue:225`, `MenuItemCreateView.vue:513` |
+| 2 | `"Freezer"` (front) vs `Frozen` (enum) | `MenuItemCreateView.vue:504` |
 | 3 | Deux règles d'expansion combo incompatibles | `EventPredictStockUpSection.vue` (readyForSale seul) vs `logistics.service.ts:407,904` (+ comboItem) |
 | 4 | `Supplier.sites` vide : "personne" (backend) vs "tout le monde" (1 composant front) | `space-menus.service.ts:466-472` vs `MarketPriceHierarchicalTable.vue:211` |
 | 5 | Dédup MarketPrice ignore prix/unité/quantité — risque de fusion excessive | `market-prices.service.ts` (`deduplicate`) |
+
+## Section Configurations (10 pages taxonomie/référentiels) — audit du 2026-07-19
+
+Les 10 écrans de la sidebar "Configurations" (Menu Item Types/Categories, Good Types/Categories,
+Component Types/Categories, Brand Names, Display Names, Industrials, Packing Types — routes listées
+dans l'en-tête de ce fichier) ont fait l'objet d'un audit dédié le 2026-07-19, en 5 passes parallèles
+(une par paire de taxonomie/référentiel). Détail complet dans les fiches bugs
+[`backend 78-88`](../../../backend/docs/bugs/00_INDEX.md) et
+[`frontend 159-169`](../bugs/00_INDEX.md). Synthèse des motifs récurrents trouvés :
+
+- **Suppression sans garde contre les entités dépendantes** — sur 5 des 6 taxonomies/référentiels
+  audités (`ProductType/Category`, `ComponentType/Category`, `MarketPriceType`, `Brand`/
+  `DisplayName`, `Industrial`), supprimer une entrée référencée ailleurs cascade ou `SetNull`
+  silencieusement, sans décompte ni confirmation — même famille que le bug déjà corrigé pour
+  `EventType`/`EventCategory` ([backend BUG-75](../../../backend/docs/bugs/75_eventtype_eventcategory_delete_cascade_sans_garde.md)),
+  jamais porté ici (backend BUG-79/81/82/85/86).
+- **Désynchronisation des valeurs texte libre miroir** — `MarketPrice.goodType`/`category` et les 3
+  champs `purchasePackaging`/`inventoryPackaging`/`inventoryPackaging` (Component) stockent le nom
+  de la taxonomie en texte libre en plus (ou à la place, pour `PackingType`) d'une FK ; renommer ou
+  supprimer l'entrée de taxonomie source ne propage jamais le changement vers ces colonnes miroir
+  (backend BUG-83/84). Symétrique côté front : la résolution de FK par correspondance de nom au
+  moment de la sauvegarde (au lieu de réutiliser l'id chargé) est le même problème sous un autre
+  angle, déjà connu ([BUG-62](../bugs/62_component_taxonomie_fk_resolution_fragile_par_nom.md)/
+  [BUG-81](../bugs/81_menu_items_fk_taxonomie_resolue_par_nom.md)) et retrouvé une nouvelle fois sur
+  les drawers MarketPrice (frontend BUG-162).
+- **Implémentation non uniforme des paires Type/Category** — sur 3 paires structurellement
+  identiques (`ProductType/Category`, `ComponentType/Category`, `MarketPriceType/Category`), seule
+  `ProductCategory` appelle son propre endpoint dédié pour la lecture ; les deux autres dérivent
+  leurs Categories du payload de l'endpoint Types (`flatMap` sur `categories[]` imbriqué),
+  laissant leur endpoint `GET .../categories` dédié totalement mort côté front et cassant
+  l'invalidation croisée de cache entre les deux écrans (frontend BUG-161/163).
+- **4 référentiels plats dupliqués à l'identique** — `Brand`/`DisplayName`/`Industrial`/
+  `PackingType` sont 4 implémentations quasi byte-for-byte (vue liste, drawer, dialog suppression,
+  store, client API), jamais factorisées en composant générique (frontend BUG-165) — ce qui explique
+  la répétition du même bug i18n sur les 10 écrans de la section (frontend BUG-166).
+- **Trou d'autorisation isolé** — `PATCH /product-types/:id` et `/product-categories/:id` n'ont
+  jamais eu de garde de permission, contrairement à `create`/`remove` sur les mêmes contrôleurs
+  (backend BUG-78, 🔴 le plus sévère de cette section).
+- **Trou d'ownership cross-tenant** — `MenuComponent.create()`/`update()` ne vérifie pas que
+  `componentTypeId`/`componentCategoryId` appartiennent au tenant courant, même famille que
+  [backend BUG-67](../../../backend/docs/bugs/67_event_taxonomy_fk_sans_ownership.md) (Events),
+  jamais porté ici (backend BUG-80).
+
+Aucun de ces bugs n'a été reproduit en navigateur (pas de `pnpm dev` dans cette session) — à valider
+manuellement avant correction.
 
 ## Code mort de ce domaine (à ne PAS prendre comme référence, ne pas modifier en pensant que ça sert)
 
@@ -417,7 +484,8 @@ corrigé.**
 - `src/components/SpaceMenusPanel.vue`, `SpaceMenusByMenuItem.vue` (racine) — référencés
   uniquement par `MenuBuilder.vue` (lui-même mort).
 - `src/components/PropertiesPanel.vue`, `SearchResultsPanel.vue`, `ElevationView.vue` (racine,
-  **différents** de leurs homonymes sous `components/spaces/views/builder/`, qui eux sont vivants)
+  **différents** de leurs homonymes qui vivaient sous `components/spaces/views/builder/` —
+  ce dossier a été supprimé le 2026-07-22, voir `docs/modules/03_BUILDER_ESPACES.md`)
   — zéro référence externe, mais contiennent des appels à `api.getAllMenuItems()` legacy qui
   auraient pu faire croire à un usage réel.
 - `src/components/MenuItemMarginReport.vue`, `CostTrackingChart.vue` — référencés uniquement par
@@ -425,11 +493,24 @@ corrigé.**
 - `menu.api.js` : les fonctions `getMenuItems/createMenuItem/updateMenuItem/deleteMenuItem/
   getMenuItemSnapshots` (lignes 14-70) sont mortes pour MenuItem (voir piège n°1) — ne pas les
   utiliser comme référence, `menu-item.api.js` est la version vivante.
-- `component.api.js` : doublon quasi-mort des fonctions MenuComponent de `menu.api.js`, seul
-  `useSpaceData.js` s'en sert.
+- `component.api.js` : doublon des fonctions MenuComponent de `menu.api.js` — totalement mort
+  depuis le 2026-07-17 (`useSpaceData.js`, son dernier consommateur, redirigé vers `menu.api.js`
+  pour corriger un cap silencieux à 100 lignes, voir BUG-064/105).
 - `MenuComponent.subComponents` (Json legacy) — encore lu par `repair()` mais plus la source de
   vérité.
 - `MenuItem.spaceIds`/`spacePrices` (colonnes gelées).
+- `src/composables/useSpaceMenu.js`, `useSpaceMenuReconciliation.js`, `useShopElementMapping.js` —
+  **supprimés le 2026-07-17** (cluster de 3 composables auto-référencés, zéro appelant réel hors
+  d'eux-mêmes et de `SpaceMenusPanel.vue`, déjà mort). Voir
+  [BUG-116](../bugs/116_spacemenus_composables_morts_doc_obsolete.md) pour l'arbitrage complet.
+- `space-menu.api.js` : `getSpaceMenu` (seule `getShopMenus` du même fichier est vivante,
+  consommée par `EventPredictView.vue`) — mort, plus aucun consommateur depuis la suppression
+  ci-dessus (laissé en l'état, non prioritaire).
+- `utils/api.js` : `getSpaceMenuConfiguration`/`saveSpaceMenuConfiguration` — plus aucun
+  consommateur en dehors de `SpaceMenusPanel.vue` (déjà mort) depuis la suppression ci-dessus,
+  laissées en l'état. **Ne pas confondre avec** `getShopElementMappings` du même fichier, qui reste
+  vivante — consommée par `useShoppingList.js`/`SpaceRestockView.vue` (domaine Restock, l'usage
+  documenté et légitime de ce module legacy).
 
 ## Zones grises restantes (pas des angles morts — des points réellement non tranchés)
 

@@ -1,6 +1,6 @@
 # BUG-010 — `assign-shop-items` (batch) émis sans être déclaré dans `emits`
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟡 Mineur (fonctionnel en Options API, risque au portage `<script setup>`)
 - **Domaine** : Prévision (Event Predict)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -18,7 +18,8 @@ Aucun aujourd'hui — Vue en Options API ne bloque pas un `$emit` non déclaré,
 
 ## Correction
 
-Aucune à ce jour — ajouter `assign-shop-items` à `emits` pour documenter le contrat réel.
+2026-07-18 : `assign-shop-items` ajouté au tableau `emits` de `EventPredictMenusSection.vue`
+(le parent `EventPredictView.vue` écoutait déjà `@assign-shop-items="handleAssignShopItems"`).
 
 ## Risque de régression / à surveiller
 

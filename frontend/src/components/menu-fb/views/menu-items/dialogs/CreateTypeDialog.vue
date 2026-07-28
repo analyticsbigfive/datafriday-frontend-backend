@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="460" persistent>
-    <div class="ctd-card">
+    <div class="ctd-card" :class="{ 'ctd-card--dark': isDark }">
       <!-- Gradient header -->
       <div class="ctd-grad-header">
         <div class="ctd-grad-header__icon"><Tag :size="20" color="white" /></div>
@@ -47,6 +47,7 @@ export default {
   components: { AlertCircle, Save, Tag, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'created'],
   setup() {
@@ -69,7 +70,7 @@ export default {
     async submit() {
       const trimmed = this.name.trim();
       if (!trimmed) {
-        this.error = 'Le nom du type est requis.';
+        this.error = this.t('menuItemCreateTypeDialogNameRequiredError');
         return;
       }
       this.loading = true;
@@ -85,7 +86,7 @@ export default {
         this.name = '';
         this.$emit('update:modelValue', false);
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Une erreur est survenue.';
+        this.error = e?.response?.data?.message || e?.message || this.t('menuItemCreateGenericError');
       } finally {
         this.loading = false;
       }
@@ -145,4 +146,13 @@ export default {
 .ctd-btn--primary { background: #ff3131; color: #fff; }
 .ctd-btn--primary:hover { box-shadow: 0 4px 14px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 .ctd-btn:disabled { opacity: .6; cursor: not-allowed; transform: none !important; }
+
+/* ── Dark mode (v-dialog téléporté : classe sur la racine .ctd-card) ── */
+.ctd-card--dark { background: #1e293b; }
+.ctd-card--dark .ctd-error { background: rgba(255,49,49,.15); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+.ctd-card--dark .ctd-input { background: #0f172a !important; border-color: rgba(255,255,255,.12) !important; color: #e2e8f0 !important; }
+.ctd-card--dark .ctd-input:focus { background: #0f172a !important; border-color: #ff3131 !important; }
+.ctd-card--dark .form-floating > label { color: #94a3b8; }
+.ctd-card--dark .ctd-btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.ctd-card--dark .ctd-btn--cancel:hover { background: rgba(255,255,255,.14); }
 </style>

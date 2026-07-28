@@ -119,7 +119,7 @@ function updateCount(index, raw) {
 /* Champs stylisés (fond clair, arrondi, focus rouge). */
 .stf-input {
   padding: 10px 12px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   color: rgb(var(--v-theme-on-surface));
   background: rgba(var(--v-theme-on-surface), 0.05);
   border: 1px solid transparent;
@@ -165,7 +165,7 @@ function updateCount(index, raw) {
 .stf-empty {
   margin-top: 18px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: rgba(var(--v-theme-on-surface), 0.5);
 }
 
@@ -185,7 +185,7 @@ function updateCount(index, raw) {
 .stf-row__name {
   flex: 1;
   min-width: 0;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 500;
   color: rgb(var(--v-theme-on-surface));
   overflow: hidden;

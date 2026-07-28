@@ -105,6 +105,7 @@
                         min="0"
                         step="0.001"
                         class="mic-qty-input"
+                        @change="item.quantity = Math.max(0, +(+item.quantity || 0).toFixed(3))"
                       />
                       <button
                         class="mic-qty-btn"
@@ -130,10 +131,10 @@
 
                   <template #item.actions="{ item }">
                     <div class="mic-actions-cell">
-                      <v-btn icon variant="tonal" size="small" title="Modifier" @click="onEditItem(item)">
+                      <v-btn icon variant="tonal" size="small" :title="t('menuItemCreate.actionEdit')" @click="onEditItem(item)">
                         <Pencil :size="14" />
                       </v-btn>
-                      <v-btn icon variant="tonal" size="small" color="error" title="Supprimer" @click="onRemoveItem(item)">
+                      <v-btn icon variant="tonal" size="small" color="error" :title="t('menuItemCreate.actionDelete')" @click="onRemoveItem(item)">
                         <Trash2 :size="14" />
                       </v-btn>
                     </div>
@@ -144,16 +145,16 @@
               <!-- Summary below table -->
               <div v-if="items.length > 0" class="mic-table-summary mt-3">
                 <div class="mic-table-summary__row">
-                  <span class="mic-table-summary__label">Coût total :</span>
+                  <span class="mic-table-summary__label">{{ t('menuItemCreate.totalCostLabel') }}</span>
                   <span class="mic-table-summary__value">{{ formatCurrency(totalCost) }}</span>
                 </div>
                 <div class="mic-table-summary__row">
-                  <span class="mic-table-summary__label">Nombre de pièces :</span>
+                  <span class="mic-table-summary__label">{{ t('menuItemCreate.pieceCountLabel') }}</span>
                   <span class="mic-table-summary__value">{{ Number(form.numberOfPiecesRecipe || 1).toFixed(3) }}</span>
                 </div>
                 <div class="mic-table-summary__divider" />
                 <div class="mic-table-summary__row">
-                  <span class="mic-table-summary__cost-label">Coût par pièce :</span>
+                  <span class="mic-table-summary__cost-label">{{ t('menuItemCreate.costPerPieceLabel') }}</span>
                   <span class="mic-table-summary__cost-value">{{ formatCurrency(costPerPiece) }}</span>
                 </div>
               </div>
@@ -202,7 +203,7 @@
 
               <!-- Section: Classification -->
               <div class="form-section-divider mb-3">
-                <span>Classification</span>
+                <span>{{ t('menuItemCreate.sectionClassification') }}</span>
               </div>
 
               <!-- Space -->
@@ -324,7 +325,7 @@
 
               <!-- Section: Configuration -->
               <div class="form-section-divider mb-3">
-                <span>Configuration</span>
+                <span>{{ t('menuItemCreate.sectionConfiguration') }}</span>
               </div>
 
               <!-- Ready for Sale + Combo Item inline -->
@@ -379,7 +380,7 @@
 
               <!-- Number of Pieces (Recipe) -->
               <div class="mb-3">
-                <label for="mic-pieces" class="mic-field-label">Number of Pieces (Recipe) <span class="mic-required-star">*</span></label>
+                <label for="mic-pieces" class="mic-field-label">{{ t('menuItemCreate.labelNumberOfPieces') }} <span class="mic-required-star">*</span></label>
                 <input
                   id="mic-pieces"
                   v-model.number="form.numberOfPiecesRecipe"
@@ -392,7 +393,7 @@
 
               <!-- Prix par space -->
               <div class="form-section-divider mb-2 mt-1">
-                <span>Prix par space</span>
+                <span>{{ t('menuItemCreate.sectionPricePerSpace') }}</span>
               </div>
 
               <!-- Add price group row (création uniquement) -->
@@ -491,7 +492,7 @@
 
               <!-- Section: Régime & Conservation -->
               <div class="form-section-divider mb-2" :class="form.readyForSale === 'Yes' ? 'mt-1' : ''">
-                <span>Régime & Conservation</span>
+                <span>{{ t('menuItemCreate.sectionDietStorage') }}</span>
               </div>
 
               <!-- Storage Type -->
@@ -500,7 +501,7 @@
                 <div class="checkbox-grid">
                   <v-checkbox v-model="form.storageTypes" value="Dry" :label="t('menuItemCreate.storageDry')" hide-details density="compact" />
                   <v-checkbox v-model="form.storageTypes" value="Cold" :label="t('menuItemCreate.storageCold')" hide-details density="compact" />
-                  <v-checkbox v-model="form.storageTypes" value="Freezer" :label="t('menuItemCreate.storageFreezer')" hide-details density="compact" />
+                  <v-checkbox v-model="form.storageTypes" value="Frozen" :label="t('menuItemCreate.storageFreezer')" hide-details density="compact" />
                 </div>
               </div>
 
@@ -518,7 +519,7 @@
 
               <!-- Section: Description & Allergènes -->
               <div class="form-section-divider mb-3">
-                <span>Description & Allergènes</span>
+                <span>{{ t('menuItemCreate.sectionDescriptionAllergens') }}</span>
               </div>
 
               <!-- Description -->
@@ -529,15 +530,15 @@
 
               <!-- Allergens -->
               <div class="mb-3">
-                <label class="field-label">Allergènes</label>
+                <label class="field-label">{{ t('menuItemCreate.labelAllergens') }}</label>
                 <div class="checkbox-grid">
-                  <v-checkbox v-model="form.allergens" value="GLUTEN" label="Gluten" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="LACTOSE" label="Lactose" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="EGGS" label="Œufs" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="NUTS" label="Noix" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="FISH" label="Poisson" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="SHELLFISH" label="Crustacés" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="SOY" label="Soja" hide-details density="compact" />
+                  <v-checkbox v-model="form.allergens" value="GLUTEN" :label="t('menuItemCreate.allergenGluten')" hide-details density="compact" />
+                  <v-checkbox v-model="form.allergens" value="LACTOSE" :label="t('menuItemCreate.allergenLactose')" hide-details density="compact" />
+                  <v-checkbox v-model="form.allergens" value="EGGS" :label="t('menuItemCreate.allergenEggs')" hide-details density="compact" />
+                  <v-checkbox v-model="form.allergens" value="NUTS" :label="t('menuItemCreate.allergenNuts')" hide-details density="compact" />
+                  <v-checkbox v-model="form.allergens" value="FISH" :label="t('menuItemCreate.allergenFish')" hide-details density="compact" />
+                  <v-checkbox v-model="form.allergens" value="SHELLFISH" :label="t('menuItemCreate.allergenShellfish')" hide-details density="compact" />
+                  <v-checkbox v-model="form.allergens" value="SOY" :label="t('menuItemCreate.allergenSoy')" hide-details density="compact" />
                 </div>
               </div>
 
@@ -568,10 +569,10 @@
     </div>
 
     <!-- Ingredient Picker Drawer -->
-    <IngredientPickerDrawer v-model="ingredientDrawer" @add="onIngredientsAdded" />
+    <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
 
     <!-- Component Picker Drawer -->
-    <ComponentPickerDrawer v-model="componentDrawer" @add="onComponentsAdded" />
+    <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
 
     <!-- Packaging Picker Drawer -->
     <PackagingPickerDrawer v-model="packagingDrawer" :is-dark="isDark" @add="onPackagingAdded" />
@@ -580,6 +581,7 @@
     <BrandNameFormDrawer
       v-model="createBrandDrawer"
       mode="create"
+      :is-dark="isDark"
       @saved="onBrandCreated"
     />
 
@@ -591,14 +593,15 @@
     />
 
     <!-- Create Packing Type Dialog -->
-    <CreatePackingTypeDialog v-model="packingTypeCreateOpen" @created="onPackingTypeCreated" />
+    <CreatePackingTypeDialog v-model="packingTypeCreateOpen" :is-dark="isDark" @created="onPackingTypeCreated" />
 
     <!-- Create Type Dialog -->
-    <CreateTypeDialog v-model="createTypeDialog" @created="onTypeCreated" />
+    <CreateTypeDialog v-model="createTypeDialog" :is-dark="isDark" @created="onTypeCreated" />
 
     <!-- Create Category Dialog -->
     <CreateCategoryDialog
       v-model="createCategoryDialog"
+      :is-dark="isDark"
       :type-name="form.typeName"
       :type-id="currentTypeId"
       @created="onCategoryCreated"
@@ -607,6 +610,7 @@
     <!-- Space Group Drawer (view mode: liste du groupe de prix) -->
     <SpaceGroupDrawer
       v-model="groupDrawer"
+      :is-dark="isDark"
       :space-ids="activeGroupSpaceIds"
       :spaces="spaces"
       :group-price="activeGroupPrice"
@@ -617,6 +621,7 @@
     <!-- Space Group Drawer (selection mode: champ Space du formulaire) -->
     <SpaceGroupDrawer
       v-model="spaceDrawer"
+      :is-dark="isDark"
       :selectable="true"
       :spaces="spaces"
       :selected-ids="form.spaces"
@@ -632,6 +637,7 @@ import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints/menu-item.api";
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
+import { formatCurrency } from "@/composables/useFormatters.js";
 import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
@@ -675,7 +681,9 @@ export default {
         brandId: null,
         displayNameId: null,
         typeName: "",
+        typeId: null,
         categoryName: "",
+        categoryId: null,
         readyForSale: "No",
         kitchenType: null,
         inventoryPackagingType: null,
@@ -699,11 +707,6 @@ export default {
       activeGroupSpaceIds: [],
       activeGroupPrice: 0,
       activeGroupVat: null,
-
-      // Dynamic data
-      spacesLoading: false,
-      typesLoading: false,
-      categoriesLoading: false,
 
       // Create Type dialog
       createTypeDialog: false,
@@ -736,14 +739,6 @@ export default {
 
       editingItemIndex: null,
 
-      discountTypeOptions: [
-        { title: 'Aucune', value: 'none' },
-        { title: 'Pourcentage (%)', value: 'percent' },
-        { title: 'Fixe (€)', value: 'fixed' },
-      ],
-
-      brandOptions: ["No Brand", "Brand A", "Brand B"],
-      
       // Main table items (ingredients + components + packaging)
       items: [],
     };
@@ -832,47 +827,6 @@ export default {
         { title: this.t("menuItemCreate.colActions"), key: "actions", sortable: false, align: "end", width: 80 },
       ];
     },
-    spaceOptions() {
-      const list = (this.spaces || [])
-        .map((s) => ({
-          title: String(s?.name || s?.title || "").trim(),
-          value: String(s?.id || s?._id || "").trim(),
-        }))
-        .filter((s) => s.title && s.value)
-        .sort((a, b) => String(a.title).localeCompare(String(b.title)));
-      return list;
-    },
-    typeOptions() {
-      const types = (this.productTypes || [])
-        .map((t) => ({
-          title: String(t?.name || t?.type || "").trim(),
-          value: String(t?.id || t?._id || "").trim(),
-        }))
-        .filter((t) => t.title && t.value)
-        .sort((a, b) => String(a.title).localeCompare(String(b.title)));
-      return types;
-    },
-    categoryOptions() {
-      const cats = (this.productCategories || [])
-        .map((c) => ({
-          title: String(c?.name || c?.category || "").trim(),
-          value: String(c?.id || c?._id || "").trim(),
-        }))
-        .filter((c) => c.title && c.value)
-        .sort((a, b) => String(a.title).localeCompare(String(b.title)));
-      return cats;
-    },
-    filteredCategoryOptions() {
-      if (!this.form.typeName) return [];
-      const type = (this.productTypes || []).find(t => t.name === this.form.typeName);
-      if (!type) return [];
-      return (this.productCategories || [])
-        .filter((c) => c.typeId === (type.id || type._id))
-        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-    },
-    productTypeNames() {
-      return (this.productTypes || []).map(t => String(t?.name || '').trim()).filter(Boolean).sort();
-    },
     productTypeNamesWithCreate() {
       const existing = (this.productTypes || [])
         .map(t => String(t?.name || '').trim())
@@ -883,16 +837,6 @@ export default {
         { title: this.t('menuItemCreateTypeCreateOption'), value: '__create_type__', isCreate: true },
         ...existing,
       ];
-    },
-    filteredCategoryNames() {
-      if (!this.form.typeName) return [];
-      const type = (this.productTypes || []).find(t => t.name === this.form.typeName);
-      if (!type) return [];
-      return (this.productCategories || [])
-        .filter(c => c.typeId === (type.id || type._id))
-        .map(c => String(c?.name || '').trim())
-        .filter(Boolean)
-        .sort();
     },
     filteredCategoryNamesWithCreate() {
       if (!this.form.typeName) return [
@@ -926,9 +870,7 @@ export default {
         .filter(s => s.title && s.value);
     },
     currentTypeId() {
-      if (!this.form.typeName) return '';
-      const type = (this.productTypes || []).find(t => t.name === this.form.typeName);
-      return type ? String(type.id || type._id || '') : '';
+      return this.form.typeId || '';
     },
     groupedSpaces() {
       // Regroupe les espaces par couple (prix TTC, TVA) : deux espaces au même prix mais à des
@@ -950,42 +892,6 @@ export default {
     costPerPiece() {
       const pieces = Number(this.form.numberOfPiecesRecipe) || 1;
       return this.totalCost / pieces;
-    },
-    marginPercentage() {
-      const basePrice = this.effectiveBasePrice;
-      const cost = this.costPerPiece;
-      if (basePrice === 0) return "0.0%";
-      const margin = ((basePrice - cost) / basePrice) * 100;
-      return `${margin.toFixed(1)}%`;
-    },
-    marginColor() {
-      const basePrice = this.effectiveBasePrice;
-      const cost = this.costPerPiece;
-      if (basePrice === 0) return "text-medium-emphasis";
-      const margin = ((basePrice - cost) / basePrice) * 100;
-      return margin >= 60 ? "text-success" : "text-error";
-    },
-    pricingCalc() {
-      const grossTTC = Number(this.form.basePrice) || 0;
-      const vatRate = Number(this.form.vatRate) || 0;
-      const discountType = this.form.discountType || 'none';
-      const discountValue = Number(this.form.discountValue) || 0;
-      const divisor = 1 + vatRate / 100;
-      const grossHT = vatRate > 0 ? grossTTC / divisor : grossTTC;
-      const grossVAT = grossTTC - grossHT;
-      let discountTTC = 0;
-      if (discountType === 'percent') discountTTC = grossTTC * discountValue / 100;
-      else if (discountType === 'fixed') discountTTC = discountValue;
-      const discountHT = vatRate > 0 ? discountTTC / divisor : discountTTC;
-      const discountVAT = discountTTC - discountHT;
-      const netTTC = grossTTC - discountTTC;
-      const netHT = vatRate > 0 ? netTTC / divisor : netTTC;
-      const netVAT = netTTC - netHT;
-      return {
-        gross: { ttc: grossTTC, ht: grossHT, vat: grossVAT },
-        net: { ttc: netTTC, ht: netHT, vat: netVAT },
-        discountAmount: { ttc: discountTTC, ht: discountHT, vat: discountVAT },
-      };
     },
   },
   methods: {
@@ -1030,7 +936,7 @@ export default {
     },
     addPriceGroup() {
       const price = Number(this.newPriceAmount);
-      if (!price || !this.newPriceSpaces.length) return;
+      if (!(price > 0) || !this.newPriceSpaces.length) return;
       const vatRate = this.newPriceVat != null && this.newPriceVat !== '' ? Number(this.newPriceVat) : null;
       const prices = { ...this.form.spacePrices };
       this.newPriceSpaces.forEach(spaceId => { prices[spaceId] = { ttc: price, vatRate }; });
@@ -1061,27 +967,28 @@ export default {
           return;
         }
       }
-      this.$router.push({ path: "/menu-items" });
+      this.$router.push({ path: "/menu-fb/menu-items" });
     },
     async onCreate() {
       this.saveError = null;
 
       // Validation des champs requis
       if (!this.form.name?.trim()) {
-        this.saveError = "Le nom de l'article est requis.";
+        this.saveError = this.t('menuItemCreate.errorNameRequired');
         return;
       }
       if (!this.form.typeName?.trim()) {
-        this.saveError = "Le type est requis.";
+        this.saveError = this.t('menuItemCreate.errorTypeRequired');
         return;
       }
       if (!this.form.categoryName?.trim()) {
-        this.saveError = "La catégorie est requise.";
+        this.saveError = this.t('menuItemCreate.errorCategoryRequired');
         return;
       }
 
-      if (!this.form.numberOfPiecesRecipe || Number(this.form.numberOfPiecesRecipe) < 1) {
-        this.saveError = "Le nombre de pièces (recette) doit être au moins 1.";
+      const piecesCount = Number(this.form.numberOfPiecesRecipe);
+      if (!piecesCount || piecesCount < 1 || !Number.isInteger(piecesCount)) {
+        this.saveError = this.t('menuItemCreate.errorPieceCountInvalid');
         return;
       }
 
@@ -1092,7 +999,7 @@ export default {
           .filter((item) => item.type === "Ingredient" && item.ingredientId)
           .map((item) => ({
             ingredientId: String(item.ingredientId || "").trim(),
-            numberOfUnits: Number(item.quantity || 0),
+            numberOfUnits: Math.max(0, Number(item.quantity || 0)),
           }))
           .filter((ing) => ing.ingredientId);
 
@@ -1101,7 +1008,7 @@ export default {
           .filter((item) => item.type === "Component" && item.componentId)
           .map((item) => ({
             componentId: String(item.componentId || "").trim(),
-            numberOfUnits: Number(item.quantity || 0),
+            numberOfUnits: Math.max(0, Number(item.quantity || 0)),
           }))
           .filter((comp) => comp.componentId);
 
@@ -1110,7 +1017,7 @@ export default {
           .filter((item) => item.type === "Packaging" && item.packagingId)
           .map((item) => ({
             packagingId: String(item.packagingId || "").trim(),
-            numberOfUnits: Number(item.quantity || 0),
+            numberOfUnits: Math.max(0, Number(item.quantity || 0)),
           }))
           .filter((pkg) => pkg.packagingId);
 
@@ -1118,34 +1025,35 @@ export default {
         const totalCost = this.totalCost;
         const costPerPiece = this.costPerPiece;
 
-        // Resolve typeName → typeId (create if new)
-        let typeId = "";
-        if (this.form.typeName) {
+        // form.typeId est la source de vérité (synchronisée par onTypeSelectChange/onTypeCreated) ;
+        // la résolution par nom ne sert plus que de filet de sécurité si l'id n'a pas été
+        // synchronisé, et crée le type au besoin.
+        let typeId = this.form.typeId || "";
+        if (!typeId && this.form.typeName) {
           const existingType = (this.productTypes || []).find(t => t.name === this.form.typeName);
           if (existingType) {
             typeId = String(existingType.id || existingType._id || "");
           } else {
-            try {
-              const res = await createProductType({ name: this.form.typeName });
-              typeId = String(res?.data?.id || res?.id || "");
-              await this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
-            } catch (e) { console.error("Error creating type:", e); }
+            const res = await createProductType({ name: this.form.typeName });
+            typeId = String(res?.data?.id || res?.id || "");
+            await this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
           }
+          this.form.typeId = typeId;
         }
 
-        // Resolve categoryName → categoryId (create if new)
-        let categoryId = "";
-        if (this.form.categoryName) {
+        // form.categoryId est la source de vérité (synchronisée par onCategorySelectChange/
+        // onCategoryCreated) ; même filet de sécurité que pour le type.
+        let categoryId = this.form.categoryId || "";
+        if (!categoryId && this.form.categoryName) {
           const existingCat = (this.productCategories || []).find(c => c.name === this.form.categoryName);
           if (existingCat) {
             categoryId = String(existingCat.id || existingCat._id || "");
           } else {
-            try {
-              const res = await createProductCategory({ name: this.form.categoryName, typeId });
-              categoryId = String(res?.data?.id || res?.id || "");
-              await this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
-            } catch (e) { console.error("Error creating category:", e); }
+            const res = await createProductCategory({ name: this.form.categoryName, typeId });
+            categoryId = String(res?.data?.id || res?.id || "");
+            await this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
           }
+          this.form.categoryId = categoryId;
         }
 
         // Calculer la marge (sur le coût par pièce, pas le coût total de la recette)
@@ -1210,8 +1118,6 @@ export default {
           payload.picture = pictureUrl;
         }
 
-        console.log("Menu Item Payload:", payload);
-        
         // Appeler l'API pour créer ou mettre à jour le menu item
         if (this.isEditMode && this.menuItemId) {
           await updateMenuItem(this.menuItemId, payload);
@@ -1227,16 +1133,16 @@ export default {
           // la fiche pour vérifier que la sauvegarde a bien pris.
           await this.loadMenuItemData();
           this.takeSnapshot();
-          this.saveSuccess = "Article mis à jour.";
+          this.saveSuccess = this.t('menuItemCreate.successUpdated');
           clearTimeout(this._saveSuccessTimeout);
           this._saveSuccessTimeout = setTimeout(() => { this.saveSuccess = null; }, 2500);
         } else {
           this.takeSnapshot();
-          this.$router.push({ path: "/menu-items" });
+          this.$router.push({ path: "/menu-fb/menu-items" });
         }
       } catch (e) {
         console.error("Error creating menu item:", e);
-        this.saveError = e?.response?.data?.message || e?.message || "Une erreur est survenue lors de la création.";
+        this.saveError = e?.response?.data?.message || e?.message || this.t('menuItemCreate.errorGeneric');
       } finally {
         this.saving = false;
       }
@@ -1256,7 +1162,6 @@ export default {
       this.componentDrawer = true;
     },
     onAddComboItem() {
-      console.log("Add Combo Item");
     },
     onAddPackaging() {
       this.editingItemIndex = null;
@@ -1268,6 +1173,14 @@ export default {
     onFileSelected(event) {
       const file = event.target.files[0];
       if (file) {
+        const MAX_PICTURE_SIZE = 5 * 1024 * 1024; // 5 Mo
+        if (file.size > MAX_PICTURE_SIZE) {
+          this.saveError = this.t('menuItemCreate.errorImageTooLarge');
+          if (this.$refs.fileInput) {
+            this.$refs.fileInput.value = "";
+          }
+          return;
+        }
         this.form.picture = file;
         this.pictureChanged = true;
         const reader = new FileReader();
@@ -1285,21 +1198,26 @@ export default {
         this.$refs.fileInput.value = "";
       }
     },
-    onTypeChange() {
-      this.form.categoryName = "";
-    },
     onTypeSelectChange(value) {
       if (value === '__create_type__') {
         this.form.typeName = '';
+        this.form.typeId = null;
         this.createTypeDialog = true;
       } else {
         this.form.categoryName = '';
+        this.form.categoryId = null;
+        const type = (this.productTypes || []).find(t => t.name === value);
+        this.form.typeId = type ? String(type.id || type._id || '') : null;
       }
     },
     onCategorySelectChange(value) {
       if (value === '__create_category__') {
         this.form.categoryName = '';
+        this.form.categoryId = null;
         this.createCategoryDialog = true;
+      } else {
+        const cat = (this.productCategories || []).find(c => c.name === value);
+        this.form.categoryId = cat ? String(cat.id || cat._id || '') : null;
       }
     },
     onBrandSelectChange(value) {
@@ -1345,11 +1263,7 @@ export default {
         this.items.splice(index, 1);
       }
     },
-    formatCurrency(v) {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return "-";
-      return `€${n.toFixed(2)}`;
-    },
+    formatCurrency,
     getStorageColor(storage) {
       const colors = {
         Cold: "blue",
@@ -1368,7 +1282,7 @@ export default {
         
         if (!menuItem) {
           console.error('Menu item not found');
-          this.$router.push({ path: "/menu-items" });
+          this.$router.push({ path: "/menu-fb/menu-items" });
           return;
         }
         
@@ -1500,14 +1414,9 @@ export default {
           });
           this.items = [...this.items, ...packagingItems];
         }
-        
-        console.log('Menu item loaded:', menuItem);
-        console.log('Form populated:', this.form);
-        console.log('Items loaded:', this.items);
       } catch (e) {
         console.error('Error loading menu item:', e);
-        alert(e?.userMessage || e?.message || "Failed to load menu item");
-        this.$router.push({ path: "/menu-items" });
+        this.saveError = e?.userMessage || e?.message || this.t('menuItemCreate.errorLoadFailed');
       } finally {
         this.loading = false;
       }
@@ -1545,9 +1454,14 @@ export default {
     onTypeCreated(typeName) {
       this.form.typeName = typeName;
       this.form.categoryName = '';
+      this.form.categoryId = null;
+      const type = (this.productTypes || []).find(t => t.name === typeName);
+      this.form.typeId = type ? String(type.id || type._id || '') : null;
     },
     onCategoryCreated(categoryName) {
       this.form.categoryName = categoryName;
+      const cat = (this.productCategories || []).find(c => c.name === categoryName);
+      this.form.categoryId = cat ? String(cat.id || cat._id || '') : null;
     },
     takeSnapshot() {
       const { picture, picturePreview, ...rest } = this.form;
@@ -2010,7 +1924,7 @@ export default {
   letter-spacing: 0.025em;
   white-space: nowrap;
   color: #374151 !important;
-  border-bottom: 1px solid #e5e7eb !important;
+  border-bottom: none !important;
 }
 
 .components-table :deep(tbody td),
@@ -2285,6 +2199,16 @@ label {
   border-color: #ff3131 !important;
   background: #263548 !important;
 }
+/* v-select (Type, Catégorie, Marque, Nom d'affichage, Ready for sale, Combo, Prix par space) :
+   valeur sélectionnée + placeholder + icônes clairs sur le champ sombre (sinon texte noir). */
+.mic--dark .right-section :deep(.v-field__input),
+.mic--dark .right-section :deep(.v-select__selection-text) { color: #f1f5f9 !important; }
+.mic--dark .right-section :deep(.v-field__input input::placeholder) { color: rgba(255, 255, 255, .35); }
+.mic--dark .right-section :deep(.v-field__append-inner .v-icon),
+.mic--dark .right-section :deep(.v-field__clearable .v-icon) { color: #94a3b8 !important; }
+/* Cartes « Prix par space » : pills de space + état vide. */
+.mic--dark .mic-space-name-pill { background: rgba(37, 99, 235, .18); color: #93c5fd; border-color: rgba(37, 99, 235, .35); }
+.mic--dark .mic-price-empty { background: #1a2535; border-color: rgba(255, 255, 255, .12); color: #94a3b8; }
 
 .form-section-divider {
   display: flex;
@@ -2612,6 +2536,17 @@ label {
   color: #e5e7eb;
 }
 
+/* Contrôle quantité (dans la table) : texte + fond + boutons en dark. */
+.mic--dark .mic-qty-input {
+  background: #1e293b;
+  border-left-color: rgba(255, 255, 255, .12);
+  border-right-color: rgba(255, 255, 255, .12);
+  color: #f1f5f9;
+}
+.mic--dark .mic-qty-stepper { border-color: rgba(255, 255, 255, .12); }
+.mic--dark .mic-qty-btn { background: #263548; color: #cbd5e1; }
+.mic--dark .mic-qty-btn:hover { background: #2d3748; }
+
 .mic--dark .form-section-divider {
   color: #6b7280;
 }
@@ -2856,86 +2791,6 @@ label {
 /* Dark mode for price cards */
 .mic--dark .mic-price-card {
   border-color: #2563eb;
-}
-
-/* ── Suffix symbol (%) ── */
-.mic-suffix-symbol {
-  padding: 0 10px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #6b7280;
-  border-left: 1.5px solid #e5e7eb;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  background: #f3f4f6;
-}
-
-/* ── Pricing summary block ── */
-.mic-pricing-summary {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-left: 3px solid #7c3aed;
-  border-radius: 10px;
-  padding: 10px 14px;
-}
-
-.mic-pricing-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 2px 0;
-}
-
-.mic-pricing-label {
-  font-size: 0.78rem;
-  color: #6b7280;
-}
-
-.mic-pricing-value {
-  font-size: 0.78rem;
-  color: #374151;
-  font-weight: 500;
-}
-
-.mic-pricing-value--bold {
-  font-weight: 700;
-  color: #111827;
-  font-size: 0.82rem;
-}
-
-.mic-pricing-sep {
-  height: 1px;
-  background: #e2e8f0;
-  margin: 6px 0;
-}
-
-/* Dark mode pricing summary */
-.mic--dark .mic-pricing-summary {
-  background: #1e2a3a;
-  border-color: #334155;
-}
-
-.mic--dark .mic-pricing-label {
-  color: #94a3b8;
-}
-
-.mic--dark .mic-pricing-value {
-  color: #cbd5e1;
-}
-
-.mic--dark .mic-pricing-value--bold {
-  color: #ffffff;
-}
-
-.mic--dark .mic-pricing-sep {
-  background: #334155;
-}
-
-.mic--dark .mic-suffix-symbol {
-  background: #1a2535;
-  border-color: rgba(255, 255, 255, .12);
-  color: #9ca3af;
 }
 
 .mic--dark .mic-space-badge {

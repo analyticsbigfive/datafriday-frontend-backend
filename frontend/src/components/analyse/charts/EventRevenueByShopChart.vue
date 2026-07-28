@@ -494,7 +494,7 @@ function getOrCreateTooltipEl() {
       'color: #fff',
       'padding: 10px 12px',
       'border-radius: 8px',
-      'font-size: 12px',
+      'font-size: var(--fs-sm)',
       'line-height: 1.4',
       'min-width: 240px',
       'max-width: 360px',
@@ -529,14 +529,14 @@ function externalTooltipHandler(ctx) {
       const [name, badge] = String(line).split('\u0001')
       const namePart = name ? `<span>${name}</span>` : ''
       const badgePart = badge
-        ? `<span style="display:inline-block;background:#a855f7;color:#fff;font-size:10px;font-weight:700;line-height:1.2;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:middle;letter-spacing:0.02em;white-space:nowrap;">${badge}</span>`
+        ? `<span style="display:inline-block;background:#a855f7;color:#fff;font-size: var(--fs-xs);font-weight: var(--fw-bold);line-height:1.2;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:middle;letter-spacing:0.02em;white-space:nowrap;">${badge}</span>`
         : ''
       return namePart + badgePart
     }
     html += `<div style="font-weight:600;margin-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.15);padding-bottom:4px;">${titleLines.map(renderTitleLine).join('<br/>')}</div>`
   }
   if (beforeBody.length) {
-    html += `<div style="font-size:11px;opacity:0.85;margin-bottom:6px;">${beforeBody.join('<br/>')}</div>`
+    html += `<div style="font-size: var(--fs-xs);opacity:0.85;margin-bottom:6px;">${beforeBody.join('<br/>')}</div>`
   }
   bodyLines.forEach((line, i) => {
     const c = colors[i] || 'transparent'
@@ -696,12 +696,12 @@ function onAverageClick() {
 
 <style scoped>
 .chart-title {
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   color: #212121;
 }
 .chart-subtitle {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #9e9e9e;
 }
 .legend-dot {
@@ -712,11 +712,11 @@ function onAverageClick() {
   margin-right: 6px;
 }
 .legend-label {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #424242;
 }
 .legend-link {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #5b8def;
   text-decoration: none;
 }

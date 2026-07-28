@@ -127,6 +127,8 @@
             :filtered-shops="filteredShops"
             :shops-loading="shopsLoading"
             :load-error="shopsError"
+            :is-dark="isDark"
+            :space-has-no-configuration="!configurationsLoading && configOptions.length === 0"
             @edit-shop="editShop"
             @select-shop="selectShop"
             @retry="selectedConfigId && loadShopsForSpace(selectedSpaceId, selectedConfigId, { forceRefresh: true })"
@@ -144,6 +146,7 @@
             :space-id="String(selectedSpaceId || '')"
             :config-id="String(selectedConfigId || '')"
             :menu-assignment-map="menuAssignmentMap"
+            :is-dark="isDark"
             :load-error="menuItemsError"
             @show-error="onChildError"
             @menu-item-toggled="onMenuItemToggled"
@@ -168,6 +171,7 @@
         :selected-config-id="String(selectedConfigId || '')"
         :config-options="configOptions"
         @saved="onShopSaved"
+        @save-error="onChildError"
       />
 
     </div>
@@ -192,7 +196,7 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { Utensils, Store, UtensilsCrossed, Save, Search, X } from 'lucide-vue-next';
+import { Utensils, Store, UtensilsCrossed, Search, X } from 'lucide-vue-next';
 import { getSpacesLight } from '@/api/endpoints/space.api';
 import { getSpaceMenuConfiguration, getSpaceMenuItemsWithAvailability } from '@/api/endpoints/menu.api';
 import ShopMenuItemsDrawer from '../drawers/ShopMenuItemsDrawer.vue';
@@ -202,7 +206,7 @@ import SpaceMenuItemView from './SpaceMenuItemView.vue';
 
 export default {
   name: "SpaceMenuView",
-  components: { ShopMenuItemsDrawer, SpaceMenuEditShopDrawer, SpaceMenuShopView, SpaceMenuItemView, Utensils, Store, UtensilsCrossed, Save, Search, X },
+  components: { ShopMenuItemsDrawer, SpaceMenuEditShopDrawer, SpaceMenuShopView, SpaceMenuItemView, Utensils, Store, UtensilsCrossed, Search, X },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -270,16 +274,6 @@ export default {
         .filter((s) => s.id && s.name);
     },
 
-    selectedSpaceRaw() {
-      const id = this.selectedSpaceId;
-      if (!id) return null;
-      return (
-        (this.spaces || []).find(
-          (s) => String(s?.id ?? s?._id ?? "") === String(id),
-        ) || null
-      );
-    },
-
     configOptions() {
       return (this.configurations || [])
         .map((c) => ({
@@ -289,21 +283,6 @@ export default {
           _raw: c,
         }))
         .filter((c) => c.id && c.name);
-    },
-
-    selectedConfigRaw() {
-      const id = this.selectedConfigId;
-      if (!id) return null;
-      return (
-        (this.configurations || []).find(
-          (c) => String(c?.id ?? "") === String(id),
-        ) || null
-      );
-    },
-
-    currentConfigName() {
-      const config = this.configOptions.find(c => c.id === this.selectedConfigId);
-      return config ? config.name : this.t("spaceMenu.unknownConfiguration");
     },
 
     // `rawShops` est déjà scopé par le backend (GET /spaces/:id/shops?configId=...) —
@@ -345,20 +324,12 @@ export default {
         );
       }
 
-      // Filter by menu item name
-      if (this.menuItemQuery && this.menuItemQuery.trim()) {
-        const q = this.menuItemQuery.toLowerCase().trim();
-        filtered = filtered.filter((shop) => {
-          const items = this.$store.getters['shopMenuItems/forShop'](shop.id);
-          if (items.length > 0) {
-            return items.some(item =>
-              String(item?.name || item?.menuItemName || item?.title || "").toLowerCase().includes(q)
-            );
-          }
-          // Données non chargées : inclure si le shop a des menu items
-          return shop.menuItemsCount > 0;
-        });
-      }
+      // BUG-123 : le filtre par nom d'article a été retiré d'ici. `filteredShops` (grille de
+      // shops + badge "N shops" de la barre de recherche) reste piloté par `searchQuery`
+      // uniquement — `menuItemQuery` n'a d'input visible qu'en vue "By Menu Item" (où aucun
+      // shop n'est rendu). Appliquer `menuItemQuery` ici faisait que la grille restait
+      // silencieusement filtrée après un passage par l'autre vue, alors que le champ visible en
+      // vue "By Shop" (`searchQuery`) apparaissait vide.
 
       return filtered;
     },
@@ -525,7 +496,12 @@ export default {
       this.selectedConfigId = null;
       this.configurations = [];
       try {
-        this.configurations = await this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId });
+        const configurations = await this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId });
+        // BUG-124 : garde anti-course — un changement d'espace pendant l'attente réseau (espace
+        // A lent, espace B rapide) ne doit pas écraser les configs déjà affichées pour B avec
+        // celles de A arrivées en retard.
+        if (String(this.selectedSpaceId) !== String(spaceId)) return;
+        this.configurations = configurations;
 
         // Préselection : config demandée en deep-link (?config=) si elle existe,
         // sinon la 1re configuration.
@@ -606,6 +582,9 @@ export default {
       this.shopsError = null;
       try {
         const list = await this.$store.dispatch('spaceShops/fetchForSpace', { spaceId, configId, forceRefresh });
+        // BUG-124 : garde anti-course — un changement d'espace pendant l'attente réseau ne doit
+        // pas écraser les shops déjà affichés pour le nouvel espace sélectionné.
+        if (String(this.selectedSpaceId) !== String(spaceId)) return;
 
         this.rawShops = (list || [])
           .map((s) => this.normalizeShop(s))
@@ -643,6 +622,16 @@ export default {
       }
     },
 
+    // BUG-128 : `shopMenuItems` (le roster détaillé d'items par shop, TTL 15 min) est un module
+    // Vuex distinct de `spaceShops` (juste le compteur) — d'autres écrans (Event Predict,
+    // Restock, useInventoryData) le lisent directement. Sans cette invalidation, ils servaient
+    // le roster pré-édition jusqu'à 15 min après un toggle/attach fait ici.
+    invalidateShopMenuItemsCache(shopId) {
+      if (shopId) {
+        this.$store.dispatch('shopMenuItems/invalidateForShop', { shopId, configId: this.selectedConfigId || null });
+      }
+    },
+
     onMenuItemsAttached({ shopId, newCount, error }) {
       if (error) {
         this.snackbarColor = 'error';
@@ -654,6 +643,7 @@ export default {
           this.rawShops[shopIdx].isOpen = newCount > 0;
         }
         this.invalidateShopsCache();
+        this.invalidateShopMenuItemsCache(shopId);
         this.snackbarColor = 'success';
         this.snackbarMessage = this.t('spaceMenu.menuItemsAttached');
       }
@@ -676,6 +666,7 @@ export default {
         };
       }
       this.invalidateShopsCache();
+      this.invalidateShopMenuItemsCache(shopId);
     },
 
     onShopSaved(updatedShop) {
@@ -698,6 +689,11 @@ export default {
   // avant, seuls items+assignments étaient rechargés et les compteurs shops restaient
   // figés sur l'état d'avant navigation).
   activated() {
+    // BUG-122 : sur une route keep-alive, mounted() ne rejoue pas aux visites suivantes — seul
+    // activated() se déclenche. Sans cet appel, un deep-link ?space=&config= relancé depuis
+    // Event Predict pendant que cette page reste en mémoire (ex. "Add shops" pour un 2e espace)
+    // n'était jamais relu, malgré ce que ce hook prétendait déjà faire.
+    this.applyRouteQuery();
     if (this.selectedSpaceId && this.selectedConfigId) {
       this.loadShopsForSpace(this.selectedSpaceId, this.selectedConfigId, { forceRefresh: true });
     }

@@ -19,6 +19,43 @@ const apiClient = axios.create({
 })
 
 // ============================================
+// WARM-UP BACKEND (cold start Render)
+// ============================================
+
+// Le backend onrender (free tier) s'endort après ~15 min d'inactivité et met ~50s à
+// se réveiller — plus long que le timeout de 60s quand plusieurs requêtes lourdes
+// partent en parallèle au premier chargement (constaté : toutes les requêtes de
+// fetchSpaceData expirent ensemble, cf. fiche bugs/164). On ping /health (public,
+// hors auth) dès le chargement du module, fire-and-forget : le réveil démarre
+// pendant le login/la navigation, avant la première vraie requête.
+function warmUpBackend() {
+  if (!API_BASE_URL || typeof fetch !== 'function') return
+  fetch(`${API_BASE_URL}/health`, { method: 'GET' }).catch(() => {
+    // Échec silencieux : le warm-up est opportuniste, les vraies requêtes ont
+    // leur propre gestion d'erreur.
+  })
+}
+warmUpBackend()
+
+/**
+ * Sonde rapide de /health : résout `true` si le backend répond vite (donc réveillé).
+ * Utilisée pour décider un retry après timeout — voir l'intercepteur réponse.
+ */
+async function isBackendAwake(timeoutMs = 5000) {
+  if (!API_BASE_URL || typeof fetch !== 'function') return false
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${API_BASE_URL}/health`, { method: 'GET', signal: controller.signal })
+    return res.ok
+  } catch (_) {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// ============================================
 // GESTION DES TOKENS
 // ============================================
 
@@ -49,6 +86,16 @@ export function getAccessToken() {
 export function clearAccessToken() {
   accessToken = null
   _explicitlyLoggedOut = true
+}
+
+/**
+ * L'utilisateur s'est-il déconnecté volontairement depuis CET onglet ?
+ * Consommé par le handler `onAuthStateChange` (store/modules/auth.js) pour distinguer
+ * une vraie déconnexion d'un `SIGNED_OUT` émis par la rotation du refresh token.
+ * @returns {boolean}
+ */
+export function isExplicitlyLoggedOut() {
+  return _explicitlyLoggedOut
 }
 
 // ============================================
@@ -145,9 +192,25 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // NB : pas de retry auto sur timeout — re-tenter une requête déjà lente (>60s)
-    // double juste l'attente (constaté : getAllMenuItems = 2×60s). Le vrai souci est
-    // la latence backend de l'endpoint (DB), à régler côté serveur.
+    // Timeout (ECONNABORTED) : retry UNIQUE, GET seulement, et uniquement si /health
+    // répond en <5s — preuve que le timeout venait du cold start Render (~50s de
+    // réveil, fiche bugs/164) et que le serveur est maintenant chaud : le 2e essai
+    // sera rapide. Si /health ne répond pas vite, l'endpoint est réellement lent
+    // (DB) et on garde la décision d'origine : re-tenter une requête déjà lente
+    // (>60s) double juste l'attente (constaté : getAllMenuItems = 2×60s) — pas de
+    // retry, à régler côté serveur.
+    if (
+      error.code === 'ECONNABORTED' &&
+      originalRequest &&
+      (originalRequest.method || '').toLowerCase() === 'get' &&
+      !originalRequest._timeoutRetry
+    ) {
+      originalRequest._timeoutRetry = true
+      if (await isBackendAwake()) {
+        console.warn(`🔁 Timeout sur ${originalRequest.url} pendant le réveil du backend — nouvel essai`)
+        return apiClient(originalRequest)
+      }
+    }
 
     // Build user-friendly error message
     let userMessage = 'Une erreur est survenue'

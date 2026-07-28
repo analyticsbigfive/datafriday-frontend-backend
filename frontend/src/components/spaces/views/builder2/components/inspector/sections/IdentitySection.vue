@@ -34,7 +34,7 @@ function commit(key, value) {
 }
 .id-label {
   display: block;
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: rgb(var(--v-theme-on-surface));
   margin-bottom: 10px;
@@ -42,7 +42,7 @@ function commit(key, value) {
 .id-input {
   width: 100%;
   padding: 11px 14px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: rgb(var(--v-theme-on-surface));
   background: rgba(var(--v-theme-on-surface), 0.05);
   border: 1px solid transparent;

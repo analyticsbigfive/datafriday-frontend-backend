@@ -40,7 +40,7 @@
                   <div class="mptcd-item-name">{{ cat.name }}</div>
                   <div class="mptcd-item-date">{{ formatDate(cat.createdAt) }}</div>
                 </div>
-                <v-chip size="small" color="primary" variant="tonal" rounded="lg" class="ml-auto">Category</v-chip>
+                <v-chip size="small" color="primary" variant="tonal" rounded="lg" class="ml-auto">{{ t('marketPriceTypeList.categoryChipLabel') }}</v-chip>
               </div>
             </div>
             <div v-else class="mptcd-empty">
@@ -155,16 +155,16 @@ export default {
   min-width: 0;
 }
 .mptcd-header__title {
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #fff;
 }
 .mptcd-header__type-name {
   color: rgba(255, 255, 255, .85);
-  font-weight: 800;
+  font-weight: var(--fw-bold);
 }
 .mptcd-header__subtitle {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, .72);
   margin-top: 2px;
 }
@@ -283,7 +283,7 @@ export default {
   padding: 0 20px;
   height: 40px;
   border-radius: 50px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 600;
   cursor: pointer;
   border: none;
@@ -296,6 +296,8 @@ export default {
 .mptcd-fbtn--cancel:hover {
   background: #e5e7eb;
 }
+.mptcd-panel--dark .mptcd-fbtn--cancel { background: #374151; color: #d1d5db; }
+.mptcd-panel--dark .mptcd-fbtn--cancel:hover { background: #4b5563; }
 
 /* ── Transition ── */
 .mptcd-slide-enter-active,

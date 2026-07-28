@@ -1,8 +1,17 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'mibs--dark': isDark }">
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3">
-      <span class="section-title">{{ t('anMenuItemsByShop') }}</span>
+      <div>
+        <span class="section-title">{{ t('anMenuItemsByShop') }}</span>
+        <!-- Mode Predict : les events prédits sans scénario Event Predict n'ont
+             aucune dimension article → exclus de ce tableau. -->
+        <div v-if="missingEventsCount > 0" class="section-subtitle">
+          {{ missingEventsCount }}
+          {{ missingEventsCount > 1 ? t('anEventsPlural') : t('anEventSingular') }}
+          {{ t('anPredictNoItemDetail') }}
+        </div>
+      </div>
       <v-btn icon size="small" variant="text" @click="exportExcel">
         <v-icon>mdi-download</v-icon>
       </v-btn>
@@ -237,6 +246,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import { useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
@@ -253,6 +263,9 @@ const props = defineProps({
   // Records item-level en cours de chargement → skeleton (évite le rendu
   // intermédiaire shop-level sans noms d'articles).
   loading: { type: Boolean, default: false },
+  // Mode Predict : nombre d'events prédits SANS scénario Event Predict sauvegardé.
+  // Le moteur ne prédit qu'au niveau PdV → ces events n'ont aucun article à montrer.
+  missingEventsCount: { type: Number, default: 0 },
 })
 
 // Point 18 — clic sur la cellule « Events » d'un combo PdV × article →
@@ -262,6 +275,10 @@ const emit = defineEmits(['events-click'])
 const { t } = useI18n()
 const router = useRouter()
 const store = useStore()
+
+// Dark mode autonome : suit le thème global Vuetify.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Catalogue DataFriday (store analyse) — pour garantir que le lien pointe vers la
 // VRAIE fiche catalogue. Le `menuItemId` réconcilié peut être un id NestJS
@@ -596,18 +613,24 @@ async function exportExcel() {
 
 <style scoped>
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: #212121;
+}
+/* Aligné sur MenuItemRevenueDistribution.vue (même bandeau d'en-tête). */
+.section-subtitle {
+  font-size: var(--fs-sm);
+  color: #757575;
+  margin-top: 2px;
 }
 .shop-name {
   font-weight: 500;
   color: #212121;
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 .shop-stats {
   color: #757575;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* Lot 0.5 — Toolbar « Articles du menu par PdV » : recherche en pilule grise
@@ -632,8 +655,8 @@ async function exportExcel() {
   border: 0;
   outline: 0;
   padding: 0 8px;
-  font-size: 14px;
-  color: #111827;
+  font-size: var(--fs-md);
+  color: #0f172a;
 }
 .mibs-search-input::placeholder {
   color: #6B7280;
@@ -644,8 +667,8 @@ async function exportExcel() {
   background-color: #ffffff;
   border-radius: 9999px;
   padding: 0 26px 0 12px;
-  font-size: 12px;
-  color: #111827;
+  font-size: var(--fs-sm);
+  color: #0f172a;
   font-weight: 500;
   cursor: pointer;
   appearance: none;
@@ -670,12 +693,12 @@ async function exportExcel() {
   min-height: 38px !important;
   padding-top: 4px !important;
   padding-bottom: 4px !important;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 .mibs-select :deep(.v-field__input input::placeholder) {
   color: #6B7280;
   opacity: 1;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 .mibs-select :deep(.v-field__outline__start),
 .mibs-select :deep(.v-field__outline__end) {
@@ -683,7 +706,7 @@ async function exportExcel() {
 }
 .mibs-select :deep(.v-chip) {
   height: 22px !important;
-  font-size: 12px !important;
+  font-size: var(--fs-sm)!important;
   margin: 1px 2px !important;
 }
 
@@ -692,7 +715,7 @@ async function exportExcel() {
 .mibs-items-table :deep(th) {
   font-weight: 500;
   color: #6B7280;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   text-transform: none;
   background-color: #F9FAFB;
 }
@@ -753,4 +776,71 @@ async function exportExcel() {
 .mibs-events-clickable:hover {
   text-decoration: underline;
 }
+
+/* ── Dark mode (autonome via isDark) : override des couleurs claires en dur.
+   Les internes Vuetify (v-table, v-expansion-panels, v-select, pagination)
+   suivent le thème global sombre ; on ne force que le custom clair. ── */
+.mibs--dark .section-title {
+  color: #f9fafb;
+}
+.mibs--dark .section-subtitle {
+  color: #94a3b8;
+}
+.mibs--dark .shop-name {
+  color: #f9fafb;
+}
+.mibs--dark .shop-stats {
+  color: #94a3b8;
+}
+
+/* Barre de recherche en pilule */
+.mibs--dark .mibs-search {
+  background-color: #1a2332;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.mibs--dark .mibs-search-input {
+  color: #f9fafb;
+}
+.mibs--dark .mibs-search-input::placeholder {
+  color: #94a3b8;
+}
+.mibs--dark .mibs-search-scope {
+  background-color: #1e293b;
+  color: #f9fafb;
+  box-shadow: none;
+}
+
+/* Selects type/catégorie (fond blanc forcé → surface sombre) */
+.mibs--dark .mibs-select :deep(.v-field) {
+  background-color: #1e293b;
+}
+.mibs--dark .mibs-select :deep(.v-field__input input::placeholder) {
+  color: #94a3b8;
+}
+.mibs--dark .mibs-select :deep(.v-field__outline__start),
+.mibs--dark .mibs-select :deep(.v-field__outline__end) {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Tableau articles : en-têtes + vignettes + cellules */
+.mibs--dark .mibs-items-table :deep(th) {
+  color: #94a3b8;
+  background-color: #1a2332;
+}
+.mibs--dark .mibs-items-table .mibs-thumb {
+  background-color: #1a2332;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.mibs--dark .mibs-items-table .mibs-events-cell {
+  color: #94a3b8;
+}
+/* Lignes hover / bordures de colonnes (tables internes Vuetify) */
+.mibs--dark :deep(.v-table tbody tr:hover) {
+  background: rgba(255, 255, 255, 0.03);
+}
+.mibs--dark :deep(.v-table th),
+.mibs--dark :deep(.v-table td) {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+/* #ff3131 (liens article) et #7C3AED (events cliquables) conservés (sémantiques). */
 </style>

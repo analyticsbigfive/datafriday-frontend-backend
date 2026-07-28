@@ -387,6 +387,17 @@ correcte**, contrairement au pipeline pré-agrégé vivant du Piège n°1). Plaf
 par appel (`spaces.service.ts:1036`). C'est la source de toutes les vues item-level (donut par
 article, tableau « Menu items by shop », timeline minute par minute d'un event précis).
 
+**Corrigé 2026-07-18 (fiche back 103, non déployé)** : la jointure shop était un `INNER JOIN`
+`WeezeventLocationShopMapping` + `spaceElementId = ANY(shopIds)` — toute vente d'un PdV non mappé
+était supprimée, d'où un écran « 0 article / Aucun article disponible pour cette configuration »
+alors que le CA shop-level (RPC, LEFT JOIN + COALESCE) s'affichait. Désormais aligné sur la RPC :
+`LEFT JOIN` + `COALESCE(spaceElementId, locationId)` (bucket gris `UNATTACHED_SHOP_KEY` côté
+front), garde-fou : les non-mappés ne sont conservés que si un `integrationId` scope la requête.
+Attention : l'attribution event reste par **fenêtre de dates** (`[eventDate, eventEndDate+1j)`),
+différente du lien stocké utilisé par la RPC — règle canonique non tranchée (QUESTIONS 16). Le
+front ne masque plus un échec HTTP du batch en « 0 article » (fiche front 187, snackbar
+une fois/session).
+
 **Conséquence pour un correctif** : le CA total « par article » (toujours calculé en live, formule
 TVA correcte) et le CA total « par shop » (calculé depuis les agrégats pré-calculés, formule sans
 TVA, Piège n°1) **peuvent structurellement ne pas sommer au même total** pour le même espace/période
@@ -444,6 +455,13 @@ l'infrastructure de cache timeline du store est shadow-implémentée en dehors d
 
 ### Formules KPI — trois implémentations concurrentes de « CA moyen par event »
 
+> **Tranché le 2026-07-24 (réponse Bertrand — [Question #17](../QUESTIONS_A_BERTRAND.md))** :
+> formule canonique = **total des CA des events enregistrés ÷ nombre d'events enregistrés**. Pas de
+> filtre « CA > 0 », pas de repli conditionnel — donc ni la formule A (repli sur `events.length`
+> uniquement si le Set est vide) ni B/C (exclusion stricte des events à CA nul) ne sont
+> correctes telles quelles : le dénominateur doit être **tous** les events, sans filtrer sur le CA.
+> **Code pas encore aligné** — les 3 implémentations ci-dessous sont toujours en place.
+
 | Formule | Fichier:lignes | Définition d'« event avec CA » | Pilote |
 |---|---|---|---|
 | A | `useMetricsCalculator.js:39-80` | `eventsWithRevenueCount` = events avec `rowRevenue>0`, **repli sur `events.length` (tous, même à 0) si le Set est vide** | La **valeur** KPI affichée (carte « Moy./Évén. ») |
@@ -454,7 +472,8 @@ En usage normal, **la valeur vient de A et la variation % vient de C** — deux 
 avec des définitions différentes d'« event valide » affichées côte à côte sur la même carte. Risque
 de divergence visuelle réel, pas hypothétique (déjà présent dans le prototype React avec des
 dénominateurs différents encore, voir Historique — la divergence a changé de forme au portage Vue
-mais n'a jamais été résolue).
+mais n'a jamais été résolue). **À unifier sur la formule tranchée ci-dessus** (total CA ÷ nb
+events, sans filtre) dans les 3 fichiers.
 
 `isSingleEventMode` (`useMetricsCalculator.js:37`) = strictement `selectedEventIds.length === 1`
 dans le filtre — indépendant du nombre d'events affichés après les autres filtres, et différent de
@@ -513,8 +532,16 @@ sur le code React, voir Historique).
 | `charts/EventRevenueByShopChart.vue` (762 l.) | Carte CA par event/PdV, empilable par shop ou par type d'article, atténuation 50% des events passés en mode Predict |
 | `charts/EventTimelineChart.vue` (761 l., partagé avec `EventPredictView.vue`) | Timeline minute par minute, délègue le bucketing à `utils/timelineBucketing.js` (source unique partagée Analyse/Predict/EventPredict/Stockup) |
 | `charts/ShopDistributionPieChart.vue` | 3 donuts PdV/Type/Zone, sentinelle `UNATTACHED_SHOP_KEY` |
-| `tables/MenuItemRevenueDistribution.vue` | Cartes « by POS type » + 3 donuts article/type/catégorie, sentinelle `UNATTACHED_ITEM_KEY`, masqué en mode Predict (pas de dimension article en prédiction shop-level) |
+| `tables/MenuItemRevenueDistribution.vue` | Cartes « by POS type » + 3 donuts article/type/catégorie, sentinelle `UNATTACHED_ITEM_KEY` |
 | `tables/MenuItemsByShopTable.vue` | Double vue PdV/article, export XLSX, lien fiche catalogue si l'article est réellement rattaché |
+
+Ces deux vues consomment `articleRecords` (et non `chartRecords`). En mode **Analyse** c'est
+`chartRecords` à l'identique. En mode **Predict**, la prédiction du moteur est shop-level (aucun
+`menuItemId`) : le grain article vient alors des **scénarios Event Predict**
+(`EventPredictVersion.predictedRecords`, reconstruits par `regeneratePredictions` dans
+`state.predictScenarioItemRecords`, cf. `utils/predictScenarioRecords.js`). Les events prédits sans
+scénario sauvegardé n'ont donc aucun article et sont signalés par un compteur (`missingEventsCount`).
+Détail, limites et pièges : fiche [190](../bugs/190_predict_vues_article_absentes_grain_shop_level.md).
 | `panels/SummaryPanel.vue` | Colonne droite : assistant IA local + leaderboards cliquables |
 | `panels/FilterEditorPanel.vue` | Mini-éditeur multi-select ouvert depuis un chip du bandeau |
 | `charts/DonutChartCard.vue` | Donut Chart.js générique, réutilisé par les 2 composants donuts ci-dessus |
@@ -553,7 +580,16 @@ contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analys
 
 ---
 
-## Bugs actifs confirmés (2026-07-15, non corrigés)
+## Bugs actifs confirmés (2026-07-15 ; statuts mis à jour 2026-07-18)
+
+> **Mise à jour 2026-07-18** : #9 → décision de formule portée à `QUESTIONS_A_BERTRAND.md` #17
+> (pas de code tant que non tranché). **Mise à jour 2026-07-24** : #9 tranché par Bertrand (total
+> CA ÷ nb events enregistrés, sans filtre `CA > 0`) — code des 3 implémentations pas encore
+> unifié. #10 corrigé : getter store mort `futureEventsCount`
+> supprimé, seule reste la version locale d'`AnalyseView.vue` (condition `>=`, l'event du jour
+> compte comme futur). S'ajoute le bug majeur découvert ce jour — item-level vide alors que le
+> shop-level affiche du CA — corrigé côté backend (fiche back 103) et durci côté front (fiche 187),
+> voir la section `GET /spaces/:id/event-timeline` ci-dessus.
 
 | # | Bug | Fichiers | Repro |
 |---|---|---|---|
@@ -565,7 +601,7 @@ contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analys
 | 6 | Aucun retry BullMQ sur la queue d'agrégation (`attempts:1`), malgré un défaut global `attempts:3`+backoff explicitement écrasé | `queue.service.ts:274` vs `queue.module.ts:29-37` | Provoquer un timeout DB transitoire pendant un `synchronize` : le job échoue définitivement, aucune notification de relance automatique |
 | 7 | `getEventsTimelineStatus` : un event marqué « skipped » après un traitement réussi conserve ses données déjà agrégées mais affiche un statut trompeur (le comptage `dataPoints` et le statut ne sont pas garantis cohérents) | `aggregation.service.ts:51-70` | Traiter un event avec succès, puis appeler `skip-event` dessus, puis relire `events-timeline` |
 | 8 | Jointure `Event` DataFriday ↔ `WeezeventEvent` par égalité de DATE seule dans la RPC `get_space_shop_details` | `20260704200000_...sql:175-178,224-227` | Deux events Weezevent le même jour calendaire sur le même espace |
-| 9 | Triple formule « CA moyen par event », deux définitions différentes d'« event valide » affichées côte à côte (valeur vs variation) | `useMetricsCalculator.js:39-80`, `analyse.js:71-107`, `AnalyseView.vue:695-727` | Sélectionner une période avec un event à CA nul parmi d'autres à CA positif |
+| 9 | Triple formule « CA moyen par event », deux définitions différentes d'« event valide » affichées côte à côte (valeur vs variation) — **tranché 2026-07-24** : total CA ÷ nb events, sans filtre (Question #17), code à unifier | `useMetricsCalculator.js:39-80`, `analyse.js:71-107`, `AnalyseView.vue:695-727` | Sélectionner une période avec un event à CA nul parmi d'autres à CA positif |
 | 10 | `futureEventsCount` : deux implémentations (store mort, composant vivant) avec des conditions `>` vs `>=` légèrement différentes | `analyse.js:1512-1519` vs `AnalyseView.vue:1126-1133` | Un event ayant lieu le jour même de la consultation |
 
 ---

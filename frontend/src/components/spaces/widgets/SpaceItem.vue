@@ -8,6 +8,20 @@
       <!-- Type badge -->
       <div v-if="space?.spaceType" class="si-type-badge">{{ space.spaceType }}</div>
 
+      <!-- Bouton Live (◉) : affiché EN CONTINU (hors .si-actions hover-only) si
+           l'espace a un event en cours. Gated backend : champ `space.liveEvent`
+           (cf. docs/modules/11_LIVE.md §7/§8bis-A) → masqué tant que le backend
+           ne l'expose pas. Mène à la route Live dédiée. -->
+      <button
+        v-if="isLive"
+        class="si-live-btn"
+        :title="liveTitle"
+        aria-label="Live"
+        @click.stop="goLive"
+      >
+        <span class="si-live-dot"></span>
+      </button>
+
       <!-- Actions (top-right, visible on hover) — RBAC : édition d'espace
            (builder / modifier / supprimer) gardée par `space.edit`. Sans cette
            permission, l'utilisateur voit la carte (nav.spaces) mais pas les actions. -->
@@ -78,6 +92,7 @@ import {
   MapPin,
 } from "lucide-vue-next";
 import { clearDemoMode } from "@/utils/demoMode";
+import { getSpaceLiveStatus } from "@/api/endpoints/space.api";
 export default {
   name: 'SpaceItem',
   components: {
@@ -90,6 +105,13 @@ export default {
     deleteSpace:   { type: Function, default: null },
     fallbackImage: { type: String,   default: 'https://cdn.vuetifyjs.com/images/cards/docks.jpg' },
   },
+  data() {
+    return {
+      // Signal live (module Live, greffe A) — renseigné au montage via /live-status.
+      isLive: false,
+      liveSince: null,
+    };
+  },
   computed: {
     spaceImage() {
       return this.space?.image || this.fallbackImage
@@ -97,6 +119,16 @@ export default {
     // RBAC : autorise builder/édition/suppression d'espace (ADMIN bypass dans le getter).
     canEditSpace() {
       return this.$store.getters['auth/can']('space.edit')
+    },
+    // RBAC : permission de la route Live — sert aussi à ne PAS appeler /live-status
+    // (403) pour les rôles sans accès Live.
+    canLive() {
+      return this.$store.getters['auth/can']('front.fb.live')
+    },
+    liveTitle() {
+      if (!this.liveSince) return 'Live'
+      const mins = Math.max(0, Math.round((Date.now() - new Date(this.liveSince).getTime()) / 60000))
+      return mins > 0 ? `Live · depuis ${mins} min` : 'Live · à l\'instant'
     },
   },
   methods: {
@@ -116,6 +148,28 @@ export default {
         this.$router.push({ name: 'SpaceBuilder2', params: { spaceId } });
       }
     },
+    // Module Live (docs/modules/11_LIVE.md, greffe A) : route dédiée /spaces/:id/live.
+    goLive() {
+      const spaceId = this.space?.id || this.space?._id;
+      if (spaceId) {
+        clearDemoMode();
+        this.$router.push(`/spaces/${spaceId}/live`);
+      }
+    },
+    // Signal live par carte (LIVE_API_GUIDE.md §1.2 : endpoint dédié, pas de champ
+    // sur la liste /spaces). Appelé au montage, uniquement si l'utilisateur a la
+    // permission Live (sinon 403 inutile en masse sur la Home).
+    async checkLiveStatus() {
+      const spaceId = this.space?.id || this.space?._id;
+      if (!spaceId || !this.canLive) return;
+      try {
+        const res = await getSpaceLiveStatus(spaceId);
+        this.isLive = !!res?.isLive;
+        this.liveSince = res?.since || null;
+      } catch (_) {
+        this.isLive = false;
+      }
+    },
     editSpaceItem() {
       if (this.editSpace) this.editSpace(this.space);
     },
@@ -129,6 +183,9 @@ export default {
       const n = Number(value)
       return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '—'
     },
+  },
+  mounted() {
+    this.checkLiveStatus();
   },
 }
 </script>
@@ -180,12 +237,47 @@ export default {
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, .35);
   color: #fff;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: .06em;
   text-transform: uppercase;
   padding: 3px 10px;
   border-radius: 100px;
+}
+
+/* Bouton Live (◉) — module Live. Visible en continu (contrairement à .si-actions
+   hover-only). Point rouge « record » pulsant, coin haut-droit. */
+.si-live-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, .45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease;
+}
+.si-live-btn:hover { transform: scale(1.08); background: rgba(0, 0, 0, .6); }
+.si-live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff3131;
+  box-shadow: 0 0 0 0 rgba(255, 49, 49, .55);
+  animation: si-live-pulse 1.6s infinite;
+}
+@keyframes si-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 49, 49, .55); }
+  70%  { box-shadow: 0 0 0 9px rgba(255, 49, 49, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 49, 49, 0); }
 }
 
 /* ── Action buttons ── */
@@ -228,7 +320,7 @@ export default {
   background: linear-gradient(to top, rgba(0, 0, 0, .72) 0%, transparent 100%);
 }
 .si-name {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: #fff;
   line-height: 1.25;
@@ -247,7 +339,7 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: rgba(255, 255, 255, .8);
 }
 
@@ -273,14 +365,14 @@ export default {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
   color: #9ca3af;
 }
 .si-stat__value {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 700;
   line-height: 1.2;
 }

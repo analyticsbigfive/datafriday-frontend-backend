@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="cpd-slide">
       <div v-if="modelValue" class="cpd-overlay" @mousedown.self="close">
-        <div class="cpd-panel">
+        <div class="cpd-panel" :class="{ 'cpd-panel--dark': isDark }">
 
           <!-- ── Gradient Header ── -->
           <div class="cpd-header">
@@ -33,7 +33,7 @@
                 class="cpd-pill"
                 :class="{ 'cpd-pill--active': !category }"
                 @click="category = null"
-              >Tous</button>
+              >{{ t('menuItemCreate.compPillAll') }}</button>
               <button
                 v-for="opt in categoryOptions"
                 :key="opt"
@@ -57,7 +57,7 @@
 
             <div v-else-if="!filteredItems.length" class="cpd-empty">
               <div class="cpd-empty__icon"><Boxes :size="24" /></div>
-              <p class="cpd-empty__text">Aucun composant trouvé</p>
+              <p class="cpd-empty__text">{{ t('menuItemCreate.compNoData') }}</p>
             </div>
 
             <div v-else class="cpd-list">
@@ -128,17 +128,19 @@
 <script>
 import { Boxes, Check, Plus, Search, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
+import { formatCurrency } from '@/composables/useFormatters';
 
 export default {
   name: 'ComponentPickerDrawer',
   components: { Boxes, Check, Plus, Search, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'add'],
   setup() {
     const { t } = useI18n();
-    return { t };
+    return { t, formatCurrency };
   },
   data() {
     return {
@@ -236,11 +238,6 @@ export default {
         unitCost: Number(raw?.unitCost ?? raw?.unit_cost ?? 0) || 0,
         storageType: String(raw?.storageType ?? raw?.storage_type ?? '').trim(),
       };
-    },
-    formatCurrency(v) {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return '—';
-      return `€${n.toFixed(2)}`;
     },
   },
 };
@@ -528,4 +525,22 @@ export default {
 .cpd-slide-leave-to { opacity: 0; }
 .cpd-slide-enter-from .cpd-panel,
 .cpd-slide-leave-to .cpd-panel { transform: translateX(100%); }
+
+/* ── Dark mode ── */
+.cpd-panel--dark { background: #111827; }
+.cpd-panel--dark .cpd-toolbar { background: #1f2937; border-bottom-color: rgba(255,255,255,0.08); }
+.cpd-panel--dark .cpd-search { background: #1e293b; border-color: rgba(255,255,255,0.1); }
+.cpd-panel--dark .cpd-search__input { color: #e2e8f0; }
+.cpd-panel--dark .cpd-body { background: #111827; }
+.cpd-panel--dark .cpd-row { background: #1f2937; border-color: rgba(255,255,255,0.08); }
+.cpd-panel--dark .cpd-row--selected { background: #3b1f1f; }
+.cpd-panel--dark .cpd-row__name { color: #e2e8f0; }
+.cpd-panel--dark .cpd-row__price-val { color: #e2e8f0; }
+.cpd-panel--dark .cpd-checkbox { border-color: #475569; background: #1e293b; }
+.cpd-panel--dark .cpd-footer { background: #1f2937; border-top-color: rgba(255,255,255,0.08); }
+/* Pills de filtre + tags de catégorie */
+.cpd-panel--dark .cpd-pill { background: #1a2332; border-color: rgba(255,255,255,.12); color: #94a3b8; }
+.cpd-panel--dark .cpd-pill:hover { border-color: #ff3131; color: #fca5a5; }
+.cpd-panel--dark .cpd-tag { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.cpd-panel--dark .cpd-tag--type { background: rgba(59,130,246,.18); color: #93c5fd; }
 </style>

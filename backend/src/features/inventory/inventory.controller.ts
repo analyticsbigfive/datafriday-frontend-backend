@@ -16,6 +16,8 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { InventoryService } from './inventory.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
+import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
+import { CreatePreEventReconciliationDto } from './dto/create-pre-event-reconciliation.dto';
 
 @ApiTags('Inventory')
 @ApiBearerAuth('supabase-jwt')
@@ -40,6 +42,88 @@ export class InventoryController {
   async getLatestBySpace(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
     this.logger.log(`GET /inventory/${spaceId}/latest`);
     return this.inventoryService.getLatestBySpace(spaceId, user.tenantId);
+  }
+
+  // ⚠️ Comme ':spaceId/latest' : toute route statique à 2 segments DOIT être
+  // déclarée avant ':spaceId/:eventId', sinon Fastify router 'reconciliations'
+  // comme un eventId.
+  @Get(':spaceId/reconciliations')
+  @ApiOperation({
+    summary: 'Documents de réconciliation pre + post-événement du space (lines et kind inclus)',
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiResponse({ status: 200, description: 'Liste commune triée du plus récent au plus ancien' })
+  async listInventoryReconciliations(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
+    this.logger.log(`GET /inventory/${spaceId}/reconciliations`);
+    return this.inventoryService.listInventoryReconciliations(spaceId, user.tenantId);
+  }
+
+  // Quantités ATTENDUES du Pre-event Inventory — gating par PERMISSION DÉDIÉE
+  // (décorateur méthode : getAllAndOverride → remplace le spaceInventory de la
+  // classe, même pattern que logisticReconcile côté logistics).
+  @Get(':spaceId/pre-event-baseline/:eventId')
+  @RequirePermissions('front.fb.preInventoryExpected')
+  @ApiOperation({
+    summary:
+      'Quantités attendues du Pre-event Inventory (post-event précédent + mouvements Logistic) — permission dédiée',
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'eventId', description: "ID de l'événement FUTUR compté" })
+  @ApiResponse({ status: 200, description: 'baseline null si aucun post-event précédent' })
+  async getPreEventBaseline(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`GET /inventory/${spaceId}/pre-event-baseline/${eventId}`);
+    return this.inventoryService.getPreEventBaseline(spaceId, eventId, user.tenantId);
+  }
+
+  @Post(':spaceId/pre-event-reconciliations')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Créer la réconciliation PRE-event (attendu vs compté) — lignes construites côté serveur',
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiResponse({ status: 200, description: 'Document créé (kind=pre-event)' })
+  async createPreEventReconciliation(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: CreatePreEventReconciliationDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${dto.eventId}`);
+    return this.inventoryService.createPreEventReconciliation(spaceId, dto.eventId, user.tenantId, user.id);
+  }
+
+  @Get(':spaceId/pre-event/:eventId')
+  @ApiOperation({
+    summary: "Inventaire de référence pré-événement (dernier snapshot antérieur au jour de l'event)",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'eventId', description: "ID de l'événement" })
+  @ApiResponse({ status: 200, description: 'Snapshot ou null (jamais 404 pour « pas de pré-inventaire »)' })
+  async getPreEventInventory(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`GET /inventory/${spaceId}/pre-event/${eventId}`);
+    return this.inventoryService.getPreEventInventory(spaceId, eventId, user.tenantId);
+  }
+
+  @Post(':spaceId/reconciliations')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Créer un document de réconciliation post-événement (kind=post-event)' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiResponse({ status: 200, description: 'Document créé' })
+  async createPostEventReconciliation(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: CreatePostEventReconciliationDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /inventory/${spaceId}/reconciliations eventId=${dto.eventId}`);
+    return this.inventoryService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id);
   }
 
   @Get(':spaceId/:eventId')

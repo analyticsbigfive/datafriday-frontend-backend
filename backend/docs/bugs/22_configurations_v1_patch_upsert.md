@@ -1,6 +1,6 @@
 # BUG-022 — PATCH /configurations/:id (v1) se comporte comme un upsert
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-22 — route supprimée, voir Correction)
 - **Sévérité** : 🟡 Mineur
 - **Domaine** : Espaces & builder
 - **Repo(s) concerné(s)** : `api-datafriday-staging`
@@ -20,13 +20,18 @@ volontaire ou non avec le builder v2 (`PATCH /builder-v2/configurations/:id`), q
 
 ## Correction
 
-Aucune à ce jour — décider si c'est le comportement voulu pour v1 (legacy, pas de changement) ou si
-ça doit être aligné sur v2.
+2026-07-22 : la route `PATCH /configurations/:id` (`ConfigurationsController.updateConfiguration`)
+a été supprimée — son seul appelant frontend connu était `SpaceBuilderViewRoute.vue` (builder v1,
+retiré le même jour, voir
+`datafriday-web/docs/adr/0002_builder_v2_relationnel_seul.md`). `saveConfiguration()` (le service
+sous-jacent) reste intact : `POST /configurations` en dépend toujours (upsert par id, comportement
+inchangé et volontaire pour ce chemin — `CreateConfigDto.id` reste un champ optionnel documenté).
 
 ## Risque de régression / à surveiller
 
-Aligner sur du 404 strict changerait le comportement pour tout client existant qui dépendrait
-(volontairement ou non) de l'upsert.
+Si un consommateur externe (hors `datafriday-web`) appelait `PATCH /configurations/:id`, il
+recevrait désormais un 404 générique NestJS au lieu de l'upsert — aucun caller de ce type identifié
+lors de cette passe (recherche exhaustive frontend + tests + docs).
 
 ## Références
 

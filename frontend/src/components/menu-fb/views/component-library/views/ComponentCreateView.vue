@@ -1,5 +1,5 @@
 <template>
-  <v-app id="component-create-page">
+  <v-app id="component-create-page" :class="{ 'cc--dark': isDark }">
     <v-container fluid class="pa-0" style="height: 100%; overflow: hidden; display: flex; flex-direction: column;">
       <!-- ── Gradient Header ── -->
       <div class="cc-header">
@@ -157,6 +157,10 @@
               <v-form v-model="formValid" class="cc-form-body">
 
                 <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">{{ error }}</v-alert>
+                <v-alert v-if="loadingError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">{{ loadingError }}</v-alert>
+                <div v-if="loadingComponent" class="d-flex justify-center align-center py-8">
+                  <v-progress-circular indeterminate color="#ff3131" size="32" />
+                </div>
 
                 <!-- Section: Général -->
                 <div class="ccf-section-label">Général</div>
@@ -237,6 +241,7 @@
                     variant="outlined"
                     density="compact"
                     hide-details="auto"
+                    :rules="[rules.positive]"
                     class="ccf-field"
                   />
                 </div>
@@ -245,7 +250,8 @@
                 <div class="cc-info-card mb-3">
                   <div class="cc-info-card__title">{{ t('inventoryInfo') }}</div>
                   <div class="cc-info-card__row">
-                    <span class="cc-info-label">{{ t('componentIsStoredIn') }}</span>
+                    <span class="cc-info-card__chip">{{ form.name || '…' }}</span>
+                    <span class="cc-info-label">{{ t('isStoredIn') }}</span>
                     <select v-model="form.inventoryPackaging" class="cc-inline-select cc-info-card__select" @change="onPackagingSelectChange($event)">
                       <option value="">—</option>
                       <option value="__add_packaging__" style="color:#ff3131; font-weight:600;">+ {{ locale === 'fr' ? 'Ajouter un packaging type' : 'Add packaging type' }}</option>
@@ -350,16 +356,16 @@
 
               <!-- Sticky footer -->
               <div class="cc-form-footer">
+                <button class="cc-pill-btn cc-pill-btn--outline" type="button" @click="onCancel">
+                  {{ t('compCreateCancel') }}
+                </button>
                 <button
-                  class="cc-pill-btn cc-pill-btn--primary cc-pill-btn--block mb-2"
+                  class="cc-pill-btn cc-pill-btn--primary"
                   type="button"
                   :disabled="saving || !formValid"
                   @click="onSave"
                 >
                   <Save :size="15" /> {{ saving ? 'Sauvegarde…' : (isEditMode ? t('compCreateSaveEdit') : t('compCreateSaveCreate')) }}
-                </button>
-                <button class="cc-pill-btn cc-pill-btn--outline cc-pill-btn--block" type="button" @click="onCancel">
-                  {{ t('compCreateCancel') }}
                 </button>
               </div>
 
@@ -370,14 +376,14 @@
       </v-container>
     </v-container>
 
-    <IngredientPickerDrawer v-model="ingredientDrawer" @add="onIngredientsAdded" />
-    <ComponentPickerDrawer v-model="componentDrawer" @add="onComponentsAdded" />
-    <NewCategoryDialog v-model="newCategoryDialog" :type-id="selectedComponentTypeId" :type-name="form.type" @created="onCategoryCreated" />
-    <NewTypeDialog v-model="newTypeDialog" @created="onTypeCreated" />
+    <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
+    <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
+    <NewCategoryDialog v-model="newCategoryDialog" :is-dark="isDark" :type-id="selectedComponentTypeId" :type-name="form.type" @created="onCategoryCreated" />
+    <NewTypeDialog v-model="newTypeDialog" :is-dark="isDark" @created="onTypeCreated" />
 
     <!-- Création d'un packaging type (depuis le select « stored in ») -->
     <v-dialog v-model="packagingCreateOpen" max-width="420" :persistent="packagingCreateLoading">
-      <div class="cc-pk-dialog">
+      <div class="cc-pk-dialog" :class="{ 'cc-pk-dialog--dark': isDark }">
         <div class="cc-pk-dialog__header">
           <Package :size="18" color="#fff" />
           <span style="flex:1">{{ locale === 'fr' ? 'Ajouter un packaging type' : 'Add packaging type' }}</span>
@@ -400,8 +406,10 @@
 </template>
 
 <script>
+import { computed } from "vue";
+import { useTheme } from "vuetify";
 import { Boxes, ChevronDown, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
-import { t as translate } from '@/i18n';
+import { useI18n } from '@/i18n/useI18n';
 import { createMenuComponent, getMenuComponent, updateMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import { createPackingType } from "@/api/endpoints/packing-type.api";
@@ -425,9 +433,14 @@ export default {
     NewCategoryDialog,
     NewTypeDialog,
   },
+  setup() {
+    const { t, locale } = useI18n();
+    const theme = useTheme();
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { t, locale, isDark };
+  },
   data() {
     return {
-      locale: localStorage.getItem('appLocale') || 'en',
       componentId: null,
       isEditMode: false,
       loadingComponent: false,
@@ -442,6 +455,10 @@ export default {
 
       componentDrawer: false,
       _prefillingForm: false,
+      // Lien FK taxonomie (componentTypeId/componentCategoryId) tel que chargé depuis le
+      // backend en mode édition — préservé tant que form.type/form.category ne changent pas
+      // (voir selectedComponentTypeId/selectedComponentCategoryId).
+      _loadedTaxonomy: { typeId: "", categoryId: "", typeName: "", categoryName: "" },
       form: {
         name: "",
         category: "",
@@ -455,6 +472,8 @@ export default {
         allergens: [],
         ingredients: [],
         children: [],
+        inventoryPackaging: "",
+        packedUnits: 0,
       },
 
       unitOptions: ["Kg", "L", "Pc"],
@@ -503,12 +522,24 @@ export default {
         .map(c => String(c?.name ?? '').trim()).filter(Boolean)
       return [this.t('compCreateNewCategoryOption'), ...existing]
     },
+    // Options du select « stored in » : les Packaging Types (store packingTypes).
+    packagingCategoryOptions() {
+      return (this.$store.getters['packingTypes/packingTypes'] || [])
+        .map(p => String(p?.name ?? '').trim())
+        .filter(Boolean)
+    },
     selectedComponentTypeId() {
       const type = String(this.form.type ?? '').trim()
+      if (this._loadedTaxonomy.typeId && type === String(this._loadedTaxonomy.typeName ?? '').trim()) {
+        return this._loadedTaxonomy.typeId
+      }
       return this.componentTypesList.find(t => String(t?.name ?? '').trim() === type)?.id || ''
     },
     selectedComponentCategoryId() {
       const category = String(this.form.category ?? '').trim()
+      if (this._loadedTaxonomy.categoryId && category === String(this._loadedTaxonomy.categoryName ?? '').trim()) {
+        return this._loadedTaxonomy.categoryId
+      }
       const typeId = this.selectedComponentTypeId
       return this.componentCategoriesList.find(c =>
         String(c?.name ?? '').trim() === category && (!typeId || c?.typeId === typeId)
@@ -553,8 +584,6 @@ export default {
         addedAt: c?.addedAt || new Date().toISOString(),
       }));
 
-      console.log("Ingredient :", ingRows);
-      console.log("Children :", childRows);
       return [...ingRows, ...childRows];
     },
     totalItems() {
@@ -599,7 +628,6 @@ export default {
     },
   },
   methods: {
-    t: translate,
     getStorageTypeForCategory(category) {
       const c = String(category || "").trim();
       if (!c) return "Dry";
@@ -631,10 +659,16 @@ export default {
     },
 
     onIngredientsAdded(items) {
-      this.form.ingredients = [...(this.form.ingredients || []), ...items];
+      // Si un ingrédient déjà présent est resélectionné, on remplace sa ligne au lieu de la
+      // dupliquer (un doublon aurait causé une suppression groupée involontaire, cf. BUG-058).
+      const incomingIds = new Set(items.map((i) => i?.marketPriceId || i?.ingredientId));
+      const existing = (this.form.ingredients || []).filter((i) => !incomingIds.has(i?.marketPriceId || i?.ingredientId));
+      this.form.ingredients = [...existing, ...items];
     },
     onComponentsAdded(items) {
-      this.form.children = [...(this.form.children || []), ...items];
+      const incomingIds = new Set(items.map((c) => c?.childId || c?.componentId));
+      const existing = (this.form.children || []).filter((c) => !incomingIds.has(c?.childId || c?.componentId));
+      this.form.children = [...existing, ...items];
     },
     onCategoryCreated(name) {
       this.form.category = name;
@@ -749,10 +783,6 @@ export default {
       this.$router.push({ path: "/components" });
     },
 
-    t(key) {
-      return translate(key, this.locale);
-    },
-
     async loadComponentData() {
       if (!this.componentId) return;
 
@@ -762,8 +792,6 @@ export default {
       try {
         const response = await getMenuComponent(this.componentId);
         const component = response?.data || response;
-
-        console.log('Component loaded for edit:', component);
 
         // Pré-remplir le formulaire avec les données existantes
         // (_prefillingForm évite que le watcher 'form.type' n'efface la
@@ -780,6 +808,17 @@ export default {
         this.form.kitchenType = component.kitchenType || null;
         this.form.description = component.description || "";
         this.form.allergens = Array.isArray(component.allergens) ? component.allergens : [];
+        // BUG-053 : ces deux champs n'étaient jamais restaurés ici, donc une sauvegarde après
+        // édition les écrasait silencieusement (inventoryPackaging → undefined, packedUnits → 0).
+        this.form.inventoryPackaging = component.inventoryPackaging || "";
+        this.form.packedUnits = component.packedUnits || 0;
+
+        this._loadedTaxonomy = {
+          typeId: component.componentTypeId || "",
+          categoryId: component.componentCategoryId || "",
+          typeName: this.form.type,
+          categoryName: this.form.category,
+        };
 
         // Charger les ingredients avec récupération des détails via API
         if (Array.isArray(component.ingredients) && component.ingredients.length > 0) {
@@ -791,8 +830,6 @@ export default {
               try {
                 const ingredientDetails = await getIngredient(ingredientId);
                 const marketPrice = ingredientDetails?.marketPrice || {};
-
-                console.log("Ingredient détail:", ingredientDetails);
 
                 return {
                   ingredientId: ingredientId,
@@ -907,16 +944,16 @@ export default {
           storageType: String(this.form.storageType || "").trim(),
           readyForSale: String(this.form.readyForSale || "No").trim(),
           kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
-          subComponents: {},
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
           numberOfUnitsRecipe: Number(this.form.numberOfUnitsRecipe) || 0,
           componentTypeId: this.selectedComponentTypeId || undefined,
           componentCategoryId: this.selectedComponentCategoryId || undefined,
+          inventoryPackaging: this.form.inventoryPackaging || undefined,
+          packedUnits: Number(this.form.packedUnits) || 0,
         };
 
-        console.log("Updating component with payload:", payload);
         await updateMenuComponent(this.componentId, payload);
         this.$store.dispatch('menuComponents/invalidate');
         this.$router.push({ path: "/components" });
@@ -964,16 +1001,16 @@ export default {
           storageType: String(this.form.storageType || "").trim(),
           readyForSale: String(this.form.readyForSale || "No").trim(),
           kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
-          subComponents: {},
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
           numberOfUnitsRecipe: Number(this.form.numberOfUnitsRecipe) || 0,
           componentTypeId: this.selectedComponentTypeId || undefined,
           componentCategoryId: this.selectedComponentCategoryId || undefined,
+          inventoryPackaging: this.form.inventoryPackaging || undefined,
+          packedUnits: Number(this.form.packedUnits) || 0,
         };
 
-        console.log("Creating component with payload:", payload);
         await createMenuComponent(payload);
         this.$store.dispatch('menuComponents/invalidate');
         this.$router.push({ path: "/components" });
@@ -994,14 +1031,12 @@ export default {
 
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
+    this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
 
     // Charger les données du composant si en mode édition
     if (this.isEditMode) {
       this.loadComponentData();
     }
-
-    this._localeHandler = (e) => { this.locale = e.detail?.locale || localStorage.getItem('appLocale') || 'en'; };
-    window.addEventListener('locale-changed', this._localeHandler);
 
     // Bloquer le scroll de la page (v-main)
     const mainWrap = document.querySelector('.v-main');
@@ -1010,7 +1045,6 @@ export default {
   },
 
   beforeUnmount() {
-    window.removeEventListener('locale-changed', this._localeHandler);
     // Restaurer le scroll
     if (this._mainWrap) { this._mainWrap.style.overflow = ''; }
     document.documentElement.style.overflow = '';
@@ -1053,15 +1087,15 @@ export default {
 .cc-header__text { flex: 1; }
 
 .cc-header__title {
-  font-size: 18px;
-  font-weight: 800;
+  font-size: 1.25rem;
+  font-weight: 700;
   color: #fff;
   margin: 0;
   line-height: 1.2;
 }
 
 .cc-header__sub {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.72);
   margin: 3px 0 0;
 }
@@ -1081,7 +1115,7 @@ export default {
   border: 1.5px solid rgba(255, 255, 255, 0.6);
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 12.5px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -1093,7 +1127,9 @@ export default {
 }
 
 /* ── Layout ── */
-.cc-content { padding: 20px 24px; }
+/* Mêmes 28px horizontaux que .cc-header au-dessus (référence MarketPriceListView.vue) — un
+   padding différent créait un décalage gauche/droite visible entre le bandeau et le contenu. */
+.cc-content { padding: 20px 28px; }
 .cc-row { align-items: flex-start; }
 .cc-left-col { height: calc(100vh - 90px); display: flex; flex-direction: column; }
 
@@ -1118,8 +1154,8 @@ export default {
   flex-shrink: 0;
   flex-wrap: wrap;
 }
-.cc-card-title { font-size: 15px; font-weight: 700; color: #111827; }
-.cc-card-sub   { font-size: 12.5px; color: #6b7280; margin-top: 2px; }
+.cc-card-title { font-size: 1rem; font-weight: 700; color: #111827; }
+.cc-card-sub   { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
 
 /* Add buttons */
 .cc-add-btns { display: flex; gap: 7px; flex-shrink: 0; }
@@ -1129,7 +1165,7 @@ export default {
   gap: 5px;
   padding: 7px 14px;
   border-radius: 50px;
-  font-size: 12.5px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all .15s;
@@ -1158,8 +1194,8 @@ export default {
   border-right: 1px solid #f3f4f6;
 }
 .cc-stat:last-child { border-right: none; }
-.cc-stat__label { font-size: 10.5px; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-.cc-stat__value { font-size: 19px; font-weight: 800; color: #111827; margin-top: 4px; }
+.cc-stat__label { font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.cc-stat__value { font-size: 1.25rem; font-weight: 700; color: #111827; margin-top: 4px; }
 .cc-stat__value--blue  { color: #2563eb; }
 .cc-stat__value--green { color: #059669; }
 
@@ -1184,14 +1220,14 @@ export default {
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 6px;
 }
-.cc-empty__title { font-size: 15px; font-weight: 700; color: #374151; }
-.cc-empty__sub   { font-size: 13px; color: #9ca3af; max-width: 360px; }
+.cc-empty__title { font-size: 1rem; font-weight: 700; color: #374151; }
+.cc-empty__sub   { font-size: 0.8125rem; color: #9ca3af; max-width: 360px; }
 
 /* Table */
 .cc-table :deep(.v-data-table__th) {
   background: #f9fafb !important;
   color: #6b7280 !important;
-  font-size: 0.7rem !important;
+  font-size: 0.75rem !important;
   font-weight: 700 !important;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -1210,15 +1246,15 @@ export default {
 /* Row name */
 .cc-row-name { display: flex; align-items: flex-start; gap: 9px; }
 .cc-row-name__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
-.cc-row-name__text { font-weight: 600; font-size: 13px; color: #111827; }
-.cc-row-name__sub  { font-size: 11.5px; color: #9ca3af; margin-top: 1px; }
+.cc-row-name__text { font-weight: 600; font-size: 0.8125rem; color: #111827; }
+.cc-row-name__sub  { font-size: 0.75rem; color: #9ca3af; margin-top: 1px; }
 
 /* Badges */
 .ccv-badge {
   display: inline-block;
   padding: 2px 9px;
   border-radius: 50px;
-  font-size: .71rem;
+  font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1229,8 +1265,8 @@ export default {
 .ccv-badge--unit       { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
 
 /* Cost & muted */
-.cc-cost  { font-weight: 700; font-size: 13px; color: #059669; }
-.cc-muted { font-size: 12px; color: #9ca3af; }
+.cc-cost  { font-weight: 700; font-size: 0.8125rem; color: #059669; }
+.cc-muted { font-size: 0.75rem; color: #9ca3af; }
 
 /* Qty input */
 .cc-qty-input {
@@ -1239,7 +1275,7 @@ export default {
   border-radius: 8px;
   border: 1.5px solid #e5e7eb;
   background: #fafafa;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #111827;
   text-align: center;
   outline: none;
@@ -1282,8 +1318,8 @@ export default {
   padding: 18px 22px 16px;
   border-bottom: 1px solid #f3f4f6;
 }
-.cc-form-title { font-size: 15px; font-weight: 700; color: #111827; }
-.cc-form-sub   { font-size: 12.5px; color: #6b7280; margin-top: 2px; }
+.cc-form-title { font-size: 1rem; font-weight: 700; color: #111827; }
+.cc-form-sub   { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
 
 /* Scrollable body */
 .cc-form-body {
@@ -1296,15 +1332,19 @@ export default {
 /* Sticky footer */
 .cc-form-footer {
   flex-shrink: 0;
+  display: flex;
+  gap: 10px;
   padding: 14px 22px;
   border-top: 1px solid #f3f4f6;
   background: #fff;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, .05);
 }
+.cc-form-footer .cc-pill-btn--outline { flex: 0 0 auto; }
+.cc-form-footer .cc-pill-btn--primary { flex: 1 1 auto; }
 
 /* ── Section labels (supplier style) ── */
 .ccf-section-label {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .9px;
@@ -1312,45 +1352,11 @@ export default {
   margin-bottom: 12px;
 }
 
-/* ── Bootstrap form-floating inputs (supplier style) ── */
-.ccf-input.form-control {
-  border-radius: 11px;
-  border: 1.5px solid #e5e7eb;
-  font-size: 13.5px;
-  color: #111827;
-  padding: .65rem .8rem;
-  height: auto;
-  min-height: auto;
-  line-height: 1.4;
-  background: #fafafa;
-  transition: border-color .2s, box-shadow .2s;
-}
-.ccf-input.form-control:focus {
-  border-color: #ff3131;
-  box-shadow: 0 0 0 3px rgba(255, 49, 49,.1);
-  background: #fff;
-  outline: none;
-}
-.ccf-input--textarea.form-control { resize: vertical; }
-
-.cc-form-body .form-floating > label {
-  font-size: 13.5px;
-  color: #9ca3af;
-  padding: .65rem .8rem;
-}
-.cc-form-body .form-floating > .ccf-input:focus ~ label,
-.cc-form-body .form-floating > .ccf-input:not(:placeholder-shown) ~ label {
-  color: #ff3131;
-  font-weight: 600;
-  font-size: 10.5px;
-  opacity: 1;
-  transform: scale(1) translateY(-0.6rem) translateX(0.1rem);
-}
 .ccf-required { color: #ff3131; }
 
 /* Champ : label statique visible AU-DESSUS du champ (plus de label flottant). */
 .ccf-field-wrap { display: flex; flex-direction: column; gap: 6px; }
-.ccf-field-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.ccf-field-label { font-size: 0.75rem; font-weight: 600; color: #374151; }
 
 /* ── Vuetify select/combobox (supplier style) ── */
 .ccf-field :deep(.v-field) {
@@ -1366,18 +1372,18 @@ export default {
   background: #fff !important;
 }
 .ccf-field :deep(.v-label) {
-  font-size: 13.5px !important;
+  font-size: 0.875rem !important;
   color: #9ca3af !important;
   opacity: 1 !important;
 }
 .ccf-field :deep(.v-label.v-field-label--floating) {
-  font-size: 10.5px !important;
+  font-size: 0.75rem !important;
   font-weight: 600 !important;
   color: #ff3131 !important;
   opacity: 1 !important;
 }
 .ccf-field :deep(.v-field__input) {
-  font-size: 13.5px !important;
+  font-size: 0.875rem !important;
   color: #111827 !important;
 }
 
@@ -1390,15 +1396,15 @@ export default {
   margin-bottom: 16px;
 }
 .cc-calc-card__label {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .05em;
   color: #3b82f6;
 }
 .cc-calc-card__amount {
-  font-size: 2.1rem;
-  font-weight: 800;
+  font-size: 1.5rem;
+  font-weight: 700;
   color: #1d4ed8;
   line-height: 1.1;
   margin: 7px 0 12px;
@@ -1407,7 +1413,7 @@ export default {
 .cc-calc-card__row {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #3b82f6;
   padding: 2px 0;
 }
@@ -1421,7 +1427,7 @@ export default {
   padding: 16px 18px;
 }
 .cc-info-card__title {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   margin-bottom: 14px;
   color: #1e40af;
@@ -1435,7 +1441,7 @@ export default {
   line-height: 1.6;
 }
 .cc-info-label {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: #374151;
   white-space: nowrap;
@@ -1448,7 +1454,7 @@ export default {
   gap: 6px;
 }
 .cc-info-card__field-label {
-  font-size: 12.5px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #1e40af;
 }
@@ -1458,7 +1464,7 @@ export default {
 .cc-pk-dialog__header {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 18px; background: #ff3131; color: #fff;
-  font-size: 15px; font-weight: 700;
+  font-size: 1rem; font-weight: 700;
 }
 .cc-pk-dialog__close {
   width: 28px; height: 28px; border: none; border-radius: 8px;
@@ -1467,7 +1473,7 @@ export default {
 }
 .cc-pk-dialog__close:hover { background: rgba(255,255,255,.3); }
 .cc-pk-dialog__error {
-  padding: 10px 18px; background: #fef2f2; color: #ff3131; font-size: 13px;
+  padding: 10px 18px; background: #fef2f2; color: #ff3131; font-size: 0.8125rem;
 }
 .cc-pk-dialog__body { padding: 18px; }
 .cc-pk-dialog__footer {
@@ -1475,15 +1481,22 @@ export default {
   padding: 14px 18px; background: #f9fafb; border-top: 1px solid #f3f4f6;
 }
 .cc-pk-btn {
-  padding: 8px 18px; border-radius: 50px; font-size: 13.5px; font-weight: 600;
+  padding: 8px 18px; border-radius: 50px; font-size: 0.875rem; font-weight: 600;
   border: none; cursor: pointer; transition: all .15s;
 }
 .cc-pk-btn:disabled { opacity: .5; cursor: not-allowed; }
 .cc-pk-btn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
 .cc-pk-btn--primary { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255,49,49,.3); }
 .cc-pk-btn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255,49,49,.4); transform: translateY(-1px); }
+/* ── Dark : dialog « Add packaging type » (v-dialog téléporté → classe portée sur sa racine) ── */
+.cc-pk-dialog--dark { background: #1e293b; }
+.cc-pk-dialog--dark .cc-pk-dialog__error { background: rgba(255,49,49,.15); color: #fca5a5; }
+.cc-pk-dialog--dark .cc-info-card__field-label { color: #93c5fd; }
+.cc-pk-dialog--dark .cc-inline-input { background: #1a2332; border-color: rgba(37,99,235,.3); color: #e2e8f0; }
+.cc-pk-dialog--dark .cc-pk-dialog__footer { background: #1a2332; border-top-color: rgba(255,255,255,.06); }
+.cc-pk-dialog--dark .cc-pk-btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
 .cc-info-label--dot {
-  font-size: 18px;
+  font-size: 1rem;
   font-weight: 700;
   color: #6b7280;
   line-height: 1;
@@ -1493,7 +1506,7 @@ export default {
   border: 1.5px solid #dbeafe;
   border-radius: 8px;
   padding: 5px 8px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #1e3a5f;
   background: #fff;
   outline: none;
@@ -1514,10 +1527,26 @@ export default {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid #bfdbfe;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #1e40af;
   white-space: nowrap;
+}
+/* Chip du nom du composant (« <nom> is stored in … ») */
+.cc-info-card__chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  padding: 4px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 20px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1e40af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Pill buttons (save/cancel) ── */
@@ -1529,7 +1558,7 @@ export default {
   height: 40px;
   padding: 0 20px;
   border-radius: 50px;
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   border: none;
@@ -1540,7 +1569,6 @@ export default {
 .cc-pill-btn--primary { background: #ff3131; color: #fff; border: none; }
 .cc-pill-btn--primary:hover { box-shadow: 0 4px 14px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 .cc-pill-btn--primary:disabled { opacity: .6; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-.cc-pill-btn--block { width: 100%; }
 
 @media (max-width: 768px) {
   .cc-content { padding: 12px 16px; }
@@ -1548,4 +1576,64 @@ export default {
   .cc-right-panel { position: static; height: auto; }
   .cc-add-btns { flex-wrap: wrap; }
 }
+
+/* ── Dark mode (classe racine .cc--dark, aligné sur ComponentTypeList) ── */
+/* Cartes & structure */
+.cc--dark .cc-left-card,
+.cc--dark .cc-right-panel { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.cc--dark .cc-card-head,
+.cc--dark .cc-form-head,
+.cc--dark .cc-stats,
+.cc--dark .cc-stat { border-color: rgba(255,255,255,.06) !important; }
+.cc--dark .cc-card-title,
+.cc--dark .cc-form-title,
+.cc--dark .cc-stat__value,
+.cc--dark .cc-row-name__text { color: #e2e8f0; }
+.cc--dark .cc-card-sub,
+.cc--dark .cc-form-sub { color: #94a3b8; }
+.cc--dark .cc-add-btn--outline { background: rgba(255,255,255,.06); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
+.cc--dark .cc-add-btn--outline:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.24); }
+.cc--dark .cc-empty__icon { background: rgba(255,255,255,.03); border-color: rgba(255,255,255,.12); }
+.cc--dark .cc-empty__title { color: #e2e8f0; }
+/* Table */
+.cc--dark .cc-table :deep(.v-data-table__th) { background: #1a2332 !important; color: #94a3b8 !important; border-bottom-color: rgba(255,255,255,.08) !important; }
+.cc--dark .cc-table :deep(.v-data-table__td) { color: #e2e8f0; border-bottom-color: rgba(255,255,255,.06) !important; }
+.cc--dark .cc-table :deep(.v-data-table__tr:hover .v-data-table__td) { background: rgba(255,49,49,.08) !important; }
+/* Badges */
+.cc--dark .ccv-badge--category { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.12); }
+.cc--dark .ccv-badge--ingredient { background: rgba(21,128,61,.18); color: #86efac; border-color: rgba(21,128,61,.35); }
+.cc--dark .ccv-badge--component { background: rgba(37,99,235,.15); color: #93c5fd; border-color: rgba(37,99,235,.3); }
+.cc--dark .ccv-badge--storage { background: rgba(234,88,12,.15); color: #fdba74; border-color: rgba(234,88,12,.3); }
+.cc--dark .ccv-badge--unit { background: rgba(139,92,246,.15); color: #c4b5fd; border-color: rgba(139,92,246,.3); }
+/* Qty input & delete */
+.cc--dark .cc-qty-input { border-color: rgba(255,255,255,.14); background: #1a2332; color: #e2e8f0; }
+.cc--dark .cc-qty-input:focus { background: #1a2332; }
+.cc--dark .cc-del-btn { background: rgba(255,49,49,.15); }
+/* Formulaire droit */
+.cc--dark .cc-form-footer { background: #1e293b; border-top-color: rgba(255,255,255,.06); }
+.cc--dark .ccf-field-label { color: #94a3b8; }
+.cc--dark .ccf-field :deep(.v-field) { border-color: rgba(255,255,255,.12) !important; background: #1a2332 !important; }
+.cc--dark .ccf-field :deep(.v-field--focused) { background: #1a2332 !important; }
+.cc--dark .ccf-field :deep(.v-field__input) { color: #e2e8f0 !important; }
+/* Calc card & info card (teintes bleues sombres) */
+.cc--dark .cc-calc-card { background: linear-gradient(135deg, #0f1e33 0%, #12233b 100%); border-color: rgba(37,99,235,.3); }
+.cc--dark .cc-calc-card__amount { color: #93c5fd; }
+.cc--dark .cc-calc-card__divider { border-top-color: rgba(37,99,235,.25); }
+.cc--dark .cc-info-card { background: linear-gradient(135deg, #12233b 0%, #0f1e33 100%); border-color: rgba(37,99,235,.3); }
+.cc--dark .cc-info-card__title,
+.cc--dark .cc-info-card__field-label { color: #93c5fd; }
+.cc--dark .cc-info-label { color: #cbd5e1; }
+.cc--dark .cc-info-label--dot { color: #94a3b8; }
+.cc--dark .cc-info-card__unit-badge,
+.cc--dark .cc-info-card__chip { background: rgba(37,99,235,.2); color: #93c5fd; border-color: rgba(37,99,235,.3); }
+.cc--dark .cc-inline-input,
+.cc--dark .cc-inline-select { border-color: rgba(37,99,235,.3); color: #e2e8f0; background: #1a2332; }
+/* Dialog packaging type */
+.cc--dark .cc-pk-dialog { background: #1e293b; }
+.cc--dark .cc-pk-dialog__error { background: rgba(255,49,49,.15); }
+.cc--dark .cc-pk-dialog__footer { background: #1a2332; border-top-color: rgba(255,255,255,.06); }
+.cc--dark .cc-pk-btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
+/* Pills */
+.cc--dark .cc-pill-btn--outline { border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.cc--dark .cc-pill-btn--outline:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.24); }
 </style>

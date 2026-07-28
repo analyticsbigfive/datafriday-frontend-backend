@@ -440,6 +440,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift' },
   { value: 'restock', labelKey: 'srToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
@@ -943,13 +944,13 @@ export default {
      * réellement impactées (consumptionPreview renvoyé par le backend). L'« avant »
      * DOIT être lu du state courant AVANT le loadStock qui suit (sinon écrasé).
      */
-    async submitSimulateSale({ elementId, lines }) {
+    async submitSimulateSale({ elementId, lines, realMode }) {
       const spaceId = this.currentSpaceId
       if (!spaceId) return
       this.simulateSaving = true
       this.simulateError = null
       try {
-        const res = await this.store.dispatch('logistics/simulateSale', { spaceId, elementId, lines })
+        const res = await this.store.dispatch('logistics/simulateSale', { spaceId, elementId, lines, realMode })
         const itemKeys = [...new Set((res?.consumptionPreview || []).map((c) => c.itemKey))]
         const before = {}
         for (const key of itemKeys) before[key] = this.expectedDisplay(elementId, { name: key })
@@ -1073,6 +1074,8 @@ export default {
         this.router.push({ name: 'space-analyse', params: { spaceId } })
       } else if (tool.value === 'space-inventory') {
         this.router.push({ name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
+      } else if (tool.value === 'space-pre-inventory') {
+        this.router.push({ name: 'space-pre-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else if (tool.value === 'restock') {
         this.router.push({ name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else {
@@ -1322,6 +1325,9 @@ export default {
   border-left: 0;
   font-size: 0.85rem;
   color: var(--lg-text);
+  /* Sans ça, le `background-color` blanc de Bootstrap (chargé globalement dans
+     main.js) reprend la main → champ blanc à texte blanc en thème sombre. */
+  background: var(--lg-surface);
   box-shadow: none;
 }
 .lg-bs-field .form-control::placeholder { color: var(--fb-faint, #9ca3af); }
@@ -1352,10 +1358,10 @@ export default {
   flex-direction: column;
   justify-content: center;
   padding: 7px 10px 7px 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--lg-border);
   border-radius: 9px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  background: var(--lg-surface);
+  box-shadow: var(--fb-shadow-card, 0 1px 2px rgba(15, 23, 42, 0.04));
 }
 .lg-kpi-cell::before {
   content: "";
@@ -1381,17 +1387,17 @@ export default {
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.2px;
-  color: #0f172a;
+  color: var(--lg-text);
   font-variant-numeric: tabular-nums;
 }
 .lg-summary-anchor { margin-top: 10px; font-size: 0.76rem; color: var(--lg-muted); }
 
 /* ── Filtre restylé : carte accordéon calquée sur InventoryFilterPanel ── */
 .lg-filter-panel {
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--lg-border);
   border-radius: 18px;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  background: var(--lg-surface);
+  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
   padding: 12px 10px;
 }
 .lg-fp-head {
@@ -1401,7 +1407,7 @@ export default {
   margin-bottom: 8px;
   min-height: 28px;
 }
-.lg-fp-title { font-size: 13px; font-weight: 700; color: #212121; margin: 0; }
+.lg-fp-title { font-size: 13px; font-weight: 700; color: var(--lg-text); margin: 0; }
 .lg-fp-reset-inline {
   display: inline-flex;
   align-items: center;
@@ -1413,7 +1419,7 @@ export default {
   cursor: pointer;
 }
 .lg-fp-accordion {
-  border: 1px solid #eef2f6;
+  border: 1px solid var(--lg-border);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -1451,7 +1457,7 @@ export default {
   font-size: 10px;
   font-weight: 700;
 }
-.lg-fp-section-body { padding: 10px 12px 14px; background: #ffffff; }
+.lg-fp-section-body { padding: 10px 12px 14px; background: var(--lg-surface); }
 
 .lg-reco-row {
   display: flex;
@@ -1506,5 +1512,15 @@ export default {
   .lg-header__right { width: 100%; justify-content: flex-start; }
   .lg-row { flex-wrap: wrap; }
   .lg-row-stats { justify-content: flex-start; }
+}
+
+/* ===================== DARK MODE =====================
+   La vue est déclarée dans le contrat `--fb-*` de style.css : fonds, bordures
+   et textes basculent seuls via `--lg-*`. Ne restent que les kickers ardoise
+   (#64748b), calibrés pour du texte sur fond clair. Le bandeau rouge #ff3131 et
+   ses contrôles blancs sont identiques dans les deux thèmes (parité Analyse). */
+.v-theme--dataFridayDark .lg-kpi-label,
+.v-theme--dataFridayDark .lg-fp-section {
+  color: #94a3b8;
 }
 </style>

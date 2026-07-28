@@ -635,18 +635,25 @@ export default {
 
     /**
      * Expansion récursive d'un menu item :
-     *  - readyForSale='Yes' → 1 item en `pcs`.
-     *  - readyForSale='No' → expansion des `components` avec la formule
+     *  - comboItem='Yes' → TOUJOURS explosé en ses menu items constitutifs, quel que
+     *    soit son propre readyForSale (décision Bertrand 2026-07-24, Question #18 —
+     *    BUG-188/BUG-002) : chaque constituant suit ensuite les règles standard
+     *    (mono-ingrédient / readyForSale / recette) comme n'importe quel menu item.
+     *  - Sinon, readyForSale='Yes' → 1 item en `pcs`.
+     *  - Sinon (readyForSale='No') → expansion des `components` avec la formule
      *    (numberOfUnits * menuItemQuantity) / numberOfPiecesRecipe.
-     *  - Si un component matche un autre menu item (par `name` ou `sourceId`)
-     *    avec readyForSale='No', expansion en cascade (jusqu'à MAX_DEPTH).
+     *  - Si un component matche un autre menu item (par `name` ou `sourceId`) qui est
+     *    lui-même comboItem='Yes' OU readyForSale='No', expansion en cascade (jusqu'à
+     *    MAX_DEPTH).
      */
     expandMenuItem(menuItemId, menuItemQuantity, rootMenuItemName, depth, menuItemsById, componentLookup) {
       if (depth > MAX_DEPTH) return []
       const menuItem = menuItemsById.get(menuItemId)
       if (!menuItem) return []
 
-      if (menuItem.readyForSale === 'Yes') {
+      const isCombo = menuItem.comboItem === 'Yes'
+
+      if (menuItem.readyForSale === 'Yes' && !isCombo) {
         return [
           {
             name: menuItem.name,
@@ -667,7 +674,7 @@ export default {
       }
 
       if (
-        menuItem.readyForSale === 'No' &&
+        (menuItem.readyForSale === 'No' || isCombo) &&
         Array.isArray(menuItem.components) &&
         menuItem.components.length > 0
       ) {
@@ -696,7 +703,10 @@ export default {
             componentMenuItem = nameHit ? nameHit.item : idItem || null
           }
 
-          if (componentMenuItem && componentMenuItem.readyForSale === 'No') {
+          if (
+            componentMenuItem &&
+            (componentMenuItem.readyForSale === 'No' || componentMenuItem.comboItem === 'Yes')
+          ) {
             const expanded = this.expandMenuItem(
               componentMenuItem.id,
               calculatedQuantity,
@@ -846,18 +856,18 @@ export default {
   gap: 12px;
   align-items: center;
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--fb-border, #e2e8f0);
   border-radius: 8px;
-  background: #fff;
+  background: var(--fb-surface, #fff);
 }
 .ep-stockup-itemview-name {
   font-weight: 600;
   font-size: 0.85rem;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-stockup-itemview-qty {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--fb-text, #0f172a);
 }
 .ep-stockup-itemview-cost {
   font-weight: 600;
@@ -891,10 +901,10 @@ export default {
   flex-wrap: wrap;
   gap: 4px 8px;
   font-size: 0.72rem;
-  color: #475569;
+  color: var(--fb-muted, #475569);
 }
 .ep-stockup-itemview-shop {
-  background: #f1f5f9;
+  background: var(--fb-border, #f1f5f9);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -913,7 +923,7 @@ export default {
   text-align: left;
 }
 .ep-stockup-group-header:hover {
-  background: #f3f4f6;
+  background: var(--fb-border, #f3f4f6);
 }
 .ep-stockup-group-title,
 .ep-stockup-group-actions {
@@ -1148,5 +1158,13 @@ export default {
 }
 .ep-stockup-pkg-badge {
   background:  #ff3131 !important;
+}
+
+/* ===================== DARK MODE — compléments =====================
+   Fonds/textes héritent des `--fb-*` de l'overlay parent (dont le fond ambre du
+   costbar, déjà migré sur `--fb-warning-soft`/`--fb-warning`). Ne reste que la
+   bordure ambre pâle du costbar. */
+.dark .ep-stockup-costbar {
+  border-color: rgba(217, 119, 6, 0.35);
 }
 </style>

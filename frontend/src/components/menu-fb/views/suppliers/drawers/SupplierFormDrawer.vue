@@ -64,7 +64,7 @@
 
             <!-- SECTION: Identité -->
             <div class="sfd-section">
-              <div class="sfd-section__label">{{ locale === 'fr' ? 'Identité' : 'Identity' }}</div>
+              <div class="sfd-section__label">{{ t('sectionIdentity') }}</div>
               <div class="sfd-field-row mb-3">
                 <label class="sfd-field-label" for="sfd-name">{{ t('supplierName') }} <span class="sfd-required">*</span></label>
                 <input
@@ -87,7 +87,7 @@
 
             <!-- SECTION: Contact -->
             <div class="sfd-section">
-              <div class="sfd-section__label">Contact</div>
+              <div class="sfd-section__label">{{ t('supplierFormSectionContact') }}</div>
               <div class="row g-3">
                 <div class="col-6">
                   <div class="sfd-field-row">
@@ -106,7 +106,7 @@
 
             <!-- SECTION: Localisation -->
             <div class="sfd-section">
-              <div class="sfd-section__label">{{ locale === 'fr' ? 'Localisation' : 'Location' }}</div>
+              <div class="sfd-section__label">{{ t('supplierFormSectionLocation') }}</div>
               <div class="sfd-field-row mb-3">
                 <label class="sfd-field-label" for="sfd-address">{{ t('address') }} <span class="sfd-required">*</span></label>
                 <input id="sfd-address" v-model="form.address" type="text" class="form-control sfd-input" />
@@ -191,6 +191,8 @@
 <script>
 import { AlertCircle, Camera, Check, ImagePlus, Pencil, Save, Truck, X } from "lucide-vue-next";
 import { createSupplier, updateSupplier } from "@/api/endpoints/menu.api";
+import { useI18n } from "@/i18n/useI18n";
+import { getSupplierPhone, getSupplierPicture, getSupplierSiteIds } from "@/utils/supplierHelpers";
 
 const EMPTY_FORM = () => ({
   name: "",
@@ -217,9 +219,12 @@ export default {
     isDark: { type: Boolean, default: false },
   },
   emits: ["update:modelValue", "saved"],
+  setup() {
+    const { t, locale } = useI18n();
+    return { t, locale };
+  },
   data() {
     return {
-      locale: localStorage.getItem("appLocale") || "en",
       localOpen: false,
       loading: false,
       error: "",
@@ -227,78 +232,6 @@ export default {
       imagePreview: "",
       supplierId: null,
       form: EMPTY_FORM(),
-      translations: {
-        en: {
-          uploadPicture: "Upload supplier photo",
-          clickToBrowse: "Click to browse",
-          fileFormat: "PNG, JPG up to 5MB",
-          clickToChange: "Click to change",
-          supplierName: "Supplier Name",
-          contactName: "Contact Name",
-          email: "Email",
-          phone: "Phone",
-          address: "Address",
-          city: "City",
-          postcode: "Postcode",
-          sites: "Sites",
-          available: "available",
-          selectAll: "Select all",
-          unselectAll: "Unselect all",
-          notes: "Notes",
-          enterSupplierName: "Supplier name",
-          enterContactName: "Contact name",
-          emailPlaceholder: "email@example.com",
-          phonePlaceholder: "+33 6 12 34 56 78",
-          streetAddress: "Street address",
-          cityName: "City",
-          postalCode: "Postal code",
-          addNotes: "Add any additional notes…",
-          cancel: "Cancel",
-          saveChanges: "Save Changes",
-          create: "Create",
-          addSupplierTitle: "Add Supplier",
-          addSupplierSubtitle: "Fill in the supplier information",
-          editSupplierTitle: "Edit Supplier",
-          editSupplierSubtitle: "Update supplier information",
-          required: "Required field",
-          invalidEmail: "Invalid email",
-        },
-        fr: {
-          uploadPicture: "Photo du fournisseur",
-          clickToBrowse: "Cliquez pour parcourir",
-          fileFormat: "PNG, JPG jusqu'à 5 Mo",
-          clickToChange: "Cliquez pour modifier",
-          supplierName: "Nom du fournisseur",
-          contactName: "Nom du contact",
-          email: "Email",
-          phone: "Téléphone",
-          address: "Adresse",
-          city: "Ville",
-          postcode: "Code postal",
-          sites: "Sites",
-          available: "disponibles",
-          selectAll: "Tout sélectionner",
-          unselectAll: "Tout désélectionner",
-          notes: "Notes",
-          enterSupplierName: "Nom du fournisseur",
-          enterContactName: "Nom du contact",
-          emailPlaceholder: "email@exemple.com",
-          phonePlaceholder: "+33 6 12 34 56 78",
-          streetAddress: "Adresse",
-          cityName: "Ville",
-          postalCode: "Code postal",
-          addNotes: "Notes supplémentaires sur ce fournisseur…",
-          cancel: "Annuler",
-          saveChanges: "Enregistrer",
-          create: "Créer",
-          addSupplierTitle: "Ajouter un fournisseur",
-          addSupplierSubtitle: "Renseignez les informations du fournisseur",
-          editSupplierTitle: "Modifier le fournisseur",
-          editSupplierSubtitle: "Mettez à jour les informations",
-          required: "Champ requis",
-          invalidEmail: "Email invalide",
-        },
-      },
     };
   },
   computed: {
@@ -317,7 +250,7 @@ export default {
       return this.mode === "edit" ? this.t("editSupplierTitle") : this.t("addSupplierTitle");
     },
     drawerSubtitle() {
-      return this.mode === "edit" ? this.t("editSupplierSubtitle") : this.t("addSupplierSubtitle");
+      return this.mode === "edit" ? this.t("supplierFormEditSubtitle") : this.t("supplierFormAddSubtitle");
     },
     submitLabel() {
       return this.mode === "edit" ? this.t("saveChanges") : this.t("create");
@@ -330,31 +263,19 @@ export default {
     },
   },
   methods: {
-    t(key) { return this.translations[this.locale]?.[key] || key; },
-    handleLocaleChange(event) { this.locale = event.detail?.locale || "en"; },
     initForm() {
       this.error = "";
       this.clearPicture();
       if (this.mode === "edit" && this.initialSupplier) {
         const supplier = this.initialSupplier;
-        const extractId = (v) => {
-          if (!v) return null;
-          if (typeof v === "string" || typeof v === "number") return String(v);
-          if (typeof v === "object") return String(v.id || v._id || v.spaceId || v.siteId || v.value || "");
-          return null;
-        };
-        const rawSpaceIds = Array.isArray(supplier?.spaceIds) ? supplier.spaceIds
-          : Array.isArray(supplier?.siteIds) ? supplier.siteIds
-          : Array.isArray(supplier?.sites) ? supplier.sites
-          : Array.isArray(supplier?.spaces) ? supplier.spaces : [];
-        const spaceIds = rawSpaceIds.map(extractId).filter(Boolean);
-        const picture = supplier?.picture || supplier?.image || "";
+        const spaceIds = getSupplierSiteIds(supplier);
+        const picture = getSupplierPicture(supplier);
         this.imagePreview = picture || "";
         this.supplierId = supplier?.id || supplier?._id || null;
         this.form = {
           name: supplier?.name || "",
           email: supplier?.email || "",
-          phone: supplier?.phone || supplier?.tel || supplier?.phoneNumber || "",
+          phone: getSupplierPhone(supplier),
           address: supplier?.address || "",
           city: supplier?.city || "",
           postcode: supplier?.postcode || "",
@@ -431,9 +352,7 @@ export default {
         }
       }
       if (!this.form.spaceIds.length) {
-        this.error = this.locale === 'fr'
-          ? 'Veuillez sélectionner au moins un site *'
-          : 'Please select at least one site *';
+        this.error = this.t('supplierFormSelectAtLeastOneSite');
         return;
       }
       this.loading = true;
@@ -469,12 +388,6 @@ export default {
         this.loading = false;
       }
     },
-  },
-  mounted() {
-    window.addEventListener("locale-changed", this.handleLocaleChange);
-  },
-  beforeUnmount() {
-    window.removeEventListener("locale-changed", this.handleLocaleChange);
   },
 };
 </script>

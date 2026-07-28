@@ -1,26 +1,69 @@
 /**
  * useSpaceData — chargement des données d'un space via API réelle.
  *
- * Chargement en deux phases pour accélérer le premier rendu :
- *   Phase 1 (bloquante)  : GET /spaces/:id  +  /configurations  +  /shop-details (shops + events, sans granular)
- *   Phase 2 (background) : GET /shop-details?granular=1  +  /menu-items  +  /menu-components  +  /ingredients
+ * Chargement par étapes pour accélérer le premier rendu :
+ *   Phase 1  (bloquante)  : GET /spaces/:id + /configurations + /shop-details (shops + events, sans granular) + /events
+ *   Phase 2a (background) : /menu-items + /shop-details?granular=1 + taxonomie + produits/mappings Weezevent
+ *                           → tout ce dont les GRAPHES ont besoin
+ *   Phase 2b (background) : /ingredients + /menu-components (paginé + fan-out détail) + /packaging
+ *                           → catalogues RECETTE, consommés par Restock / Stock up uniquement
  *
- * Le callback `onEnrichment(data)` est appelé dès que la phase 2 est disponible.
- * Sans callback, les deux phases sont attendues (rétrocompatible).
+ * `onEnrichment(data)` est appelé à la fin de 2a PUIS de 2b. La 2e passe ne fait que
+ * raffiner (mêmes clés, `menuItems` réémis avec les refs catalogue résolues) : le
+ * consommateur n'a rien de spécial à gérer, mais il peut lever ses skeletons dès 2a.
+ * Sans callback, tout est attendu et retourné en une fois (rétrocompatible).
  */
 import { getSpace, getSpaceConfigurations, getSpaceShopDetails, getSpaceShopGranular } from '@/api/endpoints/space.api'
 import { getEvents } from '@/api/endpoints/event.api'
 import { getAllMenuItems } from '@/api/endpoints/menu-item.api'
 import { normalizeMenuItem, menuItemsCoverage, resolveComponentRefs } from '@/utils/menuItemNormalize'
-import { getProductTypes, getProductCategories } from '@/api/endpoints/menu.api'
+import { getProductTypes, getProductCategories, getMenuComponents } from '@/api/endpoints/menu.api'
 import { getIngredients } from '@/api/endpoints/ingredient.api'
-import { getMenuComponents } from '@/api/endpoints/component.api'
 import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
 import { getWeezeventProducts } from '@/api/endpoints/aggregation.api'
 import { getProductMappings } from '@/api/endpoints/mapping.api'
 import { enrichGranularMenuDimensions } from '@/utils/analyseDimensions'
 
 const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
+
+/**
+ * Charge tous les MenuComponents en paginant sur `meta.total` — le backend plafonne
+ * chaque appel à `limit` (cf. BUG-054/BUG-105), donc on boucle pour ne pas tronquer
+ * silencieusement les tenants ayant plus de `limit` composants. Même boucle que
+ * src/store/modules/menuComponents.js (store `/components`).
+ */
+async function fetchAllMenuComponents() {
+  const limit = 100
+  const extractRows = (res) => (
+    Array.isArray(res)
+      ? res
+      : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.items)
+          ? res.items
+          : []
+  )
+  // Page 1 séquentielle pour connaître `meta.total`, puis pages restantes en
+  // PARALLÈLE borné (asyncPool, concurrence 4) au lieu de la boucle page-à-page
+  // séquentielle : un tenant à 800 composants passait de 8 allers-retours en
+  // série à 1 + 7 en parallèle. Ordre des rows préservé (concat par index).
+  const first = await getMenuComponents({ page: 1, limit })
+  const firstRows = extractRows(first)
+  const total = first?.meta?.total ?? first?.data?.meta?.total
+  if (!total || firstRows.length < limit || firstRows.length >= total) return firstRows
+
+  const pageCount = Math.ceil(total / limit)
+  const remainingPages = Array.from({ length: pageCount - 1 }, (_, i) => i + 2)
+  const { runWithConcurrency } = await import('@/utils/asyncPool')
+  const byPage = new Map()
+  await runWithConcurrency(remainingPages, 4, async (page) => {
+    const res = await getMenuComponents({ page, limit })
+    byPage.set(page, extractRows(res))
+  })
+  let rows = firstRows
+  for (const page of remainingPages) rows = rows.concat(byPage.get(page) || [])
+  return rows
+}
 
 export async function fetchSpaceData(spaceId, onEnrichment = null) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
@@ -124,12 +167,13 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
     // Lance les appels en arrière-plan. Si onEnrichment est fourni, on retourne
     // immédiatement avec les données critiques et on rappelle onEnrichment quand
     // les données secondaires arrivent (two-phase rendering).
-    const loadEnrichment = async () => {
-      // NB perf : ingredients/menu-components ne sont PLUS chargés ici — aucun
-      // consommateur dans le state analyse (inventaire/restock/EventPredict ont
-      // leurs propres stores/chargements). 2 requêtes de moins en phase 2.
+    const loadEnrichment = async (onPartial = null) => {
       const _t2 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
-      const [apiMenuItems, granularDetails, apiProductTypes, apiProductCategories, apiWeezeventProducts, apiWeezeventProductMappings, apiIngredients, apiMenuComponents, apiPackagings] = await Promise.all([
+      // ── Vague 2a : tout ce dont les GRAPHES ont besoin ─────────────────────
+      // Séparée de 2b (recettes) pour que `enriching` retombe dès que les ventes
+      // détaillées sont là, sans attendre la pagination /menu-components + son
+      // fan-out de détails (concurrence 5) qui n'alimente que Restock/Stock up.
+      const [apiMenuItems, granularDetails, apiProductTypes, apiProductCategories, apiWeezeventProducts, apiWeezeventProductMappings] = await Promise.all([
         getAllMenuItems(spaceId).catch((e) => { console.warn('[useSpaceData] ⚠️ menuItems failed:', e?.response?.status, e?.message); return [] }),
         // Granular data — heavy join, loaded in background
         getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
@@ -151,15 +195,97 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         // disponible ici sans appel réseau supplémentaire, donc appel volontairement
         // non scopé (backend filtre déjà par tenant).
         getProductMappings().catch((e) => { console.warn('[useSpaceData] ⚠️ productMappings failed:', e?.response?.status, e?.message); return [] }),
-        // Catalogues ingrédients/composants/packaging : le payload /menu-items ne
-        // porte que des REFS ({ingredientId, numberOfUnits}) sans nom — on résout
-        // les noms côté front (resolveComponentRefs) tant que le backend ne
-        // dénormalise pas components[] (cf. docs/dejaFaits/menuItems.api.md).
-        getIngredients().catch((e) => { console.warn('[useSpaceData] ⚠️ ingredients failed:', e?.response?.status, e?.message); return [] }),
-        getMenuComponents().catch((e) => { console.warn('[useSpaceData] ⚠️ menuComponents failed:', e?.response?.status, e?.message); return [] }),
-        getAllPackagingTypes().catch((e) => { console.warn('[useSpaceData] ⚠️ packagings failed:', e?.response?.status, e?.message); return [] }),
       ])
       const menuItems = normalizeList(apiMenuItems)
+      const productTypes = normalizeList(apiProductTypes)
+      const productCategories = normalizeList(apiProductCategories)
+      const weezeventProducts = normalizeList(apiWeezeventProducts)
+      const weezeventProductMappings = normalizeList(apiWeezeventProductMappings)
+
+      const rawGranularData =
+        granularDetails?.shopGranularData ||
+        granularDetails?.records ||
+        (Array.isArray(granularDetails) ? granularDetails : [])
+      // Normalise revenue field: the SQL RPC historically returned 'revenueHt' only.
+      // The new migration adds 'revenue' as an alias, but we normalise defensively
+      // here so old cached/pre-migration responses still work correctly.
+      // Parenthèses explicites : la version sans parenthèses reposait sur la
+      // précédence && > || (comportement identique, lisibilité fragile).
+      const revenueNormalizedData = rawGranularData.map((r) => (
+        r.revenue == null || (r.revenue === 0 && r.revenueHt != null)
+          ? { ...r, revenue: r.revenueHt ?? 0 }
+          : r
+      ))
+      const granularData = enrichGranularMenuDimensions(
+        revenueNormalizedData,
+        menuItems,
+        productTypes,
+        productCategories,
+        weezeventProducts,
+        weezeventProductMappings,
+      )
+      // Tag each menu item with current spaceId if spaceIds is absent, puis
+      // normalise (readyForSale 'Yes'/'No' + components unifiés incluant le
+      // packaging) pour que le réarmement et l'inventaire aient une shape stable
+      // quelle que soit la sérialisation backend. Voir docs/menuItems.api.md.
+      const normalizedMenuItems = menuItems.map((mi) => {
+        const tagged =
+          Array.isArray(mi.spaceIds) && mi.spaceIds.length
+            ? mi
+            : { ...mi, spaceIds: [spaceId] }
+        return normalizeMenuItem(tagged)
+      })
+      // ── Coûts unitaires par menu item (pour la MARGE) ─────────────────────
+      // Source primaire = shop-details (phase 1). Fallback : champ cost /
+      // costPerUnit / unitCost des menu items renvoyés par l'API → permet de
+      // calculer la marge même si shop-details ne fournit pas de costMap.
+      // Calculé sur `normalizedMenuItems` : la résolution des refs catalogue
+      // (vague 2b) ne touche PAS les champs de coût.
+      const costFromMenuItems = {}
+      for (const mi of normalizedMenuItems) {
+        const c = Number(mi?.cost ?? mi?.costPerUnit ?? mi?.unitCost)
+        if (mi?.id && Number.isFinite(c) && c > 0) costFromMenuItems[mi.id] = c
+      }
+      console.log(
+        `[useSpaceData] 💶 coûts menu items — ${Object.keys(costFromMenuItems).length}/${normalizedMenuItems.length} item(s) avec cost>0 (fallback costMap)`,
+        normalizedMenuItems.slice(0, 3).map((mi) => ({ id: mi?.id, name: mi?.name, cost: mi?.cost, costPerUnit: mi?.costPerUnit, unitCost: mi?.unitCost })),
+      )
+
+      // Payload commun aux deux vagues : la 2b ne fera que RAFFINER `menuItems`
+      // (noms de composants résolus) et ajouter ingredients/components.
+      const chartsPayload = {
+        menuItems: normalizedMenuItems,
+        menuItemCostMap: costFromMenuItems,
+        suppliers: details?.suppliers?.length ? details.suppliers : [],
+        // Do not pass events in phase 2 — DataFriday events (individual matches)
+        // are already loaded in phase 1 and must not be overwritten by Weezevent seasons.
+        events: [],
+        shopGranularData: granularData,
+        weezeventProducts,
+        weezeventProductMappings,
+        // Taxonomie catalogue DataFriday → source unique des dimensions item côté
+        // store (réconciliation). Jusqu'ici fetchée puis jetée.
+        productTypes,
+        productCategories,
+      }
+      console.log(
+        `[useSpaceData] phase 2a ✅ ${normalizedMenuItems.length} menu items, ${granularData.length} granular records`,
+        `| [perf] phase2a ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t2)}ms`,
+      )
+      // Les graphes peuvent peindre : on rend la main AVANT les catalogues recette.
+      if (onPartial) onPartial(chartsPayload)
+
+      // ── Vague 2b : catalogues recette (Restock / Stock up) ─────────────────
+      // Catalogues ingrédients/composants/packaging : le payload /menu-items ne
+      // porte que des REFS ({ingredientId, numberOfUnits}) sans nom — on résout
+      // les noms côté front (resolveComponentRefs) tant que le backend ne
+      // dénormalise pas components[] (cf. docs/dejaFaits/menuItems.api.md).
+      const _t2b = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      const [apiIngredients, apiMenuComponents, apiPackagings] = await Promise.all([
+        getIngredients().catch((e) => { console.warn('[useSpaceData] ⚠️ ingredients failed:', e?.response?.status, e?.message); return [] }),
+        fetchAllMenuComponents().catch((e) => { console.warn('[useSpaceData] ⚠️ menuComponents failed:', e?.response?.status, e?.message); return [] }),
+        getAllPackagingTypes().catch((e) => { console.warn('[useSpaceData] ⚠️ packagings failed:', e?.response?.status, e?.message); return [] }),
+      ])
 
       const catalogIngredients = normalizeList(apiIngredients)
       const catalogComponents = normalizeList(apiMenuComponents)
@@ -171,8 +297,9 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         : catalogComponents
       // shop-details ne porte PAS la recette (`subComponents`/`numberOfUnitsRecipe`) :
       // on l'enrichit depuis /menu-components (catalogComponents) par id puis nom.
-      // REQUIS à la décomposition composant→ingrédients (Space Inventory / Restock, F6) :
-      // sans subComponents, un composant reste compté/réarmé en 1 ligne.
+      // REQUIS à la décomposition composant→ingrédients (Restock, F6) : sans
+      // subComponents, un composant reste réarmé en 1 ligne. NB : Space Inventory
+      // ne décompose PLUS (décision 2026-07-18) — seul le restock éclate encore.
       const cnorm = (s) => String(s ?? '').trim().toLowerCase()
       const catBy = new Map()
       for (const c of catalogComponents) {
@@ -190,7 +317,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       // La LISTE /menu-components ne renvoie PAS `subComponents` (seul le détail
       // /menu-components/:id les porte). On hydrate la recette par fetch détail pour
       // les composants qui en manquent — REQUIS à la décomposition composant→ingrédients
-      // (F6). Borné (runWithConcurrency) + toléré (échec = composant non éclaté).
+      // côté Restock (F6). Borné (runWithConcurrency) + toléré (échec = composant non éclaté).
       const needDetail = components.filter((c) => c?.id && !(c?.subComponents?.length))
       if (needDetail.length) {
         try {
@@ -266,45 +393,6 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       const ingredients = normalizeList(details?.ingredients).length
         ? normalizeList(details?.ingredients)
         : catalogIngredients
-      const productTypes = normalizeList(apiProductTypes)
-      const productCategories = normalizeList(apiProductCategories)
-      const weezeventProducts = normalizeList(apiWeezeventProducts)
-      const weezeventProductMappings = normalizeList(apiWeezeventProductMappings)
-      const rawGranularData =
-        granularDetails?.shopGranularData ||
-        granularDetails?.records ||
-        (Array.isArray(granularDetails) ? granularDetails : [])
-      // Normalise revenue field: the SQL RPC historically returned 'revenueHt' only.
-      // The new migration adds 'revenue' as an alias, but we normalise defensively
-      // here so old cached/pre-migration responses still work correctly.
-      const revenueNormalizedData = rawGranularData.map((r) => (
-        r.revenue == null || r.revenue === 0 && r.revenueHt != null
-          ? { ...r, revenue: r.revenueHt ?? 0 }
-          : r
-      ))
-      const granularData = enrichGranularMenuDimensions(
-        revenueNormalizedData,
-        menuItems,
-        productTypes,
-        productCategories,
-        weezeventProducts,
-        weezeventProductMappings,
-      )
-      // Do NOT overwrite state.events with granularDetails.events: those are WeezeventEvent
-      // seasons, not individual DataFriday match events. Passing them would replace the
-      // match-level events already loaded in phase 1 with season-level entries.
-      const granularRpcEvents = []
-      // Tag each menu item with current spaceId if spaceIds is absent, puis
-      // normalise (readyForSale 'Yes'/'No' + components unifiés incluant le
-      // packaging) pour que le réarmement et l'inventaire aient une shape stable
-      // quelle que soit la sérialisation backend. Voir docs/menuItems.api.md.
-      const normalizedMenuItems = menuItems.map((mi) => {
-        const tagged =
-          Array.isArray(mi.spaceIds) && mi.spaceIds.length
-            ? mi
-            : { ...mi, spaceIds: [spaceId] }
-        return normalizeMenuItem(tagged)
-      })
       // Jointure catalogues : complète les components sans nom (refs backend).
       const refResolution = resolveComponentRefs(normalizedMenuItems, {
         ingredients,
@@ -318,37 +406,15 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         `[useSpaceData] 🧩 recettes — readyForSale: ${cov.withReadyForSale}/${cov.total} | avec components: ${cov.withComponents}/${cov.total}` +
           ` | components résolus catalogue: ${refResolution.resolved}, irrésolus (sans nom ni ref): ${refResolution.unresolved}`,
       )
-      // ── Coûts unitaires par menu item (pour la MARGE) ─────────────────────
-      // Source primaire = shop-details (phase 1). Fallback : champ cost /
-      // costPerUnit / unitCost des menu items renvoyés par l'API → permet de
-      // calculer la marge même si shop-details ne fournit pas de costMap.
-      const costFromMenuItems = {}
-      for (const mi of taggedMenuItems) {
-        const c = Number(mi?.cost ?? mi?.costPerUnit ?? mi?.unitCost)
-        if (mi?.id && Number.isFinite(c) && c > 0) costFromMenuItems[mi.id] = c
-      }
-      console.log(
-        `[useSpaceData] 💶 coûts menu items — ${Object.keys(costFromMenuItems).length}/${taggedMenuItems.length} item(s) avec cost>0 (fallback costMap)`,
-        taggedMenuItems.slice(0, 3).map((mi) => ({ id: mi?.id, name: mi?.name, cost: mi?.cost, costPerUnit: mi?.costPerUnit, unitCost: mi?.unitCost })),
-      )
-      console.log(`[useSpaceData] phase 2 ✅ ${taggedMenuItems.length} menu items, ${components.length} components, ${ingredients.length} ingredients, ${granularData.length} granular records`,
-        `| [perf] phase2 ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t2)}ms`)
+      console.log(`[useSpaceData] phase 2b ✅ ${taggedMenuItems.length} menu items, ${components.length} components, ${ingredients.length} ingredients`,
+        `| [perf] phase2b ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t2b)}ms`)
+      // Même payload que la vague 2a + les catalogues recette ; `menuItems` est
+      // remplacé par la version aux refs résolues (mêmes ids, noms complétés).
       return {
+        ...chartsPayload,
         menuItems: taggedMenuItems,
-        menuItemCostMap: costFromMenuItems,
-        suppliers: details?.suppliers?.length ? details.suppliers : [],
         ingredients,
         components,
-        // Do not pass events in phase 2 — DataFriday events (individual matches)
-        // are already loaded in phase 1 and must not be overwritten by Weezevent seasons.
-        events: [],
-        shopGranularData: granularData,
-        weezeventProducts,
-        weezeventProductMappings,
-        // Taxonomie catalogue DataFriday → source unique des dimensions item côté
-        // store (réconciliation). Jusqu'ici fetchée puis jetée.
-        productTypes,
-        productCategories,
       }
     }
 
@@ -364,11 +430,23 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
     }
 
     if (onEnrichment) {
-      // Two-phase: return critical data now, enrichment via callback
-      loadEnrichment().then(onEnrichment).catch((e) => {
-        console.warn('[useSpaceData] ⚠️ enrichment background load failed:', e?.message)
-        onEnrichment({ menuItems: [], suppliers: [], ingredients: [], components: [] })
-      })
+      // Two-phase: return critical data now, enrichment via callback.
+      // `onEnrichment` est appelé DEUX fois : à la fin de 2a (graphes) puis de 2b.
+      // La 2e passe n'envoie QUE son delta recette — réémettre `shopGranularData` /
+      // taxonomie / produits Weezevent relancerait toute la réconciliation une 2e
+      // fois pour des données identiques (coûteux sur un gros espace).
+      loadEnrichment(onEnrichment)
+        .then((full) => onEnrichment({
+          menuItems: full.menuItems, // refs catalogue résolues (mêmes ids qu'en 2a)
+          ingredients: full.ingredients,
+          components: full.components,
+        }))
+        .catch((e) => {
+          console.warn('[useSpaceData] ⚠️ enrichment background load failed:', e?.message)
+          // Payload VIDE : lève le skeleton sans rien écraser. Un `menuItems: []`
+          // ici effacerait ce que la vague 2a a déjà affiché si c'est 2b qui jette.
+          onEnrichment({})
+        })
       return { ...phase1Result, menuItems: [], suppliers: [], ingredients: [], components: [] }
     }
 

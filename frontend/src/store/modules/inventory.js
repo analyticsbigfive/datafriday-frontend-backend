@@ -36,6 +36,14 @@ function sanitizeCountPatch(patch = {}) {
 let _loadInFlight = null
 let _loadInFlightKey = null
 
+// Dédup in-flight des CATALOGUES GLOBAUX (market prices / packaging types). Les
+// gardes `isXCacheValid` ne testent que `cachedAt` : deux dispatchs concurrents
+// (AnalyseView fire-and-forget + Inventory/Restock awaited) la passaient TOUS LES
+// DEUX avant que le premier n'ait commité → 2× la même requête, et celle de
+// market-prices coûte ~60 s à froid. Même motif que `shopMenuItems.js` : la Promise
+// vit HORS du state Vuex (une Promise dans un state réactif est un anti-pattern).
+const _catalogInFlight = new Map() // 'marketPrices' | 'packagingTypes' → Promise
+
 const state = () => ({
   inventoryCounts: {}, // { [shopId]: { [itemId]: InventoryCount } }
   marketPrices: [],
@@ -216,7 +224,7 @@ const actions = {
   },
 
   /** Sauvegarde snapshot complet (bouton Save). API source de vérité hors démo. */
-  async saveInventory({ state, commit, dispatch }) {
+  async saveInventory({ state, commit, dispatch }, { kind } = {}) {
     commit('SET_SAVING', true)
     try {
       // Mode démo : persistance locale uniquement, pas de réseau.
@@ -225,11 +233,14 @@ const actions = {
         return
       }
       // Mode réel : l'erreur remonte (awaited par onSaveAll → toast + pas de nav).
-      console.log(`[inventory] 💾 saveInventory — POST /inventory (snapshot) space=${state.currentSpaceId} event=${state.currentEventId} …`)
+      // `kind` ('pre-event'/'post-event') = phase du comptage — discrimine les
+      // snapshots des deux écrans pour le cycle pre↔post (docs modules/10 §8).
+      console.log(`[inventory] 💾 saveInventory — POST /inventory (snapshot) space=${state.currentSpaceId} event=${state.currentEventId} kind=${kind || 'null'} …`)
       await apiSaveInventory({
         spaceId: state.currentSpaceId,
         eventId: state.currentEventId,
         inventoryCounts: state.inventoryCounts,
+        ...(kind ? { kind } : {}),
       })
       console.log('[inventory] 💾✅ saveInventory OK — snapshot complet sauvegardé en BDD')
       // Notif « comptage terminé » : UNE fois, à la clôture du snapshot (pas par item
@@ -257,6 +268,11 @@ const actions = {
       console.log(`[inventory] 💰 loadMarketPrices — déjà en cache (${state.marketPrices?.length ?? 0}), skip`)
       return
     }
+    // Requête identique déjà en vol → on l'await au lieu d'en lancer une seconde.
+    if (_catalogInFlight.has('marketPrices')) {
+      console.log('[inventory] 💰 loadMarketPrices — déjà en vol, appel coalescé')
+      return _catalogInFlight.get('marketPrices')
+    }
     // Mode démo : zéro réseau (évite 401 → router.push('/login')). Liste vide.
     if (isDemoMode()) {
       console.log('[inventory] 💰 loadMarketPrices — mode démo, aucun appel réseau (coûts vides)')
@@ -274,21 +290,32 @@ const actions = {
       }
     }
     console.log('[inventory] 💰 loadMarketPrices — GET /market-prices …')
-    try {
-      const data = await getMarketPrices()
-      const list = Array.isArray(data) ? data : data?.data || []
-      commit('SET_MARKET_PRICES', list)
-      localDb.setMarketPricesCache(list)
-      console.log(`[inventory] 💰✅ loadMarketPrices OK — ${list.length} coût(s) récupéré(s) depuis l'API`, list.slice(0, 3))
-    } catch (e) {
-      console.error('[inventory] 💰❌ loadMarketPrices ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
-    }
+    const p = (async () => {
+      try {
+        const data = await getMarketPrices()
+        const list = Array.isArray(data) ? data : data?.data || []
+        commit('SET_MARKET_PRICES', list)
+        localDb.setMarketPricesCache(list)
+        console.log(`[inventory] 💰✅ loadMarketPrices OK — ${list.length} coût(s) récupéré(s) depuis l'API`, list.slice(0, 3))
+      } catch (e) {
+        console.error('[inventory] 💰❌ loadMarketPrices ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
+      } finally {
+        _catalogInFlight.delete('marketPrices')
+      }
+    })()
+    _catalogInFlight.set('marketPrices', p)
+    return p
   },
 
   async loadPackagingTypes({ state, commit, getters }, { forceRefresh = false } = {}) {
     if (!forceRefresh && getters.isPackagingTypesCacheValid) {
       console.log(`[inventory] 📦 loadPackagingTypes — déjà en cache (${state.packagingTypes?.length ?? 0}), skip`)
       return
+    }
+    // Requête identique déjà en vol → on l'await au lieu d'en lancer une seconde.
+    if (_catalogInFlight.has('packagingTypes')) {
+      console.log('[inventory] 📦 loadPackagingTypes — déjà en vol, appel coalescé')
+      return _catalogInFlight.get('packagingTypes')
     }
     // Mode démo : zéro réseau (évite 401 → router.push('/login')). Liste vide.
     if (isDemoMode()) {
@@ -297,22 +324,20 @@ const actions = {
       return
     }
     console.log('[inventory] 📦 loadPackagingTypes — GET /packaging …')
-    try {
-      const data = await apiGetAllPackagingTypes()
-      const list = Array.isArray(data) ? data : data?.data || []
-      commit('SET_PACKAGING_TYPES', list)
-      console.log(`[inventory] 📦✅ loadPackagingTypes OK — ${list.length} type(s) d'emballage depuis l'API`)
-    } catch (e) {
-      console.error('[inventory] 📦❌ loadPackagingTypes ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
-    }
-  },
-
-  invalidateMarketPrices({ commit }) {
-    commit('INVALIDATE_MARKET_PRICES')
-  },
-
-  invalidatePackagingTypes({ commit }) {
-    commit('INVALIDATE_PACKAGING_TYPES')
+    const p = (async () => {
+      try {
+        const data = await apiGetAllPackagingTypes()
+        const list = Array.isArray(data) ? data : data?.data || []
+        commit('SET_PACKAGING_TYPES', list)
+        console.log(`[inventory] 📦✅ loadPackagingTypes OK — ${list.length} type(s) d'emballage depuis l'API`)
+      } catch (e) {
+        console.error('[inventory] 📦❌ loadPackagingTypes ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
+      } finally {
+        _catalogInFlight.delete('packagingTypes')
+      }
+    })()
+    _catalogInFlight.set('packagingTypes', p)
+    return p
   },
 
   invalidateMarketPrices({ commit }) {

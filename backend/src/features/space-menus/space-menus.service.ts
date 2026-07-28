@@ -69,23 +69,51 @@ export class SpaceMenusService {
   }
 
   /**
+   * BUG-061 : clause d'appartenance tenant d'un SpaceElement (shop), dupliquée à l'identique
+   * dans getShopMenu/getShopAvailableMenuItems/getShopInventory/getStorageInventory avant cette
+   * factorisation — un shop appartient au tenant via son floor/forecourt/externalMerch (builder
+   * v1) ou sa zone (builder v2, `ConfigurationElement`).
+   */
+  private tenantShopOwnershipWhere(tenantId: string) {
+    return {
+      OR: [
+        { floor: { config: { space: { tenantId } } } },
+        { forecourt: { config: { space: { tenantId } } } },
+        { externalMerch: { config: { space: { tenantId } } } },
+        { zone: { space: { tenantId } } }, // Builder v2
+      ],
+    };
+  }
+
+  /**
+   * BUG-061 : résolution du spaceId d'un shop — dupliquée à l'identique dans les 4 mêmes
+   * méthodes. ⚠️ Suppose que le `select` Prisma de l'appelant inclut bien `spaceId` sur
+   * floor/forecourt/externalMerch.config ET sur zone (cause racine de BUG-060 : un `select`
+   * qui l'omettait empêchait silencieusement la résolution).
+   */
+  private resolveShopSpaceId(shop: {
+    floor?: any;
+    forecourt?: any;
+    externalMerch?: any;
+    zone?: any;
+  }): string | null {
+    const config = shop.floor?.config ?? shop.forecourt?.config ?? shop.externalMerch?.config ?? null;
+    return config?.spaceId ?? shop.zone?.spaceId ?? null;
+  }
+
+  /**
    * Get all menu items assigned to a shop (SpaceElement)
    * Returns shop info + all menu items with their ingredients, components, and packagings
    * `configId` : scope des assignations (cf. resolveShopConfigId pour le repli).
    */
   async getShopMenu(shopId: string, tenantId: string, configId?: string) {
-    this.logger.log(`Getting shop menu for shopId=${shopId} tenantId=${tenantId} configId=${configId ?? '(auto)'}`);
+    this.logger.debug(`Getting shop menu for shopId=${shopId} tenantId=${tenantId} configId=${configId ?? '(auto)'}`);
 
     // Get the shop (SpaceElement) with its menu assignments
     const shop = await this.prisma.spaceElement.findFirst({
       where: {
         id: shopId,
-        OR: [
-          { floor: { config: { space: { tenantId } } } },
-          { forecourt: { config: { space: { tenantId } } } },
-          { externalMerch: { config: { space: { tenantId } } } },
-          { zone: { space: { tenantId } } }, // Builder v2
-        ],
+        ...this.tenantShopOwnershipWhere(tenantId),
       },
       select: {
         id: true,
@@ -95,11 +123,16 @@ export class SpaceMenusService {
         image: true,
         attributes: true,
         shopTypes: true,
-        floor: { select: { config: { select: { id: true } } } },
-        forecourt: { select: { config: { select: { id: true } } } },
-        externalMerch: { select: { config: { select: { id: true } } } },
+        floor: { select: { config: { select: { id: true, spaceId: true } } } },
+        forecourt: { select: { config: { select: { id: true, spaceId: true } } } },
+        externalMerch: { select: { config: { select: { id: true, spaceId: true } } } },
+        zone: { select: { spaceId: true } }, // Builder v2
         configurationElements: { select: { configId: true }, orderBy: { createdAt: 'asc' }, take: 1 },
         menuAssignments: {
+          // BUG-051 : une MenuAssignment ne doit jamais exposer un MenuItem soft-deleted (ex.
+          // doublon nettoyé lors d'un re-mapping Data Integration) — sinon l'article réapparaît
+          // ici avec un prix à 0/vide comme s'il était toujours en vente.
+          where: { menuItem: { deletedAt: null } },
           select: {
             menuItemId: true,
             enabled: true,
@@ -249,9 +282,15 @@ export class SpaceMenusService {
       (a: any) => (a.configId ?? null) === effectiveConfigId,
     );
 
+    // spaceId du shop — BUG-060 : sans lui, `spaceLinks` ne peut pas être scopé et la réponse
+    // exposait les prix custom de TOUS les espaces ayant un SpaceMenuItem pour l'item, pas
+    // seulement celui du shop.
+    const spaceId = this.resolveShopSpaceId(shopAny);
+
     // Transform the data to a cleaner format
     const menuItems = scopedAssignments.map((assignment: any) => {
       const mi = assignment.menuItem;
+      const spaceScopedLinks = (mi.spaceLinks ?? []).filter((l: any) => l.spaceId === spaceId);
       return {
         id: mi.id,
         name: mi.name,
@@ -263,7 +302,7 @@ export class SpaceMenusService {
         // Décomposition prix complète (TTC/HT/taxe/remise) — même contrat que /menu-items.
         pricing: this.pricing.computePricing(mi, tenantVatRate, null),
         spacePricing: this.pricing.computeSpacePricing(
-          { ...mi, spacePrices: linksToSpacePrices(mi.spaceLinks) },
+          { ...mi, spacePrices: linksToSpacePrices(spaceScopedLinks) },
           tenantVatRate,
           null,
         ),
@@ -365,6 +404,7 @@ export class SpaceMenusService {
       notes: shopAny.notes,
       image: shopAny.image,
       attributes: shopAny.attributes,
+      spaceId,
       configId: effectiveConfigId,
       menuItems,
     };
@@ -583,19 +623,14 @@ export class SpaceMenusService {
     configId?: string,
     enabledOnly = false,
   ) {
-    this.logger.log(
+    this.logger.debug(
       `Getting available menu items for shopId=${shopId} tenantId=${tenantId} configId=${configId ?? '(auto)'} enabledOnly=${enabledOnly}`,
     );
 
     const shop = await this.prisma.spaceElement.findFirst({
       where: {
         id: shopId,
-        OR: [
-          { floor: { config: { space: { tenantId } } } },
-          { forecourt: { config: { space: { tenantId } } } },
-          { externalMerch: { config: { space: { tenantId } } } },
-          { zone: { space: { tenantId } } }, // Builder v2
-        ],
+        ...this.tenantShopOwnershipWhere(tenantId),
       },
       select: {
         id: true,
@@ -615,9 +650,7 @@ export class SpaceMenusService {
     }
 
     const shopAny = shop as any;
-    const config =
-      shopAny.floor?.config ?? shopAny.forecourt?.config ?? shopAny.externalMerch?.config ?? null;
-    const spaceId: string | null = config?.spaceId ?? shopAny.zone?.spaceId ?? null;
+    const spaceId = this.resolveShopSpaceId(shopAny);
 
     // Scoping par configuration : ne considérer que les assignations de la config effective
     // (élément v2 partagé = une ligne par config ; sans filtre, l'état coché de la config A
@@ -665,19 +698,14 @@ export class SpaceMenusService {
    * répétée quand plusieurs produits partagent le même ingrédient.
    */
   async getShopInventory(shopId: string, tenantId: string, configId?: string) {
-    this.logger.log(
+    this.logger.debug(
       `Getting shop inventory for shopId=${shopId} tenantId=${tenantId} configId=${configId ?? '(auto)'}`,
     );
 
     const shop = await this.prisma.spaceElement.findFirst({
       where: {
         id: shopId,
-        OR: [
-          { floor: { config: { space: { tenantId } } } },
-          { forecourt: { config: { space: { tenantId } } } },
-          { externalMerch: { config: { space: { tenantId } } } },
-          { zone: { space: { tenantId } } }, // Builder v2
-        ],
+        ...this.tenantShopOwnershipWhere(tenantId),
       },
       select: {
         id: true,
@@ -695,9 +723,7 @@ export class SpaceMenusService {
     }
 
     const shopAny = shop as any;
-    const config =
-      shopAny.floor?.config ?? shopAny.forecourt?.config ?? shopAny.externalMerch?.config ?? null;
-    const spaceId: string | null = config?.spaceId ?? shopAny.zone?.spaceId ?? null;
+    const spaceId = this.resolveShopSpaceId(shopAny);
     const effectiveConfigId = this.resolveShopConfigId(shopAny, configId);
     const enabledIds: string[] = [
       ...new Set<string>(
@@ -770,7 +796,7 @@ export class SpaceMenusService {
    */
   async getStorageInventory(shopIds: string[], tenantId: string, configId?: string) {
     const ids = [...new Set(shopIds.map((s) => s.trim()).filter(Boolean))];
-    this.logger.log(
+    this.logger.debug(
       `Getting storage inventory for ${ids.length} shops tenantId=${tenantId} configId=${configId ?? '(auto)'}`,
     );
     const empty = {
@@ -784,12 +810,7 @@ export class SpaceMenusService {
     const shops = await this.prisma.spaceElement.findMany({
       where: {
         id: { in: ids },
-        OR: [
-          { floor: { config: { space: { tenantId } } } },
-          { forecourt: { config: { space: { tenantId } } } },
-          { externalMerch: { config: { space: { tenantId } } } },
-          { zone: { space: { tenantId } } }, // Builder v2
-        ],
+        ...this.tenantShopOwnershipWhere(tenantId),
       },
       select: {
         id: true,
@@ -808,9 +829,7 @@ export class SpaceMenusService {
     // Ids hors tenant silencieusement ignorés (findMany filtré) — pas de 404 : une
     // sélection storage peut référencer un shop supprimé depuis.
     const shopInfos = (shops as any[]).map((shop) => {
-      const config =
-        shop.floor?.config ?? shop.forecourt?.config ?? shop.externalMerch?.config ?? null;
-      const spaceId: string | null = config?.spaceId ?? shop.zone?.spaceId ?? null;
+      const spaceId = this.resolveShopSpaceId(shop);
       const effectiveConfigId = this.resolveShopConfigId(shop, configId);
       const enabledIds = [
         ...new Set<string>(
@@ -961,7 +980,7 @@ export class SpaceMenusService {
    * shop×item est déjà servie séparément par getMenuConfiguration.
    */
   async getSpaceMenuItems(spaceId: string, tenantId: string) {
-    this.logger.log(`Getting space menu items for spaceId=${spaceId} tenantId=${tenantId}`);
+    this.logger.debug(`Getting space menu items for spaceId=${spaceId} tenantId=${tenantId}`);
 
     const space = await this.prisma.space.findFirst({
       where: { id: spaceId, tenantId },
@@ -980,7 +999,7 @@ export class SpaceMenusService {
    * Returns { [elementId]: { [menuItemId]: boolean } }
    */
   async getMenuConfiguration(spaceId: string, configId: string, tenantId: string) {
-    this.logger.log(`Getting menu config for space=${spaceId} config=${configId} tenant=${tenantId}`);
+    this.logger.debug(`Getting menu config for space=${spaceId} config=${configId} tenant=${tenantId}`);
 
     // Vérifie que la config appartient bien à CET espace ET à CE tenant — sans ce check,
     // n'importe quel utilisateur authentifié pouvait passer le configId d'un autre tenant et
@@ -1007,8 +1026,10 @@ export class SpaceMenusService {
       },
       select: {
         id: true,
+        // BUG-058 (réplique du fix BUG-051) : un MenuItem soft-deleted ne doit jamais apparaître
+        // dans la matrice d'assignation, même s'il a encore une ligne MenuAssignment.
         menuAssignments: {
-          where: { configId },
+          where: { configId, menuItem: { deletedAt: null } },
           select: { menuItemId: true, enabled: true },
         },
       },
@@ -1033,8 +1054,13 @@ export class SpaceMenusService {
    * appel/une seule requête au lieu de N appels à getShopMenu (un par shop), chacun
    * remontant la structure imbriquée complète (composants→ingrédients, pricing…).
    * Ne renvoie que ce dont la page Analyse a besoin pour reconstruire l'assignation
-   * par shop : id/nom/catégorie des articles ENABLED. Pas de pricing/recette ici —
-   * si un futur consommateur en a besoin, utiliser getShopMenu (par shop).
+   * par shop : id/nom/catégorie/basePrice des articles ENABLED. Pas de pricing/recette
+   * ici — si un futur consommateur en a besoin, utiliser getShopMenu (par shop).
+   *
+   * ⚠️ Règle DURE (BUG-199) : ne JAMAIS ajouter ici un champ volumineux porté par le
+   * MenuItem (photo, description longue, blob…). La sélection est par ligne
+   * d'assignation : tout champ ajouté est réémis autant de fois que l'article est
+   * assigné à un PdV. C'est ce qui a fait passer cette réponse à 5,6 Mo / 53 s.
    */
   async getConfigShopMenuItemsLight(spaceId: string, configId: string, tenantId: string) {
     const config = await this.prisma.config.findFirst({
@@ -1055,23 +1081,47 @@ export class SpaceMenusService {
       select: {
         id: true,
         name: true,
+        // BUG-058 (réplique du fix BUG-051) : un MenuItem soft-deleted ne doit jamais apparaître
+        // ici (sert la page Analyse) même s'il a encore une ligne MenuAssignment(enabled: true).
         menuAssignments: {
-          where: { configId, enabled: true },
+          where: { configId, enabled: true, menuItem: { deletedAt: null } },
           select: {
             menuItem: {
-              select: { id: true, name: true, productCategory: { select: { name: true } } },
+              // basePrice : additif (2026-07-18) — permet à Space Inventory de
+              // consommer ce batch au lieu d'un GET shop/:shopId par shop
+              // (N+1, cf. fiche BUG-010 backend). Scalaire, coût nul.
+              //
+              // `picture` est VOLONTAIREMENT absent (BUG-199) : la sélection se fait
+              // par ligne d'assignation, donc un article présent dans N PdV voyait sa
+              // photo sérialisée N fois. Les photos sont stockées en base64 dans
+              // MenuItem.picture — un seul article de 915 ko × 15 assignations = 13 Mo
+              // sur une réponse dont tout le reste pèse 38 ko (53 s de chargement).
+              // La vignette se résout depuis le catalogue (GET /menu-items, qui porte
+              // `picture` UNE fois par article). Même réflexe que
+              // `marketPriceSelectNoImage` dans menu-items.service.ts.
+              select: {
+                id: true,
+                name: true,
+                basePrice: true,
+                productCategory: { select: { name: true } },
+              },
             },
           },
         },
       } as any,
     });
 
-    const out: Record<string, { shopName: string; items: { id: string; name: string; category: string }[] }> = {};
+    const out: Record<string, { shopName: string; items: { id: string; name: string; category: string; basePrice: number | null }[] }> = {};
     for (const el of elements as any[]) {
       const items = (el.menuAssignments || [])
         .map((a: any) => a.menuItem)
         .filter(Boolean)
-        .map((mi: any) => ({ id: mi.id, name: mi.name, category: mi.productCategory?.name || '' }));
+        .map((mi: any) => ({
+          id: mi.id,
+          name: mi.name,
+          category: mi.productCategory?.name || '',
+          basePrice: mi.basePrice != null ? Number(mi.basePrice) : null,
+        }));
       if (items.length) out[el.id] = { shopName: el.name, items };
     }
     return out;
@@ -1115,10 +1165,13 @@ export class SpaceMenusService {
         },
         select: { id: true },
       }),
+      // BUG-058 (réplique du fix BUG-051) : un menuItemId soft-deleted ne doit jamais être accepté
+      // comme valide côté écriture, même si l'appelant l'envoie encore (state front périmé).
       this.prisma.menuItem.findMany({
         where: {
           id: { in: [...new Set(Object.values(menuItems).flatMap((items) => Object.keys(items)))] },
           tenantId,
+          deletedAt: null,
         },
         select: { id: true },
       }),
@@ -1126,11 +1179,25 @@ export class SpaceMenusService {
     const validElementIds = new Set(validElements.map((e) => e.id));
     const validMenuItemIds = new Set(validMenuItems.map((m) => m.id));
 
+    // Ids réellement activés (calculés une seule fois, réutilisés par la transaction) —
+    // BUG-063 : une valeur `enabled` non strictement booléenne (payload malformé) est ignorée
+    // ici comme un id invalide, plutôt que de remonter jusqu'à Prisma sous forme d'erreur opaque.
+    const enabledMenuItemIds = [
+      ...new Set(
+        Object.values(menuItems)
+          .flatMap((items) => Object.entries(items))
+          .filter(([menuItemId, enabled]) => enabled === true && validMenuItemIds.has(menuItemId))
+          .map(([menuItemId]) => menuItemId),
+      ),
+    ];
+
     await this.prisma.$transaction(async (tx) => {
       // For each element, upsert menu assignments
       for (const [elementId, items] of Object.entries(menuItems)) {
         if (!validElementIds.has(elementId)) continue;
-        const scopedItems = Object.entries(items).filter(([menuItemId]) => validMenuItemIds.has(menuItemId));
+        const scopedItems = Object.entries(items).filter(
+          ([menuItemId, enabled]) => validMenuItemIds.has(menuItemId) && typeof enabled === 'boolean',
+        );
         // Upsert PARTIEL uniquement : ne touche QUE les menuItemId présents dans le payload.
         // ⚠️ Avant : un `deleteMany({menuItemId: {notIn: activeMenuItemIds}})` supprimait
         // TOUTE assignation de ce shop absente du payload — correct seulement si l'appelant
@@ -1147,28 +1214,25 @@ export class SpaceMenusService {
           });
         }
       }
-    });
 
-    // Attacher un item à un shop = l'associer à l'espace (condition 0) : lignes SpaceMenuItem
-    // pour les items activés qui n'en ont pas encore. Sans ça, la vue « By Menu Item »
-    // (GET /menu-items?spaceId= filtre sur l'association) affichait « Aucun menu item »
-    // alors que des items venaient d'être attachés.
-    // Additif uniquement : détacher d'un shop ne désassocie pas de l'espace.
-    // (validMenuItemIds = déjà vérifiés tenant ; spaceId = vérifié via la config plus haut.)
-    const enabledMenuItemIds = [
-      ...new Set(
-        Object.values(menuItems)
-          .flatMap((items) => Object.entries(items))
-          .filter(([menuItemId, enabled]) => enabled && validMenuItemIds.has(menuItemId))
-          .map(([menuItemId]) => menuItemId),
-      ),
-    ];
-    if (enabledMenuItemIds.length) {
-      await this.prisma.spaceMenuItem.createMany({
-        data: enabledMenuItemIds.map((menuItemId) => ({ menuItemId, spaceId })),
-        skipDuplicates: true,
-      });
-    }
+      // Attacher un item à un shop = l'associer à l'espace (condition 0) : lignes SpaceMenuItem
+      // pour les items activés qui n'en ont pas encore. Sans ça, la vue « By Menu Item »
+      // (GET /menu-items?spaceId= filtre sur l'association) affichait « Aucun menu item »
+      // alors que des items venaient d'être attachés.
+      // Additif uniquement : détacher d'un shop ne désassocie pas de l'espace.
+      // (validMenuItemIds = déjà vérifiés tenant ; spaceId = vérifié via la config plus haut.)
+      // BUG-059 : déplacé DANS la même transaction que les upserts menuAssignment ci-dessus —
+      // avant, cette écriture tournait sur `this.prisma` après le commit de la transaction,
+      // pouvant laisser des MenuAssignment(enabled:true) sans SpaceMenuItem correspondant si
+      // cette 2e écriture échouait (l'item devient alors invisible partout malgré `enabled=true`,
+      // exactement le bug que ce bloc a pour but de prévenir).
+      if (enabledMenuItemIds.length) {
+        await (tx as any).spaceMenuItem.createMany({
+          data: enabledMenuItemIds.map((menuItemId) => ({ menuItemId, spaceId })),
+          skipDuplicates: true,
+        });
+      }
+    });
 
     // Compteurs shops (Redis 30s) + listes menu-items (Redis 60s) : sans invalidation,
     // même un refetch forceRefresh du front resservait l'état d'avant l'écriture.

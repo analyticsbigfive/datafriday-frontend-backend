@@ -2,7 +2,7 @@
   <!-- Colonne droite de la grille .an-body (ex v-navigation-drawer) : la
        largeur et le repli sont pilotés par la grille d'AnalyseView (pattern
        EventPredict .ep-metrics). -->
-  <aside class="summary-panel">
+  <aside class="summary-panel" :class="{ 'summary-panel--dark': isDark }">
     <div class="pa-4 sp-card">
       <!-- Sous-sections repliables (parité visuelle avec le menu de gauche :
            Affluence, Filtres avancés, etc.). Le chatbot est replié par défaut. -->
@@ -333,6 +333,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import { useTheme } from 'vuetify'
 import { RANK_COLORS } from '@/constants/analyseColors'
 import { resolveItemName } from '@/utils/analyseDimensions'
 import { formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
@@ -346,6 +347,10 @@ import { useI18n } from '@/i18n/useI18n'
 import store from '@/store'
 
 const { t } = useI18n()
+
+// Dark mode autonome : suit le thème global Vuetify.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const props = defineProps({
   modelValue: { type: Boolean, default: true },
@@ -588,7 +593,7 @@ function shareWidth(value, max) {
    (.ep-metrics-kicker) : 11px, gras 800, gris, majuscules, letter-spacing .08em. */
 .section-title {
   font-size: 0.6875rem;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -614,16 +619,16 @@ function shareWidth(value, max) {
 .lb-card--active { border-color: var(--lb-accent, #64748b); box-shadow: inset 0 0 0 1px var(--lb-accent, #64748b); }
 .lb-top { display: flex; align-items: center; gap: 10px; }
 .lb-name {
-  flex: 1 1 auto; min-width: 0; font-size: 13px !important; font-weight: 700; color: #212121;
+  flex: 1 1 auto; min-width: 0; font-size: var(--fs-base)!important; font-weight: 700; color: #212121;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .lb-val {
-  flex: none; margin-left: auto; font-size: 15px !important; font-weight: 800 !important;
+  flex: none; margin-left: auto; font-size: var(--fs-md)!important; font-weight: var(--fw-bold)!important;
   color: #212121 !important; letter-spacing: -0.2px; font-variant-numeric: tabular-nums;
 }
 .lb-sub { display: flex; align-items: center; gap: 8px; min-height: 18px; margin: 5px 0 8px; padding-left: 34px; }
 .lb-spacer { margin-left: auto; }
-.lb-date { font-size: 11px; color: #94a3b8; }
+.lb-date { font-size: var(--fs-xs); color: #94a3b8; }
 .lb-meter { height: 5px; border-radius: 4px; background: #eef2f7; overflow: hidden; }
 .lb-meter > i {
   display: block; height: 100%; min-width: 3px; border-radius: 4px;
@@ -654,7 +659,7 @@ function shareWidth(value, max) {
 .tour-group-header {
   display: flex;
   align-items: center;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: #555;
   text-transform: uppercase;
@@ -678,7 +683,7 @@ function shareWidth(value, max) {
   margin-bottom: 6px;
 }
 .assistant-title {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #7C4DFF;
   text-transform: uppercase;
@@ -697,19 +702,19 @@ function shareWidth(value, max) {
   min-height: 28px;
 }
 .semantic-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #555;
   display: inline-flex;
   align-items: center;
 }
 .semantic-hint {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: #9E9E9E;
   font-style: italic;
   margin-top: 2px;
 }
 .assistant-body {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: #212121;
   white-space: normal;
@@ -722,7 +727,7 @@ function shareWidth(value, max) {
   background: rgba(124, 77, 255, 0.1);
   padding: 1px 5px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 .assistant-body :deep(.aa-li) {
@@ -730,7 +735,7 @@ function shareWidth(value, max) {
 }
 .assistant-tip {
   margin-top: 8px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: #757575;
   font-style: italic;
 }
@@ -738,32 +743,32 @@ function shareWidth(value, max) {
   color: #fff;
 }
 .rank-num {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 .item-name {
-  font-size: 12px !important;
+  font-size: var(--fs-sm)!important;
   font-weight: 600;
   color: #212121;
 }
 .item-units {
-  font-size: 10px !important;
+  font-size: var(--fs-xs)!important;
   color: #9E9E9E !important;
 }
 .item-value {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #2E7D32;
 }
 .metric-suffix {
   color: #BDBDBD;
-  font-size: 9px;
+  font-size: var(--fs-xs);
   margin-left: 2px;
 }
 .show-all-link {
   display: block;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #5B8DEF;
   text-decoration: none;
   margin-top: 4px;
@@ -772,7 +777,7 @@ function shareWidth(value, max) {
   text-decoration: underline;
 }
 .show-all-btn {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: #5B8DEF;
@@ -782,12 +787,12 @@ function shareWidth(value, max) {
 
 /* Lot 0.5 — units sous le revenue (capture d'écran) */
 .item-units-below {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: #9E9E9E;
   margin-top: 2px;
 }
 .item-rate {
-  font-size: 10px !important;
+  font-size: var(--fs-xs)!important;
   color: #6B7280 !important;
 }
 /* Lot 0.5 — Chip txn/min : pilule violette pâle, lisible mais discrète */
@@ -799,7 +804,7 @@ function shareWidth(value, max) {
   border-radius: 9999px;
   background-color: #EDE9FE;
   color: #5B21B6;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.1px;
@@ -832,5 +837,93 @@ function shareWidth(value, max) {
 }
 .sp-clickable.v-list-item--active {
   background-color: rgba(124, 77, 255, 0.12) !important;
+}
+
+/* ── Dark mode (autonome via isDark) : override des couleurs claires en dur.
+   Les internes Vuetify (accordéons, champs, switch, chips) suivent le thème
+   global sombre ; on ne force que le custom clair. #7C4DFF / #0E9F8F / #ff3131
+   et sémantiques conservés (éclaircis seulement si contraste faible). ── */
+.summary-panel--dark .sp-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.summary-panel--dark .section-title {
+  color: #94a3b8;
+}
+
+/* Leaderboard : cartes + piste + textes */
+.summary-panel--dark .lb-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.summary-panel--dark .lb-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.summary-panel--dark .lb-name {
+  color: #f9fafb;
+}
+.summary-panel--dark .lb-val {
+  color: #f9fafb !important;
+}
+.summary-panel--dark .lb-meter {
+  background: #1a2332;
+}
+
+/* Assistant / tour d'horizon */
+.summary-panel--dark .tour-panel {
+  background: #1a2332;
+  border-color: rgba(124, 77, 255, 0.35);
+}
+.summary-panel--dark .tour-group-header {
+  color: #94a3b8;
+}
+.summary-panel--dark .assistant-card {
+  background: #1e293b;
+  border-color: rgba(124, 77, 255, 0.35);
+}
+.summary-panel--dark .assistant-body {
+  color: #e2e8f0;
+}
+.summary-panel--dark .assistant-tip {
+  color: #94a3b8;
+}
+.summary-panel--dark .semantic-toggle {
+  background: #1a2332;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.summary-panel--dark .semantic-label {
+  color: #94a3b8;
+}
+.summary-panel--dark .semantic-hint {
+  color: #94a3b8;
+}
+
+/* Lignes leaderboard : libellés + valeurs */
+.summary-panel--dark .item-name {
+  color: #f9fafb;
+}
+.summary-panel--dark .item-units,
+.summary-panel--dark .item-units-below {
+  color: #94a3b8;
+}
+.summary-panel--dark .item-rate {
+  color: #94a3b8 !important;
+}
+/* Vert « valeur » éclairci pour le contraste sur fond sombre. */
+.summary-panel--dark .item-value {
+  color: #4ade80;
+}
+.summary-panel--dark .item-value.event-value {
+  color: #2dd4bf;
+}
+/* Chip txn/min : pilule violette adaptée au fond sombre. */
+.summary-panel--dark .txn-rate-chip {
+  background-color: rgba(124, 77, 255, 0.15);
+  color: #c4b5fd;
+}
+.summary-panel--dark .txn-rate-chip .v-icon {
+  color: #c4b5fd !important;
 }
 </style>

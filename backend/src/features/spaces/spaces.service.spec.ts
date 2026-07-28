@@ -5,11 +5,17 @@ import { WeezeventClientService } from '../weezevent/services/weezevent-client.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { LogisticsService } from '../logistics/logistics.service';
+import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
   let service: SpacesService;
   let prismaService: PrismaService;
+
+  const mockLogisticsService = {
+    getStock: jest.fn(),
+    getLiveInventory: jest.fn(),
+  };
 
   const mockPrismaService = {
     space: {
@@ -80,6 +86,29 @@ describe('SpacesService', () => {
       count: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // Builder v2 : le service passe désormais par les zones + adhésions
+    // (quickCreateElement / assignElements* → ensureZone / configurationElement).
+    // Sans ces mocks, `this.prisma.zone.count` jetait un TypeError non géré qui
+    // TUAIT le process jest avant le résumé (4 tests Wizard cassés en silence).
+    zone: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    configurationElement: {
+      createMany: jest.fn(),
+      findMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    event: {
+      findMany: jest.fn(),
+    },
+    locationSpaceMapping: {
+      findFirst: jest.fn(),
+    },
+    $queryRaw: jest.fn(),
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
 
@@ -95,11 +124,15 @@ describe('SpacesService', () => {
           provide: WeezeventClientService,
           useValue: {},
         },
-        { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), getClient: jest.fn() } },
+        // getOrSet en passthrough (exécute la factory) : les tests vérifient la logique
+        // métier, pas le cache — sans lui, getShopDetails (désormais caché) courtcircuiterait
+        // silencieusement ses assertions.
+        { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), deletePattern: jest.fn(), getOrSet: jest.fn((key, factory) => factory()), getClient: jest.fn() } },
         // Accès complet par défaut dans les tests (pas de restriction d'espace)
         { provide: SpaceAccessService, useValue: { getAccessibleSpaceIds: jest.fn().mockResolvedValue('ALL'), hasFullAccess: jest.fn().mockReturnValue(true), canAccessSpace: jest.fn().mockResolvedValue(true) } },
         // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
         { provide: SupabaseStorageService, useValue: { resolveImage: jest.fn((value) => Promise.resolve(value)) } },
+        { provide: LogisticsService, useValue: mockLogisticsService },
       ],
     }).compile();
 
@@ -799,6 +832,31 @@ describe('SpacesService', () => {
     });
   });
 
+  describe('getShopDetails — cache Redis (chemin critique premier rendu /analyse)', () => {
+    it('délègue à redis.getOrSet avec une clé tenant+space+params et TTL 60s', async () => {
+      const redis = (service as any).redis;
+      (mockPrismaService as any).$queryRaw = jest
+        .fn()
+        .mockResolvedValue([{ get_space_shop_details: { shops: [] } }]);
+
+      await service.getShopDetails('space-1', 'tenant-1', 2, 50, true);
+
+      expect(redis.getOrSet).toHaveBeenCalledWith(
+        'spaces:shopdetails:tenant-1:space-1:2:50:1',
+        expect.any(Function),
+        { ttl: 60 },
+      );
+    });
+
+    it('ne met pas en cache une erreur space_not_found (la factory jette)', async () => {
+      (mockPrismaService as any).$queryRaw = jest
+        .fn()
+        .mockResolvedValue([{ get_space_shop_details: { __error: 'space_not_found' } }]);
+
+      await expect(service.getShopDetails('space-x', 'tenant-1')).rejects.toThrow();
+    });
+  });
+
   describe('getShopDetails — status filter', () => {
     it('should use status = V (not completed) in the shop granular SQL', async () => {
       const tenantId = 'tenant-123';
@@ -860,6 +918,16 @@ describe('SpacesService', () => {
       mockPrismaService.floor.findMany.mockResolvedValue([]);
       mockPrismaService.menuAssignment.findMany.mockResolvedValue([]);
       mockPrismaService.locationShopMapping.findMany.mockResolvedValue([]);
+      // Chemins v2 (zones) : défauts « espace sans zone » — resetAllMocks purge les
+      // implémentations, on ré-amorce ici comme pour les autres modèles.
+      mockPrismaService.zone.findFirst.mockResolvedValue(null);
+      mockPrismaService.zone.findMany.mockResolvedValue([]);
+      mockPrismaService.zone.count.mockResolvedValue(0);
+      mockPrismaService.zone.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'zone-test', ...data }),
+      );
+      mockPrismaService.configurationElement.createMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.configurationElement.findMany.mockResolvedValue([]);
     });
 
     it('A1 — assignElementsToFloorLevel("externalmerch") crée la zone ExternalMerch et y déplace les éléments', async () => {
@@ -887,6 +955,41 @@ describe('SpacesService', () => {
         where: { id: 'el-1' },
         data: { floorId: null, forecourtId: null, externalMerchId: 'em-1' },
       });
+    });
+
+    it('BUG-23 — bascule v1→v2 silencieuse rendue observable (log + builderVersion) quand une Zone existe déjà', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+      try {
+        mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+        mockPrismaService.config.findFirst.mockResolvedValue({ id: 'cfg-user', name: 'Stade', isSystem: false, spaceId });
+        // L'espace a déjà 1 Zone (ex. créée par un quick-element antérieur) → bascule v1→v2
+        // silencieuse pour CETTE assignation, alors même que l'élément assigné n'a lui-même
+        // jamais été en v2 (zoneId null).
+        mockPrismaService.zone.count.mockResolvedValue(1);
+        mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1', zoneId: null, floorId: null }]);
+        mockPrismaService.spaceElement.update.mockResolvedValue({ id: 'el-1' });
+        mockPrismaService.$transaction.mockImplementation((arg: any) =>
+          Array.isArray(arg) ? Promise.all(arg) : arg(mockPrismaService),
+        );
+
+        const res: any = await service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 0);
+
+        // 1. La réponse porte désormais un indicateur explicite du routage effectif.
+        expect(res.builderVersion).toBe('v2');
+        expect(res.updatedElementIds).toEqual(['el-1']);
+
+        // 2. La bascule est journalisée avec spaceId/tenantId pour traçabilité debug.
+        expect(warnSpy).toHaveBeenCalled();
+        const loggedSwitch = warnSpy.mock.calls.some(([msg]) =>
+          typeof msg === 'string' &&
+          msg.includes('[BUG-23]') &&
+          msg.includes(`spaceId=${spaceId}`) &&
+          msg.includes(`tenantId=${tenantId}`),
+        );
+        expect(loggedSwitch).toBe(true);
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     it('A4 — assignElementsToFloorLevel rejette un level non entier (BadRequestException)', async () => {
@@ -950,6 +1053,112 @@ describe('SpacesService', () => {
 
       expect(res.data.externalMerch).toEqual({ id: 'em-1', name: 'Espace Externe', elements: [] });
       expect(res.isSystem).toBe(false);
+    });
+  });
+
+  // Signal "event live" (tracker front #20/#23, LIVE_API_GUIDE.md §1) — piloté par le bouton ◉
+  // et la route Live, pollé par le front.
+  describe('getLiveStatus', () => {
+    const spaceId = 'space-1';
+    const tenantId = 'tenant-1';
+
+    beforeEach(() => {
+      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue(null);
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([]);
+      mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    it('is not live when no event window covers the present instant (and no shop resolved)', async () => {
+      mockPrismaService.event.findMany.mockResolvedValue([]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      // Court-circuité par shopIds vide (beforeEach), pas par l'absence d'event — le early-return
+      // sur "aucun Event" a été retiré (revue de la définition "event live").
+      expect(result).toEqual({ isLive: false, eventId: null, since: null });
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('is live from a real sale alone when no Event covers the present instant', async () => {
+      const now = new Date();
+      const since = new Date(now.getTime() - 5 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      // Aucun Event saisi en amont : le live est ancré uniquement sur la vente réelle
+      // (fenêtre glissante de 30 min), eventId reste null.
+      expect(result).toEqual({ isLive: true, eventId: null, since: since.toISOString() });
+    });
+
+    it('is not live when the matching event is outside its window + grace', async () => {
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-old', eventDate: eightDaysAgo, eventStartDate: null, eventEndDate: null },
+      ]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      // graceEnd (eventDate + 3h) est bien avant "now" → rejeté par le filtre de fenêtre en mémoire.
+      expect(result).toEqual({ isLive: false, eventId: null, since: null });
+    });
+
+    it('resolves the event but stays not-live when the space has no shops', async () => {
+      const now = new Date();
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      // spaceElement.findMany déjà mocké à [] dans le beforeEach → shopIds = []
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('is live when a real sale landed within the last 30 minutes', async () => {
+      const now = new Date();
+      const since = new Date(now.getTime() - 5 * 60 * 1000);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: true, eventId: 'event-1', since: since.toISOString() });
+    });
+
+    it('is not live when the shops have no sale in the freshness window (stale event)', async () => {
+      const now = new Date();
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'event-1', eventDate: now, eventStartDate: null, eventEndDate: null },
+      ]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([{ since: null }]);
+
+      const result = await service.getLiveStatus(spaceId, tenantId);
+
+      expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
+    });
+  });
+
+  // Passthrough vers LogisticsService (tracker front #22, LIVE_API_GUIDE.md §3) — la logique vit
+  // dans LogisticsService.getLiveInventory (testée dans logistics.service.spec.ts), on vérifie
+  // uniquement le câblage ici.
+  describe('getLiveInventory', () => {
+    it('delegates to LogisticsService.getLiveInventory with the same spaceId/tenantId', async () => {
+      const expected = { shops: [], items: [] };
+      mockLogisticsService.getLiveInventory.mockResolvedValue(expected);
+
+      const result = await service.getLiveInventory('space-1', 'tenant-1');
+
+      expect(mockLogisticsService.getLiveInventory).toHaveBeenCalledWith('space-1', 'tenant-1');
+      expect(result).toBe(expected);
     });
   });
 });

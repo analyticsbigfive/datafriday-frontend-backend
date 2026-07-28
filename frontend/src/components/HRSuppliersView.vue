@@ -1,5 +1,7 @@
 <template>
-  <div class="flex flex-col h-screen bg-gray-50 dark:bg-gray-950">
+  <!-- h-full (et non h-screen) : la hauteur est fixée par le parent (HrView
+       sous l'app-bar 64px) ; h-screen débordait de la hauteur du header. -->
+  <div class="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
     <div
       v-if="onClose"
       class="border-b bg-white dark:bg-gray-900 p-4 flex items-center justify-between"
@@ -382,15 +384,25 @@ import DialogContent from '../ui/dialogContent.vue';
 import Label  from '../ui/label.vue';
 import Checkbox  from '../ui/checkbox.vue';
 import { Plus, Trash2, X, Search, Download, Upload } from 'lucide-vue-next';
-import * as api from '../utils/api';
+// API moderne (NestJS) — l'ancien `utils/api.js` pointait sur l'Edge Function
+// Supabase du prototype KV (`make-server-…`), morte : liste des espaces toujours vide.
+import { getSpacesLight, getSpaceConfigurations } from '../api/endpoints/space.api';
 import * as hrApi from '../utils/hrApi';
 import Card  from '../ui/card.vue';
 import CardContent  from '../ui/cardContent.vue';
 import CardHeader  from '../ui/cardHeader.vue';
 import CardTitle  from '../ui/cardTitle.vue';
 import useIsMobile from '../ui/useMobile';
-//import CSVMappingDialog from './CSVMappingDialog.vue';
-//import { toast } from 'sonner';
+import CSVMappingDialog from './CSVMappingDialog.vue';
+
+// Shim : le prototype importait `toast` de 'sonner' (lib React, jamais installée
+// côté Vue) en laissant les appels en place → ReferenceError au premier save/export
+// (BUG-231). Retours non bloquants via console en attendant la refonte.
+const toast = {
+  success: (msg) => console.info('[HR]', msg),
+  info: (msg) => console.info('[HR]', msg),
+  error: (msg) => console.error('[HR]', msg),
+};
 
 const SECTORS = ['F&B', 'Hospitality', 'Merch', 'Ticketing', 'Access', 'Kitchen', 'Entertainment'];
 
@@ -418,7 +430,7 @@ export default {
     CardContent,
     CardHeader,
     CardTitle,
-    //CSVMappingDialog,
+    CSVMappingDialog,
   },
   props: {
     onClose: {
@@ -428,6 +440,10 @@ export default {
   },
   data() {
     return {
+      // Exposé au template (:checked All Sectors, v-for) : une const de module
+      // n'est PAS visible depuis un template Options API → `SECTORS.length`
+      // crashait à l'ouverture du dialog (BUG-231).
+      SECTORS,
       suppliers: /** @type {hrApi.HRSupplier[]} */ ([]),
       spaces: [],
       configurations: {}, // { [spaceId]: Configuration[] }
@@ -465,26 +481,26 @@ export default {
     async loadData() {
       try {
         const [spacesData, suppliersData] = await Promise.all([
-          api.getAllSpaces(),
+          getSpacesLight(),
           hrApi.getAllHRSuppliers(),
         ]);
 
-        this.spaces = spacesData;
-        this.suppliers = suppliersData;
+        this.spaces = Array.isArray(spacesData) ? spacesData : [];
+        this.suppliers = Array.isArray(suppliersData) ? suppliersData : [];
 
-        const configsMap = {};
-        for (const space of spacesData) {
-          try {
-            const configs = await api.getSpaceConfigurations(space.id);
-            configsMap[space.id] = configs;
-          } catch (error) {
-            console.warn(
-              `Could not load configurations for space ${space.id}. This is normal if the server is restarting.`
-            );
-            configsMap[space.id] = [];
-          }
-        }
-        this.configurations = configsMap;
+        // Configurations en parallèle (l'ancien for…await séquentiel = N appels
+        // en série, BUG-231) ; un échec par espace retombe sur [].
+        const entries = await Promise.all(
+          this.spaces.map(async (space) => {
+            try {
+              return [space.id, await getSpaceConfigurations(space.id)];
+            } catch (error) {
+              console.warn(`Could not load configurations for space ${space.id}.`);
+              return [space.id, []];
+            }
+          })
+        );
+        this.configurations = Object.fromEntries(entries);
       } catch (error) {
         console.error('Failed to load HR suppliers data:', error);
       }

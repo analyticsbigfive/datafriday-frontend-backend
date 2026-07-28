@@ -24,7 +24,7 @@
               {{ error }}
             </v-alert>
 
-            <div class="ptfd-field-label">{{ t('productTypeList.labelName') }}</div>
+            <div class="ptfd-field-label">{{ t('productTypeList.labelName') }} <span class="ptfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
               density="compact"
@@ -109,13 +109,13 @@ export default {
     async submit() {
       this.error = '';
       const name = String(this.form.name || '').trim();
-      if (!name) { this.error = 'Le nom est requis'; return; }
+      if (!name) { this.error = this.t('productTypeList.nameRequired'); return; }
 
       this.loading = true;
       try {
         const payload = { name };
         if (this.mode === 'edit') {
-          if (!this.form.id) { this.error = 'Identifiant manquant'; return; }
+          if (!this.form.id) { this.error = this.t('productTypeList.missingId'); return; }
           await updateProductType(this.form.id, payload);
           await this.$store.dispatch('productTypes/updateProductType', { id: this.form.id, ...payload });
           this.$emit('saved', { id: this.form.id, ...payload });
@@ -130,7 +130,7 @@ export default {
         }
         this.close();
       } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || 'Échec de la sauvegarde';
+        this.error = e?.response?.data?.message || e?.message || this.t('productTypeList.saveError');
       } finally {
         this.loading = false;
       }
@@ -235,6 +235,7 @@ export default {
 .ptfd-panel--dark .ptfd-field-label {
   color: #d1d5db;
 }
+.ptfd-star { color: #ff3131; }
 
 /* styled field */
 .ptfd-field :deep(.v-field) {
@@ -249,6 +250,7 @@ export default {
   border-color: #ff3131 !important;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
 }
+.ptfd-panel--dark .ptfd-field :deep(.v-field) { border-color: #374151 !important; }
 
 /* ── Footer ── */
 .ptfd-footer {

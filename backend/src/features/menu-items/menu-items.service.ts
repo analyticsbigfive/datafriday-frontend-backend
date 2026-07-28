@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -205,6 +205,33 @@ export class MenuItemsService {
     await this.prisma.$transaction(ops);
   }
 
+  /**
+   * Associe un MenuItem existant à des espaces sans toucher à ses autres associations
+   * (contrairement à syncSpaceLinks qui remplace tout l'état). Utilisé quand on RÉUTILISE un
+   * item déjà existant (dedupeByName, BUG-052) : on ne veut ajouter que l'espace demandé, pas
+   * désassocier les espaces auxquels l'item était déjà rattaché.
+   */
+  private async linkSpacesAdditive(menuItemId: string, tenantId: string, spaceIds?: unknown, spacePrices?: unknown) {
+    const ids = Array.isArray(spaceIds) ? [...new Set(spaceIds.filter((v): v is string => typeof v === 'string'))] : [];
+    if (!ids.length) return;
+    const validIds = new Set(
+      (await this.prisma.space.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true } })).map((s) => s.id),
+    );
+    const prices = spacePrices ? this.normalizeSpacePricesMap(spacePrices) : {};
+    const ops = ids
+      .filter((id) => validIds.has(id))
+      .map((spaceId) => {
+        const p = prices[spaceId];
+        return this.prisma.spaceMenuItem.upsert({
+          where: { menuItemId_spaceId: { menuItemId, spaceId } },
+          create: { menuItemId, spaceId, priceTtc: p?.ttc ?? null, vatRate: p?.vatRate ?? null },
+          // Ne touche pas un lien déjà existant : ne pas écraser un prix espace déjà réglé.
+          update: {},
+        });
+      });
+    if (ops.length) await this.prisma.$transaction(ops);
+  }
+
   /** Délègue au service partagé (réutilisé par la Data Integration). */
   private getTenantDefaultVatRate(tenantId: string): Promise<number> {
     return this.pricing.getTenantDefaultVatRate(tenantId);
@@ -240,7 +267,21 @@ export class MenuItemsService {
   async create(dto: CreateMenuItemDto, tenantId: string) {
     this.logger.log(`Creating menu item "${dto.name}" for tenant ${tenantId}`);
     this.logger.debug(`Validating IDs - typeId: ${dto.typeId}, categoryId: ${dto.categoryId}`);
-    
+
+    if (dto.dedupeByName && dto.name?.trim()) {
+      const existing = await this.prisma.menuItem.findFirst({
+        where: { tenantId, deletedAt: null, name: { equals: dto.name.trim(), mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (existing) {
+        this.logger.log(
+          `dedupeByName: reusing existing menu item ${existing.id} for name "${dto.name}" instead of creating a duplicate`,
+        );
+        await this.linkSpacesAdditive(existing.id, tenantId, (dto as any).spaceIds, (dto as any).spacePrices);
+        return this.findOne(existing.id, tenantId);
+      }
+    }
+
     try {
       const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
       const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
@@ -354,13 +395,66 @@ export class MenuItemsService {
 
   async bulkCreate(dtos: CreateMenuItemDto[], tenantId: string) {
     if (!Array.isArray(dtos) || dtos.length === 0) {
-      return { count: 0, items: [] };
+      return { count: 0, items: [], duplicatesCount: 0, duplicates: [] };
     }
 
     this.logger.log(`Bulk creating ${dtos.length} menu items for tenant ${tenantId}`);
     try {
-      const items = await Promise.all(dtos.map(async (dto) => ({
-        id: randomUUID(),
+      // BUG-006 (partie dédup forward) / même famille que BUG-052 (create()::dedupeByName,
+      // ligne 271) : bulkCreate n'avait aucun garde-fou par nom — chaque essai/retry de mapping
+      // en masse recréait un MenuItem même si un item du même nom existait déjà pour ce tenant,
+      // d'où les doublons accumulés (cf. fiche BUG-006). On recherche les noms déjà présents pour
+      // ce tenant (trim + insensible à la casse, même pattern que create()) et on réutilise
+      // l'existant au lieu d'insérer un doublon ; le même contrôle s'applique aux doublons internes
+      // au payload lui-même (deux lignes du même import portant le même nom).
+      const existingByName = new Map(
+        (
+          await this.prisma.menuItem.findMany({
+            where: { tenantId, deletedAt: null },
+            select: { id: true, name: true, typeId: true, categoryId: true, basePrice: true },
+          })
+        ).map((m) => [m.name.trim().toLowerCase(), m]),
+      );
+
+      type Duplicate = { index: number; name: string; reusedItemId: string; reason: 'existing_tenant_item' | 'duplicate_in_batch' };
+      const duplicates: Duplicate[] = [];
+      const batchNameToId = new Map<string, string>();
+      // Résultat positionnel : une entrée par dto en entrée, dans le même ordre — pour ne pas
+      // casser un appelant qui apparie la réponse à sa requête par index (contrat non-breaking).
+      const resultByIndex: any[] = new Array(dtos.length).fill(null);
+      const toInsert: { dto: CreateMenuItemDto; index: number; id: string }[] = [];
+
+      dtos.forEach((dto, index) => {
+        const key = dto.name?.trim().toLowerCase();
+        const existing = key ? existingByName.get(key) : undefined;
+        if (existing) {
+          duplicates.push({ index, name: dto.name, reusedItemId: existing.id, reason: 'existing_tenant_item' });
+          resultByIndex[index] = {
+            id: existing.id,
+            name: existing.name,
+            typeId: existing.typeId,
+            categoryId: existing.categoryId,
+            basePrice: existing.basePrice,
+            tenantId,
+            spaceIds: [],
+            duplicate: true,
+          };
+          return;
+        }
+        const batchId = key ? batchNameToId.get(key) : undefined;
+        if (batchId) {
+          duplicates.push({ index, name: dto.name, reusedItemId: batchId, reason: 'duplicate_in_batch' });
+          const original = resultByIndex.find((r) => r?.id === batchId);
+          resultByIndex[index] = original ? { ...original, duplicate: true } : { id: batchId, name: dto.name, duplicate: true };
+          return;
+        }
+        const id = randomUUID();
+        if (key) batchNameToId.set(key, id);
+        toInsert.push({ dto, index, id });
+      });
+
+      const insertedItems = await Promise.all(toInsert.map(async ({ dto, id }) => ({
+        id,
         tenantId,
         name: dto.name,
         typeId: dto.typeId || null,
@@ -388,14 +482,15 @@ export class MenuItemsService {
         inventoryUnit: (dto as any).inventoryUnit ?? null,
       })));
 
-      await this.prisma.menuItem.createMany({
-        data: items as any[],
-      });
+      if (insertedItems.length) {
+        await this.prisma.menuItem.createMany({
+          data: insertedItems as any[],
+        });
+      }
 
-      await this.invalidateCache(tenantId);
-      return {
-        count: items.length,
-        items: items.map((item) => ({
+      toInsert.forEach(({ index }, i) => {
+        const item = insertedItems[i];
+        resultByIndex[index] = {
           id: item.id,
           name: item.name,
           typeId: item.typeId,
@@ -403,7 +498,20 @@ export class MenuItemsService {
           basePrice: item.basePrice,
           tenantId: item.tenantId,
           spaceIds: [],
-        })),
+        };
+      });
+
+      await this.invalidateCache(tenantId);
+      if (duplicates.length) {
+        this.logger.log(
+          `bulkCreate: skipped ${duplicates.length} duplicate name(s) out of ${dtos.length} for tenant ${tenantId} (reused existing item instead of inserting)`,
+        );
+      }
+      return {
+        count: insertedItems.length,
+        items: resultByIndex,
+        duplicatesCount: duplicates.length,
+        duplicates,
       };
     } catch (error) {
       this.logger.error(`Failed to bulk create menu items: ${error.message}`, error.stack);
@@ -415,11 +523,23 @@ export class MenuItemsService {
     }
   }
 
-  async findAll(tenantId: string, page = 1, limit = 100, spaceId?: string) {
+  async findAll(
+    tenantId: string,
+    page = 1,
+    limit = 100,
+    spaceId?: string,
+    filters?: { search?: string; typeId?: string; categoryId?: string; readyForSale?: string },
+  ) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
-    this.logger.log(`Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'})`);
+    const { search, typeId, categoryId, readyForSale } = filters || {};
+    this.logger.log(
+      `Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'}, search=${search ?? ''}, typeId=${typeId ?? ''}, categoryId=${categoryId ?? ''}, readyForSale=${readyForSale ?? ''})`,
+    );
     try {
-      const cacheKey = this.cacheKey(tenantId, `list:${page}:${safeLimit}:${spaceId ?? 'all'}`);
+      const cacheKey = this.cacheKey(
+        tenantId,
+        `list:${page}:${safeLimit}:${spaceId ?? 'all'}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${readyForSale ?? ''}`,
+      );
       return this.redis.getOrSet(cacheKey, async () => {
         const skip = (page - 1) * safeLimit;
         // spaceId filtre sur la table SpaceMenuItem (join indexé) : évite de charger tout
@@ -427,6 +547,10 @@ export class MenuItemsService {
         // paginait sur l'intégralité des menu items avant de filtrer côté client).
         const where: any = { tenantId, deletedAt: null };
         if (spaceId) where.spaceLinks = { some: { spaceId } };
+        if (search) where.name = { contains: search, mode: 'insensitive' };
+        if (typeId) where.typeId = typeId;
+        if (categoryId) where.categoryId = categoryId;
+        if (readyForSale) where.readyForSale = readyForSale;
         const [items, total, tenantVatRate] = await Promise.all([
           this.prisma.menuItem.findMany({
             where,
@@ -1340,6 +1464,13 @@ export class MenuItemsService {
       if (purged.count > 0) {
         this.logger.log(`Removed ${purged.count} Weezevent product mapping(s) pointing to soft-deleted menu item ${id}`);
       }
+      // Même invariant côté prix par espace : un MenuItem soft-deleted ne doit jamais laisser de
+      // SpaceMenuItem orphelin derrière lui (BUG-051), sinon ces lignes s'accumulent à chaque
+      // ré-import/re-mapping sans jamais être nettoyées.
+      const purgedSpaceLinks = await this.prisma.spaceMenuItem.deleteMany({ where: { menuItemId: id } });
+      if (purgedSpaceLinks.count > 0) {
+        this.logger.log(`Removed ${purgedSpaceLinks.count} space price override(s) pointing to soft-deleted menu item ${id}`);
+      }
       this.logger.log(`Menu item ${id} soft-deleted`);
       await this.invalidateCache(tenantId);
       return result;
@@ -1488,20 +1619,82 @@ export class MenuItemsService {
   }
 
   // ── ProductType & ProductCategory ────────────────
-  async getProductTypes(tenantId: string) {
-    return this.prisma.productType.findMany({
-      where: { OR: [{ tenantId }, { tenantId: null }] },
-      orderBy: { name: 'asc' },
-      include: {
-        categories: {
-          where: { OR: [{ tenantId }, { tenantId: null }] },
+  // BUG-169 : pagination réelle (skip/take), même shape/clamp que findAll (menu-items) —
+  // évite un findMany() non borné sur ce référentiel. Le front (store productTypes.js)
+  // boucle sur les pages pour reconstituer la liste complète (contrat inchangé côté UI).
+  async getProductTypes(tenantId: string, page = 1, limit = 200, search?: string) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where: any = {
+      AND: [
+        { OR: [{ tenantId }, { tenantId: null }] },
+        ...(search ? [{ name: { contains: search, mode: 'insensitive' } }] : []),
+      ],
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.productType.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: {
+          categories: {
+            where: { OR: [{ tenantId }, { tenantId: null }] },
+          },
         },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.productType.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) } };
+  }
+
+  // BUG-87 : la contrainte unique Postgres (@@unique([tenantId, name])) est sensible à la casse —
+  // sans ce garde-fou pré-insertion, "Food" et "food" peuvent coexister comme deux ProductType
+  // distincts pour le même tenant. Pattern identique à menu-items.service.ts:273 (dedupeByName).
+  private async assertProductTypeNameAvailable(name: string, tenantId: string | undefined, excludeId?: string) {
+    const duplicate = await this.prisma.productType.findFirst({
+      where: {
+        tenantId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
       },
     });
+    if (duplicate) {
+      throw new BadRequestException(`Un type nommé « ${name} » existe déjà`);
+    }
+  }
+
+  // Scope aligné sur la contrainte unique réelle (@@unique([tenantId, typeId, name])) : deux
+  // catégories de même nom sont autorisées si elles appartiennent à des ProductType différents.
+  private async assertProductCategoryNameAvailable(
+    name: string,
+    tenantId: string | undefined,
+    typeId: string,
+    excludeId?: string,
+  ) {
+    const duplicate = await this.prisma.productCategory.findFirst({
+      where: {
+        tenantId,
+        typeId,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`Une catégorie nommée « ${name} » existe déjà pour ce type`);
+    }
   }
 
   async createProductType(name: string, tenantId?: string) {
-    return this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
+    await this.assertProductTypeNameAvailable(name, tenantId);
+    try {
+      return await this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`Un type nommé « ${name} » existe déjà`);
+      }
+      throw error;
+    }
   }
 
   async deleteProductType(id: string, tenantId: string) {
@@ -1515,6 +1708,30 @@ export class MenuItemsService {
 
     if (productType.tenantId === null) {
       throw new BadRequestException(`Cannot delete global product type`);
+    }
+
+    // BUG-79 : ProductCategory.type est onDelete: Cascade et MenuItem.typeId n'a pas d'onDelete
+    // explicite (SET NULL par défaut) — sans cette garde, supprimer un ProductType cascade-supprime
+    // silencieusement ses ProductCategory enfants et met NULL sur MenuItem.typeId. Même pattern que
+    // deleteEventType (BUG-75, events.service.ts:297-309).
+    const categoryCount = await this.prisma.productCategory.count({ where: { typeId: id } });
+    if (categoryCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
+      );
+    }
+    const menuItemCount = await this.prisma.menuItem.count({ where: { typeId: id } });
+    if (menuItemCount > 0) {
+      // Payload structuré (au-delà du `message`) pour que le front puisse proposer un lien direct
+      // vers la liste des Menu Items déjà filtrée sur ce type, plutôt que de laisser l'utilisateur
+      // chercher "le bon menu item" à la main parmi potentiellement des milliers de lignes.
+      throw new ConflictException({
+        message: `Impossible de supprimer ce type : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'menuItems',
+        count: menuItemCount,
+        filterField: 'type',
+        filterValue: productType.name,
+      });
     }
 
     await this.prisma.productType.delete({ where: { id } });
@@ -1534,6 +1751,10 @@ export class MenuItemsService {
       throw new BadRequestException(`Cannot update global product type`);
     }
 
+    if (name !== undefined) {
+      await this.assertProductTypeNameAvailable(name, tenantId, id);
+    }
+
     const updated = await this.prisma.productType.update({
       where: { id },
       data: { name },
@@ -1543,17 +1764,28 @@ export class MenuItemsService {
     return updated;
   }
 
-  async getProductCategories(tenantId: string, typeId?: string) {
-    return this.prisma.productCategory.findMany({
-      where: {
-        AND: [
-          { OR: [{ tenantId }, { tenantId: null }] },
-          ...(typeId ? [{ typeId }] : []),
-        ],
-      },
-      orderBy: { name: 'asc' },
-      include: { type: true },
-    });
+  // BUG-169 : idem getProductTypes — pagination réelle, même shape/clamp que findAll.
+  async getProductCategories(tenantId: string, typeId?: string, page = 1, limit = 200, search?: string) {
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (page - 1) * safeLimit;
+    const where: any = {
+      AND: [
+        { OR: [{ tenantId }, { tenantId: null }] },
+        ...(typeId ? [{ typeId }] : []),
+        ...(search ? [{ name: { contains: search, mode: 'insensitive' } }] : []),
+      ],
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.productCategory.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: { type: true },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.productCategory.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) } };
   }
 
   async createProductCategory(
@@ -1607,16 +1839,25 @@ export class MenuItemsService {
       });
     }
 
-    return this.prisma.productCategory.create({
-      data: {
-        name,
-        tenantId,
-        type: {
-          connect: { id: resolvedTypeId },
+    await this.assertProductCategoryNameAvailable(name, tenantId, resolvedTypeId);
+
+    try {
+      return await this.prisma.productCategory.create({
+        data: {
+          name,
+          tenantId,
+          type: {
+            connect: { id: resolvedTypeId },
+          },
         },
-      },
-      include: { type: true },
-    });
+        include: { type: true },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`Une catégorie nommée « ${name} » existe déjà pour ce type`);
+      }
+      throw error;
+    }
   }
 
   async deleteProductCategory(id: string, tenantId: string) {
@@ -1630,6 +1871,20 @@ export class MenuItemsService {
 
     if (productCategory.tenantId === null) {
       throw new BadRequestException(`Cannot delete global product category`);
+    }
+
+    // BUG-79 : MenuItem.categoryId n'a pas d'onDelete explicite (SET NULL par défaut) — sans cette
+    // garde, supprimer une ProductCategory encore utilisée met silencieusement NULL sur
+    // MenuItem.categoryId. Même pattern que deleteEventCategory (BUG-75).
+    const menuItemCount = await this.prisma.menuItem.count({ where: { categoryId: id } });
+    if (menuItemCount > 0) {
+      throw new ConflictException({
+        message: `Impossible de supprimer cette catégorie : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,
+        blockedBy: 'menuItems',
+        count: menuItemCount,
+        filterField: 'category',
+        filterValue: productCategory.name,
+      });
     }
 
     await this.prisma.productCategory.delete({ where: { id } });
@@ -1677,6 +1932,15 @@ export class MenuItemsService {
         });
       }
       updateData.type = { connect: { id: resolvedTypeId } };
+    }
+
+    if (data.name !== undefined || resolvedTypeId !== undefined) {
+      await this.assertProductCategoryNameAvailable(
+        data.name ?? productCategory.name,
+        tenantId,
+        resolvedTypeId ?? productCategory.typeId,
+        id,
+      );
     }
 
     const updated = await this.prisma.productCategory.update({

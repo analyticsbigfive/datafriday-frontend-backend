@@ -5,7 +5,7 @@
     max-width="460"
     :persistent="loading"
   >
-    <div class="rdd-dialog">
+    <div class="rdd-dialog" :class="{ 'rdd--dark': isDark }">
 
       <!-- Header dégradé danger -->
       <div class="rdd-header">
@@ -100,15 +100,15 @@ export default {
 .rdd-header__text { flex: 1; min-width: 0; }
 
 .rdd-header__title {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
   line-height: 1.3;
 }
 
 .rdd-header__sub {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, 0.72);
   margin: 2px 0 0;
 }
@@ -177,8 +177,8 @@ export default {
   padding: 0 20px;
   height: 38px;
   border-radius: 50px;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
   border: none;
   transition: all 0.2s;
@@ -201,4 +201,14 @@ export default {
 .rdd-btn--danger:hover:not(:disabled) {
   box-shadow: 0 4px 12px rgba(255, 49, 49, 0.35);
 }
+
+/* ── Dark mode ── (dialog téléporté, piloté par la prop isDark → .rdd--dark ;
+   le header rouge #ff3131 et le bouton danger restent identiques). */
+.rdd--dark.rdd-dialog { background: #1f2937; }
+.rdd--dark .rdd-body { background: #111827; }
+.rdd--dark .rdd-confirm-text { color: #d1d5db; }
+.rdd--dark .rdd-confirm-text strong { color: #f9fafb; }
+.rdd--dark .rdd-footer { background: #1f2937; border-top-color: #374151; }
+.rdd--dark .rdd-btn--ghost { background: #374151; color: #f9fafb; }
+.rdd--dark .rdd-btn--ghost:hover:not(:disabled) { background: #4b5563; }
 </style>

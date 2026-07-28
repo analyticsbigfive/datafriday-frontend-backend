@@ -137,8 +137,20 @@ export async function repairMenuComponents() {
 // Taxonomie dédiée, indépendante de Product Type/Category et Market Price Type/Category.
 // ============================================
 
-export async function getComponentTypes() {
-  return api.get('/component-types')
+/**
+ * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
+ * pages pour reconstituer la liste complète — voir store/modules/componentTypes.js).
+ * `search` : filtre serveur (contains/insensible à la casse sur le nom) — utilisé par
+ * ComponentTypeList.vue pour sa pagination + recherche réelles côté serveur.
+ * @param {{ page?: number, limit?: number, search?: string }} [opts]
+ */
+export async function getComponentTypes({ page, limit, search } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  if (search) params.set('search', search)
+  const qs = params.toString()
+  return api.get(`/component-types${qs ? '?' + qs : ''}`)
 }
 
 export async function createComponentType(componentType) {
@@ -153,8 +165,20 @@ export async function deleteComponentType(id) {
   return api.delete(`/component-types/${id}`)
 }
 
-export async function getComponentCategories() {
-  return api.get('/component-categories')
+/**
+ * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
+ * pages pour reconstituer la liste complète — voir store/modules/componentCategories.js).
+ * `search` : filtre serveur (contains/insensible à la casse sur le nom) — utilisé par
+ * ComponentCategoryList.vue pour sa pagination + recherche réelles côté serveur.
+ * @param {{ page?: number, limit?: number, search?: string }} [opts]
+ */
+export async function getComponentCategories({ page, limit, search } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  if (search) params.set('search', search)
+  const qs = params.toString()
+  return api.get(`/component-categories${qs ? '?' + qs : ''}`)
 }
 
 export async function createComponentCategory(componentCategory) {
@@ -267,10 +291,15 @@ export async function cleanupInvalidPackaging() {
 
 /**
  * Récupérer tous les prix du marché
+ * @param {{ page?: number, limit?: number }} [opts]
  * @returns {Promise<Array>}
  */
-export async function getMarketPrices() {
-  return api.get('/market-prices')
+export async function getMarketPrices({ page, limit } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/market-prices${qs ? '?' + qs : ''}`)
 }
 
 export async function getMarketPricesWithIngredients({ page, limit, search, category, goodType } = {}) {
@@ -368,10 +397,15 @@ export async function deduplicateMarketPrices() {
 
 /**
  * Récupérer tous les fournisseurs
+ * @param {{page?: number, limit?: number}} [opts]
  * @returns {Promise<Array>}
  */
-export async function getSuppliers() {
-  return api.get('/suppliers')
+export async function getSuppliers({ page, limit } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/suppliers${qs ? `?${qs}` : ''}`)
 }
 
 /**
@@ -654,15 +688,6 @@ export async function getProductTypes() {
   return api.get('/product-types')
 }
 
-/**
- * Créer un type de produit
- * @param {string} name
- * @returns {Promise<Object>}
- */
-export async function createProductType(name) {
-  return api.post('/product-types', { name })
-}
-
 // ============================================
 // PRODUCT CATEGORIES (dynamiques)
 // ============================================
@@ -675,75 +700,6 @@ export async function createProductType(name) {
 export async function getProductCategories(typeId) {
   const url = typeId ? `/product-categories?typeId=${encodeURIComponent(typeId)}` : '/product-categories'
   return api.get(url)
-}
-
-/**
- * Créer une catégorie de produit
- * @param {string} name
- * @param {string} typeId - ID du type parent
- * @returns {Promise<Object>}
- */
-export async function createProductCategory(name, typeId) {
-  return api.post('/product-categories', { name, typeId })
-}
-
-// ============================================
-// CATEGORIES (legacy)
-// ============================================
-
-/**
- * Récupérer toutes les catégories
- * @returns {Promise<Array>}
- */
-export async function getAllCategories() {
-  return api.get('/categories')
-}
-
-/**
- * Créer une catégorie
- * @param {string} name 
- * @param {string} typeId - ID du type parent
- * @returns {Promise<Object>}
- */
-export async function createCategory(name, typeId) {
-  return api.post('/categories', { name, typeId })
-}
-
-/**
- * Récupérer les agrégations de catégories
- * @returns {Promise<Object>}
- */
-export async function getAllCategoryAggregations() {
-  return api.get('/categories/aggregations')
-}
-
-// ============================================
-// TYPES (legacy)
-// ============================================
-
-/**
- * Récupérer tous les types
- * @returns {Promise<Array>}
- */
-export async function getAllTypes() {
-  return api.get('/types')
-}
-
-/**
- * Créer un type
- * @param {string} name 
- * @returns {Promise<Object>}
- */
-export async function createType(name) {
-  return api.post('/types', { name })
-}
-
-/**
- * Récupérer les agrégations de types
- * @returns {Promise<Object>}
- */
-export async function getAllTypeAggregations() {
-  return api.get('/types/aggregations')
 }
 
 // ============================================

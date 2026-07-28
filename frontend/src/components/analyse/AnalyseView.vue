@@ -1,5 +1,5 @@
 <template>
-  <v-app class="analyse-app">
+  <v-app class="analyse-app" :class="{ 'analyse-app--dark': isDark }">
     <WorkspaceAppHeader
       :space-name="spaceName"
       :kpis="headerKpis"
@@ -35,6 +35,10 @@
                   @toggle="drawer = !drawer"
                 />
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
+                <!-- Badge Live (module Live, greffe D) : visible sur la route space-live. -->
+                <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
+                  <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
+                </span>
                 <v-spacer />
                 <v-btn
                   icon
@@ -114,9 +118,31 @@
               </v-btn>
             </div>
           </div>
+      <!-- Onglets Live (module Live v2, 11_LIVE.md §3) : bascule Analyse / Inventaire,
+           visibles uniquement sur la route space-live. -->
+      <div v-if="isLive" class="an-live-tabs">
+        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'analyse' }" @click="liveTab = 'analyse'">{{ t('anToolAnalyse') }}</button>
+        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'inventory' }" @click="liveTab = 'inventory'">{{ t('anLiveInvTitle') }}</button>
+      </div>
+
+      <LiveInventoryPanel
+        v-if="showInventory"
+        :space-id="route.params.spaceId"
+        :is-dark="isDark"
+        :active="showInventory"
+      />
+
+      <!-- Bouton flottant QA (module Live) : simuler une vraie vente Weezevent/Digifood
+           pour tester le mode Live sans attendre un vrai event. -->
+      <LiveSaleSimulatorWidget
+        v-if="isLive"
+        :space-id="route.params.spaceId"
+        @simulated="livePoll"
+      />
+
       <!-- pa-0 : les gutters viennent de la grille .an-body (18/24), le
            container ne doit pas ré-indenter le contenu vs le bandeau rouge. -->
-      <v-container id="analyse-capture-root" fluid class="pa-0">
+      <v-container v-show="!showInventory" id="analyse-capture-root" fluid class="pa-0">
         <!-- Loading : skeleton fidèle à la structure de l'écran -->
         <template v-if="loading">
           <v-skeleton-loader
@@ -296,10 +322,21 @@
 
 
 
+          <!-- Camemberts : montés MÊME pendant la phase 2 (`:loading`) → 3 donuts
+               en skeleton dans la carte réelle, au lieu d'un rectangle générique
+               qui remplaçait toute la carte. Le donut « Par zone » garde en plus
+               son propre pending (contexte PdV différé — cf. BUG-223). -->
+          <ShopDistributionPieChart
+            :records="chartRecords"
+            :loading="chartsLoading"
+            @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
+            @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
+            @shop-area-click="(v) => toggleArrayFilter('selectedShopAreas', v)"
+          />
+
           <!-- Phase 2 : skeletons des graphes SOUS la carte (le skeleton des
                barres vit désormais dans la carte ci-dessus). -->
           <template v-if="chartsLoading">
-            <v-skeleton-loader type="image" class="mb-4 an-chart-skeleton" />
             <v-skeleton-loader type="image" class="mb-4 an-chart-skeleton" />
             <v-skeleton-loader type="table-heading, table-row-divider, table-row@4" class="mb-4 an-chart-skeleton" />
           </template>
@@ -307,28 +344,23 @@
           <!-- Distributions / tables (CA par shop/menu type) sous la carte. Toutes
                data-driven : tout ce qui est vendu s'affiche (parité React). -->
           <template v-else>
-            <ShopDistributionPieChart
-              :records="chartRecords"
-              @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
-              @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
-              @shop-area-click="(v) => toggleArrayFilter('selectedShopAreas', v)"
-            />
-            <!-- Répartition/tableau ARTICLE : masqués en mode predict. La
-                 prédiction est au niveau PdV (shop-level) → aucune dimension
-                 article → ces vues seraient structurellement vides (0 article). -->
+            <!-- Répartition/tableau ARTICLE : `articleRecords` et non `chartRecords`.
+                 En mode Predict, le shop-level n'a aucune dimension article ; le grain
+                 article des prévisions vient des scénarios Event Predict. Les events
+                 prédits sans scénario n'en ont pas → compteur discret. -->
             <MenuItemRevenueDistribution
-              v-if="!isPredictMode"
-              :records="chartRecords"
-              :loading="itemRecordsLoading"
+              :records="articleRecords"
+              :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
+              :missing-events-count="predictEventsWithoutScenarioCount"
               @item-click="(v) => toggleArrayFilter('selectedMenuItemIds', v)"
               @type-click="(v) => toggleArrayFilter('selectedMenuItemTypes', v)"
               @category-click="(v) => toggleArrayFilter('selectedMenuItemCategories', v)"
               @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
             />
             <MenuItemsByShopTable
-              v-if="!isPredictMode"
-              :records="chartRecords"
-              :loading="itemRecordsLoading"
+              :records="articleRecords"
+              :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
+              :missing-events-count="predictEventsWithoutScenarioCount"
               @events-click="onTableEventsClick"
             />
           </template>
@@ -369,9 +401,13 @@
     />
 
     <!-- Dialog : liste des évènements pour un combo PdV × article (clic cellule Events) -->
+    <!-- Drill-down d'une cellule de MenuItemsByShopTable : MÊME dataset que la
+         table (`articleRecords`), sinon en mode Predict le dialog interrogerait le
+         shop-level sans nom d'article → toujours 0 event. Hors Predict,
+         articleRecords === chartRecords : aucun changement. -->
     <ShopItemEventsDialog
       v-model="shopItemEventsDialog"
-      :records="chartRecords"
+      :records="articleRecords"
       :shop-name="eventsDialogShop"
       :menu-item-name="eventsDialogItem"
       :events="filteredEvents"
@@ -397,14 +433,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useDisplay } from 'vuetify'
+import { useDisplay, useTheme } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import FilterPanel from './filters/FilterPanel.vue'
+import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
+import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
 import FilterSummary from './filters/FilterSummary.vue'
 import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'
@@ -416,6 +454,7 @@ import SummaryPanel from './panels/SummaryPanel.vue'
 import FilterEditorPanel from './panels/FilterEditorPanel.vue'
 import ShopPerformanceByTransactionRate from './charts/ShopPerformanceByTransactionRate.vue'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
+import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
@@ -435,7 +474,11 @@ import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
 import { parseEventDate as parseEventDateLocal, formatDateShort } from '@/utils/dateFr'
 import { resolveItemName, resolveItemType, resolveItemCategory, resolveShopType } from '@/utils/analyseDimensions'
-import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
+import {
+  UNATTACHED_ITEM_KEY,
+  buildReconciliationContext,
+  reconcileRecord,
+} from '@/utils/analyseReconciliation'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { isMinuteInRange } from '@/utils/timelineBucketing'
 import { useI18n } from '@/i18n/useI18n'
@@ -447,6 +490,12 @@ const router = useRouter()
 // Sur mobile / tablette, les drawers de filtre + résumé doivent être fermés
 // par défaut pour ne pas masquer le contenu (cf. version Figma responsive).
 const { mdAndDown } = useDisplay()
+
+// Dark mode : composant autonome via le thème Vuetify global (useTheme). Sert à
+// scoper les overrides CSS custom sous `.analyse-app--dark` (le thème Vuetify
+// gère déjà les v-card/v-btn/... ; ici on ne corrige que nos couleurs codées en dur).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const drawer = ref(!mdAndDown.value)
 // Panneau « Analyse des données » : ouvert par défaut sur desktop, fermé
@@ -536,16 +585,24 @@ const {
   itemRecords: globalItemRecords,
   loading: itemRecordsLoading,
   loadedEventIds: mainLoadedEventIds,
+  fetchError: itemRecordsError,
+  refresh: refreshItemRecords,
 } = useAnalyseItemRecords(filteredEvents)
 
-// On y réapplique les filtres globaux en miroir du getter store
-// `filteredShopGranularData` (NB : selectedShopIds contient des NOMS de PdV ;
-// selectedMenuItemIds des noms d'article résolus). Le filtre event est déjà
-// appliqué en amont (filteredEvents).
-const itemLevelRecords = computed(() => {
-  const recs = globalItemRecords.value || []
-  if (!recs.length) return []
-  const f = filters.value || {}
+// Prédicat des filtres globaux, en miroir du getter store `filteredShopGranularData`
+// (NB : selectedShopIds contient des NOMS de PdV ; selectedMenuItemIds des noms
+// d'article résolus). Le filtre event est déjà appliqué en amont (filteredEvents).
+// PARTAGÉ entre l'item-level réel et les records article des scénarios Predict :
+// une seule implémentation, sinon un clic sur une part de donut filtrerait le passé
+// mais pas les prédictions (règle d'or `analyseDimensions.js:184` — même `resolveX`
+// côté regroupement et côté filtre).
+// `skipMinute` : les records article des scénarios sont PRÉ-AGRÉGÉS par
+// (shop × article) et n'ont donc pas de champ `minute`. Or `isMinuteInRange`
+// renvoie false pour un `minute` absent dès qu'une borne est posée
+// (timelineBucketing.js:97) → sans cette option, poser le slider horaire les
+// ferait tous disparaître. La fenêtre horaire du scénario est déjà appliquée en
+// amont, côté EventPredict (`windowedPredictedRecords`).
+function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
   // Filtres shop/item stockent des NOMS ; comparaison NORMALISÉE des deux côtés
   // (miroir du store : la liste d'options vient du catalogue, casse possiblement ≠).
   const shopSet = (f.selectedShopIds || []).length ? new Set(f.selectedShopIds.map(normalizeStr)) : null
@@ -558,16 +615,22 @@ const itemLevelRecords = computed(() => {
   const itemTypes = f.selectedMenuItemTypes || []
   const itemCats = f.selectedMenuItemCategories || []
   const range = f.selectedTimeRange
-  return recs.filter((r) => {
+  return (r) => {
     if (shopSet && !shopSet.has(normalizeStr(r.shopName))) return false
     if (shopTypes.length && !shopTypes.includes(resolveShopType(r))) return false
     if (shopAreas.length && !shopAreas.includes(r.shopArea)) return false
     if (itemSet && !itemSet.has(normalizeStr(resolveItemName(r)))) return false
     if (itemTypes.length && !itemTypes.includes(resolveItemType(r))) return false
     if (itemCats.length && !itemCats.includes(resolveItemCategory(r))) return false
-    if (!isMinuteInRange(r.minute, range)) return false
+    if (!skipMinute && !isMinuteInRange(r.minute, range)) return false
     return true
-  })
+  }
+}
+
+const itemLevelRecords = computed(() => {
+  const recs = globalItemRecords.value || []
+  if (!recs.length) return []
+  return recs.filter(buildItemFilterPredicate(filters.value || {}))
 })
 
 // ─── Dataset UNIQUE data-driven (parité React) ─────────────────────────────
@@ -595,6 +658,66 @@ const kpiRecords = computed(() =>
     ? filteredRecords.value
     : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
 )
+
+// ─── Grain ARTICLE en mode Predict ─────────────────────────────────────────
+// `chartRecords` est shop-level en predict (menuItemId null partout) → les 2 vues
+// article seraient vides. Le grain article des prévisions vient des SCÉNARIOS
+// Event Predict (`version.predictedRecords`), reconstruits par le store dans
+// regeneratePredictions. Ils portent des libellés bruts → on les RÉCONCILIE avec
+// le même contexte que useAnalyseItemRecords (type/catégorie/zone catalogue).
+const predictScenarioRecords = computed(() => {
+  if (!isPredictRecords.value) return []
+  const raw = store.state.analyse.predictScenarioItemRecords || []
+  if (!raw.length) return []
+  const eventIds = new Set((filteredEvents.value || []).map((e) => e?.id))
+  const scoped = raw.filter((r) => eventIds.has(r.eventId))
+  if (!scoped.length) return []
+  const a = store.state.analyse
+  const ctx = buildReconciliationContext({
+    menuItems: a.menuItems || [],
+    productCategories: a.productCategoriesList || [],
+    productTypes: a.productTypesList || [],
+    floorElements: a.configShopContext?.floorElements || [],
+    assignment: a.configShopContext?.assignment || null,
+    assignmentItemsByShop: a.configShopContext?.assignmentItemsByShop || null,
+    weezeventProducts: a.weezeventProducts || [],
+  })
+  const keep = buildItemFilterPredicate(filters.value || {}, { skipMinute: true })
+  return scoped.map((r) => reconcileRecord(r, ctx)).filter(keep)
+})
+
+// Events couverts par un scénario — dérivé du state BRUT, jamais de
+// `predictScenarioRecords` (déjà filtré) : un event dont les filtres excluent tous
+// les articles sortirait de l'ensemble et ses ventes RÉELLES rentreraient par la
+// porte de derrière → double comptage partiel sous filtre PdV/article.
+const scenarioEventIds = computed(
+  () => new Set((store.state.analyse.predictScenarioItemRecords || []).map((r) => r.eventId)),
+)
+
+// Source des 2 vues article. Hors predict : inchangé (`chartRecords`). En predict :
+// même périmètre que le reste de la page — réel item-level pour les events sans
+// scénario, records de scénario pour les autres (un event passé AVEC scénario existe
+// en double côté shop-level : réel + copie prédictive scalée, cf. `pastPredictive`).
+const articleRecords = computed(() => {
+  if (!isPredictRecords.value) return chartRecords.value
+  const covered = scenarioEventIds.value
+  const actualPast = itemLevelRecords.value.filter((r) => !covered.has(r.eventId))
+  return [...actualPast, ...predictScenarioRecords.value]
+})
+
+// Events visibles qui ont une prédiction shop-level mais AUCUN scénario sauvegardé :
+// le moteur ne produit pas de dimension article → ils sont absents des 2 vues.
+// Compté ici pour l'afficher plutôt que sous-compter en silence.
+const predictEventsWithoutScenarioCount = computed(() => {
+  if (!isPredictRecords.value) return 0
+  const covered = scenarioEventIds.value
+  const predicted = new Set(
+    (filteredRecords.value || []).filter((r) => r.isPredictive).map((r) => r.eventId),
+  )
+  let n = 0
+  for (const id of predicted) if (!covered.has(id)) n += 1
+  return n
+})
 
 // Scope event strict (décision C) : une config sélectionnée sans aucun event rattaché
 // → message dédié plutôt qu'une page vide trompeuse.
@@ -633,6 +756,7 @@ const {
   itemRecords: comparisonItemRecords,
   loading: comparisonLoading,
   loadedEventIds: comparisonLoadedEventIds,
+  fetchError: comparisonItemRecordsError,
 } = useAnalyseItemRecords(comparisonEventsGated, { maxEvents: 100 })
 
 // État explicite « pas de données de comparaison » (au lieu du silence) : bornes
@@ -792,6 +916,16 @@ function onCloseTimeline() {
 // ---- Capture / partage (html2canvas, clipboard, Web Share API) -----------
 const { copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare } =
   useAnalyseCapture({ spaceName })
+
+// Échec du batch event-timeline (item-level) : sans signalement, l'écran est
+// indistinguable d'un « 0 article pour cette configuration » (fiche 164). Le
+// composable garantit une seule alerte par session (flag module _warnedBatchKo).
+watch([itemRecordsError, comparisonItemRecordsError], ([mainErr, compErr]) => {
+  if (!mainErr && !compErr) return
+  snackbarText.value = t('anItemTimelineLoadError')
+  snackbarColor.value = 'warning'
+  snackbar.value = true
+})
 
 // Contexte PdV (shops DataFriday + assignation item↔PdV) rechargé à chaque
 // changement de configuration → la réconciliation (getters shop-level + item-level)
@@ -1123,6 +1257,9 @@ const toolTitle = computed(() => {
 })
 const predictionsGenerating = computed(() => store.state.analyse.predictionsGenerating)
 const showPredictOverlay = computed(() => selectedToolbox.value === 'event-predict')
+// Seule implémentation vivante (le getter store homonyme, jamais lu et avec une
+// condition `>` stricte divergente, a été supprimé — bug #10 doc 02_ANALYSE).
+// `>=` : un event ayant lieu AUJOURD'HUI compte comme futur (prédictible).
 const futureEventsCount = computed(() => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -1308,8 +1445,62 @@ function onShowAverage() {
 // ---- Copier / Partager (screenshot) --------------------------------------
 // (délégué à useAnalyseCapture : copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare)
 
+// ── Mode flux « Live » (docs/modules/11_LIVE.md, greffe D) ──────────────────
+// Sur la route dédiée `space-live`, on rafraîchit périodiquement TOUTES les
+// sources KPI, pas seulement la timeline :
+//  - `event-timeline` (loadTimelineForEvents) ET `useAnalyseItemRecords`
+//    (Revenue/Per Cap/Margin/Avg-Tx en dépendent, cf. kpiRecords) sont repollés
+//    avec `bypassCache: true` : le cache session de `getSpaceEventTimelineBatch`
+//    (`space.api.js`) suppose un event IMMUABLE (vrai une fois l'event terminé,
+//    faux pendant un live) — sans ce bypass, tout poll après le 1er est servi
+//    depuis ce cache mémoire et n'atteint jamais le réseau.
+//  - `loadSpace` (shop-details/shopGranularData → Shop Performance, Event
+//    Revenue by Shop, Shop distribution) : le bug historique qui remettait
+//    `selectedConfigurationId` à null a été corrigé (bug 225,
+//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js) — un
+//    re-dispatch régulier est donc sûr, à un intervalle plus large (ce payload
+//    recharge aussi catalogue/ingrédients, inutile de le faire aussi souvent
+//    que la timeline).
+// keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
+const isLive = computed(() => route.name === 'space-live')
+// Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
+const liveTab = ref('analyse')
+const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
+const LIVE_POLL_MS = 15000
+const LIVE_SHOP_DETAILS_POLL_MS = 45000
+let livePollTimer = null
+let liveShopDetailsTimer = null
+function livePoll() {
+  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
+  refreshItemRecords()
+}
+function liveShopDetailsPoll() {
+  const spaceId = route.params.spaceId
+  if (spaceId) store.dispatch('analyse/loadSpace', spaceId)
+}
+function startLivePolling() {
+  stopLivePolling()
+  if (!isLive.value) return
+  livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
+  liveShopDetailsTimer = setInterval(liveShopDetailsPoll, LIVE_SHOP_DETAILS_POLL_MS)
+}
+function stopLivePolling() {
+  if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
+  if (liveShopDetailsTimer) { clearInterval(liveShopDetailsTimer); liveShopDetailsTimer = null }
+}
+onActivated(() => {
+  startLivePolling()
+  // Le composant reste en mémoire (keepAlive) : revenir sur /live après être
+  // passé par un autre outil ne redéclenche pas onMounted — on resynchronise
+  // quand même sur l'event réellement live à chaque retour sur l'écran.
+  applyLiveScope()
+})
+onDeactivated(stopLivePolling)
+onBeforeUnmount(stopLivePolling)
+
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
+  startLivePolling()
   // Deep-link : ?toolbox=predict|analyse|event-predict sync l'état toolbox.
   // L'URL est la SOURCE DE VÉRITÉ au montage : sans ?toolbox=, on force le
   // retour à 'analyse'. Sans ce reset, un selectedToolbox résiduel du store
@@ -1397,10 +1588,37 @@ async function ensureAuthAndLoad(spaceId) {
         store.dispatch('analyse/updateFilter', { key: 'selectedConfigurationId', value: urlConfig })
       }
     }
+    await applyLiveScope()
   } finally {
     // Navigation rapide entre spaces : ancienne requête ne doit pas masquer
     // skeleton de nouvelle requête encore active.
     if (requestId === analyseLoadRequestId) initialLoadPending.value = false
+  }
+}
+
+// Module Live : sans ça, /live hérite tel quel du dernier filtre actif sur Analyse
+// classique (même state.filters partagé) — un `timeRange:'all'` résiduel affiche
+// tout l'historique de l'espace au lieu du seul event en cours. Scope explicitement
+// sur l'event live (selectedEventIds + configuration remise à "Toutes" pour ne pas
+// l'exclure silencieusement, cf. filteredEvents) ; à défaut, repli sur "Aujourd'hui"
+// plutôt que "Tout l'historique". Best-effort (comme SpaceItem.vue checkLiveStatus) :
+// n'empêche jamais l'affichage si l'appel échoue.
+async function applyLiveScope() {
+  if (!isLive.value) return
+  const spaceId = route.params.spaceId
+  if (!spaceId) return
+  try {
+    const res = await getSpaceLiveStatus(spaceId)
+    if (res?.isLive && res?.eventId) {
+      setFilterImmediate('selectedConfigurationId', null)
+      setFilterImmediate('timeRange', 'all')
+      setFilterImmediate('selectedEventIds', [res.eventId])
+    } else {
+      setFilterImmediate('selectedEventIds', [])
+      setFilterImmediate('timeRange', 'today')
+    }
+  } catch (e) {
+    console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
   }
 }
 </script>
@@ -1499,13 +1717,65 @@ async function ensureAuthAndLoad(spaceId) {
   background: #ff3131;
   box-shadow: 0 8px 24px rgba(255, 49, 49, 0.28);
 }
+/* Badge Live (module Live) : pastille claire + point pulsant sur le bandeau rouge. */
+.av-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.av-live-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+  animation: av-live-pulse 1.4s infinite;
+}
+@keyframes av-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6); }
+  70%  { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+/* Onglets Live (Analyse / Inventaire) — segmented control. */
+.an-live-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 2px 0 14px;
+  border-radius: 100px;
+  background: #f3f4f6;
+}
+.an-live-tab {
+  padding: 6px 18px;
+  border: none;
+  background: transparent;
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.an-live-tab--active { background: #ff3131; color: #fff; }
+.analyse-app--dark .an-live-tabs { background: #0f172a; }
+.analyse-app--dark .an-live-tab { color: #94a3b8; }
+.analyse-app--dark .an-live-tab--active { background: #ff3131; color: #fff; }
 /* Ligne 1 : toggle + « Espace : Analyse » + copier/partager. */
 .av-header__row1 {
   padding: 14px 22px 8px;
 }
 .av-header__title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
   line-height: 1.2;
@@ -1560,7 +1830,7 @@ async function ensureAuthAndLoad(spaceId) {
 .av-tags .chip-events,
 .av-tags .chip-events :deep(.v-chip__content) {
   background-color: #f1f3f5 !important;
-  color: #1f2937 !important;
+  color: #1e293b !important;
   border-radius: 999px !important;
   font-weight: 500;
 }
@@ -1638,6 +1908,54 @@ async function ensureAuthAndLoad(spaceId) {
   overflow: hidden;
   :deep(.v-skeleton-loader__image) {
     height: 280px;
+  }
+}
+
+/* ═══════════════════════════ DARK MODE ═══════════════════════════════════════
+   Toutes les règles sont scopées sous `.analyse-app--dark` → le mode clair n'est
+   JAMAIS modifié. On n'override QUE nos couleurs claires codées en dur : le rouge
+   de marque (#ff3131) et les v-card/v-btn/... Vuetify (thème global déjà sombre)
+   restent intacts. Le bandeau rouge (.av-header) et ses éléments blancs internes
+   sont conservés tels quels (contraste correct sur le rouge). */
+.analyse-app--dark {
+  /* Fonds de page (ex-#f6f8fb) → fond sombre unifié. */
+  background-color: #0f172a;
+
+  .main-content {
+    background-color: #0f172a;
+  }
+
+  /* Bloc sticky : couvre le contenu qui scrolle dessous → même fond sombre. */
+  .av-sticky {
+    background: #0f172a;
+  }
+
+  /* Tags des filtres actifs (fond neutre sous le bandeau rouge). */
+  .av-tags .chip-events,
+  .av-tags .chip-events :deep(.v-chip__content) {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    color: #e2e8f0 !important;
+  }
+  /* Chips filtre : identité VIOLETTE conservée, éclaircie pour le fond sombre. */
+  .av-tags .chip-filter,
+  .av-tags .chip-filter :deep(.v-chip__content) {
+    background-color: rgba(124, 77, 255, 0.20) !important;
+    color: #c4b5fd !important;
+  }
+  .av-tags .chip-filter :deep(.v-icon) {
+    color: #c4b5fd !important;
+  }
+  /* .av-tags__trash conserve le rouge de marque #ff3131 (déjà lisible). */
+
+  /* Overlay loader de la timeline : voile SOMBRE au lieu du blanc translucide. */
+  .ep-timeline-loader-overlay {
+    background: rgba(17, 24, 39, 0.72);
+  }
+
+  /* Skeleton des graphes : carte sombre + bordure discrète (ex-#fff / #e2e8f0). */
+  .an-chart-skeleton {
+    border-color: rgba(255, 255, 255, 0.10);
+    background: #1e293b;
   }
 }
 

@@ -1,6 +1,6 @@
 # BUG-013 — team.api.js : commentaire "backend n'expose pas encore /teams" obsolète
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟢 Faible (comportement inoffensif, juste trompeur)
 - **Domaine** : Prévision (Event Predict) / Événements — bug partagé entre les deux domaines
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -18,7 +18,8 @@ faux : `TeamsController` est complet et fonctionnel côté `api-datafriday-stagi
 
 ## Correction
 
-Aucune à ce jour — mettre à jour/retirer le commentaire trompeur.
+Commentaire réécrit le 2026-07-18 (`team.api.js:1-6`) pour retirer l'affirmation obsolète — repéré
+en repassant sur ce même fichier à l'occasion de [[140_teamapi_getteams_avale_toutes_erreurs]].
 
 ## Risque de régression / à surveiller
 

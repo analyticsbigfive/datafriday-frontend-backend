@@ -1,6 +1,6 @@
 # BUG-021 — Filtre storage `'merch'` (Inventory) : aucun filtre, agrégat unique
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟢 Corrigé (2026-07-18)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Stock (Inventory)
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -18,11 +18,18 @@ sont fusionnés dans un agrégat fixe unique.
 
 ## Correction
 
-Aucune à ce jour.
+2026-07-18 (`useInventoryData.js`) : `merchWithInventory` produit désormais **une carte par
+Storage typé `'merch'`**, scopée à ses merchshops (`attributes.selectedShops` ; vide = tous —
+même convention que `buildStorageInventory` côté F&B). L'agrégat unique « Merch Aggregate » est
+conservé **en repli** quand aucun Storage `'merch'` n'existe dans la config (comportement
+historique). Les Storages typés *uniquement* `'merch'` sont exclus de `storagesWithInventory`
+(pas de doublon de carte F&B vide).
 
 ## Risque de régression / à surveiller
 
-—
+Espaces avec Storage(s) 'merch' existants : la carte passe de « Merch Aggregate » à une carte par
+Storage — vérifier l'affichage et le comptage. Un Storage mixte (`['merch','dry']`) apparaît des
+deux côtés (carte F&B pour dry + carte merch scopée) : voulu.
 
 ## Références
 

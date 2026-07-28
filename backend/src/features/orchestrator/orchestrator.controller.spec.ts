@@ -52,10 +52,8 @@ describe('OrchestratorController', () => {
   });
 
   describe('invalidateCache', () => {
-    it('should invalidate cache for tenant', async () => {
-      const result = await controller.invalidateCache({
-        tenantId: 'tenant-123',
-      });
+    it('should invalidate cache for tenant using the authenticated tenant', async () => {
+      const result = await controller.invalidateCache({} as any, 'tenant-123');
 
       expect(result).toEqual({
         success: true,
@@ -65,23 +63,37 @@ describe('OrchestratorController', () => {
     });
 
     it('should invalidate cache for specific space', async () => {
-      const result = await controller.invalidateCache({
-        tenantId: 'tenant-123',
-        spaceId: 'space-456',
-      });
+      const result = await controller.invalidateCache(
+        { spaceId: 'space-456' } as any,
+        'tenant-123',
+      );
 
       expect(service.invalidateCache).toHaveBeenCalledWith('tenant-123', 'space-456');
+    });
+
+    // BUG-40: un tenantId fourni dans le body ne doit jamais être utilisé —
+    // seul le tenant authentifié (@CurrentTenant()) doit compter.
+    it('should ignore a client-supplied tenantId in the body and use the authenticated tenant instead', async () => {
+      await controller.invalidateCache(
+        { tenantId: 'attacker-tenant', spaceId: 'space-456' } as any,
+        'authenticated-tenant',
+      );
+
+      expect(service.invalidateCache).toHaveBeenCalledWith('authenticated-tenant', 'space-456');
+      expect(service.invalidateCache).not.toHaveBeenCalledWith('attacker-tenant', expect.anything());
     });
   });
 
   describe('getStrategy', () => {
     it('should return processing strategy', () => {
-      const result = controller.getStrategy({
-        tenantId: 'tenant-123',
-        operation: 'sync',
-        estimatedItems: 500,
-        priority: 'normal',
-      } as any);
+      const result = controller.getStrategy(
+        {
+          operation: 'sync',
+          estimatedItems: 500,
+          priority: 'normal',
+        } as any,
+        'tenant-123',
+      );
 
       expect(result).toEqual({
         strategy: 'sync',
@@ -97,10 +109,7 @@ describe('OrchestratorController', () => {
     });
 
     it('should handle missing optional params', () => {
-      controller.getStrategy({
-        tenantId: 'tenant-123',
-        operation: 'analytics',
-      } as any);
+      controller.getStrategy({ operation: 'analytics' } as any, 'tenant-123');
 
       expect(service.decideStrategy).toHaveBeenCalledWith({
         tenantId: 'tenant-123',
@@ -108,6 +117,19 @@ describe('OrchestratorController', () => {
         estimatedItems: undefined,
         priority: undefined,
       });
+    });
+
+    // BUG-40: un tenantId fourni dans la query ne doit jamais être utilisé —
+    // seul le tenant authentifié (@CurrentTenant()) doit compter.
+    it('should ignore a client-supplied tenantId in the query and use the authenticated tenant instead', () => {
+      controller.getStrategy(
+        { tenantId: 'attacker-tenant', operation: 'sync', estimatedItems: 500 } as any,
+        'authenticated-tenant',
+      );
+
+      expect(service.decideStrategy).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'authenticated-tenant' }),
+      );
     });
   });
 });

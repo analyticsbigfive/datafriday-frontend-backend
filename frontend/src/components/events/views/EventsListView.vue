@@ -22,9 +22,6 @@
             <button class="elv-action-hbtn" @click="csvImportDrawer = true">
               <Upload :size="15" /> {{ t('eventsList.importCsv') }}
             </button>
-            <button class="elv-action-hbtn">
-              <CircleDollarSign :size="15" /> {{ t('eventsList.calculateRevenue') }}
-            </button>
             <button class="elv-add-btn" @click="openAddEventDialog">
               <Plus :size="17" /> {{ t('eventsList.newEvent') }}
             </button>
@@ -75,8 +72,10 @@
         <v-data-table
           :headers="tableHeaders"
           :items="filteredEvents"
-          :loading="loading"
+          :loading="loading ? '#ff3131' : false"
           item-value="id"
+          :items-per-page="25"
+          :items-per-page-options="[10, 25, 50, 100]"
           density="compact"
           class="elv-table"
         >
@@ -139,7 +138,7 @@
 
 <script>
 import { t as translate, getCurrentLocale } from "@/i18n/translations";
-import { Upload, Download, Plus, CircleDollarSign, Trash2, Pencil, Search, Calendar, AlertCircle, X } from "lucide-vue-next";
+import { Upload, Download, Plus, Trash2, Pencil, Search, Calendar, AlertCircle, X } from "lucide-vue-next";
 import { deleteEvent } from "@/api/endpoints/event.api";
 import { downloadCSV } from "@/utils/csv";
 import EventFormDrawer from "@/components/events/drawers/EventFormDrawer.vue";
@@ -152,7 +151,6 @@ export default {
     Upload,
     Download,
     Plus,
-    CircleDollarSign,
     Trash2,
     Pencil,
     Search,
@@ -230,7 +228,13 @@ export default {
       const id = this.$route.query?.editEventId;
       if (!id) return;
       const ev = (this.events || []).find((e) => String(e.id) === String(id));
-      if (ev) this.openEditEventDialog(ev);
+      // BUG-154 : ne PAS nettoyer la query si l'event n'est pas (encore) trouvé — `activated()`
+      // peut s'exécuter avant que `loadEvents()` (awaité dans `mounted()`) n'ait résolu lors de la
+      // toute première activation de la session ; effacer la query ici sans avoir ouvert la fiche
+      // ferait perdre le deep-link définitivement. `mounted()` rappelle cette même méthode une fois
+      // les events chargés, donc un id valide finit toujours par être résolu.
+      if (!ev) return;
+      this.openEditEventDialog(ev);
       // Nettoie la query pour ne pas rouvrir la fiche à chaque navigation/refresh.
       this.$router.replace({ name: 'events' }).catch(() => {});
     },
@@ -335,9 +339,14 @@ export default {
         }))
         .filter((s) => !!s.id)
     },
+    spacesById() {
+      const map = new Map();
+      for (const s of this.spaces) map.set(s.id, s);
+      return map;
+    },
     mappedEvents() {
       return (this.events || []).map((e) => {
-        const spaceFromId = this.spaces.find(s => s.id === e.spaceId);
+        const spaceFromId = this.spacesById.get(e.spaceId);
         const spaceName = e.spaceName || spaceFromId?.name || e.space || e.location || "-";
         const eventDate = e.eventDate || e.date || e.startsAt || e.startDate;
         const eventStartDate = e.eventStartDate || e.startDate || '';
@@ -420,7 +429,16 @@ export default {
     this.loadSpaces();
     await this.loadEvents();
     // Deep-link : ?editEventId=<id> (ex. depuis l'alerte « évènements sans coup
-    // d'envoi » de la Moyenne timeline) → ouvre directement la fiche event.
+    // d'envoi » de la Moyenne timeline, ou depuis TaxonomyDetailDrawer) → ouvre
+    // directement la fiche event.
+    this.openDeepLinkedEvent();
+  },
+  // BUG-154 : /events a `meta.keepAlive: true` (DashboardView enveloppe le router-view dans
+  // <keep-alive>) — sans ce hook, `mounted()` ne se redéclenche qu'à la toute première visite de
+  // la session ; toute navigation ultérieure vers /events?editEventId=<id> (ex. depuis le tiroir
+  // « Événements liés » des écrans taxonomie) laissait le query param dans l'URL sans jamais rouvrir
+  // la fiche. Même classe de bug que BUG-122 (SpaceMenuView, deep-link cassé par keep-alive).
+  activated() {
     this.openDeepLinkedEvent();
   },
   beforeUnmount() {
@@ -454,8 +472,8 @@ export default {
   background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.elv-header__title { font-size: 20px; font-weight: 800; color: #fff; margin: 0; line-height: 1.2; }
-.elv-header__subtitle { font-size: 12.5px; color: rgba(255,255,255,.72); margin: 3px 0 0; }
+.elv-header__title { font-size: var(--fs-xl); font-weight: var(--fw-bold); color: #fff; margin: 0; line-height: 1.2; }
+.elv-header__subtitle { font-size: var(--fs-sm); color: rgba(255,255,255,.72); margin: 3px 0 0; }
 .elv-header__right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .elv-header__sep { width: 1px; height: 32px; background: rgba(255,255,255,.25); }
 .elv-header__actions { display: flex; align-items: center; gap: 8px; }
@@ -464,7 +482,7 @@ export default {
   padding: 7px 14px; border-radius: 100px;
   border: 1.5px solid rgba(255,255,255,.6);
   background: transparent; color: rgba(255,255,255,.9);
-  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .elv-action-hbtn:hover { background: rgba(255,255,255,.15); border-color: #fff; }
@@ -473,7 +491,7 @@ export default {
   padding: 9px 18px; border-radius: 100px;
   border: 2px solid rgba(255,255,255,.85);
   background: transparent; color: #fff;
-  font-size: 13px; font-weight: 700; cursor: pointer;
+  font-size: var(--fs-base); font-weight: 700; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .elv-add-btn:hover { background: #fff; color: #ff3131; }
@@ -488,7 +506,7 @@ export default {
 .elv-searchbar__icon { color: #9ca3af; flex-shrink: 0; }
 .elv-searchbar__input {
   flex: 1; min-width: 140px; border: none; outline: none;
-  background: transparent; font-size: 14px; color: #111827;
+  background: transparent; font-size: var(--fs-md); color: #111827;
 }
 .elv--dark .elv-searchbar__input { color: #e5e7eb; }
 .elv-searchbar__input::placeholder { color: #9ca3af; }
@@ -502,7 +520,7 @@ export default {
   border-radius: 999px;
   background-color: #fff;
   color: #374151;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
   padding: 7px 32px 7px 14px;
   max-width: 190px;
@@ -527,7 +545,7 @@ export default {
 }
 .elv--dark .elv-filter-select:hover { border-color: rgba(255, 255, 255, .28); }
 
-.elv-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.elv-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 
 /* ── Content ── */
 .elv-content { padding: 24px 28px; }
@@ -537,7 +555,7 @@ export default {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
   color: #991b1b; border-radius: 12px;
-  padding: 12px 16px; font-size: 13.5px;
+  padding: 12px 16px; font-size: var(--fs-base);
 }
 
 /* Table wrap */
@@ -552,7 +570,7 @@ export default {
 /* Table (reference: MarketPriceListView) */
 .elv-table :deep(.v-data-table__th),
 .elv-table :deep(.v-data-table__td) {
-  font-size: 13px;
+  font-size: var(--fs-base);
   padding-top: 10px;
   padding-bottom: 10px;
   padding-left: 16px;
@@ -560,7 +578,7 @@ export default {
 }
 .elv-table :deep(.v-data-table__td) { vertical-align: middle; }
 .elv-table :deep(.v-data-table__th) {
-  font-size: 11px !important;
+  font-size: var(--fs-xs)!important;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -584,4 +602,11 @@ export default {
 .elv-abtn--edit:hover { background: #dbeafe; }
 .elv-abtn--del { background: #fef2f2; color: #ff3131; }
 .elv-abtn--del:hover { background: #fee2e2; }
+
+/* Dark mode — compléments */
+.elv--dark .elv-error-bar { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.elv--dark .elv-abtn { background: #1f2937; color: #cbd5e1; }
+.elv--dark .elv-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.elv--dark .elv-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+.elv--dark .elv-table :deep(.v-data-table__td) { color: #e2e8f0; }
 </style>

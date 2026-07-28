@@ -70,7 +70,7 @@
                     </div>
                     <ChevronDownIcon v-if="isBasement(zone)" :size="16" class="text-medium-emphasis flex-shrink-0" />
                     <ChevronUpIcon   v-else                  :size="16" class="text-medium-emphasis flex-shrink-0" />
-                    <span class="text-truncate" style="font-size: 13px;">{{ zone.name }}</span>
+                    <span class="text-truncate" style="font-size: var(--fs-base);">{{ zone.name }}</span>
                   </div>
                   <div class="d-flex gap-1 flex-shrink-0">
                     <v-btn icon size="x-small" variant="text" @click.stop="openEdit(zone)">
@@ -107,7 +107,7 @@
                 @click="store.setActiveZone(forecourtZone.id)"
               >
                 <div class="d-flex align-center justify-space-between mb-2">
-                  <span class="text-truncate" style="font-size: 13px;">{{ forecourtZone.name }}</span>
+                  <span class="text-truncate" style="font-size: var(--fs-base);">{{ forecourtZone.name }}</span>
                   <div class="d-flex gap-1 flex-shrink-0">
                     <v-btn icon size="x-small" variant="text" @click.stop="openEdit(forecourtZone)">
                       <Edit2Icon :size="14" />
@@ -133,7 +133,7 @@
                 @click="store.setActiveZone(externalZone.id)"
               >
                 <div class="d-flex align-center justify-space-between mb-2">
-                  <span class="text-truncate" style="font-size: 13px;">{{ externalZone.name }}</span>
+                  <span class="text-truncate" style="font-size: var(--fs-base);">{{ externalZone.name }}</span>
                   <div class="d-flex gap-1 flex-shrink-0">
                     <v-btn icon size="x-small" variant="text" @click.stop="openEdit(externalZone)">
                       <Edit2Icon :size="14" />

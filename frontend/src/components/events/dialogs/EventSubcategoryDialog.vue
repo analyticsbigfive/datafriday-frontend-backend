@@ -1,84 +1,88 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="480">
-    <div class="escd-card">
-      <!-- Gradient header -->
-      <div class="escd-grad-header">
-        <div class="escd-grad-header__icon">
-          <Layers :size="20" color="white" />
-        </div>
-        <div class="escd-grad-header__text">
-          <div class="escd-grad-header__title">{{ t('eventSubcategoryDialogTitle') }}</div>
-          <div class="escd-grad-header__sub">{{ t('eventSubcategoryDialogSubtitle') }}</div>
-        </div>
-        <button class="escd-grad-header__close" @click="close">
-          <X :size="16" />
-        </button>
+  <EventDrawerShell
+    :model-value="modelValue"
+    @update:model-value="$emit('update:modelValue', $event)"
+    :is-dark="isDark"
+    :persistent="loading"
+    width="480"
+    :title="t('eventSubcategoryDialogTitle')"
+    :subtitle="t('eventSubcategoryDialogSubtitle')"
+  >
+    <template #icon>
+      <Layers :size="20" color="white" />
+    </template>
+
+    <div :class="{ 'escd--dark': isDark }">
+      <div v-if="error" class="escd-error">
+        <AlertCircle :size="14" /> {{ error }}
       </div>
 
-      <!-- Body -->
-      <div class="escd-body">
-        <div v-if="error" class="escd-error">
-          <AlertCircle :size="14" /> {{ error }}
+      <v-form ref="form" v-model="formValid" validate-on="submit">
+        <div class="escd-section-label">
+          <Layers :size="12" />
+          <span>{{ t('eventSubcategoryDialogSection') }}</span>
         </div>
 
-        <v-form ref="form" v-model="formValid" validate-on="submit">
-          <!-- Category select -->
-          <div class="escd-field-wrap mb-4">
-            <label class="escd-field-label">{{ t('eventSubcategoryDialogCategoryLabel') }} <span class="escd-star">*</span></label>
-            <v-select
-              v-model="categoryId"
-              :items="categories"
-              item-title="name"
-              item-value="id"
-              :placeholder="t('eventSubcategoryDialogCategoryPlaceholder')"
-              density="comfortable"
-              variant="outlined"
-              hide-details="auto"
-              :rules="[rules.required]"
-              class="escd-v-select"
-            />
-          </div>
+        <!-- Category select -->
+        <div class="escd-field-wrap mb-4">
+          <label class="escd-field-label">{{ t('eventSubcategoryDialogCategoryLabel') }} <span class="escd-star">*</span></label>
+          <v-select
+            v-model="categoryId"
+            :items="categories"
+            item-title="name"
+            item-value="id"
+            :placeholder="t('eventSubcategoryDialogCategoryPlaceholder')"
+            density="comfortable"
+            variant="outlined"
+            hide-details="auto"
+            :rules="[rules.required]"
+            class="escd-v-select"
+          />
+        </div>
 
-          <!-- Name input -->
-          <div class="escd-field-wrap mb-4">
-            <label class="escd-field-label">{{ t('eventSubcategoryDialogNameLabel') }} <span class="escd-star">*</span></label>
-            <v-text-field
-              v-model="name"
-              variant="outlined"
-              density="comfortable"
-              hide-details
-              class="escd-v-select"
-            />
-          </div>
-        </v-form>
-      </div>
-
-      <!-- Footer -->
-      <div class="escd-foot">
-        <button class="escd-btn escd-btn--cancel" @click="close">
-          {{ t('eventSubcategoryDialogCancel') }}
-        </button>
-        <button class="escd-btn escd-btn--primary" :disabled="loading" @click="submit">
-          <Save :size="14" />
-          {{ loading ? 'Enregistrement…' : t('eventSubcategoryDialogSave') }}
-        </button>
-      </div>
+        <!-- Name input -->
+        <div class="escd-field-wrap mb-4">
+          <label class="escd-field-label">{{ t('eventSubcategoryDialogNameLabel') }} <span class="escd-star">*</span></label>
+          <v-text-field
+            v-model="name"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            class="escd-v-select"
+          />
+        </div>
+      </v-form>
     </div>
-  </v-dialog>
+
+    <template #footer>
+      <button class="escd-btn escd-btn--cancel" @click="close">
+        {{ t('eventSubcategoryDialogCancel') }}
+      </button>
+      <button class="escd-btn escd-btn--primary" :disabled="loading" @click="submit">
+        <Save :size="14" />
+        {{ loading ? t('eventSubcategoryDialogSaving') : t('eventSubcategoryDialogSave') }}
+      </button>
+    </template>
+  </EventDrawerShell>
 </template>
 
 <script>
+import { computed } from 'vue';
+import { useTheme } from 'vuetify';
 import { useI18n } from '@/i18n/useI18n';
-import { X, Layers, AlertCircle, Save } from 'lucide-vue-next';
+import { Layers, AlertCircle, Save } from 'lucide-vue-next';
 import { createEventSubcategory } from '@/api/endpoints/event.api';
+import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 
 export default {
   name: 'EventSubcategoryDialog',
-  components: { X, Layers, AlertCircle, Save },
+  components: { Layers, AlertCircle, Save, EventDrawerShell },
 
   setup() {
     const { t } = useI18n();
-    return { t };
+    const theme = useTheme();
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { t, isDark };
   },
 
   props: {
@@ -96,7 +100,7 @@ export default {
       loading: false,
       error: '',
       formValid: false,
-      rules: { required: (v) => !!v || 'Ce champ est obligatoire' },
+      rules: { required: (v) => !!v || this.t('required') },
     };
   },
 
@@ -133,12 +137,11 @@ export default {
         const created = response?.data || response;
         const id = created?.id || created?._id;
         if (id) {
-          await this.$store.dispatch('eventSubcategories/addEventSubcategory', {
-            id,
-            name: this.name.trim(),
-            categoryId: this.categoryId,
-          });
-          this.$emit('created', { id, name: this.name.trim(), categoryId: this.categoryId });
+          // categoryId (alias non-persisté, cf. events.service.ts) ajouté en plus des champs
+          // réels renvoyés par l'API (dont eventCategoryId) — EventFormDrawer.vue lit created.categoryId.
+          const createdSubcategory = { ...created, categoryId: this.categoryId };
+          await this.$store.dispatch('eventSubcategories/addEventSubcategory', createdSubcategory);
+          this.$emit('created', createdSubcategory);
         }
         this.close();
       } catch (e) {
@@ -152,90 +155,35 @@ export default {
 </script>
 
 <style scoped>
-.escd-card {
-  background: #fff;
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0,0,0,.15);
-}
-
-/* Gradient header */
-.escd-grad-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 20px 20px 18px;
-  background: #ff3131;
-}
-.escd-grad-header__icon {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: rgba(255,255,255,.18);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.escd-grad-header__text { flex: 1; }
-.escd-grad-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.escd-grad-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
-.escd-grad-header__close {
-  width: 30px; height: 30px; border-radius: 8px; border: none;
-  background: rgba(255,255,255,.15);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85); flex-shrink: 0; transition: background .2s;
-}
-.escd-grad-header__close:hover { background: rgba(255,255,255,.25); }
-
-/* Body */
-.escd-body { padding: 22px 22px 16px; }
 .escd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
   color: #991b1b; border-radius: 10px;
-  padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
+  padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 16px;
 }
 
 /* v-select */
 .escd-field-wrap { display: flex; flex-direction: column; gap: 6px; }
-.escd-field-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.escd-field-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
 .escd-star { color: #ff3131; }
 .escd-v-select :deep(.v-field) {
   border: 1.5px solid #e5e7eb;
   border-radius: 11px;
   box-shadow: none;
+  background: #fff;
 }
 .escd-v-select :deep(.v-field--focused) {
   border-color: #ff3131;
   box-shadow: 0 0 0 3px rgba(255, 49, 49,.10);
 }
 .escd-v-select :deep(.v-field__outline) { display: none; }
-.escd-v-select :deep(.v-field__input) { font-size: 14px; }
-
-/* form-floating */
-.escd-input {
-  border: 1.5px solid #e5e7eb !important;
-  border-radius: 11px !important;
-  box-shadow: none !important;
-  font-size: 14px;
-  padding: 20px 14px 8px !important;
-  height: 52px;
-  transition: border-color .2s, box-shadow .2s;
-}
-.escd-input:focus {
-  border-color: #ff3131 !important;
-  box-shadow: 0 0 0 3px rgba(255, 49, 49,.12) !important;
-}
-.form-floating > label { font-size: 14px; color: #9ca3af; padding: 14px 16px; }
-.form-floating > .escd-input:focus ~ label,
-.form-floating > .escd-input:not(:placeholder-shown) ~ label {
-  color: #ff3131; font-size: 11px;
-  transform: scale(.85) translateY(-0.5rem) translateX(0.15rem);
-}
+.escd-v-select :deep(.v-field__input) { font-size: var(--fs-md); }
 
 /* Footer */
-.escd-foot {
-  display: flex; justify-content: flex-end; gap: 10px;
-  padding: 14px 22px; background: #f9fafb; border-top: 1px solid #f3f4f6;
-}
 .escd-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 38px;
-  border-radius: 50px; font-size: 13.5px; font-weight: 500;
+  border-radius: 50px; font-size: var(--fs-base); font-weight: 500;
   border: none; cursor: pointer; transition: all .2s;
 }
 .escd-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -246,4 +194,22 @@ export default {
   color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3);
 }
 .escd-btn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
+
+/* Dark mode */
+.escd--dark .escd-field-label { color: #d1d5db; }
+.escd--dark .escd-v-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
+.escd--dark .escd-v-select :deep(.v-field__input) { color: #f3f4f6; }
+.escd--dark .escd-v-select :deep(.v-select__selection-text) { color: #f3f4f6; }
+.escd--dark .escd-v-select :deep(.v-field__input input::placeholder) { color: #94a3b8; }
+.escd--dark .escd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+/* Bouton Cancel : slotté dans le footer d'EventDrawerShell → ciblé via .eds--dark. */
+.eds--dark .escd-btn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.eds--dark .escd-btn--cancel:hover { background: #374151; }
+/* Label de section (icône + span), calqué sur efd-section-label */
+.escd-section-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: #9ca3af; margin-bottom: 12px;
+}
+.escd--dark .escd-section-label { color: #6b7280; }
 </style>

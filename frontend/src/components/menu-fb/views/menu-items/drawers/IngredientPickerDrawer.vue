@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="ipd-slide">
       <div v-if="modelValue" class="ipd-overlay" @mousedown.self="close">
-        <div class="ipd-panel">
+        <div class="ipd-panel" :class="{ 'ipd-panel--dark': isDark }">
 
           <!-- ── Gradient Header ── -->
           <div class="ipd-header">
@@ -100,10 +100,10 @@
                   <!-- Column headers -->
                   <div class="ipd-rows__header">
                     <div class="ipd-rows__header-check"></div>
-                    <div class="ipd-rows__header-col ipd-rows__header-col--main">Item name</div>
-                    <div class="ipd-rows__header-col">Supplier</div>
-                    <div class="ipd-rows__header-col">Unit cost</div>
-                    <div class="ipd-rows__header-col">Added at</div>
+                    <div class="ipd-rows__header-col ipd-rows__header-col--main">{{ t('menuItemCreate.colItem') }}</div>
+                    <div class="ipd-rows__header-col">{{ t('menuItemCreate.colSupplier') }}</div>
+                    <div class="ipd-rows__header-col">{{ t('menuItemCreate.colUnitCost') }}</div>
+                    <div class="ipd-rows__header-col">{{ t('menuItemCreate.colAddedAt') }}</div>
                   </div>
 
                   <div
@@ -188,17 +188,19 @@
 <script>
 import { Check, ChevronDown, ChevronRight, Clock, Plus, Search, Truck, Wheat, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
+import { formatCurrency } from '@/composables/useFormatters';
 
 export default {
   name: 'IngredientPickerDrawer',
   components: { Check, ChevronDown, ChevronRight, Clock, Plus, Search, Truck, Wheat, X },
   props: {
     modelValue: { type: Boolean, default: false },
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'add'],
   setup() {
     const { t } = useI18n();
-    return { t };
+    return { t, formatCurrency };
   },
   data() {
     return {
@@ -235,7 +237,8 @@ export default {
           rows.push(row);
         }
       }
-      return rows;
+      // BUG-092 : masquer les ingrédients désactivés (active=false) des dialogs de sélection.
+      return rows.filter(r => r.active !== false);
     },
     groups() {
       const map = new Map();
@@ -324,7 +327,7 @@ export default {
         quantity:         1,
         unitCost:         Number(r.costPerRecipeUnit || 0),
         totalCost:        Number(r.costPerRecipeUnit || 0),
-        storage:          r.category || 'Dry',
+        storage:          'Dry',
         marketPriceId:    r.marketPriceId,
         ingredientId:     r.ingredientId,
         supplierName:     r.supplierName,
@@ -377,11 +380,10 @@ export default {
         costPerRecipeUnit,
         supplier_id:             marketPrice?.supplierRel?.id ?? marketPrice?.supplier_id ?? marketPrice?.supplierId ?? null,
         createdAt:               marketPrice?.createdAt || null,
+        // BUG-092 : soft-toggle porté par l'Ingredient (docs/modules/04_MENU_CATALOGUE.md), pas
+        // par le MarketPrice — défaut true si absent.
+        active:                  ingredient?.active,
       };
-    },
-    formatCurrency(v) {
-      const n = Number(v);
-      return Number.isFinite(n) ? `€${n.toFixed(2)}` : '—';
     },
     formatDate(value) {
       if (!value) return '—';
@@ -639,4 +641,29 @@ export default {
 .ipd-btn--primary:hover:not(:disabled) {
   box-shadow: 0 6px 18px rgba(255, 49, 49,.38); transform: translateY(-1px);
 }
+
+/* ── Dark mode ── */
+.ipd-panel--dark { background: #111827; }
+.ipd-panel--dark .ipd-toolbar { background: #1f2937; border-bottom-color: rgba(255,255,255,0.08); }
+.ipd-panel--dark .ipd-search { background: #1e293b; border-color: rgba(255,255,255,0.1); }
+.ipd-panel--dark .ipd-search__input { color: #e2e8f0; }
+.ipd-panel--dark .ipd-body { background: #111827; }
+.ipd-panel--dark .ipd-card { background: #1f2937; border-color: rgba(255,255,255,0.08); }
+.ipd-panel--dark .ipd-card--has-selection { border-color: #ff3131; }
+.ipd-panel--dark .ipd-card__header:hover { background: #273548; }
+.ipd-panel--dark .ipd-card__name { color: #e2e8f0; }
+.ipd-panel--dark .ipd-rows { background: #1a2332; border-top-color: rgba(255,255,255,0.05); }
+.ipd-panel--dark .ipd-rows__header { background: #273548; border-bottom-color: rgba(255,255,255,0.08); }
+.ipd-panel--dark .ipd-row { background: #1f2937; border-bottom-color: rgba(255,255,255,0.05); }
+.ipd-panel--dark .ipd-row:hover { background: #273548; }
+.ipd-panel--dark .ipd-row--selected { background: #3b1f1f; }
+.ipd-panel--dark .ipd-row__name { color: #e2e8f0; }
+.ipd-panel--dark .ipd-row__price-val { color: #e2e8f0; }
+.ipd-panel--dark .ipd-checkbox { border-color: #475569; background: #1e293b; }
+.ipd-panel--dark .ipd-footer { background: #1f2937; border-top-color: rgba(255,255,255,0.08); }
+/* Pills de filtre + tags de catégorie */
+.ipd-panel--dark .ipd-pill { background: #1a2332; border-color: rgba(255,255,255,.12); color: #94a3b8; }
+.ipd-panel--dark .ipd-pill:hover { border-color: #ff3131; color: #fca5a5; }
+.ipd-panel--dark .ipd-tag { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.ipd-panel--dark .ipd-tag--type { background: rgba(255,49,49,.15); color: #fca5a5; }
 </style>

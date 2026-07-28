@@ -4,12 +4,16 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
+import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
 
 @Injectable()
 export class EventsService {
   private readonly logger = new Logger(EventsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly weezeventLinkService: EventWeezeventLinkService,
+  ) {}
 
   private readonly includeRelations = {
     eventType: true,
@@ -54,6 +58,43 @@ export class EventsService {
     return eventSubcategory;
   }
 
+  /**
+   * Contrairement à findOwned*OrThrow (réservés à la modification/suppression
+   * de la ligne de taxonomie elle-même, où un tenant ne doit jamais pouvoir
+   * toucher une entrée globale), une RÉFÉRENCE depuis un Event peut légitimement
+   * pointer vers une entrée globale (tenantId=null, socle partagé) — même règle
+   * que createEventCategory/createEventSubcategory/assertAccessibleTeamScope.
+   */
+  private async findAccessibleEventTypeOrThrow(id: string, tenantId: string) {
+    const eventType = await this.prisma.eventType.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+    if (!eventType) {
+      throw new BadRequestException('eventTypeId must reference an accessible event type');
+    }
+    return eventType;
+  }
+
+  private async findAccessibleEventCategoryOrThrow(id: string, tenantId: string) {
+    const eventCategory = await this.prisma.eventCategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+    if (!eventCategory) {
+      throw new BadRequestException('eventCategoryId must reference an accessible event category');
+    }
+    return eventCategory;
+  }
+
+  private async findAccessibleEventSubcategoryOrThrow(id: string, tenantId: string) {
+    const eventSubcategory = await this.prisma.eventSubcategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+    if (!eventSubcategory) {
+      throw new BadRequestException('eventSubcategoryId must reference an accessible event subcategory');
+    }
+    return eventSubcategory;
+  }
+
   private async findOwnedTeamOrThrow(id: string, tenantId: string) {
     const team = await this.prisma.team.findFirst({
       where: { id, tenantId },
@@ -64,6 +105,44 @@ export class EventsService {
     }
 
     return team;
+  }
+
+  /**
+   * BUG-34 : `Event.spaceId`/`configurationId` sont des String sans FK Prisma
+   * (voir docs/bugs/34_event_spaceid_sans_fk.md) — contrairement à
+   * eventTypeId/eventCategoryId/eventSubcategoryId (BUG-67), aucune vérification
+   * d'appartenance tenant n'existait avant ce fix, ouvrant une référence
+   * cross-tenant possible. `Space.tenantId` est obligatoire (pas de socle global
+   * comme EventType/EventCategory) — même nullabilité que `Team`, d'où le même
+   * helper "Owned" strict (et non "Accessible" avec `OR tenantId: null`).
+   */
+  private async findOwnedSpaceOrThrow(id: string, tenantId: string) {
+    const space = await this.prisma.space.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!space) {
+      throw new NotFoundException(`Space ${id} not found`);
+    }
+
+    return space;
+  }
+
+  /**
+   * BUG-34 : `Config` (configuration d'espace) n'a pas de `tenantId` propre — son
+   * appartenance tenant est portée par l'espace parent (`Config.spaceId` ->
+   * `Space.tenantId`). Vérifie donc via la relation plutôt qu'un champ direct.
+   */
+  private async findOwnedConfigOrThrow(id: string, tenantId: string) {
+    const config = await this.prisma.config.findFirst({
+      where: { id, space: { tenantId } },
+    });
+
+    if (!config) {
+      throw new NotFoundException(`Configuration ${id} not found`);
+    }
+
+    return config;
   }
 
   /**
@@ -95,37 +174,99 @@ export class EventsService {
     return data;
   }
 
+  /**
+   * BUG-34 : valide spaceId/configurationId (appartenance tenant) avant écriture —
+   * même rôle que resolveEventTaxonomyFields/resolveEventTeamFields pour les autres
+   * FK de Event. Ni l'un ni l'autre n'est nullable côté DTO (pas de désassignation
+   * explicite `null` comme pour visitingTeamId), seul `undefined` (absent du payload
+   * PATCH) doit sauter la vérification.
+   */
+  private async resolveEventSpaceFields(
+    dto: CreateEventDto | UpdateEventDto,
+    tenantId: string,
+  ): Promise<Record<string, string>> {
+    const data: Record<string, string> = {};
+    if (dto.spaceId !== undefined) {
+      await this.findOwnedSpaceOrThrow(dto.spaceId, tenantId);
+      data.spaceId = dto.spaceId;
+    }
+    if (dto.configurationId !== undefined) {
+      await this.findOwnedConfigOrThrow(dto.configurationId, tenantId);
+      data.configurationId = dto.configurationId;
+    }
+    return data;
+  }
+
+  private async resolveEventTaxonomyFields(
+    dto: CreateEventDto | UpdateEventDto,
+    tenantId: string,
+  ): Promise<Record<string, string | undefined>> {
+    const data: Record<string, string | undefined> = {};
+    if (dto.eventTypeId !== undefined) {
+      await this.findAccessibleEventTypeOrThrow(dto.eventTypeId, tenantId);
+      data.eventTypeId = dto.eventTypeId;
+    }
+    if (dto.eventCategoryId !== undefined) {
+      await this.findAccessibleEventCategoryOrThrow(dto.eventCategoryId, tenantId);
+      data.eventCategoryId = dto.eventCategoryId;
+    }
+    if (dto.eventSubcategoryId !== undefined) {
+      await this.findAccessibleEventSubcategoryOrThrow(dto.eventSubcategoryId, tenantId);
+      data.eventSubcategoryId = dto.eventSubcategoryId;
+    }
+    return data;
+  }
+
   async create(tenantId: string, dto: CreateEventDto) {
     this.logger.log(`Creating event "${dto.name}" for tenant ${tenantId}`);
-    return this.prisma.event.create({
-      data: {
-        tenantId,
-        name: dto.name,
-        eventDate: new Date(dto.eventDate),
-        spaceId: dto.spaceId,
-        configurationId: dto.configurationId,
-        eventTypeId: dto.eventTypeId,
-        eventCategoryId: dto.eventCategoryId,
-        eventSubcategoryId: dto.eventSubcategoryId,
-        location: dto.location,
-        spaceName: dto.spaceName,
-        sessions: dto.sessions ? JSON.stringify(dto.sessions) : null,
-        numberOfSessions: dto.numberOfSessions,
-        hasOpeningAct: dto.hasOpeningAct,
-        hasIntermission: dto.hasIntermission,
-        status: dto.status || 'draft',
-        ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
-        ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
-        ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
-        ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
-        ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
-        ...(await this.resolveEventTeamFields(dto, tenantId)),
-      },
-      include: this.includeRelations,
-    });
+    let created;
+    try {
+      const eventDate = new Date(dto.eventDate);
+      created = await this.prisma.event.create({
+        data: {
+          tenantId,
+          name: dto.name,
+          eventDate,
+          location: dto.location,
+          spaceName: dto.spaceName,
+          sessions: dto.sessions ? JSON.stringify(dto.sessions) : null,
+          numberOfSessions: dto.numberOfSessions,
+          hasOpeningAct: dto.hasOpeningAct,
+          hasIntermission: dto.hasIntermission,
+          performerName: dto.performerName,
+          sponsor: dto.sponsor,
+          openingActName: dto.openingActName,
+          status: dto.status || 'draft',
+          ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
+          ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
+          ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
+          ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
+          ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
+          ...(await this.resolveEventSpaceFields(dto, tenantId)),
+          ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
+          ...(await this.resolveEventTeamFields(dto, tenantId)),
+        },
+        include: this.includeRelations,
+      });
+    } catch (error) {
+      if (error.code === 'P2003') {
+        const fieldName = error.meta?.field_name || 'unknown field';
+        throw new BadRequestException(`Invalid ID provided. Foreign key constraint failed on: ${fieldName}.`);
+      }
+      throw error;
+    }
+
+    // BUG-021 : tente un rapprochement automatique avec un WeezeventEvent du même
+    // jour (sans ambiguïté) — no-op silencieux si aucun candidat univoque.
+    if (tenantId) {
+      await this.weezeventLinkService.relinkForTenantDate(tenantId, created.eventDate);
+    }
+    return created;
   }
 
   async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string) {
+    page = Math.max(1, page);
+    limit = Math.min(200, Math.max(1, limit));
     const skip = (page - 1) * limit;
     const where = spaceId ? { tenantId, spaceId } : { tenantId };
     const [events, total] = await Promise.all([
@@ -154,38 +295,124 @@ export class EventsService {
   }
 
   async update(id: string, tenantId: string, dto: UpdateEventDto) {
-    await this.findOne(id, tenantId);
-    return this.prisma.event.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.eventDate !== undefined && { eventDate: new Date(dto.eventDate) }),
-        ...(dto.spaceId !== undefined && { spaceId: dto.spaceId }),
-        ...(dto.configurationId !== undefined && { configurationId: dto.configurationId }),
-        ...(dto.eventTypeId !== undefined && { eventTypeId: dto.eventTypeId }),
-        ...(dto.eventCategoryId !== undefined && { eventCategoryId: dto.eventCategoryId }),
-        ...(dto.eventSubcategoryId !== undefined && { eventSubcategoryId: dto.eventSubcategoryId }),
-        ...(dto.location !== undefined && { location: dto.location }),
-        ...(dto.spaceName !== undefined && { spaceName: dto.spaceName }),
-        ...(dto.sessions !== undefined && { sessions: dto.sessions ? JSON.stringify(dto.sessions) : null }),
-        ...(dto.numberOfSessions !== undefined && { numberOfSessions: dto.numberOfSessions }),
-        ...(dto.hasOpeningAct !== undefined && { hasOpeningAct: dto.hasOpeningAct }),
-        ...(dto.hasIntermission !== undefined && { hasIntermission: dto.hasIntermission }),
-        ...(dto.status !== undefined && { status: dto.status }),
-        ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
-        ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
-        ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
-        ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
-        ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
-        ...(await this.resolveEventTeamFields(dto, tenantId)),
-      },
-      include: this.includeRelations,
-    });
+    const existing = await this.findOne(id, tenantId);
+    // BUG-021 : un changement de date invalide le lien auto/manuel existant (il a été
+    // établi pour l'ancienne date) — repasse par relinkForTenantDate sur la nouvelle date
+    // plutôt que de garder silencieusement une association qui ne correspond plus.
+    const dateChanged =
+      dto.eventDate !== undefined && new Date(dto.eventDate).getTime() !== existing.eventDate.getTime();
+
+    let updated;
+    try {
+      updated = await this.prisma.event.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.eventDate !== undefined && { eventDate: new Date(dto.eventDate) }),
+          ...(dateChanged && { weezeventEventId: null }),
+          ...(dto.location !== undefined && { location: dto.location }),
+          ...(dto.spaceName !== undefined && { spaceName: dto.spaceName }),
+          ...(dto.sessions !== undefined && { sessions: dto.sessions ? JSON.stringify(dto.sessions) : null }),
+          ...(dto.numberOfSessions !== undefined && { numberOfSessions: dto.numberOfSessions }),
+          ...(dto.hasOpeningAct !== undefined && { hasOpeningAct: dto.hasOpeningAct }),
+          ...(dto.hasIntermission !== undefined && { hasIntermission: dto.hasIntermission }),
+          ...(dto.performerName !== undefined && { performerName: dto.performerName }),
+          ...(dto.sponsor !== undefined && { sponsor: dto.sponsor }),
+          ...(dto.openingActName !== undefined && { openingActName: dto.openingActName }),
+          ...(dto.status !== undefined && { status: dto.status }),
+          ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
+          ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
+          ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
+          ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
+          ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
+          ...(await this.resolveEventSpaceFields(dto, tenantId)),
+          ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
+          ...(await this.resolveEventTeamFields(dto, tenantId)),
+        },
+        include: this.includeRelations,
+      });
+    } catch (error) {
+      if (error.code === 'P2003') {
+        const fieldName = error.meta?.field_name || 'unknown field';
+        throw new BadRequestException(`Invalid ID provided. Foreign key constraint failed on: ${fieldName}.`);
+      }
+      throw error;
+    }
+
+    if (dateChanged && tenantId) {
+      await this.weezeventLinkService.relinkForTenantDate(tenantId, updated.eventDate);
+    }
+    return updated;
   }
 
   async remove(id: string, tenantId: string) {
     await this.findOne(id, tenantId);
     return this.prisma.event.delete({ where: { id } });
+  }
+
+  // ── BUG-021 : désambiguïsation manuelle Event <-> WeezeventEvent ──
+
+  /**
+   * Events non liés (`weezeventEventId` null) pour lesquels au moins un
+   * WeezeventEvent existe le même jour calendaire — cas laissés de côté par
+   * l'auto-link (EventWeezeventLinkService) faute d'appariement 1:1 univoque.
+   * Retourne les candidats WeezeventEvent pour chaque event, à choisir manuellement.
+   */
+  async listAmbiguousWeezeventMatches(tenantId: string) {
+    return this.prisma.$queryRaw<
+      { eventId: string; eventName: string; eventDate: Date; candidates: unknown }[]
+    >`
+      SELECT
+        e.id           AS "eventId",
+        e.name         AS "eventName",
+        e."eventDate"  AS "eventDate",
+        (
+          SELECT jsonb_agg(jsonb_build_object(
+            'id',         we.id,
+            'name',       we.name,
+            'startDate',  we."startDate",
+            'externalId', we."weezeventId"
+          ) ORDER BY we."startDate")
+          FROM "WeezeventEvent" we
+          WHERE we."tenantId" = e."tenantId"
+            AND we."startDate" IS NOT NULL
+            AND DATE(we."startDate") = DATE(e."eventDate")
+        ) AS candidates
+      FROM "Event" e
+      WHERE e."tenantId" = ${tenantId}
+        AND e."weezeventEventId" IS NULL
+        AND EXISTS (
+          SELECT 1 FROM "WeezeventEvent" we
+          WHERE we."tenantId" = e."tenantId"
+            AND we."startDate" IS NOT NULL
+            AND DATE(we."startDate") = DATE(e."eventDate")
+        )
+      ORDER BY e."eventDate" DESC
+    `;
+  }
+
+  /**
+   * Résolution manuelle d'un appariement Event <-> WeezeventEvent laissé ambigu.
+   * `weezeventEventId: null` délie explicitement un event déjà lié.
+   */
+  async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null) {
+    await this.findOne(id, tenantId);
+
+    if (weezeventEventId !== null) {
+      const target = await this.prisma.salesEvent.findFirst({
+        where: { id: weezeventEventId, tenantId },
+        select: { id: true },
+      });
+      if (!target) {
+        throw new BadRequestException(`WeezeventEvent ${weezeventEventId} not found for this tenant`);
+      }
+    }
+
+    return this.prisma.event.update({
+      where: { id },
+      data: { weezeventEventId },
+      include: this.includeRelations,
+    });
   }
 
   // ── Event Types CRUD ──
@@ -199,18 +426,41 @@ export class EventsService {
   }
 
   async createEventType(tenantId: string, data: { name: string }) {
-    return this.prisma.eventType.create({
-      data: { name: data.name, tenantId },
-    });
+    try {
+      return await this.prisma.eventType.create({
+        data: { name: data.name, tenantId },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Un type d'événement nommé « ${data.name} » existe déjà`);
+      }
+      throw error;
+    }
   }
 
   async updateEventType(tenantId: string, id: string, data: { name?: string }) {
     await this.findOwnedEventTypeOrThrow(id, tenantId);
-    return this.prisma.eventType.update({ where: { id }, data: { name: data.name } });
+    try {
+      return await this.prisma.eventType.update({ where: { id }, data: { name: data.name } });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Un type d'événement nommé « ${data.name} » existe déjà`);
+      }
+      throw error;
+    }
   }
 
   async deleteEventType(tenantId: string, id: string) {
     await this.findOwnedEventTypeOrThrow(id, tenantId);
+    // BUG-75 : EventCategory.eventType est onDelete: Cascade — sans cette garde, supprimer un
+    // EventType supprimait silencieusement en cascade toutes ses EventCategory (et par
+    // transitivité leurs EventSubcategory), sans confirmation ni compte des entités affectées.
+    const categoryCount = await this.prisma.eventCategory.count({ where: { eventTypeId: id } });
+    if (categoryCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
+      );
+    }
     return this.prisma.eventType.delete({ where: { id } });
   }
 
@@ -225,9 +475,20 @@ export class EventsService {
   }
 
   async createEventCategory(tenantId: string, data: { name: string; eventTypeId: string; hasHomeTeam?: boolean }) {
-    return this.prisma.eventCategory.create({
-      data: { name: data.name, eventTypeId: data.eventTypeId, hasHomeTeam: data.hasHomeTeam ?? false, tenantId },
-    });
+    // BUG-77 : findOwnedEventTypeOrThrow (strict tenantId) rejetait les eventTypeId globaux
+    // (tenantId=null), pourtant proposés par GET /event-types et acceptés par updateEventCategory
+    // — même pattern "accessible" que Event.create()/update() pour cette même relation.
+    await this.findAccessibleEventTypeOrThrow(data.eventTypeId, tenantId);
+    try {
+      return await this.prisma.eventCategory.create({
+        data: { name: data.name, eventTypeId: data.eventTypeId, hasHomeTeam: data.hasHomeTeam ?? false, tenantId },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une catégorie nommée « ${data.name} » existe déjà pour ce type`);
+      }
+      throw error;
+    }
   }
 
   async updateEventCategory(tenantId: string, id: string, data: { name?: string; eventTypeId?: string; hasHomeTeam?: boolean }) {
@@ -258,22 +519,37 @@ export class EventsService {
       }
     }
 
-    return this.prisma.eventCategory.update({
-      where: { id },
-      data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.eventTypeId !== undefined && {
-          eventType: {
-            connect: { id: data.eventTypeId },
-          },
-        }),
-        ...(data.hasHomeTeam !== undefined && { hasHomeTeam: data.hasHomeTeam }),
-      },
-    });
+    try {
+      return await this.prisma.eventCategory.update({
+        where: { id },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.eventTypeId !== undefined && {
+            eventType: {
+              connect: { id: data.eventTypeId },
+            },
+          }),
+          ...(data.hasHomeTeam !== undefined && { hasHomeTeam: data.hasHomeTeam }),
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une catégorie nommée « ${data.name} » existe déjà pour ce type`);
+      }
+      throw error;
+    }
   }
 
   async deleteEventCategory(tenantId: string, id: string) {
     await this.findOwnedEventCategoryOrThrow(id, tenantId);
+    // BUG-75 : même garde que deleteEventType, un niveau plus bas (EventSubcategory.eventCategory
+    // est aussi onDelete: Cascade).
+    const subcategoryCount = await this.prisma.eventSubcategory.count({ where: { eventCategoryId: id } });
+    if (subcategoryCount > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer cette catégorie : ${subcategoryCount} sous-catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
+      );
+    }
     return this.prisma.eventCategory.delete({ where: { id } });
   }
 
@@ -335,9 +611,16 @@ export class EventsService {
       });
     }
 
-    return this.prisma.eventSubcategory.create({
-      data: { name: data.name, eventCategoryId, tenantId },
-    });
+    try {
+      return await this.prisma.eventSubcategory.create({
+        data: { name: data.name, eventCategoryId, tenantId },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une sous-catégorie nommée « ${data.name} » existe déjà pour cette catégorie`);
+      }
+      throw error;
+    }
   }
 
   async updateEventSubcategory(
@@ -374,17 +657,24 @@ export class EventsService {
       }
     }
 
-    return this.prisma.eventSubcategory.update({
-      where: { id },
-      data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(eventCategoryId !== undefined && {
-          eventCategory: {
-            connect: { id: eventCategoryId },
-          },
-        }),
-      },
-    });
+    try {
+      return await this.prisma.eventSubcategory.update({
+        where: { id },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(eventCategoryId !== undefined && {
+            eventCategory: {
+              connect: { id: eventCategoryId },
+            },
+          }),
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Une sous-catégorie nommée « ${data.name} » existe déjà pour cette catégorie`);
+      }
+      throw error;
+    }
   }
 
   async deleteEventSubcategory(tenantId: string, id: string) {
@@ -465,36 +755,51 @@ export class EventsService {
       throw new ConflictException(`Team "${dto.name}" already exists for this competition`);
     }
 
-    return this.prisma.team.create({
-      data: {
-        tenantId,
-        name: dto.name,
-        eventCategoryId: dto.eventCategoryId ?? null,
-        eventSubcategoryId: dto.eventSubcategoryId ?? null,
-      },
-    });
+    try {
+      return await this.prisma.team.create({
+        data: {
+          tenantId,
+          name: dto.name,
+          eventCategoryId: dto.eventCategoryId ?? null,
+          eventSubcategoryId: dto.eventSubcategoryId ?? null,
+        },
+      });
+    } catch (error) {
+      // BUG-70 : filet de sécurité pour la fenêtre de course du check ci-dessus (deux requêtes
+      // concurrentes passant toutes les deux le findFirst avant que l'une des deux ne commit) —
+      // sans ce catch, la contrainte @@unique ajoutée pour cette même fenêtre de course renvoyait
+      // un 500 générique (message Prisma brut) au lieu du même 409 propre que le cas normal.
+      if (error.code === 'P2002') {
+        throw new ConflictException(`Team "${dto.name}" already exists for this competition`);
+      }
+      throw error;
+    }
   }
 
   async updateTeam(tenantId: string, id: string, dto: UpdateTeamDto) {
     await this.findOwnedTeamOrThrow(id, tenantId);
     await this.assertAccessibleTeamScope(tenantId, dto);
 
-    const team = await this.prisma.team.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.eventCategoryId !== undefined && { eventCategoryId: dto.eventCategoryId }),
-        ...(dto.eventSubcategoryId !== undefined && { eventSubcategoryId: dto.eventSubcategoryId }),
-      },
-    });
+    const updateData = {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.eventCategoryId !== undefined && { eventCategoryId: dto.eventCategoryId }),
+      ...(dto.eventSubcategoryId !== undefined && { eventSubcategoryId: dto.eventSubcategoryId }),
+    };
 
-    // Garde le nom dénormalisé des events en phase avec le renommage
-    if (dto.name !== undefined) {
-      await this.prisma.event.updateMany({
-        where: { visitingTeamId: id },
-        data: { visitingTeamName: team.name },
-      });
-    }
+    // Renommage + repropagation du nom dénormalisé sur les events groupées dans
+    // une transaction : sans ça, un échec entre les deux écritures laisserait
+    // Event.visitingTeamName périmé indéfiniment (BUG-68).
+    const [team] = await this.prisma.$transaction([
+      this.prisma.team.update({ where: { id }, data: updateData }),
+      ...(dto.name !== undefined
+        ? [
+            this.prisma.event.updateMany({
+              where: { visitingTeamId: id },
+              data: { visitingTeamName: dto.name },
+            }),
+          ]
+        : []),
+    ]);
 
     return team;
   }

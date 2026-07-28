@@ -1,11 +1,9 @@
-// API functions for teams (équipes) — API NestJS (projet alsgd).
+// API functions for teams (équipes) — API NestJS.
 //
-// Spéc backend attendue : docs/BACKEND_TEAMS_EVENTS.md.
-// IMPORTANT : tant que le backend n'expose pas encore `/teams`, `getTeams`
-// renvoie `[]` SILENCIEUSEMENT sur 404 (alsgd est vivant → 404 rapide ~0.4s,
-// PAS le 500/522 de l'ancienne make-server uvxx morte). Dès que le contrôleur
-// NestJS `/teams` est déployé, le catalogue se peuple automatiquement, sans
-// changement frontend.
+// `TeamsController` (GET/POST/PATCH/DELETE `/teams`) est déployé et
+// fonctionnel côté backend depuis la migration hors make-server. `getTeams`
+// dégrade en `[]` sur 404 par prudence (repli inoffensif), pas parce que
+// l'endpoint serait absent.
 import api from '../client'
 
 /**
@@ -20,11 +18,13 @@ export async function getTeams(params = {}) {
     const data = response.data
     return Array.isArray(data) ? data : (data?.data ?? [])
   } catch (error) {
-    // 404 = endpoint pas encore déployé → dégrade en [] sans bruit.
-    if (error?.response?.status !== 404) {
-      console.warn('[TEAMS API] getTeams failed:', error?.message)
-    }
-    return []
+    // 404 = endpoint pas encore déployé → dégrade en [] sans bruit. Toute
+    // autre erreur (500, timeout, 403…) est re-levée : les deux appelants
+    // (EventFormDrawer.loadTeams, EventPredictView) l'attrapent déjà eux-mêmes
+    // et retombent sur [] — mais un vrai échec ne doit pas se déguiser en
+    // "aucune équipe" (BUG-140).
+    if (error?.response?.status === 404) return []
+    throw error
   }
 }
 

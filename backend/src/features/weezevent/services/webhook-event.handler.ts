@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
+import { QueueService } from '../../../core/queue/queue.service';
 
 interface WebhookEvent {
     id: string;
@@ -18,6 +19,11 @@ export class WebhookEventHandler {
     constructor(
         private readonly prisma: PrismaService,
         private readonly syncService: WeezeventSyncService,
+        // QueueService vient de QueueModule (@Global()) — pas besoin de l'importer dans
+        // WeezeventModule. Volontairement pas AggregationService : WeezeventModule →
+        // AggregationModule → MappingsModule → SpacesModule → WeezeventModule fermerait un
+        // cycle de modules (SpacesModule importe déjà WeezeventModule).
+        private readonly queueService: QueueService,
     ) { }
 
     /**
@@ -146,25 +152,90 @@ export class WebhookEventHandler {
             );
             throw error;
         }
+
+        // BUG-109 : la transaction est synchronisée, mais SpaceRevenueMinuteAgg (shop-details,
+        // KPI par shop) ne se met jamais à jour toute seule — queueAggregationJob() n'avait
+        // jusqu'ici aucun appelant automatique, seulement le wizard d'intégration (manuel).
+        // Best-effort : une erreur ici ne doit pas faire échouer le sync (déjà réussi) ni
+        // déclencher son retry — le cron de secours (WeezeventCronService, safety net) rattrape
+        // les cas manqués.
+        try {
+            await this.triggerLiveAggregation(tenantId, integrationId, transactionId);
+        } catch (error) {
+            this.logger.warn(
+                `Could not queue live aggregation after transaction ${transactionId} sync: ${error.message}`,
+            );
+        }
     }
 
     /**
-     * Mark a transaction as deleted (soft delete)
+     * Resolves the DataFriday Event + Space concerned by a just-synced transaction, and
+     * re-queues its aggregation. No-op if the transaction has no event, or that event has no
+     * unambiguous DataFriday Event match yet (Event.weezeventEventId, BUG-021 disambiguation).
+     *
+     * Mirrors AggregationService.processEvents' job-log-then-enqueue pattern (not called
+     * directly — see the module-cycle note on the constructor above).
+     */
+    private async triggerLiveAggregation(
+        tenantId: string,
+        integrationId: string,
+        transactionId: string,
+    ): Promise<void> {
+        const transaction = await this.prisma.salesTransaction.findFirst({
+            where: { tenantId, integrationId, externalId: transactionId },
+            select: { eventId: true },
+        });
+        if (!transaction?.eventId) return;
+
+        const dfEvent = await this.prisma.event.findFirst({
+            where: { tenantId, weezeventEventId: transaction.eventId, spaceId: { not: null } },
+            select: { id: true, spaceId: true, eventDate: true },
+        });
+        if (!dfEvent?.spaceId) return;
+
+        const jobLog = await this.prisma.aggregationJobLog.create({
+            data: {
+                tenantId,
+                spaceId: dfEvent.spaceId,
+                jobType: 'incremental',
+                status: 'pending',
+                fromDate: dfEvent.eventDate,
+                toDate: dfEvent.eventDate,
+                metadata: { eventIds: [dfEvent.id], trigger: 'webhook-live' },
+            },
+        });
+        await this.queueService.queueAggregationJob({
+            type: 'process-events',
+            tenantId,
+            spaceId: dfEvent.spaceId,
+            jobLogId: jobLog.id,
+            eventIds: [dfEvent.id],
+            integrationId,
+        });
+    }
+
+    /**
+     * Mark a transaction as deleted (soft delete).
+     *
+     * BUG-028 (corrigé) : ne mettait à jour que syncedAt, ne marquant rien comme réellement
+     * supprimé malgré son nom — une transaction supprimée côté Weezevent restait visible et
+     * comptée dans l'agrégation. deletedAt est maintenant exclu explicitement des requêtes
+     * d'agrégation (aggregation.service.ts, executeProcessEvents).
      */
     private async markTransactionAsDeleted(
         transactionId: string,
     ): Promise<void> {
+        const now = new Date();
         const updated = await this.prisma.salesTransaction.updateMany({
-            where: { externalId: transactionId },
+            where: { externalId: transactionId, deletedAt: null },
             data: {
-                // We could add a deletedAt field or update status
-                // For now, we'll just log it
-                syncedAt: new Date(),
+                deletedAt: now,
+                syncedAt: now,
             },
         });
 
         if (updated.count === 0) {
-            this.logger.warn(`Transaction ${transactionId} not found for deletion`);
+            this.logger.warn(`Transaction ${transactionId} not found (or already deleted)`);
         } else {
             this.logger.log(`Marked transaction ${transactionId} as deleted`);
         }

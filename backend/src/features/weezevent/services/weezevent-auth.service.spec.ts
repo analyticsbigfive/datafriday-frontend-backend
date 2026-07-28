@@ -1,15 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
 import { WeezeventAuthService } from './weezevent-auth.service';
-import { OnboardingService } from '../../onboarding/onboarding.service';
+import { PrismaService } from '../../../core/database/prisma.service';
+import { EncryptionService } from '../../../core/encryption/encryption.service';
 import { WeezeventAuthException } from '../exceptions/weezevent-auth.exception';
-import { of, throwError } from 'rxjs';
-import { AxiosResponse } from 'axios';
 
 describe('WeezeventAuthService', () => {
     let service: WeezeventAuthService;
-    let httpService: HttpService;
-    let onboardingService: OnboardingService;
 
     const mockHttpService = {
         axiosRef: {
@@ -17,28 +14,27 @@ describe('WeezeventAuthService', () => {
         },
     };
 
-    const mockOnboardingService = {
-        getWeezeventConfig: jest.fn(),
+    const mockPrisma = {
+        integration: {
+            findFirst: jest.fn(),
+        },
+    };
+
+    const mockEncryptionService = {
+        decrypt: jest.fn((v: string) => `decrypted-${v}`),
     };
 
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 WeezeventAuthService,
-                {
-                    provide: HttpService,
-                    useValue: mockHttpService,
-                },
-                {
-                    provide: OnboardingService,
-                    useValue: mockOnboardingService,
-                },
+                { provide: HttpService, useValue: mockHttpService },
+                { provide: PrismaService, useValue: mockPrisma },
+                { provide: EncryptionService, useValue: mockEncryptionService },
             ],
         }).compile();
 
         service = module.get<WeezeventAuthService>(WeezeventAuthService);
-        httpService = module.get<HttpService>(HttpService);
-        onboardingService = module.get<OnboardingService>(OnboardingService);
     });
 
     afterEach(() => {
@@ -47,10 +43,11 @@ describe('WeezeventAuthService', () => {
 
     describe('getAccessToken', () => {
         const tenantId = 'tenant-123';
-        const mockConfig = {
-            clientId: 'test-client-id',
-            clientSecret: 'test-client-secret',
+        const integrationId = 'integration-a';
+
+        const mockIntegrationRow = {
             enabled: true,
+            weezevent: { clientId: 'test-client-id', clientSecret: 'encrypted-secret' },
         };
 
         const mockTokenResponse = {
@@ -60,15 +57,17 @@ describe('WeezeventAuthService', () => {
             scope: 'transactions.read wallets.read',
         };
 
-        it('should request and cache access token', async () => {
-            mockOnboardingService.getWeezeventConfig.mockResolvedValue(mockConfig);
-            mockHttpService.axiosRef.post.mockResolvedValue({
-                data: mockTokenResponse,
-            });
+        it('should request and cache access token, scoped to this integration', async () => {
+            mockPrisma.integration.findFirst.mockResolvedValue(mockIntegrationRow);
+            mockHttpService.axiosRef.post.mockResolvedValue({ data: mockTokenResponse });
 
-            const token = await service.getAccessToken(tenantId);
+            const token = await service.getAccessToken(tenantId, integrationId);
 
             expect(token).toBe('mock-access-token');
+            expect(mockPrisma.integration.findFirst).toHaveBeenCalledWith({
+                where: { id: integrationId, tenantId, provider: 'WEEZEVENT' },
+                select: { enabled: true, weezevent: { select: { clientId: true, clientSecret: true } } },
+            });
             expect(mockHttpService.axiosRef.post).toHaveBeenCalledWith(
                 'https://accounts.weezevent.com/realms/accounts/protocol/openid-connect/token',
                 expect.any(Object),
@@ -79,48 +78,76 @@ describe('WeezeventAuthService', () => {
         });
 
         it('should return cached token if still valid', async () => {
-            mockOnboardingService.getWeezeventConfig.mockResolvedValue(mockConfig);
-            mockHttpService.axiosRef.post.mockResolvedValue({
-                data: mockTokenResponse,
-            });
+            mockPrisma.integration.findFirst.mockResolvedValue(mockIntegrationRow);
+            mockHttpService.axiosRef.post.mockResolvedValue({ data: mockTokenResponse });
 
-            // First call - should request token
-            const token1 = await service.getAccessToken(tenantId);
-
-            // Second call - should return cached token
-            const token2 = await service.getAccessToken(tenantId);
+            const token1 = await service.getAccessToken(tenantId, integrationId);
+            const token2 = await service.getAccessToken(tenantId, integrationId);
 
             expect(token1).toBe(token2);
             expect(mockHttpService.axiosRef.post).toHaveBeenCalledTimes(1);
         });
 
-        it('should throw WeezeventAuthException if config not found', async () => {
-            mockOnboardingService.getWeezeventConfig.mockResolvedValue(null);
+        // BUG-025 (corrigé) : le cache/résolution des credentials est scopé par integrationId, pas
+        // par tenantId — deux intégrations Weezevent du même tenant ne doivent jamais partager un
+        // token ni des credentials.
+        it('resolves credentials independently per integration, even for the same tenant', async () => {
+            const integrationB = 'integration-b';
+            mockPrisma.integration.findFirst.mockImplementation(({ where }: any) =>
+                Promise.resolve(
+                    where.id === integrationId
+                        ? { enabled: true, weezevent: { clientId: 'client-A', clientSecret: 'secret-A' } }
+                        : { enabled: true, weezevent: { clientId: 'client-B', clientSecret: 'secret-B' } },
+                ),
+            );
+            mockHttpService.axiosRef.post.mockImplementation((_url: string, _body: any, opts: any) =>
+                Promise.resolve({
+                    data: {
+                        access_token: opts.headers.Authorization.includes(
+                            Buffer.from('client-A:decrypted-secret-A').toString('base64'),
+                        )
+                            ? 'token-A'
+                            : 'token-B',
+                        expires_in: 3600,
+                    },
+                }),
+            );
 
-            await expect(service.getAccessToken(tenantId)).rejects.toThrow(
+            const tokenA = await service.getAccessToken(tenantId, integrationId);
+            const tokenB = await service.getAccessToken(tenantId, integrationB);
+
+            expect(tokenA).toBe('token-A');
+            expect(tokenB).toBe('token-B');
+            expect(mockHttpService.axiosRef.post).toHaveBeenCalledTimes(2);
+        });
+
+        it('should throw WeezeventAuthException if config not found', async () => {
+            mockPrisma.integration.findFirst.mockResolvedValue(null);
+
+            await expect(service.getAccessToken(tenantId, integrationId)).rejects.toThrow(
                 WeezeventAuthException,
             );
-            await expect(service.getAccessToken(tenantId)).rejects.toThrow(
+            await expect(service.getAccessToken(tenantId, integrationId)).rejects.toThrow(
                 'Weezevent not configured',
             );
         });
 
         it('should throw WeezeventAuthException if integration disabled', async () => {
-            mockOnboardingService.getWeezeventConfig.mockResolvedValue({
-                ...mockConfig,
+            mockPrisma.integration.findFirst.mockResolvedValue({
+                ...mockIntegrationRow,
                 enabled: false,
             });
 
-            await expect(service.getAccessToken(tenantId)).rejects.toThrow(
+            await expect(service.getAccessToken(tenantId, integrationId)).rejects.toThrow(
                 WeezeventAuthException,
             );
-            await expect(service.getAccessToken(tenantId)).rejects.toThrow(
-                'integration is disabled',
+            await expect(service.getAccessToken(tenantId, integrationId)).rejects.toThrow(
+                'is disabled',
             );
         });
 
         it('should throw WeezeventAuthException on auth failure', async () => {
-            mockOnboardingService.getWeezeventConfig.mockResolvedValue(mockConfig);
+            mockPrisma.integration.findFirst.mockResolvedValue(mockIntegrationRow);
             mockHttpService.axiosRef.post.mockRejectedValue({
                 response: {
                     status: 401,
@@ -128,37 +155,33 @@ describe('WeezeventAuthService', () => {
                 },
             });
 
-            await expect(service.getAccessToken(tenantId)).rejects.toThrow(
+            await expect(service.getAccessToken(tenantId, integrationId)).rejects.toThrow(
                 WeezeventAuthException,
             );
         });
     });
 
     describe('clearToken', () => {
-        it('should clear cached token for tenant', async () => {
+        it('should clear cached token for the given integration', async () => {
             const tenantId = 'tenant-123';
-            const mockConfig = {
-                clientId: 'test-client-id',
-                clientSecret: 'test-client-secret',
-                enabled: true,
-            };
+            const integrationId = 'integration-a';
 
-            mockOnboardingService.getWeezeventConfig.mockResolvedValue(mockConfig);
+            mockPrisma.integration.findFirst.mockResolvedValue({
+                enabled: true,
+                weezevent: { clientId: 'test-client-id', clientSecret: 'encrypted-secret' },
+            });
             mockHttpService.axiosRef.post.mockResolvedValue({
-                data: {
-                    access_token: 'token',
-                    expires_in: 3600,
-                },
+                data: { access_token: 'token', expires_in: 3600 },
             });
 
             // Get token (cached)
-            await service.getAccessToken(tenantId);
+            await service.getAccessToken(tenantId, integrationId);
 
             // Clear cache
-            service.clearToken(tenantId);
+            service.clearToken(integrationId);
 
             // Next call should request new token
-            await service.getAccessToken(tenantId);
+            await service.getAccessToken(tenantId, integrationId);
 
             expect(mockHttpService.axiosRef.post).toHaveBeenCalledTimes(2);
         });

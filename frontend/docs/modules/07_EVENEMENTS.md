@@ -159,7 +159,10 @@ métadonnées de billetterie/déroulement. Source des events "passés" (comparab
 - Client API front : `src/api/endpoints/event.api.js` (fichier réel nommé `event.api.js` malgré le
   commentaire d'en-tête `// src/api/endpoints/events.api.js` — vestige d'un renommage, sans
   conséquence puisque tous les imports du code utilisent le bon chemin de fichier).
-- Store Vuex : `src/store/modules/events.js` (cache TTL 5 min, `fetchEvents()` **tenant-wide, sans
+- Store Vuex : `src/store/modules/events.js` (cache TTL **15 min**, aligné le 2026-07-18 sur la
+  convention du reste de l'app — [BUG-147](../bugs/147_events_store_ttl_5min_incoherent.md),
+  décision confirmée définitive le 2026-07-24 ; le futur module Live aura son propre mécanisme de
+  fraîcheur ~2 min, indépendant de ce TTL ; `fetchEvents()` **tenant-wide, sans
   scoping spaceId** — cohérent avec son unique consommateur, l'écran `/events`).
 - Écrans dédiés à la gestion (hors Event Predict) : `components/events/views/EventsListView.vue`,
   drawers `components/events/drawers/EventFormDrawer.vue` (création/édition complète),
@@ -361,6 +364,22 @@ pas confondre avec le vrai champ `EventCategory.hasHomeTeam` persistant).
 | 5 | **Commentaire obsolète dans `team.api.js`** | Affirme que `/teams` n'existe pas encore côté backend — faux, `TeamsController` est déployé et fonctionnel | `team.api.js:4-8` |
 
 ---
+
+## Audit complémentaire du 2026-07-17 — bugs corrigés
+
+Un second passage exhaustif (frontend `/events`, `/event-types`, `/event-categories`,
+`/event-subcategories` + backend module Events, taxonomies, Teams, couche API
+`predict-versions.*`) a mis au jour et corrigé 25 bugs supplémentaires (15 confirmés + 4
+diagnostiqués côté frontend BUG-130 à 148 ; 10 confirmés + 3 diagnostiqués côté backend BUG-65 à
+76), en plus des 5 déjà listés ci-dessus. Le plus sérieux : une faille cross-tenant P0 sur
+`PredictVersionsService.setDefault` (aucun scoping tenant sur l'update — n'importe quel tenant
+pouvait forcer la version par défaut d'un autre), corrigée et couverte par des tests (ce module
+n'en avait aucun avant). Détail complet dans `docs/bugs/00_INDEX.md` (#130-148) et
+`../../../api-datafriday-staging/docs/bugs/00_INDEX.md` (#65-76) — non reproduit ici pour éviter la
+duplication. Quatre décisions produit restent en attente (voir fiches ⚪ Diagnostiqué #70, #75, #76
+côté backend et #145-148 côté frontend), notamment : que faire des colonnes CSV events
+`performerName`/`sponsor`/`openingActName`/`allSessions`, proposées au mapping d'import mais sans
+aucun champ `Event` correspondant (BUG-136).
 
 ## Code mort de ce domaine (preuve : recherche exhaustive des appelants)
 

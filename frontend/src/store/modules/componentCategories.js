@@ -1,4 +1,4 @@
-import { getComponentTypes } from '@/api/endpoints/menu.api'
+import { getComponentCategories } from '@/api/endpoints/menu.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes
 
@@ -40,31 +40,52 @@ export default {
   },
 
   actions: {
-    async fetchComponentCategories({ state, commit, getters }, { forceRefresh = false } = {}) {
+    async fetchComponentCategories({ state, commit, getters, rootGetters }, { forceRefresh = false } = {}) {
       if (state.fetching) return
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const data = await getComponentTypes()
-        const typesRaw = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.data?.data)
-              ? data.data.data
-              : []
+        // BUG-169 : GET /component-categories est désormais paginé côté serveur (défaut
+        // limit=200, clampé à 500) — on boucle sur `meta.total` pour reconstituer la liste
+        // COMPLÈTE avant de committer, comme marketPrices.js/fetchRows. Le contrat du store
+        // (getter = liste entière) ne change pas : tous les consommateurs (dropdowns inclus)
+        // restent servis.
+        const limit = 200
+        let page = 1
+        let raw = []
+        while (true) {
+          const result = await getComponentCategories({ page, limit })
+          const pageRows = Array.isArray(result)
+            ? result
+            : Array.isArray(result?.data)
+              ? result.data
+              : Array.isArray(result?.data?.data)
+                ? result.data.data
+                : []
+          raw = raw.concat(pageRows)
+          const total = result?.meta?.total ?? result?.data?.meta?.total
+          if (!total || pageRows.length < limit || raw.length >= total) break
+          page += 1
+        }
 
-        const list = typesRaw
-          .flatMap((type) =>
-            Array.isArray(type.categories)
-              ? type.categories.map((c) => ({
-                  ...c,
-                  id: c?.id || c?._id,
-                  typeId: c?.typeId || type.id,
-                  typeName: type.name || '',
-                }))
-              : []
-          )
+        const types = rootGetters['componentTypes/componentTypes'] || []
+
+        const list = raw
+          .map((c) => {
+            const typeId = c?.typeId || c?.type?.id || c?.componentTypeId
+            const typeName =
+              c?.typeName ||
+              c?.type?.name ||
+              c?.componentType?.name ||
+              types.find((t) => t.id === typeId)?.name ||
+              ''
+            return {
+              ...c,
+              id: c?.id || c?._id,
+              typeId,
+              typeName,
+            }
+          })
           .filter((c) => !!c.id)
           .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
 
@@ -78,16 +99,19 @@ export default {
       commit('INVALIDATE')
     },
 
-    addComponentCategory({ commit }, item) {
+    addComponentCategory({ commit, dispatch }, item) {
       commit('ADD_COMPONENT_CATEGORY', item)
+      dispatch('componentTypes/invalidate', null, { root: true })
     },
 
-    updateComponentCategory({ commit }, item) {
+    updateComponentCategory({ commit, dispatch }, item) {
       commit('UPDATE_COMPONENT_CATEGORY', item)
+      dispatch('componentTypes/invalidate', null, { root: true })
     },
 
-    removeComponentCategory({ commit }, id) {
+    removeComponentCategory({ commit, dispatch }, id) {
       commit('REMOVE_COMPONENT_CATEGORY', id)
+      dispatch('componentTypes/invalidate', null, { root: true })
     },
   },
 }

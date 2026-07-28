@@ -85,6 +85,39 @@ export class MenuComponentsService {
     }
   }
 
+  // BUG-80 : componentTypeId/componentCategoryId étaient assignés directement depuis le payload
+  // client sans vérifier qu'ils pointent vers un ComponentType/ComponentCategory accessible au
+  // tenant courant (privé au tenant ou global) — la contrainte FK Prisma ne garantit que
+  // l'existence de la ligne, pas son appartenance tenant. Pattern "accessible"
+  // (OR: [{tenantId}, {tenantId: null}]) identique à findAccessibleEventTypeOrThrow
+  // (events.service.ts) — PAS la variante "owned" stricte, qui rejetterait à tort les entrées
+  // globales (voir BUG-77, régression évitée).
+  private async assertComponentTypeAccessible(componentTypeId: unknown, tenantId: string) {
+    if (componentTypeId === undefined || componentTypeId === null) return;
+    if (typeof componentTypeId !== 'string' || !componentTypeId.trim()) return;
+
+    const type = await this.prisma.componentType.findFirst({
+      where: { id: componentTypeId, OR: [{ tenantId }, { tenantId: null }] },
+      select: { id: true },
+    });
+    if (!type) {
+      throw new BadRequestException('componentTypeId must reference an accessible component type');
+    }
+  }
+
+  private async assertComponentCategoryAccessible(componentCategoryId: unknown, tenantId: string) {
+    if (componentCategoryId === undefined || componentCategoryId === null) return;
+    if (typeof componentCategoryId !== 'string' || !componentCategoryId.trim()) return;
+
+    const category = await this.prisma.componentCategory.findFirst({
+      where: { id: componentCategoryId, OR: [{ tenantId }, { tenantId: null }] },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new BadRequestException('componentCategoryId must reference an accessible component category');
+    }
+  }
+
   async replaceIngredients(
     componentId: string,
     ingredients: CreateMenuComponentDto['ingredients'],
@@ -232,7 +265,14 @@ export class MenuComponentsService {
       total += childUnitCost * (Number(childLine.quantity) || 0);
     }
 
-    return Math.round(total * 10000) / 10000;
+    // BUG-001: `total` est le coût de la fournée entière. Une recette qui produit plusieurs
+    // unités (numberOfUnitsRecipe > 1) doit voir son coût divisé par ce nombre pour obtenir le
+    // coût UNITAIRE. `numberOfUnitsRecipe` est nullable/optionnel : falsy (null/undefined/0) est
+    // traité comme 1 (cas par défaut d'une recette qui produit une seule unité), pour ne jamais
+    // diviser par zéro.
+    const numberOfUnitsRecipe = Number(component.numberOfUnitsRecipe) || 1;
+
+    return Math.round((total / numberOfUnitsRecipe) * 10000) / 10000;
   }
 
   private readonly includeRelations = {
@@ -266,6 +306,8 @@ export class MenuComponentsService {
           (childrenLines || []).map((l: any) => l?.childId),
           tenantId,
         ),
+        this.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
+        this.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
       ]);
 
       const component = await this.prisma.menuComponent.create({
@@ -431,6 +473,8 @@ export class MenuComponentsService {
         (childrenLines || []).map((l: any) => l?.childId),
         tenantId,
       ),
+      this.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
+      this.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
     ]);
 
     if (ingredientsLines) {

@@ -676,70 +676,26 @@ export async function getFBLocations() {
   return result.data || { count: 0, locations: [] };
 }
 
-// Get paginated sales data for a space
-export async function getSalesForSpace(spaceId, options) {
-  // Mode démo : pas d'edge function ventes → lignes mock déterministes.
+// Get paginated sales data for a space.
+// BUG-023 : l'edge function Supabase `/functions/v1/sales` (ancien projet
+// make-server-eb31619c) n'existe plus et n'a aucun équivalent NestJS — l'appel
+// réseau échouait systématiquement. On répond directement la page vide que les
+// appelants (fetchReferenceSales) traitaient déjà comme repli. Seul le mode
+// démo garde un contenu (mock déterministe).
+export async function getSalesForSpace(spaceId, options) { // eslint-disable-line no-unused-vars
   const { isDemoMode } = await import('./demoMode');
   if (isDemoMode()) {
     const { buildSalesRowsMock } = await import('../data/spaceInventoryMock');
     return { rows: buildSalesRowsMock(), has_more: false, next_cursor: null };
   }
-
-  const params = new URLSearchParams({ space: spaceId });
-  if (options?.limit) params.append('limit', options.limit.toString());
-  if (options?.cursorDate) params.append('cursor_date', options.cursorDate);
-  if (options?.cursorId) params.append('cursor_id', options.cursorId);
-  if (options?.fromDate) params.append('from', options.fromDate);
-  if (options?.toDate) params.append('to', options.toDate);
-
-  // Call the dedicated sales Edge Function
-  const { projectId, publicAnonKey } = await import('./supabase/info');
-  const response = await fetch(
-    `https://${projectId}.supabase.co/functions/v1/sales?${params.toString()}`,
-    {
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Error fetching sales data:', errorText);
-    throw new Error(`Failed to fetch sales data: ${response.statusText}`);
-  }
-
-  const result = await response.json();
-  return result.data || { rows: [], next_cursor: null, has_more: false };
+  return { rows: [], next_cursor: null, has_more: false };
 }
 
-// Get sales summary for a space
-export async function getSalesSummaryForSpace(spaceId, options) {
-  const params = new URLSearchParams({ space: spaceId });
-  if (options?.fromDate) params.append('from', options.fromDate);
-  if (options?.toDate) params.append('to', options.toDate);
-
-  // Call the sales summary endpoint in the main server
-  const { projectId, publicAnonKey } = await import('./supabase/info');
-  const response = await fetch(
-    `https://${projectId}.supabase.co/functions/v1/make-server-eb31619c/sales/summary?${params.toString()}`,
-    {
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Error fetching sales summary:', errorText);
-    throw new Error(`Failed to fetch sales summary: ${response.statusText}`);
-  }
-
-  const result = await response.json();
-  return result.data || { count: 0, total_revenue: 0, locations: [] };
+// Get sales summary for a space.
+// BUG-023 : même backend legacy mort que getSalesForSpace — résumé vide direct,
+// sans appel réseau voué à l'échec.
+export async function getSalesSummaryForSpace(spaceId, options) { // eslint-disable-line no-unused-vars
+  return { count: 0, total_revenue: 0, locations: [] };
 }
 
 // Save location-space mapping
@@ -788,9 +744,12 @@ export async function getShopsForSpace(spaceId) {
 }
 
 // Get shop-element mappings for a space - NEW: uses spaceId
-export async function getShopElementMappings(spaceId) {
-  const result = await apiFetch(`/shop-element-mappings/${encodeURIComponent(spaceId)}`);
-  return result.data || [];
+// BUG-023 : la route `/shop-element-mappings` n'existe ni sur le backend NestJS
+// ni ailleurs (l'edge function legacy est morte) — chaque appel échouait et les
+// 3 appelants (useShoppingList, SpaceMenusPanel, SpaceRestockView) retombaient
+// déjà sur []. On court-circuite l'appel réseau.
+export async function getShopElementMappings(spaceId) { // eslint-disable-line no-unused-vars
+  return [];
 }
 
 // Save shop-element mappings - NEW: uses spaceId

@@ -108,61 +108,18 @@
             </v-select>
           </div>
 
-          <!-- Dialog — Nouveau type -->
-          <v-dialog v-model="newTypeOpen" max-width="420" :z-index="11000" :persistent="newTypeLoading">
-            <div class="mped-mini-dialog">
-              <div class="mped-mini-dialog__header">
-                <Shapes :size="18" color="white" />
-                <span>{{ locale === 'fr' ? 'Nouveau type de produit' : 'New Good Type' }}</span>
-                <button class="mped-mini-dialog__close" :disabled="newTypeLoading" @click="newTypeOpen = false"><X :size="16" /></button>
-              </div>
-              <div class="mped-mini-dialog__body">
-                <v-alert v-if="newTypeError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3" style="font-size:13px;">
-                  {{ newTypeError }}
-                </v-alert>
-                <div class="mped-field-row">
-                  <label class="mped-field-label" for="mped-nt-name">{{ locale === 'fr' ? 'Nom du type' : 'Type name' }} <span class="mped-required">*</span></label>
-                  <input id="mped-nt-name" v-model="newTypeValue" type="text" class="form-control mped-input" :disabled="newTypeLoading" @keyup.enter="confirmNewType" />
-                </div>
-              </div>
-              <div class="mped-mini-dialog__footer">
-                <button class="mped-btn mped-btn--cancel" :disabled="newTypeLoading" @click="newTypeOpen = false">{{ t('cancel') }}</button>
-                <button class="mped-btn mped-btn--save" :disabled="!newTypeValue.trim() || newTypeLoading" @click="confirmNewType">
-                  <v-progress-circular v-if="newTypeLoading" indeterminate size="14" width="2" color="white" class="me-1" />
-                  <Check v-else :size="14" class="me-1" />
-                  {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                </button>
-              </div>
-            </div>
-          </v-dialog>
-
-          <!-- Dialog — Nouvelle catégorie -->
-          <v-dialog v-model="newCategoryOpen" max-width="420" :z-index="11000" :persistent="newCategoryLoading">
-            <div class="mped-mini-dialog">
-              <div class="mped-mini-dialog__header">
-                <Tag :size="18" color="white" />
-                <span>{{ locale === 'fr' ? 'Nouvelle catégorie' : 'New Category' }}</span>
-                <button class="mped-mini-dialog__close" :disabled="newCategoryLoading" @click="newCategoryOpen = false"><X :size="16" /></button>
-              </div>
-              <div class="mped-mini-dialog__body">
-                <v-alert v-if="newCategoryError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3" style="font-size:13px;">
-                  {{ newCategoryError }}
-                </v-alert>
-                <div class="mped-field-row">
-                  <label class="mped-field-label" for="mped-nc-name">{{ locale === 'fr' ? 'Nom de la catégorie' : 'Category name' }} <span class="mped-required">*</span></label>
-                  <input id="mped-nc-name" v-model="newCategoryValue" type="text" class="form-control mped-input" :disabled="newCategoryLoading" @keyup.enter="confirmNewCategory" />
-                </div>
-              </div>
-              <div class="mped-mini-dialog__footer">
-                <button class="mped-btn mped-btn--cancel" :disabled="newCategoryLoading" @click="newCategoryOpen = false">{{ t('cancel') }}</button>
-                <button class="mped-btn mped-btn--save" :disabled="!newCategoryValue.trim() || newCategoryLoading" @click="confirmNewCategory">
-                  <v-progress-circular v-if="newCategoryLoading" indeterminate size="14" width="2" color="white" class="me-1" />
-                  <Check v-else :size="14" class="me-1" />
-                  {{ locale === 'fr' ? 'Ajouter' : 'Add' }}
-                </button>
-              </div>
-            </div>
-          </v-dialog>
+          <!-- Dialogs partagés « Nouveau type » / « Nouvelle catégorie » (extraits — voir composants) -->
+          <MarketPriceNewTypeDialog
+            v-model="newTypeOpen"
+            :is-dark="isDark"
+            @created="onTypeCreated"
+          />
+          <MarketPriceNewCategoryDialog
+            v-model="newCategoryOpen"
+            :is-dark="isDark"
+            :type-id="selectedTypeId"
+            @created="onCategoryCreated"
+          />
         </div>
 
         <!-- Unit & Conversion -->
@@ -208,13 +165,15 @@
 <script>
 import { AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus, Pencil, PlusCircle, Save, Scale, Shapes, Tag, X } from 'lucide-vue-next';
 import { updateMarketPrice } from '@/api/endpoints/menu.api';
-import { createMarketPriceType, createMarketPriceCategory } from '@/api/endpoints/market.price.api';
+import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
+import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
 
 export default {
   name: 'MarketPriceEditDrawer',
   components: {
     AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus,
     Pencil, PlusCircle, Save, Scale, Shapes, Tag, X,
+    MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog,
   },
   props: {
     modelValue: { type: Boolean, default: false },
@@ -233,18 +192,16 @@ export default {
       loading: false,
       error: '',
       isHydratingForm: false,
+      // FK type/catégorie chargées depuis l'API (BUG-162) : réutilisées tant que le nom
+      // affiché n'a pas changé depuis le chargement, au lieu de re-résoudre par nom à
+      // chaque sauvegarde (cf. BUG-62/81, même pattern sur Component/MenuItem).
+      _loadedTaxonomy: { typeId: null, categoryId: null, typeName: '', categoryName: '' },
       imageFile: null,
       imagePreview: '',
       localGoodTypeOptions: [],
       localGoodCategoryOptions: [],
       newTypeOpen: false,
-      newTypeValue: '',
-      newTypeLoading: false,
-      newTypeError: '',
       newCategoryOpen: false,
-      newCategoryValue: '',
-      newCategoryLoading: false,
-      newCategoryError: '',
       form: {
         originalItemName: '',
         itemName: '',
@@ -344,13 +301,20 @@ export default {
       get() { return this.modelValue; },
       set(val) { this.$emit('update:modelValue', val); },
     },
-    // Sous-titre dynamique sous « Purchase Unit Conversion » : reprend l'unité de
-    // recette sélectionnée (Kg / L / Pc).
+    // Unité du 1er supplier item de cet article (base de la conversion d'achat).
+    firstSupplierUnit() {
+      const rows = this.initialItem?.supplierRows || [];
+      return String(rows[0]?.unit || '').trim();
+    },
+    // Sous-titre sous « Purchase Unit Conversion » :
+    // « How many <unité du 1er supplier item> do you need to make one <unité de recette>? »
     conversionSubtitle() {
-      const unit = this.form.recipeUnit || (this.locale === 'fr' ? 'unité' : 'unit');
+      const fallback = this.locale === 'fr' ? 'unité' : 'unit';
+      const recipe = this.form.recipeUnit || fallback;
+      const supplier = this.firstSupplierUnit || fallback;
       return this.locale === 'fr'
-        ? `Combien de l faut-il pour faire un ${unit} ?`
-        : `How many l do you need to make one ${unit}?`;
+        ? `Combien de ${supplier} faut-il pour faire un ${recipe} ?`
+        : `How many ${supplier} do you need to make one ${recipe}?`;
     },
     storeGoodTypeOptions() {
       const types = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
@@ -362,20 +326,33 @@ export default {
       return [...base, ...extra];
     },
     selectedTypeId() {
+      // Réutilise le FK chargé depuis l'API tant que le nom affiché n'a pas changé
+      // depuis le chargement (BUG-162) ; ne retombe sur la résolution par nom que si
+      // l'utilisateur change effectivement le Good Type (ou si aucun FK n'a été chargé).
+      if (this._loadedTaxonomy.typeId && this._loadedTaxonomy.typeName === this.form.goodType) {
+        return this._loadedTaxonomy.typeId;
+      }
       const types = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
       return types.find((t) => t.name === this.form.goodType)?.id || null;
     },
     selectedCategoryId() {
+      if (this._loadedTaxonomy.categoryId && this._loadedTaxonomy.categoryName === this.form.category) {
+        return this._loadedTaxonomy.categoryId;
+      }
       return (this.productCategories || []).find((c) => c.name === this.form.category)?.id || null;
     },
     goodCategoryOptions() {
       const goodType = (this.form.goodType || '').toLowerCase();
-      const base = goodType
-        ? (this.productCategories || [])
-            .filter((c) => (c.typeName || '').toLowerCase() === goodType)
-            .map((c) => c?.name)
-            .filter(Boolean)
-        : this.productCategoryOptions;
+      let base;
+      if (goodType && this.productCategories && this.productCategories.length) {
+        const filtered = this.productCategories
+          .filter((c) => (c.typeName || '').toLowerCase() === goodType)
+          .map((c) => c?.name)
+          .filter(Boolean);
+        base = filtered.length ? filtered : this.productCategoryOptions;
+      } else {
+        base = this.productCategoryOptions;
+      }
       const extra = this.localGoodCategoryOptions.filter((o) => !base.includes(o));
       return [...base, ...extra];
     },
@@ -384,6 +361,13 @@ export default {
     'form.goodType'() {
       if (this.isHydratingForm) return;
       this.form.category = '';
+    },
+    // Unité de recette = unité du 1er supplier item → conversion 1 par défaut.
+    // Sinon on laisse la valeur courante (à l'utilisateur de la saisir).
+    'form.recipeUnit'(val) {
+      if (this.sameAsSupplierUnit(val)) {
+        this.form.purchaseUnitConversion = 1;
+      }
     },
     modelValue(val) {
       if (val) {
@@ -394,9 +378,7 @@ export default {
         this.localGoodTypeOptions = [...(this.goodTypeOptions || [])];
         this.localGoodCategoryOptions = [];
         this.newTypeOpen = false;
-        this.newTypeValue = '';
         this.newCategoryOpen = false;
-        this.newCategoryValue = '';
         const raw = this.initialItem;
         this.isHydratingForm = true;
         this.form = {
@@ -415,6 +397,24 @@ export default {
           packingWidth: Number(raw.packingWidth) || 0,
           packingHeight: Number(raw.packingHeight) || 0,
         };
+        // Capture le FK type/catégorie tel que chargé depuis l'API (BUG-162), pour le
+        // réutiliser à la sauvegarde tant que le nom affiché ne change pas — au lieu de
+        // toujours re-résoudre par nom (fragile si homonymie/cache périmé). NB : au
+        // 2026-07-19, MarketPriceListView.vue n'expose pas encore marketPriceTypeId/
+        // marketPriceCategoryId sur l'item agrégé transmis ici ; tant que ce n'est pas
+        // corrigé en amont, ces valeurs seront null et selectedTypeId/selectedCategoryId
+        // retombent sur la résolution par nom (comportement inchangé, sans régression).
+        this._loadedTaxonomy = {
+          typeId: raw.marketPriceTypeId || raw.typeId || null,
+          categoryId: raw.marketPriceCategoryId || raw.categoryId || null,
+          typeName: this.form.goodType,
+          categoryName: this.form.category,
+        };
+        // Si l'unité de recette = l'unité du 1er supplier item, la conversion vaut 1
+        // par défaut (même unité) ; sinon on garde la valeur existante (à saisir).
+        if (this.sameAsSupplierUnit(this.form.recipeUnit)) {
+          this.form.purchaseUnitConversion = 1;
+        }
         this.imageFile = null;
         this.imagePreview = raw.image || '';
         this.error = '';
@@ -436,6 +436,12 @@ export default {
   methods: {
     t(key) {
       return this.translations[this.locale]?.[key] || key;
+    },
+    // Vrai si l'unité passée correspond à l'unité du 1er supplier item (insensible casse/espaces).
+    sameAsSupplierUnit(unit) {
+      const u = String(unit || '').trim().toLowerCase();
+      const s = this.firstSupplierUnit.toLowerCase();
+      return !!u && !!s && u === s;
     },
     handleLocaleChange(event) {
       this.locale = event.detail?.locale || 'en';
@@ -463,70 +469,19 @@ export default {
         this.form.image = '';
       }
     },
-    async confirmNewType() {
-      const name = this.newTypeValue.trim();
-      if (!name) return;
-      this.newTypeLoading = true;
-      this.newTypeError = '';
-      try {
-        await createMarketPriceType({ name });
-        await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-        if (!this.localGoodTypeOptions.includes(name)) {
-          this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
-        }
-        this.form.goodType = name;
-        this.newTypeValue = '';
-        this.newTypeOpen = false;
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        if (msgStr.includes('Unique constraint')) {
-          // Le type existe déjà (créé entre-temps) : on le récupère quand même.
-          await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-          this.form.goodType = name;
-          this.newTypeValue = '';
-          this.newTypeOpen = false;
-        } else {
-          this.newTypeError = msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-        }
-      } finally {
-        this.newTypeLoading = false;
+    // Le dialog partagé a créé le type/catégorie (API + refetch store) ; ici on ne
+    // fait que refléter la sélection dans le formulaire + l'affichage immédiat.
+    onTypeCreated(name) {
+      if (!this.localGoodTypeOptions.includes(name)) {
+        this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
       }
+      this.form.goodType = name;
     },
-    async confirmNewCategory() {
-      const name = this.newCategoryValue.trim();
-      if (!name) return;
-      if (!this.selectedTypeId) {
-        this.newCategoryError = this.locale === 'fr'
-          ? 'Choisis d\'abord un Good Type.'
-          : 'Pick a Good Type first.';
-        return;
+    onCategoryCreated(name) {
+      if (!this.localGoodCategoryOptions.includes(name)) {
+        this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
       }
-      this.newCategoryLoading = true;
-      this.newCategoryError = '';
-      try {
-        await createMarketPriceCategory({ name, typeId: this.selectedTypeId });
-        await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
-        if (!this.localGoodCategoryOptions.includes(name)) {
-          this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
-        }
-        this.form.category = name;
-        this.newCategoryValue = '';
-        this.newCategoryOpen = false;
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        if (msgStr.includes('Unique constraint')) {
-          await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
-          this.form.category = name;
-          this.newCategoryValue = '';
-          this.newCategoryOpen = false;
-        } else {
-          this.newCategoryError = msgStr || (this.locale === 'fr' ? 'Échec de la création.' : 'Creation failed.');
-        }
-      } finally {
-        this.newCategoryLoading = false;
-      }
+      this.form.category = name;
     },
     close() {
       this.$emit('update:modelValue', false);
@@ -771,41 +726,6 @@ export default {
 .mped-item-select :deep(.v-field__input) { font-size: 13.5px !important; color: #111827 !important; }
 .mped-item-select :deep(.v-select__selection-text) { font-size: 13.5px !important; }
 
-/* === Mini dialog (type / category creation) === */
-.mped-mini-dialog {
-  background: #fff;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0,0,0,.14);
-}
-.mped-mini-dialog__header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 20px;
-  background: #ff3131;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-}
-.mped-mini-dialog__close {
-  margin-left: auto;
-  background: rgba(255,255,255,.18);
-  border: none; border-radius: 6px;
-  width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85);
-}
-.mped-mini-dialog__close:hover { background: rgba(255,255,255,.3); }
-.mped-mini-dialog__body { padding: 20px 20px 16px; }
-.mped-mini-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 12px 20px;
-  border-top: 1px solid #f0f0f0;
-  background: #fafafa;
-}
 
 /* === Footer === */
 .mped__footer {
@@ -983,6 +903,13 @@ export default {
 .mped--dark :deep(.v-field) {
   background-color: #263548 !important;
 }
+/* Bordure custom des v-select (.mped-item-select) + icônes clear/dropdown, sombres en dark. */
+.mped--dark .mped-item-select :deep(.v-field) { border-color: #374151 !important; }
+.mped--dark .mped-item-select :deep(.v-field--focused) { border-color: #ff3131 !important; background: #263548 !important; }
+.mped--dark .mped-item-select :deep(.v-field__clearable),
+.mped--dark .mped-item-select :deep(.v-field__append-inner),
+.mped--dark .mped-item-select :deep(.v-field__clearable .v-icon),
+.mped--dark .mped-item-select :deep(.v-field__append-inner .v-icon) { color: #94a3b8 !important; }
 
 .mped--dark :deep(.v-field__input),
 .mped--dark :deep(input),

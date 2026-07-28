@@ -18,12 +18,13 @@
           />
           <v-icon v-else-if="jobData.status === 'COMPLETED'" color="success" size="20">mdi-check-circle</v-icon>
           <v-icon v-else color="error" size="20">mdi-alert-circle</v-icon>
-          <span class="text-body-2 font-weight-medium">Sync Weezevent</span>
+          <span class="text-body-2 font-weight-medium">{{ t('intgSyncProgTitle') }}</span>
         </div>
         <v-btn
           icon
           variant="text"
           size="x-small"
+          :aria-label="t('close')"
           @click="dismiss"
         >
           <v-icon size="16">mdi-close</v-icon>
@@ -33,7 +34,7 @@
       <!-- Collecte -->
       <div class="mb-2">
         <div class="d-flex justify-space-between mb-1">
-          <span class="text-caption text-medium-emphasis">Collecte</span>
+          <span class="text-caption text-medium-emphasis">{{ t('sfwCollecting') }}</span>
           <span class="text-caption text-medium-emphasis">{{ jobData.totalCollected.toLocaleString('fr-FR') }}</span>
         </div>
         <v-progress-linear
@@ -48,7 +49,7 @@
       <!-- Insertion -->
       <div class="mb-3">
         <div class="d-flex justify-space-between mb-1">
-          <span class="text-caption text-medium-emphasis">Insertion</span>
+          <span class="text-caption text-medium-emphasis">{{ t('sfwInserting') }}</span>
           <span class="text-caption text-medium-emphasis">{{ jobData.totalInserted.toLocaleString('fr-FR') }} / {{ jobData.totalCollected.toLocaleString('fr-FR') }}</span>
         </div>
         <v-progress-linear
@@ -60,13 +61,13 @@
       </div>
 
       <div v-if="jobData.status === 'COMPLETED'" class="text-caption text-success">
-        Terminé — {{ jobData.totalInserted.toLocaleString('fr-FR') }} transactions insérées
+        {{ t('sfwDoneCount').replace('{n}', jobData.totalInserted.toLocaleString('fr-FR')) }}
       </div>
       <div v-else-if="jobData.status === 'FAILED'" class="text-caption text-error">
-        {{ jobData.errorMessage || 'La synchronisation a échoué.' }}
+        {{ jobData.errorMessage || t('intgSyncProgSyncFailed') }}
       </div>
       <div v-else class="text-caption text-medium-emphasis">
-        En cours… {{ combinedPct }}%
+        {{ t('sfwInProgress').replace('{n}', combinedPct) }}
       </div>
     </v-card-text>
   </v-card>
@@ -74,6 +75,7 @@
 
 <script>
 import { getWeezeventJobStatus } from '@/api/endpoints/aggregation.api.js'
+import { useI18n } from '@/i18n/useI18n'
 
 const STORAGE_KEY = 'weezevent_active_job_id'
 const POLL_INTERVAL = 5000
@@ -81,19 +83,15 @@ const HIDE_AFTER_DONE_MS = 10000
 
 export default {
   name: 'SyncJobFloatingWidget',
+  setup() {
+    const { t } = useI18n()
+    return { t }
+  },
   data() {
     return {
       visible: false,
       jobId: null,
-      jobData: {
-        status: 'PENDING',
-        totalCollected: 0,
-        totalInserted: 0,
-        totalChunks: 0,
-        processedChunks: 0,
-        collectDone: false,
-        errorMessage: null,
-      },
+      jobData: this.freshJobData(),
       _pollTimer: null,
       _hideTimer: null,
     }
@@ -119,20 +117,23 @@ export default {
       this.visible = true
       this._startPoll()
     }
+    // Le widget vit dans App.vue (persistant inter-routes) : la vue qui démarre un sync
+    // ne peut plus l'atteindre par ref, elle relaie via CustomEvent — même convention
+    // que locale-changed/theme-changed.
+    this._onJobMinimized = (event) => {
+      const jobId = event.detail?.jobId
+      if (jobId) this.activate(jobId)
+    }
+    window.addEventListener('weezevent-job-minimized', this._onJobMinimized)
   },
   beforeUnmount() {
     this._stopPoll()
     if (this._hideTimer) clearTimeout(this._hideTimer)
+    window.removeEventListener('weezevent-job-minimized', this._onJobMinimized)
   },
   methods: {
-    /**
-     * Expose this method so parent can activate the widget with a new jobId.
-     */
-    activate(jobId) {
-      this._stopPoll()
-      if (this._hideTimer) clearTimeout(this._hideTimer)
-      this.jobId = jobId
-      this.jobData = {
+    freshJobData() {
+      return {
         status: 'PENDING',
         totalCollected: 0,
         totalInserted: 0,
@@ -141,6 +142,15 @@ export default {
         collectDone: false,
         errorMessage: null,
       }
+    },
+    /**
+     * Expose this method so parent can activate the widget with a new jobId.
+     */
+    activate(jobId) {
+      this._stopPoll()
+      if (this._hideTimer) clearTimeout(this._hideTimer)
+      this.jobId = jobId
+      this.jobData = this.freshJobData()
       this.visible = true
       localStorage.setItem(STORAGE_KEY, jobId)
       this._startPoll()
@@ -152,10 +162,31 @@ export default {
       localStorage.removeItem(STORAGE_KEY)
     },
     _startPoll() {
+      // Timeout d'INACTIVITÉ plutôt que de durée totale : tant que totalCollected/
+      // totalInserted/processedChunks progressent, on continue d'attendre — un gros tenant
+      // (ex. Auxerre) peut légitimement prendre plus de 10 min. On n'abandonne que si plus
+      // aucun progrès n'est constaté pendant MAX_STALL_MS d'affilée (job vraiment bloqué :
+      // worker orphelin, insert-worker planté…). Aligné sur SyncProgressDialog.vue /
+      // StepProcessTimeline.vue.
+      const MAX_STALL_MS = 10 * 60 * 1000
+      let lastProgressAt = Date.now()
+      let lastProgressSignature = null
       const poll = async () => {
         if (!this.jobId) return
+        if (Date.now() - lastProgressAt >= MAX_STALL_MS) {
+          this.jobData = { ...this.jobData, status: 'FAILED', errorMessage: this.jobData.errorMessage || this.t('intgSyncProgTimeout') }
+          this._stopPoll()
+          localStorage.removeItem(STORAGE_KEY)
+          this._hideTimer = setTimeout(() => { this.visible = false }, HIDE_AFTER_DONE_MS)
+          return
+        }
         try {
           const data = await getWeezeventJobStatus(this.jobId)
+          const signature = `${data.totalCollected ?? 0}|${data.totalInserted ?? 0}|${data.processedChunks ?? 0}`
+          if (signature !== lastProgressSignature) {
+            lastProgressSignature = signature
+            lastProgressAt = Date.now()
+          }
           this.jobData = {
             status: data.status,
             totalCollected: data.totalCollected ?? 0,

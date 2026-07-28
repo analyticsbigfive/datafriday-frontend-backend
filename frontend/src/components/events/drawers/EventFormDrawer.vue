@@ -1,33 +1,21 @@
 <template>
-  <v-navigation-drawer
+  <EventDrawerShell
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    location="right"
-    temporary
+    :persistent="formLoading"
+    :is-dark="isDark"
     width="560"
-    class="efd-drawer"
-    :class="{ 'efd--dark': isDark }"
+    :title="mode === 'edit' ? t('eventsList.drawerEditTitle') : t('eventsList.drawerCreateTitle')"
+    :subtitle="mode === 'edit' ? t('eventsList.drawerEditSubtitle') : t('eventsList.drawerCreateSubtitle')"
   >
-    <!-- Gradient header -->
-    <div class="efd-grad-header">
-      <div class="efd-grad-header__icon">
-        <Calendar :size="20" color="white" />
-      </div>
-      <div class="efd-grad-header__text">
-        <div class="efd-grad-header__title">
-          {{ mode === 'edit' ? t('eventsList.drawerEditTitle') : t('eventsList.drawerCreateTitle') }}
-        </div>
-        <div class="efd-grad-header__sub">
-          {{ mode === 'edit' ? t('eventsList.drawerEditSubtitle') : t('eventsList.drawerCreateSubtitle') }}
-        </div>
-      </div>
-      <button class="efd-grad-header__close" @click="$emit('update:modelValue', false)">
-        <X :size="18" />
-      </button>
-    </div>
+    <template #icon>
+      <Calendar :size="20" color="white" />
+    </template>
 
-    <!-- Scrollable body -->
-    <div class="efd-body">
+    <!-- Scrollable body — le wrapper efd--dark reste nécessaire ici (et non sur la racine) :
+         le CSS scoped de ce composant (`.efd--dark .efd-input` etc.) ne matche que les éléments
+         du propre template de ce composant, pas l'intérieur de EventDrawerShell. -->
+    <div :class="{ 'efd--dark': isDark }">
 
       <!-- Error -->
       <div v-if="formError" class="efd-error">
@@ -64,6 +52,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
         />
       </div>
 
@@ -80,6 +69,7 @@
           hide-details
           clearable
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
         />
       </div>
 
@@ -158,6 +148,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleEventTypeChange"
         >
           <template #item="{ props, item }">
@@ -187,6 +178,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleCategorySelectChange"
         >
           <template #item="{ props, item }">
@@ -216,6 +208,7 @@
           density="comfortable"
           hide-details
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleSubcategorySelectChange"
         >
           <template #item="{ props, item }">
@@ -252,6 +245,7 @@
           auto-select-first
           :custom-filter="teamFilter"
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleHomeTeamSelectChange"
         >
           <template #item="{ props, item }">
@@ -285,6 +279,7 @@
           auto-select-first
           :custom-filter="teamFilter"
           class="efd-select"
+          :menu-props="{ zIndex: 2500 }"
           @update:modelValue="handleTeamSelectChange"
         >
           <template #item="{ props, item }">
@@ -377,6 +372,12 @@
         </div>
       </div>
 
+      <!-- BUG-146 : avertissement non bloquant, ne bloque ni la saisie ni submit() -->
+      <div v-if="ticketsScannedExceedsSold" class="efd-warning">
+        <AlertCircle :size="14" />
+        Tickets scannés ({{ newEvent.ticketsScanned }}) supérieur à tickets vendus ({{ newEvent.ticketsSold }}).
+      </div>
+
       <!-- ── Section: Options ── -->
       <div class="efd-section-label">
         <Settings :size="12" />
@@ -399,6 +400,22 @@
           </div>
           <v-switch v-model="newEvent.hasIntermission" color="#ff3131" hide-details inset density="compact" />
         </div>
+      </div>
+
+      <!-- ── Section: Artistes / Sponsoring — events entertainment ── -->
+      <div class="efd-row mb-4">
+        <div class="efd-select-wrap">
+          <label class="efd-select-label">Performer</label>
+          <v-text-field v-model="newEvent.performerName" variant="outlined" density="comfortable" hide-details placeholder="Nom du performer" class="efd-input" />
+        </div>
+        <div class="efd-select-wrap">
+          <label class="efd-select-label">Sponsor</label>
+          <v-text-field v-model="newEvent.sponsor" variant="outlined" density="comfortable" hide-details placeholder="Nom du sponsor" class="efd-input" />
+        </div>
+      </div>
+      <div v-if="newEvent.hasOpeningAct" class="efd-select-wrap mb-4">
+        <label class="efd-select-label">Opening Act</label>
+        <v-text-field v-model="newEvent.openingActName" variant="outlined" density="comfortable" hide-details placeholder="Nom de l'opening act" class="efd-input" />
       </div>
 
       <!-- ── Section: Données financières ── -->
@@ -427,8 +444,7 @@
       </div>
     </div>
 
-    <!-- Footer -->
-    <div class="efd-footer">
+    <template #footer>
       <button class="efd-fbtn efd-fbtn--cancel" @click="$emit('update:modelValue', false)">
         {{ t('eventsList.cancel') }}
       </button>
@@ -436,8 +452,8 @@
         <Save :size="14" />
         {{ formLoading ? 'Enregistrement…' : t('eventsList.save') }}
       </button>
-    </div>
-  </v-navigation-drawer>
+    </template>
+  </EventDrawerShell>
 
   <EventTypeDialog v-model="typeDialogOpen" @created="handleTypeCreated" />
 
@@ -456,29 +472,38 @@
   />
 
   <!-- Création d'équipe inline (scopée à la compétition de l'event). -->
-  <v-dialog v-model="teamDialogOpen" max-width="420">
-    <div style="background: var(--card, #fff); padding: 20px; border-radius: 12px;">
-      <h3 style="font-weight: 700; margin-bottom: 12px;">Créer une équipe</h3>
-      <v-text-field
-        v-model="teamName"
-        label="Nom de l'équipe"
-        placeholder="Ex. Olympique Lyonnais"
-        variant="outlined"
-        density="comfortable"
-        hide-details
-        @keyup.enter="handleCreateTeam"
-      />
-      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-        <v-btn variant="text" @click="teamDialogOpen = false">Annuler</v-btn>
-        <v-btn color="primary" :disabled="!teamName.trim()" @click="handleCreateTeam">Créer</v-btn>
-      </div>
-    </div>
-  </v-dialog>
+  <EventDrawerShell
+    v-model="teamDialogOpen"
+    :is-dark="isDark"
+    :persistent="teamCreateLoading"
+    width="420"
+    :title="t('eventsList.createTeamTitle')"
+  >
+    <template #icon>
+      <Users :size="18" color="white" />
+    </template>
+
+    <v-text-field
+      v-model="teamName"
+      :label="t('eventsList.createTeamLabel')"
+      :placeholder="t('eventsList.createTeamPlaceholder')"
+      variant="outlined"
+      density="comfortable"
+      hide-details
+      @keyup.enter="handleCreateTeam"
+    />
+
+    <template #footer>
+      <v-btn variant="text" :disabled="teamCreateLoading" @click="teamDialogOpen = false">{{ t('eventsList.createTeamCancel') }}</v-btn>
+      <v-btn color="#ff3131" :loading="teamCreateLoading" :disabled="!teamName.trim()" @click="handleCreateTeam">{{ t('eventsList.createTeamConfirm') }}</v-btn>
+    </template>
+  </EventDrawerShell>
 </template>
 
 <script>
 import { t as translate, getCurrentLocale } from '@/i18n/translations';
-import { Plus, Save, X, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle } from 'lucide-vue-next';
+import { Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users } from 'lucide-vue-next';
+import EventDrawerShell from './EventDrawerShell.vue';
 import { createEvent, updateEvent } from '@/api/endpoints/event.api';
 import { getTeams as restGetTeams, createTeam as restCreateTeam } from '@/api/endpoints/team.api';
 import EventTypeDialog from '../dialogs/EventTypeDialog.vue';
@@ -499,6 +524,9 @@ const EMPTY_EVENT = () => ({
   homeTeamName: '',
   homeTeamId: '',
   visitingTeamId: '',
+  performerName: '',
+  sponsor: '',
+  openingActName: '',
   location: '',
   spaceName: '',
   sessions: [],
@@ -518,8 +546,8 @@ export default {
   name: 'EventFormDrawer',
 
   components: {
-    Plus, Save, X, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle,
-    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog,
+    Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users,
+    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog, EventDrawerShell,
   },
 
   props: {
@@ -544,6 +572,7 @@ export default {
       teams: [],
       teamName: '',
       teamDialogOpen: false,
+      teamCreateLoading: false,
       teamDialogTarget: 'visiting',
       _initializingEdit: false,
       spaceConfigs: {},
@@ -551,6 +580,15 @@ export default {
   },
 
   computed: {
+    // BUG-146 : avertissement non bloquant — la règle "scanné ≤ vendu" n'est pas garantie vraie
+    // en billetterie (invités hors vente comptés au scan, comps) ; on prévient sans empêcher la
+    // saisie ni la sauvegarde.
+    ticketsScannedExceedsSold() {
+      const sold = Number(this.newEvent.ticketsSold);
+      const scanned = Number(this.newEvent.ticketsScanned);
+      if (!Number.isFinite(sold) || !Number.isFinite(scanned)) return false;
+      return scanned > sold;
+    },
     spaces() {
       return this.$store.getters['spaces/spaces']
         .map((s) => ({ ...s, id: s?.id || s?._id, name: s?.name || s?.spaceName || s?.title || '' }))
@@ -781,6 +819,9 @@ export default {
         homeTeamName: e?.homeTeamName || '',
         homeTeamId: e?.homeTeamId || '',
         visitingTeamId: e?.visitingTeamId || '',
+        performerName: e?.performerName || '',
+        sponsor: e?.sponsor || '',
+        openingActName: e?.openingActName || '',
         location: e?.location || '',
         spaceName: e?.spaceName || '',
         sessions: parsedSessions,
@@ -877,6 +918,9 @@ export default {
           // colonne backend homeTeamId existe (docs/BACKEND_HOME_TEAM.md).
           homeTeamName: this.newEvent.homeTeamName || undefined,
           visitingTeamId: this.newEvent.visitingTeamId || undefined,
+          performerName: this.newEvent.performerName || undefined,
+          sponsor: this.newEvent.sponsor || undefined,
+          openingActName: this.newEvent.openingActName || undefined,
           location: this.newEvent.location,
           spaceName: this.newEvent.spaceName,
           sessions: this.newEvent.sessions.map((s) => JSON.stringify(s)),
@@ -1011,6 +1055,7 @@ export default {
           ? { eventSubcategoryId: this.newEvent.eventSubcategoryId }
           : {}),
       };
+      this.teamCreateLoading = true;
       try {
         const created = await restCreateTeam(payload);
         const team = created && created.id ? created : { id: `team-${Date.now()}`, ...payload };
@@ -1026,6 +1071,8 @@ export default {
         this.teamDialogOpen = false;
       } catch (e) {
         this.formError = e?.response?.data?.message || e?.message || "Impossible de créer l'équipe";
+      } finally {
+        this.teamCreateLoading = false;
       }
     },
   },
@@ -1040,60 +1087,27 @@ export default {
 </script>
 
 <style scoped>
-.efd-drawer :deep(.v-navigation-drawer__content) {
-  display: flex;
-  flex-direction: column;
-}
-
-/* Gradient header */
-.efd-grad-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 20px 20px 18px;
-  background: #ff3131;
-  flex-shrink: 0;
-}
-.efd-grad-header__icon {
-  width: 44px; height: 44px;
-  border-radius: 13px;
-  background: rgba(255,255,255,.18);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.efd-grad-header__text { flex: 1; }
-.efd-grad-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.efd-grad-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
-.efd-grad-header__close {
-  width: 32px; height: 32px;
-  border-radius: 9px; border: none;
-  background: rgba(255,255,255,.15);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,.85); flex-shrink: 0;
-  transition: background .2s;
-}
-.efd-grad-header__close:hover { background: rgba(255,255,255,.25); }
-
-/* Body */
-.efd-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px 22px 16px;
-  background: #f9fafb;
-}
-.efd--dark .efd-body { background: #111827; }
-
 /* Error */
 .efd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 12px; padding: 12px 16px; font-size: 13.5px; margin-bottom: 20px;
+  border-radius: 12px; padding: 12px 16px; font-size: var(--fs-base); margin-bottom: 20px;
+}
+
+/* Warning (non bloquant, ex. BUG-146 : ticketsScanned > ticketsSold) */
+.efd-warning {
+  display: flex; align-items: center; gap: 8px;
+  background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+  border-radius: 12px; padding: 10px 16px; font-size: var(--fs-base); margin-bottom: 16px;
+}
+.efd--dark .efd-warning {
+  background: rgba(217, 119, 6, .12); border-color: rgba(217, 119, 6, .35); color: #fbbf24;
 }
 
 /* Section labels */
 .efd-section-label {
   display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase;
   letter-spacing: .06em; color: #9ca3af;
   margin-bottom: 12px; margin-top: 20px;
 }
@@ -1112,14 +1126,14 @@ export default {
   box-shadow: 0 0 0 3px rgba(255, 49, 49,.10);
 }
 .efd-input :deep(.v-field__outline) { display: none; }
-.efd-input :deep(.v-label.v-field-label--floating) { color: #ff3131; font-size: 11px; }
+.efd-input :deep(.v-label.v-field-label--floating) { color: #ff3131; font-size: var(--fs-xs); }
 .efd--dark .efd-input :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 .efd--dark .efd-input :deep(.v-field input),
 .efd--dark .efd-input :deep(.v-field__input) { color: #f3f4f6 !important; }
 
 /* v-select wrapper */
 .efd-select-wrap { display: flex; flex-direction: column; gap: 6px; }
-.efd-select-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.efd-select-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
 .efd-star { color: #ff3131; }
 .efd--dark .efd-select-label { color: #d1d5db; }
 
@@ -1135,7 +1149,7 @@ export default {
   box-shadow: 0 0 0 3px rgba(255, 49, 49,.10);
 }
 .efd-select :deep(.v-field__outline) { display: none; }
-.efd-select :deep(.v-field__input) { font-size: 14px; }
+.efd-select :deep(.v-field__input) { font-size: var(--fs-md); }
 .efd--dark .efd-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 
 /* Create option in dropdowns (« Créer une nouvelle… ») en rouge */
@@ -1163,7 +1177,7 @@ export default {
 .efd--dark .efd-session-card { background: #1f2937; border-color: #374151; }
 .efd-session-card__title {
   display: flex; align-items: center; gap: 8px;
-  font-size: 13px; font-weight: 600; color: #374151;
+  font-size: var(--fs-base); font-weight: 600; color: #374151;
   margin-bottom: 12px;
 }
 .efd--dark .efd-session-card__title { color: #d1d5db; }
@@ -1171,11 +1185,11 @@ export default {
   width: 22px; height: 22px;
   border-radius: 50%;
   background: linear-gradient(135deg, #ff3131 0%, #b91c1c 100%);
-  color: #fff; font-size: 11px; font-weight: 700;
+  color: #fff; font-size: var(--fs-xs); font-weight: 700;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.efd-session-label { font-size: 11.5px; font-weight: 600; color: #6b7280; margin-bottom: 6px; }
+.efd-session-label { font-size: var(--fs-xs); font-weight: 600; color: #6b7280; margin-bottom: 6px; }
 .efd-col { display: flex; flex-direction: column; }
 
 /* Options card */
@@ -1192,8 +1206,8 @@ export default {
   padding: 14px 16px;
 }
 .efd-option-text { flex: 1; }
-.efd-option-label { font-size: 13.5px; font-weight: 500; color: #111827; }
-.efd-option-desc { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+.efd-option-label { font-size: var(--fs-base); font-weight: 500; color: #111827; }
+.efd-option-desc { font-size: var(--fs-sm); color: #9ca3af; margin-top: 2px; }
 .efd-option-divider { height: 1px; background: #f3f4f6; margin: 0 16px; }
 .efd--dark .efd-option-label { color: #f3f4f6; }
 .efd--dark .efd-option-divider { background: #374151; }
@@ -1205,21 +1219,11 @@ export default {
   gap: 12px;
 }
 
-/* Footer */
-.efd-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 22px;
-  background: #fff;
-  border-top: 1px solid #e5e7eb;
-  flex-shrink: 0;
-}
-.efd--dark .efd-footer { background: #1f2937; border-color: #374151; }
+/* Footer buttons (le conteneur lui-même vient désormais de EventDrawerShell) */
 .efd-fbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 22px; height: 42px;
-  border-radius: 50px; font-size: 13.5px; font-weight: 500;
+  border-radius: 50px; font-size: var(--fs-base); font-weight: 500;
   border: none; cursor: pointer; transition: all .2s;
 }
 .efd-fbtn:disabled { opacity: .5; cursor: not-allowed; }

@@ -1,6 +1,6 @@
 
 <template>
-  <div id="component-library-page">
+  <div id="component-library-page" :class="{ 'cl--dark': isDark }">
     <!-- ── Header ── -->
     <div class="cl-header cl-header--sticky">
       <div class="cl-header__inner">
@@ -57,7 +57,7 @@
       </div>
     </div>
 
-    <div class="px-6 pb-6 pt-4">
+    <div class="cl-content">
 
       <!-- Loading -->
       <v-progress-linear
@@ -163,6 +163,7 @@
 
     <ComponentDeleteDialog
       v-model="deleteDialog"
+      :is-dark="isDark"
       :title="t('compListDeleteTitle')"
       :subtitle="t('compListDeleteSubtitle')"
       :message="t('compListDeleteConfirm')"
@@ -241,8 +242,10 @@
 </template>
 
 <script>
+import { computed } from "vue";
+import { useTheme } from "vuetify";
 import { Boxes, Download, Pencil, Plus, Search, Trash2, X } from "lucide-vue-next";
-import { t as translate } from '@/i18n';
+import { useI18n } from '@/i18n/useI18n';
 import { deleteMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import ComponentDeleteDialog from '../dialogs/ComponentDeleteDialog.vue';
@@ -259,9 +262,14 @@ export default {
     X,
     ComponentDeleteDialog,
   },
+  setup() {
+    const { t, locale } = useI18n();
+    const theme = useTheme();
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { t, locale, isDark };
+  },
   data() {
     return {
-      locale: localStorage.getItem('appLocale') || 'en',
       searchQuery: "",
       selectedCategory: null,
       selectedType: null,
@@ -351,10 +359,6 @@ export default {
     },
   },
   methods: {
-    t(key) {
-      return translate(key, this.locale);
-    },
-
     normalizeComponent(raw) {
       const id = raw?.id ?? raw?._id ?? raw?.uuid ?? "";
       const name = raw?.name ?? raw?.componentName ?? raw?.title ?? "";
@@ -364,6 +368,7 @@ export default {
       const unitsPerRecipe = raw?.unitsPerRecipe ?? raw?.numberOfUnitsRecipe ?? raw?.numberOfUnits ?? raw?.yield ?? 0;
       const storageType = raw?.storageType ?? raw?.storage ?? "";
       const unitCost = raw?.unitCost ?? raw?.costPerUnit ?? raw?.cost ?? 0;
+      const description = raw?.description ?? "";
 
       // Calculer le nombre total d'items (ingredients + children)
       const ingredientsCount = Array.isArray(raw?.ingredients) ? raw.ingredients.length : 0;
@@ -385,6 +390,7 @@ export default {
         storageType: String(storageType || ""),
         unitCost: Number(unitCost) || 0,
         subItemsCount: Number(subItemsCount) || 0,
+        description: String(description || ""),
         _raw: raw,
       };
     },
@@ -432,10 +438,10 @@ export default {
           const row = [
             String(component?.name || ''),
             String(component?.category || ''),
-            String(component?.componentCategory || component?.type || ''),
+            String(component?.type || ''),
             String(component?.unit || ''),
             String(component?.unitCost || ''),
-            String(component?.numberOfUnitsRecipe || ''),
+            String(component?.unitsPerRecipe || ''),
             String(component?.storageType || ''),
             String(component?.description || ''),
           ];
@@ -466,15 +472,13 @@ export default {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-
-        console.log(`Exported ${csvData.length - 1} components to CSV`);
       } catch (error) {
         console.error('Error exporting to CSV:', error);
         alert('Failed to export CSV. Please try again.');
       }
     },
     onAddComponent() {
-      this.$router.push({ path: "/components/new" });
+      this.$router.push({ path: "/menu-fb/components/new" });
     },
     async onViewSubComponents(component) {
       const c = component?._raw || component?.raw || component;
@@ -513,10 +517,9 @@ export default {
             try {
 
               const ingredientDetails = await getIngredient(ingredientId);
-              console.log("Log ingredient data:", ingredientDetails);
               return {
                 id: `ing-${idx}-${ingredientId}`,
-                itemName: ingredientDetails?.marketPrice.supplierItem || ing.itemName || ing.ingredientName || "-",
+                itemName: ingredientDetails?.marketPrice?.supplierItem || ing.itemName || ing.ingredientName || "-",
                 itemType: "Ingredient",
                 category: ingredientDetails?.category || ing.category || "-",
                 numberOfUnits: Number(ing.quantity || ing.numberOfUnits || 0).toFixed(3),
@@ -525,7 +528,6 @@ export default {
                 _details: ingredientDetails,
               };
             } catch (error) {
-              console.log("Nous avons une erreur:", error);
               console.error(`Error fetching ingredient ${ingredientId}:`, error);
               // Fallback sur les données existantes si l'API échoue
               return {
@@ -584,7 +586,7 @@ export default {
       const c = component?._raw || component?.raw || component;
       const id = c?.id ?? c?._id ?? c?.uuid;
       if (id) {
-        this.$router.push({ path: `/components/edit/${id}` });
+        this.$router.push({ path: `/menu-fb/components/edit/${id}` });
       }
     },
     onDeleteComponent(component) {
@@ -623,15 +625,14 @@ export default {
     },
   },
   mounted() {
-    this._localeHandler = (e) => { this.locale = e.detail.locale; };
-    window.addEventListener('locale-changed', this._localeHandler);
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
+    // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
+    // (suppression bloquée par des MenuComponent dépendants) de lier directement vers la liste déjà
+    // filtrée, plutôt que de chercher la bonne ligne à la main.
+    if (this.$route.query.type) this.selectedType = String(this.$route.query.type);
+    if (this.$route.query.category) this.selectedCategory = String(this.$route.query.category);
     this.loadComponents();
-  },
-
-  beforeUnmount() {
-    window.removeEventListener('locale-changed', this._localeHandler);
   },
 };
 </script>
@@ -679,15 +680,15 @@ export default {
 }
 
 .cl-header__title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: 1.25rem;
+  font-weight: 700;
   color: #fff;
   margin: 0;
   line-height: 1.2;
 }
 
 .cl-header__subtitle {
-  font-size: 12.5px;
+  font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.72);
   margin: 3px 0 0;
 }
@@ -714,7 +715,7 @@ export default {
   border: 1.5px solid rgba(255, 255, 255, 0.6);
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 12.5px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -735,7 +736,7 @@ export default {
   border: 2px solid rgba(255, 255, 255, 0.85);
   background: transparent;
   color: #fff;
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
@@ -772,14 +773,14 @@ export default {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 0.875rem;
   color: #111827;
 }
 
 .cl-searchbar__input::placeholder { color: #9ca3af; }
 
 .cl-searchbar__count {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #9ca3af;
   white-space: nowrap;
 }
@@ -807,9 +808,14 @@ export default {
 .cl-filter-sel :deep(.v-field--focused) { border-color: #ff3131 !important; }
 
 .cl-filter-sel :deep(.v-field__input) {
-  font-size: 12px !important;
+  font-size: 0.75rem !important;
   min-height: 36px;
 }
+
+/* Contenu : mêmes 28px horizontaux que le header/searchbar sticky au-dessus (référence
+   MarketPriceListView.vue) — un padding différent ici créait un décalage gauche/droite visible
+   entre le bandeau et le tableau. */
+.cl-content { padding: 24px 28px; }
 
 /* Empty State */
 .empty-state {
@@ -838,7 +844,7 @@ export default {
 .cl-table :deep(.v-data-table__th) {
   background: #f9fafb !important;
   color: #6b7280 !important;
-  font-size: 0.71rem !important;
+  font-size: 0.75rem !important;
   font-weight: 700 !important;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -876,7 +882,7 @@ export default {
 }
 .cl-row-name__text {
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 0.8125rem;
   color: #111827;
 }
 
@@ -885,7 +891,7 @@ export default {
   display: inline-block;
   padding: 3px 10px;
   border-radius: 50px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -898,7 +904,7 @@ export default {
 /* Cost */
 .cl-cost {
   font-weight: 700;
-  font-size: 13.5px;
+  font-size: 0.8125rem;
   color: #059669;
 }
 
@@ -912,7 +918,7 @@ export default {
   background: #eff6ff;
   color: #2563eb;
   border: 1px solid #bfdbfe;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -967,14 +973,14 @@ export default {
 }
 .cl-drawer-header__text { flex: 1; min-width: 0; }
 .cl-drawer-header__title {
-  font-size: 17px;
+  font-size: 1rem;
   font-weight: 700;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cl-drawer-header__sub { font-size: 12px; color: rgba(255, 255, 255, .72); margin-top: 2px; }
+.cl-drawer-header__sub { font-size: 0.75rem; color: rgba(255, 255, 255, .72); margin-top: 2px; }
 .cl-drawer-close {
   background: rgba(255, 255, 255, .15);
   border: none;
@@ -1008,7 +1014,7 @@ export default {
 .cl-sub-table :deep(.v-data-table__th) {
   background: #f9fafb !important;
   color: #6b7280 !important;
-  font-size: 0.71rem !important;
+  font-size: 0.75rem !important;
   font-weight: 700 !important;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1041,30 +1047,58 @@ export default {
   background: #f3f4f6;
   color: #374151;
   border: none;
-  font-size: 13.5px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background .15s;
 }
 .cl-drawer-foot-btn:hover { background: #e5e7eb; }
 
-
-.sub-items-table :deep(.v-data-table__td) {
-  vertical-align: middle;
-  padding: 14px 12px;
+/* ── Dark mode (classe racine .cl--dark, aligné sur ComponentTypeList) ── */
+.cl--dark .cl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-searchbar__input { color: #e2e8f0; }
+.cl--dark .cl-filter-sel :deep(.v-field) {
+  border-color: rgba(255, 255, 255, .12) !important;
+  background: #1a2332 !important;
 }
-
-.sub-items-table :deep(.v-data-table__th) {
-  font-weight: 700;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background-color: rgba(var(--v-theme-on-surface), 0.03) !important;
-  color: rgba(var(--v-theme-on-surface), 0.6) !important;
+.cl--dark .table-card { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-table :deep(.v-data-table__th) {
+  background: #1a2332 !important;
+  color: #94a3b8 !important;
+  border-bottom-color: rgba(255, 255, 255, .08) !important;
 }
-
-.sub-items-table :deep(.v-data-table__tr:hover td) {
-  background-color: rgba(var(--v-theme-on-surface), 0.03) !important;
-  transition: background-color 0.2s ease;
+.cl--dark .cl-table :deep(.v-data-table__td) {
+  color: #e2e8f0;
+  border-bottom-color: rgba(255, 255, 255, .06) !important;
 }
+.cl--dark .cl-table :deep(.v-data-table__tr:hover .v-data-table__td) {
+  background: rgba(255, 49, 49, .08) !important;
+}
+.cl--dark .cl-row-name__text { color: #e2e8f0; }
+.cl--dark .cl-badge--category { background: rgba(255, 255, 255, .08); color: #cbd5e1; border-color: rgba(255, 255, 255, .12); }
+.cl--dark .cl-badge--type { background: rgba(255, 49, 49, .15); color: #fca5a5; border-color: rgba(255, 49, 49, .3); }
+.cl--dark .cl-badge--storage,
+.cl--dark .cl-badge--component { background: rgba(37, 99, 235, .15); color: #93c5fd; border-color: rgba(37, 99, 235, .3); }
+.cl--dark .cl-badge--ingredient { background: rgba(21, 128, 61, .18); color: #86efac; border-color: rgba(21, 128, 61, .35); }
+.cl--dark .cl-subitems-btn { background: rgba(37, 99, 235, .15); color: #93c5fd; border-color: rgba(37, 99, 235, .3); }
+.cl--dark .cl-subitems-btn:hover { background: rgba(37, 99, 235, .25); }
+.cl--dark .cl-act-btn--edit { background: rgba(37, 99, 235, .15); color: #93c5fd; }
+.cl--dark .cl-act-btn--edit:hover { background: rgba(37, 99, 235, .28); }
+.cl--dark .cl-act-btn--delete { background: rgba(255, 49, 49, .15); color: #fca5a5; }
+.cl--dark .cl-act-btn--delete:hover { background: rgba(255, 49, 49, .28); }
+/* Sub-items drawer */
+.cl--dark .drawer-body { background: #111827; }
+.cl--dark .sub-items-card { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-sub-table :deep(.v-data-table__th) {
+  background: #1a2332 !important;
+  color: #94a3b8 !important;
+  border-bottom-color: rgba(255, 255, 255, .08) !important;
+}
+.cl--dark .cl-sub-table :deep(.v-data-table__td) {
+  color: #e2e8f0;
+  border-bottom-color: rgba(255, 255, 255, .06) !important;
+}
+.cl--dark .drawer-footer { background: #1e293b; border-top-color: rgba(255, 255, 255, .08); }
+.cl--dark .cl-drawer-foot-btn { background: rgba(255, 255, 255, .08); color: #cbd5e1; }
+.cl--dark .cl-drawer-foot-btn:hover { background: rgba(255, 255, 255, .14); }
 </style>

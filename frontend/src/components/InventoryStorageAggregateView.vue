@@ -477,7 +477,7 @@ export default {
 
 .agg-item-detail {
   padding: 0 10px 10px 53px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--fb-border, #f1f5f9);
 }
 
 .agg-facts {
@@ -513,7 +513,7 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: #4b5563;
+  color: var(--fb-muted, #4b5563);
   font-size: 10px;
 }
 
@@ -533,5 +533,19 @@ export default {
 .agg-shop-row strong {
   color: var(--fb-text, #111827);
   font-variant-numeric: tabular-nums;
+}
+
+/* ===================== DARK MODE =====================
+   Même contrat que InventoryAggregateView : seules les teintes sémantiques
+   pensées pour un fond clair sont reprises ici. */
+.v-theme--dataFridayDark .agg-title-row h3 {
+  color: #94a3b8;
+}
+.v-theme--dataFridayDark .agg-item.is-complete {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+.v-theme--dataFridayDark .agg-focus-hint {
+  background: rgba(255, 110, 64, 0.18);
+  color: #fdba74;
 }
 </style>

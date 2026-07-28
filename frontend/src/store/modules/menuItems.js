@@ -2,6 +2,11 @@ import { getAllMenuItems } from '@/api/endpoints/menu-item.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes
 
+// Single-flight registry HORS du state Vuex (une Promise dans le state réactif =
+// anti-pattern). Deux fetchMenuItems() concurrents attendent la MÊME Promise
+// → cf. shopMenuItems.js pour le pattern de référence.
+let inflight = null
+
 export default {
   namespaced: true,
 
@@ -10,21 +15,12 @@ export default {
     cachedAt: null,
     isFetching: false,
     pendingForceRefresh: false,
-    // Cache scopé par espace, séparé du catalogue tenant complet (`rows`) — utilisé
-    // par SpaceMenuView pour éviter de charger tout le catalogue quand un seul espace
-    // est affiché. Clé = spaceId.
-    bySpace: {},
   }),
 
   getters: {
     rows: (state) => state.rows,
     isCacheValid: (state) =>
       state.cachedAt !== null && Date.now() - state.cachedAt < TTL,
-    forSpace: (state) => (spaceId) => state.bySpace[spaceId]?.rows || [],
-    isSpaceCacheValid: (state) => (spaceId) => {
-      const entry = state.bySpace[spaceId]
-      return !!entry && entry.cachedAt !== null && Date.now() - entry.cachedAt < TTL
-    },
   },
 
   mutations: {
@@ -45,73 +41,40 @@ export default {
     SET_PENDING_REFRESH(state, val) {
       state.pendingForceRefresh = val
     },
-    SET_SPACE_ROWS(state, { spaceId, rows }) {
-      state.bySpace = {
-        ...state.bySpace,
-        [spaceId]: { rows, cachedAt: Date.now(), isFetching: false },
-      }
-    },
-    SET_SPACE_FETCHING(state, { spaceId, val }) {
-      const entry = state.bySpace[spaceId] || { rows: [], cachedAt: null }
-      state.bySpace = { ...state.bySpace, [spaceId]: { ...entry, isFetching: val } }
-    },
-    INVALIDATE_SPACE(state, spaceId) {
-      if (!state.bySpace[spaceId]) return
-      state.bySpace = { ...state.bySpace, [spaceId]: { ...state.bySpace[spaceId], cachedAt: null } }
-    },
   },
 
   actions: {
     async fetchMenuItems({ commit, getters, state, dispatch }, { forceRefresh = false } = {}) {
-      if (state.isFetching) {
-        if (forceRefresh) commit('SET_PENDING_REFRESH', true)
-        return
-      }
       if (!forceRefresh && getters.isCacheValid) return
+      // Coalesce les appels concurrents : on retourne (await) la Promise en vol.
+      if (inflight) {
+        if (forceRefresh) commit('SET_PENDING_REFRESH', true)
+        return inflight
+      }
       commit('SET_FETCHING', true)
       commit('SET_PENDING_REFRESH', false)
-      try {
-        const res = await getAllMenuItems()
-        const rows = Array.isArray(res)
-          ? res
-          : Array.isArray(res?.data)
-            ? res.data
-            : Array.isArray(res?.data?.data)
-              ? res.data.data
-              : []
-        commit('SET_ROWS', rows)
-      } finally {
-        commit('SET_FETCHING', false)
-        if (state.pendingForceRefresh) {
-          commit('SET_PENDING_REFRESH', false)
-          dispatch('fetchMenuItems', { forceRefresh: true })
+      const p = (async () => {
+        try {
+          const res = await getAllMenuItems()
+          const rows = Array.isArray(res)
+            ? res
+            : Array.isArray(res?.data)
+              ? res.data
+              : Array.isArray(res?.data?.data)
+                ? res.data.data
+                : []
+          commit('SET_ROWS', rows)
+        } finally {
+          commit('SET_FETCHING', false)
+          inflight = null
+          if (state.pendingForceRefresh) {
+            commit('SET_PENDING_REFRESH', false)
+            dispatch('fetchMenuItems', { forceRefresh: true })
+          }
         }
-      }
-    },
-
-    /**
-     * Charge les menu items scopés à un espace (MenuItem.spaceIds côté backend), sans
-     * toucher au cache "catalogue tenant complet" (`rows`) utilisé par le builder,
-     * le wizard d'intégration, etc.
-     */
-    async fetchMenuItemsForSpace({ commit, getters, state }, { spaceId, forceRefresh = false } = {}) {
-      if (!spaceId) return
-      if (state.bySpace[spaceId]?.isFetching) return
-      if (!forceRefresh && getters.isSpaceCacheValid(spaceId)) return
-      commit('SET_SPACE_FETCHING', { spaceId, val: true })
-      try {
-        const res = await getAllMenuItems(spaceId)
-        const rows = Array.isArray(res)
-          ? res
-          : Array.isArray(res?.data)
-            ? res.data
-            : Array.isArray(res?.data?.data)
-              ? res.data.data
-              : []
-        commit('SET_SPACE_ROWS', { spaceId, rows })
-      } finally {
-        commit('SET_SPACE_FETCHING', { spaceId, val: false })
-      }
+      })()
+      inflight = p
+      return p
     },
 
     invalidate({ commit }) {

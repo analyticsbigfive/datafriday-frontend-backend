@@ -5,8 +5,10 @@
       :model-value="modelValue"
       location="right"
       temporary
+      :persistent="persistent"
       :width="width"
       class="eds-drawer"
+      :class="{ 'eds--dark': isDark }"
       @update:model-value="$emit('update:modelValue', $event)"
     >
       <header class="eds-header">
@@ -47,6 +49,13 @@ defineProps({
   subtitle: { type: String, default: '' },
   width: { type: [Number, String], default: 560 },
   flush: { type: Boolean, default: false },
+  // BUG-148 : forwardé au v-navigation-drawer sous-jacent — sans lui, migrer un drawer vers ce
+  // shell réintroduirait BUG-134 (fermable en cliquant en dehors pendant une requête en cours).
+  persistent: { type: Boolean, default: false },
+  // BUG-148 : les 3 drawers du domaine Événements supportent tous le dark mode (palette
+  // identique : fond #111827, bordures rgba(255,255,255,.08)) — sans ce prop, les migrer vers ce
+  // shell aurait régressé leur support dark mode.
+  isDark: { type: Boolean, default: false },
 })
 
 defineEmits(['update:modelValue'])
@@ -109,7 +118,7 @@ defineEmits(['update:modelValue'])
 
 .eds-header__title {
   color: #fff;
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 700;
 }
 
@@ -117,7 +126,7 @@ defineEmits(['update:modelValue'])
   margin-top: 2px;
   overflow: hidden;
   color: rgba(255, 255, 255, 0.75);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -166,6 +175,14 @@ defineEmits(['update:modelValue'])
   border-top: 1px solid var(--fb-border, #e5e7eb);
   background: var(--fb-surface, #fff);
   flex-shrink: 0;
+}
+
+/* Dark mode (BUG-148) */
+.eds--dark :deep(.v-navigation-drawer__content) { background: #111827; }
+.eds--dark .eds-body { background: #111827; }
+.eds--dark .eds-footer {
+  background: #1f2937;
+  border-top-color: #374151;
 }
 
 @media (max-width: 640px) {

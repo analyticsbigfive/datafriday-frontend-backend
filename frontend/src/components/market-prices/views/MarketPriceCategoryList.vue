@@ -32,7 +32,7 @@
           class="pcl-searchbar__input"
           :placeholder="t('marketPriceCategoryList.searchPlaceholder')"
         />
-        <span class="pcl-searchbar__count">{{ filteredCategories.length }} {{ t('marketPriceCategoryList.totalCategories') }}</span>
+        <span class="pcl-searchbar__count">{{ serverTotal }} {{ t('marketPriceCategoryList.totalCategories') }}</span>
       </div>
     </div>
     </div><!-- /pcl-sticky-top -->
@@ -40,7 +40,7 @@
     <!-- Content -->
     <div class="pcl-content">
       <v-progress-linear
-        v-if="loading"
+        v-if="serverLoading"
         indeterminate
         color="#ff3131"
         height="3"
@@ -55,10 +55,12 @@
       <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
         <v-data-table
           :headers="tableHeaders"
-          :items="filteredCategories"
+          :items="categories"
+          :items-length="serverTotal"
+          :items-per-page="serverItemsPerPage"
           item-value="id"
           density="compact"
-          :loading="loading"
+          @update:options="onUpdateOptions"
           class="pcl-table"
         >
           <template #item.typeName="{ item }">
@@ -106,6 +108,7 @@
       :item-name="deleteTarget?.name"
       :loading="deleteLoading"
       :error="deleteError"
+      :action-link="deleteActionLink"
       :is-dark="isDark"
       :title="t('marketPriceCategoryList.deleteTitle')"
       :subtitle="t('marketPriceCategoryList.deleteSubtitle')"
@@ -122,7 +125,7 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { Pencil, Trash2, Plus, Shapes, Search } from "lucide-vue-next";
-import { deleteMarketPriceCategory } from "@/api/endpoints/market.price.api";
+import { getMarketPriceCategories, deleteMarketPriceCategory } from "@/api/endpoints/market.price.api";
 import MarketPriceCategoryFormDrawer from "@/components/market-prices/drawers/MarketPriceCategoryFormDrawer.vue";
 import ProductDeleteDialog from "@/components/products/dialogs/ProductDeleteDialog.vue";
 
@@ -145,9 +148,20 @@ export default {
   },
   data() {
     return {
-      loading: false,
       loadError: "",
       searchQuery: "",
+
+      // Real server-side pagination + search for THIS screen only (BUG-169 follow-up).
+      // The Vuex store's full-list cache (marketPriceCategories/marketPriceCategories)
+      // is left untouched — it still backs dropdown/picker consumers elsewhere in the
+      // app. `types` below still reads that store cache too, since the type-select in
+      // the create/edit drawer needs the full type list, not this screen's own page.
+      serverPage: 1,
+      serverItemsPerPage: 10,
+      serverTotal: 0,
+      serverLoading: false,
+      serverRawItems: [],
+      searchDebounceTimer: null,
 
       categoryDialog: false,
       categoryMode: "create",
@@ -156,12 +170,22 @@ export default {
       deleteDialog: false,
       deleteLoading: false,
       deleteError: "",
+      deleteActionLink: null,
       deleteTarget: null,
     };
   },
   computed: {
     categories() {
-      return this.$store.getters['marketPriceCategories/marketPriceCategories']
+      return this.serverRawItems.map((c) => {
+        const typeId = c?.typeId || c?.type?.id || c?.marketPriceTypeId;
+        const typeName = c?.typeName || c?.type?.name || c?.marketPriceType?.name || '';
+        return {
+          ...c,
+          id: c?.id || c?._id,
+          typeId,
+          typeName,
+        };
+      });
     },
     types() {
       return this.$store.getters['marketPriceTypes/marketPriceTypes']
@@ -174,33 +198,60 @@ export default {
         { title: this.t('marketPriceCategoryList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
-    filteredCategories() {
-      const query = (this.searchQuery || "").toLowerCase().trim();
-      if (!query) return this.categories;
-      return this.categories.filter(cat => {
-        const name = (cat.name || "").toLowerCase();
-        const typeName = (cat.typeName || "").toLowerCase();
-        return name.includes(query) || typeName.includes(query);
-      });
+  },
+  watch: {
+    searchQuery() {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
   },
   async mounted() {
     await Promise.all([
-      this.loadCategories(),
+      this.loadServerPage(),
       this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes'),
     ]);
   },
   methods: {
-    async loadCategories() {
-      this.loading = true;
+    reloadServerFirstPage() {
+      this.serverPage = 1;
+      return this.loadServerPage();
+    },
+    async loadServerPage() {
+      this.serverLoading = true;
       this.loadError = "";
       try {
-        await this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
+        const res = await getMarketPriceCategories({
+          page: this.serverPage,
+          limit: this.serverItemsPerPage,
+          search: this.searchQuery,
+        });
+        this.serverRawItems = res.data;
+        this.serverTotal = res.meta?.total || 0;
       } catch (e) {
-        this.loadError = e?.response?.data?.message || e?.message || "Failed to load categories";
+        this.loadError = e?.response?.data?.message || e?.message || this.t('marketPriceCategoryList.loadError');
+        this.serverRawItems = [];
+        this.serverTotal = 0;
       } finally {
-        this.loading = false;
+        this.serverLoading = false;
       }
+    },
+    // Called by v-data-table on page/page-size change — guarded against the duplicate
+    // emission v-data-table fires on mount (same idiom as MenuItemView.vue).
+    onUpdateOptions(options) {
+      const page = options?.page || 1;
+      const itemsPerPage = options?.itemsPerPage || this.serverItemsPerPage;
+      if (page === this.serverPage && itemsPerPage === this.serverItemsPerPage && this.serverRawItems.length) {
+        return;
+      }
+      this.serverPage = page;
+      this.serverItemsPerPage = itemsPerPage;
+      this.loadServerPage();
+    },
+    // Handler for MarketPriceCategoryFormDrawer's @saved (fires for both create and
+    // edit). Create jumps back to page 1 (alpha sort may place the new row anywhere);
+    // edit just refreshes the current page since the edited row stays put.
+    loadCategories() {
+      return this.categoryMode === 'create' ? this.reloadServerFirstPage() : this.loadServerPage();
     },
     formatDate(value) {
       if (!value) return "-";
@@ -228,6 +279,7 @@ export default {
     openDeleteDialog(item) {
       const raw = item && item.raw ? item.raw : item;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteLoading = false;
       this.deleteTarget = raw;
       this.deleteDialog = true;
@@ -236,26 +288,38 @@ export default {
       this.deleteDialog = false;
       this.deleteLoading = false;
       this.deleteError = "";
+      this.deleteActionLink = null;
       this.deleteTarget = null;
     },
     async confirmDelete() {
       this.deleteLoading = true;
       this.deleteError = "";
+      this.deleteActionLink = null;
       try {
         const id = this.deleteTarget?.id || this.deleteTarget?._id;
         if (!id) {
-          this.deleteError = "Identifiant manquant";
+          this.deleteError = this.t('marketPriceCategoryList.missingId');
           return;
         }
         await deleteMarketPriceCategory(id);
         await this.$store.dispatch('marketPriceCategories/removeMarketPriceCategory', id);
+        await this.loadServerPage();
         this.closeDeleteDialog();
       } catch (e) {
-        const msg = String(e?.response?.data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global market price category') || msg.includes('linked') || msg.includes('used') || msg.includes('in use')) {
-          this.deleteError = "Impossible de supprimer une Good Category utilisée dans le système.";
+        const data = e?.response?.data;
+        if (data?.blockedBy === 'marketPrices' && data?.filterField && data?.filterValue) {
+          this.deleteError = data.message || this.t('marketPriceCategoryList.deleteError');
+          this.deleteActionLink = {
+            label: `${this.t('marketPriceCategoryList.viewLinkedItems')} (${data.count ?? '?'})`,
+            to: { path: '/menu-fb/market-prices', query: { [data.filterField]: data.filterValue } },
+          };
+          return;
+        }
+        const msg = String(data?.message || e?.message || '').toLowerCase();
+        if (msg.includes('cannot delete global market price category')) {
+          this.deleteError = this.t('marketPriceCategoryList.deleteBlockedUsed');
         } else {
-          this.deleteError = e?.response?.data?.message || e?.message || "Échec de la suppression";
+          this.deleteError = data?.message || e?.message || this.t('marketPriceCategoryList.deleteError');
         }
       } finally {
         this.deleteLoading = false;
@@ -302,13 +366,13 @@ export default {
   flex-shrink: 0;
 }
 .pcl-header__title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
 }
 .pcl-header__subtitle {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, .72);
   margin: 3px 0 0;
 }
@@ -323,7 +387,7 @@ export default {
   border: 2px solid rgba(255, 255, 255, .85);
   background: transparent;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 700;
   cursor: pointer;
   transition: all .2s;
@@ -355,14 +419,14 @@ export default {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #111827;
 }
 .pcl-searchbar__input::placeholder {
   color: #9ca3af;
 }
 .pcl-searchbar__count {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #9ca3af;
   white-space: nowrap;
 }
@@ -404,4 +468,7 @@ export default {
   color: #9ca3af !important;
   background: #1a2332 !important;
 }
+.pcl--dark .pcl-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.pcl--dark .pcl-searchbar__count { color: #94a3b8; }
+.pcl--dark .pcl-content :deep(.v-card) { background: #1e293b !important; border-color: rgba(255, 255, 255, .08) !important; }
 </style>

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryService } from './inventory.service';
+import { LogisticsService } from '../logistics/logistics.service';
 import { PrismaService } from '../../core/database/prisma.service';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -53,6 +54,35 @@ const mockPrisma = {
     create: jest.fn(),
     update: jest.fn(),
   },
+  // getLatestBySpace dénormalise eventName via event.findFirst (ajout postérieur
+  // à cette spec — son absence faisait jeter TypeError, 3 tests cassés).
+  event: {
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
+  // Pre-event expected (BUG-232) : rejeu des mouvements + résolution unitsPerPack
+  // (chaîne MarketPrice → MenuComponent → MenuItem, via LogisticsService réel).
+  space: {
+    findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }),
+  },
+  stockMovement: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
+  stockReconciliation: {
+    create: jest.fn(),
+  },
+  spaceElement: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
+  menuItem: {
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
+  marketPrice: {
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
+  menuComponent: {
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
 };
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -62,8 +92,24 @@ describe('InventoryService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // jest.clearAllMocks() efface aussi les mockResolvedValue par défaut — on
+    // les repose pour les mocks « toujours vides ».
+    mockPrisma.event.findFirst.mockResolvedValue(null);
+    mockPrisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+    mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+    mockPrisma.spaceElement.findMany.mockResolvedValue([]);
+    mockPrisma.menuItem.findMany.mockResolvedValue([]);
+    mockPrisma.menuItem.findFirst.mockResolvedValue(null);
+    mockPrisma.marketPrice.findFirst.mockResolvedValue(null);
+    mockPrisma.menuComponent.findFirst.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
-      providers: [InventoryService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        InventoryService,
+        // LogisticsService RÉEL (normalizeLevel + resolveUnitsPerPackForItemKey) :
+        // c'est précisément sa sémantique de casse de pack qu'on veut rejouer.
+        { provide: LogisticsService, useValue: new LogisticsService(mockPrisma as any) },
+        { provide: PrismaService, useValue: mockPrisma },
+      ],
     }).compile();
     service = module.get<InventoryService>(InventoryService);
   });
@@ -133,6 +179,22 @@ describe('InventoryService', () => {
       expect(result.inventoryCounts).toEqual({});
     });
 
+    it('falls back to the snapshot when ALL counts have null shopId (fix 2026-07-18)', async () => {
+      // Avant le fix : l'early-return « counts.length > 0 » servait
+      // inventoryCounts: {} en ignorant un snapshot pourtant présent →
+      // inventaire affiché vide malgré des données sauvegardées.
+      const snapshot = makeSnapshot();
+      mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snapshot);
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ id: 'c1', shopId: null }),
+        makeCount({ id: 'c2', shopId: null, itemId: 'item-2' }),
+      ]);
+
+      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+
+      expect(result).toEqual(snapshot);
+    });
+
     it('groups multiple counts by shopId correctly', async () => {
       const c1 = makeCount({ id: 'c1', shopId: 'shop-A', itemId: 'item-1', packedUnits: 2, looseUnits: 0 });
       const c2 = makeCount({ id: 'c2', shopId: 'shop-A', itemId: 'item-2', packedUnits: 0, looseUnits: 5 });
@@ -166,7 +228,8 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
 
       const result = await service.getLatestBySpace('space-1', 'tenant-1');
-      expect(result).toEqual(snap);
+      // eventName : dénormalisation additive (event.findFirst mocké → null ici).
+      expect(result).toEqual({ ...snap, eventName: null });
     });
 
     it('returns counts-based response when count is newer than snapshot', async () => {
@@ -192,7 +255,8 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
 
       const result = await service.getLatestBySpace('space-1', 'tenant-1');
-      expect(result).toEqual(snap);
+      // eventName : dénormalisation additive (event.findFirst mocké → null ici).
+      expect(result).toEqual({ ...snap, eventName: null });
     });
   });
 
@@ -217,6 +281,7 @@ describe('InventoryService', () => {
           eventId: 'event-1',
           inventoryCounts: dto.inventoryCounts,
           createdBy: 'user-1',
+          kind: null, // dto sans kind → null (discrimination pre/post-event, commit 6491562)
         },
       });
       expect(result).toEqual(snap);
@@ -318,6 +383,198 @@ describe('InventoryService', () => {
           data: expect.objectContaining({ countingStatus: 'pending' }),
         }),
       );
+    });
+
+    it('TOCTOU : rattrape P2002 (save concurrent) et met à jour la ligne gagnante (fix 2026-07-18)', async () => {
+      // Deux saves concurrents : les deux voient existing=null. Le nôtre perd la
+      // course au create → violation d'unicité P2002 (index unique NULLS NOT
+      // DISTINCT, cf. prisma/sql/2026-07-18_...) → fallback update de la ligne créée
+      // par le gagnant, au lieu de propager une 500 (ou, avant l'index, de créer
+      // un DOUBLON silencieux).
+      const winner = makeCount({ id: 'cnt-winner' });
+      mockPrisma.inventoryCount.findFirst
+        .mockResolvedValueOnce(null)        // lookup initial : rien
+        .mockResolvedValueOnce(winner);     // re-lookup après P2002 : ligne du gagnant
+      const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+      mockPrisma.inventoryCount.create.mockRejectedValue(p2002);
+      const updated = { ...winner, packedUnits: 3 };
+      mockPrisma.inventoryCount.update.mockResolvedValue(updated);
+
+      const result = await service.saveInventoryCounts(dto, 'tenant-1', 'user-1');
+
+      expect(mockPrisma.inventoryCount.update).toHaveBeenCalledWith({
+        where: { id: 'cnt-winner' },
+        data: expect.objectContaining({ packedUnits: 3 }),
+      });
+      expect(result).toEqual(updated);
+    });
+
+    it('propage toute erreur de create qui n\'est pas P2002', async () => {
+      mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
+      mockPrisma.inventoryCount.create.mockRejectedValue(new Error('db down'));
+
+      await expect(service.saveInventoryCounts(dto, 'tenant-1')).rejects.toThrow('db down');
+      expect(mockPrisma.inventoryCount.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Pre-event expected : rejeu normalisé (BUG-232) ──────────────────────────
+
+  describe('getPreEventBaseline (attendus normalisés, BUG-232)', () => {
+    const previousEvent = { id: 'event-prev', name: 'Concert précédent' };
+    const targetEvent = { id: 'event-next' };
+
+    /** event.findFirst sert 2 lookups distincts : l'event cible (where.id) et
+     *  l'event précédent (where.eventDate). Dispatch par forme du where. */
+    function wireEvents() {
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.id) return Promise.resolve(targetEvent);
+        if (where?.eventDate) return Promise.resolve(previousEvent);
+        return Promise.resolve(null);
+      });
+    }
+
+    function wireBaselineSnapshot(inventoryCounts: any) {
+      mockPrisma.inventorySnapshot.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.kind === 'post-event') {
+          return Promise.resolve(makeSnapshot({ eventId: previousEvent.id, kind: 'post-event', inventoryCounts }));
+        }
+        return Promise.resolve(null);
+      });
+    }
+
+    it('repro barre chocolatée : un retrait de vrac casse un pack au lieu de produire un négatif', async () => {
+      wireEvents();
+      // Post-event précédent : 3 packs, 2 en vrac. unitsPerPack = 5 (MenuItem).
+      wireBaselineSnapshot({ 'shop-1': { 'item-choco': { packedUnits: 3, looseUnits: 2 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Barre chocolatée', menuItemId: 'item-choco', packedDelta: 0, looseDelta: -3 },
+      ]);
+      mockPrisma.menuItem.findFirst.mockResolvedValue({ inventoryNumberOfUnits: 5 });
+
+      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+
+      // Somme brute (buggée) : loose 2-3 = -1. Normalisé : emprunt d'1 pack →
+      // packed 2, loose -1+5 = 4. Jamais de négatif.
+      expect(result.expected['shop-1']['item-choco']).toEqual({ packed: 2, loose: 4 });
+      expect(result.baseline).toEqual({ 'shop-1': { 'item-choco': { packedUnits: 3, looseUnits: 2 } } });
+      expect(result.unjoinedItemKeys).toEqual([]);
+    });
+
+    it('rejeu séquentiel ≠ somme finale : un clamp intermédiaire ne réapparaît pas', async () => {
+      wireEvents();
+      // 0 pack, 2 vrac, pas d'unitsPerPack résoluble → pas de casse possible.
+      wireBaselineSnapshot({ 'shop-1': { 'item-x': { packedUnits: 0, looseUnits: 2 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        // A : retrait -4 → raw -2, clampé à 0 (comme la Logistique non-stricte).
+        { elementId: 'shop-1', itemKey: 'X', menuItemId: 'item-x', packedDelta: 0, looseDelta: -4 },
+        // B : ajout +3 → 3. Somme brute (buggée) : 2-4+3 = 1.
+        { elementId: 'shop-1', itemKey: 'X', menuItemId: 'item-x', packedDelta: 0, looseDelta: 3 },
+      ]);
+
+      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+
+      expect(result.expected['shop-1']['item-x']).toEqual({ packed: 0, loose: 3 });
+    });
+
+    it('mouvement non joignable : ignoré mais SURFACÉ dans unjoinedItemKeys', async () => {
+      wireEvents();
+      wireBaselineSnapshot({ 'shop-1': { 'item-beer': { packedUnits: 1, looseUnits: 0 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Nom Inconnu Total', menuItemId: null, packedDelta: 99, looseDelta: 9 },
+      ]);
+      mockPrisma.menuItem.findMany.mockResolvedValue([]); // aucun nom ne matche
+
+      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+
+      expect(result.expected['shop-1']['item-beer']).toEqual({ packed: 1, loose: 0 });
+      expect(result.unjoinedItemKeys).toEqual(['Nom Inconnu Total']);
+    });
+
+    it('test théorique combiné : Barre chocolatée + Budweiser fût — attendus alignés sur la Logistique', async () => {
+      wireEvents();
+      // Post-event précédent : chocolat 3 boîtes + 2 vrac ; Budweiser 3 fûts + 0 vrac.
+      wireBaselineSnapshot({
+        'shop-1': {
+          'item-choco': { packedUnits: 3, looseUnits: 2 },
+          'item-bud': { packedUnits: 3, looseUnits: 0 },
+        },
+      });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        // Chocolat : retrait de 3 unités en vrac (upp 5/boîte via MenuItem).
+        { elementId: 'shop-1', itemKey: 'Barre chocolatée', menuItemId: 'item-choco', packedDelta: 0, looseDelta: -3 },
+        // Budweiser : tirage d'un demi-fût (upp 1 via MarketPrice — fût = unité).
+        { elementId: 'shop-1', itemKey: 'Budweiser Fût 30L', menuItemId: 'item-bud', packedDelta: 0, looseDelta: -0.5 },
+        // Livraison saisie sous le nom court « Budweiser Fût » (le référentiel
+        // porte « Budweiser Fût 30L ») : sans menuItemId, la jointure par nom
+        // échoue — cas réel de saisie Logistic abrégée.
+        { elementId: 'shop-1', itemKey: 'Budweiser Fût', menuItemId: null, packedDelta: 1, looseDelta: 0 },
+      ]);
+      mockPrisma.marketPrice.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.itemName?.equals === 'Budweiser Fût 30L' ? { packedUnits: 1 } : null),
+      );
+      mockPrisma.menuItem.findFirst.mockResolvedValue({ inventoryNumberOfUnits: 5 }); // chocolat : 5/boîte
+      mockPrisma.menuItem.findMany.mockResolvedValue([
+        { id: 'item-choco', name: 'Barre chocolatée' },
+        { id: 'item-bud', name: 'Budweiser Fût 30L' },
+      ]);
+
+      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+
+      // Chocolat — somme brute (bug d'origine) : 3 boîtes / vrac **-1**.
+      // Normalisé : vrac 2-3 = -1 → casse 1 boîte (5/boîte) → 2 boîtes / 4 vrac.
+      expect(result.expected['shop-1']['item-choco']).toEqual({ packed: 2, loose: 4 });
+      // Budweiser — somme brute (bug) : 3 fûts / vrac **-0.5**.
+      // Normalisé : casse 1 fût → 2 fûts / 0.5 vrac = « 2 unités, 0,5 en vrac »
+      // affichés par la Logistique.
+      expect(result.expected['shop-1']['item-bud']).toEqual({ packed: 2, loose: 0.5 });
+      // La livraison saisie « Budweiser Fût » (référentiel : « Budweiser Fût 30L »)
+      // est ignorée mais SURFACÉE — cause n°2 du sous-comptage : l'attendu packed
+      // reste 2 au lieu de 3, désormais visible en log au lieu d'être avalé.
+      expect(result.unjoinedItemKeys).toEqual(['Budweiser Fût']);
+    });
+
+    it('sans snapshot post-event précédent : expected null, jamais de 0 fabriqué', async () => {
+      wireEvents();
+      mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(null);
+
+      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+
+      expect(result.baseline).toBeNull();
+      expect(result.expected).toBeNull();
+      expect(result.movements).toEqual([]);
+    });
+
+    it('createPreEventReconciliation : les lignes portent les MÊMES attendus normalisés que le GET', async () => {
+      wireEvents();
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.id) return Promise.resolve({ id: 'event-next', name: 'Prochain concert' });
+        if (where?.eventDate) return Promise.resolve(previousEvent);
+        return Promise.resolve(null);
+      });
+      wireBaselineSnapshot({ 'shop-1': { 'item-choco': { packedUnits: 3, looseUnits: 2 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Barre chocolatée', menuItemId: 'item-choco', packedDelta: 0, looseDelta: -3 },
+      ]);
+      mockPrisma.menuItem.findFirst.mockResolvedValue({ inventoryNumberOfUnits: 5 });
+      // Compté (getBySpaceAndEvent) : via counts granulaires.
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-choco', packedUnits: 2, looseUnits: 3 }),
+      ]);
+      mockPrisma.menuItem.findMany.mockResolvedValue([{ id: 'item-choco', name: 'Barre chocolatée' }]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) => Promise.resolve({ id: 'reco-1', ...data }));
+
+      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+
+      const line = (reco.lines as any[]).find((l: any) => l.elementId === 'shop-1' && l.itemKey === 'item-choco');
+      // Attendus normalisés (packed 2 / loose 4), pas la somme brute (3 / -1).
+      expect(line.expectedPacked).toBe(2);
+      expect(line.expectedLoose).toBe(4);
+      expect(line.countedPacked).toBe(2);
+      expect(line.countedLoose).toBe(3);
+      expect(line.deltaPacked).toBe(0);
+      expect(line.deltaLoose).toBe(-1);
+      expect(reco.kind).toBe('pre-event');
     });
   });
 });

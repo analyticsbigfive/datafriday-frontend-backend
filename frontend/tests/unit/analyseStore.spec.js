@@ -1,5 +1,6 @@
 import analyse, {
   resolveConfigSelectionAfterLoad,
+  pickDefaultConfiguration,
   filterValidConfigurations,
   isDeletedConfig,
   isValidConfigId,
@@ -319,6 +320,43 @@ describe('resolveConfigSelectionAfterLoad (fix « retombe sur All »)', () => {
     expect(resolveConfigSelectionAfterLoad(null, [{ id: 'cfg-1' }])).toBeNull()
     expect(resolveConfigSelectionAfterLoad('cfg-all', [{ id: 'cfg-all' }])).toBeNull()
     expect(resolveConfigSelectionAfterLoad('cfg-1', [])).toBeNull()
+  })
+})
+
+describe('pickDefaultConfiguration (pré-sélection à l\'ouverture d\'un espace)', () => {
+  it('retourne la 1re config AYANT des events (via eventIds)', () => {
+    const configs = [{ id: 'cfg-1', eventIds: [] }, { id: 'cfg-2', eventIds: ['e1'] }]
+    const events = [{ id: 'e1' }]
+    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
+  })
+
+  it('reconnaît aussi le rattachement par event.configurationId', () => {
+    const configs = [{ id: 'cfg-1' }, { id: 'cfg-2' }]
+    const events = [{ id: 'e1', configurationId: 'cfg-2' }]
+    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
+  })
+
+  it('ignore un eventIds qui pointe des events absents du space', () => {
+    const configs = [{ id: 'cfg-1', eventIds: ['ghost'] }, { id: 'cfg-2', eventIds: ['e1'] }]
+    const events = [{ id: 'e1' }]
+    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
+  })
+
+  it('respecte l\'ordre de la liste quand plusieurs configs ont des events', () => {
+    const configs = [{ id: 'cfg-1', eventIds: ['e1'] }, { id: 'cfg-2', eventIds: ['e2'] }]
+    const events = [{ id: 'e1' }, { id: 'e2' }]
+    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-1')
+  })
+
+  it('aucune config avec events → null (repli « All Configurations »)', () => {
+    expect(pickDefaultConfiguration([{ id: 'cfg-1', eventIds: [] }], [{ id: 'e1' }])).toBeNull()
+    expect(pickDefaultConfiguration([{ id: 'cfg-1', eventIds: ['e1'] }], [])).toBeNull()
+  })
+
+  it('listes vides / sentinelle cfg-all → null', () => {
+    expect(pickDefaultConfiguration([], [{ id: 'e1' }])).toBeNull()
+    expect(pickDefaultConfiguration([{ id: 'cfg-all', eventIds: ['e1'] }], [{ id: 'e1' }])).toBeNull()
+    expect(pickDefaultConfiguration()).toBeNull()
   })
 })
 

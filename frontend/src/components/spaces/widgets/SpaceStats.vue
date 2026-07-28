@@ -15,19 +15,21 @@
       </div>
 
       <!-- Value -->
-      <div class="ss-stat__val" :style="{ color: card.color }">{{ formatCurrency(card.value) }}</div>
+      <div class="ss-stat__val" :style="{ color: card.color }">
+        {{ card.isCount ? formatNumber(card.value) : formatCurrency(card.value) }}
+      </div>
 
       <!-- Progress bar -->
-      <div class="ss-stat__bar-track">
+      <div v-if="!card.isCount" class="ss-stat__bar-track">
         <div
           class="ss-stat__bar-fill"
           :style="{ width: card.percent + '%', background: card.color }"
         />
       </div>
 
-      <!-- Percent -->
+      <!-- Percent / footer -->
       <div class="ss-stat__pct">
-        {{ card.percent === 100 ? 'Revenu global' : card.percent + '% du total' }}
+        {{ card.isCount ? 'billets scannés' : (card.percent === 100 ? 'Revenu global' : card.percent + '% du total') }}
       </div>
     </div>
   </div>
@@ -45,10 +47,10 @@ export default {
     return { theme: global }
   },
   props: {
-    totalRevenue:         { type: Number, default: 0 },
-    totalFBRevenue:       { type: Number, default: 0 },
-    totalTicketingRevenue:{ type: Number, default: 0 },
-    totalMerchRevenue:    { type: Number, default: 0 },
+    totalRevenue:      { type: Number, default: 0 },
+    totalFBRevenue:    { type: Number, default: 0 },
+    totalTicketingCount:{ type: Number, default: 0 },
+    totalMerchRevenue: { type: Number, default: 0 },
   },
   computed: {
     isDark() { return this.theme.current.value.dark },
@@ -76,11 +78,11 @@ export default {
         {
           key: 'ticketing',
           label: 'Ticketing',
-          value: this.totalTicketingRevenue,
+          value: this.totalTicketingCount,
           color: '#2563eb',
           iconBg: 'rgba(37,99,235,.10)',
           icon: 'Ticket',
-          percent: Math.round((this.totalTicketingRevenue / this.safe) * 100),
+          isCount: true,
         },
         {
           key: 'merch',
@@ -97,6 +99,9 @@ export default {
   methods: {
     formatCurrency(v) {
       return (Number(v) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
+    },
+    formatNumber(v) {
+      return (Number(v) || 0).toLocaleString('fr-FR')
     },
   },
 }
@@ -166,7 +171,7 @@ export default {
   flex-shrink: 0;
 }
 .ss-stat__label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: .04em;
   text-transform: uppercase;
@@ -177,7 +182,7 @@ export default {
 
 /* ── Value ── */
 .ss-stat__val {
-  font-size: 17px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -.02em;
@@ -199,7 +204,7 @@ export default {
 
 /* ── Percent ── */
 .ss-stat__pct {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: #9ca3af;
   font-weight: 400;
 }

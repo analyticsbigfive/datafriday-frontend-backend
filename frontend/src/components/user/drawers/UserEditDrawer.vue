@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="ued-slide">
       <div v-if="modelValue" class="ued-overlay" @mousedown.self="close">
-        <div class="ued-panel">
+        <div class="ued-panel" :class="{ 'ued--dark': isDark }">
 
           <!-- Header dégradé -->
           <div class="ued-header">
@@ -385,8 +385,8 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .ued-header__text { flex: 1; min-width: 0; }
-.ued-header__title { font-size: 15px; font-weight: 700; color: #fff; margin: 0; }
-.ued-header__sub { font-size: 12.5px; color: rgba(255, 255, 255, 0.72); margin: 2px 0 0; }
+.ued-header__title { font-size: var(--fs-md); font-weight: 700; color: #fff; margin: 0; }
+.ued-header__sub { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.72); margin: 2px 0 0; }
 .ued-header__close {
   background: rgba(255, 255, 255, 0.15); border: none; cursor: pointer;
   width: 30px; height: 30px; border-radius: 8px;
@@ -435,7 +435,7 @@ export default {
   width: 48px; height: 48px; border-radius: 50%;
   background: linear-gradient(135deg, #ff3131, #b91c1c);
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.1rem; font-weight: 800; color: #fff; flex-shrink: 0; user-select: none;
+  font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #fff; flex-shrink: 0; user-select: none;
 }
 .ued-avatar__name { font-size: 0.9375rem; font-weight: 700; color: #111827; }
 .ued-avatar__email { font-size: 0.8125rem; color: #6b7280; margin-top: 2px; }
@@ -505,7 +505,7 @@ export default {
 .ued-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 0 22px; height: 42px; border-radius: 50px;
-  font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+  font-size: var(--fs-md); font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
 }
 .ued-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .ued-btn--ghost { background: #f3f4f6; color: #374151; }
@@ -518,4 +518,32 @@ export default {
 .ued-slide-enter-active .ued-panel, .ued-slide-leave-active .ued-panel { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
 .ued-slide-enter-from, .ued-slide-leave-to { opacity: 0; }
 .ued-slide-enter-from .ued-panel, .ued-slide-leave-to .ued-panel { transform: translateX(100%); }
+
+/* ── Dark mode ── (drawer téléporté sur <body>, piloté par la prop isDark →
+   .ued--dark ; header rouge #ff3131 + bouton primaire conservés). */
+.ued--dark.ued-panel { background: #1f2937; }
+.ued--dark .ued-avatar-row { background: #111827; }
+.ued--dark .ued-avatar__name { color: #f9fafb; }
+.ued--dark .ued-avatar__email { color: #9ca3af; }
+.ued--dark .ued-step-dot { background: #1f2937; border-color: #374151; color: #9ca3af; }
+.ued--dark .ued-step-label { color: #9ca3af; }
+.ued--dark .ued-step.active .ued-step-label,
+.ued--dark .ued-step.done .ued-step-label { color: #e5e7eb; }
+.ued--dark .ued-step-line { background: #374151; }
+.ued--dark .ued-section { color: #9ca3af; }
+.ued--dark .ued-section::after { background: #374151; }
+.ued--dark .ued-label { color: #d1d5db; }
+.ued--dark .ued-input,
+.ued--dark .ued-select { background: #1f2937; border-color: #374151; color: #f9fafb; }
+.ued--dark .ued-input::placeholder { color: #9ca3af; }
+.ued--dark .ued-select-chevron { color: #9ca3af; }
+.ued--dark .ued-space-mode { background: #1f2937; border-color: #374151; color: #d1d5db; }
+.ued--dark .ued-space-mode:hover { border-color: #4b5563; }
+.ued--dark .ued-space-list { border-color: #374151; }
+.ued--dark .ued-space-check { color: #d1d5db; }
+.ued--dark .ued-space-check:hover { background: #1f2937; }
+.ued--dark .ued-hint { color: #9ca3af; }
+.ued--dark .ued-footer { background: #1f2937; border-top-color: #374151; }
+.ued--dark .ued-btn--ghost { background: #374151; color: #f9fafb; }
+.ued--dark .ued-btn--ghost:hover:not(:disabled) { background: #4b5563; }
 </style>

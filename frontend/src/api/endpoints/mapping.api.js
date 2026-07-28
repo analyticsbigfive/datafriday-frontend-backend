@@ -1,5 +1,6 @@
 // API functions for data integration mappings
 import api from '../client'
+import { runWithConcurrency } from '@/utils/asyncPool'
 
 // ─── Location → Space ───────────────────────────────────
 
@@ -123,10 +124,14 @@ export async function getProductMappings(locationId) {
 
     if (totalPages > 1) {
       const pages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2)
-      const rest = await Promise.all(pages.map(fetchPage))
-      for (const nextPage of rest) {
-        if (Array.isArray(nextPage?.data)) mappings.push(...nextPage.data)
-      }
+      // Pages restantes récupérées avec une concurrence bornée (asyncPool) pour ne pas
+      // saturer le backend sur un gros tenant.
+      const byPage = new Map()
+      await runWithConcurrency(pages, 4, async (page) => {
+        const nextPage = await fetchPage(page)
+        byPage.set(page, Array.isArray(nextPage?.data) ? nextPage.data : [])
+      })
+      for (const page of pages) mappings.push(...(byPage.get(page) || []))
     }
 
     return mappings
@@ -170,32 +175,6 @@ export async function deleteProductMapping(productId) {
     return response.data
   } catch (error) {
     console.error(`[MAPPINGS API] Error deleting product mapping ${productId}:`, error)
-    throw error
-  }
-}
-
-// ─── Integration Progress ────────────────────────────────
-
-export async function getIntegrationProgress(locationId) {
-  try {
-    const response = await api.get(`/mappings/progress/${locationId}`)
-    return response.data
-  } catch (error) {
-    console.error(`[MAPPINGS API] Error fetching progress for ${locationId}:`, error)
-    throw error
-  }
-}
-
-/**
- * Get integration progress for ALL Weezevent locations of the tenant.
- * Used by the LocationListItem screen to render per-location step status.
- */
-export async function getAllIntegrationProgress() {
-  try {
-    const response = await api.get('/mappings/progress')
-    return response.data
-  } catch (error) {
-    console.error('[MAPPINGS API] Error fetching global progress:', error)
     throw error
   }
 }

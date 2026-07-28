@@ -2,7 +2,7 @@
   <!-- Colonne gauche de la grille .an-body (ex v-navigation-drawer) : la
        largeur et le repli sont pilotés par la grille d'AnalyseView (pattern
        EventPredict .ep-side). -->
-  <aside class="analyse-filter-panel">
+  <aside class="analyse-filter-panel" :class="{ 'analyse-filter-panel--dark': isDark }">
     <!-- Outils : navigation inter-écrans EN PREMIER, HORS carte (posée sur le
          fond gris comme sur EventPredict) — WorkspaceToolSelect partagé. -->
     <WorkspaceToolSelect
@@ -28,7 +28,7 @@
         bg-color="grey-lighten-5"
         hide-details
         class="mb-4"
-        :menu-props="{ contentClass: 'fp-select-menu' }"
+        :menu-props="{ contentClass: isDark ? 'fp-select-menu fp-select-menu--dark' : 'fp-select-menu' }"
         @update:model-value="onConfigurationChange"
       />
 
@@ -545,6 +545,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { useStore } from 'vuex'
 import { useRoute, useRouter } from 'vue-router'
@@ -559,23 +560,38 @@ const route = useRoute()
 const router = useRouter()
 const store = useStore()
 const { t } = useI18n()
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 const spaceInventoryPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/inventory` : '/spaces'
 })
+// Inventaire PRÉ-événement : même vue en mode 'pre' (cf. router `space-pre-inventory`).
+const spacePreInventoryPath = computed(() => {
+  const id = route.params?.spaceId
+  return id ? `/spaces/${id}/pre-inventory` : '/spaces'
+})
 const restockPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/restock` : '/spaces'
+})
+const livePath = computed(() => {
+  const id = route.params?.spaceId
+  return id ? `/spaces/${id}/live` : '/spaces'
 })
 const logisticPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/logistic` : '/spaces'
 })
 
-// Selecting "Inventory" / "Logistic" / "Réarmement" in the Outils dropdown
+// Selecting "Pre/Post-event Inventory" / "Logistic" / "Réarmement" in the Outils dropdown
 // navigates to the dedicated view instead of mutating the toolbox state (which
 // only supports analyse / predict / event-predict).
 function onToolboxSelect(v) {
+  if (v === 'space-pre-inventory') {
+    router.push(spacePreInventoryPath.value)
+    return
+  }
   if (v === 'space-inventory') {
     router.push(spaceInventoryPath.value)
     return
@@ -588,6 +604,10 @@ function onToolboxSelect(v) {
     router.push(restockPath.value)
     return
   }
+  if (v === 'live') {
+    router.push(livePath.value)
+    return
+  }
   localToolbox.value = v
 }
 
@@ -597,6 +617,7 @@ const toolboxItems = computed(() => [
   { value: 'analyse', label: t('anToolAnalyse'), icon: 'mdi-chart-line' },
   { value: 'predict', label: t('anToolPredict'), icon: 'mdi-trending-up' },
   { value: 'event-predict', label: t('anToolEventPredict'), icon: 'mdi-lightning-bolt' },
+  { value: 'live', label: t('anToolLive'), icon: 'mdi-record-circle-outline' },
   { value: 'space-inventory', label: t('anToolInventory'), icon: 'mdi-package-variant' },
   { value: 'logistic', label: t('anToolLogistic'), icon: 'mdi-forklift' },
   { value: 'restock', label: t('anToolRestock'), icon: 'mdi-truck-delivery-outline' },
@@ -866,7 +887,7 @@ function isFuture(d) {
    gris, majuscules, letter-spacing .08em. Harmonisé sur les 5 pages. */
 .section-label {
   font-size: 0.6875rem;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -874,13 +895,13 @@ function isFuture(d) {
 /* En-tête d'accordéon = kicker plat (parité panneau de droite SummaryPanel). */
 .section-title {
   font-size: 0.6875rem;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 .ms-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: #6B7280;
 }
@@ -902,7 +923,7 @@ function isFuture(d) {
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .12);
 }
 .analyse-filter-panel :deep(.v-field__input) {
-  font-size: 13px;
+  font-size: var(--fs-base);
   min-height: 38px;
   color: #212121;
 }
@@ -947,8 +968,8 @@ function isFuture(d) {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 13.5px;
-  color: #111827;
+  font-size: var(--fs-base);
+  color: #0f172a;
 }
 .fp-search__input::placeholder { color: #9ca3af; }
 
@@ -997,12 +1018,12 @@ function isFuture(d) {
 .fp-check-name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
-  color: #1f2937;
+  color: #1e293b;
 }
 .fp-check-count {
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
@@ -1010,11 +1031,11 @@ function isFuture(d) {
 .fp-check-empty {
   padding: 12px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
 }
 .fp-sub-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .5px;
@@ -1038,16 +1059,16 @@ function isFuture(d) {
   flex-shrink: 0;
 }
 .event-name {
-  font-size: 13px !important;
+  font-size: var(--fs-base)!important;
   font-weight: 500;
   color: #212121;
 }
 .event-date {
-  font-size: 11px !important;
+  font-size: var(--fs-xs)!important;
   color: #9E9E9E !important;
 }
 .range-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #ff3131;
   text-transform: uppercase;
@@ -1058,19 +1079,87 @@ function isFuture(d) {
   display: flex;
   justify-content: space-between;
   margin-top: 8px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 700;
-  color: #1f2937;
+  color: #1e293b;
   font-variant-numeric: tabular-nums;
 }
 .range-bounds {
   display: flex;
   justify-content: space-between;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #9ca3af;
   font-variant-numeric: tabular-nums;
 }
+
+/* ══════════════════ Dark mode (autonome via useTheme) ══════════════════
+   Override des seules couleurs claires en dur. Le rouge marque #ff3131 et les
+   couleurs sémantiques Vuetify (primary/warning/error) sont conservés. */
+.analyse-filter-panel--dark { background: #0f172a; }
+.analyse-filter-panel--dark .fp-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* Kickers / labels secondaires */
+.analyse-filter-panel--dark .section-label,
+.analyse-filter-panel--dark .section-title { color: #94a3b8; }
+.analyse-filter-panel--dark .ms-label { color: #94a3b8; }
+.analyse-filter-panel--dark .fp-sub-label { color: #94a3b8; }
+
+/* Champs (v-field) — pénètre aussi les MultiSelectFilter enfants */
+/* !important indispensable : bg-color="grey-lighten-5" applique un style INLINE
+   sur .v-field (fond quasi blanc) qui bat une règle de classe sans !important. */
+.analyse-filter-panel--dark :deep(.v-field) {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: #0f172a !important;
+}
+.analyse-filter-panel--dark :deep(.v-select__selection-text),
+.analyse-filter-panel--dark :deep(.v-field input) { color: #e2e8f0 !important; }
+.analyse-filter-panel--dark :deep(.v-field:hover) { border-color: rgba(255, 255, 255, 0.18); }
+.analyse-filter-panel--dark :deep(.v-field--focused) {
+  border-color: #ff3131;
+  background: #1e293b !important;
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, .18);
+}
+.analyse-filter-panel--dark :deep(.v-field__input) { color: #e2e8f0; }
+.analyse-filter-panel--dark :deep(.v-field__prepend-inner),
+.analyse-filter-panel--dark :deep(.v-field__append-inner) { color: #94a3b8; }
+
+/* Accordéons */
+.analyse-filter-panel--dark .filter-accordion :deep(.v-expansion-panel-title--active) { color: #ff3131; }
+.analyse-filter-panel--dark .filter-accordion :deep(.v-expansion-panel-text__wrapper) {
+  background-color: transparent;
+}
+
+/* Champ de recherche natif (Menu Items) */
+.analyse-filter-panel--dark .fp-search { background: #0f172a; }
+.analyse-filter-panel--dark .fp-search__icon { color: #94a3b8; }
+.analyse-filter-panel--dark .fp-search__input { color: #e2e8f0; }
+.analyse-filter-panel--dark .fp-search__input::placeholder { color: #94a3b8; }
+
+/* Listes à cases natives */
+.analyse-filter-panel--dark .fp-check-row:hover { background: rgba(255, 255, 255, 0.05); }
+.analyse-filter-panel--dark .fp-check {
+  border-color: #374151;
+  background: #0f172a;
+}
+.analyse-filter-panel--dark .fp-check:hover { border-color: #ff3131; }
+.analyse-filter-panel--dark .fp-check:checked { background: #ff3131; border-color: #ff3131; }
+.analyse-filter-panel--dark .fp-check-name { color: #e2e8f0; }
+.analyse-filter-panel--dark .fp-check-count,
+.analyse-filter-panel--dark .fp-check-empty { color: #94a3b8; }
+
+/* Listes scrollables (Events / Shops) */
+.analyse-filter-panel--dark .events-scroll,
+.analyse-filter-panel--dark .shops-scroll { background: #0f172a; }
+.analyse-filter-panel--dark .event-name { color: #e2e8f0; }
+.analyse-filter-panel--dark .event-date { color: #94a3b8 !important; }
+
+/* Sliders d'affluence : valeurs / bornes */
+.analyse-filter-panel--dark .range-values { color: #e2e8f0; }
+.analyse-filter-panel--dark .range-bounds { color: #94a3b8; }
 </style>
 
 <!-- Menus des selects Configuration / Tools : téléportés → style GLOBAL scellé par .fp-select-menu -->
@@ -1097,9 +1186,23 @@ function isFuture(d) {
   color: #ff3131 !important;
 }
 .fp-select-menu .v-list-item--active .v-list-item-title { font-weight: 700; }
-.fp-select-menu .v-list-item-title { font-size: 13.5px; }
+.fp-select-menu .v-list-item-title { font-size: var(--fs-base); }
 .fp-select-menu .v-list::-webkit-scrollbar { width: 8px; }
 .fp-select-menu .v-list::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 8px; }
+
+/* ── Dark mode du menu téléporté (classe sur sa racine propre) ── */
+.fp-select-menu--dark.v-overlay__content {
+  border-color: rgba(255, 255, 255, 0.10) !important;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .5) !important;
+}
+.fp-select-menu--dark .v-list { background: #1e293b; }
+.fp-select-menu--dark .v-list-item:hover { background: rgba(255, 255, 255, 0.05); }
+.fp-select-menu--dark .v-list-item--active {
+  background: rgba(255, 49, 49, .16) !important;
+  color: #ff5a5a !important;
+}
+.fp-select-menu--dark .v-list-item-title { color: #e2e8f0; }
+.fp-select-menu--dark .v-list::-webkit-scrollbar-thumb { background: #374151; }
 
 /* Exergue de l'accordéon Dates quand « Période personnalisée » est choisie
    depuis le bandeau (revealDates) — pulse rouge charte, temporaire. */

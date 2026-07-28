@@ -30,6 +30,8 @@ describe('IntegrationsController', () => {
   const mockWeezeventIntegrationService = {
     getConfig: jest.fn(),
     updateConfig: jest.fn(),
+    getWebhookConfig: jest.fn(),
+    updateWebhookConfig: jest.fn(),
   };
 
   const mockWebhookIntegrationService = {
@@ -169,6 +171,48 @@ describe('IntegrationsController', () => {
 
       expect(result).toEqual(mockWebhookConfig);
       expect(mockWebhookIntegrationService.getConfig).toHaveBeenCalledWith('org-123');
+    });
+  });
+
+  // BUG-106 : secret webhook par instance Weezevent (au lieu du seul écran tenant-level ci-dessus)
+  describe('getWeezeventInstanceWebhook', () => {
+    it('delegates to weezeventService.getWebhookConfig with the resolved tenantId', async () => {
+      mockWeezeventIntegrationService.getWebhookConfig.mockResolvedValue({
+        enabled: true,
+        configured: true,
+      });
+
+      const result = await controller.getWeezeventInstanceWebhook('org-123', 'inst-1', mockUser);
+
+      expect(result).toEqual({ enabled: true, configured: true });
+      expect(mockWeezeventIntegrationService.getWebhookConfig).toHaveBeenCalledWith(
+        'org-123',
+        'inst-1',
+      );
+    });
+  });
+
+  describe('updateWeezeventInstanceWebhook', () => {
+    it('delegates to weezeventService.updateWebhookConfig with the resolved tenantId', async () => {
+      const dto = { webhookSecret: 'new-secret', webhookEnabled: true };
+      mockWeezeventIntegrationService.updateWebhookConfig.mockResolvedValue({
+        enabled: true,
+        configured: true,
+      });
+
+      const result = await controller.updateWeezeventInstanceWebhook(
+        'org-123',
+        'inst-1',
+        mockUser,
+        dto,
+      );
+
+      expect(result).toEqual({ enabled: true, configured: true });
+      expect(mockWeezeventIntegrationService.updateWebhookConfig).toHaveBeenCalledWith(
+        'org-123',
+        'inst-1',
+        dto,
+      );
     });
   });
 });

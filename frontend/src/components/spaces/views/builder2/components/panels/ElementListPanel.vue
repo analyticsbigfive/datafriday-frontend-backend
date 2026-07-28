@@ -191,6 +191,12 @@ const groups = computed(() => {
       map.get(item.zoneId).elements.push(item)
     }
   }
+  // Tri alphabétique des PDV à l'intérieur de chaque groupe (demande Bertrand, builder v2).
+  for (const g of map.values()) {
+    g.elements.sort((a, b) =>
+      (a.el.name || '').localeCompare(b.el.name || '', undefined, { numeric: true, sensitivity: 'base' }),
+    )
+  }
   return Array.from(map.values())
 })
 
@@ -243,12 +249,12 @@ function select(element) {
   margin-bottom: 14px;
 }
 .elp-head__title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: rgb(var(--v-theme-on-surface));
 }
 .elp-head__revenue {
-  font-size: 17px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #16a34a;
   white-space: nowrap;
@@ -263,7 +269,7 @@ function select(element) {
 }
 .elp-toolbar .elp-search { flex: 1 1 auto; min-width: 0; }
 .elp-toolbar .elp-sort { flex-shrink: 0; padding: 3px; }
-.elp-toolbar .elp-sort button { flex: 0 0 auto; padding: 6px 10px; font-size: 12px; }
+.elp-toolbar .elp-sort button { flex: 0 0 auto; padding: 6px 10px; font-size: var(--fs-sm); }
 
 /* Recherche */
 .elp-search {
@@ -293,13 +299,13 @@ function select(element) {
   border: none;
   background: none;
   outline: none;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: inherit;
 }
 .elp-search__input::placeholder { color: rgba(var(--v-theme-on-surface), 0.45); }
 .elp-search__count {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: rgba(var(--v-theme-on-surface), 0.45);
 }
 
@@ -352,7 +358,7 @@ function select(element) {
   border-radius: 999px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   background: transparent;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: rgb(var(--v-theme-on-surface));
   white-space: nowrap;
@@ -384,7 +390,7 @@ function select(element) {
   border-radius: 9px;
   border: 0;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: rgba(var(--v-theme-on-surface), 0.6);
   cursor: pointer;
@@ -400,7 +406,7 @@ function select(element) {
 /* Groupes + cartes */
 .elp-group { margin-bottom: 18px; }
 .elp-group__label {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: rgb(var(--v-theme-on-surface));
   margin-bottom: 10px;
@@ -436,7 +442,7 @@ function select(element) {
 .elp-card__img { width: 100%; height: 100%; object-fit: cover; }
 .elp-card__body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .elp-card__name {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: rgb(var(--v-theme-on-surface));
   white-space: nowrap;
@@ -444,7 +450,7 @@ function select(element) {
   text-overflow: ellipsis;
 }
 .elp-card__sub {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: rgba(var(--v-theme-on-surface), 0.5);
   white-space: nowrap;
   overflow: hidden;
@@ -453,7 +459,7 @@ function select(element) {
 .elp-card__rev {
   flex-shrink: 0;
   margin-left: 8px;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: #16a34a;
   white-space: nowrap;

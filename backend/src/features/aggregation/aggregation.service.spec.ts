@@ -3,11 +3,12 @@ import { NotFoundException } from '@nestjs/common';
 import { AggregationService } from './aggregation.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
+import { MappingsService } from '../mappings/mappings.service';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
   space: { findFirst: jest.fn() },
-  event: { findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn() },
+  event: { findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn(), update: jest.fn() },
   aggregationJobLog: {
     findMany: jest.fn(),
     findFirst: jest.fn(),
@@ -40,6 +41,10 @@ const mockPrisma: any = {
 
 const mockQueueService: any = {
   queueAggregationJob: jest.fn(),
+};
+
+const mockMappingsService: any = {
+  hasShopMappingForIntegration: jest.fn(),
 };
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
@@ -95,11 +100,15 @@ describe('AggregationService', () => {
         AggregationService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: mockQueueService },
+        { provide: MappingsService, useValue: mockMappingsService },
       ],
     }).compile();
 
     service = module.get<AggregationService>(AggregationService);
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation((arg: any) =>
+      Array.isArray(arg) ? Promise.all(arg) : arg(mockPrisma),
+    );
   });
 
   // ─── getEventsTimelineStatus ─────────────────────────────────────────────
@@ -262,6 +271,10 @@ describe('AggregationService', () => {
       mockPrisma.$executeRaw.mockResolvedValue(0);
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.salesEvent.findMany.mockResolvedValue([]);
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '150.00', transactionsCount: 3 },
+      });
+      mockPrisma.event.update.mockResolvedValue({});
     });
 
     it('upsert sur spaceRevenueMinuteAgg (pas spaceRevenueDailyAgg)', async () => {
@@ -389,6 +402,43 @@ describe('AggregationService', () => {
       await service.executeProcessEvents(job);
 
       expect(job.updateProgress).toHaveBeenCalledWith(100);
+    });
+
+    // ─── BUG-033 ─────────────────────────────────────────────────────────────
+    it('écrit Event.revenue/transactionCount depuis le rollup SpaceRevenueMinuteAgg (BUG-033)', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '287.50', transactionsCount: 12 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.aggregate).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+        _sum: { revenueHt: true, transactionsCount: true },
+      });
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({
+          revenue: 287.5,
+          transactionCount: 12,
+          calculatedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it('écrit revenue=0/transactionCount=0 (pas null) si aucune vente agrégée pour l\'event (BUG-033)', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: null, transactionsCount: null },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ revenue: 0, transactionCount: 0 }),
+      });
     });
   });
 
@@ -531,19 +581,65 @@ describe('AggregationService', () => {
   describe('skipEvent', () => {
     it('crée un job log avec status "skipped"', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(makeEvent(EVENT_1));
+      mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.aggregationJobLog.create.mockResolvedValue({ id: 'skip-job' });
 
       const result = await service.skipEvent(TENANT, SPACE, EVENT_1);
 
-      expect(result).toMatchObject({ eventId: EVENT_1, status: 'skipped' });
+      expect(result).toMatchObject({ eventId: EVENT_1, status: 'skipped', purgedDataPoints: 0 });
       expect(mockPrisma.aggregationJobLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'skipped', jobType: 'skip' }) }),
       );
     });
 
+    it('purge les data points déjà agrégés pour cet event (BUG-020)', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(makeEvent(EVENT_1));
+      mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 42 });
+      mockPrisma.aggregationJobLog.create.mockResolvedValue({ id: 'skip-job' });
+
+      const result = await service.skipEvent(TENANT, SPACE, EVENT_1);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+      });
+      expect(result).toMatchObject({ purgedDataPoints: 42 });
+    });
+
     it('lance NotFoundException si event introuvable', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(null);
       await expect(service.skipEvent(TENANT, SPACE, 'bad')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── getStep4Context (BUG-029) ───────────────────────────────────────────
+  describe('getStep4Context', () => {
+    beforeEach(() => {
+      mockPrisma.space.findFirst.mockResolvedValue({ id: SPACE, tenantId: TENANT });
+      mockPrisma.event.findMany.mockResolvedValue([]);
+      mockPrisma.event.count.mockResolvedValue(0);
+      mockPrisma.aggregationJobLog.findMany.mockResolvedValue([]);
+      mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
+      mockPrisma.salesEvent.findMany.mockResolvedValue([]);
+    });
+
+    it('scope hasMappings par intégration via MappingsService (pas tenant-wide)', async () => {
+      mockMappingsService.hasShopMappingForIntegration.mockResolvedValue(true);
+
+      const result = await service.getStep4Context(TENANT, SPACE, INT_ID);
+
+      expect(mockMappingsService.hasShopMappingForIntegration).toHaveBeenCalledWith(TENANT, INT_ID);
+      expect(mockPrisma.locationShopMapping.count).not.toHaveBeenCalled();
+      expect(result.hasMappings).toBe(true);
+    });
+
+    it('retombe sur un count tenant-wide si integrationId absent (legacy)', async () => {
+      mockPrisma.locationShopMapping.count.mockResolvedValue(3);
+
+      const result = await service.getStep4Context(TENANT, SPACE);
+
+      expect(mockMappingsService.hasShopMappingForIntegration).not.toHaveBeenCalled();
+      expect(mockPrisma.locationShopMapping.count).toHaveBeenCalledWith({ where: { tenantId: TENANT } });
+      expect(result.hasMappings).toBe(true);
     });
   });
 

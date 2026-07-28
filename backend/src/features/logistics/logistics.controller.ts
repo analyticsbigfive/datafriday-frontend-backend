@@ -155,8 +155,8 @@ export class LogisticsController {
   })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   async simulateSale(@Param('spaceId') spaceId: string, @Body() dto: SimulateSaleDto, @CurrentUser() user: any) {
-    this.logger.log(`POST /logistics/${spaceId}/simulate-sale element=${dto.elementId} (${dto.lines?.length ?? 0} lignes)`);
-    return this.service.simulateSale(spaceId, dto.elementId, dto.lines, user.tenantId, user.id);
+    this.logger.log(`POST /logistics/${spaceId}/simulate-sale element=${dto.elementId} (${dto.lines?.length ?? 0} lignes)${dto.realMode ? ' [realMode]' : ''}${dto.ensureLiveEvent ? ' [ensureLiveEvent]' : ''}`);
+    return this.service.simulateSale(spaceId, dto.elementId, dto.lines, user.tenantId, user.id, dto.realMode, dto.ensureLiveEvent);
   }
 
   @Delete(':spaceId/simulate-sale')

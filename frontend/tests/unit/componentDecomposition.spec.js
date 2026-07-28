@@ -1,10 +1,10 @@
 /**
- * F6 — Éclatement ComponentDefinition → ingrédients feuilles (inventaire + restock).
- * « On ne commande pas un composant » : un ComponentDefinition (ex. Pickles Auxerre)
- * doit disparaître des lignes comptables/réarmables, remplacé par ses ingrédients.
- * Vérifie : helpers partagés (identité + BOM factor + anti-cycle), expansion côté
- * inventaire (présence), expansion côté restock (quantités BOM), identité identique
- * des deux côtés (jointure netting).
+ * F6 — Éclatement ComponentDefinition → ingrédients feuilles (restock uniquement).
+ * Décision 2026-07-18 : côté SPACE INVENTORY un composant (ex. Pickles Auxerre)
+ * n'est PLUS éclaté — il reste une ligne comptable telle quelle. Le restock
+ * (expandMenuItemStock) conserve l'éclatement BOM (« on ne commande pas un
+ * composant »). ⚠️ Identités asymétriques inventaire⇄restock sur ces lignes
+ * (netting — question posée dans QUESTIONS_A_BERTRAND).
  */
 import {
   componentIngredientId,
@@ -103,19 +103,19 @@ describe('flattenComponentDef', () => {
   })
 })
 
-describe('buildConsolidatedInventory — inventaire éclate le composant', () => {
-  it('remplace « Pickles Auxerre » par ses ingrédients', () => {
+describe('buildConsolidatedInventory — inventaire garde le composant tel quel', () => {
+  it('garde « Pickles Auxerre » en ligne comptable, sans ses ingrédients', () => {
     const result = buildConsolidatedInventory([dish], [dish], [], true, [pickleDef])
     const names = result.map((r) => r.name)
-    expect(names).toContain('Badiane')
-    expect(names).toContain('Canelle')
-    expect(names).not.toContain('Pickles Auxerre')
+    expect(names).toContain('Pickles Auxerre')
+    expect(names).not.toContain('Badiane')
+    expect(names).not.toContain('Canelle')
   })
 
-  it('émet une identité ingrédient joignable (marketPriceId)', () => {
+  it('émet l’identité du composant (id de la ligne de recette)', () => {
     const result = buildConsolidatedInventory([dish], [dish], [], true, [pickleDef])
-    const badiane = result.find((r) => r.name === 'Badiane')
-    expect(badiane.id).toBe('mp-badiane')
+    const pickles = result.find((r) => r.name === 'Pickles Auxerre')
+    expect(pickles.id).toBe('c-pickles')
   })
 })
 
@@ -132,7 +132,7 @@ describe('expandMenuItemStock — restock éclate avec quantités BOM', () => {
     expect(rows.find((r) => r.name === 'Canelle').totalQuantity).toBe(5)
   })
 
-  it('identité ingrédient identique à l’inventaire (jointure netting)', () => {
+  it('émet l’identité ingrédient feuille (marketPriceId)', () => {
     const rows = expandMenuItemStock('mi-burger', 10, 'Burger Auxerre', [dish], [pickleDef])
     expect(rows.find((r) => r.name === 'Badiane').id).toBe('mp-badiane')
   })

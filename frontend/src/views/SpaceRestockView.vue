@@ -99,7 +99,7 @@
           <RestockEventScenarioPicker
             v-if="objectiveSource === 'forecast'"
             :events="predictedEvents"
-            :selected-event-id="selectedEventId"
+            :selected-event-ids="selectedEventIds"
             :selected-scenario-by-event-id="selectedScenarioByEventId"
             @select-event="selectEvent"
             @select-scenario="selectScenario"
@@ -397,6 +397,19 @@
                   {{ t('srByItem') }}
                 </button>
               </div>
+              <v-select
+                v-if="restockEventOptions.length > 1"
+                v-model="restockEventFilter"
+                class="sr-event-filter"
+                :items="restockEventOptions"
+                item-title="label"
+                item-value="id"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                :placeholder="t('srFilterByEventPlaceholder')"
+              />
             </template>
           </AppSearchBar>
 
@@ -966,7 +979,7 @@
             <RestockEventScenarioPicker
               v-if="objectiveSource === 'forecast'"
               :events="predictedEvents"
-              :selected-event-id="selectedEventId"
+              :selected-event-ids="selectedEventIds"
               :selected-scenario-by-event-id="selectedScenarioByEventId"
               @select-event="selectEvent"
               @select-scenario="selectScenario"
@@ -1049,6 +1062,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift' },
   { value: 'restock', labelKey: 'srToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
@@ -1167,6 +1181,10 @@ export default {
       restockGenerated: false,
       shoppingGenerated: false,
       restockViewMode: 'shop',
+      // Filtre d'affichage de la feuille de réarmement : null = tous les events.
+      // N'altère pas les quantités (agrégées sur tous les events sélectionnés) —
+      // masque seulement les lignes qui ne concernent pas l'event choisi.
+      restockEventFilter: null,
       // Feuille de course : 'ingredients' (défaut) = explosion BOM en matière à
       // produire/acheter en cuisine centrale (ignore readyForSale) ; 'finished' =
       // produits finis transportés au PDV (réarmement). Voir bomPlanning.js.
@@ -1375,7 +1393,8 @@ export default {
       })
       return Array.from(ids)
     },
-    /** Sélection unique : l'évènement de réarmement courant (ou null). */
+    /** 1er évènement sélectionné (contexte nav ?event= / comptages) — la
+     *  sélection elle-même est multiple (selectedEventIds). */
     selectedEventId() {
       return this.selectedEventIds[0] || null
     },
@@ -1592,10 +1611,22 @@ export default {
         }
       }).filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
     },
+    /** Events réellement présents dans la feuille (id + label), pour le filtre. */
+    restockEventOptions() {
+      const idsInRows = new Set()
+      this.restockRows.forEach((row) => (row.eventIds || []).forEach((id) => idsInRows.add(id)))
+      return this.selectedEvents
+        .filter((event) => idsInRows.has(event.id))
+        .map((event) => ({ id: event.id, label: this.eventLabel(event) }))
+    },
     filteredRestockRows() {
+      let rows = this.restockRows
+      if (this.restockEventFilter) {
+        rows = rows.filter((row) => (row.eventIds || []).includes(this.restockEventFilter))
+      }
       const q = (this.restockSearch || '').trim().toLowerCase()
-      if (!q) return this.restockRows
-      return this.restockRows.filter((row) => {
+      if (!q) return rows
+      return rows.filter((row) => {
         const sourceNames = (row.sources || []).map((s) => s.menuItemName).join(' ')
         const eventNames = (row.eventNames || []).join(' ')
         const haystack = [row.shopName, row.itemName, sourceNames, eventNames]
@@ -1942,6 +1973,12 @@ export default {
     stockSettingsSignature() {
       this.ensureStockItemDefaults()
     },
+    restockEventOptions(options) {
+      // L'event filtré a quitté la sélection (ou n'a plus de lignes) → retour à « tous ».
+      if (this.restockEventFilter && !options.some((o) => o.id === this.restockEventFilter)) {
+        this.restockEventFilter = null
+      }
+    },
     objectiveSource() {
       this.resetGeneratedOutputs()
       this.loadReferenceSales()
@@ -2160,7 +2197,24 @@ export default {
       if (!spaceId || isDemoMode() || isRestockApiDown()) return
       clearTimeout(this._restockPutTimer)
       this._restockPutTimer = setTimeout(() => {
-        putRestockState(spaceId, snapshot).catch((err) => onRestockApiError(err))
+        putRestockState(spaceId, snapshot).catch((err) => {
+          onRestockApiError(err)
+          // BUG-019 : un 4xx (typiquement 403 permissions — rôles « Technicien
+          // Logistic » / « PDV Superviseur », cf. fiche backend BUG-31) était
+          // avalé en silence : l'état SEMBLE sauvegardé (localStorage) mais ne
+          // traverse jamais vers l'API → perte de travail au changement de
+          // machine. On alerte UNE fois par session (le PUT part à chaque
+          // frappe débouncée — pas de spam).
+          const status = err?.response?.status
+          if (status === 401 || status === 403) {
+            if (!this._restockPermissionAlerted) {
+              this._restockPermissionAlerted = true
+              this.snackbarText = this.t('srSnackSaveForbidden')
+              this.snackbarColor = 'error'
+              this.snackbar = true
+            }
+          }
+        })
       }, 500)
     },
     goBack() {
@@ -2186,6 +2240,13 @@ export default {
         const ev = this.selectedEventId || null
         this.router.push({
           name: 'space-inventory',
+          params: { spaceId },
+          query: ev ? { event: ev } : {},
+        })
+      } else if (tool.value === 'space-pre-inventory') {
+        const ev = this.selectedEventId || null
+        this.router.push({
+          name: 'space-pre-inventory',
           params: { spaceId },
           query: ev ? { event: ev } : {},
         })
@@ -2557,11 +2618,27 @@ export default {
         null
       if (def) this.selectedScenarioByEventId = { ...this.selectedScenarioByEventId, [id]: def }
     },
-    /** Sélection unique d'un évènement prédit (+ scénario par défaut + date). */
+    /**
+     * Sélection MULTIPLE d'évènements prédits : clic = toggle. L'objectif (target)
+     * devient la SOMME des besoins de tous les évènements cochés (stockRowsRaw
+     * agrège déjà par shop+item sur objectiveEvents). Chaque évènement garde son
+     * scénario (version) propre dans selectedScenarioByEventId.
+     */
     selectEvent(id) {
       if (!id) { this.selectedEventIds = []; return }
-      this.selectedEventIds = [id]
+      if (this.selectedEventIds.includes(id)) {
+        this.selectedEventIds = this.selectedEventIds.filter((eid) => eid !== id)
+        return
+      }
+      this.selectedEventIds = [...this.selectedEventIds, id]
       this.ensureDefaultScenario(id)
+      // Versions BDD de l'event fraîchement coché (best-effort, seuls les events
+      // sélectionnés au mount sont déjà synchronisés) → scénario par défaut et
+      // prédictions réévalués une fois rapatriées.
+      this.syncBddVersions([id]).then(() => {
+        this.ensureDefaultScenario(id)
+        this.refreshSelectedPredictions()
+      })
       // Date prévue = date de l'évènement si pas déjà fournie par ?date=.
       if (!this.plannedEventDate) {
         const ev = this.events.find((e) => String(e.id) === String(id))
@@ -3777,7 +3854,7 @@ export default {
   border: 2px solid var(--sr-border, #e0e0e0);
   font-weight: 700;
   font-size: 0.85rem;
-  background: #fff;
+  background: var(--sr-surface, #fff);
   transition: all 0.2s;
 }
 
@@ -3820,8 +3897,8 @@ export default {
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
-  border-top: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-top: 1px solid var(--sr-border, #e2e8f0);
+  background: var(--sr-subtle, #f8fafc);
 }
 
 .sr-wizard-nav-end {
@@ -4393,6 +4470,11 @@ export default {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 }
 
+.sr-event-filter {
+  min-width: 180px;
+  max-width: 260px;
+}
+
 .sr-table-groups,
 .sr-supplier-list {
   display: flex;
@@ -4402,9 +4484,9 @@ export default {
 }
 
 .sr-progress-wrap {
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--sr-border, #e2e8f0);
   padding: 12px;
-  background: #fff;
+  background: var(--sr-surface, #fff);
   display: grid;
   gap: 8px;
 }
@@ -4415,14 +4497,14 @@ export default {
   justify-content: space-between;
   gap: 12px;
   font-size: 0.78rem;
-  color: #334155;
+  color: var(--sr-text, #334155);
 }
 
 .sr-progress-track {
   width: 100%;
   height: 8px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--sr-border, #e2e8f0);
   overflow: hidden;
 }
 
@@ -4660,7 +4742,7 @@ export default {
 
 /* Harmonisation inventaire / réarmement */
 .space-restock-view {
-  --sr-bg: #f6f8fb; /* fond unifié EventPredict */
+  --sr-bg: var(--fb-bg, #f6f8fb); /* fond unifié EventPredict */
   --sr-surface: var(--fb-surface, #FFFFFF);
   --sr-subtle: var(--fb-subtle, #FAFAFA);
   --sr-border: var(--fb-border, #E5E7EB);
@@ -4811,23 +4893,23 @@ export default {
 /* ── Colonne droite : aperçu fournisseurs (design « Résumé inventaire »). ── */
 .sr-suppliers { min-width: 0; }
 .sr-sup-card {
-  background: #ffffff;
-  border: 1px solid #d9e2ec;
+  background: var(--sr-surface, #ffffff);
+  border: 1px solid var(--sr-border, #d9e2ec);
   border-radius: 18px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 .sr-sup-head { display: flex; align-items: center; justify-content: space-between; }
-.sr-sup-title { display: flex; align-items: center; font-size: 0.85rem; font-weight: 700; color: #0f172a; }
+.sr-sup-title { display: flex; align-items: center; font-size: 0.85rem; font-weight: 700; color: var(--sr-text, #0f172a); }
 .sr-sup-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 22px; height: 22px; padding: 0 7px; border-radius: 100px;
   background: rgba(255, 49, 49, 0.1); color: #ff3131; font-size: 0.75rem; font-weight: 700;
 }
-.sr-sup-empty { font-size: 0.8rem; color: #9ca3af; text-align: center; padding: 16px 8px; margin: 0; }
+.sr-sup-empty { font-size: 0.8rem; color: var(--sr-faint, #9ca3af); text-align: center; padding: 16px 8px; margin: 0; }
 .sr-sup-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 .sr-sup-item {
   display: grid;
@@ -4836,21 +4918,21 @@ export default {
   gap: 4px 10px;
   align-items: center;
   text-align: left;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--sr-border, #e5e7eb);
   border-radius: 10px;
-  background: #fff;
+  background: var(--sr-surface, #fff);
   padding: 9px 11px;
   cursor: pointer;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 .sr-sup-item:hover { border-color: rgba(255, 49, 49, 0.26); box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06); }
 .sr-sup-item-copy { grid-area: copy; display: flex; flex-direction: column; min-width: 0; }
-.sr-sup-item-copy strong { font-size: 0.82rem; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sr-sup-item-copy small { font-size: 0.68rem; color: #6b7280; }
+.sr-sup-item-copy strong { font-size: 0.82rem; color: var(--sr-text, #0f172a); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-sup-item-copy small { font-size: 0.68rem; color: var(--sr-muted, #6b7280); }
 .sr-sup-item-total { grid-area: total; text-align: right; display: flex; flex-direction: column; }
 .sr-sup-item-total strong { font-size: 0.9rem; color: #ff3131; font-variant-numeric: tabular-nums; }
-.sr-sup-item-total small { font-size: 0.62rem; color: #9ca3af; }
-.sr-sup-item-bar { grid-area: bar; height: 4px; border-radius: 100px; background: #f1f5f9; overflow: hidden; }
+.sr-sup-item-total small { font-size: 0.62rem; color: var(--sr-faint, #9ca3af); }
+.sr-sup-item-bar { grid-area: bar; height: 4px; border-radius: 100px; background: var(--sr-border, #f1f5f9); overflow: hidden; }
 .sr-sup-item-bar span { display: block; height: 100%; background: #ff3131; border-radius: 100px; }
 .sr-sup-item-email {
   grid-area: email;
@@ -5084,7 +5166,7 @@ export default {
 .sr-step-toolbar {
   gap: 12px;
   padding: 9px 12px;
-  background: #fff;
+  background: var(--sr-surface);
 }
 
 .sr-step-toolbar .sr-search {
@@ -5106,7 +5188,7 @@ export default {
 }
 
 .sr-setting-row:hover {
-  border-color: #d1d5db !important;
+  border-color: var(--fb-border-strong, #d1d5db) !important;
   box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05) !important;
 }
 
@@ -5154,19 +5236,19 @@ export default {
 
 .sr-recipe-label {
   padding-left: 0;
-  color: #6b7280;
+  color: var(--sr-muted, #6b7280);
   font-weight: 700;
 }
 
 .sr-recipe-part {
-  border: 1px solid #e5e7eb;
-  background: #f7f7f8;
-  color: #374151;
+  border: 1px solid var(--sr-border, #e5e7eb);
+  background: var(--sr-subtle, #f7f7f8);
+  color: var(--sr-text, #374151);
   font-weight: 600;
 }
 
 .sr-recipe-part em {
-  color: #6b7280;
+  color: var(--sr-muted, #6b7280);
   font-style: normal;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -5182,7 +5264,7 @@ export default {
 }
 
 .sr-slider-label {
-  color: #6b7280;
+  color: var(--sr-muted, #6b7280);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0;
@@ -5195,14 +5277,14 @@ export default {
 
 .sr-slider-value {
   width: 38px;
-  color: #111827;
+  color: var(--sr-text, #111827);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .sr-pack-toggle {
   justify-content: flex-end;
-  color: #6b7280;
+  color: var(--sr-muted, #6b7280);
   font-size: 11px;
   font-weight: 600;
 }
@@ -5849,5 +5931,26 @@ export default {
     max-height: none;
     overflow: visible;
   }
+}
+
+/* ===================== DARK MODE — étape « Stock » =====================
+   Surfaces, bordures et textes passent par les `--sr-*` (adossées au contrat
+   `--fb-*` de style.css) et basculent seules. Ne restent ici que les valeurs
+   sans variable : le voile blanc translucide de la barre de navigation du
+   wizard, et les teintes ambre/orange calibrées pour du texte sur fond clair.
+   Le bandeau rouge #ff3131 est identique dans les deux thèmes. */
+.v-theme--dataFridayDark .space-restock-view .sr-wizard-nav {
+  background: rgba(31, 41, 55, 0.96);
+}
+.v-theme--dataFridayDark .space-restock-view .sr-generate-hint,
+.v-theme--dataFridayDark .space-restock-view .sr-sidebar-generate-hint,
+.v-theme--dataFridayDark .space-restock-view .sr-wizard-nav-hint {
+  color: #fcd34d;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-qty-target {
+  color: #fdba74;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-collapse-icon {
+  color: #94a3b8;
 }
 </style>

@@ -36,14 +36,26 @@ export default {
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const res = await getMenuComponents()
-        const rows = Array.isArray(res)
-          ? res
-          : Array.isArray(res?.data)
-            ? res.data
-            : Array.isArray(res?.items)
-              ? res.items
-              : []
+        const limit = 100
+        let page = 1
+        let rows = []
+        // Le backend plafonne chaque appel à `limit` composants (cf. BUG-054, même schéma que
+        // BUG-040/BUG-052) : on boucle sur `meta.total` tant qu'il en reste, pour ne pas tronquer
+        // silencieusement les tenants ayant plus de `limit` composants.
+        while (true) {
+          const res = await getMenuComponents({ page, limit })
+          const pageRows = Array.isArray(res)
+            ? res
+            : Array.isArray(res?.data)
+              ? res.data
+              : Array.isArray(res?.items)
+                ? res.items
+                : []
+          rows = rows.concat(pageRows)
+          const total = res?.meta?.total ?? res?.data?.meta?.total
+          if (!total || pageRows.length < limit || rows.length >= total) break
+          page += 1
+        }
         commit('SET_ROWS', rows)
       } finally {
         commit('SET_FETCHING', false)

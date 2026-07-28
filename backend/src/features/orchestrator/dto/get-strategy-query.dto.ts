@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional } from 'class-validator';
 
 export enum OrchestratorOperation {
   SYNC = 'sync',
@@ -16,9 +16,9 @@ export enum OrchestratorPriority {
 }
 
 export class GetStrategyQueryDto {
-  @ApiProperty({ description: 'ID du tenant', example: 'tenant-123' })
-  @IsString()
-  tenantId: string;
+  // Le tenantId n'est plus lu depuis la query : BUG-40, il est dérivé du tenant
+  // authentifié via @CurrentTenant() côté controller pour éviter qu'un client
+  // ne cible la stratégie d'un autre tenant.
 
   @ApiProperty({ enum: OrchestratorOperation, description: 'Type d’opération à orchestrer' })
   @IsEnum(OrchestratorOperation)

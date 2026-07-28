@@ -24,6 +24,26 @@ export async function getSpace(spaceId) {
 }
 
 /**
+ * Signal « event live » d'un espace (module Live — LIVE_API_GUIDE.md §1.2).
+ * Endpoint dédié (pas un champ sur la liste /spaces). Guard backend `front.fb.live`.
+ * @returns {Promise<{ isLive: boolean, eventId: string|null, since: string|null }>}
+ */
+export async function getSpaceLiveStatus(spaceId) {
+  const response = await api.get(`/spaces/${spaceId}/live-status`)
+  return response.data
+}
+
+/**
+ * Inventaire live d'un espace (module Live v2 — LIVE_API_GUIDE.md §3.3).
+ * Arbre Shop→items et Item→shops (stock brut : packed/loose/consumed).
+ * @returns {Promise<{ shops: Array<object>, items: Array<object> }>}
+ */
+export async function getSpaceLiveInventory(spaceId) {
+  const response = await api.get(`/spaces/${spaceId}/live/inventory`)
+  return response.data
+}
+
+/**
  * Get all configurations for a space
  */
 export async function getSpaceConfigurations(spaceId) {
@@ -114,7 +134,7 @@ const _eventTimelineCache = new Map()
 // comparaison) peuvent demander le même event avant que le cache ne soit rempli.
 const _eventTimelineInflight = new Map()
 
-export async function getSpaceEventTimeline(spaceId, eventId) {
+export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = false } = {}) {
   // Mode démo : pas de backend → on reconstruit la timeline minute-level de
   // l'event à partir des records du mock (mêmes données minute que le graphe
   // Analyse). Corrige d'un coup (a) la timeline d'event « No timeline data
@@ -129,8 +149,14 @@ export async function getSpaceEventTimeline(spaceId, eventId) {
     )
   }
   const cacheKey = `${spaceId}:${eventId}`
-  if (_eventTimelineCache.has(cacheKey)) return _eventTimelineCache.get(cacheKey)
-  if (_eventTimelineInflight.has(cacheKey)) return _eventTimelineInflight.get(cacheKey)
+  // bypassCache (module Live) : un event EN COURS n'est pas immuable, contrairement
+  // à l'hypothèse qui justifie ce cache pour un event passé — on force le réseau,
+  // mais on réécrit quand même le cache avec la réponse fraîche pour les autres
+  // consommateurs (useAnalyseTimeline, usePredictiveTimeline, etc.).
+  if (!bypassCache) {
+    if (_eventTimelineCache.has(cacheKey)) return _eventTimelineCache.get(cacheKey)
+    if (_eventTimelineInflight.has(cacheKey)) return _eventTimelineInflight.get(cacheKey)
+  }
   const inflight = (async () => {
     try {
       const response = await api.get(`/spaces/${spaceId}/event-timeline/${eventId}`)
@@ -155,7 +181,7 @@ export async function getSpaceEventTimeline(spaceId, eventId) {
  * shopIds/ownership/integration-scope once for the space either way). Returns a Map
  * keyed by eventId, same record shape as getSpaceEventTimeline per event.
  */
-export async function getSpaceEventTimelineBatch(spaceId, eventIds) {
+export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCache = false } = {}) {
   const ids = [...new Set((eventIds || []).filter(Boolean))]
   const result = new Map()
   if (!ids.length) return result
@@ -168,10 +194,14 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds) {
     return result
   }
 
+  // bypassCache (module Live) : mêmes raisons que getSpaceEventTimeline ci-dessus —
+  // tout va au réseau, mais le cache est quand même réécrit avec la réponse fraîche.
   const missing = []
   for (const eventId of ids) {
     const cacheKey = `${spaceId}:${eventId}`
-    if (_eventTimelineCache.has(cacheKey)) {
+    if (bypassCache) {
+      missing.push(eventId)
+    } else if (_eventTimelineCache.has(cacheKey)) {
       result.set(eventId, _eventTimelineCache.get(cacheKey))
     } else if (_eventTimelineInflight.has(cacheKey)) {
       result.set(eventId, await _eventTimelineInflight.get(cacheKey))
@@ -190,13 +220,29 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds) {
       throw error
     }
   })()
-  for (const eventId of missing) _eventTimelineInflight.set(`${spaceId}:${eventId}`, inflight.then((data) => data[eventId] || []))
+  for (const eventId of missing) {
+    const derived = inflight.then((data) => data[eventId] || [])
+    // Marque la promesse dérivée comme « handled » : si AUCUN appel concurrent ne
+    // l'await avant l'échec du batch, son rejet devenait une unhandledRejection
+    // (crash process en test, warning console en navigateur). Les awaiters
+    // concurrents reçoivent toujours le rejet via `derived`.
+    derived.catch(() => {})
+    _eventTimelineInflight.set(`${spaceId}:${eventId}`, derived)
+  }
 
-  const byEventId = await inflight
+  // Nettoyage inflight en finally (pas seulement sur succès) : si la requête batch
+  // rejette, les entrées laissées en Map seraient des promesses rejetées permanentes —
+  // tout appel ultérieur pour ces events re-lèverait la même erreur jusqu'au reload.
+  // Même pattern que le `finally` de getSpaceEventTimeline ci-dessus.
+  let byEventId
+  try {
+    byEventId = await inflight
+  } finally {
+    for (const eventId of missing) _eventTimelineInflight.delete(`${spaceId}:${eventId}`)
+  }
   for (const eventId of missing) {
     const data = byEventId[eventId] || []
     if (Array.isArray(data) && data.length) _eventTimelineCache.set(`${spaceId}:${eventId}`, data)
-    _eventTimelineInflight.delete(`${spaceId}:${eventId}`)
     result.set(eventId, data)
   }
   return result
@@ -372,18 +418,23 @@ export async function updateSpaceElement(elementId, data) {
  * `opts.width/length/height` are used only when a new floor/zone must be created.
  */
 export async function assignShopsFloor(spaceId, elementIds, level, opts = {}) {
-  const body = { elementIds, level }
-  if (opts.configId) body.configId = opts.configId
-  if (opts.width != null) body.width = opts.width
-  if (opts.length != null) body.length = opts.length
-  if (opts.height != null) body.height = opts.height
-  // Nom de zone + position/dimensions des shops : appliqués par le backend
-  // (remplace le getConfiguration + updateConfiguration full-save côté front).
-  if (opts.zoneName) body.zoneName = opts.zoneName
-  if (opts.position) body.position = opts.position
-  if (opts.shopDimensions) body.shopDimensions = opts.shopDimensions
-  const response = await api.post(`/spaces/${spaceId}/assign-floor`, body)
-  return response.data
+  try {
+    const body = { elementIds, level }
+    if (opts.configId) body.configId = opts.configId
+    if (opts.width != null) body.width = opts.width
+    if (opts.length != null) body.length = opts.length
+    if (opts.height != null) body.height = opts.height
+    // Nom de zone + position/dimensions des shops : appliqués par le backend
+    // (remplace le getConfiguration + updateConfiguration full-save côté front).
+    if (opts.zoneName) body.zoneName = opts.zoneName
+    if (opts.position) body.position = opts.position
+    if (opts.shopDimensions) body.shopDimensions = opts.shopDimensions
+    const response = await api.post(`/spaces/${spaceId}/assign-floor`, body)
+    return response.data
+  } catch (error) {
+    console.error(`[SPACES API] Error assigning floor for space ${spaceId}:`, error)
+    throw error
+  }
 }
 
 /**

@@ -362,6 +362,11 @@ dérivée **matérialisée** en un mouvement `SALE` avant que l'ancre ne bouge p
 sinon un reset partiel réinjecterait leurs ventes en "stock fantôme" au prochain calcul
 (commentaire explicite du code, `logistics.service.ts:991-1001`).
 
+**Voir aussi** : [10_POST_EVENT_INVENTORY.md](10_POST_EVENT_INVENTORY.md) — l'écran Inventory et
+ses ponts inter-modules ; sa section 7 spécifie un **2ᵉ point de création** de
+`StockReconciliation` (document post-événement depuis la sauvegarde d'inventaire, **sans** toucher
+aux StockLevel — à ne pas confondre avec le reset ci-dessus).
+
 ---
 
 ## RestockState — le snapshot UI du Réarmement (PAS une source de stock)
@@ -475,8 +480,13 @@ aucune notion de filtre par sous-type de storage** — le même Storage physique
 différemment selon l'écran (Inventory le filtre, cassé, sur `'material'`/`'merch'` ; Logistic ne
 filtre pas du tout).
 
-**Statut (2026-07-15)** : documenté, non corrigé. Bugs déjà connus du brouillon précédent,
-reconfirmés avec les numéros de ligne actuels ci-dessus (le fichier a changé de forme depuis).
+**Statut (mis à jour 2026-07-18)** : **corrigés** (fiches 20 et 21). `'material'` : branche
+ajoutée dans `getItemStorageTypes` (composant `storageType === 'material'` → `['material']`,
+même convention que `isPackaging`). `'merch'` : `merchWithInventory` (`useInventoryData.js`)
+produit une carte par Storage typé `'merch'`, scopée à ses `selectedShops` (vide = tous) ;
+l'agrégat « Merch Aggregate » ne subsiste qu'en repli quand aucun Storage `'merch'` n'existe.
+La nuance Logistic ci-dessus reste vraie : le backend Logistic ne filtre toujours pas par
+sous-type de storage.
 
 ---
 
@@ -549,7 +559,14 @@ est indicatif, "le backend reste juge de paix final (casse de pack exacte)".
 
 ---
 
-## Tableau récapitulatif — bugs actifs confirmés (2026-07-15, non corrigés)
+## Tableau récapitulatif — bugs actifs confirmés (2026-07-15 ; statuts mis à jour 2026-07-18)
+
+> **Mise à jour 2026-07-18** : #2 corrigé (branche `'material'`, fiche 20) ; #3 corrigé (carte par
+> Storage 'merch' scopée `selectedShops`, fiche 21) ; #4 corrigé (déclencheurs des drawers ET de la
+> bottom-sheet mobile restaurés + entrée desktop couverture, fiche 22) ; #5 corrigé
+> (court-circuitées vers leur repli vide, appelants vivants conservés, fiche 23) ; #7 corrigé
+> (export supprimé, fiche 24). Restent : #1 (volet front alerté, décision RBAC →
+> `QUESTIONS_A_BERTRAND.md` #10, fiche 19) et #6 (colonnes DB mortes, décision backend).
 
 | # | Bug | Fichiers | Repro |
 |---|---|---|---|

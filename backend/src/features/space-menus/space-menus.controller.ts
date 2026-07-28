@@ -46,20 +46,21 @@ export class SpaceMenusController {
               margin: { type: 'number', example: 65.6, description: 'Marge en pourcentage' },
               description: { type: 'string', example: 'Burger classique avec frites' },
               picture: { type: 'string', nullable: true, example: 'https://cdn.example.com/burger.jpg' },
-              diet: { 
-                type: 'array', 
-                items: { type: 'string', enum: ['VEGAN', 'VEGETARIAN', 'HALAL', 'KOSHER', 'NONE'] },
-                example: ['NONE']
+              diet: {
+                type: 'array',
+                items: { type: 'string', enum: ['Vegetarian', 'Vegan', 'GlutenFree', 'Halal', 'Kosher'] },
+                example: ['Vegan']
               },
-              allergens: { 
-                type: 'array', 
-                items: { type: 'string', enum: ['GLUTEN', 'LACTOSE', 'EGGS', 'NUTS', 'FISH', 'SHELLFISH', 'SOY'] },
-                example: ['GLUTEN', 'LACTOSE']
+              allergens: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Liste libre (pas un enum fermé côté modèle)',
+                example: ['Gluten', 'Lactose']
               },
               storageType: {
                 type: 'array',
-                items: { type: 'string', enum: ['FROZEN', 'REFRIGERATED', 'DRY', 'AMBIENT'] },
-                example: ['FROZEN', 'REFRIGERATED']
+                items: { type: 'string', enum: ['Cold', 'Dry', 'Frozen'] },
+                example: ['Frozen']
               },
               readyForSale: { type: 'string', nullable: true, enum: ['Yes', 'No'], example: 'Yes' },
               comboItem: { type: 'string', nullable: true, enum: ['Yes', 'No'], example: 'No' },
@@ -468,12 +469,14 @@ export class SpaceMenusController {
     summary: 'Get enabled menu items per shop for a whole config (batch, light)',
     description:
       "Version batchée/légère de GET shop/:shopId : un seul appel pour TOUS les shops d'un config " +
-      "(id/nom/catégorie des articles activés uniquement), au lieu d'un appel par shop avec la " +
-      'structure imbriquée complète (composants/ingrédients/pricing).',
+      "(id/nom/catégorie/basePrice des articles activés uniquement), au lieu d'un appel par shop " +
+      'avec la structure imbriquée complète (composants/ingrédients/pricing). ' +
+      "Ne porte PAS la photo de l'article (BUG-199 : elle serait réémise une fois par PdV) — " +
+      'la vignette se résout depuis le catalogue GET /menu-items.',
   })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   @ApiParam({ name: 'configId', description: 'ID de la configuration' })
-  @ApiResponse({ status: 200, description: '{ [shopId]: { shopName, items: [{id,name,category}] } }' })
+  @ApiResponse({ status: 200, description: '{ [shopId]: { shopName, items: [{id,name,category,basePrice}] } }' })
   async getConfigShopMenuItemsLight(
     @Param('spaceId') spaceId: string,
     @Param('configId') configId: string,

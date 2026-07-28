@@ -1,6 +1,12 @@
 import { getEvents } from '@/api/endpoints/event.api'
 
-const TTL = 5 * 60 * 1000 // 5 minutes
+// BUG-147 : aligné sur la convention établie (15 min, cf. eventTypes.js/eventCategories.js/
+// eventSubcategories.js) — aucun consommateur identifié n'a besoin d'une fraîcheur plus courte.
+const TTL = 15 * 60 * 1000 // 15 minutes
+
+// Single-flight registry HORS du state Vuex — cf. menuItems.js pour le pattern
+// de référence. Deux fetchEvents() concurrents attendent la MÊME Promise.
+let inflight = null
 
 export default {
   namespaced: true,
@@ -41,22 +47,41 @@ export default {
 
   actions: {
     async fetchEvents({ state, commit, getters }, { forceRefresh = false } = {}) {
-      if (state.fetching) return
       if (!forceRefresh && getters.isCacheValid) return
+      if (inflight) return inflight
+
       commit('SET_FETCHING', true)
-      try {
-        const data = await getEvents()
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.data?.data)
-              ? data.data.data
-              : []
-        commit('SET_EVENTS', list)
-      } finally {
-        commit('SET_FETCHING', false)
-      }
+      const p = (async () => {
+        try {
+          // Le backend plafonne GET /events à `limit` (défaut 50) : on boucle
+          // sur `meta.total` tant qu'il en reste, sinon la liste est tronquée
+          // silencieusement pour tout tenant ayant plus de 50 events (même
+          // cause racine que BUG-040/BUG-054 côté Market Prices/Menu Items).
+          const limit = 200
+          let page = 1
+          let list = []
+          while (true) {
+            const result = await getEvents({ page, limit })
+            const pageRows = Array.isArray(result)
+              ? result
+              : Array.isArray(result?.data)
+                ? result.data
+                : Array.isArray(result?.data?.data)
+                  ? result.data.data
+                  : []
+            list = list.concat(pageRows)
+            const total = result?.meta?.total ?? result?.data?.meta?.total
+            if (!total || pageRows.length < limit || list.length >= total) break
+            page += 1
+          }
+          commit('SET_EVENTS', list)
+        } finally {
+          commit('SET_FETCHING', false)
+          inflight = null
+        }
+      })()
+      inflight = p
+      return p
     },
 
     invalidate({ commit }) {

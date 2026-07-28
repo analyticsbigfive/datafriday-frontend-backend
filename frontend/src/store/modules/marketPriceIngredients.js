@@ -36,18 +36,30 @@ export default {
       if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
-        const res = await getMarketPricesWithIngredients()
-        const rows = Array.isArray(res)
-          ? res
-          : Array.isArray(res?.data)
-            ? res.data
-            : Array.isArray(res?.items)
-              ? res.items
-              : Array.isArray(res?.data?.data)
-                ? res.data.data
-                : Array.isArray(res?.data?.items)
-                  ? res.data.items
-                  : []
+        const limit = 100
+        let page = 1
+        let rows = []
+        // Le backend plafonne chaque appel à `limit` lignes (cf. BUG-089, même schéma que
+        // BUG-054/BUG-040/BUG-052) : on boucle sur `meta.total` tant qu'il en reste, pour ne pas
+        // tronquer silencieusement les tenants ayant plus de `limit` prix/ingrédients.
+        while (true) {
+          const res = await getMarketPricesWithIngredients({ page, limit })
+          const pageRows = Array.isArray(res)
+            ? res
+            : Array.isArray(res?.data)
+              ? res.data
+              : Array.isArray(res?.items)
+                ? res.items
+                : Array.isArray(res?.data?.data)
+                  ? res.data.data
+                  : Array.isArray(res?.data?.items)
+                    ? res.data.items
+                    : []
+          rows = rows.concat(pageRows)
+          const total = res?.meta?.total ?? res?.data?.meta?.total
+          if (!total || pageRows.length < limit || rows.length >= total) break
+          page += 1
+        }
         commit('SET_ROWS', rows)
       } finally {
         commit('SET_FETCHING', false)

@@ -1,4 +1,7 @@
-# BUG-NNN — Titre court et descriptif
+# BUG-NNN-AA — Titre court et descriptif
+
+<!-- AA = code auteur à 2 chiffres (01 Jean-Luc, 02 Ulrich, 03 Emmanuel) — voir "Comment ajouter un
+     bug" dans 00_INDEX.md pour éviter les collisions de numérotation entre branches parallèles. -->
 
 - **Statut** : 🔴 Ouvert | 🟡 Corrigé non déployé | 🟢 Corrigé | ⚪ Diagnostiqué (root cause connue, fix à faire) | ⚫ Won't fix
 - **Sévérité** : 🔴 Bloquant/impact business | 🟠 Majeur | 🟡 Mineur
@@ -33,6 +36,7 @@ retester manuellement ? migration/backfill nécessaire sur les données déjà a
 
 ---
 
-**Convention** : un fichier par bug, numéroté `NN_slug-court.md` (voir `00_INDEX.md` pour l'ordre).
-Ne pas supprimer une fiche une fois le bug corrigé — mettre à jour le statut à 🟢 et laisser
-l'historique : c'est ce qui évite de refaire deux fois le même diagnostic.
+**Convention** : un fichier par bug, numéroté `NNN_AA_slug-court.md` (`NNN` = numéro séquentiel,
+`AA` = code auteur à 2 chiffres — voir "Comment ajouter un bug" dans `00_INDEX.md` pour le détail et
+la table des codes). Ne pas supprimer une fiche une fois le bug corrigé — mettre à jour le statut à
+🟢 et laisser l'historique : c'est ce qui évite de refaire deux fois le même diagnostic.

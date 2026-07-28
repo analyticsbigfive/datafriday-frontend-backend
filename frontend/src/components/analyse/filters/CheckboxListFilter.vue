@@ -1,5 +1,5 @@
 <template>
-  <div class="cbf mb-3">
+  <div class="cbf mb-3" :class="{ 'cbf--dark': isDark }">
     <div v-if="label" class="cbf-label">{{ label }}</div>
     <div class="cbf-list">
       <label v-for="opt in items" :key="opt" class="cbf-row">
@@ -18,9 +18,13 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const props = defineProps({
   label: { type: String, default: '' },
@@ -41,7 +45,7 @@ function toggle(opt) {
 
 <style scoped>
 .cbf-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #ff3131;
   text-transform: uppercase;
@@ -93,12 +97,12 @@ function toggle(opt) {
 .cbf-name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
-  color: #1f2937;
+  color: #1e293b;
 }
 .cbf-count {
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
@@ -106,7 +110,19 @@ function toggle(opt) {
 .cbf-empty {
   padding: 10px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
 }
+
+/* ── Dark mode (autonome via useTheme) ── */
+.cbf--dark .cbf-row:hover { background: rgba(255, 255, 255, 0.05); }
+.cbf--dark .cbf-check {
+  border-color: #374151;
+  background: #0f172a;
+}
+.cbf--dark .cbf-check:hover { border-color: #ff3131; }
+.cbf--dark .cbf-check:checked { background: #ff3131; border-color: #ff3131; }
+.cbf--dark .cbf-name { color: #e2e8f0; }
+.cbf--dark .cbf-count { color: #94a3b8; }
+.cbf--dark .cbf-empty { color: #94a3b8; }
 </style>

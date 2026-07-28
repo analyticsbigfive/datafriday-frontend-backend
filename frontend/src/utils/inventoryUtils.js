@@ -7,11 +7,13 @@
 const normName = (v) => String(v ?? '').trim().toLowerCase();
 
 // ── Décomposition ComponentDefinition → ingrédients feuilles (F6) ────────────
-// « On ne commande pas un composant » : un ComponentDefinition (ex. Pickles Auxerre)
-// n'est ni compté ni réarmé tel quel — il est éclaté en ses sous-éléments feuilles.
-// Ces 3 helpers sont partagés inventaire (inventoryUtils) ⇄ restock (stockPlanning)
-// pour garantir une IDENTITÉ ingrédient identique des deux côtés (sinon le netting
-// comptage↔réarmement ne joint pas).
+// Décision 2026-07-18 : côté SPACE INVENTORY, un composant n'est PLUS éclaté en
+// sous-ingrédients — il reste une ligne comptable telle quelle. Le restock
+// (stockPlanning.expandMenuItemStock) conserve l'éclatement F6 (« on ne commande
+// pas un composant »). ⚠️ Identités désormais asymétriques : l'inventaire compte
+// le composant, le restock réarme ses feuilles — le netting comptage↔réarmement
+// ne joint plus sur ces lignes (question posée dans QUESTIONS_A_BERTRAND).
+// Les 3 helpers ci-dessous restent utilisés par le restock.
 
 /**
  * Identité de jointure d'un sous-élément — DOIT être identique inventaire ⇄ restock.
@@ -252,37 +254,24 @@ export function buildConsolidatedInventory(
         mi => mi.name === component.name || mi.id === component.sourceId,
       );
 
-      if (
-        componentMenuItem &&
-        componentMenuItem.comboItem === 'Yes' &&
-        componentMenuItem.readyForSale === 'No'
-      ) {
+      if (componentMenuItem && componentMenuItem.comboItem === 'Yes') {
+        // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
+        // ses constituants, indépendamment de son propre readyForSale.
         // This is a combo item that should be expanded - recursively get its components
         const subComponents = getAllComponentsAndIngredients(
           componentMenuItem,
           depth + 1,
         );
         result.push(...subComponents);
-      } else {
-        // Composant composite (ComponentDefinition, ex. Pickles Auxerre) : « on ne
-        // commande pas un composant » → l'éclater en ses sous-éléments feuilles au
-        // lieu de compter le composant. Un Ingredient ne s'éclate jamais (feuille).
-        const def =
-          component.itemType === 'Ingredient'
-            ? null
-            : resolveComponentDef(component, components);
-        if (def && Array.isArray(def.subComponents) && def.subComponents.length) {
-          for (const leaf of flattenComponentDef(def, components, depth + 1)) {
-            result.push({ name: leaf.name, id: leaf.id ?? leaf.sourceId ?? leaf.name });
-          }
-        } else if (String(component.name ?? '').trim()) {
-          // Feuille classique (ingrédient / composant sans def) — nom requis :
-          // une entrée sans nom deviendrait une clé Map undefined → crash au sort.
-          result.push({
-            name: component.name,
-            id: component.id,
-          });
-        }
+      } else if (String(component.name ?? '').trim()) {
+        // Composant ou ingrédient = ligne comptable telle quelle : PAS d'éclatement
+        // en sous-ingrédients côté Space Inventory (décision 2026-07-18 — le restock,
+        // lui, éclate toujours, cf. stockPlanning). Nom requis : une entrée sans nom
+        // deviendrait une clé Map undefined → crash au sort.
+        result.push({
+          name: component.name,
+          id: component.id,
+        });
       }
     });
 
@@ -296,7 +285,9 @@ export function buildConsolidatedInventory(
     // Market Price, even when the recipe has exactly one Ingredient.
 
     // For menu items that are ready for sale, they appear as inventory items themselves
-    if (menuItem.readyForSale === 'Yes') {
+    // Exception : comboItem='Yes' (BUG-002/Q18, décision Bertrand 2026-07-24) explose
+    // TOUJOURS en ses constituants, indépendamment de son propre readyForSale.
+    if (menuItem.readyForSale === 'Yes' && menuItem.comboItem !== 'Yes') {
       // This item is sold directly - add the item itself to inventory
       if (!inventoryMap.has(menuItem.name)) {
         inventoryMap.set(menuItem.name, {
@@ -794,8 +785,11 @@ export function buildStorageInventory(
         return 'dry';
       case 'Cold':
         return 'cold';
-      case 'Freezer':
+      case 'Frozen':
+      case 'Freezer': // legacy : valeur écrite par la checkbox avant correctif BUG-005
         return 'belowzero';
+      case 'Material':
+        return 'material';
     }
   };
 
@@ -818,7 +812,11 @@ export function buildStorageInventory(
             st === 'dry' ||
             st === 'cold' ||
             st === 'freezer' ||
-            st === 'belowzero'
+            st === 'belowzero' ||
+            // 'material' = packaging/matériel (même convention que isPackaging
+            // plus haut) — sans cette branche, un Storage filtré 'material'
+            // était vide en permanence (BUG-020).
+            st === 'material'
           ) {
             return [st === 'freezer' ? 'belowzero' : st];
           }

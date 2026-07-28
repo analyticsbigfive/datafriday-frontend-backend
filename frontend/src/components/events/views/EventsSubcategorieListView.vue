@@ -57,7 +57,9 @@
           :filter-keys="['name']"
           :headers="tableHeaders"
           :items="subcategories"
-          :loading="loading"
+          :loading="loading ? '#ff3131' : false"
+          :items-per-page="25"
+          :items-per-page-options="[10, 25, 50, 100]"
           density="compact"
           class="esl-table"
         >
@@ -74,6 +76,9 @@
           </template>
           <template #item.actions="{ item }">
             <div class="esl-actions">
+              <div class="esl-abtn esl-abtn--info" @click.stop="openDetailsDrawer(item)">
+                <Eye :size="15" />
+              </div>
               <div class="esl-abtn esl-abtn--edit" @click.stop="openEditDialog(item)">
                 <Pencil :size="15" />
               </div>
@@ -87,7 +92,7 @@
     </div>
 
     <!-- Subcategory Drawer -->
-    <v-navigation-drawer v-model="subDialog" location="right" temporary width="560" class="esl-sub-drawer">
+    <v-navigation-drawer v-model="subDialog" location="right" temporary :persistent="subLoading" width="560" class="esl-sub-drawer">
       <!-- Gradient header -->
       <div class="esl-drawer-header">
         <div class="esl-drawer-header__icon">
@@ -108,20 +113,22 @@
 
         <v-form ref="subForm" v-model="subFormValid" validate-on="submit">
           <!-- Name field -->
-          <v-text-field
-            v-model="subFormData.name"
-            :label="t('eventSubcategoryList.labelName')"
-            :placeholder="t('eventSubcategoryList.namePlaceholder')"
-            density="comfortable"
-            variant="outlined"
-            hide-details="auto"
-            :rules="[rules.required]"
-            class="esl-drawer-input mb-5"
-          />
+          <div class="esl-select-wrap mb-5">
+            <span class="esl-select-label">{{ t('eventSubcategoryList.labelName') }} <span class="esl-star">*</span></span>
+            <v-text-field
+              v-model="subFormData.name"
+              :placeholder="t('eventSubcategoryList.namePlaceholder')"
+              density="comfortable"
+              variant="outlined"
+              hide-details="auto"
+              :rules="[rules.required]"
+              class="esl-drawer-input"
+            />
+          </div>
 
           <!-- Category select (with __create__ option) -->
           <div class="esl-select-wrap">
-            <label class="esl-select-label">{{ t('eventSubcategoryList.labelCategory') }}</label>
+            <span class="esl-select-label">{{ t('eventSubcategoryList.labelCategory') }} <span class="esl-star">*</span></span>
             <v-select
               v-model="subFormData.categoryId"
               :items="categoriesWithCreate"
@@ -161,34 +168,36 @@
       </div>
     </v-navigation-drawer>
 
-    <EventCategoryDialog v-model="categoryDialog" :event-types="eventTypes" @created="handleCategoryCreated" />
+    <EventCategoryDialog v-model="categoryDialog" :is-dark="isDark" :event-types="eventTypes" @created="handleCategoryCreated" />
 
-    <!-- Delete dialog -->
-    <v-dialog v-model="deleteDialog" max-width="440">
-      <div class="esl-modal">
-        <div class="esl-modal__head">
-          <div class="esl-modal__icon-wrap"><Trash2 :size="18" color="#ff3131" /></div>
-          <div class="esl-modal__headtext">
-            <div class="esl-modal__title">Supprimer la sous-catégorie</div>
-            <div class="esl-modal__sub">Cette action est irréversible</div>
-          </div>
-          <button class="esl-modal__close" @click="closeDeleteDialog"><X :size="16" /></button>
-        </div>
-        <div class="esl-modal__body">
-          <div v-if="deleteError" class="esl-modal__error"><AlertCircle :size="14" /> {{ deleteError }}</div>
-          <p class="esl-modal__text">
-            Voulez-vous supprimer <strong>{{ deleteSubName }}</strong> ? Cette action est définitive.
-          </p>
-        </div>
-        <div class="esl-modal__foot">
-          <button class="esl-mbtn esl-mbtn--cancel" @click="closeDeleteDialog">Annuler</button>
-          <button class="esl-mbtn esl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
-            <Trash2 :size="14" />
-            {{ deleteLoading ? 'Suppression…' : 'Supprimer' }}
-          </button>
-        </div>
+    <!-- BUG-155 : tiroir (au lieu d'un v-dialog centré) — cohérence charte graphique, cf. BUG-153. -->
+    <EventDrawerShell
+      v-model="deleteDialog"
+      :is-dark="isDark"
+      :persistent="deleteLoading"
+      width="420"
+      :title="t('eventSubcategoryList.deleteTitle')"
+      :subtitle="t('eventSubcategoryList.deleteSubtitle')"
+    >
+      <template #icon>
+        <Trash2 :size="18" color="white" />
+      </template>
+
+      <div :class="{ 'esl--dark': isDark }">
+        <div v-if="deleteError" class="esl-delete-error"><AlertCircle :size="14" /> {{ deleteError }}</div>
+        <p class="esl-delete-text">
+          {{ t('eventSubcategoryList.deleteText') }} <strong>{{ deleteSubName }}</strong> ?
+        </p>
       </div>
-    </v-dialog>
+
+      <template #footer>
+        <button class="esl-mbtn esl-mbtn--cancel" @click="closeDeleteDialog">{{ t('eventSubcategoryList.deleteCancel') }}</button>
+        <button class="esl-mbtn esl-mbtn--danger" :disabled="deleteLoading" @click="confirmDelete">
+          <Trash2 :size="14" />
+          {{ deleteLoading ? t('eventSubcategoryList.deleteConfirming') : t('eventSubcategoryList.deleteConfirm') }}
+        </button>
+      </template>
+    </EventDrawerShell>
 
     <TaxonomyImportDrawer
       v-model="taxonomyImportDrawer"
@@ -196,6 +205,10 @@
       :is-dark="isDark"
       @imported="loadSubcategories"
     />
+
+    <!-- BUG-153 : tiroir de détail (liste des événements liés, cliquables) — même composant partagé
+         qu'/event-types et /event-categories. -->
+    <TaxonomyDetailDrawer v-model="detailsDrawer" entity="subcategory" :item="detailsSubcategory" :is-dark="isDark" />
   </div>
 </template>
 
@@ -203,7 +216,7 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { Download, Pencil, Plus, Save, Trash2, Upload, X, Search, Layers, AlertCircle } from "lucide-vue-next";
+import { Download, Eye, Pencil, Plus, Save, Trash2, Upload, X, Search, Layers, AlertCircle } from "lucide-vue-next";
 import { downloadCSV } from "@/utils/csv";
 import {
   createEventSubcategory,
@@ -211,12 +224,15 @@ import {
   updateEventSubcategory,
 } from "@/api/endpoints/event.api";
 import TaxonomyImportDrawer from '../drawers/TaxonomyImportDrawer.vue';
+import TaxonomyDetailDrawer from '../drawers/TaxonomyDetailDrawer.vue';
+import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 import EventCategoryDialog from '../dialogs/EventCategoryDialog.vue';
 
 export default {
   name: "EventsSubcategorieListView",
   components: {
     Download,
+    Eye,
     Pencil,
     Plus,
     Save,
@@ -227,6 +243,8 @@ export default {
     Layers,
     AlertCircle,
     TaxonomyImportDrawer,
+    TaxonomyDetailDrawer,
+    EventDrawerShell,
     EventCategoryDialog,
   },
   setup() {
@@ -256,6 +274,9 @@ export default {
       },
 
       categoryDialog: false,
+
+      detailsDrawer: false,
+      detailsSubcategory: null,
 
       deleteDialog: false,
       deleteLoading: false,
@@ -345,6 +366,11 @@ export default {
       } catch (e) {
         this.eventTypes = [];
       }
+    },
+
+    openDetailsDrawer(sub) {
+      this.detailsSubcategory = sub;
+      this.detailsDrawer = true;
     },
 
     openCreateDialog() {
@@ -473,7 +499,7 @@ export default {
         ['Name', 'Event Category'],
         ...(this.subcategories || []).map(s => [
           s?.name || '',
-          this.categoryNameById[s?.categoryId] || '',
+          this.categoryNameById[s?.categoryId] || this.categoryNameById[s?.eventCategoryId] || '',
         ]),
       ];
       downloadCSV(rows, 'event-subcategories');
@@ -508,8 +534,8 @@ export default {
   background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.esl-header__title { font-size: 20px; font-weight: 800; color: #fff; margin: 0; line-height: 1.2; }
-.esl-header__subtitle { font-size: 12.5px; color: rgba(255,255,255,.72); margin: 3px 0 0; }
+.esl-header__title { font-size: var(--fs-xl); font-weight: var(--fw-bold); color: #fff; margin: 0; line-height: 1.2; }
+.esl-header__subtitle { font-size: var(--fs-sm); color: rgba(255,255,255,.72); margin: 3px 0 0; }
 .esl-header__right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .esl-header__sep { width: 1px; height: 32px; background: rgba(255,255,255,.25); }
 .esl-header__actions { display: flex; align-items: center; gap: 8px; }
@@ -518,7 +544,7 @@ export default {
   padding: 7px 14px; border-radius: 100px;
   border: 1.5px solid rgba(255,255,255,.6);
   background: transparent; color: rgba(255,255,255,.9);
-  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .esl-action-hbtn:hover { background: rgba(255,255,255,.15); border-color: #fff; }
@@ -527,7 +553,7 @@ export default {
   padding: 9px 18px; border-radius: 100px;
   border: 2px solid rgba(255,255,255,.85);
   background: transparent; color: #fff;
-  font-size: 13px; font-weight: 700; cursor: pointer;
+  font-size: var(--fs-base); font-weight: 700; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .esl-add-btn:hover { background: #fff; color: #ff3131; }
@@ -542,11 +568,11 @@ export default {
 .esl-searchbar__icon { color: #9ca3af; flex-shrink: 0; }
 .esl-searchbar__input {
   flex: 1; min-width: 140px; border: none; outline: none;
-  background: transparent; font-size: 14px; color: #111827;
+  background: transparent; font-size: var(--fs-md); color: #111827;
 }
 .esl--dark .esl-searchbar__input { color: #e5e7eb; }
 .esl-searchbar__input::placeholder { color: #9ca3af; }
-.esl-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.esl-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 
 /* ── Content ── */
 .esl-content { padding: 24px 28px; }
@@ -555,7 +581,7 @@ export default {
 .esl-error-bar {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 12px; padding: 12px 16px; font-size: 13.5px;
+  border-radius: 12px; padding: 12px 16px; font-size: var(--fs-base);
 }
 
 /* Table */
@@ -567,12 +593,12 @@ export default {
 
 .esl-table :deep(.v-data-table__th),
 .esl-table :deep(.v-data-table__td) {
-  font-size: 13px; padding-top: 10px; padding-bottom: 10px;
+  font-size: var(--fs-base); padding-top: 10px; padding-bottom: 10px;
   padding-left: 16px; padding-right: 16px;
 }
 .esl-table :deep(.v-data-table__td) { vertical-align: middle; }
 .esl-table :deep(.v-data-table__th) {
-  font-size: 11px !important; font-weight: 600;
+  font-size: var(--fs-xs)!important; font-weight: 600;
   text-transform: uppercase; letter-spacing: .06em;
   color: #9ca3af !important; background: #fafafa !important;
 }
@@ -583,7 +609,7 @@ export default {
 .esl-cat-pill {
   display: inline-flex; align-items: center;
   background: #f3f4f6; color: #374151; border-radius: 50px;
-  padding: 2px 10px; font-size: 12.5px;
+  padding: 2px 10px; font-size: var(--fs-sm);
 }
 .esl-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .esl-abtn {
@@ -592,6 +618,8 @@ export default {
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
 }
+.esl-abtn--info { background: #f0f9ff; color: #0369a1; }
+.esl-abtn--info:hover { background: #e0f2fe; }
 .esl-abtn--edit { background: #eff6ff; color: #2563eb; }
 .esl-abtn--edit:hover { background: #dbeafe; }
 .esl-abtn--del { background: #fef2f2; color: #ff3131; }
@@ -611,8 +639,8 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .esl-drawer-header__text { flex: 1; }
-.esl-drawer-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.esl-drawer-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
+.esl-drawer-header__title { font-size: var(--fs-lg); font-weight: 700; color: #fff; }
+.esl-drawer-header__sub { font-size: var(--fs-sm); color: rgba(255,255,255,.75); margin-top: 2px; }
 .esl-drawer-header__close {
   width: 30px; height: 30px; border-radius: 8px; border: none;
   background: rgba(255,255,255,.15);
@@ -626,7 +654,7 @@ export default {
 .esl-drawer-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
+  border-radius: 10px; padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 16px;
 }
 
 /* Styled v-text-field */
@@ -637,12 +665,13 @@ export default {
 
 /* v-select */
 .esl-select-wrap { display: flex; flex-direction: column; gap: 6px; }
-.esl-select-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.esl-select-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
 .esl--dark .esl-select-label { color: #d1d5db; }
+.esl-star { color: #ff3131; }
 .esl-drawer-select :deep(.v-field) { border: 1.5px solid #e5e7eb; border-radius: 11px; box-shadow: none; }
 .esl-drawer-select :deep(.v-field--focused) { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255, 49, 49,.10); }
 .esl-drawer-select :deep(.v-field__outline) { display: none; }
-.esl-drawer-select :deep(.v-field__input) { font-size: 14px; }
+.esl-drawer-select :deep(.v-field__input) { font-size: var(--fs-md); }
 .esl--dark .esl-drawer-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 
 :deep(.esl-create-option) { color: #ff3131; font-weight: 600; }
@@ -656,7 +685,7 @@ export default {
 .esl-fbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 40px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 500; border: none; cursor: pointer; transition: all .2s;
+  font-size: var(--fs-base); font-weight: 500; border: none; cursor: pointer; transition: all .2s;
 }
 .esl-fbtn:disabled { opacity: .5; cursor: not-allowed; }
 .esl-fbtn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
@@ -665,22 +694,28 @@ export default {
 .esl-fbtn--primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
 
 /* Delete modal */
-.esl-modal { background: #fff; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
-.esl-modal__head { display: flex; align-items: flex-start; gap: 14px; padding: 22px 22px 16px; }
-.esl-modal__icon-wrap { width: 42px; height: 42px; border-radius: 12px; background: #fef2f2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.esl-modal__headtext { flex: 1; }
-.esl-modal__title { font-size: 16px; font-weight: 700; color: #111827; }
-.esl-modal__sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
-.esl-modal__close { width: 28px; height: 28px; border-radius: 8px; border: none; background: #f3f4f6; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #6b7280; }
-.esl-modal__close:hover { background: #e5e7eb; }
-.esl-modal__body { padding: 0 22px 18px; }
-.esl-modal__error { display: flex; align-items: center; gap: 8px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
-.esl-modal__text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
-.esl-modal__foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; background: #f9fafb; border-top: 1px solid #f3f4f6; }
-.esl-mbtn { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px; height: 38px; border-radius: 50px; font-size: 13.5px; font-weight: 500; border: none; cursor: pointer; transition: all .2s; }
+.esl-delete-error {
+  display: flex; align-items: center; gap: 8px; background: #fef2f2; border: 1px solid #fecaca;
+  color: #991b1b; border-radius: 10px; padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 14px;
+}
+.esl-delete-text { font-size: var(--fs-md); color: #374151; line-height: 1.6; margin: 0; }
+.esl--dark .esl-delete-text { color: #d1d5db; }
+.esl-mbtn { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px; height: 38px; border-radius: 50px; font-size: var(--fs-base); font-weight: 500; border: none; cursor: pointer; transition: all .2s; }
 .esl-mbtn:disabled { opacity: .5; cursor: not-allowed; }
 .esl-mbtn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
 .esl-mbtn--cancel:hover { background: #e9ecef; }
 .esl-mbtn--danger { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255, 49, 49,.3); }
 .esl-mbtn--danger:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49,.4); transform: translateY(-1px); }
+
+/* Dark mode — compléments */
+.esl--dark .esl-drawer-input :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
+.esl--dark .esl-error-bar { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.esl--dark .esl-drawer-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.35); color: #fca5a5; }
+.esl--dark .esl-cat-pill { background: #1f2937; color: #cbd5e1; }
+.esl--dark .esl-abtn { background: #1f2937; color: #cbd5e1; }
+.esl--dark .esl-abtn--info { background: rgba(37,99,235,.15); color: #93c5fd; }
+.esl--dark .esl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.esl--dark .esl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+.esl--dark .esl-fbtn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
+.esl--dark .esl-mbtn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
 </style>

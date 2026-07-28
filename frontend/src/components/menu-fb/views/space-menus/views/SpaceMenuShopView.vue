@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div :class="{ 'smsh-root--dark': isDark }">
     <!-- Section header -->
     <div class="smsh-section-head">
       <div class="smsh-section-head__title">
@@ -33,6 +33,14 @@
       <div class="smsh-empty__icon"><Store :size="32" style="color:#d1d5db" /></div>
       <p class="smsh-empty__title">{{ t("spaceMenu.noMatchingShops") }}</p>
       <p class="smsh-empty__sub">{{ t("spaceMenu.tryAdjustingFilters") }}</p>
+    </div>
+
+    <!-- Empty: espace sans configuration — distinct de "aucun shop" (BUG-129), la vraie cause
+         ici est qu'il n'existe encore aucune configuration à sélectionner. -->
+    <div v-else-if="spaceHasNoConfiguration" class="smsh-empty">
+      <div class="smsh-empty__icon"><Store :size="32" style="color:#d1d5db" /></div>
+      <p class="smsh-empty__title">{{ t("spaceMenu.noConfigurationSelected") }}</p>
+      <p class="smsh-empty__sub">{{ t("spaceMenu.spaceHasNoConfiguration") }}</p>
     </div>
 
     <!-- Empty: aucun shop dans cet espace -->
@@ -87,7 +95,7 @@
       class="smsh-pagination"
     >
       <div class="smsh-pagination__info">
-        <span class="smsh-pagination__label">Shops par page :</span>
+        <span class="smsh-pagination__label">{{ t('spaceMenu.shopsPerPage') }}</span>
         <div class="smsh-page-size-toggle">
           <button
             v-for="n in pageSizeOptions"
@@ -129,6 +137,12 @@ export default {
     shopsLoading:          { type: Boolean, default: false },
     // Message d'échec de chargement (null = pas d'erreur) — état distinct du vide.
     loadError:             { type: String,  default: null },
+    // BUG-125 : non propagé par le parent jusqu'ici — cartes/grille restaient blanches sur
+    // fond sombre.
+    isDark:                { type: Boolean, default: false },
+    // BUG-129 : distingue "espace sans configuration" de "espace sans shops" (message trompeur
+    // sinon, la vraie cause n'étant pas communiquée).
+    spaceHasNoConfiguration: { type: Boolean, default: false },
   },
   emits: ["edit-shop", "select-shop", "retry"],
   setup() {
@@ -202,7 +216,8 @@ export default {
   display: flex; align-items: center; justify-content: center;
   color: #374151; opacity: 0; transition: opacity .15s;
 }
-.smsh-card:hover .smsh-card__edit { opacity: 1; }
+.smsh-card:hover .smsh-card__edit,
+.smsh-card__edit:focus-visible { opacity: 1; }
 
 .smsh-card__body { padding: 12px 14px; }
 .smsh-card__name { font-size: 14px; font-weight: 700; color: #111827; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -263,4 +278,26 @@ export default {
 .smsh-page-btn:disabled { opacity: .4; cursor: not-allowed; }
 .smsh-page-number { font-size: 13px; font-weight: 600; color: #374151; min-width: 50px; text-align: center; }
 .smsh-pagination__range { font-size: 12px; color: #9ca3af; }
+
+/* ── Dark mode (BUG-125) ── */
+.smsh-root--dark .smsh-section-head__title { color: #e2e8f0; }
+.smsh-root--dark .smsh-card { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.smsh-root--dark .smsh-card__img { background: #111827; }
+.smsh-root--dark .smsh-card__status--closed { background: #111827; color: #94a3b8; }
+.smsh-root--dark .smsh-card__edit { background: rgba(17,24,39,.85); color: #e2e8f0; }
+.smsh-root--dark .smsh-card__name { color: #e2e8f0; }
+.smsh-root--dark .smsh-card__count { color: #94a3b8; }
+.smsh-root--dark .smsh-skeleton { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.smsh-root--dark .smsh-skeleton__img,
+.smsh-root--dark .smsh-skeleton__line { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 800px 100%; }
+.smsh-root--dark .smsh-empty { background: #111827; border-color: #1e293b; }
+.smsh-root--dark .smsh-empty--error { background: rgba(255, 49, 49,.08); border-color: rgba(255, 49, 49,.3); }
+.smsh-root--dark .smsh-empty__icon { background: #1e293b; }
+.smsh-root--dark .smsh-empty__title { color: #94a3b8; }
+.smsh-root--dark .smsh-empty__sub { color: #64748b; }
+.smsh-root--dark .smsh-pagination__label,
+.smsh-root--dark .smsh-pagination__range { color: #64748b; }
+.smsh-root--dark .smsh-page-size-btn,
+.smsh-root--dark .smsh-page-btn { border-color: #334155; background: #1e293b; color: #94a3b8; }
+.smsh-root--dark .smsh-page-number { color: #e2e8f0; }
 </style>

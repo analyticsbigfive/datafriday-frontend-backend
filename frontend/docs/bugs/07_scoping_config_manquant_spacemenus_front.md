@@ -1,6 +1,6 @@
 # BUG-007 — Scoping config manquant sur perf/staff/inventory Space Menus (volet front)
 
-- **Statut** : 🟡 Corrigé (code), déploiement restant, à coordonner avec le backend
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Espaces & builder / Menu & recettes
 - **Repo(s) concerné(s)** : les deux
@@ -19,8 +19,7 @@ contrat mis à jour de façon cohérente (envoi/affichage du `configId` actif).
 
 ## Correction
 
-À déployer **en même temps** que le backend (migration + backend d'abord ou synchronisé) — jamais
-l'un sans l'autre.
+Déployé en même temps que le backend (migration + backend synchronisés avec le front).
 
 ## Risque de régression / à surveiller
 

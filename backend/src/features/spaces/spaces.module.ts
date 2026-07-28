@@ -8,9 +8,10 @@ import { SpaceAggregationService } from './services/space-aggregation.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { RedisModule } from '../../core/redis/redis.module';
 import { WeezeventModule } from '../weezevent/weezevent.module';
+import { LogisticsModule } from '../logistics/logistics.module';
 
 @Module({
-  imports: [PrismaModule, RedisModule, WeezeventModule],
+  imports: [PrismaModule, RedisModule, WeezeventModule, LogisticsModule],
   controllers: [
     SpacesController,
     ConfigurationsController,

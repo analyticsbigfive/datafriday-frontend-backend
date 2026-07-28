@@ -24,13 +24,13 @@
 
             <!-- Supplier Item Name -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
-              <label for="mpesd-supplierItem" class="mpesd-field-label">{{ t('supplierItemName') }}</label>
+              <label for="mpesd-supplierItem" class="mpesd-field-label">{{ t('supplierItemName') }} <span class="mpesd-required">*</span></label>
               <input id="mpesd-supplierItem" v-model="form.supplierItem" type="text" class="form-control mpesd-input" />
             </div>
 
             <!-- Item Name (read-only) -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
-              <label for="mpesd-itemName" class="mpesd-field-label">{{ t('itemName') }}</label>
+              <label for="mpesd-itemName" class="mpesd-field-label">{{ t('itemName') }} <span class="mpesd-required">*</span></label>
               <input id="mpesd-itemName" :value="form.itemName" type="text" class="form-control mpesd-input mpesd-input--readonly" readonly />
             </div>
 
@@ -59,8 +59,8 @@
             </div>
 
             <!-- Dialog — création fournisseur -->
-            <v-dialog v-model="supplierCreateOpen" max-width="460" :z-index="11000">
-              <div class="mpesd-mini-dialog">
+            <v-dialog v-model="supplierCreateOpen" max-width="540" :z-index="11000">
+              <div class="mpesd-mini-dialog" :class="{ 'mpesd-mini-dialog--dark': isDark }">
                 <div class="mpesd-mini-dialog__header">
                   <Truck :size="18" color="white" />
                   <span>{{ t('addSupplier') }}</span>
@@ -68,67 +68,88 @@
                 </div>
                 <div v-if="supplierCreateError" class="mpesd-mini-dialog__error">{{ supplierCreateError }}</div>
                 <div class="mpesd-mini-dialog__body">
-                  <!-- Upload photo du fournisseur -->
+                  <!-- Photo du fournisseur -->
                   <input ref="supplierPictureInput" type="file" accept="image/*" class="d-none" @change="onSupplierPictureSelected" />
-                  <div class="mpesd-sc-photo mb-3" @click="triggerSupplierPicture">
+                  <div class="mpesd-sc-photo" @click="triggerSupplierPicture">
                     <template v-if="supplierImagePreview">
                       <img :src="supplierImagePreview" alt="" class="mpesd-sc-photo__img" />
-                      <button type="button" class="mpesd-sc-photo__remove" @click.stop="clearSupplierPicture"><X :size="12" /></button>
+                      <button type="button" class="mpesd-sc-photo__remove" @click.stop="clearSupplierPicture"><X :size="14" /></button>
                     </template>
                     <div v-else class="mpesd-sc-photo__placeholder">
-                      <ImagePlus :size="22" style="color:#ff3131" />
-                      <span>{{ t('uploadPicture') }}</span>
+                      <div class="mpesd-sc-photo__icon">
+                        <ImagePlus :size="30" style="color:#ff3131" />
+                      </div>
+                      <span class="mpesd-sc-photo__label">{{ t('uploadPicture') }}</span>
+                      <span class="mpesd-sc-photo__hint">{{ t('fileFormat') }}</span>
                     </div>
                   </div>
+
                   <!-- Identité -->
-                  <div class="mpesd-field-row mb-3">
-                    <label for="mpesd-sc-name" class="mpesd-field-label">{{ t('supplierName') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-sc-name" v-model="supplierCreateForm.name" type="text" class="form-control mpesd-input" @keyup.enter="submitSupplierCreate" />
-                  </div>
-                  <div class="mpesd-field-row mb-3">
-                    <label for="mpesd-sc-contact" class="mpesd-field-label">{{ t('supplierContactName') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-sc-contact" v-model="supplierCreateForm.contactName" type="text" class="form-control mpesd-input" />
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('sectionIdentity') }}</div>
+                    <div class="mpesd-field-row mb-3">
+                      <label for="mpesd-sc-name" class="mpesd-field-label">{{ t('supplierName') }} <span class="mpesd-required">*</span></label>
+                      <input id="mpesd-sc-name" v-model="supplierCreateForm.name" type="text" class="form-control mpesd-input" autofocus @keyup.enter="supplierCreateForm.name.trim() && submitSupplierCreate()" />
+                    </div>
+                    <div class="mpesd-field-row">
+                      <label for="mpesd-sc-contact" class="mpesd-field-label">{{ t('supplierContactName') }} <span class="mpesd-required">*</span></label>
+                      <input id="mpesd-sc-contact" v-model="supplierCreateForm.contactName" type="text" class="form-control mpesd-input" />
+                    </div>
                   </div>
 
                   <!-- Contact -->
-                  <div class="row g-2 mb-3">
-                    <div class="col-6">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-email" class="mpesd-field-label">{{ t('email') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-email" v-model="supplierCreateForm.email" type="email" class="form-control mpesd-input" />
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('sectionContact') }}</div>
+                    <div class="row g-2">
+                      <div class="col-6">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-email" class="mpesd-field-label">{{ t('email') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-email" v-model="supplierCreateForm.email" type="email" class="form-control mpesd-input" />
+                        </div>
                       </div>
-                    </div>
-                    <div class="col-6">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-phone" class="mpesd-field-label">{{ t('phone') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-phone" v-model="supplierCreateForm.phone" type="tel" class="form-control mpesd-input" />
+                      <div class="col-6">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-phone" class="mpesd-field-label">{{ t('phone') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-phone" v-model="supplierCreateForm.phone" type="tel" class="form-control mpesd-input" />
+                        </div>
                       </div>
                     </div>
                   </div>
 
                   <!-- Localisation -->
-                  <div class="mpesd-field-row mb-3">
-                    <label for="mpesd-sc-address" class="mpesd-field-label">{{ t('address') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-sc-address" v-model="supplierCreateForm.address" type="text" class="form-control mpesd-input" />
-                  </div>
-                  <div class="row g-2 mb-3">
-                    <div class="col-7">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-city" class="mpesd-field-label">{{ t('city') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-city" v-model="supplierCreateForm.city" type="text" class="form-control mpesd-input" />
-                      </div>
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('sectionLocation') }}</div>
+                    <div class="mpesd-field-row mb-3">
+                      <label for="mpesd-sc-address" class="mpesd-field-label">{{ t('address') }} <span class="mpesd-required">*</span></label>
+                      <input id="mpesd-sc-address" v-model="supplierCreateForm.address" type="text" class="form-control mpesd-input" />
                     </div>
-                    <div class="col-5">
-                      <div class="mpesd-field-row">
-                        <label for="mpesd-sc-postcode" class="mpesd-field-label">{{ t('postcode') }} <span class="mpesd-required">*</span></label>
-                        <input id="mpesd-sc-postcode" v-model="supplierCreateForm.postcode" type="text" class="form-control mpesd-input" />
+                    <div class="row g-2">
+                      <div class="col-7">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-city" class="mpesd-field-label">{{ t('city') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-city" v-model="supplierCreateForm.city" type="text" class="form-control mpesd-input" />
+                        </div>
+                      </div>
+                      <div class="col-5">
+                        <div class="mpesd-field-row">
+                          <label for="mpesd-sc-postcode" class="mpesd-field-label">{{ t('postcode') }} <span class="mpesd-required">*</span></label>
+                          <input id="mpesd-sc-postcode" v-model="supplierCreateForm.postcode" type="text" class="form-control mpesd-input" />
+                        </div>
                       </div>
                     </div>
                   </div>
 
                   <!-- Sites -->
-                  <div v-if="availableSpaces.length > 0" class="mpesd-sc-section mb-3">
-                    <div class="mpesd-sc-section__label">{{ t('supplierSpaces') }} <span class="mpesd-required">*</span></div>
+                  <div v-if="availableSpaces.length > 0" class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__header">
+                      <div class="mpesd-sc-section__label mb-0">
+                        {{ t('sites') }} <span class="mpesd-required">*</span>
+                        <span class="mpesd-sc-site-count">({{ supplierCreateForm.spaceIds.length }}/{{ availableSpaces.length }})</span>
+                      </div>
+                      <button class="mpesd-sc-toggle-all" @click="toggleAllSpaces">
+                        {{ isAllSpacesChecked ? t('unselectAll') : t('selectAll') }}
+                      </button>
+                    </div>
                     <div class="mpesd-pill-grid">
                       <label
                         v-for="space in availableSpaces"
@@ -144,9 +165,9 @@
                   </div>
 
                   <!-- Notes -->
-                  <div class="mpesd-field-row">
-                    <label for="mpesd-sc-notes" class="mpesd-field-label">{{ t('notes') }}</label>
-                    <textarea id="mpesd-sc-notes" v-model="supplierCreateForm.notes" class="form-control mpesd-input" rows="2"></textarea>
+                  <div class="mpesd-sc-section">
+                    <div class="mpesd-sc-section__label">{{ t('notes') }}</div>
+                    <textarea id="mpesd-sc-notes" v-model="supplierCreateForm.notes" class="form-control mpesd-input" rows="3" :placeholder="t('addNotes')"></textarea>
                   </div>
                 </div>
                 <div class="mpesd-mini-dialog__footer">
@@ -162,7 +183,7 @@
 
             <!-- Good Type -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
-              <label class="mpesd-field-label">{{ t('goodType') }}</label>
+              <label class="mpesd-field-label">{{ t('goodType') }} <span class="mpesd-required">*</span></label>
               <v-select
                 v-model="form.goodType"
                 :items="localGoodTypeOptions"
@@ -183,31 +204,44 @@
               </v-select>
             </div>
 
-            <!-- Dialog — Good Type creation -->
-            <v-dialog v-model="goodTypeCreateOpen" max-width="400" :z-index="11000">
-              <div class="mpesd-mini-dialog">
-                <div class="mpesd-mini-dialog__header">
-                  <Tag :size="18" color="white" />
-                  <span>{{ t('addGoodType') }}</span>
-                  <button class="mpesd-mini-dialog__close" @click="goodTypeCreateOpen = false"><X :size="16" /></button>
-                </div>
-                <div v-if="goodTypeCreateError" class="mpesd-mini-dialog__error">{{ goodTypeCreateError }}</div>
-                <div class="mpesd-mini-dialog__body">
-                  <div class="mpesd-field-row">
-                    <label for="mpesd-gt-name" class="mpesd-field-label">{{ t('goodTypeName') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-gt-name" v-model="goodTypeCreateForm.name" type="text" class="form-control mpesd-input" @keyup.enter="submitGoodTypeCreate" />
-                  </div>
-                </div>
-                <div class="mpesd-mini-dialog__footer">
-                  <button class="mpesd-btn mpesd-btn--cancel" :disabled="goodTypeCreateLoading" @click="goodTypeCreateOpen = false">{{ t('cancel') }}</button>
-                  <button class="mpesd-btn mpesd-btn--save" :disabled="!goodTypeCreateForm.name.trim() || goodTypeCreateLoading" @click="submitGoodTypeCreate">
-                    <span v-if="goodTypeCreateLoading" class="spinner-border spinner-border-sm me-2"></span>
-                    <Check v-else :size="14" class="me-1" />
-                    {{ t('create') }}
-                  </button>
-                </div>
-              </div>
-            </v-dialog>
+            <!-- Dialog partagé « Add Good Type » (extrait — voir composant) -->
+            <MarketPriceNewTypeDialog
+              v-model="goodTypeCreateOpen"
+              :is-dark="isDark"
+              @created="onGoodTypeCreated"
+            />
+
+            <!-- Good Category -->
+            <div class="mpesd-field-row" style="margin-bottom: 14px;">
+              <label class="mpesd-field-label">{{ t('goodCategory') }}</label>
+              <v-select
+                v-model="form.category"
+                :items="goodCategoryOptions"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                :disabled="!form.goodType"
+                :menu-props="{ attach: 'body', zIndex: 10001 }"
+                class="mpesd-item-select"
+              >
+                <template #prepend-item>
+                  <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="goodCategoryCreateOpen = true">
+                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
+                    <v-list-item-title>{{ t('addCategory') }}</v-list-item-title>
+                  </v-list-item>
+                  <v-divider class="my-1" />
+                </template>
+              </v-select>
+            </div>
+
+            <!-- Dialog partagé « Add Category » (extrait — voir composant) -->
+            <MarketPriceNewCategoryDialog
+              v-model="goodCategoryCreateOpen"
+              :is-dark="isDark"
+              :type-id="selectedTypeId"
+              @created="onGoodCategoryCreated"
+            />
 
             <!-- Industrial -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
@@ -234,31 +268,12 @@
               </v-select>
             </div>
 
-            <!-- Dialog — Industrial creation -->
-            <v-dialog v-model="industrialCreateOpen" max-width="400" :z-index="11000">
-              <div class="mpesd-mini-dialog">
-                <div class="mpesd-mini-dialog__header">
-                  <Tag :size="18" color="white" />
-                  <span>Add an Industrial</span>
-                  <button class="mpesd-mini-dialog__close" @click="industrialCreateOpen = false"><X :size="16" /></button>
-                </div>
-                <div v-if="industrialCreateError" class="mpesd-mini-dialog__error">{{ industrialCreateError }}</div>
-                <div class="mpesd-mini-dialog__body">
-                  <div class="mpesd-field-row">
-                    <label for="mpesd-ind-name" class="mpesd-field-label">Industrial name <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-ind-name" v-model="industrialCreateForm.name" type="text" class="form-control mpesd-input" @keyup.enter="submitIndustrialCreate" />
-                  </div>
-                </div>
-                <div class="mpesd-mini-dialog__footer">
-                  <button class="mpesd-btn mpesd-btn--cancel" :disabled="industrialCreateLoading" @click="industrialCreateOpen = false">Cancel</button>
-                  <button class="mpesd-btn mpesd-btn--save" :disabled="!industrialCreateForm.name.trim() || industrialCreateLoading" @click="submitIndustrialCreate">
-                    <span v-if="industrialCreateLoading" class="spinner-border spinner-border-sm me-2"></span>
-                    <Check v-else :size="14" class="me-1" />
-                    Create
-                  </button>
-                </div>
-              </div>
-            </v-dialog>
+            <!-- Dialog partagé « Add an Industrial » (extrait — voir composant) -->
+            <MarketPriceNewIndustrialDialog
+              v-model="industrialCreateOpen"
+              :is-dark="isDark"
+              @created="onIndustrialCreated"
+            />
 
             <!-- Purchase Information -->
             <div class="mpesd-section">
@@ -302,30 +317,12 @@
               </div>
             </div>
 
-            <!-- Dialog — Packaging creation -->
-            <v-dialog v-model="packagingCreateOpen" max-width="400" :z-index="11000">
-              <div class="mpesd-mini-dialog">
-                <div class="mpesd-mini-dialog__header">
-                  <Package :size="18" color="white" />
-                  <span>{{ t('addPackagingTitle') }}</span>
-                  <button class="mpesd-mini-dialog__close" @click="packagingCreateOpen = false"><X :size="16" /></button>
-                </div>
-                <div v-if="packagingCreateError" class="mpesd-mini-dialog__error">{{ packagingCreateError }}</div>
-                <div class="mpesd-mini-dialog__body">
-                  <div class="mpesd-field-row">
-                    <label for="mpesd-pk-name" class="mpesd-field-label">{{ t('packagingName') }} <span class="mpesd-required">*</span></label>
-                    <input id="mpesd-pk-name" v-model="packagingCreateForm.name" type="text" class="form-control mpesd-input" @keyup.enter="submitPackagingCreate" />
-                  </div>
-                </div>
-                <div class="mpesd-mini-dialog__footer">
-                  <button class="mpesd-btn mpesd-btn--cancel" :disabled="packagingCreateLoading" @click="packagingCreateOpen = false">{{ t('cancel') }}</button>
-                  <button class="mpesd-btn mpesd-btn--save" :disabled="!packagingCreateForm.name.trim() || packagingCreateLoading" @click="submitPackagingCreate">
-                    <Check :size="14" class="me-1" />
-                    {{ t('add') }}
-                  </button>
-                </div>
-              </div>
-            </v-dialog>
+            <!-- Dialog partagé « Add a packaging » (extrait — voir composant) -->
+            <MarketPriceNewPackagingDialog
+              v-model="packagingCreateOpen"
+              :is-dark="isDark"
+              @created="onPackagingCreated"
+            />
 
             <!-- Packing Information -->
             <div class="mpesd-section mpesd-section--light">
@@ -402,13 +399,14 @@
 <script>
 import { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X } from 'lucide-vue-next';
 import { updateMarketPrice, createSupplier } from '@/api/endpoints/menu.api';
-import { createMarketPriceType } from '@/api/endpoints/market.price.api';
-import { createPackingType } from '@/api/endpoints/packing-type.api';
-import { createIndustrial } from '@/api/endpoints/industrial.api';
+import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
+import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
+import MarketPriceNewIndustrialDialog from '../dialogs/MarketPriceNewIndustrialDialog.vue';
+import MarketPriceNewPackagingDialog from '../dialogs/MarketPriceNewPackagingDialog.vue';
 
 export default {
   name: 'MarketPriceEditSupplierDrawer',
-  components: { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X },
+  components: { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog },
   props: {
     modelValue: { type: Boolean, default: false },
     item: { type: Object, default: null },
@@ -424,6 +422,7 @@ export default {
       locale: localStorage.getItem('appLocale') || 'en',
       loading: false,
       error: '',
+      isHydratingForm: false,
       targetId: '',
       localSuppliers: [],
       supplierCreateOpen: false,
@@ -434,24 +433,18 @@ export default {
       unitOptions: ['kg', 'g', 'l', 'ml', 'cl', 'pcs', 'unit', 'box', 'bag', 'can'],
       localGoodTypeOptions: [],
       goodTypeCreateOpen: false,
-      goodTypeCreateLoading: false,
-      goodTypeCreateError: '',
-      goodTypeCreateForm: { name: '' },
+      localGoodCategoryOptions: [],
+      goodCategoryCreateOpen: false,
       industrialCreateOpen: false,
-      industrialCreateLoading: false,
-      industrialCreateError: '',
-      industrialCreateForm: { name: '' },
       localPackagingOptions: [],
       packagingCreateOpen: false,
-      packagingCreateLoading: false,
-      packagingCreateError: '',
-      packagingCreateForm: { name: '' },
       packagingTargetField: 'purchasePackaging',
       form: {
         itemName: '',
         supplierItem: '',
         supplierId: '',
         goodType: '',
+        category: '',
         industrialId: '',
         purchasePackaging: '',
         unit: '',
@@ -480,6 +473,14 @@ export default {
           supplierContactName: 'Contact Name',
           supplierSpaces: 'Sites',
           uploadPicture: 'Upload supplier photo',
+          fileFormat: 'PNG, JPG up to 5MB',
+          sectionIdentity: 'Identity',
+          sectionContact: 'Contact',
+          sectionLocation: 'Location',
+          sites: 'Sites',
+          selectAll: 'Select all',
+          unselectAll: 'Unselect all',
+          addNotes: 'Add any additional notes…',
           address: 'Address',
           city: 'City',
           postcode: 'Postcode',
@@ -490,6 +491,9 @@ export default {
           goodType: 'Good Type',
           addGoodType: 'Add a Good Type',
           goodTypeName: 'Good Type name',
+          goodCategory: 'Good Category',
+          addCategory: 'Add a Category',
+          categoryName: 'Category name',
           purchaseInfo: 'Purchase Information',
           isPurchasedIn: 'is purchased in',
           addPackaging: '+ Add packaging',
@@ -523,6 +527,14 @@ export default {
           supplierContactName: 'Nom du contact',
           supplierSpaces: 'Sites',
           uploadPicture: 'Photo du fournisseur',
+          fileFormat: "PNG, JPG jusqu'à 5MB",
+          sectionIdentity: 'Identité',
+          sectionContact: 'Contact',
+          sectionLocation: 'Localisation',
+          sites: 'Sites',
+          selectAll: 'Tout sélectionner',
+          unselectAll: 'Tout désélectionner',
+          addNotes: "Notes supplémentaires sur ce fournisseur…",
           address: 'Adresse',
           city: 'Ville',
           postcode: 'Code postal',
@@ -533,6 +545,9 @@ export default {
           goodType: 'Type de produit',
           addGoodType: 'Ajouter un type de produit',
           goodTypeName: 'Nom du type de produit',
+          goodCategory: 'Catégorie',
+          addCategory: 'Ajouter une catégorie',
+          categoryName: 'Nom de la catégorie',
           purchaseInfo: "Informations d'achat",
           isPurchasedIn: 'est acheté en',
           addPackaging: '+ Ajouter un emballage',
@@ -564,6 +579,10 @@ export default {
     availableSpaces() {
       return this.$store.getters['spaces/spaces'] || [];
     },
+    isAllSpacesChecked() {
+      return this.availableSpaces.length > 0
+        && this.supplierCreateForm.spaceIds.length === this.availableSpaces.length;
+    },
     packagingCategoryItems() {
       const storePackingTypes = this.$store.getters['packingTypes/packingTypes'] || [];
       return storePackingTypes.map(p => p.name).filter(Boolean);
@@ -571,36 +590,57 @@ export default {
     industrialsOptions() {
       return this.$store.getters['industrials/industrials'] || [];
     },
+    selectedTypeId() {
+      const types = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
+      return types.find((t) => t.name === this.form.goodType)?.id || null;
+    },
+    selectedCategoryId() {
+      return (this.productCategories || []).find((c) => c.name === this.form.category)?.id || null;
+    },
+    goodCategoryOptions() {
+      const goodType = (this.form.goodType || '').toLowerCase();
+      const base = goodType
+        ? (this.productCategories || [])
+            .filter((c) => (c.typeName || '').toLowerCase() === goodType)
+            .map((c) => c?.name)
+            .filter(Boolean)
+        : [];
+      const extra = this.localGoodCategoryOptions.filter((o) => !base.includes(o));
+      return [...base, ...extra];
+    },
   },
   watch: {
+    'form.goodType'() {
+      if (this.isHydratingForm) return;
+      this.form.category = '';
+    },
     modelValue(val) {
       if (val && this.item && this.row) {
         this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
+        this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories', { forceRefresh: true });
         this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
         this.$store.dispatch('industrials/fetchIndustrials', { forceRefresh: true });
         this.localSuppliers = [...(this.suppliers || [])];
         this.localGoodTypeOptions = [...(this.goodTypeOptions || [])];
+        this.localGoodCategoryOptions = [];
         this.localPackagingOptions = [...this.packagingCategoryItems];
         this.supplierCreateOpen = false;
         this.supplierCreateError = '';
         this.supplierCreateForm = { name: '', email: '', phone: '', contactName: '', address: '', city: '', postcode: '', spaceIds: [], notes: '', picture: '' };
         this.clearSupplierPicture();
         this.goodTypeCreateOpen = false;
-        this.goodTypeCreateError = '';
-        this.goodTypeCreateForm = { name: '' };
+        this.goodCategoryCreateOpen = false;
         this.industrialCreateOpen = false;
-        this.industrialCreateError = '';
-        this.industrialCreateForm = { name: '' };
         this.packagingCreateOpen = false;
-        this.packagingCreateError = '';
-        this.packagingCreateForm = { name: '' };
         const id = this.row?.id || this.row?._id;
         this.targetId = id ? String(id) : '';
+        this.isHydratingForm = true;
         this.form = {
           itemName: String(this.item?.name || this.item?.itemName || '').trim(),
           supplierItem: this.row?.supplierItemName || this.row?.supplierItem || '',
           supplierId: this.row?.supplierId || '',
           goodType: this.item?.goodType || this.item?.type || '',
+          category: this.row?.category || this.item?.category || '',
           industrialId: this.row?.industrialId || this.row?.industrial?.id || '',
           unit: this.row?.unit || '',
           recipeUnit: this.item?.recipeUnit || this.row?.recipeUnit || '',
@@ -618,6 +658,9 @@ export default {
         this.recomputePricePerUnit();
         this.error = '';
         this.loading = false;
+        this.$nextTick(() => {
+          this.isHydratingForm = false;
+        });
       }
     },
     packagingCategoryItems(newVal) {
@@ -644,74 +687,32 @@ export default {
         this.packagingCreateOpen = true;
       }
     },
-    async submitPackagingCreate() {
-      const name = this.packagingCreateForm.name.trim();
-      if (!name) return;
-      this.packagingCreateLoading = true;
-      this.packagingCreateError = '';
-      try {
-        const res = await createPackingType({ name });
-        const id = res?.id || res?._id;
-        if (!id) throw new Error('Packing type creation failed');
-
-        this.$store.dispatch('packingTypes/addPackingType', { ...res, id });
-        this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
-
-        if (!this.localPackagingOptions.includes(name)) {
-          this.localPackagingOptions = [...this.localPackagingOptions, name];
-        }
-        this.form[this.packagingTargetField] = name;
-        this.packagingCreateOpen = false;
-        this.packagingCreateForm = { name: '' };
-      } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || '';
-        const msgStr = Array.isArray(msg) ? msg.join(', ') : String(msg);
-        this.packagingCreateError = msgStr.includes('Unique constraint')
-          ? `Un packing type "${name}" existe déjà.`
-          : msgStr || 'Échec de la création.';
-      } finally {
-        this.packagingCreateLoading = false;
+    // Le dialog partagé a créé le packing type (API + store) ; ici on l'affecte au
+    // champ ciblé mémorisé par onPackagingSelectChange (purchase/inventory packaging).
+    onPackagingCreated(name) {
+      if (!this.localPackagingOptions.includes(name)) {
+        this.localPackagingOptions = [...this.localPackagingOptions, name];
       }
+      this.form[this.packagingTargetField] = name;
     },
-    async submitGoodTypeCreate() {
-      if (!this.goodTypeCreateForm.name.trim()) return;
-      this.goodTypeCreateLoading = true;
-      this.goodTypeCreateError = '';
-      try {
-        await createMarketPriceType({ name: this.goodTypeCreateForm.name.trim() });
-        const newName = this.goodTypeCreateForm.name.trim();
-        if (!this.localGoodTypeOptions.includes(newName)) {
-          this.localGoodTypeOptions = [...this.localGoodTypeOptions, newName];
-        }
-        this.form.goodType = newName;
-        this.goodTypeCreateOpen = false;
-        this.goodTypeCreateForm = { name: '' };
-        this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
-      } catch (e) {
-        this.goodTypeCreateError = e?.response?.data?.message || e?.message || 'Failed to create Good Type';
-      } finally {
-        this.goodTypeCreateLoading = false;
+    // Les dialogs partagés ont créé le type/catégorie (API + refetch store) ; ici on
+    // ne fait que refléter la sélection dans le formulaire + l'affichage immédiat.
+    onGoodTypeCreated(name) {
+      if (!this.localGoodTypeOptions.includes(name)) {
+        this.localGoodTypeOptions = [...this.localGoodTypeOptions, name];
       }
+      this.form.goodType = name;
     },
-    async submitIndustrialCreate() {
-      const name = this.industrialCreateForm.name.trim();
-      if (!name) return;
-      this.industrialCreateLoading = true;
-      this.industrialCreateError = '';
-      try {
-        const res = await createIndustrial({ name });
-        const id = res?.id || res?._id;
-        if (!id) throw new Error('Industrial creation failed');
-        this.$store.dispatch('industrials/addIndustrial', { ...res, id });
-        this.$store.dispatch('industrials/fetchIndustrials', { forceRefresh: true });
-        this.form.industrialId = id;
-        this.industrialCreateOpen = false;
-        this.industrialCreateForm = { name: '' };
-      } catch (e) {
-        this.industrialCreateError = e?.response?.data?.message || e?.message || 'Failed to create Industrial';
-      } finally {
-        this.industrialCreateLoading = false;
+    onGoodCategoryCreated(name) {
+      if (!this.localGoodCategoryOptions.includes(name)) {
+        this.localGoodCategoryOptions = [...this.localGoodCategoryOptions, name];
       }
+      this.form.category = name;
+    },
+    // Le dialog partagé a créé l'industriel (API + store) ; ici on ne fait que le
+    // sélectionner dans le formulaire (champ par id).
+    onIndustrialCreated(industrial) {
+      this.form.industrialId = industrial?.id || industrial?._id || null;
     },
     async submitSupplierCreate() {
       const f = this.supplierCreateForm;
@@ -764,6 +765,11 @@ export default {
       } finally {
         this.supplierCreateLoading = false;
       }
+    },
+    toggleAllSpaces() {
+      this.supplierCreateForm.spaceIds = this.isAllSpacesChecked
+        ? []
+        : this.availableSpaces.map((s) => s.id);
     },
     // ── Upload photo du fournisseur (dialog création) ──
     triggerSupplierPicture() {
@@ -832,6 +838,9 @@ export default {
           supplierId,
           supplierItem: String(this.form.supplierItem || '').trim(),
           goodType: this.form.goodType || '',
+          marketPriceTypeId: this.selectedTypeId,
+          category: this.form.category || '',
+          marketPriceCategoryId: this.selectedCategoryId,
           industrialId: this.form.industrialId || null,
           purchasePackaging: this.form.packaging || '',
           unit: this.form.unit || '',
@@ -1083,12 +1092,14 @@ export default {
 .mpesd-mini-dialog {
   background: #fff; border-radius: 16px;
   overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,.14);
+  display: flex; flex-direction: column; max-height: 90vh;
 }
 .mpesd-mini-dialog__header {
   display: flex; align-items: center; gap: 10px;
   padding: 16px 20px;
   background: #ff3131;
   color: #fff; font-size: 14px; font-weight: 700;
+  flex-shrink: 0;
 }
 .mpesd-mini-dialog__close {
   margin-left: auto; background: rgba(255,255,255,.18);
@@ -1101,8 +1112,9 @@ export default {
   padding: 10px 20px; background: #fef2f2;
   font-size: 13px; color: #ff3131; border-bottom: 1px solid #fecaca;
 }
-.mpesd-mini-dialog__body { padding: 20px 20px 16px; }
+.mpesd-mini-dialog__body { padding: 20px 20px 16px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .mpesd-mini-dialog__footer {
+  flex-shrink: 0;
   display: flex; justify-content: flex-end; gap: 10px;
   padding: 12px 20px; border-top: 1px solid #f0f0f0; background: #fafafa;
 }
@@ -1123,6 +1135,18 @@ export default {
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37,99,235,.1);
   outline: none;
+}
+/* Dark : inputs inline (sections Purchase/Inventory Information) — fond bleu sombre, valeur claire. */
+.mpesd-panel--dark .mpesd-inline-input,
+.mpesd-panel--dark .mpesd-inline-select {
+  background: #1a2332;
+  border-color: rgba(37, 99, 235, .4);
+  color: #e2e8f0;
+}
+.mpesd-panel--dark .mpesd-inline-input:focus,
+.mpesd-panel--dark .mpesd-inline-select:focus {
+  border-color: #3b82f6;
+  background: #1a2332;
 }
 
 /* === Sections === */
@@ -1247,41 +1271,74 @@ export default {
 .mpesd-panel--dark .mpesd-label-sm {
   color: #9ca3af;
 }
+/* Champs du corps du drawer (les mini-dialogs de création, téléportés hors racine, restent clairs). */
+.mpesd-panel--dark .mpesd-field-label {
+  color: #e5e7eb;
+}
+.mpesd-panel--dark .mpesd-input.form-control,
+.mpesd-panel--dark .mpesd-select.form-select {
+  background: #111827;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+.mpesd-panel--dark .mpesd-input.form-control:focus,
+.mpesd-panel--dark .mpesd-select.form-select:focus {
+  background: #111827;
+}
+.mpesd-panel--dark .mpesd-input--readonly {
+  background: #263548 !important;
+  color: #9ca3af !important;
+}
+.mpesd-panel--dark .mpesd-item-select :deep(.v-field) {
+  background: #111827 !important;
+  border-color: #374151 !important;
+}
+.mpesd-panel--dark .mpesd-item-select :deep(.v-field--focused) {
+  background: #111827 !important;
+}
+.mpesd-panel--dark .mpesd-item-select :deep(.v-field__input) {
+  color: #e5e7eb !important;
+}
 
 /* Zone d'upload photo (dialogue de création fournisseur) */
 .mpesd-sc-photo {
   position: relative;
-  width: 96px;
-  height: 96px;
-  border-radius: 14px;
-  border: 1.5px dashed #e5e7eb;
-  background: #f9fafb;
+  width: 100%;
+  min-height: 150px;
+  border-radius: 16px;
+  border: 2px dashed #e5e7eb;
+  background: #fafafa;
   cursor: pointer;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: border-color .18s, background .18s;
+  margin-bottom: 4px;
 }
 .mpesd-sc-photo:hover { border-color: #ff3131; background: #fff5f5; }
-.mpesd-sc-photo__img { width: 100%; height: 100%; object-fit: cover; }
+.mpesd-sc-photo__img { width: 100%; height: 100%; max-height: 220px; object-fit: cover; }
 .mpesd-sc-photo__placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   text-align: center;
-  padding: 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #9ca3af;
+  padding: 22px;
 }
+.mpesd-sc-photo__icon {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #fef2f2;
+  display: flex; align-items: center; justify-content: center;
+}
+.mpesd-sc-photo__label { font-size: 14px; font-weight: 700; color: #111827; }
+.mpesd-sc-photo__hint { font-size: 12px; color: #9ca3af; }
 .mpesd-sc-photo__remove {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 20px;
-  height: 20px;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
   border: none;
   border-radius: 50%;
   background: rgba(255, 255, 255, .92);
@@ -1293,8 +1350,9 @@ export default {
   box-shadow: 0 1px 4px rgba(0, 0, 0, .15);
 }
 
-/* Section Espaces (dialogue de création fournisseur) */
-.mpesd-sc-section { margin-top: 4px; }
+/* Sections (dialogue de création fournisseur) */
+.mpesd-sc-section { margin-top: 18px; }
+.mpesd-sc-section:first-of-type { margin-top: 0; }
 .mpesd-sc-section__label {
   font-size: 10.5px;
   font-weight: 700;
@@ -1303,6 +1361,16 @@ export default {
   color: #9ca3af;
   margin-bottom: 12px;
 }
+.mpesd-sc-section__header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.mpesd-sc-site-count { font-weight: 500; color: #9ca3af; }
+.mpesd-sc-toggle-all {
+  background: none; border: none; color: #ff3131;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.mpesd-sc-toggle-all:hover { text-decoration: underline; }
 .mpesd-pill-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .mpesd-check-pill {
   display: inline-flex;
@@ -1328,4 +1396,20 @@ export default {
 }
 .mpesd-check-pill__check { opacity: 0; transition: opacity 0.15s; }
 .mpesd-check-pill--active .mpesd-check-pill__check { opacity: 1; }
+
+/* ── Mini-dialogs « Add a supplier » / « Add a packaging » (v-dialog téléportés) — dark mode.
+   Classe portée sur la racine `.mpesd-mini-dialog` (elle suit l'élément même téléporté). ── */
+.mpesd-mini-dialog--dark { background: #1f2937; }
+.mpesd-mini-dialog--dark .mpesd-mini-dialog__error { background: rgba(255,49,49,.15); border-bottom-color: rgba(255,49,49,.3); color: #fca5a5; }
+.mpesd-mini-dialog--dark .mpesd-mini-dialog__footer { background: #1a2332; border-top-color: #374151; }
+.mpesd-mini-dialog--dark .mpesd-field-label { color: #cbd5e1; }
+.mpesd-mini-dialog--dark .mpesd-input.form-control { background: #263548; border-color: #374151; color: #e5e7eb; }
+.mpesd-mini-dialog--dark .mpesd-input.form-control:focus { background: #263548; }
+.mpesd-mini-dialog--dark .mpesd-sc-photo { background: #263548; border-color: #374151; }
+.mpesd-mini-dialog--dark .mpesd-sc-photo:hover { background: #2a2022; }
+.mpesd-mini-dialog--dark .mpesd-sc-photo__label { color: #e5e7eb; }
+.mpesd-mini-dialog--dark .mpesd-check-pill { background: #263548; border-color: #374151; color: #cbd5e1; }
+.mpesd-mini-dialog--dark .mpesd-check-pill--active { background: rgba(255,49,49,.15); border-color: #ff3131; color: #fca5a5; }
+.mpesd-mini-dialog--dark .mpesd-btn--cancel { border-color: #374151; color: #cbd5e1; }
+.mpesd-mini-dialog--dark .mpesd-btn--cancel:hover:not(:disabled) { border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.06); color: #e5e7eb; }
 </style>

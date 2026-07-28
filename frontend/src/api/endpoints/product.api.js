@@ -9,10 +9,20 @@ import { api } from '../client'
 
 /**
  * Récupérer toutes les catégories de produits
- * @returns {Promise<Array>}
+ * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
+ * pages pour reconstituer la liste complète — voir store/modules/productCategories.js).
+ * BUG-170 : accepte aussi { search } pour la recherche côté serveur utilisée par l'écran
+ * de liste ProductCategoryList.vue (server-side pagination, pas le store).
+ * @param {{ page?: number, limit?: number, search?: string }} [opts]
+ * @returns {Promise<Array|{data: Array, meta: Object}>}
  */
-export async function getProductCategory() {
-  return api.get('/product-categories')
+export async function getProductCategory({ page, limit, search } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  if (search) params.set('search', search)
+  const qs = params.toString()
+  return api.get(`/product-categories${qs ? '?' + qs : ''}`)
 }
 
 
@@ -35,11 +45,21 @@ export async function deleteProductCategory(id) {
 
 
 /**
- * Récupérer toutes les catégories de produits
- * @returns {Promise<Array>}
+ * Récupérer tous les types de produits
+ * BUG-169 : accepte { page, limit } pour paginer côté serveur (le store boucle sur les
+ * pages pour reconstituer la liste complète — voir store/modules/productTypes.js).
+ * BUG-170 : accepte aussi { search } pour la recherche côté serveur utilisée par l'écran
+ * de liste ProductTypeList.vue (server-side pagination, pas le store).
+ * @param {{ page?: number, limit?: number, search?: string }} [opts]
+ * @returns {Promise<Array|{data: Array, meta: Object}>}
  */
-export async function getProductType() {
-  return api.get('/product-types')
+export async function getProductType({ page, limit, search } = {}) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  if (search) params.set('search', search)
+  const qs = params.toString()
+  return api.get(`/product-types${qs ? '?' + qs : ''}`)
 }
 
 

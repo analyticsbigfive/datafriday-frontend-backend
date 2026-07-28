@@ -541,8 +541,8 @@ export default {
   flex-shrink: 0;
 }
 .scd-grad-header__text { flex: 1; min-width: 0; }
-.scd-grad-header__title { font-size: 16px; font-weight: 700; color: #fff; line-height: 1.2; }
-.scd-grad-header__sub { font-size: 12px; color: rgba(255, 255, 255, 0.75); margin-top: 2px; }
+.scd-grad-header__title { font-size: var(--fs-lg); font-weight: 700; color: #fff; line-height: 1.2; }
+.scd-grad-header__sub { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.75); margin-top: 2px; }
 .scd-grad-header__close {
   width: 32px;
   height: 32px;
@@ -583,7 +583,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: #9ca3af;
   background: #fff;
@@ -593,7 +593,7 @@ export default {
 .scd-step--active .scd-step-circle { border-color: #ff3131; background: #ff3131; color: #fff; }
 .scd-step--done .scd-step-circle { border-color: #059669; background: #059669; color: #fff; }
 .scd-step-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: #9ca3af;
   white-space: nowrap;
@@ -632,7 +632,7 @@ export default {
   color: #991b1b;
   border-radius: 10px;
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: var(--fs-base);
   margin-bottom: 16px;
 }
 
@@ -641,7 +641,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: #374151;
   padding-bottom: 14px;
@@ -658,7 +658,7 @@ export default {
   padding-top: 20px;
   padding-bottom: 6px;
   padding-left: 14px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #111827;
   background: #fff;
   box-shadow: none;
@@ -672,18 +672,18 @@ export default {
 }
 .form-floating > label {
   color: #9ca3af;
-  font-size: 14px;
+  font-size: var(--fs-md);
   padding: 16px 14px;
 }
 .form-floating > .scd-input:focus ~ label,
 .form-floating > .scd-input:not(:placeholder-shown) ~ label {
   color: #ff3131;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   transform: scale(0.85) translateY(-0.5rem) translateX(0.15rem);
 }
 .form-floating > .scd-input.form-select ~ label {
   color: #ff3131;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   transform: scale(0.85) translateY(-0.5rem) translateX(0.15rem);
 }
 .scd-required { color: #ff3131; }
@@ -720,8 +720,8 @@ export default {
   align-items: center;
   justify-content: center;
 }
-.scd-image-upload__title { font-size: 13.5px; font-weight: 600; color: #374151; }
-.scd-image-upload__hint { font-size: 12px; color: #9ca3af; }
+.scd-image-upload__title { font-size: var(--fs-base); font-weight: 600; color: #374151; }
+.scd-image-upload__hint { font-size: var(--fs-sm); color: #9ca3af; }
 .scd-image-upload__preview {
   width: 100%;
   display: flex;
@@ -729,7 +729,7 @@ export default {
   gap: 6px;
 }
 .scd-image-upload__preview img { width: 100%; height: 180px; object-fit: cover; }
-.scd-image-upload__change { font-size: 12px; color: #9ca3af; text-align: center; padding-bottom: 8px; }
+.scd-image-upload__change { font-size: var(--fs-sm); color: #9ca3af; text-align: center; padding-bottom: 8px; }
 .scd-img-remove {
   position: absolute;
   top: 10px;
@@ -767,7 +767,7 @@ export default {
   justify-content: center;
   margin-bottom: 8px;
 }
-.scd-social-header__title { font-size: 14px; font-weight: 600; color: #374151; }
+.scd-social-header__title { font-size: var(--fs-md); font-weight: 600; color: #374151; }
 
 /* Footer */
 .scd-footer {
@@ -806,7 +806,7 @@ export default {
   padding: 0 18px;
   height: 38px;
   border-radius: 100px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 500;
   border: none;
   cursor: pointer;

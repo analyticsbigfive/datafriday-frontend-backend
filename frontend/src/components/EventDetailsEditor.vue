@@ -70,6 +70,40 @@
           @update:model-value="(v) => handleFieldChange('eventName', v)"
         />
 
+        <v-text-field
+          :model-value="editedEvent.performerName || ''"
+          :label="t('edePerformer')"
+          :placeholder="t('edePerformer')"
+          variant="outlined"
+          density="comfortable"
+          hide-details
+          class="ede-input ede-field-space"
+          @update:model-value="(v) => handleFieldChange('performerName', v)"
+        />
+
+        <div class="ede-row ede-field-space">
+          <v-text-field
+            :model-value="editedEvent.sponsor || ''"
+            :label="t('edeSponsor')"
+            :placeholder="t('edeSponsor')"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            class="ede-input"
+            @update:model-value="(v) => handleFieldChange('sponsor', v)"
+          />
+          <v-text-field
+            :model-value="editedEvent.openingActName || ''"
+            :label="t('edeOpeningAct')"
+            :placeholder="t('edeOpeningAct')"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            class="ede-input"
+            @update:model-value="(v) => handleFieldChange('openingActName', v)"
+          />
+        </div>
+
         <div class="ede-select-wrap ede-field-space">
           <label class="ede-select-label">{{ t('edeConfiguration') }}</label>
           <v-select
@@ -1173,7 +1207,7 @@ export default {
   align-items: center;
   gap: 6px;
   margin: 20px 0 12px;
-  color: #9ca3af;
+  color: var(--fb-faint, #9ca3af);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1292,7 +1326,7 @@ export default {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #9ca3af;
+  color: var(--fb-faint, #9ca3af);
   cursor: pointer;
 }
 .ede-session-card__remove:hover {
@@ -1335,8 +1369,8 @@ export default {
   transition: all 0.2s;
 }
 .ede-footer-btn--cancel {
-  border: 1.5px solid #e5e7eb;
-  background: #f3f4f6;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
+  background: var(--fb-border, #f3f4f6);
   color: #374151;
 }
 .ede-footer-btn--cancel:hover {
@@ -1465,5 +1499,17 @@ export default {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* ===================== DARK MODE — compléments =====================
+   L'éditeur vit dans l'overlay .event-predict-overlay (drawer NON téléporté) :
+   surfaces/bordures/textes suivent les `--fb-*` hérités. Le bandeau résumé rouge
+   #ff3131 et sa pastille/bouton blancs sont conservés. Ne reste que le bouton
+   « ajouter une session » (rouge très pâle) → voile rouge sur fond sombre. */
+.dark .ede-add-session {
+  background: rgba(220, 38, 38, 0.16);
+}
+.dark .ede-add-session:hover {
+  background: rgba(220, 38, 38, 0.26);
 }
 </style>

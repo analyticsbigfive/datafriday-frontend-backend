@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -8,9 +8,11 @@ export class AnalyseService {
 
   constructor(private prisma: PrismaService) {}
 
-  async getDashboard(tenantId: string) {
-    this.logger.log(`Getting dashboard for tenant ${tenantId}`);
+  async getDashboard(tenantId: string, spaceId?: string) {
+    this.logger.log(`Getting dashboard for tenant ${tenantId}${spaceId ? ` space ${spaceId}` : ''}`);
 
+    // NB : seuls les events sont scopables par space (Event.spaceId). Menu items,
+    // composants, ingrédients et fournisseurs sont des référentiels tenant-level.
     const [
       menuItemCount,
       componentCount,
@@ -23,7 +25,7 @@ export class AnalyseService {
       this.prisma.menuComponent.count({ where: { tenantId, deletedAt: null } }),
       this.prisma.ingredient.count({ where: { tenantId, deletedAt: null } }),
       this.prisma.supplier.count({ where: { tenantId } }),
-      this.prisma.event.count({ where: { tenantId } }),
+      this.prisma.event.count({ where: { tenantId, ...(spaceId ? { spaceId } : {}) } }),
       this.prisma.space.count({ where: { tenantId } }),
     ]);
 
@@ -40,66 +42,89 @@ export class AnalyseService {
   async getMenuKpis(tenantId: string) {
     this.logger.log(`Getting menu KPIs for tenant ${tenantId}`);
 
-    const items = await this.prisma.menuItem.findMany({
-      where: { tenantId, deletedAt: null },
-      select: { basePrice: true, totalCost: true, margin: true, typeId: true, categoryId: true },
-    });
+    // Agrégation en SQL (une passe + un GROUP BY) au lieu de rapatrier tous les
+    // items du tenant pour les réduire en JS. Parité avec l'ancien reduce :
+    // NULL compté comme 0 dans les moyennes (COALESCE), d'où AVG(COALESCE(x,0))
+    // et non AVG(x) qui ignorerait les NULL.
+    const [aggRows, typeRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{
+        totalItems: number;
+        avgPrice: number | null;
+        avgCost: number | null;
+        avgMargin: number | null;
+        lowMarginItems: number;
+        highMarginItems: number;
+      }>>(Prisma.sql`
+        SELECT
+          COUNT(*)::int                                                             AS "totalItems",
+          AVG(COALESCE("basePrice", 0))::float                                      AS "avgPrice",
+          AVG(COALESCE("totalCost", 0))::float                                      AS "avgCost",
+          AVG(COALESCE("margin", 0))::float                                         AS "avgMargin",
+          COUNT(*) FILTER (WHERE "margin" > 0 AND "margin" < 30)::int               AS "lowMarginItems",
+          COUNT(*) FILTER (WHERE "margin" >= 60)::int                               AS "highMarginItems"
+        FROM "MenuItem"
+        WHERE "tenantId" = ${tenantId} AND "deletedAt" IS NULL
+      `),
+      this.prisma.$queryRaw<Array<{ typeId: string; count: number }>>(Prisma.sql`
+        SELECT COALESCE("typeId", 'unclassified') AS "typeId", COUNT(*)::int AS count
+        FROM "MenuItem"
+        WHERE "tenantId" = ${tenantId} AND "deletedAt" IS NULL
+        GROUP BY COALESCE("typeId", 'unclassified')
+      `),
+    ]);
 
-    const totalItems = items.length;
-    const avgPrice = totalItems > 0
-      ? items.reduce((s, i) => s + (Number(i.basePrice) || 0), 0) / totalItems
-      : 0;
-    const avgCost = totalItems > 0
-      ? items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0) / totalItems
-      : 0;
-    const avgMargin = totalItems > 0
-      ? items.reduce((s, i) => s + (Number(i.margin) || 0), 0) / totalItems
-      : 0;
-
-    const lowMarginItems = items.filter(i => Number(i.margin) > 0 && Number(i.margin) < 30).length;
-    const highMarginItems = items.filter(i => Number(i.margin) >= 60).length;
-
+    const agg = aggRows[0];
+    const totalItems = Number(agg?.totalItems ?? 0);
     const byType: Record<string, number> = {};
-    for (const i of items) {
-      const key = i.typeId || 'unclassified';
-      byType[key] = (byType[key] || 0) + 1;
-    }
+    for (const r of typeRows) byType[r.typeId] = Number(r.count);
 
     return {
       totalItems,
-      avgPrice: Math.round(avgPrice * 100) / 100,
-      avgCost: Math.round(avgCost * 100) / 100,
-      avgMargin: Math.round(avgMargin * 100) / 100,
-      lowMarginItems,
-      highMarginItems,
+      avgPrice: Math.round((agg?.avgPrice ?? 0) * 100) / 100,
+      avgCost: Math.round((agg?.avgCost ?? 0) * 100) / 100,
+      avgMargin: Math.round((agg?.avgMargin ?? 0) * 100) / 100,
+      lowMarginItems: Number(agg?.lowMarginItems ?? 0),
+      highMarginItems: Number(agg?.highMarginItems ?? 0),
       byType,
     };
   }
 
-  async getEventKpis(tenantId: string) {
-    this.logger.log(`Getting event KPIs for tenant ${tenantId}`);
+  async getEventKpis(tenantId: string, spaceId?: string) {
+    this.logger.log(`Getting event KPIs for tenant ${tenantId}${spaceId ? ` space ${spaceId}` : ''}`);
 
-    const events = await this.prisma.event.findMany({
-      where: { tenantId },
-      select: { revenue: true, transactionCount: true, eventDate: true, status: true },
-      orderBy: { eventDate: 'desc' },
-    });
+    // Agrégation en une requête SQL au lieu d'un findMany tenant entier + reduce JS.
+    // Parité : revenue NULL → 0 (COALESCE), upcoming = eventDate strictement future,
+    // completed = status success/completed.
+    const spaceFilter = spaceId ? Prisma.sql`AND "spaceId" = ${spaceId}` : Prisma.sql``;
+    const rows = await this.prisma.$queryRaw<Array<{
+      totalEvents: number;
+      totalRevenue: number | null;
+      totalTransactions: number | null;
+      upcoming: number;
+      completed: number;
+    }>>(Prisma.sql`
+      SELECT
+        COUNT(*)::int                                                              AS "totalEvents",
+        SUM(COALESCE("revenue", 0))::float                                         AS "totalRevenue",
+        SUM(COALESCE("transactionCount", 0))::bigint                               AS "totalTransactions",
+        COUNT(*) FILTER (WHERE "eventDate" > NOW())::int                           AS "upcoming",
+        COUNT(*) FILTER (WHERE "status" IN ('success', 'completed'))::int          AS "completed"
+      FROM "Event"
+      WHERE "tenantId" = ${tenantId}
+        ${spaceFilter}
+    `);
 
-    const totalEvents = events.length;
-    const totalRevenue = events.reduce((s, e) => s + (Number(e.revenue) || 0), 0);
-    const avgRevenue = totalEvents > 0 ? totalRevenue / totalEvents : 0;
-    const totalTransactions = events.reduce((s, e) => s + (e.transactionCount || 0), 0);
-
-    const upcoming = events.filter(e => new Date(e.eventDate) > new Date()).length;
-    const completed = events.filter(e => e.status === 'success' || e.status === 'completed').length;
+    const agg = rows[0];
+    const totalEvents = Number(agg?.totalEvents ?? 0);
+    const totalRevenue = Number(agg?.totalRevenue ?? 0);
 
     return {
       totalEvents,
       totalRevenue: Math.round(totalRevenue * 100) / 100,
-      avgRevenue: Math.round(avgRevenue * 100) / 100,
-      totalTransactions,
-      upcoming,
-      completed,
+      avgRevenue: totalEvents > 0 ? Math.round((totalRevenue / totalEvents) * 100) / 100 : 0,
+      totalTransactions: Number(agg?.totalTransactions ?? 0),
+      upcoming: Number(agg?.upcoming ?? 0),
+      completed: Number(agg?.completed ?? 0),
     };
   }
 
@@ -115,6 +140,18 @@ export class AnalyseService {
     } = {},
   ) {
     this.logger.log(`GET /analyse/timeline eventId=${eventId} tenant=${tenantId}`);
+
+    // Garde ownership : eventId = WeezeventEvent.id — vérifier qu'il existe et
+    // appartient bien au tenant avant d'interroger les transactions. Sans cette
+    // vérification, un id inconnu renvoyait silencieusement [] (indiscernable d'un
+    // event sans vente) ; la requête reste tenant-scopée dans tous les cas.
+    const eventExists = await this.prisma.salesEvent.findFirst({
+      where: { id: eventId, tenantId },
+      select: { id: true },
+    });
+    if (!eventExists) {
+      throw new NotFoundException(`Event ${eventId} not found for this tenant`);
+    }
 
     const limit = Math.min(opts.limit ?? 1000, 5000);
 
@@ -172,6 +209,14 @@ export class AnalyseService {
       ORDER BY minute ASC
       LIMIT ${limit}
     `);
+
+    // Troncature silencieuse : le shape de réponse (array) ne permet pas de flag
+    // `truncated` sans breaking change — on trace au minimum côté serveur.
+    if (rows.length === limit) {
+      this.logger.warn(
+        `analyse/timeline eventId=${eventId}: résultat tronqué à LIMIT ${limit} — événement volumineux, données minute partielles`,
+      );
+    }
 
     return rows.map((r: any) => ({
       eventId: r.eventId,

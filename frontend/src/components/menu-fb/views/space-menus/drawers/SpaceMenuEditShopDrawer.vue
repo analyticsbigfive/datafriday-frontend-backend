@@ -56,19 +56,19 @@
                 <div class="smed-section__label">
                   <Tags :size="13" style="color:#ff3131" />
                   {{ t("spaceMenu.shopTypes") }}
-                  <span class="smed-section__count">{{ form.selectedTypes?.length || 0 }} {{ t("spaceMenu.selected") }}</span>
+                  <span class="smed-section__count">{{ form.subTypes?.length || 0 }} {{ t("spaceMenu.selected") }}</span>
                 </div>
                 <div class="smed-types-grid">
                   <label
                     v-for="type in shopTypes"
                     :key="type.value"
                     class="smed-type-pill"
-                    :class="{ 'smed-type-pill--active': form.selectedTypes?.includes(type.value) }"
+                    :class="{ 'smed-type-pill--active': form.subTypes?.includes(type.value) }"
                   >
                     <input
                       type="checkbox"
                       :value="type.value"
-                      :checked="form.selectedTypes?.includes(type.value)"
+                      :checked="form.subTypes?.includes(type.value)"
                       class="visually-hidden"
                       @change="toggleShopType(type.value)"
                     />
@@ -147,8 +147,14 @@ export default {
     selectedConfigId: { type: String, default: '' },
     configOptions: { type: Array, default: () => [] },
   },
-  emits: ['update:modelValue', 'saved'],
+  emits: ['update:modelValue', 'saved', 'save-error'],
   beforeUnmount() {
+    document.body.style.overflow = '';
+  },
+  // BUG-117 : la route hôte (/space-menus) est keep-alive — quitter la page sans fermer ce
+  // tiroir déclenche `deactivated()`, jamais `beforeUnmount()`, ce qui laissait le scroll body
+  // verrouillé en permanence sur les autres écrans de l'app.
+  deactivated() {
     document.body.style.overflow = '';
   },
   data() {
@@ -156,23 +162,37 @@ export default {
       form: null,
       saving: false,
       saveError: '',
+      // BUG-118 : valeurs alignées sur le contrat réel (identique à ShopDetailEditDrawer.vue,
+      // `availableShopTypes`) — ce tiroir écrivait auparavant des valeurs lowercase/snake_case
+      // (`gp_premium`) qu'aucun autre écran ne pouvait relire.
       shopTypes: [
-        { value: 'food',       labelKey: 'food',                       iconComponent: 'Utensils' },
-        { value: 'beverages',  labelKey: 'beverage',                   iconComponent: 'Coffee' },
-        { value: 'beer',       labelKey: 'spaceMenu.shopTypeBeer',      iconComponent: 'Beer' },
-        { value: 'gp_premium', labelKey: 'spaceMenu.shopTypeGpPremium', iconComponent: 'Package' },
-        { value: 'temporary',  labelKey: 'spaceMenu.shopTypeTemporary', iconComponent: 'Clock' },
-        { value: 'drinkee',    labelKey: 'spaceMenu.shopTypeDrinkee',   iconComponent: 'Coffee' },
+        { value: 'Food',       labelKey: 'food',                       iconComponent: 'Utensils' },
+        { value: 'Beverages',  labelKey: 'beverage',                   iconComponent: 'Coffee' },
+        { value: 'Beer',       labelKey: 'spaceMenu.shopTypeBeer',      iconComponent: 'Beer' },
+        { value: 'GP Premium', labelKey: 'spaceMenu.shopTypeGpPremium', iconComponent: 'Package' },
+        { value: 'Temporary',  labelKey: 'spaceMenu.shopTypeTemporary', iconComponent: 'Clock' },
+        { value: 'Drinkee',    labelKey: 'spaceMenu.shopTypeDrinkee',   iconComponent: 'Coffee' },
       ],
     };
   },
   watch: {
     modelValue(isOpen) {
       document.body.style.overflow = isOpen ? 'hidden' : '';
+      // BUG-119 : annule le nettoyage différé d'une fermeture précédente — sans ça, une
+      // réouverture rapide (<300ms) pouvait laisser le timer périmé vider le formulaire juste
+      // après son rechargement.
+      if (this._clearTimer) {
+        clearTimeout(this._clearTimer);
+        this._clearTimer = null;
+      }
       if (isOpen && this.shop) {
-        this.form = { ...this.shop, selectedTypes: this.shop.selectedTypes || ['food', 'beverages'] };
+        // BUG-118 : le champ réel du shop est `subTypes` (valeurs capitalisées, cf.
+        // ShopDetailEditDrawer.vue) — `selectedTypes` n'existe nulle part ailleurs et était
+        // donc toujours undefined, faisant retomber ce formulaire sur le défaut codé en dur
+        // ['food','beverages'] à CHAQUE ouverture, écrasant silencieusement le vrai type au save.
+        this.form = { ...this.shop, subTypes: Array.isArray(this.shop.subTypes) ? [...this.shop.subTypes] : [] };
       } else if (!isOpen) {
-        setTimeout(() => { this.form = null; }, 300);
+        this._clearTimer = setTimeout(() => { this.form = null; this._clearTimer = null; }, 300);
       }
     },
   },
@@ -192,24 +212,31 @@ export default {
       reader.readAsDataURL(file);
     },
     toggleShopType(typeValue) {
-      if (!this.form.selectedTypes) this.form.selectedTypes = [];
-      const index = this.form.selectedTypes.indexOf(typeValue);
-      if (index > -1) this.form.selectedTypes.splice(index, 1);
-      else this.form.selectedTypes.push(typeValue);
+      if (!this.form.subTypes) this.form.subTypes = [];
+      const index = this.form.subTypes.indexOf(typeValue);
+      if (index > -1) this.form.subTypes.splice(index, 1);
+      else this.form.subTypes.push(typeValue);
     },
     async save() {
       if (!this.shop?.id || !this.form) return;
       this.saving = true;
       this.saveError = '';
       try {
+        // BUG-118 : la clé du payload PATCH est `subTypes` (contrat backend réel, identique à
+        // ShopDetailEditDrawer.vue) — l'ancienne clé `selectedTypes` n'était lue par aucun
+        // écran, le type édité ici n'était donc jamais réellement persisté.
         const updated = await updateSpaceElement(this.shop.id, {
-          image:         this.form.image,
-          selectedTypes: this.form.selectedTypes,
+          image:    this.form.image,
+          subTypes: this.form.subTypes,
         });
-        this.$emit('saved', { ...this.form, ...(updated || {}), image: this.form.image, selectedTypes: [...(this.form.selectedTypes || [])] });
+        this.$emit('saved', { ...this.form, ...(updated || {}), image: this.form.image, subTypes: [...(this.form.subTypes || [])] });
         this.$emit('update:modelValue', false);
       } catch (e) {
-        this.saveError = e?.response?.data?.message || e?.message || 'Failed to save shop';
+        // BUG-120 : émis même si le tiroir a déjà été fermé (backdrop-click/X non désactivés
+        // pendant `saving`) — sans ça, un échec réseau ici était invisible pour l'utilisateur.
+        const message = e?.response?.data?.message || e?.message || 'Failed to save shop';
+        this.saveError = message;
+        this.$emit('save-error', message);
       } finally {
         this.saving = false;
       }
@@ -394,7 +421,16 @@ export default {
 .smed-panel--dark .smed-upload-placeholder__title { color: #e2e8f0; }
 .smed-panel--dark .smed-type-pill { border-color: #334155; background: #1e293b; color: #94a3b8; }
 .smed-panel--dark .smed-type-pill--active { border-color: #ff3131; background: rgba(255, 49, 49,.15); color: #f87171; }
+.smed-panel--dark .smed-config-card {
+  background: linear-gradient(135deg, rgba(255, 49, 49,.15), rgba(255, 49, 49,.08));
+  border-color: rgba(255, 49, 49,.3);
+}
+.smed-panel--dark .smed-config-card__icon { background: #1e293b; }
 .smed-panel--dark .smed-config-card__name { color: #e2e8f0; }
+.smed-panel--dark .smed-config-card__sub { color: #64748b; }
+.smed-panel--dark .smed-config-empty { border-color: #334155; }
+.smed-panel--dark .smed-config-empty p { color: #64748b; }
+.smed-panel--dark .smed-error { background: rgba(255, 49, 49,.12); }
 .smed-panel--dark .smed-footer { background: #111827; border-top-color: #1e293b; }
 .smed-panel--dark .smed-btn--ghost { background: #1e293b; color: #e2e8f0; border-color: #334155; }
 .smed-panel--dark .smed-btn--ghost:hover { background: #273548; }

@@ -23,6 +23,7 @@ import { WeezeventAuthService } from '../weezevent/services/weezevent-auth.servi
 import { DigifoodCsvImportService } from '../digifood/services/digifood-csv-import.service';
 import { WeezeventConfigDto } from './dto/weezevent-config.dto';
 import { WebhookConfigDto } from './dto/webhook-config.dto';
+import { UpdateWeezeventWebhookDto } from './dto/weezevent-webhook-config.dto';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
     CreateWeezeventInstanceDto,
@@ -283,6 +284,37 @@ export class IntegrationsController {
             throw new BadRequestException(`Invalid credentials: ${result.error}`);
         }
         return { valid: true, message: 'Connection successful' };
+    }
+
+    // ==================== BUG-106 : webhook secret par instance Weezevent ====================
+
+    @Get('weezevent/instances/:instanceId/webhook')
+    @ApiOperation({ summary: 'Obtenir la configuration webhook d\'une instance Weezevent', description: 'enabled/configured uniquement (le secret chiffré n\'est jamais renvoyé). Si non configuré, le webhook de cette intégration retombe sur Tenant.weezeventWebhookSecret.' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    @ApiResponse({ status: 200, description: 'Configuration webhook de l\'instance' })
+    async getWeezeventInstanceWebhook(
+        @Param('organizationId') organizationId: string,
+        @Param('instanceId') instanceId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.weezeventService.getWebhookConfig(this.resolveTenantId(user, organizationId), instanceId);
+    }
+
+    @RequirePermissions('menu.integration.fb')
+    @Patch('weezevent/instances/:instanceId/webhook')
+    @ApiOperation({ summary: 'Configurer le secret webhook d\'une instance Weezevent', description: 'webhookSecret chiffré au repos (EncryptionService). Optionnel en update : ne fournir que pour faire une rotation du secret.' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    @ApiBody({ type: UpdateWeezeventWebhookDto })
+    @ApiResponse({ status: 200, description: 'Configuration webhook mise à jour' })
+    async updateWeezeventInstanceWebhook(
+        @Param('organizationId') organizationId: string,
+        @Param('instanceId') instanceId: string,
+        @CurrentUser() user: any,
+        @Body() dto: UpdateWeezeventWebhookDto,
+    ) {
+        return this.weezeventService.updateWebhookConfig(this.resolveTenantId(user, organizationId), instanceId, dto);
     }
 
     /**

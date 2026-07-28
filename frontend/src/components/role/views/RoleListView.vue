@@ -313,8 +313,8 @@ export default {
 }
 
 .rl-header__title {
-  font-size: 1.375rem;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
   line-height: 1.2;
@@ -373,12 +373,12 @@ export default {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #111827;
   font-family: inherit;
 }
 .rl-searchbar__input::placeholder { color: #9ca3af; }
-.rl-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; }
+.rl-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; }
 .rl-searchbar__clear {
   background: none;
   border: none;
@@ -434,8 +434,8 @@ export default {
 .rl-empty__icon--dark { background: #1f2937; color: #6b7280; }
 
 .rl-empty__title {
-  font-size: 1.125rem;
-  font-weight: 700;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
   color: #111827;
   margin-bottom: 8px;
 }
@@ -633,5 +633,10 @@ export default {
 .rl--dark .rl-searchbar { background: #1a2332; border-bottom-color: #374151; }
 .rl--dark .rl-searchbar__input { color: #f3f4f6; }
 .rl--dark .rl-empty__title { color: #f9fafb; }
+.rl--dark .rl-empty__sub { color: #9ca3af; }
 .rl--dark .rl-card__desc { color: #9ca3af; }
+/* Hover d'action : le gris clair #f3f4f6 tranchait en blanc sur la carte sombre. */
+.rl--dark .rl-action-btn:hover { background: #374151; color: #e5e7eb; }
+/* Chip « +N » : pastille grise claire → grise sombre. */
+.rl--dark .rl-chip--more { background: #374151; border-color: #4b5563; color: #9ca3af; }
 </style>

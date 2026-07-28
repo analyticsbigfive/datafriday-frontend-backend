@@ -1,11 +1,13 @@
 # BUG-005 — "Freezer" vs Frozen — valeur de formulaire invalide
 
-- **Statut** : 🔴 Ouvert (documenté, non corrigé par choix — décision du 2026-07-15)
+- **Statut** : 🟡 Corrigé non déployé (2026-07-22)
 - **Sévérité** : 🔴 Majeur (écriture DB probablement rejetée)
 - **Domaine** : Menu & recettes (Catalogue)
 - **Repo(s) concerné(s)** : `datafriday-web`
 - **Découvert le** : 2026-07-15
-- **Fichiers** : `MenuItemFormDrawer.vue:225`, `MenuItemCreateView.vue:513`
+- **Fichiers** : `MenuItemCreateView.vue:504` (seul fichier live désormais —
+  `MenuItemFormDrawer.vue`, qui contenait aussi cette occurrence, supprimé le 2026-07-17 en tant
+  que fichier orphelin jamais importé, voir [[83_menu_items_formdrawer_orphelin_code_mort]])
 
 ## Symptôme
 
@@ -21,13 +23,26 @@ utilisent, elles, correctement `"Frozen"` — seule la saisie est fautive.
 
 ## Correction
 
-Aucune à ce jour, documenté le 2026-07-15.
+2026-07-22 : `value="Freezer"` → `value="Frozen"` dans `MenuItemCreateView.vue:504` (seul fichier
+live restant, confirmé — `MenuItemFormDrawer.vue` déjà supprimé, voir
+[[83_menu_items_formdrawer_orphelin_code_mort]]). **Effet de bord détecté et traité en même
+temps** : `mapStorageType` (`utils/inventoryUtils.js:786-791`) faisait correspondre
+`case 'Freezer': return 'belowzero'` — cette fonction traduit `MenuItem.storageType` (enum Prisma
+`Cold/Dry/Frozen`, confirmé `backend/prisma/schema.prisma:1871`) vers la nomenclature des Storage
+elements du builder. Renommer la checkbox seule aurait cassé ce mapping pour tout menu item déjà
+enregistré avec l'ancienne valeur `'Freezer'` (si une telle ligne existe malgré le rejet probable
+de l'enum côté DB) : `mapStorageType` accepte désormais les deux valeurs (`'Frozen'` la correcte,
+`'Freezer'` en legacy), `'Frozen'` seule est écrite pour toute nouvelle sauvegarde. Même principe de
+compatibilité que le fix BUG-020 (`'Material'` → `'material'`).
 
 ## Risque de régression / à surveiller
 
-Fix trivial (renommer la `value` dans les deux fichiers) — mais vérifier s'il existe déjà des
-lignes en base avec une valeur invalide ou une écriture silencieusement rejetée à nettoyer avant
-de considérer le correctif complet.
+Vérifier en base si des lignes `MenuItem.storageType` portent déjà une valeur invalide (`'Freezer'`
+rejetée par l'enum Postgres à l'écriture, donc improbable, mais pas vérifié directement — pas
+d'accès DB pendant ce fix) ; le mapping `inventoryUtils.js` reste rétrocompatible dans les deux cas.
+Tester : cocher "Freezer" dans le formulaire MenuItem, sauvegarder, vérifier que l'écriture réussit
+(elle échouait probablement avant) et que l'item apparaît bien dans la carte Storage "belowzero" de
+l'Inventory.
 
 ## Références
 
