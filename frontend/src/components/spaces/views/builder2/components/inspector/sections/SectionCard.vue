@@ -49,7 +49,7 @@ const open = ref(props.defaultOpen)
 .b2-section__title {
   flex: 1;
   min-width: 0;
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: rgb(var(--v-theme-on-surface));
 }

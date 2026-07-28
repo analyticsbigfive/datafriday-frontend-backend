@@ -158,12 +158,12 @@ const chartOptions = computed(() => ({
   border-color: transparent !important;
 }
 .donut-title {
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: #212121;
 }
 .donut-subtitle {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #757575;
 }
 .donut-wrapper {
@@ -213,7 +213,7 @@ const chartOptions = computed(() => ({
   min-height: 180px;
   padding: 0 12px;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #9E9E9E;
 }
 
@@ -225,18 +225,18 @@ const chartOptions = computed(() => ({
   display: inline-block;
 }
 .legend-text {
-  font-size: 11px !important;
+  font-size: var(--fs-xs)!important;
   color: #424242;
 }
 .legend-value {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #212121;
   font-weight: 600;
 }
 .show-all {
   display: block;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #5B8DEF;
   margin-top: 4px;
   text-decoration: none;

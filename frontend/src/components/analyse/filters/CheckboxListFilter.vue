@@ -45,7 +45,7 @@ function toggle(opt) {
 
 <style scoped>
 .cbf-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #ff3131;
   text-transform: uppercase;
@@ -97,12 +97,12 @@ function toggle(opt) {
 .cbf-name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: #1e293b;
 }
 .cbf-count {
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
@@ -110,7 +110,7 @@ function toggle(opt) {
 .cbf-empty {
   padding: 10px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
 }
 

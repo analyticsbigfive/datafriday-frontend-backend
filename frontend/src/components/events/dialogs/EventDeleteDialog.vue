@@ -55,17 +55,17 @@ export default {
 </script>
 
 <style scoped>
-.edd-text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
+.edd-text { font-size: var(--fs-md); color: #374151; line-height: 1.6; margin: 0; }
 .edd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
   color: #991b1b; border-radius: 10px;
-  padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
+  padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 14px;
 }
 .edd-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 18px; height: 38px;
-  border-radius: 50px; font-size: 13.5px; font-weight: 500;
+  border-radius: 50px; font-size: var(--fs-base); font-weight: 500;
   border: none; cursor: pointer; transition: all .2s;
 }
 .edd-btn:disabled { opacity: .5; cursor: not-allowed; }

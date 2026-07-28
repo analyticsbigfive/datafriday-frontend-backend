@@ -7,7 +7,8 @@
     "build": "vue-cli-service build",
     "test:unit": "vue-cli-service test:unit",
     "test:e2e": "vue-cli-service test:e2e",
-    "dev": "vue-cli-service serve"
+    "dev": "vue-cli-service serve",
+    "lint:typo": "node scripts/check-typography.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

@@ -222,12 +222,12 @@ const chartOptions = computed(() => {
 
 <style scoped>
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: #212121;
 }
 .section-subtitle {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
 }
@@ -239,7 +239,7 @@ const chartOptions = computed(() => {
   height: 32px;
 }
 .sort-toggle :deep(.v-btn) {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: 0;
   color: #6b7280;

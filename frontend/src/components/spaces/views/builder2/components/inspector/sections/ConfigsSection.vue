@@ -72,7 +72,7 @@ function toggle(configId) {
 
 <style scoped>
 .cs-hint {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.4;
   color: rgba(var(--v-theme-on-surface), 0.55);
   margin-bottom: 10px;
@@ -110,12 +110,12 @@ function toggle(configId) {
 }
 .cs-item--disabled .cs-check { cursor: default; }
 .cs-name {
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
   color: rgb(var(--v-theme-on-surface));
 }
 .cs-current {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: rgba(var(--v-theme-on-surface), 0.45);
 }
 .cs-spinner { margin-left: auto; }

@@ -593,7 +593,7 @@ function shareWidth(value, max) {
    (.ep-metrics-kicker) : 11px, gras 800, gris, majuscules, letter-spacing .08em. */
 .section-title {
   font-size: 0.6875rem;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -619,16 +619,16 @@ function shareWidth(value, max) {
 .lb-card--active { border-color: var(--lb-accent, #64748b); box-shadow: inset 0 0 0 1px var(--lb-accent, #64748b); }
 .lb-top { display: flex; align-items: center; gap: 10px; }
 .lb-name {
-  flex: 1 1 auto; min-width: 0; font-size: 13px !important; font-weight: 700; color: #212121;
+  flex: 1 1 auto; min-width: 0; font-size: var(--fs-base)!important; font-weight: 700; color: #212121;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .lb-val {
-  flex: none; margin-left: auto; font-size: 15px !important; font-weight: 800 !important;
+  flex: none; margin-left: auto; font-size: var(--fs-md)!important; font-weight: var(--fw-bold)!important;
   color: #212121 !important; letter-spacing: -0.2px; font-variant-numeric: tabular-nums;
 }
 .lb-sub { display: flex; align-items: center; gap: 8px; min-height: 18px; margin: 5px 0 8px; padding-left: 34px; }
 .lb-spacer { margin-left: auto; }
-.lb-date { font-size: 11px; color: #94a3b8; }
+.lb-date { font-size: var(--fs-xs); color: #94a3b8; }
 .lb-meter { height: 5px; border-radius: 4px; background: #eef2f7; overflow: hidden; }
 .lb-meter > i {
   display: block; height: 100%; min-width: 3px; border-radius: 4px;
@@ -659,7 +659,7 @@ function shareWidth(value, max) {
 .tour-group-header {
   display: flex;
   align-items: center;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: #555;
   text-transform: uppercase;
@@ -683,7 +683,7 @@ function shareWidth(value, max) {
   margin-bottom: 6px;
 }
 .assistant-title {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #7C4DFF;
   text-transform: uppercase;
@@ -702,19 +702,19 @@ function shareWidth(value, max) {
   min-height: 28px;
 }
 .semantic-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #555;
   display: inline-flex;
   align-items: center;
 }
 .semantic-hint {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: #9E9E9E;
   font-style: italic;
   margin-top: 2px;
 }
 .assistant-body {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: #212121;
   white-space: normal;
@@ -727,7 +727,7 @@ function shareWidth(value, max) {
   background: rgba(124, 77, 255, 0.1);
   padding: 1px 5px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 .assistant-body :deep(.aa-li) {
@@ -735,7 +735,7 @@ function shareWidth(value, max) {
 }
 .assistant-tip {
   margin-top: 8px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: #757575;
   font-style: italic;
 }
@@ -743,32 +743,32 @@ function shareWidth(value, max) {
   color: #fff;
 }
 .rank-num {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 .item-name {
-  font-size: 12px !important;
+  font-size: var(--fs-sm)!important;
   font-weight: 600;
   color: #212121;
 }
 .item-units {
-  font-size: 10px !important;
+  font-size: var(--fs-xs)!important;
   color: #9E9E9E !important;
 }
 .item-value {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #2E7D32;
 }
 .metric-suffix {
   color: #BDBDBD;
-  font-size: 9px;
+  font-size: var(--fs-xs);
   margin-left: 2px;
 }
 .show-all-link {
   display: block;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #5B8DEF;
   text-decoration: none;
   margin-top: 4px;
@@ -777,7 +777,7 @@ function shareWidth(value, max) {
   text-decoration: underline;
 }
 .show-all-btn {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: #5B8DEF;
@@ -787,12 +787,12 @@ function shareWidth(value, max) {
 
 /* Lot 0.5 — units sous le revenue (capture d'écran) */
 .item-units-below {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: #9E9E9E;
   margin-top: 2px;
 }
 .item-rate {
-  font-size: 10px !important;
+  font-size: var(--fs-xs)!important;
   color: #6B7280 !important;
 }
 /* Lot 0.5 — Chip txn/min : pilule violette pâle, lisible mais discrète */
@@ -804,7 +804,7 @@ function shareWidth(value, max) {
   border-radius: 9999px;
   background-color: #EDE9FE;
   color: #5B21B6;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.1px;

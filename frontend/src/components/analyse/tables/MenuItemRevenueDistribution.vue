@@ -256,12 +256,12 @@ function onCategoryDimensionClick(key) {
 
 <style scoped>
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: #212121;
 }
 .section-subtitle {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
 }
@@ -282,8 +282,8 @@ function onCategoryDimensionClick(key) {
   background: var(--cat-rail, #64748b);
 }
 .cat-label {
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: #64748b;
@@ -301,8 +301,8 @@ function onCategoryDimensionClick(key) {
 }
 .cat-value {
   color: #0f172a;
-  font-size: 1.2rem;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   line-height: 1.1;
   letter-spacing: -0.3px;
   font-variant-numeric: tabular-nums;

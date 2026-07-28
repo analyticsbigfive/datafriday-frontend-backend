@@ -161,12 +161,12 @@ const areaPending = computed(() => {
 
 <style scoped>
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: #212121;
 }
 .section-subtitle {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
 }

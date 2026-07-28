@@ -1,32 +1,30 @@
 <template>
   <div class="hrt-root">
-    <!-- Barre outils -->
-    <div class="hrt-toolbar">
-      <v-text-field
-        v-model="search"
-        :placeholder="t('hrSuppliersSearch')"
-        prepend-inner-icon="mdi-magnify"
-        density="compact"
-        variant="outlined"
-        hide-details
-        clearable
-        class="hrt-search"
-      />
-      <span class="hrt-count">{{ filtered.length }} {{ t('hrSuppliersCount') }}</span>
-      <v-spacer />
-      <v-btn variant="outlined" size="small" prepend-icon="mdi-download" @click="exportCsv">
-        {{ t('hrCsvExport') }}
-      </v-btn>
-      <v-btn variant="outlined" size="small" prepend-icon="mdi-upload" @click="fileInput?.click()">
-        {{ t('hrCsvImport') }}
-      </v-btn>
-      <input ref="fileInput" type="file" accept=".csv" class="d-none" @change="importCsv" />
-      <v-btn color="#ff3131" size="small" prepend-icon="mdi-plus" @click="openAdd">
-        {{ t('hrSuppliersAdd') }}
-      </v-btn>
+    <!-- Bandeau rouge (pattern Settings) -->
+    <div class="hr-banner">
+      <div class="hr-banner__icon"><Building2 :size="24" color="white" /></div>
+      <div class="hr-banner__titles">
+        <HrTabSwitcher active="suppliers" @switch="$emit('switch-tab', $event)" />
+        <p class="hr-banner__subtitle">{{ t('hrSuppliersSubtitle') }}</p>
+      </div>
+      <div class="hr-banner__actions">
+        <button class="hr-banner__btn" @click="exportCsv"><Download :size="15" /> {{ t('hrCsvExport') }}</button>
+        <button class="hr-banner__btn" @click="fileInput?.click()"><Upload :size="15" /> {{ t('hrCsvImport') }}</button>
+        <input ref="fileInput" type="file" accept=".csv" class="d-none" @change="importCsv" />
+        <button class="hr-banner__btn hr-banner__btn--primary" @click="openAdd"><Plus :size="15" /> {{ t('hrSuppliersAdd') }}</button>
+      </div>
+    </div>
+
+    <!-- Recherche (pleine largeur, collée sous le bandeau) -->
+    <div class="hr-searchbar">
+      <Search :size="18" class="hr-searchbar__icon" />
+      <input v-model="search" class="hr-searchbar__input" type="search" :placeholder="t('hrSuppliersSearch')" />
+      <span class="hr-searchbar__count">{{ filtered.length }} {{ t('hrSuppliersCount') }}</span>
+      <button v-if="search" class="hr-searchbar__clear" :aria-label="t('hrCancel')" @click="search = ''"><X :size="16" /></button>
     </div>
 
     <!-- Table -->
+    <div class="hrt-content">
     <v-card flat border class="hrt-card">
       <v-table density="comfortable">
         <thead>
@@ -61,71 +59,26 @@
         </tbody>
       </v-table>
     </v-card>
+    </div>
 
-    <!-- Dialog créer / éditer -->
-    <v-dialog v-model="dialog" max-width="560" persistent>
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          {{ editing && editing._isNew ? t('hrSuppliersAdd') : t('hrSuppliersEdit') }}
-          <v-spacer />
-          <v-btn icon="mdi-close" variant="text" size="small" @click="dialog = false" />
-        </v-card-title>
-        <v-card-text v-if="editing">
-          <v-text-field
-            v-model="editing.name"
-            :label="t('hrColName') + ' *'"
-            variant="outlined"
-            density="compact"
-            :error-messages="nameError"
-            class="mb-2"
-          />
-          <v-text-field v-model="editing.email" :label="t('hrColEmail')" type="email" variant="outlined" density="compact" class="mb-2" />
-          <v-text-field v-model="editing.phone" :label="t('hrColPhone')" type="tel" variant="outlined" density="compact" class="mb-2" />
-          <v-text-field v-model="editing.contactName" :label="t('hrColContact')" variant="outlined" density="compact" class="mb-2" />
-          <v-select
-            v-model="editing.spaceIds"
-            :items="spaces"
-            item-title="name"
-            item-value="id"
-            :label="t('hrColSpaces')"
-            variant="outlined"
-            density="compact"
-            multiple
-            chips
-            closable-chips
-            class="mb-2"
-          />
-          <v-select
-            v-model="editing.sectors"
-            :items="SECTORS"
-            :label="t('hrColSectors')"
-            variant="outlined"
-            density="compact"
-            multiple
-            chips
-            closable-chips
-          />
-        </v-card-text>
-        <v-card-actions class="px-6 pb-4">
-          <v-spacer />
-          <v-btn variant="text" @click="dialog = false">{{ t('hrCancel') }}</v-btn>
-          <v-btn color="#ff3131" variant="flat" :loading="saving" @click="save">{{ t('hrSave') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Drawer création / édition -->
+    <HrSupplierFormDrawer
+      v-model="drawer"
+      :mode="drawerMode"
+      :initial="drawerInitial"
+      :spaces="spaces"
+      :is-dark="isDark"
+      @submit="onSubmit"
+    />
 
-    <!-- Confirmation suppression -->
-    <v-dialog :model-value="!!deleteTarget" max-width="420" @update:model-value="deleteTarget = null">
-      <v-card v-if="deleteTarget">
-        <v-card-title>{{ t('hrDeleteTitle') }}</v-card-title>
-        <v-card-text>{{ t('hrDeleteConfirm') }} « {{ deleteTarget.name }} » ?</v-card-text>
-        <v-card-actions class="px-6 pb-4">
-          <v-spacer />
-          <v-btn variant="text" @click="deleteTarget = null">{{ t('hrCancel') }}</v-btn>
-          <v-btn color="#ff3131" variant="flat" @click="remove">{{ t('hrDelete') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Suppression -->
+    <HrDeleteDialog
+      :model-value="!!deleteTarget"
+      :item-name="deleteTarget?.name || ''"
+      :is-dark="isDark"
+      @update:model-value="(v) => { if (!v) deleteTarget = null }"
+      @confirm="remove"
+    />
 
     <v-snackbar v-model="snack.show" :color="snack.color" timeout="3000">{{ snack.text }}</v-snackbar>
   </div>
@@ -133,19 +86,26 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { Building2, Download, Plus, Search, Upload, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
 import { getSpacesLight } from '@/api/endpoints/space.api'
-import { HR_SECTORS as SECTORS, csvEscape, downloadCsv, parseCsv } from './hrShared'
+import { HR_SECTORS as SECTORS, csvEscape, downloadCsv, newId, parseCsv } from './hrShared'
+import HrSupplierFormDrawer from './HrSupplierFormDrawer.vue'
+import HrDeleteDialog from './HrDeleteDialog.vue'
+import HrTabSwitcher from './HrTabSwitcher.vue'
+import './hrForms.css'
+
+defineProps({ isDark: { type: Boolean, default: false } })
+defineEmits(['switch-tab'])
 
 const suppliers = ref([])
 const spaces = ref([])
 const search = ref('')
-const dialog = ref(false)
-const editing = ref(null)
+const drawer = ref(false)
+const drawerMode = ref('create')
+const drawerInitial = ref(null)
 const deleteTarget = ref(null)
-const saving = ref(false)
-const nameError = ref('')
 const snack = reactive({ show: false, text: '', color: 'success' })
 const fileInput = ref(null)
 
@@ -187,38 +147,26 @@ function sectorsLabel(sectors = []) {
   return sectors.join(', ')
 }
 
-function blank() {
-  return { id: crypto.randomUUID(), name: '', email: '', phone: '', contactName: '', spaceIds: [], sectors: [], _isNew: true }
-}
 function openAdd() {
-  nameError.value = ''
-  editing.value = blank()
-  dialog.value = true
+  drawerMode.value = 'create'
+  drawerInitial.value = null
+  drawer.value = true
 }
 function openEdit(s) {
-  nameError.value = ''
-  // Copie de travail ; les tableaux peuvent manquer sur d'anciennes entrées localStorage.
-  editing.value = { ...s, spaceIds: [...(s.spaceIds || [])], sectors: [...(s.sectors || [])], _isNew: false }
-  dialog.value = true
+  drawerMode.value = 'edit'
+  drawerInitial.value = s
+  drawer.value = true
 }
 
-async function save() {
-  if (!editing.value.name?.trim()) {
-    nameError.value = t('hrNameRequired')
-    return
-  }
-  saving.value = true
+async function onSubmit(payload) {
   try {
-    const { _isNew, ...row } = editing.value
-    if (_isNew) await hrApi.createHRSupplier(row)
-    else await hrApi.updateHRSupplier(row)
+    if (drawerMode.value === 'edit') await hrApi.updateHRSupplier(payload)
+    else await hrApi.createHRSupplier(payload)
     await load()
-    dialog.value = false
+    drawer.value = false
     notify(t('hrSaved'))
   } catch (e) {
     notify(t('hrSaveError'), 'error')
-  } finally {
-    saving.value = false
   }
 }
 
@@ -267,7 +215,7 @@ async function importCsv(event) {
       const name = row[idx('name')]?.trim()
       if (!name || suppliers.value.some((s) => s.name === name)) continue
       await hrApi.createHRSupplier({
-        id: crypto.randomUUID(),
+        id: newId(),
         name,
         email: row[idx('email')] || '',
         phone: row[idx('phone')] || '',
@@ -286,9 +234,7 @@ async function importCsv(event) {
 </script>
 
 <style scoped>
-.hrt-root { padding: 16px; }
-.hrt-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.hrt-search { max-width: 320px; }
-.hrt-count { color: #64748b; font-size: 0.8125rem; white-space: nowrap; }
-.hrt-card :deep(th) { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.3px; color: #64748b; white-space: nowrap; }
+.hrt-root { padding: 0; }
+.hrt-content { padding: 24px; }
+.hrt-card :deep(th) { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.3px; color: #64748b; white-space: nowrap; }
 </style>

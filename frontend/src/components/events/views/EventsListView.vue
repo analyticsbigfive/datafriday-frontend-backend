@@ -472,8 +472,8 @@ export default {
   background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.elv-header__title { font-size: 20px; font-weight: 800; color: #fff; margin: 0; line-height: 1.2; }
-.elv-header__subtitle { font-size: 12.5px; color: rgba(255,255,255,.72); margin: 3px 0 0; }
+.elv-header__title { font-size: var(--fs-xl); font-weight: var(--fw-bold); color: #fff; margin: 0; line-height: 1.2; }
+.elv-header__subtitle { font-size: var(--fs-sm); color: rgba(255,255,255,.72); margin: 3px 0 0; }
 .elv-header__right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .elv-header__sep { width: 1px; height: 32px; background: rgba(255,255,255,.25); }
 .elv-header__actions { display: flex; align-items: center; gap: 8px; }
@@ -482,7 +482,7 @@ export default {
   padding: 7px 14px; border-radius: 100px;
   border: 1.5px solid rgba(255,255,255,.6);
   background: transparent; color: rgba(255,255,255,.9);
-  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .elv-action-hbtn:hover { background: rgba(255,255,255,.15); border-color: #fff; }
@@ -491,7 +491,7 @@ export default {
   padding: 9px 18px; border-radius: 100px;
   border: 2px solid rgba(255,255,255,.85);
   background: transparent; color: #fff;
-  font-size: 13px; font-weight: 700; cursor: pointer;
+  font-size: var(--fs-base); font-weight: 700; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .elv-add-btn:hover { background: #fff; color: #ff3131; }
@@ -506,7 +506,7 @@ export default {
 .elv-searchbar__icon { color: #9ca3af; flex-shrink: 0; }
 .elv-searchbar__input {
   flex: 1; min-width: 140px; border: none; outline: none;
-  background: transparent; font-size: 14px; color: #111827;
+  background: transparent; font-size: var(--fs-md); color: #111827;
 }
 .elv--dark .elv-searchbar__input { color: #e5e7eb; }
 .elv-searchbar__input::placeholder { color: #9ca3af; }
@@ -520,7 +520,7 @@ export default {
   border-radius: 999px;
   background-color: #fff;
   color: #374151;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
   padding: 7px 32px 7px 14px;
   max-width: 190px;
@@ -545,7 +545,7 @@ export default {
 }
 .elv--dark .elv-filter-select:hover { border-color: rgba(255, 255, 255, .28); }
 
-.elv-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.elv-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 
 /* ── Content ── */
 .elv-content { padding: 24px 28px; }
@@ -555,7 +555,7 @@ export default {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
   color: #991b1b; border-radius: 12px;
-  padding: 12px 16px; font-size: 13.5px;
+  padding: 12px 16px; font-size: var(--fs-base);
 }
 
 /* Table wrap */
@@ -570,7 +570,7 @@ export default {
 /* Table (reference: MarketPriceListView) */
 .elv-table :deep(.v-data-table__th),
 .elv-table :deep(.v-data-table__td) {
-  font-size: 13px;
+  font-size: var(--fs-base);
   padding-top: 10px;
   padding-bottom: 10px;
   padding-left: 16px;
@@ -578,7 +578,7 @@ export default {
 }
 .elv-table :deep(.v-data-table__td) { vertical-align: middle; }
 .elv-table :deep(.v-data-table__th) {
-  font-size: 11px !important;
+  font-size: var(--fs-xs)!important;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .06em;

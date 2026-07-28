@@ -534,8 +534,8 @@ export default {
   background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.esl-header__title { font-size: 20px; font-weight: 800; color: #fff; margin: 0; line-height: 1.2; }
-.esl-header__subtitle { font-size: 12.5px; color: rgba(255,255,255,.72); margin: 3px 0 0; }
+.esl-header__title { font-size: var(--fs-xl); font-weight: var(--fw-bold); color: #fff; margin: 0; line-height: 1.2; }
+.esl-header__subtitle { font-size: var(--fs-sm); color: rgba(255,255,255,.72); margin: 3px 0 0; }
 .esl-header__right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .esl-header__sep { width: 1px; height: 32px; background: rgba(255,255,255,.25); }
 .esl-header__actions { display: flex; align-items: center; gap: 8px; }
@@ -544,7 +544,7 @@ export default {
   padding: 7px 14px; border-radius: 100px;
   border: 1.5px solid rgba(255,255,255,.6);
   background: transparent; color: rgba(255,255,255,.9);
-  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .esl-action-hbtn:hover { background: rgba(255,255,255,.15); border-color: #fff; }
@@ -553,7 +553,7 @@ export default {
   padding: 9px 18px; border-radius: 100px;
   border: 2px solid rgba(255,255,255,.85);
   background: transparent; color: #fff;
-  font-size: 13px; font-weight: 700; cursor: pointer;
+  font-size: var(--fs-base); font-weight: 700; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .esl-add-btn:hover { background: #fff; color: #ff3131; }
@@ -568,11 +568,11 @@ export default {
 .esl-searchbar__icon { color: #9ca3af; flex-shrink: 0; }
 .esl-searchbar__input {
   flex: 1; min-width: 140px; border: none; outline: none;
-  background: transparent; font-size: 14px; color: #111827;
+  background: transparent; font-size: var(--fs-md); color: #111827;
 }
 .esl--dark .esl-searchbar__input { color: #e5e7eb; }
 .esl-searchbar__input::placeholder { color: #9ca3af; }
-.esl-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.esl-searchbar__count { font-size: var(--fs-sm); color: #9ca3af; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 
 /* ── Content ── */
 .esl-content { padding: 24px 28px; }
@@ -581,7 +581,7 @@ export default {
 .esl-error-bar {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 12px; padding: 12px 16px; font-size: 13.5px;
+  border-radius: 12px; padding: 12px 16px; font-size: var(--fs-base);
 }
 
 /* Table */
@@ -593,12 +593,12 @@ export default {
 
 .esl-table :deep(.v-data-table__th),
 .esl-table :deep(.v-data-table__td) {
-  font-size: 13px; padding-top: 10px; padding-bottom: 10px;
+  font-size: var(--fs-base); padding-top: 10px; padding-bottom: 10px;
   padding-left: 16px; padding-right: 16px;
 }
 .esl-table :deep(.v-data-table__td) { vertical-align: middle; }
 .esl-table :deep(.v-data-table__th) {
-  font-size: 11px !important; font-weight: 600;
+  font-size: var(--fs-xs)!important; font-weight: 600;
   text-transform: uppercase; letter-spacing: .06em;
   color: #9ca3af !important; background: #fafafa !important;
 }
@@ -609,7 +609,7 @@ export default {
 .esl-cat-pill {
   display: inline-flex; align-items: center;
   background: #f3f4f6; color: #374151; border-radius: 50px;
-  padding: 2px 10px; font-size: 12.5px;
+  padding: 2px 10px; font-size: var(--fs-sm);
 }
 .esl-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .esl-abtn {
@@ -639,8 +639,8 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .esl-drawer-header__text { flex: 1; }
-.esl-drawer-header__title { font-size: 16px; font-weight: 700; color: #fff; }
-.esl-drawer-header__sub { font-size: 12.5px; color: rgba(255,255,255,.75); margin-top: 2px; }
+.esl-drawer-header__title { font-size: var(--fs-lg); font-weight: 700; color: #fff; }
+.esl-drawer-header__sub { font-size: var(--fs-sm); color: rgba(255,255,255,.75); margin-top: 2px; }
 .esl-drawer-header__close {
   width: 30px; height: 30px; border-radius: 8px; border: none;
   background: rgba(255,255,255,.15);
@@ -654,7 +654,7 @@ export default {
 .esl-drawer-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
+  border-radius: 10px; padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 16px;
 }
 
 /* Styled v-text-field */
@@ -665,13 +665,13 @@ export default {
 
 /* v-select */
 .esl-select-wrap { display: flex; flex-direction: column; gap: 6px; }
-.esl-select-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.esl-select-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
 .esl--dark .esl-select-label { color: #d1d5db; }
 .esl-star { color: #ff3131; }
 .esl-drawer-select :deep(.v-field) { border: 1.5px solid #e5e7eb; border-radius: 11px; box-shadow: none; }
 .esl-drawer-select :deep(.v-field--focused) { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255, 49, 49,.10); }
 .esl-drawer-select :deep(.v-field__outline) { display: none; }
-.esl-drawer-select :deep(.v-field__input) { font-size: 14px; }
+.esl-drawer-select :deep(.v-field__input) { font-size: var(--fs-md); }
 .esl--dark .esl-drawer-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 
 :deep(.esl-create-option) { color: #ff3131; font-weight: 600; }
@@ -685,7 +685,7 @@ export default {
 .esl-fbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 40px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 500; border: none; cursor: pointer; transition: all .2s;
+  font-size: var(--fs-base); font-weight: 500; border: none; cursor: pointer; transition: all .2s;
 }
 .esl-fbtn:disabled { opacity: .5; cursor: not-allowed; }
 .esl-fbtn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
@@ -696,11 +696,11 @@ export default {
 /* Delete modal */
 .esl-delete-error {
   display: flex; align-items: center; gap: 8px; background: #fef2f2; border: 1px solid #fecaca;
-  color: #991b1b; border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
+  color: #991b1b; border-radius: 10px; padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 14px;
 }
-.esl-delete-text { font-size: 14px; color: #374151; line-height: 1.6; margin: 0; }
+.esl-delete-text { font-size: var(--fs-md); color: #374151; line-height: 1.6; margin: 0; }
 .esl--dark .esl-delete-text { color: #d1d5db; }
-.esl-mbtn { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px; height: 38px; border-radius: 50px; font-size: 13.5px; font-weight: 500; border: none; cursor: pointer; transition: all .2s; }
+.esl-mbtn { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px; height: 38px; border-radius: 50px; font-size: var(--fs-base); font-weight: 500; border: none; cursor: pointer; transition: all .2s; }
 .esl-mbtn:disabled { opacity: .5; cursor: not-allowed; }
 .esl-mbtn--cancel { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
 .esl-mbtn--cancel:hover { background: #e9ecef; }

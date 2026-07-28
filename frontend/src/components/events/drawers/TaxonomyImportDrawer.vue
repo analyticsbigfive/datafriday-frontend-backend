@@ -25,10 +25,10 @@
             <div class="elv-t-dot"
               :class="{'elv-t-dot--active': step === i+1, 'elv-t-dot--done': step > i+1}">
               <CheckCircle2 v-if="step > i+1" :size="12" />
-              <span v-else style="font-size:10px;font-weight:700;">{{ i+1 }}</span>
+              <span v-else style="font-size: var(--fs-xs); font-weight: var(--fw-bold);">{{ i+1 }}</span>
             </div>
             <span class="text-caption" :class="step >= i+1 ? 'font-weight-medium' : 'text-disabled'"
-              style="white-space:nowrap;font-size:11px;">{{ s }}</span>
+              style="white-space:nowrap;font-size: var(--fs-xs);">{{ s }}</span>
           </div>
           <div v-if="i < visibleSteps.length-1" style="flex:1;height:1px;min-width:8px;background:rgba(var(--v-border-color),var(--v-border-opacity,1));" />
         </template>

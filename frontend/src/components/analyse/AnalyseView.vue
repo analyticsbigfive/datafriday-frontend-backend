@@ -1726,8 +1726,8 @@ async function applyLiveScope() {
   border-radius: 100px;
   background: rgba(255, 255, 255, 0.22);
   color: #fff;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   flex-shrink: 0;
@@ -1774,8 +1774,8 @@ async function applyLiveScope() {
   padding: 14px 22px 8px;
 }
 .av-header__title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
   line-height: 1.2;

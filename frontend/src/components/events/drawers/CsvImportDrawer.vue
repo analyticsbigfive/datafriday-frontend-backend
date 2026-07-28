@@ -39,6 +39,7 @@
             <span
               class="elv-step-label"
               :class="step >= i + 1 ? 'font-weight-medium' : 'text-disabled'"
+              style="white-space: nowrap; font-size: var(--fs-xs);"
             >{{ s }}</span>
           </div>
           <div v-if="i < steps.length - 1" class="elv-step-line" />

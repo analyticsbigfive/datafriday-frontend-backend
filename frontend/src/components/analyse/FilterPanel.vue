@@ -646,20 +646,20 @@ function isFuture(d) {
   height: 100%;
 }
 .section-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #ff3131;
   text-transform: uppercase;
   letter-spacing: 0.8px;
 }
 .section-title {
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: #212121;
   min-height: 40px;
 }
 .ms-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: #6B7280;
 }
@@ -692,16 +692,16 @@ function isFuture(d) {
   flex-shrink: 0;
 }
 .event-name {
-  font-size: 13px !important;
+  font-size: var(--fs-base)!important;
   font-weight: 500;
   color: #212121;
 }
 .event-date {
-  font-size: 11px !important;
+  font-size: var(--fs-xs)!important;
   color: #9E9E9E !important;
 }
 .range-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #ff3131;
   text-transform: uppercase;

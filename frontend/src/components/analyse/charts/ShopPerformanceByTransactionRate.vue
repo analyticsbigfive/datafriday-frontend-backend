@@ -240,12 +240,12 @@ async function exportExcel() {
 
 <style scoped>
 .section-title {
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   color: #212121;
 }
 .section-subtitle {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
 }
@@ -299,13 +299,13 @@ async function exportExcel() {
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent);
 }
 .overlay-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   opacity: 0.9;
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
 .overlay-value {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 700;
 }
 .space-y-1 > * + * {

@@ -887,7 +887,7 @@ function isFuture(d) {
    gris, majuscules, letter-spacing .08em. Harmonisé sur les 5 pages. */
 .section-label {
   font-size: 0.6875rem;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -895,13 +895,13 @@ function isFuture(d) {
 /* En-tête d'accordéon = kicker plat (parité panneau de droite SummaryPanel). */
 .section-title {
   font-size: 0.6875rem;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 .ms-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: #6B7280;
 }
@@ -923,7 +923,7 @@ function isFuture(d) {
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .12);
 }
 .analyse-filter-panel :deep(.v-field__input) {
-  font-size: 13px;
+  font-size: var(--fs-base);
   min-height: 38px;
   color: #212121;
 }
@@ -968,7 +968,7 @@ function isFuture(d) {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   color: #0f172a;
 }
 .fp-search__input::placeholder { color: #9ca3af; }
@@ -1018,12 +1018,12 @@ function isFuture(d) {
 .fp-check-name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: #1e293b;
 }
 .fp-check-count {
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
@@ -1031,11 +1031,11 @@ function isFuture(d) {
 .fp-check-empty {
   padding: 12px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: #9ca3af;
 }
 .fp-sub-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .5px;
@@ -1059,16 +1059,16 @@ function isFuture(d) {
   flex-shrink: 0;
 }
 .event-name {
-  font-size: 13px !important;
+  font-size: var(--fs-base)!important;
   font-weight: 500;
   color: #212121;
 }
 .event-date {
-  font-size: 11px !important;
+  font-size: var(--fs-xs)!important;
   color: #9E9E9E !important;
 }
 .range-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #ff3131;
   text-transform: uppercase;
@@ -1079,7 +1079,7 @@ function isFuture(d) {
   display: flex;
   justify-content: space-between;
   margin-top: 8px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: #1e293b;
   font-variant-numeric: tabular-nums;
@@ -1088,7 +1088,7 @@ function isFuture(d) {
   display: flex;
   justify-content: space-between;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #9ca3af;
   font-variant-numeric: tabular-nums;
 }
@@ -1186,7 +1186,7 @@ function isFuture(d) {
   color: #ff3131 !important;
 }
 .fp-select-menu .v-list-item--active .v-list-item-title { font-weight: 700; }
-.fp-select-menu .v-list-item-title { font-size: 13.5px; }
+.fp-select-menu .v-list-item-title { font-size: var(--fs-base); }
 .fp-select-menu .v-list::-webkit-scrollbar { width: 8px; }
 .fp-select-menu .v-list::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 8px; }
 

@@ -63,7 +63,7 @@ defineEmits(['update:modelValue', 'close'])
   border-bottom: 1px solid rgba(255, 49, 49, 0.14);
 }
 .fep-title {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: #1e293b;
   min-width: 0;

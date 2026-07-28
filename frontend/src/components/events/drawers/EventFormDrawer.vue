@@ -1091,14 +1091,14 @@ export default {
 .efd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 12px; padding: 12px 16px; font-size: 13.5px; margin-bottom: 20px;
+  border-radius: 12px; padding: 12px 16px; font-size: var(--fs-base); margin-bottom: 20px;
 }
 
 /* Warning (non bloquant, ex. BUG-146 : ticketsScanned > ticketsSold) */
 .efd-warning {
   display: flex; align-items: center; gap: 8px;
   background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
-  border-radius: 12px; padding: 10px 16px; font-size: 13px; margin-bottom: 16px;
+  border-radius: 12px; padding: 10px 16px; font-size: var(--fs-base); margin-bottom: 16px;
 }
 .efd--dark .efd-warning {
   background: rgba(217, 119, 6, .12); border-color: rgba(217, 119, 6, .35); color: #fbbf24;
@@ -1107,7 +1107,7 @@ export default {
 /* Section labels */
 .efd-section-label {
   display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase;
   letter-spacing: .06em; color: #9ca3af;
   margin-bottom: 12px; margin-top: 20px;
 }
@@ -1126,14 +1126,14 @@ export default {
   box-shadow: 0 0 0 3px rgba(255, 49, 49,.10);
 }
 .efd-input :deep(.v-field__outline) { display: none; }
-.efd-input :deep(.v-label.v-field-label--floating) { color: #ff3131; font-size: 11px; }
+.efd-input :deep(.v-label.v-field-label--floating) { color: #ff3131; font-size: var(--fs-xs); }
 .efd--dark .efd-input :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 .efd--dark .efd-input :deep(.v-field input),
 .efd--dark .efd-input :deep(.v-field__input) { color: #f3f4f6 !important; }
 
 /* v-select wrapper */
 .efd-select-wrap { display: flex; flex-direction: column; gap: 6px; }
-.efd-select-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.efd-select-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
 .efd-star { color: #ff3131; }
 .efd--dark .efd-select-label { color: #d1d5db; }
 
@@ -1149,7 +1149,7 @@ export default {
   box-shadow: 0 0 0 3px rgba(255, 49, 49,.10);
 }
 .efd-select :deep(.v-field__outline) { display: none; }
-.efd-select :deep(.v-field__input) { font-size: 14px; }
+.efd-select :deep(.v-field__input) { font-size: var(--fs-md); }
 .efd--dark .efd-select :deep(.v-field) { background: #1f2937; border-color: #4b5563; }
 
 /* Create option in dropdowns (« Créer une nouvelle… ») en rouge */
@@ -1177,7 +1177,7 @@ export default {
 .efd--dark .efd-session-card { background: #1f2937; border-color: #374151; }
 .efd-session-card__title {
   display: flex; align-items: center; gap: 8px;
-  font-size: 13px; font-weight: 600; color: #374151;
+  font-size: var(--fs-base); font-weight: 600; color: #374151;
   margin-bottom: 12px;
 }
 .efd--dark .efd-session-card__title { color: #d1d5db; }
@@ -1185,11 +1185,11 @@ export default {
   width: 22px; height: 22px;
   border-radius: 50%;
   background: linear-gradient(135deg, #ff3131 0%, #b91c1c 100%);
-  color: #fff; font-size: 11px; font-weight: 700;
+  color: #fff; font-size: var(--fs-xs); font-weight: 700;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.efd-session-label { font-size: 11.5px; font-weight: 600; color: #6b7280; margin-bottom: 6px; }
+.efd-session-label { font-size: var(--fs-xs); font-weight: 600; color: #6b7280; margin-bottom: 6px; }
 .efd-col { display: flex; flex-direction: column; }
 
 /* Options card */
@@ -1206,8 +1206,8 @@ export default {
   padding: 14px 16px;
 }
 .efd-option-text { flex: 1; }
-.efd-option-label { font-size: 13.5px; font-weight: 500; color: #111827; }
-.efd-option-desc { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+.efd-option-label { font-size: var(--fs-base); font-weight: 500; color: #111827; }
+.efd-option-desc { font-size: var(--fs-sm); color: #9ca3af; margin-top: 2px; }
 .efd-option-divider { height: 1px; background: #f3f4f6; margin: 0 16px; }
 .efd--dark .efd-option-label { color: #f3f4f6; }
 .efd--dark .efd-option-divider { background: #374151; }
@@ -1223,7 +1223,7 @@ export default {
 .efd-fbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 22px; height: 42px;
-  border-radius: 50px; font-size: 13.5px; font-weight: 500;
+  border-radius: 50px; font-size: var(--fs-base); font-weight: 500;
   border: none; cursor: pointer; transition: all .2s;
 }
 .efd-fbtn:disabled { opacity: .5; cursor: not-allowed; }
