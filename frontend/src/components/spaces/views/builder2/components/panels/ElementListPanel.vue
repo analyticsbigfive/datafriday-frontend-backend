@@ -191,6 +191,12 @@ const groups = computed(() => {
       map.get(item.zoneId).elements.push(item)
     }
   }
+  // Tri alphabétique des PDV à l'intérieur de chaque groupe (demande Bertrand, builder v2).
+  for (const g of map.values()) {
+    g.elements.sort((a, b) =>
+      (a.el.name || '').localeCompare(b.el.name || '', undefined, { numeric: true, sensitivity: 'base' }),
+    )
+  }
   return Array.from(map.values())
 })
 

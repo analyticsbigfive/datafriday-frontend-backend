@@ -271,6 +271,7 @@ bloqué qu'après 10 min **sans aucun progrès**. Combiné à un fix backend (BU
 parallélisation de la bissection de collecte Weezevent, jusque-là strictement séquentielle).
 | [235](235_conformite_charte_typographique_tokens.md) | Conformité charte typo : tokens CSS (`--fs-*`/`--fw-*`), checker `pnpm lint:typo`, nettoyage police Roboto, migration progressive par domaine (role/user/market-prices/events/spaces/analyse faits ; menu-fb/views/EventPredictView restants) | 🟡 En cours | 🟢 | Transverse / Charte graphique |
 | [236](236_hr_crypto_randomuuid_contexte_non_securise.md) | HR : `crypto.randomUUID is not a function` sur IP LAN/HTTP (contexte non sécurisé) → création d'enregistrements impossible ; fix helper `newId()` à repli. + alignement UI de HR sur le pattern Settings (bandeau rouge, drawers, delete-dialogs, switcher d'onglets, searchbar) | 🟡 Corrigé non déployé | 🟠 | RH / Staffing |
+| [235](235_builder2_labels_pdv_lisibilite_tri_alphabetique.md) | Builder v2 — libellés PDV illisibles (ton sur ton) + liste du panneau droit non triée | 🟡 Corrigé non déployé | 🟡 | Espaces & builder |
 
 **231 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
 l'origine 193-203 sur cette branche, renumérotés au merge dans `develop` le 2026-07-22 pour éviter
