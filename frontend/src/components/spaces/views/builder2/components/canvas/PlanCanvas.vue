@@ -317,11 +317,11 @@
             </g>
             <text
               :x="element.x * scale + (element.width * scale) / 2"
-              :y="element.y * scale + (element.depth * scale) / 2"
+              :y="element.y * scale + element.depth * scale + 12"
               class="small"
               :fill="(element.id === selectedElementId || isElementHighlighted(element) || highlightedElementIds.includes(element.id)) ? getDarkerColor(element.type) : getElementColor(element.type)"
               text-anchor="middle"
-              dominant-baseline="middle"
+              dominant-baseline="hanging"
               pointer-events="none"
             >
               {{ element.name }}
