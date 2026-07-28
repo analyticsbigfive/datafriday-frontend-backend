@@ -184,15 +184,26 @@ export class EventsService {
   private async resolveEventSpaceFields(
     dto: CreateEventDto | UpdateEventDto,
     tenantId: string,
-  ): Promise<Record<string, string>> {
-    const data: Record<string, string> = {};
+  ): Promise<Record<string, string | null>> {
+    const data: Record<string, string | null> = {};
     if (dto.spaceId !== undefined) {
-      await this.findOwnedSpaceOrThrow(dto.spaceId, tenantId);
-      data.spaceId = dto.spaceId;
+      if (dto.spaceId === null) {
+        // Démapper (étape 4 Data Integration) : détache l'event du space sans le
+        // supprimer. Emporte configurationId (n'a de sens que scopé à un space).
+        data.spaceId = null;
+        if (dto.configurationId === undefined) data.configurationId = null;
+      } else {
+        await this.findOwnedSpaceOrThrow(dto.spaceId, tenantId);
+        data.spaceId = dto.spaceId;
+      }
     }
     if (dto.configurationId !== undefined) {
-      await this.findOwnedConfigOrThrow(dto.configurationId, tenantId);
-      data.configurationId = dto.configurationId;
+      if (dto.configurationId === null) {
+        data.configurationId = null;
+      } else {
+        await this.findOwnedConfigOrThrow(dto.configurationId, tenantId);
+        data.configurationId = dto.configurationId;
+      }
     }
     return data;
   }

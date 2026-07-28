@@ -4,8 +4,9 @@ import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, IsBoolean, 
 export class CreateEventDto {
   @ApiProperty() @IsString() @IsNotEmpty() name: string;
   @ApiProperty() @IsDateString() eventDate: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() spaceId?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() configurationId?: string;
+  // nullable : démapper un event d'un space (étape 4 Data Integration) sans le supprimer
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() spaceId?: string | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() configurationId?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() eventTypeId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventCategoryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventSubcategoryId?: string;

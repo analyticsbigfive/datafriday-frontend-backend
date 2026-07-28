@@ -310,6 +310,20 @@ describe('EventsService', () => {
       expect(mockPrisma.event.update).not.toHaveBeenCalled();
     });
 
+    it('unmaps an event (spaceId: null) without an ownership lookup, and clears configurationId along with it', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, spaceId: null, configurationId: null });
+
+      await service.update('evt-1', 'tenant-1', { spaceId: null } as any);
+
+      expect(mockPrisma.space.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.event.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ spaceId: null, configurationId: null }),
+        }),
+      );
+    });
+
     it('rejects a configurationId belonging to another tenant (BUG-34 regression)', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.config.findFirst.mockResolvedValue(null);
