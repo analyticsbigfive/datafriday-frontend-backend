@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -86,78 +86,11 @@ export class CreatePredictVersionDto {
   selectedTimeRange?: { start: string | null; end: string | null } | null;
 }
 
-export class PatchPredictVersionDto {
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  spaceId?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsObject()
-  eventSnapshot?: Record<string, any>;
-
-  @ApiPropertyOptional({ type: Number })
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  totalRevenue?: number;
-
-  @ApiPropertyOptional({ type: Number })
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  adjustedTotalRevenue?: number;
-
-  @ApiPropertyOptional({ type: Number })
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  perCapita?: number;
-
-  @ApiPropertyOptional({ type: Number })
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  adjustedPerCapita?: number;
-
-  @ApiPropertyOptional({ type: 'object' })
-  @IsOptional()
-  @IsObject()
-  menuConfig?: Record<string, any>;
-
-  @ApiPropertyOptional({ type: 'object' })
-  @IsOptional()
-  @IsObject()
-  quantityAdjustments?: Record<string, any>;
-
-  @ApiPropertyOptional({ type: 'object' })
-  @IsOptional()
-  @IsObject()
-  manualQuantities?: Record<string, number>;
-
-  @ApiPropertyOptional({ type: 'array' })
-  @IsOptional()
-  @IsArray()
-  predictedRecords?: Array<Record<string, unknown>>;
-
-  @ApiPropertyOptional({ type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  selectedPredictionEventIds?: string[];
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @ValidateIf((o) => o.selectedTimeRange !== null)
-  @IsObject()
-  selectedTimeRange?: { start: string | null; end: string | null } | null;
-}
+// isDefault exclu volontairement : le passage en défaut passe uniquement par
+// PUT .../predict-versions/default (SetDefaultVersionDto), jamais par ce patch générique.
+export class PatchPredictVersionDto extends PartialType(
+  OmitType(CreatePredictVersionDto, ['isDefault'] as const),
+) {}
 
 export class SetDefaultVersionDto {
   @ApiPropertyOptional({ description: 'ID de la version à passer en default, null pour retirer le défaut', nullable: true })

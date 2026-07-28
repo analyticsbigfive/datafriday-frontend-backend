@@ -74,7 +74,7 @@
           </template>
           <template #item.actions="{ item }">
             <div class="etl-actions">
-              <div class="etl-abtn etl-abtn--info" @click.stop="openDetailsDialog(item)">
+              <div class="etl-abtn etl-abtn--info" @click.stop="openDetailsDrawer(item)">
                 <Eye :size="15" />
               </div>
               <div class="etl-abtn etl-abtn--edit" @click.stop="openEditDialog(item)">
@@ -276,7 +276,7 @@ export default {
       }
     },
 
-    openDetailsDialog(type) {
+    openDetailsDrawer(type) {
       this.detailsType = type;
       this.detailsDrawer = true;
     },

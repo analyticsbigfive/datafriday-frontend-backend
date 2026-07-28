@@ -18,6 +18,8 @@ import { PrismaModule } from '../../core/database/prisma.module';
     PredictVersionsStandaloneController,
   ],
   providers: [EventsService, EventWeezeventLinkService, PredictVersionsService],
-  exports: [EventsService, EventWeezeventLinkService, PredictVersionsService],
+  // Seul EventWeezeventLinkService est consommé hors module (par WeezeventModule) —
+  // EventsService/PredictVersionsService n'ont aucun consommateur externe.
+  exports: [EventWeezeventLinkService],
 })
 export class EventsModule {}

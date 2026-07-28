@@ -1274,7 +1274,7 @@ export default {
               this.bulkCreateEventsErrors++
             }
           }
-          this.bulkCreateEventsProgress = Math.min(i + BATCH, toCreate.length)
+          this.bulkCreateEventsProgress = Math.min(i + BULK_CREATE_BATCH_SIZE, toCreate.length)
         }
 
         const patchSummary = patchedCount > 0 ? `${patchedCount} ${this.t('intgTimelineBulkEventsAttached')} ` : ''

@@ -257,6 +257,10 @@
 | [239-02](239_02_csvimportdrawer_eventenddate_eventendtime_absents_mapping.md) | Import CSV événements : `eventEndDate`/`eventEndTime` absents du mapping malgré usage backend réel (multi-jours, fenêtre live) | 🟢 Corrigé | 🟠 | Événements |
 | [240-02](240_02_csvimportdrawer_sessions_multiples_non_parsees.md) | Import CSV événements : événements multi-sessions, une seule session capturée (colonne "All Sessions" non parsée) | 🟢 Corrigé | 🟡 | Événements |
 | [241-02](241_02_csvimportdrawer_menu_select_derriere_scrim_drawer.md) | Import CSV événements : menu déroulant d'un `v-select` invisible/inatteignable (z-index Vuetify posé sur `.v-overlay`, pas `.v-overlay__content` — 1er correctif inefficace, cause probable réelle du BUG-237-02) | 🟡 Corrigé non déployé | 🔴 | Événements |
+| [242-02](242_02_stepprocesstimeline_batch_non_declaree_bulkcreateevents.md) | `bulkCreateEvents()` : variable `BATCH` non déclarée, `ReferenceError` dès plus de 5 events à créer | 🟡 Corrigé non testé | 🔴 | Intégrations & ventes |
+| [243-02](243_02_createeventdialog_champs_performer_sponsor_openingact_absents.md) | `CreateEventDialog.vue` (wizard) : champs performer/sponsor/opening act absents | 🟡 Corrigé non testé | 🟡 | Intégrations & ventes / Événements |
+| [244-02](244_02_nettoyage_code_mort_domaine_events.md) | Nettoyage de code mort confirmé du domaine Événements (fichiers, exports API, clés i18n) | 🟡 Corrigé non testé | 🟢 | Événements / Analyse & agrégation |
+| [245-02](245_02_eventstypelistview_opendetailsdialog_nommage_incoherent.md) | `EventsTypeListView.vue` : `openDetailsDialog()` nommé différemment des 2 autres vues taxonomie | 🟡 Corrigé non testé | 🟢 | Événements |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
