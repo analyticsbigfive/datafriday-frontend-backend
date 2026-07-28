@@ -9,8 +9,8 @@
             <Edit2Icon :size="17" color="#ff3131" />
           </div>
           <div>
-            <div class="font-weight-semibold" style="font-size: .95rem;">{{ t('b2EditZoneTitle') }}</div>
-            <div class="text-medium-emphasis" style="font-size: .8rem;">{{ t('b2EditZoneSubtitle') }}</div>
+            <div class="font-weight-semibold" style="font-size: var(--fs-lg);">{{ t('b2EditZoneTitle') }}</div>
+            <div class="text-medium-emphasis" style="font-size: var(--fs-base);">{{ t('b2EditZoneSubtitle') }}</div>
           </div>
         </div>
         <v-btn icon size="small" variant="text" @click="$emit('update:modelValue', false)">
@@ -140,7 +140,7 @@
                   />
                 </div>
               </div>
-              <p class="text-caption text-medium-emphasis mt-2 mb-0" style="font-size: .78rem;">
+              <p class="text-caption text-medium-emphasis mt-2 mb-0" style="font-size: var(--fs-sm);">
                 {{ t('b2DragHoleHint') }}
               </p>
             </template>

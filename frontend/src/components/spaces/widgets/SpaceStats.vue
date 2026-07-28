@@ -171,7 +171,7 @@ export default {
   flex-shrink: 0;
 }
 .ss-stat__label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: .04em;
   text-transform: uppercase;
@@ -182,7 +182,7 @@ export default {
 
 /* ── Value ── */
 .ss-stat__val {
-  font-size: 17px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -.02em;
@@ -204,7 +204,7 @@ export default {
 
 /* ── Percent ── */
 .ss-stat__pct {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: #9ca3af;
   font-weight: 400;
 }

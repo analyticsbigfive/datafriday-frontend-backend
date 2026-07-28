@@ -508,7 +508,7 @@ export default {
   flex-shrink: 0;
 }
 .slv-page-title {
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #111827;
   margin: 0;
@@ -527,7 +527,7 @@ export default {
   padding: 0 8px;
   background: rgba(255, 49, 49,.10);
   color: #ff3131;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
 }
 .slv-filter-bar__controls {
@@ -555,7 +555,7 @@ export default {
   border: 1.5px solid #e5e7eb;
   border-radius: 50px;
   padding: 0 14px 0 34px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   color: #111827;
   background: #f9fafb;
   outline: none;
@@ -575,7 +575,7 @@ export default {
   border: 1.5px solid #e5e7eb;
   border-radius: 50px;
   padding: 0 30px 0 14px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   color: #374151;
   background: #f9fafb url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
   -webkit-appearance: none;
@@ -638,7 +638,7 @@ export default {
   padding: 0 18px;
   height: 38px;
   border-radius: 50px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 500;
   border: none;
   cursor: pointer;
@@ -693,7 +693,7 @@ export default {
   background: rgba(255, 49, 49,.08);
   color: #ff3131;
   border-radius: 50px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   cursor: pointer;
   transition: background .2s;
@@ -703,7 +703,7 @@ export default {
 .slv-clear-btn {
   background: none;
   border: none;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: #6b7280;
   cursor: pointer;
   padding: 0 4px;
@@ -719,7 +719,7 @@ export default {
   padding: 64px 0;
   gap: 16px;
 }
-.slv-loading__text { color: #6b7280; font-size: 14px; margin: 0; }
+.slv-loading__text { color: #6b7280; font-size: var(--fs-md); margin: 0; }
 
 /* ========== ERROR ========== */
 .slv-error-banner {
@@ -731,7 +731,7 @@ export default {
   color: #991b1b;
   border-radius: 12px;
   padding: 12px 16px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   margin: 16px 0;
 }
 .slv-error-retry {
@@ -741,7 +741,7 @@ export default {
   color: #ff3131;
   font-weight: 500;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-md);
   text-decoration: underline;
 }
 
@@ -763,8 +763,8 @@ export default {
   align-items: center;
   justify-content: center;
 }
-.slv-empty__title { font-size: 20px; font-weight: 700; color: #111827; }
-.slv-empty__sub { font-size: 14px; color: #6b7280; max-width: 360px; margin: 0 0 8px; }
+.slv-empty__title { font-size: var(--fs-xl); font-weight: 700; color: #111827; }
+.slv-empty__sub { font-size: var(--fs-md); color: #6b7280; max-width: 360px; margin: 0 0 8px; }
 
 /* ========== GRID VIEW ========== */
 .slv-grid {
@@ -781,7 +781,7 @@ export default {
   color: #ff3131;
   border-radius: 50px;
   padding: 2px 9px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: .03em;
   white-space: nowrap;
@@ -827,7 +827,7 @@ export default {
   min-width: 0;
 }
 .slv-card-row__name {
-  font-size: 14.5px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: #111827;
   white-space: nowrap;
@@ -845,7 +845,7 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #6b7280;
 }
 
@@ -859,12 +859,12 @@ export default {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: #6b7280;
   white-space: nowrap;
 }
 .slv-card-row__stat--rev {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: #059669;
 }

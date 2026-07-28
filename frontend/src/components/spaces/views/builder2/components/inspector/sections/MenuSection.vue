@@ -130,7 +130,7 @@ watch(
   background: none;
   border: none;
   outline: none;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: inherit;
   min-width: 0;
 }
@@ -180,14 +180,14 @@ watch(
 }
 
 .ms-item__name {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   line-height: 1.3;
 }
 .ms-item__badge {
   flex-shrink: 0;
   align-self: flex-start;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   padding: 2px 9px;
   border-radius: 100px;
@@ -196,12 +196,12 @@ watch(
   white-space: nowrap;
 }
 .ms-item__sub {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(var(--v-theme-on-surface), 0.55);
   margin-top: 3px;
 }
 .ms-item__price {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   margin-top: 3px;
   font-weight: 400;
   color: rgba(var(--v-theme-on-surface), 0.8);
