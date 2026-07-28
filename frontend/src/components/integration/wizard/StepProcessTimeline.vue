@@ -553,7 +553,10 @@ const SINGLE_EVENT_POLL_MAX_ATTEMPTS = 120 // ~2 min
 const SINGLE_EVENT_RETRY_DELAY_MS = 5000 // network/timeout retry before reloading the timeline
 // Poll cadence for the final sync job (waitForSyncJob)
 const SYNC_JOB_POLL_INTERVAL_MS = 2500
-const SYNC_JOB_POLL_MAX_WAIT_MS = 10 * 60 * 1000 // 10 min
+// Timeout d'inactivité (pas de durée totale) : réinitialisé à chaque progrès constaté
+// (progress.current) — cf. waitForSyncJob(). Un gros tenant peut légitimement tourner
+// longtemps tant qu'il avance ; on n'abandonne que si plus rien ne bouge pendant ce délai.
+const SYNC_JOB_POLL_MAX_STALL_MS = 10 * 60 * 1000
 // Batch sizes for bulkCreateEvents
 const BULK_PATCH_BATCH_SIZE = 10
 const BULK_CREATE_BATCH_SIZE = 5
@@ -999,23 +1002,30 @@ export default {
     },
 
     async waitForSyncJob() {
-      const start = Date.now()
-      while (Date.now() - start < SYNC_JOB_POLL_MAX_WAIT_MS) {
+      let lastProgressAt = Date.now()
+      let lastProgressSignature = null
+      while (Date.now() - lastProgressAt < SYNC_JOB_POLL_MAX_STALL_MS) {
         // Le composant a été démonté (changement d'étape du wizard, fermeture) : on
-        // arrête le polling au lieu de continuer en arrière-plan jusqu'à 10 min.
+        // arrête le polling au lieu de continuer en arrière-plan.
         if (this.syncPollAbandoned) return
         await new Promise(resolve => setTimeout(resolve, SYNC_JOB_POLL_INTERVAL_MS))
         if (this.syncPollAbandoned) return
         const progress = await this.checkProgress()
         if (this.syncPollAbandoned) return
         if (!progress) continue
+        const signature = `${progress.current ?? ''}|${progress.percentage ?? ''}`
+        if (signature !== lastProgressSignature) {
+          lastProgressSignature = signature
+          lastProgressAt = Date.now()
+        }
         const status = (progress.status || progress.state || '').toLowerCase()
         if (['completed', 'done', 'finished', 'success'].includes(status)) return
         if (['failed', 'error', 'cancelled'].includes(status)) {
           throw new Error(progress.error || progress.message || this.t('intgTimelineSyncFailed'))
         }
       }
-      // Timeout dépassé — on reload quand même la timeline
+      // Aucun progrès depuis SYNC_JOB_POLL_MAX_STALL_MS — job probablement bloqué. On reload
+      // quand même la timeline (elle reflétera l'état réel côté backend).
     },
     handleRetry() {
       this.resetSync()
