@@ -613,24 +613,24 @@ async function exportExcel() {
 
 <style scoped>
 .section-title {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: #212121;
 }
 /* Aligné sur MenuItemRevenueDistribution.vue (même bandeau d'en-tête). */
 .section-subtitle {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
 }
 .shop-name {
   font-weight: 500;
   color: #212121;
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 .shop-stats {
   color: #757575;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* Lot 0.5 — Toolbar « Articles du menu par PdV » : recherche en pilule grise
@@ -655,7 +655,7 @@ async function exportExcel() {
   border: 0;
   outline: 0;
   padding: 0 8px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #0f172a;
 }
 .mibs-search-input::placeholder {
@@ -667,7 +667,7 @@ async function exportExcel() {
   background-color: #ffffff;
   border-radius: 9999px;
   padding: 0 26px 0 12px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #0f172a;
   font-weight: 500;
   cursor: pointer;
@@ -693,12 +693,12 @@ async function exportExcel() {
   min-height: 38px !important;
   padding-top: 4px !important;
   padding-bottom: 4px !important;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 .mibs-select :deep(.v-field__input input::placeholder) {
   color: #6B7280;
   opacity: 1;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 .mibs-select :deep(.v-field__outline__start),
 .mibs-select :deep(.v-field__outline__end) {
@@ -706,7 +706,7 @@ async function exportExcel() {
 }
 .mibs-select :deep(.v-chip) {
   height: 22px !important;
-  font-size: 12px !important;
+  font-size: var(--fs-sm)!important;
   margin: 1px 2px !important;
 }
 
@@ -715,7 +715,7 @@ async function exportExcel() {
 .mibs-items-table :deep(th) {
   font-weight: 500;
   color: #6B7280;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   text-transform: none;
   background-color: #F9FAFB;
 }

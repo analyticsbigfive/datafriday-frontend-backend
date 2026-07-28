@@ -59,7 +59,7 @@ function removeItem(value) {
 
 <style scoped>
 .filter-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #ff3131;
   text-transform: uppercase;
@@ -82,7 +82,7 @@ function removeItem(value) {
   background: #fff;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .12);
 }
-.multi-select-filter :deep(.v-field__input) { font-size: 13px; min-height: 38px; }
+.multi-select-filter :deep(.v-field__input) { font-size: var(--fs-base); min-height: 38px; }
 
 /* ── Dark mode (autonome via useTheme) ── */
 .multi-select-filter--dark :deep(.v-field) {
@@ -122,7 +122,7 @@ function removeItem(value) {
   color: #ff3131 !important;
 }
 .ms-menu .v-list-item--active .v-list-item-title { font-weight: 700; }
-.ms-menu .v-list-item-title { font-size: 13.5px; }
+.ms-menu .v-list-item-title { font-size: var(--fs-base); }
 /* Case à cocher accent rouge marque */
 .ms-menu .v-selection-control__input > .v-icon { color: #ff3131 !important; }
 /* Scrollbar discrète */

@@ -103,20 +103,20 @@ export default {
 }
 .kpi-label {
   font-size: 0.75rem;
-  font-weight: 750;
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
 .kpi-variation {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   white-space: nowrap;
 }
 .kpi-value {
   color: #212121;
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   line-height: 1.1;
   letter-spacing: -0.3px;
   font-variant-numeric: tabular-nums;

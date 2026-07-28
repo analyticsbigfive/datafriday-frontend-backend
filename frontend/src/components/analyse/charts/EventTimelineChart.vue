@@ -697,7 +697,7 @@ watch(
   color: rgb(var(--v-theme-on-surface));
   cursor: pointer;
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 .etc-timefield:hover .form-control,
 .etc-timefield:hover .input-group-text { border-color: var(--fb-border-strong, #d1d5db); }
@@ -720,7 +720,7 @@ watch(
   border: 1px solid var(--fb-border, #e5e7eb);
   background: transparent;
   color: rgba(var(--v-theme-on-surface), 0.7);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   padding: 4px 12px;
 }
@@ -737,7 +737,7 @@ watch(
   border: 0;
   background: transparent;
   color: rgba(var(--v-theme-on-surface), 0.7);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 .etc-btn-ghost:hover { background: rgba(255, 49, 49, 0.08); color: #ff3131; }

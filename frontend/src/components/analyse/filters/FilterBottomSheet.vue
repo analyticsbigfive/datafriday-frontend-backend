@@ -265,7 +265,7 @@ function onReset() {
   }
 }
 .group-title {
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: #212121;
   text-transform: uppercase;
