@@ -14,18 +14,12 @@
         <div class="hdd__warning-icon">
           <Trash2 :size="34" color="white" />
         </div>
-        <h3 class="hdd__title">{{ t('hrDeleteSupplierTitle') }}</h3>
+        <h3 class="hdd__title">{{ title || t('hrDeleteSupplierTitle') }}</h3>
         <p class="hdd__message">
-          {{ t('hrDeleteConfirm') }} <strong>"{{ supplierName }}"</strong> ?
+          {{ t('hrDeleteConfirm') }} <strong>"{{ itemName }}"</strong> ?
           <br />
           <span class="hdd__irreversible">{{ t('hrDeleteIrreversible') }}</span>
         </p>
-      </div>
-
-      <!-- Error -->
-      <div v-if="error" class="hdd__error">
-        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />
-        {{ error }}
       </div>
 
       <!-- Footer -->
@@ -45,43 +39,30 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useTheme } from 'vuetify'
-import { AlertCircle, Trash2, X } from 'lucide-vue-next'
+import { Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
-import * as hrApi from '@/utils/hrApi'
 
-const props = defineProps({
+defineProps({
   modelValue: { type: Boolean, default: false },
-  supplierName: { type: String, default: '' },
-  supplierId: { type: [String, Number], default: null },
+  // Nom de l'élément à supprimer, affiché dans le message (agence ou poste).
+  itemName: { type: String, default: '' },
+  // Titre du dialog ; défaut = suppression d'agence.
+  title: { type: String, default: '' },
+  // Piloté par le parent pendant la suppression asynchrone.
+  loading: { type: Boolean, default: false },
 })
-const emit = defineEmits(['update:modelValue', 'deleted'])
+const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const theme = useTheme()
 const isDark = computed(() => !!theme.global.current.value.dark)
 
-const loading = ref(false)
-const error = ref('')
-
 function close() {
-  error.value = ''
-  loading.value = false
   emit('update:modelValue', false)
 }
-async function confirm() {
-  if (!props.supplierId) { error.value = t('hrSaveError'); return }
-  loading.value = true
-  error.value = ''
-  try {
-    await hrApi.deleteHRSupplier(props.supplierId)
-    emit('deleted')
-    close()
-  } catch (e) {
-    error.value = t('hrSaveError')
-  } finally {
-    loading.value = false
-  }
+function confirm() {
+  emit('confirm')
 }
 </script>
 

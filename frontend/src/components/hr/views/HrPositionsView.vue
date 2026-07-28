@@ -1,22 +1,22 @@
 <template>
-  <div id="hr-suppliers-page">
+  <div id="hr-positions-page">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
       <div class="hsl-header__inner">
         <div class="hsl-header__left">
           <div class="hsl-header__icon">
-            <Building2 :size="22" color="white" />
+            <Briefcase :size="22" color="white" />
           </div>
           <div>
-            <h1 class="hsl-header__title">{{ t('navHrSuppliers') }}</h1>
-            <p class="hsl-header__subtitle">{{ t('hrSuppliersSubtitle') }}</p>
+            <h1 class="hsl-header__title">{{ t('navHrPositions') }}</h1>
+            <p class="hsl-header__subtitle">{{ t('hrPositionsSubtitle') }}</p>
           </div>
         </div>
         <div class="hsl-header__right">
           <button class="hsl-add-btn" @click="openAdd">
             <Plus :size="17" class="me-1" />
-            {{ t('hrSuppliersAdd') }}
+            {{ t('hrPositionsAdd') }}
           </button>
         </div>
       </div>
@@ -30,9 +30,9 @@
           v-model="searchQuery"
           class="hsl-searchbar__input"
           type="search"
-          :placeholder="t('hrSuppliersSearch')"
+          :placeholder="t('hrPositionsSearch')"
         />
-        <span class="hsl-searchbar__count">{{ filtered.length }} {{ t('hrSuppliersCount') }}</span>
+        <span class="hsl-searchbar__count">{{ filtered.length }} {{ t('hrPositionsCount') }}</span>
         <button v-if="searchQuery" class="hsl-searchbar__clear" :aria-label="t('hrCancel')" @click="searchQuery = ''">
           <X :size="16" />
         </button>
@@ -51,34 +51,24 @@
           density="comfortable"
           class="hsl-table"
         >
-          <template #item.name="{ item }">
+          <template #item.positionName="{ item }">
             <div class="d-flex align-center" style="gap:12px">
-              <div v-if="item.picture" class="hsl-avatar hsl-avatar--img"><img :src="item.picture" :alt="item.name" /></div>
-              <div v-else class="hsl-avatar" :style="{ background: avatarGradient(item.name) }">{{ getInitials(item.name) }}</div>
-              <div>
-                <div class="hsl-cell-name">{{ item.name }}</div>
-                <div v-if="item.contactName" class="hsl-cell-sub">{{ item.contactName }}</div>
-              </div>
+              <div class="hsl-avatar" :style="{ background: avatarGradient(item.positionName) }">{{ getInitials(item.positionName) }}</div>
+              <div class="hsl-cell-name">{{ item.positionName }}</div>
             </div>
           </template>
 
-          <template #item.email="{ item }">{{ item.email || '—' }}</template>
-          <template #item.phone="{ item }">{{ item.phone || '—' }}</template>
-
-          <template #item.spaces="{ item }">
-            <div class="d-flex flex-wrap" style="gap:4px">
-              <span v-for="(name, i) in spaceNames(item.spaceIds).slice(0, 3)" :key="i" class="hsl-badge">{{ name }}</span>
-              <span v-if="spaceNames(item.spaceIds).length > 3" class="hsl-badge hsl-badge--more">+{{ spaceNames(item.spaceIds).length - 3 }}</span>
-              <span v-if="!(item.spaceIds || []).length" class="hsl-badge hsl-badge--more">—</span>
-            </div>
+          <template #item.supplier="{ item }">
+            <span class="hsl-badge">{{ supplierName(item.supplierId) }}</span>
           </template>
 
-          <template #item.sectors="{ item }">
-            <div class="d-flex flex-wrap" style="gap:4px">
-              <span v-for="(sec, i) in (item.sectors || []).slice(0, 3)" :key="i" class="hsl-badge">{{ sec }}</span>
-              <span v-if="(item.sectors || []).length > 3" class="hsl-badge hsl-badge--more">+{{ (item.sectors || []).length - 3 }}</span>
-              <span v-if="!(item.sectors || []).length" class="hsl-badge hsl-badge--more">—</span>
-            </div>
+          <template #item.sector="{ item }">
+            <span v-if="item.sector" class="hsl-badge">{{ item.sector }}</span>
+            <span v-else class="hsl-badge hsl-badge--more">—</span>
+          </template>
+
+          <template #item.ratePerHour="{ item }">
+            <span class="hsl-cell-rate">{{ formatRate(item.ratePerHour) }}</span>
           </template>
 
           <template #item.actions="{ item }">
@@ -90,8 +80,8 @@
 
           <template #no-data>
             <div class="hsl-empty">
-              <div class="hsl-empty__icon"><Building2 :size="40" style="color:#d1d5db" /></div>
-              <h3 class="hsl-empty__title">{{ t('hrSuppliersEmpty') }}</h3>
+              <div class="hsl-empty__icon"><Briefcase :size="40" style="color:#d1d5db" /></div>
+              <h3 class="hsl-empty__title">{{ t('hrPositionsEmpty') }}</h3>
             </div>
           </template>
         </v-data-table>
@@ -99,19 +89,20 @@
     </div>
 
     <!-- Drawer création / édition -->
-    <HrSupplierFormDrawer
+    <HrPositionFormDrawer
       v-model="drawerOpen"
       :mode="drawerMode"
       :initial="editing"
-      :spaces="spaces"
+      :suppliers="suppliers"
+      :position-names="positionNames"
       @saved="load"
     />
 
     <!-- Dialog suppression -->
     <HrDeleteDialog
       v-model="deleteOpen"
-      :item-name="deleteTarget?.name || ''"
-      :title="t('hrDeleteSupplierTitle')"
+      :item-name="deleteTarget?.positionName || ''"
+      :title="t('hrDeletePositionTitle')"
       :loading="deleting"
       @confirm="confirmDelete"
     />
@@ -121,14 +112,13 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { Building2, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
+import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
-import { getSpacesLight } from '@/api/endpoints/space.api'
-import HrSupplierFormDrawer from '../drawers/HrSupplierFormDrawer.vue'
+import HrPositionFormDrawer from '../drawers/HrPositionFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
 
-// Avatars de table (parité SuppliersListView).
+// Avatars de table (parité HrSuppliersView).
 const AVATAR_GRADIENTS = [
   'linear-gradient(135deg,#ff3131,#e84444)',
   'linear-gradient(135deg,#6c63ff,#a29bfe)',
@@ -148,48 +138,56 @@ function avatarGradient(name) {
 }
 
 const tableHeaders = [
-  { title: t('hrColName'), key: 'name' },
-  { title: t('hrColEmail'), key: 'email', sortable: false },
-  { title: t('hrColPhone'), key: 'phone', sortable: false },
-  { title: t('hrColSpaces'), key: 'spaces', sortable: false },
-  { title: t('hrColSectors'), key: 'sectors', sortable: false },
+  { title: t('hrColPosition'), key: 'positionName' },
+  { title: t('hrColSupplier'), key: 'supplier', sortable: false },
+  { title: t('hrColSector'), key: 'sector', sortable: false },
+  { title: t('hrColRate'), key: 'ratePerHour' },
   { title: '', key: 'actions', sortable: false, align: 'end' },
 ]
 
+const positions = ref([])
 const suppliers = ref([])
-const spaces = ref([])
+const positionNames = ref([])
 const searchQuery = ref('')
 const loading = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    const [supplierRows, spaceRows] = await Promise.all([
+    const [positionRows, supplierRows, nameRows] = await Promise.all([
+      hrApi.getAllStaffPositions(),
       hrApi.getAllHRSuppliers(),
-      getSpacesLight().catch(() => []),
+      hrApi.getAllPositionNames(),
     ])
+    positions.value = Array.isArray(positionRows) ? positionRows : []
     suppliers.value = Array.isArray(supplierRows) ? supplierRows : []
-    spaces.value = Array.isArray(spaceRows) ? spaceRows : []
+    positionNames.value = Array.isArray(nameRows) ? nameRows : []
   } finally {
     loading.value = false
   }
 }
 onMounted(load)
 
-const spaceNameById = computed(() => Object.fromEntries(spaces.value.map((s) => [s.id, s.name])))
-function spaceNames(ids = []) {
-  return ids.map((id) => spaceNameById.value[id] || id)
+const supplierNameById = computed(() => Object.fromEntries(suppliers.value.map((s) => [s.id, s.name])))
+function supplierName(id) {
+  return supplierNameById.value[id] || '—'
+}
+function formatRate(rate) {
+  if (rate === null || rate === undefined || rate === '') return '—'
+  const n = Number(rate)
+  if (Number.isNaN(n)) return '—'
+  return `${n.toLocaleString('fr-FR')} / h`
 }
 
 const filtered = computed(() => {
   const q = searchQuery.value?.trim().toLowerCase()
-  if (!q) return suppliers.value
-  return suppliers.value.filter((s) =>
-    [s.name, s.email, s.phone, s.contactName].some((v) => (v || '').toLowerCase().includes(q))
+  if (!q) return positions.value
+  return positions.value.filter((p) =>
+    [p.positionName, p.sector, supplierName(p.supplierId)].some((v) => (v || '').toLowerCase().includes(q))
   )
 })
 
-// Création / édition : drawer coulissant. Suppression : dialog (étape suivante).
+// Création / édition : drawer coulissant.
 const drawerOpen = ref(false)
 const drawerMode = ref('create')
 const editing = ref(null)
@@ -198,9 +196,9 @@ function openAdd() {
   editing.value = null
   drawerOpen.value = true
 }
-function openEdit(supplier) {
+function openEdit(position) {
   drawerMode.value = 'edit'
-  editing.value = supplier
+  editing.value = position
   drawerOpen.value = true
 }
 
@@ -208,15 +206,15 @@ function openEdit(supplier) {
 const deleteOpen = ref(false)
 const deleteTarget = ref(null)
 const deleting = ref(false)
-function onDelete(supplier) {
-  deleteTarget.value = supplier
+function onDelete(position) {
+  deleteTarget.value = position
   deleteOpen.value = true
 }
 async function confirmDelete() {
   if (!deleteTarget.value?.id) return
   deleting.value = true
   try {
-    await hrApi.deleteHRSupplier(deleteTarget.value.id)
+    await hrApi.deleteStaffPosition(deleteTarget.value.id)
     deleteOpen.value = false
     deleteTarget.value = null
     await load()
@@ -227,9 +225,9 @@ async function confirmDelete() {
 </script>
 
 <style scoped>
-/* Vue rendue dans le chrome DashboardView (barre + rail), comme SuppliersListView :
-   pas de header applicatif propre. Style calqué sur .slv-* (tokens de la charte). */
-#hr-suppliers-page {
+/* Vue rendue dans le chrome DashboardView (barre + rail), comme HrSuppliersView :
+   pas de header applicatif propre. Style calqué sur .hsl-* / .slv-* (tokens de la charte). */
+#hr-positions-page {
   background: #f4f5f7;
   height: 100%;
   overflow-y: auto;
@@ -308,7 +306,7 @@ async function confirmDelete() {
 /* ── Contenu ── */
 .hsl-content { padding: 24px 28px; }
 
-/* ── Table (parité .slv-table) ── */
+/* ── Table (parité .hsl-table) ── */
 .hsl-table-wrap {
   background: #fff;
   border-radius: 16px;
@@ -335,7 +333,7 @@ async function confirmDelete() {
 .hsl-table :deep(.v-data-table-footer) { border-top: 1px solid #e5e7eb; background: #fafafa !important; }
 
 .hsl-cell-name { font-weight: var(--fw-semibold); font-size: var(--fs-md); }
-.hsl-cell-sub { font-size: var(--fs-sm); color: #9ca3af; }
+.hsl-cell-rate { font-weight: var(--fw-semibold); font-size: var(--fs-md); color: #111827; }
 
 .hsl-avatar {
   width: 36px;
@@ -349,8 +347,6 @@ async function confirmDelete() {
   font-weight: var(--fw-bold);
   color: #fff;
 }
-.hsl-avatar--img { background: #f3f4f6; overflow: hidden; }
-.hsl-avatar--img img { width: 100%; height: 100%; object-fit: cover; }
 .hsl-badge {
   display: inline-flex;
   align-items: center;
