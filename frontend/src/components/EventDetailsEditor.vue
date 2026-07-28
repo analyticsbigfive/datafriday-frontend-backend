@@ -70,6 +70,40 @@
           @update:model-value="(v) => handleFieldChange('eventName', v)"
         />
 
+        <v-text-field
+          :model-value="editedEvent.performerName || ''"
+          :label="t('edePerformer')"
+          :placeholder="t('edePerformer')"
+          variant="outlined"
+          density="comfortable"
+          hide-details
+          class="ede-input ede-field-space"
+          @update:model-value="(v) => handleFieldChange('performerName', v)"
+        />
+
+        <div class="ede-row ede-field-space">
+          <v-text-field
+            :model-value="editedEvent.sponsor || ''"
+            :label="t('edeSponsor')"
+            :placeholder="t('edeSponsor')"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            class="ede-input"
+            @update:model-value="(v) => handleFieldChange('sponsor', v)"
+          />
+          <v-text-field
+            :model-value="editedEvent.openingActName || ''"
+            :label="t('edeOpeningAct')"
+            :placeholder="t('edeOpeningAct')"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            class="ede-input"
+            @update:model-value="(v) => handleFieldChange('openingActName', v)"
+          />
+        </div>
+
         <div class="ede-select-wrap ede-field-space">
           <label class="ede-select-label">{{ t('edeConfiguration') }}</label>
           <v-select

@@ -123,6 +123,18 @@
 | [109](109_aggregation_jamais_declenchee_automatiquement.md) | `queueAggregationJob()` n'est jamais déclenché automatiquement | 🟢 Corrigé | 🟠 | Analyse & agrégation / Live events |
 | [110](110_derivesalesraw_deletedat_non_filtre.md) | `deriveSalesRaw` (Logistic) ne filtre pas `SalesTransaction.deletedAt` | 🟢 Corrigé | 🟠 | Stock (Logistic) / Live events |
 | [111](111_aggregation_attendees_sync_mauvais_id.md) | Auto-sync attendees post-agrégation envoie le mauvais id à l'API Weezevent (404 systématique) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
+| [112](112_weezevent_bissection_collecte_sequentielle_timeout_gros_tenant.md) | Bissection de collecte Weezevent strictement séquentielle : import complet d'un gros tenant dépasse le timeout frontend | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+
+**112 bugs au total**, 112 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
+complet du tenant Auxerre (18 shops, gros volume) échouant systématiquement avec "délai maximal
+dépassé" sur une instance nouvellement créée. Cause racine : `WeezeventCollectWorkerService.
+fetchChunk` awaitait ses deux branches de bissection séquentiellement — pour un tenant volumineux
+l'arbre produit des dizaines/centaines d'appels HTTP enchaînés un par un, largement suffisant pour
+dépasser le timeout de polling frontend (BUG-206). Corrigé en parallélisant les deux branches
+(`Promise.all`), bornées par un sémaphore maison (`WEEZEVENT_COLLECT_CONCURRENCY`, défaut 5, même
+ordre de grandeur que `PARALLEL_CHUNKS` côté insertion) pour ne pas déclencher le rate-limit
+Weezevent ni ouvrir le circuit breaker partagé. Combiné à un fix front (BUG-235, même session :
+timeout d'inactivité au lieu de durée totale).
 
 **111 bugs au total**, 111 découvert et corrigé le 2026-07-27 en testant le widget QA "simuler une
 vente" du module Live — le déclenchement d'agrégation qu'il partage avec le webhook réel a exposé
@@ -353,9 +365,38 @@ mesurable (cf. fiche BUG-062 pour le design de fix envisagé si besoin).
 
 ## Comment ajouter un bug
 
-1. Copier [`TEMPLATE.md`](TEMPLATE.md) vers `NN_slug-court.md` (numéro suivant disponible).
-2. Remplir les champs, en citant `fichier:ligne` dès que la cause racine est identifiée.
-3. Ajouter une ligne dans le tableau ci-dessus.
+1. Copier [`TEMPLATE.md`](TEMPLATE.md) vers `NNN_AA_slug-court.md` :
+   - `NNN` = numéro suivant disponible (best-effort — voir "Collisions" ci-dessous).
+   - `AA` = ton code auteur à 2 chiffres :
+
+     | Code | Auteur |
+     |---|---|
+     | `01` | Jean-Luc |
+     | `02` | Ulrich |
+     | `03` | Emmanuel |
+
+     Un agent qui commit pour l'un d'entre eux utilise le code de la personne pour laquelle il
+     travaille (pas un code générique "agent") ; en cas de doute sur qui est l'auteur réel, demander
+     plutôt que de deviner.
+2. Remplir les champs, en citant `fichier:ligne` dès que la cause racine est identifiée. Le titre en
+   première ligne du fichier suit `# BUG-NNN-AA — Titre...`.
+3. Ajouter une ligne dans le tableau ci-dessus (référencer le bug en prose sous la forme
+   `BUG-NNN-AA`, ex. `BUG-169-02`).
 4. Si le bug touche aussi l'autre repo, créer une fiche miroir courte côté
    [`datafriday-web`](../../../datafriday-web/docs/bugs/) qui pointe vers celle-ci (voir BUG-012 /
    front BUG-007 comme exemple).
+
+**Pourquoi le code auteur (`AA`)** : `NNN` seul est "le prochain numéro disponible" au moment où on
+crée la fiche — sur des branches parallèles, deux personnes peuvent choisir le même `NNN` sans le
+savoir. C'est déjà arrivé dans ce changelog (89-103, numérotés à l'origine 77-91 sur `feat/analyse`,
+renumérotés au merge du 2026-07-20 pour éviter la collision avec 77-88 ajoutés en parallèle sur
+`develop` — voir plus bas), et il a fallu renuméroter après coup (le pendant frontend a le même
+type d'historique, en pire : un doublon `193` jamais résolu, voir son `00_INDEX.md`). Le suffixe
+`AA` rend `NNN_AA` unique dès la création : si deux
+personnes tombent sur le même `NNN`, les deux fiches coexistent simplement (`169_01` et `169_03` par
+exemple) sans renumérotation obligatoire — un nettoyage manuel reste possible plus tard si on veut,
+mais n'est plus nécessaire pour éviter un conflit.
+
+**Rétroactivité** : les fiches déjà créées avant le 2026-07-28 gardent leur nom `NN_slug.md` actuel
+(sans code auteur) — non renommées. Cette convention s'applique aux nouvelles fiches à partir de
+maintenant.

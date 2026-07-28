@@ -139,7 +139,7 @@ function toggle(shopId, checked) {
 
 <style scoped>
 .ss-hint {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: #9ca3af;
   margin: 0 2px 8px;
 }
@@ -179,7 +179,7 @@ function toggle(shopId, checked) {
 .ss-group__name {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -187,7 +187,7 @@ function toggle(shopId, checked) {
 }
 
 .ss-group__badge {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   padding: 1px 7px;
   border-radius: 100px;
@@ -199,7 +199,7 @@ function toggle(shopId, checked) {
 
 .ss-group__count {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: #9ca3af;
 }
 
@@ -229,7 +229,7 @@ function toggle(shopId, checked) {
 }
 
 .ss-shop__name {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: #374151;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -238,7 +238,7 @@ function toggle(shopId, checked) {
 
 .ss-shop__merch {
   flex-shrink: 0;
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   padding: 1px 6px;
   border-radius: 100px;

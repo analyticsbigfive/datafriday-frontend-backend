@@ -17,7 +17,7 @@
           <v-avatar :color="tool.vuetifyColor" size="47" rounded="lg" class="flex-shrink-0">
             <component :is="tool.icon" :size="22" :color="tool.iconColor" />
           </v-avatar>
-          <span class="flex-grow-1 fw-medium" style="font-size: 14px;">{{ tool.label }}</span>
+          <span class="flex-grow-1 fw-medium" style="font-size: var(--fs-md);">{{ tool.label }}</span>
           <button
             v-if="tool.hasTypes"
             class="palette-expand-btn"
@@ -115,7 +115,7 @@ function toggleSubtype(type, value) {
   border: none;
   cursor: pointer;
   color: inherit;
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .palette-item {

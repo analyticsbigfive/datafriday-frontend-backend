@@ -420,18 +420,27 @@ export default {
     },
     async _startJobPoll(jobId) {
       const { getWeezeventJobStatus } = await import('@/api/endpoints/aggregation.api.js')
-      // Aligné sur le MAX_WAIT_MS de StepProcessTimeline.vue : un job qui n'atteint
-      // jamais d'état terminal (worker orphelin…) ne doit pas poller indéfiniment.
-      const MAX_WAIT_MS = 10 * 60 * 1000
-      const startedPollingAt = Date.now()
+      // Timeout d'INACTIVITÉ plutôt que de durée totale : tant que totalCollected/
+      // totalInserted/processedChunks progressent, on continue d'attendre — un gros tenant
+      // (ex. Auxerre) peut légitimement prendre plus de 10 min. On n'abandonne que si plus
+      // aucun progrès n'est constaté pendant MAX_STALL_MS d'affilée (job vraiment bloqué :
+      // worker orphelin…). Aligné sur SyncJobFloatingWidget.vue / StepProcessTimeline.vue.
+      const MAX_STALL_MS = 10 * 60 * 1000
+      let lastProgressAt = Date.now()
+      let lastProgressSignature = null
       const poll = async () => {
-        if (Date.now() - startedPollingAt >= MAX_WAIT_MS) {
+        if (Date.now() - lastProgressAt >= MAX_STALL_MS) {
           this.jobData = { ...this.jobData, status: 'FAILED', errorMessage: this.t('intgSyncProgTimeout') }
           this._stopJobPoll()
           return
         }
         try {
           const data = await getWeezeventJobStatus(jobId)
+          const signature = `${data.totalCollected ?? 0}|${data.totalInserted ?? 0}|${data.processedChunks ?? 0}`
+          if (signature !== lastProgressSignature) {
+            lastProgressSignature = signature
+            lastProgressAt = Date.now()
+          }
           this.jobData = {
             status: data.status,
             totalCollected: data.totalCollected ?? 0,

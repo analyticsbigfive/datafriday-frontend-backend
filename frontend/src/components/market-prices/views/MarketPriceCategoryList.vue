@@ -366,13 +366,13 @@ export default {
   flex-shrink: 0;
 }
 .pcl-header__title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: #fff;
   margin: 0;
 }
 .pcl-header__subtitle {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, .72);
   margin: 3px 0 0;
 }
@@ -387,7 +387,7 @@ export default {
   border: 2px solid rgba(255, 255, 255, .85);
   background: transparent;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 700;
   cursor: pointer;
   transition: all .2s;
@@ -419,14 +419,14 @@ export default {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #111827;
 }
 .pcl-searchbar__input::placeholder {
   color: #9ca3af;
 }
 .pcl-searchbar__count {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: #9ca3af;
   white-space: nowrap;
 }

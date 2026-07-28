@@ -118,7 +118,7 @@ defineEmits(['update:modelValue'])
 
 .eds-header__title {
   color: #fff;
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 700;
 }
 
@@ -126,7 +126,7 @@ defineEmits(['update:modelValue'])
   margin-top: 2px;
   overflow: hidden;
   color: rgba(255, 255, 255, 0.75);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

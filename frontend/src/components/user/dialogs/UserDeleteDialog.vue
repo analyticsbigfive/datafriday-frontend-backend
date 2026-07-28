@@ -86,8 +86,8 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .udd-header__text { flex: 1; min-width: 0; }
-.udd-header__title { font-size: 14px; font-weight: 700; color: #fff; margin: 0; line-height: 1.3; }
-.udd-header__sub { font-size: 12px; color: rgba(255, 255, 255, 0.72); margin: 2px 0 0; }
+.udd-header__title { font-size: var(--fs-md); font-weight: 700; color: #fff; margin: 0; line-height: 1.3; }
+.udd-header__sub { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.72); margin: 2px 0 0; }
 .udd-header__close {
   background: rgba(255, 255, 255, 0.15); border: none; cursor: pointer;
   width: 28px; height: 28px; border-radius: 8px;
@@ -119,7 +119,7 @@ export default {
 .udd-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 38px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+  font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
 }
 .udd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .udd-btn--ghost { background: #f3f4f6; color: #374151; }

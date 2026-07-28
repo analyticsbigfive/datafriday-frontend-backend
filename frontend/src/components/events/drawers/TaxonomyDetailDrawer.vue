@@ -201,32 +201,32 @@ export default {
 .etd-status {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px; border-radius: 12px;
-  font-size: 13.5px; font-weight: 500; margin-bottom: 18px;
+  font-size: var(--fs-base); font-weight: 500; margin-bottom: 18px;
 }
 .etd-status--active { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
 .etd-status--inactive { background: #f9fafb; color: #6b7280; border: 1px solid #e5e7eb; }
 
 .etd-section { margin-bottom: 18px; }
 .etd-section__label {
-  font-size: 12.5px; font-weight: 600; color: #6b7280;
+  font-size: var(--fs-sm); font-weight: 600; color: #6b7280;
   text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px;
 }
 .etd-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .etd-pill {
   display: inline-flex; align-items: center;
   background: #f3f4f6; color: #374151; border-radius: 50px;
-  padding: 3px 12px; font-size: 13px;
+  padding: 3px 12px; font-size: var(--fs-base);
 }
 .etd-parent-pill {
   display: inline-flex; align-items: center;
   background: #eff6ff; color: #2563eb; border-radius: 50px;
-  padding: 3px 12px; font-size: 13px; font-weight: 600;
+  padding: 3px 12px; font-size: var(--fs-base); font-weight: 600;
 }
-.etd-empty { font-size: 13.5px; color: #9ca3af; }
+.etd-empty { font-size: var(--fs-base); color: #9ca3af; }
 .etd-error {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 10px; padding: 10px 14px; font-size: 13px;
+  border-radius: 10px; padding: 10px 14px; font-size: var(--fs-base);
 }
 
 .etd-events { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
@@ -237,15 +237,15 @@ export default {
 }
 .etd-event-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .etd-event-row__name {
-  font-size: 13.5px; font-weight: 600; color: #111827;
+  font-size: var(--fs-base); font-weight: 600; color: #111827;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.etd-event-row__date { font-size: 12px; color: #9ca3af; }
+.etd-event-row__date { font-size: var(--fs-sm); color: #9ca3af; }
 
 .etd-fbtn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 38px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 500; border: 1.5px solid #e5e7eb;
+  font-size: var(--fs-base); font-weight: 500; border: 1.5px solid #e5e7eb;
   background: #f3f4f6; color: #374151; cursor: pointer; transition: all .2s;
 }
 .etd-fbtn:hover { background: #e9ecef; }

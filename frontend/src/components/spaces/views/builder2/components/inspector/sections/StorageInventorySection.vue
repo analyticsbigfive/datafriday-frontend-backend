@@ -409,14 +409,14 @@ function removeManual(name) {
   background: none;
   border: none;
   outline: none;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: inherit;
   min-width: 0;
 }
 .inv-search__input::placeholder { color: #9ca3af; }
 
 .inv-label {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -462,7 +462,7 @@ function removeManual(name) {
   flex-shrink: 0;
 }
 .inv-card__name {
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   line-height: 1.3;
   overflow: hidden;
@@ -471,12 +471,12 @@ function removeManual(name) {
 }
 .inv-card__stype {
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: #9ca3af;
 }
 .inv-card__kind {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   padding: 1px 7px;
   border-radius: 100px;
@@ -495,7 +495,7 @@ function removeManual(name) {
 .inv-qty__input {
   width: 58px;
   text-align: right;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: #374151;
   background: #fff;
@@ -513,7 +513,7 @@ function removeManual(name) {
   box-shadow: 0 0 0 2px rgba(255, 49, 49, 0.12);
 }
 .inv-qty__unit {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: #9ca3af;
   max-width: 48px;
   overflow: hidden;
@@ -532,14 +532,14 @@ function removeManual(name) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: #9ca3af;
   flex-shrink: 0;
 }
 .inv-bounds__input {
   width: 46px;
   text-align: right;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: #374151;
   background: #fff;
   border: 1px solid #e5e7eb;
@@ -578,7 +578,7 @@ function removeManual(name) {
 }
 .inv-used__label {
   display: block;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -589,7 +589,7 @@ function removeManual(name) {
 .inv-used__shop:last-child { margin-bottom: 0; }
 .inv-used__shop-name {
   display: block;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: #4f46e5;
 }
@@ -598,7 +598,7 @@ function removeManual(name) {
   align-items: center;
   gap: 5px;
   padding: 2px 0 2px 12px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: #374151;
   min-width: 0;
 }
@@ -653,7 +653,7 @@ function removeManual(name) {
   border: 1px solid transparent;
   border-radius: 10px;
   padding: 7px 10px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   outline: none;
   transition: border-color 0.15s ease, background 0.15s ease;
 }

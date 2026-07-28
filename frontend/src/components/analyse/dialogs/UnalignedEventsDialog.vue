@@ -82,7 +82,7 @@ const isDark = computed(() => !!theme.global.current.value.dark)
   border-bottom: 0;
 }
 .uae-name {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 500;
   color: #212121;
 }

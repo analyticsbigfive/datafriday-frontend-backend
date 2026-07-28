@@ -81,12 +81,12 @@ defineEmits(['update:comparisonMode', 'update:timeRange'])
   min-width: 150px;
 }
 .fs-compare-label {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, 0.85);
 }
 /* Notes rendues DANS le bandeau rouge (av-header) → texte blanc. */
 .fs-empty-note {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: rgba(255, 255, 255, 0.85);
   font-style: italic;
 }
@@ -108,7 +108,7 @@ defineEmits(['update:comparisonMode', 'update:timeRange'])
   border: 0;
   background: transparent;
   color: #1e3a8a;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   padding: 4px 12px;
   border-radius: 999px;
@@ -122,7 +122,7 @@ defineEmits(['update:comparisonMode', 'update:timeRange'])
   color: #1e3a8a;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
 }
-.compare-pill--prev { font-size: 10px; letter-spacing: 0.2px; font-weight: 600; }
+.compare-pill--prev { font-size: var(--fs-xs); letter-spacing: 0.2px; font-weight: 600; }
 
 /* ── Dark mode (autonome via useTheme) ──
    Ce bandeau est rendu SUR le header rouge (#ff3131, conservé en sombre) :

@@ -25,4 +25,7 @@ export class CreateEventDto {
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() homeTeamName?: string | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() visitingTeamId?: string | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() visitingTeamName?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsString() performerName?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() sponsor?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() openingActName?: string;
 }

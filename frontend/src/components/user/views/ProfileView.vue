@@ -365,7 +365,7 @@ export default {
   align-items: center;
   justify-content: center;
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   color: white;
   flex-shrink: 0;
   user-select: none;

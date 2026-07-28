@@ -385,8 +385,8 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .ued-header__text { flex: 1; min-width: 0; }
-.ued-header__title { font-size: 15px; font-weight: 700; color: #fff; margin: 0; }
-.ued-header__sub { font-size: 12.5px; color: rgba(255, 255, 255, 0.72); margin: 2px 0 0; }
+.ued-header__title { font-size: var(--fs-md); font-weight: 700; color: #fff; margin: 0; }
+.ued-header__sub { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.72); margin: 2px 0 0; }
 .ued-header__close {
   background: rgba(255, 255, 255, 0.15); border: none; cursor: pointer;
   width: 30px; height: 30px; border-radius: 8px;
@@ -435,7 +435,7 @@ export default {
   width: 48px; height: 48px; border-radius: 50%;
   background: linear-gradient(135deg, #ff3131, #b91c1c);
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.1rem; font-weight: 800; color: #fff; flex-shrink: 0; user-select: none;
+  font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #fff; flex-shrink: 0; user-select: none;
 }
 .ued-avatar__name { font-size: 0.9375rem; font-weight: 700; color: #111827; }
 .ued-avatar__email { font-size: 0.8125rem; color: #6b7280; margin-top: 2px; }
@@ -505,7 +505,7 @@ export default {
 .ued-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 0 22px; height: 42px; border-radius: 50px;
-  font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+  font-size: var(--fs-md); font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
 }
 .ued-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .ued-btn--ghost { background: #f3f4f6; color: #374151; }

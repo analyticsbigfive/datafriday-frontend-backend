@@ -147,7 +147,7 @@
         <!-- Profile header -->
         <div class="ump-header">
           <v-avatar size="52" color="#ff3131" class="ump-avatar">
-            <span class="text-white font-weight-bold" style="font-size: 1.1rem;">{{ userInitials }}</span>
+            <span class="text-white font-weight-bold" style="font-size: var(--fs-lg);">{{ userInitials }}</span>
           </v-avatar>
           <div class="ump-header-info">
             <div class="ump-name">{{ userName }}</div>
@@ -643,7 +643,7 @@ async function onShare() {
   border-bottom-color: rgba(var(--v-theme-on-surface), 0.16);
 }
 .space-name {
-  font-size: 16px;
+  font-size: var(--fs-lg);
   color: rgb(var(--v-theme-on-surface));
 }
 .space-name-chevron {
@@ -678,14 +678,14 @@ async function onShare() {
   flex-shrink: 0;
 }
 .ss-bs__title {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.5px;
   color: rgba(var(--v-theme-on-surface), 0.55);
 }
 .ss-bs__count {
   background: rgba(255, 49, 49, 0.12) !important;
   color: #ff3131 !important;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 /* Recherche : form-control Bootstrap avec focus rouge marque */
@@ -716,7 +716,7 @@ async function onShare() {
   background: transparent;
   color: rgb(var(--v-theme-on-surface));
   border: 0 !important;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   padding: 9px 14px;
 }
 .ss-bs__item:hover { background: rgba(var(--v-theme-on-surface), 0.05); color: rgb(var(--v-theme-on-surface)); }
@@ -728,7 +728,7 @@ async function onShare() {
   border: 0;
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   color: rgba(var(--v-theme-on-surface), 0.8);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   padding: 10px 14px;
 }
@@ -793,7 +793,7 @@ async function onShare() {
   /* Carte à fond blanc → gris fixe (pas de dérivé thème : la cellule reste
      toujours blanche). */
   color: #64748b;
-  font-size: 8px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 1.1;
   margin-bottom: 1px;
@@ -807,15 +807,15 @@ async function onShare() {
   max-width: 100%;
 }
 .kpi-value {
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   line-height: 1.15;
   letter-spacing: -0.2px;
   color: #0f172a;
   font-variant-numeric: tabular-nums;
 }
 .kpi-variation {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   line-height: 1;
   display: flex;

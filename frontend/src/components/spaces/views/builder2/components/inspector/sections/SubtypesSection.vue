@@ -91,7 +91,7 @@ function toggle(value, checked) {
   box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.16);
 }
 .st-label {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 500;
   color: rgb(var(--v-theme-on-surface));
 }

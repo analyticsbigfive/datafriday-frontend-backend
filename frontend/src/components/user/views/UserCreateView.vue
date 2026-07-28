@@ -481,8 +481,8 @@ export default {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .ucp-header__body { flex: 1; min-width: 0; }
-.ucp-header__title { font-size: 17px; font-weight: 700; color: #fff; margin: 0 0 3px; }
-.ucp-header__sub { font-size: 12.5px; color: rgba(255, 255, 255, 0.72); margin: 0; }
+.ucp-header__title { font-size: var(--fs-lg); font-weight: 700; color: #fff; margin: 0 0 3px; }
+.ucp-header__sub { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.72); margin: 0; }
 .ucp-header__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 /* ── Corps ── */
@@ -529,7 +529,7 @@ export default {
 .ucp-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 18px; height: 38px; border-radius: 50px;
-  font-size: 13.5px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+  font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
 }
 .ucp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .ucp-btn--ghost-white { background: rgba(255,255,255,0.15); color: #fff; border: 1.5px solid rgba(255,255,255,0.3); }
@@ -570,7 +570,7 @@ export default {
   width: 30px; height: 30px; border-radius: 50%;
   background: linear-gradient(135deg, #ff3131, #b91c1c);
   display: flex; align-items: center; justify-content: center;
-  font-size: 0.7rem; font-weight: 800; color: #fff; flex-shrink: 0;
+  font-size: 0.7rem; font-weight: var(--fw-bold); color: #fff; flex-shrink: 0;
 }
 .ucp-user-name { font-weight: 600; color: #111827; font-size: 0.875rem; }
 

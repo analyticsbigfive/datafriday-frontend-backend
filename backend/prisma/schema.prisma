@@ -2229,6 +2229,11 @@ model Event {
   visitingTeamId   String?
   visitingTeamName String?
 
+  // Entertainment (events concert/spectacle) — texte libre, pas de FK catalogue
+  performerName  String?
+  sponsor        String?
+  openingActName String?
+
   // Attendance
   ticketsSold    Int?
   ticketsScanned Int?

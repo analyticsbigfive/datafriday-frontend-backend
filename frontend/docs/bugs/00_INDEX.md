@@ -250,6 +250,28 @@
 | [232](232_pre_event_expected_non_normalise_negatifs.md) | Pre-event Inventory : attendus divergents de la Logistique et vrac **négatif** (Loose -1/-2) — somme brute baseline+deltas sans casse de pack (`normalizeLevel`) ni rejeu séquentiel, mouvements non joignables avalés ; fix = calcul serveur normalisé, chemin unique baseline/réconciliation | 🟡 Corrigé non déployé | 🔴 | Stock |
 | [233](233_pre_event_expected_fuite_via_reconciliations.md) | Pre-event Inventory : les attendus gatés par `preInventoryExpected` **fuient** via `POST pre-event-reconciliations` (réponse avec `expectedPacked/Loose`) et `GET reconciliations` (lignes complètes) — permission de classe seule sur ces routes ; expurgation conditionnelle à trancher | 🔴 Ouvert | 🟠 | Stock / RBAC |
 | [234](234_space_live_double_header_route_non_declaree_dashboardview.md) | Route `space-live` : double header (route Live non déclarée dans les listes self-headed / rail-push de DashboardView) | 🟢 Corrigé | 🟡 | Live events / Shell app |
+| [235](235_syncprogress_stepprocesstimeline_timeout_duree_totale_faux_positif_gros_tenant.md) | Timeout de polling par durée totale (BUG-206/218) : faux positif "délai maximal dépassé" sur un gros tenant toujours en progrès | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [236-02](236_02_csvimportdrawer_dropdowns_taxonomie_vides_sans_indication.md) | Import CSV événements : dropdowns Espaces/Configs/Types/Catégories/Sous-catégories vides sans aucune indication (échec de fetch avalé par `Promise.allSettled`) | 🟡 Corrigé non déployé | 🔴 | Événements |
+| [237-02](237_02_csvimportdrawer_darkmode_menu_select_teleporte_illisible.md) | Import CSV événements : champ de mapping illisible en dark mode (menu `v-select` téléporté hors de `.elv--dark`) | 🟡 Corrigé non déployé | 🟠 | Événements |
+| [238-02](238_02_csvimportdrawer_champs_taxonomie_perdus_silencieusement.md) | Import CSV événements : Espace/Configuration/Type/Catégorie/Sous-catégorie perdus silencieusement à l'import ; 4 champs fantômes (BUG-136) désormais réellement stockés (schéma étendu) | 🟢 Corrigé | 🔴 | Événements |
+| [239-02](239_02_csvimportdrawer_eventenddate_eventendtime_absents_mapping.md) | Import CSV événements : `eventEndDate`/`eventEndTime` absents du mapping malgré usage backend réel (multi-jours, fenêtre live) | 🟢 Corrigé | 🟠 | Événements |
+| [240-02](240_02_csvimportdrawer_sessions_multiples_non_parsees.md) | Import CSV événements : événements multi-sessions, une seule session capturée (colonne "All Sessions" non parsée) | 🟢 Corrigé | 🟡 | Événements |
+| [241-02](241_02_csvimportdrawer_menu_select_derriere_scrim_drawer.md) | Import CSV événements : menu déroulant d'un `v-select` invisible/inatteignable (z-index Vuetify posé sur `.v-overlay`, pas `.v-overlay__content` — 1er correctif inefficace, cause probable réelle du BUG-237-02) | 🟡 Corrigé non déployé | 🔴 | Événements |
+
+**235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
+complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
+une instance nouvellement créée, alors que le job backend continuait de tourner sans jamais être
+annulé. Cause : les timeouts de polling ajoutés par BUG-206/218 mesuraient une **durée totale**
+écoulée plutôt qu'une inactivité — un tenant volumineux peut légitimement dépasser 10 min. Corrigé
+dans les 3 pollers concernés (`SyncJobFloatingWidget.vue`, `SyncProgressDialog.vue`,
+`StepProcessTimeline.vue`) en remplaçant le seuil de durée totale par un seuil d'**inactivité** :
+l'horloge d'abandon est repoussée à chaque progrès constaté (`totalCollected`/`totalInserted`/
+`processedChunks`, ou `current`/`percentage` pour le job d'agrégation), et le job n'est déclaré
+bloqué qu'après 10 min **sans aucun progrès**. Combiné à un fix backend (BUG-112, même session :
+parallélisation de la bissection de collecte Weezevent, jusque-là strictement séquentielle).
+| [235](235_conformite_charte_typographique_tokens.md) | Conformité charte typo : tokens CSS (`--fs-*`/`--fw-*`), checker `pnpm lint:typo`, nettoyage police Roboto, migration progressive par domaine (role/user/market-prices/events/spaces/analyse faits ; menu-fb/views/EventPredictView restants) | 🟡 En cours | 🟢 | Transverse / Charte graphique |
+| [236](236_hr_crypto_randomuuid_contexte_non_securise.md) | HR : `crypto.randomUUID is not a function` sur IP LAN/HTTP (contexte non sécurisé) → création d'enregistrements impossible ; fix helper `newId()` à repli. + alignement UI de HR sur le pattern Settings (bandeau rouge, drawers, delete-dialogs, switcher d'onglets, searchbar) | 🟡 Corrigé non déployé | 🟠 | RH / Staffing |
+| [235](235_builder2_labels_pdv_lisibilite_tri_alphabetique.md) | Builder v2 — libellés PDV illisibles (ton sur ton) + liste du panneau droit non triée | 🟡 Corrigé non déployé | 🟡 | Espaces & builder |
 
 **231 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
 l'origine 193-203 sur cette branche, renumérotés au merge dans `develop` le 2026-07-22 pour éviter
@@ -617,9 +639,37 @@ service backend, consommateurs réels via grep) mais **non reproduits en navigat
 
 ## Comment ajouter un bug
 
-1. Copier [`TEMPLATE.md`](TEMPLATE.md) vers `NN_slug-court.md` (numéro suivant disponible).
-2. Remplir les champs, en citant `fichier:ligne` dès que la cause racine est identifiée.
-3. Ajouter une ligne dans le tableau ci-dessus.
+1. Copier [`TEMPLATE.md`](TEMPLATE.md) vers `NNN_AA_slug-court.md` :
+   - `NNN` = numéro suivant disponible (best-effort — voir "Collisions" ci-dessous).
+   - `AA` = ton code auteur à 2 chiffres :
+
+     | Code | Auteur |
+     |---|---|
+     | `01` | Jean-Luc |
+     | `02` | Ulrich |
+     | `03` | Emmanuel |
+
+     Un agent qui commit pour l'un d'entre eux utilise le code de la personne pour laquelle il
+     travaille (pas un code générique "agent") ; en cas de doute sur qui est l'auteur réel, demander
+     plutôt que de deviner.
+2. Remplir les champs, en citant `fichier:ligne` dès que la cause racine est identifiée. Le titre en
+   première ligne du fichier suit `# BUG-NNN-AA — Titre...`.
+3. Ajouter une ligne dans le tableau ci-dessus (référencer le bug en prose sous la forme
+   `BUG-NNN-AA`, ex. `BUG-169-02`).
 4. Si le bug touche aussi l'autre repo, créer une fiche miroir courte côté
    [`api-datafriday-staging`](../../../api-datafriday-staging/docs/bugs/) qui pointe vers
    celle-ci (voir BUG-007 / backend BUG-012 comme exemple).
+
+**Pourquoi le code auteur (`AA`)** : `NNN` seul est "le prochain numéro disponible" au moment où on
+crée la fiche — sur des branches parallèles, deux personnes peuvent choisir le même `NNN` sans le
+savoir. Ça s'est déjà produit plusieurs fois dans ce changelog (172-189 et 222-231, voir les
+mentions "renuméroté au merge pour éviter la collision" plus bas), et à chaque fois il a fallu
+renuméroter après coup — y compris un doublon `193` jamais résolu (voir le tableau ci-dessus). Le
+suffixe `AA` rend `NNN_AA` unique dès la création : si deux personnes tombent sur le même `NNN`, les
+deux fiches coexistent simplement (`169_01` et `169_03` par exemple) sans renumérotation
+obligatoire — un nettoyage manuel reste possible plus tard si on veut, mais n'est plus nécessaire
+pour éviter un conflit.
+
+**Rétroactivité** : les fiches déjà créées avant le 2026-07-28 gardent leur nom `NN_slug.md` actuel
+(sans code auteur) — non renommées. Cette convention s'applique aux nouvelles fiches à partir de
+maintenant.

@@ -13,10 +13,34 @@ const WEEZEVENT_CAP = 500;
 export class WeezeventCollectWorkerService {
     private readonly logger = new Logger(WeezeventCollectWorkerService.name);
 
+    // Borne le nombre d'appels Weezevent simultanés déclenchés par la bissection. Sans ça,
+    // paralléliser les deux branches récursives ferait exploser le nombre de requêtes
+    // concurrentes pour un gros tenant (des dizaines/centaines de feuilles) et déclencherait
+    // le rate-limit (429) ou le circuit breaker de WeezeventApiService. Même ordre de grandeur
+    // que PARALLEL_CHUNKS côté WeezeventInsertWorkerService.
+    private readonly maxConcurrency = Number(process.env.WEEZEVENT_COLLECT_CONCURRENCY || 5);
+    private activeCount = 0;
+    private readonly waitQueue: Array<() => void> = [];
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly weezeventClient: WeezeventClientService,
     ) {}
+
+    private async acquireSlot(): Promise<void> {
+        if (this.activeCount < this.maxConcurrency) {
+            this.activeCount++;
+            return;
+        }
+        await new Promise<void>(resolve => this.waitQueue.push(resolve));
+        this.activeCount++;
+    }
+
+    private releaseSlot(): void {
+        this.activeCount--;
+        const next = this.waitQueue.shift();
+        if (next) next();
+    }
 
     /**
      * Lance la bissection récursive sur la plage de dates du job
@@ -90,11 +114,17 @@ export class WeezeventCollectWorkerService {
             return;
         }
 
-        const result = await this.weezeventClient.getTransactions(tenantId, integrationId, organizationId, {
-            fromDate: new Date(fromIso),
-            toDate: new Date(toIso),
-            perPage: WEEZEVENT_CAP,
-        });
+        await this.acquireSlot();
+        let result;
+        try {
+            result = await this.weezeventClient.getTransactions(tenantId, integrationId, organizationId, {
+                fromDate: new Date(fromIso),
+                toDate: new Date(toIso),
+                perPage: WEEZEVENT_CAP,
+            });
+        } finally {
+            this.releaseSlot();
+        }
 
         const items = result.data ?? [];
         const total = result.meta?.total ?? items.length;
@@ -117,8 +147,14 @@ export class WeezeventCollectWorkerService {
         }
 
         const midMs = Math.floor((startMs + endMs) / 2);
-        await this.fetchChunk(tenantId, integrationId, organizationId, jobId, fromIso, new Date(midMs - 1).toISOString());
-        await this.fetchChunk(tenantId, integrationId, organizationId, jobId, new Date(midMs).toISOString(), toIso);
+        // Les deux moitiés partent en parallèle (bornées par acquireSlot/maxConcurrency) au lieu
+        // d'être awaitées séquentiellement — pour un gros tenant, la bissection produisait des
+        // dizaines/centaines d'appels HTTP enchaînés un par un, dépassant largement le timeout de
+        // 10 min du polling frontend (SyncProgressDialog.vue / SyncJobFloatingWidget.vue).
+        await Promise.all([
+            this.fetchChunk(tenantId, integrationId, organizationId, jobId, fromIso, new Date(midMs - 1).toISOString()),
+            this.fetchChunk(tenantId, integrationId, organizationId, jobId, new Date(midMs).toISOString(), toIso),
+        ]);
     }
 
     private async saveChunk(jobId: string, fromDate: string, toDate: string, data: any[]): Promise<void> {

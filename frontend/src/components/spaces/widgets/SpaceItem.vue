@@ -237,7 +237,7 @@ export default {
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, .35);
   color: #fff;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -320,7 +320,7 @@ export default {
   background: linear-gradient(to top, rgba(0, 0, 0, .72) 0%, transparent 100%);
 }
 .si-name {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: #fff;
   line-height: 1.25;
@@ -339,7 +339,7 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: rgba(255, 255, 255, .8);
 }
 
@@ -365,14 +365,14 @@ export default {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
   color: #9ca3af;
 }
 .si-stat__value {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 700;
   line-height: 1.2;
 }

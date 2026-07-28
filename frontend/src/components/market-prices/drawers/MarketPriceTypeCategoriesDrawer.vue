@@ -155,16 +155,16 @@ export default {
   min-width: 0;
 }
 .mptcd-header__title {
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: #fff;
 }
 .mptcd-header__type-name {
   color: rgba(255, 255, 255, .85);
-  font-weight: 800;
+  font-weight: var(--fw-bold);
 }
 .mptcd-header__subtitle {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: rgba(255, 255, 255, .72);
   margin-top: 2px;
 }
@@ -283,7 +283,7 @@ export default {
   padding: 0 20px;
   height: 40px;
   border-radius: 50px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 600;
   cursor: pointer;
   border: none;

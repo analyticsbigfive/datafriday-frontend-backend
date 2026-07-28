@@ -58,10 +58,18 @@ navigateur, et ça élimine l'incohérence d'écriture actuelle). Deux usages du
 
 Pas de valeur en dehors de ces 7 paliers pour du nouveau code, en px ou en rem.
 
+**Codifié en tokens CSS** (`src/style.css`, bloc `:root`) : `--fs-xs` `--fs-sm` `--fs-base`
+`--fs-md` `--fs-lg` `--fs-xl` `--fs-xxl`. Nouveau code → `font-size: var(--fs-base);`
+plutôt que la valeur en dur. Deux polices aussi tokenisées : `--font-ui` (stack système,
+appliqué globalement sur `html, body`) et `--font-mono` (technique, §2).
+
 ## 4. Poids de police — décision
 
 4 poids seulement : `400` (regular, texte courant), `500` (medium, libellés/emphase légère),
 `600` (semibold, sous-titres/valeurs clés), `700` (bold, titres).
+
+**Codifié en tokens CSS** (`src/style.css`, `:root`) : `--fw-regular` `--fw-medium`
+`--fw-semibold` `--fw-bold`. Nouveau code → `font-weight: var(--fw-semibold);`.
 
 Remap des poids ad hoc trouvés dans l'audit : `650` → `600`, `750` → `700`, `800` → `700`.
 `bolder`/`inherit`/`initial`/`var(...)` : à évaluer au cas par cas quand le fichier concerné est
@@ -79,13 +87,29 @@ de toute façon retouché, pas de traitement en masse ici.
 - Un chantier de migration dédié (par domaine, en commençant par les pages les plus visibles) est
   possible mais doit être scopé et validé explicitement séparément — ce n'est pas fait ici.
 
+## 5 bis. Garde-fou automatique
+
+Un checker sans dépendance vérifie les deux règles objectives (font-size en rem dans les 7
+paliers, font-weight dans {400,500,600,700}) : [`scripts/check-typography.mjs`](../scripts/check-typography.mjs).
+
+```bash
+pnpm lint:typo          # défaut : lignes AJOUTÉES au diff git (applique la charte au code neuf)
+pnpm lint:typo --all    # scan complet de src/ (bruyant : ~1500 violations legacy)
+pnpm lint:typo <fichier># scan intégral d'un fichier précis
+```
+
+Le mode par défaut n'inspecte que les **lignes ajoutées** : il n'exige rien de l'existant
+(migration opportuniste, §5) mais bloque toute nouvelle valeur hors charte. Sort en code 1 sur
+violation → branchable en CI ou pre-commit. Les `var(--fs-*)`/`var(--fw-*)` sont conformes.
+
 ## 6. Checklist pour un agent qui écrit du CSS
 
-1. Nouveau texte ? → un des 4 poids (`400/500/600/700`), jamais `650/750/800`.
-2. Nouvelle taille ? → un des 7 paliers rem de la table §3, jamais une valeur px ou une valeur
-   rem hors table.
-3. Nouvelle police ? → aucune à déclarer, on hérite du stack global — sauf affichage
-   terminal/logs → stack monospace (§2).
+1. Nouveau texte ? → un des 4 poids via token : `font-weight: var(--fw-medium);` (jamais
+   `650/750/800`).
+2. Nouvelle taille ? → un des 7 paliers via token : `font-size: var(--fs-base);` (jamais une
+   valeur px ni une valeur rem hors table).
+3. Nouvelle police ? → aucune à déclarer, on hérite du stack global (`--font-ui`) — sauf
+   affichage terminal/logs → `font-family: var(--font-mono);` (§2).
 4. Page du module Analyse ? → `xs`/`sm` autorisés en plus des autres paliers. Page hors Analyse ?
    → éviter `xs`, `sm` réservé aux tableaux denses (type `MarketPriceTable.vue`).
 

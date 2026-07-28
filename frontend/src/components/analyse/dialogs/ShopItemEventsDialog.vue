@@ -137,18 +137,18 @@ const eventsList = computed(() => {
   background-color: #EDE9FE;
   color: #7C3AED;
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-base);
   flex-shrink: 0;
 }
 .sie-name {
   font-weight: 500;
   color: #212121;
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 .sie-qty {
   font-weight: 700;
   color: #212121;
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 .min-w-0 {
   min-width: 0;

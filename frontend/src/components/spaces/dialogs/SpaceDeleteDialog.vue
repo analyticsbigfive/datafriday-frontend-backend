@@ -75,8 +75,8 @@ export default {
   flex-shrink: 0;
 }
 .sdd-card__headtext { flex: 1; }
-.sdd-card__title { font-size: 16px; font-weight: 700; color: #111827; }
-.sdd-card__sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
+.sdd-card__title { font-size: var(--fs-lg); font-weight: 700; color: #111827; }
+.sdd-card__sub { font-size: var(--fs-base); color: #6b7280; margin-top: 2px; }
 .sdd-card__close {
   width: 28px;
   height: 28px;
@@ -93,7 +93,7 @@ export default {
 .sdd-card__close:hover { background: #e5e7eb; }
 .sdd-card__body {
   padding: 0 24px 20px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: #374151;
   line-height: 1.6;
 }
@@ -112,7 +112,7 @@ export default {
   padding: 0 18px;
   height: 38px;
   border-radius: 100px;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 500;
   border: none;
   cursor: pointer;

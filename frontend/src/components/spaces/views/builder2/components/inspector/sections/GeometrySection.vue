@@ -162,12 +162,12 @@ function commitCorner(key, raw) {
 .geo-field--full { grid-column: 1 / -1; }
 
 .geo-label {
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: rgb(var(--v-theme-on-surface));
 }
 .geo-sublabel {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: rgba(var(--v-theme-on-surface), 0.5);
 }
@@ -176,7 +176,7 @@ function commitCorner(key, raw) {
 .geo-input {
   width: 100%;
   padding: 11px 14px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: rgb(var(--v-theme-on-surface));
   background: rgba(var(--v-theme-on-surface), 0.05);
   border: 1px solid transparent;
@@ -207,7 +207,7 @@ function commitCorner(key, raw) {
   margin-bottom: 10px;
 }
 .geo-corner-title {
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: rgb(var(--v-theme-on-surface));
 }
@@ -240,12 +240,12 @@ function commitCorner(key, raw) {
   gap: 3px;
 }
 .geo-metric__label {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: rgba(var(--v-theme-on-surface), 0.5);
 }
 .geo-metric__value {
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: rgb(var(--v-theme-on-surface));
 }

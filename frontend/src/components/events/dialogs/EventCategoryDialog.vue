@@ -246,12 +246,12 @@ export default {
   display: flex; align-items: center; gap: 8px;
   background: #fef2f2; border: 1px solid #fecaca;
   color: #991b1b; border-radius: 10px;
-  padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
+  padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 16px;
 }
 
 /* v-select styling */
 .ecd-field-wrap { display: flex; flex-direction: column; gap: 6px; }
-.ecd-field-label { font-size: 12.5px; font-weight: 600; color: #374151; }
+.ecd-field-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
 .ecd-star { color: #ff3131; }
 .ecd-v-select :deep(.v-field) {
   border: 1.5px solid #e5e7eb;
@@ -264,7 +264,7 @@ export default {
   box-shadow: 0 0 0 3px rgba(255, 49, 49,.10);
 }
 .ecd-v-select :deep(.v-field__outline) { display: none; }
-.ecd-v-select :deep(.v-field__input) { font-size: 14px; }
+.ecd-v-select :deep(.v-field__input) { font-size: var(--fs-md); }
 
 /* "Créer un nouveau type" option (BUG-145, allowCreateType) */
 :deep(.ecd-create-option) { color: #ff3131; font-weight: 600; }
@@ -278,13 +278,13 @@ export default {
   width: 18px; height: 18px;
   accent-color: #ff3131; cursor: pointer; flex-shrink: 0;
 }
-.ecd-checkbox__label { font-size: 14px; color: #374151; user-select: none; }
+.ecd-checkbox__label { font-size: var(--fs-md); color: #374151; user-select: none; }
 
 /* Footer */
 .ecd-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 20px; height: 38px;
-  border-radius: 50px; font-size: 13.5px; font-weight: 500;
+  border-radius: 50px; font-size: var(--fs-base); font-weight: 500;
   border: none; cursor: pointer; transition: all .2s;
 }
 .ecd-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -311,7 +311,7 @@ export default {
 /* Labels de section (icône + span), calqués sur efd-section-label */
 .ecd-section-label {
   display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase;
   letter-spacing: .06em; color: #9ca3af; margin-bottom: 12px;
 }
 .ecd-section-label:not(:first-child) { margin-top: 20px; }
