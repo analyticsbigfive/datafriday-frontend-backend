@@ -18,6 +18,12 @@
 > **Mise à jour 2026-07-20 (2ᵉ passe)** : vérification complète de la logique contre la spec
 > métier (§ 9), exemple live Auxerre (§ 10), bug [222](../bugs/222_inventory_reconciliation_fallback_plus_vieux_match.md)
 > découvert et corrigé au passage.
+>
+> **Mise à jour 2026-07-24 (§ 13)** : vérification d'implémentation du brief produit contre le code
+> réel (front + backend) — brief conforme, **5 écarts nouveaux** fichés
+> ([237](../bugs/237_post_event_prerempli_par_comptage_pre_event.md) à
+> [241](../bugs/241_getpreeventinventory_repli_legacy_hors_event.md)) **et corrigés le jour même**
+> (backend 41/41, front 478 verts). Déploiement conjoint requis : § 13.4.
 
 ---
 
@@ -52,11 +58,14 @@ La résolution vit dans `resolveEventContext()`
 
 1. **URL d'abord** : `?event=`/`?eventId=` (posé par Event Predict, Analyse, ou un partage de
    lien) ; config préférée `?configuration=`/`?config=`, repli `event.configurationId`. L'URL ne
-   gagne que si l'id existe dans le store.
-2. **Entrée directe** (sidebar, URL nue) : ancrage par défaut sur le **prochain event FUTUR le
-   plus proche** (même règle qu'Event Predict), **repli sur le passé le plus récent** — premier
-   dont la config est résoluble. L'URL est resynchronisée (`router.replace`) pour rester
-   partageable.
+   gagne que si l'id existe dans le store. ⚠️ Depuis le durcissement du 2026-07-24 (§ 12.4) :
+   en mode **pre**, tout `?event=` est ignoré (prochain futur strict recalculé) ; en mode
+   **post**, un `?event=` FUTUR est ignoré (seul un passé explicite est respecté).
+2. **Entrée directe** (sidebar, URL nue) : mode **post** → **dernier event FINI** (`past[0]`,
+   aucun repli futur) ; mode **pre** → **prochain event futur strict** (aucun repli passé).
+   Premier dont la config est résoluble. L'URL est resynchronisée (`router.replace`) pour
+   rester partageable. (Avant le 2026-07-24 : futur d'abord pour les deux modes — source du
+   décalage comptage/réconciliation, § 11.3 clos.)
 3. Aucun event résoluble → état « Aucun évènement sélectionné » (save désactivé).
 
 **Point d'attention pour la réconciliation post-event** : ce défaut ancre sur le *futur* d'abord.
@@ -262,8 +271,8 @@ Collecte 4 sources puis délègue à l'util pur
 | Source | Chemin | Absence → |
 |---|---|---|
 | Compté (post-event) | entries shops+storages+merch de l'écran, formule `totalForItem` | 0 (union des clés) |
-| Pré-event | `GET /inventory/:spaceId/pre-event/:eventId` — **le comptage Pre-event Inventory du MÊME event** (snapshot `kind='pre-event'`, cycle fermé § 8 — Q19 résolue), repli legacy = dernier snapshot antérieur au jour de l'event ([inventory.service.ts](../../../backend/src/features/inventory/inventory.service.ts) `getPreEventInventory`) | `leftFromSales`/`missingUnits`/`missingValue` **null** (« — ») |
-| Vendu pendant l'event | `getSpaceEventTimelineBatch` + `preprocessTimelineRecords`, PdV résolu par nom normalisé, article par `menuItemId` → repli nom | 0 |
+| Pré-event | `GET /inventory/:spaceId/pre-event/:eventId` — **le comptage Pre-event Inventory du MÊME event** (snapshot `kind='pre-event'`, cycle fermé § 8 — Q19 résolue), repli **scopé** = comptage post-event du match PRÉCÉDENT, avec `source` renvoyé et archivé (fiche [241](../bugs/241_getpreeventinventory_repli_legacy_hors_event.md), 2026-07-24 — avant : n'importe quel snapshot du space antérieur au jour du match, sans trace) ([inventory.service.ts](../../../backend/src/features/inventory/inventory.service.ts) `getPreEventInventory`) | `leftFromSales`/`missingUnits`/`missingValue` **null** (« — ») |
+| Vendu pendant l'event | **Depuis le 2026-07-27 (ex-Q35 tranchée owner, fiche [242](../bugs/242_reco_post_event_ventes_composees_non_explosees.md))** : `GET /inventory/:spaceId/event-consumption/:eventId` — ventes de l'event **explosées en consommation d'ingrédients** par la cascade Logistique (`deriveEventConsumption` → `explodeSalesToConsumption`, mêmes clauses de sélection que le timeline). PdV joint par **id**, article par nom normalisé (`buildSoldUnitsFromConsumption`). Repli grain article (timeline brut, chemin d'avant conservé) si backend antérieur (404) — `meta.salesSource` (`'consumption'`/`'timeline'`) archivé + bandeau sur les documents en repli. Les non-joignables (des deux côtés) restent **comptés et remontés** (`meta.salesUnjoined` + bandeau) — fiche [238](../bugs/238_reco_post_event_ventes_non_jointes_avalees.md) | 0 |
 | Prédit | `localDb.getAnyPredictedRecords` (pont § 4.2, même lecture que le Réarmement) | `predictedUnits` **null** ; scénario présent mais article absent → 0 |
 
 Coûts : `store.state.analyse.menuItemCostMap` → `missingValue` **au coût** (défaut à confirmer,
@@ -296,7 +305,13 @@ compté` (négatif = surplus, conservé) ; chips recalculées à l'affichage par
 
 - **Section colonne gauche** : [`InventoryReconciliationSection.vue`](../../src/components/InventoryReconciliationSection.vue),
   montée sous `InventoryFilterPanel` — titre repliable, badge compteur, un bouton par document
-  (nom du match + date), état actif.
+  (nom du match + date), état actif, bouton **supprimer** par document (confirmation puis
+  `DELETE /inventory/:spaceId/reconciliations/:id` — « repartir de zéro » = supprimer puis
+  regénérer ; pas d'édition, un document est une photo figée. Périmètre serveur strict
+  kind pre/post-event : les resets logistiques kind null sont hors d'atteinte).
+  **Mobile** : la même section est montée en bas d'`InventoryFilterDrawer` (fiche
+  [235](../bugs/235_reconciliation_section_inaccessible_mobile.md) — avant le 2026-07-24, aucun
+  accès mobile aux documents).
 - **Vue document** : [`InventoryReconciliationView.vue`](../../src/components/InventoryReconciliationView.vue),
   substituée à TOUT le contenu central (`v-if="!activeReconciliation"` autour du bloc
   recherche/onglets/cartes ; computed `activeReconciliation`, SpaceInventoryView:869). Barre :
@@ -308,12 +323,16 @@ compté` (négatif = surplus, conservé) ; chips recalculées à l'affichage par
   droit (résumé inventaire) reste celui du **contexte courant** — exact pour un document
   fraîchement créé, potentiellement décalé sur un vieux document (limitation assumée, cf. § 7.5).
 - i18n : 25 clés `invReco*` (EN/FR) + `invSave` = « Create Reconciliation » / « Générer la
-  réconciliation ».
+  réconciliation ». Les deux composants suivent le contrat `--fb-*` et la locale de l'app
+  depuis le 2026-07-24 (avant : couleurs en littéraux → blocs blancs en thème sombre, dates/nombres
+  en `fr-FR` en dur) — fiche [240](../bugs/240_reconciliation_dark_mode_et_formats_fr_fr_en_dur.md).
 
 ### 7.5 Limites connues / questions ouvertes (voir `QUESTIONS_A_BERTRAND.md`)
 
 1. **Pré-event** = dernier snapshot **antérieur au jour** de l'event (un comptage fait le jour du
-   match est considéré post-match). Définition par défaut à valider.
+   match est considéré post-match). Définition par défaut à valider — et repli qui ne filtre ni
+   l'event ni la phase, donc susceptible de piocher le stock d'un autre match :
+   fiche [241](../bugs/241_getpreeventinventory_repli_legacy_hors_event.md).
 2. **Miss €** valorisé au **coût** (`menuItemCostMap`) — prix de vente en alternative.
 3. **Qty Pred** lue via le pont localStorage (comme le Réarmement) → sur un autre
    navigateur/appareil sans scénario local, colonne « — ». Bascule possible vers
@@ -364,9 +383,11 @@ Route `/spaces/:spaceId/pre-inventory` (name `space-pre-inventory`, permission
 keepAlive keyé par `route.path` → deux instances indépendantes. Entrées de nav : MainNav,
 toolbox des 4 écrans stock, AppHeader (`hdrSecPreInventory`), loader de route.
 
-**Ancrage événement** : mode pre = **futur strictement** (`resolveEventContext` ignore un
-`?event=` passé et ne replie jamais sur le passé ; aucun futur → état vide `preInvNoUpcoming`).
-Miroir exact du mode post qui, lui, réconcilie le dernier passé.
+**Ancrage événement** (durci le 2026-07-24, règle owner « un match = un eventId », § 12.4) :
+mode pre = **prochain futur strict** — `resolveEventContext` ignore TOUT `?event=` (même un
+futur lointain) et recalcule le prochain événement à venir ; aucun futur → état vide
+`preInvNoUpcoming`. Miroir exact du mode post qui, lui, ancre le **dernier événement fini**
+(§ 12.4).
 
 ### 8.3 Quantités attendues — gating serveur
 
@@ -400,6 +421,10 @@ Miroir exact du mode post qui, lui, réconcilie le dernier passé.
   à supprimer après déploiement conjoint.
 - Affichage : `InventoryCountingInterface` prop additive `expectedFor` → caption « Attendu : N »
   sous chaque champ Packed/Loose ; prop null → rendu post-event strictement inchangé.
+  Depuis le 2026-07-24, le hint est exprimé dans l'unité du champ qu'il légende : le serveur calcule
+  en **unités** et renvoie `units`/`unitsPerPack`, le front re-découpe ce total avec le
+  conditionnement affiché (avant : casse de pack serveur en MarketPrice, affichage en MenuItem —
+  deux unités différentes) — fiche [239](../bugs/239_pre_event_taille_de_paquet_divergente_serveur_front.md).
 
 ### 8.4 Réconciliation pre-event (attendu vs compté)
 
@@ -411,7 +436,10 @@ Miroir exact du mode post qui, lui, réconcilie le dernier passé.
 - Lignes persistées en **packed/loose bruts** (+ deltas) : le conditionnement
   (`inventoryQuantityPackaged`) est un référentiel front — la vue convertit en unités à
   l'affichage (`unitsPerItemId`), l'Écart € vient de `menuItemCostMap` (`costByItemId`), repli
-  « — ». `StockReconciliation` `kind='pre-event'` — exclu de l'ancre et de la liste Logistic
+  « — ». Les lignes portent aussi `unitsPerPack`, `expectedUnits`, `countedUnits` et `deltaUnits`
+  depuis le 2026-07-24 : la vue convertit avec le conditionnement **du calcul** (photo figée) et ne
+  retombe sur le référentiel courant que pour les documents antérieurs —
+  fiche [239](../bugs/239_pre_event_taille_de_paquet_divergente_serveur_front.md). `StockReconciliation` `kind='pre-event'` — exclu de l'ancre et de la liste Logistic
   comme les post-event.
 - Vue : `InventoryReconciliationView` bascule sur `reconciliation.kind` — colonnes
   **Attendu · Compté · Écart · Écart €** (delta = compté − attendu, négatif = manquant en rouge,
@@ -424,6 +452,13 @@ Miroir exact du mode post qui, lui, réconcilie le dernier passé.
    compter le post-event de l'événement N réutilise les mêmes lignes que son pre-event. Les
    archives de chaque phase = les **snapshots kindés** figés au « Générer la réconciliation » ;
    rouvrir l'écran Pre-event après le début du comptage post affiche les saisies post (assumé).
+   ⚠️ Le sens inverse était le vrai danger (vérification 2026-07-24, § 13) : l'écran Post-event
+   s'ouvrait pré-rempli **et déjà marqué « compté »** par le comptage pre-event du même match. Depuis
+   le correctif, `GET /inventory/:spaceId/:eventId?phase=post-event` requalifie en « à compter » toute
+   ligne figée avant la clôture du Pre-event (valeurs conservées, bandeau d'avertissement) — la garde
+   « comptage incomplet » redevient active. Fiche
+   [237](../bugs/237_post_event_prerempli_par_comptage_pre_event.md), arbitrage restant
+   [Question #38](../QUESTIONS_A_BERTRAND.md).
 2. **Fenêtre des mouvements** bornée au snapshot post-event précédent : un Inventory Reset
    logistique intercalé (qui SET les niveaux) n'est pas déduit — possibles doubles comptages.
    **Tranché le 2026-07-24 (réponse Bertrand — [Question #24](../QUESTIONS_A_BERTRAND.md))** :
@@ -438,11 +473,26 @@ Miroir exact du mode post qui, lui, réconcilie le dernier passé.
    un renommage d'article entre le mouvement et le comptage casse la jointure (mouvement ignoré —
    depuis BUG-232, surfacé via `unjoinedItemKeys` + warning log au lieu d'être avalé).
 5. **Fuite des attendus via les réconciliations** : `POST pre-event-reconciliations` (réponse) et
-   `GET reconciliations` (lignes) exposent `expectedPacked/Loose` sous la seule permission de
-   classe `spaceInventory` — contourne le gating § 8.3
-   ([BUG-233](../bugs/233_pre_event_expected_fuite_via_reconciliations.md), ouvert).
-6. Consommation dérivée des ventes (vue Stock Logistic) non rejouée par l'attendu — assumé
-   « mouvements seuls », à trancher (Q31).
+   `GET reconciliations` (lignes) exposaient `expectedPacked/Loose` sous la seule permission de
+   classe `spaceInventory` — contournait le gating § 8.3
+   ([BUG-233](../bugs/233_pre_event_expected_fuite_via_reconciliations.md), **corrigé 2026-07-24** :
+   expurgation conditionnelle des réponses — `expected*` ET `delta*` retirés des lignes pre-event
+   pour les non-porteurs, document en base complet).
+6. Consommation dérivée des ventes (vue Stock Logistic) non rejouée par l'attendu — **« mouvements
+   seuls » désormais tranché, ce n'est plus une limite mais une règle** : décision owner (JLH) du
+   2026-07-27, [Question #31](../QUESTIONS_A_BERTRAND.md) →
+   [`REPONSES_QUESTIONS_2026-07-27.md`](../REPONSES_QUESTIONS_2026-07-27.md) §1. On ne vend pas hors
+   match sur l'espace, et une vente hors match (privatisation, kiosque) **ne sort pas du stock
+   inventorié** — déduire la consommation dérivée serait donc *faux*, pas seulement superflu.
+   `computeExpected` reste `post-event précédent + mouvements Logistic`.
+   ⚠️ **Suivi non implémenté** : garde-fou non bloquant (log serveur) quand des ventes existent
+   malgré tout dans la fenêtre de calcul — mesuré le 2026-07-27 sur le seul cycle post→pre de la
+   base staging : 0 mouvement, mais 661 unités de consommation dérivée calculables. Origine
+   vérifiée : élément PARVIS (`shop`) **correctement** mappé, transactions portant l'`eventName`
+   « AJ AUXERRE - Saison 26/27 » (event Weezevent **de saison**) → de vraies ventes de match pour un
+   match **absent du calendrier `Event`**, pas un PDV mal rattaché. C'est précisément ce qu'un
+   garde-fou révélerait. Indépendant du point 2 ci-dessus (Q24/Q25), qui déplacera le point de départ
+   du calcul.
 
 ---
 
@@ -591,7 +641,7 @@ verdict est vérifié en ouvrant le fichier cité.
 |---|---|---|
 | Renommer « Inventory » → « Post-event Inventory » (titre de page) | `invPageTitle` = « Post-event Inventory » / « Inventaire post-événement », rendu bandeau [SpaceInventoryView.vue:127](../../src/views/SpaceInventoryView.vue) ; `hdrSecInventory`, `invPrintInvTitle` alignés | ✅ |
 | Renommer le bouton dans le dropdown | `invToolInventory` = « Post-event Inventory » (`TOOLBOX_ITEMS` [SpaceInventoryView.vue:686](../../src/views/SpaceInventoryView.vue)) ; `anToolInventory`, `epToolSpaceInventory`, `srToolSpaceInventory` alignés | ✅ |
-| Interface liée au **dernier événement qui a eu lieu** | Réconciliation : `resolveReconciliationEvent` = event courant si passé, sinon **dernier passé** ([SpaceInventoryView.vue:1792-1803](../../src/views/SpaceInventoryView.vue)) ✅. **MAIS** l'ancrage de l'écran de comptage (`resolveEventContext`, [:1402](../../src/views/SpaceInventoryView.vue)) prend le **futur le plus proche** d'abord (`future[0] \|\| past[0]`) : sur entrée directe avec un match à venir, le comptage post-event se rattache au match FUTUR, pas au dernier fini | ⚠️ écart (voir 11.3) |
+| Interface liée au **dernier événement qui a eu lieu** | Réconciliation : `resolveReconciliationEvent` = event courant si passé, sinon **dernier passé** ([SpaceInventoryView.vue:1792-1803](../../src/views/SpaceInventoryView.vue)) ✅. **MAIS** l'ancrage de l'écran de comptage (`resolveEventContext`, [:1402](../../src/views/SpaceInventoryView.vue)) prend le **futur le plus proche** d'abord (`future[0] \|\| past[0]`) : sur entrée directe avec un match à venir, le comptage post-event se rattache au match FUTUR, pas au dernier fini — **corrigé le 2026-07-24** (ancrage strict § 12.4) | ✅ après fix |
 | Sauvegarde → document de réconciliation (écart compté vs restant-théorique après ventes, par PdV) | `onSaveAll` → `createReconciliationAfterSave` → `buildReconciliationLines` : `leftFromSales = preEvent − sold`, `missing = leftFromSales − counted` ([postEventReconciliation.js:92-95](../../src/utils/postEventReconciliation.js)), par `elementId\|itemId` | ✅ |
 | Section Réconciliation en bas de la colonne gauche, sous les filtres | `InventoryReconciliationSection` rendu **après** `InventoryFilterPanel` dans `.si-left-filters` ([SpaceInventoryView.vue:105-111](../../src/views/SpaceInventoryView.vue)) | ✅ |
 | Bouton « Sauvegarder » → lire « Générer la réconciliation » / « Create Reconciliation » | `invSave` = « Générer la réconciliation » / « Create Reconciliation » ([translations.js:1758,5459](../../src/i18n/translations.js)), bouton [SpaceInventoryView.vue:186](../../src/views/SpaceInventoryView.vue) | ✅ |
@@ -608,20 +658,164 @@ verdict est vérifié en ouvrant le fichier cité.
 | Bouton Sauvegarder → Réconciliation (écart attendu-par-PdV vs compté) | `onSaveAll` → `createPreReconciliationAfterSave` → `POST pre-event-reconciliations`, lignes **serveur** (`computeExpected`) ([SpaceInventoryView.vue:1722-1752](../../src/views/SpaceInventoryView.vue)) | ✅ |
 | Réconciliations disponibles dans la section Réconciliation comme Post-event | Liste commune pré+post, badge de type par document (`InventoryReconciliationSection`) ; sélection bascule `InventoryReconciliationView` sur `reconciliation.kind` | ✅ |
 
-### 11.3 Écart ouvert — ancrage event du comptage Post-event
+### 11.3 Écart ancrage event du comptage Post-event — CLOS le 2026-07-24
 
-Le brief impose que le Post-event « reste liée au **dernier événement qui a eu lieu** ». Le
-**document de réconciliation** respecte cette règle (`resolveReconciliationEvent`, dernier passé),
-mais l'**écran de comptage** en entrée directe s'ancre sur le prochain match FUTUR quand il en
-existe un (`resolveEventContext:1402`, `future[0] || past[0]`). Conséquences possibles : le
-comptage post-event est tagué sur l'event futur (snapshot `kind='post-event'` rattaché au mauvais
-`eventId`), et l'attendu du pre-event suivant (§ 8.1) prend alors ce snapshot comme baseline.
+Le brief impose que le Post-event « reste liée au **dernier événement qui a eu lieu** ».
+Historiquement, l'écran de comptage en entrée directe s'ancrait sur le prochain match FUTUR
+(`future[0] || past[0]`) alors que le document de réconciliation cherchait le dernier passé —
+un même clic pouvait sauvegarder le comptage sous MATCH-B et créer la réconciliation sous
+MATCH-A (snapshot `kind='post-event'` rattaché au mauvais `eventId` → baseline du pre-event
+suivant empoisonnée).
 
-Non tranché : soit c'est voulu (on ouvre le post-event depuis Event Predict avec `?event=` explicite,
-et l'entrée nue est un cas rare), soit `resolveEventContext` doit, en **mode post**, ancrer sur le
-dernier passé comme le fait déjà `resolveReconciliationEvent`. À valider avec le métier avant tout
-changement (recoupe la fenêtre D2/Q25). Le reste du brief est conforme.
+**Tranché par l'owner (2026-07-24)** : règle « un match = un eventId, aucune bascule
+silencieuse » — implémentation § 12.4 (ex-question #32 de l'ancienne numérotation du tracker,
+absorbée par la décision — note dans `QUESTIONS_A_BERTRAND.md`).
 
 ---
 
 Rédaction § 11 : **JLH**, 2026-07-23.
+
+---
+
+## 12. Contre-audit externe (2026-07-24) — verdict et suites
+
+Un contre-audit externe de la feature a été vérifié **claim par claim contre le code réel**
+(session 2026-07-24). Verdict : largement exact sur les faits, mais ~7 points sur 10 étaient
+déjà documentés dans ce dossier (§ 8.5, § 9.3, § 11.3, BUG-232/233, Q24–Q26, Q31–Q32) — le
+contre-audit les présentait comme des découvertes.
+
+### 12.1 Findings réellement nouveaux (confirmés puis traités)
+
+| Finding | Vérif | Traitement |
+|---|---|---|
+| Fuite des attendus via les réponses réconciliation | = BUG-233 (déjà fiché) | **Corrigé** : expurgation conditionnelle (fiche 233) |
+| Section Réconciliation inaccessible sur mobile | `showLeftFilters` exige `!isMobile`, drawer sans section | **Corrigé** : section montée dans le drawer ([BUG-236](../bugs/236_reconciliation_section_inaccessible_mobile.md)) |
+| Échec du chargement des ventes → `sold=0` → fausses pertes **persistées** | catch qui continuait ([SpaceInventoryView.vue](../../src/views/SpaceInventoryView.vue) `buildReconciliationLines`) | **Corrigé** : hors démo, échec ventes = pas de création (toast `invRecoSalesError`, comptage sauvegardé, recliquer retente) |
+| Ventes d'articles composés jamais décomposées vers les ingrédients (faux manquants sur stock d'ingrédients) | jointure directe `menuItemId`/nom, aucune explosion BOM | Ex-Q35, **tranchée owner 2026-07-27 (Option 1)** et **corrigée** : la réco consomme `explodeSalesToConsumption` via `GET event-consumption` (fiche [242](../bugs/242_reco_post_event_ventes_composees_non_explosees.md)) |
+
+### 12.2 Claims du contre-audit réfutés ou nuancés
+
+- « Dernier correctif uniquement sur la branche feature » — **faux** : le HEAD de
+  `feat/postEventInventory` est contenu dans `origin/develop` ET `origin/staging` (git vérifié).
+- « Un inventaire incomplet peut produire un document » — exact mécaniquement, mais c'est la
+  **garde douce décidée** (2026-07-06/20) ; requalifié en question métier (Q36), pas en bug.
+- « 24/25 tests backend » — exact au moment de l'audit : l'échec était un **mock obsolète** de la
+  spec (`spaceElement.findMany` non câblé après l'ajout du filtre orphelins BUG-235), corrigé le
+  2026-07-24 (30/30 avec les nouveaux tests d'expurgation).
+
+### 12.3 Ajouts de la même session (hors contre-audit)
+
+- **Suppression d'un document de réconciliation** (demande user 2026-07-24) :
+  `DELETE /inventory/:spaceId/reconciliations/:id`, bouton corbeille dans la section
+  (desktop + drawer), confirmation. « Repartir de zéro » = supprimer puis recliquer « Générer la
+  réconciliation » — pas d'édition (un document est une photo figée, l'éditer fausserait
+  l'archive). Périmètre strict kind pre/post-event (resets logistiques intouchables). Qui a le
+  droit de supprimer reste à trancher (Q37 — aujourd'hui : tout porteur de `spaceInventory`).
+
+### 12.4 Ancrage strict « un match = un eventId » (décision owner 2026-07-24)
+
+Règle imposée : *un seul match par cycle — prédiction, pre, ventes, post et réconciliations
+portent le MÊME `eventId` ; aucune étape ne bascule silencieusement vers un autre match.*
+Implémentation (`resolveEventContext` / `resolveReconciliationEvent`, SpaceInventoryView) :
+
+| Cas | Avant | Après |
+|---|---|---|
+| Post, entrée directe | `future[0] \|\| past[0]` (futur d'abord !) | **dernier passé strict** (`past[0]`), aucun repli futur |
+| Post, `?event=` futur (deep-link Event Predict) | accepté → comptage tagué sur un match à venir | **ignoré** → repli dernier passé, URL resynchronisée |
+| Post, `?event=` passé explicite | accepté | accepté (réconcilier un vieux match = choix délibéré, pas une bascule) |
+| Pre, `?event=` quelconque | futur lointain accepté (ex-Q35, absorbée par la décision) | **ignoré** — toujours le prochain futur strict |
+| Réco post | event de l'écran si passé, sinon repli silencieux « dernier passé » (source du décalage MATCH-B/MATCH-A) | **event de l'écran strictement** ; non fini → refus explicite (toast `invRecoEventNotFinished`), comptage sauvegardé |
+
+Reste ouvert (chantiers non retenus dans cette passe, à planifier) : « passé » = date de FIN
+d'événement (`eventEndDate`) et non de début ; séparation physique des `InventoryCount`
+pre/post ; baseline de l'attendu ancrée au match précédant le match CIBLE (+ borne haute des
+mouvements) — recoupe Q24/Q25.
+
+Rédaction § 12 : **JLH**, 2026-07-24.
+
+---
+
+## 13. Vérification d'implémentation (2026-07-24, 2ᵉ passe du jour)
+
+Relecture du **brief produit d'origine** contre le code réel — front ET backend — sans s'appuyer sur
+les verdicts des §§ 11-12 (chaque ligne rouverte dans le fichier cité). Objectif : confirmer que les
+correctifs du 2026-07-24 (ancrage strict § 12.4, suppression § 12.3, accès mobile fiche 236) n'ont
+rien cassé, et chercher ce que le dossier ne recensait pas encore.
+
+### 13.1 Conformité du brief — reconfirmée
+
+| Exigence du brief | Vérifié dans | Verdict |
+|---|---|---|
+| « Inventory » → « Post-event Inventory » (titre de page) | `invPageTitle` [translations.js:1760](../../src/i18n/translations.js) / [:5484](../../src/i18n/translations.js), rendu [SpaceInventoryView.vue:133](../../src/views/SpaceInventoryView.vue) (bi-mode `preInvPageTitle`/`invPageTitle`) ; `hdrSecInventory` :2027/:5751 | ✅ |
+| Bouton du dropdown renommé | `invToolInventory` [translations.js:1830](../../src/i18n/translations.js)/[:5554](../../src/i18n/translations.js) ; `hdrSecPreInventory` :1778/:5502 | ✅ |
+| Post-event lié au **dernier événement qui a eu lieu** | [SpaceInventoryView.vue:1386-1421](../../src/views/SpaceInventoryView.vue) : `?event=` futur ignoré, ancrage `past[0]` strict | ✅ |
+| Save → document de réconciliation (compté vs restant-théorique après ventes) | [SpaceInventoryView.vue:1698-1732](../../src/views/SpaceInventoryView.vue) → `:1812-1973` → [postEventReconciliation.js](../../src/utils/postEventReconciliation.js) | ✅ (réserves 238/241) |
+| Section Réconciliation sous les filtres, colonne gauche | [SpaceInventoryView.vue:110-117](../../src/views/SpaceInventoryView.vue) (après `InventoryFilterPanel`) ; mobile [InventoryFilterDrawer.vue:241](../../src/components/InventoryFilterDrawer.vue) | ✅ |
+| Bouton « Générer la réconciliation » / « Create Reconciliation » | `invSave` [translations.js:1774](../../src/i18n/translations.js)/[:5498](../../src/i18n/translations.js), bouton [SpaceInventoryView.vue:185-200](../../src/views/SpaceInventoryView.vue) | ✅ |
+| Pre-event : même layout, toujours le **prochain** événement | Écran bi-mode (`route.meta.inventoryMode`), [router/index.js:168-180](../../src/router/index.js) ; futur strict [SpaceInventoryView.vue:1415](../../src/views/SpaceInventoryView.vue) | ✅ |
+| Attendus = post-event précédent + mouvements Logistic, **sous** les champs Packed/Loose | `computeExpected` ([inventory.service.ts:413-520](../../../backend/src/features/inventory/inventory.service.ts)) → [preEventExpected.js](../../src/utils/preEventExpected.js) → caption `InventoryCountingInterface` | ✅ (réserve 239) |
+| Attendus visibles Directeur de site / Chef exécutif / Admin seulement | Gate **serveur** : `@RequirePermissions('front.fb.preInventoryExpected')` [inventory.controller.ts:99-115](../../../backend/src/features/inventory/inventory.controller.ts) + `PermissionsGuard` bien enregistré en `APP_GUARD` global ([app.module.ts:189](../../../backend/src/app.module.ts)) ; miroir client `canSeeExpected` [SpaceInventoryView.vue:907-911](../../src/views/SpaceInventoryView.vue) ; expurgation des réponses réco identique à la logique du guard ([inventory.controller.ts:38-43](../../../backend/src/features/inventory/inventory.controller.ts)) | ✅ |
+| Save Pre-event → réconciliation attendu vs compté, même section | `createPreEventReconciliation` [inventory.service.ts:569-687](../../../backend/src/features/inventory/inventory.service.ts) ; liste commune `kind IN ('post-event','pre-event')` `:261-277` ; badge [InventoryReconciliationSection.vue:29-33](../../src/components/InventoryReconciliationSection.vue) | ✅ |
+
+Tests rejoués : `npx jest tests/unit/postEventReconciliation.spec.js tests/unit/preEventExpected.spec.js`
+→ **21/21 PASS** (2026-07-24).
+
+### 13.2 Écarts nouveaux — 5 fiches, toutes corrigées le jour même
+
+Trouvés puis corrigés le 2026-07-24 sur `feat/postEventInventory` (statut 🟡 **Corrigé non
+déployé**). Le détail de chaque correctif vit dans sa fiche ; § 13.4 donne le mode d'emploi du
+déploiement, qui est **conjoint** (migration SQL + `prisma generate` + redémarrage backend).
+
+| Fiche | Sév. | Écart constaté → correctif | Section |
+|---|---|---|---|
+| [237](../bugs/237_post_event_prerempli_par_comptage_pre_event.md) | 🟠 ✅ | Le Post-event s'ouvrait **pré-rempli et « 100 % compté »** avec les saisies du Pre-event du même match (`InventoryCount` keyé sans la phase, même `eventId` depuis § 12.4) : garde « comptage incomplet » neutralisée, un clic archivait un snapshot `kind='post-event'` égal au comptage d'avant-match, baseline du cycle suivant empoisonnée. → **Phase de comptage** `?phase=pre-event\|post-event` : toute ligne figée avant la clôture du Pre-event revient « à compter » (valeurs conservées, drapeau `carriedFromPreEvent`, bandeau `invPostCarriedHint`). | § 8.5 limite 1 |
+| [238](../bugs/238_reco_post_event_ventes_non_jointes_avalees.md) | 🟠 ✅ | Ventes dont le PdV (nom normalisé) ou l'article ne joignait pas le référentiel compté : `continue` silencieux → `soldUnits = 0` → faux manquants persistés, alors que le chemin pre-event remontait déjà `unjoinedItemKeys`. → **Compteurs + `console.warn`**, archivés dans `StockReconciliation.meta` et affichés en bandeau sur le document ; la jointure article vérifie en plus que l'id existe dans le référentiel compté. | § 7.2 |
+| [239](../bugs/239_pre_event_taille_de_paquet_divergente_serveur_front.md) | 🟠 ✅ | Deux chaînes de résolution de la **taille de paquet**, priorités inverses (serveur : MarketPrice d'abord ; front : fiche menu item d'abord) → attendus, hints « Attendu : N » et écarts faux dès qu'elles divergent. → **Calcul en unités** : baseline convertie avec le conditionnement inventaire, mouvements avec celui de la Logistique, `units`/`unitsPerPack` transportés jusqu'à la vue (régime inchangé quand aucun conditionnement n'est connu). | § 8.3, § 8.4 |
+| [240](../bugs/240_reconciliation_dark_mode_et_formats_fr_fr_en_dur.md) | 🟡 ✅ | Section + vue Réconciliation : 44 couleurs en littéraux, **0** `var(--fb-*)` → deux blocs blancs en thème sombre ; `toLocaleString('fr-FR')` en dur malgré l'i18n maison. → **Contrat `--fb-*`** (couleurs sémantiques comprises) + locale de l'app. | § 7.4 |
+| [241](../bugs/241_getpreeventinventory_repli_legacy_hors_event.md) | 🟠 ✅ | `getPreEventInventory` : repli `createdAt < jour de l'event` **sans filtre `eventId` ni `kind`** (contrairement à son commentaire) → stock de départ possiblement issu d'un autre match, non tracé, contre § 12.4. → **Repli scopé** au post-event du match précédent, `source` renvoyé, archivé dans `meta` et affiché en bandeau ; sinon « — ». | § 7.2, § 7.5 limite 1 |
+
+Arbitrages produit encore demandés — les correctifs ne les préemptent pas, ils rendent le
+comportement actuel juste et lisible : [Question #38](../QUESTIONS_A_BERTRAND.md) (le pre-event
+doit-il pré-remplir le post-event ? un stock de départ de repli est-il acceptable, ou faut-il « — »
+strict ?) et [#39](../QUESTIONS_A_BERTRAND.md) (quel référentiel fait foi pour la quantité par
+paquet : fiche menu item ou MarketPrice).
+
+### 13.3 Anomalies mineures sous surveillance (pas de fiche)
+
+- **Double `loadForSpace` à l'entrée directe** : `resolveEventContext` resynchronise l'URL
+  (`router.replace({ query: { …, event } })`, [SpaceInventoryView.vue:1416-1420](../../src/views/SpaceInventoryView.vue)),
+  ce qui change `routeContextKey` (`:862-865`) et redéclenche le watcher `immediate` (`:2099-2106`)
+  alors que le premier chargement est encore en cours. `loadInventory` est dédupliqué en vol
+  ([inventory.js:111-118](../../src/store/modules/inventory.js)), mais `loadContext` et les
+  chargements de référentiels repassent. Coût réseau, pas de faute fonctionnelle.
+- **`invRecoEventNotFinished` quasi inatteignable** ([:1820](../../src/views/SpaceInventoryView.vue)) :
+  depuis l'ancrage strict, le mode post ne peut plus s'ancrer sur un événement futur, donc
+  `resolveReconciliationEvent` ne renvoie null que sur un event introuvable. Branche défensive
+  conservée volontairement — à ne pas prendre pour un chemin vivant lors d'un futur refactor.
+
+### 13.4 Déploiement des correctifs — dans cet ordre
+
+Les cinq correctifs partent ensemble. Le seul point dur est la nouvelle colonne :
+
+1. `prisma/sql/2026-07-24_stockreconciliation_meta.sql` (idempotent) — ajoute
+   `StockReconciliation.meta`, qui porte le contexte de fabrication du document.
+2. `prisma generate` — sans ça le client Prisma ne sélectionne pas la colonne : `meta` remonte
+   `undefined` et les bandeaux ne s'affichent jamais (aucune erreur, juste un silence).
+3. Redémarrage/redéploiement backend (nouveaux champs de DTO + `?phase=`).
+4. Front : rien de particulier — tant que le backend n'est pas à jour, le POST de réconciliation
+   **retombe automatiquement** sur la version sans contexte (400 « property … should not exist »
+   intercepté) plutôt que d'échouer, réflexe
+   [BUG-228](../bugs/228_inventory_snapshot_kind_rejete_backend_perime.md).
+
+Vérifications après déploiement : (a) ouvrir le Post-event d'un match dont le Pre-event a été
+clôturé → bandeau « recomptez » et onglet « À compter » non vide ; (b) générer une réconciliation
+post-event sans comptage d'avant-match → bandeau de provenance ; (c) un article dont
+`inventoryNumberOfUnits` diffère du `packedUnits` MarketPrice → attendu cohérent avec la Logistique
+en unités.
+
+Tests : backend **41/41** (`npx jest src/features/inventory`, +11 cas), front **478 verts**
+(`npx jest` ; 4 échecs préexistants hors périmètre — `apiOrMock`, `spaceMenusInventory`,
+`eventDetailsEditor` — identiques avant/après, vérifié par `git stash`).
+
+Rédaction § 13 : **Claude** (session de vérification puis correction 2026-07-24), méthode
+`modules/00_INDEX.md` (chaque affirmation ouverte dans le fichier cité).

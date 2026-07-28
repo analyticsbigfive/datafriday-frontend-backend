@@ -1825,6 +1825,25 @@ export const translations = {
     invRecoUnitsSuffix: 'unit(s)',
     invRecoNoPastEvent: 'No past event for this space — count saved, reconciliation not created',
     invRecoCreateError: 'Count saved but the reconciliation could not be created',
+    invRecoSalesError: 'Event sales unavailable — reconciliation not created, count saved. Try again.',
+    invRecoEventNotFinished: 'This event has not finished yet — the reconciliation is created on the counted event only. Count saved.',
+    invRecoDelete: 'Delete reconciliation',
+    invRecoDeleteTitle: 'Delete this reconciliation?',
+    invRecoDeleteMsg: 'the document will be permanently deleted. You can recreate it with "Create Reconciliation".',
+    invRecoDeleteConfirm: 'Delete',
+    invRecoDeleteError: 'The reconciliation could not be deleted',
+    // Contexte de fabrication du document (BUG-238/241) — sources manquantes ou dégradées.
+    invRecoMetaBaselinePrev:
+      "Starting stock taken from the previous match's post-event count — Logistic movements in between are not deducted.",
+    invRecoMetaBaselineNone: 'No starting stock for this match — Qty left and Missing are unavailable.',
+    invRecoMetaSalesUnjoined:
+      'sold units could not be matched to a counted POS/item — Missing is overstated by that much',
+    invRecoMetaOrphans: 'orphan line(s) excluded (item or POS removed from the catalogue).',
+    invRecoMetaSalesTimeline:
+      'Sales counted at sold-item level (older backend at generation time) — ingredient-level lines show 0 sold; read their Missing with that bias.',
+    invRecoMetaIncomplete: 'Count was incomplete when generated:',
+    invPostCarriedHint:
+      'Quantities shown come from the pre-match count — recount and validate each item.',
     invConfiguration: 'Configuration',
     invTools: 'Tools',
     invFilters: 'Filters',
@@ -5571,6 +5590,26 @@ export const translations = {
     invRecoUnitsSuffix: 'unité(s)',
     invRecoNoPastEvent: "Aucun événement passé pour cet espace — comptage sauvegardé, réconciliation non créée",
     invRecoCreateError: "Comptage sauvegardé mais la réconciliation n'a pas pu être créée",
+    invRecoSalesError: "Ventes de l'événement indisponibles — réconciliation non créée, comptage sauvegardé. Réessayez.",
+    invRecoEventNotFinished: "Cet événement n'est pas terminé — la réconciliation se crée uniquement sur l'événement compté. Comptage sauvegardé.",
+    invRecoDelete: 'Supprimer la réconciliation',
+    invRecoDeleteTitle: 'Supprimer cette réconciliation ?',
+    invRecoDeleteMsg: 'le document sera définitivement supprimé. Vous pourrez le recréer avec « Générer la réconciliation ».',
+    invRecoDeleteConfirm: 'Supprimer',
+    invRecoDeleteError: "La réconciliation n'a pas pu être supprimée",
+    // Contexte de fabrication du document (BUG-238/241) — sources manquantes ou dégradées.
+    invRecoMetaBaselinePrev:
+      "Stock de départ repris du comptage d'après-match du match précédent — les mouvements Logistic intermédiaires ne sont pas déduits.",
+    invRecoMetaBaselineNone:
+      'Aucun stock de départ pour ce match — Restant et Manquant indisponibles.',
+    invRecoMetaSalesUnjoined:
+      'unité(s) vendue(s) non rattachée(s) à un PdV/article compté — le manquant est surévalué d’autant',
+    invRecoMetaOrphans: 'ligne(s) orpheline(s) exclue(s) (article ou PdV retiré du catalogue).',
+    invRecoMetaSalesTimeline:
+      'Ventes comptées au grain article vendu (backend antérieur à la génération) — les lignes au grain ingrédient affichent 0 vendu ; leur Manquant se lit avec ce biais.',
+    invRecoMetaIncomplete: 'Comptage incomplet à la génération :',
+    invPostCarriedHint:
+      "Les quantités affichées viennent du comptage d'avant-match — recomptez et validez chaque article.",
     invConfiguration: 'Configuration',
     invTools: 'Outils',
     invFilters: 'Filtres',

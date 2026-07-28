@@ -76,10 +76,71 @@ export class PostEventReconciliationLineDto {
   unitCost?: number | null;
 }
 
+/**
+ * Ventes écartées du calcul faute de jointure (BUG-238) : un record de ventes
+ * dont le PdV (nom normalisé) ou l'article ne correspond à rien dans le
+ * référentiel compté n'entre pas dans `soldUnits` — la ligne concernée affiche
+ * alors 0 vendu et un manquant fabriqué. Persister le compte rend l'écart
+ * lisible a posteriori.
+ */
+export class SalesUnjoinedDto {
+  @ApiPropertyOptional({ description: 'Noms de PdV vendeurs absents du périmètre compté', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shopNames?: string[];
+
+  @ApiPropertyOptional({ description: "Noms d'articles vendus non rattachables à un article inventorié", type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  itemNames?: string[];
+
+  @ApiPropertyOptional({ description: 'Unités vendues écartées au total', type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  units?: number;
+}
+
 export class CreatePostEventReconciliationDto {
   @ApiProperty({ description: "ID de l'événement réconcilié" })
   @IsString()
   eventId: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Provenance du stock de départ (BUG-241) : 'pre-event' = comptage d'avant-match du même " +
+      "événement ; 'previous-post-event' = comptage d'après-match du match précédent (approximation, " +
+      'les mouvements Logistic intermédiaires ne sont pas déduits) ; absent = aucun stock de départ.',
+  })
+  @IsOptional()
+  @IsString()
+  preEventSource?: string;
+
+  @ApiPropertyOptional({ description: 'Ventes écartées faute de jointure (BUG-238)', type: SalesUnjoinedDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SalesUnjoinedDto)
+  salesUnjoined?: SalesUnjoinedDto;
+
+  @ApiPropertyOptional({
+    description:
+      "Grain de la source « Vendu » (Q35 Option 1) : 'consumption' = ventes explosées en " +
+      "ingrédients par la cascade Logistic (event-consumption) ; 'timeline' = ventes brutes au " +
+      "grain article (repli backend antérieur). Absent = document d'avant Q35. ⚠️ Le front " +
+      "n'envoie ce champ QUE sur le chemin 'consumption' (un backend antérieur, " +
+      'forbidNonWhitelisted, rejetterait le champ inconnu).',
+  })
+  @IsOptional()
+  @IsString()
+  salesSource?: string;
+
+  @ApiPropertyOptional({ description: 'Comptage au moment de la génération (articles comptés / total)', type: [Number] })
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  countedProgress?: number[];
 
   @ApiPropertyOptional({ description: "Nom de l'événement (dénormalisé pour la liste)" })
   @IsOptional()

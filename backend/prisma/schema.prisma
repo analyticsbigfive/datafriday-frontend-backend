@@ -2583,6 +2583,13 @@ model StockReconciliation {
   // PAS aux StockLevel). Migration : prisma/sql/2026-07-20_stockreconciliation_kind_post_event.sql
   kind      String?
   lines     Json
+  // Contexte de fabrication du document (BUG-238/241, 2026-07-24) : provenance du
+  // stock de départ (`preEventSource`), ventes non rattachées écartées du calcul
+  // (`salesUnjoined`), lignes orphelines exclues (`orphanLinesExcluded`). Un
+  // document est une photo figée : sans ces marqueurs, un écart fabriqué par une
+  // source manquante est indiscernable d'un vrai manquant.
+  // Migration : prisma/sql/2026-07-24_stockreconciliation_meta.sql
+  meta      Json?
   createdBy String?
   createdAt DateTime @default(now())
 
