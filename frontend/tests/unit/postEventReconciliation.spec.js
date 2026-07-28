@@ -1,6 +1,7 @@
 import {
   reconciliationKey,
   buildPostEventReconciliationLines,
+  buildSoldUnitsFromConsumption,
   computeReconciliationSummary,
 } from '@/utils/postEventReconciliation'
 
@@ -141,5 +142,90 @@ describe('computeReconciliationSummary', () => {
   it('diffPct is null when total predicted is 0 (no ±Infinity)', () => {
     const s = computeReconciliationSummary([{ soldUnits: 5, predictedUnits: 0 }])
     expect(s.diffPct).toBeNull()
+  })
+
+  // Q35 Option 1 : le vendu peut être au grain ingrédient (predictedUnits null).
+  it('diffPct compares like with like — ingredient-grain sold (predicted null) stays out, totalSold keeps everything', () => {
+    const s = computeReconciliationSummary([
+      { soldUnits: 100, predictedUnits: 100 }, // vendable : prédit 100, vendu 100
+      { soldUnits: 700, predictedUnits: null }, // fût explosé : jamais prédit
+    ])
+    expect(s.totalSold).toBe(800) // chip « Total vendu » : tout
+    expect(s.diffPct).toBe(0) // (100−100)/100 — pas (800−100)/100
+  })
+})
+
+describe('buildSoldUnitsFromConsumption (Q35 Option 1)', () => {
+  const normalize = (s) =>
+    String(s ?? '')
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .trim()
+      .toLowerCase()
+
+  const params = () => ({
+    elementIdSet: new Set(['el1']),
+    itemIdByNormName: new Map([
+      [normalize('Budweiser Fût'), 'ing-fut'],
+      [normalize('Coca-Cola CAN'), 'mi-coca'],
+    ]),
+    normalize,
+  })
+
+  it('joins by normalized itemKey and keys by elementId|itemId', () => {
+    const r = buildSoldUnitsFromConsumption(
+      [
+        { elementId: 'el1', itemKey: 'Budweiser Fût', quantity: 7 },
+        { elementId: 'el1', itemKey: 'budweiser fut ', quantity: 0.5 }, // diacritiques/casse/espace
+        { elementId: 'el1', itemKey: 'Coca-Cola CAN', quantity: 3 },
+      ],
+      params(),
+    )
+    expect(r.soldUnitsByKey).toEqual({
+      [K('el1', 'ing-fut')]: 7.5,
+      [K('el1', 'mi-coca')]: 3,
+    })
+    expect(r.unjoinedUnits).toBe(0)
+  })
+
+  it('routes unknown item names and foreign elements to unjoined — never swallowed, never zeroed', () => {
+    const r = buildSoldUnitsFromConsumption(
+      [
+        { elementId: 'el1', itemKey: 'Article mystère', quantity: 4 },
+        { elementId: 'el-autre-espace', itemKey: 'Budweiser Fût', quantity: 2 },
+        { elementId: 'el1', itemKey: 'Budweiser Fût', quantity: 0 }, // qty 0 ignorée
+      ],
+      params(),
+    )
+    expect(r.soldUnitsByKey).toEqual({})
+    expect([...r.unjoinedItems]).toEqual(['Article mystère'])
+    expect([...r.unjoinedShops]).toEqual(['el-autre-espace'])
+    expect(r.unjoinedUnits).toBe(6)
+  })
+
+  it('tolerates empty/absent input', () => {
+    expect(buildSoldUnitsFromConsumption(null, params()).soldUnitsByKey).toEqual({})
+    expect(buildSoldUnitsFromConsumption([], params()).unjoinedUnits).toBe(0)
+  })
+})
+
+describe('buildPostEventReconciliationLines — predictableItemIds (Q35)', () => {
+  it('scenario present: vendable line keeps the 0-default, ingredient-grain line gets null', () => {
+    const lines = buildPostEventReconciliationLines({
+      countedUnitsByKey: { [K('el1', 'mi-coca')]: 1, [K('el1', 'ing-fut')]: 2 },
+      predictedUnitsByKey: { [K('el1', 'other')]: 10 },
+      predictableItemIds: new Set(['mi-coca']),
+    })
+    const byItem = Object.fromEntries(lines.map((l) => [l.itemKey, l]))
+    expect(byItem['mi-coca'].predictedUnits).toBe(0) // vendable absent du scénario → 0 réel
+    expect(byItem['ing-fut'].predictedUnits).toBeNull() // grain ingrédient → pas ce grain
+  })
+
+  it('without the param, behavior is unchanged (legacy callers)', () => {
+    const lines = buildPostEventReconciliationLines({
+      countedUnitsByKey: { [K('el1', 'ing-fut')]: 2 },
+      predictedUnitsByKey: { [K('el1', 'other')]: 10 },
+    })
+    expect(lines[0].predictedUnits).toBe(0)
   })
 })

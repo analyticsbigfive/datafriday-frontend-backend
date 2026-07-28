@@ -67,6 +67,23 @@
 
       <template v-else>
 
+        <!-- ── Ambiguous Weezevent link banner (BUG-021 manual resolution) ── -->
+        <div
+          v-if="ambiguousMatches.length > 0"
+          class="spt-banner spt-banner--amber"
+        >
+          <div class="spt-banner__left">
+            <v-icon size="16" color="#b45309">mdi-link-variant-plus</v-icon>
+            <span>
+              <strong>{{ ambiguousMatches.length }}</strong> {{ t('intgTimelineEvent') }}{{ ambiguousMatches.length > 1 ? 's' : '' }} {{ t('intgResolveLinkNeedsChoice') }}
+            </span>
+          </div>
+          <button class="spt-banner-btn spt-banner-btn--amber" @click="ambiguousMatchesDialog = true">
+            <v-icon size="14">mdi-link-variant-plus</v-icon>
+            {{ t('intgResolveLinkButton') }}
+          </button>
+        </div>
+
         <!-- ── Bulk create banner ── -->
         <div
           v-if="(unmappedCount > 0 || patchableEventsCount > 0) && !bulkCreateEventsRunning"
@@ -294,13 +311,14 @@
                       }}
                     </button>
                     <button
-                      class="spt-act-btn spt-act-btn--red"
-                      :disabled="deletingEventId === item.id"
-                      @click="handleDeleteEvent(item)"
+                      class="spt-act-btn spt-act-btn--amber"
+                      :disabled="unmappingEventId === item.id"
+                      :title="t('intgTimelineUnmapTooltip')"
+                      @click="handleUnmapEvent(item)"
                     >
-                      <v-progress-circular v-if="deletingEventId === item.id" indeterminate size="11" width="2" color="currentColor" />
-                      <v-icon v-else size="12">mdi-delete-outline</v-icon>
-                      {{ t('intgTimelineBtnDelete') }}
+                      <v-progress-circular v-if="unmappingEventId === item.id" indeterminate size="11" width="2" color="currentColor" />
+                      <v-icon v-else size="12">mdi-link-off</v-icon>
+                      {{ t('intgTimelineBtnUnmap') }}
                     </button>
                   </div>
 
@@ -514,6 +532,14 @@
       @created="handleEventCreated"
     />
 
+    <!-- ── Dialog: résoudre les liens Weezevent ambigus (BUG-021) ── -->
+    <ResolveWeezeventLinkDialog
+      v-model="ambiguousMatchesDialog"
+      :matches="ambiguousMatches"
+      :resolving-id="resolvingWeezeventLinkId"
+      @resolve="handleResolveWeezeventLink"
+    />
+
     <!-- ── Snackbar feedback ── -->
     <v-snackbar v-model="feedbackSnackbar" :color="feedbackSnackbarColor" timeout="3000" location="bottom right">
       {{ feedbackSnackbarText }}
@@ -540,12 +566,13 @@ import { formatDateMedium } from '@/utils/dateFr'
 import { useTimelineProcessing } from '@/composables/useTimelineProcessing'
 import { useSynchronization } from '@/composables/useSynchronization'
 import { getJobProgress, getEventBreakdown, getEventMinuteChart } from '@/api/endpoints/aggregation.api'
-import { createEvent, updateEvent, deleteEvent } from '@/api/endpoints/event.api'
+import { createEvent, updateEvent, getAmbiguousWeezeventMatches, resolveWeezeventLink } from '@/api/endpoints/event.api'
 import { updateWeezeventEventMetadata, syncWeezeventEventAttendees, getWeezeventEventsForSpace } from '@/api/endpoints/space.api'
 import EventTimelineProgressIndicator from '@/components/EventTimelineProgressIndicator.vue'
 import MapEventToExistingDialog from './dialogs/MapEventToExistingDialog.vue'
 import CreateEventDialog from './dialogs/CreateEventDialog.vue'
 import EventBreakdownDrawer from './dialogs/EventBreakdownDrawer.vue'
+import ResolveWeezeventLinkDialog from './dialogs/ResolveWeezeventLinkDialog.vue'
 
 // Poll cadence for a single event's aggregation job (handleProcessSingle)
 const SINGLE_EVENT_POLL_INTERVAL_MS = 1000
@@ -568,6 +595,7 @@ export default {
     MapEventToExistingDialog,
     CreateEventDialog,
     EventBreakdownDrawer,
+    ResolveWeezeventLinkDialog,
   },
   props: {
     location: { type: Object, required: true },
@@ -616,6 +644,11 @@ export default {
       mapToEventDialog: false,
       mapToEventItem: null,
       mappingEventLoading: false,
+      // Events sans lien Weezevent univoque (BUG-021) : plusieurs candidats le même
+      // jour, l'auto-link s'abstient, résolution manuelle nécessaire.
+      ambiguousMatches: [],
+      ambiguousMatchesDialog: false,
+      resolvingWeezeventLinkId: null,
       // §6 — dialog création event
       createEventDialog: false,
       createEventPrefill: null,
@@ -633,7 +666,7 @@ export default {
       minuteChartLoading: {},   // { [eventId]: boolean }
       // Mapping WeezeventEvent → DataFriday Event { weezEventId: dfEventId }
       weezEventMappings: {},
-      deletingEventId: null,
+      unmappingEventId: null,
       // §breakdown
       expandedEventId: null,
       breakdownDrawer: false,
@@ -657,13 +690,6 @@ export default {
     // §3 — tous les events enregistrés (les futurs sont signalés en info mais restent listés)
     registeredEvents() {
       return this.events || []
-    },
-    // Items pour le select de mapping WeezeventEvent → DataFriday Event
-    dfEventSelectItems() {
-      return (this.events || []).map(e => ({
-        id: e.id,
-        label: `${e.name || e.eventName || e.id} — ${this.formatDate(e.startDate || e.eventDate || e.date)}`,
-      }))
     },
     futureEventsCount() {
       const now = new Date()
@@ -786,6 +812,7 @@ export default {
       // Réhydrate weezEventMappings (liens dfEventId persistés) au chargement,
       // symétriquement à loadTimeline, pour que "Créer et lier tout" ne recrée pas de doublons.
       this.loadWeezeventEvents()
+      this.loadAmbiguousMatches()
     }
   },
   unmounted() {
@@ -801,6 +828,7 @@ export default {
         this.uncoveredPage = 1
         this.loadTimeline(val, this.location.id)
         this.loadWeezeventEvents()
+        this.loadAmbiguousMatches()
       }
     },
     activeTab() {
@@ -1035,24 +1063,28 @@ export default {
     },
     // handleCreateEventFromWeez() (ouverture du dialog de création depuis l'onglet
     // "Événements Weezevent" mort) supprimée — aucun point d'appel dans le template.
-    async handleDeleteEvent(event) {
+    // Démappe l'event du space courant (spaceId → null) au lieu de le supprimer :
+    // l'event reste en base (Événements, revenus, taxonomie…), disparaît juste de
+    // cette intégration — sa date repasse en « Non couverte ». Voir events.service.ts
+    // (resolveEventSpaceFields) côté backend.
+    async handleUnmapEvent(event) {
       const label = event.name || event.eventName || event.id
-      if (!confirm(`${this.t('intgTimelineDeleteConfirmPrefix')} « ${label} » ? ${this.t('intgTimelineDeleteConfirmSuffix')}`)) return
-      this.deletingEventId = event.id
+      if (!confirm(`${this.t('intgTimelineUnmapConfirmPrefix')} « ${label} » ${this.t('intgTimelineUnmapConfirmSuffix')}`)) return
+      this.unmappingEventId = event.id
       try {
-        await deleteEvent(event.id)
-        this.$store.dispatch('events/removeEvent', event.id)
+        const updated = await updateEvent(event.id, { spaceId: null })
+        this.$store.dispatch('events/updateEvent', updated?.data ?? updated)
         await this.loadTimeline(this.spaceId, this.location.id)
-        this.feedbackSnackbarText = `${this.t('intgTimelineEvent')} « ${label} » ${this.t('intgTimelineDeletedSuffix')}`
+        this.feedbackSnackbarText = `${this.t('intgTimelineEvent')} « ${label} » ${this.t('intgTimelineUnmappedSuffix')}`
         this.feedbackSnackbarColor = 'success'
         this.feedbackSnackbar = true
       } catch (err) {
-        console.error('[StepProcessTimeline] Failed to delete event:', err)
-        this.feedbackSnackbarText = this.t('intgTimelineDeleteError')
+        console.error('[StepProcessTimeline] Failed to unmap event:', err)
+        this.feedbackSnackbarText = this.t('intgTimelineUnmapError')
         this.feedbackSnackbarColor = 'error'
         this.feedbackSnackbar = true
       } finally {
-        this.deletingEventId = null
+        this.unmappingEventId = null
       }
     },
     async handleToggleBreakdown(event) {
@@ -1299,6 +1331,34 @@ export default {
         console.error('[StepProcessTimeline] Failed to load weezevent events:', err)
       }
     },
+    // Events créés dont l'auto-link (BUG-021) n'a pas pu choisir un WeezeventEvent
+    // univoque (plusieurs candidats le même jour) : résolution manuelle.
+    async loadAmbiguousMatches() {
+      try {
+        const data = await getAmbiguousWeezeventMatches()
+        this.ambiguousMatches = Array.isArray(data) ? data : (data?.data ?? [])
+      } catch (err) {
+        console.error('[StepProcessTimeline] Failed to load ambiguous Weezevent matches:', err)
+      }
+    },
+    async handleResolveWeezeventLink({ eventId, weezeventEventId }) {
+      this.resolvingWeezeventLinkId = eventId
+      try {
+        await resolveWeezeventLink(eventId, weezeventEventId)
+        this.ambiguousMatches = this.ambiguousMatches.filter(m => m.eventId !== eventId)
+        if (!this.ambiguousMatches.length) this.ambiguousMatchesDialog = false
+        this.feedbackSnackbarText = this.t('intgResolveLinkSuccess')
+        this.feedbackSnackbarColor = 'success'
+        this.feedbackSnackbar = true
+        await this.loadTimeline(this.spaceId, this.location.id)
+      } catch (err) {
+        this.feedbackSnackbarText = this.t('intgResolveLinkError') + ' ' + (err?.response?.data?.message || err.message)
+        this.feedbackSnackbarColor = 'error'
+        this.feedbackSnackbar = true
+      } finally {
+        this.resolvingWeezeventLinkId = null
+      }
+    },
     // saveWeezEventMapping/openEnrichDialog/saveEnrichment (onglet "Événements Weezevent"
     // mort) supprimées : aucun point d'appel dans le template. EnrichEventDialog n'était
     // de toute façon jamais ouvrable (son seul déclencheur, openEnrichDialog, n'était
@@ -1411,6 +1471,7 @@ export default {
 }
 .spt-banner__left { display: flex; align-items: center; gap: 8px; flex: 1; }
 .spt-banner--blue { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1e40af; }
+.spt-banner--amber { background: #fffbeb; border: 1.5px solid #fde68a; color: #92400e; }
 
 .spt-banner-btn {
   padding: 6px 14px; border-radius: 100px; font-size: 12px; font-weight: 600;
@@ -1419,6 +1480,8 @@ export default {
 }
 .spt-banner-btn--blue { background: #2563eb; color: #fff; }
 .spt-banner-btn--blue:hover { background: #1d4ed8; }
+.spt-banner-btn--amber { background: #b45309; color: #fff; }
+.spt-banner-btn--amber:hover { background: #92400e; }
 
 /* ── Toolbar + pill tabs ── */
 .spt-toolbar {

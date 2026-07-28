@@ -50,11 +50,32 @@ export async function updateEvent(id, updates) {
 
 /**
  * Supprimer un événement
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<void>}
  */
 export async function deleteEvent(id) {
   return api.delete(`/events/${id}`)
+}
+
+/**
+ * Lister les events sans lien Weezevent univoque (BUG-021) : `weezeventEventId` null
+ * alors qu'au moins un WeezeventEvent existe le même jour calendaire — l'auto-link
+ * s'abstient dès qu'il y a plus d'un candidat de chaque côté, il faut alors choisir
+ * manuellement.
+ * @returns {Promise<Array<{eventId: string, eventName: string, eventDate: string, candidates: Array}>>}
+ */
+export async function getAmbiguousWeezeventMatches() {
+  return api.get('/events/weezevent-ambiguous-matches')
+}
+
+/**
+ * Résoudre manuellement le lien Weezevent d'un event (BUG-021).
+ * @param {string} id
+ * @param {string|null} weezeventEventId - null pour délier explicitement
+ * @returns {Promise<Object>}
+ */
+export async function resolveWeezeventLink(id, weezeventEventId) {
+  return api.patch(`/events/${id}/weezevent-link`, { weezeventEventId })
 }
 
 // ============================================

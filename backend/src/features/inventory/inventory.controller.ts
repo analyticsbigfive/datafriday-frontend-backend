@@ -2,14 +2,16 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
@@ -28,6 +30,18 @@ export class InventoryController {
   private readonly logger = new Logger(InventoryController.name);
 
   constructor(private readonly inventoryService: InventoryService) {}
+
+  /** BUG-233 — l'appelant a-t-il le droit de VOIR les quantités attendues ?
+   *  Même logique que PermissionsGuard (ADMIN systemKey = tout, sinon OR sur
+   *  `user.role.permissions`) : sans ce droit, les lignes pre-event des
+   *  réconciliations sont expurgées côté service (le POST reste autorisé —
+   *  le flux « Sauvegarder → réconciliation » d'un compteur ne casse pas). */
+  private canSeeExpected(user: any): boolean {
+    return (
+      user?.role?.systemKey === 'ADMIN' ||
+      ((user?.role?.permissions ?? []) as string[]).includes('front.fb.preInventoryExpected')
+    );
+  }
 
   // ':spaceId/latest' MUST come before ':spaceId/:eventId' — otherwise Fastify
   // would route GET /inventory/abc/latest to the /:eventId handler with eventId='latest'.
@@ -55,7 +69,29 @@ export class InventoryController {
   @ApiResponse({ status: 200, description: 'Liste commune triée du plus récent au plus ancien' })
   async listInventoryReconciliations(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
     this.logger.log(`GET /inventory/${spaceId}/reconciliations`);
-    return this.inventoryService.listInventoryReconciliations(spaceId, user.tenantId);
+    return this.inventoryService.listInventoryReconciliations(
+      spaceId,
+      user.tenantId,
+      this.canSeeExpected(user),
+    );
+  }
+
+  // Suppression d'un document pre/post-event (« repartir de zéro » : delete puis
+  // regénérer). Segment statique à 3 niveaux — pas de conflit avec ':spaceId/:eventId'.
+  @Delete(':spaceId/reconciliations/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Supprimer un document de réconciliation pre/post-event' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'id', description: 'ID du document (kind pre/post-event uniquement)' })
+  @ApiResponse({ status: 200, description: 'Document supprimé' })
+  @ApiResponse({ status: 404, description: 'Document inconnu ou hors périmètre (resets logistiques exclus)' })
+  async deleteInventoryReconciliation(
+    @Param('spaceId') spaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`DELETE /inventory/${spaceId}/reconciliations/${id}`);
+    return this.inventoryService.deleteInventoryReconciliation(spaceId, id, user.tenantId);
   }
 
   // Quantités ATTENDUES du Pre-event Inventory — gating par PERMISSION DÉDIÉE
@@ -93,7 +129,31 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${dto.eventId}`);
-    return this.inventoryService.createPreEventReconciliation(spaceId, dto.eventId, user.tenantId, user.id);
+    return this.inventoryService.createPreEventReconciliation(
+      spaceId,
+      dto.eventId,
+      user.tenantId,
+      user.id,
+      this.canSeeExpected(user),
+    );
+  }
+
+  @Get(':spaceId/event-consumption/:eventId')
+  @ApiOperation({
+    summary:
+      "Ventes de l'événement explosées en consommation d'ingrédients (cascade Logistic) — source « Vendu » de la réconciliation post-event (Q35 Option 1). Les ventes non rattachables (PdV non mappé, produit sans mapping) sortent dans `unjoined`, jamais écartées en silence.",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'eventId', description: "ID de l'événement (fenêtre eventDate → fin+1j)" })
+  @ApiResponse({ status: 200, description: '{ lines: [{elementId, itemKey, quantity}], unjoined }' })
+  @ApiResponse({ status: 404, description: 'Espace ou événement inconnu pour ce tenant' })
+  async getEventSalesConsumption(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`GET /inventory/${spaceId}/event-consumption/${eventId}`);
+    return this.inventoryService.getEventSalesConsumption(spaceId, eventId, user.tenantId);
   }
 
   @Get(':spaceId/pre-event/:eventId')
@@ -130,15 +190,26 @@ export class InventoryController {
   @ApiOperation({ summary: "Dernier snapshot d'inventaire pour un espace+événement" })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   @ApiParam({ name: 'eventId', description: "ID de l'événement" })
+  @ApiQuery({
+    name: 'phase',
+    required: false,
+    enum: ['pre-event', 'post-event'],
+    description:
+      "Phase du comptage demandé (BUG-237). 'post-event' : les lignes figées avant la clôture du " +
+      'Pre-event sont renvoyées comme proposition (valeurs conservées, isCounted=false) — sans ce ' +
+      "paramètre, comportement historique inchangé.",
+  })
   @ApiResponse({ status: 200, description: 'Snapshot avec inventoryCounts' })
   @ApiResponse({ status: 404, description: 'Aucun snapshot trouvé' })
   async getBySpaceAndEvent(
     @Param('spaceId') spaceId: string,
     @Param('eventId') eventId: string,
     @CurrentUser() user: any,
+    @Query('phase') phase?: string,
   ) {
-    this.logger.log(`GET /inventory/${spaceId}/${eventId}`);
-    return this.inventoryService.getBySpaceAndEvent(spaceId, eventId, user.tenantId);
+    this.logger.log(`GET /inventory/${spaceId}/${eventId} phase=${phase ?? 'none'}`);
+    const validPhase = phase === 'pre-event' || phase === 'post-event' ? phase : undefined;
+    return this.inventoryService.getBySpaceAndEvent(spaceId, eventId, user.tenantId, validPhase);
   }
 
   @Post()

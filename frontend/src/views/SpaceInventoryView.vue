@@ -40,6 +40,11 @@
         :selected-menu-items="selectedMenuItems"
         :selected-item-types="selectedItemTypes"
         :selected-item-categories="selectedItemCategories"
+        :reconciliations="reconciliations"
+        :selected-reconciliation-id="selectedReconciliationId"
+        :reco-loading="recoLoading"
+        @select-reconciliation="onDrawerSelectReconciliation"
+        @delete-reconciliation="onDeleteReconciliation"
         @update:selected-event-id="selectedEventId = $event"
         @update:search="search = $event"
         @update:counting-status-tab="countingStatusTab = $event"
@@ -108,6 +113,7 @@
           :selected-id="selectedReconciliationId"
           :loading="recoLoading"
           @select="selectedReconciliationId = $event"
+          @delete="onDeleteReconciliation"
         />
       </div>
 
@@ -199,6 +205,18 @@
     <!-- Contenu central NORMAL (recherche, onglets, cartes, comptage) — substitué
          par la vue réconciliation quand un document est sélectionné. -->
     <template v-if="!activeReconciliation">
+    <!-- Post-event ouvert sur des saisies d'AVANT-match (BUG-237) : les valeurs
+         sont une proposition, pas un comptage validé — le dire explicitement,
+         sinon l'écran « 100 % compté » invite à sauvegarder sans recompter. -->
+    <v-alert
+      v-if="hasCarriedCounts"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="si-carried-alert"
+    >
+      {{ t('invPostCarriedHint') }}
+    </v-alert>
     <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur. -->
     <div class="si-search-wrap">
       <AppSearchBar
@@ -654,14 +672,17 @@ import InventoryReconciliationView from '@/components/InventoryReconciliationVie
 import {
   createPostEventReconciliation,
   listInventoryReconciliations,
+  deleteInventoryReconciliation,
   getPreEventInventory,
   getPreEventBaseline,
   createPreEventReconciliation,
+  getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey } from '@/utils/preEventExpected'
 import {
   reconciliationKey,
   buildPostEventReconciliationLines,
+  buildSoldUnitsFromConsumption,
 } from '@/utils/postEventReconciliation'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
@@ -894,6 +915,17 @@ export default {
     },
     isPreMode() {
       return this.inventoryMode === 'pre'
+    },
+    /** Mode post ouvert sur des lignes reprises du comptage d'avant-match
+     *  (drapeau serveur `carriedFromPreEvent`, BUG-237) → bandeau « à recompter ». */
+    hasCarriedCounts() {
+      if (this.isPreMode) return false
+      for (const byItem of Object.values(this.inventoryCounts || {})) {
+        for (const c of Object.values(byItem || {})) {
+          if (c?.carriedFromPreEvent) return true
+        }
+      }
+      return false
     },
     /** Quantités attendues : permission dédiée (gating serveur en miroir — sans
      *  elle, l'endpoint baseline répond 403 et on n'émet même pas l'appel). */
@@ -1376,19 +1408,23 @@ export default {
       // pas de ?configuration= valide) : plutôt que le cul-de-sac « Aucun
       // évènement sélectionné », retomber sur l'ancrage par défaut ci-dessous.
       if (ev && !resolveCfg(ev)) ev = null
-      // Mode PRE : l'écran affiche TOUJOURS le prochain événement futur (spec
-      // 2026-07-20). Un ?event= passé (deep-link venu d'un autre écran) est
-      // ignoré → repli sur l'ancrage futur ci-dessous.
-      if (ev && this.isPreMode) {
+      // ── Ancrage STRICT « un match = un eventId » (décision owner 2026-07-24,
+      // décision détaillée docs modules/10 §12.4) : plus aucune bascule silencieuse de match.
+      // - Mode PRE : l'écran affiche TOUJOURS le prochain événement futur — tout
+      //   ?event= est ignoré (même un futur lointain), le prochain strict est
+      //   recalculé ci-dessous.
+      // - Mode POST : l'écran est lié au dernier événement FINI — un ?event=
+      //   FUTUR (deep-link Event Predict) est ignoré → repli dernier passé ;
+      //   un ?event= passé explicite reste respecté (réconcilier un vieux match
+      //   est un choix délibéré, pas une bascule silencieuse).
+      if (ev && this.isPreMode) ev = null
+      if (ev && !this.isPreMode) {
         const t = new Date(ev.eventDate || ev.date).getTime()
-        if (Number.isNaN(t) || t <= Date.now()) ev = null
+        if (Number.isNaN(t) || t > Date.now()) ev = null
       }
-      // Entrée DIRECTE (sidebar / URL sans ?event=) : au lieu du cul-de-sac
-      // « Aucun évènement sélectionné », ancrage par défaut sur le prochain
-      // event FUTUR le plus proche (même règle qu'Event Predict), repli sur le
-      // passé le plus récent — premier dont la config est résoluble. L'URL est
-      // synchronisée (replace, pas de watcher route ici → pas de re-run) pour
-      // rester partageable et cohérente avec Event Predict.
+      // Ancrage par défaut (entrée directe ou ?event= rejeté ci-dessus). L'URL
+      // est synchronisée (replace, pas de watcher route ici → pas de re-run)
+      // pour rester partageable.
       if (!ev) {
         const okCfg = (e) => inConfigs(urlCfg) || inConfigs(e?.configurationId)
         const now = Date.now()
@@ -1397,9 +1433,11 @@ export default {
           .filter((x) => !Number.isNaN(x.t) && okCfg(x.e))
         const future = dated.filter((x) => x.t > now).sort((a, b) => a.t - b.t)
         const past = dated.filter((x) => x.t <= now).sort((a, b) => b.t - a.t)
-        // Mode PRE : futur STRICT (aucun repli passé — sans event à venir,
-        // l'écran affiche l'état vide preInvNoUpcoming).
-        ev = this.isPreMode ? (future[0]?.e || null) : ((future[0] || past[0])?.e || null)
+        // PRE : prochain futur STRICT (aucun repli passé — sans event à venir,
+        // état vide preInvNoUpcoming). POST : dernier passé STRICT (aucun repli
+        // futur — un comptage post-event tagué sur un match à venir empoisonnait
+        // la baseline du pre-event suivant, écart §11.3 clos).
+        ev = this.isPreMode ? (future[0]?.e || null) : (past[0]?.e || null)
         if (ev && this.router) {
           this.router
             .replace({ query: { ...this.route.query, event: ev.id } })
@@ -1462,6 +1500,11 @@ export default {
           this.store.dispatch('inventory/loadInventory', {
             spaceId,
             eventId: this.selectedEventId,
+            // Phase du comptage (BUG-237) : les deux écrans partagent l'eventId.
+            // En post, le serveur renvoie les saisies d'avant-match en simple
+            // proposition (valeurs gardées, « à compter ») au lieu d'un comptage
+            // déjà validé — sinon un clic archivait un post-event = pre-event.
+            phase: this.isPreMode ? 'pre-event' : 'post-event',
           }),
         ])
 
@@ -1768,7 +1811,13 @@ export default {
             if (nk && it?.id && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, String(it.id))
           }
         }
-        this.preExpected = buildPreEventExpected(baseline, { itemIdByNormName })
+        // `unitsPerItemId` (BUG-239) : le serveur peut avoir calculé l'attendu
+        // avec la taille de paquet de la Logistique — on le re-découpe dans celle
+        // du champ Packed affiché (total en unités inchangé).
+        this.preExpected = buildPreEventExpected(baseline, {
+          itemIdByNormName,
+          unitsPerItemId: this.unitsPerItemIdMap,
+        })
       } catch (e) {
         // 403 (permission retirée côté serveur) ou réseau → pas de hints, comptage intact.
         console.warn('[SpaceInventory] baseline pre-event KO (pas de hints):', e?.message)
@@ -1784,35 +1833,33 @@ export default {
       return field === 'packed' ? exp.packed : exp.loose
     },
     /**
-     * Événement à réconcilier : l'event du contexte s'il a déjà eu lieu, sinon
-     * le dernier event passé du space (l'ancrage par défaut de l'écran vise le
-     * prochain event FUTUR — resolveEventContext — inutilisable pour comparer
-     * des ventes déjà réalisées).
+     * Événement à réconcilier = l'event de l'ÉCRAN, strictement (« un match =
+     * un eventId », décision owner 2026-07-24 — Q32 résolue). L'ancien repli
+     * silencieux « dernier event passé du space » pouvait sauvegarder le
+     * comptage sous MATCH-B et créer la réconciliation sous MATCH-A. Event
+     * absent ou non fini → null, le caller affiche un refus explicite.
      */
     resolveReconciliationEvent() {
-      const now = Date.now()
-      const isPast = (e) => {
-        const d = new Date(e?.date || e?.eventDate)
-        return !Number.isNaN(d.getTime()) && d.getTime() <= now
-      }
       const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
-      if (current && isPast(current)) return current
-      // pastEvents est trié ascendant : le dernier élément est le dernier match fini.
-      const past = this.pastEvents || []
-      return past[past.length - 1] || null
+      if (!current) return null
+      const d = new Date(current.date || current.eventDate)
+      return !Number.isNaN(d.getTime()) && d.getTime() <= Date.now() ? current : null
     },
     async createReconciliationAfterSave() {
       const spaceId = this.route.params.spaceId
       const recoEvent = this.resolveReconciliationEvent()
       if (!recoEvent) {
-        // Aucun event passé : le comptage est sauvegardé, on l'annonce sans créer.
-        this.errorText = this.t('invRecoNoPastEvent')
+        // Refus EXPLICITE (plus de repli vers un autre match) : event de l'écran
+        // non fini → message dédié ; aucun event résolu → message existant.
+        // Le comptage, lui, est déjà sauvegardé.
+        const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
+        this.errorText = current ? this.t('invRecoEventNotFinished') : this.t('invRecoNoPastEvent')
         this.errorSnackbar = true
         return
       }
       this.recoCreating = true
       try {
-        const lines = await this.buildReconciliationLines(spaceId, recoEvent)
+        const { lines, meta } = await this.buildReconciliationLines(spaceId, recoEvent)
         if (isDemoMode()) {
           // Démo : document local non persisté (parité avec l'inventaire démo,
           // qui vit déjà 100% en localStorage).
@@ -1823,22 +1870,48 @@ export default {
             kind: 'post-event',
             createdAt: new Date().toISOString(),
             lines,
+            meta: { baseline: { source: meta.preEventSource }, salesUnjoined: meta.salesUnjoined, salesSource: meta.salesSource },
           }
           this.reconciliations = [doc, ...this.reconciliations]
           this.selectedReconciliationId = doc.id
           return
         }
-        const created = await createPostEventReconciliation(spaceId, {
+        const basePayload = {
           eventId: recoEvent.id,
           eventName: recoEvent.name || recoEvent.eventName || undefined,
           lines,
-        })
+        }
+        let created
+        try {
+          created = await createPostEventReconciliation(spaceId, {
+            ...basePayload,
+            preEventSource: meta.preEventSource,
+            ...(meta.salesUnjoined ? { salesUnjoined: meta.salesUnjoined } : {}),
+            countedProgress: meta.countedProgress,
+            // Q35 : grain de la source « Vendu » — un backend antérieur le rejette
+            // en 400 « should not exist » → repli basePayload ci-dessous (BUG-228).
+            salesSource: meta.salesSource,
+          })
+        } catch (e) {
+          // Réflexe BUG-228 : le DTO backend est en whitelist stricte
+          // (`forbidNonWhitelisted`). Sur un serveur pas encore redéployé, les
+          // champs de contexte renvoient 400 « property X should not exist » —
+          // le document vaut mieux sans son contexte que pas de document du tout.
+          const msg = String(e?.response?.data?.message || e?.message || '')
+          if (e?.response?.status !== 400 || !/should not exist/i.test(msg)) throw e
+          console.warn('[SpaceInventory] backend sans contexte de réconciliation — repli sans meta:', msg)
+          created = await createPostEventReconciliation(spaceId, basePayload)
+        }
         // La réponse API est le document complet (lines incluses) → en tête de liste.
         this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
         this.selectedReconciliationId = created.id
       } catch (e) {
         console.warn('[SpaceInventory] création réconciliation KO:', e?.message)
-        this.errorText = e?.userMessage || this.t('invRecoCreateError')
+        // Ventes indisponibles (réseau) : message dédié — pas de document créé,
+        // le comptage est déjà sauvegardé, recliquer le bouton retente.
+        this.errorText = e?.salesFetchFailed
+          ? this.t('invRecoSalesError')
+          : (e?.userMessage || this.t('invRecoCreateError'))
         this.errorSnackbar = true
       } finally {
         this.recoCreating = false
@@ -1877,10 +1950,14 @@ export default {
         if (nk && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, id)
       }
 
-      // ── Pré-event : dernier snapshot antérieur au jour de l'event ───────────
+      // ── Pré-event : comptage d'avant-match du MÊME event, repli scopé sur le
+      //    post-event du match précédent (BUG-241). `source` est archivé dans le
+      //    document : un repli est une approximation, elle doit rester visible.
       let preEventUnitsByKey = null
+      let preEventSource = 'none'
       try {
         const pre = isDemoMode() ? null : await getPreEventInventory(spaceId, recoEvent.id)
+        if (pre?.source) preEventSource = pre.source
         const blob = pre?.inventoryCounts
         if (blob && typeof blob === 'object') {
           preEventUnitsByKey = {}
@@ -1897,28 +1974,115 @@ export default {
         preEventUnitsByKey = null
       }
 
-      // ── Vendu pendant l'event : event-timeline (grain article×PdV) ──────────
-      const soldUnitsByKey = {}
-      try {
-        const byEventId = await getSpaceEventTimelineBatch(spaceId, [recoEvent.id])
-        const raw = (byEventId.get(recoEvent.id) || []).map((r) => ({ ...r, eventId: recoEvent.id }))
-        const records = preprocessTimelineRecords(raw, {
-          menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
-        })
-        for (const r of records) {
-          const elId = elementIdByNormName.get(normalizeStr(r.shopName || r.shop || ''))
-          if (!elId) continue // PdV de vente non présent dans la config comptée
-          const itemId =
-            (r.menuItemId != null && String(r.menuItemId)) ||
-            (r.mappedMenuItemId != null && String(r.mappedMenuItemId)) ||
-            itemIdByNormName.get(normalizeStr(r.itemName || r.menuItemName || r.productName || '')) ||
-            null
-          if (!itemId) continue // vente non rattachable à un article inventorié
-          const key = reconciliationKey(elId, itemId)
-          soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + (Number(r.quantity) || 0)
+      // ── Vendu pendant l'event ────────────────────────────────────────────────
+      // Q35 Option 1 (décision owner 2026-07-27) : source primaire = ventes
+      // EXPLOSÉES en consommation d'ingrédients par la cascade Logistic
+      // (event-consumption). Une ligne comptée au grain ingrédient (fût, bidon)
+      // reçoit enfin la consommation des produits préparés vendus — fini le
+      // « Vendu = 0 → manquant fantôme ». Repli grain article (timeline brut) si
+      // le backend n'expose pas encore la route (404) ; `salesSource` archivé
+      // dans le document pour que chaque archive dise son grain.
+      // Échec RÉSEAU ≠ « aucune vente » : avec un pré-event présent, des ventes à
+      // 0 gonfleraient missing = (preEvent − 0) − compté et archiveraient de
+      // fausses pertes. Hors démo, on ABANDONNE la création (le comptage est déjà
+      // sauvegardé, recliquer retente) — philosophie « jamais de 0 fabriqué ».
+      let soldUnitsByKey = {}
+      // BUG-238 : une vente non joignable n'est PAS « zéro vente » — elle sort du
+      // calcul et gonfle le manquant de la ligne concernée. On compte ce qui est
+      // écarté pour l'archiver dans le document et l'afficher.
+      const unjoinedShops = new Set()
+      const unjoinedItems = new Set()
+      let unjoinedUnits = 0
+      let salesSource = 'consumption'
+      let consumption = null
+      if (isDemoMode()) {
+        salesSource = 'timeline'
+      } else {
+        try {
+          consumption = await getEventSalesConsumption(spaceId, recoEvent.id)
+        } catch (e) {
+          if (e?.response?.status === 404) {
+            // Backend antérieur à Q35 : la route n'existe pas → repli assumé.
+            salesSource = 'timeline'
+            console.warn(
+              '[SpaceInventory] event-consumption absent (backend antérieur) — repli ventes au grain article',
+            )
+          } else {
+            const err = new Error(e?.message || 'event-consumption failed')
+            err.salesFetchFailed = true
+            throw err
+          }
         }
-      } catch (e) {
-        console.warn('[SpaceInventory] event-timeline KO (Qty sold à 0) :', e?.message)
+      }
+
+      if (consumption) {
+        const joined = buildSoldUnitsFromConsumption(consumption.lines || [], {
+          elementIdSet: new Set(Object.keys(elementNameById)),
+          itemIdByNormName,
+          normalize: normalizeStr,
+        })
+        soldUnitsByKey = joined.soldUnitsByKey
+        joined.unjoinedItems.forEach((n) => unjoinedItems.add(n))
+        joined.unjoinedShops.forEach((n) => unjoinedShops.add(n))
+        unjoinedUnits += joined.unjoinedUnits
+        // Écartés côté serveur (PdV non mappé Weezevent, produit sans mapping) :
+        // même bandeau que les non-joints côté client.
+        const su = consumption.unjoined
+        if (su) {
+          for (const n of su.shopNames || []) unjoinedShops.add(String(n))
+          for (const n of su.productNames || []) unjoinedItems.add(String(n))
+          unjoinedUnits += Number(su.units) || 0
+        }
+      } else {
+        // ── Repli grain article : event-timeline brut (chemin pré-Q35, inchangé).
+        try {
+          const byEventId = await getSpaceEventTimelineBatch(spaceId, [recoEvent.id])
+          const raw = (byEventId.get(recoEvent.id) || []).map((r) => ({ ...r, eventId: recoEvent.id }))
+          const records = preprocessTimelineRecords(raw, {
+            menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
+          })
+          for (const r of records) {
+            const qty = Number(r.quantity) || 0
+            const shopLabel = r.shopName || r.shop || ''
+            const elId = elementIdByNormName.get(normalizeStr(shopLabel))
+            if (!elId) {
+              // PdV de vente non présent dans la config comptée
+              if (shopLabel) unjoinedShops.add(String(shopLabel))
+              unjoinedUnits += qty
+              continue
+            }
+            const itemLabel = r.itemName || r.menuItemName || r.productName || ''
+            const itemId =
+              (r.menuItemId != null && String(r.menuItemId)) ||
+              (r.mappedMenuItemId != null && String(r.mappedMenuItemId)) ||
+              itemIdByNormName.get(normalizeStr(itemLabel)) ||
+              null
+            if (!itemId || !(itemId in itemNameById)) {
+              // Vente non rattachable à un article inventorié (id inconnu du
+              // référentiel compté OU nom sans correspondance).
+              if (itemLabel) unjoinedItems.add(String(itemLabel))
+              unjoinedUnits += qty
+              continue
+            }
+            const key = reconciliationKey(elId, itemId)
+            soldUnitsByKey[key] = (soldUnitsByKey[key] || 0) + qty
+          }
+        } catch (e) {
+          if (!isDemoMode()) {
+            const err = new Error(e?.message || 'event-timeline failed')
+            err.salesFetchFailed = true
+            throw err
+          }
+          // Démo : pas de backend, on tolère (document local d'illustration).
+          console.warn('[SpaceInventory] event-timeline KO (démo, Qty sold à 0) :', e?.message)
+        }
+      }
+      if (unjoinedShops.size || unjoinedItems.size) {
+        console.warn(
+          `[SpaceInventory] réconciliation : ${Math.round(unjoinedUnits * 100) / 100} unité(s) vendue(s) non rattachée(s) — ` +
+            `PdV inconnus: ${[...unjoinedShops].join(', ') || '—'} ; ` +
+            `articles inconnus: ${[...unjoinedItems].join(', ') || '—'}`,
+        )
       }
 
       // ── Prédit : scénario Event Predict (pont localStorage, comme le Réarmement)
@@ -1935,16 +2099,78 @@ export default {
         }
       }
 
-      return buildPostEventReconciliationLines({
+      // Q35 : le scénario prédit des ventes d'ARTICLES — une ligne au grain
+      // ingrédient (id de ligne de recette, hors catalogue) garde predicted null.
+      // Catalogue pas encore chargé → null (régime inchangé), pas un Set vide qui
+      // éteindrait le prédit de toutes les lignes.
+      const catalogItemIds = new Set(
+        (this.store.state.analyse?.menuItems || []).map((mi) => String(mi?.id)).filter(Boolean),
+      )
+      const lines = buildPostEventReconciliationLines({
         countedUnitsByKey,
         preEventUnitsByKey,
         soldUnitsByKey,
         predictedUnitsByKey,
+        predictableItemIds: catalogItemIds.size ? catalogItemIds : null,
         // Coûts menu items (map partagée du store analyse) → Miss € au coût.
         unitCostByItemId: this.store.state.analyse?.menuItemCostMap || {},
         elementNameById,
         itemNameById,
       })
+
+      // Contexte de fabrication archivé avec le document (BUG-238/241/Q35) : sans
+      // lui, un écart dû à une source manquante est indiscernable d'un manquant.
+      const meta = {
+        preEventSource,
+        salesSource,
+        salesUnjoined:
+          unjoinedShops.size || unjoinedItems.size
+            ? {
+                shopNames: [...unjoinedShops].slice(0, 50),
+                itemNames: [...unjoinedItems].slice(0, 50),
+                units: Math.round(unjoinedUnits * 100) / 100,
+              }
+            : null,
+        countedProgress: [
+          Number(this.inventoryStats?.countedItems) || 0,
+          Number(this.inventoryStats?.totalItems) || 0,
+        ],
+      }
+      return { lines, meta }
+    },
+    /** Sélection d'un document depuis le drawer mobile : fermer le drawer puis
+     *  ouvrir la vue réconciliation (fiche 236). */
+    onDrawerSelectReconciliation(id) {
+      this.filterDrawerOpen = false
+      this.selectedReconciliationId = id
+    },
+    /** Suppression d'un document (« repartir de zéro » : supprimer puis recliquer
+     *  « Générer la réconciliation » — le document est une photo figée, pas
+     *  d'édition). Confirmation obligatoire : suppression définitive. */
+    async onDeleteReconciliation(id) {
+      const doc = this.reconciliations.find((r) => r.id === id)
+      const ok = await confirmDialog({
+        title: this.t('invRecoDeleteTitle'),
+        message: `${doc?.eventName || this.t('invRecoUnknownEvent')} — ${this.t('invRecoDeleteMsg')}`,
+        confirmText: this.t('invRecoDeleteConfirm'),
+        cancelText: this.t('invClose'),
+        confirmColor: 'error',
+        icon: 'mdi-trash-can-outline',
+        iconColor: 'error',
+      })
+      if (!ok) return
+      try {
+        // Démo : documents locaux (demo-*) jamais persistés → pas d'appel API.
+        if (!isDemoMode() && !String(id).startsWith('demo-')) {
+          await deleteInventoryReconciliation(this.route.params.spaceId, id)
+        }
+        this.reconciliations = this.reconciliations.filter((r) => r.id !== id)
+        if (this.selectedReconciliationId === id) this.selectedReconciliationId = null
+      } catch (e) {
+        console.warn('[SpaceInventory] suppression réconciliation KO:', e?.message)
+        this.errorText = e?.userMessage || this.t('invRecoDeleteError')
+        this.errorSnackbar = true
+      }
     },
     async loadReconciliations(spaceId) {
       if (!spaceId || isDemoMode()) return
@@ -2403,6 +2629,7 @@ export default {
 .si-band-title__main { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .si-band-title__sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.78); }
 /* Search bar collé sous le bandeau, même largeur (colonne centre). */
+.si-carried-alert { margin: 10px 0 0; font-size: 13px; }
 .si-search-wrap {
   margin: 0 0 16px;
 }
