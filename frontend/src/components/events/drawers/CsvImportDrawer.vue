@@ -116,6 +116,17 @@
         <div class="text-caption text-medium-emphasis mb-4">
           Associez chaque valeur de votre fichier à un espace existant dans le système.
         </div>
+        <v-alert v-if="taxonomyErrors.spaces" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Impossible de charger la liste des espaces : {{ taxonomyErrors.spaces }}
+          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
+        </v-alert>
+        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des espaces…
+        </v-alert>
+        <v-alert v-else-if="spaces.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Aucun espace accessible avec votre compte. Vérifiez vos droits d'accès (espaces) auprès d'un administrateur, ou
+          <a href="#" @click.prevent="loadTaxonomies">réessayez le chargement</a>.
+        </v-alert>
         <div v-if="uniqueSpaceValues.length > 0">
           <div v-for="val in uniqueSpaceValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
             <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
@@ -149,6 +160,16 @@
         <div class="text-caption text-medium-emphasis mb-4">
           Associez chaque valeur de votre fichier à une configuration existante.
         </div>
+        <v-alert v-if="configsLoadError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Impossible de charger les configurations : {{ configsLoadError }}
+          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadConfigsForCurrentSpaces">Réessayer</v-btn></div>
+        </v-alert>
+        <v-alert v-else-if="configsLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des configurations…
+        </v-alert>
+        <v-alert v-else-if="allLoadedConfigurations.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Aucune configuration trouvée pour les espaces mappés à l'étape précédente.
+        </v-alert>
         <div v-if="uniqueConfigValues.length > 0">
           <div v-for="val in uniqueConfigValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
             <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
@@ -182,6 +203,16 @@
         <div class="text-caption text-medium-emphasis mb-4">
           Associez chaque valeur de votre fichier à un type d'événement existant.
         </div>
+        <v-alert v-if="taxonomyErrors.eventTypes" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Impossible de charger les types d'événement : {{ taxonomyErrors.eventTypes }}
+          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
+        </v-alert>
+        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des types d'événement…
+        </v-alert>
+        <v-alert v-else-if="eventTypes.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Aucun type d'événement n'existe encore pour ce compte.
+        </v-alert>
         <div v-if="uniqueTypeValues.length > 0">
           <div v-for="val in uniqueTypeValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
             <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
@@ -215,6 +246,16 @@
         <div class="text-caption text-medium-emphasis mb-4">
           Associez chaque valeur de votre fichier à une catégorie existante.
         </div>
+        <v-alert v-if="taxonomyErrors.eventCategories" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Impossible de charger les catégories : {{ taxonomyErrors.eventCategories }}
+          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
+        </v-alert>
+        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des catégories…
+        </v-alert>
+        <v-alert v-else-if="eventCategories.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Aucune catégorie n'existe encore pour ce compte.
+        </v-alert>
         <div v-if="uniqueCategoryValues.length > 0">
           <div v-for="val in uniqueCategoryValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
             <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
@@ -248,6 +289,16 @@
         <div class="text-caption text-medium-emphasis mb-4">
           Associez chaque valeur de votre fichier à une sous-catégorie existante.
         </div>
+        <v-alert v-if="taxonomyErrors.eventSubcategories" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Impossible de charger les sous-catégories : {{ taxonomyErrors.eventSubcategories }}
+          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
+        </v-alert>
+        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des sous-catégories…
+        </v-alert>
+        <v-alert v-else-if="eventSubcategories.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Aucune sous-catégorie n'existe encore pour ce compte.
+        </v-alert>
         <div v-if="uniqueSubcategoryValues.length > 0">
           <div v-for="val in uniqueSubcategoryValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
             <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
@@ -272,6 +323,25 @@
         <v-alert v-else type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
       </div>
 
+      <!-- Résumé des valeurs non associées, affiché sur la dernière étape de mapping avant
+           l'import : sans ça, une valeur laissée sur "Ignorer" (ou jamais visitée si le
+           dropdown source était vide) part silencieusement sans son champ — voir
+           docs/bugs/ (import CSV événements). -->
+      <v-alert
+        v-if="step === lastValueStep && unmappedSummary.length > 0"
+        type="warning"
+        variant="tonal"
+        rounded="lg"
+        class="mt-4"
+      >
+        <div class="font-weight-medium mb-2">Valeurs non associées — les lignes concernées seront importées sans ce champ :</div>
+        <ul style="padding-left: 16px; margin: 0;">
+          <li v-for="u in unmappedSummary" :key="u.label" class="text-body-2">
+            {{ u.label }} ({{ u.unmapped.length }}) : {{ u.unmapped.join(', ') }}
+          </li>
+        </ul>
+      </v-alert>
+
       <!-- ── Step 8 : Résultats ── -->
       <div v-if="step === 8">
         <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12">
@@ -282,6 +352,10 @@
           <v-alert v-if="importResults.success > 0" type="success" variant="tonal" rounded="lg" class="mb-4">
             <strong>{{ importResults.success }}</strong>
             événement{{ importResults.success > 1 ? 's' : '' }} importé{{ importResults.success > 1 ? 's' : '' }} avec succès.
+          </v-alert>
+          <v-alert v-if="importResults.missingAssociations > 0" type="warning" variant="tonal" rounded="lg" class="mb-4">
+            <strong>{{ importResults.missingAssociations }}</strong>
+            événement{{ importResults.missingAssociations > 1 ? 's' : '' }} importé{{ importResults.missingAssociations > 1 ? 's' : '' }} sans espace, configuration ou taxonomie associée (valeur du fichier non mappée) — voir l'étape de mapping.
           </v-alert>
           <v-alert v-if="importResults.skipped > 0" type="warning" variant="tonal" rounded="lg" class="mb-4">
             <strong>{{ importResults.skipped }}</strong>
@@ -390,24 +464,26 @@ export default {
       importResults: null,
       fileError: '',
       _spaceConfigsCache: {},
+      taxonomyLoading: false,
+      taxonomyErrors: {},
+      configsLoading: false,
+      configsLoadError: '',
       eventFields: [
         { key: 'spaceRaw',            label: 'Espace',                             aliases: ['space'] },
         { key: 'configurationRaw',    label: 'Configuration',                      aliases: ['configuration'] },
         { key: 'eventDate',           label: "Date de l'événement",                aliases: ['event date', 'eventdate', 'date'] },
+        { key: 'eventEndDate',        label: "Date de fin de l'événement",         aliases: ['event end date', 'eventenddate', 'end date'] },
+        { key: 'eventEndTime',        label: "Heure de fin de l'événement",        aliases: ['event end time', 'eventendtime', 'end time'] },
         { key: 'name',                label: "Nom de l'événement", required: true, aliases: ['event name', 'eventname', 'nom'] },
         { key: 'eventTypeRaw',        label: "Type d'événement",                   aliases: ['event type', 'eventtype', 'type'] },
         { key: 'eventCategoryRaw',    label: 'Catégorie',                          aliases: ['event category', 'eventcategory', 'category', 'categorie'] },
         { key: 'eventSubcategoryRaw', label: 'Sous-catégorie',                     aliases: ['event subcategory', 'eventsubcategory', 'subcategory'] },
         { key: 'doorsOpen',           label: 'Ouverture des portes',               aliases: ['doors open', 'doorsopen'] },
         { key: 'showTime',            label: 'Heure du show',                      aliases: ['show time', 'showtime'] },
-        { key: 'performerName',       label: 'Nom du performer',                   aliases: ['performer name', 'performername', 'performer'] },
         { key: 'homeTeamName',        label: 'Équipe domicile',                    aliases: ['home team name', 'hometeamname', 'home team'] },
         { key: 'visitingTeam',        label: 'Équipe visiteur',                    aliases: ['visiting team', 'visitingteam'] },
-        { key: 'sponsor',             label: 'Sponsor',                            aliases: ['sponsor'] },
         { key: 'numberOfSessions',    label: 'Nombre de sessions',                 aliases: ['number of sessions', 'numberofsessions'] },
-        { key: 'allSessions',         label: 'Toutes les sessions (Portes|Show)',  aliases: ['all sessions (doors|show)', 'allsessions', 'all sessions'] },
         { key: 'hasOpeningAct',       label: 'Opening Act (oui/non)',              aliases: ['has opening act', 'hasopeningact'] },
-        { key: 'openingActName',      label: "Nom de l'opening act",               aliases: ['opening act name', 'openingactname'] },
         { key: 'hasIntermission',     label: 'Intermission (oui/non)',             aliases: ['has intermission', 'hasintermission', 'intermission'] },
         { key: 'ticketsSold',         label: 'Tickets vendus',                     aliases: ['tickets sold', 'ticketssold'] },
         { key: 'ticketsScanned',      label: 'Tickets scannés',                    aliases: ['tickets scanned', 'ticketsscanned'] },
@@ -506,18 +582,26 @@ export default {
     uniqueTypeValues()        { return this._uniqueColValues('eventTypeRaw'); },
     uniqueCategoryValues()    { return this._uniqueColValues('eventCategoryRaw'); },
     uniqueSubcategoryValues() { return this._uniqueColValues('eventSubcategoryRaw'); },
+
+    unmappedSummary() {
+      const dims = [
+        { key: 'spaceRaw',            label: 'Espace',            values: this.uniqueSpaceValues,       map: this.spaceValueMap },
+        { key: 'configurationRaw',    label: 'Configuration',     values: this.uniqueConfigValues,      map: this.configValueMap },
+        { key: 'eventTypeRaw',        label: "Type d'événement",  values: this.uniqueTypeValues,        map: this.typeValueMap },
+        { key: 'eventCategoryRaw',    label: 'Catégorie',         values: this.uniqueCategoryValues,    map: this.categoryValueMap },
+        { key: 'eventSubcategoryRaw', label: 'Sous-catégorie',    values: this.uniqueSubcategoryValues, map: this.subcategoryValueMap },
+      ];
+      return dims
+        .filter((d) => this.mapping[d.key])
+        .map((d) => ({ label: d.label, unmapped: d.values.filter((v) => !d.map[v]) }))
+        .filter((d) => d.unmapped.length > 0);
+    },
   },
 
   watch: {
     modelValue(v) {
       if (v) {
-        Promise.allSettled([
-          this.$store.dispatch('spaces/fetchSpaces'),
-          this.$store.dispatch('eventTypes/fetchEventTypes'),
-          this.$store.dispatch('eventCategories/fetchEventCategories'),
-          this.$store.dispatch('eventSubcategories/fetchEventSubcategories'),
-          this.$store.dispatch('events/fetchEvents'),
-        ]);
+        this.loadTaxonomies();
       } else {
         this.reset();
       }
@@ -525,6 +609,49 @@ export default {
   },
 
   methods: {
+    async loadTaxonomies() {
+      this.taxonomyLoading = true;
+      this.taxonomyErrors = {};
+      const jobs = [
+        ['spaces', 'spaces/fetchSpaces'],
+        ['eventTypes', 'eventTypes/fetchEventTypes'],
+        ['eventCategories', 'eventCategories/fetchEventCategories'],
+        ['eventSubcategories', 'eventSubcategories/fetchEventSubcategories'],
+        ['events', 'events/fetchEvents'],
+      ];
+      const results = await Promise.allSettled(jobs.map(([, action]) => this.$store.dispatch(action)));
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          const [key] = jobs[i];
+          this.taxonomyErrors[key] = r.reason?.response?.data?.message || r.reason?.message || 'Erreur inconnue';
+        }
+      });
+      this.taxonomyLoading = false;
+    },
+
+    async loadConfigsForCurrentSpaces() {
+      this.configsLoading = true;
+      this.configsLoadError = '';
+      const mappedSpaceIds = [...new Set(Object.values(this.spaceValueMap).filter(Boolean))];
+      const toLoad = mappedSpaceIds.length > 0 ? mappedSpaceIds : this.spaces.map((s) => s.id);
+      const results = await Promise.allSettled(
+        toLoad.map((sid) => this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId: sid })),
+      );
+      const failures = [];
+      for (let i = 0; i < toLoad.length; i++) {
+        const r = results[i];
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+          this._spaceConfigsCache = { ...this._spaceConfigsCache, [toLoad[i]]: r.value };
+        } else if (r.status === 'rejected') {
+          failures.push(r.reason?.response?.data?.message || r.reason?.message || 'Erreur inconnue');
+        }
+      }
+      if (failures.length > 0) {
+        this.configsLoadError = failures[0];
+      }
+      this.configsLoading = false;
+    },
+
     _uniqueColValues(fieldKey) {
       const col = this.mapping[fieldKey];
       if (!col) return [];
@@ -540,17 +667,7 @@ export default {
 
       // Avant l'étape configs, charger les configurations des spaces mappés
       if (nextStep === 4) {
-        const mappedSpaceIds = [...new Set(Object.values(this.spaceValueMap).filter(Boolean))];
-        const toLoad = mappedSpaceIds.length > 0 ? mappedSpaceIds : this.spaces.map((s) => s.id);
-        const results = await Promise.allSettled(
-          toLoad.map((sid) => this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId: sid }).catch(() => []))
-        );
-        for (let i = 0; i < toLoad.length; i++) {
-          const r = results[i];
-          if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-            this._spaceConfigsCache = { ...this._spaceConfigsCache, [toLoad[i]]: r.value };
-          }
-        }
+        await this.loadConfigsForCurrentSpaces();
       }
       this.step = nextStep;
     },
@@ -578,6 +695,10 @@ export default {
       this.importLoading = false;
       this.importResults = null;
       this.fileError = '';
+      this.taxonomyLoading = false;
+      this.taxonomyErrors = {};
+      this.configsLoading = false;
+      this.configsLoadError = '';
       this.dropping = false;
     },
 
@@ -661,6 +782,7 @@ export default {
       this.importResults = null;
       let successCount = 0;
       let skippedCount = 0;
+      let missingAssociationsCount = 0;
       const errors = [];
 
       // Dédup au ré-import : un event existant avec le même nom (insensible à
@@ -694,16 +816,14 @@ export default {
         const subcategoryRaw   = get('eventSubcategoryRaw');
         const doorsOpen        = get('doorsOpen') ? this.parseTime(get('doorsOpen')) : undefined;
         const showTime         = get('showTime') ? this.parseTime(get('showTime')) : undefined;
+        const eventEndDate     = get('eventEndDate') ? this.parseDate(get('eventEndDate')) : undefined;
+        const eventEndTime     = get('eventEndTime') ? this.parseTime(get('eventEndTime')) : undefined;
 
         const payload = {
           name,
           eventDate,
-          // "performerName"/"sponsor"/"openingActName"/"allSessions" sont
-          // proposés au mapping mais N'ONT AUCUN champ correspondant sur
-          // `Event` — les envoyer ferait rejeter TOUTE la requête
-          // (ValidationPipe forbidNonWhitelisted). Décision produit en
-          // attente : ajouter ces colonnes au schéma, ou retirer ces 4
-          // champs du mapping CSV (voir docs/bugs/136_*.md).
+          eventEndDate,
+          eventEndTime,
           homeTeamName:       get('homeTeamName') || undefined,
           visitingTeamName:   get('visitingTeam') || undefined,
           sessions:           (doorsOpen || showTime) ? [{ doorsOpening: doorsOpen || '', showTime: showTime || '' }] : undefined,
@@ -722,12 +842,25 @@ export default {
         // Nettoyer les undefined
         Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
+        // Une valeur brute présente dans le fichier mais restée sans map (ex. dropdown vide
+        // au moment du mapping, cf. bug espaces vides) part sans son champ sans qu'aucune
+        // erreur ne soit levée côté API (spaceId/etc. simplement absents du payload) — on le
+        // compte pour l'afficher sur l'écran de résultats plutôt que de le laisser silencieux.
+        const hasMissingAssociation = [
+          [spaceRaw, payload.spaceId],
+          [configurationRaw, payload.configurationId],
+          [typeRaw, payload.eventTypeId],
+          [categoryRaw, payload.eventCategoryId],
+          [subcategoryRaw, payload.eventSubcategoryId],
+        ].some(([raw, resolved]) => !!raw && !resolved);
+
         try {
           const response = await createEvent(payload);
           const created = response?.data ?? response;
           this.$store.dispatch('events/addEvent', created);
           existingKeys.add(dedupKey);
           successCount++;
+          if (hasMissingAssociation) missingAssociationsCount++;
         } catch (e) {
           errors.push({
             row: i + 2,
@@ -736,7 +869,7 @@ export default {
         }
       }
 
-      this.importResults = { success: successCount, skipped: skippedCount, errors };
+      this.importResults = { success: successCount, skipped: skippedCount, missingAssociations: missingAssociationsCount, errors };
       this.importLoading = false;
       if (successCount > 0) this.$emit('imported');
     },
@@ -746,37 +879,42 @@ export default {
 
 <style scoped>
 .elv-step-bar {
-  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity, 1));
-  background: rgb(var(--v-theme-surface));
+  border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
+  background: rgb(var(--v-theme-surface, 255, 255, 255));
   flex-shrink: 0;
 }
-.elv-step-line { background: rgba(var(--v-border-color), var(--v-border-opacity, 1)); }
-.elv-drawer-body { flex: 1; overflow-y: auto; background: rgb(var(--v-theme-background)); }
+.elv-step-line { background: rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12)); }
+.elv-drawer-body { flex: 1; overflow-y: auto; background: rgb(var(--v-theme-background, 245, 245, 245)); }
 .elv-dropzone {
-  border: 2px dashed rgba(var(--v-border-color), var(--v-border-opacity, 1));
+  border: 2px dashed rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
   border-radius: 12px;
-  background: rgb(var(--v-theme-surface));
+  background: rgb(var(--v-theme-surface, 255, 255, 255));
   cursor: pointer; transition: border-color 0.2s, background 0.2s; min-height: 220px;
 }
 .elv-dropzone:hover, .elv-dropzone--hover { border-color: #ff3131; }
-.elv-hint-card { background: rgb(var(--v-theme-surface-variant, var(--v-theme-surface))); border-radius: 8px; }
+.elv-hint-card { background: rgb(var(--v-theme-surface-variant, var(--v-theme-surface, 255, 255, 255))); border-radius: 8px; }
 .elv-step-dot {
   width: 22px; height: 22px; border-radius: 50%;
-  background: rgba(var(--v-border-color), 0.4);
-  color: rgb(var(--v-theme-on-surface));
+  background: rgba(var(--v-border-color, 0, 0, 0), 0.4);
+  color: rgb(var(--v-theme-on-surface, 0, 0, 0));
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .elv-step-dot--active { background: #ff3131; color: white; }
 .elv-step-dot--done { background: #10b981; color: white; }
 .elv-csv-chip {
-  background: rgb(var(--v-theme-surface-variant, var(--v-theme-surface)));
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity, 1));
+  background: rgb(var(--v-theme-surface-variant, var(--v-theme-surface, 255, 255, 255)));
+  border: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
 }
 
 /* ===== DARK MODE OVERRIDES ===== */
 .elv--dark,
 .elv--dark :deep(.v-navigation-drawer__content) {
   background: #111827 !important;
+  color: #f3f4f6;
+}
+
+.elv--dark .text-medium-emphasis {
+  color: #9ca3af !important;
 }
 
 .elv--dark .elv-step-bar {
@@ -830,5 +968,24 @@ export default {
 
 .elv--dark :deep(.v-select__selection-text) {
   color: #f3f4f6;
+}
+
+.elv--dark :deep(.v-list-item-title) {
+  color: #f3f4f6;
+}
+</style>
+
+<style>
+/* Non scoped à dessein : le menu déroulant d'un v-select Vuetify (`.v-select__content`)
+   est téléporté par Vuetify dans `.v-overlay-container`, un sibling de ce drawer sous
+   <body> — donc HORS de la portée du CSS scoped ci-dessus et hors de `.elv--dark`
+   (même mécanisme que docs/bugs/198_darkmode_eventpredict_overlay_teleporte.md :
+   `.dark` sur <html> reste le seul ancêtre commun fiable). */
+.dark .v-overlay__content.v-select__content .v-list-item-title,
+.dark .v-overlay__content.v-select__content .v-list-item {
+  color: #f3f4f6 !important;
+}
+.dark .v-overlay__content.v-select__content {
+  background: #1f2937 !important;
 }
 </style>

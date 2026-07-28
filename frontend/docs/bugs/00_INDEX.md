@@ -251,6 +251,10 @@
 | [233](233_pre_event_expected_fuite_via_reconciliations.md) | Pre-event Inventory : les attendus gatés par `preInventoryExpected` **fuient** via `POST pre-event-reconciliations` (réponse avec `expectedPacked/Loose`) et `GET reconciliations` (lignes complètes) — permission de classe seule sur ces routes ; expurgation conditionnelle à trancher | 🔴 Ouvert | 🟠 | Stock / RBAC |
 | [234](234_space_live_double_header_route_non_declaree_dashboardview.md) | Route `space-live` : double header (route Live non déclarée dans les listes self-headed / rail-push de DashboardView) | 🟢 Corrigé | 🟡 | Live events / Shell app |
 | [235](235_syncprogress_stepprocesstimeline_timeout_duree_totale_faux_positif_gros_tenant.md) | Timeout de polling par durée totale (BUG-206/218) : faux positif "délai maximal dépassé" sur un gros tenant toujours en progrès | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [236-02](236_02_csvimportdrawer_dropdowns_taxonomie_vides_sans_indication.md) | Import CSV événements : dropdowns Espaces/Configs/Types/Catégories/Sous-catégories vides sans aucune indication (échec de fetch avalé par `Promise.allSettled`) | 🟡 Corrigé non déployé | 🔴 | Événements |
+| [237-02](237_02_csvimportdrawer_darkmode_menu_select_teleporte_illisible.md) | Import CSV événements : champ de mapping illisible en dark mode (menu `v-select` téléporté hors de `.elv--dark`) | 🟡 Corrigé non déployé | 🟠 | Événements |
+| [238-02](238_02_csvimportdrawer_champs_taxonomie_perdus_silencieusement.md) | Import CSV événements : Espace/Configuration/Type/Catégorie/Sous-catégorie perdus silencieusement à l'import ; 4 champs fantômes (BUG-136) retirés du mapping | 🟢 Corrigé | 🔴 | Événements |
+| [239-02](239_02_csvimportdrawer_eventenddate_eventendtime_absents_mapping.md) | Import CSV événements : `eventEndDate`/`eventEndTime` absents du mapping malgré usage backend réel (multi-jours, fenêtre live) | 🟢 Corrigé | 🟠 | Événements |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
