@@ -518,10 +518,73 @@ model Space {
   menuItemLinks SpaceMenuItem[]
   events        Event[]
 
+  // Settings HR (paramétrage Goals / Staff par Responsable de zone)
+  hrGoalSpaces       HrGoalSpace[]
+  hrStaffRatioSpaces HrStaffRatioSpace[]
+
   @@index([tenantId])
   @@index([name])
   @@index([spaceType])
   @@index([city])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings HR — 2 variables paramétrables, chacune rattachée à un ENSEMBLE de
+// Spaces (ou à tous via allSpaces). Une ligne par ensemble d'espaces (demande
+// Bertrand 2026-07-28). tenantId scalaire requis → auto-scopé par PrismaService.
+// Le « ALL » est porté par allSpaces=true (jointure vide), pas par une sentinelle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Objectif de CA par TPE (devise), rattaché à un ensemble de Spaces.
+model HrGoal {
+  id         String   @id @default(cuid())
+  tenantId   String
+  goalPerTpe Float
+  allSpaces  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  spaces HrGoalSpace[]
+
+  @@index([tenantId])
+}
+
+model HrGoalSpace {
+  goalId  String
+  spaceId String
+
+  goal  HrGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, spaceId])
+  @@index([goalId])
+  @@index([spaceId])
+}
+
+/// Nombre de staff par Responsable de zone (entier), rattaché à un ensemble de Spaces.
+model HrStaffRatio {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  staffPerZoneManager Int
+  allSpaces           Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  spaces HrStaffRatioSpace[]
+
+  @@index([tenantId])
+}
+
+model HrStaffRatioSpace {
+  ratioId String
+  spaceId String
+
+  ratio HrStaffRatio @relation(fields: [ratioId], references: [id], onDelete: Cascade)
+  space Space        @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([ratioId, spaceId])
+  @@index([ratioId])
+  @@index([spaceId])
 }
 
 model Config {
