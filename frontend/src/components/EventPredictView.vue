@@ -4625,6 +4625,9 @@ export default {
         "homeTeamName",
         "homeTeamId",
         "visitingTeamId",
+        "performerName",
+        "sponsor",
+        "openingActName",
       ];
       const out = {};
       for (const k of KEYS) {
@@ -4711,6 +4714,9 @@ export default {
         // event a forbidNonWhitelisted → un champ inconnu 400erait TOUT le save.
         // homeTeamName persiste le nom en attendant. cf. docs/BACKEND_HOME_TEAM.md.
         ...(has(ev.visitingTeamId) ? { visitingTeamId: ev.visitingTeamId } : {}),
+        ...(has(ev.performerName) ? { performerName: ev.performerName } : {}),
+        ...(has(ev.sponsor) ? { sponsor: ev.sponsor } : {}),
+        ...(has(ev.openingActName) ? { openingActName: ev.openingActName } : {}),
       };
       return payload;
     },

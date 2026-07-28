@@ -253,8 +253,10 @@
 | [235](235_syncprogress_stepprocesstimeline_timeout_duree_totale_faux_positif_gros_tenant.md) | Timeout de polling par durée totale (BUG-206/218) : faux positif "délai maximal dépassé" sur un gros tenant toujours en progrès | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [236-02](236_02_csvimportdrawer_dropdowns_taxonomie_vides_sans_indication.md) | Import CSV événements : dropdowns Espaces/Configs/Types/Catégories/Sous-catégories vides sans aucune indication (échec de fetch avalé par `Promise.allSettled`) | 🟡 Corrigé non déployé | 🔴 | Événements |
 | [237-02](237_02_csvimportdrawer_darkmode_menu_select_teleporte_illisible.md) | Import CSV événements : champ de mapping illisible en dark mode (menu `v-select` téléporté hors de `.elv--dark`) | 🟡 Corrigé non déployé | 🟠 | Événements |
-| [238-02](238_02_csvimportdrawer_champs_taxonomie_perdus_silencieusement.md) | Import CSV événements : Espace/Configuration/Type/Catégorie/Sous-catégorie perdus silencieusement à l'import ; 4 champs fantômes (BUG-136) retirés du mapping | 🟢 Corrigé | 🔴 | Événements |
+| [238-02](238_02_csvimportdrawer_champs_taxonomie_perdus_silencieusement.md) | Import CSV événements : Espace/Configuration/Type/Catégorie/Sous-catégorie perdus silencieusement à l'import ; 4 champs fantômes (BUG-136) désormais réellement stockés (schéma étendu) | 🟢 Corrigé | 🔴 | Événements |
 | [239-02](239_02_csvimportdrawer_eventenddate_eventendtime_absents_mapping.md) | Import CSV événements : `eventEndDate`/`eventEndTime` absents du mapping malgré usage backend réel (multi-jours, fenêtre live) | 🟢 Corrigé | 🟠 | Événements |
+| [240-02](240_02_csvimportdrawer_sessions_multiples_non_parsees.md) | Import CSV événements : événements multi-sessions, une seule session capturée (colonne "All Sessions" non parsée) | 🟢 Corrigé | 🟡 | Événements |
+| [241-02](241_02_csvimportdrawer_menu_select_derriere_scrim_drawer.md) | Import CSV événements : menu déroulant d'un `v-select` invisible/inatteignable (z-index Vuetify posé sur `.v-overlay`, pas `.v-overlay__content` — 1er correctif inefficace, cause probable réelle du BUG-237-02) | 🟡 Corrigé non déployé | 🔴 | Événements |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur

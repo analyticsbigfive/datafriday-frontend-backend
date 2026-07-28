@@ -67,9 +67,23 @@ Trois mécanismes cumulés, tous déjà identifiés une fois dans ce domaine (cf
 - Piège à retenir (déjà documenté en BUG-198) : pour tout contenu `Teleport to="body")`, cibler
   `.dark` (ancêtre `<html>`), jamais `.v-theme--dataFridayDark`/un wrapper scoped du composant.
 
+## Correction apportée le 2026-07-28 (suite) — hypothèse affinée
+
+Une capture d'écran utilisateur postérieure (étape 2 "Colonnes", **thème clair**) montre le même
+symptôme perçu ("impossible de sélectionner autre chose") **sans dark mode du tout** : le menu d'un
+`v-select` s'ouvre (chevron inversé) mais aucune option n'apparaît. Ça invalide l'hypothèse
+"contraste dark mode" comme cause UNIQUE de l'« overlay noir » initial — la cause principale est en
+réalité un conflit de `z-index` (menu du select rendu SOUS le scrim du drawer, indépendant du
+thème), documenté et corrigé séparément en [BUG-241-02](241_02_csvimportdrawer_menu_select_derriere_scrim_drawer.md).
+Les correctifs de CETTE fiche (couleur/fond du menu en dark mode) restent valides et nécessaires
+une fois le menu effectivement visible (BUG-241-02 corrigé), mais ne suffisaient pas seuls : le
+scrim du drawer masquait le menu AVANT même que son contraste ne pose problème.
+
 ## Références
 
 - [BUG-198](198_darkmode_eventpredict_overlay_teleporte.md) — même pattern, diagnostic et fix déjà
   validés une fois sur Event Predict
 - [BUG-236-02](236_02_csvimportdrawer_dropdowns_taxonomie_vides_sans_indication.md) — bug voisin,
   même étape, cause différente (contenu vide, pas illisible)
+- [BUG-241-02](241_02_csvimportdrawer_menu_select_derriere_scrim_drawer.md) — cause réelle probable
+  de l'« overlay noir » (conflit de z-index avec le scrim du drawer, indépendant du thème)

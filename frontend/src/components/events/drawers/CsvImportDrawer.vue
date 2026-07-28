@@ -17,11 +17,15 @@
          ce composant ne matche que les éléments de son propre template, pas l'intérieur de
          EventDrawerShell. -->
     <div :class="{ 'elv--dark': isDark }">
-    <!-- Step indicator -->
-    <div class="px-6 py-3 elv-step-bar">
-      <div class="d-flex align-center" style="gap: 4px;">
+    <!-- Step indicator — défile horizontalement plutôt que de couper les dernières étapes
+         (ex. "Résultats" tronqué hors du cadre à 640px de large pour 8 étapes). -->
+    <div class="px-4 py-3 elv-step-bar">
+      <div class="elv-step-scroll">
         <template v-for="(s, i) in steps" :key="i">
-          <div class="d-flex align-center" style="gap: 4px; flex-shrink: 0;">
+          <div
+            class="elv-step-item"
+            :class="{ 'elv-step-item--active': step === i + 1 }"
+          >
             <div
               class="elv-step-dot"
               :class="{
@@ -30,19 +34,14 @@
               }"
             >
               <CheckCircle2 v-if="step > i + 1" :size="12" />
-              <span v-else style="font-size: 10px; font-weight: 700;">{{ i + 1 }}</span>
+              <span v-else class="elv-step-dot__num">{{ i + 1 }}</span>
             </div>
             <span
-              class="text-caption"
+              class="elv-step-label"
               :class="step >= i + 1 ? 'font-weight-medium' : 'text-disabled'"
-              style="white-space: nowrap; font-size: 11px;"
             >{{ s }}</span>
           </div>
-          <div
-            v-if="i < steps.length - 1"
-            class="elv-step-line"
-            style="flex: 1; height: 1px; min-width: 8px;"
-          />
+          <div v-if="i < steps.length - 1" class="elv-step-line" />
         </template>
       </div>
     </div>
@@ -101,41 +100,49 @@
               density="compact"
               rounded="lg"
               hide-details
+              :menu-props="{ class: 'elv-select-overlay' }"
               style="flex: 1;"
             />
           </div>
         </div>
       </div>
 
-      <!-- ── Step 3 : Map Espaces ── -->
-      <div v-if="step === 3">
+      <!-- ── Steps 3-7 : mapping des valeurs de taxonomie (Espaces/Configs/Types/Catégories/
+           Sous-catégories) — un seul bloc data-driven (computed `currentValueStep`) au lieu de
+           5 blocs dupliqués : design garanti identique aux 5 étapes, un seul endroit à corriger. -->
+      <div v-if="currentValueStep">
         <div class="d-flex align-center mb-1" style="gap: 8px;">
           <Tags :size="16" style="color: #6b7280;" />
-          <span class="text-body-2 font-weight-medium">Colonne CSV : <strong>{{ mapping.spaceRaw }}</strong></span>
+          <span class="text-body-2 font-weight-medium">
+            Colonne CSV : <strong>{{ mapping[currentValueStep.mappingKey] }}</strong>
+          </span>
         </div>
-        <div class="text-caption text-medium-emphasis mb-4">
-          Associez chaque valeur de votre fichier à un espace existant dans le système.
-        </div>
-        <v-alert v-if="taxonomyErrors.spaces" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Impossible de charger la liste des espaces : {{ taxonomyErrors.spaces }}
-          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
+        <div class="text-caption text-medium-emphasis mb-4">{{ currentValueStep.description }}</div>
+
+        <v-alert v-if="currentValueStep.error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          Impossible de charger {{ currentValueStep.title }} : {{ currentValueStep.error }}
+          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="currentValueStep.retry">Réessayer</v-btn></div>
         </v-alert>
-        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des espaces…
+        <v-alert v-else-if="currentValueStep.loading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement de {{ currentValueStep.title }}…
         </v-alert>
-        <v-alert v-else-if="spaces.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Aucun espace accessible avec votre compte. Vérifiez vos droits d'accès (espaces) auprès d'un administrateur, ou
-          <a href="#" @click.prevent="loadTaxonomies">réessayez le chargement</a>.
+        <v-alert v-else-if="currentValueStep.items.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          {{ currentValueStep.emptySourceMessage }}
         </v-alert>
-        <div v-if="uniqueSpaceValues.length > 0">
-          <div v-for="val in uniqueSpaceValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
-            <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
-              <span class="text-body-2 font-weight-medium" style="word-break: break-all;">{{ val }}</span>
+
+        <div v-if="currentValueStep.values.length > 0" class="elv-mapping-card">
+          <div
+            v-for="val in currentValueStep.values"
+            :key="val"
+            class="elv-mapping-row"
+          >
+            <div class="elv-csv-chip" :title="val">
+              <span class="elv-csv-chip__text">{{ val }}</span>
             </div>
-            <ArrowRight :size="14" style="color: #9ca3af; flex-shrink: 0;" />
+            <ArrowRight :size="14" class="elv-mapping-arrow" />
             <v-select
-              v-model="spaceValueMap[val]"
-              :items="spaces"
+              v-model="currentValueStep.valueMap[val]"
+              :items="currentValueStep.items"
               item-title="name"
               item-value="id"
               placeholder="Ignorer"
@@ -144,22 +151,32 @@
               rounded="lg"
               hide-details
               clearable
-              style="flex: 1;"
+              :menu-props="{ class: 'elv-select-overlay' }"
+              class="elv-mapping-select"
             />
           </div>
         </div>
-        <v-alert v-else type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
+        <div v-else class="elv-empty-state">
+          <Tags :size="26" class="elv-empty-state__icon" />
+          <span>Aucune valeur trouvée dans le fichier pour cette colonne.</span>
+        </div>
       </div>
 
-      <!-- ── Step 4 : Map Configurations ── -->
+      <!-- ── Step 4 : Map Configurations — bloc dédié (pas dans le computed `currentValueStep`) :
+           une configuration appartient à EXACTEMENT un espace, donc le mapping se fait par PAIRE
+           (espace, configuration) et non par valeur brute seule — sinon deux espaces avec une
+           configuration de même nom seraient impossibles à distinguer, et rien n'indiquerait à
+           l'utilisateur à quel espace appartient chaque option proposée. ── -->
       <div v-if="step === 4">
         <div class="d-flex align-center mb-1" style="gap: 8px;">
           <Tags :size="16" style="color: #6b7280;" />
           <span class="text-body-2 font-weight-medium">Colonne CSV : <strong>{{ mapping.configurationRaw }}</strong></span>
         </div>
         <div class="text-caption text-medium-emphasis mb-4">
-          Associez chaque valeur de votre fichier à une configuration existante.
+          Associez chaque valeur de votre fichier à une configuration existante — la liste proposée
+          est limitée aux configurations de l'espace correspondant à cette ligne.
         </div>
+
         <v-alert v-if="configsLoadError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
           Impossible de charger les configurations : {{ configsLoadError }}
           <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadConfigsForCurrentSpaces">Réessayer</v-btn></div>
@@ -170,157 +187,35 @@
         <v-alert v-else-if="allLoadedConfigurations.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
           Aucune configuration trouvée pour les espaces mappés à l'étape précédente.
         </v-alert>
-        <div v-if="uniqueConfigValues.length > 0">
-          <div v-for="val in uniqueConfigValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
-            <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
-              <span class="text-body-2 font-weight-medium" style="word-break: break-all;">{{ val }}</span>
-            </div>
-            <ArrowRight :size="14" style="color: #9ca3af; flex-shrink: 0;" />
-            <v-select
-              v-model="configValueMap[val]"
-              :items="allLoadedConfigurations"
-              item-title="name"
-              item-value="id"
-              placeholder="Ignorer"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              clearable
-              style="flex: 1;"
-            />
-          </div>
-        </div>
-        <v-alert v-else type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
-      </div>
 
-      <!-- ── Step 5 : Map Type ── -->
-      <div v-if="step === 5">
-        <div class="d-flex align-center mb-1" style="gap: 8px;">
-          <Tags :size="16" style="color: #6b7280;" />
-          <span class="text-body-2 font-weight-medium">Colonne CSV : <strong>{{ mapping.eventTypeRaw }}</strong></span>
-        </div>
-        <div class="text-caption text-medium-emphasis mb-4">
-          Associez chaque valeur de votre fichier à un type d'événement existant.
-        </div>
-        <v-alert v-if="taxonomyErrors.eventTypes" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Impossible de charger les types d'événement : {{ taxonomyErrors.eventTypes }}
-          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
-        </v-alert>
-        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des types d'événement…
-        </v-alert>
-        <v-alert v-else-if="eventTypes.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Aucun type d'événement n'existe encore pour ce compte.
-        </v-alert>
-        <div v-if="uniqueTypeValues.length > 0">
-          <div v-for="val in uniqueTypeValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
-            <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
-              <span class="text-body-2 font-weight-medium" style="word-break: break-all;">{{ val }}</span>
+        <div v-if="uniqueSpaceConfigPairs.length > 0" class="elv-mapping-card">
+          <div v-for="pair in uniqueSpaceConfigPairs" :key="pair.key" class="elv-mapping-row">
+            <div class="elv-csv-chip elv-csv-chip--pair" :title="`${pair.spaceRaw} — ${pair.configRaw}`">
+              <span class="elv-csv-chip__space">{{ pair.spaceRaw }}</span>
+              <span class="elv-csv-chip__text">{{ pair.configRaw }}</span>
             </div>
-            <ArrowRight :size="14" style="color: #9ca3af; flex-shrink: 0;" />
+            <ArrowRight :size="14" class="elv-mapping-arrow" />
             <v-select
-              v-model="typeValueMap[val]"
-              :items="eventTypes"
+              v-model="configValueMap[pair.key]"
+              :items="configsForSpaceRaw(pair.spaceRaw)"
               item-title="name"
               item-value="id"
-              placeholder="Ignorer"
+              :placeholder="configsForSpaceRaw(pair.spaceRaw).length ? 'Ignorer' : 'Aucune config. pour cet espace'"
+              :disabled="configsForSpaceRaw(pair.spaceRaw).length === 0"
               variant="outlined"
               density="compact"
               rounded="lg"
               hide-details
               clearable
-              style="flex: 1;"
+              :menu-props="{ class: 'elv-select-overlay' }"
+              class="elv-mapping-select"
             />
           </div>
         </div>
-        <v-alert v-else type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
-      </div>
-
-      <!-- ── Step 6 : Map Catégorie ── -->
-      <div v-if="step === 6">
-        <div class="d-flex align-center mb-1" style="gap: 8px;">
-          <Tags :size="16" style="color: #6b7280;" />
-          <span class="text-body-2 font-weight-medium">Colonne CSV : <strong>{{ mapping.eventCategoryRaw }}</strong></span>
+        <div v-else class="elv-empty-state">
+          <Tags :size="26" class="elv-empty-state__icon" />
+          <span>Aucune valeur trouvée dans le fichier pour cette colonne.</span>
         </div>
-        <div class="text-caption text-medium-emphasis mb-4">
-          Associez chaque valeur de votre fichier à une catégorie existante.
-        </div>
-        <v-alert v-if="taxonomyErrors.eventCategories" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Impossible de charger les catégories : {{ taxonomyErrors.eventCategories }}
-          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
-        </v-alert>
-        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des catégories…
-        </v-alert>
-        <v-alert v-else-if="eventCategories.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Aucune catégorie n'existe encore pour ce compte.
-        </v-alert>
-        <div v-if="uniqueCategoryValues.length > 0">
-          <div v-for="val in uniqueCategoryValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
-            <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
-              <span class="text-body-2 font-weight-medium" style="word-break: break-all;">{{ val }}</span>
-            </div>
-            <ArrowRight :size="14" style="color: #9ca3af; flex-shrink: 0;" />
-            <v-select
-              v-model="categoryValueMap[val]"
-              :items="eventCategories"
-              item-title="name"
-              item-value="id"
-              placeholder="Ignorer"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              clearable
-              style="flex: 1;"
-            />
-          </div>
-        </div>
-        <v-alert v-else type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
-      </div>
-
-      <!-- ── Step 7 : Map Sous-catégorie ── -->
-      <div v-if="step === 7">
-        <div class="d-flex align-center mb-1" style="gap: 8px;">
-          <Tags :size="16" style="color: #6b7280;" />
-          <span class="text-body-2 font-weight-medium">Colonne CSV : <strong>{{ mapping.eventSubcategoryRaw }}</strong></span>
-        </div>
-        <div class="text-caption text-medium-emphasis mb-4">
-          Associez chaque valeur de votre fichier à une sous-catégorie existante.
-        </div>
-        <v-alert v-if="taxonomyErrors.eventSubcategories" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Impossible de charger les sous-catégories : {{ taxonomyErrors.eventSubcategories }}
-          <div class="mt-2"><v-btn size="x-small" variant="outlined" rounded="lg" class="text-none" @click="loadTaxonomies">Réessayer</v-btn></div>
-        </v-alert>
-        <v-alert v-else-if="taxonomyLoading" type="info" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          <v-progress-circular indeterminate size="16" width="2" class="mr-2" />Chargement des sous-catégories…
-        </v-alert>
-        <v-alert v-else-if="eventSubcategories.length === 0" type="warning" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          Aucune sous-catégorie n'existe encore pour ce compte.
-        </v-alert>
-        <div v-if="uniqueSubcategoryValues.length > 0">
-          <div v-for="val in uniqueSubcategoryValues" :key="val" class="d-flex align-center mb-3" style="gap: 12px;">
-            <div class="pa-2 rounded elv-csv-chip" style="min-width: 150px; flex-shrink: 0;">
-              <span class="text-body-2 font-weight-medium" style="word-break: break-all;">{{ val }}</span>
-            </div>
-            <ArrowRight :size="14" style="color: #9ca3af; flex-shrink: 0;" />
-            <v-select
-              v-model="subcategoryValueMap[val]"
-              :items="eventSubcategories"
-              item-title="name"
-              item-value="id"
-              placeholder="Ignorer"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              clearable
-              style="flex: 1;"
-            />
-          </div>
-        </div>
-        <v-alert v-else type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
       </div>
 
       <!-- Résumé des valeurs non associées, affiché sur la dernière étape de mapping avant
@@ -335,11 +230,12 @@
         class="mt-4"
       >
         <div class="font-weight-medium mb-2">Valeurs non associées — les lignes concernées seront importées sans ce champ :</div>
-        <ul style="padding-left: 16px; margin: 0;">
-          <li v-for="u in unmappedSummary" :key="u.label" class="text-body-2">
-            {{ u.label }} ({{ u.unmapped.length }}) : {{ u.unmapped.join(', ') }}
-          </li>
-        </ul>
+        <div v-for="u in unmappedSummary" :key="u.label" class="elv-unmapped-group">
+          <div class="elv-unmapped-group__label">{{ u.label }} ({{ u.unmapped.length }})</div>
+          <div class="elv-unmapped-group__chips">
+            <span v-for="v in u.unmapped" :key="v" class="elv-unmapped-chip">{{ v }}</span>
+          </div>
+        </div>
       </v-alert>
 
       <!-- ── Step 8 : Résultats ── -->
@@ -480,10 +376,14 @@ export default {
         { key: 'eventSubcategoryRaw', label: 'Sous-catégorie',                     aliases: ['event subcategory', 'eventsubcategory', 'subcategory'] },
         { key: 'doorsOpen',           label: 'Ouverture des portes',               aliases: ['doors open', 'doorsopen'] },
         { key: 'showTime',            label: 'Heure du show',                      aliases: ['show time', 'showtime'] },
+        { key: 'performerName',       label: 'Nom du performer',                   aliases: ['performer name', 'performername', 'performer'] },
         { key: 'homeTeamName',        label: 'Équipe domicile',                    aliases: ['home team name', 'hometeamname', 'home team'] },
         { key: 'visitingTeam',        label: 'Équipe visiteur',                    aliases: ['visiting team', 'visitingteam'] },
+        { key: 'sponsor',             label: 'Sponsor',                            aliases: ['sponsor'] },
         { key: 'numberOfSessions',    label: 'Nombre de sessions',                 aliases: ['number of sessions', 'numberofsessions'] },
+        { key: 'allSessions',         label: 'Toutes les sessions (Portes|Show)',  aliases: ['all sessions (doors|show)', 'allsessions', 'all sessions'] },
         { key: 'hasOpeningAct',       label: 'Opening Act (oui/non)',              aliases: ['has opening act', 'hasopeningact'] },
+        { key: 'openingActName',      label: "Nom de l'opening act",               aliases: ['opening act name', 'openingactname'] },
         { key: 'hasIntermission',     label: 'Intermission (oui/non)',             aliases: ['has intermission', 'hasintermission', 'intermission'] },
         { key: 'ticketsSold',         label: 'Tickets vendus',                     aliases: ['tickets sold', 'ticketssold'] },
         { key: 'ticketsScanned',      label: 'Tickets scannés',                    aliases: ['tickets scanned', 'ticketsscanned'] },
@@ -578,23 +478,123 @@ export default {
     },
 
     uniqueSpaceValues()       { return this._uniqueColValues('spaceRaw'); },
-    uniqueConfigValues()      { return this._uniqueColValues('configurationRaw'); },
     uniqueTypeValues()        { return this._uniqueColValues('eventTypeRaw'); },
     uniqueCategoryValues()    { return this._uniqueColValues('eventCategoryRaw'); },
     uniqueSubcategoryValues() { return this._uniqueColValues('eventSubcategoryRaw'); },
 
+    // Une configuration appartient à EXACTEMENT un espace (contrairement à Type/Catégorie/
+    // Sous-catégorie, des taxonomies globales au tenant) — mapper par simple valeur brute de
+    // colonne (comme les 4 autres dimensions) risquerait de confondre deux configs de même nom
+    // dans deux espaces différents. On mappe donc par PAIRE (espace, configuration) réellement
+    // observée dans le fichier, avec un select dont les options sont limitées aux configurations
+    // de CET espace précis.
+    uniqueSpaceConfigPairs() {
+      const spaceCol = this.mapping.spaceRaw;
+      const configCol = this.mapping.configurationRaw;
+      if (!spaceCol || !configCol) return [];
+      const spaceIdx = this.csvHeaders.indexOf(spaceCol);
+      const configIdx = this.csvHeaders.indexOf(configCol);
+      if (spaceIdx < 0 || configIdx < 0) return [];
+      const seen = new Set();
+      const pairs = [];
+      for (const row of this.csvRows) {
+        const s = row[spaceIdx]?.trim();
+        const c = row[configIdx]?.trim();
+        if (!s || !c) continue;
+        const key = this._configPairKey(s, c);
+        if (!seen.has(key)) {
+          seen.add(key);
+          pairs.push({ key, spaceRaw: s, configRaw: c });
+        }
+      }
+      return pairs;
+    },
+
     unmappedSummary() {
       const dims = [
         { key: 'spaceRaw',            label: 'Espace',            values: this.uniqueSpaceValues,       map: this.spaceValueMap },
-        { key: 'configurationRaw',    label: 'Configuration',     values: this.uniqueConfigValues,      map: this.configValueMap },
         { key: 'eventTypeRaw',        label: "Type d'événement",  values: this.uniqueTypeValues,        map: this.typeValueMap },
         { key: 'eventCategoryRaw',    label: 'Catégorie',         values: this.uniqueCategoryValues,    map: this.categoryValueMap },
         { key: 'eventSubcategoryRaw', label: 'Sous-catégorie',    values: this.uniqueSubcategoryValues, map: this.subcategoryValueMap },
       ];
-      return dims
+      const result = dims
         .filter((d) => this.mapping[d.key])
         .map((d) => ({ label: d.label, unmapped: d.values.filter((v) => !d.map[v]) }))
         .filter((d) => d.unmapped.length > 0);
+
+      if (this.mapping.configurationRaw) {
+        const unmappedPairs = this.uniqueSpaceConfigPairs
+          .filter((p) => !this.configValueMap[p.key])
+          .map((p) => `${p.spaceRaw} / ${p.configRaw}`);
+        if (unmappedPairs.length > 0) {
+          result.push({ label: 'Configuration', unmapped: unmappedPairs });
+        }
+      }
+      return result;
+    },
+
+    // Configuration de l'étape de mapping de valeurs actuellement affichée (steps 3 à 7) —
+    // un seul computed data-driven plutôt que 5 blocs de template dupliqués.
+    currentValueStep() {
+      switch (this.step) {
+        case 3:
+          return {
+            title: 'la liste des espaces',
+            mappingKey: 'spaceRaw',
+            description: "Associez chaque valeur de votre fichier à un espace existant dans le système.",
+            values: this.uniqueSpaceValues,
+            valueMap: this.spaceValueMap,
+            items: this.spaces,
+            loading: this.taxonomyLoading,
+            error: this.taxonomyErrors.spaces,
+            retry: this.loadTaxonomies,
+            emptySourceMessage: "Aucun espace accessible avec votre compte. Vérifiez vos droits d'accès (espaces) auprès d'un administrateur.",
+          };
+        // case 4 (Configurations) volontairement absent d'ici : une configuration appartient à
+        // un espace précis, ce n'est pas un mapping "valeur brute → item" comme les autres —
+        // voir le bloc dédié `v-if="step === 4"` dans le template et `uniqueSpaceConfigPairs`.
+        case 5:
+          return {
+            title: "les types d'événement",
+            mappingKey: 'eventTypeRaw',
+            description: "Associez chaque valeur de votre fichier à un type d'événement existant.",
+            values: this.uniqueTypeValues,
+            valueMap: this.typeValueMap,
+            items: this.eventTypes,
+            loading: this.taxonomyLoading,
+            error: this.taxonomyErrors.eventTypes,
+            retry: this.loadTaxonomies,
+            emptySourceMessage: "Aucun type d'événement n'existe encore pour ce compte.",
+          };
+        case 6:
+          return {
+            title: 'les catégories',
+            mappingKey: 'eventCategoryRaw',
+            description: 'Associez chaque valeur de votre fichier à une catégorie existante.',
+            values: this.uniqueCategoryValues,
+            valueMap: this.categoryValueMap,
+            items: this.eventCategories,
+            loading: this.taxonomyLoading,
+            error: this.taxonomyErrors.eventCategories,
+            retry: this.loadTaxonomies,
+            emptySourceMessage: "Aucune catégorie n'existe encore pour ce compte.",
+          };
+        case 7:
+          return {
+            title: 'les sous-catégories',
+            mappingKey: 'eventSubcategoryRaw',
+            description: 'Associez chaque valeur de votre fichier à une sous-catégorie existante.',
+            values: this.uniqueSubcategoryValues,
+            valueMap: this.subcategoryValueMap,
+            items: this.eventSubcategories,
+            loading: this.taxonomyLoading,
+            error: this.taxonomyErrors.eventSubcategories,
+            retry: this.loadTaxonomies,
+            emptySourceMessage: "Aucune sous-catégorie n'existe encore pour ce compte.",
+          };
+        default:
+          return null;
+      }
     },
   },
 
@@ -605,6 +605,15 @@ export default {
       } else {
         this.reset();
       }
+    },
+    // Fait défiler la barre d'étapes pour garder l'étape courante visible (elle est plus large
+    // que les 640px du drawer une fois les 8 étapes affichées).
+    step() {
+      this.$nextTick(() => {
+        this.$el.querySelector?.('.elv-step-item--active')?.scrollIntoView({
+          behavior: 'smooth', inline: 'center', block: 'nearest',
+        });
+      });
     },
   },
 
@@ -658,6 +667,28 @@ export default {
       const idx = this.csvHeaders.indexOf(col);
       if (idx < 0) return [];
       return [...new Set(this.csvRows.map((r) => r[idx]?.trim()).filter(Boolean))];
+    },
+
+    _configPairKey(spaceRaw, configRaw) {
+      return `${spaceRaw}␟${configRaw}`;
+    },
+
+    // Configurations disponibles pour l'espace RÉSOLU (spaceValueMap) correspondant à cette
+    // valeur brute d'espace — jamais la liste pooled de tous les espaces mappés.
+    configsForSpaceRaw(spaceRaw) {
+      const spaceId = this.spaceValueMap[spaceRaw];
+      if (!spaceId) return [];
+      const rows = this._spaceConfigsCache[spaceId] || [];
+      const seen = new Set();
+      const configs = [];
+      for (const c of rows) {
+        const id = c?.id || c?._id;
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          configs.push({ ...c, id, name: c?.name || c?.configurationName || String(id) });
+        }
+      }
+      return configs;
     },
 
     async navigateForward() {
@@ -776,6 +807,28 @@ export default {
       return val.replace(/h/i, ':');
     },
 
+    // "All Sessions (Doors|Show)" : plusieurs sessions séparées par ";", chacune "portes|show"
+    // (ex. "15:30|16:30; 18:15|19:30"). Repli sur les colonnes Doors Open/Show Time si la colonne
+    // "All Sessions" est absente/vide pour cette ligne (une seule session).
+    parseSessions(allSessionsRaw, fallbackDoors, fallbackShow) {
+      const raw = (allSessionsRaw || '').trim();
+      if (raw) {
+        const sessions = raw
+          .split(';')
+          .map((group) => group.trim())
+          .filter(Boolean)
+          .map((group) => {
+            const [doorsPart, showPart] = group.split('|');
+            const doorsOpening = this.parseTime((doorsPart || '').trim()) || '';
+            const showTime = this.parseTime((showPart || '').trim()) || '';
+            return (doorsOpening || showTime) ? { doorsOpening, showTime } : null;
+          })
+          .filter(Boolean);
+        if (sessions.length > 0) return sessions;
+      }
+      return (fallbackDoors || fallbackShow) ? [{ doorsOpening: fallbackDoors || '', showTime: fallbackShow || '' }] : undefined;
+    },
+
     async doImport() {
       this.step = 8;
       this.importLoading = true;
@@ -826,14 +879,17 @@ export default {
           eventEndTime,
           homeTeamName:       get('homeTeamName') || undefined,
           visitingTeamName:   get('visitingTeam') || undefined,
-          sessions:           (doorsOpen || showTime) ? [{ doorsOpening: doorsOpen || '', showTime: showTime || '' }] : undefined,
+          performerName:      get('performerName') || undefined,
+          sponsor:            get('sponsor') || undefined,
+          openingActName:     get('openingActName') || undefined,
+          sessions:           this.parseSessions(get('allSessions'), doorsOpen, showTime),
           numberOfSessions:   get('numberOfSessions') ? parseInt(get('numberOfSessions')) : undefined,
           hasOpeningAct:      get('hasOpeningAct') ? this.parseBool(get('hasOpeningAct')) : undefined,
           hasIntermission:    get('hasIntermission') ? this.parseBool(get('hasIntermission')) : undefined,
           ticketsSold:        get('ticketsSold') ? parseInt(get('ticketsSold')) : undefined,
           ticketsScanned:     get('ticketsScanned') ? parseInt(get('ticketsScanned')) : undefined,
           spaceId:            (spaceRaw && this.spaceValueMap[spaceRaw]) || undefined,
-          configurationId:    (configurationRaw && this.configValueMap[configurationRaw]) || undefined,
+          configurationId:    (spaceRaw && configurationRaw && this.configValueMap[this._configPairKey(spaceRaw, configurationRaw)]) || undefined,
           eventTypeId:        (typeRaw && this.typeValueMap[typeRaw]) || undefined,
           eventCategoryId:    (categoryRaw && this.categoryValueMap[categoryRaw]) || undefined,
           eventSubcategoryId: (subcategoryRaw && this.subcategoryValueMap[subcategoryRaw]) || undefined,
@@ -883,7 +939,7 @@ export default {
   background: rgb(var(--v-theme-surface, 255, 255, 255));
   flex-shrink: 0;
 }
-.elv-step-line { background: rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12)); }
+.elv-step-line { background: rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12)); width: 20px; height: 1px; flex-shrink: 0; }
 .elv-drawer-body { flex: 1; overflow-y: auto; background: rgb(var(--v-theme-background, 245, 245, 245)); }
 .elv-dropzone {
   border: 2px dashed rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
@@ -893,17 +949,115 @@ export default {
 }
 .elv-dropzone:hover, .elv-dropzone--hover { border-color: #ff3131; }
 .elv-hint-card { background: rgb(var(--v-theme-surface-variant, var(--v-theme-surface, 255, 255, 255))); border-radius: 8px; }
+
+/* Barre d'étapes : défilement horizontal (scrollbar masquée, molette/trackpad toujours actifs)
+   pour ne jamais couper une étape hors du cadre — cf. docs/bugs/ (barre tronquée à 8 étapes). */
+.elv-step-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.elv-step-scroll::-webkit-scrollbar { display: none; }
+.elv-step-item { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 2px 0; }
 .elv-step-dot {
   width: 22px; height: 22px; border-radius: 50%;
   background: rgba(var(--v-border-color, 0, 0, 0), 0.4);
   color: rgb(var(--v-theme-on-surface, 0, 0, 0));
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background 0.2s, color 0.2s;
 }
 .elv-step-dot--active { background: #ff3131; color: white; }
 .elv-step-dot--done { background: #10b981; color: white; }
+/* Palier `sm` (0.75rem) de la charte graphique — le plus petit disponible hors module Analyse,
+   utilisé ici pour un badge de 22px (docs/CHARTE_GRAPHIQUE.md §3/§6). */
+.elv-step-dot__num { font-size: 0.75rem; font-weight: 700; }
+.elv-step-label { font-size: 0.75rem; white-space: nowrap; }
+
+/* BUG : fond sombre en thème clair — `--v-theme-surface-variant` n'est PAS surchargé par
+   `dataFridayLight` (plugins/vuetify.js), donc Vuetify retombe sur son défaut interne
+   `#424242` (node_modules/vuetify/lib/composables/theme.js:25), un gris charbon — d'où la puce
+   qui apparaissait sombre alors que toute la page est en thème clair. On utilise un gris clair
+   littéral plutôt que ce token, non fiable pour cet usage. */
 .elv-csv-chip {
-  background: rgb(var(--v-theme-surface-variant, var(--v-theme-surface, 255, 255, 255)));
+  background: #f3f4f6;
   border: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
+  border-radius: 8px;
+  padding: 6px 10px;
+  min-width: 150px;
+  max-width: 150px;
+  flex-shrink: 0;
+}
+.elv-csv-chip__text {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.elv-csv-chip--pair { display: flex; flex-direction: column; gap: 2px; }
+.elv-csv-chip__space {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Liste de mapping (étapes 3-7) : un seul conteneur avec séparateurs entre lignes, plutôt que
+   des lignes flottantes espacées — plus lisible sur une longue liste de valeurs. */
+.elv-mapping-card {
+  border: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgb(var(--v-theme-surface, 255, 255, 255));
+}
+.elv-mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
+  transition: background 0.15s;
+}
+.elv-mapping-row:last-child { border-bottom: none; }
+.elv-mapping-row:hover { background: rgba(var(--v-border-color, 0, 0, 0), 0.04); }
+.elv-mapping-arrow { color: #9ca3af; flex-shrink: 0; }
+.elv-mapping-select { flex: 1; min-width: 0; }
+
+/* État vide (aucune valeur à mapper pour cette colonne) : bloc centré cohérent avec la zone de
+   dépôt de l'étape 1, plutôt qu'un simple bandeau d'alerte. */
+.elv-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 16px;
+  color: #9ca3af;
+  font-size: 0.8125rem;
+  text-align: center;
+}
+.elv-empty-state__icon { opacity: 0.5; }
+
+/* Résumé "valeurs non associées" : groupes de chips par dimension plutôt qu'une phrase avec
+   virgules, plus scannable quand il y a beaucoup de valeurs. */
+.elv-unmapped-group { margin-top: 10px; }
+.elv-unmapped-group__label { font-size: 0.8125rem; font-weight: 600; margin-bottom: 6px; }
+.elv-unmapped-group__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.elv-unmapped-chip {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: rgba(217, 119, 6, 0.12);
+  color: #92400e;
 }
 
 /* ===== DARK MODE OVERRIDES ===== */
@@ -943,6 +1097,10 @@ export default {
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
+.elv--dark .elv-csv-chip__space {
+  color: #9ca3af !important;
+}
+
 .elv--dark .elv-step-line {
   background: rgba(255, 255, 255, 0.12) !important;
 }
@@ -950,6 +1108,28 @@ export default {
 .elv--dark .elv-step-dot {
   background: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.elv--dark .elv-mapping-card {
+  background: #1f2937 !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.elv--dark .elv-mapping-row {
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.elv--dark .elv-mapping-row:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.elv--dark .elv-empty-state {
+  color: #6b7280 !important;
+}
+
+.elv--dark .elv-unmapped-chip {
+  background: rgba(217, 119, 6, 0.18) !important;
+  color: #fbbf24 !important;
 }
 
 .elv--dark :deep(.v-field__outline) {
@@ -981,6 +1161,33 @@ export default {
    <body> — donc HORS de la portée du CSS scoped ci-dessus et hors de `.elv--dark`
    (même mécanisme que docs/bugs/198_darkmode_eventpredict_overlay_teleporte.md :
    `.dark` sur <html> reste le seul ancêtre commun fiable). */
+
+/* BUG-241 (v2, corrigé après lecture du code source Vuetify — la 1ère tentative ciblait le
+   mauvais élément et n'avait aucun effet) : EventDrawerShell.vue force le drawer à z-index 2200
+   et son scrim à 2199 (BUG-148). Le z-index dynamique de Vuetify (composable `useStack`,
+   node_modules/vuetify/lib/composables/stack.js) est posé en style INLINE sur le wrapper
+   `.v-overlay` (VOverlay.js:275-286 : `"style": [stackStyles.value, ...]`) — PAS sur
+   `.v-overlay__content` (VOverlay.js:299-303, qui ne reçoit que `dimensionStyles`/`contentStyles`,
+   sans z-index). `.v-overlay` a `position: fixed` + ce z-index inline → établit SA PROPRE
+   stacking context : un z-index posé sur son enfant `.v-overlay__content` ne peut jamais
+   "s'échapper" au-dessus d'éléments extérieurs à `.v-overlay` (notre drawer à 2200), quelle que
+   soit sa valeur — d'où l'échec silencieux du 1er correctif (`.v-overlay__content.v-select__content
+   { z-index: 2300 }`, toujours présent ci-dessous pour la couleur en dark mode, mais inutile pour
+   la visibilité). Le menu "s'ouvre" bien (chevron inversé, isActive Vue passe à true) mais reste
+   invisible car son wrapper `.v-overlay` est stacké SOUS le drawer. Indépendant du thème :
+   reproductible en clair comme en sombre.
+   Fix : chaque `<v-select>` du wizard passe désormais `menu-props="{ class: 'elv-select-overlay' }"`
+   — VMenu.js:137 pose `props.class` sur SON `.v-overlay` (`"class": ['v-menu', props.class]`),
+   donc cette classe atterrit bien sur le wrapper externe, la seule cible qui compte pour le
+   z-index réel. */
+.elv-select-overlay {
+  z-index: 2300 !important;
+}
+
+.v-overlay__content.v-select__content {
+  z-index: 2300 !important;
+}
+
 .dark .v-overlay__content.v-select__content .v-list-item-title,
 .dark .v-overlay__content.v-select__content .v-list-item {
   color: #f3f4f6 !important;

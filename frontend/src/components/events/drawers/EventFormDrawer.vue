@@ -402,6 +402,22 @@
         </div>
       </div>
 
+      <!-- ── Section: Artistes / Sponsoring — events entertainment ── -->
+      <div class="efd-row mb-4">
+        <div class="efd-select-wrap">
+          <label class="efd-select-label">Performer</label>
+          <v-text-field v-model="newEvent.performerName" variant="outlined" density="comfortable" hide-details placeholder="Nom du performer" class="efd-input" />
+        </div>
+        <div class="efd-select-wrap">
+          <label class="efd-select-label">Sponsor</label>
+          <v-text-field v-model="newEvent.sponsor" variant="outlined" density="comfortable" hide-details placeholder="Nom du sponsor" class="efd-input" />
+        </div>
+      </div>
+      <div v-if="newEvent.hasOpeningAct" class="efd-select-wrap mb-4">
+        <label class="efd-select-label">Opening Act</label>
+        <v-text-field v-model="newEvent.openingActName" variant="outlined" density="comfortable" hide-details placeholder="Nom de l'opening act" class="efd-input" />
+      </div>
+
       <!-- ── Section: Données financières ── -->
       <div class="efd-section-label">
         <CircleDollarSign :size="12" />
@@ -508,6 +524,9 @@ const EMPTY_EVENT = () => ({
   homeTeamName: '',
   homeTeamId: '',
   visitingTeamId: '',
+  performerName: '',
+  sponsor: '',
+  openingActName: '',
   location: '',
   spaceName: '',
   sessions: [],
@@ -800,6 +819,9 @@ export default {
         homeTeamName: e?.homeTeamName || '',
         homeTeamId: e?.homeTeamId || '',
         visitingTeamId: e?.visitingTeamId || '',
+        performerName: e?.performerName || '',
+        sponsor: e?.sponsor || '',
+        openingActName: e?.openingActName || '',
         location: e?.location || '',
         spaceName: e?.spaceName || '',
         sessions: parsedSessions,
@@ -896,6 +918,9 @@ export default {
           // colonne backend homeTeamId existe (docs/BACKEND_HOME_TEAM.md).
           homeTeamName: this.newEvent.homeTeamName || undefined,
           visitingTeamId: this.newEvent.visitingTeamId || undefined,
+          performerName: this.newEvent.performerName || undefined,
+          sponsor: this.newEvent.sponsor || undefined,
+          openingActName: this.newEvent.openingActName || undefined,
           location: this.newEvent.location,
           spaceName: this.newEvent.spaceName,
           sessions: this.newEvent.sessions.map((s) => JSON.stringify(s)),
