@@ -1,0 +1,157 @@
+<template>
+  <!-- Carte espace « Settings HR » — dérivée de spaces/widgets/SpaceItem.vue :
+       même image/badge/overlay, mais 4 métriques RH au lieu du revenue, + bouton
+       Edit. Pas de navigation au clic (contrairement à SpaceItem). -->
+  <div class="hsc-card" :class="{ 'hsc--dark': isDark }">
+
+    <div class="hsc-img">
+      <img :src="spaceImage" :alt="space?.name" />
+
+      <div v-if="space?.spaceType" class="hsc-type-badge">{{ space.spaceType }}</div>
+
+      <!-- Bouton Edit (ouvre le drawer d'édition par espace) -->
+      <div class="hsc-actions">
+        <button class="hsc-action-btn" :title="t('hrEditSpaceTitle')" @click="$emit('edit', space)">
+          <Pencil :size="14" />
+        </button>
+      </div>
+
+      <div class="hsc-overlay">
+        <div class="hsc-name">{{ space?.name || '—' }}</div>
+        <div class="hsc-meta">
+          <span v-if="space?.city" class="hsc-meta__item"><MapPin :size="11" />{{ space.city }}</span>
+          <span v-if="space?.maxCapacity" class="hsc-meta__item"><Users :size="11" />{{ formatNumber(space.maxCapacity) }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hsc-stats">
+      <div class="hsc-stat">
+        <div class="hsc-stat__label"><Wallet :size="11" />{{ t('hrColStaffCostTotal') }}</div>
+        <div class="hsc-stat__value hsc-stat__value--muted">—</div>
+      </div>
+      <div class="hsc-stat">
+        <div class="hsc-stat__label"><Target :size="11" />{{ t('hrColGoalPerTpe') }}</div>
+        <div class="hsc-stat__value hsc-stat__value--red">{{ goalLabel }}</div>
+      </div>
+      <div class="hsc-stat hsc-stat--bl">
+        <div class="hsc-stat__label"><Calendar :size="11" />{{ t('hrColStaffCostAvgEvent') }}</div>
+        <div class="hsc-stat__value hsc-stat__value--muted">—</div>
+      </div>
+      <div class="hsc-stat hsc-stat--bl">
+        <div class="hsc-stat__label"><UserCog :size="11" />{{ t('hrColStaffPerZone') }}</div>
+        <div class="hsc-stat__value hsc-stat__value--green">{{ staffLabel }}</div>
+      </div>
+    </div>
+
+  </div>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { Pencil, MapPin, Users, Target, UserCog, Wallet, Calendar } from 'lucide-vue-next'
+import { t } from '@/i18n'
+
+const props = defineProps({
+  space: { type: Object, default: null },
+  goalPerTpe: { type: Number, default: null },
+  staffPerZoneManager: { type: Number, default: null },
+  isDark: { type: Boolean, default: false },
+  fallbackImage: { type: String, default: 'https://cdn.vuetifyjs.com/images/cards/docks.jpg' },
+})
+defineEmits(['edit'])
+
+const spaceImage = computed(() => props.space?.image || props.fallbackImage)
+
+const goalLabel = computed(() =>
+  props.goalPerTpe == null
+    ? '—'
+    : (Number(props.goalPerTpe) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }),
+)
+const staffLabel = computed(() =>
+  props.staffPerZoneManager == null ? '—' : String(props.staffPerZoneManager),
+)
+
+function formatNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '—'
+}
+</script>
+
+<style scoped>
+.hsc-card {
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, .06);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .06);
+  transition: transform .22s ease, box-shadow .22s ease;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+.hsc-card:hover { transform: translateY(-5px); box-shadow: 0 18px 44px rgba(0, 0, 0, .14); }
+
+.hsc-img { position: relative; height: 185px; overflow: hidden; flex-shrink: 0; }
+.hsc-img img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s ease; }
+.hsc-card:hover .hsc-img img { transform: scale(1.05); }
+
+.hsc-type-badge {
+  position: absolute; top: 10px; left: 10px;
+  background: rgba(255, 255, 255, .18);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, .35);
+  color: #fff; font-size: var(--fs-xs); font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: 100px;
+}
+
+.hsc-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; opacity: 0; transition: opacity .2s; }
+.hsc-card:hover .hsc-actions { opacity: 1; }
+.hsc-action-btn {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: rgba(255, 255, 255, .9);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: none; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #374151; transition: background .15s, color .15s, transform .1s;
+}
+.hsc-action-btn:hover { background: #fff; color: #ff3131; transform: scale(1.08); }
+
+.hsc-overlay {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 32px 14px 13px;
+  background: linear-gradient(to top, rgba(0, 0, 0, .72) 0%, transparent 100%);
+}
+.hsc-name {
+  font-size: var(--fs-md); font-weight: 700; color: #fff; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px;
+}
+.hsc-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.hsc-meta__item { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-xs); color: rgba(255, 255, 255, .8); }
+
+.hsc-stats { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #f0f0f0; }
+.hsc-stat { padding: 11px 14px; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid #f0f0f0; transition: background .15s; }
+.hsc-stat:nth-child(2n) { border-right: none; }
+.hsc-stat--bl { border-top: 1px solid #f0f0f0; }
+.hsc-stat:hover { background: #fafafa; }
+.hsc-stat__label {
+  display: flex; align-items: center; gap: 4px;
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: #9ca3af;
+}
+.hsc-stat__value { font-size: var(--fs-md); font-weight: 700; line-height: 1.2; }
+.hsc-stat__value--red { color: #ff3131; }
+.hsc-stat__value--green { color: #059669; }
+.hsc-stat__value--muted { color: #cbd5e1; }
+
+/* ── Dark (palette slate, parité MarketPriceListView) ── */
+.hsc--dark { background: #1e293b; border-color: rgba(255, 255, 255, .08); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+.hsc--dark .hsc-stats { border-top-color: rgba(255, 255, 255, .08); }
+.hsc--dark .hsc-stat { border-right-color: rgba(255, 255, 255, .08); }
+.hsc--dark .hsc-stat--bl { border-top-color: rgba(255, 255, 255, .08); }
+.hsc--dark .hsc-stat:hover { background: #24324a; }
+.hsc--dark .hsc-stat__label { color: #94a3b8; }
+.hsc--dark .hsc-stat__value--muted { color: #64748b; }
+.hsc--dark .hsc-action-btn { background: rgba(30, 41, 59, .9); color: #cbd5e1; }
+.hsc--dark .hsc-action-btn:hover { background: #0f172a; color: #ff3131; }
+</style>

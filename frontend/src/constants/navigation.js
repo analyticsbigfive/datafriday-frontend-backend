@@ -68,6 +68,7 @@ export const SETTINGS_NAVIGATION = [
         items: [
           { title: 'navHrSuppliers', route: { path: '/hr', query: { tab: 'suppliers' } }, permission: 'menu.hr.manage' },
           { title: 'navHrPositions', route: { path: '/hr', query: { tab: 'positions' } }, permission: 'menu.hr.manage' },
+          { title: 'navHrSettings', route: '/hr/settings', permission: 'menu.hr.manage' },
         ],
       },
       {
