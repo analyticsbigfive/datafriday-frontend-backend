@@ -280,6 +280,22 @@ parallélisation de la bissection de collecte Weezevent, jusque-là strictement 
 | [240](240_reconciliation_dark_mode_et_formats_fr_fr_en_dur.md) | Section + vue Réconciliation : 44 couleurs en littéraux, **0** `var(--fb-*)` → deux blocs blancs en thème sombre ; dates/nombres en `toLocaleString('fr-FR')` en dur malgré l'i18n maison | 🟡 Corrigé non déployé | 🟡 | Stock / Thème & i18n |
 | [241](241_getpreeventinventory_repli_legacy_hors_event.md) | `getPreEventInventory` : le repli legacy prend le dernier snapshot du space antérieur au jour du match, **sans filtre `eventId` ni `kind`** (contrairement à son commentaire) → stock de départ possiblement issu d'un autre match, non tracé ; contredit « un match = un eventId » (§12.4) | 🟡 Corrigé non déployé | 🟠 | Stock |
 | [242](242_reco_post_event_ventes_composees_non_explosees.md) | Réco post-event : ventes de produits préparés jamais explosées vers les ingrédients → sur toute ligne comptée au grain ingrédient, `Qty Sold` 0 et `Missing` = 100 % de la consommation réelle (ex-Q35, tranchée owner 2026-07-27 : Option 1 — la réco consomme `explodeSalesToConsumption` via `GET event-consumption`) | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
+| [243-01](243_01_analyse_dropdown_outils_pre_event_inventory_absent.md) | Analyse : dropdown « Outils » sans entrée **Pre-event Inventory** (écran inatteignable depuis la vue par défaut d'un espace) et Post-event libellé « Inventory » — la liste d'outils est dupliquée dans **5 fichiers** sans source commune, `spacePreInventoryPath`/`onToolboxSelect` étaient déjà câblés mais en code mort | 🟡 Corrigé non déployé | 🟠 | Stock / Navigation |
+
+**BUG-243-01 ajouté le 2026-07-29** (signalé par capture — le dropdown « Outils »
+d'Analyse n'affichait qu'une entrée « Inventory » là où Inventory/Logistic/Restock/Event Predict en
+affichent deux (Pre-event + Post-event). Une seule ligne manquait dans `toolboxItems`
+[`analyse/filters/FilterPanel.vue:616`](../../src/components/analyse/filters/FilterPanel.vue), le
+chemin et le handler existant déjà ; corrigé en réutilisant la clé `invToolPreInventory` partagée
+par les autres écrans, plus alignement du libellé `anToolInventory` sur « Post-event Inventory ».
+La duplication de la liste dans 5 fichiers — cause structurelle — est documentée dans la fiche mais
+**non résolue** ; le filtrage par permission manquant côté Analyse et l'absence de « Live » dans les
+4 autres listes sont laissés ouverts.)
+
+> Pas de « **N bugs au total** » sur cette entrée : le compteur du paragraphe suivant (« 240 ») ne
+> correspond plus à rien de vérifiable — 261 fiches sur disque, 242 numéros `NNN` distincts et 262
+> lignes de tableau avant l'ajout de 243-01. Plutôt que de propager un total faux, la date et le
+> numéro suffisent. À recaler d'un coup si quelqu'un veut restaurer le compteur.
 
 **240 bugs au total** (242 ajouté le 2026-07-27 : ex-Q35 tranchée par l'owner — Option 1, la réco
 post-event consomme les ventes explosées en ingrédients par la cascade Logistique ; déploiement

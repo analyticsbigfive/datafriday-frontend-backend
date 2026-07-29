@@ -618,6 +618,7 @@ const toolboxItems = computed(() => [
   { value: 'predict', label: t('anToolPredict'), icon: 'mdi-trending-up' },
   { value: 'event-predict', label: t('anToolEventPredict'), icon: 'mdi-lightning-bolt' },
   { value: 'live', label: t('anToolLive'), icon: 'mdi-record-circle-outline' },
+  { value: 'space-pre-inventory', label: t('invToolPreInventory'), icon: 'mdi-clipboard-arrow-up-outline' },
   { value: 'space-inventory', label: t('anToolInventory'), icon: 'mdi-package-variant' },
   { value: 'logistic', label: t('anToolLogistic'), icon: 'mdi-forklift' },
   { value: 'restock', label: t('anToolRestock'), icon: 'mdi-truck-delivery-outline' },
