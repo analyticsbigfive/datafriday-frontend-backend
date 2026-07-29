@@ -47,6 +47,8 @@ import { LogisticsModule } from './features/logistics/logistics.module';
 import { PackingTypesModule } from './features/packing-types/packing-types.module';
 import { RestockStateModule } from './features/restock-state/restock-state.module';
 import { HrSettingsModule } from './features/hr-settings/hr-settings.module';
+import { HrModule } from './features/hr/hr.module';
+import { StaffingModule } from './features/staffing/staffing.module';
 import { AuditModule } from './core/audit/audit.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
@@ -171,6 +173,8 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     PackingTypesModule,
     RestockStateModule,
     HrSettingsModule,
+    HrModule,
+    StaffingModule,
   ],
   controllers: [AppController],
   providers: [
