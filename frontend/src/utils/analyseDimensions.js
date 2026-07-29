@@ -1,5 +1,7 @@
 import { normalizeShopType, OTHER_SHOP_TYPE } from '@/constants/shopTypes'
 import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
+import { normalizeStr } from '@/utils/predictiveAnalytics'
+import { isMinuteInRange } from '@/utils/timelineBucketing'
 
 function textValue(value) {
   if (typeof value === 'string') return value.trim()
@@ -260,6 +262,45 @@ export function applyCatalogTypeCorrection(records = [], catParentMap) {
       menuItemCategory: textValue(r?.menuItemCategory) || rawType,
     }
   })
+}
+
+/**
+ * Prédicat de filtrage des records ITEM-LEVEL — miroir du getter store
+ * `filteredShopGranularData` (`store/modules/analyse.js`), qui ne filtre que le
+ * shop-level. Les charts consomment l'item-level : sans ce prédicat, cliquer une
+ * part de donut ne filtrerait rien.
+ *
+ * INVARIANT : les 6 dimensions passent par les mêmes `resolveX` que les charts
+ * qui groupent dessus (règle documentée plus haut dans ce fichier). Filtrer sur
+ * un champ brut au lieu du champ réconcilié ferait que la part « Non rattachés »
+ * (qui émet `UNATTACHED_ITEM_KEY`) ne matche aucune ligne.
+ *
+ * `skipMinute` : à poser pour la timeline, qui ÉCRIT `selectedTimeRange`.
+ * L'appliquer à sa propre entrée rétrécit ses labels, ce qui redéfinit à quoi
+ * correspond un même pourcentage de curseur — boucle de rétrécissement monotone.
+ *
+ * NB : `selectedShopIds`/`selectedMenuItemIds` stockent des NOMS, pas des ids —
+ * d'où la comparaison normalisée des deux côtés (le catalogue et les records
+ * peuvent différer de casse).
+ */
+export function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
+  const shopSet = (f.selectedShopIds || []).length ? new Set(f.selectedShopIds.map(normalizeStr)) : null
+  const itemSet = (f.selectedMenuItemIds || []).length ? new Set(f.selectedMenuItemIds.map(normalizeStr)) : null
+  const shopTypes = f.selectedShopTypes || []
+  const shopAreas = f.selectedShopAreas || []
+  const itemTypes = f.selectedMenuItemTypes || []
+  const itemCats = f.selectedMenuItemCategories || []
+  const range = f.selectedTimeRange
+  return (r) => {
+    if (shopSet && !shopSet.has(normalizeStr(r.shopName))) return false
+    if (shopTypes.length && !shopTypes.includes(resolveShopType(r))) return false
+    if (shopAreas.length && !shopAreas.includes(r.shopArea)) return false
+    if (itemSet && !itemSet.has(normalizeStr(resolveItemName(r)))) return false
+    if (itemTypes.length && !itemTypes.includes(resolveItemType(r))) return false
+    if (itemCats.length && !itemCats.includes(resolveItemCategory(r))) return false
+    if (!skipMinute && !isMinuteInRange(r.minute, range)) return false
+    return true
+  }
 }
 
 /** Rend slug technique lisible sans modifier clé utilisée par filtres. */

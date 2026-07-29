@@ -453,6 +453,33 @@ prévu dans le store pour cet usage (`state.timelineCacheByEventId`, l'action si
 `analyse.js:559-577`) est **entièrement mort** — 0 dispatch trouvé dans tout le repo. Toute
 l'infrastructure de cache timeline du store est shadow-implémentée en dehors de lui.
 
+> **Depuis le 2026-07-29 ([BUG-244-01](../bugs/244_01_timeline_analyse_filtres_non_appliques.md))** :
+> la sortie d'`useAnalyseTimeline` ne va plus directement au graphique. `AnalyseView` la fait passer
+> par `reconcileRecord` puis `buildItemFilterPredicate` (computeds `reconciledTimelineData` →
+> `filteredTimelineData`) avant de la transmettre — la timeline partage donc enfin le périmètre des
+> donuts et des tables. Deux conséquences pour qui touche à ce code :
+>
+> - le `passesFilters` interne d'`EventTimelineChart` est **mort pour le site d'appel Analyse** (les
+>   props de filtre ne lui sont plus passées) mais **reste vivant pour `EventPredictView`**, qui
+>   continue de lui donner ses données non filtrées ;
+> **Depuis le 2026-07-29 ([BUG-245-01](../bugs/245_01_donut_categories_par_transaction.md))** : un
+> **4ᵉ** consommateur s'ajoute, mais sur un endpoint DIFFÉRENT —
+> `GET /spaces/:id/transaction-baskets` (`useTransactionBaskets.js`, cache local
+> `_basketCache` dans `space.api.js`). C'est la **seule** lecture du code qui préserve l'identité de
+> la transaction : `event-timeline` porte la même chaîne de jointure produit→catégorie mais écrase
+> `t.id` en `COUNT(DISTINCT t.id)`, et aucun pré-agrégat ne porte de dimension transaction. Les deux
+> méthodes backend partagent le helper privé `resolveEventSalesScope` (fenêtre de dates, scope
+> tenant/intégration/PdV) : un scope qui divergerait ferait afficher deux périmètres différents sur
+> le même écran.
+>
+> - le contexte de réconciliation a désormais **un seul point de définition**
+>   (`composables/useReconciliationContext.js`), utilisé par `useAnalyseItemRecords`, les records
+>   article des scénarios Predict et la timeline. Chaque appelant garde son propre `computed` (donc
+>   son propre `matchMemo`), mais tous dérivent des mêmes champs du store : les valeurs sont
+>   identiques par construction. Ne pas rouvrir un `buildReconciliationContext` en parallèle — deux
+>   constructions divergentes attribueraient deux catégories différentes à la même ligne, et cliquer
+>   une part de donut filtrerait alors la timeline à zéro.
+
 ### Formules KPI — trois implémentations concurrentes de « CA moyen par event »
 
 > **Tranché le 2026-07-24 (réponse Bertrand — [Question #17](../QUESTIONS_A_BERTRAND.md))** :

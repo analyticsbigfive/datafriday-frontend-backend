@@ -174,6 +174,15 @@ const props = defineProps({
   // Fenêtre horaire restaurée par le parent (version/brouillon) : { startPct, endPct }.
   // Permet de ré-hydrater le curseur au retour sur la page.
   initialRange: { type: Object, default: () => null },
+  // Empreinte des filtres du parent quand celui-ci PRÉ-FILTRE `timelineData`
+  // (cas AnalyseView). `rangePct` étant local à ce composant, un changement de
+  // filtre modifie `series.labels` sans que les pourcentages du curseur bougent :
+  // les mêmes bornes désigneraient alors d'autres heures, sans réémission → le
+  // `selectedTimeRange` du store diverge silencieusement de ce qu'affiche le
+  // curseur. On remet donc la fenêtre à pleine largeur à chaque changement.
+  // Défaut '' : les appelants qui ne pré-filtrent pas (EventPredictView) ne
+  // voient jamais ce watcher se déclencher.
+  filterSignature: { type: String, default: '' },
 })
 
 const emit = defineEmits(['close', 'time-range-change'])
@@ -627,6 +636,18 @@ function emitRange() {
     endPct: rangePct.value[1],
   })
 }
+
+// Les données pré-filtrées par le parent ont changé de périmètre → la fenêtre
+// horaire courante ne désigne plus les mêmes heures. Reset explicite (et non
+// simple recalcul silencieux) : c'est déterministe et ça réémet, donc le store
+// reste aligné sur ce que montre le curseur. Cf. la prop `filterSignature`.
+watch(
+  () => props.filterSignature,
+  (sig, prev) => {
+    if (sig === prev) return
+    resetRange()
+  },
+)
 
 // Sync popover temp values when label changes externally
 watch(startTimeLabel, (l) => {
