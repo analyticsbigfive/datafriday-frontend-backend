@@ -344,19 +344,18 @@ implémenter B/C/D/E en premier, ou trancher §10.6 avant d'écrire A, plutôt q
 | **A** — bouton ◉ | `spaces/widgets/SpaceItem.vue` (`.si-img`, `v-if="space?.liveEvent"` → `/spaces/:id/live`) | ✅ écrit — **masqué** tant que le backend n'expose pas `liveEvent` (§7) |
 | **B** — entrée « Live » Tools | `analyse/filters/FilterPanel.vue` (`toolboxItems` + `onToolboxSelect` + `livePath`) + clé i18n `anToolLive` | ✅ livré (c'est bien `filters/FilterPanel.vue` qui est importé par `AnalyseView`, pas le doublon racine) |
 | **C** — route `space-live` | `router/index.js` après `space-restock` → rend `AnalyseView`, `meta:{ title:'Live', keepAlive:true, permission:'front.fb.live' }` | ✅ livré — **non** ajoutée à `SPACE_SCREENS` (§10.3) |
-| **D** — mode flux | `analyse/AnalyseView.vue` : `isLive` (route), badge ● LIVE, polling 15 s de la timeline, cleanup `onActivated/onDeactivated/onBeforeUnmount` | ✅ livré (voir limites ci-dessous) |
+| **D** — mode flux | `analyse/AnalyseView.vue` : `isLive` (route), badge ● LIVE, polling 15 s de la timeline **et** de `loadSpace`/`shop-details` (aligné, 2026-07-29), cleanup `onActivated/onDeactivated/onBeforeUnmount` | ✅ livré (voir limites ci-dessous) |
 | **E** — onglet Inventaire | — | 🔴 **v2, non commencé** (bloqué #22/#23) |
 
 **Limites v1 assumées (fidèles à §5)** — ce qui n'est PAS rafraîchi en live et pourquoi :
 
-- **`loadSpace` / `shop-details` (KPI par shop, POS Performance)** : NON pollé. Deux raisons — (1) le
-  re-dispatch remet `selectedConfigurationId` à `null` (bug connu, `store/modules/analyse.js:351`),
-  cassant les filtres ; (2) ces KPI restent **figés** tant que l'agrégation backend n'est pas
-  auto-déclenchée (§5, prérequis Ulrich). Les poller ne servirait à rien tout en cassant l'UX.
 - **`useAnalyseItemRecords` (records article)** : cache sans API de refresh exposée → non rafraîchi.
   Petit ajout ultérieur possible (exposer un `refresh()` / bust de cache sur le composable).
 - **Effectivement live au v1** : la **timeline / TX-min** (`event-timeline` via `loadTimelineForEvents`),
-  seule source déjà quasi temps réel (§5), rafraîchie quand la timeline est ouverte.
+  seule source déjà quasi temps réel (§5), rafraîchie quand la timeline est ouverte, **et** `loadSpace`/
+  `shop-details` (KPI par shop, POS Performance, `menuItemCostMap` pour la marge), désormais sur le
+  même intervalle 15s (voir révision 2026-07-29 : ancien throttle 45s corrigé, faisait dériver la
+  marge affichée jusqu'à 30s derrière le CA).
 
 **Reste à faire** : backend Ulrich (signal `liveEvent`, agrégation auto + fix BUG-19, agrégat
 inventaire), onglet Inventaire E (v2, #22/#23), + décisions lead §12 (ownership front, phasage).
@@ -365,6 +364,11 @@ inventaire), onglet Inventaire E (v2, #22/#23), + décisions lead §12 (ownershi
 
 ### Révisions
 
+- **2026-07-29** — Bug signalé « synchro des prix trop lente en Live » : le `menuItemCostMap` (utilisé
+  pour le calcul de marge) n'était rafraîchi que toutes les 45s (`liveShopDetailsPoll`) pendant que le
+  CA l'était toutes les 15s (`livePoll`) — la marge affichée pouvait donc dériver jusqu'à 30s derrière
+  le CA. Corrigé : `liveShopDetailsPoll()` (donc `loadSpace`) est maintenant appelé depuis `livePoll()`
+  sur le même intervalle unique de 15s ; le second timer (`liveShopDetailsTimer`) est supprimé.
 - **2026-07-20** — Création (conception initiale d'après maquettes). Points d'insertion front vérifiés
   contre le code réel (§8bis) ; §2/§8 corrigés (`FilterPanel.vue`, pas `navigation.js`).
 - **2026-07-23** — Front v1 « Live analytics » implémenté (greffes A/B/C/D, §13) : bouton ◉
