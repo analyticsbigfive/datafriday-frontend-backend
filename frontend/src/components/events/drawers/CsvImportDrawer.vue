@@ -142,7 +142,8 @@
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
             <v-select
-              v-model="currentValueStep.valueMap[val]"
+              :model-value="currentValueStep.valueMap[val]"
+              @update:model-value="onValueSelect(val, $event)"
               :items="currentValueStep.items"
               item-title="name"
               item-value="id"
@@ -154,7 +155,20 @@
               clearable
               :menu-props="{ class: 'elv-select-overlay' }"
               class="elv-mapping-select"
-            />
+            >
+              <template #item="{ item, props }">
+                <v-list-item
+                  v-bind="props"
+                  :style="item.raw.id === CREATE_SENTINEL
+                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
+                    : {}"
+                >
+                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
+                    <Plus :size="14" />
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -197,12 +211,13 @@
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
             <v-select
-              v-model="configValueMap[pair.key]"
-              :items="configsForSpaceRaw(pair.spaceRaw)"
+              :model-value="configValueMap[pair.key]"
+              @update:model-value="onConfigPairSelect(pair, $event)"
+              :items="configSelectItems(pair.spaceRaw)"
               item-title="name"
               item-value="id"
-              :placeholder="configsForSpaceRaw(pair.spaceRaw).length ? 'Ignorer' : 'Aucune config. pour cet espace'"
-              :disabled="configsForSpaceRaw(pair.spaceRaw).length === 0"
+              :placeholder="spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé'"
+              :disabled="!spaceValueMap[pair.spaceRaw]"
               variant="outlined"
               density="compact"
               rounded="lg"
@@ -210,7 +225,20 @@
               clearable
               :menu-props="{ class: 'elv-select-overlay' }"
               class="elv-mapping-select"
-            />
+            >
+              <template #item="{ item, props }">
+                <v-list-item
+                  v-bind="props"
+                  :style="item.raw.id === CREATE_SENTINEL
+                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
+                    : {}"
+                >
+                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
+                    <Plus :size="14" />
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -345,21 +373,130 @@
       </div>
     </template>
   </EventDrawerShell>
+
+  <!-- Dialog de création inline d'une valeur manquante (espace/type/catégorie/sous-catégorie/
+       configuration), ouvert en sélectionnant l'entrée "Ajouter..." d'un select de mapping. -->
+  <!-- class="elv-select-overlay" : sans ça ce dialog hérite du z-index naturel (~2000) de
+       Vuetify, INFÉRIEUR au 2200 forcé sur EventDrawerShell (BUG-148/BUG-241 documentés plus
+       bas dans ce fichier) — il s'ouvrirait invisible, masqué sous le drawer. Même correctif
+       que tous les `v-select` de ce composant. -->
+  <v-dialog v-model="createDialog.open" max-width="420" :persistent="createDialog.loading" class="elv-select-overlay">
+    <v-card rounded="lg">
+      <v-card-title class="d-flex align-center" style="gap: 8px;">
+        <Plus :size="18" />
+        {{ createDialogTitle }}
+      </v-card-title>
+      <v-card-text>
+        <v-alert v-if="createDialog.error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          {{ createDialog.error }}
+        </v-alert>
+
+        <div class="text-body-2 font-weight-medium mb-1">Nom</div>
+        <v-text-field
+          v-model="createDialog.name"
+          variant="outlined"
+          density="compact"
+          rounded="lg"
+          hide-details
+          autofocus
+          class="mb-4"
+          @keydown.enter="confirmCreateDialog"
+        />
+
+        <template v-if="createDialog.kind === 'eventCategory' || createDialog.kind === 'eventSubcategory'">
+          <div class="text-body-2 font-weight-medium mb-1">{{ createDialogParentLabel }}</div>
+          <v-alert v-if="createDialogParentOptions.length === 0" type="warning" variant="tonal" density="compact" rounded="lg">
+            {{ createDialogParentEmptyMessage }}
+          </v-alert>
+          <v-select
+            v-else
+            v-model="createDialog.parentId"
+            :items="createDialogParentOptions"
+            item-title="name"
+            item-value="id"
+            variant="outlined"
+            density="compact"
+            rounded="lg"
+            hide-details
+            :menu-props="{ class: 'elv-select-overlay' }"
+          />
+          <v-checkbox
+            v-if="createDialog.kind === 'eventCategory'"
+            v-model="createDialog.hasHomeTeam"
+            label="Équipe à domicile"
+            density="compact"
+            hide-details
+            class="mt-2"
+          />
+        </template>
+
+        <template v-else-if="createDialog.kind === 'configuration'">
+          <div class="text-body-2 font-weight-medium mb-1">Espace</div>
+          <div class="text-body-2 text-medium-emphasis">{{ createDialogConfigSpaceName }}</div>
+        </template>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="outlined" rounded="lg" size="small" class="text-none" :disabled="createDialog.loading" @click="createDialog.open = false">
+          Annuler
+        </v-btn>
+        <v-btn
+          color="#ff3131"
+          variant="flat"
+          rounded="lg"
+          size="small"
+          class="text-white text-none"
+          :loading="createDialog.loading"
+          :disabled="!canConfirmCreateDialog"
+          @click="confirmCreateDialog"
+        >
+          Créer
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- Espace : vrai wizard de création (spaceType + adresse), pas le dialog minimal ci-dessus —
+       voir le commentaire sur son import dans le <script>. -->
+  <SpaceCreateDrawer
+    v-model="spaceCreateDrawer.open"
+    :is-dark="isDark"
+    @created="onSpaceCreated"
+  />
 </template>
 
 <script>
-import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags } from 'lucide-vue-next';
-import { createEvent } from '@/api/endpoints/event.api';
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus } from 'lucide-vue-next';
+import { createEvent, createEventType, createEventCategory, createEventSubcategory } from '@/api/endpoints/event.api';
+import { createConfiguration } from '@/api/endpoints/builder-v2.api';
 import { parseCSV } from '@/utils/csv';
 import EventDrawerShell from './EventDrawerShell.vue';
+// Un Espace a ses propres champs obligatoires (spaceType, adresse complète — cf.
+// SpaceCreateDrawer.vue) totalement différents des 4 autres taxonomies (nom seul, ou nom +
+// parent) : contrairement aux autres, on réutilise donc son VRAI wizard de création plutôt
+// qu'un dialog minimal "nom" qui produirait un espace incomplet. Sûr à imbriquer ici : ce
+// drawer est un Teleport séparé à z-index 9999 (SpaceCreateDrawer.vue:490), pas basé sur
+// EventDrawerShell (donc pas de collision avec le z-index 2200 forcé de CE drawer, cf. plus
+// bas). EventType/EventCategory/EventSubcategory ont bien des dialogs dédiés
+// (EventTypeDialog.vue etc.) mais ceux-ci sont eux aussi basés sur EventDrawerShell — les
+// imbriquer ici donnerait DEUX drawers au même z-index 2200 !important, un empilement non
+// garanti (dépend de l'ordre du DOM, jamais vérifié) : on garde pour ces trois-là un dialog
+// minimal (`createDialog` ci-dessous), dont les champs ont été vérifiés un par un contre
+// EventTypeDialog.vue / EventCategoryDialog.vue / EventSubcategoryDialog.vue.
+import SpaceCreateDrawer from '@/components/spaces/drawers/SpaceCreateDrawer.vue';
 
 // Nombre de créations d'event lancées en parallèle pendant l'import CSV — même convention que
 // BULK_CREATE_BATCH_SIZE dans StepProcessTimeline.vue (import Weezevent en masse).
 const IMPORT_CONCURRENCY = 5;
 
+// Valeur sentinelle injectée dans les `items` des selects de mapping (étapes 3-7) pour offrir
+// une option "Ajouter..." — interceptée avant d'atteindre valueMap/configValueMap, jamais
+// persistée comme un vrai id (même pattern que ProductCategoryFormDrawer.vue '__add_type__').
+const CREATE_SENTINEL = '__create__';
+
 export default {
   name: 'CsvImportDrawer',
-  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, EventDrawerShell },
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, EventDrawerShell, SpaceCreateDrawer },
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -390,6 +527,8 @@ export default {
       taxonomyErrors: {},
       configsLoading: false,
       configsLoadError: '',
+      createDialog: this.defaultCreateDialog(),
+      spaceCreateDrawer: { open: false, targetVal: null },
       eventFields: [
         { key: 'spaceRaw',            label: 'Espace',                             aliases: ['space'] },
         { key: 'configurationRaw',    label: 'Configuration',                      aliases: ['configuration'] },
@@ -567,10 +706,11 @@ export default {
           return {
             title: 'la liste des espaces',
             mappingKey: 'spaceRaw',
+            createKind: 'space',
             description: "Associez chaque valeur de votre fichier à un espace existant dans le système.",
             values: this.uniqueSpaceValues,
             valueMap: this.spaceValueMap,
-            items: this.spaces,
+            items: [...this.spaces, { id: CREATE_SENTINEL, name: 'Ajouter un espace' }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.spaces,
             retry: this.loadTaxonomies,
@@ -583,10 +723,11 @@ export default {
           return {
             title: "les types d'événement",
             mappingKey: 'eventTypeRaw',
+            createKind: 'eventType',
             description: "Associez chaque valeur de votre fichier à un type d'événement existant.",
             values: this.uniqueTypeValues,
             valueMap: this.typeValueMap,
-            items: this.eventTypes,
+            items: [...this.eventTypes, { id: CREATE_SENTINEL, name: "Ajouter un type d'événement" }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.eventTypes,
             retry: this.loadTaxonomies,
@@ -596,10 +737,11 @@ export default {
           return {
             title: 'les catégories',
             mappingKey: 'eventCategoryRaw',
+            createKind: 'eventCategory',
             description: 'Associez chaque valeur de votre fichier à une catégorie existante.',
             values: this.uniqueCategoryValues,
             valueMap: this.categoryValueMap,
-            items: this.eventCategories,
+            items: [...this.eventCategories, { id: CREATE_SENTINEL, name: 'Ajouter une catégorie' }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.eventCategories,
             retry: this.loadTaxonomies,
@@ -609,10 +751,11 @@ export default {
           return {
             title: 'les sous-catégories',
             mappingKey: 'eventSubcategoryRaw',
+            createKind: 'eventSubcategory',
             description: 'Associez chaque valeur de votre fichier à une sous-catégorie existante.',
             values: this.uniqueSubcategoryValues,
             valueMap: this.subcategoryValueMap,
-            items: this.eventSubcategories,
+            items: [...this.eventSubcategories, { id: CREATE_SENTINEL, name: 'Ajouter une sous-catégorie' }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.eventSubcategories,
             retry: this.loadTaxonomies,
@@ -621,6 +764,50 @@ export default {
         default:
           return null;
       }
+    },
+
+    // Exposée au template : les `<v-select>` comparent `item.raw.id` à cette constante pour
+    // styler l'entrée "Ajouter..." (un module-level const n'est pas accessible depuis le
+    // template, seul `this.xxx` l'est).
+    CREATE_SENTINEL() {
+      return CREATE_SENTINEL;
+    },
+
+    createDialogTitle() {
+      const titles = {
+        eventType: "Ajouter un type d'événement",
+        eventCategory: 'Ajouter une catégorie',
+        eventSubcategory: 'Ajouter une sous-catégorie',
+        configuration: 'Ajouter une configuration',
+      };
+      return titles[this.createDialog.kind] || 'Ajouter';
+    },
+
+    createDialogParentLabel() {
+      return this.createDialog.kind === 'eventCategory' ? "Type d'événement" : 'Catégorie';
+    },
+
+    createDialogParentOptions() {
+      return this.createDialog.kind === 'eventCategory' ? this.eventTypes : this.eventCategories;
+    },
+
+    createDialogParentEmptyMessage() {
+      return this.createDialog.kind === 'eventCategory'
+        ? "Aucun type d'événement n'existe encore — créez-en un avant de pouvoir ajouter une catégorie."
+        : "Aucune catégorie n'existe encore — créez-en une avant de pouvoir ajouter une sous-catégorie.";
+    },
+
+    createDialogConfigSpaceName() {
+      const space = this.spaces.find((s) => s.id === this.createDialog.spaceIdForConfig);
+      return space?.name || '—';
+    },
+
+    canConfirmCreateDialog() {
+      if (this.createDialog.loading || !this.createDialog.name.trim()) return false;
+      if (this.createDialog.kind === 'eventCategory' || this.createDialog.kind === 'eventSubcategory') {
+        return this.createDialogParentOptions.length > 0 && !!this.createDialog.parentId;
+      }
+      return true;
     },
   },
 
@@ -717,6 +904,125 @@ export default {
       return configs;
     },
 
+    // Items du select de mapping "Configurations" pour un espace brut donné : les configs
+    // existantes de cet espace + la sentinelle "Ajouter..." — seulement si l'espace est déjà
+    // résolu (sinon on ne sait pas où créer la configuration).
+    configSelectItems(spaceRaw) {
+      const items = this.configsForSpaceRaw(spaceRaw);
+      if (!this.spaceValueMap[spaceRaw]) return items;
+      return [...items, { id: CREATE_SENTINEL, name: 'Ajouter une configuration' }];
+    },
+
+    onValueSelect(val, newValue) {
+      if (newValue === CREATE_SENTINEL) {
+        this.openCreateDialog(val);
+        return;
+      }
+      this.currentValueStep.valueMap[val] = newValue;
+    },
+
+    onConfigPairSelect(pair, newValue) {
+      if (newValue === CREATE_SENTINEL) {
+        this.openConfigCreateDialog(pair);
+        return;
+      }
+      this.configValueMap[pair.key] = newValue;
+    },
+
+    defaultCreateDialog() {
+      return {
+        open: false, kind: null, name: '', parentId: null, hasHomeTeam: false,
+        targetVal: null, targetPairKey: null, spaceIdForConfig: null,
+        loading: false, error: '',
+      };
+    },
+
+    openCreateDialog(val) {
+      const kind = this.currentValueStep.createKind;
+      // Espace : voir le commentaire sur l'import de SpaceCreateDrawer plus haut — champs
+      // requis totalement différents (spaceType, adresse), on ouvre le vrai wizard plutôt
+      // que ce dialog générique.
+      if (kind === 'space') {
+        this.spaceCreateDrawer = { open: true, targetVal: val };
+        return;
+      }
+      this.createDialog = {
+        ...this.defaultCreateDialog(),
+        open: true,
+        kind,
+        name: val,
+        targetVal: val,
+      };
+    },
+
+    onSpaceCreated(space) {
+      // SpaceCreateDrawer.vue n'effectue aucun dispatch Vuex lui-même (voir usage de référence
+      // dans SpaceListView.vue) — à la charge de l'appelant, comme partout ailleurs dans l'app.
+      const created = space?.data ?? space;
+      this.$store.dispatch('spaces/addSpace', created);
+      const id = created?.id || created?._id;
+      if (this.spaceCreateDrawer.targetVal != null && id) {
+        this.spaceValueMap[this.spaceCreateDrawer.targetVal] = id;
+      }
+      this.spaceCreateDrawer.open = false;
+    },
+
+    openConfigCreateDialog(pair) {
+      this.createDialog = {
+        ...this.defaultCreateDialog(),
+        open: true,
+        kind: 'configuration',
+        name: pair.configRaw,
+        targetPairKey: pair.key,
+        spaceIdForConfig: this.spaceValueMap[pair.spaceRaw],
+      };
+    },
+
+    async confirmCreateDialog() {
+      const d = this.createDialog;
+      const name = (d.name || '').trim();
+      if (!name) return;
+      if ((d.kind === 'eventCategory' || d.kind === 'eventSubcategory') && !d.parentId) return;
+
+      d.loading = true;
+      d.error = '';
+      try {
+        let created;
+        switch (d.kind) {
+          case 'eventType':
+            created = await createEventType({ name });
+            await this.$store.dispatch('eventTypes/addEventType', created);
+            this.typeValueMap[d.targetVal] = created?.id || created?._id;
+            break;
+          case 'eventCategory':
+            created = await createEventCategory({ name, eventTypeId: d.parentId, hasHomeTeam: d.hasHomeTeam });
+            await this.$store.dispatch('eventCategories/addEventCategory', created);
+            this.categoryValueMap[d.targetVal] = created?.id || created?._id;
+            break;
+          case 'eventSubcategory':
+            created = await createEventSubcategory({ name, eventCategoryId: d.parentId });
+            await this.$store.dispatch('eventSubcategories/addEventSubcategory', created);
+            this.subcategoryValueMap[d.targetVal] = created?.id || created?._id;
+            break;
+          case 'configuration': {
+            const spaceId = d.spaceIdForConfig;
+            created = await createConfiguration(spaceId, { name });
+            this._spaceConfigsCache = {
+              ...this._spaceConfigsCache,
+              [spaceId]: [...(this._spaceConfigsCache[spaceId] || []), created],
+            };
+            this.configValueMap[d.targetPairKey] = created?.id || created?._id;
+            break;
+          }
+        }
+        d.open = false;
+      } catch (e) {
+        d.error = e?.response?.data?.message || e?.message || 'Erreur lors de la création.';
+      } finally {
+        d.loading = false;
+      }
+    },
+
     async navigateForward() {
       const idx = this.reachableValueSteps.indexOf(this.step);
       if (idx < 0 || idx >= this.reachableValueSteps.length - 1) return;
@@ -757,6 +1063,8 @@ export default {
       this.configsLoading = false;
       this.configsLoadError = '';
       this.dropping = false;
+      this.createDialog = this.defaultCreateDialog();
+      this.spaceCreateDrawer = { open: false, targetVal: null };
     },
 
     onDrop(e) {
