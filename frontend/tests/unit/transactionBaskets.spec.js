@@ -108,6 +108,24 @@ describe('groupBasketsByCombo', () => {
     )
     expect(out.labels).toEqual(['A', 'B', 'C', 'Autres'])
     expect(out.values).toEqual([10, 8, 6, 5]) // 4 + 1
+    expect(out.othersCount).toBe(2)
+  })
+
+  it('expose combien de combinaisons « Autres » agrège, et sait les nommer', () => {
+    // Sur un référentiel riche, « Autres » peut devenir la PLUS GROSSE part du
+    // donut : sans ce compte, rien ne dit s'il cache 3 combinaisons ou 300.
+    const out = groupBasketsByCombo(
+      [rec(['A'], 10), rec(['B'], 8), rec(['C'], 6), rec(['D'], 4), rec(['E'], 1)],
+      byCategory,
+      { ...OPTS, othersLabel: (n) => `Autres (${n} combinaisons)` },
+    )
+    expect(out.labels.at(-1)).toBe('Autres (2 combinaisons)')
+    expect(out.othersCount).toBe(2)
+  })
+
+  it('n’expose aucune combinaison agrégée quand il n’y a pas de queue', () => {
+    const out = groupBasketsByCombo([rec(['A'], 4), rec(['B'], 3)], byCategory, OPTS)
+    expect(out.othersCount).toBe(0)
   })
 
   it('rend le bucket « Autres » NON drillable via une clé nulle', () => {
@@ -169,7 +187,7 @@ describe('groupBasketsByCombo', () => {
 
   it('retourne une structure vide sans record', () => {
     expect(groupBasketsByCombo([], byCategory, OPTS)).toEqual({
-      keys: [], labels: [], values: [], colors: [],
+      keys: [], labels: [], values: [], colors: [], othersCount: 0,
     })
     expect(groupBasketsByCombo(null, byCategory, OPTS).values).toEqual([])
   })

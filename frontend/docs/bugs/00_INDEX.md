@@ -184,7 +184,7 @@
 | [168](168_productcategorylist_force_refresh_cache_ttl_contourne.md) | `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
 | [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [170](170_delete_bloque_sans_moyen_de_trouver_les_dependants.md) | Suppression bloquée (BUG-79/81/82) sans moyen de retrouver les lignes dépendantes | 🟢 Corrigé | 🟠 | Menu & recettes / Achats & référentiels (Configurations) |
-| [171](171_configurations_pagination_recherche_server_side.md) | Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [171](171_configurations_pagination_recherche_server_side.md) | Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste — **rouvert le 2026-07-29** : le composant est resté `v-data-table`, les 10 écrans se sont retrouvés bloqués sur la page 1 (cf. BUG-246-01) | ⚪ Diagnostiqué | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [172](172_chaine_analyse_api_morte_supprimee.md) | Chaîne `/analyse/*` entièrement morte (action jamais dispatchée, buckets jamais lus) — supprimée | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [173](173_timeline_batch_inflight_empoisonne_sur_rejet.md) | `getSpaceEventTimelineBatch` : in-flight jamais nettoyé sur échec → erreurs permanentes | 🟢 Corrigé | 🟠 | Analyse & agrégation |
 | [174](174_loadspace_sans_cache_first.md) | `/analyse` : chaque re-mount re-payait la phase 1 (pas de cache-first 15 min) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
@@ -284,6 +284,21 @@ parallélisation de la bissection de collecte Weezevent, jusque-là strictement 
 | [243-01](243_01_analyse_dropdown_outils_pre_event_inventory_absent.md) | Analyse : dropdown « Outils » sans entrée **Pre-event Inventory** (écran inatteignable depuis la vue par défaut d'un espace) et Post-event libellé « Inventory » — la liste d'outils est dupliquée dans **5 fichiers** sans source commune, `spacePreInventoryPath`/`onToolboxSelect` étaient déjà câblés mais en code mort | 🟡 Corrigé non déployé | 🟠 | Stock / Navigation |
 | [244-01](244_01_timeline_analyse_filtres_non_appliques.md) | Timeline Analyse : **5 filtres sur 6** ne l'atteignaient pas (cliquer un article dans « Item performance » ne changeait rien), et 2 des 3 props effectivement passées étaient **inertes** — gardées par des maps `null` jamais fournies. `eventTimelineData` est un fetch indépendant qui ne traversait aucun prédicat | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
 | [245-01](245_01_donut_categories_par_transaction.md) | **Feature** — donut « répartition des catégories de produits par transaction » (+ drill-down au grain article). Nouvel endpoint `GET /spaces/:id/transaction-baskets` : seule lecture du code qui préserve l'identité du panier. Absorbe la demande « Rapport Type de transaction » (`transactionType` n'existe nulle part). Filtres en sémantique « contient » (#42 tranchée). **Non mergeable** tant que #41 (remboursements) est ouverte | 🟡 Implémenté non déployé | — | Analyse & agrégation |
+| [246-01](246_01_referentiels_pagination_bloquee_page_1.md) | Référentiels : **11 écrans bloqués sur la page 1** — `items-length` posé sur `v-data-table` alors que c'est une prop de `v-data-table-server`, donc ignorée : pagination client sur la seule page reçue (« 1-10 of 10 » vs « 41 Total Categories »), tout le référentiel au-delà de la 10ᵉ ligne inatteignable. Régression du correctif BUG-171 | 🟡 Corrigé non déployé | 🟠 | Menu & recettes / Achats & référentiels |
+
+**BUG-246-01 ajouté le 2026-07-29** (signalé par l'utilisateur : des catégories visibles dans le
+formulaire d'édition d'un article étaient absentes de l'écran Product Categories. Ce n'était pas un
+problème de liaison de données — l'écran était **bloqué sur sa première page**. `items-length` est
+une prop de `v-data-table-server` ; posée sur un `v-data-table` ordinaire elle est ignorée et la
+pagination retombe sur `items.length`, soit la page serveur courante, d'où « 1-10 of 10 » face à un
+compteur d'en-tête annonçant 41. Régression directe de **BUG-171**, marquée 🟢 à tort et repassée à
+⚪ : ce correctif avait supprimé le chargement client complet sans donner au paginateur de quoi
+connaître le total. 8 composants basculés sur `v-data-table-server`, couvrant 11 écrans ;
+`MenuItemView` traité par composant dynamique avec import Vuetify explicite, l'auto-import du
+tree-shaking ne sachant pas résoudre un `<component :is>`. Tri des colonnes désactivé en mode
+serveur : tous les endpoints ordonnent en dur par nom sans accepter de paramètre de tri, l'en-tête
+ne triait donc que les 10 lignes affichées — un tri qui mentait sur son périmètre. **Validation en
+navigateur requise** : ce défaut est invisible en test unitaire, c'est ce qui l'a laissé passer.)
 | [246-02](246_02_eventformdrawer_sessions_double_stringify.md) | `EventFormDrawer.vue` : chaque session ré-encodée en JSON avant l'envoi (double-stringify), sessions perdues hors du formulaire (export CSV) | 🟢 Corrigé | 🟠 | Événements |
 
 **BUG-245-01 ajouté le 2026-07-29** (feature, pas défaut : donut « catégories de produits par

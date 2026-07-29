@@ -51,12 +51,17 @@
       </v-alert>
 
       <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
-        <v-data-table
+        <!-- v-data-table-SERVER : `items-length` n'est une prop QUE de ce composant.
+             Sur un `v-data-table` ordinaire elle est ignorée et la pagination se fait
+             côté client sur `items.length` — soit la page serveur courante, d'où des
+             pages 2+ inatteignables (BUG-246-01). -->
+        <v-data-table-server
           :headers="tableHeaders"
           :items="serverRows"
           item-value="id"
           density="comfortable"
           :items-length="serverTotal"
+          :page="serverPage"
           :items-per-page="serverItemsPerPage"
           @update:options="onUpdateOptions"
           class="ptl-table"
@@ -91,7 +96,7 @@
               </v-btn>
             </div>
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card>
     </div>
 
@@ -197,11 +202,15 @@ export default {
         categoryList: Array.isArray(t?.categories) ? t.categories : [],
       }));
     },
+    // Tri désactivé sur toutes les colonnes : le backend ordonne TOUJOURS par
+    // `name: 'asc'` et n'accepte aucun paramètre de tri. En pagination serveur un
+    // en-tête cliquable ne trierait donc rien ; avant ce correctif il ne triait que
+    // les lignes de la page courante — un tri qui ment sur son périmètre.
     tableHeaders() {
       return [
-        { title: this.t('productTypeList.colName'), key: "name" },
+        { title: this.t('productTypeList.colName'), key: "name", sortable: false },
         { title: this.t('productTypeList.colCategories'), key: "categories", sortable: false, width: 300 },
-        { title: this.t('productTypeList.colCreated'), key: "createdAt" },
+        { title: this.t('productTypeList.colCreated'), key: "createdAt", sortable: false },
         { title: this.t('productTypeList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
