@@ -31,6 +31,7 @@ import spaceConfigurations from './modules/spaceConfigurations'
 import spaceShops from './modules/spaceShops'
 import shopMenuItems from './modules/shopMenuItems'
 import notifications from './modules/notifications'
+import hrSettings from './modules/hrSettings'
 
 export default createStore({
   state: {
@@ -74,5 +75,6 @@ export default createStore({
     spaceShops,
     shopMenuItems,
     notifications,
+    hrSettings,
   }
 })

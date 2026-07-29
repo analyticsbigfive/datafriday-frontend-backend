@@ -207,6 +207,7 @@ Vuex TTL. Ensuite seulement : formulaire de Rôle complet, employés, algo + ong
 | [#28](../QUESTIONS_A_BERTRAND.md) | Règles xlsx « buguées » : lesquelles, et formules validées ? | 🔴 |
 | [#29](../QUESTIONS_A_BERTRAND.md) | Persistance BDD des suppliers/positions (étape 2) | 🔴 |
 | [#30](../QUESTIONS_A_BERTRAND.md) | Devenir d'`ElementStaff` (builder) vs bibliothèque RH | 🔴 |
+| [#41](../QUESTIONS_A_BERTRAND.md) | Settings HR — règle de résolution « ensemble d'espaces → valeur affichée par carte » (ligne spécifique vs TOUS, dernière gagne ?) + sémantique du bouton Edit par carte | 🔴 |
 
 ## 8. Bugs actifs (fiches [`docs/bugs/`](../bugs/00_INDEX.md))
 
@@ -215,3 +216,78 @@ Vuex TTL. Ensuite seulement : formulaire de Rôle complet, employés, algo + ong
 | [201](../bugs/229_props_double_majuscule_liaison_kebab_morte.md) | Props à double majuscule : liaison kebab-case silencieusement morte (`onOpenHR`, `onOpenFBIntegration`) — corrigé en camelCase sur la branche | 🟡 |
 | [202](../bugs/230_consolidated_views_double_navigation_onclose.md) | `handleOpen*FromSettings` = handler + `onClose()` → double navigation ; contourné dans `HrView` (prop `onOpenEvents` omise) | ⚪ |
 | [203](../bugs/231_ecrans_rh_routes_restes_prototype.md) | Restes de prototype (🟠) : crashs corrigés puis écrans remplacés par `components/hr/` Vuetify (5ᵉ passe) — plus rien d'ouvert sur `/hr` | 🟡 |
+
+## 9. Settings HR — paramétrage Goals & Staff/Zone Manager (étape 2, en cours)
+
+> Ajout **Emmanuel, 2026-07-28**. Demande Bertrand (2 maquettes « Settings RH »). Domaine RH
+> (Jean-Luc) — implémenté par Emmanuel sur décision utilisateur. **Première brique concrète de
+> l'étape 2 backend** annoncée en §6.3 : contrairement aux Suppliers/Positions (localStorage),
+> cette feature persiste en **vraie BDD** (choix utilisateur 2026-07-28).
+
+### 9.1 Objectif (maquettes Bertrand)
+
+Sous le menu **« Edit HR »**, un sous-menu **« Settings HR »** ouvre une vue façon « My Spaces »
+(sans le bandeau KPI revenue), où chaque carte d'espace montre 4 métriques RH et une icône **Edit**.
+Deux variables se paramètrent, chacune **rattachée à un ensemble d'espaces** (une ligne par
+ensemble, « TOUS » = tous les espaces) :
+
+1. **Default Goal per TPE** — objectif de CA par TPE (champ **devise**, ex. 2000 €).
+2. **Number of staff per Zone Manager** — nombre de staff par Responsable de zone (**entier**, ex. 15).
+
+Les 2 autres métriques des cartes (**Staff Cost Total**, **Staff Cost Avg/Event**) sont des
+**valeurs calculées, différées** (décision 2026-07-28) — pas saisies ici, affichées plus tard.
+
+### 9.2 Backend (livré 2026-07-28, migration à appliquer)
+
+Modèle de données ([schema.prisma](../../../backend/prisma/schema.prisma), après `model Space`) —
+table de jointure explicite (jamais de `spaceIds` JSON, colonne gelée ADR-0003), `tenantId`
+scalaire requis → **auto-scopé par PrismaService** ; « TOUS » porté par `allSpaces=true`
+(jointure vide), pas par une sentinelle string :
+
+| Modèle | Champs clés |
+|---|---|
+| `HrGoal` | `goalPerTpe Float`, `allSpaces Boolean`, `spaces HrGoalSpace[]`, `tenantId`, timestamps |
+| `HrGoalSpace` | `@@id([goalId, spaceId])` (jointure Goal↔Space, `onDelete: Cascade`) |
+| `HrStaffRatio` | `staffPerZoneManager Int`, `allSpaces Boolean`, `spaces HrStaffRatioSpace[]`, `tenantId`, timestamps |
+| `HrStaffRatioSpace` | `@@id([ratioId, spaceId])` (jointure Ratio↔Space, `onDelete: Cascade`) |
+
+Module NestJS [`backend/src/features/hr-settings/`](../../../backend/src/features/hr-settings/)
+(cloné sur `features/brands/`) — `HrSettingsService` + 2 controllers, **tout gardé par
+`@RequirePermissions('menu.hr.manage')`** (permission déjà au catalogue, cf. §1) :
+
+| Route | Verbe(s) |
+|---|---|
+| `/hr-settings/goals` | GET (liste), POST, PATCH/:id, DELETE/:id |
+| `/hr-settings/staff-ratios` | GET (liste), POST, PATCH/:id, DELETE/:id |
+
+DTO validés `class-validator` (`goalPerTpe @IsNumber @Min(0)`, `staffPerZoneManager @IsInt @Min(0)`,
+`allSpaces?`, `spaceIds?`) ; validation service : si `allSpaces=false`, `spaceIds` requis non vide et
+tous dans le tenant. Réponse liste `{ data: [{ id, goalPerTpe|staffPerZoneManager, allSpaces,
+spaceIds[], createdAt, updatedAt }] }`. Enregistré dans
+[`app.module.ts`](../../../backend/src/app.module.ts).
+
+**Migration Prisma — à lancer manuellement** (ADR-0002, dossier `prisma/migrations` gitignoré) :
+`pnpm prisma:migrate` (dev, avec `DIRECT_URL` port 5432) puis `prisma migrate deploy` sur chaque env.
+Aucune commande lancée par l'agent. Après migration : `pnpm docs:api` régénère la doc API.
+
+### 9.3 Frontend (à faire — étape suivante)
+
+- **Menu** : +1 item dans le groupe `settings-hr` de [navigation.js](../../src/constants/navigation.js) :
+  `{ title:'navHrSettings', route:'/hr/settings', permission:'menu.hr.manage' }` + i18n `navHrSettings`.
+- **Route** `/hr/settings` (name `hr-settings`) → `HrSettingsView.vue` (pattern `HrView`, grille de
+  cartes sans bandeau revenue).
+- **Carte** `HrSpaceCard.vue` (dérivée de [SpaceItem.vue](../../src/components/spaces/widgets/SpaceItem.vue)) :
+  4 métriques RH + icône Edit → drawer d'édition par espace.
+- **2 boutons Add** (tooltip) → **2 drawers** (pattern [HrSupplierFormDrawer.vue](../../src/components/hr/HrSupplierFormDrawer.vue),
+  CSS `hrForms.css`) : « Ajouter un Goal » (devise + espaces + TOUS) / « Ajouter un Nombre de staff ».
+- **Couche données** : `api/endpoints/hrSettings.api.js` + store Vuex TTL (pattern standard) — pas de
+  localStorage (contrairement à l'étape 1 Suppliers/Positions).
+
+### 9.4 Règle de résolution espace → valeur (⚠️ hypothèse, à valider #35)
+
+Une carte affiche **une** valeur par espace, mais les lignes ciblent des **ensembles**. Règle par
+défaut retenue (documentée, **non tranchée par Bertrand**) : **une ligne spécifique (espace listé)
+prime sur une ligne `TOUS`** ; en cas de conflit entre deux lignes spécifiques, **la plus récente
+gagne**. Le bouton **Edit** par carte crée/mets à jour la **ligne mono-espace** de cet espace
+(POST si absente, PATCH sinon) plutôt que d'empiler des doublons. Sémantique à confirmer —
+question [#41](../QUESTIONS_A_BERTRAND.md).
