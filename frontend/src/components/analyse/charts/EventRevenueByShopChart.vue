@@ -139,7 +139,7 @@ import { ref, computed, onBeforeUnmount } from 'vue'
 import { Bar } from 'vue-chartjs'
 import { registerChartJs } from '@/lib/chartjs'
 import { SHOP_COLORS } from '@/constants/analyseColors'
-import { parseEventDate } from '@/utils/dateFr'
+import { parseEventDate, formatDateShort } from '@/utils/dateFr'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -610,7 +610,7 @@ const chartOptions = computed(() => ({
           // Nom de l'event prédit (fallback sur la date si le nom est absent),
           // puis le taux de confiance en badge. Le sentinel \u0001 sépare le nom
           // du badge pour un rendu en pastille dans le tooltip HTML.
-          const name = e.eventName || e.eventDate || ''
+          const name = e.eventName || formatDateShort(e.eventDate) || e.eventDate || ''
           let badge = ''
           if (e.isPredictive && e.isLowConfidence) {
             badge = t('anChartTooltipLowConf')
@@ -630,7 +630,10 @@ const chartOptions = computed(() => ({
             const n = e.eventCount || 0
             return `${t('anChartTooltipPeriod')} ${e.eventName} — ${n} ${t('anChartTooltipEventSuffix')}`
           }
-          return e.eventDate ? `${t('anChartTooltipDate')} ${e.eventDate}` : ''
+          // eventDate arrive parfois en ISO brut du backend (2025-09-13T00:00:00.000Z) :
+          // on formate en date française, avec repli sur la valeur brute si non parsable.
+          const dateLabel = formatDateShort(e.eventDate) || e.eventDate
+          return dateLabel ? `${t('anChartTooltipDate')} ${dateLabel}` : ''
         },
         label: (item) => {
           if (item.dataset?.type === 'line') {
