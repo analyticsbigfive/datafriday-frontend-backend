@@ -540,12 +540,13 @@ export default {
       // Pages plein écran avec leur propre header (pas de barre/drawer Dashboard).
       // space-restock inclus : il rend son propre WorkspaceAppHeader (sinon la
       // barre Dashboard s'empilait AU-DESSUS → header dupliqué).
-      // 'hr' inclus : ConsolidatedHRView rend son propre header (X, burger MainNav, avatar).
-      return ['space-analyse', 'space-live', 'space-predict', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'hr', 'hr-settings'].includes(name);
+      // 'hr' RETIRÉ : HrSuppliersView est une page Settings classique (comme
+      // /menu-fb/suppliers), sans header propre → elle garde la barre Dashboard.
+      return ['space-analyse', 'space-live', 'space-predict', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'hr-settings'].includes(name);
     },
     // Doit rester aligné avec le computed isRailPushRoute (partie route).
     isRailPushRouteName(name) {
-      return ['space-analyse', 'space-live', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'hr', 'hr-settings'].includes(name);
+      return ['space-analyse', 'space-live', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'hr-settings'].includes(name);
     },
 
     applyRouteSidebarMode(routeName) {
