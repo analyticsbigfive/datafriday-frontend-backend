@@ -597,11 +597,13 @@ export default {
       // barre Dashboard s'empilait AU-DESSUS → header dupliqué).
       // 'hr' RETIRÉ : HrSuppliersView est une page Settings classique (comme
       // /menu-fb/suppliers), sans header propre → elle garde la barre Dashboard.
-      return ['space-analyse', 'space-live', 'space-predict', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'hr-settings'].includes(name);
+      // 'hr-settings' RETIRÉ aussi (refonte charte HR) : HrSettingsView est rendue
+      // dans le chrome Dashboard (header hsl sticky dans le flux), comme Suppliers.
+      return ['space-analyse', 'space-live', 'space-predict', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock'].includes(name);
     },
     // Doit rester aligné avec le computed isRailPushRoute (partie route).
     isRailPushRouteName(name) {
-      return ['space-analyse', 'space-live', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'hr-settings'].includes(name);
+      return ['space-analyse', 'space-live', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock'].includes(name);
     },
 
     applyRouteSidebarMode(routeName) {
