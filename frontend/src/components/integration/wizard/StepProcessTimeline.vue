@@ -141,6 +141,18 @@
               <span class="spt-tab__count spt-tab__count--gray">{{ (unregisteredDates ? unregisteredDates.length : 0) + registeredEvents.length }}</span>
             </button>
           </div>
+          <button
+            v-if="unprocessedEvents.length > 0"
+            class="spt-banner-btn spt-banner-btn--purple"
+            :disabled="bulkAggregateLocked || !!processingEventId"
+            :title="t('intgTimelineAggregateAllTooltip')"
+            @click="handleAggregateAll"
+          >
+            <v-icon size="14">{{ bulkAggregateRunning ? 'mdi-loading mdi-spin' : 'mdi-database-sync' }}</v-icon>
+            {{ bulkAggregateRunning
+              ? `${t('intgTimelineAggregating')} ${bulkAggregateProgress?.percentage ?? 0}%`
+              : `${t('intgTimelineBtnAggregateAll')} (${unprocessedEvents.length})` }}
+          </button>
         </div>
 
         <!-- ── Tab: Non couvertes ── -->
@@ -296,10 +308,12 @@
                     <button
                       class="spt-act-btn"
                       :class="item.aggregationStatus === 'completed' ? 'spt-act-btn--gray' : 'spt-act-btn--purple'"
-                      :disabled="processingEventId === item.id || stalledEventIds.includes(item.id)"
+                      :disabled="processingEventId === item.id || stalledEventIds.includes(item.id) || bulkAggregateRunning"
                       :title="stalledEventIds.includes(item.id)
                         ? t('intgTimelineStillProcessingTooltip')
-                        : (item.aggregationStatus === 'completed' ? t('intgTimelineRerunAggTooltip') : t('intgTimelineRunAggTooltip'))"
+                        : bulkAggregateRunning
+                          ? t('intgTimelineAggregateAllTooltip')
+                          : (item.aggregationStatus === 'completed' ? t('intgTimelineRerunAggTooltip') : t('intgTimelineRunAggTooltip'))"
                       @click="handleProcessSingle(item.id)"
                     >
                       <v-progress-circular v-if="processingEventId === item.id" indeterminate size="11" width="2" color="currentColor" />
@@ -312,8 +326,8 @@
                     </button>
                     <button
                       class="spt-act-btn spt-act-btn--amber"
-                      :disabled="unmappingEventId === item.id"
-                      :title="t('intgTimelineUnmapTooltip')"
+                      :disabled="unmappingEventId === item.id || (bulkAggregateLocked && item.aggregationStatus !== 'completed')"
+                      :title="(bulkAggregateLocked && item.aggregationStatus !== 'completed') ? t('intgTimelineAggregateAllTooltip') : t('intgTimelineUnmapTooltip')"
                       @click="handleUnmapEvent(item)"
                     >
                       <v-progress-circular v-if="unmappingEventId === item.id" indeterminate size="11" width="2" color="currentColor" />
@@ -587,6 +601,9 @@ const SYNC_JOB_POLL_MAX_STALL_MS = 10 * 60 * 1000
 // Batch sizes for bulkCreateEvents
 const BULK_PATCH_BATCH_SIZE = 10
 const BULK_CREATE_BATCH_SIZE = 5
+// Poll budget for the bulk "Tout agréger" job: scales with event count since a single
+// backend job processes them sequentially (see AggregationService.executeProcessEvents).
+const BULK_AGGREGATE_POLL_ATTEMPTS_PER_EVENT = 15 // ~15s de marge par event, cadence SINGLE_EVENT_POLL_INTERVAL_MS
 
 export default {
   name: 'StepProcessTimeline',
@@ -610,7 +627,7 @@ export default {
       events, unregisteredDates, weezeventEvents,
       transactionStats, hasMappings,
       loading, processing, error,
-      loadTimeline, processSingleEvent,
+      loadTimeline, processSingleEvent, processMultipleEvents,
     } = useTimelineProcessing()
     const {
       loading: syncing, error: syncError, result: syncResult,
@@ -622,7 +639,7 @@ export default {
       events, unregisteredDates, weezeventEvents,
       transactionStats, hasMappings,
       loading, processing, error,
-      loadTimeline, processSingleEvent,
+      loadTimeline, processSingleEvent, processMultipleEvents,
       syncing, syncError, syncResult, syncComposablePhase, startSync, checkProgress, resetSync,
     }
   },
@@ -638,6 +655,11 @@ export default {
       syncPollAbandoned: false,
       // §2 — progress indicator
       currentEventProgress: null,
+      // "Tout agréger" — job unique côté back couvrant plusieurs eventIds (processEvents
+      // accepte déjà un tableau ; pas besoin de boucler côté front comme l'ancien
+      // processAllEvents supprimé en BUG-221).
+      bulkAggregateRunning: false,
+      bulkAggregateProgress: null,
       // §1.2 — skip
       skippedEventIds: [],
       // §6b — dialog mapping date → événement existant
@@ -705,6 +727,11 @@ export default {
       return this.registeredEvents.filter(
         e => e.aggregationStatus !== 'completed' && !this.skippedEventIds.includes(e.id)
       )
+    },
+    // Verrouille "Tout agréger" tant qu'un job (bulk ou par ligne) touchant un des events
+    // ciblés n'a pas confirmé un état terminal — évite de relancer un 2e job concurrent.
+    bulkAggregateLocked() {
+      return this.bulkAggregateRunning || this.unprocessedEvents.some(e => this.stalledEventIds.includes(e.id))
     },
     unmappedCount() {
       return (this.weezeventEvents || []).filter(e => !this.weezEventMappings[e.id]).length
@@ -976,6 +1003,88 @@ export default {
         // watcher `events`) rapporte un statut résolu.
         if (reachedTerminal) {
           this.processingEventId = null
+        }
+      }
+      await this.loadTimeline(this.spaceId, this.location.id)
+    },
+    // "Tout agréger" — même job backend que handleProcessSingle (processEvents accepte déjà
+    // un tableau d'eventIds et les traite en un seul job avec progression cumulée), juste
+    // appelé une fois avec tous les events "Couvertes" non agrégés au lieu d'un par ligne.
+    // Le sync des présences Weezevent est géré automatiquement côté back pour ce chemin
+    // (executeProcessEvents, section "Auto-sync attendees") — pas besoin de le refaire ici.
+    async handleAggregateAll() {
+      if (this.bulkAggregateLocked || this.processingEventId) return
+      const targetIds = this.unprocessedEvents.map(e => e.id)
+      if (!targetIds.length) return
+
+      this.bulkAggregateRunning = true
+      this.bulkAggregateProgress = { phase: this.t('intgTimelineInitializing'), percentage: 0, status: 'initializing' }
+      let reachedTerminal = false
+      try {
+        const result = await this.processMultipleEvents(this.spaceId, targetIds, this.location.id)
+        const jobId = result?.jobId
+
+        if (jobId) {
+          const TERMINAL = ['completed', 'failed', 'skipped']
+          const maxAttempts = targetIds.length * BULK_AGGREGATE_POLL_ATTEMPTS_PER_EVENT
+          for (let i = 0; i < maxAttempts; i++) {
+            try {
+              const progress = await getJobProgress(jobId)
+              if (progress) {
+                this.bulkAggregateProgress = progress
+                if (TERMINAL.includes(progress.status)) { reachedTerminal = true; break }
+              }
+            } catch {
+              // Erreur de polling non critique: continuer
+            }
+            if (i < maxAttempts - 1) {
+              await new Promise((resolve) => setTimeout(resolve, SINGLE_EVENT_POLL_INTERVAL_MS))
+            }
+          }
+        } else {
+          reachedTerminal = true
+        }
+
+        if (reachedTerminal) {
+          const terminalStatus = this.bulkAggregateProgress?.status
+          if (terminalStatus === 'failed') {
+            this.feedbackSnackbarText = this.t('intgTimelineAggFailed')
+            this.feedbackSnackbarColor = 'error'
+          } else {
+            this.feedbackSnackbarText = this.t('intgTimelineBulkAggDone')
+            this.feedbackSnackbarColor = 'success'
+          }
+        } else {
+          this.feedbackSnackbarText = this.t('intgTimelineAggSlow')
+          this.feedbackSnackbarColor = 'warning'
+        }
+        this.feedbackSnackbar = true
+      } catch (err) {
+        // Même distinction que handleProcessSingle : une erreur réseau/timeout ne prouve pas
+        // que le job backend s'est arrêté — on verrouille (voir finally) plutôt que de laisser
+        // repartir un 2e job sur les mêmes events. Une vraie erreur (validation, permission)
+        // libère immédiatement pour permettre un nouvel essai.
+        const isNetworkOrTimeout = !err.response || err.code === 'ERR_NETWORK' || err.code === 'ECONNABORTED'
+        if (isNetworkOrTimeout) {
+          this.feedbackSnackbarText = this.t('intgTimelineProcessingBackground')
+          this.feedbackSnackbarColor = 'info'
+        } else {
+          reachedTerminal = true
+          this.feedbackSnackbarText = `${this.t('intgTimelineAggErrorPrefix')} ${err.message}`
+          this.feedbackSnackbarColor = 'error'
+        }
+        this.feedbackSnackbar = true
+      } finally {
+        this.bulkAggregateRunning = false
+        this.bulkAggregateProgress = null
+        // Pas d'état terminal confirmé : le job backend tourne peut-être toujours sur ces
+        // events. On réutilise le verrou stalledEventIds (déjà nettoyé par le watcher `events`
+        // dès qu'un statut terminal remonte) pour bloquer les boutons "Agréger"/"Tout agréger"
+        // sur ces events plutôt que de risquer un 2e job concurrent sur les mêmes lignes.
+        if (!reachedTerminal) {
+          for (const id of targetIds) {
+            if (!this.stalledEventIds.includes(id)) this.stalledEventIds.push(id)
+          }
         }
       }
       await this.loadTimeline(this.spaceId, this.location.id)
@@ -1274,7 +1383,7 @@ export default {
               this.bulkCreateEventsErrors++
             }
           }
-          this.bulkCreateEventsProgress = Math.min(i + BATCH, toCreate.length)
+          this.bulkCreateEventsProgress = Math.min(i + BULK_CREATE_BATCH_SIZE, toCreate.length)
         }
 
         const patchSummary = patchedCount > 0 ? `${patchedCount} ${this.t('intgTimelineBulkEventsAttached')} ` : ''
@@ -1482,10 +1591,13 @@ export default {
 .spt-banner-btn--blue:hover { background: #1d4ed8; }
 .spt-banner-btn--amber { background: #b45309; color: #fff; }
 .spt-banner-btn--amber:hover { background: #92400e; }
+.spt-banner-btn--purple { background: #7c3aed; color: #fff; }
+.spt-banner-btn--purple:hover:not(:disabled) { background: #6d28d9; }
+.spt-banner-btn:disabled { opacity: .6; cursor: not-allowed; }
 
 /* ── Toolbar + pill tabs ── */
 .spt-toolbar {
-  display: flex; align-items: center;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 10px 14px; background: #fff; border-radius: 14px;
   border: 1.5px solid #e5e7eb;
 }

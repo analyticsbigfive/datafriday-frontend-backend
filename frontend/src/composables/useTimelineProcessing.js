@@ -136,6 +136,19 @@ export function useTimelineProcessing() {
     }
   }
 
+  async function processMultipleEvents(spaceId, eventIds, integrationId) {
+    processing.value = true
+    error.value = null
+    try {
+      return await processEvents(spaceId, eventIds, integrationId)
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      processing.value = false
+    }
+  }
+
   const hasMappings = ref(null)
 
   return {
@@ -150,5 +163,6 @@ export function useTimelineProcessing() {
     error,
     loadTimeline,
     processSingleEvent,
+    processMultipleEvents,
   }
 }
