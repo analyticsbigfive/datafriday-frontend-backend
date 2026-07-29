@@ -1131,21 +1131,18 @@ export class SpacesService {
   }
 
   /**
-   * Batched minute-level timeline for MULTIPLE events at once: minute × shop × menuItem.
-   * Resolves ownership/integration-scope/shopIds ONCE for the space (they don't vary per
-   * event) instead of once per event, then runs a single raw-SQL aggregate for all events
-   * via a VALUES CTE joined by date-range predicate — instead of one query per event.
-   * Returns a map keyed by the requested eventId (missing/not-found events map to []).
-   * Sales whose location has no shop mapping are KEPT (shopId falls back to the raw
-   * locationId, shopName to locationName) — same resilience as the shop-details RPC;
-   * the frontend buckets them as "unattached" (grey). Only when the space has no
-   * integration mapping (tenant-wide degraded scope) are unmapped rows excluded.
+   * Résout, POUR UN ESPACE, tout ce qui ne varie pas d'un event à l'autre : contrôle
+   * d'appartenance, fenêtres de dates par event, scope d'intégration et scope PdV.
+   * Partagé par `getEventTimelineBatch` et `getTransactionBasketsBatch` — les deux
+   * lisent les mêmes tables de ventes sur les mêmes bornes, et un scope qui divergerait
+   * entre les deux ferait afficher deux périmètres différents sur le même écran.
+   * Renvoie `null` quand il n'y a rien à interroger (aucun PdV, aucune fenêtre résolue).
    */
-  async getEventTimelineBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
-    const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
-    const out: Record<string, any[]> = Object.fromEntries(uniqueIds.map(id => [id, []]));
-    if (!uniqueIds.length) return out;
-
+  private async resolveEventSalesScope(
+    spaceId: string,
+    uniqueIds: string[],
+    tenantId: string,
+  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql } | null> {
     // All independent queries run in parallel: ownership check, event dates (tried
     // against both DataFriday Event and WeezeventEvent so the frontend can pass
     // either a DataFriday UUID or a WeezeventEvent CUID), integration scope, and
@@ -1167,7 +1164,7 @@ export class SpacesService {
       this.resolveShopIdsForSpace(spaceId, tenantId),
     ]);
 
-    if (shopIds.length === 0) return out;
+    if (shopIds.length === 0) return null;
 
     // Resolve date window per event: prefer DataFriday Event (accurate multi-day), fall
     // back to WeezeventEvent (when the frontend passes a Weezevent CUID). Same precedence
@@ -1193,7 +1190,7 @@ export class SpacesService {
       windowEnd.setDate(windowEnd.getDate() + 1);
       windows.push({ id, eventDate, windowEnd });
     }
-    if (!windows.length) return out;
+    if (!windows.length) return null;
 
     // Scope transactions to the integration that feeds this space (étape 1 du wizard).
     // WeezeventLocationSpaceMapping.weezeventLocationId stores the integrationId.
@@ -1219,6 +1216,29 @@ export class SpacesService {
       windows.map(w => Prisma.sql`(${w.id}::text, ${w.eventDate}::timestamp, ${w.windowEnd}::timestamp)`),
       ', ',
     );
+
+    return { integrationClause, shopScopeClause, valuesSql };
+  }
+
+  /**
+   * Batched minute-level timeline for MULTIPLE events at once: minute × shop × menuItem.
+   * Resolves ownership/integration-scope/shopIds ONCE for the space (they don't vary per
+   * event) instead of once per event, then runs a single raw-SQL aggregate for all events
+   * via a VALUES CTE joined by date-range predicate — instead of one query per event.
+   * Returns a map keyed by the requested eventId (missing/not-found events map to []).
+   * Sales whose location has no shop mapping are KEPT (shopId falls back to the raw
+   * locationId, shopName to locationName) — same resilience as the shop-details RPC;
+   * the frontend buckets them as "unattached" (grey). Only when the space has no
+   * integration mapping (tenant-wide degraded scope) are unmapped rows excluded.
+   */
+  async getEventTimelineBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
+    const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
+    const out: Record<string, any[]> = Object.fromEntries(uniqueIds.map(id => [id, []]));
+    if (!uniqueIds.length) return out;
+
+    const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
+    if (!scope) return out;
+    const { integrationClause, shopScopeClause, valuesSql } = scope;
 
     // BUG-108 : contrairement au pipeline d'agrégation périodique (executeProcessEvents,
     // exclu depuis BUG-028), cette lecture directe de WeezeventTransaction ne filtrait pas
@@ -1293,6 +1313,136 @@ export class SpacesService {
         menuItemCategory: r.menuItemCategory ?? null,
         quantity:         Number(r.quantity         || 0),
         transactionCount: Number(r.transactionCount || 0),
+        revenueHt:        Number(r.revenueHt        || 0),
+        revenue:          Number(r.revenueHt        || 0),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Répartition des COMBINAISONS de catégories/articles PAR TRANSACTION (panier).
+   *
+   * Alimente le donut « Répartition des catégories de produits par transaction » :
+   * chaque part = l'ensemble distinct des catégories présentes dans un même panier
+   * (« Bières » seule, « Bières, Boissons Soft », …), la valeur = le NOMBRE DE
+   * TRANSACTIONS. C'est la seule lecture du code qui préserve l'identité du panier :
+   * `getEventTimelineBatch` porte la même chaîne de jointure mais écrase `t.id` en
+   * `COUNT(DISTINCT t.id)`, et aucun pré-agrégat ne porte de dimension transaction
+   * (`SpaceRevenueMinuteAgg` n'a pas de produit, `SpaceProductRevenueDailyAgg` pas de
+   * transaction).
+   *
+   * Grain de sortie : (event × minute × PdV × combo catégories × combo articles) avec
+   * un `transactionCount`. PAS les combos déjà comptés globalement — le front doit
+   * pouvoir appliquer ses filtres PdV/horaire côté client sans refetch, comme le reste
+   * de la page. Les paniers étant très majoritairement des singletons, ce grain
+   * s'effondre fortement.
+   *
+   * Sémantique assumée, à connaître avant de lire les chiffres :
+   * - les REMBOURSEMENTS sont comptés (statut 'V' avec montants négatifs : ils sont
+   *   indiscernables d'une vente par le statut, et un panier de remboursement reste un
+   *   panier). Pas de filtre sur le signe — il changerait le dénominateur en silence ;
+   * - les lignes non résolues (produit non mappé, ou `MenuItem.categoryId` NULL) sortent
+   *   en `null` DANS le tableau, jamais écartées : le front les affiche en « Non
+   *   rattachés » plutôt que de sous-compter sans le dire ;
+   * - les FORMULES ne sont pas regroupées : leurs lignes filles comptent chacune pour
+   *   elles-mêmes (`compoundId` est de toute façon codé à null sur le chemin de synchro
+   *   incrémental, celui qui tourne en production) ;
+   * - les paniers VIDES (possibles sur ce même chemin incrémental) disparaissent d'eux-
+   *   mêmes via l'INNER JOIN sur les items : un panier sans ligne n'a pas de combinaison.
+   */
+  async getTransactionBasketsBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
+    const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
+    const out: Record<string, any[]> = Object.fromEntries(uniqueIds.map(id => [id, []]));
+    if (!uniqueIds.length) return out;
+
+    const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
+    if (!scope) return out;
+    const { integrationClause, shopScopeClause, valuesSql } = scope;
+
+    // CTE `tx` : UNE ligne par transaction, avec ses deux ensembles de libellés.
+    // `ARRAY_AGG(DISTINCT … ORDER BY …)` garantit que « Bières, Consigne » et
+    // « Consigne, Bières » tombent dans le même bucket. Les mêmes prédicats
+    // obligatoires que getEventTimelineBatch sont repris à l'identique
+    // (status='V', deletedAt IS NULL, scope tenant/intégration/PdV) — cf. BUG-028
+    // et BUG-108. Un panier à N lignes ne produit qu'UNE ligne ici : c'est ce qui
+    // évite le double comptage au dénominateur.
+    const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
+      WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql}),
+      tx AS (
+        SELECT
+          t.id                                                            AS "txId",
+          ev."eventId"                                                    AS "eventId",
+          TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')   AS minute,
+          COALESCE(mem."spaceElementId", t."locationId")                  AS "shopId",
+          COALESCE(se.name, t."locationName", t."locationId")             AS "shopName",
+          COALESCE(se.attributes::jsonb->>'originalType', se.type::text)  AS "shopType",
+          se.attributes::jsonb->>'area'                                   AS "shopArea",
+          ARRAY_AGG(DISTINCT pc.name ORDER BY pc.name)                    AS "categoryCombo",
+          ARRAY_AGG(DISTINCT COALESCE(mi.name, ti."productName")
+                    ORDER BY COALESCE(mi.name, ti."productName"))         AS "itemCombo",
+          SUM(ti.quantity)::integer                                       AS quantity,
+          SUM(
+            ti."unitPrice" * ti.quantity
+            / (1 + ti."vat" / 100)
+          )::numeric(12,2)                                                AS "revenueHt"
+        FROM ev
+        INNER JOIN "WeezeventTransaction" t
+          ON t."transactionDate" >= ev."eventDate"
+         AND t."transactionDate" <  ev."windowEnd"
+         AND t."tenantId" = ${tenantId}
+         ${integrationClause}
+         AND t.status = 'V'
+         AND t."deletedAt" IS NULL
+        INNER JOIN "WeezeventTransactionItem" ti
+          ON ti."transactionId" = t.id
+        LEFT JOIN "WeezeventLocationShopMapping" mem
+          ON mem."weezeventLocationId" = t."locationId"
+         AND mem."tenantId"         = ${tenantId}
+        LEFT JOIN "SpaceElement" se
+          ON se.id = mem."spaceElementId"
+        LEFT JOIN "WeezeventProductMapping" wpm
+          ON wpm."weezeventProductId" = ti."productId"
+         AND wpm."tenantId" = ${tenantId}
+        LEFT JOIN "MenuItem" mi
+          ON mi.id = wpm."menuItemId"
+        LEFT JOIN "ProductCategory" pc
+          ON pc.id = mi."categoryId"
+        WHERE ${shopScopeClause}
+        GROUP BY
+          t.id, ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
+          COALESCE(mem."spaceElementId", t."locationId"),
+          COALESCE(se.name, t."locationName", t."locationId"),
+          se.type, se.attributes
+      )
+      SELECT
+        "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
+        "categoryCombo", "itemCombo",
+        COUNT(*)::integer                AS "transactionCount",
+        SUM(quantity)::integer           AS quantity,
+        SUM("revenueHt")::numeric(12,2)  AS "revenueHt"
+      FROM tx
+      GROUP BY
+        "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
+        "categoryCombo", "itemCombo"
+      ORDER BY "eventId", minute ASC
+    `);
+
+    for (const r of rows) {
+      const bucket = out[r.eventId];
+      if (!bucket) continue;
+      bucket.push({
+        minute:   r.minute,
+        shopId:   r.shopId,
+        shopName: r.shopName,
+        shopType: r.shopType ?? null,
+        shopArea: r.shopArea ?? null,
+        // `null` conservé DANS le tableau (produit non mappé / catégorie absente) :
+        // le front le rend en « Non rattachés ». Ne pas compacter ici.
+        categoryCombo:    Array.isArray(r.categoryCombo) ? r.categoryCombo : [],
+        itemCombo:        Array.isArray(r.itemCombo)     ? r.itemCombo     : [],
+        transactionCount: Number(r.transactionCount || 0),
+        quantity:         Number(r.quantity         || 0),
         revenueHt:        Number(r.revenueHt        || 0),
         revenue:          Number(r.revenueHt        || 0),
       });

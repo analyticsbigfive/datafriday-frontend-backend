@@ -281,6 +281,34 @@ parallélisation de la bissection de collecte Weezevent, jusque-là strictement 
 | [241](241_getpreeventinventory_repli_legacy_hors_event.md) | `getPreEventInventory` : le repli legacy prend le dernier snapshot du space antérieur au jour du match, **sans filtre `eventId` ni `kind`** (contrairement à son commentaire) → stock de départ possiblement issu d'un autre match, non tracé ; contredit « un match = un eventId » (§12.4) | 🟡 Corrigé non déployé | 🟠 | Stock |
 | [242](242_reco_post_event_ventes_composees_non_explosees.md) | Réco post-event : ventes de produits préparés jamais explosées vers les ingrédients → sur toute ligne comptée au grain ingrédient, `Qty Sold` 0 et `Missing` = 100 % de la consommation réelle (ex-Q35, tranchée owner 2026-07-27 : Option 1 — la réco consomme `explodeSalesToConsumption` via `GET event-consumption`) | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
 | [243-01](243_01_analyse_dropdown_outils_pre_event_inventory_absent.md) | Analyse : dropdown « Outils » sans entrée **Pre-event Inventory** (écran inatteignable depuis la vue par défaut d'un espace) et Post-event libellé « Inventory » — la liste d'outils est dupliquée dans **5 fichiers** sans source commune, `spacePreInventoryPath`/`onToolboxSelect` étaient déjà câblés mais en code mort | 🟡 Corrigé non déployé | 🟠 | Stock / Navigation |
+| [244-01](244_01_timeline_analyse_filtres_non_appliques.md) | Timeline Analyse : **5 filtres sur 6** ne l'atteignaient pas (cliquer un article dans « Item performance » ne changeait rien), et 2 des 3 props effectivement passées étaient **inertes** — gardées par des maps `null` jamais fournies. `eventTimelineData` est un fetch indépendant qui ne traversait aucun prédicat | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
+| [245-01](245_01_donut_categories_par_transaction.md) | **Feature** — donut « répartition des catégories de produits par transaction » (+ drill-down au grain article). Nouvel endpoint `GET /spaces/:id/transaction-baskets` : seule lecture du code qui préserve l'identité du panier. Absorbe la demande « Rapport Type de transaction » (`transactionType` n'existe nulle part). **Non mergeable** tant que les questions #41/#42 sont ouvertes | 🟡 Implémenté non déployé | — | Analyse & agrégation |
+
+**BUG-245-01 ajouté le 2026-07-29** (feature, pas défaut : donut « catégories de produits par
+transaction » demandé avec capture de référence. Absorbe la demande séparée « Rapport Type de
+transaction » — vérification préalable : `transactionType` n'existe nulle part dans le code, et un
+« type de transaction » désigne en réalité une combinaison de catégories. Nouvel endpoint backend
+obligatoire : `getEventTimelineBatch` porte déjà toute la chaîne de jointure mais écrase `t.id` en
+`COUNT(DISTINCT)`, et aucun pré-agrégat ne porte de dimension transaction. Réponse pré-groupée par
+(event × minute × PdV × combo) pour rester filtrable côté client — renvoyer des comptes finaux
+aurait recréé le défaut de BUG-244-01 le jour même. Aucune migration : les index existants couvrent
+les prédicats. Un seul montage couvre Analyse, Live et Predict. 7 tests backend + 19 front.
+**Non mergeable** : deux hypothèses métier sont implémentées par défaut et doivent être tranchées
+— traitement des remboursements au dénominateur (#41) et sens d'un filtre catégorie, « contient »
+vs « uniquement » (#42).)
+
+**BUG-244-01 ajouté le 2026-07-29** (signalé par l'utilisateur : cliquer une ligne d'« Item
+performance » ne changeait pas la timeline. Diagnostic plus large — `eventTimelineData` vient d'un
+fetch indépendant qui ne traverse ni le getter store ni le prédicat item-level, et le `passesFilters`
+interne du graphique n'était alimenté que sur 3 dimensions dont 2 court-circuitées par des gardes sur
+des maps jamais passées. Corrigé en pré-filtrant dans le parent avec le MÊME `reconcileRecord` +
+`buildItemFilterPredicate` que les donuts — plutôt qu'en complétant les props, ce qui aurait recréé
+le bug dans un second dialecte : les donuts émettent des clés **réconciliées**, jusqu'à la sentinelle
+« Non rattachés ». Au passage : `buildItemFilterPredicate` extraite vers `analyseDimensions.js`, et
+les 2 constructions du contexte de réconciliation fusionnées en un composable unique. 12 tests
+ajoutés. Trois défauts pré-existants que ce correctif rend visibles — produits non mappés sans nom,
+fusionnés entre eux, et écartés de la ventilation par article — sont documentés dans la fiche et
+**non corrigés**, chacun changeant l'agrégation pour tout tenant à couverture de mapping imparfaite.)
 
 **BUG-243-01 ajouté le 2026-07-29** (signalé par capture — le dropdown « Outils »
 d'Analyse n'affichait qu'une entrée « Inventory » là où Inventory/Logistic/Restock/Event Predict en

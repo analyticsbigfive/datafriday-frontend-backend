@@ -522,6 +522,68 @@ export class SpacesController {
   }
 
   /**
+   * Combinaisons de catégories/articles PAR TRANSACTION (panier), pour N événements.
+   */
+  @Get(':id/transaction-baskets')
+  @ApiOperation({
+    summary: 'Combinaisons de catégories/articles par transaction (batch)',
+    description:
+      'Répartition des paniers par ENSEMBLE de catégories (et d\'articles) achetés ensemble — ' +
+      'alimente le donut « Répartition des catégories de produits par transaction ». ' +
+      'Seule lecture qui préserve l\'identité du panier : GET :id/event-timeline porte la même ' +
+      'jointure mais écrase t.id en COUNT(DISTINCT). ' +
+      'Pré-groupé par (event × minute × PdV × combo) pour rester filtrable côté client sans refetch. ' +
+      'Les remboursements sont comptés (statut V, montants négatifs) ; les lignes non résolues ' +
+      '(produit non mappé ou MenuItem sans catégorie) apparaissent en null DANS le tableau, ' +
+      'jamais écartées. Retourne { [eventId]: records[] }.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Combinaisons par transaction, groupées par eventId',
+    schema: {
+      type: 'object',
+      additionalProperties: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            minute:           { type: 'string', example: '19:42', description: 'Minute HH:MM (heure locale UTC)' },
+            shopId:           { type: 'string', description: 'ID du SpaceElement (shop), ou locationId brut si non mappé' },
+            shopName:         { type: 'string', description: 'Nom du shop' },
+            shopType:         { type: 'string', nullable: true },
+            shopArea:         { type: 'string', nullable: true },
+            categoryCombo:    {
+              type: 'array',
+              items: { type: 'string', nullable: true },
+              description: 'Noms ProductCategory DISTINCTS et TRIÉS du panier ; null = non résolu',
+              example: ['Bières', 'Boissons Soft'],
+            },
+            itemCombo:        {
+              type: 'array',
+              items: { type: 'string', nullable: true },
+              description: 'Noms MenuItem distincts et triés (repli sur productName si non mappé)',
+              example: ['50cl Heineken', 'Frites'],
+            },
+            transactionCount: { type: 'number', description: 'Nombre de PANIERS portant exactement cette combinaison' },
+            quantity:         { type: 'number' },
+            revenueHt:        { type: 'number' },
+          },
+        },
+      },
+    },
+  })
+  async getTransactionBasketsBatch(
+    @Param('id') id: string,
+    @Query('eventIds') eventIds: string,
+    @CurrentUser() user: any,
+  ) {
+    const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return this.spacesService.getTransactionBasketsBatch(id, ids, user.tenantId);
+  }
+
+  /**
    * Get minute-level timeline for one event: minute × shop × menuItem
    */
   @Get(':id/event-timeline/:eventId')
