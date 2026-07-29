@@ -130,6 +130,7 @@
 | [116-02](116_02_createeventdto_type_number_manquant_champs_numeriques.md) | `CreateEventDto` : `@Type(() => Number)` manquant sur les champs numériques | 🟡 Corrigé non testé | 🟢 | Événements |
 | [117-02](117_02_patchpredictversiondto_duplique_au_lieu_de_partialtype.md) | `PatchPredictVersionDto` dupliqué à la main au lieu de `PartialType(CreatePredictVersionDto)` | 🟡 Corrigé non testé | 🟡 | Événements / Prévision |
 | [118-02](118_02_createeventsubcategorydto_eventcategoryid_typage_incoherent.md) | `CreateEventSubcategoryDto.eventCategoryId` typé requis en TS mais optionnel en validation | 🟡 Corrigé non testé | 🟢 | Événements |
+| [119-02](119_02_createeventdto_sessions_array_objets_reduit_a_vide_class_transformer.md) | `CreateEventDto.sessions`/`CreatePredictVersionDto.predictedRecords` : tableau d'objets réduit à `[[]]` par class-transformer (design:type `Array` sans `@Type()`) | 🟡 Corrigé non testé | 🔴 | Événements / Prévision |
 
 **112 bugs au total**, 112 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (18 shops, gros volume) échouant systématiquement avec "délai maximal

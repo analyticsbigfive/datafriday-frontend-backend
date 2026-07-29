@@ -241,9 +241,28 @@
 
       <!-- ── Step 8 : Résultats ── -->
       <div v-if="step === 8">
-        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12">
-          <v-progress-circular indeterminate color="#ff3131" size="48" class="mb-4" />
+        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12" style="gap: 4px;">
+          <v-progress-circular
+            :model-value="importTotal ? (importedCount / importTotal) * 100 : 0"
+            :indeterminate="!importTotal"
+            color="#ff3131"
+            size="48"
+            width="4"
+            class="mb-4"
+          />
           <div class="text-body-2 text-medium-emphasis">Importation en cours...</div>
+          <div v-if="importTotal" class="text-caption text-medium-emphasis">
+            {{ importedCount }} / {{ importTotal }} événements traités
+          </div>
+          <v-progress-linear
+            v-if="importTotal"
+            :model-value="(importedCount / importTotal) * 100"
+            color="#ff3131"
+            rounded
+            height="6"
+            style="max-width: 280px; width: 100%;"
+            class="mt-3"
+          />
         </div>
         <template v-else-if="importResults">
           <v-alert v-if="importResults.success > 0" type="success" variant="tonal" rounded="lg" class="mb-4">
@@ -334,6 +353,10 @@ import { createEvent } from '@/api/endpoints/event.api';
 import { parseCSV } from '@/utils/csv';
 import EventDrawerShell from './EventDrawerShell.vue';
 
+// Nombre de créations d'event lancées en parallèle pendant l'import CSV — même convention que
+// BULK_CREATE_BATCH_SIZE dans StepProcessTimeline.vue (import Weezevent en masse).
+const IMPORT_CONCURRENCY = 5;
+
 export default {
   name: 'CsvImportDrawer',
   components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, EventDrawerShell },
@@ -359,6 +382,8 @@ export default {
       subcategoryValueMap: {},
       importLoading: false,
       importResults: null,
+      importedCount: 0,
+      importTotal: 0,
       fileError: '',
       _spaceConfigsCache: {},
       taxonomyLoading: false,
@@ -830,10 +855,100 @@ export default {
       return (fallbackDoors || fallbackShow) ? [{ doorsOpening: fallbackDoors || '', showTime: fallbackShow || '' }] : undefined;
     },
 
+    // Un import de plusieurs centaines de lignes dépasse facilement le palier "medium" du
+    // rate-limiter backend (TenantThrottlerGuard : 300 requêtes / 60s par tenant) — sans retry
+    // dédié, TOUTES les lignes restantes de la fenêtre échouaient définitivement en 429
+    // ("Trop de requêtes, réessayez plus tard"), même si le fichier avait des centaines de
+    // lignes valides après la 300e. L'intercepteur Axios global (client.js) ne retente QUE si
+    // `Retry-After` ≤ 5s — insuffisant ici puisque la fenêtre "medium" peut demander d'attendre
+    // jusqu'à 60s. Un import CSV peut se permettre d'attendre, contrairement à un appel API
+    // interactif classique : retry local dédié, jusqu'à 5 tentatives par ligne.
+    async createEventWithRateLimitRetry(payload, maxAttempts = 5) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await createEvent(payload);
+        } catch (e) {
+          const isLastAttempt = attempt === maxAttempts;
+          if (e?.response?.status !== 429 || isLastAttempt) throw e;
+          const retryAfterSec = Number(e.response.headers?.['retry-after']) || 5;
+          // Plafonné à 90s (couvre la fenêtre "medium" de 60s + marge) : au-delà, on est
+          // probablement sur le palier "long" (jusqu'à 1h) — inutile de bloquer l'import
+          // aussi longtemps, mieux vaut remonter l'échec pour cette ligne.
+          const waitMs = Math.min(retryAfterSec, 90) * 1000 + 500;
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+      }
+    },
+
+    // Construit le payload `createEvent` d'une ligne CSV + son verdict de dédup, sans faire
+    // d'appel réseau — extrait de l'ancienne boucle séquentielle pour être réutilisable à la
+    // fois par le pré-filtrage (dédup) et par l'exécution parallèle (doImport).
+    buildImportRow(row, rowNumber) {
+      const get = (key) => this.getCellValue(row, key);
+
+      const name = get('name');
+      if (!name) return { error: 'Nom manquant', rowNumber };
+
+      const eventDate = get('eventDate') ? this.parseDate(get('eventDate')) : undefined;
+      const dedupKey = `${name.trim().toLowerCase()}|${String(eventDate || '').slice(0, 10)}`;
+
+      const spaceRaw         = get('spaceRaw');
+      const configurationRaw = get('configurationRaw');
+      const typeRaw          = get('eventTypeRaw');
+      const categoryRaw      = get('eventCategoryRaw');
+      const subcategoryRaw   = get('eventSubcategoryRaw');
+      const doorsOpen        = get('doorsOpen') ? this.parseTime(get('doorsOpen')) : undefined;
+      const showTime         = get('showTime') ? this.parseTime(get('showTime')) : undefined;
+      const eventEndDate     = get('eventEndDate') ? this.parseDate(get('eventEndDate')) : undefined;
+      const eventEndTime     = get('eventEndTime') ? this.parseTime(get('eventEndTime')) : undefined;
+
+      const payload = {
+        name,
+        eventDate,
+        eventEndDate,
+        eventEndTime,
+        homeTeamName:       get('homeTeamName') || undefined,
+        visitingTeamName:   get('visitingTeam') || undefined,
+        performerName:      get('performerName') || undefined,
+        sponsor:            get('sponsor') || undefined,
+        openingActName:     get('openingActName') || undefined,
+        sessions:           this.parseSessions(get('allSessions'), doorsOpen, showTime),
+        numberOfSessions:   get('numberOfSessions') ? parseInt(get('numberOfSessions')) : undefined,
+        hasOpeningAct:      get('hasOpeningAct') ? this.parseBool(get('hasOpeningAct')) : undefined,
+        hasIntermission:    get('hasIntermission') ? this.parseBool(get('hasIntermission')) : undefined,
+        ticketsSold:        get('ticketsSold') ? parseInt(get('ticketsSold')) : undefined,
+        ticketsScanned:     get('ticketsScanned') ? parseInt(get('ticketsScanned')) : undefined,
+        spaceId:            (spaceRaw && this.spaceValueMap[spaceRaw]) || undefined,
+        configurationId:    (spaceRaw && configurationRaw && this.configValueMap[this._configPairKey(spaceRaw, configurationRaw)]) || undefined,
+        eventTypeId:        (typeRaw && this.typeValueMap[typeRaw]) || undefined,
+        eventCategoryId:    (categoryRaw && this.categoryValueMap[categoryRaw]) || undefined,
+        eventSubcategoryId: (subcategoryRaw && this.subcategoryValueMap[subcategoryRaw]) || undefined,
+      };
+
+      // Nettoyer les undefined
+      Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+
+      // Une valeur brute présente dans le fichier mais restée sans map (ex. dropdown vide
+      // au moment du mapping, cf. bug espaces vides) part sans son champ sans qu'aucune
+      // erreur ne soit levée côté API (spaceId/etc. simplement absents du payload) — on le
+      // compte pour l'afficher sur l'écran de résultats plutôt que de le laisser silencieux.
+      const hasMissingAssociation = [
+        [spaceRaw, payload.spaceId],
+        [configurationRaw, payload.configurationId],
+        [typeRaw, payload.eventTypeId],
+        [categoryRaw, payload.eventCategoryId],
+        [subcategoryRaw, payload.eventSubcategoryId],
+      ].some(([raw, resolved]) => !!raw && !resolved);
+
+      return { rowNumber, name, dedupKey, payload, hasMissingAssociation };
+    },
+
     async doImport() {
       this.step = 8;
       this.importLoading = true;
       this.importResults = null;
+      this.importedCount = 0;
+      this.importTotal = this.csvRows.length;
       let successCount = 0;
       let skippedCount = 0;
       let missingAssociationsCount = 0;
@@ -845,87 +960,60 @@ export default {
         (this.events || []).map((e) => `${String(e?.name || '').trim().toLowerCase()}|${String(e?.eventDate || '').slice(0, 10)}`),
       );
 
-      for (let i = 0; i < this.csvRows.length; i++) {
-        const row = this.csvRows[i];
-        const get = (key) => this.getCellValue(row, key);
+      // Lignes créées en parallèle par lots de IMPORT_CONCURRENCY (au lieu d'un `await` par
+      // ligne) : ~500 events en séquentiel prenait plusieurs minutes (un aller-retour réseau à la
+      // fois). `existingKeys` reste la seule source de vérité pour la dédup et est mise à jour
+      // de façon SYNCHRONE avant de lancer les requêtes du lot — ce qui bloque aussi les doublons
+      // internes au même lot (deux lignes du CSV avec le même nom+date), pas seulement ceux déjà
+      // en base.
+      for (let i = 0; i < this.csvRows.length; i += IMPORT_CONCURRENCY) {
+        const chunk = this.csvRows.slice(i, i + IMPORT_CONCURRENCY);
+        const toCreate = [];
 
-        const name = get('name');
-        if (!name) {
-          errors.push({ row: i + 2, message: 'Nom manquant' });
-          continue;
+        for (let offset = 0; offset < chunk.length; offset++) {
+          const rowNumber = i + offset + 2;
+          const built = this.buildImportRow(chunk[offset], rowNumber);
+
+          if (built.error) {
+            errors.push({ row: rowNumber, message: built.error });
+            this.importedCount++;
+            continue;
+          }
+          if (existingKeys.has(built.dedupKey)) {
+            skippedCount++;
+            errors.push({ row: rowNumber, message: `Ignoré : un événement "${built.name}" existe déjà à cette date` });
+            this.importedCount++;
+            continue;
+          }
+          existingKeys.add(built.dedupKey); // réservé immédiatement, avant l'appel réseau
+          toCreate.push(built);
         }
 
-        const eventDate = get('eventDate') ? this.parseDate(get('eventDate')) : undefined;
-        const dedupKey = `${name.trim().toLowerCase()}|${String(eventDate || '').slice(0, 10)}`;
-        if (existingKeys.has(dedupKey)) {
-          skippedCount++;
-          errors.push({ row: i + 2, message: `Ignoré : un événement "${name}" existe déjà à cette date` });
-          continue;
-        }
+        const results = await Promise.all(toCreate.map(async (built) => {
+          try {
+            const response = await this.createEventWithRateLimitRetry(built.payload);
+            return { ok: true, built, created: response?.data ?? response };
+          } catch (e) {
+            return { ok: false, built, message: e?.response?.data?.message || e?.message || 'Erreur inconnue' };
+          } finally {
+            this.importedCount++;
+          }
+        }));
 
-        const spaceRaw         = get('spaceRaw');
-        const configurationRaw = get('configurationRaw');
-        const typeRaw          = get('eventTypeRaw');
-        const categoryRaw      = get('eventCategoryRaw');
-        const subcategoryRaw   = get('eventSubcategoryRaw');
-        const doorsOpen        = get('doorsOpen') ? this.parseTime(get('doorsOpen')) : undefined;
-        const showTime         = get('showTime') ? this.parseTime(get('showTime')) : undefined;
-        const eventEndDate     = get('eventEndDate') ? this.parseDate(get('eventEndDate')) : undefined;
-        const eventEndTime     = get('eventEndTime') ? this.parseTime(get('eventEndTime')) : undefined;
-
-        const payload = {
-          name,
-          eventDate,
-          eventEndDate,
-          eventEndTime,
-          homeTeamName:       get('homeTeamName') || undefined,
-          visitingTeamName:   get('visitingTeam') || undefined,
-          performerName:      get('performerName') || undefined,
-          sponsor:            get('sponsor') || undefined,
-          openingActName:     get('openingActName') || undefined,
-          sessions:           this.parseSessions(get('allSessions'), doorsOpen, showTime),
-          numberOfSessions:   get('numberOfSessions') ? parseInt(get('numberOfSessions')) : undefined,
-          hasOpeningAct:      get('hasOpeningAct') ? this.parseBool(get('hasOpeningAct')) : undefined,
-          hasIntermission:    get('hasIntermission') ? this.parseBool(get('hasIntermission')) : undefined,
-          ticketsSold:        get('ticketsSold') ? parseInt(get('ticketsSold')) : undefined,
-          ticketsScanned:     get('ticketsScanned') ? parseInt(get('ticketsScanned')) : undefined,
-          spaceId:            (spaceRaw && this.spaceValueMap[spaceRaw]) || undefined,
-          configurationId:    (spaceRaw && configurationRaw && this.configValueMap[this._configPairKey(spaceRaw, configurationRaw)]) || undefined,
-          eventTypeId:        (typeRaw && this.typeValueMap[typeRaw]) || undefined,
-          eventCategoryId:    (categoryRaw && this.categoryValueMap[categoryRaw]) || undefined,
-          eventSubcategoryId: (subcategoryRaw && this.subcategoryValueMap[subcategoryRaw]) || undefined,
-        };
-
-        // Nettoyer les undefined
-        Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
-
-        // Une valeur brute présente dans le fichier mais restée sans map (ex. dropdown vide
-        // au moment du mapping, cf. bug espaces vides) part sans son champ sans qu'aucune
-        // erreur ne soit levée côté API (spaceId/etc. simplement absents du payload) — on le
-        // compte pour l'afficher sur l'écran de résultats plutôt que de le laisser silencieux.
-        const hasMissingAssociation = [
-          [spaceRaw, payload.spaceId],
-          [configurationRaw, payload.configurationId],
-          [typeRaw, payload.eventTypeId],
-          [categoryRaw, payload.eventCategoryId],
-          [subcategoryRaw, payload.eventSubcategoryId],
-        ].some(([raw, resolved]) => !!raw && !resolved);
-
-        try {
-          const response = await createEvent(payload);
-          const created = response?.data ?? response;
-          this.$store.dispatch('events/addEvent', created);
-          existingKeys.add(dedupKey);
-          successCount++;
-          if (hasMissingAssociation) missingAssociationsCount++;
-        } catch (e) {
-          errors.push({
-            row: i + 2,
-            message: e?.response?.data?.message || e?.message || 'Erreur inconnue',
-          });
+        for (const result of results) {
+          if (result.ok) {
+            this.$store.dispatch('events/addEvent', result.created);
+            successCount++;
+            if (result.built.hasMissingAssociation) missingAssociationsCount++;
+          } else {
+            errors.push({ row: result.built.rowNumber, message: result.message });
+          }
         }
       }
 
+      // Le traitement par lots produit les erreurs dans un ordre groupé par lot (pré-filtrage
+      // puis créations), pas strictement par numéro de ligne croissant — retrié pour l'affichage.
+      errors.sort((a, b) => a.row - b.row);
       this.importResults = { success: successCount, skipped: skippedCount, missingAssociations: missingAssociationsCount, errors };
       this.importLoading = false;
       if (successCount > 0) this.$emit('imported');

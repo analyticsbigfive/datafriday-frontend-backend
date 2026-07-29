@@ -261,6 +261,13 @@
 | [243-02](243_02_createeventdialog_champs_performer_sponsor_openingact_absents.md) | `CreateEventDialog.vue` (wizard) : champs performer/sponsor/opening act absents | 🟡 Corrigé non testé | 🟡 | Intégrations & ventes / Événements |
 | [244-02](244_02_nettoyage_code_mort_domaine_events.md) | Nettoyage de code mort confirmé du domaine Événements (fichiers, exports API, clés i18n) | 🟡 Corrigé non testé | 🟢 | Événements / Analyse & agrégation |
 | [245-02](245_02_eventstypelistview_opendetailsdialog_nommage_incoherent.md) | `EventsTypeListView.vue` : `openDetailsDialog()` nommé différemment des 2 autres vues taxonomie | 🟡 Corrigé non testé | 🟢 | Événements |
+| [246-02](246_02_csvimportdrawer_import_sequentiel_lent_sans_progression.md) | `CsvImportDrawer.vue` : import CSV strictement séquentiel (lent) et sans indicateur de progression | 🟡 Corrigé non testé | 🟠 | Événements |
+| [247-02](247_02_eventcategorydialog_prop_isdark_extraneous_ignoree.md) | `EventCategoryDialog.vue` : prop `is-dark` passée par 2 vues mais ignorée (jamais déclarée) | 🟡 Corrigé non testé | 🟢 | Événements |
+| [248-02](248_02_eventssubcategorielistview_eventtypes_non_reactif_erreur_avalee.md) | `EventsSubcategorieListView.vue` : `eventTypes` non réactif (copie figée) + échec de fetch avalé silencieusement | 🟡 Corrigé non testé | 🟠 | Événements |
+| [249-02](249_02_taxonomie_v_select_menu_invisible_zindex_drawer.md) | `v-select` invisible (menu piégé sous le drawer) sur 4 selects taxonomie, jamais protégés par le fix z-index déjà établi | 🟡 Corrigé non testé | 🔴 | Événements |
+| [250-02](250_02_eventformdrawer_sessions_double_stringify_heures_perdues.md) | `EventFormDrawer.vue submit()` : `sessions` double-stringifié → heures illisibles après un premier save | 🟡 Corrigé non testé | 🔴 | Événements |
+| [251-02](251_02_eventformdrawer_teams_autoselectfirst_race_initialisation.md) | `EventFormDrawer.vue` : sélection Home/Visiting Team possiblement réinitialisée par `auto-select-first` pendant le chargement asynchrone des équipes | ⚪ Diagnostiqué | 🟠 | Événements |
+| [252-02](252_02_csvimportdrawer_rate_limit_429_import_masse_echec_definitif.md) | Import CSV en masse : dépasse le palier "medium" du rate-limiter tenant (300 req/60s), toutes les lignes restantes échouent définitivement en 429 | 🟡 Corrigé non testé | 🔴 | Événements |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur

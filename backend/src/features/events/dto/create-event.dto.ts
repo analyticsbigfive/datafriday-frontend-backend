@@ -13,7 +13,13 @@ export class CreateEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString() eventSubcategoryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() location?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() spaceName?: string;
-  @ApiPropertyOptional() @IsOptional() @IsArray() sessions?: any[];
+  // @Type(() => Object) requis : sans lui, class-transformer (enableImplicitConversion,
+  // main.ts) lit le design:type TS d'un `any[]` comme `Array` et tente de convertir CHAQUE
+  // élément vers ce même type via Array.from(...) — un objet {doorsOpening, showTime} n'a ni
+  // length ni itérateur, Array.from() le réduit donc silencieusement à [] (confirmé : sans ce
+  // décorateur, un payload sessions:[{doorsOpening,showTime}] ressort en [[]] après le pipe de
+  // validation, alors qu'un tableau de strings/nombres traverse le pipe sans dégât).
+  @ApiPropertyOptional() @IsOptional() @IsArray() @Type(() => Object) sessions?: any[];
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) numberOfSessions?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasOpeningAct?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasIntermission?: boolean;

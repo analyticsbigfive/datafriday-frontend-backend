@@ -68,9 +68,13 @@ export class CreatePredictVersionDto {
   @IsObject()
   manualQuantities?: Record<string, number>;
 
+  // @Type(() => Object) requis — même piège que CreateEventDto.sessions : sans lui,
+  // enableImplicitConversion lit le design:type `Array` et réduit chaque élément-objet à []
+  // via Array.from(). Cf. commentaire détaillé dans create-event.dto.ts.
   @ApiPropertyOptional({ description: 'Quantités prédites par item (shop × menuItem) pour le réarmement', type: 'array' })
   @IsOptional()
   @IsArray()
+  @Type(() => Object)
   predictedRecords?: Array<Record<string, unknown>>;
 
   @ApiPropertyOptional({ description: 'IDs des événements de prédiction sélectionnés', type: [String] })
