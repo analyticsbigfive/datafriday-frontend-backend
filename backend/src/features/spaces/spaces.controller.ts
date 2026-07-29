@@ -560,6 +560,12 @@ export class SpacesController {
               description: 'Noms ProductCategory DISTINCTS et TRIÉS du panier ; null = non résolu',
               example: ['Bières', 'Boissons Soft'],
             },
+            typeCombo:        {
+              type: 'array',
+              items: { type: 'string', nullable: true },
+              description: 'Noms ProductType distincts et triés (parent des catégories) ; null = non résolu',
+              example: ['Beverage'],
+            },
             itemCombo:        {
               type: 'array',
               items: { type: 'string', nullable: true },

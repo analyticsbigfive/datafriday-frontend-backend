@@ -282,7 +282,7 @@ parallélisation de la bissection de collecte Weezevent, jusque-là strictement 
 | [242](242_reco_post_event_ventes_composees_non_explosees.md) | Réco post-event : ventes de produits préparés jamais explosées vers les ingrédients → sur toute ligne comptée au grain ingrédient, `Qty Sold` 0 et `Missing` = 100 % de la consommation réelle (ex-Q35, tranchée owner 2026-07-27 : Option 1 — la réco consomme `explodeSalesToConsumption` via `GET event-consumption`) | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
 | [243-01](243_01_analyse_dropdown_outils_pre_event_inventory_absent.md) | Analyse : dropdown « Outils » sans entrée **Pre-event Inventory** (écran inatteignable depuis la vue par défaut d'un espace) et Post-event libellé « Inventory » — la liste d'outils est dupliquée dans **5 fichiers** sans source commune, `spacePreInventoryPath`/`onToolboxSelect` étaient déjà câblés mais en code mort | 🟡 Corrigé non déployé | 🟠 | Stock / Navigation |
 | [244-01](244_01_timeline_analyse_filtres_non_appliques.md) | Timeline Analyse : **5 filtres sur 6** ne l'atteignaient pas (cliquer un article dans « Item performance » ne changeait rien), et 2 des 3 props effectivement passées étaient **inertes** — gardées par des maps `null` jamais fournies. `eventTimelineData` est un fetch indépendant qui ne traversait aucun prédicat | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
-| [245-01](245_01_donut_categories_par_transaction.md) | **Feature** — donut « répartition des catégories de produits par transaction » (+ drill-down au grain article). Nouvel endpoint `GET /spaces/:id/transaction-baskets` : seule lecture du code qui préserve l'identité du panier. Absorbe la demande « Rapport Type de transaction » (`transactionType` n'existe nulle part). **Non mergeable** tant que les questions #41/#42 sont ouvertes | 🟡 Implémenté non déployé | — | Analyse & agrégation |
+| [245-01](245_01_donut_categories_par_transaction.md) | **Feature** — donut « répartition des catégories de produits par transaction » (+ drill-down au grain article). Nouvel endpoint `GET /spaces/:id/transaction-baskets` : seule lecture du code qui préserve l'identité du panier. Absorbe la demande « Rapport Type de transaction » (`transactionType` n'existe nulle part). Filtres en sémantique « contient » (#42 tranchée). **Non mergeable** tant que #41 (remboursements) est ouverte | 🟡 Implémenté non déployé | — | Analyse & agrégation |
 
 **BUG-245-01 ajouté le 2026-07-29** (feature, pas défaut : donut « catégories de produits par
 transaction » demandé avec capture de référence. Absorbe la demande séparée « Rapport Type de
@@ -293,9 +293,10 @@ obligatoire : `getEventTimelineBatch` porte déjà toute la chaîne de jointure 
 (event × minute × PdV × combo) pour rester filtrable côté client — renvoyer des comptes finaux
 aurait recréé le défaut de BUG-244-01 le jour même. Aucune migration : les index existants couvrent
 les prédicats. Un seul montage couvre Analyse, Live et Predict. 7 tests backend + 19 front.
-**Non mergeable** : deux hypothèses métier sont implémentées par défaut et doivent être tranchées
-— traitement des remboursements au dénominateur (#41) et sens d'un filtre catégorie, « contient »
-vs « uniquement » (#42).)
+Sur les deux hypothèses métier ouvertes, #42 a été **tranchée le jour même par l'owner** : filtrer
+« Bières » garde les tickets qui en contiennent, paniers **mixtes inclus** — d'où l'ajout de
+`typeCombo` à l'endpoint et un prédicat `buildBasketFilterPredicate` dédié, 10 tests. Reste
+**bloquante pour le merge** : #41, le traitement des remboursements au dénominateur.)
 
 **BUG-244-01 ajouté le 2026-07-29** (signalé par l'utilisateur : cliquer une ligne d'« Item
 performance » ne changeait pas la timeline. Diagnostic plus large — `eventTimelineData` vient d'un

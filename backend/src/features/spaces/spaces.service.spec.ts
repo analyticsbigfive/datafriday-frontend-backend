@@ -944,6 +944,17 @@ describe('SpacesService', () => {
       expect(sql).toContain('COALESCE(mi.name, ti."productName")');
     });
 
+    // Le donut « type d'article » de la page filtre le graphique en sémantique
+    // « contient » (question #42) : sans typeCombo, cliquer une part de ce donut
+    // viderait le camembert au lieu de le restreindre.
+    it('remonte aussi la combinaison de TYPES d’article', async () => {
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      expect(sql).toContain('ARRAY_AGG(DISTINCT pt.name ORDER BY pt.name)');
+      expect(sql).toContain('LEFT JOIN "ProductType"');
+    });
+
     it('n’écarte JAMAIS les lignes non résolues (pas de filtre sur la catégorie)', async () => {
       await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
@@ -964,6 +975,7 @@ describe('SpacesService', () => {
           shopType: 'beverages',
           shopArea: 'Niveau 0',
           categoryCombo: ['Bières', 'Boissons Soft'],
+          typeCombo: ['Beverage'],
           itemCombo: ['50cl Heineken', 'Coca Cola'],
           transactionCount: 1,
           quantity: 2,
@@ -976,6 +988,7 @@ describe('SpacesService', () => {
       expect(res['ev-1']).toHaveLength(1);
       expect(res['ev-1'][0]).toMatchObject({
         categoryCombo: ['Bières', 'Boissons Soft'],
+        typeCombo: ['Beverage'],
         itemCombo: ['50cl Heineken', 'Coca Cola'],
         transactionCount: 1,
         quantity: 2,

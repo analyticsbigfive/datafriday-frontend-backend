@@ -73,19 +73,18 @@
  * cliquer une part à gauche le restreint aux paniers de cette combinaison —
  * c'est le drill-down « produits vendus dans cette combinaison ».
  *
- * DEUX ÉCARTS ASSUMÉS aux conventions de la page :
+ * Filtrage : tous les filtres de la page s'appliquent, en amont dans AnalyseView
+ * (`buildBasketFilterPredicate`). Les dimensions article sont évaluées en
+ * « CONTIENT » — filtrer « Bières » garde les tickets qui contiennent de la
+ * bière, paniers MIXTES compris (tranché par l'owner le 2026-07-29, question #42
+ * du tracker). Le sous-titre affiche le dénominateur retenu, qui bouge donc avec
+ * les filtres : un pourcentage doit toujours dire sur quoi il porte.
  *
- * 1. `selectedComboKey` reste LOCAL, il ne passe pas par `toggleArrayFilter`.
- *    Une combinaison de catégories n'est pas une dimension de page : ni les KPI,
- *    ni les barres par event, ni les tables article ne savent l'appliquer. La
- *    router dans le store propagerait un filtre que rien d'autre n'honore.
- *
- * 2. Les filtres ARTICLE de la page (article / type / catégorie) ne sont PAS
- *    appliqués aux paniers — seuls les filtres PdV/horaire le sont, en amont
- *    dans AnalyseView. Filtrer un panier par l'une de ses lignes est ambigu
- *    (« contient » vs « uniquement ») et changerait le dénominateur en silence,
- *    donc tous les pourcentages. Question ouverte côté produit ; d'ici là le
- *    sous-titre affiche explicitement le dénominateur retenu.
+ * UN ÉCART ASSUMÉ à la convention de la page : `selectedComboKey` reste LOCAL et
+ * ne passe pas par `toggleArrayFilter`. Une combinaison de catégories n'est pas
+ * une dimension de page — ni les KPI, ni les barres par event, ni les tables
+ * article ne savent l'appliquer ; la router dans le store propagerait un filtre
+ * que rien d'autre n'honore.
  */
 import { ref, computed } from 'vue'
 import DonutChartCard from './DonutChartCard.vue'

@@ -2,6 +2,7 @@ import {
   comboKey,
   comboLabel,
   groupBasketsByCombo,
+  buildBasketFilterPredicate,
   COMBO_KEY_SEP,
   OTHERS_COMBO_KEY,
 } from '@/utils/transactionBaskets'
@@ -10,6 +11,7 @@ import {
   buildReconciliationContext,
   reconcileRecord,
   UNATTACHED_SHOP_KEY,
+  UNATTACHED_ITEM_KEY,
 } from '@/utils/analyseReconciliation'
 
 // Donut « Répartition des catégories de produits par transaction ».
@@ -244,16 +246,92 @@ describe('réconciliation des paniers avant filtrage (AnalyseView.filteredBasket
     expect([reconcileRecord(basket({ minute: '21:30' }), ctx)].filter(keep)).toHaveLength(1)
   })
 
-  it('neutralise les filtres ARTICLE en vidant leurs tableaux (décision produit #42)', () => {
-    const pageFilters = { selectedMenuItemCategories: ['Bières'], selectedShopIds: ['Bar Nord'] }
-    const keep = buildItemFilterPredicate({
-      ...pageFilters,
-      selectedMenuItemIds: [],
-      selectedMenuItemTypes: [],
-      selectedMenuItemCategories: [],
-    })
-    // Le panier passe malgré le filtre catégorie actif sur la page : les paniers
-    // n'ont pas de dimension article résolue, les appliquer les supprimerait tous.
-    expect([reconcileRecord(basket(), ctx)].filter(keep)).toHaveLength(1)
+})
+
+// Sémantique « CONTIENT », tranchée par l'owner (JLH) le 2026-07-29 — question #42 :
+// filtrer « Bières » garde les tickets qui contiennent de la bière, paniers MIXTES
+// compris, et non les seuls tickets 100 % bière. C'est la décision qui fixe le
+// dénominateur, donc tous les pourcentages affichés.
+describe('buildBasketFilterPredicate — sémantique « contient »', () => {
+  const beerOnly = {
+    shopName: 'Bar Nord', minute: '20:30',
+    categoryCombo: ['Bières'], typeCombo: ['Beverage'], itemCombo: ['50cl Heineken'],
+    transactionCount: 44,
+  }
+  const beerAndSoft = {
+    shopName: 'Bar Nord', minute: '20:31',
+    categoryCombo: ['Bières', 'Boissons Soft'], typeCombo: ['Beverage'],
+    itemCombo: ['50cl Heineken', 'Coca Cola'], transactionCount: 6,
+  }
+  const softOnly = {
+    shopName: 'Bar Nord', minute: '20:32',
+    categoryCombo: ['Boissons Soft'], typeCombo: ['Beverage'],
+    itemCombo: ['Coca Cola'], transactionCount: 9,
+  }
+  const foodOnly = {
+    shopName: 'Food Court', minute: '20:33',
+    categoryCombo: ['Sides'], typeCombo: ['Food'], itemCombo: ['Frites'],
+    transactionCount: 12,
+  }
+  const all = [beerOnly, beerAndSoft, softOnly, foodOnly]
+  const keep = (f) => all.filter(buildBasketFilterPredicate(f))
+
+  it('ne filtre rien sans sélection', () => {
+    expect(keep({})).toHaveLength(4)
+  })
+
+  it('GARDE les paniers mixtes — c’est la décision #42', () => {
+    const out = keep({ selectedMenuItemCategories: ['Bières'] })
+    expect(out).toContain(beerOnly)
+    expect(out).toContain(beerAndSoft) // « contient », pas « uniquement »
+    expect(out).toHaveLength(2)
+  })
+
+  it('n’est PAS « uniquement » : le mixte ne doit pas être exclu', () => {
+    // Le test qui échouerait si on avait implémenté l'autre lecture.
+    expect(keep({ selectedMenuItemCategories: ['Bières'] })).not.toEqual([beerOnly])
+  })
+
+  it('écarte les paniers qui ne contiennent pas la catégorie', () => {
+    const out = keep({ selectedMenuItemCategories: ['Bières'] })
+    expect(out).not.toContain(softOnly)
+    expect(out).not.toContain(foodOnly)
+  })
+
+  it('multi-sélection = OU, comme partout ailleurs dans la page', () => {
+    const out = keep({ selectedMenuItemCategories: ['Bières', 'Sides'] })
+    expect(out).toHaveLength(3) // beerOnly + beerAndSoft + foodOnly
+    expect(out).not.toContain(softOnly)
+  })
+
+  it('filtre par TYPE d’article sur typeCombo', () => {
+    expect(keep({ selectedMenuItemTypes: ['Food'] })).toEqual([foodOnly])
+    expect(keep({ selectedMenuItemTypes: ['Beverage'] })).toHaveLength(3)
+  })
+
+  it('filtre par NOM d’article, casse ignorée', () => {
+    const out = keep({ selectedMenuItemIds: ['coca cola'] })
+    expect(out).toContain(beerAndSoft)
+    expect(out).toContain(softOnly)
+    expect(out).toHaveLength(2)
+  })
+
+  it('combine les dimensions article et PdV en ET', () => {
+    expect(keep({ selectedMenuItemCategories: ['Bières'], selectedShopIds: ['Food Court'] })).toHaveLength(0)
+    expect(keep({ selectedMenuItemCategories: ['Sides'], selectedShopIds: ['Food Court'] })).toEqual([foodOnly])
+  })
+
+  it('fait matcher la part grise « Non rattachés » sur une entrée null', () => {
+    // Le donut émet UNATTACHED_ITEM_KEY ; le backend renvoie null. Sans cette
+    // équivalence, cliquer la part grise ne retrouverait aucun panier.
+    const orphan = { shopName: 'Bar Nord', minute: '20:34', categoryCombo: ['Bières', null], typeCombo: [], itemCombo: ['?'], transactionCount: 3 }
+    const out = [beerOnly, orphan].filter(
+      buildBasketFilterPredicate({ selectedMenuItemCategories: [UNATTACHED_ITEM_KEY] }),
+    )
+    expect(out).toEqual([orphan])
+  })
+
+  it('applique aussi le curseur horaire', () => {
+    expect(keep({ selectedTimeRange: { start: '20:32', end: '20:35' } })).toEqual([softOnly, foodOnly])
   })
 })

@@ -497,6 +497,7 @@ import {
 import { UNATTACHED_ITEM_KEY, reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
+import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -677,23 +678,14 @@ const reconciledBaskets = computed(() => {
   return recs.map((r) => reconcileRecord(r, reconciliationCtx.value))
 })
 
-// Filtres PdV et HORAIRE uniquement. Les trois filtres ARTICLE sont neutralisés
-// délibérément : restreindre un panier à partir d'une seule de ses lignes est
-// ambigu (« contient » vs « uniquement ») et changerait le dénominateur en
-// silence — donc tous les pourcentages. Question #42 du tracker.
-// On neutralise en vidant les tableaux plutôt qu'en réécrivant un prédicat : une
-// 4ᵉ implémentation de filtrage serait exactement le défaut corrigé par BUG-244-01.
-// PAS de `skipMinute` : contrairement aux records de scénario, un panier porte un
-// `minute` — le curseur horaire doit s'appliquer.
+// TOUS les filtres de la page s'appliquent. Les dimensions PdV/horaire passent par
+// le prédicat partagé ; les dimensions article sont évaluées en « CONTIENT » sur les
+// combinaisons du panier — filtrer « Bières » garde les tickets qui contiennent de
+// la bière, paniers MIXTES compris (tranché par l'owner le 2026-07-29, question #42).
+// Le sous-titre du graphique affiche le dénominateur retenu, qui bouge donc avec les
+// filtres : c'est voulu, un pourcentage doit toujours dire sur quoi il porte.
 const filteredBaskets = computed(() =>
-  reconciledBaskets.value.filter(
-    buildItemFilterPredicate({
-      ...(filters.value || {}),
-      selectedMenuItemIds: [],
-      selectedMenuItemTypes: [],
-      selectedMenuItemCategories: [],
-    }),
-  ),
+  reconciledBaskets.value.filter(buildBasketFilterPredicate(filters.value || {})),
 )
 
 // Signature des filtres qui BOUGENT les données de la timeline. Sert au

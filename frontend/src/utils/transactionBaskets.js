@@ -1,11 +1,14 @@
 /**
- * Regroupement des paniers par COMBINAISON (catégories ou articles).
+ * Regroupement et filtrage des paniers par COMBINAISON (catégories ou articles).
  *
  * Extrait de `TransactionCategoryMixChart.vue` pour être testable seul : c'est le
  * calcul dont dépendent tous les pourcentages affichés, et il a trois pièges —
  * l'égalité de combinaison, le bucket « Autres » non drillable, et les lignes non
  * résolues qui doivent rester comptées.
  */
+import { buildItemFilterPredicate } from '@/utils/analyseDimensions'
+import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
+import { normalizeStr } from '@/utils/predictiveAnalytics'
 
 /**
  * Séparateur de clé : U+001F (unit separator), un caractère de contrôle qui
@@ -78,5 +81,68 @@ export function groupBasketsByCombo(records, comboOf, { topN, unmatchedLabel, ot
     labels,
     values,
     colors: values.map((_, i) => palette[i % palette.length]),
+  }
+}
+
+/**
+ * Un panier satisfait-il une sélection de la page ?
+ *
+ * Sémantique **« CONTIENT »**, tranchée par l'owner (JLH) le 2026-07-29 :
+ * filtrer sur « Bières » garde les tickets qui contiennent de la bière, y
+ * compris les paniers MIXTES (« Bières, Boissons Soft »), et non les seuls
+ * tickets 100 % bière. Cf. question #42 du tracker.
+ *
+ * Multi-sélection = OU, comme partout ailleurs dans la page (un record passe
+ * `itemCats.includes(resolveItemCategory(r))` dès que SA catégorie figure dans
+ * la liste). Généralisé au panier : il passe dès qu'UNE de ses entrées figure
+ * dans la sélection.
+ *
+ * Les entrées non résolues (`null` renvoyé par le backend) sont comparées à la
+ * sentinelle `UNATTACHED_ITEM_KEY` — c'est elle que le donut « Non rattachés »
+ * émet, et sans cette équivalence cliquer la part grise ne matcherait rien.
+ */
+function comboMatchesAny(combo, selected, { normalize = false } = {}) {
+  if (!selected.length) return true
+  const wanted = new Set(normalize ? selected.map(normalizeStr) : selected)
+  for (const entry of combo || []) {
+    const key = entry == null || entry === '' ? UNATTACHED_ITEM_KEY : entry
+    if (wanted.has(normalize ? normalizeStr(key) : key)) return true
+  }
+  return false
+}
+
+/**
+ * Prédicat complet pour les records de panier : dimensions PdV + horaire via le
+ * prédicat PARTAGÉ de la page (une seule implémentation, cf. BUG-244-01), puis
+ * dimensions article en « contient » sur les combinaisons.
+ *
+ * Le record DOIT être réconcilié en amont (`reconcileRecord`) : les donuts PdV
+ * émettent des clés réconciliées, filtrer sur les champs bruts du SQL viderait
+ * le graphique au clic.
+ *
+ * @param {object} f  l'objet `filters` du store
+ */
+export function buildBasketFilterPredicate(f = {}) {
+  // Les 3 filtres article sont neutralisés côté prédicat partagé : celui-ci lit
+  // `menuItemCategory`/`menuItemType`/`menuItemName`, champs qu'un panier n'a
+  // PAS (il porte des combinaisons). On les applique nous-mêmes juste après.
+  const shopAndTime = buildItemFilterPredicate({
+    ...f,
+    selectedMenuItemIds: [],
+    selectedMenuItemTypes: [],
+    selectedMenuItemCategories: [],
+  })
+  const cats = f.selectedMenuItemCategories || []
+  const types = f.selectedMenuItemTypes || []
+  const items = f.selectedMenuItemIds || []
+
+  return (r) => {
+    if (!shopAndTime(r)) return false
+    if (!comboMatchesAny(r.categoryCombo, cats)) return false
+    if (!comboMatchesAny(r.typeCombo, types)) return false
+    // `selectedMenuItemIds` contient des NOMS d'article : comparaison normalisée
+    // des deux côtés, comme dans le prédicat partagé.
+    if (!comboMatchesAny(r.itemCombo, items, { normalize: true })) return false
+    return true
   }
 }

@@ -1379,6 +1379,7 @@ export class SpacesService {
           COALESCE(se.attributes::jsonb->>'originalType', se.type::text)  AS "shopType",
           se.attributes::jsonb->>'area'                                   AS "shopArea",
           ARRAY_AGG(DISTINCT pc.name ORDER BY pc.name)                    AS "categoryCombo",
+          ARRAY_AGG(DISTINCT pt.name ORDER BY pt.name)                    AS "typeCombo",
           ARRAY_AGG(DISTINCT COALESCE(mi.name, ti."productName")
                     ORDER BY COALESCE(mi.name, ti."productName"))         AS "itemCombo",
           SUM(ti.quantity)::integer                                       AS quantity,
@@ -1406,6 +1407,8 @@ export class SpacesService {
          AND wpm."tenantId" = ${tenantId}
         LEFT JOIN "MenuItem" mi
           ON mi.id = wpm."menuItemId"
+        LEFT JOIN "ProductType" pt
+          ON pt.id = mi."typeId"
         LEFT JOIN "ProductCategory" pc
           ON pc.id = mi."categoryId"
         WHERE ${shopScopeClause}
@@ -1417,14 +1420,14 @@ export class SpacesService {
       )
       SELECT
         "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
-        "categoryCombo", "itemCombo",
+        "categoryCombo", "typeCombo", "itemCombo",
         COUNT(*)::integer                AS "transactionCount",
         SUM(quantity)::integer           AS quantity,
         SUM("revenueHt")::numeric(12,2)  AS "revenueHt"
       FROM tx
       GROUP BY
         "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
-        "categoryCombo", "itemCombo"
+        "categoryCombo", "typeCombo", "itemCombo"
       ORDER BY "eventId", minute ASC
     `);
 
@@ -1440,6 +1443,7 @@ export class SpacesService {
         // `null` conservé DANS le tableau (produit non mappé / catégorie absente) :
         // le front le rend en « Non rattachés ». Ne pas compacter ici.
         categoryCombo:    Array.isArray(r.categoryCombo) ? r.categoryCombo : [],
+        typeCombo:        Array.isArray(r.typeCombo)     ? r.typeCombo     : [],
         itemCombo:        Array.isArray(r.itemCombo)     ? r.itemCombo     : [],
         transactionCount: Number(r.transactionCount || 0),
         quantity:         Number(r.quantity         || 0),

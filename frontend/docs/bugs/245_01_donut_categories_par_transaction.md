@@ -4,7 +4,8 @@
 > questions produit qui bloquent le merge. Convention maison — un chantier qui repose sur des
 > hypothèses métier non tranchées se documente ici plutôt que dans un message de commit.
 
-- **Statut** : 🟡 Implémenté, non déployé — **non mergeable** tant que les questions #41/#42 sont 🔴
+- **Statut** : 🟡 Implémenté, non déployé — **non mergeable** tant que la question #41 est 🔴
+  (#42 tranchée le 2026-07-29 : sémantique « contient »)
 - **Sévérité** : — (ajout fonctionnel)
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : les deux
@@ -74,21 +75,41 @@ dans le même bucket.
 
 | Cas | Décision |
 |---|---|
-| **Remboursements** (`status='V'`, montants négatifs, indiscernables d'une vente) | **Comptés** au dénominateur. L'endpoint ne filtre pas sur le signe : ça changerait le dénominateur sans le dire. → question #41 |
+| **Remboursements** (`status='V'`, montants négatifs, indiscernables d'une vente) | **Comptés** au dénominateur. L'endpoint ne filtre pas sur le signe : ça changerait le dénominateur sans le dire. → question #41, **encore ouverte** |
 | **Paniers vides** (possibles sur le chemin incrémental quand `rows` est absent) | Écartés naturellement par l'`INNER JOIN` sur les items — un panier sans ligne n'a pas de combinaison. |
 | **Produit non mappé** / **`MenuItem.categoryId` NULL** | Entrée `null` **dans** le tableau, jamais écartée ; rendue « Non rattachés » côté front. Un panier mixte s'affiche « Bières, Non rattachés ». Les deux cas ne sont pas distingués dans l'UI (deux gris embrouillent) ; la distinction reste récupérable car `itemCombo` nomme l'article. |
 | **Formules / compounds** | Non regroupées — confirmé par la capture de référence (aucune catégorie « Formule », et « Bières, Consigne » y figure : les artefacts mécaniques produisent déjà des combinaisons). De toute façon `compoundId` est codé à `null` sur le chemin de synchro incrémental, celui qui tourne en production. |
 | **Jamais écarter en silence** | Aucun `WHERE pc.name IS NOT NULL`, aucun INNER JOIN sur `ProductCategory` — verrouillé par test. |
 
-### Deux écarts assumés aux conventions de la page
+### Filtrage — sémantique « contient » (question #42, tranchée le 2026-07-29)
 
-1. **Le drill-down reste local au composant**, il ne passe pas par `toggleArrayFilter`. Une
-   combinaison de catégories n'est pas une dimension de page : ni les KPI, ni les barres par event,
-   ni les tables article ne savent l'appliquer. La router dans le store propagerait un filtre que
-   rien d'autre n'honore.
-2. **Les filtres article de la page ne sont pas appliqués aux paniers** (seuls PdV et plage horaire
-   le sont). Filtrer un panier par l'une de ses lignes est ambigu et changerait le dénominateur en
-   silence. → question #42. D'ici l'arbitrage, le sous-titre affiche explicitement son dénominateur.
+**Tous** les filtres de la page s'appliquent au graphique. Les dimensions PdV et horaire passent par
+le prédicat partagé `buildItemFilterPredicate` ; les dimensions article sont évaluées en
+**« CONTIENT »** sur les combinaisons du panier — filtrer « Bières » garde le ticket
+« Bières, Boissons Soft », et non les seuls tickets 100 % bière.
+
+- Multi-sélection = **OU**, comme partout ailleurs dans la page : un panier passe dès qu'**une** de
+  ses entrées figure dans la sélection.
+- Une entrée `null` du backend est équivalente à `UNATTACHED_ITEM_KEY` — c'est la clé que le donut
+  « Non rattachés » émet, sans quoi cliquer la part grise ne retrouverait aucun panier.
+- Le sous-titre affiche le dénominateur retenu, qui **bouge donc avec les filtres**. Voulu : un
+  pourcentage doit toujours dire sur quoi il porte.
+- A nécessité d'ajouter **`typeCombo`** à l'endpoint (jointure `ProductType`) : sans lui, le donut
+  « type d'article » de la page n'avait aucune dimension à filtrer côté panier et cliquer une de
+  ses parts aurait vidé le camembert.
+
+Implémenté dans [`buildBasketFilterPredicate`](../../src/utils/transactionBaskets.js) — pas d'un
+prédicat maison recopié : les dimensions PdV/horaire délèguent à l'implémentation partagée, seules
+les dimensions article ont leur logique propre (un panier porte des combinaisons, pas un
+`menuItemCategory`). 10 tests dédiés, dont un qui échoue explicitement si l'on repasse en
+« uniquement ».
+
+### Un écart assumé à la convention de la page
+
+**Le drill-down reste local au composant**, il ne passe pas par `toggleArrayFilter`. Une combinaison
+de catégories n'est pas une dimension de page : ni les KPI, ni les barres par event, ni les tables
+article ne savent l'appliquer. La router dans le store propagerait un filtre que rien d'autre
+n'honore.
 
 ### Portée et rafraîchissement
 
@@ -149,8 +170,9 @@ affichés ; dark mode ; export PNG (le composant est dans `#analyse-capture-root
 ## Références
 
 - [`modules/02_ANALYSE.md`](../modules/02_ANALYSE.md) — endpoint et composable.
-- [`QUESTIONS_A_BERTRAND.md`](../QUESTIONS_A_BERTRAND.md) #41 (remboursements) et #42 (« contient »
-  vs « uniquement », top-N) — **bloquantes pour le merge**.
+- [`QUESTIONS_A_BERTRAND.md`](../QUESTIONS_A_BERTRAND.md) #41 (remboursements) — **encore ouverte,
+  bloquante pour le merge** ; #42 (« contient » vs « uniquement ») — **tranchée le 2026-07-29** par
+  l'owner en faveur de « contient », reste seulement le top-N à confirmer.
 - [BUG-244-01](244_01_timeline_analyse_filtres_non_appliques.md) — livré dans le même lot de travail.
 
 ---
