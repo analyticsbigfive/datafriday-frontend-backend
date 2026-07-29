@@ -268,6 +268,7 @@
 | [250-02](250_02_eventformdrawer_sessions_double_stringify_heures_perdues.md) | `EventFormDrawer.vue submit()` : `sessions` double-stringifié → heures illisibles après un premier save | 🟡 Corrigé non testé | 🔴 | Événements |
 | [251-02](251_02_eventformdrawer_teams_autoselectfirst_race_initialisation.md) | `EventFormDrawer.vue` : sélection Home/Visiting Team possiblement réinitialisée par `auto-select-first` pendant le chargement asynchrone des équipes | ⚪ Diagnostiqué | 🟠 | Événements |
 | [252-02](252_02_csvimportdrawer_rate_limit_429_import_masse_echec_definitif.md) | Import CSV en masse : dépasse le palier "medium" du rate-limiter tenant (300 req/60s), toutes les lignes restantes échouent définitivement en 429 | 🟡 Corrigé non testé | 🔴 | Événements |
+| [253-02](253_02_csvimportdrawer_teams_jamais_relies_catalogue.md) | Import CSV : Home/Visiting Team jamais reliés au catalogue `Team` (texte libre uniquement) | 🟡 Corrigé non testé | 🟠 | Événements |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur

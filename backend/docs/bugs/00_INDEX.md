@@ -131,6 +131,8 @@
 | [117-02](117_02_patchpredictversiondto_duplique_au_lieu_de_partialtype.md) | `PatchPredictVersionDto` dupliqué à la main au lieu de `PartialType(CreatePredictVersionDto)` | 🟡 Corrigé non testé | 🟡 | Événements / Prévision |
 | [118-02](118_02_createeventsubcategorydto_eventcategoryid_typage_incoherent.md) | `CreateEventSubcategoryDto.eventCategoryId` typé requis en TS mais optionnel en validation | 🟡 Corrigé non testé | 🟢 | Événements |
 | [119-02](119_02_createeventdto_sessions_array_objets_reduit_a_vide_class_transformer.md) | `CreateEventDto.sessions`/`CreatePredictVersionDto.predictedRecords` : tableau d'objets réduit à `[[]]` par class-transformer (design:type `Array` sans `@Type()`) | 🟡 Corrigé non testé | 🔴 | Événements / Prévision |
+| [120-02](120_02_eventsservice_resolveorcreateteambyname.md) | `EventsService` : résolution/création automatique des équipes par nom (`homeTeamName`/`visitingTeamName`), déplacée du frontend | 🟡 Corrigé non testé | 🟠 | Événements |
+| [121-02](121_02_resolveorcreateteambyname_race_condition_doublons_scope_null.md) | `resolveOrCreateTeamByName` : race condition crée des équipes en double quand le scope compétition est NULL/NULL | 🟡 Corrigé non testé | 🟠 | Événements |
 
 **112 bugs au total**, 112 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (18 shops, gros volume) échouant systématiquement avec "délai maximal

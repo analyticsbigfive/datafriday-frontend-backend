@@ -907,6 +907,10 @@ export default {
         eventDate,
         eventEndDate,
         eventEndTime,
+        // Texte brut envoyé tel quel — EventsService.resolveEventTeamFields résout-ou-crée
+        // l'équipe correspondante dans le catalogue Team côté backend (scopée à la compétition
+        // eventCategoryId/eventSubcategoryId ci-dessous), en une seule requête de création
+        // d'event au lieu d'un aller-retour réseau séparé par équipe depuis le navigateur.
         homeTeamName:       get('homeTeamName') || undefined,
         visitingTeamName:   get('visitingTeam') || undefined,
         performerName:      get('performerName') || undefined,
