@@ -291,3 +291,64 @@ prime sur une ligne `TOUS`** ; en cas de conflit entre deux lignes spécifiques,
 gagne**. Le bouton **Edit** par carte crée/mets à jour la **ligne mono-espace** de cet espace
 (POST si absente, PATCH sinon) plutôt que d'empiler des doublons. Sémantique à confirmer —
 question [#41](../QUESTIONS_A_BERTRAND.md).
+
+---
+
+## 10. Étape 2 — implémentation complète du staffing (2026-07-29, branche `feat/Hr`)
+
+> Rédaction : **JLH**, 2026-07-29. Algo **validé** le 2026-07-29 par énumération des paliers
+> (question [#28](../QUESTIONS_A_BERTRAND.md) résolue — l'ancienne formule caissiers/runners du
+> xlsx est abandonnée). Simulation interactive de référence : artifact « Module RH — Plan &
+> Simulation » (tests des paliers auto-exécutés dans la page).
+
+### 10.1 Règle de staffing validée (remplace §6.2)
+
+```
+n = FLOOR(caPredictif / goalTpe)      invariant : rpdv + caissiers + runners = n (n ≥ 1)
+
+ouvre  = ouvertureObligatoire OU n ≥ 1 (CA ≥ goal) ; sinon FERMÉ (tout = 0)
+total  = MAX(n, 1)                    (ouverture obligatoire et n ≤ 1 → 1 personne)
+
+sans RPDV : caissiers = CEIL(total/2) ; runners = FLOOR(total/2)      → 0/1/0 · 0/1/1 · 0/2/1 · 0/2/2 · 0/3/2 …
+avec RPDV : total≤1 → 1/0/0 · =2 → 1/1/0 · =3 → 1/1/1 · ≥4 → 1/2/(total−3)   → 1/2/1 · 1/2/2 · 1/2/3 …
+            (caissiers plafonnés à 2 — littéral validé JLH ; asymétrie avec le cas sans RPDV assumée)
+clamp TPE : caissiers ≤ maxTpe = CEIL(mètres/0.7), excédent basculé en runners (invariant préservé)
+beverage  : runners = MAX(runners, nbTireuses)                         (Q3 défaut)
+barman = hasMixology ; frontFood : chef=1, commis = friteuses + CEIL(burgers/200)·2, epr = dinettes + FLOOR(hotdogs/200)
+rz = CEIL(Σ front / staffPerZoneManager)  — front = rpdv+caissiers+runners+barman
+coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ; ajusté = Σ lignes enabled
+```
+
+### 10.2 Livré (6 commits atomiques)
+
+| Commit | Contenu |
+|---|---|
+| `94cf2db` | Prisma : `HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine` + SQL manuel [`2026-07-29_hr_staffing_module.sql`](../../../backend/prisma/sql/2026-07-29_hr_staffing_module.sql) (ADR-0002, **à appliquer manuellement**) |
+| `28ad6b2` | Features NestJS [`hr/`](../../../backend/src/features/hr/) (CRUD suppliers/roles/persons, validation conditionnelle, import one-shot) + [`staffing/`](../../../backend/src/features/staffing/) (calculateur **pur** + orchestration + `GET /hr-settings/costs`) + **29 tests jest** (paliers, invariant, clamp, 212,50 €) |
+| `b84668f` | [`utils/hrApi.js`](../../src/utils/hrApi.js) → API (signatures conservées), import one-shot localStorage puis purge |
+| `cb69c4a` | `HrPositionFormDrawer` → [`HrRoleFormDrawer`](../../src/components/hr/drawers/HrRoleFormDrawer.vue) (champs conditionnels §2.1 spec, algoKey auto) ; fix route `/hr` (pointait sur `HrView` inexistant) + `/hr/positions` ; coûts staff réels sur les cartes HR Settings |
+| `4798956` | Onglet **Staff** d'EventPredict ([`EventPredictStaffSection.vue`](../../src/components/EventPredictStaffSection.vue), pattern `ep-shop-card`, PATCH debounce 500 ms) + store [`staffing.js`](../../src/store/modules/staffing.js) |
+| (celui-ci) | Rapport final + résolution #28 |
+
+### 10.3 Hypothèses (constantes nommées, à confirmer avec Bertrand)
+
+| Hypothèse | Où | Défaut |
+|---|---|---|
+| Q1 cadence appliquée au pic | `TX_RATE_BASIS` | `'PEAK'` |
+| Q2 POS supplémentaire | `EXTRA_POS_MODE` | warning, jamais de caissier auto |
+| Q3 runners tireuses | `BEVERAGE_RUNNER_MODE` | `MAX` (pas addition) |
+| Q4 caissier de dinette | `DINETTE_CASHIER_INCLUDED` | couvert par le calcul caissiers |
+| Q5 commis inter-stands | — | **non traité** (TODO visible) |
+| Q6 conversions | `DAILY_HOURS=8`, `MONTHLY_HOURS=151.67` | Daily/8 h, Monthly/151,67 h |
+| Q7 « disponible » (HrPerson) | `pickAssignment` | active + distribution par index dans l'event |
+| Types d'éléments PDV | `STAFFING_ELEMENT_TYPES` | `shop, fnb_food, fnb_beverages, fnb_bar, fnb_snack` |
+| Inputs algo par PDV | `SpaceElement.attributes` (Json) | clés `metresLineaires`, `ouvertureObligatoire`, `hasResponsablePdv`, `txParSeconde`, `nbTireuses`, `nbFriteuses`, `nbBurgersPrevus`, `nbDinettes`, `nbHotdogsPrevus` ; capacités via `type` + `subtypes` ; mètres inconnus → pas de plafond TPE |
+| Fin d'event absente | `DEFAULT_EVENT_DURATION_HOURS` | portes + 6 h ; offsets lignes −1 h/+1 h |
+| Résolution goal/ratio | `resolveSettings` (server-side) | ligne contenant l'espace > `TOUS`, plus récente gagne (miroir §9.4) |
+
+### 10.4 Reste à faire (hors périmètre de la branche)
+
+1. **Appliquer le SQL manuel** (ADR-0002) sur chaque environnement, puis `prisma generate`.
+2. Écran de gestion des `HrPerson` (le backend + dropdown « Nom » existent ; pas d'écran CRUD dédié).
+3. `HrRoleSpaceDefault` (agence par défaut espace × rôle) : backend + présélection livrés, pas d'UI de saisie.
+4. E2E léger spec §6 : générer → décocher → slider → vérifier pills (une fois le SQL appliqué sur staging).
