@@ -48,9 +48,10 @@ export function comboLabel(combo, unmatchedLabel) {
  * @param {object} opts
  * @param {number} opts.topN               parts nommées avant « Autres »
  * @param {string} opts.unmatchedLabel     libellé des entrées non résolues
- * @param {string} opts.othersLabel        libellé du bucket d'agrégation
+ * @param {string|((n:number)=>string)} opts.othersLabel  libellé du bucket d'agrégation ;
+ *   reçoit le NOMBRE de combinaisons agrégées quand c'est une fonction
  * @param {Array<string>} opts.palette     couleurs, cyclées
- * @returns {{keys: Array<string|null>, labels: string[], values: number[], colors: string[]}}
+ * @returns {{keys: Array<string|null>, labels: string[], values: number[], colors: string[], othersCount: number}}
  */
 export function groupBasketsByCombo(records, comboOf, { topN, unmatchedLabel, othersLabel, palette }) {
   const map = new Map()
@@ -72,7 +73,10 @@ export function groupBasketsByCombo(records, comboOf, { topN, unmatchedLabel, ot
 
   if (tail.length) {
     keys.push(OTHERS_COMBO_KEY)
-    labels.push(othersLabel)
+    // Le libellé PORTE le nombre de combinaisons agrégées. Sans ça, « Autres »
+    // est un trou noir : sur un référentiel riche il peut devenir la plus grosse
+    // part du donut sans que rien n'indique s'il cache 3 combinaisons ou 300.
+    labels.push(typeof othersLabel === 'function' ? othersLabel(tail.length) : othersLabel)
     values.push(tail.reduce((sum, [, v]) => sum + v.count, 0))
   }
 
@@ -80,6 +84,7 @@ export function groupBasketsByCombo(records, comboOf, { topN, unmatchedLabel, ot
     keys,
     labels,
     values,
+    othersCount: tail.length,
     colors: values.map((_, i) => palette[i % palette.length]),
   }
 }

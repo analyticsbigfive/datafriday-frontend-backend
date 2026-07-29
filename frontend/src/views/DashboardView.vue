@@ -95,14 +95,39 @@
                   </v-list-item>
                 </template>
 
+                <!-- Barre de recherche du groupe dynamique « Edit space » -->
+                <div
+                  v-if="group.dynamic === 'spaces'"
+                  class="settings-space-search"
+                  @click.stop
+                >
+                  <Search :size="15" class="settings-space-search__icon" />
+                  <input
+                    v-model="editSpaceSearch"
+                    type="search"
+                    class="settings-space-search__input"
+                    :placeholder="t('editSpaceSearchPlaceholder')"
+                    @keydown.stop
+                  />
+                </div>
+
                 <v-list-item
-                  v-for="item in group.items"
+                  v-for="item in filteredGroupItems(group)"
                   :key="item.route"
                   :title="t(item.title)"
                   :value="`${group.key}-${item.title}`"
                   color="#ff3131"
                   @click="goToFromSettings(item.route)"
                 />
+
+                <!-- État vide (groupe « Edit space ») : soit la recherche ne
+                     matche rien, soit aucun espace n'existe. -->
+                <div
+                  v-if="group.dynamic === 'spaces' && !filteredGroupItems(group).length"
+                  class="settings-space-empty"
+                >
+                  {{ editSpaceSearch ? t('editSpaceNoResult') : t('editSpaceEmpty') }}
+                </div>
               </v-list-group>
 
               <v-list-item
@@ -338,6 +363,7 @@ import {
   UserCog,
   Shield,
   Phone,
+  Search,
 } from "lucide-vue-next";
 import { SETTINGS_NAVIGATION, MAIN_NAVIGATION } from '@/constants/navigation';
 
@@ -396,6 +422,7 @@ export default {
     UserCog,
     Shield,
     Phone,
+    Search,
   },
 
   data() {
@@ -409,6 +436,8 @@ export default {
       // via window event). Pilote le drawer permanent+rail qui POUSSE l'overlay.
       eventPredictActive: false,
       settingsDrawer: false,
+      // Filtre de la barre de recherche du groupe déroulant « Edit space ».
+      editSpaceSearch: '',
       locale: localStorage.getItem('appLocale') || 'en',
       theme: (() => {
         // Lire depuis les deux clés possibles (datafriday:theme = clé vuetify.js, appTheme = ancienne clé)
@@ -481,13 +510,36 @@ export default {
         }))
         .filter((section) => section.items.length > 0);
     },
+    // Items du groupe déroulant « Edit space » : un item par space existant,
+    // pointant vers son builder 3D. Le titre est le nom du space (t() retombe
+    // sur la valeur brute puisque ce n'est pas une clé i18n).
+    editSpaceItems() {
+      const spaces = this.$store.getters['spaces/spaces'] || [];
+      return spaces
+        .filter((s) => s && s.id != null)
+        .map((s) => ({
+          title: s.name || s.spaceName || s.title || `Space ${s.id}`,
+          route: `/spaces/${s.id}/builder2`,
+        }));
+    },
     visibleSettingsNavigation() {
       return SETTINGS_NAVIGATION
         .map((section) => ({
           ...section,
           groups: (section.groups || [])
-            .map((group) => ({ ...group, items: group.items.filter((i) => this.can(i.permission)) }))
-            .filter((group) => group.items.length > 0),
+            .map((group) => {
+              // Groupe dynamique (ex. « Edit space ») : items résolus au runtime,
+              // gated par la permission de groupe (pas d'items statiques à filtrer).
+              if (group.dynamic === 'spaces') {
+                const permitted = this.can(group.permission);
+                return { ...group, _permitted: permitted, items: permitted ? this.editSpaceItems : [] };
+              }
+              return { ...group, items: group.items.filter((i) => this.can(i.permission)) };
+            })
+            // Groupe dynamique : reste visible dès que la permission est là (même
+            // sans espace) pour pouvoir afficher un état vide. Groupes statiques :
+            // masqués si aucun item autorisé.
+            .filter((group) => (group.dynamic === 'spaces' ? group._permitted : group.items.length > 0)),
           standalone: (section.standalone || []).filter((i) => this.can(i.permission)),
         }))
         .filter((section) => section.groups.length > 0 || section.standalone.length > 0);
@@ -505,6 +557,9 @@ export default {
     settingsDrawer(val) {
       if (val) {
         this.drawer = false;
+        // Alimente le groupe déroulant « Edit space » (cache TTL côté store, donc
+        // pas de refetch inutile à chaque ouverture).
+        this.$store.dispatch('spaces/fetchSpaces').catch(() => {});
       } else {
         this.applyRouteSidebarMode(this.$route.name);
       }
@@ -642,7 +697,17 @@ export default {
 
     goToFromSettings(route) {
       this.settingsDrawer = false;
+      this.editSpaceSearch = '';
       this.$router.push(route);
+    },
+
+    // Items affichés d'un groupe : pour le groupe dynamique « Edit space », on
+    // applique le filtre de la barre de recherche (sur le nom du space).
+    filteredGroupItems(group) {
+      if (group.dynamic !== 'spaces') return group.items;
+      const q = (this.editSpaceSearch || '').trim().toLowerCase();
+      if (!q) return group.items;
+      return group.items.filter((i) => String(i.title || '').toLowerCase().includes(q));
     },
 
     goToProfile() {
@@ -976,6 +1041,44 @@ export default {
 .settings-drawer-content {
   flex: 1;
   overflow-y: auto;
+}
+
+/* Barre de recherche du groupe déroulant « Edit space » (tokens Vuetify → dark auto). */
+.settings-space-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 24px 8px 24px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+.settings-space-search:focus-within {
+  border-color: #ff3131;
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.12);
+}
+.settings-space-search__icon { color: rgba(var(--v-theme-on-surface), 0.45); flex-shrink: 0; }
+.settings-space-search__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--fs-base);
+  color: rgb(var(--v-theme-on-surface));
+  font-family: inherit;
+}
+.settings-space-search__input::placeholder { color: rgba(var(--v-theme-on-surface), 0.4); }
+
+/* État vide du groupe « Edit space » (aucun résultat / aucun espace). */
+.settings-space-empty {
+  margin: 2px 24px 8px 24px;
+  padding: 8px 4px;
+  font-size: var(--fs-sm);
+  font-style: italic;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  text-align: center;
 }
 
 

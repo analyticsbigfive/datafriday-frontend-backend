@@ -353,6 +353,16 @@ export class EventsService {
     if (dateChanged && tenantId) {
       await this.weezeventLinkService.relinkForTenantDate(tenantId, updated.eventDate);
     }
+
+    // Démapper (étape 4 Data Integration) : purge l'agrégation minute-par-minute laissée
+    // orpheline par ce space/event — sinon elle ne sera plus jamais lue (l'event a quitté
+    // la liste du space) mais reste en base jusqu'à une éventuelle synchronisation finale.
+    if (dto.spaceId === null && existing.spaceId) {
+      await this.prisma.spaceRevenueMinuteAgg.deleteMany({
+        where: { tenantId, spaceId: existing.spaceId, weezeventEventId: id },
+      });
+    }
+
     return updated;
   }
 

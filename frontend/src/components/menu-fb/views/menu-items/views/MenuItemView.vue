@@ -150,7 +150,17 @@
     <v-container fluid class="px-6 pt-4 pb-6 mil-scroll-area">
       <!-- Table View -->
       <v-card v-if="viewMode === 'table'" rounded="xl" class="data-table-card overflow-hidden" elevation="0">
-        <v-data-table
+        <!-- Écran BI-MODE, d'où le composant dynamique (BUG-246-01) :
+             - catalogue complet (grille / regroupement) → `v-data-table`, pagination
+               client sur des données complètes, pied de page masqué ;
+             - sinon → `v-data-table-SERVER`, seul composant à consommer `items-length`.
+               Sur un `v-data-table` ordinaire cette prop est ignorée et la pagination
+               retombe sur `items.length`, soit la page courante : le pied de page
+               affichait « 1-N of N » et les pages suivantes étaient inatteignables.
+             `groupByColumns` n'est peuplé que si `groupByEnabled`, lequel implique
+             `needsFullCatalog` — le mode serveur reçoit donc toujours `[]`. -->
+        <component
+          :is="tableComponent"
           :headers="tableHeaders"
           :items="tableItems"
           item-value="id"
@@ -159,6 +169,7 @@
           fixed-header
           :items-per-page="needsFullCatalog ? -1 : serverItemsPerPage"
           :items-length="needsFullCatalog ? undefined : serverTotal"
+          :page="needsFullCatalog ? undefined : serverPage"
           :hide-default-footer="needsFullCatalog"
           :loading="isTableLoading ? 'primary' : false"
           @update:options="onUpdateOptions"
@@ -293,7 +304,7 @@
               </v-btn>
             </div>
           </template>
-        </v-data-table>
+        </component>
       </v-card>
 
       <!-- Grid View -->
@@ -449,6 +460,11 @@
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
+// Import EXPLICITE des deux tables (sous-chemin public `vuetify/components/*`) :
+// l'auto-import de webpack-plugin-vuetify résout les composants depuis les balises
+// STATIQUES du template, il ne peut rien faire d'un `<component :is>`. Sans ces
+// imports, la table serait absente à l'exécution.
+import { VDataTable, VDataTableServer } from "vuetify/components/VDataTable";
 import { useI18n } from "@/i18n/useI18n";
 import { formatCurrency } from "@/composables/useFormatters";
 import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
@@ -597,6 +613,11 @@ export default {
     },
     // Lignes affichées dans le v-data-table : catalogue complet filtré côté client en mode
     // "regroupé", ou juste la page courante déjà filtrée côté serveur en mode "paginé".
+    // Catalogue complet → table CLIENT (tri/regroupement sur des données complètes) ;
+    // sinon → table SERVEUR, seule à consommer `items-length` (cf. BUG-246-01).
+    tableComponent() {
+      return this.needsFullCatalog ? VDataTable : VDataTableServer;
+    },
     tableItems() {
       return this.needsFullCatalog ? this.filteredItems : this.serverRows;
     },
@@ -609,19 +630,25 @@ export default {
     isTableLoading() {
       return this.needsFullCatalog ? !!this.$store.state.menuItems.isFetching : this.serverLoading;
     },
+    // Le tri par colonne n'a de sens QU'EN mode catalogue complet, où la table trie
+    // côté client sur l'intégralité des données. En mode serveur, le backend ordonne
+    // en dur par `name: 'asc'` sans accepter de paramètre de tri : un en-tête cliquable
+    // n'y trierait rien du tout. On les désactive donc dans ce mode plutôt que de
+    // laisser un contrôle inerte.
     tableHeaders() {
+      const sortable = this.needsFullCatalog
       return [
         { title: '', key: 'select', sortable: false, width: 48 },
         { title: this.t("menuItemLib.colPicture"), key: "picture", sortable: false, width: 90 },
-        { title: this.t("menuItemLib.colName"), key: "name" },
-        { title: this.t("menuItemLib.colCategory"), key: "category" },
-        { title: this.t("menuItemLib.colSpace"), key: "spaceCount", width: 150 },
+        { title: this.t("menuItemLib.colName"), key: "name", sortable },
+        { title: this.t("menuItemLib.colCategory"), key: "category", sortable },
+        { title: this.t("menuItemLib.colSpace"), key: "spaceCount", sortable, width: 150 },
         { title: this.t("menuItemLib.colReady"), key: "readyForSale", sortable: false, width: 90 },
         { title: this.t("menuItemLib.colCombo"), key: "comboItem", sortable: false, width: 90 },
-        { title: `${this.t("menuItemLib.colPrice")} ${this.t("menuItemLib.ttcSuffix")}`, key: "price", width: 110 },
-        { title: this.t("menuItemLib.colPriceHt"), key: "priceHt", width: 100 },
-        { title: this.t("menuItemLib.colTotalCost"), key: "totalCost", width: 120 },
-        { title: this.t("menuItemLib.colMargin"), key: "margin", width: 120 },
+        { title: `${this.t("menuItemLib.colPrice")} ${this.t("menuItemLib.ttcSuffix")}`, key: "price", sortable, width: 110 },
+        { title: this.t("menuItemLib.colPriceHt"), key: "priceHt", sortable, width: 100 },
+        { title: this.t("menuItemLib.colTotalCost"), key: "totalCost", sortable, width: 120 },
+        { title: this.t("menuItemLib.colMargin"), key: "margin", sortable, width: 120 },
         { title: this.t("menuItemLib.colDiet"), key: "diet", sortable: false, width: 90 },
         { title: this.t("menuItemLib.colStorage"), key: "storage", sortable: false, width: 110 },
         { title: this.t("menuItemLib.colActions"), key: "actions", sortable: false, align: "end", width: 110 },

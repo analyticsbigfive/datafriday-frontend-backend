@@ -1563,21 +1563,21 @@ function onShowAverage() {
 //    faux pendant un live) — sans ce bypass, tout poll après le 1er est servi
 //    depuis ce cache mémoire et n'atteint jamais le réseau.
 //  - `loadSpace` (shop-details/shopGranularData → Shop Performance, Event
-//    Revenue by Shop, Shop distribution) : le bug historique qui remettait
-//    `selectedConfigurationId` à null a été corrigé (bug 225,
-//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js) — un
-//    re-dispatch régulier est donc sûr, à un intervalle plus large (ce payload
-//    recharge aussi catalogue/ingrédients, inutile de le faire aussi souvent
-//    que la timeline).
+//    Revenue by Shop, Shop distribution, et `menuItemCostMap` utilisé pour le
+//    calcul de marge) : alignée sur le même intervalle que le reste (15s,
+//    2026-07-29) — un `menuItemCostMap` rafraîchi seulement toutes les 45s
+//    pendant que le CA l'était toutes les 15s faisait dériver la marge affichée
+//    jusqu'à 30s derrière le CA. Le bug historique qui remettait
+//    `selectedConfigurationId` à null est corrigé (bug 225,
+//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js), donc ce
+//    re-dispatch plus fréquent est sûr.
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 const LIVE_POLL_MS = 15000
-const LIVE_SHOP_DETAILS_POLL_MS = 45000
 let livePollTimer = null
-let liveShopDetailsTimer = null
 function livePoll() {
   if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
   refreshItemRecords()
@@ -1585,6 +1585,7 @@ function livePoll() {
   // la même hypothèse d'immuabilité : sans ce bypass, le donut « catégories par
   // transaction » resterait figé pendant que tout le reste de la page tique.
   refreshBaskets()
+  liveShopDetailsPoll()
 }
 function liveShopDetailsPoll() {
   const spaceId = route.params.spaceId
@@ -1594,11 +1595,9 @@ function startLivePolling() {
   stopLivePolling()
   if (!isLive.value) return
   livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
-  liveShopDetailsTimer = setInterval(liveShopDetailsPoll, LIVE_SHOP_DETAILS_POLL_MS)
 }
 function stopLivePolling() {
   if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
-  if (liveShopDetailsTimer) { clearInterval(liveShopDetailsTimer); liveShopDetailsTimer = null }
 }
 onActivated(() => {
   startLivePolling()

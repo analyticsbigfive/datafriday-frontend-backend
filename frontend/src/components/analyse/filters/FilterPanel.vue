@@ -579,6 +579,10 @@ const livePath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/live` : '/spaces'
 })
+const spaceAnalysePath = computed(() => {
+  const id = route.params?.spaceId
+  return id ? `/spaces/${id}` : '/spaces'
+})
 const logisticPath = computed(() => {
   const id = route.params?.spaceId
   return id ? `/spaces/${id}/logistic` : '/spaces'
@@ -606,6 +610,17 @@ function onToolboxSelect(v) {
   }
   if (v === 'live') {
     router.push(livePath.value)
+    return
+  }
+  // 'analyse' / 'predict' / 'event-predict' are display modes of the SAME
+  // route (space-analyse), toggled via `?toolbox=` (AnalyseView.vue
+  // onToolboxChange). On the dedicated Live route (space-live), selecting
+  // one of them must navigate back to space-analyse first — otherwise
+  // onToolboxChange no-ops (store already holds that value while /live
+  // forces it back to 'analyse' on mount) and the user stays stuck on /live
+  // with the selector silently showing the wrong entry (bug 2026-07-29).
+  if (route.name === 'space-live') {
+    router.push({ path: spaceAnalysePath.value, query: v === 'analyse' ? {} : { toolbox: v } })
     return
   }
   localToolbox.value = v
@@ -708,8 +723,12 @@ const advancedActiveCount = computed(() => {
 })
 // Sync local toolbox with store so dropdown reflects external changes (e.g.
 // programmatic toolbox change when closing the EventPredict overlay).
+// On the dedicated Live route, force the 'live' entry regardless of the
+// store value: `selectedToolbox` never holds 'live' (it's route-driven, not
+// store-driven), so without this override the selector kept showing
+// 'Analyse' as selected while actually on /live (bug 2026-07-29).
 const localToolbox = computed({
-  get: () => store.state.analyse.selectedToolbox || 'analyse',
+  get: () => (route.name === 'space-live' ? 'live' : store.state.analyse.selectedToolbox || 'analyse'),
   set: (v) => emit('update:toolbox', v),
 })
 

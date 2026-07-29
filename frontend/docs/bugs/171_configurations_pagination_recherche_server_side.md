@@ -1,11 +1,26 @@
 # BUG-171 — Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste
 
-- **Statut** : 🟢 Corrigé
+- **Statut** : ⚪ Diagnostiqué — **volet frontend incomplet**, voir l'encadré ci-dessous
+  (était 🟢 Corrigé jusqu'au 2026-07-29)
 - **Sévérité** : 🟡 Mineur (optimisation, pas une correction de comportement incorrect)
 - **Domaine** : Menu & recettes / Achats & référentiels (Configurations)
 - **Repo(s) concerné(s)** : `datafriday-web` + `api-datafriday-staging`
 - **Découvert le** : 2026-07-19 (retour utilisateur en test live, suite au fix BUG-169)
 - **Fichiers** : les 10 paires backend service/controller (`menu-items`, `menu-components`, `market-prices` taxonomy services, `brands`/`display-names`/`industrials`/`packing-types` services) + les 10 écrans de liste frontend (6 fichiers individuels Product/Component/MarketPrice + le composant générique partagé `FlatReferentialListView.vue` pour les 4 référentiels plats) + `MenuItemView.vue`/`componentListView.vue`/`MarketPriceListView.vue` (liens de suivi BUG-170, non retouchés ici)
+
+> ⚠️ **Rouvert le 2026-07-29 — ce correctif a laissé les 10 écrans bloqués sur la page 1.**
+>
+> La bascule en pagination serveur (requête paginée, recherche serveur, `serverPage`/
+> `serverItemsPerPage`/`serverTotal`) est correcte. Mais le composant est resté `<v-data-table>`
+> alors que **`items-length` est une prop de `<v-data-table-server>`** : posée sur la table
+> ordinaire elle est ignorée, et la pagination retombe sur `items.length`, soit la page courante.
+> Résultat : « 1-10 of 10 » là où le compteur d'en-tête annonçait « 41 Total Categories », flèches
+> de page inertes, et **tout le référentiel au-delà de la 10ᵉ ligne inatteignable**.
+>
+> Autrement dit : ce correctif a supprimé le chargement complet côté client sans donner au
+> paginateur de quoi connaître le total. Corrigé par
+> [BUG-246-01](246_01_referentiels_pagination_bloquee_page_1.md) — statut à repasser à 🟢 une fois
+> la validation en navigateur faite.
 
 ## Symptôme
 

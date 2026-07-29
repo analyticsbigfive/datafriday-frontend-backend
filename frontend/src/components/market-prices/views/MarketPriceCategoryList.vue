@@ -53,10 +53,15 @@
       </v-alert>
 
       <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
-        <v-data-table
+        <!-- v-data-table-SERVER : `items-length` n'est une prop QUE de ce composant.
+             Sur un `v-data-table` ordinaire elle est ignorée et la pagination se fait
+             côté client sur `items.length` — soit la page serveur courante, d'où des
+             pages 2+ inatteignables (BUG-246-01). -->
+        <v-data-table-server
           :headers="tableHeaders"
           :items="categories"
           :items-length="serverTotal"
+          :page="serverPage"
           :items-per-page="serverItemsPerPage"
           item-value="id"
           density="compact"
@@ -90,7 +95,7 @@
               </v-btn>
             </div>
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card>
     </div>
 
@@ -190,11 +195,15 @@ export default {
     types() {
       return this.$store.getters['marketPriceTypes/marketPriceTypes']
     },
+    // Tri désactivé sur toutes les colonnes : le backend ordonne TOUJOURS par
+    // `name: 'asc'` et n'accepte aucun paramètre de tri. En pagination serveur un
+    // en-tête cliquable ne trierait donc rien ; avant ce correctif il ne triait que
+    // les lignes de la page courante — un tri qui ment sur son périmètre.
     tableHeaders() {
       return [
-        { title: this.t('marketPriceCategoryList.colName'), key: "name" },
-        { title: this.t('marketPriceCategoryList.colType'), key: "typeName" },
-        { title: this.t('marketPriceCategoryList.colCreated'), key: "createdAt" },
+        { title: this.t('marketPriceCategoryList.colName'), key: "name", sortable: false },
+        { title: this.t('marketPriceCategoryList.colType'), key: "typeName", sortable: false },
+        { title: this.t('marketPriceCategoryList.colCreated'), key: "createdAt", sortable: false },
         { title: this.t('marketPriceCategoryList.colActions'), key: "actions", sortable: false, align: "end", width: 120 },
       ];
     },
