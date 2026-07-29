@@ -20,6 +20,14 @@
               <Download :size="15" class="me-1" />
               CSV
             </button>
+            <button
+              class="mpl-action-btn"
+              :title="locale === 'fr' ? 'Export groupé par article, avec IDs (pour réimport)' : 'Export grouped by item, with IDs (for reimport)'"
+              @click="exportToCSVPacked"
+            >
+              <Download :size="15" class="me-1" />
+              CSV ({{ locale === 'fr' ? 'par article' : 'by item' }})
+            </button>
             <button class="mpl-action-btn" @click="onImportCsv">
               <Upload :size="15" class="me-1" />
               {{ locale === 'fr' ? 'Importer' : 'Import' }}
@@ -666,6 +674,83 @@ export default {
         URL.revokeObjectURL(url);
       } catch (error) {
         console.error('Error exporting to CSV:', error);
+        alert('Failed to export CSV. Please try again.');
+      }
+    },
+
+    // Export « packé » : 1 ligne CSV = 1 Item, tous ses prix fournisseurs empilés dans une colonne
+    // « Market Prices » (segments séparés par « | », sous-champs séparés par « > »). Réutilise le
+    // même computed `items()` (déjà groupé par itemName) que exportToCSV() — permet le cycle
+    // export → édition externe → réimport en upsert (MarketPriceCsvImportDrawer.vue lit `id`/
+    // `supplierId` réels de cette base dans cet export, contrairement à un fichier legacy externe).
+    exportToCSVPacked() {
+      try {
+        const csvData = [];
+        const headers = [
+          'Item ID', 'Item Name', 'Good Type', 'Ingredient Category',
+          'Recipe Unit', 'Purchase Unit', 'Purchase Unit Conversion', 'Market Prices',
+        ];
+        csvData.push(headers);
+
+        const escape = (val) => {
+          const s = String(val ?? '');
+          return (s.includes(',') || s.includes('"') || s.includes('\n'))
+            ? '"' + s.replace(/"/g, '""') + '"'
+            : s;
+        };
+
+        // Ordre des 16 sous-champs — doit rester identique à PACKED_SUBFIELD_ORDER dans
+        // MarketPriceCsvImportDrawer.vue. La position "Inventory > Number of units" (11e) reflète
+        // volontairement la même valeur que "Packing > Packed Units" (12e) : en base actuelle
+        // c'est le même champ `packedUnits` (cf. MarketPriceEditSupplierDrawer.vue), pas deux
+        // valeurs distinctes — pas de perte d'info réelle.
+        const buildSegment = (item, sr) => [
+          sr?.id || '',
+          sr?.supplierItemName || '',
+          sr?.supplierId || '',
+          sr?.supplierName || '',
+          item?.goodType || item?.type || '',
+          sr?.purchasePackaging || '',
+          sr?.unitsPerPurchase ?? '',
+          sr?.unit || '',
+          sr?.price ?? '',
+          sr?.inventoryPackaging || '',
+          sr?.packedUnits ?? '',
+          sr?.packedUnits ?? '',
+          sr?.numberOfUnits ?? '',
+          sr?.packingLength ?? '',
+          sr?.packingWidth ?? '',
+          sr?.packingHeight ?? '',
+        ].map((v) => String(v)).join('>');
+
+        for (const item of this.items || []) {
+          const itemName = String(item?.name || item?.itemName || '');
+          const marketPrices = (item?.supplierRows || []).map((sr) => buildSegment(item, sr)).join('|');
+          csvData.push([
+            itemName,
+            itemName,
+            String(item?.goodType || item?.type || ''),
+            String(item?.category || ''),
+            String(item?.recipeUnit || ''),
+            String(item?.unit || ''),
+            String(item?.purchaseUnitConversion ?? ''),
+            marketPrices,
+          ]);
+        }
+
+        const csvContent = '\uFEFF' + csvData.map(row => row.map(escape).join(',')).join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `market-prices-by-item-${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error('Error exporting packed CSV:', error);
         alert('Failed to export CSV. Please try again.');
       }
     },
