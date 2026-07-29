@@ -237,8 +237,16 @@ const routes = [
       {
         path: '/hr',
         name: 'hr',
-        component: HrView,
+        // Fix : `HrView` n'existait pas (référence indéfinie) — la page Suppliers
+        // est l'entrée du module RH (navigation.js pointe /hr → navHrSuppliers).
+        component: HrSuppliersView,
         meta: { title: 'Edit HR', keepAlive: true, permission: 'menu.hr.manage' }
+      },
+      {
+        path: '/hr/positions',
+        name: 'hr-positions',
+        component: HrPositionsView,
+        meta: { title: 'Staff Positions', keepAlive: true, permission: 'menu.hr.manage' }
       },
       {
         path: '/hr/settings',

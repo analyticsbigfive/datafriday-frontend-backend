@@ -35,11 +35,12 @@ function onNewSpace() {
 function onOpenEvents() {
   router.push('/events')
 }
-// Sous-menu Settings « Edit HR » : `view` = 'suppliers' | 'positions'.
+// Sous-menu Settings « Edit HR » : `view` = 'suppliers' | 'positions' | 'settings'.
 // Liaison camelCase côté template : `on-open-hr` camelise en `onOpenHr` et ne
 // matcherait jamais la prop `onOpenHR` (H/R séparés).
+const HR_ROUTES = { suppliers: '/hr', positions: '/hr/positions', settings: '/hr/settings' }
 function onOpenHR(view) {
-  router.push({ path: '/hr', query: { tab: view || 'suppliers' } })
+  router.push({ path: HR_ROUTES[view] || '/hr' })
 }
 function noop() {}
 </script>

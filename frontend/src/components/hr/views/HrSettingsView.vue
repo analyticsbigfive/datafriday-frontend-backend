@@ -40,6 +40,8 @@
               :space="s"
               :goal-per-tpe="resolvedById[s.id]?.goal ?? null"
               :staff-per-zone-manager="resolvedById[s.id]?.ratio ?? null"
+              :staff-cost-total="costsBySpaceId[s.id]?.totalCost ?? null"
+              :staff-cost-avg-event="costsBySpaceId[s.id]?.avgPerEvent ?? null"
               :is-dark="isDark"
               @edit="onCardEdit"
             />
@@ -85,6 +87,7 @@ import HrSpaceCard from '@/components/hr/HrSpaceCard.vue'
 import HrValueFormDrawer from '@/components/hr/HrValueFormDrawer.vue'
 import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
 import { getSpacesLight } from '@/api/endpoints/space.api'
+import { getHrStaffingCosts } from '@/api/endpoints/hrSettings.api'
 import { resolveGoalForSpace, resolveRatioForSpace, findMonoSpaceLine } from '@/utils/hrSettings'
 import { t } from '@/i18n'
 import '@/components/hr/hrForms.css'
@@ -94,6 +97,7 @@ const theme = useTheme()
 const isDark = computed(() => !!theme.global.current.value.dark)
 
 const spaces = ref([])
+const costsBySpaceId = ref({})
 const loading = ref(false)
 const search = ref('')
 
@@ -140,8 +144,24 @@ async function loadSpaces() {
   }
 }
 
+// Coûts staff agrégés (Σ EventStaffLine enabled × durée × taux), par espace.
+async function loadCosts() {
+  try {
+    const rows = await getHrStaffingCosts()
+    const map = {}
+    for (const r of rows) map[r.spaceId] = r
+    costsBySpaceId.value = map
+  } catch (_) {
+    // Best effort : les cartes affichent « — » si l'agrégat est indisponible.
+  }
+}
+
 onMounted(async () => {
-  await Promise.all([loadSpaces(), store.dispatch('hrSettings/fetchAll').catch(() => notify(t('hrSettingsLoadError')))])
+  await Promise.all([
+    loadSpaces(),
+    loadCosts(),
+    store.dispatch('hrSettings/fetchAll').catch(() => notify(t('hrSettingsLoadError'))),
+  ])
 })
 
 // ── Add drawers ───────────────────────────────────────────────────────────────

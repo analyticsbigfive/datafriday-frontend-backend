@@ -28,7 +28,7 @@
     <div class="hsc-stats">
       <div class="hsc-stat">
         <div class="hsc-stat__label"><Wallet :size="11" />{{ t('hrColStaffCostTotal') }}</div>
-        <div class="hsc-stat__value hsc-stat__value--muted">—</div>
+        <div class="hsc-stat__value" :class="staffCostTotal == null ? 'hsc-stat__value--muted' : 'hsc-stat__value--red'">{{ costTotalLabel }}</div>
       </div>
       <div class="hsc-stat">
         <div class="hsc-stat__label"><Target :size="11" />{{ t('hrColGoalPerTpe') }}</div>
@@ -36,7 +36,7 @@
       </div>
       <div class="hsc-stat hsc-stat--bl">
         <div class="hsc-stat__label"><Calendar :size="11" />{{ t('hrColStaffCostAvgEvent') }}</div>
-        <div class="hsc-stat__value hsc-stat__value--muted">—</div>
+        <div class="hsc-stat__value hsc-stat__value--muted">{{ costAvgLabel }}</div>
       </div>
       <div class="hsc-stat hsc-stat--bl">
         <div class="hsc-stat__label"><UserCog :size="11" />{{ t('hrColStaffPerZone') }}</div>
@@ -56,6 +56,9 @@ const props = defineProps({
   space: { type: Object, default: null },
   goalPerTpe: { type: Number, default: null },
   staffPerZoneManager: { type: Number, default: null },
+  // Coûts staff agrégés (GET /hr-settings/costs) — null tant qu'aucune ligne EventStaffLine.
+  staffCostTotal: { type: Number, default: null },
+  staffCostAvgEvent: { type: Number, default: null },
   isDark: { type: Boolean, default: false },
   fallbackImage: { type: String, default: 'https://cdn.vuetifyjs.com/images/cards/docks.jpg' },
 })
@@ -63,11 +66,12 @@ defineEmits(['edit'])
 
 const spaceImage = computed(() => props.space?.image || props.fallbackImage)
 
-const goalLabel = computed(() =>
-  props.goalPerTpe == null
-    ? '—'
-    : (Number(props.goalPerTpe) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }),
-)
+const eur = (v) =>
+  (Number(v) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+
+const goalLabel = computed(() => (props.goalPerTpe == null ? '—' : eur(props.goalPerTpe)))
+const costTotalLabel = computed(() => (props.staffCostTotal == null ? '—' : eur(props.staffCostTotal)))
+const costAvgLabel = computed(() => (props.staffCostAvgEvent == null ? '—' : eur(props.staffCostAvgEvent)))
 const staffLabel = computed(() =>
   props.staffPerZoneManager == null ? '—' : String(props.staffPerZoneManager),
 )

@@ -87,3 +87,16 @@ export async function deleteHrStaffRatio(id) {
     throw error
   }
 }
+
+// ── Coûts staff agrégés par espace (cartes HR Settings) ──────────────────────
+// Σ EventStaffLine enabled × durée × taux, groupé par espace (module staffing).
+
+export async function getHrStaffingCosts(spaceId) {
+  try {
+    const res = await api.get('/hr-settings/costs', { params: spaceId ? { spaceId } : {} })
+    return res.data?.data ?? []
+  } catch (error) {
+    console.error('[HR-SETTINGS API] Error fetching staffing costs:', error)
+    throw error
+  }
+}
