@@ -137,6 +137,45 @@ Un helper privé `resolveEventSalesScope` a été extrait de `getEventTimelineBa
 partagé par les deux méthodes : les deux lisent les mêmes tables sur les mêmes bornes, et un scope
 qui divergerait ferait afficher deux périmètres différents sur le même écran.
 
+## Constat sur données réelles (2026-07-29, 1ᵉʳ rendu)
+
+Le graphique a été affiché sur des données réelles le jour même. Il fonctionne, mais **« Autres »
+pèse 35,1 % (5 732 tx) — la plus grosse part du donut**, contre 10,5 % sur la capture de référence
+produit. Un bucket d'agrégation majoritaire rend le graphique difficile à lire.
+
+Deux causes, de nature différente :
+
+1. **Structurelle et attendue** — le nombre de combinaisons possibles croît de façon combinatoire
+   avec le nombre de catégories : une dizaine de catégories suffit à produire des centaines de
+   sous-ensembles, chacun rare. La traîne est intrinsèque à ce type de graphique. Palliatif appliqué
+   le jour même : le libellé porte désormais le **nombre de combinaisons agrégées**
+   (« Autres (N combinaisons) ») — sans quoi rien ne distingue un bucket cachant 3 combinaisons d'un
+   bucket en cachant 300.
+
+2. **Qualité de référentiel, corrigeable** — le référentiel `ProductCategory` du tenant observé
+   contient des **quasi-doublons** : « Soft » (721 tx) et « Softs » (583 tx) apparaissent comme deux
+   catégories distinctes. Conséquence directe et visible sur le même graphique : « Beer, Soft »
+   (514 tx) et « Beer, Softs » (376 tx) sont **le même panier réel scindé en deux**, et
+   « Soft, Softs » (149 tx) est un ticket contenant les deux variantes du même concept. Chaque paire
+   de doublons multiplie mécaniquement le nombre de combinaisons distinctes, donc gonfle la traîne
+   ET fragmente les parts nommées. (« Side » au singulier interroge aussi, la référence produit
+   affichant « Sides ».)
+
+Le point 2 n'est pas un défaut de ce graphique — c'est le graphique qui le **révèle**, parce qu'il
+est le premier à croiser les catégories entre elles. Aucun autre écran ne le ferait apparaître : les
+donuts existants agrègent par catégorie prise isolément, où un doublon passe pour deux lignes
+plausibles. Correction à faire côté données (fusion des catégories en doublon), pas côté code —
+voir la note de suivi ci-dessous.
+
+## À faire / à surveiller
+
+- **Fusionner les catégories en doublon** du référentiel (`Soft`/`Softs`, vérifier `Side`/`Sides` et
+  le reste). Non fait ici : c'est une migration de données métier, pas une modification de code, et
+  elle change l'affichage de tous les écrans qui lisent `ProductCategory`.
+- **Top-N** figé à 19 + « Autres » (calé sur la capture de référence). À 35 % dans le bucket, la
+  question « faut-il l'augmenter, ou rendre « Autres » dépliable ? » devient concrète — reliquat
+  ouvert de la question #42.
+
 ## Vérification
 
 **Tests automatisés** — 7 côté backend (`spaces.service.spec.ts`) : prédicats obligatoires

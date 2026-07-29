@@ -125,7 +125,7 @@ const totalTransactions = computed(() =>
 const groupOpts = computed(() => ({
   topN: TOP_N,
   unmatchedLabel: t('anUnmatchedItems'),
-  othersLabel: t('anTxMixOthers'),
+  othersLabel: (n) => `${t('anTxMixOthers')} (${n} ${t('anTxMixCombos')})`,
   palette: SHOP_COLORS,
 }))
 
