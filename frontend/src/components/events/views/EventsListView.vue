@@ -385,6 +385,7 @@ export default {
         { title: this.t('eventsList.colSpace'), key: 'spaceName' },
         { title: this.t('eventsList.colDate'), key: 'eventStartDate' },
         { title: this.t('eventsList.colName'), key: 'name' },
+        { title: this.t('eventsList.colStartDate'), key: 'eventStartDate' },
         { title: this.t('eventsList.colCategory'), key: 'eventCategory' },
         { title: this.t('eventsList.colRevenue'), key: 'revenue', align: 'end' },
         { title: 'Tickets Scanned', key: 'ticketsScanned', align: 'end' },
