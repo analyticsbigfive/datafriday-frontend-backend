@@ -923,7 +923,7 @@ export default {
           openingActName: this.newEvent.openingActName || undefined,
           location: this.newEvent.location,
           spaceName: this.newEvent.spaceName,
-          sessions: this.newEvent.sessions.map((s) => JSON.stringify(s)),
+          sessions: this.newEvent.sessions,
           numberOfSessions: Number(this.newEvent.numberOfSessions) || 1,
           hasOpeningAct: Boolean(this.newEvent.hasOpeningAct),
           hasIntermission: Boolean(this.newEvent.hasIntermission),

@@ -66,8 +66,8 @@ export const SETTINGS_NAVIGATION = [
         icon: 'UserCog',
         title: 'navEditHR',
         items: [
-          { title: 'navHrSuppliers', route: { path: '/hr', query: { tab: 'suppliers' } }, permission: 'menu.hr.manage' },
-          { title: 'navHrPositions', route: { path: '/hr', query: { tab: 'positions' } }, permission: 'menu.hr.manage' },
+          { title: 'navHrSuppliers', route: '/hr', permission: 'menu.hr.manage' },
+          { title: 'navHrPositions', route: '/hr/positions', permission: 'menu.hr.manage' },
         ],
       },
       {
