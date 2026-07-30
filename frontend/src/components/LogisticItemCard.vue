@@ -54,6 +54,15 @@
           {{ formatTotal(expected.packed, expected.loose) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span>
         </div>
       </div>
+      <!-- Colonne SÉPARÉE : besoin prédit Event Predict, brut. Ne se substitue pas
+           au stock attendu au-dessus — l'un dit ce qu'il y a, l'autre ce qu'il
+           faudrait pour le match. Le netting « à ramener » reste au Réarmement. -->
+      <div v-if="predictedNeed != null" class="lg-field-row lg-field-row-predicted">
+        <div class="lg-field-label">{{ t('logiColPredictedNeed') }}</div>
+        <div class="lg-field-value">
+          {{ formatUnits(predictedNeed) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span>
+        </div>
+      </div>
     </div>
 
     <div class="lg-item-actions">
@@ -82,6 +91,8 @@ const props = defineProps({
   /** { packed, loose } — stock attendu déjà calculé (ventes + casse de pack). */
   expected: { type: Object, required: true },
   unitsPerPack: { type: [Number, String], default: null },
+  /** Besoin prédit Event Predict en unités, ou null = rien de prédit (jamais 0). */
+  predictedNeed: { type: Number, default: null },
   usedInLabel: { type: String, default: '' },
   /** 'bad' (rupture) | 'warn' (stock bas) | 'ok'. */
   status: { type: String, default: 'ok' },
@@ -210,6 +221,11 @@ function formatTotal(packed, loose) {
 .lg-field-row + .lg-field-row-total { border-top: 1px solid var(--fb-border, #e5e7eb); }
 .lg-field-row-total .lg-field-label,
 .lg-field-row-total .lg-field-value { color: var(--fb-text, #212121); }
+/* Besoin prédit : visuellement détaché du stock réel au-dessus — c'est une
+   prévision, pas un niveau constaté. */
+.lg-field-row-predicted { border-top: 1px dashed var(--fb-border, #e5e7eb); }
+.lg-field-row-predicted .lg-field-label,
+.lg-field-row-predicted .lg-field-value { color: #B45309; }
 .lg-field-label {
   font-size: 0.68rem;
   color: var(--fb-muted, #6b7280);

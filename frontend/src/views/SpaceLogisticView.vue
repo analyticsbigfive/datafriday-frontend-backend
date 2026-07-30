@@ -315,6 +315,7 @@
                   :picture="resolveItemPicture(item)"
                   :expected="expectedDisplay(drillElement.element.id, item)"
                   :units-per-pack="unitsPerPackFor(drillElement.element.id, item)"
+                  :predicted-need="predictedNeedFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
                   @add="openMovement(drillElement.element, item, 'add')"
@@ -415,6 +416,7 @@ import { downloadReconciliationCsv } from '@/api/endpoints/logistics.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { ClipboardList, GitCompare, Download } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
+import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', icon: 'mdi-store' },
@@ -440,6 +442,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'live', labelKey: 'srToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
   { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift' },
@@ -500,6 +503,10 @@ export default {
       // Panneau accordéon « Type de denrée » du filtre gauche (ouvert par défaut).
       kindPanelOpen: true,
       sortMode: 'name',
+      // Besoin prédit Event Predict (version par défaut du match de l'URL) —
+      // colonne SÉPARÉE, brute : ce qu'il faut amener, sans netting du stock déjà
+      // là (le netting reste l'écran Réarmement). null hors contexte event.
+      predictedNeed: null,
       // Drill-in : entry { element, consolidatedInventory|storageInventory } ouvert, ou null (niveau liste)
       drillElement: null,
       // Popup mouvement
@@ -813,9 +820,33 @@ export default {
         ]
         if (this.canReconcile) tasks.push(this.store.dispatch('logistics/loadReconciliations', { spaceId }))
         await Promise.all(tasks)
+        // Après loadStock : le périmètre des éléments vient du stock chargé.
+        this.fetchPredictedNeed(eventId)
       } finally {
         this.loading = false
       }
+    },
+    /** Besoin prédit du match ciblé par `?event=`. Hors contexte event, la colonne
+     *  reste absente : un besoin sans match auquel le rattacher n'a pas de sens. */
+    async fetchPredictedNeed(eventId) {
+      this.predictedNeed = null
+      if (!eventId) return
+      const elements = [...this.shopEntries, ...this.storageEntries].map((e) => ({
+        id: e.element.id,
+        name: e.element.name,
+      }))
+      const { index } = await loadPredictedNeed({
+        eventId,
+        elements,
+        menuItems: this.store.state.analyse?.menuItems || [],
+        components: this.store.state.analyse?.components || [],
+      })
+      this.predictedNeed = index
+    },
+    /** Besoin prédit d'une denrée sur un élément — les lignes Logistic sont keyées
+     *  par NOM, la résolution par nom normalisé est donc le chemin nominal ici. */
+    predictedNeedFor(elementId, item) {
+      return lookupPredictedNeed(this.predictedNeed, elementId, item)
     },
     /** Dernier inventaire (tous events) → valeurs grisées + source du reset. */
     async loadLatestInventory(spaceId) {
@@ -1072,6 +1103,11 @@ export default {
       const ev = this.route?.query?.event || null
       if (tool.value === 'analyse') {
         this.router.push({ name: 'space-analyse', params: { spaceId } })
+      } else if (tool.value === 'live') {
+        // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=`, cf.
+        // router/index.js) : sans cette branche le `else` ci-dessous envoyait
+        // sur Analyse avec un toolbox inconnu.
+        this.router.push({ name: 'space-live', params: { spaceId } })
       } else if (tool.value === 'space-inventory') {
         this.router.push({ name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else if (tool.value === 'space-pre-inventory') {

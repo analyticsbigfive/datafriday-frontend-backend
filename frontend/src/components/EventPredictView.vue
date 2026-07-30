@@ -1280,11 +1280,37 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'epToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'epToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'epToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'live', labelKey: 'epToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
   { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'epToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'epToolLogistic', icon: 'mdi-forklift', permission: 'front.fb.logistic' },
   { value: 'restock', labelKey: 'epToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
 ];
+
+/**
+ * « Évènement déjà en cours (live) » — sa fenêtre a démarré. Un évènement live a
+ * déjà été prédit : il ne doit plus être proposé comme CIBLE dans EventPredict
+ * (il reste utilisable comme base de scoring, cf. `pastEventOptions`).
+ *
+ * On teste la fenêtre localement au lieu d'appeler `GET /spaces/:id/live-status` :
+ * cet endpoint exige la permission `front.fb.live`, que peut ne pas avoir un
+ * utilisateur d'EventPredict (403), et le calendrier ne doit pas dépendre d'un
+ * aller-retour réseau. Même instant de départ que `SpacesService.getLiveStatus`
+ * (`eventStartDate`), sans sa requête ventes.
+ *
+ * Sans `eventStartDate`, impossible de savoir qu'un évènement du jour a commencé
+ * (`eventDate` est à minuit) : on le GARDE, sinon prédire le matin un match du
+ * soir deviendrait impossible. Volontairement conservateur — on ne masque jamais
+ * un évènement encore prédictible.
+ *
+ * NB : évalué au calcul du computed, pas à la seconde. Un évènement qui démarre
+ * pendant que la page est ouverte disparaît au prochain rechargement des events.
+ */
+function isEventUnderway(ev) {
+  if (!ev?.eventStartDate) return false;
+  const start = new Date(ev.eventStartDate);
+  return !Number.isNaN(start.getTime()) && start.getTime() <= Date.now();
+}
 
 export default {
   name: "EventPredictView",
@@ -1603,6 +1629,8 @@ export default {
     futureEvents() {
       return this.events
         .filter((ev) => {
+          // Un évènement déjà live n'est plus une cible de prédiction (isEventUnderway).
+          if (isEventUnderway(ev)) return false;
           const d = parseDDMMYYYY(ev.eventDate);
           return d && d.getTime() >= this.today.getTime();
         })
@@ -1634,7 +1662,10 @@ export default {
             eventName: ev.eventName || ev.name || "Évènement",
             eventDate: ev.eventDate || "",
             showTime: ev.sessions?.[0]?.showTime || "",
-            isPast: d ? d.getTime() < todayTs : false,
+            // Un évènement déjà live compte comme PASSÉ : il sort de
+            // `futureEventOptions` (cibles sélectionnables) et reste dans
+            // `pastEventOptions` (bases de scoring). Cf. isEventUnderway.
+            isPast: isEventUnderway(ev) || (d ? d.getTime() < todayTs : false),
             label: `${ev.eventName || ev.name || ""} ${ev.eventDate || ""}`.trim(),
           };
         })
@@ -4427,6 +4458,12 @@ export default {
           if (tool.value === 'predict') nextQuery.toolbox = 'predict';
           this.$router.replace({ name: 'space-analyse', params: { spaceId }, query: nextQuery });
         } catch (_) { /* router not ready */ }
+        this.$emit('close');
+      } else if (tool.value === 'live') {
+        // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=` d'Analyse,
+        // cf. router/index.js) : il faut router par nom, sinon on atterrit sur
+        // Analyse avec un toolbox inconnu.
+        this.$router.push({ name: 'space-live', params: { spaceId } });
         this.$emit('close');
       } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic') {
         // Inventaire/Réarmement scopent sur la config de l'event. On la joint

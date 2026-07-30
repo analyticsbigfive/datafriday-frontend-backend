@@ -819,3 +819,98 @@ Tests : backend **41/41** (`npx jest src/features/inventory`, +11 cas), front **
 
 Rédaction § 13 : **Claude** (session de vérification puis correction 2026-07-24), méthode
 `modules/00_INDEX.md` (chaque affirmation ouverte dans le fichier cité).
+
+### 13.5 §13.4 n'a jamais été exécuté en production — et son étape 2 est fausse
+
+Constaté le 2026-07-30, remonté par l'utilisateur : `GET /inventory/:spaceId/reconciliations`
+renvoie **500** en production — « The column `StockReconciliation.meta` does not exist ». La
+migration `prisma/sql/2026-07-24_stockreconciliation_meta.sql` n'a jamais été jouée sur la base.
+Fiche [248-01](../bugs/248_01_stockreconciliation_meta_non_appliquee_prod.md).
+
+Deux corrections à §13.4 :
+
+- **L'étape 2 (`prisma generate`) n'est pas une étape sur Render.** Render construit depuis le
+  dépôt, dont le schéma déclare déjà `meta` : le client déployé sélectionne donc la colonne — c'est
+  exactement pour ça que la requête échoue. La regénération n'est utile qu'en local, quand
+  `node_modules/.prisma` date d'avant la colonne.
+- **Le mode de panne prédit est faux.** §13.4 annonçait « `meta` remonte `undefined`, aucune erreur,
+  juste un silence ». La réalité est un **P2022, donc un 500 dur** sur 6 requêtes, dont le reset
+  logistique et l'export.
+
+Le DDL doit passer par la connexion **directe** (`DIRECT_URL`, port 5432), pas par le pooler :
+`prisma db execute` résout `DATABASE_URL` et vise donc le pooler s'il n'est pas forcé. Commandes
+exactes dans la fiche.
+
+---
+
+## 14. Indices attendus — spécification complète (2026-07-30, JLH)
+
+Entretien de cadrage avec l'owner. Trois écrans, trois nombres, tous confirmés en séance.
+
+### 14.1 Les trois indices
+
+| Écran | Emplacement | Formule |
+|---|---|---|
+| Pre-event | sous **Packed** et sous **Loose** | post-event du match précédent ± mouvements Logistic (inchangé, § 8.3) |
+| Pre-event | à côté du **Total** de l'article | **besoin prédit** Event Predict (ventes prédites × ajustements, explosées au grain inventaire) |
+| Post-event | à côté du **Total** de l'article | comptage **pre-event du même match** + mouvements de la fenêtre − ventes |
+| Logistic | **colonne séparée**, sous le stock attendu | besoin prédit **brut** (le stock attendu `StockLevel − ventes` reste inchangé) |
+
+Le netting « besoin − stock restant = à ramener » n'est ajouté **nulle part** : il reste l'écran
+Réarmement. L'y dupliquer donnerait deux écrans répondant à la même question avec deux stocks de
+référence différents (comptage d'un côté, `StockLevel` de l'autre — le « piège n°1 » du domaine).
+
+### 14.2 Règles de calcul tranchées
+
+- **Source du prédit** : `EventPredictVersion.predictedRecords` de la version marquée **`isDefault`**,
+  lue par l'API (`GET /events/:eventId/predict-versions`, triée `isDefault desc`). Miroir
+  localStorage en repli si l'API tombe. Aucune version par défaut → « — » et une invite, jamais un 0
+  fabriqué. « La plus récente » a été écartée : le chiffre de référence changerait dès qu'un
+  scénario de test est sauvegardé.
+- **Fenêtre des mouvements de l'indice post-event** : `eventDate → eventEndDate + 1 j`, **la même
+  borne que les ventes** (`deriveEventConsumption`). Les deux termes de la formule doivent parler de
+  la même période, sinon le réarmement du match suivant gonfle l'indice.
+- **Mouvements `reason: SALE` exclus du rejeu.** `logistics.reset()` matérialise les ventes des
+  niveaux non couverts en mouvements `SALE` ; les compter en plus des ventes dérivées les déduirait
+  deux fois.
+- **Résultat non clampé.** Un indice négatif signale une incohérence de sources (vente non
+  rattachée, mouvement oublié, comptage pre-event faux) — c'est le signal utile pour le directeur de
+  site, un 0 le masquerait. Le clamp ≥ 0 du rejeu de mouvements, lui, reste.
+- **Permission** : `front.fb.preInventoryExpected` couvre les deux écrans (libellé élargi dans
+  `permission-catalog.ts:52`). Pas de nouvelle permission, pas de re-seed.
+- **Libellés distincts** (`invPredictedNeedHint` « Besoin prédit » / `invPostExpectedHint` « Doit
+  rester ») : les deux modes n'affichent pas la même grandeur, les légender du même mot fabriquerait
+  une fausse comparaison.
+
+### 14.3 Réconciliation — les deux documents complétés
+
+Chaque document n'avait que la moitié de la comparaison :
+
+- **post-event** avait le prédit et les ventes, pas les mouvements → un transfert entre PdV pendant
+  le match se lisait comme un manquant d'un côté et un surplus de l'autre. `leftFromSales` devient
+  `pre-event − vendu + mouvements` ; le terme est archivé par ligne (`movementUnits`) et sa
+  provenance dans `meta.movementsSource`. **Sans le paramètre, la formule historique est conservée
+  à l'identique** — les documents déjà en base ne changent pas de sens.
+- **pre-event** avait l'écart vs attendu logistique, pas vs Event Predict → `predictedUnits` et
+  `deltaVsPredicted` par ligne, `meta.predictedSource`. Le besoin prédit est **fourni par le
+  client** (le scénario vit côté front ; le réimplémenter côté serveur donnerait deux moteurs qui
+  divergeraient) et `redactPreEventDoc` masque les deux nouveaux champs pour les non-porteurs —
+  sinon `counted − deltaVsPredicted` reconstruirait le prédit.
+
+### 14.4 Diagnostic — plus de tirets muets
+
+`fetchPreExpected` avalait tout en `console.warn` : 403, 404, absence de comptage de référence et
+bug réel produisaient **le même écran de tirets**. C'est ce qui a rendu le symptôme d'origine
+(« je ne vois pas les quantités attendues ») indiagnosticable sans ouvrir l'onglet Réseau. L'écran
+nomme désormais la cause (`expectedUnavailable`), sauf pour `no-permission` : un utilisateur non
+habilité ne doit pas apprendre que la donnée existe (BUG-233).
+
+### 14.5 Vérifié contre l'API de production (2026-07-30)
+
+Sondes read-only, 401 = route existante, 404 = absente (calibrage : route bidon → 404) :
+`pre-event-baseline` **401**, `post-event-baseline` **404** (nouvelle route, à déployer),
+`pre-event` 401, `event-consumption` 401, `reconciliations` 401, `events/:id/predict-versions` 401,
+`logistics/:id/stock` 401. **Le backend de production est donc à jour** : le « — » observé en
+pre-event est un 403 ou une baseline vide, pas une route manquante.
+
+Rédaction § 14 : **JLH**.

@@ -45,9 +45,15 @@
           <span>{{ t('invMetricCounted') }}</span>
           <strong>{{ stats.countedItems }}</strong>
         </div>
+        <!-- « Total unités » a laissé la place à ce qui RESTE à faire : pendant un
+             comptage, le volume déjà saisi n'oriente aucune action. -->
         <div>
-          <span>{{ t('invAggTotalUnits') }}</span>
-          <strong>{{ formatUnits(stats.totalUnits) }}</strong>
+          <span>{{ t('invAggItemsToCount') }}</span>
+          <strong>{{ stats.itemsToCount }}</strong>
+        </div>
+        <div>
+          <span>{{ t('invAggShopsToCount') }}</span>
+          <strong>{{ stats.shopsToCount }}</strong>
         </div>
       </div>
 
@@ -444,7 +450,22 @@ export default {
       const totalItems = this.aggregatedInventory.length
       const countedItems = this.aggregatedInventory.filter((item) => item.isCounted).length
       const totalUnits = this.aggregatedInventory.reduce((sum, item) => sum + Number(item.totalUnits || 0), 0)
-      return { totalItems, countedItems, totalUnits }
+      // `shopsToCount` suit le MÊME périmètre que `totalItems` : en mode focus,
+      // `aggregatedInventory` est réduit au PdV compté, donc la tuile PdV doit
+      // l'être aussi — sinon « 3 articles / 12 PdV » pendant qu'on compte une
+      // seule boutique se lit comme un bug.
+      // NB : `uncountedShops` écarte les PdV sans article assigné (total > 0) —
+      // un PdV sans rien à compter n'est pas « à compter ».
+      const shopsToCount = this.focusShop
+        ? (countedItems < totalItems ? 1 : 0)
+        : this.uncountedShops.length
+      return {
+        totalItems,
+        countedItems,
+        totalUnits,
+        itemsToCount: Math.max(0, totalItems - countedItems),
+        shopsToCount,
+      }
     },
     completionPercent() {
       if (!this.stats.totalItems) return 0
@@ -499,7 +520,9 @@ export default {
 
 .agg-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 4 tuiles depuis l'ajout d'« Articles à compter » / « PdV à compter » :
+     2×2 sous 380px pour que les libellés ne se tronquent pas sur mobile. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   margin-top: 12px;
   overflow: hidden;
@@ -513,6 +536,10 @@ export default {
   min-width: 0;
   padding: 8px 7px;
   background: var(--fb-subtle, #fafafa);
+}
+
+@media (max-width: 380px) {
+  .agg-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .agg-stats span,

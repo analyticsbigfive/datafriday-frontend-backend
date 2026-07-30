@@ -35,9 +35,30 @@ export class EventsController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Taille de page' })
   @ApiQuery({ name: 'spaceId', required: false, description: 'Filtrer sur un space donné' })
+  @ApiQuery({
+    name: 'excludeSimulated',
+    required: false,
+    type: Boolean,
+    description:
+      "Exclure les événements créés par l'outil QA « simuler une vente » (Event.isSimulated). " +
+      'Passé par EventPredict et l\'écran Live ; la liste Events les garde visibles pour ' +
+      'permettre leur suppression manuelle.',
+  })
   @ApiResponse({ status: 200, description: 'Liste paginée des événements' })
-  findAll(@Req() req, @Query('page') page?: string, @Query('limit') limit?: string, @Query('spaceId') spaceId?: string) {
-    return this.eventsService.findAll(req.user.tenantId, +page || 1, +limit || 50, spaceId);
+  findAll(
+    @Req() req,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('spaceId') spaceId?: string,
+    @Query('excludeSimulated') excludeSimulated?: string,
+  ) {
+    return this.eventsService.findAll(
+      req.user.tenantId,
+      +page || 1,
+      +limit || 50,
+      spaceId,
+      excludeSimulated === 'true' || excludeSimulated === '1',
+    );
   }
 
   // NB: doit rester déclaré AVANT `GET /:id` pour ne pas être capturé par ce dernier.

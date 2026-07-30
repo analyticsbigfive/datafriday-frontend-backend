@@ -193,6 +193,7 @@ export const translations = {
     signOut: 'Sign out',
     // Sidebar gauche (MAIN_NAVIGATION)
     navMenu: 'Menu',
+    navTools: 'Tools',
     navAnalytics: 'Analytics',
     navSpaces: 'Spaces',
     navFb: 'F&B',
@@ -1860,6 +1861,15 @@ export const translations = {
     hdrSecPreInventory: 'Pre-event Inventory',
     invExpectedHint: 'Expected',
     invExpectedSource: 'Expected = previous post-event count + Logistic movements',
+    // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
+    // avant match on annonce un besoin, après match un reste.
+    invPredictedNeedHint: 'Predicted need',
+    invPostExpectedHint: 'Should remain',
+    invPredictNoDefaultVersion: 'No reference scenario — set a default version in Event Predict.',
+    invExpectedForbidden: 'Expected quantities are not enabled for your role.',
+    invExpectedNotDeployed: 'Expected quantities unavailable: server not up to date.',
+    invExpectedNoBaselinePre: 'No post-event count on the previous match — nothing to compare against.',
+    invExpectedNoBaselinePost: 'No pre-event count on this match — nothing to compare against.',
     preInvNoUpcoming: 'No upcoming event for this space — nothing to count ahead.',
     invRecoKindPre: 'Pre-event',
     invRecoKindPost: 'Post-event',
@@ -1921,6 +1931,7 @@ export const translations = {
     invToolAnalyse: 'Analyse',
     invToolPredict: 'Predict',
     invToolEventPredict: 'Event Predict',
+    invToolLive: 'Live',
     invToolInventory: 'Post-event Inventory',
     invToolLogistic: 'Logistic',
     invToolRestock: 'Restock',
@@ -1979,6 +1990,9 @@ export const translations = {
     logiPackagingOf: 'of',
     logiNumberOf: 'Number of',
     logiTotal: 'Total',
+    // Colonne SÉPARÉE du stock attendu : ce que le scénario Event Predict de
+    // référence demande d'amener sur ce PdV (brut, sans netting du stock déjà là).
+    logiColPredictedNeed: 'Predicted need',
     logiAvailable: 'Available',
     logiReason: 'Reason',
     logiReasonDelivery: 'Delivery',
@@ -2067,6 +2081,11 @@ export const translations = {
     invAggChooseEvent: 'Choose a reference event…',
     invAggTotalItems: 'Total items',
     invAggTotalUnits: 'Total units',
+    // Tuiles « ce qu'il reste à faire » — remplacent « Total unités » dans la
+    // colonne de droite (le volume déjà saisi n'oriente aucune action).
+    invAggItemsToCount: 'Items to count',
+    invAggShopsToCount: 'Shops to count',
+    invAggStoragesToCount: 'Storages to count',
     invAggItemsToRestock: 'Items to restock',
     invAggUnitsToRestock: 'Units to restock',
     invAggNoCount: 'No inventory counted yet',
@@ -2514,6 +2533,7 @@ export const translations = {
     epToolAnalyse: 'Analyse',
     epToolPredict: 'Predict',
     epToolEventPredict: 'Event Predict',
+    epToolLive: 'Live',
     epToolSpaceInventory: 'Post-event Inventory',
     epToolLogistic: 'Logistic',
     epToolRestock: 'Restock',
@@ -2842,6 +2862,7 @@ export const translations = {
     srToolAnalyse: 'Analyse',
     srToolPredict: 'Predict',
     srToolEventPredict: 'Event Predict',
+    srToolLive: 'Live',
     srToolSpaceInventory: 'Post-event Inventory',
     srToolLogistic: 'Logistic',
     srToolRestock: 'Restock',
@@ -4049,6 +4070,7 @@ export const translations = {
     signOut: 'Se déconnecter',
     // Sidebar gauche (MAIN_NAVIGATION)
     navMenu: 'Menu',
+    navTools: 'Outils',
     navAnalytics: 'Analytiques',
     navSpaces: 'Espaces',
     navFb: 'F&B',
@@ -5716,6 +5738,15 @@ export const translations = {
     hdrSecPreInventory: 'Inventaire pré-événement',
     invExpectedHint: 'Attendu',
     invExpectedSource: 'Attendu = comptage post-event précédent + mouvements Logistic',
+    // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
+    // avant match on annonce un besoin, après match un reste.
+    invPredictedNeedHint: 'Besoin prédit',
+    invPostExpectedHint: 'Doit rester',
+    invPredictNoDefaultVersion: 'Pas de scénario de référence — définissez une version par défaut dans Event Predict.',
+    invExpectedForbidden: 'Quantités attendues non activées pour votre rôle.',
+    invExpectedNotDeployed: 'Quantités attendues indisponibles : serveur non à jour.',
+    invExpectedNoBaselinePre: 'Aucun comptage post-event sur le match précédent — pas de base de comparaison.',
+    invExpectedNoBaselinePost: 'Aucun comptage pre-event sur ce match — pas de base de comparaison.',
     preInvNoUpcoming: 'Aucun événement à venir pour cet espace — rien à compter en avance.',
     invRecoKindPre: 'Pré-event',
     invRecoKindPost: 'Post-event',
@@ -5778,6 +5809,7 @@ export const translations = {
     invToolAnalyse: 'Analyse',
     invToolPredict: 'Prédire',
     invToolEventPredict: 'Préd. Événement',
+    invToolLive: 'Live',
     invToolInventory: 'Inventaire post-événement',
     invToolLogistic: 'Logistique',
     invToolRestock: 'Réarmement',
@@ -5836,6 +5868,9 @@ export const translations = {
     logiPackagingOf: 'de',
     logiNumberOf: 'Nombre de',
     logiTotal: 'Total',
+    // Colonne SÉPARÉE du stock attendu : ce que le scénario Event Predict de
+    // référence demande d'amener sur ce PdV (brut, sans netting du stock déjà là).
+    logiColPredictedNeed: 'Besoin prédit',
     logiAvailable: 'Disponible',
     logiReason: 'Raison',
     logiReasonDelivery: 'Livraison',
@@ -5924,6 +5959,11 @@ export const translations = {
     invAggChooseEvent: 'Choisir un évènement de référence…',
     invAggTotalItems: 'Total articles',
     invAggTotalUnits: 'Total unités',
+    // Tuiles « ce qu'il reste à faire » — remplacent « Total unités » dans la
+    // colonne de droite (le volume déjà saisi n'oriente aucune action).
+    invAggItemsToCount: 'Articles à compter',
+    invAggShopsToCount: 'PdV à compter',
+    invAggStoragesToCount: 'Stockages à compter',
     invAggItemsToRestock: 'Articles à réarmer',
     invAggUnitsToRestock: 'Unités à réarmer',
     invAggNoCount: 'Aucun inventaire compté',
@@ -6371,6 +6411,7 @@ export const translations = {
     epToolAnalyse: 'Analyse',
     epToolPredict: 'Prédire',
     epToolEventPredict: 'Préd. Événement',
+    epToolLive: 'Live',
     epToolSpaceInventory: 'Inventaire post-événement',
     epToolLogistic: 'Logistique',
     epToolRestock: 'Réarmement',
@@ -6699,6 +6740,7 @@ export const translations = {
     srToolAnalyse: 'Analyse',
     srToolPredict: 'Prédire',
     srToolEventPredict: 'Préd. Événement',
+    srToolLive: 'Live',
     srToolSpaceInventory: 'Inventaire post-événement',
     srToolLogistic: 'Logistique',
     srToolRestock: 'Réarmement',
