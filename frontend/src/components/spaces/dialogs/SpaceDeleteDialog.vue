@@ -1,6 +1,9 @@
 <template>
   <v-dialog :model-value="modelValue" max-width="440" @update:model-value="$emit('update:modelValue', $event)">
-    <div class="sdd-card">
+    <!-- Classe --dark posée sur la racine PROPRE du dialog : le contenu v-dialog
+         est téléporté hors du v-app, .v-theme--dataFridayDark n'y descend pas
+         (cause documentée BUG-198/199). -->
+    <div class="sdd-card" :class="{ 'sdd-card--dark': isDark }">
       <div class="sdd-card__head">
         <div class="sdd-card__icon-wrap">
           <Trash2 :size="20" color="#ff3131" />
@@ -42,6 +45,8 @@ export default {
     modelValue: { type: Boolean, default: false },
     space: { type: Object, default: null },
     loading: { type: Boolean, default: false },
+    // Thème sombre : passé par SpaceListView (BUG-247-01).
+    isDark: { type: Boolean, default: false },
   },
   emits: ['update:modelValue', 'confirm'],
   setup() {
@@ -132,4 +137,17 @@ export default {
   box-shadow: 0 4px 12px rgba(255, 49, 49, 0.25);
 }
 .sdd-btn--danger:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(255, 49, 49, 0.4); }
+
+/* ── Dark (BUG-247-01) — palette slate (parité SpaceItem/HrSpaceCard). Overrides
+   uniquement, mode clair inchangé ; rouge #ff3131 identique dans les 2 thèmes. ── */
+.sdd-card--dark { background: #1e293b; }
+.sdd-card--dark .sdd-card__icon-wrap { background: rgba(255, 49, 49, .12); }
+.sdd-card--dark .sdd-card__title { color: #f9fafb; }
+.sdd-card--dark .sdd-card__sub { color: #94a3b8; }
+.sdd-card--dark .sdd-card__close { background: rgba(255, 255, 255, .08); color: #94a3b8; }
+.sdd-card--dark .sdd-card__close:hover { background: rgba(255, 255, 255, .14); }
+.sdd-card--dark .sdd-card__body { color: #e2e8f0; }
+.sdd-card--dark .sdd-card__foot { background: #0f172a; border-top-color: rgba(255, 255, 255, .08); }
+.sdd-card--dark .sdd-btn--cancel { background: rgba(255, 255, 255, .08); color: #e2e8f0; border-color: rgba(255, 255, 255, .14); }
+.sdd-card--dark .sdd-btn--cancel:hover { background: rgba(255, 255, 255, .14); }
 </style>

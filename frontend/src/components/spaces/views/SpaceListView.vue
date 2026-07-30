@@ -152,6 +152,7 @@
               :space="space"
               :edit-space="editSpace"
               :delete-space="askDeleteSpace"
+              :is-dark="isDark"
             />
           </div>
 
@@ -225,6 +226,7 @@
       v-model="showDeleteConfirm"
       :space="selectedSpace"
       :loading="deleting"
+      :is-dark="isDark"
       @confirm="doDeleteSpace"
     />
 

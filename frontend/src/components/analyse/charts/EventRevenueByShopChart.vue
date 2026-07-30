@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" :class="embedded ? 'pa-0 mb-0' : 'pa-5 mb-4'">
+  <v-card flat rounded="lg" :class="[embedded ? 'pa-0 mb-0' : 'pa-5 mb-4', { 'erbs--dark': isDark }]">
     <!-- Header : titre + dropdown agrégation (Per Event / Monthly / Quarterly / Yearly) -->
     <div class="d-flex align-center mb-3 flex-wrap ga-2">
       <span class="chart-title">{{ chartTitle }}</span>
@@ -142,10 +142,15 @@ import { SHOP_COLORS } from '@/constants/analyseColors'
 import { parseEventDate, formatDateShort } from '@/utils/dateFr'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 import { useI18n } from '@/i18n/useI18n'
+import { useTheme } from 'vuetify'
 
 registerChartJs()
 
 const { t } = useI18n()
+
+// Thème sombre (BUG-247-01) — pattern isDark → classe racine (cf. tables/MenuItemsByShopTable).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Part « Non rattachés » (articles sans correspondance catalogue) — gris neutre.
 const UNATTACHED_COLOR = '#9CA3AF'
@@ -761,5 +766,26 @@ function onAverageClick() {
   background-color: #F3F4F6 !important;
   color: #111827 !important;
   font-weight: 600;
+}
+
+/* ── Dark (BUG-247-01) — pills toolbar : mêmes règles !important que le clair,
+   déclarées après → gagnent à spécificité égale. Overrides uniquement. ── */
+.erbs--dark .chart-toolbar :deep(.v-btn) {
+  background-color: #1e293b !important;
+  border-color: rgba(255, 255, 255, .12) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+}
+.erbs--dark .chart-toolbar :deep(.v-btn:hover) {
+  background-color: #24324a !important;
+  border-color: rgba(255, 255, 255, .2) !important;
+}
+.erbs--dark .chart-toolbar :deep(.v-btn-toggle) {
+  background-color: #1e293b;
+  border-color: rgba(255, 255, 255, .12);
+}
+.erbs--dark .chart-toolbar :deep(.v-btn-toggle .v-btn--active) {
+  background-color: rgba(255, 255, 255, .12) !important;
+  color: #f9fafb !important;
 }
 </style>

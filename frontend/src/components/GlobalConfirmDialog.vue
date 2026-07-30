@@ -1,6 +1,8 @@
 <template>
   <v-dialog v-model="state.show" max-width="380" persistent>
-    <div class="gcd-card">
+    <!-- Classe --dark sur la racine PROPRE : contenu v-dialog téléporté hors du
+         v-app, .v-theme--dataFridayDark n'y descend pas (BUG-198/199, BUG-247-01). -->
+    <div class="gcd-card" :class="{ 'gcd-card--dark': isDark }">
       <!-- Icon + text -->
       <div class="gcd-body">
         <div class="gcd-icon" :style="{ background: iconBg }">
@@ -43,15 +45,23 @@
 
 <script>
 import { useConfirmDialogState } from '@/composables/useConfirmDialog';
+import { useTheme } from 'vuetify';
 
 export default {
   name: 'GlobalConfirmDialog',
+  setup() {
+    const { global } = useTheme();
+    return { theme: global };
+  },
   data() {
     return {
       state: useConfirmDialogState(),
     };
   },
   computed: {
+    isDark() {
+      return this.theme.current.value.dark;
+    },
     // 'primary', 'deep-orange', 'warning'… sont des NOMS de couleur Vuetify, PAS des
     // couleurs CSS : passés bruts en `background`, le bouton devient sans fond (texte
     // blanc invisible sur carte blanche). On résout tout nom connu vers un hex.
@@ -185,4 +195,12 @@ export default {
   background: #e5e7eb;
   color: #374151;
 }
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
+   Boutons save/confirm : fonds inline résolus par resolveColor, inchangés. ── */
+.gcd-card--dark { background: #1e293b; }
+.gcd-card--dark .gcd-title { color: #f9fafb; }
+.gcd-card--dark .gcd-message { color: #94a3b8; }
+.gcd-card--dark .gcd-btn--cancel { background: rgba(255, 255, 255, .08); color: #94a3b8; }
+.gcd-card--dark .gcd-btn--cancel:hover { background: rgba(255, 255, 255, .14); color: #e2e8f0; }
 </style>

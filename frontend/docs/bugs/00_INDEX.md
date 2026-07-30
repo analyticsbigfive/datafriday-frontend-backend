@@ -240,7 +240,7 @@
 | [222](222_inventory_reconciliation_fallback_plus_vieux_match.md) | Réconciliation d'inventaire : fallback `pastEvents[0]` sur tri ascendant → rattachée au plus VIEUX match passé au lieu du dernier fini | 🟢 Corrigé | 🟠 | Stock |
 | [223](223_analyse_donut_zone_vide_pendant_contexte_differe.md) | Analyse : donut « Par zone » affiché vide (disque blanc) tant que le contexte PdV différé n'est pas chargé | 🟢 Corrigé | 🟢 | Analyse & agrégation |
 | [224](224_analyse_predict_outil_inventaire_pre_evenement_absent.md) | « Inventaire pré-événement » absent du sélecteur Outils sur Analyse et Prédire (`FilterPanel` jamais mis à jour) | 🟢 Corrigé | 🟢 | Analyse & agrégation / Stock |
-| [225](225_analyse_predict_config_par_defaut_et_dedup_contexte.md) | Analyse/Prédire : aucune config pré-sélectionnée → union « All Configurations » (fan-out max) par défaut ; + contexte PdV dispatché 2× | 🟢 Corrigé | 🟠 | Analyse & agrégation |
+| [225](225_analyse_predict_config_par_defaut_et_dedup_contexte.md) | Analyse/Prédire : aucune config pré-sélectionnée → union « All Configurations » (fan-out max) par défaut ; + contexte PdV dispatché 2× | 🟡 Pré-sélection ANNULÉE (décision 2026-07-30) — dédup contexte PdV conservée | 🟠 | Analyse & agrégation |
 | [226](226_chargement_analyse_dedup_catalogues_et_phase2_en_vagues.md) | Chargement Analyse : `market-prices`/`packaging` sans dédup in-flight (2× ~60 s), phase 2 monolithique (graphes bloqués par les catalogues recette), contexte PdV rebâti à chaque demande | 🟢 Corrigé | 🟠 | Analyse & agrégation / Stock |
 | [227](227_shop_items_photo_base64_dupliquee_par_pdv.md) | `shop-items` : 5,6 Mo / 53 s — une photo base64 de 915 ko réémise une fois par PdV (14 Mo émis, 38 ko utiles), jamais lue côté front | 🟢 Corrigé | 🔴 | Analyse & agrégation / Stock / Menu |
 | [228](228_inventory_snapshot_kind_rejete_backend_perime.md) | Snapshot inventaire : `POST /inventory` 400 « property kind should not exist » — backend exécutant un build antérieur au DTO (`6491562`), aucun code fautif, fix = redéployer | ⚪ Diagnostiqué | 🔴 | Stock |
@@ -299,6 +299,19 @@ parallélisation de la bissection de collecte Weezevent, jusque-là strictement 
 | [244-01](244_01_timeline_analyse_filtres_non_appliques.md) | Timeline Analyse : **5 filtres sur 6** ne l'atteignaient pas (cliquer un article dans « Item performance » ne changeait rien), et 2 des 3 props effectivement passées étaient **inertes** — gardées par des maps `null` jamais fournies. `eventTimelineData` est un fetch indépendant qui ne traversait aucun prédicat | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
 | [245-01](245_01_donut_categories_par_transaction.md) | **Feature** — donut « répartition des catégories de produits par transaction » (+ drill-down au grain article). Nouvel endpoint `GET /spaces/:id/transaction-baskets` : seule lecture du code qui préserve l'identité du panier. Absorbe la demande « Rapport Type de transaction » (`transactionType` n'existe nulle part). Filtres en sémantique « contient » (#42 tranchée). **Non mergeable** tant que #41 (remboursements) est ouverte | 🟡 Implémenté non déployé | — | Analyse & agrégation |
 | [246-01](246_01_referentiels_pagination_bloquee_page_1.md) | Référentiels : **11 écrans bloqués sur la page 1** — `items-length` posé sur `v-data-table` alors que c'est une prop de `v-data-table-server`, donc ignorée : pagination client sur la seule page reçue (« 1-10 of 10 » vs « 41 Total Categories »), tout le référentiel au-delà de la 10ᵉ ligne inatteignable. Régression du correctif BUG-171 | 🟡 Corrigé non déployé | 🟠 | Menu & recettes / Achats & référentiels |
+| [247-01](247_01_analyse_kpi_header_ca_shop_level_puis_item_level.md) | Bande KPI du header : REVENUE affiche **243 428,69 €** (repli shop-level) puis **173 739,07 €** (item-level) — **28,6 % d'écart** publié comme une valeur finale, sans état de chargement. Racine : **les deux lectures ne rattachent pas les ventes de la même façon** — shop-level par l'id d'event figé dans `SpaceRevenueMinuteAgg`, item-level par une **fenêtre de dates recalculée** sur `Event."eventDate"`. Une date d'event mal saisie efface donc tout le CA de cet event des vues item-level, sans erreur (« Match 10 Mai », `eventDate` au 31/05 pour des ventes du 10/05 : 47 579,50 € invisibles ; date corrigée le 2026-07-30, +41 618,53 € HT récupérés). Au passage : cette colonne contient un `Event.id` DataFriday malgré son nom, la RPC ne marche que grâce à ce décalage — à ne pas « corriger » d'un seul côté. Explique aussi le filtre Configuration perçu comme inerte : les events retirés pèsent 41 % du shop-level mais 0,65 % de l'item-level. S'ajoutent les bugs backend #2/#3 du module 02 (TTC→HT, périmètres) | 🔴 Non corrigé (diagnostic runtime établi) | 🔴 | Analyse & agrégation |
+
+**BUG-247-01 ajouté le 2026-07-30** (signalé par l'utilisateur sur la bande KPI d'Analyse, puis
+instrumenté en navigateur : traces `[DIAG cfg]` temporaires dans `analyse.js` / `AnalyseView.vue`, à
+retirer avec le correctif). Le symptôme lu comme « les widgets se recalent sur une configuration par
+défaut » n'a rien à voir avec le filtre Configuration : `cfg` reste `null` et
+`eventsInActiveConfiguration` vaut 18 = tous les events, du début à la fin de la séquence. C'est
+`kpiRecords` qui change de source (repli shop-level → item-level) entre deux valeurs qui divergent de
+28,6 %. La pré-sélection de config (BUG-225) a bien été retirée le même jour, mais sur décision
+utilisateur — ce n'était pas la cause de ce symptôme-ci. Le second symptôme rapporté (« changer la
+configuration ne bouge pas les widgets ») a été reproduit et **infirmé** : le filtre atteint bien le
+store et le périmètre passe de 16 à 10 events, mais les events retirés ne portent que 0,65 % des
+records item-level — même racine, vue sous un autre angle.
 
 **BUG-246-01 ajouté le 2026-07-29** (signalé par l'utilisateur : des catégories visibles dans le
 formulaire d'édition d'un article étaient absentes de l'écran Product Categories. Ce n'était pas un
@@ -314,6 +327,7 @@ serveur : tous les endpoints ordonnent en dur par nom sans accepter de paramètr
 ne triait donc que les 10 lignes affichées — un tri qui mentait sur son périmètre. **Validation en
 navigateur requise** : ce défaut est invisible en test unitaire, c'est ce qui l'a laissé passer.)
 | [246-02](246_02_eventformdrawer_sessions_double_stringify.md) | `EventFormDrawer.vue` : chaque session ré-encodée en JSON avant l'envoi (double-stringify), sessions perdues hors du formulaire (export CSV) | 🟢 Corrigé | 🟠 | Événements |
+| [247-01](247_01_darkmode_cartes_espaces_homepage.md) | Dark mode : cartes d'espaces blanches sur la homepage `/spaces` — `SpaceItem.vue` sans moitié sombre (le parent avait `isDark` sans le passer) + balayage : 12 composants « littéraux clairs, zéro affordance sombre » corrigés (shell global, RH, Analyse, Data integration), vague 1 répliquée dans `datafriday-web` | 🟡 Corrigé non déployé | 🟡 | Espaces & builder (transverse) |
 
 **BUG-245-01 ajouté le 2026-07-29** (feature, pas défaut : donut « catégories de produits par
 transaction » demandé avec capture de référence. Absorbe la demande séparée « Rapport Type de
@@ -398,7 +412,10 @@ sans sentinelle de repli (BUG-223) ; la liste « Outils » d'Analyse/Prédire (`
 partagée par les deux modes) n'avait jamais reçu l'entrée `space-pre-inventory` ajoutée sur les 4
 autres écrans (BUG-224) ; et le landing par défaut ne pré-sélectionnait aucune configuration,
 déclenchant systématiquement le fan-out le plus large du module (BUG-225, règle « 1re config avec
-events » tranchée le jour même avec l'utilisateur).
+events » tranchée le jour même avec l'utilisateur). **La pré-sélection de BUG-225 a été annulée le
+2026-07-30** sur décision de l'utilisateur (« il ne devrait pas y avoir de config par défaut
+sélectionnée ») : on atterrit de nouveau sur « All Configurations », l'union restant différée après
+le premier rendu. Le point 2 de la fiche (dédup du contexte PdV) reste en place.
 
 **222** (ajouté le 2026-07-20, découvert en vérifiant la logique Pre/Post-event contre la spec
 métier) : voir [`../modules/10_POST_EVENT_INVENTORY.md`](../modules/10_POST_EVENT_INVENTORY.md) §

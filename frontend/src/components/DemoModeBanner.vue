@@ -2,7 +2,7 @@
   <!-- Pilule flottante globale : toggle démo + indicateur permanent.
        ON  → pilule orange « Mode démo actif » (notification persistante).
        OFF → pilule neutre « Démo ». -->
-  <div class="demo-pill" :class="{ 'demo-pill-on': demoOn }">
+  <div class="demo-pill" :class="{ 'demo-pill-on': demoOn, 'demo-pill--dark': isDark }">
     <v-icon v-if="demoOn" size="16" class="demo-pill-icon">mdi-flask-outline</v-icon>
     <span class="demo-pill-label">{{ demoOn ? 'Mode démo actif' : 'Démo' }}</span>
     <v-switch
@@ -19,11 +19,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
+import { useTheme } from 'vuetify'
 import { isDemoMode, enableDemoMode, disableDemoMode } from '@/utils/demoMode'
 
 const demoOn = ref(isDemoMode())
+// Thème sombre (BUG-247-01) — pilule à l'état OFF seulement, l'état ON garde
+// son orange dans les deux thèmes.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 function toggleDemo(value) {
   // enable/disable rechargent la page (?demo=1 / ?demo=0) → seed/reset propre.
@@ -84,4 +89,14 @@ onMounted(() => {
   flex: 0 0 auto;
 }
 .demo-pill-switch :deep(.v-selection-control) { min-height: 0; }
+
+/* Dark (BUG-247-01) — état OFF uniquement, gardé par :not(.demo-pill-on) pour
+   ne pas dépendre de l'ordre de cascade ; l'état ON garde son orange dans les
+   deux thèmes. Clair inchangé. */
+.demo-pill--dark:not(.demo-pill-on) {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.demo-pill--dark:not(.demo-pill-on) .demo-pill-label { color: #cbd5e1; }
 </style>
