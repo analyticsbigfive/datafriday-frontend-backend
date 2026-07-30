@@ -387,6 +387,51 @@ plus largement.
 `with-ingredients`, `:id`), `PATCH`/`DELETE /market-prices/:id`, `DELETE item/:itemName`.
 Taxonomie dans un contrôleur séparé `market-price-taxonomy.controller.ts`.
 
+### Import/Export CSV — deux formats coexistants
+
+Deux formats sont acceptés en import (`MarketPriceCsvImportDrawer.vue`) et produits en export
+(`MarketPriceListView.vue`) — aucun n'a besoin de migration Prisma, les deux réutilisent les
+mêmes champs `MarketPrice`/`Supplier` déjà en base :
+
+- **Format plat** (historique) : 1 ligne CSV = 1 `MarketPrice` (un item avec 3 fournisseurs = 3
+  lignes qui répètent les infos de l'item). Bouton "CSV" / "Télécharger le modèle".
+- **Format packé** (ajouté pour la reprise d'un jeu de données historique — voir
+  `frontend/docs/example/market-prices-2026-07-29.csv`, 368 articles réels) : 1 ligne CSV = 1
+  Item, avec une colonne `Market Prices` qui empile tous ses prix fournisseurs séparés par `|`,
+  chaque prix ayant ses sous-champs séparés par `>` (ordre exact : `PACKED_SUBFIELD_ORDER` dans
+  `MarketPriceCsvImportDrawer.vue`). Bouton "CSV (par article)" / "Télécharger le modèle (par
+  article)". Le format est **auto-détecté** à l'upload (présence d'une colonne « Market Prices »)
+  — pas de bascule manuelle.
+
+Champs niveau Item (une fois par ligne, appliqués à tous ses prix) : `Item Name` → `itemName`
+(c'est aussi la seule vraie clé — il n'existe pas de table "Item" séparée en base, `Item ID` est
+donc informatif seulement et ignoré à l'import), `Good Type`, `Ingredient Category` → `category`,
+`Recipe Unit`, `Purchase Unit Conversion`. Par prix fournisseur (segment `>`-séparé) : `Market
+Price ID` → `id` (upsert, voir ci-dessous), `Supplier Item Name` → `supplierItem`, `Supplier ID` →
+`supplierId` (généralement un id d'un autre système — jamais utilisé tel quel comme FK, seule la
+résolution par **nom** alimente `supplierId`, avec auto-création si besoin, comme le format plat),
+`Supplier Name`, `Good Type` (prioritaire sur le niveau item), `Packaging`/`Number of
+units`/`Unit`/`Market Price Amount` (Purchase), `Packaging` (Inventory), `Packed Units`/`Number of
+units`/`Length`/`Width`/`Height` (Packing). Pas de colonne Industrial dans ce format (absent du
+sous-enregistrement) — `industrialId` reste non renseigné pour un import packé.
+
+**⚠️ Conflation connue, volontairement non corrigée ici** : "Inventory Information > Number of
+units" et "Packing Information > Packed Units" pointent vers le **même champ** `packedUnits` en
+base (`MarketPriceEditSupplierDrawer.vue` lie `form.packedUnits` aux deux sections) — ce ne sont
+pas deux valeurs distinctes aujourd'hui, contrairement à ce que suggère le format cible. L'import
+prend "Packing > Packed Units" comme canonique et ignore "Inventory > Number of units" ; l'export
+écrit la même valeur `packedUnits` aux deux positions.
+
+**Upsert par `Market Price ID`** (`bulkCreate()`, `market-prices.service.ts`) : si une ligne du
+format packé fournit un `id` qui correspond à un `MarketPrice` existant de ce tenant, cette ligne
+est **mise à jour** au lieu d'être recréée/dédoublonnée — permet le cycle export (avec ids réels
+de cette base) → édition externe (tableur) → réimport. Un `id` présent mais inconnu du tenant (cas
+normal du tout premier import d'un fichier legacy dont les ids viennent d'un autre système, ex.
+`1774987340963-9uit3bt4d`) tombe silencieusement dans le flux de création + dédoublonnage
+existant — l'id fourni est simplement ignoré, un nouveau `cuid()` est généré. La réponse de
+`POST /market-prices/import` inclut désormais `updated: [...]` en plus de `created`/`skipped`/
+`errors`.
+
 ---
 
 ## Brand / DisplayName / Industrial / PackingType — référentiels plats

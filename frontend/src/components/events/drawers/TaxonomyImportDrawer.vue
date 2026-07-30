@@ -80,7 +80,7 @@
             <v-chip v-if="field.required" size="x-small" color="error" variant="flat" class="ml-1">requis</v-chip>
           </div>
           <v-select v-model="mapping[field.key]" :items="columnOptions"
-            item-title="title" item-value="value"
+            item-title="title" item-value="value" :menu-props="{ zIndex: 2500 }"
             variant="outlined" density="compact" rounded="lg" hide-details style="flex:1;" />
         </div>
       </div>
@@ -100,7 +100,7 @@
           </div>
           <ArrowRight :size="14" style="color:#9ca3af;flex-shrink:0;" />
           <v-select v-model="typeValueMap[val]" :items="eventTypes"
-            item-title="name" item-value="id" placeholder="Ignorer"
+            item-title="name" item-value="id" placeholder="Ignorer" :menu-props="{ zIndex: 2500 }"
             variant="outlined" density="compact" rounded="lg" hide-details clearable style="flex:1;" />
         </div>
         <v-alert v-if="!uniqueTypeValues.length" type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>
@@ -124,7 +124,7 @@
           </div>
           <ArrowRight :size="14" style="color:#9ca3af;flex-shrink:0;" />
           <v-select v-model="categoryValueMap[val]" :items="eventCategories"
-            item-title="name" item-value="id" placeholder="Ignorer"
+            item-title="name" item-value="id" placeholder="Ignorer" :menu-props="{ zIndex: 2500 }"
             variant="outlined" density="compact" rounded="lg" hide-details clearable style="flex:1;" />
         </div>
         <v-alert v-if="!uniqueCategoryValues.length" type="info" variant="tonal" density="compact" rounded="lg">Aucune valeur trouvée.</v-alert>

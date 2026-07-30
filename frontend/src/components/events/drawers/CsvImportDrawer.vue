@@ -142,7 +142,8 @@
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
             <v-select
-              v-model="currentValueStep.valueMap[val]"
+              :model-value="currentValueStep.valueMap[val]"
+              @update:model-value="onValueSelect(val, $event)"
               :items="currentValueStep.items"
               item-title="name"
               item-value="id"
@@ -154,7 +155,20 @@
               clearable
               :menu-props="{ class: 'elv-select-overlay' }"
               class="elv-mapping-select"
-            />
+            >
+              <template #item="{ item, props }">
+                <v-list-item
+                  v-bind="props"
+                  :style="item.raw.id === CREATE_SENTINEL
+                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
+                    : {}"
+                >
+                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
+                    <Plus :size="14" />
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -197,12 +211,13 @@
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
             <v-select
-              v-model="configValueMap[pair.key]"
-              :items="configsForSpaceRaw(pair.spaceRaw)"
+              :model-value="configValueMap[pair.key]"
+              @update:model-value="onConfigPairSelect(pair, $event)"
+              :items="configSelectItems(pair.spaceRaw)"
               item-title="name"
               item-value="id"
-              :placeholder="configsForSpaceRaw(pair.spaceRaw).length ? 'Ignorer' : 'Aucune config. pour cet espace'"
-              :disabled="configsForSpaceRaw(pair.spaceRaw).length === 0"
+              :placeholder="spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé'"
+              :disabled="!spaceValueMap[pair.spaceRaw]"
               variant="outlined"
               density="compact"
               rounded="lg"
@@ -210,7 +225,20 @@
               clearable
               :menu-props="{ class: 'elv-select-overlay' }"
               class="elv-mapping-select"
-            />
+            >
+              <template #item="{ item, props }">
+                <v-list-item
+                  v-bind="props"
+                  :style="item.raw.id === CREATE_SENTINEL
+                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
+                    : {}"
+                >
+                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
+                    <Plus :size="14" />
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -241,9 +269,28 @@
 
       <!-- ── Step 8 : Résultats ── -->
       <div v-if="step === 8">
-        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12">
-          <v-progress-circular indeterminate color="#ff3131" size="48" class="mb-4" />
+        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12" style="gap: 4px;">
+          <v-progress-circular
+            :model-value="importTotal ? (importedCount / importTotal) * 100 : 0"
+            :indeterminate="!importTotal"
+            color="#ff3131"
+            size="48"
+            width="4"
+            class="mb-4"
+          />
           <div class="text-body-2 text-medium-emphasis">Importation en cours...</div>
+          <div v-if="importTotal" class="text-caption text-medium-emphasis">
+            {{ importedCount }} / {{ importTotal }} événements traités
+          </div>
+          <v-progress-linear
+            v-if="importTotal"
+            :model-value="(importedCount / importTotal) * 100"
+            color="#ff3131"
+            rounded
+            height="6"
+            style="max-width: 280px; width: 100%;"
+            class="mt-3"
+          />
         </div>
         <template v-else-if="importResults">
           <v-alert v-if="importResults.success > 0" type="success" variant="tonal" rounded="lg" class="mb-4">
@@ -326,17 +373,130 @@
       </div>
     </template>
   </EventDrawerShell>
+
+  <!-- Dialog de création inline d'une valeur manquante (espace/type/catégorie/sous-catégorie/
+       configuration), ouvert en sélectionnant l'entrée "Ajouter..." d'un select de mapping. -->
+  <!-- class="elv-select-overlay" : sans ça ce dialog hérite du z-index naturel (~2000) de
+       Vuetify, INFÉRIEUR au 2200 forcé sur EventDrawerShell (BUG-148/BUG-241 documentés plus
+       bas dans ce fichier) — il s'ouvrirait invisible, masqué sous le drawer. Même correctif
+       que tous les `v-select` de ce composant. -->
+  <v-dialog v-model="createDialog.open" max-width="420" :persistent="createDialog.loading" class="elv-select-overlay">
+    <v-card rounded="lg">
+      <v-card-title class="d-flex align-center" style="gap: 8px;">
+        <Plus :size="18" />
+        {{ createDialogTitle }}
+      </v-card-title>
+      <v-card-text>
+        <v-alert v-if="createDialog.error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
+          {{ createDialog.error }}
+        </v-alert>
+
+        <div class="text-body-2 font-weight-medium mb-1">Nom</div>
+        <v-text-field
+          v-model="createDialog.name"
+          variant="outlined"
+          density="compact"
+          rounded="lg"
+          hide-details
+          autofocus
+          class="mb-4"
+          @keydown.enter="confirmCreateDialog"
+        />
+
+        <template v-if="createDialog.kind === 'eventCategory' || createDialog.kind === 'eventSubcategory'">
+          <div class="text-body-2 font-weight-medium mb-1">{{ createDialogParentLabel }}</div>
+          <v-alert v-if="createDialogParentOptions.length === 0" type="warning" variant="tonal" density="compact" rounded="lg">
+            {{ createDialogParentEmptyMessage }}
+          </v-alert>
+          <v-select
+            v-else
+            v-model="createDialog.parentId"
+            :items="createDialogParentOptions"
+            item-title="name"
+            item-value="id"
+            variant="outlined"
+            density="compact"
+            rounded="lg"
+            hide-details
+            :menu-props="{ class: 'elv-select-overlay' }"
+          />
+          <v-checkbox
+            v-if="createDialog.kind === 'eventCategory'"
+            v-model="createDialog.hasHomeTeam"
+            label="Équipe à domicile"
+            density="compact"
+            hide-details
+            class="mt-2"
+          />
+        </template>
+
+        <template v-else-if="createDialog.kind === 'configuration'">
+          <div class="text-body-2 font-weight-medium mb-1">Espace</div>
+          <div class="text-body-2 text-medium-emphasis">{{ createDialogConfigSpaceName }}</div>
+        </template>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="outlined" rounded="lg" size="small" class="text-none" :disabled="createDialog.loading" @click="createDialog.open = false">
+          Annuler
+        </v-btn>
+        <v-btn
+          color="#ff3131"
+          variant="flat"
+          rounded="lg"
+          size="small"
+          class="text-white text-none"
+          :loading="createDialog.loading"
+          :disabled="!canConfirmCreateDialog"
+          @click="confirmCreateDialog"
+        >
+          Créer
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- Espace : vrai wizard de création (spaceType + adresse), pas le dialog minimal ci-dessus —
+       voir le commentaire sur son import dans le <script>. -->
+  <SpaceCreateDrawer
+    v-model="spaceCreateDrawer.open"
+    :is-dark="isDark"
+    @created="onSpaceCreated"
+  />
 </template>
 
 <script>
-import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags } from 'lucide-vue-next';
-import { createEvent } from '@/api/endpoints/event.api';
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus } from 'lucide-vue-next';
+import { createEvent, createEventType, createEventCategory, createEventSubcategory } from '@/api/endpoints/event.api';
+import { createConfiguration } from '@/api/endpoints/builder-v2.api';
 import { parseCSV } from '@/utils/csv';
 import EventDrawerShell from './EventDrawerShell.vue';
+// Un Espace a ses propres champs obligatoires (spaceType, adresse complète — cf.
+// SpaceCreateDrawer.vue) totalement différents des 4 autres taxonomies (nom seul, ou nom +
+// parent) : contrairement aux autres, on réutilise donc son VRAI wizard de création plutôt
+// qu'un dialog minimal "nom" qui produirait un espace incomplet. Sûr à imbriquer ici : ce
+// drawer est un Teleport séparé à z-index 9999 (SpaceCreateDrawer.vue:490), pas basé sur
+// EventDrawerShell (donc pas de collision avec le z-index 2200 forcé de CE drawer, cf. plus
+// bas). EventType/EventCategory/EventSubcategory ont bien des dialogs dédiés
+// (EventTypeDialog.vue etc.) mais ceux-ci sont eux aussi basés sur EventDrawerShell — les
+// imbriquer ici donnerait DEUX drawers au même z-index 2200 !important, un empilement non
+// garanti (dépend de l'ordre du DOM, jamais vérifié) : on garde pour ces trois-là un dialog
+// minimal (`createDialog` ci-dessous), dont les champs ont été vérifiés un par un contre
+// EventTypeDialog.vue / EventCategoryDialog.vue / EventSubcategoryDialog.vue.
+import SpaceCreateDrawer from '@/components/spaces/drawers/SpaceCreateDrawer.vue';
+
+// Nombre de créations d'event lancées en parallèle pendant l'import CSV — même convention que
+// BULK_CREATE_BATCH_SIZE dans StepProcessTimeline.vue (import Weezevent en masse).
+const IMPORT_CONCURRENCY = 5;
+
+// Valeur sentinelle injectée dans les `items` des selects de mapping (étapes 3-7) pour offrir
+// une option "Ajouter..." — interceptée avant d'atteindre valueMap/configValueMap, jamais
+// persistée comme un vrai id (même pattern que ProductCategoryFormDrawer.vue '__add_type__').
+const CREATE_SENTINEL = '__create__';
 
 export default {
   name: 'CsvImportDrawer',
-  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, EventDrawerShell },
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, EventDrawerShell, SpaceCreateDrawer },
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -359,12 +519,16 @@ export default {
       subcategoryValueMap: {},
       importLoading: false,
       importResults: null,
+      importedCount: 0,
+      importTotal: 0,
       fileError: '',
       _spaceConfigsCache: {},
       taxonomyLoading: false,
       taxonomyErrors: {},
       configsLoading: false,
       configsLoadError: '',
+      createDialog: this.defaultCreateDialog(),
+      spaceCreateDrawer: { open: false, targetVal: null },
       eventFields: [
         { key: 'spaceRaw',            label: 'Espace',                             aliases: ['space'] },
         { key: 'configurationRaw',    label: 'Configuration',                      aliases: ['configuration'] },
@@ -542,10 +706,11 @@ export default {
           return {
             title: 'la liste des espaces',
             mappingKey: 'spaceRaw',
+            createKind: 'space',
             description: "Associez chaque valeur de votre fichier à un espace existant dans le système.",
             values: this.uniqueSpaceValues,
             valueMap: this.spaceValueMap,
-            items: this.spaces,
+            items: [...this.spaces, { id: CREATE_SENTINEL, name: 'Ajouter un espace' }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.spaces,
             retry: this.loadTaxonomies,
@@ -558,10 +723,11 @@ export default {
           return {
             title: "les types d'événement",
             mappingKey: 'eventTypeRaw',
+            createKind: 'eventType',
             description: "Associez chaque valeur de votre fichier à un type d'événement existant.",
             values: this.uniqueTypeValues,
             valueMap: this.typeValueMap,
-            items: this.eventTypes,
+            items: [...this.eventTypes, { id: CREATE_SENTINEL, name: "Ajouter un type d'événement" }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.eventTypes,
             retry: this.loadTaxonomies,
@@ -571,10 +737,11 @@ export default {
           return {
             title: 'les catégories',
             mappingKey: 'eventCategoryRaw',
+            createKind: 'eventCategory',
             description: 'Associez chaque valeur de votre fichier à une catégorie existante.',
             values: this.uniqueCategoryValues,
             valueMap: this.categoryValueMap,
-            items: this.eventCategories,
+            items: [...this.eventCategories, { id: CREATE_SENTINEL, name: 'Ajouter une catégorie' }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.eventCategories,
             retry: this.loadTaxonomies,
@@ -584,10 +751,11 @@ export default {
           return {
             title: 'les sous-catégories',
             mappingKey: 'eventSubcategoryRaw',
+            createKind: 'eventSubcategory',
             description: 'Associez chaque valeur de votre fichier à une sous-catégorie existante.',
             values: this.uniqueSubcategoryValues,
             valueMap: this.subcategoryValueMap,
-            items: this.eventSubcategories,
+            items: [...this.eventSubcategories, { id: CREATE_SENTINEL, name: 'Ajouter une sous-catégorie' }],
             loading: this.taxonomyLoading,
             error: this.taxonomyErrors.eventSubcategories,
             retry: this.loadTaxonomies,
@@ -596,6 +764,50 @@ export default {
         default:
           return null;
       }
+    },
+
+    // Exposée au template : les `<v-select>` comparent `item.raw.id` à cette constante pour
+    // styler l'entrée "Ajouter..." (un module-level const n'est pas accessible depuis le
+    // template, seul `this.xxx` l'est).
+    CREATE_SENTINEL() {
+      return CREATE_SENTINEL;
+    },
+
+    createDialogTitle() {
+      const titles = {
+        eventType: "Ajouter un type d'événement",
+        eventCategory: 'Ajouter une catégorie',
+        eventSubcategory: 'Ajouter une sous-catégorie',
+        configuration: 'Ajouter une configuration',
+      };
+      return titles[this.createDialog.kind] || 'Ajouter';
+    },
+
+    createDialogParentLabel() {
+      return this.createDialog.kind === 'eventCategory' ? "Type d'événement" : 'Catégorie';
+    },
+
+    createDialogParentOptions() {
+      return this.createDialog.kind === 'eventCategory' ? this.eventTypes : this.eventCategories;
+    },
+
+    createDialogParentEmptyMessage() {
+      return this.createDialog.kind === 'eventCategory'
+        ? "Aucun type d'événement n'existe encore — créez-en un avant de pouvoir ajouter une catégorie."
+        : "Aucune catégorie n'existe encore — créez-en une avant de pouvoir ajouter une sous-catégorie.";
+    },
+
+    createDialogConfigSpaceName() {
+      const space = this.spaces.find((s) => s.id === this.createDialog.spaceIdForConfig);
+      return space?.name || '—';
+    },
+
+    canConfirmCreateDialog() {
+      if (this.createDialog.loading || !this.createDialog.name.trim()) return false;
+      if (this.createDialog.kind === 'eventCategory' || this.createDialog.kind === 'eventSubcategory') {
+        return this.createDialogParentOptions.length > 0 && !!this.createDialog.parentId;
+      }
+      return true;
     },
   },
 
@@ -692,6 +904,125 @@ export default {
       return configs;
     },
 
+    // Items du select de mapping "Configurations" pour un espace brut donné : les configs
+    // existantes de cet espace + la sentinelle "Ajouter..." — seulement si l'espace est déjà
+    // résolu (sinon on ne sait pas où créer la configuration).
+    configSelectItems(spaceRaw) {
+      const items = this.configsForSpaceRaw(spaceRaw);
+      if (!this.spaceValueMap[spaceRaw]) return items;
+      return [...items, { id: CREATE_SENTINEL, name: 'Ajouter une configuration' }];
+    },
+
+    onValueSelect(val, newValue) {
+      if (newValue === CREATE_SENTINEL) {
+        this.openCreateDialog(val);
+        return;
+      }
+      this.currentValueStep.valueMap[val] = newValue;
+    },
+
+    onConfigPairSelect(pair, newValue) {
+      if (newValue === CREATE_SENTINEL) {
+        this.openConfigCreateDialog(pair);
+        return;
+      }
+      this.configValueMap[pair.key] = newValue;
+    },
+
+    defaultCreateDialog() {
+      return {
+        open: false, kind: null, name: '', parentId: null, hasHomeTeam: false,
+        targetVal: null, targetPairKey: null, spaceIdForConfig: null,
+        loading: false, error: '',
+      };
+    },
+
+    openCreateDialog(val) {
+      const kind = this.currentValueStep.createKind;
+      // Espace : voir le commentaire sur l'import de SpaceCreateDrawer plus haut — champs
+      // requis totalement différents (spaceType, adresse), on ouvre le vrai wizard plutôt
+      // que ce dialog générique.
+      if (kind === 'space') {
+        this.spaceCreateDrawer = { open: true, targetVal: val };
+        return;
+      }
+      this.createDialog = {
+        ...this.defaultCreateDialog(),
+        open: true,
+        kind,
+        name: val,
+        targetVal: val,
+      };
+    },
+
+    onSpaceCreated(space) {
+      // SpaceCreateDrawer.vue n'effectue aucun dispatch Vuex lui-même (voir usage de référence
+      // dans SpaceListView.vue) — à la charge de l'appelant, comme partout ailleurs dans l'app.
+      const created = space?.data ?? space;
+      this.$store.dispatch('spaces/addSpace', created);
+      const id = created?.id || created?._id;
+      if (this.spaceCreateDrawer.targetVal != null && id) {
+        this.spaceValueMap[this.spaceCreateDrawer.targetVal] = id;
+      }
+      this.spaceCreateDrawer.open = false;
+    },
+
+    openConfigCreateDialog(pair) {
+      this.createDialog = {
+        ...this.defaultCreateDialog(),
+        open: true,
+        kind: 'configuration',
+        name: pair.configRaw,
+        targetPairKey: pair.key,
+        spaceIdForConfig: this.spaceValueMap[pair.spaceRaw],
+      };
+    },
+
+    async confirmCreateDialog() {
+      const d = this.createDialog;
+      const name = (d.name || '').trim();
+      if (!name) return;
+      if ((d.kind === 'eventCategory' || d.kind === 'eventSubcategory') && !d.parentId) return;
+
+      d.loading = true;
+      d.error = '';
+      try {
+        let created;
+        switch (d.kind) {
+          case 'eventType':
+            created = await createEventType({ name });
+            await this.$store.dispatch('eventTypes/addEventType', created);
+            this.typeValueMap[d.targetVal] = created?.id || created?._id;
+            break;
+          case 'eventCategory':
+            created = await createEventCategory({ name, eventTypeId: d.parentId, hasHomeTeam: d.hasHomeTeam });
+            await this.$store.dispatch('eventCategories/addEventCategory', created);
+            this.categoryValueMap[d.targetVal] = created?.id || created?._id;
+            break;
+          case 'eventSubcategory':
+            created = await createEventSubcategory({ name, eventCategoryId: d.parentId });
+            await this.$store.dispatch('eventSubcategories/addEventSubcategory', created);
+            this.subcategoryValueMap[d.targetVal] = created?.id || created?._id;
+            break;
+          case 'configuration': {
+            const spaceId = d.spaceIdForConfig;
+            created = await createConfiguration(spaceId, { name });
+            this._spaceConfigsCache = {
+              ...this._spaceConfigsCache,
+              [spaceId]: [...(this._spaceConfigsCache[spaceId] || []), created],
+            };
+            this.configValueMap[d.targetPairKey] = created?.id || created?._id;
+            break;
+          }
+        }
+        d.open = false;
+      } catch (e) {
+        d.error = e?.response?.data?.message || e?.message || 'Erreur lors de la création.';
+      } finally {
+        d.loading = false;
+      }
+    },
+
     async navigateForward() {
       const idx = this.reachableValueSteps.indexOf(this.step);
       if (idx < 0 || idx >= this.reachableValueSteps.length - 1) return;
@@ -732,6 +1063,8 @@ export default {
       this.configsLoading = false;
       this.configsLoadError = '';
       this.dropping = false;
+      this.createDialog = this.defaultCreateDialog();
+      this.spaceCreateDrawer = { open: false, targetVal: null };
     },
 
     onDrop(e) {
@@ -830,10 +1163,104 @@ export default {
       return (fallbackDoors || fallbackShow) ? [{ doorsOpening: fallbackDoors || '', showTime: fallbackShow || '' }] : undefined;
     },
 
+    // Un import de plusieurs centaines de lignes dépasse facilement le palier "medium" du
+    // rate-limiter backend (TenantThrottlerGuard : 300 requêtes / 60s par tenant) — sans retry
+    // dédié, TOUTES les lignes restantes de la fenêtre échouaient définitivement en 429
+    // ("Trop de requêtes, réessayez plus tard"), même si le fichier avait des centaines de
+    // lignes valides après la 300e. L'intercepteur Axios global (client.js) ne retente QUE si
+    // `Retry-After` ≤ 5s — insuffisant ici puisque la fenêtre "medium" peut demander d'attendre
+    // jusqu'à 60s. Un import CSV peut se permettre d'attendre, contrairement à un appel API
+    // interactif classique : retry local dédié, jusqu'à 5 tentatives par ligne.
+    async createEventWithRateLimitRetry(payload, maxAttempts = 5) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await createEvent(payload);
+        } catch (e) {
+          const isLastAttempt = attempt === maxAttempts;
+          if (e?.response?.status !== 429 || isLastAttempt) throw e;
+          const retryAfterSec = Number(e.response.headers?.['retry-after']) || 5;
+          // Plafonné à 90s (couvre la fenêtre "medium" de 60s + marge) : au-delà, on est
+          // probablement sur le palier "long" (jusqu'à 1h) — inutile de bloquer l'import
+          // aussi longtemps, mieux vaut remonter l'échec pour cette ligne.
+          const waitMs = Math.min(retryAfterSec, 90) * 1000 + 500;
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+      }
+    },
+
+    // Construit le payload `createEvent` d'une ligne CSV + son verdict de dédup, sans faire
+    // d'appel réseau — extrait de l'ancienne boucle séquentielle pour être réutilisable à la
+    // fois par le pré-filtrage (dédup) et par l'exécution parallèle (doImport).
+    buildImportRow(row, rowNumber) {
+      const get = (key) => this.getCellValue(row, key);
+
+      const name = get('name');
+      if (!name) return { error: 'Nom manquant', rowNumber };
+
+      const eventDate = get('eventDate') ? this.parseDate(get('eventDate')) : undefined;
+      const dedupKey = `${name.trim().toLowerCase()}|${String(eventDate || '').slice(0, 10)}`;
+
+      const spaceRaw         = get('spaceRaw');
+      const configurationRaw = get('configurationRaw');
+      const typeRaw          = get('eventTypeRaw');
+      const categoryRaw      = get('eventCategoryRaw');
+      const subcategoryRaw   = get('eventSubcategoryRaw');
+      const doorsOpen        = get('doorsOpen') ? this.parseTime(get('doorsOpen')) : undefined;
+      const showTime         = get('showTime') ? this.parseTime(get('showTime')) : undefined;
+      const eventEndDate     = get('eventEndDate') ? this.parseDate(get('eventEndDate')) : undefined;
+      const eventEndTime     = get('eventEndTime') ? this.parseTime(get('eventEndTime')) : undefined;
+
+      const payload = {
+        name,
+        eventDate,
+        eventEndDate,
+        eventEndTime,
+        // Texte brut envoyé tel quel — EventsService.resolveEventTeamFields résout-ou-crée
+        // l'équipe correspondante dans le catalogue Team côté backend (scopée à la compétition
+        // eventCategoryId/eventSubcategoryId ci-dessous), en une seule requête de création
+        // d'event au lieu d'un aller-retour réseau séparé par équipe depuis le navigateur.
+        homeTeamName:       get('homeTeamName') || undefined,
+        visitingTeamName:   get('visitingTeam') || undefined,
+        performerName:      get('performerName') || undefined,
+        sponsor:            get('sponsor') || undefined,
+        openingActName:     get('openingActName') || undefined,
+        sessions:           this.parseSessions(get('allSessions'), doorsOpen, showTime),
+        numberOfSessions:   get('numberOfSessions') ? parseInt(get('numberOfSessions')) : undefined,
+        hasOpeningAct:      get('hasOpeningAct') ? this.parseBool(get('hasOpeningAct')) : undefined,
+        hasIntermission:    get('hasIntermission') ? this.parseBool(get('hasIntermission')) : undefined,
+        ticketsSold:        get('ticketsSold') ? parseInt(get('ticketsSold')) : undefined,
+        ticketsScanned:     get('ticketsScanned') ? parseInt(get('ticketsScanned')) : undefined,
+        spaceId:            (spaceRaw && this.spaceValueMap[spaceRaw]) || undefined,
+        configurationId:    (spaceRaw && configurationRaw && this.configValueMap[this._configPairKey(spaceRaw, configurationRaw)]) || undefined,
+        eventTypeId:        (typeRaw && this.typeValueMap[typeRaw]) || undefined,
+        eventCategoryId:    (categoryRaw && this.categoryValueMap[categoryRaw]) || undefined,
+        eventSubcategoryId: (subcategoryRaw && this.subcategoryValueMap[subcategoryRaw]) || undefined,
+      };
+
+      // Nettoyer les undefined
+      Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+
+      // Une valeur brute présente dans le fichier mais restée sans map (ex. dropdown vide
+      // au moment du mapping, cf. bug espaces vides) part sans son champ sans qu'aucune
+      // erreur ne soit levée côté API (spaceId/etc. simplement absents du payload) — on le
+      // compte pour l'afficher sur l'écran de résultats plutôt que de le laisser silencieux.
+      const hasMissingAssociation = [
+        [spaceRaw, payload.spaceId],
+        [configurationRaw, payload.configurationId],
+        [typeRaw, payload.eventTypeId],
+        [categoryRaw, payload.eventCategoryId],
+        [subcategoryRaw, payload.eventSubcategoryId],
+      ].some(([raw, resolved]) => !!raw && !resolved);
+
+      return { rowNumber, name, dedupKey, payload, hasMissingAssociation };
+    },
+
     async doImport() {
       this.step = 8;
       this.importLoading = true;
       this.importResults = null;
+      this.importedCount = 0;
+      this.importTotal = this.csvRows.length;
       let successCount = 0;
       let skippedCount = 0;
       let missingAssociationsCount = 0;
@@ -845,87 +1272,60 @@ export default {
         (this.events || []).map((e) => `${String(e?.name || '').trim().toLowerCase()}|${String(e?.eventDate || '').slice(0, 10)}`),
       );
 
-      for (let i = 0; i < this.csvRows.length; i++) {
-        const row = this.csvRows[i];
-        const get = (key) => this.getCellValue(row, key);
+      // Lignes créées en parallèle par lots de IMPORT_CONCURRENCY (au lieu d'un `await` par
+      // ligne) : ~500 events en séquentiel prenait plusieurs minutes (un aller-retour réseau à la
+      // fois). `existingKeys` reste la seule source de vérité pour la dédup et est mise à jour
+      // de façon SYNCHRONE avant de lancer les requêtes du lot — ce qui bloque aussi les doublons
+      // internes au même lot (deux lignes du CSV avec le même nom+date), pas seulement ceux déjà
+      // en base.
+      for (let i = 0; i < this.csvRows.length; i += IMPORT_CONCURRENCY) {
+        const chunk = this.csvRows.slice(i, i + IMPORT_CONCURRENCY);
+        const toCreate = [];
 
-        const name = get('name');
-        if (!name) {
-          errors.push({ row: i + 2, message: 'Nom manquant' });
-          continue;
+        for (let offset = 0; offset < chunk.length; offset++) {
+          const rowNumber = i + offset + 2;
+          const built = this.buildImportRow(chunk[offset], rowNumber);
+
+          if (built.error) {
+            errors.push({ row: rowNumber, message: built.error });
+            this.importedCount++;
+            continue;
+          }
+          if (existingKeys.has(built.dedupKey)) {
+            skippedCount++;
+            errors.push({ row: rowNumber, message: `Ignoré : un événement "${built.name}" existe déjà à cette date` });
+            this.importedCount++;
+            continue;
+          }
+          existingKeys.add(built.dedupKey); // réservé immédiatement, avant l'appel réseau
+          toCreate.push(built);
         }
 
-        const eventDate = get('eventDate') ? this.parseDate(get('eventDate')) : undefined;
-        const dedupKey = `${name.trim().toLowerCase()}|${String(eventDate || '').slice(0, 10)}`;
-        if (existingKeys.has(dedupKey)) {
-          skippedCount++;
-          errors.push({ row: i + 2, message: `Ignoré : un événement "${name}" existe déjà à cette date` });
-          continue;
-        }
+        const results = await Promise.all(toCreate.map(async (built) => {
+          try {
+            const response = await this.createEventWithRateLimitRetry(built.payload);
+            return { ok: true, built, created: response?.data ?? response };
+          } catch (e) {
+            return { ok: false, built, message: e?.response?.data?.message || e?.message || 'Erreur inconnue' };
+          } finally {
+            this.importedCount++;
+          }
+        }));
 
-        const spaceRaw         = get('spaceRaw');
-        const configurationRaw = get('configurationRaw');
-        const typeRaw          = get('eventTypeRaw');
-        const categoryRaw      = get('eventCategoryRaw');
-        const subcategoryRaw   = get('eventSubcategoryRaw');
-        const doorsOpen        = get('doorsOpen') ? this.parseTime(get('doorsOpen')) : undefined;
-        const showTime         = get('showTime') ? this.parseTime(get('showTime')) : undefined;
-        const eventEndDate     = get('eventEndDate') ? this.parseDate(get('eventEndDate')) : undefined;
-        const eventEndTime     = get('eventEndTime') ? this.parseTime(get('eventEndTime')) : undefined;
-
-        const payload = {
-          name,
-          eventDate,
-          eventEndDate,
-          eventEndTime,
-          homeTeamName:       get('homeTeamName') || undefined,
-          visitingTeamName:   get('visitingTeam') || undefined,
-          performerName:      get('performerName') || undefined,
-          sponsor:            get('sponsor') || undefined,
-          openingActName:     get('openingActName') || undefined,
-          sessions:           this.parseSessions(get('allSessions'), doorsOpen, showTime),
-          numberOfSessions:   get('numberOfSessions') ? parseInt(get('numberOfSessions')) : undefined,
-          hasOpeningAct:      get('hasOpeningAct') ? this.parseBool(get('hasOpeningAct')) : undefined,
-          hasIntermission:    get('hasIntermission') ? this.parseBool(get('hasIntermission')) : undefined,
-          ticketsSold:        get('ticketsSold') ? parseInt(get('ticketsSold')) : undefined,
-          ticketsScanned:     get('ticketsScanned') ? parseInt(get('ticketsScanned')) : undefined,
-          spaceId:            (spaceRaw && this.spaceValueMap[spaceRaw]) || undefined,
-          configurationId:    (spaceRaw && configurationRaw && this.configValueMap[this._configPairKey(spaceRaw, configurationRaw)]) || undefined,
-          eventTypeId:        (typeRaw && this.typeValueMap[typeRaw]) || undefined,
-          eventCategoryId:    (categoryRaw && this.categoryValueMap[categoryRaw]) || undefined,
-          eventSubcategoryId: (subcategoryRaw && this.subcategoryValueMap[subcategoryRaw]) || undefined,
-        };
-
-        // Nettoyer les undefined
-        Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
-
-        // Une valeur brute présente dans le fichier mais restée sans map (ex. dropdown vide
-        // au moment du mapping, cf. bug espaces vides) part sans son champ sans qu'aucune
-        // erreur ne soit levée côté API (spaceId/etc. simplement absents du payload) — on le
-        // compte pour l'afficher sur l'écran de résultats plutôt que de le laisser silencieux.
-        const hasMissingAssociation = [
-          [spaceRaw, payload.spaceId],
-          [configurationRaw, payload.configurationId],
-          [typeRaw, payload.eventTypeId],
-          [categoryRaw, payload.eventCategoryId],
-          [subcategoryRaw, payload.eventSubcategoryId],
-        ].some(([raw, resolved]) => !!raw && !resolved);
-
-        try {
-          const response = await createEvent(payload);
-          const created = response?.data ?? response;
-          this.$store.dispatch('events/addEvent', created);
-          existingKeys.add(dedupKey);
-          successCount++;
-          if (hasMissingAssociation) missingAssociationsCount++;
-        } catch (e) {
-          errors.push({
-            row: i + 2,
-            message: e?.response?.data?.message || e?.message || 'Erreur inconnue',
-          });
+        for (const result of results) {
+          if (result.ok) {
+            this.$store.dispatch('events/addEvent', result.created);
+            successCount++;
+            if (result.built.hasMissingAssociation) missingAssociationsCount++;
+          } else {
+            errors.push({ row: result.built.rowNumber, message: result.message });
+          }
         }
       }
 
+      // Le traitement par lots produit les erreurs dans un ordre groupé par lot (pré-filtrage
+      // puis créations), pas strictement par numéro de ligne croissant — retrié pour l'affichage.
+      errors.sort((a, b) => a.row - b.row);
       this.importResults = { success: successCount, skipped: skippedCount, missingAssociations: missingAssociationsCount, errors };
       this.importLoading = false;
       if (successCount > 0) this.$emit('imported');
