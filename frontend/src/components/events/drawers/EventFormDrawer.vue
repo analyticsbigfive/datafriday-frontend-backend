@@ -923,7 +923,13 @@ export default {
           openingActName: this.newEvent.openingActName || undefined,
           location: this.newEvent.location,
           spaceName: this.newEvent.spaceName,
-          sessions: this.newEvent.sessions.map((s) => JSON.stringify(s)),
+          // Le backend fait déjà JSON.stringify(dto.sessions) en une seule passe (DTO :
+          // sessions?: any[]) — stringifier ici CHAQUE élément produisait un tableau de
+          // chaînes JSON imbriquées ("[\"{\\\"doorsOpening\\\":...}\"]"), que la relecture
+          // (JSON.parse côté initFormFromEvent) ne reconvertit qu'en tableau de STRINGS,
+          // pas d'objets { doorsOpening, showTime } → heures jamais réaffichées après un
+          // premier save.
+          sessions: this.newEvent.sessions,
           numberOfSessions: Number(this.newEvent.numberOfSessions) || 1,
           hasOpeningAct: Boolean(this.newEvent.hasOpeningAct),
           hasIntermission: Boolean(this.newEvent.hasIntermission),
@@ -1014,6 +1020,11 @@ export default {
       if (t) this.newEvent.homeTeamId = t.id;
     },
     handleTeamSelectChange(value) {
+      // Garde requise : `auto-select-first` sur ce v-autocomplete peut émettre
+      // `update:modelValue` avec l'option '__create__' (seule présente tant que `teams`
+      // n'a pas fini de charger) PENDANT l'initialisation d'une édition — sans ce garde,
+      // ça effaçait le `visitingTeamId` pourtant déjà correctement chargé depuis l'event.
+      if (this._initializingEdit) return;
       // « Créer une nouvelle équipe » (visiteuse) → dialog cible visiting.
       if (value === '__create__') {
         this.newEvent.visitingTeamId = '';
@@ -1021,6 +1032,8 @@ export default {
       }
     },
     handleHomeTeamSelectChange(value) {
+      // Même garde que handleTeamSelectChange — cf. commentaire ci-dessus.
+      if (this._initializingEdit) return;
       // « Créer » → dialog cible home ; sinon dénormalise le nom (homeTeamName =
       // libellé conservé pour compat/affichage/fallback à côté de homeTeamId).
       if (value === '__create__') {

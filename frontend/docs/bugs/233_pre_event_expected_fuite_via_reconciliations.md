@@ -1,6 +1,6 @@
 # BUG-233 — Pre-event Inventory : les attendus fuient via les documents de réconciliation (gating `preInventoryExpected` contournable)
 
-- **Statut** : 🔴 Ouvert
+- **Statut** : 🟡 Corrigé non déployé (2026-07-24, branche `feat/postEventInventory`)
 - **Sévérité** : 🟠 Majeur (contournement du gating serveur des quantités attendues — biais de comptage possible, la raison d'être du gating)
 - **Domaine** : Stock — Pre-event Inventory / RBAC (voir `../modules/10_POST_EVENT_INVENTORY.md` §8.3)
 - **Repo(s) concerné(s)** : backend
@@ -34,19 +34,27 @@ Nuance métier : le workflow VEUT qu'un compteur puisse déclencher le save + la
 (fin de comptage) — gater le POST entier sur `preInventoryExpected` casserait le flux. Le
 problème est la **réponse** (et le listing), pas l'existence de l'action.
 
-## Correction
+## Correction (2026-07-24)
 
-Non corrigé (hors scope du fix BUG-232, même session). Pistes, à trancher :
+Piste (a) retenue et implémentée — **expurgation conditionnelle des réponses**, l'action reste
+ouverte à tout compteur (le flux « Sauvegarder → réconciliation » ne casse pas) :
 
-- **POST pre-event-reconciliations** : conserver l'action pour tout compteur mais **expurger la
-  réponse** (`expectedPacked/Loose`, `deltaPacked/Loose` → omis) quand l'appelant n'a pas
-  `front.fb.preInventoryExpected` (le document en base reste complet).
-- **GET reconciliations** : même expurgation conditionnelle des lignes pre-event pour les
-  non-porteurs — ou considérer que la consultation des réconciliations est un écran de
-  supervision et gater la section entière ; à valider côté métier (qui consulte les
-  réconciliations en pratique ?).
-- Vérifier au passage `InventoryReconciliationSection`/`InventoryReconciliationView` côté front :
-  l'expurgation ne doit pas casser l'affichage (« — » sur les colonnes absentes).
+- `inventory.controller.ts` : helper `canSeeExpected(user)` (même logique que
+  `PermissionsGuard` : ADMIN systemKey = tout, sinon `user.role.permissions` contient
+  `front.fb.preInventoryExpected`), booléen passé au service par
+  `listInventoryReconciliations` et `createPreEventReconciliation`.
+- `inventory.service.ts` : `redactPreEventDoc()` — sur les documents `kind='pre-event'`
+  uniquement, retire des `lines[]` : `expectedPacked/Loose` **ET** `deltaPacked/Loose`
+  (delta seul suffirait à reconstruire : `expected = counted − delta`). Les post-event
+  (lignes fournies par le client, aucune donnée cachée) passent inchangés. **Le document
+  persisté reste complet** — seule la réponse est expurgée.
+- Front : `InventoryReconciliationView` déjà tolérant (`expectedPacked == null` couvre
+  l'absence, `undefined == null` → colonnes « — ») — aucun changement requis, vérifié.
+- Tests : `inventory.service.spec.ts` — 3 tests (listing expurgé/complet selon permission,
+  création : réponse expurgée + persistance complète).
+
+Reste ouvert (question métier, pas re-fiché) : faut-il gater la **consultation** des
+réconciliations dans son ensemble (écran de supervision ?) — cf. `QUESTIONS_A_BERTRAND.md`.
 
 ## Risque de régression / à surveiller
 

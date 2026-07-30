@@ -39,6 +39,18 @@ export const SETTINGS_NAVIGATION = [
     section: 'navConfiguration',
     groups: [
       {
+        key: 'settings-edit-space',
+        icon: 'Building2',
+        title: 'navEditSpace',
+        // Groupe déroulant DYNAMIQUE, placé en tête : ses items sont la liste des
+        // spaces existants (résolue dans DashboardView via le store), chacun
+        // redirigeant vers son builder 3D `/spaces/:id/builder2`. `permission` au
+        // niveau groupe car il n'y a pas d'items statiques à filtrer un par un.
+        dynamic: 'spaces',
+        permission: 'space.edit',
+        items: [],
+      },
+      {
         key: 'settings-fb',
         icon: 'UtensilsCrossed',
         title: 'navMenuFB',
@@ -66,8 +78,9 @@ export const SETTINGS_NAVIGATION = [
         icon: 'UserCog',
         title: 'navEditHR',
         items: [
-          { title: 'navHrSuppliers', route: { path: '/hr', query: { tab: 'suppliers' } }, permission: 'menu.hr.manage' },
-          { title: 'navHrPositions', route: { path: '/hr', query: { tab: 'positions' } }, permission: 'menu.hr.manage' },
+          { title: 'navHrSuppliers', route: '/hr', permission: 'menu.hr.manage' },
+          { title: 'navHrPositions', route: '/hr/positions', permission: 'menu.hr.manage' },
+          { title: 'navHrSettings', route: '/hr/settings', permission: 'menu.hr.manage' },
         ],
       },
       {

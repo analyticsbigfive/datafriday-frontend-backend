@@ -29,30 +29,56 @@ export function expectedKey(elementId, itemId) {
 
 /**
  * @param {{ baseline: Record<string, Record<string, {packedUnits?: number, looseUnits?: number}>>|null,
- *           expected?: Record<string, Record<string, {packed?: number, loose?: number}>>|null,
+ *           expected?: Record<string, Record<string, {packed?: number, loose?: number,
+ *                              units?: number, unitsPerPack?: number}>>|null,
  *           movements?: Array<{elementId: string, itemKey?: string, menuItemId?: string|null,
  *                              packedDelta?: number, looseDelta?: number}> }|null} baselineResponse
- * @param {{ itemIdByNormName?: Map<string, string> }} [options]
+ * @param {{ itemIdByNormName?: Map<string, string>, unitsPerItemId?: Record<string, number> }} [options]
  *   `itemIdByNormName` : nom normalisé (normalizeStr) → itemId — n'est utilisé
  *   que par le repli legacy (le blob `expected` serveur est déjà joint).
- * @returns {Record<string, {packed: number, loose: number}>|null}
+ *   `unitsPerItemId` : itemId → `inventoryQuantityPackaged` du référentiel AFFICHÉ.
+ *   Sert à re-découper l'attendu dans l'unité du champ Packed de l'écran quand le
+ *   serveur a calculé avec une autre taille de paquet (BUG-239) — le total en
+ *   unités, lui, ne bouge pas.
+ * @returns {Record<string, {packed: number, loose: number, units: number|null}>|null}
  *   `expectedKey(elementId,itemId)` → attendu ; null si aucune baseline.
  */
-export function buildPreEventExpected(baselineResponse, { itemIdByNormName } = {}) {
+export function buildPreEventExpected(baselineResponse, { itemIdByNormName, unitsPerItemId } = {}) {
   const baseline = baselineResponse?.baseline
   if (!baseline || typeof baseline !== 'object') return null
 
   const round2 = (n) => Math.round(n * 100) / 100
   const out = {}
 
-  // Chemin nominal : blob `expected` normalisé côté serveur (BUG-232).
+  // Chemin nominal : blob `expected` normalisé côté serveur (BUG-232), exprimé en
+  // packed/loose + `units`/`unitsPerPack` (BUG-239).
   const serverExpected = baselineResponse?.expected
   if (serverExpected && typeof serverExpected === 'object') {
     for (const [elementId, byItem] of Object.entries(serverExpected)) {
       for (const [itemId, v] of Object.entries(byItem || {})) {
+        const srvPacked = Number(v?.packed) || 0
+        const srvLoose = round2(Number(v?.loose) || 0)
+        const srvUpp = Number(v?.unitsPerPack) > 0 ? Number(v.unitsPerPack) : null
+        const units =
+          Number.isFinite(Number(v?.units)) && v?.units != null
+            ? round2(Number(v.units))
+            : srvUpp
+              ? round2(srvPacked * srvUpp + srvLoose)
+              : null
+        const q = Number(unitsPerItemId?.[itemId]) > 0 ? Number(unitsPerItemId[itemId]) : null
+
+        // Le serveur et l'écran s'accordent (ou l'un des deux ne sait pas) →
+        // on garde tel quel. Sinon on re-découpe le MÊME total d'unités dans
+        // l'unité du champ Packed affiché : le hint légende enfin son champ.
+        if (units == null || !q || !srvUpp || q === srvUpp) {
+          out[expectedKey(elementId, itemId)] = { packed: srvPacked, loose: srvLoose, units }
+          continue
+        }
+        const packed = Math.floor(units / q)
         out[expectedKey(elementId, itemId)] = {
-          packed: Number(v?.packed) || 0,
-          loose: round2(Number(v?.loose) || 0),
+          packed,
+          loose: round2(units - packed * q),
+          units,
         }
       }
     }

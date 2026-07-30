@@ -518,10 +518,211 @@ model Space {
   menuItemLinks SpaceMenuItem[]
   events        Event[]
 
+  // Settings HR (paramétrage Goals / Staff par Responsable de zone)
+  hrGoalSpaces       HrGoalSpace[]
+  hrStaffRatioSpaces HrStaffRatioSpace[]
+
+  // Staffing RH : agence par défaut de l'espace pour un rôle donné
+  hrRoleSpaceDefaults HrRoleSpaceDefault[]
+
   @@index([tenantId])
   @@index([name])
   @@index([spaceType])
   @@index([city])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings HR — 2 variables paramétrables, chacune rattachée à un ENSEMBLE de
+// Spaces (ou à tous via allSpaces). Une ligne par ensemble d'espaces (demande
+// Bertrand 2026-07-28). tenantId scalaire requis → auto-scopé par PrismaService.
+// Le « ALL » est porté par allSpaces=true (jointure vide), pas par une sentinelle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Objectif de CA par TPE (devise), rattaché à un ensemble de Spaces.
+model HrGoal {
+  id         String   @id @default(cuid())
+  tenantId   String
+  goalPerTpe Float
+  allSpaces  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  spaces HrGoalSpace[]
+
+  @@index([tenantId])
+}
+
+model HrGoalSpace {
+  goalId  String
+  spaceId String
+
+  goal  HrGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, spaceId])
+  @@index([goalId])
+  @@index([spaceId])
+}
+
+/// Nombre de staff par Responsable de zone (entier), rattaché à un ensemble de Spaces.
+model HrStaffRatio {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  staffPerZoneManager Int
+  allSpaces           Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  spaces HrStaffRatioSpace[]
+
+  @@index([tenantId])
+}
+
+model HrStaffRatioSpace {
+  ratioId String
+  spaceId String
+
+  ratio HrStaffRatio @relation(fields: [ratioId], references: [id], onDelete: Cascade)
+  space Space        @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([ratioId, spaceId])
+  @@index([ratioId])
+  @@index([spaceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Staffing RH (feat/Hr, 2026-07-29) — fournisseurs RH, rôles métier, personnes
+// internes, agence par défaut par espace, lignes de staff par événement × PDV.
+// Migre hr_suppliers / staff_positions du localStorage (frontend utils/hrApi.js).
+// tenantId scalaire → auto-scopé par PrismaService (même patron que HrGoal).
+// ⚠️ AUCUN rapport avec `Role` (permissions utilisateurs, features/roles/).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Fournisseur RH (agence d'intérim, prestataire staff…).
+model HrSupplier {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  contact   String? // nom du contact
+  email     String?
+  tel       String?
+  picture   String?  @db.Text // parité avec le drawer existant (photo optionnelle)
+  sectors   String[] // secteurs libres (F&B, Hospitality…) — parité localStorage
+  spaceIds  String[] // espaces desservis (ids Space, non contraint) — parité localStorage
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles         HrRoleSupplier[]
+  spaceDefaults HrRoleSpaceDefault[]
+  staffLines    EventStaffLine[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// Rôle RH (= « position ») — slide 4. Migre staff_positions du localStorage.
+model HrRole {
+  id            String   @id @default(cuid())
+  tenantId      String
+  department    String // 'F&B' | 'Merchandising' | 'Hospitality' | 'Entertainment'
+  name          String // "Caissier", "Runner", …
+  contractType  String? // 'CDD' | 'FREELANCE' | 'CDI' | 'AGENCY' | 'OTHER' — requis seulement si F&B
+  rateType      String? // 'HOURLY' | 'DAILY' | 'MONTHLY' — requis si contractType ∈ {CDD, AGENCY, FREELANCE}
+  rate          Float? // montant HT selon rateType
+  fnbCategories String[] // 'BEVERAGE' | 'FRONT_FOOD' | 'KITCHEN_FOOD' | 'MIXOLOGY' — vide = « NON LIÉ »
+  algoKey       String? // 'RESPONSABLE_ZONE'|'RESPONSABLE_PDV'|'CAISSIER'|'RUNNER'|'BARMAN'|'CHEF_DE_PARTIE'|'COMMIS'|'EPR'|null
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  suppliers     HrRoleSupplier[] // multi-select si AGENCY
+  persons       HrPerson[]
+  spaceDefaults HrRoleSpaceDefault[]
+  staffLines    EventStaffLine[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model HrRoleSupplier {
+  roleId     String
+  supplierId String
+
+  role     HrRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  supplier HrSupplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, supplierId])
+  @@index([roleId])
+  @@index([supplierId])
+}
+
+/// Personne interne (CDI/CDD) — alimente le dropdown « Nom » des lignes staff.
+model HrPerson {
+  id           String   @id @default(cuid())
+  tenantId     String
+  roleId       String
+  firstName    String
+  lastName     String
+  contractType String // 'CDI' | 'CDD'
+  hourlyRate   Float? // override du taux du rôle, sinon null
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role       HrRole           @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  staffLines EventStaffLine[]
+
+  @@index([tenantId, roleId])
+}
+
+/// Agence par défaut d'un espace pour un rôle donné (présélection fournisseur, slide 3).
+model HrRoleSpaceDefault {
+  id         String @id @default(cuid())
+  spaceId    String
+  roleId     String
+  supplierId String
+
+  space    Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  role     HrRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  supplier HrSupplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, roleId])
+  @@index([roleId])
+  @@index([supplierId])
+}
+
+/// Ligne de staff par événement × PDV — sortie de l'algo + ajustements utilisateur.
+/// Le coût PRÉDIT (figé à la génération) vit dans ElementPerformance.staffCost ;
+/// le coût AJUSTÉ se recalcule depuis les lignes enabled (§5 spec RH).
+model EventStaffLine {
+  id           String   @id @default(cuid())
+  tenantId     String
+  eventId      String
+  elementId    String // le PDV (SpaceElement type shop)
+  roleId       String? // HrRole choisi ; null si rôle algo sans mapping
+  algoKey      String? // rôle algo d'origine ('CAISSIER'…) ; null si ajout manuel
+  enabled      Boolean  @default(true) // checkbox de désactivation (exclut du coût ajusté)
+  source       String // 'ALGO' | 'MANUAL'
+  userModified Boolean  @default(false) // ligne retouchée par l'utilisateur → jamais écrasée par une régénération
+  supplierType String? // 'CDI' | 'CDD' | 'AGENCY' | …
+  supplierId   String? // si AGENCY
+  personId     String? // si CDI/CDD
+  personLabel  String? // champ libre (défaut = nom de l'agence par défaut)
+  hourlyRate   Float // taux horaire HT retenu pour la ligne
+  startTime    DateTime // suggéré par l'algo (portes + offsets), ajustable au slider
+  endTime      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  event    Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  element  SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  role     HrRole?      @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  supplier HrSupplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  person   HrPerson?    @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, elementId])
+  @@index([tenantId])
+  @@index([roleId])
+  @@index([elementId])
 }
 
 model Config {
@@ -672,6 +873,7 @@ model SpaceElement {
   inventoryItems        ElementInventory[]
   menuAssignments       MenuAssignment[]
   locationShopMappings  LocationShopMapping[]
+  eventStaffLines       EventStaffLine[]
 
   @@index([floorId])
   @@index([forecourtId])
@@ -2259,6 +2461,7 @@ model Event {
   eventSubcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
   visitingTeam     Team?             @relation("EventVisitingTeam", fields: [visitingTeamId], references: [id])
   weezeventEvent   SalesEvent?       @relation("EventWeezeventEvent", fields: [weezeventEventId], references: [id], onDelete: SetNull)
+  staffLines       EventStaffLine[]
 
   @@index([tenantId])
   @@index([spaceId])
@@ -2583,6 +2786,13 @@ model StockReconciliation {
   // PAS aux StockLevel). Migration : prisma/sql/2026-07-20_stockreconciliation_kind_post_event.sql
   kind      String?
   lines     Json
+  // Contexte de fabrication du document (BUG-238/241, 2026-07-24) : provenance du
+  // stock de départ (`preEventSource`), ventes non rattachées écartées du calcul
+  // (`salesUnjoined`), lignes orphelines exclues (`orphanLinesExcluded`). Un
+  // document est une photo figée : sans ces marqueurs, un écart fabriqué par une
+  // source manquante est indiscernable d'un vrai manquant.
+  // Migration : prisma/sql/2026-07-24_stockreconciliation_meta.sql
+  meta      Json?
   createdBy String?
   createdAt DateTime @default(now())
 

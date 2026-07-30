@@ -1,26 +1,34 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, IsBoolean, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, IsBoolean, IsArray, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateEventDto {
-  @ApiProperty() @IsString() @IsNotEmpty() name: string;
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(100) name: string;
   @ApiProperty() @IsDateString() eventDate: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() spaceId?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() configurationId?: string;
+  // nullable : démapper un event d'un space (étape 4 Data Integration) sans le supprimer
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() spaceId?: string | null;
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() configurationId?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() eventTypeId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventCategoryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventSubcategoryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() location?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() spaceName?: string;
-  @ApiPropertyOptional() @IsOptional() @IsArray() sessions?: any[];
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) numberOfSessions?: number;
+  // @Type(() => Object) requis : sans lui, class-transformer (enableImplicitConversion,
+  // main.ts) lit le design:type TS d'un `any[]` comme `Array` et tente de convertir CHAQUE
+  // élément vers ce même type via Array.from(...) — un objet {doorsOpening, showTime} n'a ni
+  // length ni itérateur, Array.from() le réduit donc silencieusement à [] (confirmé : sans ce
+  // décorateur, un payload sessions:[{doorsOpening,showTime}] ressort en [[]] après le pipe de
+  // validation, alors qu'un tableau de strings/nombres traverse le pipe sans dégât).
+  @ApiPropertyOptional() @IsOptional() @IsArray() @Type(() => Object) sessions?: any[];
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) numberOfSessions?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasOpeningAct?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasIntermission?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() eventStartDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() eventEndDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventEndTime?: string;
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) ticketsSold?: number;
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) ticketsScanned?: number;
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) ticketsSold?: number;
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) ticketsScanned?: number;
   // Teams (events sport) — null explicite = désassigner
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() homeTeamName?: string | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() visitingTeamId?: string | null;

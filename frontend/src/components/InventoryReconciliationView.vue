@@ -18,7 +18,7 @@
         </span>
         <span class="irv-chip">
           {{ t('invRecoColDeltaValue') }} :
-          <strong class="irv-neg">{{ preSummary.missingValue == null ? '—' : formatCurrencyDetailed(preSummary.missingValue) }}</strong>
+          <strong class="irv-neg">{{ preSummary.missingValue == null ? '—' : formatMoney(preSummary.missingValue) }}</strong>
         </span>
       </div>
       <div v-else class="irv-chips">
@@ -34,7 +34,7 @@
 
       <div class="irv-toolbar-right">
         <div class="irv-search">
-          <v-icon size="16" color="#9CA3AF">mdi-magnify</v-icon>
+          <v-icon size="16" class="irv-search-icon">mdi-magnify</v-icon>
           <input
             v-model="search"
             type="text"
@@ -52,6 +52,18 @@
     <div class="irv-meta">
       {{ t('invRecoGeneratedOn') }} {{ formatDateTime(reconciliation.createdAt) }}
       · {{ lines.length }} {{ t('invRecoLinesCount') }}
+    </div>
+
+    <!-- Contexte de fabrication (BUG-238/241) : ce qui manquait au moment du
+         calcul. Sans ça, un écart fabriqué par une source absente se lit comme
+         un manquant réel. Documents antérieurs : meta absent → aucun bandeau. -->
+    <div v-if="notices.length" class="irv-notices">
+      <div v-for="(n, i) in notices" :key="i" class="irv-notice" :class="`irv-notice--${n.level}`">
+        <v-icon size="15" class="irv-notice-icon">
+          {{ n.level === 'warn' ? 'mdi-alert-outline' : 'mdi-information-outline' }}
+        </v-icon>
+        <span>{{ n.text }}</span>
+      </div>
     </div>
 
     <!-- Table — variante PRE-event (attendu vs compté) -->
@@ -81,14 +93,14 @@
               <td>{{ g.expectedUnits == null ? '—' : formatUnits(g.expectedUnits) }}</td>
               <td>{{ formatUnits(g.countedUnits) }}</td>
               <td><span :class="deltaClass(g.deltaUnits)">{{ formatDelta(g.deltaUnits) }}</span></td>
-              <td><span :class="deltaClass(g.deltaValue)">{{ g.deltaValue == null ? '—' : formatCurrencyDetailed(g.deltaValue) }}</span></td>
+              <td><span :class="deltaClass(g.deltaValue)">{{ g.deltaValue == null ? '—' : formatMoney(g.deltaValue) }}</span></td>
             </tr>
             <tr v-for="sub in (isExpanded(g.key) ? g.children : [])" :key="`${g.key}::${sub.key}`" class="irv-subrow">
               <td class="irv-col-name irv-subname">{{ sub.label || '—' }}</td>
               <td>{{ sub.expectedUnits == null ? '—' : formatUnits(sub.expectedUnits) }}</td>
               <td>{{ formatUnits(sub.countedUnits) }}</td>
               <td><span :class="deltaClass(sub.deltaUnits)">{{ formatDelta(sub.deltaUnits) }}</span></td>
-              <td><span :class="deltaClass(sub.deltaValue)">{{ sub.deltaValue == null ? '—' : formatCurrencyDetailed(sub.deltaValue) }}</span></td>
+              <td><span :class="deltaClass(sub.deltaValue)">{{ sub.deltaValue == null ? '—' : formatMoney(sub.deltaValue) }}</span></td>
             </tr>
           </template>
         </tbody>
@@ -167,7 +179,10 @@ const props = defineProps({
 })
 defineEmits(['close'])
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+// Formats dates/nombres suivant la langue de l'app (BUG-240) — plus de 'fr-FR'
+// en dur : un document lu en anglais affichait des séparateurs français.
+const intlLocale = computed(() => (String(locale.value).startsWith('en') ? 'en-US' : 'fr-FR'))
 const search = ref('')
 const mode = ref('item') // parité capture : ouverture sur « By item »
 const expanded = ref(new Set())
@@ -177,22 +192,76 @@ const isPre = computed(() => props.reconciliation?.kind === 'pre-event')
 
 const rawLines = computed(() => (Array.isArray(props.reconciliation?.lines) ? props.reconciliation.lines : []))
 
+/**
+ * Bandeaux de contexte (`StockReconciliation.meta`, BUG-238/241) : sources
+ * manquantes ou dégradées au moment du calcul. Un document est une photo figée —
+ * si on ne dit pas ce qui manquait, ses écarts se lisent comme des manquants
+ * réels. `meta` absent (documents antérieurs) → aucun bandeau, pas de faux
+ * message rassurant non plus.
+ */
+const notices = computed(() => {
+  const meta = props.reconciliation?.meta
+  if (!meta || typeof meta !== 'object') return []
+  const out = []
+  const source = meta.baseline?.source
+  if (source === 'previous-post-event') {
+    out.push({ level: 'warn', text: t('invRecoMetaBaselinePrev') })
+  } else if (source === 'none' && !isPre.value) {
+    out.push({ level: 'info', text: t('invRecoMetaBaselineNone') })
+  }
+  const su = meta.salesUnjoined
+  if (su && (Number(su.units) > 0 || su.shopNames?.length || su.itemNames?.length)) {
+    const names = [...(su.shopNames || []), ...(su.itemNames || [])].slice(0, 6).join(', ')
+    out.push({
+      level: 'warn',
+      text: `${formatUnits(Number(su.units) || 0)} ${t('invRecoMetaSalesUnjoined')}${names ? ` (${names})` : ''}`,
+    })
+  }
+  if (Number(meta.orphanLinesExcluded) > 0) {
+    out.push({ level: 'info', text: `${meta.orphanLinesExcluded} ${t('invRecoMetaOrphans')}` })
+  }
+  // Q35 : grain de la source « Vendu ». 'timeline' = ventes brutes au grain
+  // article (backend antérieur au moment de la génération) — les lignes au grain
+  // ingrédient ont alors Vendu=0, leurs manquants sont à lire avec ce biais.
+  // 'consumption' (régime nominal) et absent (document pré-Q35) : pas de bandeau.
+  if (meta.salesSource === 'timeline' && !isPre.value) {
+    out.push({ level: 'info', text: t('invRecoMetaSalesTimeline') })
+  }
+  const cp = meta.countedProgress
+  if (Array.isArray(cp) && cp.length === 2 && cp[1] > 0 && cp[0] < cp[1]) {
+    out.push({ level: 'warn', text: `${t('invRecoMetaIncomplete')} ${cp[0]}/${cp[1]}` })
+  }
+  return out
+})
+
 // Lignes pre-event NORMALISÉES en unités : expectedUnits/countedUnits/deltaUnits
 // (+ deltaValue au coût). Convention de signe : delta = compté − attendu
 // (négatif = manquant). null conservé quand la baseline manquait.
 const lines = computed(() => {
   if (!isPre.value) return rawLines.value
   const round2 = (n) => Math.round(n * 100) / 100
-  const qOf = (itemId) => Number(props.unitsPerItemId?.[itemId]) || 1
+  // BUG-239 : depuis 2026-07-24 la ligne porte `unitsPerPack` (celui du calcul).
+  // On l'utilise en priorité — le référentiel courant de l'écran peut avoir
+  // changé depuis, et une photo figée doit rester lisible telle qu'elle a été
+  // calculée. Repli : conditionnement affiché, puis ×1.
+  const qOf = (l) =>
+    Number(l?.unitsPerPack) > 0
+      ? Number(l.unitsPerPack)
+      : Number(props.unitsPerItemId?.[l?.itemKey]) || 1
   const costOf = (itemId) => {
     const c = Number(props.costByItemId?.[itemId])
     return Number.isFinite(c) ? c : null
   }
   return rawLines.value.map((l) => {
-    const q = qOf(l.itemKey)
-    const countedUnits = round2((Number(l.countedPacked) || 0) * q + (Number(l.countedLoose) || 0))
-    const expectedUnits =
-      l.expectedPacked == null && l.expectedLoose == null
+    const q = qOf(l)
+    // Totaux servis par le backend quand ils existent (calcul et affichage dans
+    // la même unité) ; sinon reconstruits depuis packed/loose.
+    const countedUnits = Number.isFinite(Number(l.countedUnits))
+      ? round2(Number(l.countedUnits))
+      : round2((Number(l.countedPacked) || 0) * q + (Number(l.countedLoose) || 0))
+    const expectedUnits = Number.isFinite(Number(l.expectedUnits))
+      ? round2(Number(l.expectedUnits))
+      : l.expectedPacked == null && l.expectedLoose == null
         ? null
         : round2((Number(l.expectedPacked) || 0) * q + (Number(l.expectedLoose) || 0))
     const deltaUnits = expectedUnits == null ? null : round2(countedUnits - expectedUnits)
@@ -366,26 +435,31 @@ function formatDelta(v) {
 }
 function formatUnits(v) {
   if (v == null || Number.isNaN(Number(v))) return '—'
-  return Number(v).toLocaleString('fr-FR', { maximumFractionDigits: 2 })
+  return Number(v).toLocaleString(intlLocale.value, { maximumFractionDigits: 2 })
 }
 function formatPct(pct) {
   if (pct == null) return '—'
   const rounded = Math.round(pct * 10) / 10
-  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString('fr-FR')} %`
+  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString(intlLocale.value)} %`
 }
 function formatMissChip() {
   // Valeur (€) si valorisable, sinon unités — jamais un 0 € fabriqué.
-  if (summary.value.totalMissingValue != null) return formatCurrencyDetailed(summary.value.totalMissingValue)
+  if (summary.value.totalMissingValue != null) {
+    return formatCurrencyDetailed(summary.value.totalMissingValue, 'EUR', intlLocale.value)
+  }
   if (summary.value.totalMissingUnits != null) {
     return `${formatUnits(summary.value.totalMissingUnits)} ${t('invRecoUnitsSuffix')}`
   }
   return '—'
 }
+function formatMoney(v) {
+  return formatCurrencyDetailed(v, 'EUR', intlLocale.value)
+}
 function formatDateTime(v) {
   const d = new Date(v)
   if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString(intlLocale.value, { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString(intlLocale.value, { hour: '2-digit', minute: '2-digit' })
 }
 </script>
 
@@ -402,9 +476,9 @@ function formatDateTime(v) {
 .irv-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .irv-chip {
   font-size: 12.5px;
-  color: #424242;
-  background: #FFFFFF;
-  border: 1px solid #EEEEEE;
+  color: var(--fb-text, #424242);
+  background: var(--fb-surface, #FFFFFF);
+  border: 1px solid var(--fb-border, #EEEEEE);
   border-radius: 999px;
   padding: 4px 12px;
   font-variant-numeric: tabular-nums;
@@ -414,24 +488,47 @@ function formatDateTime(v) {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #FFFFFF;
-  border: 1px solid #EEEEEE;
+  background: var(--fb-surface, #FFFFFF);
+  border: 1px solid var(--fb-border, #EEEEEE);
   border-radius: 999px;
   padding: 5px 12px;
 }
+.irv-search-icon { color: var(--fb-faint, #9CA3AF); }
 .irv-search-input {
   border: 0;
   outline: none;
   font-size: 13px;
   min-width: 190px;
   background: transparent;
-  color: #212121;
+  color: var(--fb-text, #212121);
 }
 .irv-toggle { border-radius: 999px; }
-.irv-meta { font-size: 12px; color: #757575; }
+.irv-meta { font-size: 12px; color: var(--fb-muted, #757575); }
+
+/* Bandeaux de contexte (sources manquantes/dégradées). Couleurs sémantiques
+   conservées en clair ET en sombre : le fond passe par --fb-*, l'accent reste
+   lisible sur les deux fonds. */
+.irv-notices { display: flex; flex-direction: column; gap: 6px; }
+.irv-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  padding: 7px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--fb-border, #EEEEEE);
+  background: var(--fb-subtle, #FAFAFA);
+  color: var(--fb-text, #424242);
+}
+.irv-notice-icon { flex: 0 0 auto; margin-top: 1px; }
+.irv-notice--warn { border-color: var(--fb-warning, #E9A23B); background: var(--fb-warning-soft, #FFFBEB); }
+.irv-notice--warn .irv-notice-icon { color: var(--fb-warning, #B45309); }
+.irv-notice--info .irv-notice-icon { color: var(--fb-muted, #757575); }
+
 .irv-tablewrap {
-  background: #FFFFFF;
-  border: 1px solid #EEEEEE;
+  background: var(--fb-surface, #FFFFFF);
+  border: 1px solid var(--fb-border, #EEEEEE);
   border-radius: 12px;
   overflow-x: auto;
 }
@@ -447,26 +544,28 @@ function formatDateTime(v) {
   font-size: 11px;
   letter-spacing: .05em;
   text-transform: uppercase;
-  color: #757575;
+  color: var(--fb-muted, #757575);
   font-weight: 600;
-  border-bottom: 1.5px solid #EEEEEE;
+  border-bottom: 1.5px solid var(--fb-border, #EEEEEE);
 }
-.irv-table td { border-bottom: 1px solid #F5F5F5; color: #212121; }
+.irv-table td { border-bottom: 1px solid var(--fb-border, #F5F5F5); color: var(--fb-text, #212121); }
 .irv-col-name { text-align: left !important; font-weight: 500; }
 .irv-row { cursor: pointer; }
-.irv-row:hover td { background: #FAFAFA; }
-.irv-row-open td { background: #FAFAFA; }
-.irv-caret { color: #9E9E9E; margin-right: 2px; }
-.irv-subrow td { background: #FCFCFC; font-size: 12.5px; }
-.irv-subname { padding-left: 34px !important; color: #616161; font-weight: 400; }
-.irv-empty-row td { text-align: center; color: #9E9E9E; padding: 22px; }
-.irv-neg { color: #C62828; font-weight: 600; }
-.irv-pos { color: #B45309; font-weight: 600; }
-.irv-muted { color: #9E9E9E; }
+.irv-row:hover td { background: var(--fb-subtle, #FAFAFA); }
+.irv-row-open td { background: var(--fb-subtle, #FAFAFA); }
+.irv-caret { color: var(--fb-faint, #9E9E9E); margin-right: 2px; }
+.irv-subrow td { background: var(--fb-subtle, #FCFCFC); font-size: 12.5px; }
+.irv-subname { padding-left: 34px !important; color: var(--fb-muted, #616161); font-weight: 400; }
+.irv-empty-row td { text-align: center; color: var(--fb-faint, #9E9E9E); padding: 22px; }
+/* Manquant / surplus : sémantique, pas décoratif — teintes qui tiennent sur les
+   deux thèmes (le rouge clair d'origine disparaissait sur fond sombre). */
+.irv-neg { color: var(--fb-danger, #C62828); font-weight: 600; }
+.irv-pos { color: var(--fb-warning, #B45309); font-weight: 600; }
+.irv-muted { color: var(--fb-faint, #9E9E9E); }
 .irv-miss {
-  color: #C62828;
+  color: var(--fb-danger, #C62828);
   font-weight: 700;
-  background: #FDECEA;
+  background: var(--fb-danger-soft, #FDECEA);
   border-radius: 4px;
   padding: 1px 7px;
 }

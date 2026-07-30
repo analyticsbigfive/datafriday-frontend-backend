@@ -248,6 +248,81 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
   return result
 }
 
+// Cache dédié aux paniers — volontairement PAS mutualisé avec _eventTimelineCache :
+// même clé `${spaceId}:${eventId}` mais forme de record totalement différente
+// (combinaisons par transaction vs lignes minute × article).
+const _basketCache = new Map()
+const _basketInflight = new Map()
+
+/**
+ * Combinaisons de catégories/articles PAR TRANSACTION, pour N events en un appel.
+ * Alimente le donut « Répartition des catégories de produits par transaction ».
+ *
+ * Mêmes règles de cache que getSpaceEventTimelineBatch : un event PASSÉ est immuable
+ * donc mis en cache ; `bypassCache` (module Live) force le réseau car un event EN
+ * COURS ne l'est pas, tout en réécrivant le cache pour les autres consommateurs.
+ *
+ * @returns {Promise<Map<string, Array<object>>>} eventId → BasketComboRecord[]
+ */
+export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypassCache = false } = {}) {
+  const ids = [...new Set((eventIds || []).filter(Boolean))]
+  const result = new Map()
+  if (!ids.length) return result
+
+  const { isDemoMode } = await import('@/utils/demoMode')
+  if (isDemoMode()) {
+    for (const eventId of ids) result.set(eventId, [])
+    return result
+  }
+
+  const missing = []
+  for (const eventId of ids) {
+    const cacheKey = `${spaceId}:${eventId}`
+    if (bypassCache) {
+      missing.push(eventId)
+    } else if (_basketCache.has(cacheKey)) {
+      result.set(eventId, _basketCache.get(cacheKey))
+    } else if (_basketInflight.has(cacheKey)) {
+      result.set(eventId, await _basketInflight.get(cacheKey))
+    } else {
+      missing.push(eventId)
+    }
+  }
+  if (!missing.length) return result
+
+  const inflight = (async () => {
+    try {
+      const response = await api.get(`/spaces/${spaceId}/transaction-baskets`, {
+        params: { eventIds: missing.join(',') },
+      })
+      return response.data || {}
+    } catch (error) {
+      console.error(`[SPACES API] Error fetching transaction baskets for ${spaceId}:`, error)
+      throw error
+    }
+  })()
+  for (const eventId of missing) {
+    const derived = inflight.then((data) => data[eventId] || [])
+    // Idem BUG-173 côté timeline : sans ce catch, un batch en échec qu'aucun appel
+    // concurrent n'await devient une unhandledRejection.
+    derived.catch(() => {})
+    _basketInflight.set(`${spaceId}:${eventId}`, derived)
+  }
+
+  let byEventId
+  try {
+    byEventId = await inflight
+  } finally {
+    for (const eventId of missing) _basketInflight.delete(`${spaceId}:${eventId}`)
+  }
+  for (const eventId of missing) {
+    const data = byEventId[eventId] || []
+    if (Array.isArray(data) && data.length) _basketCache.set(`${spaceId}:${eventId}`, data)
+    result.set(eventId, data)
+  }
+  return result
+}
+
 /**
  * List WeezeventEvents for a space, including enrichment metadata
  */

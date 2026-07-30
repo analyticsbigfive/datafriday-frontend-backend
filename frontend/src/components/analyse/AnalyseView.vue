@@ -256,19 +256,23 @@
           <v-card flat rounded="lg" class="pa-4 mb-4">
             <div v-if="isTimelineActive" class="ep-timeline-wrap">
               <!-- :key force un remount propre uniquement quand l'event
-                   (ou la moyenne) change réellement. -->
+                   (ou la moyenne) change réellement. NE PAS y ajouter la
+                   signature de filtres : remonter le canvas en cours d'update
+                   est le crash Chart.js « ownerDocument » (cf. plus haut).
+                   Les props selected-shops/-shop-types/-shop-areas ont été
+                   RETIRÉES : `filteredTimelineData` est déjà filtré sur les 6
+                   dimensions. Les remettre ferait tourner deux implémentations
+                   de filtrage sur le même tableau — l'origine du bug corrigé. -->
               <EventTimelineChart
                 embedded
                 :key="`timeline-${selectedEventForTimeline?.eventId || 'none'}-${timelineEventsList.length}`"
                 :event-id="selectedEventForTimeline?.eventId || ''"
                 :event-name="timelineHeaderLabel"
                 :event-date="selectedEventForTimeline?.eventDate || ''"
-                :timeline-data="eventTimelineData"
+                :timeline-data="filteredTimelineData"
                 :predicted-timeline-data="[]"
                 :menu-items="[]"
-                :selected-shops="filters.selectedShopIds || []"
-                :selected-shop-types="filters.selectedShopTypes || []"
-                :selected-shop-areas="filters.selectedShopAreas || []"
+                :filter-signature="timelineFilterSignature"
                 closable
                 @close="onCloseTimeline"
                 @time-range-change="onTimelineRangeChange"
@@ -332,6 +336,16 @@
             @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
             @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
             @shop-area-click="(v) => toggleArrayFilter('selectedShopAreas', v)"
+          />
+
+          <!-- Combinaisons de catégories PAR TRANSACTION. Dans le conteneur
+               `v-show="!showInventory"` : couvre donc Analyse, Live ET Predict
+               (même composant, aucune garde !isLive). Son drill-down reste local
+               au composant, cf. son en-tête. -->
+          <TransactionCategoryMixChart
+            :records="filteredBaskets"
+            :loading="basketsLoading"
+            :excluded-predicted-count="basketsMissingEventCount"
           />
 
           <!-- Phase 2 : skeletons des graphes SOUS la carte (le skeleton des
@@ -448,6 +462,7 @@ import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'
 import EventTimelineChart from './charts/EventTimelineChart.vue'
 import ShopDistributionPieChart from './charts/ShopDistributionPieChart.vue'
+import TransactionCategoryMixChart from './charts/TransactionCategoryMixChart.vue'
 import MenuItemRevenueDistribution from './tables/MenuItemRevenueDistribution.vue'
 import MenuItemsByShopTable from './tables/MenuItemsByShopTable.vue'
 import SummaryPanel from './panels/SummaryPanel.vue'
@@ -473,14 +488,16 @@ import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
 import { parseEventDate as parseEventDateLocal, formatDateShort } from '@/utils/dateFr'
-import { resolveItemName, resolveItemType, resolveItemCategory, resolveShopType } from '@/utils/analyseDimensions'
 import {
-  UNATTACHED_ITEM_KEY,
-  buildReconciliationContext,
-  reconcileRecord,
-} from '@/utils/analyseReconciliation'
-import { normalizeStr } from '@/utils/predictiveAnalytics'
-import { isMinuteInRange } from '@/utils/timelineBucketing'
+  resolveItemName,
+  resolveItemType,
+  resolveItemCategory,
+  buildItemFilterPredicate,
+} from '@/utils/analyseDimensions'
+import { UNATTACHED_ITEM_KEY, reconcileRecord } from '@/utils/analyseReconciliation'
+import { useReconciliationContext } from '@/composables/useReconciliationContext'
+import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
+import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -589,48 +606,106 @@ const {
   refresh: refreshItemRecords,
 } = useAnalyseItemRecords(filteredEvents)
 
-// Prédicat des filtres globaux, en miroir du getter store `filteredShopGranularData`
-// (NB : selectedShopIds contient des NOMS de PdV ; selectedMenuItemIds des noms
-// d'article résolus). Le filtre event est déjà appliqué en amont (filteredEvents).
-// PARTAGÉ entre l'item-level réel et les records article des scénarios Predict :
-// une seule implémentation, sinon un clic sur une part de donut filtrerait le passé
-// mais pas les prédictions (règle d'or `analyseDimensions.js:184` — même `resolveX`
-// côté regroupement et côté filtre).
-// `skipMinute` : les records article des scénarios sont PRÉ-AGRÉGÉS par
-// (shop × article) et n'ont donc pas de champ `minute`. Or `isMinuteInRange`
-// renvoie false pour un `minute` absent dès qu'une borne est posée
-// (timelineBucketing.js:97) → sans cette option, poser le slider horaire les
-// ferait tous disparaître. La fenêtre horaire du scénario est déjà appliquée en
-// amont, côté EventPredict (`windowedPredictedRecords`).
-function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
-  // Filtres shop/item stockent des NOMS ; comparaison NORMALISÉE des deux côtés
-  // (miroir du store : la liste d'options vient du catalogue, casse possiblement ≠).
-  const shopSet = (f.selectedShopIds || []).length ? new Set(f.selectedShopIds.map(normalizeStr)) : null
-  const itemSet = (f.selectedMenuItemIds || []).length ? new Set(f.selectedMenuItemIds.map(normalizeStr)) : null
-  // selectedShopTypes/Areas : clés canoniques émises par les donuts « By POS type » /
-  // « By area ». Sans ces 2 prédicats, cliquer une part de donut ne filtrait RIEN
-  // (le getter store filtre le shop-level, mais les charts consomment cet item-level).
-  const shopTypes = f.selectedShopTypes || []
-  const shopAreas = f.selectedShopAreas || []
-  const itemTypes = f.selectedMenuItemTypes || []
-  const itemCats = f.selectedMenuItemCategories || []
-  const range = f.selectedTimeRange
-  return (r) => {
-    if (shopSet && !shopSet.has(normalizeStr(r.shopName))) return false
-    if (shopTypes.length && !shopTypes.includes(resolveShopType(r))) return false
-    if (shopAreas.length && !shopAreas.includes(r.shopArea)) return false
-    if (itemSet && !itemSet.has(normalizeStr(resolveItemName(r)))) return false
-    if (itemTypes.length && !itemTypes.includes(resolveItemType(r))) return false
-    if (itemCats.length && !itemCats.includes(resolveItemCategory(r))) return false
-    if (!skipMinute && !isMinuteInRange(r.minute, range)) return false
-    return true
-  }
-}
+// Contexte de réconciliation PARTAGÉ avec useAnalyseItemRecords : voir
+// `useReconciliationContext` pour le pourquoi (deux contextes construits
+// séparément = deux catégories possibles pour la même ligne).
+const reconciliationCtx = useReconciliationContext()
 
+// `buildItemFilterPredicate` (analyseDimensions.js) est l'UNIQUE implémentation
+// des filtres item-level, en miroir du getter store `filteredShopGranularData`
+// qui ne couvre que le shop-level. Trois consommateurs : l'item-level réel
+// ci-dessous, les records article des scénarios Predict, et la timeline. Le
+// filtre event est déjà appliqué en amont (filteredEvents).
 const itemLevelRecords = computed(() => {
   const recs = globalItemRecords.value || []
   if (!recs.length) return []
   return recs.filter(buildItemFilterPredicate(filters.value || {}))
+})
+
+// ─── Timeline : réconciliation + filtrage AVANT le graphique ───────────────
+// `eventTimelineData` (useAnalyseTimeline) est un fetch INDÉPENDANT qui ne
+// traverse ni le getter store ni le prédicat item-level. Résultat historique :
+// la timeline affichait un périmètre différent du reste de la page, et le
+// `passesFilters` interne du graphique ne recevait que 3 des 6 dimensions —
+// dont 2 inertes (gardées par des maps jamais passées).
+//
+// On pré-filtre donc ici, avec le MÊME `reconcileRecord` + le MÊME
+// `buildItemFilterPredicate` que les donuts. C'est ce qui garantit que cliquer
+// une part de donut (qui émet une clé RÉCONCILIÉE, jusqu'à `UNATTACHED_ITEM_KEY`)
+// retrouve bien des lignes côté timeline.
+//
+// Découpage en 2 computeds, calqué sur reconciledShopGranularData /
+// filteredShopGranularData du store : la réconciliation est la moitié coûteuse
+// et ne dépend pas des filtres — Vue la garde en cache d'un clic à l'autre.
+const reconciledTimelineData = computed(() => {
+  const recs = eventTimelineData.value || []
+  if (!recs.length) return []
+  return recs.map((r) => reconcileRecord(r, reconciliationCtx.value))
+})
+
+// `skipMinute` OBLIGATOIRE : `selectedTimeRange` est écrit PAR la timeline
+// (useAnalyseTimeline). L'appliquer à sa propre entrée rétrécirait ses labels,
+// ce qui redéfinit à quoi correspond un même pourcentage de curseur, que le
+// drag suivant réémet → rétrécissement monotone jusqu'au vide.
+const filteredTimelineData = computed(() =>
+  reconciledTimelineData.value.filter(
+    buildItemFilterPredicate(filters.value || {}, { skipMinute: true }),
+  ),
+)
+
+// ─── Paniers : combinaisons de catégories PAR TRANSACTION ──────────────────
+// Source DÉDIÉE (endpoint /transaction-baskets) et non dérivée de l'item-level :
+// ce dernier est agrégé par (minute × PdV × article) et a donc PERDU l'identité
+// du panier — impossible de savoir a posteriori ce qui a été acheté ensemble.
+const {
+  basketRecords,
+  loading: basketsLoading,
+  refresh: refreshBaskets,
+} = useTransactionBaskets(filteredEvents)
+
+// Réconciliation AVANT filtrage, exactement comme la timeline — et pour la même
+// raison : les donuts « type de PdV » / « zone » émettent des clés RÉCONCILIÉES
+// (jusqu'à `UNATTACHED_SHOP_KEY`), alors que ces records sortent bruts du SQL.
+// Filtrer sur leurs champs bruts viderait le donut au clic : la zone réconciliée
+// vient de `element.floorName` en priorité, tandis que le record porte
+// `se.attributes->>'area'` — la source de REPLI, pas celle qui gagne.
+// Un record de panier n'a ni nom d'article ni menuItemId → `reconcileRecord`
+// sort par son retour anticipé : dimensions PdV calculées, dimensions article
+// vides, `categoryCombo`/`itemCombo` préservés par le spread. C'est ce qu'il faut.
+const reconciledBaskets = computed(() => {
+  const recs = basketRecords.value || []
+  if (!recs.length) return []
+  return recs.map((r) => reconcileRecord(r, reconciliationCtx.value))
+})
+
+// TOUS les filtres de la page s'appliquent. Les dimensions PdV/horaire passent par
+// le prédicat partagé ; les dimensions article sont évaluées en « CONTIENT » sur les
+// combinaisons du panier — filtrer « Bières » garde les tickets qui contiennent de
+// la bière, paniers MIXTES compris (tranché par l'owner le 2026-07-29, question #42).
+// Le sous-titre du graphique affiche le dénominateur retenu, qui bouge donc avec les
+// filtres : c'est voulu, un pourcentage doit toujours dire sur quoi il porte.
+const filteredBaskets = computed(() =>
+  reconciledBaskets.value.filter(buildBasketFilterPredicate(filters.value || {})),
+)
+
+// Signature des filtres qui BOUGENT les données de la timeline. Sert au
+// graphique à remettre son curseur horaire à pleine largeur : `rangePct` y est
+// local, donc après un changement de filtre les mêmes pourcentages désigneraient
+// d'autres heures sans que le composant réémette quoi que ce soit — le store
+// et le curseur divergeraient en silence.
+// `selectedTimeRange` en est EXCLU pour la même raison que `skipMinute`.
+const timelineFilterSignature = computed(() => {
+  const f = filters.value || {}
+  return [
+    f.selectedShopIds,
+    f.selectedShopTypes,
+    f.selectedShopAreas,
+    f.selectedMenuItemIds,
+    f.selectedMenuItemTypes,
+    f.selectedMenuItemCategories,
+  ]
+    .map((arr) => [...(arr || [])].sort().join('|'))
+    .join('~')
 })
 
 // ─── Dataset UNIQUE data-driven (parité React) ─────────────────────────────
@@ -672,18 +747,13 @@ const predictScenarioRecords = computed(() => {
   const eventIds = new Set((filteredEvents.value || []).map((e) => e?.id))
   const scoped = raw.filter((r) => eventIds.has(r.eventId))
   if (!scoped.length) return []
-  const a = store.state.analyse
-  const ctx = buildReconciliationContext({
-    menuItems: a.menuItems || [],
-    productCategories: a.productCategoriesList || [],
-    productTypes: a.productTypesList || [],
-    floorElements: a.configShopContext?.floorElements || [],
-    assignment: a.configShopContext?.assignment || null,
-    assignmentItemsByShop: a.configShopContext?.assignmentItemsByShop || null,
-    weezeventProducts: a.weezeventProducts || [],
-  })
+  // `skipMinute` : ces records sont PRÉ-AGRÉGÉS par (shop × article) et n'ont
+  // donc pas de champ `minute`. `isMinuteInRange` renvoie false pour un `minute`
+  // absent dès qu'une borne est posée (timelineBucketing.js:97) → sans l'option,
+  // poser le slider horaire les ferait tous disparaître. La fenêtre horaire du
+  // scénario est déjà appliquée en amont, côté EventPredict.
   const keep = buildItemFilterPredicate(filters.value || {}, { skipMinute: true })
-  return scoped.map((r) => reconcileRecord(r, ctx)).filter(keep)
+  return scoped.map((r) => reconcileRecord(r, reconciliationCtx.value)).filter(keep)
 })
 
 // Events couverts par un scénario — dérivé du state BRUT, jamais de
@@ -703,6 +773,18 @@ const articleRecords = computed(() => {
   const covered = scenarioEventIds.value
   const actualPast = itemLevelRecords.value.filter((r) => !covered.has(r.eventId))
   return [...actualPast, ...predictScenarioRecords.value]
+})
+
+// Mode PREDICT : un scénario produit des quantités par article, JAMAIS de tickets —
+// il n'y a donc aucun panier à répartir pour ces events. On compte ceux qui ne
+// remontent aucun panier plutôt que de les laisser disparaître du dénominateur en
+// silence (même principe que `predictEventsWithoutScenarioCount` ci-dessous).
+// Hors Predict, l'absence de panier signifie « aucune vente » et n'a pas à être
+// signalée comme une lacune.
+const basketsMissingEventCount = computed(() => {
+  if (!isPredictRecords.value) return 0
+  const withBaskets = new Set((basketRecords.value || []).map((r) => r.eventId))
+  return (filteredEvents.value || []).filter((e) => e?.id && !withBaskets.has(e.id)).length
 })
 
 // Events visibles qui ont une prédiction shop-level mais AUCUN scénario sauvegardé :
@@ -1170,6 +1252,32 @@ watch(
   { immediate: true, flush: 'post' },
 )
 
+// Mode MOYENNE uniquement : un filtre qui change l'ENSEMBLE des events (dates,
+// type d'event, curseurs billetterie…) doit relancer le fetch — le snapshot ne
+// contient que les events chargés au moment du dernier `loadTimelineForEvents`,
+// et aucun filtrage client ne peut inventer un event absent.
+// Trois garde-fous, tous porteurs :
+//  - comparaison par CONTENU (`filteredEvents` est un computed qui produit un
+//    tableau neuf à chaque évaluation → une comparaison de référence tirerait en
+//    boucle) ;
+//  - restreint à la moyenne : le cas mono-event appartient au watcher
+//    `selectedEventIds` ci-dessus, les deux se battraient sinon ;
+//  - pas de boucle possible : `filteredEvents` ne lit pas `selectedTimeRange`,
+//    que la timeline est seule à écrire.
+watch(
+  () => (filteredEvents.value || []).map((e) => e?.id).filter(Boolean).sort().join(','),
+  (sig, prev) => {
+    if (sig === prev) return
+    if (!isTimelineActive.value) return
+    if (selectedEventForTimeline.value?.eventId !== 'average') return
+    if (!filteredEvents.value?.length) {
+      closeTimeline()
+      return
+    }
+    loadTimelineForEvents(filteredEvents.value)
+  },
+)
+
 function clearEvents() {
   setFilterImmediate('selectedEventIds', [])
 }
@@ -1455,24 +1563,29 @@ function onShowAverage() {
 //    faux pendant un live) — sans ce bypass, tout poll après le 1er est servi
 //    depuis ce cache mémoire et n'atteint jamais le réseau.
 //  - `loadSpace` (shop-details/shopGranularData → Shop Performance, Event
-//    Revenue by Shop, Shop distribution) : le bug historique qui remettait
-//    `selectedConfigurationId` à null a été corrigé (bug 225,
-//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js) — un
-//    re-dispatch régulier est donc sûr, à un intervalle plus large (ce payload
-//    recharge aussi catalogue/ingrédients, inutile de le faire aussi souvent
-//    que la timeline).
+//    Revenue by Shop, Shop distribution, et `menuItemCostMap` utilisé pour le
+//    calcul de marge) : alignée sur le même intervalle que le reste (15s,
+//    2026-07-29) — un `menuItemCostMap` rafraîchi seulement toutes les 45s
+//    pendant que le CA l'était toutes les 15s faisait dériver la marge affichée
+//    jusqu'à 30s derrière le CA. Le bug historique qui remettait
+//    `selectedConfigurationId` à null est corrigé (bug 225,
+//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js), donc ce
+//    re-dispatch plus fréquent est sûr.
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 const LIVE_POLL_MS = 15000
-const LIVE_SHOP_DETAILS_POLL_MS = 45000
 let livePollTimer = null
-let liveShopDetailsTimer = null
 function livePoll() {
   if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
   refreshItemRecords()
+  // Les paniers ont leur PROPRE cache session (`_basketCache`, space.api.js) avec
+  // la même hypothèse d'immuabilité : sans ce bypass, le donut « catégories par
+  // transaction » resterait figé pendant que tout le reste de la page tique.
+  refreshBaskets()
+  liveShopDetailsPoll()
 }
 function liveShopDetailsPoll() {
   const spaceId = route.params.spaceId
@@ -1482,11 +1595,9 @@ function startLivePolling() {
   stopLivePolling()
   if (!isLive.value) return
   livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
-  liveShopDetailsTimer = setInterval(liveShopDetailsPoll, LIVE_SHOP_DETAILS_POLL_MS)
 }
 function stopLivePolling() {
   if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
-  if (liveShopDetailsTimer) { clearInterval(liveShopDetailsTimer); liveShopDetailsTimer = null }
 }
 onActivated(() => {
   startLivePolling()

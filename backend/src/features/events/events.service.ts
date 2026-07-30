@@ -107,6 +107,86 @@ export class EventsService {
     return team;
   }
 
+  /** Recherche insensible à la casse, scopée tenant + compétition — factorisé pour être
+   *  partagé entre createTeam (échec si doublon) et resolveOrCreateTeamByName (réutilise). */
+  private async findExistingTeam(
+    tenantId: string,
+    name: string,
+    eventCategoryId?: string | null,
+    eventSubcategoryId?: string | null,
+  ) {
+    return this.prisma.team.findFirst({
+      where: {
+        tenantId,
+        name: { equals: name, mode: 'insensitive' },
+        eventCategoryId: eventCategoryId ?? null,
+        eventSubcategoryId: eventSubcategoryId ?? null,
+      },
+    });
+  }
+
+  /**
+   * BUG-121 : verrou en mémoire par (tenant, compétition, nom normalisé), partagé par TOUTE
+   * requête concurrente traitée par ce process — `EventsService` est un singleton Nest, une
+   * seule instance sert tous les appels HTTP. Nécessaire car la contrainte DB `@@unique`
+   * (BUG-70) ne protège PAS les équipes non scopées : Postgres traite NULL comme distinct de
+   * NULL, donc deux équipes "Paris Basket Ball" avec eventCategoryId/eventSubcategoryId tous
+   * deux NULL ne violent jamais la contrainte, même créées en parallèle. Constaté en réel : un
+   * import CSV avec plusieurs lignes "Paris Basket Ball" (catégorie non mappée → scope NULL)
+   * dans le même lot concurrent a créé deux équipes identiques à 1ms d'écart.
+   */
+  private static readonly teamResolutionInFlight = new Map<string, Promise<{ id: string; name: string }>>();
+
+  /**
+   * Résout une équipe par nom dans le catalogue Team (scopée compétition), la crée si elle
+   * n'existe pas encore — contrairement à `createTeam` (action utilisateur explicite, échoue
+   * en 409 sur doublon), celle-ci est silencieuse : utilisée quand le nom vient d'un champ
+   * texte (import CSV, saisie manuelle) plutôt que d'un choix explicite dans le catalogue.
+   */
+  private async resolveOrCreateTeamByName(
+    tenantId: string,
+    name: string,
+    eventCategoryId?: string | null,
+    eventSubcategoryId?: string | null,
+  ) {
+    const trimmed = name.trim();
+    const key = `${tenantId}␟${eventCategoryId ?? ''}␟${eventSubcategoryId ?? ''}␟${trimmed.toLowerCase()}`;
+
+    const inflight = EventsService.teamResolutionInFlight.get(key);
+    if (inflight) return inflight;
+
+    const resolution = (async () => {
+      try {
+        const existing = await this.findExistingTeam(tenantId, trimmed, eventCategoryId, eventSubcategoryId);
+        if (existing) return existing;
+        try {
+          return await this.prisma.team.create({
+            data: {
+              tenantId,
+              name: trimmed,
+              eventCategoryId: eventCategoryId ?? null,
+              eventSubcategoryId: eventSubcategoryId ?? null,
+            },
+          });
+        } catch (error) {
+          // Filet de sécurité pour les créations concurrentes sur des process/instances
+          // différents (le verrou ci-dessus ne couvre qu'un seul process) — inopérant pour un
+          // scope NULL/NULL (BUG-70), mais bloque bien le cas scopé catégorie/sous-catégorie.
+          if (error.code === 'P2002') {
+            const raced = await this.findExistingTeam(tenantId, trimmed, eventCategoryId, eventSubcategoryId);
+            if (raced) return raced;
+          }
+          throw error;
+        }
+      } finally {
+        EventsService.teamResolutionInFlight.delete(key);
+      }
+    })();
+
+    EventsService.teamResolutionInFlight.set(key, resolution);
+    return resolution;
+  }
+
   /**
    * BUG-34 : `Event.spaceId`/`configurationId` sont des String sans FK Prisma
    * (voir docs/bugs/34_event_spaceid_sans_fk.md) — contrairement à
@@ -146,19 +226,40 @@ export class EventsService {
   }
 
   /**
-   * Champs équipe d'un event : valide que visitingTeamId appartient au tenant
-   * (sinon référence cross-tenant possible) et dérive visitingTeamName côté
-   * serveur dès que la FK est posée — le nom client n'est pris qu'en repli
-   * sans FK. `visitingTeamId: null` désassigne (id + nom dénormalisé).
+   * Champs équipe d'un event : valide que visitingTeamId appartient au tenant (sinon référence
+   * cross-tenant possible) et dérive visitingTeamName côté serveur dès que la FK est posée.
+   * `visitingTeamId: null` désassigne (id + nom dénormalisé).
+   *
+   * Quand seul un NOM est fourni (homeTeamName toujours, visitingTeamName en repli sans FK —
+   * cas de l'import CSV et de toute saisie texte libre) : résout-ou-crée l'équipe dans le
+   * catalogue Team (scopée à la compétition résolue) plutôt que de stocker un texte jamais
+   * relié — c'est ce qui permettait auparavant à Home/Visiting Team de rester introuvables
+   * dans les selects du formulaire d'édition après un import (cf. BUG-253-02, initialement
+   * corrigé côté frontend, déplacé ici pour éviter les allers-retours réseau en double).
+   *
+   * `scope` fournit la compétition de repli pour un PATCH qui ne retouche pas la taxonomie —
+   * sans ça, changer juste le nom d'une équipe sur un event existant la recréerait sans scope
+   * (null/null) au lieu de respecter la compétition déjà en place sur l'event.
    */
   private async resolveEventTeamFields(
     dto: CreateEventDto | UpdateEventDto,
     tenantId: string,
+    scope: { eventCategoryId?: string | null; eventSubcategoryId?: string | null } = {},
   ): Promise<Record<string, string | null>> {
     const data: Record<string, string | null> = {};
+    const eventCategoryId = dto.eventCategoryId !== undefined ? dto.eventCategoryId : scope.eventCategoryId;
+    const eventSubcategoryId = dto.eventSubcategoryId !== undefined ? dto.eventSubcategoryId : scope.eventSubcategoryId;
+
     if (dto.homeTeamName !== undefined) {
-      data.homeTeamName = dto.homeTeamName;
+      const trimmed = (dto.homeTeamName ?? '').trim();
+      if (!trimmed) {
+        data.homeTeamName = null;
+      } else {
+        const team = await this.resolveOrCreateTeamByName(tenantId, trimmed, eventCategoryId, eventSubcategoryId);
+        data.homeTeamName = team.name;
+      }
     }
+
     if (dto.visitingTeamId !== undefined) {
       if (dto.visitingTeamId === null) {
         data.visitingTeamId = null;
@@ -169,7 +270,14 @@ export class EventsService {
         data.visitingTeamName = team.name;
       }
     } else if (dto.visitingTeamName !== undefined) {
-      data.visitingTeamName = dto.visitingTeamName;
+      const trimmed = (dto.visitingTeamName ?? '').trim();
+      if (!trimmed) {
+        data.visitingTeamName = null;
+      } else {
+        const team = await this.resolveOrCreateTeamByName(tenantId, trimmed, eventCategoryId, eventSubcategoryId);
+        data.visitingTeamId = team.id;
+        data.visitingTeamName = team.name;
+      }
     }
     return data;
   }
@@ -184,15 +292,26 @@ export class EventsService {
   private async resolveEventSpaceFields(
     dto: CreateEventDto | UpdateEventDto,
     tenantId: string,
-  ): Promise<Record<string, string>> {
-    const data: Record<string, string> = {};
+  ): Promise<Record<string, string | null>> {
+    const data: Record<string, string | null> = {};
     if (dto.spaceId !== undefined) {
-      await this.findOwnedSpaceOrThrow(dto.spaceId, tenantId);
-      data.spaceId = dto.spaceId;
+      if (dto.spaceId === null) {
+        // Démapper (étape 4 Data Integration) : détache l'event du space sans le
+        // supprimer. Emporte configurationId (n'a de sens que scopé à un space).
+        data.spaceId = null;
+        if (dto.configurationId === undefined) data.configurationId = null;
+      } else {
+        await this.findOwnedSpaceOrThrow(dto.spaceId, tenantId);
+        data.spaceId = dto.spaceId;
+      }
     }
     if (dto.configurationId !== undefined) {
-      await this.findOwnedConfigOrThrow(dto.configurationId, tenantId);
-      data.configurationId = dto.configurationId;
+      if (dto.configurationId === null) {
+        data.configurationId = null;
+      } else {
+        await this.findOwnedConfigOrThrow(dto.configurationId, tenantId);
+        data.configurationId = dto.configurationId;
+      }
     }
     return data;
   }
@@ -327,7 +446,10 @@ export class EventsService {
           ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
           ...(await this.resolveEventSpaceFields(dto, tenantId)),
           ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
-          ...(await this.resolveEventTeamFields(dto, tenantId)),
+          ...(await this.resolveEventTeamFields(dto, tenantId, {
+            eventCategoryId: existing.eventCategoryId,
+            eventSubcategoryId: existing.eventSubcategoryId,
+          })),
         },
         include: this.includeRelations,
       });
@@ -342,6 +464,16 @@ export class EventsService {
     if (dateChanged && tenantId) {
       await this.weezeventLinkService.relinkForTenantDate(tenantId, updated.eventDate);
     }
+
+    // Démapper (étape 4 Data Integration) : purge l'agrégation minute-par-minute laissée
+    // orpheline par ce space/event — sinon elle ne sera plus jamais lue (l'event a quitté
+    // la liste du space) mais reste en base jusqu'à une éventuelle synchronisation finale.
+    if (dto.spaceId === null && existing.spaceId) {
+      await this.prisma.spaceRevenueMinuteAgg.deleteMany({
+        where: { tenantId, spaceId: existing.spaceId, weezeventEventId: id },
+      });
+    }
+
     return updated;
   }
 
@@ -743,14 +875,7 @@ export class EventsService {
   async createTeam(tenantId: string, dto: CreateTeamDto) {
     await this.assertAccessibleTeamScope(tenantId, dto);
 
-    const duplicate = await this.prisma.team.findFirst({
-      where: {
-        tenantId,
-        name: { equals: dto.name, mode: 'insensitive' },
-        eventCategoryId: dto.eventCategoryId ?? null,
-        eventSubcategoryId: dto.eventSubcategoryId ?? null,
-      },
-    });
+    const duplicate = await this.findExistingTeam(tenantId, dto.name, dto.eventCategoryId, dto.eventSubcategoryId);
     if (duplicate) {
       throw new ConflictException(`Team "${dto.name}" already exists for this competition`);
     }

@@ -895,6 +895,142 @@ describe('SpacesService', () => {
     });
   });
 
+  // Donut « Répartition des catégories de produits par transaction » : seule lecture
+  // du code qui préserve l'identité du panier (getEventTimelineBatch écrase t.id en
+  // COUNT(DISTINCT)). Un double comptage ici fausserait TOUS les pourcentages affichés.
+  describe('getTransactionBasketsBatch', () => {
+    const spaceId = 'space-1';
+    const tenantId = 'tenant-1';
+
+    beforeEach(() => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue({ salesLocationId: 'integ-1' });
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'ev-1', eventDate: new Date('2026-03-01T18:00:00Z'), eventEndDate: null },
+      ]);
+      (mockPrismaService as any).salesEvent = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    it('retourne un objet vide sans requête quand aucun eventId n’est fourni', async () => {
+      const res = await service.getTransactionBasketsBatch(spaceId, [], tenantId);
+
+      expect(res).toEqual({});
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('applique les prédicats obligatoires de lecture des ventes (BUG-028 / BUG-108)', async () => {
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const call = mockPrismaService.$queryRaw.mock.calls.at(-1);
+      const sql: string = (call?.[0]?.strings ?? []).join('');
+
+      expect(sql).toContain("t.status = 'V'");
+      expect(sql).toContain('t."deletedAt" IS NULL');
+      expect(sql).not.toContain("'completed'");
+      // Le panier doit être l'unité de groupement de la CTE, sinon double comptage.
+      expect(sql).toContain('GROUP BY');
+      expect(sql).toContain('t.id');
+    });
+
+    it('trie les combinaisons côté SQL — « Bières, Consigne » et « Consigne, Bières » sont un seul bucket', async () => {
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      expect(sql).toContain('ARRAY_AGG(DISTINCT pc.name ORDER BY pc.name)');
+      // Repli sur le libellé fournisseur quand le produit n'est pas mappé.
+      expect(sql).toContain('COALESCE(mi.name, ti."productName")');
+    });
+
+    // Le donut « type d'article » de la page filtre le graphique en sémantique
+    // « contient » (question #42) : sans typeCombo, cliquer une part de ce donut
+    // viderait le camembert au lieu de le restreindre.
+    it('remonte aussi la combinaison de TYPES d’article', async () => {
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      expect(sql).toContain('ARRAY_AGG(DISTINCT pt.name ORDER BY pt.name)');
+      expect(sql).toContain('LEFT JOIN "ProductType"');
+    });
+
+    it('n’écarte JAMAIS les lignes non résolues (pas de filtre sur la catégorie)', async () => {
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      // Convention maison : afficher « Non rattachés » plutôt que sous-compter en silence.
+      expect(sql).not.toContain('pc.name IS NOT NULL');
+      expect(sql).toContain('LEFT JOIN "ProductCategory"');
+      expect(sql).toContain('LEFT JOIN "MenuItem"');
+    });
+
+    it('un panier de 2 lignes = UNE combinaison à 2 catégories, transactionCount 1', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        {
+          eventId: 'ev-1',
+          minute: '20:30',
+          shopId: 'el-1',
+          shopName: 'Bar Nord',
+          shopType: 'beverages',
+          shopArea: 'Niveau 0',
+          categoryCombo: ['Bières', 'Boissons Soft'],
+          typeCombo: ['Beverage'],
+          itemCombo: ['50cl Heineken', 'Coca Cola'],
+          transactionCount: 1,
+          quantity: 2,
+          revenueHt: '9.50',
+        },
+      ]);
+
+      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1']).toHaveLength(1);
+      expect(res['ev-1'][0]).toMatchObject({
+        categoryCombo: ['Bières', 'Boissons Soft'],
+        typeCombo: ['Beverage'],
+        itemCombo: ['50cl Heineken', 'Coca Cola'],
+        transactionCount: 1,
+        quantity: 2,
+        revenueHt: 9.5,
+      });
+    });
+
+    it('conserve le null d’une ligne non résolue DANS la combinaison', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        {
+          eventId: 'ev-1',
+          minute: '21:00',
+          shopId: 'loc-brut',
+          shopName: 'PdV non mappé',
+          shopType: null,
+          shopArea: null,
+          categoryCombo: ['Bières', null],
+          itemCombo: ['50cl Heineken', 'Produit inconnu'],
+          transactionCount: 3,
+          quantity: 6,
+          revenueHt: '21.00',
+        },
+      ]);
+
+      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1'][0].categoryCombo).toEqual(['Bières', null]);
+      expect(res['ev-1'][0].transactionCount).toBe(3);
+    });
+
+    it('ignore les lignes dont l’eventId n’a pas été demandé', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        { eventId: 'ev-inconnu', minute: '20:00', categoryCombo: ['Bières'], itemCombo: [], transactionCount: 5 },
+      ]);
+
+      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1']).toEqual([]);
+      expect(res['ev-inconnu']).toBeUndefined();
+    });
+  });
+
   // ===== Correctifs Wizard Weezevent (A1/A3/A4/A6) =====
   describe('Wizard Weezevent fixes', () => {
     const tenantId = 'tenant-1';

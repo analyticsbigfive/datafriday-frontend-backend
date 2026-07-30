@@ -21,15 +21,6 @@ export async function getEvents({ spaceId, page, limit } = {}) {
 }
 
 /**
- * Récupérer un événement par ID
- * @param {string} id 
- * @returns {Promise<Object>}
- */
-export async function getEvent(id) {
-  return api.get(`/events/${id}`)
-}
-
-/**
  * Créer un événement
  * @param {Object} event 
  * @returns {Promise<Object>}
@@ -50,11 +41,32 @@ export async function updateEvent(id, updates) {
 
 /**
  * Supprimer un événement
- * @param {string} id 
+ * @param {string} id
  * @returns {Promise<void>}
  */
 export async function deleteEvent(id) {
   return api.delete(`/events/${id}`)
+}
+
+/**
+ * Lister les events sans lien Weezevent univoque (BUG-021) : `weezeventEventId` null
+ * alors qu'au moins un WeezeventEvent existe le même jour calendaire — l'auto-link
+ * s'abstient dès qu'il y a plus d'un candidat de chaque côté, il faut alors choisir
+ * manuellement.
+ * @returns {Promise<Array<{eventId: string, eventName: string, eventDate: string, candidates: Array}>>}
+ */
+export async function getAmbiguousWeezeventMatches() {
+  return api.get('/events/weezevent-ambiguous-matches')
+}
+
+/**
+ * Résoudre manuellement le lien Weezevent d'un event (BUG-021).
+ * @param {string} id
+ * @param {string|null} weezeventEventId - null pour délier explicitement
+ * @returns {Promise<Object>}
+ */
+export async function resolveWeezeventLink(id, weezeventEventId) {
+  return api.patch(`/events/${id}/weezevent-link`, { weezeventEventId })
 }
 
 // ============================================
@@ -175,79 +187,4 @@ export async function updateEventSubcategory(id, updates) {
  */
 export async function deleteEventSubcategory(id) {
   return api.delete(`/event-subcategories/${id}`)
-}
-
-// ============================================
-// EVENT REVENUE
-// ============================================
-
-/**
- * Calculer le revenu d'un événement
- * @param {Object} params 
- * @returns {Promise<Object>}
- */
-export async function calculateEventRevenue(params) {
-  const { spaceId, spaceName, eventId, eventName, eventDate, location } = params
-  return api.post('/events/calculate-single-event-revenue', {
-    spaceId,
-    spaceName,
-    eventId,
-    eventName,
-    eventDate,
-    location
-  })
-}
-
-/**
- * Récupérer le résumé des revenus par événement
- * @param {string} location 
- * @returns {Promise<Array>}
- */
-export async function getEventRevenueSummary(location) {
-  return api.get(`/event-revenue/location/${encodeURIComponent(location)}`)
-}
-
-/**
- * Calculer les revenus des événements non enregistrés
- * @param {string} location 
- * @returns {Promise<Object>}
- */
-export async function calculateUnregisteredEventRevenue(location) {
-  return api.post('/events/calculate-unregistered-revenue', { location })
-}
-
-/**
- * Sauvegarder le calcul des revenus
- * @param {Object} params 
- * @returns {Promise<Object>}
- */
-export async function saveEventRevenueCalculation(params) {
-  const { spaceId, location, registeredEvents, unregisteredEvents } = params
-  return api.post('/events/save-event-revenue-calculation', {
-    spaceId,
-    location,
-    registeredEvents,
-    unregisteredEvents
-  })
-}
-
-/**
- * Charger le calcul des revenus sauvegardé
- * @param {string} spaceId 
- * @returns {Promise<Object>}
- */
-export async function getEventRevenueCalculation(spaceId) {
-  return api.get(`/events/get-event-revenue-calculation/${spaceId}`)
-}
-
-// ============================================
-// SPONSORS
-// ============================================
-
-/**
- * Récupérer tous les sponsors d'événements
- * @returns {Promise<Array>}
- */
-export async function getEventSponsors() {
-  return api.get('/event-sponsors')
 }

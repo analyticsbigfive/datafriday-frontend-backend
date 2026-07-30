@@ -139,3 +139,94 @@ describe('MarketPricesService.deduplicate', () => {
     });
   });
 });
+
+// Import CSV format « packé » (1 ligne = 1 Item, prix fournisseurs empilés avec leur propre
+// Market Price ID) : ces tests verrouillent le comportement d'upsert par id dans bulkCreate() —
+// un id connu du tenant met à jour la ligne existante ; un id absent ou inconnu (cas du tout
+// premier import d'un fichier legacy dont les ids viennent d'un autre système) retombe dans le
+// flux de création/dédoublonnage existant, inchangé.
+describe('MarketPricesService.bulkCreate — upsert by id', () => {
+  const mockPrisma = {
+    marketPrice: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+  } as any;
+
+  const mockStorage = {
+    resolveImage: jest.fn().mockResolvedValue(undefined),
+  } as any;
+
+  let service: MarketPricesService;
+
+  beforeEach(() => {
+    service = new MarketPricesService(mockPrisma, mockStorage);
+    jest.clearAllMocks();
+    mockStorage.resolveImage.mockResolvedValue(undefined);
+  });
+
+  it('updates the existing row when dto.id matches a MarketPrice of this tenant', async () => {
+    mockPrisma.marketPrice.findFirst.mockResolvedValueOnce({ id: 'mp-existing', tenantId: 'tenant-1' });
+    mockPrisma.marketPrice.update.mockResolvedValueOnce({
+      id: 'mp-existing',
+      itemName: 'Pomme de terre',
+      price: '1.10',
+    });
+
+    const result = await service.bulkCreate(
+      [{ id: 'mp-existing', itemName: 'Pomme de terre', unit: 'kg', price: 1.1, goodType: 'Food' } as any],
+      'tenant-1',
+    );
+
+    expect(mockPrisma.marketPrice.findFirst).toHaveBeenCalledWith({
+      where: { id: 'mp-existing', tenantId: 'tenant-1' },
+    });
+    expect(mockPrisma.marketPrice.update).toHaveBeenCalledWith({
+      where: { id: 'mp-existing' },
+      data: expect.objectContaining({ itemName: 'Pomme de terre', unit: 'kg', price: 1.1, goodType: 'Food' }),
+    });
+    expect(mockPrisma.marketPrice.create).not.toHaveBeenCalled();
+    expect(result.updated).toHaveLength(1);
+    expect(result.created).toHaveLength(0);
+  });
+
+  it('falls back to normal create when dto.id is set but unknown to this tenant (first import of a legacy file)', async () => {
+    mockPrisma.marketPrice.findFirst
+      .mockResolvedValueOnce(null) // lookup by id: unknown
+      .mockResolvedValueOnce(null); // dedup lookup: no exact duplicate
+    mockPrisma.marketPrice.create.mockResolvedValueOnce({
+      id: 'mp-new-cuid',
+      itemName: 'Heineken - 30L',
+      price: '93.61',
+    });
+
+    const result = await service.bulkCreate(
+      [{ id: 'market-price-1762288192688', itemName: 'Heineken - 30L', unit: 'l', price: 93.61, goodType: 'Beverage' } as any],
+      'tenant-1',
+    );
+
+    expect(mockPrisma.marketPrice.update).not.toHaveBeenCalled();
+    expect(mockPrisma.marketPrice.create).toHaveBeenCalledTimes(1);
+    expect(result.created).toHaveLength(1);
+    expect(result.updated).toHaveLength(0);
+  });
+
+  it('keeps the existing create + dedup behavior unchanged when dto.id is absent', async () => {
+    mockPrisma.marketPrice.findFirst.mockResolvedValueOnce(null); // dedup lookup only, no id lookup
+    mockPrisma.marketPrice.create.mockResolvedValueOnce({
+      id: 'mp-new-cuid-2',
+      itemName: 'Canelle',
+      price: '10.25',
+    });
+
+    const result = await service.bulkCreate(
+      [{ itemName: 'Canelle', unit: 'kg', price: 10.25, goodType: 'Food' } as any],
+      'tenant-1',
+    );
+
+    expect(mockPrisma.marketPrice.findFirst).toHaveBeenCalledTimes(1);
+    expect(result.created).toHaveLength(1);
+    expect(result.updated).toHaveLength(0);
+  });
+});

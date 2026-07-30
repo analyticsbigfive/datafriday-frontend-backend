@@ -1,132 +1,274 @@
-// HR API utilities for managing HR suppliers and staff positions
+// HR API utilities — MIGRÉ localStorage → backend (spec §1.4, branche feat/Hr).
+//
+// Les signatures historiques sont conservées pour ne pas casser
+// HrSuppliersView / HrPositionsView : mêmes noms, mêmes formes d'objets
+// (supplier { id, name, email, phone, contactName, picture, spaceIds, sectors },
+//  position { id, supplierId, positionName, sector, ratePerHour }).
+// La persistance passe par api/endpoints/hr.api.js (tables HrSupplier / HrRole).
+//
+// Import one-shot : au premier chargement, si des données existent encore en
+// localStorage, elles sont poussées via POST /hr/import (refusé si la BD n'est
+// pas vide), puis les clés localStorage sont purgées. Une seule tentative
+// (flag HR_MIGRATION_FLAG) pour ne pas boucler.
+//
+// POSITION_NAMES_KEY (autocomplete du champ « Position Name ») reste local :
+// pure commodité d'UI, aucune donnée métier.
 
-const HR_SUPPLIERS_KEY = 'hr_suppliers';
-const STAFF_POSITIONS_KEY = 'staff_positions';
-const POSITION_NAMES_KEY = 'position_names';
+import {
+  getHrSuppliers,
+  createHrSupplier,
+  updateHrSupplier,
+  deleteHrSupplier,
+  getHrRoles,
+  createHrRole,
+  updateHrRole,
+  deleteHrRole,
+  importHrFromLocalStorage,
+} from '@/api/endpoints/hr.api'
 
-// HR Suppliers API
+const HR_SUPPLIERS_KEY = 'hr_suppliers'
+const STAFF_POSITIONS_KEY = 'staff_positions'
+const POSITION_NAMES_KEY = 'position_names'
+const HR_MIGRATION_FLAG = 'hr_localstorage_migrated'
+
+// Secteurs legacy (hrShared.HR_SECTORS) → departments BD. Hors liste → F&B.
+const HR_DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment']
+const SECTOR_TO_DEPARTMENT = { Merch: 'Merchandising' }
+function toDepartment(sector) {
+  if (HR_DEPARTMENTS.includes(sector)) return sector
+  return SECTOR_TO_DEPARTMENT[sector] || 'F&B'
+}
+
+// ── Mappings BD ↔ formes legacy des vues ─────────────────────────────────────
+
+function supplierFromDb(s) {
+  return {
+    id: s.id,
+    name: s.name,
+    email: s.email || '',
+    phone: s.tel || '',
+    contactName: s.contact || '',
+    picture: s.picture || '',
+    spaceIds: s.spaceIds || [],
+    spaces: s.spaceIds || [], // certains écrans legacy lisent `spaces`
+    sectors: s.sectors || [],
+  }
+}
+
+function supplierToDb(supplier) {
+  return {
+    name: supplier.name,
+    contact: supplier.contactName || null,
+    email: supplier.email || null,
+    tel: supplier.phone || null,
+    picture: supplier.picture || null,
+    sectors: supplier.sectors || [],
+    spaceIds: supplier.spaceIds || supplier.spaces || [],
+  }
+}
+
+function positionFromDb(role) {
+  return {
+    id: role.id,
+    supplierId: (role.supplierIds && role.supplierIds[0]) || '',
+    positionName: role.name,
+    sector: role.department,
+    ratePerHour: role.rate,
+    // champs enrichis (utilisés par le nouveau HrRoleFormDrawer)
+    department: role.department,
+    contractType: role.contractType,
+    rateType: role.rateType,
+    rate: role.rate,
+    fnbCategories: role.fnbCategories || [],
+    algoKey: role.algoKey,
+    supplierIds: role.supplierIds || [],
+  }
+}
+
+function positionToDb(position) {
+  // Forme legacy (positionName + supplierId + ratePerHour) → rôle AGENCY/HOURLY.
+  // Le nouveau drawer envoie directement la forme riche (department, contractType…).
+  if (position.department || position.contractType) {
+    return {
+      department: position.department || toDepartment(position.sector),
+      name: position.name || position.positionName,
+      contractType: position.contractType || null,
+      rateType: position.rateType || null,
+      rate: position.rate ?? null,
+      fnbCategories: position.fnbCategories || [],
+      algoKey: position.algoKey || null,
+      supplierIds: position.supplierIds || [],
+    }
+  }
+  return {
+    department: toDepartment(position.sector),
+    name: position.positionName,
+    contractType: position.supplierId ? 'AGENCY' : 'OTHER',
+    rateType: position.supplierId ? 'HOURLY' : null,
+    rate: position.supplierId ? (position.ratePerHour ?? null) : null,
+    fnbCategories: [],
+    algoKey: null,
+    supplierIds: position.supplierId ? [position.supplierId] : [],
+  }
+}
+
+// ── Import one-shot localStorage → BD ────────────────────────────────────────
+
+let migrationPromise = null
+
+function readLocal(key) {
+  try {
+    const stored = localStorage.getItem(key)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+async function maybeMigrateLocalStorage() {
+  if (localStorage.getItem(HR_MIGRATION_FLAG)) return
+  if (migrationPromise) return migrationPromise
+  migrationPromise = (async () => {
+    const suppliers = readLocal(HR_SUPPLIERS_KEY)
+    const positions = readLocal(STAFF_POSITIONS_KEY)
+    if (!suppliers.length && !positions.length) {
+      localStorage.setItem(HR_MIGRATION_FLAG, '1')
+      return
+    }
+    try {
+      await importHrFromLocalStorage({ suppliers, positions })
+      localStorage.removeItem(HR_SUPPLIERS_KEY)
+      localStorage.removeItem(STAFF_POSITIONS_KEY)
+      localStorage.setItem(HR_MIGRATION_FLAG, '1')
+      console.info('[HR] Données localStorage importées en BD puis purgées.')
+    } catch (error) {
+      // 400 = la BD n'est pas vide : on ne réessaie plus, on garde les clés
+      // locales en lecture seule à titre d'archive.
+      if (error?.response?.status === 400) {
+        localStorage.setItem(HR_MIGRATION_FLAG, '1')
+        console.warn('[HR] Import localStorage refusé (BD non vide) — clés conservées.')
+      } else {
+        migrationPromise = null // erreur réseau : on retentera au prochain appel
+        throw error
+      }
+    }
+  })()
+  return migrationPromise
+}
+
+// ── HR Suppliers API (signatures historiques) ────────────────────────────────
+
 export async function getAllHRSuppliers() {
   try {
-    const stored = localStorage.getItem(HR_SUPPLIERS_KEY);
-    return stored ? JSON.parse(stored) : [];
+    await maybeMigrateLocalStorage()
+    const rows = await getHrSuppliers()
+    return rows.map(supplierFromDb)
   } catch (error) {
-    console.error('Failed to load HR suppliers:', error);
-    return [];
+    console.error('Failed to load HR suppliers:', error)
+    return []
   }
 }
 
 export async function createHRSupplier(supplier) {
   try {
-    const suppliers = await getAllHRSuppliers();
-    suppliers.push(supplier);
-    localStorage.setItem(HR_SUPPLIERS_KEY, JSON.stringify(suppliers));
+    const created = await createHrSupplier(supplierToDb(supplier))
+    return supplierFromDb(created)
   } catch (error) {
-    console.error('Failed to create HR supplier:', error);
-    throw error;
+    console.error('Failed to create HR supplier:', error)
+    throw error
   }
 }
 
 export async function updateHRSupplier(supplier) {
   try {
-    const suppliers = await getAllHRSuppliers();
-    const index = suppliers.findIndex(s => s.id === supplier.id);
-    if (index !== -1) {
-      suppliers[index] = supplier;
-      localStorage.setItem(HR_SUPPLIERS_KEY, JSON.stringify(suppliers));
-    }
+    const updated = await updateHrSupplier(supplier.id, supplierToDb(supplier))
+    return supplierFromDb(updated)
   } catch (error) {
-    console.error('Failed to update HR supplier:', error);
-    throw error;
+    console.error('Failed to update HR supplier:', error)
+    throw error
   }
 }
 
 export async function deleteHRSupplier(id) {
   try {
-    const suppliers = await getAllHRSuppliers();
-    const filtered = suppliers.filter(s => s.id !== id);
-    localStorage.setItem(HR_SUPPLIERS_KEY, JSON.stringify(filtered));
+    await deleteHrSupplier(id)
   } catch (error) {
-    console.error('Failed to delete HR supplier:', error);
-    throw error;
+    console.error('Failed to delete HR supplier:', error)
+    throw error
   }
 }
 
-// Staff Positions API
+// ── Staff Positions API (signatures historiques — table HrRole) ─────────────
+
 export async function getAllStaffPositions() {
   try {
-    const stored = localStorage.getItem(STAFF_POSITIONS_KEY);
-    return stored ? JSON.parse(stored) : [];
+    await maybeMigrateLocalStorage()
+    const rows = await getHrRoles()
+    return rows.map(positionFromDb)
   } catch (error) {
-    console.error('Failed to load staff positions:', error);
-    return [];
+    console.error('Failed to load staff positions:', error)
+    return []
   }
 }
 
 export async function createStaffPosition(position) {
   try {
-    const positions = await getAllStaffPositions();
-    positions.push(position);
-    localStorage.setItem(STAFF_POSITIONS_KEY, JSON.stringify(positions));
+    const created = await createHrRole(positionToDb(position))
+    return positionFromDb(created)
   } catch (error) {
-    console.error('Failed to create staff position:', error);
-    throw error;
+    console.error('Failed to create staff position:', error)
+    throw error
   }
 }
 
 export async function updateStaffPosition(position) {
   try {
-    const positions = await getAllStaffPositions();
-    const index = positions.findIndex(p => p.id === position.id);
-    if (index !== -1) {
-      positions[index] = position;
-      localStorage.setItem(STAFF_POSITIONS_KEY, JSON.stringify(positions));
-    }
+    const updated = await updateHrRole(position.id, positionToDb(position))
+    return positionFromDb(updated)
   } catch (error) {
-    console.error('Failed to update staff position:', error);
-    throw error;
+    console.error('Failed to update staff position:', error)
+    throw error
   }
 }
 
 export async function deleteStaffPosition(id) {
   try {
-    const positions = await getAllStaffPositions();
-    const filtered = positions.filter(p => p.id !== id);
-    localStorage.setItem(STAFF_POSITIONS_KEY, JSON.stringify(filtered));
+    await deleteHrRole(id)
   } catch (error) {
-    console.error('Failed to delete staff position:', error);
-    throw error;
+    console.error('Failed to delete staff position:', error)
+    throw error
   }
 }
 
-// Position Names API
+// ── Position Names API (autocomplete — reste local, commodité d'UI) ─────────
+
 export async function getAllPositionNames() {
   try {
-    const stored = localStorage.getItem(POSITION_NAMES_KEY);
-    return stored ? JSON.parse(stored) : [];
+    return readLocal(POSITION_NAMES_KEY)
   } catch (error) {
-    console.error('Failed to load position names:', error);
-    return [];
+    console.error('Failed to load position names:', error)
+    return []
   }
 }
 
 export async function createPositionName(positionName) {
   try {
-    const positionNames = await getAllPositionNames();
-    positionNames.push(positionName);
-    localStorage.setItem(POSITION_NAMES_KEY, JSON.stringify(positionNames));
+    const positionNames = readLocal(POSITION_NAMES_KEY)
+    positionNames.push(positionName)
+    localStorage.setItem(POSITION_NAMES_KEY, JSON.stringify(positionNames))
   } catch (error) {
-    console.error('Failed to create position name:', error);
-    throw error;
+    console.error('Failed to create position name:', error)
+    throw error
   }
 }
 
 export async function deletePositionName(id) {
   try {
-    const positionNames = await getAllPositionNames();
-    const filtered = positionNames.filter(p => p.id !== id);
-    localStorage.setItem(POSITION_NAMES_KEY, JSON.stringify(filtered));
+    const positionNames = readLocal(POSITION_NAMES_KEY)
+    const filtered = positionNames.filter((p) => p.id !== id)
+    localStorage.setItem(POSITION_NAMES_KEY, JSON.stringify(filtered))
   } catch (error) {
-    console.error('Failed to delete position name:', error);
-    throw error;
+    console.error('Failed to delete position name:', error)
+    throw error
   }
 }

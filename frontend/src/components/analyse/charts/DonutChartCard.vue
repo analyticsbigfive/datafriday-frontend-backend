@@ -41,7 +41,7 @@
           <template #prepend>
             <span class="legend-dot" :style="{ background: colors[idx] }" />
           </template>
-          <v-list-item-title class="legend-text">{{ label }}</v-list-item-title>
+          <v-list-item-title class="legend-text" :title="label">{{ label }}</v-list-item-title>
           <template #append>
             <span class="legend-value">{{ formatValue(values[idx]) }}</span>
           </template>
@@ -85,6 +85,11 @@ const props = defineProps({
   // true tant que la dimension du donut n'est pas résolue → skeleton au lieu d'un
   // donut vide (défaut false : les usages déjà data-driven ne changent pas).
   loading: { type: Boolean, default: false },
+  // Suffixe d'unité en `mode="count"` (ex. « tx »). Vide = aucun suffixe.
+  unitLabel: { type: String, default: '' },
+  // Ajoute la part en % du total à côté de la valeur. Utile quand la LECTURE du
+  // donut est le pourcentage lui-même (répartition des paniers) et non le montant.
+  showPercent: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['slice-click'])
@@ -95,9 +100,21 @@ const visibleLabels = computed(() =>
   expanded.value ? props.labels : props.labels.slice(0, props.maxLegend)
 )
 
+const valuesTotal = computed(() =>
+  (props.values || []).reduce((sum, v) => sum + (Number(v) || 0), 0),
+)
+
 function formatValue(v) {
-  if (props.mode === 'quantity') return formatNumber(v) + ' u'
-  return formatCurrencyDetailed(v)
+  const base =
+    props.mode === 'quantity'
+      ? formatNumber(v) + ' u'
+      : props.mode === 'count'
+        ? formatNumber(v) + (props.unitLabel ? ` ${props.unitLabel}` : '')
+        : formatCurrencyDetailed(v)
+  if (!props.showPercent) return base
+  const total = valuesTotal.value
+  if (!total) return base
+  return `${base} · ${((Number(v) || 0) / total * 100).toFixed(1).replace('.', ',')} %`
 }
 
 function itemKeyAt(index) {
@@ -227,6 +244,13 @@ const chartOptions = computed(() => ({
 .legend-text {
   font-size: var(--fs-xs)!important;
   color: #424242;
+  /* Les libellés de COMBINAISON (« Boissons Soft, Salé Chaud, Sides ») dépassent
+     largement la largeur de la légende : on tronque proprement plutôt que de
+     laisser le texte pousser la valeur hors de la carte. Le libellé complet reste
+     lisible au survol via l'attribut title. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .legend-value {
   font-size: var(--fs-xs);

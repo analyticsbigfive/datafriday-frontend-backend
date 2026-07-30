@@ -292,18 +292,87 @@ export default {
       if (!Number.isFinite(n)) return "€0,00";
       return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
     },
-    exportToCSV() {
-      const rows = [
-        ['Space Name', 'Event Date', 'Start Date', 'End Date', 'End Time', 'Name',
-         'Event Type', 'Event Category', 'Event Subcategory', 'Status', 'Revenue (€)', 'Transaction Count'],
-        ...(this.filteredEvents || []).map(e => [
-          e?.spaceName || '', e?.eventDate || '', e?.eventStartDate || '',
-          e?.eventEndDate || '', e?.eventEndTime || '', e?.name || '',
-          e?.eventType || '', e?.eventCategory || '', e?.eventSubcategory || '',
-          e?.status || '', e?.revenue || '', e?.transactionCount || '',
-        ]),
+    // Un event reste ré-importable tel quel : les en-têtes reprennent les libellés que
+    // CsvImportDrawer.vue auto-détecte (aliases d'`eventFields`), et l'ordre des colonnes
+    // suit celui de l'assistant d'import plutôt que l'ordre d'affichage du tableau.
+    parseEventSessions(raw) {
+      let list = [];
+      if (Array.isArray(raw)) {
+        list = raw;
+      } else if (typeof raw === 'string' && raw.trim()) {
+        try {
+          list = JSON.parse(raw);
+          if (!Array.isArray(list)) list = [];
+        } catch {
+          list = [];
+        }
+      }
+      // Repli sur des events déjà persistés par un ancien double-encodage (BUG-250-02,
+      // EventFormDrawer.vue stringifiait chaque session avant envoi) : chaque élément est
+      // alors une chaîne JSON plutôt qu'un objet — un second parse suffit à les récupérer.
+      return list
+        .map((s) => {
+          if (typeof s === 'string') { try { return JSON.parse(s); } catch { return null; } }
+          return s;
+        })
+        .filter((s) => s && typeof s === 'object' && !Array.isArray(s));
+    },
+    async exportToCSV() {
+      const rows = this.filteredEvents || [];
+
+      const spaceIds = Array.from(new Set(rows.map((r) => r.raw?.spaceId).filter(Boolean)));
+      const configLists = await Promise.all(
+        spaceIds.map((spaceId) =>
+          this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId }).catch(() => []),
+        ),
+      );
+      const configNameById = new Map();
+      configLists.forEach((list) => {
+        (list || []).forEach((c) => c?.id && configNameById.set(c.id, c.name || c.configurationName || ''));
+      });
+
+      const header = [
+        'Space', 'Configuration', 'Event Date', 'End Date', 'End Time', 'Event Name',
+        'Event Type', 'Event Category', 'Event Subcategory', 'Doors Open', 'Show Time',
+        'Performer Name', 'Home Team Name', 'Visiting Team', 'Sponsor', 'Number of Sessions',
+        'All Sessions (Doors|Show)', 'Has Opening Act', 'Opening Act Name', 'Has Intermission',
+        'Tickets Sold', 'Tickets Scanned',
       ];
-      downloadCSV(rows, 'events');
+
+      const csvRows = [
+        header,
+        ...rows.map((row) => {
+          const e = row.raw || {};
+          const sessions = this.parseEventSessions(e.sessions);
+          const firstSession = sessions[0] || {};
+          return [
+            e.spaceName || '',
+            (e.configurationId && configNameById.get(e.configurationId)) || '',
+            this.formatDate(e.eventDate),
+            e.eventEndDate ? this.formatDate(e.eventEndDate) : '',
+            e.eventEndTime || '',
+            e.name || '',
+            row.eventType !== '-' ? row.eventType : '',
+            row.eventCategory !== '-' ? row.eventCategory : '',
+            row.eventSubcategory !== '-' ? row.eventSubcategory : '',
+            firstSession.doorsOpening || '',
+            firstSession.showTime || '',
+            e.performerName || '',
+            e.homeTeamName || '',
+            e.visitingTeamName || '',
+            e.sponsor || '',
+            e.numberOfSessions ?? '',
+            sessions.map((s) => `${s.doorsOpening || ''}|${s.showTime || ''}`).join('; '),
+            e.hasOpeningAct ? 'Oui' : 'Non',
+            e.openingActName || '',
+            e.hasIntermission ? 'Oui' : 'Non',
+            e.ticketsSold ?? '',
+            e.ticketsScanned ?? '',
+          ];
+        }),
+      ];
+
+      downloadCSV(csvRows, 'events');
     },
   },
 
@@ -314,7 +383,9 @@ export default {
     tableHeaders() {
       return [
         { title: this.t('eventsList.colSpace'), key: 'spaceName' },
+        { title: this.t('eventsList.colDate'), key: 'eventStartDate' },
         { title: this.t('eventsList.colName'), key: 'name' },
+        { title: this.t('eventsList.colStartDate'), key: 'eventStartDate' },
         { title: this.t('eventsList.colCategory'), key: 'eventCategory' },
         { title: this.t('eventsList.colRevenue'), key: 'revenue', align: 'end' },
         { title: 'Tickets Scanned', key: 'ticketsScanned', align: 'end' },

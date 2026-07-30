@@ -729,6 +729,7 @@
                `activeTimelineData`. -->
           <div id="ep-anchor-configuration"></div>
           <div id="ep-anchor-stockup"></div>
+          <div id="ep-anchor-staff"></div>
           <Tabs
             :value="predictSectionTab"
             class-name="ep-predict-section-tabs"
@@ -749,6 +750,13 @@
                 >
                   <v-icon size="16">mdi-package-variant-closed</v-icon>
                   {{ t('epStockTab') }}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="staff"
+                  class-name="ep-predict-section-trigger"
+                >
+                  <v-icon size="16">mdi-account-group-outline</v-icon>
+                  {{ t('epStaffTab') }}
                 </TabsTrigger>
               </TabsList>
 
@@ -893,6 +901,19 @@
                 :items-context="predictionItemsContext"
               />
             </TabsContent>
+
+            <TabsContent
+              value="staff"
+              class-name="ep-predict-section-panel"
+            >
+              <!-- PERF : même stratégie que Configuration — monter seulement si actif.
+                   Le toggle viewMode shop/item ne s'applique pas à cet onglet
+                   (ep-view-mode-wrap déjà conditionné à configuration|stockup). -->
+              <EventPredictStaffSection
+                v-if="predictSectionTab === 'staff' && selectedEvent"
+                :event-id="selectedEvent.id"
+              />
+            </TabsContent>
           </Tabs>
           </template>
           <!-- /single-event mode -->
@@ -912,6 +933,7 @@
           <a href="#ep-anchor-configuration" @click.prevent="scrollToAnchor('ep-anchor-configuration')">{{ t('epConfigurationTab') }}</a>
           <a href="#ep-anchor-timeline" @click.prevent="scrollToAnchor('ep-anchor-timeline')">{{ t('epTimeline') }}</a>
           <a href="#ep-anchor-stockup" @click.prevent="scrollToAnchor('ep-anchor-stockup')">{{ t('epStockTab') }}</a>
+          <a href="#ep-anchor-staff" @click.prevent="scrollToAnchor('ep-anchor-staff')">{{ t('epStaffTab') }}</a>
         </nav>
         <div id="ep-anchor-summary" class="ep-metrics-head">
           <div class="ep-metrics-kicker-row">
@@ -1197,6 +1219,7 @@ import {
   hasActiveRange,
 } from "../utils/timelineBucketing";
 import EventPredictMenusSection from "./EventPredictMenusSection.vue";
+import EventPredictStaffSection from "./EventPredictStaffSection.vue";
 import EventPredictStockUpSection from "./EventPredictStockUpSection.vue";
 import EventTimelineChart from "./analyse/charts/EventTimelineChart.vue";
 import EventDetailsEditor from "./EventDetailsEditor.vue";
@@ -1287,6 +1310,7 @@ export default {
     Settings,
     NotificationBell,
     EventPredictMenusSection,
+    EventPredictStaffSection,
     EventPredictStockUpSection,
     EventTimelineChart,
     EventDetailsEditor,
@@ -1394,7 +1418,7 @@ export default {
       // la liste des sources.
       // Drawer de sélection des events sources de la prédiction.
       showSourcesDrawer: false,
-      predictSectionTab: "configuration", // 'configuration' | 'stockup'
+      predictSectionTab: "configuration", // 'configuration' | 'stockup' | 'staff'
       viewMode: "shop", // 'shop' | 'item'
       // Texte de recherche de l'autocomplete event (contrôlé pour vider le
       // filtre à l'ouverture → on voit TOUS les events, passés inclus).

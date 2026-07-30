@@ -30,6 +30,50 @@ export function reconciliationKey(elementId, itemId) {
 }
 
 /**
+ * Construit `soldUnitsByKey` depuis la consommation explosée du backend
+ * (GET /inventory/:spaceId/event-consumption/:eventId — Q35 Option 1).
+ *
+ * Chaque ligne backend = { elementId, itemKey, quantity } où `itemKey` est un
+ * NOM du référentiel Logistic (ingrédient, composant, ou menu item rfs=Yes).
+ * La jointure vers l'article compté se fait par nom normalisé — même contrat
+ * que Logistique ↔ front partout ailleurs. Pas de jointure → la quantité sort
+ * dans `unjoined` (BUG-238 : jamais avalée en silence).
+ *
+ * @param {Array<{elementId:string, itemKey:string, quantity:number}>} lines
+ * @param {object} params
+ * @param {Set<string>} params.elementIdSet        PdV/storages du référentiel compté
+ * @param {Map<string,string>} params.itemIdByNormName  nom normalisé → itemId compté
+ * @param {(s:any)=>string} params.normalize       normalisation partagée (normalizeStr)
+ * @returns {{soldUnitsByKey: Record<string, number>, unjoinedItems: Set<string>,
+ *   unjoinedShops: Set<string>, unjoinedUnits: number}}
+ */
+export function buildSoldUnitsFromConsumption(lines, { elementIdSet, itemIdByNormName, normalize }) {
+  const soldUnitsByKey = {}
+  const unjoinedItems = new Set()
+  const unjoinedShops = new Set()
+  let unjoinedUnits = 0
+  for (const l of lines || []) {
+    const qty = toUnits(l?.quantity)
+    if (!qty) continue
+    const elementId = l?.elementId != null ? String(l.elementId) : ''
+    if (!elementId || !elementIdSet.has(elementId)) {
+      if (elementId) unjoinedShops.add(elementId)
+      unjoinedUnits += qty
+      continue
+    }
+    const itemId = itemIdByNormName.get(normalize(l?.itemKey))
+    if (!itemId) {
+      if (l?.itemKey) unjoinedItems.add(String(l.itemKey))
+      unjoinedUnits += qty
+      continue
+    }
+    const key = reconciliationKey(elementId, itemId)
+    soldUnitsByKey[key] = round2((soldUnitsByKey[key] || 0) + qty)
+  }
+  return { soldUnitsByKey, unjoinedItems, unjoinedShops, unjoinedUnits }
+}
+
+/**
  * Construit les lignes du document.
  *
  * Tous les index sont des Object/Map `reconciliationKey(elementId,itemId) → unités`,
@@ -43,6 +87,11 @@ export function reconciliationKey(elementId, itemId) {
  * @param {Record<string, number>|null} [params.preEventUnitsByKey]  inventaire pré-événement
  * @param {Record<string, number>} [params.soldUnitsByKey]    ventes pendant l'événement
  * @param {Record<string, number>|null} [params.predictedUnitsByKey] prédictions du scénario
+ * @param {Set<string>|null} [params.predictableItemIds]  itemIds au grain menu item
+ *   (catalogue vendable). Q35 : le scénario prédit des VENTES d'articles — sur une
+ *   ligne au grain ingrédient (id de ligne de recette, hors catalogue), « absent du
+ *   scénario » ne veut pas dire « prédit 0 », il veut dire « pas ce grain » →
+ *   predictedUnits null. Sans le param (anciens appelants/tests) : régime inchangé.
  * @param {Record<string, number>} [params.unitCostByItemId]  coût unitaire par article
  * @param {Map<string, string>|Record<string, string>} [params.elementNameById]
  * @param {Map<string, string>|Record<string, string>} [params.itemNameById]
@@ -53,6 +102,7 @@ export function buildPostEventReconciliationLines({
   preEventUnitsByKey = null,
   soldUnitsByKey = {},
   predictedUnitsByKey = null,
+  predictableItemIds = null,
   unitCostByItemId = {},
   elementNameById = {},
   itemNameById = {},
@@ -83,7 +133,11 @@ export function buildPostEventReconciliationLines({
 
     const soldUnits = round2(toUnits(soldUnitsByKey?.[key]))
     const countedUnits = round2(toUnits(countedUnitsByKey?.[key]))
-    const predictedUnits = hasScenario ? round2(toUnits(predictedUnitsByKey?.[key])) : null
+    // Grain prédictible seulement (Q35) : ligne hors catalogue vendable → null,
+    // jamais un 0 fabriqué par changement de grain.
+    const predictable = !predictableItemIds || predictableItemIds.has(itemKey)
+    const predictedUnits =
+      hasScenario && predictable ? round2(toUnits(predictedUnitsByKey?.[key])) : null
 
     let leftFromSales = null
     let missingUnits = null
@@ -129,7 +183,12 @@ export function buildPostEventReconciliationLines({
  * persiste pas de summary, il reste self-contained par ses lignes).
  *
  * - `diffPct` = (Σ vendu − Σ prédit) / Σ prédit — null si aucune ligne prédite
- *   ou Σ prédit = 0 (éviter le ±Infinity).
+ *   ou Σ prédit = 0 (éviter le ±Infinity). Depuis Q35 Option 1, `soldUnits`
+ *   peut être au grain INGRÉDIENT (ventes explosées) alors que le prédit reste
+ *   au grain menu item : le Σ vendu du diffPct ne somme donc que les lignes
+ *   PRÉDITES (grains comparables) — sinon les unités d'ingrédients gonflent le
+ *   vendu face à un prédit qui ne les contient pas. `totalSold` (chip « Total
+ *   vendu ») reste la somme de TOUTES les lignes.
  * - `totalMissingUnits`/`totalMissingValue` ne somment que les manquants
  *   POSITIFS (un surplus sur un article ne « rembourse » pas la perte d'un
  *   autre) ; null si aucune ligne n'a de missing calculable.
@@ -140,6 +199,7 @@ export function buildPostEventReconciliationLines({
  */
 export function computeReconciliationSummary(lines = []) {
   let totalSold = 0
+  let totalSoldPredictable = 0
   let totalPredicted = 0
   let hasPredicted = false
   let totalMissingUnits = 0
@@ -152,6 +212,7 @@ export function computeReconciliationSummary(lines = []) {
     if (l?.predictedUnits != null) {
       hasPredicted = true
       totalPredicted += toUnits(l.predictedUnits)
+      totalSoldPredictable += toUnits(l?.soldUnits)
     }
     if (l?.missingUnits != null) {
       hasMissing = true
@@ -170,7 +231,7 @@ export function computeReconciliationSummary(lines = []) {
     totalPredicted: hasPredicted ? round2(totalPredicted) : null,
     diffPct:
       hasPredicted && totalPredicted > 0
-        ? round2(((totalSold - totalPredicted) / totalPredicted) * 100)
+        ? round2(((totalSoldPredictable - totalPredicted) / totalPredicted) * 100)
         : null,
     totalMissingUnits: hasMissing ? round2(totalMissingUnits) : null,
     totalMissingValue: hasMissingValue ? round2(totalMissingValue) : null,

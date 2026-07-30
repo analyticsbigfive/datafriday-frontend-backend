@@ -184,7 +184,7 @@
 | [168](168_productcategorylist_force_refresh_cache_ttl_contourne.md) | `ProductCategoryList.vue` : force le refresh à chaque montage, contourne le cache TTL | 🟢 Corrigé | 🟡 | Menu & recettes (Configurations) |
 | [169](169_taxonomies_configurations_requetes_non_paginees.md) | Taxonomies Configurations : requêtes non paginées (product/component types-categories) | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [170](170_delete_bloque_sans_moyen_de_trouver_les_dependants.md) | Suppression bloquée (BUG-79/81/82) sans moyen de retrouver les lignes dépendantes | 🟢 Corrigé | 🟠 | Menu & recettes / Achats & référentiels (Configurations) |
-| [171](171_configurations_pagination_recherche_server_side.md) | Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste | 🟢 Corrigé | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
+| [171](171_configurations_pagination_recherche_server_side.md) | Taxonomies Configurations : pagination + recherche réelles côté serveur pour les 10 écrans de liste — **rouvert le 2026-07-29** : le composant est resté `v-data-table`, les 10 écrans se sont retrouvés bloqués sur la page 1 (cf. BUG-246-01) | ⚪ Diagnostiqué | 🟡 | Menu & recettes / Achats & référentiels (Configurations) |
 | [172](172_chaine_analyse_api_morte_supprimee.md) | Chaîne `/analyse/*` entièrement morte (action jamais dispatchée, buckets jamais lus) — supprimée | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [173](173_timeline_batch_inflight_empoisonne_sur_rejet.md) | `getSpaceEventTimelineBatch` : in-flight jamais nettoyé sur échec → erreurs permanentes | 🟢 Corrigé | 🟠 | Analyse & agrégation |
 | [174](174_loadspace_sans_cache_first.md) | `/analyse` : chaque re-mount re-payait la phase 1 (pas de cache-first 15 min) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
@@ -248,7 +248,7 @@
 | [230](230_consolidated_views_double_navigation_onclose.md) | Consolidated* : `handleOpen*FromSettings` appelle le handler puis `onClose()` → en mode routé, la 2ᵉ navigation écrase la 1ʳᵉ ; contourné dans `HrView` (prop `onOpenEvents` omise, entrée MainNav masquée) | ⚪ Diagnostiqué | 🟡 | RH / Navigation |
 | [231](231_ecrans_rh_routes_restes_prototype.md) | Écrans RH routés : crashs dialog/`toast`/CSV, Edge Function KV morte, N+1, dialogs shadcn disloqués dans le layout Vuetify — corrigés puis **écrans prototype remplacés par `components/hr/` (Vuetify + i18n)** le 2026-07-21 ; vues prototype retournées en quarantaine | 🟡 Corrigé non déployé | 🟠 | RH |
 | [232](232_pre_event_expected_non_normalise_negatifs.md) | Pre-event Inventory : attendus divergents de la Logistique et vrac **négatif** (Loose -1/-2) — somme brute baseline+deltas sans casse de pack (`normalizeLevel`) ni rejeu séquentiel, mouvements non joignables avalés ; fix = calcul serveur normalisé, chemin unique baseline/réconciliation | 🟡 Corrigé non déployé | 🔴 | Stock |
-| [233](233_pre_event_expected_fuite_via_reconciliations.md) | Pre-event Inventory : les attendus gatés par `preInventoryExpected` **fuient** via `POST pre-event-reconciliations` (réponse avec `expectedPacked/Loose`) et `GET reconciliations` (lignes complètes) — permission de classe seule sur ces routes ; expurgation conditionnelle à trancher | 🔴 Ouvert | 🟠 | Stock / RBAC |
+| [233](233_pre_event_expected_fuite_via_reconciliations.md) | Pre-event Inventory : les attendus gatés par `preInventoryExpected` **fuient** via `POST pre-event-reconciliations` (réponse avec `expectedPacked/Loose`) et `GET reconciliations` (lignes complètes) — corrigé par expurgation conditionnelle des réponses (`expected*` ET `delta*` retirés des lignes pre-event pour les non-porteurs ; document en base complet) | 🟡 Corrigé non déployé | 🟠 | Stock / RBAC |
 | [234](234_space_live_double_header_route_non_declaree_dashboardview.md) | Route `space-live` : double header (route Live non déclarée dans les listes self-headed / rail-push de DashboardView) | 🟢 Corrigé | 🟡 | Live events / Shell app |
 | [235](235_syncprogress_stepprocesstimeline_timeout_duree_totale_faux_positif_gros_tenant.md) | Timeout de polling par durée totale (BUG-206/218) : faux positif "délai maximal dépassé" sur un gros tenant toujours en progrès | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 | [236-02](236_02_csvimportdrawer_dropdowns_taxonomie_vides_sans_indication.md) | Import CSV événements : dropdowns Espaces/Configs/Types/Catégories/Sous-catégories vides sans aucune indication (échec de fetch avalé par `Promise.allSettled`) | 🟡 Corrigé non déployé | 🔴 | Événements |
@@ -257,6 +257,19 @@
 | [239-02](239_02_csvimportdrawer_eventenddate_eventendtime_absents_mapping.md) | Import CSV événements : `eventEndDate`/`eventEndTime` absents du mapping malgré usage backend réel (multi-jours, fenêtre live) | 🟢 Corrigé | 🟠 | Événements |
 | [240-02](240_02_csvimportdrawer_sessions_multiples_non_parsees.md) | Import CSV événements : événements multi-sessions, une seule session capturée (colonne "All Sessions" non parsée) | 🟢 Corrigé | 🟡 | Événements |
 | [241-02](241_02_csvimportdrawer_menu_select_derriere_scrim_drawer.md) | Import CSV événements : menu déroulant d'un `v-select` invisible/inatteignable (z-index Vuetify posé sur `.v-overlay`, pas `.v-overlay__content` — 1er correctif inefficace, cause probable réelle du BUG-237-02) | 🟡 Corrigé non déployé | 🔴 | Événements |
+| [242-02](242_02_stepprocesstimeline_batch_non_declaree_bulkcreateevents.md) | `bulkCreateEvents()` : variable `BATCH` non déclarée, `ReferenceError` dès plus de 5 events à créer | 🟡 Corrigé non testé | 🔴 | Intégrations & ventes |
+| [243-02](243_02_createeventdialog_champs_performer_sponsor_openingact_absents.md) | `CreateEventDialog.vue` (wizard) : champs performer/sponsor/opening act absents | 🟡 Corrigé non testé | 🟡 | Intégrations & ventes / Événements |
+| [244-02](244_02_nettoyage_code_mort_domaine_events.md) | Nettoyage de code mort confirmé du domaine Événements (fichiers, exports API, clés i18n) | 🟡 Corrigé non testé | 🟢 | Événements / Analyse & agrégation |
+| [245-02](245_02_eventstypelistview_opendetailsdialog_nommage_incoherent.md) | `EventsTypeListView.vue` : `openDetailsDialog()` nommé différemment des 2 autres vues taxonomie | 🟡 Corrigé non testé | 🟢 | Événements |
+| [246-02](246_02_csvimportdrawer_import_sequentiel_lent_sans_progression.md) | `CsvImportDrawer.vue` : import CSV strictement séquentiel (lent) et sans indicateur de progression | 🟡 Corrigé non testé | 🟠 | Événements |
+| [247-02](247_02_eventcategorydialog_prop_isdark_extraneous_ignoree.md) | `EventCategoryDialog.vue` : prop `is-dark` passée par 2 vues mais ignorée (jamais déclarée) | 🟡 Corrigé non testé | 🟢 | Événements |
+| [248-02](248_02_eventssubcategorielistview_eventtypes_non_reactif_erreur_avalee.md) | `EventsSubcategorieListView.vue` : `eventTypes` non réactif (copie figée) + échec de fetch avalé silencieusement | 🟡 Corrigé non testé | 🟠 | Événements |
+| [249-02](249_02_taxonomie_v_select_menu_invisible_zindex_drawer.md) | `v-select` invisible (menu piégé sous le drawer) sur 4 selects taxonomie, jamais protégés par le fix z-index déjà établi | 🟡 Corrigé non testé | 🔴 | Événements |
+| [250-02](250_02_eventformdrawer_sessions_double_stringify_heures_perdues.md) | `EventFormDrawer.vue submit()` : `sessions` double-stringifié → heures illisibles après un premier save | 🟡 Corrigé non testé | 🔴 | Événements |
+| [251-02](251_02_eventformdrawer_teams_autoselectfirst_race_initialisation.md) | `EventFormDrawer.vue` : sélection Home/Visiting Team possiblement réinitialisée par `auto-select-first` pendant le chargement asynchrone des équipes | ⚪ Diagnostiqué | 🟠 | Événements |
+| [252-02](252_02_csvimportdrawer_rate_limit_429_import_masse_echec_definitif.md) | Import CSV en masse : dépasse le palier "medium" du rate-limiter tenant (300 req/60s), toutes les lignes restantes échouent définitivement en 429 | 🟡 Corrigé non testé | 🔴 | Événements |
+| [253-02](253_02_csvimportdrawer_teams_jamais_relies_catalogue.md) | Import CSV : Home/Visiting Team jamais reliés au catalogue `Team` (texte libre uniquement) | 🟡 Corrigé non testé | 🟠 | Événements |
+| [254-02](254_02_market_prices_csv_format_packe_par_article_import_export.md) | Market Prices : absence d'un format CSV « packé par article » (1 ligne = 1 Item, prix fournisseurs empilés + upsert par id) pour la reprise de données historiques | 🟡 Corrigé non testé | 🟠 | Achats & référentiels |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
@@ -270,10 +283,93 @@ l'horloge d'abandon est repoussée à chaque progrès constaté (`totalCollected
 bloqué qu'après 10 min **sans aucun progrès**. Combiné à un fix backend (BUG-112, même session :
 parallélisation de la bissection de collecte Weezevent, jusque-là strictement séquentielle).
 | [235](235_conformite_charte_typographique_tokens.md) | Conformité charte typo : tokens CSS (`--fs-*`/`--fw-*`), checker `pnpm lint:typo`, nettoyage police Roboto, migration progressive par domaine (role/user/market-prices/events/spaces/analyse faits ; menu-fb/views/EventPredictView restants) | 🟡 En cours | 🟢 | Transverse / Charte graphique |
-| [236](236_hr_crypto_randomuuid_contexte_non_securise.md) | HR : `crypto.randomUUID is not a function` sur IP LAN/HTTP (contexte non sécurisé) → création d'enregistrements impossible ; fix helper `newId()` à repli. + alignement UI de HR sur le pattern Settings (bandeau rouge, drawers, delete-dialogs, switcher d'onglets, searchbar) | 🟡 Corrigé non déployé | 🟠 | RH / Staffing |
+| [236](236_hr_crypto_randomuuid_contexte_non_securise.md) | HR : `crypto.randomUUID is not a function` sur IP LAN/HTTP (contexte non sécurisé) → création impossible ; fix helper `newId()` à repli. + **reconstruction propre de HR (Suppliers + Postes staff)** (CRUD liste/drawer/delete-dialog au pattern SuppliersListView, rendu dans le chrome DashboardView, routes `/hr` & `/hr/positions`) + fix double-header `/hr` + suppression prototype HR mort | 🟡 Corrigé non déployé | 🟠 | RH / Staffing |
 | [235](235_builder2_labels_pdv_lisibilite_tri_alphabetique.md) | Builder v2 — libellés PDV illisibles (ton sur ton) + liste du panneau droit non triée | 🟡 Corrigé non déployé | 🟡 | Espaces & builder |
+| [242-03](242_03_eventslistview_colonne_date_debut.md) | EventsListView — **amélioration** : ajout de la colonne « Date de début » (`eventStartDate`) juste après le Nom (template de cellule déjà présent, en-tête manquant) | 🟡 Corrigé non déployé | 🟡 | Événements |
+| [243-03](243_03_settings_menu_edit_space_builder3d.md) | Settings — **amélioration** : menu déroulant « Edit space » (en tête), liste dynamique des espaces + barre de recherche + états vides, clic → builder 3D `/spaces/:id/builder2` | 🟡 Corrigé non déployé | 🟡 | Espaces & builder |
+| [235](235_pre_event_reconciliation_lignes_orphelines_sans_nom.md) | Réconciliation pré-événement : lignes « — » = comptages orphelins pointant vers des articles/PdV supprimés (ids cuid absents après ré-import catalogue UUID) ; exclusion des lignes + nettoyage SQL des `InventoryCount` orphelins (fiche 234 sur `feat/postEventInventory`, renumérotée 235 au merge — collision avec la 234 Live de `develop`, même mécanique que le 2026-07-22) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [236](236_reconciliation_section_inaccessible_mobile.md) | Inventaire : la section Réconciliation n'était rendue que dans la colonne gauche desktop (`showLeftFilters` exige `!isMobile`) — aucun accès mobile aux documents ; corrigé en montant la section dans `InventoryFilterDrawer` | 🟡 Corrigé non déployé | 🟡 | Stock |
+| [237](237_post_event_prerempli_par_comptage_pre_event.md) | Post-event Inventory s'ouvre **pré-rempli et « 100 % compté »** avec les saisies du Pre-event du même match (`InventoryCount` keyé sans la phase, même `eventId` depuis §12.4) : garde « comptage incomplet » jamais déclenchée, un clic archive un snapshot post-event = comptage d'avant-match, qui devient la baseline du cycle suivant | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [238](238_reco_post_event_ventes_non_jointes_avalees.md) | Réconciliation post-event : ventes dont le PdV (nom normalisé) ou l'article ne joint pas le référentiel compté **écartées en silence** → `Qty Sold` 0, `Missing`/`Miss €` gonflés du volume vendu, aucun signal (le chemin pre-event, lui, remonte `unjoinedItemKeys`) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [239](239_pre_event_taille_de_paquet_divergente_serveur_front.md) | Pre-event : le serveur casse les packs avec la chaîne Logistique (MarketPrice → MenuComponent → MenuItem) et le front reconvertit avec `inventoryQuantityPackaged` (**MenuItem prioritaire**) — priorités inverses → attendus, hints « Attendu : N » et écarts faux dès que les deux valeurs diffèrent | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
+| [240](240_reconciliation_dark_mode_et_formats_fr_fr_en_dur.md) | Section + vue Réconciliation : 44 couleurs en littéraux, **0** `var(--fb-*)` → deux blocs blancs en thème sombre ; dates/nombres en `toLocaleString('fr-FR')` en dur malgré l'i18n maison | 🟡 Corrigé non déployé | 🟡 | Stock / Thème & i18n |
+| [241](241_getpreeventinventory_repli_legacy_hors_event.md) | `getPreEventInventory` : le repli legacy prend le dernier snapshot du space antérieur au jour du match, **sans filtre `eventId` ni `kind`** (contrairement à son commentaire) → stock de départ possiblement issu d'un autre match, non tracé ; contredit « un match = un eventId » (§12.4) | 🟡 Corrigé non déployé | 🟠 | Stock |
+| [242](242_reco_post_event_ventes_composees_non_explosees.md) | Réco post-event : ventes de produits préparés jamais explosées vers les ingrédients → sur toute ligne comptée au grain ingrédient, `Qty Sold` 0 et `Missing` = 100 % de la consommation réelle (ex-Q35, tranchée owner 2026-07-27 : Option 1 — la réco consomme `explodeSalesToConsumption` via `GET event-consumption`) | 🟡 Corrigé non déployé | 🟠 | Stock / Logistique |
+| [243-01](243_01_analyse_dropdown_outils_pre_event_inventory_absent.md) | Analyse : dropdown « Outils » sans entrée **Pre-event Inventory** (écran inatteignable depuis la vue par défaut d'un espace) et Post-event libellé « Inventory » — la liste d'outils est dupliquée dans **5 fichiers** sans source commune, `spacePreInventoryPath`/`onToolboxSelect` étaient déjà câblés mais en code mort | 🟡 Corrigé non déployé | 🟠 | Stock / Navigation |
+| [244-01](244_01_timeline_analyse_filtres_non_appliques.md) | Timeline Analyse : **5 filtres sur 6** ne l'atteignaient pas (cliquer un article dans « Item performance » ne changeait rien), et 2 des 3 props effectivement passées étaient **inertes** — gardées par des maps `null` jamais fournies. `eventTimelineData` est un fetch indépendant qui ne traversait aucun prédicat | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation |
+| [245-01](245_01_donut_categories_par_transaction.md) | **Feature** — donut « répartition des catégories de produits par transaction » (+ drill-down au grain article). Nouvel endpoint `GET /spaces/:id/transaction-baskets` : seule lecture du code qui préserve l'identité du panier. Absorbe la demande « Rapport Type de transaction » (`transactionType` n'existe nulle part). Filtres en sémantique « contient » (#42 tranchée). **Non mergeable** tant que #41 (remboursements) est ouverte | 🟡 Implémenté non déployé | — | Analyse & agrégation |
+| [246-01](246_01_referentiels_pagination_bloquee_page_1.md) | Référentiels : **11 écrans bloqués sur la page 1** — `items-length` posé sur `v-data-table` alors que c'est une prop de `v-data-table-server`, donc ignorée : pagination client sur la seule page reçue (« 1-10 of 10 » vs « 41 Total Categories »), tout le référentiel au-delà de la 10ᵉ ligne inatteignable. Régression du correctif BUG-171 | 🟡 Corrigé non déployé | 🟠 | Menu & recettes / Achats & référentiels |
 
-**231 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
+**BUG-246-01 ajouté le 2026-07-29** (signalé par l'utilisateur : des catégories visibles dans le
+formulaire d'édition d'un article étaient absentes de l'écran Product Categories. Ce n'était pas un
+problème de liaison de données — l'écran était **bloqué sur sa première page**. `items-length` est
+une prop de `v-data-table-server` ; posée sur un `v-data-table` ordinaire elle est ignorée et la
+pagination retombe sur `items.length`, soit la page serveur courante, d'où « 1-10 of 10 » face à un
+compteur d'en-tête annonçant 41. Régression directe de **BUG-171**, marquée 🟢 à tort et repassée à
+⚪ : ce correctif avait supprimé le chargement client complet sans donner au paginateur de quoi
+connaître le total. 8 composants basculés sur `v-data-table-server`, couvrant 11 écrans ;
+`MenuItemView` traité par composant dynamique avec import Vuetify explicite, l'auto-import du
+tree-shaking ne sachant pas résoudre un `<component :is>`. Tri des colonnes désactivé en mode
+serveur : tous les endpoints ordonnent en dur par nom sans accepter de paramètre de tri, l'en-tête
+ne triait donc que les 10 lignes affichées — un tri qui mentait sur son périmètre. **Validation en
+navigateur requise** : ce défaut est invisible en test unitaire, c'est ce qui l'a laissé passer.)
+| [246-02](246_02_eventformdrawer_sessions_double_stringify.md) | `EventFormDrawer.vue` : chaque session ré-encodée en JSON avant l'envoi (double-stringify), sessions perdues hors du formulaire (export CSV) | 🟢 Corrigé | 🟠 | Événements |
+
+**BUG-245-01 ajouté le 2026-07-29** (feature, pas défaut : donut « catégories de produits par
+transaction » demandé avec capture de référence. Absorbe la demande séparée « Rapport Type de
+transaction » — vérification préalable : `transactionType` n'existe nulle part dans le code, et un
+« type de transaction » désigne en réalité une combinaison de catégories. Nouvel endpoint backend
+obligatoire : `getEventTimelineBatch` porte déjà toute la chaîne de jointure mais écrase `t.id` en
+`COUNT(DISTINCT)`, et aucun pré-agrégat ne porte de dimension transaction. Réponse pré-groupée par
+(event × minute × PdV × combo) pour rester filtrable côté client — renvoyer des comptes finaux
+aurait recréé le défaut de BUG-244-01 le jour même. Aucune migration : les index existants couvrent
+les prédicats. Un seul montage couvre Analyse, Live et Predict. 7 tests backend + 19 front.
+Sur les deux hypothèses métier ouvertes, #42 a été **tranchée le jour même par l'owner** : filtrer
+« Bières » garde les tickets qui en contiennent, paniers **mixtes inclus** — d'où l'ajout de
+`typeCombo` à l'endpoint et un prédicat `buildBasketFilterPredicate` dédié, 10 tests. Reste
+**bloquante pour le merge** : #41, le traitement des remboursements au dénominateur.)
+
+**BUG-244-01 ajouté le 2026-07-29** (signalé par l'utilisateur : cliquer une ligne d'« Item
+performance » ne changeait pas la timeline. Diagnostic plus large — `eventTimelineData` vient d'un
+fetch indépendant qui ne traverse ni le getter store ni le prédicat item-level, et le `passesFilters`
+interne du graphique n'était alimenté que sur 3 dimensions dont 2 court-circuitées par des gardes sur
+des maps jamais passées. Corrigé en pré-filtrant dans le parent avec le MÊME `reconcileRecord` +
+`buildItemFilterPredicate` que les donuts — plutôt qu'en complétant les props, ce qui aurait recréé
+le bug dans un second dialecte : les donuts émettent des clés **réconciliées**, jusqu'à la sentinelle
+« Non rattachés ». Au passage : `buildItemFilterPredicate` extraite vers `analyseDimensions.js`, et
+les 2 constructions du contexte de réconciliation fusionnées en un composable unique. 12 tests
+ajoutés. Trois défauts pré-existants que ce correctif rend visibles — produits non mappés sans nom,
+fusionnés entre eux, et écartés de la ventilation par article — sont documentés dans la fiche et
+**non corrigés**, chacun changeant l'agrégation pour tout tenant à couverture de mapping imparfaite.)
+
+**BUG-243-01 ajouté le 2026-07-29** (signalé par capture — le dropdown « Outils »
+d'Analyse n'affichait qu'une entrée « Inventory » là où Inventory/Logistic/Restock/Event Predict en
+affichent deux (Pre-event + Post-event). Une seule ligne manquait dans `toolboxItems`
+[`analyse/filters/FilterPanel.vue:616`](../../src/components/analyse/filters/FilterPanel.vue), le
+chemin et le handler existant déjà ; corrigé en réutilisant la clé `invToolPreInventory` partagée
+par les autres écrans, plus alignement du libellé `anToolInventory` sur « Post-event Inventory ».
+La duplication de la liste dans 5 fichiers — cause structurelle — est documentée dans la fiche mais
+**non résolue** ; le filtrage par permission manquant côté Analyse et l'absence de « Live » dans les
+4 autres listes sont laissés ouverts.)
+
+> Pas de « **N bugs au total** » sur cette entrée : le compteur du paragraphe suivant (« 240 ») ne
+> correspond plus à rien de vérifiable — 261 fiches sur disque, 242 numéros `NNN` distincts et 262
+> lignes de tableau avant l'ajout de 243-01. Plutôt que de propager un total faux, la date et le
+> numéro suffisent. À recaler d'un coup si quelqu'un veut restaurer le compteur.
+
+**240 bugs au total** (242 ajouté le 2026-07-27 : ex-Q35 tranchée par l'owner — Option 1, la réco
+post-event consomme les ventes explosées en ingrédients par la cascade Logistique ; déploiement
+backend requis, repli automatique au grain article sinon, `meta.salesSource` archivé. 237-241
+ajoutés le 2026-07-24 : vérification de l'implémentation Pre/Post-event
+Inventory contre `modules/10_POST_EVENT_INVENTORY.md`, cf. §13 de ce document — le brief produit et
+les correctifs déjà documentés sont conformes, ces 5 fiches sont les écarts trouvés au-delà.
+**Tous corrigés le jour même** sur `feat/postEventInventory` : backend 41/41, front 478 tests verts
+(4 échecs préexistants hors périmètre, identiques avant/après). ⚠️ Déploiement **conjoint** requis —
+`prisma/sql/2026-07-24_stockreconciliation_meta.sql` + `prisma generate` + redémarrage backend, sans
+quoi la colonne `meta` reste absente ; le front, lui, retombe automatiquement sur un POST sans
+contexte plutôt que d'échouer, réflexe [BUG-228](228_inventory_snapshot_kind_rejete_backend_perime.md).)
+
+**234 bugs au total** (222-231 ajoutés le 2026-07-20 sur `feat/postEventInventory` ; numérotés à
 l'origine 193-203 sur cette branche, renumérotés au merge dans `develop` le 2026-07-22 pour éviter
 la collision avec 193-221, déjà pris par l'audit `data-integration/fb` et le fix RBAC ajoutés en
 parallèle sur `develop`. Le doublon 190/193 de la fiche Predict — grain article des scénarios est

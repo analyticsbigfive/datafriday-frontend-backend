@@ -2,7 +2,8 @@ import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
-import { buildReconciliationContext, reconcileRecord } from '@/utils/analyseReconciliation'
+import { reconcileRecord } from '@/utils/analyseReconciliation'
+import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import store from '@/store'
 
 const MAX_EVENTS = 50
@@ -31,6 +32,11 @@ let _warnedBatchKo = false
  */
 export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS } = {}) {
   const route = useRoute()
+  // Contexte de réconciliation PARTAGÉ (cf. useReconciliationContext) — surtout
+  // pas reconstruit ici : la timeline et les records de scénario Predict se
+  // réconcilient avec le même, sinon une même ligne peut recevoir deux
+  // catégories différentes selon le consommateur.
+  const reconciliationCtx = useReconciliationContext()
   const cache = ref({}) // eventId -> records[] (preprocessés). [] = tenté/vide.
   const loading = ref(false)
   const fetchError = ref(null)
@@ -136,17 +142,7 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
       const recs = cache.value[e?.id]
       if (recs && recs.length) out.push(...recs)
     }
-    const a = store.state.analyse
-    const ctx = buildReconciliationContext({
-      menuItems: a.menuItems || [],
-      productCategories: a.productCategoriesList || [],
-      productTypes: a.productTypesList || [],
-      floorElements: a.configShopContext?.floorElements || [],
-      assignment: a.configShopContext?.assignment || null,
-      assignmentItemsByShop: a.configShopContext?.assignmentItemsByShop || null,
-      weezeventProducts: a.weezeventProducts || [],
-    })
-    return out.map((r) => reconcileRecord(r, ctx))
+    return out.map((r) => reconcileRecord(r, reconciliationCtx.value))
   })
 
   // Events réellement fetchés (cap inclus, batch KO = [] compté « tenté ») —

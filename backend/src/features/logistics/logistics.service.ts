@@ -1391,6 +1391,136 @@ export class LogisticsService {
     return [...consumption.values()].map((c) => ({ ...c, quantity: Math.round(c.quantity * 100) / 100 }));
   }
 
+  /**
+   * Consommation des ventes d'UN événement, explosée en ingrédients (Q35 — Option 1,
+   * décision owner 2026-07-27) : la réconciliation post-event consomme ce résultat à
+   * la place des ventes brutes au grain menu item (le « Vendu » d'une ligne comptée
+   * au grain ingrédient n'est plus 0 → plus de manquant fantôme sur les produits
+   * préparés). Réutilise `explodeSalesToConsumption` telle quelle — le jour où Q18
+   * (explosion des combos) y atterrit, la réco en hérite sans modification.
+   *
+   * Sélection des transactions = MIROIR de `SpacesService.getEventTimelineBatch`
+   * (fenêtre `eventDate → endDate+1j`, scope intégration, status='V', deletedAt NULL)
+   * — dupliqué à dessein comme deriveSalesRaw ↔ loadRecipeContext ; toute clause
+   * modifiée ici doit l'être là-bas, cf. spaces.service.ts:1225-1252. Différence
+   * assumée avec `deriveSalesRaw` : pas d'ancre StockReconciliation (le périmètre
+   * est l'événement, pas « depuis le dernier reset »).
+   *
+   * Jamais d'écarté silencieux (BUG-238) : PdV non mappé / hors espace et produit
+   * sans mapping menu item sortent dans `unjoined` (noms + unités), pas du calcul.
+   */
+  async deriveEventConsumption(spaceId: string, eventId: string, tenantId: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, spaceId, tenantId },
+      select: { id: true, name: true, eventDate: true, eventEndDate: true },
+    });
+    if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+
+    const windowStart = new Date(event.eventDate);
+    const windowEnd = new Date(event.eventEndDate ?? event.eventDate);
+    windowEnd.setDate(windowEnd.getDate() + 1);
+
+    const [elementIds, locationMapping] = await Promise.all([
+      this.getSpaceElementIds(spaceId, tenantId),
+      this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { salesLocationId: true },
+      }),
+    ]);
+    if (!elementIds.length) {
+      return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null };
+    }
+
+    // Même précédence que le timeline : scope intégration si mappé, sinon mode
+    // dégradé tenant-wide où seuls les PdV mappés à CET espace sont gardés (sans
+    // ça, les ventes non mappées des autres espaces fuiraient dans la fenêtre).
+    const integrationId = locationMapping?.salesLocationId ?? null;
+    const integrationClause = integrationId
+      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+      : Prisma.empty;
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" IN (${Prisma.join(elementIds)}))`
+      : Prisma.sql`mem."spaceElementId" IN (${Prisma.join(elementIds)})`;
+
+    // Jointure mapping PdV en superset des deux conventions existantes
+    // (timeline : mem sur t.locationId ; deriveSalesRaw : via WeezeventLocation
+    // id OU weezeventId) — un mapping saisi sous l'une ou l'autre clé joint.
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        elementId: string | null;
+        menuItemId: string | null;
+        locationName: string | null;
+        productName: string | null;
+        qty: number;
+      }>
+    >(Prisma.sql`
+      SELECT mem."spaceElementId"                                   AS "elementId",
+             pm."menuItemId"                                        AS "menuItemId",
+             COALESCE(MAX(t."locationName"), MAX(t."locationId"))   AS "locationName",
+             MAX(ti."productName")                                  AS "productName",
+             SUM(ti."quantity")::float                              AS qty
+      FROM "WeezeventTransaction" t
+      INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
+      LEFT JOIN "WeezeventLocation" wl ON wl."id" = t."locationId"
+      LEFT JOIN "WeezeventLocationShopMapping" mem
+        ON mem."tenantId" = t."tenantId"
+       AND (mem."weezeventLocationId" = t."locationId" OR mem."weezeventLocationId" = wl."weezeventId")
+      LEFT JOIN "WeezeventProductMapping" pm
+        ON pm."tenantId" = t."tenantId" AND pm."weezeventProductId" = ti."productId"
+      WHERE t."tenantId" = ${tenantId}
+        AND t."transactionDate" >= ${windowStart}
+        AND t."transactionDate" <  ${windowEnd}
+        AND t."status" = 'V'
+        AND t."deletedAt" IS NULL
+        ${integrationClause}
+        AND ${shopScopeClause}
+      GROUP BY 1, 2, ti."productId"
+    `);
+
+    const elementIdSet = new Set(elementIds);
+    const joinable: SalesRawRow[] = [];
+    const unjoinedShops = new Set<string>();
+    const unjoinedProducts = new Set<string>();
+    let unjoinedUnits = 0;
+    for (const r of rows) {
+      const qty = Number(r.qty ?? 0);
+      if (!qty) continue;
+      if (r.elementId && elementIdSet.has(r.elementId) && r.menuItemId) {
+        joinable.push({
+          elementId: r.elementId,
+          menuItemId: r.menuItemId,
+          eventId: event.id,
+          eventName: event.name ?? null,
+          qty,
+          lastAt: windowStart,
+        });
+        continue;
+      }
+      if (!r.elementId || !elementIdSet.has(r.elementId)) {
+        if (r.locationName) unjoinedShops.add(String(r.locationName));
+      } else if (r.productName) {
+        unjoinedProducts.add(String(r.productName));
+      }
+      unjoinedUnits += qty;
+    }
+
+    const lines = await this.explodeSalesToConsumption(joinable, tenantId);
+    return {
+      eventId: event.id,
+      eventName: event.name ?? null,
+      lines,
+      unjoined:
+        unjoinedShops.size || unjoinedProducts.size
+          ? {
+              shopNames: [...unjoinedShops].slice(0, 50),
+              productNames: [...unjoinedProducts].slice(0, 50),
+              units: Math.round(unjoinedUnits * 100) / 100,
+            }
+          : null,
+    };
+  }
+
   // ─── Reset après inventaire + réconciliation ─────────────────────────────────
 
   /**
