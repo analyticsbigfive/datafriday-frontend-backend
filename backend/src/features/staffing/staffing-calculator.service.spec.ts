@@ -199,6 +199,87 @@ describe('StaffingCalculatorService', () => {
     });
   });
 
+  // Auto-remplissage Staff Builder (2026-07-30, révisé suite retour utilisateur) :
+  // le tag F&B seul suffit, la règle Sinking n'est qu'un raffinement optionnel.
+  describe('computeStaffSuggestions (Builder Staff, tag seul suffit)', () => {
+    const role = (over: Partial<Parameters<StaffingCalculatorService['computeStaffSuggestions']>[2][number]> = {}) => ({
+      id: 'role-1',
+      name: 'Cuisinier',
+      fnbCategories: ['BEVERAGE'],
+      rateType: 'HOURLY' as const,
+      rate: 20,
+      ...over,
+    });
+
+    it('rôle tagué, aucune règle Sinking → qty=1 par défaut (le cas rapporté)', () => {
+      const out = calc.computeStaffSuggestions(new Set(['BEVERAGE']), {}, [role()], []);
+      expect(out).toEqual([{ roleId: 'role-1', roleName: 'Cuisinier', qty: 1, hourlyRate: 20 }]);
+    });
+
+    it('rôle non tagué pour le tag présent → absent du résultat', () => {
+      const out = calc.computeStaffSuggestions(
+        new Set(['BEVERAGE']),
+        {},
+        [role({ fnbCategories: ['KITCHEN_FOOD'] })],
+        [],
+      );
+      expect(out).toEqual([]);
+    });
+
+    it('règle Sinking SANS condition → override la quantité par défaut', () => {
+      const out = calc.computeStaffSuggestions(
+        new Set(['BEVERAGE']),
+        {},
+        [role()],
+        [{ roleId: 'role-1', fnbCategory: 'BEVERAGE', conditionAttribute: null, conditionMinValue: null, mandatoryQty: 3 }],
+      );
+      expect(out).toEqual([{ roleId: 'role-1', roleName: 'Cuisinier', qty: 3, hourlyRate: 20 }]);
+    });
+
+    it('règle Sinking AVEC condition → masque le défaut « tag seul », condition non remplie → absent', () => {
+      const out = calc.computeStaffSuggestions(
+        new Set(['KITCHEN_FOOD']),
+        {}, // pas d'attribut nbFriteuses sur l'élément
+        [role({ fnbCategories: ['KITCHEN_FOOD'] })],
+        [{ roleId: 'role-1', fnbCategory: 'KITCHEN_FOOD', conditionAttribute: 'nbFriteuses', conditionMinValue: 1, mandatoryQty: 1 }],
+      );
+      expect(out).toEqual([]); // le rôle n'apparaît PAS par défaut : il est devenu conditionnel
+    });
+
+    it('règle Sinking AVEC condition remplie → appliquée avec sa propre quantité', () => {
+      const out = calc.computeStaffSuggestions(
+        new Set(['KITCHEN_FOOD']),
+        { nbFriteuses: 2 },
+        [role({ fnbCategories: ['KITCHEN_FOOD'] })],
+        [{ roleId: 'role-1', fnbCategory: 'KITCHEN_FOOD', conditionAttribute: 'nbFriteuses', conditionMinValue: 1, mandatoryQty: 5 }],
+      );
+      expect(out).toEqual([{ roleId: 'role-1', roleName: 'Cuisinier', qty: 5, hourlyRate: 20 }]);
+    });
+
+    it('rôle tagué sur 2 catégories présentes → une seule ligne, quantité = max (pas de doublon/somme)', () => {
+      const out = calc.computeStaffSuggestions(
+        new Set(['BEVERAGE', 'FRONT_FOOD']),
+        {},
+        [role({ fnbCategories: ['BEVERAGE', 'FRONT_FOOD'] })],
+        [{ roleId: 'role-1', fnbCategory: 'FRONT_FOOD', conditionAttribute: null, conditionMinValue: null, mandatoryQty: 2 }],
+      );
+      expect(out).toEqual([{ roleId: 'role-1', roleName: 'Cuisinier', qty: 2, hourlyRate: 20 }]);
+    });
+
+    it('deux rôles différents tagués → deux lignes distinctes', () => {
+      const out = calc.computeStaffSuggestions(
+        new Set(['BEVERAGE']),
+        {},
+        [role(), role({ id: 'role-2', name: 'Barman', rate: 18 })],
+        [],
+      );
+      expect(out).toEqual([
+        { roleId: 'role-1', roleName: 'Cuisinier', qty: 1, hourlyRate: 20 },
+        { roleId: 'role-2', roleName: 'Barman', qty: 1, hourlyRate: 18 },
+      ]);
+    });
+  });
+
   describe('coûts et conversions (§5, Q6)', () => {
     it('1 caissier 25 €/h, portes 17:00–23:30, offsets −1 h/+1 h → 8,5 h → 212,50 €', () => {
       const start = new Date('2026-07-29T17:00:00Z');

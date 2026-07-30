@@ -182,6 +182,22 @@ export class BuilderV2Controller {
     return this.service.putStaff(id, tenantId, dto, configId || undefined);
   }
 
+  @Get('elements/:id/staff-suggestions')
+  @ApiOperation({
+    summary:
+      "Postes obligatoires selon les sous-types F&B de l'élément + les règles Sinking RH du tenant (scopé config : ?configId=)",
+    description:
+      'Auto-remplissage de la section Staff (2026-07-30). Les règles Sinking avec condition ' +
+      "d'équipement ne matchent jamais ici (aucun champ Builder ne renseigne encore ces attributs).",
+  })
+  async getStaffSuggestions(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Query('configId') configId?: string,
+  ) {
+    return this.service.getStaffSuggestions(id, tenantId, configId || undefined);
+  }
+
   @Put('elements/:id/inventory')
   @RequirePermissions('space.edit')
   @ApiOperation({ summary: 'Remplacer l\'inventaire de l\'élément (scopé config : ?configId=, défaut 1re adhésion)' })

@@ -17,6 +17,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { StaffingCalculatorService } from '../staffing/staffing-calculator.service';
+import { detectFnbTags } from '../staffing/fnb-tags.util';
 import {
   CreateZoneDto, UpdateZoneDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto,
@@ -38,6 +40,7 @@ export class BuilderV2Service {
     private readonly prisma: PrismaService,
     private readonly spacesService: SpacesService,
     private readonly storage: SupabaseStorageService,
+    private readonly staffingCalculator: StaffingCalculatorService,
   ) {}
 
   // ─── Garde-fous tenant (par jointure) ──────────────────────────────────────
@@ -127,6 +130,7 @@ export class BuilderV2Service {
       ),
       staffByConfig: this.groupByConfig(el.staffPositions, (s: any) => ({
         id: s.id, position: s.position, count: s.count, hourlyRate: s.hourlyRate,
+        roleId: s.roleId, source: s.source,
       })),
       inventoryByConfig: this.groupByConfig(el.inventoryItems, (i: any) => ({
         id: i.id, name: i.name, quantity: i.quantity, unit: i.unit,
@@ -228,7 +232,7 @@ export class BuilderV2Service {
               'staffByConfig', COALESCE((
                 SELECT json_object_agg(g.cfg, g.rows) FROM (
                   SELECT COALESCE(st."configId", '') AS cfg,
-                         json_agg(json_build_object('id', st.id, 'position', st.position, 'count', st.count, 'hourlyRate', st."hourlyRate")) AS rows
+                         json_agg(json_build_object('id', st.id, 'position', st.position, 'count', st.count, 'hourlyRate', st."hourlyRate", 'roleId', st."roleId", 'source', st.source)) AS rows
                   FROM "ElementStaff" st WHERE st."elementId" = se.id GROUP BY 1
                 ) g
               ), '{}'::json),
@@ -788,6 +792,7 @@ export class BuilderV2Service {
               createMany: {
                 data: source.staffPositions.map((s) => ({
                   configId: s.configId, position: s.position, count: s.count, hourlyRate: s.hourlyRate,
+                  roleId: s.roleId, source: s.source,
                 })),
               },
             }
@@ -911,6 +916,7 @@ export class BuilderV2Service {
               data: dto.staff.map((s) => ({
                 elementId, configId: targetConfigId,
                 position: s.position, count: s.count, hourlyRate: s.hourlyRate ?? null,
+                roleId: s.roleId ?? null, source: s.source ?? 'MANUAL',
               })),
             }),
           ]
@@ -918,6 +924,27 @@ export class BuilderV2Service {
     ]);
     await this.invalidate(tenantId, element.zone!.spaceId);
     return this.prisma.elementStaff.findMany({ where: { elementId, configId: targetConfigId } });
+  }
+
+  /**
+   * Postes obligatoires pour cet élément selon ses sous-types F&B (auto-remplissage
+   * de la section Staff du Builder, 2026-07-30 — révisé le même jour suite retour
+   * utilisateur). Un rôle tagué avec une catégorie F&B présente suffit — pas besoin
+   * d'une règle Sinking en plus (`computeStaffSuggestions`, cf. commentaire). Les
+   * règles Sinking avec condition d'équipement ne matchent jamais en pratique ici :
+   * aucun champ du Builder ne renseigne encore les attributs (nbFriteuses…) sur
+   * SpaceElement.attributes — limite assumée, cf. module doc.
+   */
+  async getStaffSuggestions(elementId: string, tenantId: string, configId?: string) {
+    const element = await this.getElementOrThrow(elementId, tenantId);
+    const fnbTags = detectFnbTags((element as any).subtypes);
+    if (fnbTags.size === 0) return [];
+    const attrs = ((element as any).attributes ?? {}) as Record<string, any>;
+    const [roles, rules] = await Promise.all([
+      this.prisma.hrRole.findMany({ where: { tenantId } }),
+      this.prisma.hrSinkingRule.findMany({ where: { tenantId } }),
+    ]);
+    return this.staffingCalculator.computeStaffSuggestions(fnbTags, attrs, roles as any, rules as any);
   }
 
   async putInventory(elementId: string, tenantId: string, dto: PutInventoryDto, configId?: string) {

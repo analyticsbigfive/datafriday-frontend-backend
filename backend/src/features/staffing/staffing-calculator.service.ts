@@ -94,6 +94,22 @@ export interface SinkingRuleOutcome {
   qty: number;
 }
 
+/** Miroir pur du HrRole (uniquement les champs nécessaires au calcul). */
+export interface RoleTagInput {
+  id: string;
+  name: string;
+  fnbCategories: string[];
+  rateType: string | null;
+  rate: number | null;
+}
+
+export interface StaffSuggestion {
+  roleId: string;
+  roleName: string;
+  qty: number;
+  hourlyRate: number;
+}
+
 export interface StaffingResult {
   open: boolean;
   n: number;
@@ -257,6 +273,68 @@ export class StaffingCalculatorService {
       out.push({ roleId: rule.roleId, qty: rule.mandatoryQty });
     }
     return out;
+  }
+
+  /**
+   * Auto-remplissage du Staff dans le 3D Builder (2026-07-30, retour utilisateur) :
+   * un rôle dont le tag F&B (fnbCategories) matche un sous-type présent sur le PDV
+   * suffit à le rendre obligatoire (quantité 1 par défaut) — PAS besoin de créer une
+   * règle Sinking en plus. Une règle Sinking SANS condition ne fait qu'ajuster la
+   * quantité par défaut. Une règle Sinking AVEC condition (équipement) rend le rôle
+   * conditionnel POUR CETTE CATÉGORIE : il disparaît du défaut « tag seul » et
+   * n'apparaît que si la condition est remplie (ex. EPR uniquement si bain-marie).
+   * Résolution par (rôle × catégorie présente) ; si un rôle matche plusieurs
+   * catégories à la fois, on retient le maximum plutôt que d'additionner (un seul
+   * poste, pas un doublon parce que deux tags se recoupent).
+   */
+  computeStaffSuggestions(
+    fnbTags: Set<string>,
+    attrs: Record<string, any>,
+    roles: RoleTagInput[],
+    rules: SinkingRuleInput[],
+  ): StaffSuggestion[] {
+    const rulesByRole = new Map<string, SinkingRuleInput[]>();
+    for (const rule of rules) {
+      if (!fnbTags.has(rule.fnbCategory)) continue;
+      const list = rulesByRole.get(rule.roleId) ?? [];
+      list.push(rule);
+      rulesByRole.set(rule.roleId, list);
+    }
+
+    const byRoleQty = new Map<string, number>();
+    for (const role of roles) {
+      const matchedCategories = role.fnbCategories.filter((c) => fnbTags.has(c));
+      if (matchedCategories.length === 0) continue;
+      const roleRules = rulesByRole.get(role.id) ?? [];
+      let qty = 0;
+      for (const category of matchedCategories) {
+        const rulesForCategory = roleRules.filter((r) => r.fnbCategory === category);
+        const conditioned = rulesForCategory.filter((r) => r.conditionAttribute);
+        if (conditioned.length > 0) {
+          for (const rule of conditioned) {
+            const v = Number(attrs[rule.conditionAttribute!]);
+            if (Number.isFinite(v) && v >= (rule.conditionMinValue ?? 0)) {
+              qty = Math.max(qty, rule.mandatoryQty);
+            }
+          }
+        } else {
+          const unconditioned = rulesForCategory[0];
+          qty = Math.max(qty, unconditioned ? unconditioned.mandatoryQty : 1);
+        }
+      }
+      if (qty > 0) byRoleQty.set(role.id, qty);
+    }
+
+    const roleById = new Map(roles.map((r) => [r.id, r]));
+    return [...byRoleQty.entries()].map(([roleId, qty]) => {
+      const role = roleById.get(roleId)!;
+      return {
+        roleId,
+        roleName: role.name,
+        qty,
+        hourlyRate: this.hourlyRateFrom(role.rateType, role.rate) ?? 0,
+      };
+    });
   }
 
   /** rz par zone = CEIL(Σ staffFront / staffPerZoneManager). Effectifs entiers, toujours. */

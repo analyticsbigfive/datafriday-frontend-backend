@@ -7,9 +7,13 @@ import { RedisModule } from '../../core/redis/redis.module';
 // (space_shops / space_configs / detail) pour que Space Menu et Data Integration
 // voient immédiatement les mutations du builder.
 import { SpacesModule } from '../spaces/spaces.module';
+// Auto-remplissage Staff (2026-07-30) : réutilise StaffingCalculatorService
+// (applySinkingRules/hourlyRateFrom, déjà pur et testé) — un seul moteur de
+// règles Sinking RH pour la génération d'événement ET le Builder.
+import { StaffingModule } from '../staffing/staffing.module';
 
 @Module({
-  imports: [PrismaModule, RedisModule, SpacesModule],
+  imports: [PrismaModule, RedisModule, SpacesModule, StaffingModule],
   controllers: [BuilderV2Controller],
   providers: [BuilderV2Service],
   exports: [BuilderV2Service],

@@ -105,6 +105,15 @@ export async function putElementStaff(elementId, staff, configId) {
   return response.data
 }
 
+// Postes obligatoires selon les sous-types F&B de l'élément + règles Sinking RH
+// (2026-07-30) — auto-remplissage de la section Staff, voir StaffSection.vue.
+export async function getElementStaffSuggestions(elementId, configId) {
+  const response = await api.get(`/builder-v2/elements/${elementId}/staff-suggestions`, {
+    params: configId ? { configId } : {},
+  })
+  return response.data
+}
+
 export async function putElementInventory(elementId, inventory, configId) {
   const response = await api.put(`/builder-v2/elements/${elementId}/inventory`, { inventory }, {
     params: configId ? { configId } : {},

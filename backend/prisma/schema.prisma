@@ -639,6 +639,7 @@ model HrRole {
   spaceDefaults HrRoleSpaceDefault[]
   staffLines    EventStaffLine[]
   sinkingRules  HrSinkingRule[]
+  elementStaff  ElementStaff[] // lignes Staff Builder auto-remplies (source='AUTO')
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -944,14 +945,23 @@ model ElementStaff {
   position   String // "Cashier", "Cook", "Security", etc.
   count      Int      @default(1)
   hourlyRate Float?
+  // Auto-remplissage depuis les règles Sinking RH (2026-07-30) : roleId trace le HrRole
+  // d'origine (position régénérée depuis role.name à chaque sync), source distingue une
+  // ligne posée par la règle ('AUTO', resynchronisée sans jamais toucher aux lignes
+  // tapées à la main) d'une ligne manuelle ('MANUAL', défaut — parité des lignes
+  // existantes avant cette migration).
+  roleId     String?
+  source     String   @default("MANUAL") // 'AUTO' | 'MANUAL'
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
   config  Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+  role    HrRole?      @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   @@index([elementId])
   @@index([configId])
+  @@index([roleId])
 }
 
 // ==================== ELEMENT INVENTORY ====================
