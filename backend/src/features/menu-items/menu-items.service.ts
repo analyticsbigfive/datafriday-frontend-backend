@@ -1540,6 +1540,12 @@ export class MenuItemsService {
     });
     if (!item) return 0;
 
+    // Recalculé ligne par ligne à chaque appel (jamais lu depuis `totalCost` déjà persisté) :
+    // `totalCost` est RÉÉCRIT par ce même calcul (voir refreshComboCost ci-dessous) — le relire
+    // comme point de départ ferait doubler la contribution combo à chaque recalcul successif
+    // (un item déjà combo-mis-à-jour verrait son ancien total combo-inclusive réutilisé comme
+    // base, puis re-additionné). Duplique volontairement la sommation flat de `refreshCosts()`
+    // (components/ingredients/packagings) pour rester sans état.
     let total = 0;
     for (const line of item.components || []) {
       total += this.toNumber((line as any).component?.unitCost, 0) * this.toNumber(line.numberOfUnits);

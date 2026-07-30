@@ -296,7 +296,10 @@
         <!-- Loading -->
         <div v-if="importing" class="d-flex flex-column align-center justify-center py-14" style="gap: 18px;">
           <v-progress-circular indeterminate color="#ff3131" size="52" width="4" />
-          <div class="text-body-2 mi-subtitle">{{ t('menuItemImportInProgress') }}</div>
+          <div class="text-body-2 mi-subtitle">
+            {{ t('menuItemImportInProgress') }}
+            <template v-if="importTotal">{{ importProgress }}/{{ importTotal }}</template>
+          </div>
         </div>
 
         <!-- Error -->
@@ -346,6 +349,17 @@
               • {{ f.name }} : {{ f.message }}
             </div>
             <div v-if="importFailed.length > 10">… +{{ importFailed.length - 10 }}</div>
+          </div>
+
+          <!-- Références Combo Item/Component non résolues même après la passe 2 (ni un vrai
+               MenuComponent via le fichier compagnon, ni un MenuItem déjà existant ou d'une autre
+               ligne de ce fichier) — l'article est quand même créé, juste sans cette composition. -->
+          <div v-if="unresolvedComboRefs.length" class="mi-skip-list pa-3 rounded-lg text-caption mi-subtitle" style="max-width:420px; width:100%;">
+            <div class="font-weight-bold mb-1">{{ unresolvedComboRefs.length }} référence(s) combo non résolue(s) :</div>
+            <div v-for="(u, i) in unresolvedComboRefs.slice(0, 10)" :key="i">
+              • {{ u.name }} — "{{ u.refId }}"
+            </div>
+            <div v-if="unresolvedComboRefs.length > 10">… +{{ unresolvedComboRefs.length - 10 }}</div>
           </div>
         </div>
       </div>
@@ -424,11 +438,18 @@
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
-import { bulkCreateMenuItems, createMenuItem } from '@/api/endpoints/menu-item.api'
+import { bulkCreateMenuItems, createMenuItem, replaceMenuItemComboItems } from '@/api/endpoints/menu-item.api'
 import { createProductType, createProductCategory } from '@/api/endpoints/product.api'
 import { createBrandName } from '@/api/endpoints/brand-name.api'
 import { createDisplayName } from '@/api/endpoints/display-name.api'
 import { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Download } from 'lucide-vue-next'
+
+// Nombre de créations de menu item lancées en parallèle pendant l'import CSV — même valeur que
+// CsvImportDrawer.vue (événements, BUG-252) et que tous les autres usages de concurrence bornée
+// de ce repo (jamais plus de 6, pour ne pas retoucher au palier "medium" du rate-limiter tenant,
+// 300 req/60s). Remplace la boucle séquentielle `for...of` précédente (~75-100 requêtes pour 25
+// lignes chez Components, jugée trop lente en test réel — ce fichier fait 543 lignes).
+const IMPORT_CONCURRENCY = 5
 
 // BUG-112 : champs mappables, groupés pour l'écran "Mapping" (même pattern que
 // MarketPriceCsvImportDrawer.vue : un v-select par champ interne, pas par colonne CSV).
@@ -751,6 +772,7 @@ export default {
       // Progression pendant l'import (concurrence bornée) — absente avant ce chantier, ajoutée
       // sur le modèle de CsvImportDrawer.vue (événements, BUG-252).
       importTotal: 0,
+      importProgress: 0,
       unresolvedComboRefs: [], // [{ name, refId }] — refs Component/Combo Item non résolues, passe 2
     }
   },
@@ -932,6 +954,9 @@ export default {
     componentValidIds() {
       return new Set(this.componentNameToId.values())
     },
+    menuItemValidIds() {
+      return new Set(this.menuItemNameToId.values())
+    },
     // MenuItem existants du compte cible, par nom — pour résoudre l'auto-référence "Combo Item"
     // (une ligne référence un autre MenuItem, soit une autre ligne de CE fichier, soit un item
     // déjà présent dans ce tenant).
@@ -1071,6 +1096,11 @@ export default {
       this.createdCategories = []
       this.createdBrands = []
       this.createdDisplayNames = []
+      this.importTotal = 0
+      this.unresolvedComboRefs = []
+      // Les fichiers compagnons (Market Prices / Components) ne sont PAS réinitialisés ici :
+      // ils restent utiles d'un import à l'autre dans la même session de drawer (ex. réessayer
+      // après avoir corrigé le CSV principal), contrairement au reste de l'état d'un run donné.
     },
     close() { this.$emit('update:modelValue', false) },
     onDrop(e) {
@@ -1397,6 +1427,37 @@ export default {
         } catch (e) { /* idem */ }
       }
     },
+    // Un import de plusieurs centaines de lignes dépasse facilement le palier "medium" du
+    // rate-limiter backend (300 req/60s) — sans retry dédié, toutes les lignes restantes de la
+    // fenêtre échoueraient définitivement en 429. Pattern identique à
+    // CsvImportDrawer.vue::createEventWithRateLimitRetry (événements, BUG-252) : lit le vrai
+    // `Retry-After`, plafonné à 90s, jusqu'à 5 tentatives.
+    async createMenuItemWithRateLimitRetry(payload, maxAttempts = 5) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await createMenuItem(payload)
+        } catch (e) {
+          const isLastAttempt = attempt === maxAttempts
+          if (e?.response?.status !== 429 || isLastAttempt) throw e
+          const retryAfterSec = Number(e.response.headers?.['retry-after']) || 5
+          const waitMs = Math.min(retryAfterSec, 90) * 1000 + 500
+          await new Promise(resolve => setTimeout(resolve, waitMs))
+        }
+      }
+    },
+    async replaceComboItemsWithRateLimitRetry(id, comboItems, maxAttempts = 5) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await replaceMenuItemComboItems(id, comboItems)
+        } catch (e) {
+          const isLastAttempt = attempt === maxAttempts
+          if (e?.response?.status !== 429 || isLastAttempt) throw e
+          const retryAfterSec = Number(e.response.headers?.['retry-after']) || 5
+          const waitMs = Math.min(retryAfterSec, 90) * 1000 + 500
+          await new Promise(resolve => setTimeout(resolve, waitMs))
+        }
+      }
+    },
     async runImport() {
       this.step = 4
       this.importing = true
@@ -1407,6 +1468,8 @@ export default {
       this.createdCategories = []
       this.createdBrands = []
       this.createdDisplayNames = []
+      this.unresolvedComboRefs = []
+      this.importProgress = 0
       try {
         // BUG-112 : crée d'abord les référentiels manquants détectés dans validRows, pour que
         // buildPayload() (juste après) puisse résoudre typeId/categoryId/brandId/displayNameId
@@ -1422,9 +1485,18 @@ export default {
         const withRecipe    = allItems.filter(hasRecipe)
         const withoutRecipe = allItems.filter(item => !hasRecipe(item))
 
-        let totalCreated = 0
+        this.importTotal = withRecipe.length + (withoutRecipe.length ? 1 : 0)
 
-        // Bulk pour les items sans recipe (efficace)
+        let totalCreated = 0
+        // Nom (minuscule) -> id réel, alimenté au fil de l'import — sert à la passe 2 (résolution
+        // des références Combo Item/Component déférées, cf. resolveLegacyRecipe()).
+        const nameToRealId = new Map()
+
+        // Bulk pour les items sans recipe (efficace). Ces items n'ont eux-mêmes jamais de
+        // _pendingComboRefs (hasRecipe les exclut de ce lot), mais un AUTRE item (withRecipe)
+        // peut très bien référencer l'un d'eux en combo (ex. "Frites" sans recette propre,
+        // référencée par "Burger + Frites") — indexer aussi ce lot dans nameToRealId, sinon la
+        // passe 2 ne le retrouverait que via le store menuItems (non rafraîchi pendant ce run).
         if (withoutRecipe.length) {
           const res = await bulkCreateMenuItems(withoutRecipe)
           const count = res?.data?.count ?? res?.count
@@ -1436,20 +1508,81 @@ export default {
           } else {
             this.importBulkCountUnknown = true
           }
+          const bulkItems = res?.data?.items ?? res?.items
+          if (Array.isArray(bulkItems)) {
+            for (const it of bulkItems) {
+              if (it?.id && it?.name) nameToRealId.set(String(it.name).trim().toLowerCase(), it.id)
+            }
+          }
+          this.importProgress++
         }
 
         // Individuel pour les items avec recipe — le endpoint single traite les
-        // ingrédients/composants/packagings. BUG-85 : try/catch PAR item pour qu'un échec
-        // isolé n'efface pas les succès déjà obtenus (avant : une exception ici remontait
-        // au catch global et affichait "Import error" alors que des items avaient bien été
-        // créés en base).
-        for (const item of withRecipe) {
-          try {
-            await createMenuItem(item)
-            totalCreated++
-          } catch (e) {
-            this.importFailed.push({ name: item.name || '(sans nom)', message: e?.message || 'Erreur inconnue' })
+        // ingrédients/composants/packagings dans le même appel. Concurrence bornée + retry 429
+        // (remplace l'ancienne boucle séquentielle `for...of`, jugée trop lente en test réel sur
+        // le chantier Components — 25 lignes ~= 75-100 requêtes une par une).
+        const itemsWithCombo = []
+        for (let i = 0; i < withRecipe.length; i += IMPORT_CONCURRENCY) {
+          const chunk = withRecipe.slice(i, i + IMPORT_CONCURRENCY)
+          const results = await Promise.all(chunk.map(async item => {
+            const pendingComboRefs = item._pendingComboRefs
+            const payload = { ...item }
+            delete payload._pendingComboRefs
+            try {
+              const created = await this.createMenuItemWithRateLimitRetry(payload)
+              const realId = created?.id || created?.data?.id
+              if (realId) {
+                nameToRealId.set(String(payload.name || '').trim().toLowerCase(), realId)
+                if (pendingComboRefs?.length) {
+                  itemsWithCombo.push({ realId, name: payload.name, comboRefs: pendingComboRefs })
+                }
+              }
+              return { ok: true }
+            } catch (e) {
+              return { ok: false, name: payload.name || '(sans nom)', message: e?.response?.data?.message || e?.message || 'Erreur inconnue' }
+            } finally {
+              this.importProgress++
+            }
+          }))
+          for (const r of results) {
+            if (r.ok) totalCreated++
+            else this.importFailed.push({ name: r.name, message: r.message })
           }
+        }
+
+        // Passe 2 : résolution des références Combo Item/Component déférées (auto-référence vers
+        // une autre ligne de CE fichier, ou vers un MenuItem déjà existant dans ce tenant) —
+        // nécessite que TOUS les items de la passe 1 aient un id réel, indépendamment de l'ordre
+        // des lignes dans le fichier (une ligne peut référencer une ligne définie plus loin).
+        for (let i = 0; i < itemsWithCombo.length; i += IMPORT_CONCURRENCY) {
+          const chunk = itemsWithCombo.slice(i, i + IMPORT_CONCURRENCY)
+          await Promise.all(chunk.map(async ({ realId, name, comboRefs }) => {
+            const lines = []
+            for (const ref of comboRefs) {
+              let resolvedId
+              // (a) déjà un vrai id de ce tenant (round-trip après un futur export packé).
+              if (this.menuItemValidIds.has(ref.refId)) {
+                resolvedId = ref.refId
+              } else {
+                // (b) auto-référence vers une autre ligne de CE fichier (Menu Item ID legacy) —
+                // résolue soit contre un item tout juste créé dans cette passe (nameToRealId),
+                // soit contre un item qui existait déjà avant cet import (menuItemNameToId).
+                const targetName = this.csvIdToName.get(ref.refId)
+                if (targetName) {
+                  resolvedId = nameToRealId.get(targetName.trim().toLowerCase())
+                    || this.menuItemNameToId.get(targetName.trim().toLowerCase())
+                }
+              }
+              if (resolvedId) lines.push({ childId: resolvedId, quantity: ref.quantity })
+              else this.unresolvedComboRefs.push({ name, refId: ref.refId })
+            }
+            if (!lines.length) return
+            try {
+              await this.replaceComboItemsWithRateLimitRetry(realId, lines)
+            } catch (e) {
+              this.importFailed.push({ name, message: e?.response?.data?.message || e?.message || 'Erreur (composition combo)' })
+            }
+          }))
         }
 
         this.importedCount = totalCreated
@@ -1609,6 +1742,28 @@ export default {
   flex: 1;
   min-height: 0;
 }
+
+/* ── Fichiers compagnons (résolution des refs legacy) ──────── */
+.mi-companion-row {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.mi-companion-row:hover { border-color: #ff3131; background: rgba(255, 49, 49, 0.04); }
+.mi-import--dark .mi-companion-row { border-color: #374151; }
+.mi-import--dark .mi-companion-row:hover { background: rgba(255, 49, 49, 0.08); }
+.mi-companion-clear {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+}
+.mi-companion-clear:hover { color: #ff3131; }
 
 /* ── Dropzone ────────────────────────────────────────────── */
 .mi-dropzone {
