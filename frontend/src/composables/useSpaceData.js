@@ -69,13 +69,25 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
   console.log('[useSpaceData] 🟢 Fetching from API: /api/v1/spaces/' + spaceId)
 
+  // Posé par le repli du fetch configurations ci-dessous, remonté au store dans
+  // `_configurationsFetchFailed` (cf. resolveConfigSelectionAfterLoad).
+  let configurationsFetchFailed = false
+
   try {
     // ── Phase 1 : données critiques pour le premier rendu ──────────────────
     console.log('[useSpaceData] phase 1 — 4 endpoints critiques en parallèle...')
     const _t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
     const [space, configurations, details, eventsResponse] = await Promise.all([
       getSpace(spaceId).catch((e) => { console.error('[useSpaceData] ❌ getSpace failed:', e?.response?.status, e?.message); throw e }),
-      getSpaceConfigurations(spaceId).catch((e) => { console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message); return [] }),
+      // Repli `[]` conservé (le reste de la phase 1 doit pouvoir rendre), mais l'échec
+      // est SIGNALÉ : le store distingue « cet espace n'a aucune config » (liste vide,
+      // fetch OK → purge d'une sélection périmée) de « on ne sait pas » (fetch KO → on
+      // conserve la sélection utilisateur, cf. resolveConfigSelectionAfterLoad).
+      getSpaceConfigurations(spaceId).catch((e) => {
+        console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message)
+        configurationsFetchFailed = true
+        return []
+      }),
       // Phase 1: fast — returns shops + weezeventEvents + meta only (no granular join)
       getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
         console.warn('[useSpaceData] ⚠️ shopDetails unavailable:', e?.response?.status, e?.message, '— continuing without sales data')
@@ -153,6 +165,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         summary: null,
         _fromMock: false,
         _weezeventSetupIncomplete: true,
+        _configurationsFetchFailed: configurationsFetchFailed,
       }
     }
 
@@ -427,6 +440,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       menuItemCostMap,
       summary: details?.summary || null,
       _fromMock: false,
+      _configurationsFetchFailed: configurationsFetchFailed,
     }
 
     if (onEnrichment) {

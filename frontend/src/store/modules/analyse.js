@@ -401,43 +401,28 @@ function buildConfigShopEntryCached(spaceId, configId, ctx) {
  * bug « le sélecteur retombe sur All Configurations » : loadSpace est re-dispatché
  * par d'autres écrans (ex. EventPredictView.loadAll) pendant que l'utilisateur a
  * déjà fait sa sélection — on ne l'écrase plus aveuglément.
+ *
+ * @param {string|null} currentId
+ * @param {Array<{id:string}>} configurations — liste FRAÎCHE (déjà passée par
+ *   `filterValidConfigurations`)
+ * @param {{ configurationsFetchFailed?: boolean }} [opts] — `true` quand
+ *   `GET /configurations` a échoué : la liste reçue est alors `[]` par repli et ne
+ *   dit RIEN sur la validité de `currentId` → on conserve la sélection.
  */
-export function resolveConfigSelectionAfterLoad(currentId, configurations = []) {
+export function resolveConfigSelectionAfterLoad(
+  currentId,
+  configurations = [],
+  { configurationsFetchFailed = false } = {},
+) {
   if (!currentId || currentId === 'cfg-all') return null
+  // Fetch dégradé (`GET /configurations` en échec, avalé en `[]` par useSpaceData) :
+  // une liste absente n'est PAS une preuve que l'id est périmé. Sans cette garde, un
+  // échec réseau transitoire fait retomber la sélection utilisateur sur
+  // « All Configurations » — l'écran change de périmètre sans que personne l'ait
+  // demandé. Liste VIDE mais fetch OK = l'espace n'a réellement aucune config → on
+  // purge (comportement inchangé, sinon le select afficherait l'id BRUT).
+  if (configurationsFetchFailed) return currentId
   return configurations.some((c) => c?.id === currentId) ? currentId : null
-}
-
-/**
- * Configuration à PRÉ-SÉLECTIONNER à l'ouverture d'un espace (Analyse / Prédire),
- * quand l'utilisateur n'a encore rien choisi. Règle validée : la PREMIÈRE config
- * de la liste qui a réellement des events rattachés.
- *
- * Pourquoi la condition « avec events » : une config sélectionnée SCOPE STRICTEMENT
- * les events (`eventsInActiveConfiguration`) — pré-sélectionner une config vide
- * ouvrirait l'écran sur « Aucun event rattaché à cette configuration ».
- *
- * Repli `null` = « All Configurations » (comportement historique) si aucune config
- * n'a d'event : mieux vaut l'union que l'écran vide.
- *
- * Le rattachement event↔config suit la MÊME double règle que
- * `eventsInActiveConfiguration` : `config.eventIds` OU `event.configurationId`.
- *
- * @returns {string|null} id de configuration, ou null pour « All Configurations »
- */
-export function pickDefaultConfiguration(configurations = [], events = []) {
-  const list = (configurations || []).filter((c) => c?.id && c.id !== 'cfg-all')
-  if (!list.length) return null
-  const evs = events || []
-  for (const c of list) {
-    // Intersection RÉELLE avec les events chargés : un `eventIds` qui pointe des
-    // events absents du space donnerait quand même un écran vide.
-    const ids = new Set(c.eventIds || [])
-    const hasEvents = evs.some(
-      (e) => ids.has(e?.id) || (e?.configurationId && e.configurationId === c.id),
-    )
-    if (hasEvents) return c.id
-  }
-  return null
 }
 
 // Statuts backend considérés comme « supprimé/invalide » (comparaison lowercase).
@@ -562,9 +547,6 @@ const state = () => ({
   // (shopArea vient des FloorElements) s'affiche VIDE pendant tout le différé.
   configContextSettled: false,
   configContextLoadingId: null, // configId du chargement de contexte en cours (dédup des dispatchs concurrents)
-  // Espace pour lequel la pré-sélection auto de configuration a déjà été jouée.
-  // Garantit qu'elle ne s'applique QU'UNE fois par espace (cf. pickDefaultConfiguration).
-  configAutoSelectedSpaceId: null,
   // Options du filtre articles = articles VENDUS dans le scope events courant.
   // Remontées depuis AnalyseView (dataset item-level, hors store) via
   // setSoldItemOptions. Source des getters salesMenuItem* (data-driven : filtres
@@ -1635,7 +1617,6 @@ const mutations = {
   BUMP_CONFIG_CTX_REQ(state) { state.configContextReqId = (state.configContextReqId || 0) + 1 },
   SET_CONFIG_CONTEXT_LOADING(state, v) { state.configContextLoading = !!v },
   SET_CONFIG_CONTEXT_SETTLED(state, v) { state.configContextSettled = !!v },
-  SET_CONFIG_AUTO_SELECTED_SPACE_ID(state, id) { state.configAutoSelectedSpaceId = id || null },
   SET_CONFIG_CONTEXT_LOADING_ID(state, id) { state.configContextLoadingId = id || null },
   SET_CONFIG_CONTEXT_ERROR(state, e) { state.configContextError = e || null },
   SET_SOLD_ITEM_OPTIONS(state, { names, types, categories } = {}) {
@@ -1920,21 +1901,17 @@ const actions = {
     // l'id est périmé (hérité d'un autre espace, s'afficherait BRUT dans le select).
     // Le deep-link ?config=<id> restaure une config précise APRÈS loadSpace
     // (cf. AnalyseView.ensureAuthAndLoad). Non bloquant (fire-and-forget).
+    //
+    // AUCUNE pré-sélection par défaut (décision user 2026-07-30, annule BUG-225) :
+    // on atterrit toujours sur « All Configurations ». `pickDefaultConfiguration` et
+    // son garde-fou `configAutoSelectedSpaceId` ont été retirés avec cette décision.
     const validConfigs = filterValidConfigurations(data.configurations)
     const previousCfg = state.filters.selectedConfigurationId
-    let preserved = resolveConfigSelectionAfterLoad(
+    const preserved = resolveConfigSelectionAfterLoad(
       previousCfg,
       validConfigs,
+      { configurationsFetchFailed: !!data._configurationsFetchFailed },
     )
-    // Pré-sélection par défaut (1ère config AVEC events) à la PREMIÈRE ouverture de
-    // cet espace seulement. Le garde-fou `configAutoSelectedSpaceId` est ce qui
-    // empêche d'écraser un « All Configurations » choisi ensuite par l'utilisateur :
-    // loadSpace est re-dispatché par d'autres écrans (EventPredictView.loadAll…),
-    // sans lui on rejouerait la pré-sélection à chaque fois (bug « retombe sur X »).
-    if (!preserved && state.configAutoSelectedSpaceId !== spaceId) {
-      preserved = pickDefaultConfiguration(validConfigs, data.events || [])
-      commit('SET_CONFIG_AUTO_SELECTED_SPACE_ID', spaceId)
-    }
     commit('UPDATE_FILTER', { key: 'selectedConfigurationId', value: preserved })
     // PERF (décision user « différer seulement ») : le chemin « All Configurations »
     // (~2-3 requêtes/config depuis le batch getConfigShopMenuItemsLight) n'est PLUS
@@ -1942,9 +1919,11 @@ const actions = {
     // Une config précise reste chargée immédiatement (2-3 requêtes).
     //
     // Dispatch INCONDITIONNEL (d'autres écrans que AnalyseView dispatchent loadSpace
-    // sans watcher `selectedConfigurationId` derrière). Le doublon avec le watcher —
-    // réel depuis la pré-sélection auto (null → cfg, la valeur CHANGE donc le watcher
-    // fire aussi) — est absorbé par la dédup interne de `loadConfigShopContext`.
+    // sans watcher `selectedConfigurationId` derrière). Depuis le retrait de la
+    // pré-sélection auto (2026-07-30) la valeur ne CHANGE plus ici — le watcher
+    // d'AnalyseView ne re-fire donc pas et ce dispatch est le seul chemin. Il reste
+    // couvert par la dédup in-flight de `loadConfigShopContext` (BUG-225, point 2)
+    // pour les cas où les deux partent ensemble (config préservée + watcher au mount).
     if (preserved) dispatch('loadConfigShopContext', preserved)
   },
 

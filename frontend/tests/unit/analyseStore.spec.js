@@ -1,6 +1,5 @@
 import analyse, {
   resolveConfigSelectionAfterLoad,
-  pickDefaultConfiguration,
   filterValidConfigurations,
   isDeletedConfig,
   isValidConfigId,
@@ -321,42 +320,25 @@ describe('resolveConfigSelectionAfterLoad (fix « retombe sur All »)', () => {
     expect(resolveConfigSelectionAfterLoad('cfg-all', [{ id: 'cfg-all' }])).toBeNull()
     expect(resolveConfigSelectionAfterLoad('cfg-1', [])).toBeNull()
   })
-})
 
-describe('pickDefaultConfiguration (pré-sélection à l\'ouverture d\'un espace)', () => {
-  it('retourne la 1re config AYANT des events (via eventIds)', () => {
-    const configs = [{ id: 'cfg-1', eventIds: [] }, { id: 'cfg-2', eventIds: ['e1'] }]
-    const events = [{ id: 'e1' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
+  // Fetch `/configurations` en échec → useSpaceData replie sur `[]`. Cette liste ne
+  // prouve RIEN sur la validité de l'id : l'effacer ferait retomber le select sur
+  // « All Configurations » sur un simple aléa réseau.
+  it('fetch configurations en ÉCHEC → conserve la sélection malgré la liste vide', () => {
+    expect(
+      resolveConfigSelectionAfterLoad('cfg-1', [], { configurationsFetchFailed: true }),
+    ).toBe('cfg-1')
   })
 
-  it('reconnaît aussi le rattachement par event.configurationId', () => {
-    const configs = [{ id: 'cfg-1' }, { id: 'cfg-2' }]
-    const events = [{ id: 'e1', configurationId: 'cfg-2' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
+  it('fetch OK avec liste vide → purge (l\'espace n\'a réellement aucune config)', () => {
+    expect(
+      resolveConfigSelectionAfterLoad('cfg-1', [], { configurationsFetchFailed: false }),
+    ).toBeNull()
   })
 
-  it('ignore un eventIds qui pointe des events absents du space', () => {
-    const configs = [{ id: 'cfg-1', eventIds: ['ghost'] }, { id: 'cfg-2', eventIds: ['e1'] }]
-    const events = [{ id: 'e1' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
-  })
-
-  it('respecte l\'ordre de la liste quand plusieurs configs ont des events', () => {
-    const configs = [{ id: 'cfg-1', eventIds: ['e1'] }, { id: 'cfg-2', eventIds: ['e2'] }]
-    const events = [{ id: 'e1' }, { id: 'e2' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-1')
-  })
-
-  it('aucune config avec events → null (repli « All Configurations »)', () => {
-    expect(pickDefaultConfiguration([{ id: 'cfg-1', eventIds: [] }], [{ id: 'e1' }])).toBeNull()
-    expect(pickDefaultConfiguration([{ id: 'cfg-1', eventIds: ['e1'] }], [])).toBeNull()
-  })
-
-  it('listes vides / sentinelle cfg-all → null', () => {
-    expect(pickDefaultConfiguration([], [{ id: 'e1' }])).toBeNull()
-    expect(pickDefaultConfiguration([{ id: 'cfg-all', eventIds: ['e1'] }], [{ id: 'e1' }])).toBeNull()
-    expect(pickDefaultConfiguration()).toBeNull()
+  it('échec du fetch ne ressuscite ni null ni la sentinelle cfg-all', () => {
+    expect(resolveConfigSelectionAfterLoad(null, [], { configurationsFetchFailed: true })).toBeNull()
+    expect(resolveConfigSelectionAfterLoad('cfg-all', [], { configurationsFetchFailed: true })).toBeNull()
   })
 })
 

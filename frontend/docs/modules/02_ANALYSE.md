@@ -38,7 +38,7 @@
    │ POST /aggregation/process-events|synchronize│  │ (features/spaces/services/)          │    │
    │ Bull queue, appelé par le WIZARD Step4/5    │   │ POST /spaces/:id/dashboard/rebuild   │    │
    │ ⚠️ ALIVE — seul chemin réellement exécuté   │   │ ⚠️ MORT — 0 appelant frontend         │    │
-   │ formule SANS conversion TVA (bug)            │   │ formule AVEC conversion TVA (correcte)│   │
+   │ TVA OK depuis 2026-07-21, agrégats périmés  │   │ formule AVEC conversion TVA (correcte)│   │
    └───────────────────┬───────────────────────┘   └───────────────┬───────────────────────┘    │
                         │ écrit                                     │ écrirait (si appelé)        │
                         ▼                                           ▼                             │
@@ -94,7 +94,7 @@ C'est le piège architectural central du domaine, absent de toute documentation 
 |---|---|---|
 | Fichier | `api-datafriday-staging/src/features/aggregation/aggregation.service.ts` | `api-datafriday-staging/src/features/spaces/services/space-aggregation.service.ts` |
 | Déclenché par | `POST /aggregation/process-events` et `/synchronize`, appelés depuis le wizard Data Integration étape 4/5 (`useTimelineProcessing.js:130,161`, `useSynchronization.js:34`) | `POST /spaces/:spaceId/dashboard/rebuild` (`dashboard.controller.ts:94-120`) — **aucun wrapper `src/api` ne l'appelle, grep exhaustif négatif** |
-| Formule `revenueHt` | `SUM(unitPrice × quantity − COALESCE(reduction,0))`, **aucune conversion TVA** (`aggregation.service.ts:264-300`) | `SUM(unitPrice × quantity / (1+vatRate/100))`, ou repli **codé en dur `/1.20`** si `WeezeventProduct.vatRate` est null (`space-aggregation.service.ts:171-178,273-277`) |
+| Formule `revenueHt` | `SUM((unitPrice × quantity − COALESCE(reduction,0)) / (1 + vat/100))` (`aggregation.service.ts:297`) — **conversion TVA présente depuis le 2026-07-21** (commit `a71045b`, BUG-015) ; avant cette date la division était absente, et **les lignes écrites avant n'ont jamais été rejouées** (cf. bug #2) | `SUM(unitPrice × quantity / (1+vatRate/100))`, ou repli **codé en dur `/1.20`** si `WeezeventProduct.vatRate` est null (`space-aggregation.service.ts:171-178,273-277`) |
 | Résolution de `spaceElementId` | **Bug confirmé** : la requête insère `pm."menuItemId"` (un id `MenuItem`, via `WeezeventProductMapping`) dans la colonne `spaceElementId` (`aggregation.service.ts:276`) — jamais un vrai `SpaceElement.id` | Correcte : `LEFT JOIN WeezeventLocationShopMapping mem ON mem."weezeventLocationId" = t."merchantId"` puis `mem."spaceElementId"` (`space-aggregation.service.ts:169-170,184-186`) |
 | Résolution de `weezeventMerchantId` | **Bug confirmé** : `t."locationId"` est inséré deux fois — une fois dans `weezeventLocationId`, une fois dans `weezeventMerchantId` (`aggregation.service.ts:274-275`) — la colonne merchant ne contient donc jamais un vrai id de marchand | Correcte : `t."merchantId"` distinct de `t."locationId"` (`space-aggregation.service.ts:167-169`) |
 | Alimente `UnmappedDataMetrics`/`SpaceDashboardVersion` | Non — ces tables ne sont référencées nulle part dans `features/aggregation/` | Oui (`trackUnmappedData`, `incrementDashboardVersion`, `space-aggregation.service.ts:245-247`) |

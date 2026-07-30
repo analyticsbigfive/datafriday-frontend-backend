@@ -266,7 +266,8 @@ tous dans le tenant. Réponse liste `{ data: [{ id, goalPerTpe|staffPerZoneManag
 spaceIds[], createdAt, updatedAt }] }`. Enregistré dans
 [`app.module.ts`](../../../backend/src/app.module.ts).
 
-**Migration Prisma — à lancer manuellement** (ADR-0002, dossier `prisma/migrations` gitignoré) :
+**Migration Prisma — à lancer manuellement** ([ADR-0002 **backend**](../../../backend/docs/adr/0002_migrations_manuelles_jamais_plateforme.md),
+dossier `prisma/migrations` gitignoré) :
 `pnpm prisma:migrate` (dev, avec `DIRECT_URL` port 5432) puis `prisma migrate deploy` sur chaque env.
 Aucune commande lancée par l'agent. Après migration : `pnpm docs:api` régénère la doc API.
 
@@ -323,7 +324,7 @@ coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ;
 
 | Commit | Contenu |
 |---|---|
-| `94cf2db` | Prisma : `HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine` + SQL manuel [`2026-07-29_hr_staffing_module.sql`](../../../backend/prisma/sql/2026-07-29_hr_staffing_module.sql) (ADR-0002, **à appliquer manuellement**) |
+| `94cf2db` | Prisma : `HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine` + SQL manuel [`2026-07-29_hr_staffing_module.sql`](../../../backend/prisma/sql/2026-07-29_hr_staffing_module.sql) ([ADR-0002 backend](../../../backend/docs/adr/0002_migrations_manuelles_jamais_plateforme.md), **à appliquer manuellement**) |
 | `28ad6b2` | Features NestJS [`hr/`](../../../backend/src/features/hr/) (CRUD suppliers/roles/persons, validation conditionnelle, import one-shot) + [`staffing/`](../../../backend/src/features/staffing/) (calculateur **pur** + orchestration + `GET /hr-settings/costs`) + **29 tests jest** (paliers, invariant, clamp, 212,50 €) |
 | `b84668f` | [`utils/hrApi.js`](../../src/utils/hrApi.js) → API (signatures conservées), import one-shot localStorage puis purge |
 | `cb69c4a` | `HrPositionFormDrawer` → [`HrRoleFormDrawer`](../../src/components/hr/drawers/HrRoleFormDrawer.vue) (champs conditionnels §2.1 spec, algoKey auto) ; fix route `/hr` (pointait sur `HrView` inexistant) + `/hr/positions` ; coûts staff réels sur les cartes HR Settings |
@@ -348,7 +349,42 @@ coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ;
 
 ### 10.4 Reste à faire (hors périmètre de la branche)
 
-1. **Appliquer le SQL manuel** (ADR-0002) sur chaque environnement, puis `prisma generate`.
-2. Écran de gestion des `HrPerson` (le backend + dropdown « Nom » existent ; pas d'écran CRUD dédié).
-3. `HrRoleSpaceDefault` (agence par défaut espace × rôle) : backend + présélection livrés, pas d'UI de saisie.
-4. E2E léger spec §6 : générer → décocher → slider → vérifier pills (une fois le SQL appliqué sur staging).
+1. **Appliquer les DEUX SQL manuels** sur chaque environnement, dans l'ordre, puis `prisma generate` :
+   [`2026-07-29_hr_staffing_module.sql`](../../../backend/prisma/sql/2026-07-29_hr_staffing_module.sql)
+   puis [`2026-07-30_hr_settings_goals_ratios.sql`](../../../backend/prisma/sql/2026-07-30_hr_settings_goals_ratios.sql).
+   Procédure : [ADR-0002 **backend**](../../../backend/docs/adr/0002_migrations_manuelles_jamais_plateforme.md)
+   (⚠️ à ne pas confondre avec [ADR-0002 frontend](../adr/0002_builder_v2_relationnel_seul.md), Builder v2 —
+   numérotation indépendante par repo) ; mécanisme du no-op détaillé dans [`09_TECHNIQUE.md`](09_TECHNIQUE.md) ligne 449.
+2. **Alimenter le `caPredictif`** — bloquant, cf. §10.5.
+3. **UI de saisie des inputs algo** dans `SpaceElement.attributes` (§10.3, dernière ligne) — bloquant, cf. §10.5.
+4. Écran de gestion des `HrPerson` (le backend + dropdown « Nom » existent ; pas d'écran CRUD dédié).
+5. `HrRoleSpaceDefault` (agence par défaut espace × rôle) : backend + présélection livrés, pas d'UI de saisie.
+6. E2E léger spec §6 : générer → décocher → slider → vérifier pills (une fois le SQL appliqué sur staging).
+
+### 10.5 Vérification en base (2026-07-30, Supabase `alsgdtewqeldrrquypdy`)
+
+> Rédaction : **JLH**, 2026-07-30. Audit de contrôle du rapport étape 2 (§10.2) : chaque affirmation
+> rejouée contre le code (`file:line`) et contre la base.
+
+Audit `information_schema` + `SELECT` sur l'environnement de travail. L'algo (§10.1) est conforme
+au code ligne à ligne ; les trois écarts sont des écarts de **déploiement et de données**, pas de
+logique.
+
+| Constat | Preuve | Effet |
+|---|---|---|
+| Aucune table `Hr*` ni `EventStaffLine` en base | `information_schema.tables` : seule `ElementStaff` matche | tous les endpoints `/hr*` et `/staffing` échouent (relation inexistante) |
+| Le SQL des 4 tables Settings n'existait pas | `56297d8` = `schema.prisma +63`, zéro fichier `prisma/sql/` | corrigé : `2026-07-30_hr_settings_goals_ratios.sql` écrit le 2026-07-30 |
+| **`ElementPerformance` est vide (0 ligne)** | `SELECT count(*) FROM "ElementPerformance"` → `0` | `perf?.revenue ?? 0` → `caPredictif = 0` → `n = FLOOR(0/goal) = 0` → `open = false` sur 100 % des PDV → `generate` rend **zéro ligne de staff**, même après migration + seed |
+| Clés algo absentes de `SpaceElement.attributes` | `jsonb_each` sur 742 lignes : seules `originalType` (695), `importedFromWeezevent` (686), `storageShopIds` (5) | jamais de RPDV, pas de plafond TPE, `ouvertureObligatoire` jamais vrai (donc pas de repli quand le CA manque), commis/EPR = 0 |
+| `ElementPerformance.staffCost` déjà en base | `information_schema.columns` : `double precision` | aucun `ALTER TABLE` nécessaire |
+
+**Question ouverte — source du `caPredictif`.** `staffing.service.ts:226` lit
+`ElementPerformance.revenue`, une métrique builder par `configId`, pas le CA prédit de l'événement
+(`EventPredictVersion.predictedRecords`, `schema.prisma:2833`). Deux options : alimenter
+`ElementPerformance.revenue` depuis le pipeline predict, ou agréger `predictedRecords` par élément
+à la génération. Non tranché → question
+[#43](../QUESTIONS_A_BERTRAND.md#questions-ouvertes).
+
+**Réserve sur §9.4.** `resolveSettings` (`staffing.service.ts:85-106`) implémente exactement la
+règle §9.4 — mais §9.4 est elle-même marquée « hypothèse à valider » (questions #35 / #41). La
+conformité du code ne vaut donc pas validation métier.

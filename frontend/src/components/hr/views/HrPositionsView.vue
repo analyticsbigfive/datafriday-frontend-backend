@@ -1,5 +1,5 @@
 <template>
-  <div id="hr-positions-page">
+  <div id="hr-positions-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -113,6 +113,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
+import { useTheme } from 'vuetify'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
@@ -144,6 +145,10 @@ const tableHeaders = [
   { title: t('hrColRate'), key: 'ratePerHour' },
   { title: '', key: 'actions', sortable: false, align: 'end' },
 ]
+
+// Thème sombre (BUG-247-01) — classe racine hsl--dark (pattern BUG-196).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const positions = ref([])
 const suppliers = ref([])
@@ -388,4 +393,28 @@ async function confirmDelete() {
   margin-bottom: 16px;
 }
 .hsl-empty__title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; margin: 0; }
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
+   Header rouge #ff3131 volontairement identique dans les deux thèmes (parité
+   BUG-197 « bandeaux rouges inchangés »). ── */
+.hsl--dark { background: #111827; }
+.hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
+.hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }
+.hsl--dark .hsl-searchbar__icon,
+.hsl--dark .hsl-searchbar__count,
+.hsl--dark .hsl-searchbar__clear { color: #64748b; }
+.hsl--dark .hsl-searchbar__clear:hover { color: #ff3131; }
+.hsl--dark .hsl-table-wrap { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-table :deep(.v-data-table__th) { background: #0f172a !important; color: #64748b !important; }
+.hsl--dark .hsl-table :deep(.v-data-table__tr:hover) { background: rgba(255, 255, 255, .04) !important; }
+.hsl--dark .hsl-table :deep(.v-data-table-footer) { background: #0f172a !important; border-top-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-cell-rate { color: #f9fafb; }
+.hsl--dark .hsl-badge { background: rgba(255, 49, 49, .12); border-color: rgba(255, 49, 49, .3); }
+.hsl--dark .hsl-badge--more { background: rgba(255, 255, 255, .08); color: #94a3b8; border-color: rgba(255, 255, 255, .12); }
+.hsl--dark .hsl-table-btn { background: rgba(255, 255, 255, .08); color: #94a3b8; }
+.hsl--dark .hsl-table-btn:hover { background: rgba(255, 255, 255, .14); color: #e2e8f0; }
+.hsl--dark .hsl-table-btn--del:hover { background: rgba(255, 49, 49, .14); color: #ff3131; }
+.hsl--dark .hsl-empty__icon { background: rgba(255, 255, 255, .06); }
+.hsl--dark .hsl-empty__title { color: #f9fafb; }
 </style>

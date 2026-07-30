@@ -67,15 +67,19 @@ export default {
   padding: 0;
   border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 7px;
-  background: #fff;
-  color: #64748b;
+  /* BUG-247-01 : littéraux → contrat --fb-* (fallback = littéral d'origine,
+     clair inchangé). Le bouton vit dans .event-predict-overlay où le contrat
+     est déclaré (clair + sombre, style.css). Le v-list du menu est téléporté :
+     son fond vient du thème Vuetify, rien à surcharger. */
+  background: var(--fb-surface, #fff);
+  color: var(--fb-muted, #64748b);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s, border-color 0.15s;
 }
 .epra-kebab:hover {
-  background: #f1f5f9;
-  color: #0f172a;
-  border-color: #cbd5e1;
+  background: var(--fb-subtle, #f1f5f9);
+  color: var(--fb-text, #0f172a);
+  border-color: var(--fb-border, #cbd5e1);
 }
 .epra-list {
   border-radius: 10px;
