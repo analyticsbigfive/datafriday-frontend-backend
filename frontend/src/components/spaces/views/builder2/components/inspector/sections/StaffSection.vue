@@ -4,31 +4,29 @@
       <v-chip size="x-small" variant="tonal">{{ totalCount }}</v-chip>
     </template>
 
-    <!-- Groupes façon InventorySection : postes recommandés (RH) / postes ajoutés -->
-    <template v-for="group in groups" :key="group.key">
-      <div class="stf-label">{{ group.label }}</div>
-      <div class="stf-list">
-        <div v-for="row in group.rows" :key="row._i" class="stf-card" :class="{ 'stf-card--custom': row.source !== 'AUTO' }">
-          <div class="stf-card__row">
-            <span class="stf-card__name">{{ row.position }}</span>
-            <span v-if="row.source === 'AUTO'" class="stf-card__tag" :title="t('b2StaffAutoHint')">{{ t('b2StaffAutoTag') }}</span>
-            <span class="stf-card__spacer" />
-            <div class="stf-qty">
-              <input
-                class="stf-qty__input"
-                type="number"
-                min="0"
-                :value="row.count"
-                @change="(e) => updateCount(row._i, e.target.value)"
-              />
-            </div>
-            <button class="stf-card__remove" :title="t('b2Remove')" @click="removeRow(row._i)">
-              <v-icon icon="mdi-close" size="13" />
-            </button>
+    <!-- Une seule liste — l'icône (survol = pourquoi) distingue un poste auto d'un
+         poste ajouté à la main, sans texte de groupe. -->
+    <div v-if="staff.length" class="stf-list">
+      <div v-for="(row, index) in staff" :key="index" class="stf-card" :class="{ 'stf-card--custom': row.source !== 'AUTO' }">
+        <div class="stf-card__row">
+          <v-icon v-if="row.source === 'AUTO'" icon="mdi-auto-fix" size="13" class="stf-card__auto-icon" :title="t('b2StaffAutoHint')" />
+          <span class="stf-card__name">{{ row.position }}</span>
+          <span class="stf-card__spacer" />
+          <div class="stf-qty">
+            <input
+              class="stf-qty__input"
+              type="number"
+              min="0"
+              :value="row.count"
+              @change="(e) => updateCount(index, e.target.value)"
+            />
           </div>
+          <button class="stf-card__remove" :title="t('b2Remove')" @click="removeRow(index)">
+            <v-icon icon="mdi-close" size="13" />
+          </button>
         </div>
       </div>
-    </template>
+    </div>
 
     <!-- État vide -->
     <div v-if="!staff.length" class="stf-empty">{{ t('b2NoStaffYet') }}</div>
@@ -36,9 +34,9 @@
     <!-- Ajout manuel : sélection d'un rôle RH existant (plus de saisie libre,
          2026-07-30 — retour utilisateur : lister/sélectionner, jamais taper un nom). -->
     <div class="stf-add">
-      <select v-model="newRoleId" class="stf-add__select" :disabled="!availableRoles.length">
-        <option value="" disabled>{{ availableRoles.length ? t('b2PositionPlaceholder') : t('b2NoRoleAvailable') }}</option>
-        <option v-for="role in availableRoles" :key="role.id" :value="role.id">{{ role.name }}</option>
+      <select v-model="newRoleId" class="stf-add__select" :disabled="!selectableRoles.length">
+        <option value="" disabled>{{ selectableRoles.length ? t('b2PositionPlaceholder') : t('b2NoRoleAvailable') }}</option>
+        <option v-for="role in selectableRoles" :key="role.id" :value="role.id">{{ role.name }}</option>
       </select>
       <input v-model.number="newCount" type="number" min="1" class="stf-add__count" />
       <button type="button" class="stf-add__btn" :disabled="!newRoleId" :title="t('b2Add')" @click="addRow">
@@ -67,19 +65,6 @@ const staff = computed(() => {
 })
 const totalCount = computed(() => staff.value.reduce((sum, r) => sum + (Number(r.count) || 0), 0))
 
-// Groupes d'affichage façon InventorySection (menu items / custom items) : ici,
-// postes recommandés depuis les Rôles RH (source='AUTO') vs postes ajoutés à la
-// main (source='MANUAL'). `_i` porte l'index réel dans `staff` pour les mutations.
-const groups = computed(() => {
-  const withIndex = staff.value.map((r, i) => ({ ...r, _i: i }))
-  const auto = withIndex.filter((r) => r.source === 'AUTO')
-  const manual = withIndex.filter((r) => r.source !== 'AUTO')
-  const out = []
-  if (auto.length) out.push({ key: 'auto', label: t('b2StaffRecommendedLabel'), rows: auto })
-  if (manual.length) out.push({ key: 'manual', label: t('b2StaffManualLabel'), rows: manual })
-  return out
-})
-
 // Ajout manuel = choisir un rôle RH existant, jamais taper un nom libre
 // (2026-07-30, retour utilisateur).
 const availableRoles = ref([])
@@ -101,14 +86,34 @@ function hourlyRateFromRole(role) {
 const newRoleId = ref('')
 const newCount = ref(1)
 
+// Un rôle déjà présent dans la liste (auto ou manuel) ne doit plus pouvoir être
+// re-choisi — retiré du menu, pas de doublon possible (retour utilisateur).
+const usedRoleIds = computed(() => new Set(staff.value.map((r) => r.roleId).filter(Boolean)))
+const selectableRoles = computed(() => availableRoles.value.filter((r) => !usedRoleIds.value.has(r.id)))
+watch(selectableRoles, (roles) => {
+  if (newRoleId.value && !roles.some((r) => r.id === newRoleId.value)) newRoleId.value = ''
+})
+
+// Le state builder renvoie les lignes AVEC leur id serveur ; le PUT (whitelist +
+// forbidNonWhitelisted) le refuse → ne renvoyer QUE les champs du contrat (même
+// bug/correctif que InventorySection.vue::cleanRow).
+function cleanRow(r) {
+  const row = { position: r.position, count: Number(r.count) || 0 }
+  if (r.hourlyRate != null) row.hourlyRate = r.hourlyRate
+  if (r.roleId != null) row.roleId = r.roleId
+  if (r.source != null) row.source = r.source
+  return row
+}
+
 function save(next) {
   const el = element.value
   if (!el) return
   const cfgId = store.state.activeConfigId || undefined
+  const clean = next.map(cleanRow)
   store.patchElementLocal(el.id, {
-    staffByConfig: { ...(el.staffByConfig || {}), [cfgId || '']: next },
+    staffByConfig: { ...(el.staffByConfig || {}), [cfgId || '']: clean },
   })
-  store.queue.push(() => putElementStaff(el.id, next, cfgId), {
+  store.queue.push(() => putElementStaff(el.id, clean, cfgId), {
     key: `staff:${el.id}:${cfgId || ''}`,
     onError: (err) => store.notify(err?.response?.data?.message || t('b2ToastSaveStaffFailed')),
   })
@@ -192,16 +197,6 @@ watch(
 </script>
 
 <style scoped>
-/* Libellés de groupe — même recette que InventorySection (.inv-label). */
-.stf-label {
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #9ca3af;
-  margin: 8px 2px 6px;
-}
-
 /* Liste de cartes — même recette que InventorySection (.inv-list/.inv-card). */
 .stf-list {
   display: flex;
@@ -238,16 +233,7 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.stf-card__tag {
-  flex-shrink: 0;
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  padding: 1px 7px;
-  border-radius: 100px;
-  white-space: nowrap;
-  background: rgba(255, 49, 49, 0.1);
-  color: #ff3131;
-}
+.stf-card__auto-icon { flex-shrink: 0; color: #ff3131; }
 .stf-card__spacer { flex: 1; }
 
 /* Quantité — même recette que InventorySection (.inv-qty). */
