@@ -97,7 +97,16 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       // Scopé par spaceId côté backend — avant ce fix, seule la 1re page (50 events)
       // tenant-wide était lue puis filtrée côté client : un tenant avec >50 events
       // au total pouvait perdre silencieusement les events de ce space.
-      getEvents({ spaceId, limit: 200 }).catch((e) => { console.warn('[useSpaceData] ⚠️ events failed:', e?.response?.status, e?.message); return null }),
+      //
+      // `excludeSimulated: true` — ce chargement alimente le store analyse, donc
+      // Analyse, l'écran Live ET EventPredict : les events créés par l'outil QA
+      // « simuler une vente » (Event.isSimulated) n'y ont rien à faire. La liste
+      // Events (store/modules/events.js) ne passe PAS ce paramètre et les garde
+      // visibles pour permettre leur suppression manuelle.
+      // ⚠️ Conséquence assumée : sur l'écran Live, une vente simulée un jour SANS
+      // vrai event du jour n'a plus d'event porteur → KPI/timeline vides. Saisir
+      // un vrai event du jour pour tester le Live avec LiveSaleSimulatorWidget.
+      getEvents({ spaceId, limit: 200, excludeSimulated: true }).catch((e) => { console.warn('[useSpaceData] ⚠️ events failed:', e?.response?.status, e?.message); return null }),
     ])
 
     // Phase 1 has no granular data (loaded later in background)

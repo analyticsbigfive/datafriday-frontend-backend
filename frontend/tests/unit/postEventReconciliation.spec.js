@@ -229,3 +229,51 @@ describe('buildPostEventReconciliationLines — predictableItemIds (Q35)', () =>
     expect(lines[0].predictedUnits).toBe(0)
   })
 })
+
+describe('buildPostEventReconciliationLines — mouvements Logistic de la fenêtre', () => {
+  const base = {
+    countedUnitsByKey: { [K('el1', 'beer')]: 30 },
+    preEventUnitsByKey: { [K('el1', 'beer')]: 100 },
+    soldUnitsByKey: { [K('el1', 'beer')]: 60 },
+  }
+
+  it('sans movementUnitsByKey : formule historique, lignes inchangées', () => {
+    const [line] = buildPostEventReconciliationLines(base)
+    expect(line.leftFromSales).toBe(40) // 100 − 60
+    expect(line.missingUnits).toBe(10) // 40 − 30
+    expect(line.movementUnits).toBeNull()
+  })
+
+  it('avec movements : leftFromSales = pre-event − vendu + mouvements', () => {
+    const [line] = buildPostEventReconciliationLines({
+      ...base,
+      // Réapprovisionnement de 25 unités pendant le match.
+      movementUnitsByKey: { [K('el1', 'beer')]: 25 },
+    })
+    expect(line.movementUnits).toBe(25)
+    expect(line.leftFromSales).toBe(65) // 100 − 60 + 25
+    expect(line.missingUnits).toBe(35) // 65 − 30
+  })
+
+  it('transfert SORTANT (mouvement négatif) : ne se lit plus comme un manquant', () => {
+    const [line] = buildPostEventReconciliationLines({
+      ...base,
+      countedUnitsByKey: { [K('el1', 'beer')]: 10 },
+      movementUnitsByKey: { [K('el1', 'beer')]: -30 },
+    })
+    // Sans le terme mouvements : left 40, compté 10 → 30 « manquants » fantômes.
+    expect(line.leftFromSales).toBe(10) // 100 − 60 − 30
+    expect(line.missingUnits).toBe(0)
+  })
+
+  it('une clé présente UNIQUEMENT dans les mouvements produit quand même une ligne', () => {
+    const lines = buildPostEventReconciliationLines({
+      countedUnitsByKey: {},
+      preEventUnitsByKey: {},
+      soldUnitsByKey: {},
+      movementUnitsByKey: { [K('el9', 'ghost')]: 12 },
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0].movementUnits).toBe(12)
+  })
+})

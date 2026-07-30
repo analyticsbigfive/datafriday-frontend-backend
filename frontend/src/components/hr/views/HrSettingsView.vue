@@ -329,7 +329,7 @@ async function onEditSubmit(payload) {
 
 /* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
    Header rouge #ff3131 identique dans les deux thèmes (parité BUG-197). ── */
-.hsl--dark { background: #111827; }
+#hr-settings-page.hsl--dark { background: #111827; }
 .hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
 .hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
 .hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }

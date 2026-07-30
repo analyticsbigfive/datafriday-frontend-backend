@@ -9,14 +9,22 @@ import { api } from '../client'
 
 /**
  * Récupérer les événements (paginé côté backend, défaut limit=50).
- * @param {{spaceId?: string, page?: number, limit?: number}} [opts]
+ *
+ * `excludeSimulated` : masque les événements créés par l'outil QA « simuler une
+ * vente » (Event.isSimulated côté backend). NON activé par défaut — la liste
+ * Events doit continuer à les afficher pour permettre leur suppression manuelle.
+ * Les écrans qui n'exploitent que des événements réels (EventPredict, Live, via
+ * useSpaceData) le passent explicitement.
+ *
+ * @param {{spaceId?: string, page?: number, limit?: number, excludeSimulated?: boolean}} [opts]
  * @returns {Promise<Object>} { data, meta: { total, page, limit, totalPages } }
  */
-export async function getEvents({ spaceId, page, limit } = {}) {
+export async function getEvents({ spaceId, page, limit, excludeSimulated } = {}) {
   const params = {}
   if (spaceId) params.spaceId = spaceId
   if (page) params.page = page
   if (limit) params.limit = limit
+  if (excludeSimulated) params.excludeSimulated = 'true'
   return api.get('/events', { params })
 }
 

@@ -497,8 +497,10 @@ export default {
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
 }
-.ptl-abtn--edit:hover { background: #e5e7eb; color: #374151; }
-.ptl-abtn--del:hover { background: #fef2f2; color: #ff3131; }
+.ptl-abtn--edit { background: #eff6ff; color: #2563eb; }
+.ptl-abtn--edit:hover { background: #dbeafe; }
+.ptl-abtn--del { background: #fef2f2; color: #ff3131; }
+.ptl-abtn--del:hover { background: #fee2e2; }
 
 /* ── Dark mode ── */
 .ptl--dark.ptl-root {
@@ -514,6 +516,6 @@ export default {
 .ptl--dark .ptl-searchbar__count { color: #94a3b8; }
 .ptl--dark .ptl-table :deep(.v-data-table__td) { color: #e2e8f0; }
 .ptl--dark .ptl-abtn { background: #1f2937; color: #cbd5e1; }
-.ptl--dark .ptl-abtn--edit:hover { background: #374151; color: #f9fafb; }
-.ptl--dark .ptl-abtn--del:hover { background: rgba(255, 49, 49, .14); color: #fca5a5; }
+.ptl--dark .ptl-abtn--edit { background: rgba(37, 99, 235, .15); color: #93c5fd; }
+.ptl--dark .ptl-abtn--del { background: rgba(255, 49, 49, .14); color: #fca5a5; }
 </style>

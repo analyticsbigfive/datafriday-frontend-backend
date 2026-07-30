@@ -421,6 +421,7 @@ export default {
 .ecl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 .ecl--dark .ecl-table :deep(.v-data-table__th) { background: #1a2332 !important; }
 .ecl--dark .ecl-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.ecl--dark .ecl-table :deep(.v-data-table__td) { color: #e2e8f0; }
 
 .ecl-type-pill {
   display: inline-flex; align-items: center;

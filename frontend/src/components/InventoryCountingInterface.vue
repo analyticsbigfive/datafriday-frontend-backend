@@ -207,6 +207,17 @@
             {{ t('invCountTotal') }} :
             <strong>{{ formatUnits(totalForItem(shop.element.id, item)) }}</strong>
             {{ item.unit || t('invCountUnitFallback') }}
+            <!-- Indice de référence en regard du total compté : besoin prédit
+                 (pre-event) ou stock qui doit rester (post-event). Négatif rendu
+                 tel quel et signalé — c'est le symptôme d'une source incohérente,
+                 pas une valeur à masquer. -->
+            <span
+              v-if="expectedTotalUnits(item) != null"
+              class="si-expected-total"
+              :class="{ 'si-expected-total--negative': expectedTotalUnits(item) < 0 }"
+            >
+              {{ t(expectedTotalLabelKey) }} : {{ formatUnits(expectedTotalUnits(item)) }}
+            </span>
           </div>
         </div>
 
@@ -244,14 +255,26 @@ const props = defineProps({
   totalForItem: { type: Function, required: true },
   isItemCounted: { type: Function, required: true },
   // Pre-event Inventory : (shopId, itemId, 'packed'|'loose') → quantité attendue
-  // ou null. Absent/null → aucun hint (rendu Post-event strictement inchangé).
+  // ou null. Absent/null → aucun hint sous les champs.
   expectedFor: { type: Function, default: null },
+  // Indice de référence en regard du TOTAL : (elementId, item) → unités ou null.
+  // Absent/null → rendu strictement inchangé.
+  expectedTotalFor: { type: Function, default: null },
+  // Les deux modes n'affichent pas la même grandeur — le libellé vient du parent.
+  expectedTotalLabelKey: { type: String, default: 'invPredictedNeedHint' },
 })
 
 const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop'])
 
 // Images produit en échec de chargement → fallback icône (parité React).
 const failedImages = ref({})
+
+// Indice de référence d'un article, ou null si le parent n'en fournit pas.
+function expectedTotalUnits(item) {
+  if (!props.expectedTotalFor) return null
+  const v = props.expectedTotalFor(props.shop.element.id, item)
+  return Number.isFinite(v) ? v : null
+}
 
 // Plats / menu items auxquels cet article de stock appartient (usedIn). Pour un
 // ingrédient d'un plat composé (ex: huile de « Tenders Frites »), affiche le(s)
@@ -483,6 +506,17 @@ function stepValue(shopId, itemId, field, delta) {
   gap: 6px;
 }
 .si-count-total strong { color: var(--fb-text, #212121); }
+/* Indice de référence : même registre visuel que le hint packed/loose, poussé à
+   droite du total compté. Le négatif passe en rouge — il signale une incohérence
+   de sources, pas une quantité. */
+.si-expected-total {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #B45309;
+  font-variant-numeric: tabular-nums;
+}
+.si-expected-total--negative { color: #DC2626; }
 .si-count-actions {
   display: flex; gap: 8px;
   justify-content: flex-end;

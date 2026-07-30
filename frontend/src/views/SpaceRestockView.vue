@@ -1062,6 +1062,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'live', labelKey: 'srToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
   { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift' },
@@ -2257,6 +2258,11 @@ export default {
           params: { spaceId },
           query: ev ? { event: ev } : {},
         })
+      } else if (tool.value === 'live') {
+        // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=`, cf.
+        // router/index.js) : sans cette branche le `else` ci-dessous envoyait
+        // sur Analyse avec un toolbox inconnu.
+        this.router.push({ name: 'space-live', params: { spaceId } })
       } else {
         this.router.push({
           name: 'space-analyse',

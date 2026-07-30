@@ -107,7 +107,7 @@
           :headers="tableHeaders"
           :items="filteredComponents"
           item-value="id"
-          density="comfortable"
+          density="compact"
           class="cl-table"
           hover
         >
@@ -841,31 +841,24 @@ export default {
   animation: fadeIn 0.3s ease-out;
 }
 
-.cl-table :deep(.v-data-table__th) {
-  background: #f9fafb !important;
-  color: #6b7280 !important;
-  font-size: 0.75rem !important;
-  font-weight: 700 !important;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 12px 16px !important;
-  border-bottom: 1.5px solid #e5e7eb !important;
-  white-space: nowrap;
-}
-
+.cl-table :deep(.v-data-table__th),
 .cl-table :deep(.v-data-table__td) {
-  padding: 13px 16px !important;
-  vertical-align: middle;
-  border-bottom: 1px solid #f3f4f6 !important;
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
-
-.cl-table :deep(.v-data-table__tr:last-child .v-data-table__td) {
-  border-bottom: none !important;
+.cl-table :deep(.v-data-table__td) { vertical-align: middle; }
+.cl-table :deep(.v-data-table__th) {
+  font-size: var(--fs-xs) !important;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
+  background: #fafafa !important;
 }
-
-.cl-table :deep(.v-data-table__tr:hover .v-data-table__td) {
-  background: #fff8f8 !important;
-}
+.cl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 
 /* Name */
 .cl-row-name {
@@ -929,22 +922,23 @@ export default {
 }
 
 /* Action buttons */
-.cl-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.cl-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .cl-act-btn {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
 }
 .cl-act-btn--edit   { background: #eff6ff; color: #2563eb; }
-.cl-act-btn--edit:hover   { background: #dbeafe; box-shadow: 0 2px 8px rgba(37,99,235,.2); transform: translateY(-1px); }
+.cl-act-btn--edit:hover   { background: #dbeafe; }
 .cl-act-btn--delete { background: #fef2f2; color: #ff3131; }
-.cl-act-btn--delete:hover { background: #fee2e2; box-shadow: 0 2px 8px rgba(255,49,49,.2); transform: translateY(-1px); }
+.cl-act-btn--delete:hover { background: #fee2e2; }
 
 /* ── Sub-items drawer ── */
 .sub-items-drawer :deep(.v-navigation-drawer__content) {
@@ -1071,8 +1065,8 @@ export default {
   color: #e2e8f0;
   border-bottom-color: rgba(255, 255, 255, .06) !important;
 }
-.cl--dark .cl-table :deep(.v-data-table__tr:hover .v-data-table__td) {
-  background: rgba(255, 49, 49, .08) !important;
+.cl--dark .cl-table :deep(tbody tr:hover td) {
+  background: #1a2332 !important;
 }
 .cl--dark .cl-row-name__text { color: #e2e8f0; }
 .cl--dark .cl-badge--category { background: rgba(255, 255, 255, .08); color: #cbd5e1; border-color: rgba(255, 255, 255, .12); }
