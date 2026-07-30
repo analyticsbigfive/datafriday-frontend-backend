@@ -28,9 +28,15 @@
           <span>{{ t('invMetricCounted') }}</span>
           <strong>{{ stats.countedItems }}</strong>
         </div>
+        <!-- « Total unités » a laissé la place à ce qui RESTE à faire (parité
+             InventoryAggregateView). -->
         <div>
-          <span>{{ t('invAggTotalUnits') }}</span>
-          <strong>{{ formatUnits(stats.totalUnits) }}</strong>
+          <span>{{ t('invAggItemsToCount') }}</span>
+          <strong>{{ stats.itemsToCount }}</strong>
+        </div>
+        <div>
+          <span>{{ t('invAggStoragesToCount') }}</span>
+          <strong>{{ stats.storagesToCount }}</strong>
         </div>
       </div>
 
@@ -227,13 +233,34 @@ export default {
         return String(a.itemName).localeCompare(String(b.itemName))
       })
     },
+    /** Stockages où il reste au moins un article non compté — jumeau de
+     *  `uncountedShops` (InventoryAggregateView). Les stockages sans article
+     *  assigné sont écartés : rien à y compter. */
+    uncountedStorages() {
+      return (this.storagesWithInventory || []).filter((entry) => {
+        const items = this.entryItems(entry)
+        if (!items.length) return false
+        return items.some((it) => !this.countFor(entry, it).isCounted)
+      })
+    },
     stats() {
       const totalItems = this.aggregatedInventory.length
       const countedItems = this.aggregatedInventory.filter((item) => item.isCounted).length
       const totalUnits = this.aggregatedInventory.reduce(
         (sum, item) => sum + Number(item.totalUnits || 0), 0,
       )
-      return { totalItems, countedItems, totalUnits }
+      // Même périmètre que `totalItems` : en mode focus l'agrégat est réduit au
+      // stockage en cours, la tuile Stockages doit l'être aussi.
+      const storagesToCount = this.focusStorage
+        ? (countedItems < totalItems ? 1 : 0)
+        : this.uncountedStorages.length
+      return {
+        totalItems,
+        countedItems,
+        totalUnits,
+        itemsToCount: Math.max(0, totalItems - countedItems),
+        storagesToCount,
+      }
     },
     completionPercent() {
       if (!this.stats.totalItems) return 0
@@ -303,13 +330,18 @@ export default {
 
 .agg-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 4 tuiles (parité InventoryAggregateView) : 2×2 sous 380px. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   margin-top: 12px;
   overflow: hidden;
   border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 9px;
   background: var(--fb-border, #e5e7eb);
+}
+
+@media (max-width: 380px) {
+  .agg-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .agg-stats > div {

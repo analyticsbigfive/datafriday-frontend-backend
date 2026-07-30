@@ -111,6 +111,20 @@ export async function getPreEventBaseline(spaceId, eventId) {
 }
 
 /**
+ * Indice attendu du Post-event Inventory : comptage PRE-event du MÊME match
+ * + mouvements Logistic de la fenêtre du match (hors `SALE`) − ventes dérivées.
+ * Réponse : mêmes clés que pre-event-baseline (`baseline`, `expected`,
+ * `movements`) plus `expectedUnits` = { elementId: { itemId: number } }, le TOTAL
+ * en unités à afficher — **signé** : un négatif signale une incohérence de
+ * sources, il n'est jamais clampé à 0.
+ * ⚠️ Même gating `front.fb.preInventoryExpected` (403 sinon).
+ * GET /inventory/:spaceId/post-event-baseline/:eventId
+ */
+export async function getPostEventBaseline(spaceId, eventId) {
+  return api.get(`/inventory/${spaceId}/post-event-baseline/${eventId}`)
+}
+
+/**
  * Ventes de l'événement EXPLOSÉES en consommation d'ingrédients par la cascade
  * Logistic (Q35 Option 1) — source « Vendu » de la réco post-event : une ligne
  * comptée au grain ingrédient (fût, bidon) reçoit enfin la consommation des
@@ -129,8 +143,14 @@ export async function getEventSalesConsumption(spaceId, eventId) {
  * ne les fournit pas).
  * POST /inventory/:spaceId/pre-event-reconciliations
  */
-export async function createPreEventReconciliation(spaceId, eventId) {
-  return api.post(`/inventory/${spaceId}/pre-event-reconciliations`, { eventId })
+export async function createPreEventReconciliation(spaceId, eventId, predictedUnits = null) {
+  // `predictedUnits` ({ elementId: { itemId: unités } }) est la SEULE donnée de
+  // ligne que le client fournit : le scénario Event Predict vit côté front, le
+  // réimplémenter côté serveur donnerait deux moteurs qui divergeraient.
+  return api.post(`/inventory/${spaceId}/pre-event-reconciliations`, {
+    eventId,
+    ...(predictedUnits ? { predictedUnits } : {}),
+  })
 }
 
 /**

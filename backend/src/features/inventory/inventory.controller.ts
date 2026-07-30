@@ -115,6 +115,39 @@ export class InventoryController {
     return this.inventoryService.getPreEventBaseline(spaceId, eventId, user.tenantId);
   }
 
+  // Indice de référence du Post-event Inventory. MÊME permission dédiée que le
+  // pre-event : sans le décorateur méthode, `getAllAndOverride` retomberait sur le
+  // `front.fb.spaceInventory` de la classe et tout compteur recevrait les attendus
+  // — la fuite que BUG-233 a fermée.
+  //
+  // Route DÉDIÉE plutôt qu'un `?phase=` sur pre-event-baseline : un backend
+  // antérieur 404 sur une route inconnue (le front dégrade en « — »), alors qu'il
+  // IGNORE un query param inconnu et renverrait les attendus pre-event sur l'écran
+  // post-event — des chiffres faux sans aucun signal (famille BUG-228).
+  // Déclarée avant le catch-all `@Get(':spaceId/:eventId')` par convention de ce
+  // contrôleur ; aucun conflit Fastify possible ici (3 segments vs 2).
+  @Get(':spaceId/post-event-baseline/:eventId')
+  @RequirePermissions('front.fb.preInventoryExpected')
+  @ApiOperation({
+    summary:
+      'Indice attendu du Post-event Inventory (pre-event du même match + mouvements de la fenêtre − ventes) — permission dédiée',
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'eventId', description: "ID de l'événement compté" })
+  @ApiResponse({
+    status: 200,
+    description:
+      "baseline/expected null si l'événement n'a pas de comptage pre-event ; expectedUnits peut être négatif (incohérence de sources, jamais clampé)",
+  })
+  async getPostEventBaseline(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`GET /inventory/${spaceId}/post-event-baseline/${eventId}`);
+    return this.inventoryService.getPostEventBaseline(spaceId, eventId, user.tenantId);
+  }
+
   @Post(':spaceId/pre-event-reconciliations')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -135,6 +168,7 @@ export class InventoryController {
       user.tenantId,
       user.id,
       this.canSeeExpected(user),
+      dto.predictedUnits ?? null,
     );
   }
 

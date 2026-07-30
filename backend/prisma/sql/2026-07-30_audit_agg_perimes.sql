@@ -12,6 +12,10 @@
 -- get_space_shop_details, les cartes de la home page et le rollup Event.revenue
 -- (aggregation.service.ts:363-376).
 --
+-- Le même lot de lignes porte un second défaut périmé, BUG-014 / bug #1 du module 02
+-- (`menuItemId` écrit dans `spaceElementId`, `locationId` dupliqué dans `weezeventMerchantId`) :
+-- voir requête 5. Un seul recalcul répare les deux.
+--
 -- Mesuré le 2026-07-30 sur datafriday-dev : 8 espaces, 35 events, ≈ 1,26 M€ affichés en TTC
 -- sous un libellé HT. Sur l'espace Auxerre (cmovsjbiz01lzvwyn30wweqpf), le contrôle est
 -- sans ambiguïté — les events agrégés le 2026-07-07 ont un `stored` égal au TTC recalculé
@@ -150,3 +154,36 @@ WHERE t."transactionDate" >= :DEBUT
   AND t."deletedAt" IS NULL
 GROUP BY 1, 2
 ORDER BY jour, ttc DESC;
+
+-- ── Requête 5 : le MÊME lot de lignes porte aussi le défaut BUG-014 (bug #1 module 02) ──
+-- Avant le fix, la requête d'insertion écrivait pm."menuItemId" dans la colonne
+-- "spaceElementId" et dupliquait t."locationId" dans "weezeventMerchantId". Corrigé au même
+-- moment (commentaire BUG-014, aggregation.service.ts:267-277), et jamais rejoué non plus.
+--
+-- Lecture attendue :
+--   perime = true  → sid_est_menuitem = ids_distincts, sid_est_spaceelement = 0,
+--                    loc_egale_merchant = ids_distincts  (lignes à rejouer)
+--   perime = false → sid_est_spaceelement = ids_distincts, loc_egale_merchant = 0
+--
+-- Mesuré le 2026-07-30 sur cmovsjbiz01lzvwyn30wweqpf : 249/249 MenuItem avant, 17/17
+-- SpaceElement après. Conséquence : sur ces events, le « Par shop » groupe par article vendu
+-- et non par point de vente. UN SEUL recalcul répare ce défaut ET la TVA.
+
+WITH a AS (
+  SELECT DISTINCT
+    "spaceElementId"                    AS sid,
+    "weezeventLocationId"               AS loc,
+    "weezeventMerchantId"               AS mer,
+    ("createdAt" < '2026-07-21')        AS perime
+  FROM "SpaceRevenueMinuteAgg"
+  WHERE "spaceId" = :ESPACE
+)
+SELECT
+  a.perime,
+  COUNT(*)                                                                       AS ids_distincts,
+  COUNT(*) FILTER (WHERE a.sid IS NULL)                                          AS sid_null,
+  COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM "SpaceElement" se WHERE se.id = a.sid)) AS sid_est_spaceelement,
+  COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM "MenuItem" mi WHERE mi.id = a.sid))     AS sid_est_menuitem,
+  COUNT(*) FILTER (WHERE a.loc = a.mer)                                          AS loc_egale_merchant
+FROM a
+GROUP BY 1;

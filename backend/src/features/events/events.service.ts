@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
@@ -275,11 +276,23 @@ export class EventsService {
     return created;
   }
 
-  async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string) {
+  /**
+   * `excludeSimulated` : masque les événements créés par l'outil QA « simuler une vente »
+   * (Event.isSimulated, cf. LogisticsService.ensureTodaySalesEvent). Opt-in et NON activé
+   * par défaut : la liste Events doit continuer à les afficher pour qu'on puisse les
+   * supprimer à la main. Les consommateurs qui ne veulent que des événements exploitables
+   * (EventPredict, écran Live — tous deux servis par le chargement d'espace du front) le
+   * passent explicitement.
+   */
+  async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string, excludeSimulated = false) {
     page = Math.max(1, page);
     limit = Math.min(200, Math.max(1, limit));
     const skip = (page - 1) * limit;
-    const where = spaceId ? { tenantId, spaceId } : { tenantId };
+    const where: Prisma.EventWhereInput = {
+      tenantId,
+      ...(spaceId ? { spaceId } : {}),
+      ...(excludeSimulated ? { isSimulated: false } : {}),
+    };
     const [events, total] = await Promise.all([
       this.prisma.event.findMany({
         where,

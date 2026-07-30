@@ -50,12 +50,14 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
   { code: 'front.fb.spaceInventory', name: 'Post-event Inventory', category: 'F&B Front' },
   {
     code: 'front.fb.preInventoryExpected',
-    name: 'Pre-event Inventory — Quantités attendues',
+    name: 'Pre/Post-event Inventory — Quantités attendues',
     category: 'F&B Front',
     description:
-      "Voir les quantités ATTENDUES (post-event précédent ± mouvements Logistic) sous les champs " +
-      "Packed/Loose de l'écran Pre-event Inventory. Sans cette permission, l'utilisateur compte à " +
-      "l'aveugle (l'endpoint baseline renvoie 403 — gating serveur, pas un simple masquage).",
+      "Voir les quantités ATTENDUES pendant le comptage. Pre-event : post-event précédent ± " +
+      "mouvements Logistic sous les champs Packed/Loose, et besoin prédit Event Predict à côté du " +
+      "total. Post-event : comptage pre-event du même match + mouvements de la fenêtre − ventes, à " +
+      "côté du total. Sans cette permission, l'utilisateur compte à l'aveugle (les endpoints " +
+      "baseline renvoient 403 — gating serveur, pas un simple masquage).",
   },
   { code: 'front.fb.stockUp', name: 'Stock Up', category: 'F&B Front' },
   { code: 'front.fb.live', name: 'Live', category: 'F&B Front' },

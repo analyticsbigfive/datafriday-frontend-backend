@@ -101,6 +101,7 @@ export function buildPostEventReconciliationLines({
   countedUnitsByKey = {},
   preEventUnitsByKey = null,
   soldUnitsByKey = {},
+  movementUnitsByKey = null,
   predictedUnitsByKey = null,
   predictableItemIds = null,
   unitCostByItemId = {},
@@ -118,10 +119,16 @@ export function buildPostEventReconciliationLines({
     ...Object.keys(soldUnitsByKey || {}),
     ...Object.keys(predictedUnitsByKey || {}),
     ...Object.keys(preEventUnitsByKey || {}),
+    ...Object.keys(movementUnitsByKey || {}),
   ])
 
   const hasPreEvent = preEventUnitsByKey != null
   const hasScenario = predictedUnitsByKey != null
+  // Mouvements Logistic de la fenêtre du match. Absent (documents antérieurs,
+  // appelants qui ne les fournissent pas) → formule historique inchangée : un
+  // transfert entre PdV se lisait alors comme un manquant sur l'un et un surplus
+  // sur l'autre.
+  const hasMovements = movementUnitsByKey != null
 
   const lines = []
   for (const key of keys) {
@@ -139,13 +146,15 @@ export function buildPostEventReconciliationLines({
     const predictedUnits =
       hasScenario && predictable ? round2(toUnits(predictedUnitsByKey?.[key])) : null
 
+    const movementUnits = hasMovements ? round2(toUnits(movementUnitsByKey?.[key])) : null
+
     let leftFromSales = null
     let missingUnits = null
     let missingValue = null
     let unitCost = null
     if (hasPreEvent) {
       const preEvent = toUnits(preEventUnitsByKey?.[key])
-      leftFromSales = round2(preEvent - soldUnits)
+      leftFromSales = round2(preEvent - soldUnits + (movementUnits ?? 0))
       missingUnits = round2(leftFromSales - countedUnits)
       const cost = Number(unitCostByItemId?.[itemKey])
       if (Number.isFinite(cost)) {
@@ -161,6 +170,7 @@ export function buildPostEventReconciliationLines({
       itemName: nameOf(itemNameById, itemKey),
       soldUnits,
       predictedUnits,
+      movementUnits,
       leftFromSales,
       countedUnits,
       missingUnits,

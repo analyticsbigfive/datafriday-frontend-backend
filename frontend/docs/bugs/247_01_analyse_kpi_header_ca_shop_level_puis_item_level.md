@@ -64,16 +64,18 @@ remplace.
 La divergence entre les deux sources est **déjà documentée côté backend** —
 [`modules/02_ANALYSE.md`](../modules/02_ANALYSE.md) § « Bugs actifs confirmés » :
 
-- **bug #2** : le pipeline d'agrégation réellement exécuté (`AggregationService`) ne convertit
-  jamais TTC→HT (pas de division par `1+vat/100`), contrairement au calcul live de
-  `getEventTimelineBatch` ;
+- **bug #2** (reformulé le 2026-07-30) : le pipeline d'agrégation réellement exécuté
+  (`AggregationService`) convertit bien TTC→HT **depuis le 2026-07-21** (commit `a71045b`,
+  BUG-015) — mais **les agrégats écrits avant cette date n'ont jamais été rejoués** et contiennent
+  toujours du TTC dans une colonne nommée `revenueHt` ;
 - **bug #3** : `SpaceProductRevenueDailyAgg` inclut les ventes de produits non mappés,
   `SpaceRevenueMinuteAgg` les exclut (INNER JOIN) — deux tables censées décrire le même historique
   divergent en périmètre.
 
-Le rapport observé (1,4011) n'est pas un pur facteur de TVA (1,20 ou 1,055) : il combine
-vraisemblablement les deux causes. **À confirmer event par event avant tout correctif backend** —
-cette fiche documente ce qui est mesuré côté front, pas l'arithmétique exacte côté agrégation.
+Le rapport observé ici (1,4011) n'est pas un pur facteur de TVA : il mélange la TVA **et** l'event
+« Match 10 Mai » absent de l'item-level (cause n°3 ci-dessous). Une fois la date de cet event
+corrigée, le résidu **est** un pur facteur TVA — mesuré event par event, voir
+§ « La TVA explique tout l'écart résiduel ».
 
 ### 2. Un event sans record item-level disparaît, sans repli et sans signal
 
@@ -133,10 +135,83 @@ base sur la nouvelle fenêtre `[2026-05-10, 2026-05-11)`, intégration de l'espa
 - 3 424 transactions, 6 059 lignes d'articles ;
 - **41 618,53 € HT** avec la formule exacte de l'item-level (`unitPrice × quantity / (1 + vat/100)`).
 
-Attendu à l'écran après rechargement : REVENUE ≈ **215 357,60 €** (173 739,07 + 41 618,53) et
-`eventsWithSales` de 15 à 16. L'écart résiduel avec le shop-level (243 428,69 €) reste dû à la
-formule : pour ce seul event, agrégat **47 579,50 €** sans conversion TVA contre **41 618,53 €** HT,
-soit ×1,143 — bug #2 du module 02, cohérent avec des taux de TVA mixtes.
+Attendu à l'écran après rechargement : REVENUE ≈ **215 310 €** (173 739,07 + 41 618,53, à ~47 €
+près liés aux fenêtres des events « [Simulé] ») et `eventsWithSales` de 15 à 16. L'écart résiduel
+avec le shop-level (243 428,69 €) est dû au bug #2 du module 02 — décomposé au centime ci-dessous.
+
+### La TVA explique tout l'écart résiduel — mesuré le 2026-07-30
+
+Contrôle en base sur les 16 events d'Auxerre : `SUM(SpaceRevenueMinuteAgg."revenueHt")` **stocké**
+vs recalcul sur `WeezeventTransactionItem`, même fenêtre, même intégration
+(`cmpzfm46d00017sis0cv5qzou`). Script rejouable :
+`backend/prisma/sql/2026-07-30_audit_agg_perimes.sql`, requête 2.
+
+| Event | Agrégat calculé le | Stocké | TTC recalculé | HT recalculé | stocké / HT |
+|---|---|---|---|---|---|
+| AJA 13 Sept 2025 | 2026-07-07 | 53 089,00 | **53 089,00** | 47 085,69 | 1,1275 |
+| Match 10 Mai | 2026-07-07 | 47 579,50 | **47 579,50** | 41 618,53 | 1,1432 |
+| AJA - 17 Aout 2025 | 2026-07-07 | 37 517,50 | **37 517,50** | 33 252,30 | 1,1283 |
+| AJA vs Angers | 2026-07-07 | 32 180,00 | **32 180,00** | 28 036,33 | 1,1478 |
+| AJA - 21 Sept | 2026-07-07 | 30 304,00 | **30 304,00** | 26 671,68 | 1,1362 |
+| AJA 9 Aout 2025 | 2026-07-07 | 18 800,50 | **18 800,50** | 16 898,13 | 1,1126 |
+| AJ Auxerre vs Levante | 2026-07-07 | 18 041,00 | **18 041,00** | 16 009,02 | 1,1269 |
+| AJ Auxerre vs Ipswitch | **2026-07-27** | 3 903,41 | 4 394,50 | **3 903,33** | **1,0000** |
+| AJA 7 Sept 2025 | 2026-07-07 | 1 886,50 | **1 886,50** | 1 714,94 | 1,1000 |
+| [Simulé] BUVETTE | **2026-07-30** | 11,85 | 12,50 | **11,85** | **1,0000** |
+| [Simulé] PARVIS | **2026-07-29** | 8,18 | 9,00 | **8,18** | **1,0000** |
+
+La coupure est nette et tombe exactement sur le fix : **agrégat écrit avant le 2026-07-21 → stocké
+= TTC au centime près ; écrit après → stocké = HT au centime près.** Total stocké = **243 428,69 €**
+(le chiffre exact de la pastille), total HT = **215 310,63 €**. Écart = **28 118,06 €, soit
+13,06 %** — intégralement de la TVA.
+
+Décomposition des taux sur la journée du 10/05 (6 059 lignes) :
+
+| Taux | Lignes | TTC | % du CA | TVA |
+|---|---|---|---|---|
+| 10 % | 3 629 | 24 375,50 € | 51,2 % | 2 215,95 € |
+| 20 % | 1 988 | 22 136,00 € | 46,5 % | 3 689,33 € |
+| 5,5 % | 442 | 1 068,00 € | 2,2 % | 55,68 € |
+
+Moyenne pondérée **14,32 %** → ratio 1,1432. Le ratio varie de 1,10 à 1,15 d'un match à l'autre
+avec le mix bière / soft / food : signature d'un problème de TVA, pas de périmètre.
+
+**Deux hypothèses concurrentes mesurées et écartées**, à ne pas réexplorer :
+
+- **`reduction`** — l'agrégat la soustrait (`aggregation.service.ts:297`), l'item-level l'ignore
+  (`spaces.service.ts:1262-1265`) : `SUM(reduction) = 0,00 €` sur **899 308 lignes** de
+  `WeezeventTransactionItem`. Aucun impact, ni aujourd'hui ni après recalcul.
+- **Filtre `status = 'V'`** — présent côté item-level (`spaces.service.ts:1272`), absent de
+  l'agrégat : sur le 10/05, TTC total = TTC filtré = 47 579,50 €. Aucun écart.
+
+**Portée : 8 espaces, pas seulement Auxerre** (requête 1 du script d'audit) —
+Stade Français Paris 522 501,63 € (4 events), Auxerre 239 400,00 € (11), Stade Abbé Deschamps
+164 033,00 € (7), Habita 150 777,22 € (5), St Etienne 101 620,95 € (1), Aix Arena 50 772,00 € (4),
+Paris Football Club 34 438,50 € (1). Soit ≈ **1,26 M€ affichés en TTC sous un libellé HT**, sur les
+cartes de la home page, les KPI Analyse shop-level, `Event.revenue` et tous les per-capita qui en
+dérivent. **Ce n'est pas un bug de code : c'est de la donnée périmée.**
+
+### Le même lot de lignes porte un second défaut périmé (bug #1 du module 02)
+
+Découvert en vérifiant le statut de #1 : le code est corrigé (commentaire BUG-014,
+`aggregation.service.ts:267-277`), mais exactement comme pour la TVA, **les lignes antérieures au
+fix n'ont jamais été rejouées** et portent toujours le défaut. Mesuré sur Auxerre :
+
+| Lignes | `spaceElementId` distincts | = un `SpaceElement.id` | = un `MenuItem.id` | `locationId` = `merchantId` |
+|---|---|---|---|---|
+| **avant** le 2026-07-21 | 249 | **0** | **249** | **249 / 249** |
+| **après** | 17 | **17** | 0 | 0 |
+
+Sur ces events, le « Par shop » ne groupe donc pas par point de vente mais **par article vendu** —
+249 « shops » fantômes au lieu de 17 PdV réels — et la colonne merchant ne contient jamais un vrai
+id de marchand. Requête 5 du script d'audit.
+
+**Conséquence pratique : un seul recalcul répare #1 et #2 en même temps.** Ne pas les traiter comme
+deux chantiers.
+
+Leçon transverse à retenir : **corriger une formule d'agrégation ne corrige pas l'historique déjà
+agrégé.** Les deux fiches BUG-014 et BUG-015 ont été classées « corrigé » sur la foi du code, alors
+que l'écran continuait — et continue — d'afficher l'ancienne erreur.
 
 Effet de bord relevé au passage, **hors périmètre** : deux `integrationId`
 (`cmpzfm46d00017sis0cv5qzou` et `cms49iint03xin18629wbtocv`) portent les **mêmes** 3 424
@@ -168,8 +243,19 @@ aucun double comptage aujourd'hui — mais un rattachement des deux le provoquer
    ⚠️ Prérequis : la colonne `SpaceRevenueMinuteAgg."weezeventEventId"` contient un `Event.id`
    DataFriday malgré son nom, et la RPC ne fonctionne aujourd'hui QUE grâce à ce décalage (cf.
    § Précision ci-dessus). Renommer/réparer l'un sans l'autre casse le CA shop-level affiché.
-2. Bugs **#2** (TTC→HT jamais converti par le pipeline vivant) et **#3** (périmètres divergents) du
-   module 02 : ils expliquent le reste de l'écart. À traiter dans le repo backend d'agrégation.
+2. **Rejouer l'agrégation** (bug #2 du module 02, reformulé) : la formule est correcte depuis le
+   2026-07-21, seules les **données** sont périmées. Aucun changement de code —
+   `POST /aggregation/process-events` (`aggregation.controller.ts:83`), job idempotent
+   (delete-then-insert par event, `aggregation.service.ts:255-257`), sur les 8 espaces listés
+   ci-dessus. Effet de bord souhaitable : le rollup BUG-033 (`aggregation.service.ts:363-376`)
+   remplira `Event.revenue` / `calculatedAt`, `null` aujourd'hui sur 9 events d'Auxerre sur 16.
+   ⚠️ **Toujours passer `integrationId` explicitement.** Sans lui `integrationClause` est vide
+   (`aggregation.service.ts:260-262`) et la requête devient tenant-wide — avec les deux
+   `integrationId` jumeaux signalés ci-dessus, le CA serait **doublé**. C'est le seul risque
+   destructeur de l'opération. Prévenir aussi que tous les montants affichés vont **baisser de 10
+   à 15 %** : c'est la correction, pas une perte.
+   Reste **#3** (périmètres divergents entre les deux tables d'agrégat), non couvert par le
+   recalcul.
 
 Tant que 1 et 2 tiennent, **toute** vue shop-level et toute vue item-level du même espace
 afficheront des CA différents — ce n'est pas propre à la bande KPI.
@@ -222,10 +308,58 @@ Quatre hypothèses testées et **invalidées** en navigateur le 2026-07-30, à n
   shop-level sans transactions item-level correspondantes. Le poids d'un event diffère d'un facteur
   ~60 selon la vue qui le regarde.
 
+## Journal — session du 2026-07-30
+
+### Livré
+
+- **`backend/prisma/sql/2026-07-30_audit_agg_perimes.sql`** (nouveau) — 5 requêtes de lecture
+  seule : espaces concernés · détail par event avec ratio stocké/HT · décomposition des taux ·
+  contrôle anti-double-comptage · résolution de `spaceElementId` (bug #1). Requête 2 testée sur
+  `datafriday-dev`, elle produit bien le tableau de preuve ci-dessus.
+- **[`modules/02_ANALYSE.md`](../modules/02_ANALYSE.md)** — bugs **#1 et #2 reformulés** + note
+  datée. Le schéma d'architecture (`:41`) et le tableau du Piège n°1 (`:97`) décrivaient encore le
+  pipeline vivant comme « formule SANS conversion TVA » : faux depuis `a71045b`, corrigé.
+- **Cette fiche** — section de preuve (11 events, décomposition des taux, portée 8 espaces, défaut
+  BUG-014 mesuré), caveat « le ratio n'est pas un pur facteur TVA » **levé**, Volet B point 2
+  réécrit en « rejouer l'agrégation, zéro ligne de code » avec l'avertissement `integrationId`.
+- **[`bugs/00_INDEX.md`](00_INDEX.md)** — entrée 247-01 à jour.
+
+### Non fait, délibérément : le recalcul
+
+C'est une mutation de données sur 8 espaces, elle appartient à l'équipe backend. Commande, espace
+par espace, `integrationId` **obligatoire** :
+
+```bash
+curl -X POST "$API/aggregation/process-events" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"spaceId":"cmovsjbiz01lzvwyn30wweqpf","integrationId":"cmpzfm46d00017sis0cv5qzou"}'
+```
+
+Auxerre en premier, c'est le jeu de contrôle déjà mesuré : attendu **243 428,69 € → ~215 310 €**,
+et les vues shop-level et item-level convergent.
+
+### À communiquer aux utilisateurs AVANT le recalcul
+
+**Tous les montants affichés vont baisser de 10 à 15 %** — home page, KPI Analyse, per-capita,
+CA moyen par événement. Ce n'est pas une perte de données ni une régression : c'est le montant
+hors taxes qui remplace enfin un montant TTC mal étiqueté. Sans ce message, la correction sera
+lue comme une panne.
+
+### Anomalie de session, à vérifier
+
+Un commit **`c363a4b`** « Add HR/audit SQL; dark-mode & analyse fixes » est apparu le 2026-07-30 à
+10:00:40 sous l'identité *Jean Luc Houedanou*, balayant **27 fichiers** — tout le working tree, y
+compris un `.DS_Store` et le script d'audit ci-dessus. Il n'a été demandé par personne pendant la
+session. Si ce n'est pas un geste manuel, une automatisation commite sans intervention : à
+identifier avant qu'elle n'embarque du travail non relu dans une PR.
+
 ## Références
 
 - [`modules/02_ANALYSE.md`](../modules/02_ANALYSE.md) — § Piège n°1 (deux moteurs d'agrégation),
-  § Bugs actifs #2 et #3, § `GET /spaces/:id/event-timeline`.
+  § Bugs actifs #2 (reformulé le 2026-07-30) et #3, § `GET /spaces/:id/event-timeline`.
+- `backend/prisma/sql/2026-07-30_audit_agg_perimes.sql` — script de lecture seule qui rejoue les
+  mesures ci-dessus : espaces concernés, détail par event avec ratio stocké/HT, décomposition des
+  taux, et contrôle anti-double-comptage à passer **avant** tout recalcul.
 - [BUG-187](187_analyse_articles_echec_event_timeline_silencieux.md) — échec **complet** du batch
   `event-timeline` avalé. Cette fiche traite le cas **partiel** (batch OK, un event vide).
 - [BUG-225](225_analyse_predict_config_par_defaut_et_dedup_contexte.md) — pré-sélection de
