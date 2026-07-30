@@ -612,6 +612,7 @@ export default {
 .esl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 .esl--dark .esl-table :deep(.v-data-table__th) { background: #1a2332 !important; }
 .esl--dark .esl-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.esl--dark .esl-table :deep(.v-data-table__td) { color: #e2e8f0; }
 
 .esl-cat-pill {
   display: inline-flex; align-items: center;

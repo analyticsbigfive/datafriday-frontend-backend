@@ -5,7 +5,8 @@
     persistent
     @update:model-value="!$event && $emit('cancel')"
   >
-    <v-card rounded="xl" style="overflow: hidden; padding: 0;">
+    <!-- Classe --dark sur la racine PROPRE : contenu v-dialog téléporté hors du v-app (BUG-198/199, BUG-247-01). -->
+    <v-card class="spd-card" :class="{ 'spd-card--dark': isDark }" rounded="xl" style="overflow: hidden; padding: 0;">
 
       <!-- Gradient Header -->
       <div class="spd-header">
@@ -296,12 +297,14 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import { useTheme } from 'vuetify'
 
 export default {
   name: 'SyncProgressDialog',
   setup() {
     const { t } = useI18n()
-    return { t }
+    const { global } = useTheme()
+    return { t, theme: global }
   },
   props: {
     open: { type: Boolean, default: false },
@@ -331,6 +334,9 @@ export default {
     }
   },
   computed: {
+    isDark() {
+      return this.theme.current.value.dark
+    },
     isRunning() {
       return this.steps.some(s => s.status === 'running') && !this.steps.some(s => s.status === 'error')
     },
@@ -721,4 +727,32 @@ export default {
 .sync-step--pending .sync-step__body span.text-body-2 {
   opacity: 0.5;
 }
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé. ── */
+.spd-card--dark { background: #1e293b !important; color: #e2e8f0; }
+.spd-card--dark .spd-phase__label { color: #e2e8f0; }
+.spd-card--dark .spd-phase__count { color: #94a3b8; }
+.spd-card--dark .spd-stat-card { background: #0f172a; border-color: rgba(255, 255, 255, .08); }
+.spd-card--dark .spd-stat-card__label { color: #94a3b8; }
+.spd-card--dark .spd-stat-card--red  { background: rgba(255, 49, 49, .12); border-color: rgba(255, 49, 49, .35); }
+.spd-card--dark .spd-stat-card--green { background: rgba(34, 197, 94, .14); border-color: rgba(34, 197, 94, .35); }
+.spd-card--dark .spd-stat-card--green .spd-stat-card__value { color: #86efac; }
+.spd-card--dark .spd-stat-card--grey  { background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .1); }
+.spd-card--dark .spd-stat-card--grey .spd-stat-card__value { color: #94a3b8; }
+.spd-card--dark .spd-stat-card--blue  { background: rgba(59, 130, 246, .14); border-color: rgba(59, 130, 246, .35); }
+.spd-card--dark .spd-stat-card--blue .spd-stat-card__value { color: #93c5fd; }
+.spd-card--dark .spd-stat-card--purple { background: rgba(139, 92, 246, .14); border-color: rgba(139, 92, 246, .35); }
+.spd-card--dark .spd-stat-card--purple .spd-stat-card__value { color: #c4b5fd; }
+.spd-card--dark .spd-stat-card--warn  { background: rgba(245, 158, 11, .14); border-color: rgba(245, 158, 11, .35); }
+.spd-card--dark .spd-stat-card--warn .spd-stat-card__value { color: #fcd34d; }
+.spd-card--dark .spd-alert--info    { background: rgba(59, 130, 246, .14); border-color: rgba(59, 130, 246, .35); color: #93c5fd; }
+.spd-card--dark .spd-alert--warning { background: rgba(245, 158, 11, .14); border-color: rgba(245, 158, 11, .35); color: #fcd34d; }
+.spd-card--dark .spd-alert--error   { background: rgba(255, 49, 49, .12); border-color: rgba(255, 49, 49, .35); }
+.spd-card--dark .spd-section-label { color: #94a3b8; }
+.spd-card--dark .spd-divider { background: rgba(255, 255, 255, .08); }
+.spd-card--dark .spd-meta__row { color: #94a3b8; }
+.spd-card--dark .spd-meta__val { color: #e2e8f0; }
+.spd-card--dark .spd-actions { border-top-color: rgba(255, 255, 255, .08); }
+.spd-card--dark .iw-btn--cancel { border-color: rgba(255, 255, 255, .14); color: #94a3b8; }
+.spd-card--dark .iw-btn--cancel:hover { border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .08); color: #e2e8f0; }
 </style>

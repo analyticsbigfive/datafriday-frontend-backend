@@ -49,6 +49,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import { Pencil, MapPin, Users, Target, UserCog, Wallet, Calendar } from 'lucide-vue-next'
 import { t } from '@/i18n'
 
@@ -59,10 +60,14 @@ const props = defineProps({
   // Coûts staff agrégés (GET /hr-settings/costs) — null tant qu'aucune ligne EventStaffLine.
   staffCostTotal: { type: Number, default: null },
   staffCostAvgEvent: { type: Number, default: null },
-  isDark: { type: Boolean, default: false },
   fallbackImage: { type: String, default: 'https://cdn.vuetifyjs.com/images/cards/docks.jpg' },
 })
 defineEmits(['edit'])
+
+// Dark mode autonome (pattern maison) : la carte suit le thème Vuetify global,
+// sans dépendre d'une prop passée par le parent.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const spaceImage = computed(() => props.space?.image || props.fallbackImage)
 

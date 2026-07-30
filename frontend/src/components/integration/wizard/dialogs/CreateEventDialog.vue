@@ -1,7 +1,8 @@
 <template>
   <!-- Dialog création d'événement depuis date non couverte -->
   <v-dialog :model-value="modelValue" max-width="560" persistent @update:model-value="$emit('update:modelValue', $event)">
-    <div class="ced-card">
+    <!-- Classe --dark sur la racine PROPRE : contenu v-dialog téléporté hors du v-app (BUG-198/199, BUG-247-01). -->
+    <div class="ced-card" :class="{ 'ced-card--dark': isDark }">
 
       <!-- Header -->
       <div class="ced-header">
@@ -317,12 +318,14 @@
 <script>
 import { createEvent, getEventTypes, getEventCategories, getEventSubcategories, createEventType, createEventCategory, createEventSubcategory } from '@/api/endpoints/event.api'
 import { useI18n } from '@/i18n/useI18n'
+import { useTheme } from 'vuetify'
 
 export default {
   name: 'CreateEventDialog',
   setup() {
     const { t } = useI18n()
-    return { t }
+    const { global } = useTheme()
+    return { t, theme: global }
   },
   props: {
     modelValue: { type: Boolean, default: false },
@@ -375,6 +378,9 @@ export default {
     }
   },
   computed: {
+    isDark() {
+      return this.theme.current.value.dark
+    },
     newEventTypeSelectItems() {
       return [...this.eventTypesList, { id: '__create_type__', name: '+ Créer un type…' }]
     },
@@ -877,5 +883,93 @@ export default {
 .ced-btn--primary:disabled {
   background: #f0a0a0;
   cursor: not-allowed;
+}
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé. ── */
+.ced-card--dark {
+  background: #1e293b;
+}
+.ced-card--dark .ced-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.ced-card--dark .ced-header-title {
+  color: #f9fafb;
+}
+.ced-card--dark .ced-header-sub {
+  color: #94a3b8;
+}
+.ced-card--dark .ced-label {
+  color: #e2e8f0;
+}
+.ced-card--dark .ced-label--disabled {
+  color: #64748b;
+}
+.ced-card--dark .ced-input {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f9fafb;
+  background: #0f172a;
+}
+.ced-card--dark .ced-input:focus {
+  border-color: #ff3131;
+}
+.ced-card--dark .ced-input::placeholder {
+  color: #64748b;
+}
+.ced-card--dark .ced-input:disabled {
+  background: rgba(255, 255, 255, 0.04);
+  color: #64748b;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.ced-card--dark .ced-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%2394a3b8' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+}
+.ced-card--dark .ced-select:disabled {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%2364748b' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+}
+.ced-card--dark .ced-options-line {
+  background: rgba(255, 255, 255, 0.08);
+}
+.ced-card--dark .ced-options-btn {
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.ced-card--dark .ced-options-toggle:hover .ced-options-btn {
+  color: #ff3131;
+  border-color: rgba(255, 49, 49, 0.35);
+}
+.ced-card--dark .ced-toggle-chip {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+.ced-card--dark .ced-toggle-chip:hover {
+  border-color: rgba(255, 49, 49, 0.4);
+  color: #ff3131;
+}
+.ced-card--dark .ced-toggle-chip--active {
+  border-color: #ff3131;
+  background: rgba(255, 49, 49, 0.12);
+  color: #ff3131;
+}
+.ced-card--dark .ced-session-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #0f172a;
+}
+.ced-card--dark .ced-session-title {
+  color: #94a3b8;
+}
+.ced-card--dark .ced-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+.ced-card--dark .ced-btn--ghost {
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.ced-card--dark .ced-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.ced-card--dark .ced-btn--primary:disabled {
+  background: rgba(255, 49, 49, 0.35);
+  color: rgba(255, 255, 255, 0.6);
 }
 </style>

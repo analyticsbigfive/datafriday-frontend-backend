@@ -52,7 +52,7 @@
         {{ loadError }}
       </v-alert>
 
-      <v-card rounded="xl" elevation="0" style="border: 1px solid #e5e7eb; overflow: hidden;">
+      <div class="ccl-table-wrap">
         <!-- v-data-table-SERVER : `items-length` n'est une prop QUE de ce composant.
              Sur un `v-data-table` ordinaire elle est ignorée et la pagination se fait
              côté client sur `items.length` — soit la page serveur courante, d'où des
@@ -86,17 +86,17 @@
           </template>
 
           <template #item.actions="{ item }">
-            <div class="d-flex justify-end" style="gap: 6px">
-              <v-btn variant="text" density="compact" size="small" icon @click.stop="openEditDialog(item)">
-                <Pencil :size="16" />
-              </v-btn>
-              <v-btn variant="text" density="compact" size="small" icon @click.stop="openDeleteDialog(item)">
-                <Trash2 :size="16" />
-              </v-btn>
+            <div class="ccl-actions">
+              <div class="ccl-abtn ccl-abtn--edit" @click.stop="openEditDialog(item)">
+                <Pencil :size="15" />
+              </div>
+              <div class="ccl-abtn ccl-abtn--del" @click.stop="openDeleteDialog(item)">
+                <Trash2 :size="15" />
+              </div>
             </div>
           </template>
         </v-data-table-server>
-      </v-card>
+      </div>
     </div>
 
     <ComponentCategoryFormDrawer
@@ -448,22 +448,51 @@ export default {
   padding: 148px 28px 24px;
 }
 
+/* ── Table wrap ── */
+.ccl-table-wrap {
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+.ccl--dark .ccl-table-wrap {
+  background: #1e293b;
+  border-color: rgba(255,255,255,.08);
+}
+
 /* ── Table ── */
+.ccl-table :deep(.v-data-table__th),
 .ccl-table :deep(.v-data-table__td) {
-  vertical-align: middle;
-  padding-top: 16px !important;
-  padding-bottom: 16px !important;
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
+.ccl-table :deep(.v-data-table__td) { vertical-align: middle; }
 .ccl-table :deep(.v-data-table__th) {
-  padding-top: 16px !important;
-  padding-bottom: 16px !important;
-  font-weight: 700 !important;
+  font-size: var(--fs-xs) !important;
+  font-weight: 600;
   text-transform: uppercase;
-  font-size: 0.75rem;
-  letter-spacing: 0.025em;
-  color: #374151 !important;
-  background: #f9fafb !important;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
+  background: #fafafa !important;
 }
+.ccl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
+
+/* ── Table action buttons ── */
+.ccl-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.ccl-abtn {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: #f3f4f6; color: #6b7280;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
+}
+.ccl-abtn--edit { background: #eff6ff; color: #2563eb; }
+.ccl-abtn--edit:hover { background: #dbeafe; }
+.ccl-abtn--del { background: #fef2f2; color: #ff3131; }
+.ccl-abtn--del:hover { background: #fee2e2; }
 
 /* ── Dark mode ── */
 .ccl--dark.ccl-root {
@@ -476,10 +505,10 @@ export default {
 .ccl--dark .ccl-searchbar__input {
   color: #f9fafb;
 }
-.ccl--dark .ccl-table :deep(.v-data-table__th) {
-  color: #9ca3af !important;
-  background: #1a2332 !important;
-}
-/* Retire la bordure blanche (inline #e5e7eb) de la carte du tableau en dark. */
-.ccl--dark .ccl-content :deep(.v-card) { border-color: transparent !important; }
+.ccl--dark .ccl-table :deep(.v-data-table__th) { background: #1a2332 !important; }
+.ccl--dark .ccl-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.ccl--dark .ccl-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.ccl--dark .ccl-abtn { background: #1f2937; color: #cbd5e1; }
+.ccl--dark .ccl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.ccl--dark .ccl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
 </style>

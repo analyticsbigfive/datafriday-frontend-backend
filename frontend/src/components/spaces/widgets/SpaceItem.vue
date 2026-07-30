@@ -1,5 +1,5 @@
 <template>
-  <div class="si-card" @click="goToAnalyse">
+  <div class="si-card" :class="{ 'si-card--dark': isDark }" @click="goToAnalyse">
 
     <!-- ── Image ── -->
     <div class="si-img">
@@ -104,6 +104,8 @@ export default {
     editSpace:     { type: Function, default: null },
     deleteSpace:   { type: Function, default: null },
     fallbackImage: { type: String,   default: 'https://cdn.vuetifyjs.com/images/cards/docks.jpg' },
+    // Thème sombre : passé par SpaceListView (pattern SpaceCreateDrawer / HrSpaceCard).
+    isDark:        { type: Boolean,  default: false },
   },
   data() {
     return {
@@ -380,4 +382,30 @@ export default {
 .si-stat__value--green  { color: #059669; }
 .si-stat__value--purple { color: #7c3aed; }
 .si-stat__value--amber  { color: #d97706; }
+
+/* ── Dark (BUG-247-01) — palette slate, copiée de HrSpaceCard (clone documenté
+   de cette carte). Uniquement des overrides : les littéraux clairs ci-dessus
+   restent la base, le mode clair est inchangé par construction. Le rouge de
+   marque #ff3131 est identique dans les deux thèmes (parité BUG-196/197) ;
+   badge de type et dégradé du bandeau nom sont posés sur la photo, déjà
+   corrects en sombre — non surchargés. ── */
+.si-card--dark {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, .08);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+}
+.si-card--dark .si-stats     { border-top-color: rgba(255, 255, 255, .08); }
+.si-card--dark .si-stat      { border-right-color: rgba(255, 255, 255, .08); }
+.si-card--dark .si-stat--bl  { border-top-color: rgba(255, 255, 255, .08); }
+.si-card--dark .si-stat:hover { background: #24324a; }
+.si-card--dark .si-stat__label { color: #94a3b8; }
+/* Teintes sémantiques calibrées pour fond clair → membre clair de la même
+   famille (pattern BUG-197). Vert/violet/ambre ; rouge inchangé. */
+.si-card--dark .si-stat__value--green  { color: #86efac; }
+.si-card--dark .si-stat__value--purple { color: #c4b5fd; }
+.si-card--dark .si-stat__value--amber  { color: #fcd34d; }
+/* Boutons d'action sur photo : fond translucide sombre (parité HrSpaceCard). */
+.si-card--dark .si-action-btn { background: rgba(30, 41, 59, .9); color: #cbd5e1; }
+.si-card--dark .si-action-btn:hover { background: #0f172a; color: #ff3131; }
+.si-card--dark .si-action-btn--del:hover { color: #f87171; }
 </style>

@@ -38,7 +38,7 @@
    │ POST /aggregation/process-events|synchronize│  │ (features/spaces/services/)          │    │
    │ Bull queue, appelé par le WIZARD Step4/5    │   │ POST /spaces/:id/dashboard/rebuild   │    │
    │ ⚠️ ALIVE — seul chemin réellement exécuté   │   │ ⚠️ MORT — 0 appelant frontend         │    │
-   │ formule SANS conversion TVA (bug)            │   │ formule AVEC conversion TVA (correcte)│   │
+   │ TVA OK depuis 2026-07-21, agrégats périmés  │   │ formule AVEC conversion TVA (correcte)│   │
    └───────────────────┬───────────────────────┘   └───────────────┬───────────────────────┘    │
                         │ écrit                                     │ écrirait (si appelé)        │
                         ▼                                           ▼                             │
@@ -94,7 +94,7 @@ C'est le piège architectural central du domaine, absent de toute documentation 
 |---|---|---|
 | Fichier | `api-datafriday-staging/src/features/aggregation/aggregation.service.ts` | `api-datafriday-staging/src/features/spaces/services/space-aggregation.service.ts` |
 | Déclenché par | `POST /aggregation/process-events` et `/synchronize`, appelés depuis le wizard Data Integration étape 4/5 (`useTimelineProcessing.js:130,161`, `useSynchronization.js:34`) | `POST /spaces/:spaceId/dashboard/rebuild` (`dashboard.controller.ts:94-120`) — **aucun wrapper `src/api` ne l'appelle, grep exhaustif négatif** |
-| Formule `revenueHt` | `SUM(unitPrice × quantity − COALESCE(reduction,0))`, **aucune conversion TVA** (`aggregation.service.ts:264-300`) | `SUM(unitPrice × quantity / (1+vatRate/100))`, ou repli **codé en dur `/1.20`** si `WeezeventProduct.vatRate` est null (`space-aggregation.service.ts:171-178,273-277`) |
+| Formule `revenueHt` | `SUM((unitPrice × quantity − COALESCE(reduction,0)) / (1 + vat/100))` (`aggregation.service.ts:297`) — **conversion TVA présente depuis le 2026-07-21** (commit `a71045b`, BUG-015) ; avant cette date la division était absente, et **les lignes écrites avant n'ont jamais été rejouées** (cf. bug #2) | `SUM(unitPrice × quantity / (1+vatRate/100))`, ou repli **codé en dur `/1.20`** si `WeezeventProduct.vatRate` est null (`space-aggregation.service.ts:171-178,273-277`) |
 | Résolution de `spaceElementId` | **Bug confirmé** : la requête insère `pm."menuItemId"` (un id `MenuItem`, via `WeezeventProductMapping`) dans la colonne `spaceElementId` (`aggregation.service.ts:276`) — jamais un vrai `SpaceElement.id` | Correcte : `LEFT JOIN WeezeventLocationShopMapping mem ON mem."weezeventLocationId" = t."merchantId"` puis `mem."spaceElementId"` (`space-aggregation.service.ts:169-170,184-186`) |
 | Résolution de `weezeventMerchantId` | **Bug confirmé** : `t."locationId"` est inséré deux fois — une fois dans `weezeventLocationId`, une fois dans `weezeventMerchantId` (`aggregation.service.ts:274-275`) — la colonne merchant ne contient donc jamais un vrai id de marchand | Correcte : `t."merchantId"` distinct de `t."locationId"` (`space-aggregation.service.ts:167-169`) |
 | Alimente `UnmappedDataMetrics`/`SpaceDashboardVersion` | Non — ces tables ne sont référencées nulle part dans `features/aggregation/` | Oui (`trackUnmappedData`, `incrementDashboardVersion`, `space-aggregation.service.ts:245-247`) |
@@ -617,11 +617,34 @@ contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analys
 > compte comme futur). S'ajoute le bug majeur découvert ce jour — item-level vide alors que le
 > shop-level affiche du CA — corrigé côté backend (fiche back 103) et durci côté front (fiche 187),
 > voir la section `GET /spaces/:id/event-timeline` ci-dessus.
+>
+> **Mise à jour 2026-07-30** : #2 **reformulé après mesure en base**. La formule du pipeline
+> vivant convertit bien TTC→HT depuis le 2026-07-21 (`a71045b`) — la description antérieure
+> (« ne convertit jamais ») est périmée, ainsi que les mentions du schéma d'architecture et du
+> tableau du Piège n°1, corrigées ici. Ce qui reste faux, ce sont **les données** : les agrégats
+> antérieurs au fix n'ont jamais été recalculés. Preuve sur l'espace Auxerre — les events agrégés
+> le 2026-07-07 ont un `SUM(revenueHt)` égal au TTC recalculé **au centime près**, ceux agrégés
+> après le 21 juillet égal au HT au centime près. Deux hypothèses concurrentes mesurées et
+> **écartées** : `reduction` (`SUM = 0,00 €` sur 899 308 lignes) et le filtre `status = 'V'`
+> (aucun écart sur la journée de contrôle) — l'écart shop-level ↔ item-level est **intégralement**
+> de la TVA (taux 10 / 20 / 5,5 %, moyenne pondérée ≈ 14,3 %). Détail et portée :
+> [BUG-247-01](../bugs/247_01_analyse_kpi_header_ca_shop_level_puis_item_level.md).
+>
+> **#1 est dans le même cas et a été reformulé de la même façon** : le code est corrigé
+> (BUG-014, même vague de correctifs), les lignes antérieures portent toujours les deux défauts.
+> Mesuré : 249 `spaceElementId` distincts sur les lignes périmées d'Auxerre, **249/249 sont des
+> `MenuItem.id`**, contre 17/17 de vrais `SpaceElement.id` sur les lignes récentes.
+> **Un seul recalcul répare #1 et #2 en même temps.**
+>
+> Leçon transverse, valable au-delà de ce module : **corriger une formule d'agrégation ne corrige
+> pas l'historique déjà agrégé.** Tout correctif touchant une écriture dans
+> `SpaceRevenueMinuteAgg` / `SpaceProductRevenueDailyAgg` doit être suivi d'un recalcul, sinon
+> l'écran continue d'afficher l'ancienne erreur et la fiche de bug est classée à tort.
 
 | # | Bug | Fichiers | Repro |
 |---|---|---|---|
-| 1 | Le pipeline d'agrégation réellement exécuté (`AggregationService`) écrit un `menuItemId` dans la colonne `spaceElementId` et duplique `locationId` dans `weezeventMerchantId` — la jointure « shops list » de la RPC de lecture ne peut donc jamais matcher ces lignes | `aggregation.service.ts:274-276`, RPC `20260704200000_...sql:296-306` | Lancer « Traiter les événements » dans le wizard sur un espace, puis observer `shops[].revenue` dans la réponse `GET /spaces/:id/shop-details` : à 0 ou incohérent malgré des ventes réelles agrégées |
-| 2 | La formule de CA du pipeline vivant ne convertit jamais TTC→HT (pas de division par `1+vat/100`), contrairement au pipeline mort `SpaceAggregationService` et au calcul live `getEventTimelineBatch` | `aggregation.service.ts:264-300` vs `space-aggregation.service.ts:171-178` vs `spaces.service.ts:1118-1121` | Comparer `SpaceRevenueMinuteAgg.revenueHt` d'un event à la somme calculée par `GET /spaces/:id/event-timeline/:eventId` pour le même event |
+| 1 | **Reformulé 2026-07-30, exactement comme #2** — le code **est corrigé** (commentaire BUG-014, `aggregation.service.ts:267-277` : `spaceElementId` vient désormais de `WeezeventLocationShopMapping` en LEFT JOIN, `weezeventMerchantId` de `t."merchantId"`). Le bug résiduel est que **les lignes écrites avant le fix n'ont jamais été rejouées** et portent toujours les deux défauts. Mesuré en base le 2026-07-30 (espace Auxerre) : sur les lignes antérieures au 2026-07-21, **249 `spaceElementId` distincts, 249/249 sont des `MenuItem.id`, 0 un `SpaceElement.id`**, et `weezeventLocationId = weezeventMerchantId` sur **249/249**. Sur les lignes postérieures : **17/17 de vrais `SpaceElement.id`**, `locationId ≠ merchantId`. Le « Par shop » de ces events groupe donc par article vendu, pas par point de vente | `aggregation.service.ts:284-322` (écriture, correcte), RPC `20260704200000_...sql:296-306` ; audit : `backend/prisma/sql/2026-07-30_audit_agg_perimes.sql` | Requête 5 du script d'audit (`spaceElementId` résolu contre `SpaceElement` puis contre `MenuItem`, ventilé avant/après le fix). **Même correctif que #2 : un seul recalcul répare les deux** — `POST /aggregation/process-events` avec `integrationId` |
+| 2 | **Reformulé 2026-07-30** — la formule **est corrigée** depuis le 2026-07-21 (commit `a71045b`, BUG-015 : `/(1 + vat/100)` ajouté). Le bug résiduel est que **les agrégats écrits avant cette date n'ont jamais été rejoués** : ils contiennent du TTC dans une colonne nommée `revenueHt`. Mesuré le 2026-07-30 : **8 espaces, 35 events, ≈ 1,26 M€** affichés en TTC sous un libellé HT (cartes home page, KPI shop-level, `Event.revenue`) | `aggregation.service.ts:297` (formule, correcte) ; audit : `backend/prisma/sql/2026-07-30_audit_agg_perimes.sql` | Requête 2 du script d'audit : `ratio_stocke_sur_ht` ≈ 1,10-1,15 sur les events agrégés avant le 2026-07-21, **1,0000** sur ceux agrégés après. Correctif = rejouer `POST /aggregation/process-events` **avec `integrationId`** (sans lui, la requête devient tenant-wide et double le CA quand deux intégrations portent les mêmes ventes) |
 | 3 | `SpaceProductRevenueDailyAgg` inclut les ventes de produits non mappés à un MenuItem, `SpaceRevenueMinuteAgg` les exclut (INNER JOIN) — deux tables sensées décrire le même historique divergent en périmètre | `aggregation.service.ts:284-285` (exclut) vs `:303-329` (inclut) | Sommer les deux tables pour le même event/tenant sur un espace avec des ventes non mappées |
 | 4 | `step2_shops_mapped` du wizard est calculé différemment entre la route unitaire et la route bulk de progression, sur les mêmes lignes de `LocationShopMapping` | `mappings.service.ts:750-765` vs `:902-904` | Comparer `GET /mappings/progress/:locationId` et `GET /mappings/progress` pour la même location après un mapping fait uniquement via l'endpoint merchant-element |
 | 5 | `createMerchantElementMapping`/`bulkMerchantElementMappings` (happy-path) n'imposent aucune vérification d'ownership tenant sur le `spaceElementId` | `mappings.service.ts:364-434` | Appeler l'endpoint avec un `spaceElementId` d'un autre tenant (nécessite un accès API direct) |

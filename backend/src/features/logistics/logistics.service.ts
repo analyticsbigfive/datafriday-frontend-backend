@@ -1942,8 +1942,9 @@ export class LogisticsService {
    * ce rattachement explicite, une vente simulée ne s'affiche jamais sous "Aujourd'hui".
    * Idempotent : réutilise l'Event/SalesEvent du jour s'il en existe déjà un pour cet
    * espace (pas de duplication à chaque vente simulée le même jour). Tagué
-   * `metadata.isSimulated=true` côté SalesEvent et nommé `[Simulé] ...` côté Event, pour
-   * rester identifiable/purgeable (cf. purgeSimulatedSales).
+   * `metadata.isSimulated=true` côté SalesEvent et `isSimulated=true` + nom `[Simulé] ...`
+   * côté Event, pour rester identifiable/purgeable (cf. purgeSimulatedSales) et pour être
+   * exclu d'EventPredict / de l'écran Live (GET /events?excludeSimulated=true).
    */
   private async ensureTodaySalesEvent(
     tenantId: string,
@@ -1996,8 +1997,11 @@ export class LogisticsService {
         await this.prisma.event.update({ where: { id: existingEvent.id }, data: { weezeventEventId: salesEvent.id } });
       }
     } else {
+      // `isSimulated` UNIQUEMENT sur la branche de création : les branches de
+      // réutilisation ci-dessus (et le retour anticipé §1) peuvent pointer sur un
+      // VRAI event du jour — le flaguer le masquerait d'EventPredict/Live.
       await this.prisma.event.create({
-        data: { name: label, eventDate: now, spaceId, tenantId, weezeventEventId: salesEvent.id },
+        data: { name: label, eventDate: now, spaceId, tenantId, weezeventEventId: salesEvent.id, isSimulated: true },
       });
     }
 

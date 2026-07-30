@@ -2,7 +2,7 @@
   <!-- Settings HR (maquettes Bertrand) — vue façon « My Spaces » orientée RH.
        Rendue dans le chrome DashboardView (barre + rail), comme HrSuppliersView :
        header rouge sticky + recherche + grille de cartes. Pas de <v-app> propre. -->
-  <div id="hr-settings-page">
+  <div id="hr-settings-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -49,6 +49,7 @@
           :staff-per-zone-manager="resolvedById[s.id]?.ratio ?? null"
           :staff-cost-total="costsBySpaceId[s.id]?.totalCost ?? null"
           :staff-cost-avg-event="costsBySpaceId[s.id]?.avgPerEvent ?? null"
+          :is-dark="isDark"
           @edit="onCardEdit"
         />
       </div>
@@ -66,6 +67,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useStore } from 'vuex'
+import { useTheme } from 'vuetify'
 import { Target, UserCog, Users, Search, X } from 'lucide-vue-next'
 import HrSpaceCard from '@/components/hr/HrSpaceCard.vue'
 import HrValueFormDrawer from '@/components/hr/HrValueFormDrawer.vue'
@@ -76,6 +78,11 @@ import { resolveGoalForSpace, resolveRatioForSpace, findMonoSpaceLine } from '@/
 import { t } from '@/i18n'
 
 const store = useStore()
+
+// Thème sombre (BUG-247-01) — classe racine hsl--dark + prop vers HrSpaceCard
+// (la carte avait déjà sa moitié sombre, la prop n'était pas branchée).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const spaces = ref([])
 const costsBySpaceId = ref({})
@@ -319,4 +326,17 @@ async function onEditSubmit(payload) {
   margin-bottom: 16px;
 }
 .hsl-empty__title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; margin: 0; }
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
+   Header rouge #ff3131 identique dans les deux thèmes (parité BUG-197). ── */
+#hr-settings-page.hsl--dark { background: #111827; }
+.hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
+.hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }
+.hsl--dark .hsl-searchbar__icon,
+.hsl--dark .hsl-searchbar__count,
+.hsl--dark .hsl-searchbar__clear { color: #64748b; }
+.hsl--dark .hsl-searchbar__clear:hover { color: #ff3131; }
+.hsl--dark .hsl-empty__icon { background: rgba(255, 255, 255, .06); }
+.hsl--dark .hsl-empty__title { color: #f9fafb; }
 </style>

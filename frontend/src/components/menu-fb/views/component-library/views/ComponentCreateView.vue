@@ -236,8 +236,8 @@
                   <v-text-field
                     v-model.number="form.numberOfUnitsRecipe"
                     type="number"
-                    min="1"
-                    step="1"
+                    min="0.001"
+                    step="0.001"
                     variant="outlined"
                     density="compact"
                     hide-details="auto"

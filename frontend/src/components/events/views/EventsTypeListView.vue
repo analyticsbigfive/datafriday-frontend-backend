@@ -503,6 +503,7 @@ export default {
 .etl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 .etl--dark .etl-table :deep(.v-data-table__th) { background: #1a2332 !important; }
 .etl--dark .etl-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.etl--dark .etl-table :deep(.v-data-table__td) { color: #e2e8f0; }
 
 .etl-cat-badge {
   display: inline-flex; align-items: center; justify-content: center;
