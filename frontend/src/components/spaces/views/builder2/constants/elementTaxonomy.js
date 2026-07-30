@@ -15,6 +15,12 @@ export const TOOLS = [
       { value: 'gppremium', label: 'GP Premium' },
       { value: 'temporary', label: 'Temporary' },
       { value: 'drinkee', label: 'Drinkee' },
+      // CFG-1 (2026-07-30) : catégories staffing (voir SUBTYPE_TO_FNB_CATEGORY,
+      // backend staffing.service.ts) — sous-types du tool F&B existant, pas de
+      // nouveau type top-level (décision utilisateur, cf. passe module doc RH).
+      { value: 'mixology', label: 'Mixology' },
+      { value: 'front_food', label: 'Front Food' },
+      { value: 'kitchen_food', label: 'Kitchen Food' },
     ],
   },
   {

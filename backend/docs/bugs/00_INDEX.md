@@ -133,6 +133,7 @@
 | [119-02](119_02_createeventdto_sessions_array_objets_reduit_a_vide_class_transformer.md) | `CreateEventDto.sessions`/`CreatePredictVersionDto.predictedRecords` : tableau d'objets réduit à `[[]]` par class-transformer (design:type `Array` sans `@Type()`) | 🟡 Corrigé non testé | 🔴 | Événements / Prévision |
 | [120-02](120_02_eventsservice_resolveorcreateteambyname.md) | `EventsService` : résolution/création automatique des équipes par nom (`homeTeamName`/`visitingTeamName`), déplacée du frontend | 🟡 Corrigé non testé | 🟠 | Événements |
 | [121-02](121_02_resolveorcreateteambyname_race_condition_doublons_scope_null.md) | `resolveOrCreateTeamByName` : race condition crée des équipes en double quand le scope compétition est NULL/NULL | 🟡 Corrigé non testé | 🟠 | Événements |
+| [122-02](122_02_staffing_subtype_casing_mismatch_fnb_detection.md) | Détection des tags F&B (subtypes) jamais déclenchée pour les éléments shop créés dans le Builder v2 (comparaison de casse) | 🟢 Corrigé | 🟠 | RH / Staffing |
 
 **112 bugs au total**, 112 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (18 shops, gros volume) échouant systématiquement avec "délai maximal

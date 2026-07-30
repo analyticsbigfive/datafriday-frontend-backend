@@ -606,9 +606,9 @@ model HrSupplier {
   contact   String? // nom du contact
   email     String?
   tel       String?
-  picture   String?  @db.Text // parité avec le drawer existant (photo optionnelle)
-  sectors   String[] // secteurs libres (F&B, Hospitality…) — parité localStorage
-  spaceIds  String[] // espaces desservis (ids Space, non contraint) — parité localStorage
+  picture     String?  @db.Text // parité avec le drawer existant (photo optionnelle)
+  departments String[] // départements libres (F&B, Hospitality…) — ex-"sectors", RH-5 2026-07-30
+  spaceIds    String[] // espaces desservis (ids Space, non contraint) — parité localStorage
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -638,6 +638,7 @@ model HrRole {
   persons       HrPerson[]
   spaceDefaults HrRoleSpaceDefault[]
   staffLines    EventStaffLine[]
+  sinkingRules  HrSinkingRule[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -723,6 +724,29 @@ model EventStaffLine {
   @@index([tenantId])
   @@index([roleId])
   @@index([elementId])
+}
+
+/// Règle « Sinking RH » (STF-2, 2026-07-30) — force un quota minimal d'un rôle
+/// sur un PDV selon son tag F&B détecté (subtypes → fnbCategory, voir
+/// SUBTYPE_TO_FNB_CATEGORY dans staffing.service.ts) et une condition optionnelle
+/// sur SpaceElement.attributes (ex. nbFriteuses ≥ seuil). Appliquée en SUPPLÉMENT
+/// du calcul par paliers (staffing-calculator.service.ts), jamais à sa place.
+model HrSinkingRule {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  roleId             String
+  fnbCategory        String // 'BEVERAGE' | 'FRONT_FOOD' | 'KITCHEN_FOOD' | 'MIXOLOGY' (HR_FNB_CATEGORIES)
+  conditionAttribute String? // clé JSON de SpaceElement.attributes (ex. 'nbFriteuses') ; null = toujours actif si le tag est présent
+  conditionMinValue  Float? // seuil (attrs[conditionAttribute] >= conditionMinValue) ; ignoré si conditionAttribute est null
+  mandatoryQty       Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  role HrRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, roleId, fnbCategory, conditionAttribute])
+  @@index([tenantId])
+  @@index([roleId])
 }
 
 model Config {
