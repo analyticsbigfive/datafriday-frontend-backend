@@ -157,6 +157,28 @@ export function normalizeType(type) {
   return t
 }
 
+/**
+ * CFG-2 : sous-types du tool "storage" pour la condition (dry/cold/belowzero) — ceux-là
+ * seuls sont pilotés par le référentiel StorageType (Configurations, CRUD-éditable). Les 3
+ * entrées historiques restent des chaînes figées (compat SpaceElement.subtypes[], déjà
+ * persistées sur des éléments existants) ; toute ligne StorageType créée par un tenant
+ * (code === null) ajoute une entrée `{value: son id, label: son name}`. `material`/`merch`
+ * sont un axe différent — l'USAGE du stockage, pas sa condition (cf. BUG-020/BUG-021) — et
+ * restent toujours figés, non concernés par ce référentiel.
+ * @param {Array<{id:string,name:string,code:string|null}>} tenantStorageTypes
+ */
+export function storageSubtypesFor(tenantStorageTypes = []) {
+  const legacy = [
+    { value: 'dry', label: 'Dry storage' },
+    { value: 'cold', label: 'Cold storage' },
+    { value: 'belowzero', label: 'Below zero storage' },
+  ]
+  const custom = (tenantStorageTypes || [])
+    .filter((st) => st?.code == null)
+    .map((st) => ({ value: st.id, label: st.name }))
+  return [...legacy, ...custom, { value: 'material', label: 'Material storage' }, { value: 'merch', label: 'Merch storage' }]
+}
+
 // ── Matrice sections d'inspecteur × type (doc §wireframe WF-02) ────────────────
 // Reprend les règles v1 : Configurations masquée pour storage/entrance/access ;
 // Performance masquée pour storage/entertainment/access/kitchen ; Menu réservé aux

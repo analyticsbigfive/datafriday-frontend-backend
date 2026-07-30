@@ -48,6 +48,7 @@ const BrandNameListView = () => import('@/components/brand-name/views/BrandNameL
 const DisplayNameListView = () => import('@/components/display-name/views/DisplayNameListView.vue')
 const IndustrialListView = () => import('@/components/industrial/views/IndustrialListView.vue')
 const PackingTypeListView = () => import('@/components/packing-type/views/PackingTypeListView.vue')
+const StorageTypeListView = () => import('@/components/storage-type/views/StorageTypeListView.vue')
 const PermissionListView = () => import('@/components/permission/views/PermissionListView.vue')
 const RoleListView = () => import('@/components/role/views/RoleListView.vue')
 const UserListView = () => import('@/components/user/views/UserListView.vue')
@@ -395,6 +396,12 @@ const routes = [
         meta: { title: 'Liste des packing types', keepAlive: true, permission: 'menu.config.manage' }
       },
       { path: '/packing-types', redirect: '/configurations/packing-types' },
+      {
+        path: '/configurations/storage-types',
+        name: 'storage-types',
+        component: StorageTypeListView,
+        meta: { title: 'Liste des storage types', keepAlive: true, permission: 'menu.config.manage' }
+      },
       {
         path: '/permissions',
         name: 'permissions',

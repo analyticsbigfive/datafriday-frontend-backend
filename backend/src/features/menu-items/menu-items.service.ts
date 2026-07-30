@@ -316,7 +316,7 @@ export class MenuItemsService {
           picture,
           allergens: dto.allergens || [],
           diet: mapDiet(dto.diet || []) as any[],
-          storageType: (dto.storageType || []) as any[],
+          storageType: dto.storageType || [],
           readyForSale: dto.readyForSale,
           kitchenType: dto.kitchenType ?? null,
           comboItem: dto.comboItem,
@@ -471,7 +471,7 @@ export class MenuItemsService {
         picture: await this.storage.resolveImage(dto.picture, 'menu-items'),
         allergens: dto.allergens || [],
         diet: mapDiet(dto.diet || []) as any[],
-        storageType: (dto.storageType || []) as any[],
+        storageType: dto.storageType || [],
         readyForSale: dto.readyForSale,
         kitchenType: dto.kitchenType ?? null,
         comboItem: dto.comboItem,
@@ -782,7 +782,7 @@ export class MenuItemsService {
     if (dto.picture !== undefined) updateData.picture = await this.storage.resolveImage(dto.picture, 'menu-items');
     if (dto.allergens !== undefined) updateData.allergens = dto.allergens;
     if (dto.diet !== undefined) updateData.diet = mapDiet(dto.diet) as any[];
-    if (dto.storageType !== undefined) updateData.storageType = dto.storageType as any[];
+    if (dto.storageType !== undefined) updateData.storageType = dto.storageType;
     if (dto.readyForSale !== undefined) updateData.readyForSale = dto.readyForSale;
     if (dto.kitchenType !== undefined) updateData.kitchenType = dto.kitchenType ?? null;
     if (dto.comboItem !== undefined) updateData.comboItem = dto.comboItem;
