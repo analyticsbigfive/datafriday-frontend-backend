@@ -44,12 +44,6 @@ enum ZoneKind {
   EXTERNAL
 }
 
-enum StorageType {
-  Cold
-  Dry
-  Frozen
-}
-
 enum KitchenType {
   Central
   Local
@@ -1793,7 +1787,7 @@ model Ingredient {
   active                     Boolean             @default(true)
   supplier                   String?
   recipeUnit                 String
-  storageType                StorageType?
+  storageType                String?
   purchaseUnit               String
   marketPriceId              String?
   costPerRecipeUnit          Decimal?            @db.Decimal(10, 4)
@@ -1823,7 +1817,7 @@ model Packaging {
   active                     Boolean      @default(true)
   supplier                   String?
   recipeUnit                 String
-  storageType                StorageType?
+  storageType                String?
   purchaseUnit               String
   marketPriceId              String?
   costPerRecipeUnit          Decimal?     @db.Decimal(10, 4)
@@ -1855,10 +1849,10 @@ model MenuComponent {
   unitCost            Decimal?     @db.Decimal(10, 4)
   allergens           String[]
   description         String?
-  storageType         StorageType?
+  storageType         String?
   subComponents       Json? // Pour stocker les subComponents JSON de Figma
   componentCategory   String? // "Veg", "Sauce", etc.
-  numberOfUnitsRecipe Int? // Nombre d'unités par recette
+  numberOfUnitsRecipe Float? // Nombre d'unités par recette (rendement de batch — peut être fractionnaire, ex. 0.75 kg)
   packedUnits         Float?
   inventoryPackaging  String? // Emballage de stockage ("Item is stored in", ex: Box)
   readyForSale        String? // "Yes", "No" ou null — même contrat que MenuItem.readyForSale
@@ -2087,6 +2081,27 @@ model PackingType {
   @@index([tenantId])
 }
 
+/// Référentiel de conditions de stockage (Cold/Dry/Frozen par défaut, CRUD-éditable dans
+/// Configurations). Comme PackingType, la valeur stockée sur Ingredient/Packaging/MenuComponent/
+/// MenuItem/les 3 tables de snapshot est le NOM (String, non-FK), avec cascade de renommage
+/// en transaction dans StorageTypesService.update(). `code` est distinct de `name` : il porte
+/// l'identifiant STABLE ('dry'|'cold'|'belowzero') déjà persisté tel quel dans
+/// SpaceElement.subtypes[] par le tool "Storage" du Builder v2 (elementTaxonomy.js) — seules les
+/// 3 lignes historiques seedées en ont un, jamais éditable, pour que renommer/traduire "Cold" ne
+/// casse jamais les éléments Storage déjà posés en plan. Lignes avec `code` non-null : rename
+/// autorisé, delete bloqué (StorageTypesService.remove()).
+model StorageType {
+  id        String   @id @default(cuid())
+  name      String
+  code      String?
+  tenantId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
@@ -2106,7 +2121,7 @@ model MenuItem {
   totalCost              Decimal?      @db.Decimal(12, 4)
   margin                 Float?
   description            String?
-  storageType            StorageType[]
+  storageType            String[]
   readyForSale           String? // "Yes", "No" ou null
   kitchenType            KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
   comboItem              String? // "Yes", "No" ou null
@@ -2200,7 +2215,7 @@ model MenuItemComponent {
   numberOfUnits Float
   unitCost      Decimal?     @db.Decimal(10, 4)
   totalCost     Decimal?     @db.Decimal(12, 4)
-  storageType   StorageType?
+  storageType   String?
 
   menuItem  MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   component MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
@@ -2217,7 +2232,7 @@ model MenuItemIngredient {
   numberOfUnits Float
   unitCost      Decimal?     @db.Decimal(10, 4)
   totalCost     Decimal?     @db.Decimal(12, 4)
-  storageType   StorageType?
+  storageType   String?
 
   menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
@@ -2234,7 +2249,7 @@ model MenuItemPackaging {
   numberOfUnits Float
   unitCost      Decimal?     @db.Decimal(10, 4)
   totalCost     Decimal?     @db.Decimal(12, 4)
-  storageType   StorageType?
+  storageType   String?
 
   menuItem  MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   packaging Packaging @relation(fields: [packagingId], references: [id], onDelete: Cascade)

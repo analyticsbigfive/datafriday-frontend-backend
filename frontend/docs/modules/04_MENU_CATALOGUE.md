@@ -178,7 +178,7 @@ voir bug), `POST /menu-components/refresh-costs`, `GET /menu-components` (+`:id`
 
 | Champ | Sens |
 |---|---|
-| `numberOfUnitsRecipe` | Combien d'unités produit CETTE sous-recette (ex. une bassine de sauce fait 20 portions). |
+| `numberOfUnitsRecipe` | Combien d'unités produit CETTE sous-recette (ex. une bassine de sauce fait 20 portions). **`Float?`** depuis BUG-256-02 (était `Int?` — la reprise du CSV historique Components a révélé que 40% des rendements réels sont fractionnaires, ex. 0.750 kg ; le typage `Int` était une erreur de modélisation, le front affichait déjà ce champ en flottant). |
 | `unitCost` | **Censé être** le coût d'UNE unité produite. Voir le bug ci-dessous : ce n'est actuellement PAS le cas. |
 | `readyForSale`/`kitchenType` | Même contrat que sur `MenuItem`. |
 | `componentTypeId`/`componentCategoryId` | Taxonomie propre (voir section taxonomies). |
@@ -217,6 +217,53 @@ legacy mort `subComponents`) fait l'erreur inverse — une **multiplication**
 **Statut (2026-07-15)** : documenté, **non corrigé**. Si tu corriges : diviser par
 `numberOfUnitsRecipe || 1` dans `computeComponentUnitCost()`, et prévoir un backfill de tous les
 `MenuItem.totalCost` dépendant d'un composant concerné.
+
+### Import/Export CSV — recette incluse (BUG-256-02)
+
+Un seul format cible en import (contrairement à Market Prices, aucun format legacy à préserver
+côté Components) :
+`Component ID,Component Name,Category,Component Type,Unit,Number of Units per Recipe,Packaging Type,Number of units,Storage Type,Description,Recipe`.
+`Category` (valeur parente, ex. "Food") → `category` (texte) + `componentTypeId` (résolu/auto-créé)
+; `Component Type` (valeur enfant, ex. "Veg"/"Sauce") → `componentCategory` (texte) +
+`componentCategoryId` — inversion volontaire entre le nom des colonnes CSV et les champs internes,
+la hiérarchie Food→Veg/Sauce prime sur le libellé littéral de la colonne.
+
+**Format packé de `Recipe`** : segments séparés par `|`, sous-champs séparés par `>`. Un ingrédient
+a un slot vide en plus d'un sous-composant (`localId>Ingredient>>refId>quantity`, 5 parties, vs.
+`localId>Component>refId>quantity`, 4 parties) — même syntaxe que l'ancien format `Recipe` de
+MenuItem (`parseRecipe()`, remplacé depuis par un format multi-lignes, voir
+[[108_menu_items_csv_reimport_format_multi_lignes]]), réutilisée ici car elle convient à la
+reprise d'un fichier historique figé (pas à un cycle d'édition humaine répété, d'où l'absence
+volontaire d'un format multi-lignes équivalent côté Components pour l'instant).
+
+**Résolution des références legacy** — la colonne `Recipe` référence des ingrédients par
+d'anciens **Market Price ID** (pas des noms, pas des ids d'`Ingredient`) : le chantier Market
+Prices (BUG-254-02) ne conserve nulle part le mapping ancien-id → nouveau-id. Résolution : (a) si
+la référence correspond à un `Ingredient.id` réel du tenant → utilisée directement (round-trip
+après un export packé de cette base) ; (b) sinon, un **fichier compagnon Market Prices optionnel**
+(le CSV d'origine, uploadé en plus du CSV Components, parsé uniquement en mémoire côté navigateur)
+permet de résoudre ancien-id → `Item Name` → `Ingredient` par nom ; (c) sinon la ligne de recette
+est ignorée (le composant est quand même créé/mis à jour). Les sous-composants (`Component` dans
+`Recipe`) référencent toujours une **autre ligne du même CSV** via sa colonne `Component ID` —
+résolu en 2 passes (tous les composants créés/mis à jour d'abord, puis les sous-composants),
+indépendamment de l'ordre des lignes dans le fichier.
+
+**Upsert** : par `Component ID` s'il correspond à un cuid réel du tenant, sinon par nom (évite les
+doublons sur réimport d'un même fichier legacy, dont les ids ne matcheront jamais).
+`ComponentType`/`ComponentCategory` résolus par nom exact et auto-créés si absents — pas d'étape
+de résolution interactive façon Levenshtein (Market Prices en a une pour 4 champs de taxonomie ;
+2 champs ici, jugé disproportionné).
+
+**Export** : `componentListView.vue` a deux boutons qui coexistent — l'export plat existant
+(8 colonnes, inchangé) et un nouvel export packé (`onExportCsvPacked()`) qui encode
+`ingredients[]`/`children[]` avec les **vrais cuids** de cette base, permettant un cycle
+export → édition → réimport sans fichier compagnon.
+
+**Fichiers** : `ComponentCsvImportDrawer.vue` (nouveau, drawer d'import), `componentListView.vue`
+(export packé + bouton import), `menu.api.js` (`replaceComponentIngredients`/
+`replaceComponentChildren`, les routes `PUT /menu-components/:id/ingredients`\|`/children`
+existaient déjà côté backend mais sans wrapper client). Détail complet :
+[[256_02_components_csv_import_export_recette]].
 
 ---
 

@@ -3,7 +3,6 @@ import {
   IsString,
   IsOptional,
   IsNumber,
-  IsInt,
   IsArray,
   IsEnum,
   ValidateNested,
@@ -286,9 +285,9 @@ export class CreateMenuComponentDto {
   @IsString()
   componentCategoryId?: string;
 
-  @ApiPropertyOptional({ description: "Nombre d'unités par recette" })
+  @ApiPropertyOptional({ description: "Nombre d'unités par recette (peut être fractionnaire, ex. rendement de batch en kg)" })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Type(() => Number)
   numberOfUnitsRecipe?: number;
 
