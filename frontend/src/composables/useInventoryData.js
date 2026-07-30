@@ -107,6 +107,8 @@ export function useInventoryData(selectedConfigId) {
   const menuItems = computed(() => store.state.analyse?.menuItems || [])
   const components = computed(() => store.state.analyse?.components || [])
   const marketPrices = computed(() => store.state.inventory?.marketPrices || [])
+  const storageTypes = computed(() => store.getters['storageTypes/storageTypes'] || [])
+  store.dispatch('storageTypes/fetchStorageTypes')
 
   const catalogById = computed(() => {
     const m = new Map()
@@ -411,7 +413,7 @@ export function useInventoryData(selectedConfigId) {
         // marketPrices : même renommage market-price que côté shops (clé de denrée
         // identique shop↔storage — indispensable au ledger Logistic keyé par nom).
         const storageInventory = buildStorageInventory(
-          types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value,
+          types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value, storageTypes.value,
         )
         return { element: el, storageInventory }
       })

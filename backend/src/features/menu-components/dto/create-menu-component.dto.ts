@@ -10,14 +10,6 @@ import {
 import { Type, Transform } from 'class-transformer';
 import { KitchenType } from '@prisma/client';
 
-export enum StorageType {
-  Dry = 'Dry',
-  Cold = 'Cold',
-  Freezer = 'Freezer',
-  Material = 'Material',
-  NA = 'NA',
-}
-
 /**
  * DTO pour définir une ligne d'ingrédient dans un composant.
  * Note: Les champs supplémentaires envoyés sont automatiquement ignorés par le ValidationPipe.
@@ -237,7 +229,7 @@ export class CreateMenuComponentDto {
   @IsString()
   description?: string;
 
-  @ApiPropertyOptional({ description: 'Type de stockage (Dry, Cold, Freezer, Material, NA)' })
+  @ApiPropertyOptional({ description: 'Type de stockage (nom du référentiel StorageType, ex. Dry/Cold/Frozen)' })
   @IsOptional()
   @IsString()
   storageType?: string;

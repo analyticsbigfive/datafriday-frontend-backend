@@ -2151,6 +2151,11 @@ model MenuItem {
   salesMappings   ProductMapping[]
   priceHistory    MenuItemPriceHistory[]
   spaceLinks      SpaceMenuItem[]
+  // Composition "Combo"/"Menu" par d'autres MenuItem vendables (ex. "Burger + Frites" = composé
+  // de "Burger" + "Frites"), distincte de `comboItem` (flag scalaire "cet item est réutilisable
+  // tel quel dans un combo") et de `components[]` (qui pointe vers MenuComponent, pas MenuItem).
+  comboChildren   MenuItemCombo[]        @relation("ComboParentToChild")
+  comboParents    MenuItemCombo[]        @relation("ComboChildToParent")
 
   @@index([tenantId])
   @@index([name])
@@ -2160,6 +2165,22 @@ model MenuItem {
   @@index([displayNameId])
   @@index([readyForSale])
   @@index([tenantId, deletedAt])
+}
+
+model MenuItemCombo {
+  id       String   @id @default(cuid())
+  parentId String
+  childId  String
+  quantity Float
+  unit     String?
+  cost     Decimal? @db.Decimal(10, 4)
+
+  parent MenuItem @relation("ComboParentToChild", fields: [parentId], references: [id], onDelete: Cascade)
+  child  MenuItem @relation("ComboChildToParent", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, childId])
+  @@index([parentId])
+  @@index([childId])
 }
 
 /// Association espace↔menu item + prix par espace. UNE ligne = « cet item est vendu dans cet

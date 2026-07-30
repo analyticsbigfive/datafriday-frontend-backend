@@ -477,7 +477,6 @@ export default {
       },
 
       unitOptions: ["Kg", "L", "Pc"],
-      storageTypeOptions: ["Dry Storage", "Cold", "Frozen"],
       readyForSaleOptions: ["Yes", "No"],
       rules: {
         required: (v) => !!String(v ?? "").trim() || "Required",
@@ -526,6 +525,14 @@ export default {
     packagingCategoryOptions() {
       return (this.$store.getters['packingTypes/packingTypes'] || [])
         .map(p => String(p?.name ?? '').trim())
+        .filter(Boolean)
+    },
+    // CFG-2 : Storage Type est un référentiel CRUD-éditable (Configurations, store
+    // storageTypes) — remplace l'ancienne liste figée qui contenait "Dry Storage" (≠ "Dry"
+    // attendu par Prisma, sauvegarde en échec systématique sur cette option).
+    storageTypeOptions() {
+      return (this.$store.getters['storageTypes/storageTypes'] || [])
+        .map(s => String(s?.name ?? '').trim())
         .filter(Boolean)
     },
     selectedComponentTypeId() {
@@ -1032,6 +1039,7 @@ export default {
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
     this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
+    this.$store.dispatch('storageTypes/fetchStorageTypes');
 
     // Charger les données du composant si en mode édition
     if (this.isEditMode) {

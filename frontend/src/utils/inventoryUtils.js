@@ -777,20 +777,19 @@ export function buildStorageInventory(
   selectedShopIds,
   components,
   marketPrices,
+  storageTypes = [],
 ) {
-  // Map storage types from menu items to element storage types
+  // CFG-2 : StorageType est un référentiel CRUD-éditable (Configurations) — la valeur portée par
+  // un menu item/composant est `name` (texte libre, renommable), le code stable 'dry'/'cold'/
+  // 'belowzero' attendu par les sous-types Storage du Builder vit sur `StorageType.code`
+  // (uniquement les 3 lignes historiques ; `storageTypes` = liste tenant, store `storageTypes`).
+  const storageTypeByNameLower = new Map(
+    storageTypes.map(st => [String(st.name ?? '').toLowerCase(), st.code ?? st.id]),
+  );
   const mapStorageType = menuStorageType => {
-    switch (menuStorageType) {
-      case 'Dry':
-        return 'dry';
-      case 'Cold':
-        return 'cold';
-      case 'Frozen':
-      case 'Freezer': // legacy : valeur écrite par la checkbox avant correctif BUG-005
-        return 'belowzero';
-      case 'Material':
-        return 'material';
-    }
+    if (!menuStorageType) return undefined;
+    if (menuStorageType === 'Freezer') return 'belowzero'; // legacy : valeur écrite avant BUG-005
+    return storageTypeByNameLower.get(String(menuStorageType).toLowerCase());
   };
 
   // Helper function to get storage types for an inventory item
