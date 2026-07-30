@@ -1,6 +1,5 @@
 <template>
   <div id="hr-positions-page" :class="{ 'hsl--dark': isDark }">
-  <div id="hr-positions-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -115,7 +114,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useTheme } from 'vuetify'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
-import { useTheme } from 'vuetify'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
@@ -151,10 +149,6 @@ const tableHeaders = [
   { title: t('hrColRate'), key: 'ratePerHour' },
   { title: '', key: 'actions', sortable: false, align: 'end' },
 ]
-
-// Thème sombre (BUG-247-01) — classe racine hsl--dark (pattern BUG-196).
-const theme = useTheme()
-const isDark = computed(() => !!theme.global.current.value.dark)
 
 const positions = ref([])
 const suppliers = ref([])
@@ -374,7 +368,7 @@ async function confirmDelete() {
 /* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
    Header rouge #ff3131 volontairement identique dans les deux thèmes (parité
    BUG-197 « bandeaux rouges inchangés »). ── */
-.hsl--dark { background: #111827; }
+#hr-positions-page.hsl--dark { background: #111827; }
 .hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
 .hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
 .hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }
