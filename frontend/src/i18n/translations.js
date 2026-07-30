@@ -558,6 +558,8 @@ export const translations = {
     compListNoComponentsFound: 'No components found',
     compListNoComponentsMessage: 'Get started by adding your first component',
     compListTryAdjusting: 'Try adjusting your search or filters',
+    compListImportCsv: 'Import CSV',
+    compListExportCsvPacked: 'CSV (with recipe)',
 
     // ComponentCreateView
     compCreateTitleCreate: 'Create New Component',
@@ -4456,6 +4458,8 @@ export const translations = {
     compListNoComponentsFound: 'Aucun composant trouvé',
     compListNoComponentsMessage: 'Commencez par ajouter votre premier composant',
     compListTryAdjusting: 'Essayez d\'ajuster votre recherche ou vos filtres',
+    compListImportCsv: 'Importer CSV',
+    compListExportCsvPacked: 'CSV (avec recette)',
 
     // ComponentCreateView
     compCreateTitleCreate: 'Créer un composant',

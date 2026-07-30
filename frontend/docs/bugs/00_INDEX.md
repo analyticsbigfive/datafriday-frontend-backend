@@ -270,6 +270,7 @@
 | [252-02](252_02_csvimportdrawer_rate_limit_429_import_masse_echec_definitif.md) | Import CSV en masse : dépasse le palier "medium" du rate-limiter tenant (300 req/60s), toutes les lignes restantes échouent définitivement en 429 | 🟡 Corrigé non testé | 🔴 | Événements |
 | [253-02](253_02_csvimportdrawer_teams_jamais_relies_catalogue.md) | Import CSV : Home/Visiting Team jamais reliés au catalogue `Team` (texte libre uniquement) | 🟡 Corrigé non testé | 🟠 | Événements |
 | [254-02](254_02_market_prices_csv_format_packe_par_article_import_export.md) | Market Prices : absence d'un format CSV « packé par article » (1 ligne = 1 Item, prix fournisseurs empilés + upsert par id) pour la reprise de données historiques | 🟡 Corrigé non testé | 🟠 | Achats & référentiels |
+| [256-02](256_02_components_csv_import_export_recette.md) | Components : aucun import CSV n'existait (export plat seulement) — ajout import/export packé avec recette (ingrédients + sous-composants), résolution des anciens ids Market Price via fichier compagnon, migration `numberOfUnitsRecipe` Int→Float | 🟡 Corrigé non testé | 🟠 | Menu & recettes |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
