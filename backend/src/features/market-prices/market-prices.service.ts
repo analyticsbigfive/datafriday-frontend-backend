@@ -261,10 +261,13 @@ export class MarketPricesService {
     return this.serialize(price);
   }
 
-  async update(id: string, dto: UpdateMarketPriceDto, tenantId: string) {
-    this.logger.log(`Updating market price ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
-
+  /**
+   * Construit l'objet `data` Prisma d'un update partiel de MarketPrice à partir des champs
+   * réellement fournis par le DTO (`!== undefined`) — partagé entre `update()` (édition manuelle)
+   * et `bulkCreate()` (upsert par id depuis l'import CSV format packé) pour ne pas dupliquer la
+   * liste des ~20 champs mappables.
+   */
+  private async buildMarketPriceUpdateData(dto: UpdateMarketPriceDto | CreateMarketPriceDto) {
     const updateData: any = {};
     if (dto.itemName !== undefined) updateData.itemName = dto.itemName;
     if (dto.unit !== undefined) updateData.unit = dto.unit;
@@ -289,6 +292,14 @@ export class MarketPricesService {
     if (dto.packingLength !== undefined) updateData.packingLength = dto.packingLength;
     if (dto.purchasePackaging !== undefined) updateData.purchasePackaging = dto.purchasePackaging;
     if (dto.inventoryPackaging !== undefined) updateData.inventoryPackaging = dto.inventoryPackaging;
+    return updateData;
+  }
+
+  async update(id: string, dto: UpdateMarketPriceDto, tenantId: string) {
+    this.logger.log(`Updating market price ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
+
+    const updateData = await this.buildMarketPriceUpdateData(dto);
 
     try {
       const price = await this.prisma.marketPrice.update({
@@ -358,6 +369,7 @@ export class MarketPricesService {
     this.logger.log(`Bulk creating ${items.length} market prices for tenant ${tenantId}`);
     const result = {
       created: [] as any[],
+      updated: [] as any[],
       skipped: 0,
       errors: [] as Array<{ index: number; itemName?: string; message: string }>,
     };
@@ -365,6 +377,29 @@ export class MarketPricesService {
     for (let index = 0; index < items.length; index++) {
       const dto = items[index];
       try {
+        // Import format « packé » (1 ligne = 1 Item, prix fournisseurs empilés avec leur propre
+        // Market Price ID) : si le CSV fournit un id ET qu'il correspond à un MarketPrice existant
+        // de CE tenant, on met à jour cette ligne au lieu de la recréer/dédoublonner — permet le
+        // cycle export (avec ids réels) → édition externe → réimport. Un id présent mais inconnu
+        // (cas du tout premier import d'un fichier legacy dont les ids viennent d'un autre système)
+        // tombe silencieusement dans le flux de création normal ci-dessous : Prisma générera un
+        // nouveau cuid, l'id fourni est simplement ignoré.
+        if (dto.id) {
+          const existingById = await this.prisma.marketPrice.findFirst({
+            where: { id: dto.id, tenantId },
+          });
+          if (existingById) {
+            const updateData = await this.buildMarketPriceUpdateData(dto);
+            const updated = await this.prisma.marketPrice.update({
+              where: { id: existingById.id },
+              data: updateData,
+            });
+            await this.resyncLinkedRecipeCosts(updated, tenantId);
+            result.updated.push(this.serialize(updated));
+            continue;
+          }
+        }
+
         // Dédoublonnage exact à l'insertion : évite de recréer une ligne identique à chaque
         // réimport du même CSV (cf. BUG connu : aucune contrainte @@unique en base sur
         // MarketPrice). `deduplicate()` (méthode séparée ci-dessous, corrigée par BUG-24)
@@ -460,7 +495,8 @@ export class MarketPricesService {
     }
 
     this.logger.log(
-      `Bulk create complete: ${result.created.length} created, ${result.skipped} skipped (duplicates), ${result.errors.length} errors`,
+      `Bulk create complete: ${result.created.length} created, ${result.updated.length} updated, ` +
+      `${result.skipped} skipped (duplicates), ${result.errors.length} errors`,
     );
     return result;
   }

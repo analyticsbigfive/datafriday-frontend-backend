@@ -33,11 +33,11 @@ préalable pour travailler sur le code.
 | [07_EVENEMENTS.md](07_EVENEMENTS.md) | Événements | Ulrich | 5 |
 | [08_AUTH_ONBOARDING.md](08_AUTH_ONBOARDING.md) | Auth & onboarding, RBAC | Emmanuel | 8 |
 | [09_TECHNIQUE.md](09_TECHNIQUE.md) | Technique (Orchestrator/Health/Audit/Webhooks) | — | 6 |
-| [12_LIVE.md](12_LIVE.md) 🔵 | Live events (**conception — à construire**) | Ulrich (back) / Jean-Luc (front) | — |
+| [11_LIVE.md](11_LIVE.md) 🟢 | Live events — front (A→E) + backend (v1+v2) livrés, mergés `develop` ; reste déploiement Render + question #34 (◉ Home) | Ulrich (fullstack) | 234 |
 
-> 🔵 **Exception** : `12_LIVE.md` est une **conception d'un module à construire**, pas une
-> cartographie vérifiée contre le code (le code n'existe pas encore). Elle passera au format vérifié
-> une fois le module livré. Toutes les autres pages décrivent du code réel.
+> 🟢 **Live** : `11_LIVE.md` était une conception ; le module est désormais **livré** (front A→E +
+> backend v1+v2, mergés `develop`). Elle passera au format « cartographie vérifiée » une fois le
+> backend **déployé sur Render** (les endpoints Live renvoient 404 tant que ce n'est pas fait).
 | [10_POST_EVENT_INVENTORY.md](10_POST_EVENT_INVENTORY.md) | Stock — écrans Pre-event + Post-event Inventory, cycle de réconciliation et ponts inter-modules (page feature, complète 06 sans le dupliquer) ; § 9 vérification logique vs spec métier + § 10 exemple live Auxerre (2026-07-20) | Jean-Luc | — |
 | [11_RH_STAFFING.md](11_RH_STAFFING.md) | RH / Staffing — étape 1 : écrans Suppliers/Positions branchés sur `/hr` (localStorage, sans BDD) ; cible complète (spec pptx + règles xlsx, algo à revalider Bertrand #28) conservée en § 6 (2026-07-21) | Jean-Luc | 3 (201-203) |
 

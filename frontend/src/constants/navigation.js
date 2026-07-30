@@ -80,6 +80,7 @@ export const SETTINGS_NAVIGATION = [
         items: [
           { title: 'navHrSuppliers', route: '/hr', permission: 'menu.hr.manage' },
           { title: 'navHrPositions', route: '/hr/positions', permission: 'menu.hr.manage' },
+          { title: 'navHrSettings', route: '/hr/settings', permission: 'menu.hr.manage' },
         ],
       },
       {

@@ -36,6 +36,7 @@
             variant="outlined"
             hide-details="auto"
             :rules="[rules.required]"
+            :menu-props="{ zIndex: 2500 }"
             class="ecd-v-select"
             @update:modelValue="handleTypeSelect"
           >

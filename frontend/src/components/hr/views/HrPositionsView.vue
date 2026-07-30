@@ -89,7 +89,7 @@
     </div>
 
     <!-- Drawer création / édition -->
-    <HrPositionFormDrawer
+    <HrRoleFormDrawer
       v-model="drawerOpen"
       :mode="drawerMode"
       :initial="editing"
@@ -115,7 +115,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
-import HrPositionFormDrawer from '../drawers/HrPositionFormDrawer.vue'
+import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
 
 // Avatars de table (parité HrSuppliersView).

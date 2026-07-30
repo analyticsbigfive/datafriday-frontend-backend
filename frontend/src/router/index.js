@@ -26,6 +26,7 @@ const EventsSubcategorieListView = () => import('../components/events/views/Even
 // Route HR View (Edit HR : bibliothèques Suppliers / Staff Positions)
 const HrSuppliersView = () => import('../components/hr/views/HrSuppliersView.vue')
 const HrPositionsView = () => import('../components/hr/views/HrPositionsView.vue')
+const HrSettingsView = () => import('../components/hr/views/HrSettingsView.vue')
 
 // Routes Menu FB Views — lazy comme le reste (en statique, ces 18 vues admin
 // étaient inlinées dans app.js et payées au premier paint de toutes les routes).
@@ -236,14 +237,22 @@ const routes = [
       {
         path: '/hr',
         name: 'hr',
+        // Fix : `HrView` n'existait pas (référence indéfinie) — la page Suppliers
+        // est l'entrée du module RH (navigation.js pointe /hr → navHrSuppliers).
         component: HrSuppliersView,
-        meta: { title: 'HR Suppliers', keepAlive: true, permission: 'menu.hr.manage' }
+        meta: { title: 'Edit HR', keepAlive: true, permission: 'menu.hr.manage' }
       },
       {
         path: '/hr/positions',
         name: 'hr-positions',
         component: HrPositionsView,
         meta: { title: 'Staff Positions', keepAlive: true, permission: 'menu.hr.manage' }
+      },
+      {
+        path: '/hr/settings',
+        name: 'hr-settings',
+        component: HrSettingsView,
+        meta: { title: 'Settings HR', keepAlive: true, permission: 'menu.hr.manage' }
       },
 
       {

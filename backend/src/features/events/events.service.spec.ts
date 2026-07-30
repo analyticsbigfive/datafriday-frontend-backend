@@ -711,15 +711,34 @@ describe('EventsService', () => {
     });
 
     describe('event team fields', () => {
-      it('persists homeTeamName and derives visitingTeamName from the owned team', async () => {
+      it('persists homeTeamName (créant l\'équipe au passage) and derives visitingTeamName from the owned team', async () => {
+        const newHomeTeam = {
+          id: 'team-2',
+          name: 'Stade Abidjan',
+          tenantId: 'tenant-1',
+          eventCategoryId: null,
+          eventSubcategoryId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
         mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
-        mockPrisma.team.findFirst.mockResolvedValue(mockTeam);
+        // findOwnedTeamOrThrow (visitingTeamId='team-1') cherche par id -> mockTeam.
+        // findExistingTeam (homeTeamName='Stade Abidjan') cherche par nom -> rien encore (à créer).
+        mockPrisma.team.findFirst.mockImplementation(({ where }) => {
+          if (where.id === 'team-1') return Promise.resolve(mockTeam);
+          if (where.name?.equals === 'Stade Abidjan') return Promise.resolve(null);
+          return Promise.resolve(null);
+        });
+        mockPrisma.team.create.mockResolvedValue(newHomeTeam);
         mockPrisma.event.update.mockResolvedValue(mockEvent);
 
         await service.update('evt-1', 'tenant-1', {
           homeTeamName: 'Stade Abidjan',
           visitingTeamId: 'team-1',
         } as any);
+        expect(mockPrisma.team.create).toHaveBeenCalledWith({
+          data: { tenantId: 'tenant-1', name: 'Stade Abidjan', eventCategoryId: null, eventSubcategoryId: null },
+        });
         expect(mockPrisma.event.update).toHaveBeenCalledWith(
           expect.objectContaining({
             data: expect.objectContaining({
@@ -727,6 +746,23 @@ describe('EventsService', () => {
               visitingTeamId: 'team-1',
               visitingTeamName: 'Asec Mimosas',
             }),
+          }),
+        );
+      });
+
+      it('réutilise une équipe déjà présente au lieu d\'en recréer une (homeTeamName)', async () => {
+        mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+        mockPrisma.team.findFirst.mockImplementation(({ where }) => {
+          if (where.name?.equals?.toLowerCase() === 'asec mimosas') return Promise.resolve(mockTeam);
+          return Promise.resolve(null);
+        });
+        mockPrisma.event.update.mockResolvedValue(mockEvent);
+
+        await service.update('evt-1', 'tenant-1', { homeTeamName: 'asec mimosas' } as any);
+        expect(mockPrisma.team.create).not.toHaveBeenCalled();
+        expect(mockPrisma.event.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ homeTeamName: 'Asec Mimosas' }),
           }),
         );
       });

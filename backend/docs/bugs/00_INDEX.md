@@ -124,6 +124,15 @@
 | [110](110_derivesalesraw_deletedat_non_filtre.md) | `deriveSalesRaw` (Logistic) ne filtre pas `SalesTransaction.deletedAt` | 🟢 Corrigé | 🟠 | Stock (Logistic) / Live events |
 | [111](111_aggregation_attendees_sync_mauvais_id.md) | Auto-sync attendees post-agrégation envoie le mauvais id à l'API Weezevent (404 systématique) | 🟢 Corrigé | 🟡 | Analyse & agrégation |
 | [112](112_weezevent_bissection_collecte_sequentielle_timeout_gros_tenant.md) | Bissection de collecte Weezevent strictement séquentielle : import complet d'un gros tenant dépasse le timeout frontend | 🟢 Corrigé | 🟠 | Intégrations & ventes |
+| [113-02](113_02_predictversionscontroller_commentaire_obsolete_versionid.md) | `predict-versions.controller.ts` : commentaire obsolète référençant une route `:versionId` inexistante | 🟡 Corrigé non testé | 🟡 | Événements / Prévision |
+| [114-02](114_02_eventsmodule_exports_inutilises.md) | `events.module.ts` : `EventsService`/`PredictVersionsService` exportés sans consommateur externe | 🟡 Corrigé non testé | 🟢 | Événements |
+| [115-02](115_02_createeventdto_createteamdto_maxlength_manquant.md) | `CreateEventDto`/`CreateTeamDto.name` sans `@MaxLength(100)`, contrairement à Type/Catégorie/Sous-catégorie | 🟡 Corrigé non testé | 🟡 | Événements |
+| [116-02](116_02_createeventdto_type_number_manquant_champs_numeriques.md) | `CreateEventDto` : `@Type(() => Number)` manquant sur les champs numériques | 🟡 Corrigé non testé | 🟢 | Événements |
+| [117-02](117_02_patchpredictversiondto_duplique_au_lieu_de_partialtype.md) | `PatchPredictVersionDto` dupliqué à la main au lieu de `PartialType(CreatePredictVersionDto)` | 🟡 Corrigé non testé | 🟡 | Événements / Prévision |
+| [118-02](118_02_createeventsubcategorydto_eventcategoryid_typage_incoherent.md) | `CreateEventSubcategoryDto.eventCategoryId` typé requis en TS mais optionnel en validation | 🟡 Corrigé non testé | 🟢 | Événements |
+| [119-02](119_02_createeventdto_sessions_array_objets_reduit_a_vide_class_transformer.md) | `CreateEventDto.sessions`/`CreatePredictVersionDto.predictedRecords` : tableau d'objets réduit à `[[]]` par class-transformer (design:type `Array` sans `@Type()`) | 🟡 Corrigé non testé | 🔴 | Événements / Prévision |
+| [120-02](120_02_eventsservice_resolveorcreateteambyname.md) | `EventsService` : résolution/création automatique des équipes par nom (`homeTeamName`/`visitingTeamName`), déplacée du frontend | 🟡 Corrigé non testé | 🟠 | Événements |
+| [121-02](121_02_resolveorcreateteambyname_race_condition_doublons_scope_null.md) | `resolveOrCreateTeamByName` : race condition crée des équipes en double quand le scope compétition est NULL/NULL | 🟡 Corrigé non testé | 🟠 | Événements |
 
 **112 bugs au total**, 112 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (18 shops, gros volume) échouant systématiquement avec "délai maximal

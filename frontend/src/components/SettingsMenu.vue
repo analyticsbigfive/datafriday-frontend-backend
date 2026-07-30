@@ -482,6 +482,16 @@
                 >
                   Positions
                 </button>
+                <button
+                  class="w-full text-left px-3 py-2 rounded-md transition-colors hover:bg-white dark:hover:bg-gray-800 text-sm"
+                  @click="
+                    () => {
+                      handleOpenHR && handleOpenHR('settings')
+                    }
+                  "
+                >
+                  Settings
+                </button>
               </div>
             </ScrollArea>
           </div>

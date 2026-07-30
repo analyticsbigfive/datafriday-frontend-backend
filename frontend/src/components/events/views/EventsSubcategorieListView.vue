@@ -139,6 +139,7 @@
               :placeholder="t('eventSubcategoryList.selectCategory')"
               hide-details="auto"
               :rules="[rules.required]"
+              :menu-props="{ zIndex: 2500 }"
               class="esl-drawer-select"
               @update:modelValue="handleCategoryChange"
             >
@@ -168,7 +169,7 @@
       </div>
     </v-navigation-drawer>
 
-    <EventCategoryDialog v-model="categoryDialog" :is-dark="isDark" :event-types="eventTypes" @created="handleCategoryCreated" />
+    <EventCategoryDialog v-model="categoryDialog" :event-types="eventTypes" @created="handleCategoryCreated" />
 
     <!-- BUG-155 : tiroir (au lieu d'un v-dialog centré) — cohérence charte graphique, cf. BUG-153. -->
     <EventDrawerShell
@@ -258,7 +259,6 @@ export default {
       search: "",
       taxonomyImportDrawer: false,
 
-      eventTypes: [],
       loading: false,
       error: "",
 
@@ -293,6 +293,15 @@ export default {
   computed: {
     subcategories() {
       return this.$store.getters['eventSubcategories/eventSubcategories']
+    },
+    // Réactif au store (comme `categories` ci-dessous) — contrairement à l'ancienne version
+    // qui copiait le résultat une seule fois dans une data() `eventTypes: []` : si le fetch
+    // initial échouait ou si le store se remplissait après coup, cette vue restait bloquée
+    // sur une liste figée (vide dans le pire cas), sans jamais se resynchroniser.
+    eventTypes() {
+      return this.$store.getters['eventTypes/eventTypes']
+        .map((t) => ({ ...t, id: t?.id || t?._id }))
+        .filter((t) => !!t.id)
     },
     categories() {
       return this.$store.getters['eventCategories/eventCategories']
@@ -358,13 +367,11 @@ export default {
     async loadEventTypes() {
       try {
         await this.$store.dispatch('eventTypes/fetchEventTypes');
-        const list = this.$store.getters['eventTypes/eventTypes'];
-        this.eventTypes = list.map((t) => ({
-          ...t,
-          id: t?.id || t?._id,
-        })).filter((t) => !!t.id);
       } catch (e) {
-        this.eventTypes = [];
+        // `eventTypes` (computed) reflète déjà le store — un échec ici laisse la liste
+        // vide si c'était le tout premier fetch, mais l'utilisateur voit maintenant
+        // pourquoi au lieu d'un select muet.
+        this.error = e?.response?.data?.message || e?.message || "Erreur lors du chargement des types d'événements";
       }
     },
 
