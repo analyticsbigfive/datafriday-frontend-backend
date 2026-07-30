@@ -11,6 +11,12 @@
  * Sidebar gauche (drawer permanent). `route: null` => entrée affichée mais
  * désactivée (page pas encore livrée — dashboards analytics globaux).
  *
+ * `spaceRoute` (au lieu de `route`) => chemin dépendant de l'espace courant :
+ * le `:spaceId` est substitué par DashboardView.goToFromMainNav depuis la route
+ * active, avec repli sur `/spaces` (choix de l'espace) quand on est sur une page
+ * hors espace. Sans ce mécanisme, les outils ne seraient atteignables que depuis
+ * une page déjà scopée à un espace.
+ *
  * ⚠️ Les codes `nav.analytics.*` ne sont attribués qu'au rôle ADMIN dans le
  * catalogue backend (SYSTEM_ROLES). Tant qu'un rôle métier ne les reçoit pas,
  * la section "Analytics" reste invisible pour lui (comportement attendu).
@@ -20,6 +26,27 @@ export const MAIN_NAVIGATION = [
     section: 'navMenu',
     items: [
       { title: 'navSpaces', value: 'spaces', icon: 'Building2', route: '/spaces', permission: 'nav.spaces' },
+    ],
+  },
+  {
+    // Outils F&B. Jusqu'ici ils n'étaient atteignables QUE par le dropdown
+    // « Outils » interne à Analyse / EventPredict / Inventaire / Logistique /
+    // Réarmement : depuis n'importe quelle autre page (Events, HR, Menus,
+    // Account…) le tiroir global n'offrait que « Espaces » + la section
+    // Analytics désactivée. Ces entrées rendent les outils — et le Live —
+    // joignables depuis TOUTES les pages.
+    // Libellés : on réutilise les clés `anTool*` / `invToolPreInventory` déjà
+    // traduites en/fr (pas de nouvelle clé de libellé à maintenir).
+    section: 'navTools',
+    items: [
+      { title: 'anToolAnalyse', value: 'tool-analyse', icon: 'LineChart', spaceRoute: '/spaces/:spaceId', permission: 'front.fb.analyse' },
+      { title: 'anToolPredict', value: 'tool-predict', icon: 'TrendingUp', spaceRoute: '/spaces/:spaceId?toolbox=predict', permission: 'front.fb.predict' },
+      { title: 'anToolEventPredict', value: 'tool-event-predict', icon: 'Zap', spaceRoute: '/spaces/:spaceId?toolbox=event-predict', permission: 'front.fb.eventPredict' },
+      { title: 'anToolLive', value: 'tool-live', icon: 'Radio', spaceRoute: '/spaces/:spaceId/live', permission: 'front.fb.live' },
+      { title: 'invToolPreInventory', value: 'tool-pre-inventory', icon: 'ClipboardList', spaceRoute: '/spaces/:spaceId/pre-inventory', permission: 'front.fb.spaceInventory' },
+      { title: 'anToolInventory', value: 'tool-inventory', icon: 'Package', spaceRoute: '/spaces/:spaceId/inventory', permission: 'front.fb.spaceInventory' },
+      { title: 'anToolLogistic', value: 'tool-logistic', icon: 'Forklift', spaceRoute: '/spaces/:spaceId/logistic', permission: 'front.fb.logistic' },
+      { title: 'anToolRestock', value: 'tool-restock', icon: 'Truck', spaceRoute: '/spaces/:spaceId/restock', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
     ],
   },
   {
