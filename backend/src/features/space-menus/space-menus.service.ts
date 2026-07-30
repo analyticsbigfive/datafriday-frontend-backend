@@ -123,6 +123,7 @@ export class SpaceMenusService {
         image: true,
         attributes: true,
         shopTypes: true,
+        subtypes: true,
         floor: { select: { config: { select: { id: true, spaceId: true } } } },
         forecourt: { select: { config: { select: { id: true, spaceId: true } } } },
         externalMerch: { select: { config: { select: { id: true, spaceId: true } } } },
@@ -400,7 +401,10 @@ export class SpaceMenusService {
       shopId: shopAny.id,
       shopName: shopAny.name,
       shopType: shopAny.type,
-      shopSubTypes: shopAny.shopTypes || [],
+      // Priorité subtypes (Builder v2, autoritaire) > shopTypes (colonne v1 héritée) —
+      // même règle que getSpaceShops (spaces.service.ts), sinon ce endpoint pré-remplirait
+      // ShopDetailEditDrawer avec une valeur périmée pour un shop édité depuis le Builder.
+      shopSubTypes: (Array.isArray(shopAny.subtypes) && shopAny.subtypes.length) ? shopAny.subtypes : (shopAny.shopTypes || []),
       notes: shopAny.notes,
       image: shopAny.image,
       attributes: shopAny.attributes,
