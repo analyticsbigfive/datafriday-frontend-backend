@@ -163,7 +163,7 @@
             :headers="tableHeaders"
             :items="filteredSuppliers"
             item-value="id"
-            density="comfortable"
+            density="compact"
             class="suppliers-table"
           >
             <template #item.name="{ item }">
@@ -198,8 +198,8 @@
             </template>
 
             <template #item.actions="{ item }">
-              <div class="d-flex justify-end" style="gap:6px">
-                <button class="slv-table-btn" @click.stop="onEditSupplier(item)">
+              <div class="slv-table-actions">
+                <button class="slv-table-btn slv-table-btn--edit" @click.stop="onEditSupplier(item)">
                   <Pencil :size="14" />
                 </button>
                 <button class="slv-table-btn slv-table-btn--del" @click.stop="onDeleteSupplier(item)">
@@ -739,32 +739,26 @@ export default {
   border-color: rgba(255,255,255,.08);
 }
 
+.suppliers-table :deep(.v-data-table__th),
 .suppliers-table :deep(.v-data-table__td) {
-  vertical-align: middle;
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
+.suppliers-table :deep(.v-data-table__td) { vertical-align: middle; }
 .suppliers-table :deep(.v-data-table__th) {
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-weight: 700 !important;
-  font-size: 11px !important;
+  font-size: var(--fs-xs) !important;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .06em;
   color: #9ca3af !important;
   background: #fafafa !important;
 }
-.slv--dark .suppliers-table :deep(.v-data-table__th) {
-  background: rgba(255,255,255,.03) !important;
-  color: rgba(255,255,255,.45) !important;
-}
-.suppliers-table :deep(.v-data-table__tr:hover) {
-  background: #fafafa !important;
-}
-.slv--dark .suppliers-table :deep(.v-data-table__tr:hover) {
-  background: rgba(255,255,255,.03) !important;
-}
+.suppliers-table :deep(tbody tr:hover td) { background: #fafafa !important; }
+.slv--dark .suppliers-table :deep(.v-data-table__th) { background: #1a2332 !important; }
+.slv--dark .suppliers-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
 .suppliers-table :deep(.v-data-table-footer) {
   border-top: 1px solid #e5e7eb;
   background: #fafafa !important;
@@ -789,9 +783,10 @@ export default {
 .slv-table-avatar--img { background: #f3f4f6; overflow: hidden; }
 .slv-table-avatar--img img { width: 100%; height: 100%; object-fit: cover; }
 
+.slv-table-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .slv-table-btn {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: none;
   border-radius: 8px;
   background: #f3f4f6;
@@ -800,11 +795,17 @@ export default {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all .18s;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
 }
-.slv-table-btn:hover { background: #e5e7eb; color: #374151; }
-.slv-table-btn--del:hover { background: #fef2f2; color: #ff3131; }
+.slv-table-btn--edit { background: #eff6ff; color: #2563eb; }
+.slv-table-btn--edit:hover { background: #dbeafe; }
+.slv-table-btn--del { background: #fef2f2; color: #ff3131; }
+.slv-table-btn--del:hover { background: #fee2e2; }
 
 /* ── Dark mode text ── */
 .slv--dark .suppliers-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.slv--dark .slv-table-btn { background: #1f2937; color: #cbd5e1; }
+.slv--dark .slv-table-btn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.slv--dark .slv-table-btn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
 </style>

@@ -295,13 +295,13 @@
           </template>
 
           <template #item.actions="{ item }">
-            <div class="d-flex justify-end" style="gap: 8px">
-              <v-btn icon variant="tonal" size="small" @click="onEditItem(item)" class="action-btn">
-                <Pencil :size="18" />
-              </v-btn>
-              <v-btn icon variant="tonal" size="small" color="error" @click="onDeleteItem(item)" class="action-btn">
-                <Trash2 :size="18" />
-              </v-btn>
+            <div class="mil-tbl-actions">
+              <div class="mil-tbl-abtn mil-tbl-abtn--edit" @click="onEditItem(item)">
+                <Pencil :size="15" />
+              </div>
+              <div class="mil-tbl-abtn mil-tbl-abtn--del" @click="onDeleteItem(item)">
+                <Trash2 :size="15" />
+              </div>
             </div>
           </template>
         </component>
@@ -1369,6 +1369,14 @@ export default {
   border-bottom-color: #1e293b !important;
 }
 
+/* Table (référence EventsListView) — header + hover + boutons d'action */
+.mil--dark .menu-items-table :deep(thead),
+.mil--dark .menu-items-table :deep(.v-data-table__th) { background: #1a2332 !important; }
+.mil--dark .menu-items-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.mil--dark .mil-tbl-abtn { background: #1f2937; color: #cbd5e1; }
+.mil--dark .mil-tbl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.mil--dark .mil-tbl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+
 .mil--dark .group-header-row {
   background: #1e293b !important;
   border-top-color: #374151 !important;
@@ -1487,44 +1495,45 @@ export default {
 }
 
 .menu-items-table :deep(thead) {
-  background: #f9fafb;
+  background: #fafafa;
 }
 
 .menu-items-table :deep(thead th),
 .menu-items-table :deep(thead th .v-data-table-header__content),
 .menu-items-table :deep(thead th span) {
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   text-transform: uppercase;
-  font-size: 0.68rem !important;
-  letter-spacing: 0.025em;
-  color: #374151 !important;
+  font-size: var(--fs-xs) !important;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
   border-bottom: none !important;
   white-space: nowrap;
+}
+.menu-items-table :deep(.v-data-table__th) {
+  background: #fafafa !important;
 }
 
 .menu-items-table :deep(tbody tr) {
   transition: all 0.2s ease;
 }
 
-.menu-items-table :deep(tbody tr:hover) {
-  background: #f9fafb !important;
+.menu-items-table :deep(tbody tr:hover td) {
+  background: #fafafa !important;
   transition: background-color 0.2s ease;
 }
 
-.menu-items-table :deep(tbody td) {
-  padding-top: 6px !important;
-  padding-bottom: 6px !important;
-  font-size: 0.75rem !important;
-}
-
-.menu-items-table :deep(tbody td span),
-.menu-items-table :deep(tbody td div) {
-  font-size: 0.75rem !important;
+.menu-items-table :deep(.v-data-table__td) {
+  vertical-align: middle;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+  font-size: var(--fs-base) !important;
 }
 
 .menu-items-table :deep(tbody td .v-chip),
 .menu-items-table :deep(tbody td .v-chip__content) {
-  font-size: 0.68rem !important;
+  font-size: var(--fs-xs) !important;
 }
 
 .menu-items-table :deep(tbody tr[data-item-type="item"]) {
@@ -1569,14 +1578,18 @@ export default {
 }
 
 /* Action Buttons */
-.action-btn {
-  transition: all 0.2s ease;
+.mil-tbl-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.mil-tbl-abtn {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: #f3f4f6; color: #6b7280;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
 }
-
-.action-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
+.mil-tbl-abtn--edit { background: #eff6ff; color: #2563eb; }
+.mil-tbl-abtn--edit:hover { background: #dbeafe; }
+.mil-tbl-abtn--del { background: #fef2f2; color: #ff3131; }
+.mil-tbl-abtn--del:hover { background: #fee2e2; }
 
 /* Animations */
 @keyframes fadeIn {
