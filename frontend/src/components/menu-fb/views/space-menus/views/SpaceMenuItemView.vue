@@ -40,10 +40,8 @@
 
         <!-- Category header -->
         <div class="smiv-cat-head">
-          <div class="smiv-cat-head__line"></div>
           <span class="smiv-cat-head__label">{{ group.category }}</span>
           <span class="smiv-cat-head__count">{{ group.items.length }}</span>
-          <div class="smiv-cat-head__line"></div>
         </div>
 
         <!-- Items grid -->
@@ -245,7 +243,6 @@ export default {
 .smiv-cat-head {
   display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
 }
-.smiv-cat-head__line { flex: 1; height: 1px; background: #e5e7eb; }
 .smiv-cat-head__label { font-size: 13px; font-weight: 700; color: #6b7280; white-space: nowrap; text-transform: uppercase; letter-spacing: .04em; }
 .smiv-cat-head__count {
   background: rgba(255, 49, 49,.1); color: #ff3131;

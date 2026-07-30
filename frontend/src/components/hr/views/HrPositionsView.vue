@@ -1,5 +1,6 @@
 <template>
   <div id="hr-positions-page" :class="{ 'hsl--dark': isDark }">
+  <div id="hr-positions-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -48,7 +49,7 @@
           :headers="tableHeaders"
           :items="filtered"
           item-value="id"
-          density="comfortable"
+          density="compact"
           class="hsl-table"
         >
           <template #item.positionName="{ item }">
@@ -112,12 +113,17 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useTheme } from 'vuetify'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { useTheme } from 'vuetify'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
+
+// Dark mode autonome (pattern maison) : suit le thème Vuetify global.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Avatars de table (parité HrSuppliersView).
 const AVATAR_GRADIENTS = [
@@ -311,30 +317,12 @@ async function confirmDelete() {
 /* ── Contenu ── */
 .hsl-content { padding: 24px 28px; }
 
-/* ── Table (parité .hsl-table) ── */
-.hsl-table-wrap {
-  background: #fff;
-  border-radius: 16px;
-  border: 1px solid #e5e7eb;
-  overflow: hidden;
-}
-.hsl-table :deep(.v-data-table__td) {
-  vertical-align: middle;
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-size: var(--fs-base);
-}
-.hsl-table :deep(.v-data-table__th) {
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-weight: var(--fw-bold) !important;
-  font-size: var(--fs-xs) !important;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #9ca3af !important;
-  background: #fafafa !important;
-}
-.hsl-table :deep(.v-data-table__tr:hover) { background: #fafafa !important; }
+/* ── Table (référence EventsListView : .elv-table*) ── */
+.hsl-table-wrap { background: #fff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden; }
+.hsl-table :deep(.v-data-table__th), .hsl-table :deep(.v-data-table__td) { font-size: var(--fs-base); padding-top: 10px; padding-bottom: 10px; padding-left: 16px; padding-right: 16px; }
+.hsl-table :deep(.v-data-table__td) { vertical-align: middle; }
+.hsl-table :deep(.v-data-table__th) { font-size: var(--fs-xs) !important; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #9ca3af !important; background: #fafafa !important; }
+.hsl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 .hsl-table :deep(.v-data-table-footer) { border-top: 1px solid #e5e7eb; background: #fafafa !important; }
 
 .hsl-cell-name { font-weight: var(--fw-semibold); font-size: var(--fs-md); }
@@ -365,21 +353,10 @@ async function confirmDelete() {
   white-space: nowrap;
 }
 .hsl-badge--more { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
-.hsl-table-btn {
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 8px;
-  background: #f3f4f6;
-  color: #6b7280;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.18s;
-}
-.hsl-table-btn:hover { background: #e5e7eb; color: #374151; }
-.hsl-table-btn--del:hover { background: #fef2f2; color: #ff3131; }
+.hsl-table-btn { width: 30px; height: 30px; border: none; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .18s; }
+.hsl-table-btn:hover { background: #dbeafe; }
+.hsl-table-btn--del { background: #fef2f2; color: #ff3131; }
+.hsl-table-btn--del:hover { background: #fee2e2; }
 
 .hsl-empty { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; text-align: center; }
 .hsl-empty__icon {

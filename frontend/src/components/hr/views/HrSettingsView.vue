@@ -3,6 +3,7 @@
        Rendue dans le chrome DashboardView (barre + rail), comme HrSuppliersView :
        header rouge sticky + recherche + grille de cartes. Pas de <v-app> propre. -->
   <div id="hr-settings-page" :class="{ 'hsl--dark': isDark }">
+  <div id="hr-settings-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
