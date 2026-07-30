@@ -81,6 +81,27 @@
             </v-btn>
           </div>
         </v-card>
+
+        <!-- Fichiers compagnons optionnels : résolvent les vieux ids de la colonne "Recipe"
+             (format packé, fichier historique) par nom — jamais uploadés/persistés, parsés en
+             mémoire uniquement. Même principe que ComponentCsvImportDrawer.vue. -->
+        <v-divider class="my-5" />
+        <div class="text-body-2 font-weight-medium mb-1 mi-title">{{ t('menuItemImportCompanionTitle') }}</div>
+        <div class="text-caption mi-subtitle mb-3">{{ t('menuItemImportCompanionDesc') }}</div>
+
+        <input ref="companionMarketPricesInput" type="file" accept=".csv,text/csv" style="display:none" @change="onCompanionMarketPricesChange" />
+        <div class="mi-companion-row d-flex align-center mb-2" @click="$refs.companionMarketPricesInput.click()">
+          <FileSpreadsheet :size="18" class="mr-2" style="flex-shrink:0" />
+          <span class="text-body-2" style="flex:1">{{ companionMarketPricesFileName || t('menuItemImportCompanionMarketPrices') }}</span>
+          <button v-if="companionMarketPricesFileName" class="mi-companion-clear" @click.stop="companionMarketPricesFileName = ''; companionMarketPricesMap = null"><X :size="14" /></button>
+        </div>
+
+        <input ref="companionComponentsInput" type="file" accept=".csv,text/csv" style="display:none" @change="onCompanionComponentsChange" />
+        <div class="mi-companion-row d-flex align-center" @click="$refs.companionComponentsInput.click()">
+          <FileSpreadsheet :size="18" class="mr-2" style="flex-shrink:0" />
+          <span class="text-body-2" style="flex:1">{{ companionComponentsFileName || t('menuItemImportCompanionComponents') }}</span>
+          <button v-if="companionComponentsFileName" class="mi-companion-clear" @click.stop="companionComponentsFileName = ''; companionComponentsMap = null"><X :size="14" /></button>
+        </div>
       </div>
 
       <!-- Step 2 : Mapping (BUG-112) — un v-select par champ interne, comme
@@ -413,6 +434,7 @@ import { X, FileSpreadsheet, Upload, CheckCircle2, AlertCircle, Download } from 
 // MarketPriceCsvImportDrawer.vue : un v-select par champ interne, pas par colonne CSV).
 // Sert aussi de source pour l'en-tête du tableau d'aperçu (visibleColumns).
 const MENU_ITEM_FIELDS = [
+  { key: 'csvId',          label: 'Menu Item ID',                required: false, group: 'identity' },
   { key: 'name',           label: 'Name',                       required: true,  group: 'identity' },
   { key: 'type',           label: 'Type',                       required: false, group: 'identity' },
   { key: 'category',       label: 'Category',                   required: false, group: 'identity' },
@@ -429,6 +451,8 @@ const MENU_ITEM_FIELDS = [
   { key: 'storageType',    label: 'Storage Type',               required: false, group: 'details' },
   { key: 'diet',           label: 'Diet',                       required: false, group: 'details' },
   { key: 'space',          label: 'Space',                       required: false, group: 'details' },
+  { key: 'inventoryPackagingType', label: 'Packaging Type',      required: false, group: 'details' },
+  { key: 'inventoryNumberOfUnits', label: 'Number of units',     required: false, group: 'details' },
   { key: 'description',    label: 'Description',                required: false, group: 'details' },
   { key: 'lineType',       label: 'Line Type',                   required: false, group: 'recipe' },
   { key: 'lineItemName',   label: 'Line Item Name',              required: false, group: 'recipe' },
@@ -451,6 +475,7 @@ const MAPPING_GROUP_LABELS = {
 // BUG-107 : colonnes du nouvel export "une ligne par ligne de recette" (MenuItemView.onExportCsv)
 // ajoutées, pour permettre un aller-retour export→import complet.
 const HEADER_MAP = {
+  'menu item id':     'csvId',
   'name':             'name',
   'display name':     'name', // alias historique : "Display Name" = nom de l'article lui-même
   'nom':              'name',
@@ -488,6 +513,7 @@ const HEADER_MAP = {
   'kitchen type':     'kitchenType',
   'cuisine':          'kitchenType',
   'number of pieces (recipe)': 'numberOfPiecesRecipe',
+  'number of pieces': 'numberOfPiecesRecipe',
   'nombre de pièces (recette)': 'numberOfPiecesRecipe',
   'discount type':    'discountType',
   'discount value':   'discountValue',
@@ -499,6 +525,8 @@ const HEADER_MAP = {
   'space':            'space',
   'spaces':           'space',
   'espace':           'space',
+  'packaging type':   'inventoryPackagingType',
+  'number of units':  'inventoryNumberOfUnits',
   'description':      'description',
   'recipe':           'recipe',
   'recette':          'recipe',
@@ -600,32 +628,72 @@ function toBool(v) {
 // Recipe column format: segments separated by "|"
 // Each segment: localId>TypeLabel>refId[>refId2]>quantity
 // TypeLabel: Ingredient | Packaging | Component | Combo Item
+// Fonction pure (pas d'accès à `this`) : retourne les refs BRUTES, jamais résolues ici — sur un
+// fichier historique, `refId` est un id de l'ancien système, pas un id/nom exploitable tel quel.
+// Ingredient/Packaging sont résolus via le fichier compagnon Market Prices ; Component ET Combo
+// Item sont traités de façon identique (même résolution en cascade : fichier compagnon
+// Components d'abord, auto-référence à une autre ligne de CE fichier ensuite) — voir
+// resolveLegacyRecipe().
 function parseRecipe(recipeStr) {
-  if (!recipeStr || !recipeStr.trim()) return {}
-  const ingredients = [], components = [], packagings = []
-  for (const seg of recipeStr.split('|')) {
-    if (!seg.trim()) continue
-    const parts = seg.split('>')
-    if (parts.length < 4) continue
-    const typeLabel = (parts[1] || '').trim().toLowerCase()
-    const qty = parseFloat(parts[parts.length - 1]) || 0
-    if (!qty) continue
-    // prefer 4th field as entity ID (index 3); fall back to 3rd (index 2)
-    const entityId = (parts.length >= 5 && parts[3]?.trim()) ? parts[3].trim() : (parts[2] || '').trim()
-    if (!entityId) continue
-    if (typeLabel === 'ingredient') {
-      ingredients.push({ ingredientId: entityId, numberOfUnits: qty })
-    } else if (typeLabel === 'component' || typeLabel === 'combo item') {
-      components.push({ componentId: entityId, numberOfUnits: qty })
-    } else if (typeLabel === 'packaging') {
-      packagings.push({ packagingId: entityId, numberOfUnits: qty })
+  const ingredientRefs = [], packagingRefs = [], comboRefs = []
+  if (recipeStr && recipeStr.trim()) {
+    for (const seg of recipeStr.split('|')) {
+      if (!seg.trim()) continue
+      const parts = seg.split('>')
+      if (parts.length < 4) continue
+      const typeLabel = (parts[1] || '').trim().toLowerCase()
+      const qty = parseFloat(parts[parts.length - 1]) || 0
+      if (!qty) continue
+      // prefer 4th field as entity ID (index 3); fall back to 3rd (index 2)
+      const refId = (parts.length >= 5 && parts[3]?.trim()) ? parts[3].trim() : (parts[2] || '').trim()
+      if (!refId) continue
+      if (typeLabel === 'ingredient') ingredientRefs.push({ refId, quantity: qty })
+      else if (typeLabel === 'component' || typeLabel === 'combo item') comboRefs.push({ refId, quantity: qty })
+      else if (typeLabel === 'packaging') packagingRefs.push({ refId, quantity: qty })
     }
   }
-  const result = {}
-  if (ingredients.length) result.ingredients = ingredients
-  if (components.length)  result.components  = components
-  if (packagings.length)  result.packagings  = packagings
-  return result
+  return { ingredientRefs, packagingRefs, comboRefs }
+}
+
+// Fichier compagnon Market Prices (packé, même format que le chantier Components) : construit
+// une Map ancien Market Price ID -> Item Name pour résoudre les vieux ids Ingredient/Packaging.
+function parseCompanionMarketPrices(text) {
+  const { headers, dataRows } = parseCsvRaw(text)
+  const map = new Map()
+  const norm = s => String(s || '').toLowerCase().replace(/[\s_\-()]+/g, '')
+  const headerNorm = headers.map(norm)
+  const idxItemName = headerNorm.findIndex(h => ['itemname', 'name', 'nom', 'article'].includes(h))
+  const idxMarketPrices = headerNorm.findIndex(h => ['marketprices', 'prixmarche', 'prixdumarche', 'prixfournisseurs'].includes(h))
+  if (idxMarketPrices === -1 || idxItemName === -1) return map
+  for (const row of dataRows) {
+    const itemName = (row[idxItemName] || '').trim()
+    const packed = (row[idxMarketPrices] || '').trim()
+    if (!itemName || !packed) continue
+    for (const seg of packed.split('|')) {
+      const id = (seg.split('>')[0] || '').trim()
+      if (id) map.set(id, itemName)
+    }
+  }
+  return map
+}
+
+// Fichier compagnon Components (components-2026-07-30.csv lui-même) : construit une Map ancien
+// Component ID -> Component Name pour résoudre les refs "Component"/"Combo Item" qui pointent
+// vers un vrai MenuComponent déjà importé.
+function parseCompanionComponents(text) {
+  const { headers, dataRows } = parseCsvRaw(text)
+  const map = new Map()
+  const norm = s => String(s || '').toLowerCase().replace(/[\s_\-()]+/g, '')
+  const headerNorm = headers.map(norm)
+  const idxId = headerNorm.findIndex(h => ['componentid', 'id'].includes(h))
+  const idxName = headerNorm.findIndex(h => ['componentname', 'name'].includes(h))
+  if (idxId === -1 || idxName === -1) return map
+  for (const row of dataRows) {
+    const id = (row[idxId] || '').trim()
+    const name = (row[idxName] || '').trim()
+    if (id && name) map.set(id, name)
+  }
+  return map
 }
 
 export default {
@@ -673,6 +741,17 @@ export default {
       createdCategories: [],
       createdBrands: [],
       createdDisplayNames: [],
+      // Fichiers compagnons optionnels (résolution des refs legacy Ingredient/Packaging/Component
+      // du fichier historique — même principe que ComponentCsvImportDrawer.vue) : parsés en
+      // mémoire uniquement, jamais uploadés/persistés.
+      companionMarketPricesFileName: '',
+      companionMarketPricesMap: null,
+      companionComponentsFileName: '',
+      companionComponentsMap: null,
+      // Progression pendant l'import (concurrence bornée) — absente avant ce chantier, ajoutée
+      // sur le modèle de CsvImportDrawer.vue (événements, BUG-252).
+      importTotal: 0,
+      unresolvedComboRefs: [], // [{ name, refId }] — refs Component/Combo Item non résolues, passe 2
     }
   },
 
@@ -841,14 +920,52 @@ export default {
       }
       return map
     },
+    // Format "Recipe" packé du fichier historique (voir parseRecipe()) : les refs peuvent déjà
+    // être de vrais ids de ce tenant (round-trip après un futur export packé) — Sets pour la
+    // résolution priorité (a), avant de retomber sur les fichiers compagnons / l'auto-référence.
+    ingredientValidIds() {
+      return new Set(this.ingredientNameToId.values())
+    },
+    packagingValidIds() {
+      return new Set(this.packagingNameToId.values())
+    },
+    componentValidIds() {
+      return new Set(this.componentNameToId.values())
+    },
+    // MenuItem existants du compte cible, par nom — pour résoudre l'auto-référence "Combo Item"
+    // (une ligne référence un autre MenuItem, soit une autre ligne de CE fichier, soit un item
+    // déjà présent dans ce tenant).
+    menuItemNameToId() {
+      const map = new Map()
+      for (const m of (this.$store.getters['menuItems/rows'] || [])) {
+        const id = String(m?.id ?? '').trim()
+        const name = String(m?.name ?? '').trim().toLowerCase()
+        if (id && name && !map.has(name)) map.set(name, id)
+      }
+      return map
+    },
+    // Map "Menu Item ID" (colonne CSV, id legacy) -> Name, construite depuis TOUTES les lignes du
+    // fichier — permet de résoudre une auto-référence "Combo Item" vers une AUTRE ligne du même
+    // CSV, quel que soit l'ordre (une ligne peut référencer une ligne définie plus loin).
+    csvIdToName() {
+      const map = new Map()
+      for (const row of this.mappedRawRows) {
+        if (row.csvId && row.name) map.set(row.csvId, row.name)
+      }
+      return map
+    },
     // Lignes de recette (Ingredient/Component/Packaging) dont le nom ne correspond à rien
     // dans le compte cible — l'article est quand même créé, juste sans cette ligne précise.
     // Affiché à l'utilisateur pour qu'il sache quoi créer/renommer avant de réessayer.
     unresolvedRecipeLines() {
       const out = []
       for (const row of this.validRows) {
-        if (!row.recipeLines?.length) continue
-        out.push(...this.resolveRecipeLines(row).unresolved)
+        if (row.recipeLines?.length) out.push(...this.resolveRecipeLines(row).unresolved)
+        // Format legacy packé (fichier historique) : seuls Ingredient/Packaging sont prévisibles
+        // ici (résolution par nom/fichier compagnon, statique) — Component/Combo Item peuvent
+        // dépendre d'un item créé PENDANT cet import (auto-référence), leur statut définitif
+        // n'est connu qu'après la passe 2 de runImport() (cf. unresolvedComboRefs, étape Résultat).
+        else if (row.recipe) out.push(...this.resolveLegacyRecipe(row).unresolved)
       }
       return out
     },
@@ -980,6 +1097,26 @@ export default {
       }
       reader.readAsText(file, 'UTF-8')
     },
+    onCompanionMarketPricesChange(e) {
+      const file = e.target?.files?.[0]
+      if (file) {
+        this.companionMarketPricesFileName = file.name
+        const reader = new FileReader()
+        reader.onload = ev => { this.companionMarketPricesMap = parseCompanionMarketPrices(ev.target.result) }
+        reader.readAsText(file, 'UTF-8')
+      }
+      e.target.value = ''
+    },
+    onCompanionComponentsChange(e) {
+      const file = e.target?.files?.[0]
+      if (file) {
+        this.companionComponentsFileName = file.name
+        const reader = new FileReader()
+        reader.onload = ev => { this.companionComponentsMap = parseCompanionComponents(ev.target.result) }
+        reader.readAsText(file, 'UTF-8')
+      }
+      e.target.value = ''
+    },
     // BUG-112 : auto-mapping par alias d'en-tête (réutilise HEADER_MAP existant), corrigible
     // ensuite manuellement à l'écran Mapping — même principe que
     // MarketPriceCsvImportDrawer.autoMap().
@@ -989,6 +1126,17 @@ export default {
       for (const header of this.csvHeaders) {
         const fieldKey = HEADER_MAP[header.toLowerCase().trim()]
         if (fieldKey && !newMapping[fieldKey]) newMapping[fieldKey] = header
+      }
+      // Fichier historique où "Name" ET "Display Name" sont deux colonnes réellement distinctes
+      // (contrairement à l'alias legacy 'display name' → name ci-dessus, pensé pour un export où
+      // "Display Name" est le seul nom de l'article) : si "Name" a déjà capté le field `name`,
+      // une colonne "Display Name" restée non consommée devient `displayNameRef` plutôt que de
+      // rester non mappée.
+      if (newMapping.name && !newMapping.displayNameRef) {
+        const displayNameHeader = this.csvHeaders.find(h => h.toLowerCase().trim() === 'display name')
+        if (displayNameHeader && displayNameHeader !== newMapping.name) {
+          newMapping.displayNameRef = displayNameHeader
+        }
       }
       this.mapping = newMapping
     },
@@ -1079,6 +1227,55 @@ export default {
       }
       return { ingredients, components, packagings, unresolved }
     },
+    // Résout la colonne "Recipe" packée du fichier historique (parseRecipe() ne retourne que des
+    // refs brutes, jamais résolues — voir sa doc). Ingredient/Packaging : priorité (a) id réel
+    // déjà existant dans ce tenant, (b) fichier compagnon Market Prices (ancien id -> Item Name
+    // -> nom résolu), (c) non résolu. Component/Combo Item : même cascade mais avec le fichier
+    // compagnon Components à l'étape (b) ; si toujours non résolu, DÉFÉRÉ à la passe 2 de
+    // runImport() (`comboItems`, résolu soit par un vrai MenuItem.id déjà existant, soit par
+    // auto-référence vers une autre ligne de ce même fichier — les deux nécessitent des données
+    // qui ne sont sûres qu'une fois toutes les lignes créées/mises à jour).
+    resolveLegacyRecipe(row) {
+      const { ingredientRefs, packagingRefs, comboRefs } = parseRecipe(row.recipe)
+      const ingredients = [], packagings = [], components = [], comboItems = [], unresolved = []
+
+      for (const ref of ingredientRefs) {
+        let id
+        if (this.ingredientValidIds.has(ref.refId)) id = ref.refId
+        else if (this.companionMarketPricesMap?.has(ref.refId)) {
+          const itemName = this.companionMarketPricesMap.get(ref.refId)
+          id = this.ingredientNameToId.get(String(itemName).trim().toLowerCase())
+        }
+        if (id) ingredients.push({ ingredientId: id, numberOfUnits: ref.quantity })
+        else unresolved.push({ item: row.name, type: 'Ingredient', name: ref.refId })
+      }
+
+      for (const ref of packagingRefs) {
+        let id
+        if (this.packagingValidIds.has(ref.refId)) id = ref.refId
+        else if (this.companionMarketPricesMap?.has(ref.refId)) {
+          const itemName = this.companionMarketPricesMap.get(ref.refId)
+          id = this.packagingNameToId.get(String(itemName).trim().toLowerCase())
+        }
+        if (id) packagings.push({ packagingId: id, numberOfUnits: ref.quantity })
+        else unresolved.push({ item: row.name, type: 'Packaging', name: ref.refId })
+      }
+
+      for (const ref of comboRefs) {
+        if (this.componentValidIds.has(ref.refId)) {
+          components.push({ componentId: ref.refId, numberOfUnits: ref.quantity })
+          continue
+        }
+        if (this.companionComponentsMap?.has(ref.refId)) {
+          const componentName = this.companionComponentsMap.get(ref.refId)
+          const id = this.componentNameToId.get(String(componentName).trim().toLowerCase())
+          if (id) { components.push({ componentId: id, numberOfUnits: ref.quantity }); continue }
+        }
+        comboItems.push({ refId: ref.refId, quantity: ref.quantity })
+      }
+
+      return { ingredients, packagings, components, comboItems, unresolved }
+    },
     buildPayload(row) {
       const { typeObj, catObj } = this.resolveTypeCategory(row)
       const payload = {
@@ -1119,9 +1316,20 @@ export default {
           .filter(Boolean)
         if (spaceIds.length) payload.spaceIds = spaceIds
       }
-      // Ancien format "Recipe" packé (IDs bruts, rétro-compatibilité) — utilisé seulement si
-      // le nouveau format multi-lignes (Line Type/Line Item Name) n'est pas présent.
-      if (row.recipe) Object.assign(payload, parseRecipe(row.recipe))
+      if (row.inventoryPackagingType) payload.inventoryPackagingType = row.inventoryPackagingType
+      if (row.inventoryNumberOfUnits) payload.inventoryNumberOfUnits = Number(row.inventoryNumberOfUnits) || undefined
+      // Nouveau format multi-lignes (Line Type/Line Item Name, BUG-108) — prioritaire s'il est
+      // présent. Sinon, ancien format "Recipe" packé du fichier historique, résolu par nom via
+      // les fichiers compagnons (voir resolveLegacyRecipe()) — plus jamais envoyé en ID brut.
+      if (row.recipe) {
+        const { ingredients, packagings, components, comboItems } = this.resolveLegacyRecipe(row)
+        if (ingredients.length) payload.ingredients = ingredients
+        if (packagings.length)  payload.packagings  = packagings
+        if (components.length)  payload.components  = components
+        // Jamais envoyé au backend tel quel (pas un champ du DTO) — consommé et retiré par
+        // runImport() avant l'appel API, pour la résolution en passe 2 (auto-référence MenuItem).
+        if (comboItems.length) payload._pendingComboRefs = comboItems
+      }
       if (row.recipeLines?.length) {
         const { ingredients, components, packagings } = this.resolveRecipeLines(row)
         if (ingredients.length) payload.ingredients = ingredients

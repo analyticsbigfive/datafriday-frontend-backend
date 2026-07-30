@@ -77,6 +77,10 @@ export class MenuItemsService {
       include: { packaging: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } },
       orderBy: { id: 'asc' as const },
     },
+    comboChildren: {
+      include: { child: true },
+      orderBy: { id: 'asc' as const },
+    },
     menuAssignments: {
       include: {
         // select scalaire : serializeItem ne lit que station.config.spaceId — un
@@ -286,7 +290,8 @@ export class MenuItemsService {
       const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
       const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
       const packagingsLines = Array.isArray((dto as any).packagings) ? (dto as any).packagings : undefined;
-      
+      const comboItemsLines = Array.isArray((dto as any).comboItems) ? (dto as any).comboItems : undefined;
+
       if (ingredientsLines) {
         this.logger.debug(`Ingredient IDs: ${ingredientsLines.map((i: any) => i.ingredientId).join(', ')}`);
       }
@@ -358,6 +363,19 @@ export class MenuItemsService {
                 },
               }
             : {}),
+
+          ...(comboItemsLines
+            ? {
+                comboChildren: {
+                  create: comboItemsLines.map((l: any) => ({
+                    childId: l.childId,
+                    quantity: this.toNumber(l.quantity),
+                    unit: l.unit,
+                    cost: l.cost != null ? Number(l.cost) : undefined,
+                  })),
+                },
+              }
+            : {}),
         } as any,
         include: this.includeRelations,
       });
@@ -369,7 +387,9 @@ export class MenuItemsService {
         spacePrices: (dto as any).spacePrices,
       });
 
-      if (componentsLines || ingredientsLines || packagingsLines) {
+      if (comboItemsLines) {
+        await this.refreshComboCost(tenantId, item.id);
+      } else if (componentsLines || ingredientsLines || packagingsLines) {
         await this.refreshCosts(tenantId, { itemIds: [item.id] });
       }
 
@@ -796,6 +816,7 @@ export class MenuItemsService {
     const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
     const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
     const packagingsLines = Array.isArray((dto as any).packagings) ? (dto as any).packagings : undefined;
+    const comboItemsLines = Array.isArray((dto as any).comboItems) ? (dto as any).comboItems : undefined;
 
     if (componentsLines) {
       updateData.components = {
@@ -824,6 +845,17 @@ export class MenuItemsService {
         })),
       };
     }
+    if (comboItemsLines) {
+      updateData.comboChildren = {
+        deleteMany: {},
+        create: comboItemsLines.map((l: any) => ({
+          childId: l.childId,
+          quantity: this.toNumber(l.quantity),
+          unit: l.unit,
+          cost: l.cost != null ? Number(l.cost) : undefined,
+        })),
+      };
+    }
 
     try {
       const item = await this.prisma.menuItem.update({
@@ -838,7 +870,9 @@ export class MenuItemsService {
         spacePrices: (dto as any).spacePrices,
       });
 
-      if (componentsLines || ingredientsLines || packagingsLines) {
+      if (comboItemsLines) {
+        await this.refreshComboCost(tenantId, id);
+      } else if (componentsLines || ingredientsLines || packagingsLines) {
         await this.refreshCosts(tenantId, { itemIds: [id] });
       }
 
@@ -1449,6 +1483,94 @@ export class MenuItemsService {
       }
       throw error;
     }
+  }
+
+  async replaceComboItems(menuItemId: string, comboItems: CreateMenuItemDto['comboItems'], tenantId: string) {
+    this.logger.log(`Replacing combo items for menu item ${menuItemId} (tenant ${tenantId})`);
+    await this.findOne(menuItemId, tenantId);
+    const lines = Array.isArray(comboItems) ? comboItems : [];
+
+    try {
+      await this.prisma.menuItem.update({
+        where: { id: menuItemId },
+        data: {
+          comboChildren: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              childId: l.childId,
+              quantity: this.toNumber(l.quantity),
+              unit: l.unit,
+              cost: l.cost != null ? Number(l.cost) : undefined,
+            })),
+          },
+        },
+      });
+
+      await this.refreshComboCost(tenantId, menuItemId);
+      await this.invalidateCache(tenantId);
+      return this.findOne(menuItemId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace combo items for menu item ${menuItemId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid childId in the provided list`);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Calcule récursivement le coût total d'un MenuItem en tenant compte de sa propre recette
+   * (components/ingredients/packagings, coût déjà résolu par ailleurs) PLUS sa composition combo
+   * (comboChildren → autres MenuItem vendables). Garde anti-cycle a posteriori (pile de
+   * `parentId` traversés), même principe que `MenuComponentsService.computeComponentUnitCost` —
+   * un cycle A→B→A lève une BadRequestException plutôt que de boucler indéfiniment.
+   */
+  private async computeMenuItemComboCost(itemId: string, tenantId: string, stack: string[] = []): Promise<number> {
+    if (stack.includes(itemId)) {
+      throw new BadRequestException(`Cycle detected in combo composition: ${[...stack, itemId].join(' -> ')}`);
+    }
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id: itemId, tenantId, deletedAt: null },
+      include: {
+        components: { include: { component: true } },
+        ingredients: { include: { ingredient: true } },
+        packagings: { include: { packaging: true } },
+        comboChildren: true,
+      },
+    });
+    if (!item) return 0;
+
+    let total = 0;
+    for (const line of item.components || []) {
+      total += this.toNumber((line as any).component?.unitCost, 0) * this.toNumber(line.numberOfUnits);
+    }
+    for (const line of item.ingredients || []) {
+      total += this.toNumber((line as any).ingredient?.costPerRecipeUnit, 0) * this.toNumber(line.numberOfUnits);
+    }
+    for (const line of item.packagings || []) {
+      total += this.toNumber((line as any).packaging?.costPerRecipeUnit, 0) * this.toNumber(line.numberOfUnits);
+    }
+
+    const nextStack = [...stack, itemId];
+    for (const combo of item.comboChildren || []) {
+      const childCost = await this.computeMenuItemComboCost(combo.childId, tenantId, nextStack);
+      total += childCost * this.toNumber(combo.quantity);
+    }
+
+    return Math.round(total * 10000) / 10000;
+  }
+
+  /**
+   * Recalcule et persiste `totalCost` pour UN item en tenant compte de sa composition combo.
+   * Distinct de `refreshCosts()` (plat, sans récursion, utilisé par les 3 autres routes
+   * `PUT :id/xxx` et le refresh global) — limite connue et assumée : `refreshCosts()` global
+   * (bulk/refresh-costs) ne recalcule PAS la contribution combo, seul un appel explicite à
+   * `replaceComboItems()`/`create()`/`update()` avec `comboItems` la met à jour.
+   */
+  async refreshComboCost(tenantId: string, itemId: string) {
+    const totalCost = await this.computeMenuItemComboCost(itemId, tenantId);
+    await this.prisma.menuItem.update({ where: { id: itemId }, data: { totalCost } });
+    return totalCost;
   }
 
   async remove(id: string, tenantId: string) {
