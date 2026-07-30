@@ -19,6 +19,7 @@ import { SpacesService } from '../spaces/spaces.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { StaffingCalculatorService } from '../staffing/staffing-calculator.service';
 import { detectFnbTags } from '../staffing/fnb-tags.util';
+import { STAFFING_ELEMENT_TYPES } from '../staffing/staffing.service';
 import {
   CreateZoneDto, UpdateZoneDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto,
@@ -937,6 +938,10 @@ export class BuilderV2Service {
    */
   async getStaffSuggestions(elementId: string, tenantId: string, configId?: string) {
     const element = await this.getElementOrThrow(elementId, tenantId);
+    // Garde-fou (2026-07-30) : `temporary` existe aussi comme sous-type du tool
+    // `merchshop` — sans ce filtre, un élément non-F&B tagué `temporary` matcherait
+    // à tort un rôle RH catégorie TEMPORARY. Même périmètre que generate().
+    if (!(STAFFING_ELEMENT_TYPES as readonly string[]).includes((element as any).type)) return [];
     const fnbTags = detectFnbTags((element as any).subtypes);
     if (fnbTags.size === 0) return [];
     const attrs = ((element as any).attributes ?? {}) as Record<string, any>;

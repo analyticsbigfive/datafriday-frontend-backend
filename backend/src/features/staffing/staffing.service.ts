@@ -247,7 +247,14 @@ export class StaffingService {
         peakTxParMin: perf?.transactionsPerMinute ?? 0,
         txParSeconde: num(attrs.txParSeconde) ?? DEFAULT_TX_PAR_SECONDE,
         hasResponsablePdv: attrs.hasResponsablePdv === true,
-        hasBeverage: el.type === 'fnb_beverages' || fnbTags.has('BEVERAGE'),
+        // BEER/DRINKEE regroupés ici avec BEVERAGE pour préserver le comportement déjà
+        // testé de la formule (2026-07-30) — seul le tagging de rôle RH distingue
+        // désormais les 3 catégories finement (cf. fnb-tags.util.ts).
+        hasBeverage:
+          el.type === 'fnb_beverages' ||
+          fnbTags.has('BEVERAGE') ||
+          fnbTags.has('BEER') ||
+          fnbTags.has('DRINKEE'),
         nbTireuses: num(attrs.nbTireuses) ?? 0,
         hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('FRONT_FOOD'),
         nbFriteuses: num(attrs.nbFriteuses) ?? 0,

@@ -541,3 +541,45 @@ ajouté est calculé depuis le rôle choisi (`hourlyRateFrom`, même formule que
 reste `source='MANUAL'` (jamais retouché par la synchronisation automatique), avec `roleId` renseigné
 pour la traçabilité.
 
+### 11.10 Design + deux bugs corrigés le même jour
+
+**Design** : passage d'une liste plate à des cartes façon `InventorySection.vue` (même recette
+`.inv-card`/`.inv-qty`), puis simplifié sur retour utilisateur (« texte en trop, épuré et intuitif ») —
+suppression des titres de groupe « Recommandé (RH) »/« Ajouté manuellement », une seule liste, un icône
+discret (`mdi-auto-fix`, info-bulle au survol) distingue une ligne `AUTO` d'une ligne `MANUAL` sans texte
+permanent.
+
+**Bug 1 — doublons** : rien n'empêchait de sélectionner deux fois le même rôle dans le menu déroulant
+manuel. Corrigé : `selectableRoles` (computed) retire du menu tout rôle déjà présent dans la liste
+(`roleId` déjà utilisé, auto ou manuel) — sélection impossible en double, le menu se réinitialise si le
+rôle sélectionné disparaît (ex. absorbé par une synchronisation automatique entre-temps).
+
+**Bug 2 — `property id should not exist`** : les lignes déjà enregistrées portent leur `id` serveur
+(`staffByConfig`) ; les renvoyer telles quelles au `PUT .../staff` (whitelist + forbidNonWhitelisted)
+déclenchait un 400 dès qu'on modifiait une quantité ou qu'on ajoutait une ligne à côté de lignes
+existantes. Même bug déjà résolu ailleurs dans le Builder — `InventorySection.vue::cleanRow()` fait
+exactement ça pour l'inventaire. Corrigé par un `cleanRow()` identique dans `StaffSection.vue::save()` :
+ne renvoie que `position`/`count`/`hourlyRate`/`roleId`/`source`, jamais `id`.
+
+### 11.11 Catégories F&B élargies de 4 à 9 (parité avec les sous-types Builder)
+
+Autre test réel : cocher "Beer" à la place de "Beverages" ne faisait pas disparaître un poste tagué
+"Beverage" — normal, `beer`/`beverages`/`drinkee` fusionnaient tous dans la même catégorie
+`BEVERAGE` (héritage du fix BUG-122, pensé pour la formule de calcul, pas pour un tagging fin). Décision
+utilisateur : chaque sous-type du panneau "Sous-types F&B" doit avoir sa propre catégorie RH. `HR_FNB_CATEGORIES`
+passe de 4 à 9 (`FOOD, BEVERAGE, BEER, GP_PREMIUM, TEMPORARY, DRINKEE, MIXOLOGY, FRONT_FOOD, KITCHEN_FOOD`),
+mapping 1:1 dans `fnb-tags.util.ts`. Aucune migration : `HrRole.fnbCategories`/`HrSinkingRule.fnbCategory`
+sont de simples colonnes `TEXT`/`TEXT[]`, validées uniquement côté application — le rôle réel déjà en
+production (`Cuisinier`, `BEVERAGE`/`FRONT_FOOD`) reste valide sans aucune action.
+
+Deux garde-fous ajoutés pour ne rien casser :
+- **La formule de calcul du personnel** (déjà validée, 43 tests) regroupe toujours `BEVERAGE`+`BEER`+`DRINKEE`
+  sous `hasBeverage` — seul le *tagging* d'un rôle RH devient fin, la formule ne change pas de résultat
+  (vérifié : un stand taggé seulement "beer" produit toujours `runners = MAX(runners, tireuses)`).
+- **Collision `temporary`** : ce sous-type existe aussi sur le tool `merchshop` (valeur identique, tool
+  différent). `BuilderV2Service.getStaffSuggestions` ne filtrait par aucun type d'élément — un élément
+  `merchshop` taggé `temporary` aurait pu, à tort, déclencher un rôle RH catégorie `TEMPORARY`. Corrigé
+  en restreignant `getStaffSuggestions` aux mêmes types que `generate()` (`STAFFING_ELEMENT_TYPES`),
+  vérifié par test isolé (tenant jetable) : un stand `shop`/`temporary` suggère bien le rôle, un
+  `merchshop`/`temporary` ne suggère jamais rien.
+
