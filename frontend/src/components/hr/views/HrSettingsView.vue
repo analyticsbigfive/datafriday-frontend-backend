@@ -2,7 +2,7 @@
   <!-- Settings HR (maquettes Bertrand) — vue façon « My Spaces » orientée RH.
        Rendue dans le chrome DashboardView (barre + rail), comme HrSuppliersView :
        header rouge sticky + recherche + grille de cartes. Pas de <v-app> propre. -->
-  <div id="hr-settings-page">
+  <div id="hr-settings-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -66,6 +66,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useStore } from 'vuex'
+import { useTheme } from 'vuetify'
 import { Target, UserCog, Users, Search, X } from 'lucide-vue-next'
 import HrSpaceCard from '@/components/hr/HrSpaceCard.vue'
 import HrValueFormDrawer from '@/components/hr/HrValueFormDrawer.vue'
@@ -76,6 +77,10 @@ import { resolveGoalForSpace, resolveRatioForSpace, findMonoSpaceLine } from '@/
 import { t } from '@/i18n'
 
 const store = useStore()
+
+// Dark mode autonome (pattern maison) : suit le thème Vuetify global.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const spaces = ref([])
 const costsBySpaceId = ref({})
@@ -319,4 +324,15 @@ async function onEditSubmit(payload) {
   margin-bottom: 16px;
 }
 .hsl-empty__title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; margin: 0; }
+
+/* ── Dark (pattern maison — suit le thème Vuetify ; header rouge conservé ;
+   les cartes HrSpaceCard gèrent leur propre dark) ── */
+#hr-settings-page.hsl--dark { background: #0f172a; }
+.hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, 0.08); }
+.hsl--dark .hsl-searchbar__icon { color: #64748b; }
+.hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
+.hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }
+.hsl--dark .hsl-searchbar__count { color: #94a3b8; }
+.hsl--dark .hsl-empty__icon { background: #1e293b; }
+.hsl--dark .hsl-empty__title { color: #e2e8f0; }
 </style>

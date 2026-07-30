@@ -1,5 +1,5 @@
 <template>
-  <div id="hr-suppliers-page">
+  <div id="hr-suppliers-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -121,12 +121,17 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useTheme } from 'vuetify'
 import { Building2, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
 import { getSpacesLight } from '@/api/endpoints/space.api'
 import HrSupplierFormDrawer from '../drawers/HrSupplierFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
+
+// Dark mode autonome (pattern maison) : suit le thème Vuetify global.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Avatars de table (parité SuppliersListView).
 const AVATAR_GRADIENTS = [
@@ -392,4 +397,26 @@ async function confirmDelete() {
   margin-bottom: 16px;
 }
 .hsl-empty__title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; margin: 0; }
+
+/* ── Dark (pattern maison — suit le thème Vuetify ; header rouge conservé) ── */
+#hr-suppliers-page.hsl--dark { background: #0f172a; }
+.hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, 0.08); }
+.hsl--dark .hsl-searchbar__icon { color: #64748b; }
+.hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
+.hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }
+.hsl--dark .hsl-searchbar__count { color: #94a3b8; }
+.hsl--dark .hsl-table-wrap { background: #1e293b; border-color: rgba(255, 255, 255, 0.08); }
+.hsl--dark .hsl-table :deep(.v-data-table__th) { background: rgba(255, 255, 255, 0.03) !important; color: rgba(255, 255, 255, 0.45) !important; }
+.hsl--dark .hsl-table :deep(.v-data-table__tr:hover) { background: rgba(255, 255, 255, 0.03) !important; }
+.hsl--dark .hsl-table :deep(.v-data-table-footer) { background: rgba(255, 255, 255, 0.02) !important; border-top-color: rgba(255, 255, 255, 0.08) !important; }
+.hsl--dark .hsl-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.hsl--dark .hsl-cell-name { color: #e2e8f0; }
+.hsl--dark .hsl-cell-sub { color: #94a3b8; }
+.hsl--dark .hsl-badge { background: rgba(255, 49, 49, 0.15); border-color: rgba(255, 49, 49, 0.3); }
+.hsl--dark .hsl-badge--more { background: #334155; color: #94a3b8; border-color: rgba(255, 255, 255, 0.08); }
+.hsl--dark .hsl-table-btn { background: #334155; color: #cbd5e1; }
+.hsl--dark .hsl-table-btn:hover { background: #3f4d63; color: #f1f5f9; }
+.hsl--dark .hsl-table-btn--del:hover { background: rgba(255, 49, 49, 0.15); color: #ff3131; }
+.hsl--dark .hsl-empty__icon { background: #1e293b; }
+.hsl--dark .hsl-empty__title { color: #e2e8f0; }
 </style>

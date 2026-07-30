@@ -461,7 +461,7 @@ async function submit() {
   color: #111827;
   padding: 0.65rem 0.8rem;
   line-height: 1.4;
-  background: #fafafa;
+  background-color: #fafafa;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
   font-family: inherit;
@@ -469,7 +469,7 @@ async function submit() {
 .hpd-input:focus {
   border-color: #ff3131;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.1);
-  background: #fff;
+  background-color: #fff;
 }
 .hpd-select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 2rem;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
@@ -575,11 +575,13 @@ async function submit() {
 /* ── Dark mode ── */
 .hpd--dark .hpd-section__label { color: #64748b; }
 .hpd--dark .hpd-field-label { color: #cbd5e1; }
-.hpd--dark .hpd-input { background: #1e293b; border-color: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.87); }
-.hpd--dark .hpd-input:focus { background: #263548; border-color: #ff3131; }
+.hpd--dark .hpd-input { background-color: #1e293b; border-color: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.87); }
+.hpd--dark .hpd-input:focus { background-color: #263548; border-color: #ff3131; }
 .hpd--dark .hpd-input::placeholder { color: rgba(255, 255, 255, 0.25); }
 .hpd--dark .hpd-select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
 }
 .hpd--dark .hpd-select option { background: #1e293b; color: rgba(255, 255, 255, 0.87); }
 .hpd--dark .hpd-rate__suffix { color: #64748b; }
