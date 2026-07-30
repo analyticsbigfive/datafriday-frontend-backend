@@ -12,7 +12,7 @@
             </div>
             <div class="hsd__header-titles">
               <div class="hsd__header-title">{{ mode === 'edit' ? t('hrSupplierEditTitle') : t('hrSupplierAddTitle') }}</div>
-              <div class="hsd__header-subtitle">{{ t('hrSuppliersSubtitle') }}</div>
+              <div class="hsd__header-subtitle">{{ mode === 'edit' ? t('hrSupplierFormEditSubtitle') : t('hrSupplierFormAddSubtitle') }}</div>
             </div>
             <button class="hsd__close-btn" :disabled="loading" :aria-label="t('hrCancel')" @click="close">
               <X :size="18" />
@@ -108,19 +108,19 @@
               </div>
             </div>
 
-            <!-- Secteurs -->
+            <!-- Départements -->
             <div class="hsd-section">
-              <div class="hsd-section__label">{{ t('hrColSectors') }}</div>
+              <div class="hsd-section__label">{{ t('hrColDepartments') }}</div>
               <div class="hsd-pill-grid">
                 <div
-                  v-for="sec in SECTORS"
-                  :key="sec"
+                  v-for="dep in DEPARTMENTS"
+                  :key="dep"
                   class="hsd-pill"
-                  :class="{ 'hsd-pill--active': form.sectors.includes(sec) }"
-                  @click="toggleSector(sec)"
+                  :class="{ 'hsd-pill--active': form.departments.includes(dep) }"
+                  @click="toggleDepartment(dep)"
                 >
                   <Check :size="12" class="hsd-pill__check" />
-                  {{ sec }}
+                  {{ dep }}
                 </div>
               </div>
             </div>
@@ -149,7 +149,7 @@ import { useTheme } from 'vuetify'
 import { AlertCircle, Building2, Camera, Check, ImagePlus, Pencil, Save, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
-import { HR_SECTORS as SECTORS, newId } from '../hrShared'
+import { HR_SUPPLIER_DEPARTMENTS as DEPARTMENTS, newId } from '../hrShared'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -166,7 +166,7 @@ const loading = ref(false)
 const error = ref('')
 const fileInput = ref(null)
 const imagePreview = ref('')
-const form = reactive({ id: '', name: '', email: '', phone: '', contactName: '', picture: '', spaceIds: [], sectors: [] })
+const form = reactive({ id: '', name: '', email: '', phone: '', contactName: '', picture: '', spaceIds: [], departments: [] })
 
 function reset() {
   const s = props.initial
@@ -177,7 +177,7 @@ function reset() {
   form.contactName = s?.contactName || ''
   form.picture = s?.picture || ''
   form.spaceIds = [...(s?.spaceIds || [])]
-  form.sectors = [...(s?.sectors || [])]
+  form.departments = [...(s?.departments || [])]
   imagePreview.value = s?.picture || ''
   error.value = ''
   loading.value = false
@@ -219,10 +219,10 @@ function toggleSpace(id) {
 function toggleAllSpaces() {
   form.spaceIds = isAllSpacesChecked.value ? [] : props.spaces.map((s) => s.id)
 }
-function toggleSector(sec) {
-  const i = form.sectors.indexOf(sec)
-  if (i === -1) form.sectors.push(sec)
-  else form.sectors.splice(i, 1)
+function toggleDepartment(dep) {
+  const i = form.departments.indexOf(dep)
+  if (i === -1) form.departments.push(dep)
+  else form.departments.splice(i, 1)
 }
 
 function close() {
@@ -241,7 +241,7 @@ async function submit() {
       contactName: form.contactName,
       picture: form.picture,
       spaceIds: [...form.spaceIds],
-      sectors: [...form.sectors],
+      departments: [...form.departments],
     }
     if (props.mode === 'edit') await hrApi.updateHRSupplier(payload)
     else await hrApi.createHRSupplier(payload)
@@ -267,7 +267,7 @@ async function submit() {
   justify-content: flex-end;
 }
 .hsd-panel {
-  width: 520px;
+  width: 560px;
   max-width: 100%;
   height: 100%;
   background: #fff;

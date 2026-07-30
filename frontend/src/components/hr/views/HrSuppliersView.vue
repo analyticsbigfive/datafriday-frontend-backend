@@ -73,11 +73,11 @@
             </div>
           </template>
 
-          <template #item.sectors="{ item }">
+          <template #item.departments="{ item }">
             <div class="d-flex flex-wrap" style="gap:4px">
-              <span v-for="(sec, i) in (item.sectors || []).slice(0, 3)" :key="i" class="hsl-badge">{{ sec }}</span>
-              <span v-if="(item.sectors || []).length > 3" class="hsl-badge hsl-badge--more">+{{ (item.sectors || []).length - 3 }}</span>
-              <span v-if="!(item.sectors || []).length" class="hsl-badge hsl-badge--more">—</span>
+              <span v-for="(dep, i) in (item.departments || []).slice(0, 3)" :key="i" class="hsl-badge">{{ dep }}</span>
+              <span v-if="(item.departments || []).length > 3" class="hsl-badge hsl-badge--more">+{{ (item.departments || []).length - 3 }}</span>
+              <span v-if="!(item.departments || []).length" class="hsl-badge hsl-badge--more">—</span>
             </div>
           </template>
 
@@ -153,7 +153,7 @@ const tableHeaders = [
   { title: t('hrColEmail'), key: 'email', sortable: false },
   { title: t('hrColPhone'), key: 'phone', sortable: false },
   { title: t('hrColSpaces'), key: 'spaces', sortable: false },
-  { title: t('hrColSectors'), key: 'sectors', sortable: false },
+  { title: t('hrColDepartments'), key: 'departments', sortable: false },
   { title: '', key: 'actions', sortable: false, align: 'end' },
 ]
 

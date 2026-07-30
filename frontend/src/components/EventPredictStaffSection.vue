@@ -189,6 +189,18 @@
           <span class="ep-revenue-label">RZ</span>
           <strong>{{ totals.zoneManagers }} × {{ eur(totals.zoneManagerRate) }}/h</strong>
         </span>
+        <!-- RH-2 : lecture seule des réglages RH résolus pour cet espace (déjà
+             renvoyés par GET /events/:id/staffing, aucun nouvel appel). Édition
+             sur la page RH Settings. -->
+        <span v-if="settings" class="ep-revenue-pill eps-settings-pill">
+          <span class="ep-revenue-label">{{ t('epsGoalTpe') }}</span>
+          <strong>{{ settings.goalTpe != null ? eur(settings.goalTpe) : '—' }}</strong>
+          <span class="ep-revenue-label eps-settings-sep">{{ t('epsStaffPerZone') }}</span>
+          <strong>{{ settings.staffPerZoneManager ?? '—' }}</strong>
+        </span>
+        <router-link :to="{ name: 'hr-settings' }" class="eps-settings-link" :title="t('epsEditSettings')">
+          <v-icon size="15">mdi-cog-outline</v-icon>
+        </router-link>
       </div>
     </template>
   </div>
@@ -218,6 +230,7 @@ const fetching = computed(() => store.getters['staffing/fetching'])
 const saving = computed(() => store.getters['staffing/saving'])
 const elements = computed(() => store.getters['staffing/elements'])
 const totals = computed(() => store.getters['staffing/totals'])
+const settings = computed(() => store.getters['staffing/settings'])
 const warnings = computed(() => store.getters['staffing/warnings'])
 const schedule = computed(() => store.getters['staffing/schedule'])
 const warningTitle = computed(() => warnings.value.map((w) => w.code).join(' · '))
@@ -583,6 +596,15 @@ onMounted(async () => {
   border-radius: var(--fb-radius-panel, 12px);
   background: var(--fb-surface, #ffffff);
 }
+.eps-settings-pill { margin-left: auto; }
+.eps-settings-sep { margin-left: 10px; }
+.eps-settings-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
+  color: var(--fb-muted, #6b7280); flex-shrink: 0;
+}
+.eps-settings-link:hover { border-color: #ff3131; color: #ff3131; }
 
 @media (max-width: 900px) {
   .ep-menu-item-row { gap: 8px; }

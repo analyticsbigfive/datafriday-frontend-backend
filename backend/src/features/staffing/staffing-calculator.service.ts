@@ -69,11 +69,29 @@ export interface StaffingInput {
   nbDinettes: number;
   nbHotdogsPrevus: number;
   hasMixology: boolean;
+  /** Kitchen Food (CFG-1) — même recette front-food (chefDePartie/commis/epr) tant
+   *  qu'aucune formule dédiée n'a été tranchée par le métier (question ouverte,
+   *  cf. QUESTIONS_A_BERTRAND.md). */
+  hasKitchenFood: boolean;
 }
 
 export interface StaffingWarning {
   code: string;
   message: string;
+}
+
+/** Règle « Sinking RH » (STF-2) — miroir pur du modèle Prisma HrSinkingRule. */
+export interface SinkingRuleInput {
+  roleId: string;
+  fnbCategory: string;
+  conditionAttribute: string | null;
+  conditionMinValue: number | null;
+  mandatoryQty: number;
+}
+
+export interface SinkingRuleOutcome {
+  roleId: string;
+  qty: number;
 }
 
 export interface StaffingResult {
@@ -179,8 +197,8 @@ export class StaffingCalculatorService {
     // 5. barman
     r.barman = input.hasMixology ? 1 : 0;
 
-    // 6. front food
-    if (input.hasFrontFood) {
+    // 6. front food (Kitchen Food OR-é en attendant une formule dédiée, cf. hasKitchenFood)
+    if (input.hasFrontFood || input.hasKitchenFood) {
       r.chefDePartie = 1;
       r.commis =
         (input.nbFriteuses || 0) +
@@ -216,6 +234,29 @@ export class StaffingCalculatorService {
     }
 
     return r;
+  }
+
+  /**
+   * Règles « Sinking RH » (STF-2) : quota minimal forcé d'un rôle si son tag FNB
+   * est détecté sur le PDV et que sa condition d'équipement (optionnelle) est
+   * remplie. Appliqué en SUPPLÉMENT du calcul par paliers, jamais à sa place —
+   * ne modifie pas `StaffingResult`, retourne les rôles/quantités à ajouter.
+   */
+  applySinkingRules(
+    fnbTags: Set<string>,
+    attrs: Record<string, any>,
+    rules: SinkingRuleInput[],
+  ): SinkingRuleOutcome[] {
+    const out: SinkingRuleOutcome[] = [];
+    for (const rule of rules) {
+      if (!fnbTags.has(rule.fnbCategory)) continue;
+      if (rule.conditionAttribute) {
+        const v = Number(attrs[rule.conditionAttribute]);
+        if (!Number.isFinite(v) || v < (rule.conditionMinValue ?? 0)) continue;
+      }
+      out.push({ roleId: rule.roleId, qty: rule.mandatoryQty });
+    }
+    return out;
   }
 
   /** rz par zone = CEIL(Σ staffFront / staffPerZoneManager). Effectifs entiers, toujours. */

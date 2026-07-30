@@ -388,3 +388,101 @@ logique.
 **Réserve sur §9.4.** `resolveSettings` (`staffing.service.ts:85-106`) implémente exactement la
 règle §9.4 — mais §9.4 est elle-même marquée « hypothèse à valider » (questions #35 / #41). La
 conformité du code ne vaut donc pas validation métier.
+
+## 11. Étape 3 — déploiement des tables + consolidation backlog RH/STF/CFG (2026-07-30)
+
+> Rédaction : Claude (session Ulrich), 2026-07-30. Croisement d'un backlog externe (tickets
+> STF-1/STF-2, RH-1 à RH-5, CFG-1/CFG-2) avec le code déjà écrit (§9-10) : la majorité des tickets
+> étaient déjà couverts par le schéma non déployé — seul un sous-ensemble volontairement réduit a
+> nécessité du nouveau code, pour éviter la dispersion.
+
+### 11.1 Tables déployées (levée du blocage §10.5/§10.4 point 1)
+
+Les 4 migrations suivantes ont été créées sous `backend/prisma/migrations/` et appliquées via
+`npx prisma migrate deploy` sur l'environnement Supabase de `backend/.env`
+(`aws-1-eu-west-1.pooler.supabase.com`), puis `npx prisma generate` :
+
+1. `20260730160000_hr_staffing_module` — copie conforme de `2026-07-29_hr_staffing_module.sql`.
+2. `20260730160100_hr_settings_goals_ratios` — copie conforme de `2026-07-30_hr_settings_goals_ratios.sql`.
+3. `20260730160200_hr_supplier_rename_sectors_departments` — RH-5 (§11.4).
+4. `20260730160300_hr_sinking_rule` — nouvelle table `HrSinkingRule` (§11.3).
+
+Vérifié après coup (audit isolé, tenant fictif nettoyé) : les 11 tables existent
+(`HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine`,
+`HrGoal`, `HrGoalSpace`, `HrStaffRatio`, `HrStaffRatioSpace`, `HrSinkingRule`), `HrSupplier.departments`
+répond bien à la place de `sectors`, et la contrainte unique de `HrSinkingRule` rejette bien un
+doublon (`tenantId`, `roleId`, `fnbCategory`, `conditionAttribute`). Le point bloquant de §10.5
+(« aucune table `Hr*` en base ») est donc levé. **Reste ouvert, hors périmètre de cette passe** :
+la question #43 (source de `caPredictif`, `ElementPerformance` toujours vide) — `generate` continue
+de renvoyer une dotation nulle tant qu'elle n'est pas tranchée.
+
+### 11.2 BUG-122 — détection des tags F&B corrigée
+
+`staffing.service.ts` comparait les sous-types Builder v2 (minuscules : `beverages`, `front_food`…)
+après un `.toUpperCase()` contre des valeurs `UPPERCASE_SNAKE` (`'BEVERAGE'`…) qui ne matchaient
+jamais. Remplacé par une table `SUBTYPE_TO_FNB_CATEGORY` explicite. Détail :
+[`backend/docs/bugs/122_02_staffing_subtype_casing_mismatch_fnb_detection.md`](../../../backend/docs/bugs/122_02_staffing_subtype_casing_mismatch_fnb_detection.md).
+C'est probablement la cause réelle derrière le ticket backlog **STF-1** (« la formule runners ajoute
+un runner à tort ») : rejoué contre le code, la formule elle-même est correcte (question #28, déjà
+résolue le 2026-07-29) — c'est la détection en amont qui ne nourrissait jamais le bon signal pour un
+PDV créé dans le Builder v2.
+
+### 11.3 STF-2 — table « Sinking RH » (dotation conditionnelle par sous-type)
+
+Nouveau modèle `HrSinkingRule` (tenantId, roleId → HrRole, fnbCategory, conditionAttribute?,
+conditionMinValue?, mandatoryQty) : force un quota minimal d'un rôle quand un tag FNB est détecté
+sur un PDV et qu'une condition d'équipement optionnelle (ex. `nbFriteuses ≥ seuil`) est remplie.
+Appliquée en **supplément** du calcul par paliers (§10.1), jamais à sa place — méthode pure
+`StaffingCalculatorService.applySinkingRules()`, câblée dans `StaffingService.generate()` juste
+après la boucle `ALGO_COUNT_FIELDS`, avec la même garde « ne jamais écraser une ligne MANUAL/userModified »
+que le reste de l'algo. CRUD backend : `hr-sinking-rules.controller.ts` (mirroring
+`hr-roles.controller.ts`). UI : section repliable dans `HrRoleFormDrawer.vue` (pas de nouvel écran),
+visible seulement en édition d'un rôle déjà persisté ayant au moins un tag F&B sélectionné.
+7 tests unitaires ajoutés (`staffing-calculator.service.spec.ts`).
+
+### 11.4 CFG-1 — Mixology / Front Food / Kitchen Food (CFG-2 explicitement hors périmètre)
+
+Ajoutés comme **sous-types du tool `shop` existant** dans la palette Builder v2
+(`elementTaxonomy.js`), pas comme nouvelles valeurs d'`ElementType` — décision utilisateur, pour
+éviter la migration d'enum + les 5 fichiers de mapping (backend `mapElementType`/`reverseMapElementType`,
+DTO enum, `STAFFING_ELEMENT_TYPES`) qu'aurait exigés un vrai nouveau type de palette. Zéro migration,
+zéro changement backend pour ce ticket seul. **CFG-2** (types de PDV entièrement dynamiques, chargés
+depuis la BD) reste **délibérément hors périmètre** : le ticket lui-même indique que sa faisabilité
+doit encore être discutée (« Ulrich voit la faisabilité avec Emmanuel ») — construire l'architecture
+dynamique maintenant aurait contredit cette réserve. `hasKitchenFood` est câblé dans le calcul (§11.2)
+avec un comportement par défaut conservateur, documenté comme question ouverte : voir
+[question #44](../QUESTIONS_A_BERTRAND.md#questions-ouvertes).
+
+### 11.5 RH-5 — renommage `HrSupplier.sectors` → `departments`
+
+Renommage de bout en bout (schéma, backend, shim `utils/hrApi.js`, drawer, vue liste, i18n) — décision
+utilisateur : garder la liste de valeurs actuelle (F&B/Hospitality/Merch/Ticketing/Access/Kitchen/Entertainment),
+sans l'aligner sur `HrRole.department`/`HR_DEPARTMENTS` (liste distincte, 4 valeurs, sémantique différente).
+Point trouvé en cours de route : le shim `frontend/src/utils/hrApi.js` (`supplierFromDb`/`supplierToDb`)
+aurait cassé silencieusement l'écran Suppliers après la seule migration DB si son mapping interne
+n'avait pas été renommé aussi. La mention du ticket « renommer aussi les éléments de la palette en
+Département » ne correspond à rien dans le code — `PalettePanel.vue` (palette du Builder 3D) n'a
+aucun champ « Secteur » ; probable confusion de l'auteur du ticket entre la palette d'outils du
+Builder et la liste `HrSupplier` — non traité, à clarifier si le point est reformulé.
+
+### 11.6 RH-2 — affichage Goal TPE / Staff par zone dans EventPredict
+
+Affichage lecture seule dans l'onglet Staff d'EventPredict (`EventPredictStaffSection.vue`),
+réutilisant le getter déjà résolu `staffing/settings` (aucun nouvel appel API, aucune nouvelle route
+backend) + un lien vers la page RH Settings pour l'édition. Le câblage dans le Builder 3D reste hors
+périmètre — il n'existe aujourd'hui aucun panneau de réglages par espace à étendre dans
+`components/spaces/views/builder2/` ; en créer un est un chantier UI à part entière, non demandé pour
+cette passe.
+
+### 11.7 RH-1 / RH-3 / RH-4 — statut
+
+RH-1 (formulaire StaffPosition complet) et RH-3 (page RH Settings, cartes par espace) étaient déjà
+entièrement implémentés dans le code non déployé (§9, §10) — aucun changement de code, seul le
+déploiement des tables (§11.1) les rend fonctionnels. RH-4 (harmonisation UI) : audit ciblé contre
+l'écran fournisseur Market Price (référence explicite du code, commentaire « parité SupplierFormDrawer »)
+— deux écarts concrets corrigés (sous-titre de drawer statique au lieu de varier Add/Edit ; largeur de
+panneau 520px au lieu de 560px). L'écart structurel repéré (la référence propose une vue grille/carte
+en plus de la table, RH n'a que la table) est noté comme décision de périmètre à confirmer plutôt que
+construit d'office, les listes RH (agences, rôles) étant nettement plus courtes que le catalogue
+Market Price.
+

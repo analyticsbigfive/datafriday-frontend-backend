@@ -1,7 +1,10 @@
-// Constantes et utilitaires partagés du domaine RH (données en localStorage via
-// src/utils/hrApi.js — aucune table backend).
+// Constantes et utilitaires partagés du domaine RH.
 
-export const HR_SECTORS = ['F&B', 'Hospitality', 'Merch', 'Ticketing', 'Access', 'Kitchen', 'Entertainment']
+// RH-5 (2026-07-30) : ex-HR_SECTORS, renommé « Département » (HrSupplier.departments
+// en BD). Liste distincte de HR_DEPARTMENTS (backend hr.service.ts, HrRole.department) —
+// un fournisseur peut couvrir plusieurs départements métier, pas alignés sur les 4
+// départements RH des rôles (décision utilisateur, pas de fusion des deux listes).
+export const HR_SUPPLIER_DEPARTMENTS = ['F&B', 'Hospitality', 'Merch', 'Ticketing', 'Access', 'Kitchen', 'Entertainment']
 
 /**
  * Génère un id unique. `crypto.randomUUID()` n'existe qu'en contexte SÉCURISÉ
