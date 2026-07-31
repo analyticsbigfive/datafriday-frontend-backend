@@ -2102,6 +2102,55 @@ model StorageType {
   @@index([tenantId])
 }
 
+/// CFG-2 (taxonomie unifiée) — Étape 1 : référentiel des "départements" (types d'outil Builder v2 /
+/// départements RH). GLOBAL, pas par tenant — un seul jeu de départements/sous-types pour toute la
+/// plateforme (décision explicite : "les 8 départements sont pareils pour tout le monde"), édition
+/// réservée au super-admin plateforme (SuperAdminGuard), lecture ouverte à tout utilisateur
+/// authentifié. `code` porte l'identifiant STABLE des 8 départements historiques
+/// (shop/hospitality/merchshop/storage/entrance/kitchen/entertainment/access) — même mécanisme que
+/// StorageType.code : SpaceElement.type (Étape 2, pas encore fait) stockera `code ?? id`, jamais
+/// `name` (renommable), pour que renommer un département ne casse jamais les éléments déjà posés
+/// en plan. `needsRh`/`isSeller`/`allowsSuppliers` remplacent (à partir de l'Étape 3/4, pas encore
+/// branché) les listes dispersées sectionsForType()/STAFFING_ELEMENT_TYPES/SELLER_TYPES/
+/// HR_SUPPLIER_DEPARTMENTS. À la fin de l'Étape 1, RIEN ne lit encore cette table —
+/// SpaceElement.type, HrRole.department, HrSupplier.departments et elementTaxonomy.js restent
+/// inchangés (voir plan "Taxonomie unifiée Département/Sous-type").
+model Department {
+  id              String   @id @default(cuid())
+  name            String
+  code            String? // stable pour les 8 départements historiques, null si créé par le super-admin
+  color           String
+  icon            String // nom d'icône MDI, ex. "mdi-store"
+  needsRh         Boolean  @default(false)
+  isSeller        Boolean  @default(false)
+  allowsSuppliers Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  subtypes Subtype[]
+
+  @@unique([name])
+}
+
+/// CFG-2 — sous-type d'un Department (ex. "Beverages" sous "F&B"). Global comme Department (pas
+/// par tenant). Même mécanisme `code` que Department (et que StorageType) pour les ~35 sous-types
+/// historiques déjà persistés tels quels dans SpaceElement.subtypes[]
+/// (elementTaxonomy.js TOOLS[].subtypes).
+model Subtype {
+  id           String   @id @default(cuid())
+  departmentId String
+  name         String
+  code         String? // stable pour les sous-types historiques, null si créé par le super-admin
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, name])
+  @@index([departmentId])
+}
+
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
