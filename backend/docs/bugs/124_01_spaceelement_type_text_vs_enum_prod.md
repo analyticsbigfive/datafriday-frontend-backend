@@ -1,11 +1,56 @@
 # BUG-124-01 — `SpaceElement.type` en `text` en prod : 500 sur event-timeline, transaction-baskets et live-status
 
-- **Statut** : 🟡 Corrigé non déployé (SQL écrit, à appliquer sur la base prod)
+- **Statut** : 🔴 Ouvert — diagnostic initial (ci-dessous) corrigé, migration proposée **à ne pas appliquer** (voir "Correction du 2026-07-31")
 - **Sévérité** : 🔴 Bloquant/impact business (page /analyse sans timeline ni paniers, live-status KO pour tous les espaces)
 - **Domaine** : Espaces & builder / Analyse & agrégation
-- **Repo(s) concerné(s)** : `datafriday-frontend-backend` (backend) — fix côté base de données uniquement
+- **Repo(s) concerné(s)** : `datafriday-frontend-backend` (backend) — fix côté séquencement déploiement, pas côté base
 - **Découvert le** : 2026-07-31
-- **Fichiers** : `backend/src/features/spaces/spaces.service.ts:1092` (`resolveShopIdsForSpace`, code correct — non modifié), `backend/prisma/schema.prisma:846`, `backend/prisma/sql/2026-07-31_spaceelement_type_text_vers_enum.sql`
+- **Fichiers** : `backend/src/features/spaces/spaces.service.ts:1092` (`resolveShopIdsForSpace`, code correct — non modifié), `backend/prisma/schema.prisma:846`, `backend/prisma/sql/2026-07-31_spaceelement_type_text_vers_enum.sql` (superseded, ne pas exécuter)
+
+## Correction du 2026-07-31 (post-review, avant tout merge/déploiement)
+
+**Le diagnostic "Cause racine" ci-dessous est probablement erroné** — à lire avec cette correction
+avant d'agir.
+
+Le même jour, la branche `rh-consolidation-backend` a converti `SpaceElement.type` d'un enum
+Postgres vers un `String` libre — **délibérément**, dans le cadre de CFG-2 Étape 2 (permettre des
+départements custom au-delà des 19 valeurs historiques de l'enum). Cette conversion a été faite via
+une migration Prisma locale (`20260731010500_spaceelement_type_enum_to_string`, commit `4fcb81a`,
+15:35), donc **invisible depuis ce repo** : `prisma/migrations/*` est gitignoré (ADR 0002).
+
+Cette migration a vérifié, avant conversion, exactement **804 lignes** avec la répartition
+`shop:777, storage:7, fnb_beverages:5, hospitality:3, entrance:3, merchshop:3, kitchen:3,
+fnb_food:1, entertainment:1, access:1` — les mêmes chiffres, au chiffre près, que ceux relevés
+27 minutes plus tard (16:02) dans le diagnostic initial de cette fiche. Ce n'est pas une
+coïncidence : les deux investigations portent sur la **même base**, chacune sans visibilité sur le
+travail de l'autre.
+
+Autrement dit : la colonne n'a pas "toujours été en text par dérive historique" — elle vient
+**juste** d'être convertie, volontairement, par un travail en cours en parallèle. Le code
+actuellement déployé en prod (celui d'avant `rh-consolidation-backend`) attend encore l'enum ; la
+base a changé avant que le code qui en dépend soit déployé. C'est un problème de **séquencement
+migration/déploiement**, pas une DDL orpheline oubliée.
+
+**Conséquence** : la migration proposée plus bas (`ALTER COLUMN "type" TYPE "ElementType"`)
+**ne doit pas être appliquée**. L'exécuter annulerait le travail CFG-2 sur la base et
+réintroduirait la même erreur Prisma, inversée, dès que `rh-consolidation-backend` sera déployé
+(son client Prisma type déjà `SpaceElement.type` en `String`, contre une colonne redevenue enum).
+Elle bloquerait aussi l'objectif même de CFG-2 (départements custom, incompatibles avec un enum
+figé).
+
+**Vrai correctif** : déployer le code `rh-consolidation-backend` (qui attend déjà `String`) plutôt
+que de reconvertir la base. Si ce déploiement n'est pas encore possible dans l'immédiat, traiter
+l'indisponibilité temporaire de ces 3 endpoints comme un risque assumé du séquencement CFG-2, à
+communiquer, plutôt que de la « corriger » en sens inverse.
+
+**À vérifier avant toute décision** (aucun accès DB depuis cette session) :
+```sql
+SELECT udt_name FROM information_schema.columns WHERE table_name='SpaceElement' AND column_name='type';
+```
+
+---
+
+## Diagnostic initial (JLH, 2026-07-31 16:02) — conservé pour trace, corrigé ci-dessus
 
 ## Symptôme
 
@@ -47,7 +92,7 @@ UserSpaceAccess.role, Permission.scope, Role.systemKey, Zone.kind, StockMovement
 MenuItem·MenuComponent.kitchenType, MenuItem.diet, Ingredient.ingredientCategory) : tous corrects
 en prod. **Seule** `SpaceElement.type` a dérivé.
 
-## Correction
+## Correction proposée par ce diagnostic initial — ⚠️ ne pas appliquer, voir "Correction du 2026-07-31" plus haut
 
 Aucun changement de code. Une migration manuelle :
 `backend/prisma/sql/2026-07-31_spaceelement_type_text_vers_enum.sql`

@@ -52,7 +52,7 @@ supposer.
 | 7 | `2026-07-29_hr_staffing_module.sql` | 6 tables RH : `HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine` | ✅ (`CREATE TABLE IF NOT EXISTS`) | `SELECT to_regclass('"HrRole"'), to_regclass('"EventStaffLine"');` → non NULL |
 | 8 | `2026-07-30_hr_settings_goals_ratios.sql` | 4 tables Settings RH : `HrGoal`, `HrGoalSpace`, `HrStaffRatio`, `HrStaffRatioSpace` | ✅ | `SELECT to_regclass('"HrGoal"'), to_regclass('"HrStaffRatio"');` → non NULL |
 | 9 | `2026-07-30_event_is_simulated.sql` | `Event.isSimulated` + backfill heuristique sur le préfixe `[Simulé] ` | ✅ | `SELECT 1 FROM information_schema.columns WHERE table_name='Event' AND column_name='isSimulated';` |
-| 10 | `2026-07-31_spaceelement_type_text_vers_enum.sql` | `SpaceElement.type` : `text` → enum `"ElementType"` (BUG-124-01 — 500 sur event-timeline / transaction-baskets / live-status). Garde-fou intégré si valeur hors enum | ✅ (no-op si déjà enum — l'ALTER échoue proprement sinon rien à refaire) | `SELECT udt_name FROM information_schema.columns WHERE table_name='SpaceElement' AND column_name='type';` → `ElementType` |
+| 10 | `2026-07-31_spaceelement_type_text_vers_enum.sql` | ⚠️ **SUPERSEDED — NE PAS EXÉCUTER**. `SpaceElement.type` : `text` → enum `"ElementType"` (BUG-124-01). Diagnostic initial erroné : la conversion inverse (enum→text) a été faite délibérément le même jour par CFG-2 Étape 2 (`rh-consolidation-backend`) ; exécuter ce fichier annulerait ce travail. Voir fiche 124-01, section "Correction du 2026-07-31" | ❌ Ne pas lancer | — |
 
 ### Cas confirmés
 
