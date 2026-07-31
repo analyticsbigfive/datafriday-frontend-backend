@@ -169,6 +169,19 @@
                 </v-list-item>
               </template>
             </v-select>
+            <v-btn
+              v-if="currentValueStep.createKind === 'eventType' && !currentValueStep.valueMap[val]"
+              icon
+              size="small"
+              variant="text"
+              :loading="quickCreating[val]"
+              :disabled="quickCreating[val]"
+              title="Créer automatiquement ce type d'événement"
+              @click="quickCreateType(val)"
+            >
+              <Zap :size="16" />
+            </v-btn>
+            <span v-if="quickCreateErrors[val]" class="elv-quick-create-error">{{ quickCreateErrors[val] }}</span>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -239,6 +252,19 @@
                 </v-list-item>
               </template>
             </v-select>
+            <v-btn
+              v-if="spaceValueMap[pair.spaceRaw] && !configValueMap[pair.key]"
+              icon
+              size="small"
+              variant="text"
+              :loading="quickCreating[pair.key]"
+              :disabled="quickCreating[pair.key]"
+              title="Créer automatiquement cette configuration"
+              @click="quickCreateConfig(pair)"
+            >
+              <Zap :size="16" />
+            </v-btn>
+            <span v-if="quickCreateErrors[pair.key]" class="elv-quick-create-error">{{ quickCreateErrors[pair.key] }}</span>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -466,7 +492,7 @@
 </template>
 
 <script>
-import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus } from 'lucide-vue-next';
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap } from 'lucide-vue-next';
 import { createEvent, createEventType, createEventCategory, createEventSubcategory } from '@/api/endpoints/event.api';
 import { createConfiguration } from '@/api/endpoints/builder-v2.api';
 import { parseCSV } from '@/utils/csv';
@@ -496,7 +522,7 @@ const CREATE_SENTINEL = '__create__';
 
 export default {
   name: 'CsvImportDrawer',
-  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, EventDrawerShell, SpaceCreateDrawer },
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap, EventDrawerShell, SpaceCreateDrawer },
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -527,6 +553,8 @@ export default {
       taxonomyErrors: {},
       configsLoading: false,
       configsLoadError: '',
+      quickCreating: {},
+      quickCreateErrors: {},
       createDialog: this.defaultCreateDialog(),
       spaceCreateDrawer: { open: false, targetVal: null },
       eventFields: [
@@ -849,6 +877,7 @@ export default {
         }
       });
       this.taxonomyLoading = false;
+      this.autoMatchCurrentStep();
     },
 
     async loadConfigsForCurrentSpaces() {
@@ -872,6 +901,7 @@ export default {
         this.configsLoadError = failures[0];
       }
       this.configsLoading = false;
+      this.autoMatchCurrentStep();
     },
 
     _uniqueColValues(fieldKey) {
@@ -927,6 +957,91 @@ export default {
         return;
       }
       this.configValueMap[pair.key] = newValue;
+    },
+
+    // Même règle de normalisation que le matching des en-têtes CSV (step 2, `readFile`) : les
+    // valeurs de taxonomie doivent matcher selon la même tolérance (casse, espaces/tirets/underscores).
+    _normalizeStr(s) {
+      return String(s || '').toLowerCase().replace(/[\s_\-()|]/g, '');
+    },
+
+    // Pré-sélectionne, pour chaque valeur CSV non encore mappée, l'item existant dont le nom
+    // correspond exactement (une fois normalisé) — sans jamais écraser un choix déjà fait par
+    // l'utilisateur (y compris après un retour en arrière dans les étapes).
+    autoMatchValues(values, items, valueMap) {
+      for (const val of values) {
+        if (valueMap[val]) continue;
+        const match = items.find(
+          (it) => it.id !== CREATE_SENTINEL && this._normalizeStr(it.name) === this._normalizeStr(val),
+        );
+        if (match) valueMap[val] = match.id;
+      }
+    },
+
+    autoMatchConfigPairs() {
+      for (const pair of this.uniqueSpaceConfigPairs) {
+        if (this.configValueMap[pair.key]) continue;
+        const match = this.configSelectItems(pair.spaceRaw).find(
+          (it) => it.id !== CREATE_SENTINEL && this._normalizeStr(it.name) === this._normalizeStr(pair.configRaw),
+        );
+        if (match) this.configValueMap[pair.key] = match.id;
+      }
+    },
+
+    // Point d'entrée unique appelé à l'arrivée sur une étape de mapping de valeurs et après
+    // (re)chargement des données dont elle dépend (taxonomies, configurations) — couvre à la
+    // fois la navigation normale et les boutons "Réessayer" affichés en cas d'échec réseau.
+    autoMatchCurrentStep() {
+      if (this.step === 4) {
+        this.autoMatchConfigPairs();
+        return;
+      }
+      const cs = this.currentValueStep;
+      if (cs) this.autoMatchValues(cs.values, cs.items, cs.valueMap);
+    },
+
+    // Création en un clic, réservée aux cas sans info supplémentaire à demander à l'utilisateur :
+    // un type d'événement n'a pas de parent (contrairement à Catégorie/Sous-catégorie) et une
+    // configuration a déjà son espace parent connu via la paire (spaceValueMap). Espace/Catégorie/
+    // Sous-catégorie gardent le dialogue manuel — voir openCreateDialog.
+    async quickCreateType(val) {
+      if (this.quickCreating[val]) return;
+      this.quickCreating = { ...this.quickCreating, [val]: true };
+      this.quickCreateErrors = { ...this.quickCreateErrors, [val]: '' };
+      try {
+        const created = await createEventType({ name: val });
+        await this.$store.dispatch('eventTypes/addEventType', created);
+        this.typeValueMap[val] = created?.id || created?._id;
+      } catch (e) {
+        this.quickCreateErrors = {
+          ...this.quickCreateErrors,
+          [val]: e?.response?.data?.message || e?.message || 'Erreur inconnue',
+        };
+      } finally {
+        this.quickCreating = { ...this.quickCreating, [val]: false };
+      }
+    },
+
+    async quickCreateConfig(pair) {
+      const spaceId = this.spaceValueMap[pair.spaceRaw];
+      if (!spaceId || this.quickCreating[pair.key]) return;
+      this.quickCreating = { ...this.quickCreating, [pair.key]: true };
+      this.quickCreateErrors = { ...this.quickCreateErrors, [pair.key]: '' };
+      try {
+        const created = await createConfiguration(spaceId, { name: pair.configRaw });
+        this._spaceConfigsCache = {
+          ...this._spaceConfigsCache,
+          [spaceId]: [...(this._spaceConfigsCache[spaceId] || []), created],
+        };
+        this.configValueMap[pair.key] = created?.id || created?._id;
+      } catch (e) {
+        this.quickCreateErrors = {
+          ...this.quickCreateErrors,
+          [pair.key]: e?.response?.data?.message || e?.message || 'Erreur inconnue',
+        };
+      } finally {
+        this.quickCreating = { ...this.quickCreating, [pair.key]: false };
+      }
     },
 
     defaultCreateDialog() {
@@ -1033,6 +1148,7 @@ export default {
         await this.loadConfigsForCurrentSpaces();
       }
       this.step = nextStep;
+      this.autoMatchCurrentStep();
     },
 
     navigateBack() {
@@ -1062,6 +1178,8 @@ export default {
       this.taxonomyErrors = {};
       this.configsLoading = false;
       this.configsLoadError = '';
+      this.quickCreating = {};
+      this.quickCreateErrors = {};
       this.dropping = false;
       this.createDialog = this.defaultCreateDialog();
       this.spaceCreateDrawer = { open: false, targetVal: null };
@@ -1422,6 +1540,7 @@ export default {
 .elv-mapping-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
@@ -1431,6 +1550,7 @@ export default {
 .elv-mapping-row:hover { background: rgba(var(--v-border-color, 0, 0, 0), 0.04); }
 .elv-mapping-arrow { color: #9ca3af; flex-shrink: 0; }
 .elv-mapping-select { flex: 1; min-width: 0; }
+.elv-quick-create-error { flex-basis: 100%; font-size: 12px; color: #ff3131; }
 
 /* État vide (aucune valeur à mapper pour cette colonne) : bloc centré cohérent avec la zone de
    dépôt de l'étape 1, plutôt qu'un simple bandeau d'alerte. */
