@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { Prisma, ElementType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
@@ -1081,7 +1081,10 @@ export class SpacesService {
   private readonly SPACE_SHOPIDS_CACHE_KEY = (tenantId: string, spaceId: string) =>
     `spaces:shopids:${tenantId}:${spaceId}`;
 
-  private readonly EVENT_TIMELINE_SHOP_TYPES: ElementType[] = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
+  // CFG-2 Étape 2 : ElementType (enum Postgres) supprimé du typage — SpaceElement.type est
+  // désormais un `string` libre (valeur inchangée ici, uniquement l'annotation TS). La
+  // réécriture de cette liste elle-même contre `Department` est Étape 3, pas encore faite.
+  private readonly EVENT_TIMELINE_SHOP_TYPES: string[] = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
 
   /**
    * Resolve the shop (SpaceElement) ids attached to a space across all its configs —

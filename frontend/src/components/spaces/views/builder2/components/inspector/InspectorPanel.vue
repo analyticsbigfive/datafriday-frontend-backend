@@ -68,9 +68,12 @@
 </template>
 
 <script setup>
-import { ref, computed, inject } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
+import { useStore as useVuexStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
-import { colorOf, labelOf, sectionsForType, normalizeType } from '../../constants/elementTaxonomy'
+import {
+  colorOf as colorOfTool, labelOf as labelOfTool, sectionsForType as sectionsForTypeOf, normalizeType, buildTools,
+} from '../../constants/elementTaxonomy'
 import IdentitySection from './sections/IdentitySection.vue'
 import StorageShopsSection from './sections/StorageShopsSection.vue'
 import SubtypesSection from './sections/SubtypesSection.vue'
@@ -85,8 +88,17 @@ import DeleteElementDialog from '../../dialogs/DeleteElementDialog.vue'
 
 const { t } = useI18n()
 const store = inject('builderStore')
+const vuexStore = useVuexStore()
+onMounted(() => vuexStore.dispatch('departments/fetchDepartments'))
+// CFG-2 Étape 5 : départements/sous-types depuis le référentiel global (store `departments`),
+// plus la liste statique elementTaxonomy.js — wrappers locaux exposés au template sous les mêmes
+// noms (`labelOf`/`colorOf`) pour ne pas changer le template.
+const tools = computed(() => buildTools(vuexStore.getters['departments/departments'] || []))
+function labelOf(type) { return labelOfTool(type, tools.value) }
+function colorOf(type) { return colorOfTool(type, tools.value) }
+
 const element = computed(() => store.selectedElement.value)
-const sections = computed(() => sectionsForType(element.value?.type))
+const sections = computed(() => sectionsForTypeOf(element.value?.type, tools.value))
 const hasImage = computed(() => !!element.value?.image)
 // Badge de type : texte à la couleur de l'élément, fond = teinte légère.
 const typeBadgeStyle = computed(() => {

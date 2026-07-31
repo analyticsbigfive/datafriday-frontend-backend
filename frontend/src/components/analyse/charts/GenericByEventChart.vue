@@ -75,6 +75,26 @@ const config = computed(() => {
   }
 })
 
+// Map eventId -> { name, date } depuis props.events — même repli que
+// EventRevenueByShopChart.eventMetaById : les records shop-level peuvent porter
+// eventName = eventId brut (BUG-123-01) ou aucun nom → jamais d'id brut à l'écran.
+const eventMetaById = computed(() => {
+  const m = new Map()
+  for (const ev of props.events || []) {
+    if (ev?.id == null && ev?.eventId == null) continue
+    m.set(String(ev.id ?? ev.eventId), {
+      name: ev.name || ev.eventName || '',
+      date: ev.date || ev.eventDate || '',
+    })
+  }
+  return m
+})
+
+// BUG-123-01 : un « nom » égal à l'id du record est un id brut, pas un libellé.
+function safeEventName(name, id) {
+  return name && String(name) !== String(id) ? name : ''
+}
+
 const eventRows = computed(() => {
   if (Array.isArray(props.eventAggregates) && props.eventAggregates.length) {
     return props.eventAggregates
@@ -100,10 +120,11 @@ const eventRows = computed(() => {
   for (const record of props.records || []) {
     if (!record?.eventId) continue
     if (!byEvent.has(record.eventId)) {
+      const meta = eventMetaById.value.get(String(record.eventId))
       byEvent.set(record.eventId, {
         eventId: record.eventId,
-        eventName: record.eventName || record.eventId,
-        eventDate: record.eventDate || null,
+        eventName: safeEventName(record.eventName, record.eventId) || meta?.name || '',
+        eventDate: record.eventDate || meta?.date || null,
         attendees: 0,
         revenue: 0,
         cost: 0,
@@ -115,7 +136,7 @@ const eventRows = computed(() => {
     entry.revenue += record.revenue || 0
     entry.cost += (costMap[record.menuItemId] || 0) * quantity
     entry.transactions += record.transactionCount || 0
-    if (!entry.eventName && record.eventName) entry.eventName = record.eventName
+    if (!entry.eventName) entry.eventName = safeEventName(record.eventName, record.eventId)
     if (!entry.eventDate && record.eventDate) entry.eventDate = record.eventDate
   }
 
@@ -178,7 +199,10 @@ const chartData = computed(() => {
     return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha.toFixed(3)})`
   })
   return {
-    labels: sortedEvents.map((e) => e.eventName || e.name || e.eventId || ''),
+    // BUG-123-01 : plus de repli e.eventId — un id brut n'est jamais un libellé d'axe.
+    labels: sortedEvents.map(
+      (e) => safeEventName(e.eventName, e.eventId) || e.name || eventMetaById.value.get(String(e.eventId))?.name || ''
+    ),
     datasets: [
       {
         label: METRICS.value.find((m) => m.key === metric.value).label,

@@ -30,6 +30,7 @@ import { t as translate, getCurrentLocale } from '@/i18n/translations'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
 import { parseEventSessions } from '@/utils/eventSessions'
+import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
 // call-site (buildConfigShopEntry) et NON statique : configuration.api → client.js
@@ -219,11 +220,9 @@ function getBuilder2SubtypesByName(spaceId) {
         .then((m) => m.getBuilderState(spaceId))
         .then((s) => {
           // Types legacy Data Integration (fnb_food, fnb-bar, fb…) = shops F&B
-          // (même règle que normalizeType d'elementTaxonomy.js côté builder2).
-          const isShopType = (type) => {
-            const t = String(type || '').toLowerCase().replace(/_/g, '-')
-            return t === 'shop' || t === 'fb' || t.startsWith('fnb')
-          }
+          // (normalizeType d'elementTaxonomy.js côté builder2, réutilisé ici au lieu
+          // d'une réimplémentation locale).
+          const isShopType = (type) => normalizeType(type) === 'shop'
           const byName = new Map()
           for (const zone of s?.zones || []) {
             for (const el of zone?.elements || []) {

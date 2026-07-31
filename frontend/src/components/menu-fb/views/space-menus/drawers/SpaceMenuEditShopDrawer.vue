@@ -132,7 +132,7 @@
 import { useI18n } from "@/i18n/useI18n";
 import { Store, X, Save, Settings, CheckCircle, AlertCircle, Image as ImageIcon, Camera, ImagePlus, Tags, Utensils, Coffee, Beer, Package, Clock, Martini, Sandwich, ChefHat } from 'lucide-vue-next';
 import { patchElement } from '@/api/endpoints/builder-v2.api'
-import { TOOLS } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import { SHOP_SUBTYPE_PRESENTATION } from '@/constants/shopSubtypePresentation'
 
 export default {
@@ -159,18 +159,14 @@ export default {
   deactivated() {
     document.body.style.overflow = '';
   },
+  created() {
+    this.$store.dispatch('departments/fetchDepartments');
+  },
   data() {
     return {
       form: null,
       saving: false,
       saveError: '',
-      // BUG-118 : les valeurs et leur ordre viennent d'elementTaxonomy.js (source unique
-      // Builder v2, ex. `gppremium`) — plus une liste capitalisée locale (`GP Premium`)
-      // désynchronisée du vocabulaire réellement utilisé par le Builder et le staffing RH.
-      shopTypes: (TOOLS.find((tool) => tool.type === 'shop')?.subtypes || []).map((st) => ({
-        value: st.value,
-        ...(SHOP_SUBTYPE_PRESENTATION[st.value] || { labelKey: st.label, iconComponent: 'Tags' }),
-      })),
     };
   },
   watch: {
@@ -197,6 +193,16 @@ export default {
     currentConfigName() {
       const config = (this.configOptions || []).find(c => c.id === this.selectedConfigId);
       return config ? config.name : this.t('spaceMenu.unknownConfiguration');
+    },
+    // BUG-118 : les valeurs et leur ordre viennent du référentiel global Department/Subtype
+    // (source unique Builder v2, ex. `gppremium`) — plus une liste capitalisée locale
+    // (`GP Premium`) désynchronisée du vocabulaire réellement utilisé par le Builder et le RH.
+    shopTypes() {
+      const tools = buildTools(this.$store.getters['departments/departments'] || []);
+      return (toolOf('shop', tools)?.subtypes || []).map((st) => ({
+        value: st.value,
+        ...(SHOP_SUBTYPE_PRESENTATION[st.value] || { labelKey: st.label, iconComponent: 'Tags' }),
+      }));
     },
   },
   methods: {

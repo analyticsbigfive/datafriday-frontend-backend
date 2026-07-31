@@ -1,16 +1,18 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, Min } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { HrService, HR_FNB_CATEGORIES } from './hr.service';
+import { HrService } from './hr.service';
 
 /**
  * Règles « Sinking RH » (STF-2) : dotation conditionnelle d'un rôle selon la
  * catégorie FNB détectée sur un PDV (+ condition optionnelle sur un attribut
  * d'équipement, ex. nbFriteuses ≥ seuil). Consommées par
  * StaffingService.generate() — voir staffing-calculator.service.ts::applySinkingRules.
+ * CFG-2 Étape 4.5 : `fnbCategory` valide son existence contre Subtype (département `shop`)
+ * dans HrService.resolveFnbCategories(), plus de liste figée HR_FNB_CATEGORIES.
  */
 class CreateHrSinkingRuleDto {
   @IsString()
@@ -18,7 +20,7 @@ class CreateHrSinkingRuleDto {
   roleId: string;
 
   @IsString()
-  @IsIn(HR_FNB_CATEGORIES as unknown as string[])
+  @IsNotEmpty()
   fnbCategory: string;
 
   @IsOptional()
