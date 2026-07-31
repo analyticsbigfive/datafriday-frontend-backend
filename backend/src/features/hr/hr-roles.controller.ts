@@ -6,20 +6,24 @@ import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorat
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
   HrService,
-  HR_DEPARTMENTS,
   HR_CONTRACT_TYPES,
   HR_RATE_TYPES,
-  HR_FNB_CATEGORIES,
 } from './hr.service';
 
 /**
  * La validation CONDITIONNELLE (contractType requis si F&B ; rateType+rate si
  * CDD/AGENCY/FREELANCE ; suppliers si AGENCY) vit dans HrService.normalizeRole —
  * le DTO ne porte que les contraintes inconditionnelles.
+ *
+ * CFG-2 Étape 4 : `department` n'est plus validé par une liste figée (@IsIn) — son existence
+ * (contre la table globale Department, filtrée needsRh) est vérifiée dans
+ * HrService.normalizeRole(), même idiome que `type` sur UpdateSpaceElementDto.
+ * CFG-2 Étape 4.5 : `fnbCategories` suit le même principe — existence vérifiée contre Subtype
+ * (département `shop`) dans HrService.resolveFnbCategories(), plus de liste figée HR_FNB_CATEGORIES.
  */
 class CreateHrRoleDto {
   @IsString()
-  @IsIn(HR_DEPARTMENTS as unknown as string[])
+  @IsNotEmpty()
   department: string;
 
   @IsString()
@@ -41,7 +45,7 @@ class CreateHrRoleDto {
 
   @IsOptional()
   @IsArray()
-  @IsIn(HR_FNB_CATEGORIES as unknown as string[], { each: true })
+  @IsString({ each: true })
   fnbCategories?: string[];
 
   @IsOptional()

@@ -432,6 +432,7 @@
 
 <script setup>
 import { ref, computed, reactive, inject, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useStore as useVuexStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import {
   ZoomIn, ZoomOut, RotateCw, Minimize, Maximize,
@@ -440,9 +441,13 @@ import {
 import { useI18n } from '@/i18n/useI18n'
 import { containElementInZone } from '../../composables/useIsoProjection'
 import { usePlanInteractions } from '../../composables/usePlanInteractions'
+import { buildTools, colorOf as colorOfTool, darkerColorOf as darkerColorOfTool } from '../../constants/elementTaxonomy'
 
 const { t } = useI18n()
 const store = inject('builderStore')
+const vuexStore = useVuexStore()
+onMounted(() => vuexStore.dispatch('departments/fetchDepartments'))
+const tools = computed(() => buildTools(vuexStore.getters['departments/departments'] || []))
 const svgRef       = ref(null)
 const containerRef = ref(null)
 
@@ -597,14 +602,13 @@ const visibleElements = computed(() => {
   }))
 })
 
-// ── Couleurs (parité v1) ──────────────────────────────────────────────────────
+// ── Couleurs — CFG-2 Étape 5 : dérivées du référentiel global Department (elementTaxonomy.js),
+// plus de map locale codée en dur.
 function getElementColor(type) {
-  const m = { shop:'#10b981', storage:'#f59e0b', entrance:'#ff3131', hospitality:'#ec4899', merchshop:'#a0522d', access:'#64748b', entertainment:'#8b5cf6', kitchen:'#f97316' }
-  return m[String(type||'').startsWith('fnb') ? 'shop' : type] || '#6b7280'
+  return colorOfTool(type, tools.value)
 }
 function getDarkerColor(type) {
-  const m = { shop:'#059669', storage:'#d97706', entrance:'#ff3131', hospitality:'#db2777', merchshop:'#78350f', access:'#475569', entertainment:'#7c3aed', kitchen:'#ea580c' }
-  return m[String(type||'').startsWith('fnb') ? 'shop' : type] || '#4b5563'
+  return darkerColorOfTool(type, tools.value)
 }
 function isElementHighlighted(element) {
   const tool = selectedTool.value

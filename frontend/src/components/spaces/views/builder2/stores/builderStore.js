@@ -7,13 +7,22 @@
 //   1. mutation optimiste de l'état ; 2. commande {undo, redo} dans l'historique ;
 //   3. requête dans la MutationQueue (coalescée si géométrique, immédiate sinon).
 import { reactive, computed } from 'vue'
+import vuexStore from '@/store'
 import * as api from '@/api/endpoints/builder-v2.api'
 import { t } from '@/i18n'
 import { createMutationQueue } from '../composables/useMutationQueue'
 import { createHistory } from '../composables/useHistory'
 import {
-  toolOf, labelOf, normalizeType, DEFAULTS, ZONE_KINDS,
+  toolOf, labelOf, normalizeType, buildTools, DEFAULTS, ZONE_KINDS,
 } from '../constants/elementTaxonomy'
+
+// CFG-2 Étape 5 : ce store n'est pas un composant Vue (composable réactif natif, doc §4.2) —
+// import direct du store Vuex plutôt que useStore(), même motif que router/guards.js. Lecture
+// synchrone au moment de l'appel (pas de computed caché ici) : suffisant, ce store n'a pas
+// besoin de re-render sur un changement de département, contrairement aux composants d'affichage.
+function currentTools() {
+  return buildTools(vuexStore.getters['departments/departments'] || [])
+}
 
 const stores = new Map()
 
@@ -307,7 +316,7 @@ function createBuilderStore(spaceId) {
    * serveur (doc §3.2) — le placeholder ne vit que dans le store.
    */
   function createElementFromDraw(rect) {
-    const tool = toolOf(state.activeTool)
+    const tool = toolOf(state.activeTool, currentTools())
     if (!tool || !state.activeZoneId) return
     const zoneId = state.activeZoneId
     const sameType = Object.values(state.elements)

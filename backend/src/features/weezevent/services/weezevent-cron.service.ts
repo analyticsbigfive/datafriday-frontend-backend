@@ -47,7 +47,11 @@ export class WeezeventCronService implements OnModuleInit {
             const integrations = await this.prisma.integration.findMany({
                 // Garde multi-provider (§8 plan Digifood) : ces crons appellent l'API
                 // Weezevent — une intégration DIGIFOOD n'a pas de credentials Weezevent.
-                where: { tenantId: tenant.id, enabled: true, provider: 'WEEZEVENT' },
+                // organizationId not null : exclut les intégrations pas encore/plus complètement
+                // configurées — sans ce filtre, syncTransactionsIncremental/syncEventsIncremental
+                // lève "organizationId not configured" à chaque passage cron pour ces
+                // intégrations, indéfiniment (BUG-123-02).
+                where: { tenantId: tenant.id, enabled: true, provider: 'WEEZEVENT', weezevent: { organizationId: { not: null } } },
                 select: { id: true },
             });
 
@@ -179,7 +183,11 @@ export class WeezeventCronService implements OnModuleInit {
             const integrations = await this.prisma.integration.findMany({
                 // Garde multi-provider (§8 plan Digifood) : ces crons appellent l'API
                 // Weezevent — une intégration DIGIFOOD n'a pas de credentials Weezevent.
-                where: { tenantId: tenant.id, enabled: true, provider: 'WEEZEVENT' },
+                // organizationId not null : exclut les intégrations pas encore/plus complètement
+                // configurées — sans ce filtre, syncTransactionsIncremental/syncEventsIncremental
+                // lève "organizationId not configured" à chaque passage cron pour ces
+                // intégrations, indéfiniment (BUG-123-02).
+                where: { tenantId: tenant.id, enabled: true, provider: 'WEEZEVENT', weezevent: { organizationId: { not: null } } },
                 select: { id: true },
             });
 
@@ -226,7 +234,11 @@ export class WeezeventCronService implements OnModuleInit {
             const integrations = await this.prisma.integration.findMany({
                 // Garde multi-provider (§8 plan Digifood) : ces crons appellent l'API
                 // Weezevent — une intégration DIGIFOOD n'a pas de credentials Weezevent.
-                where: { tenantId: tenant.id, enabled: true, provider: 'WEEZEVENT' },
+                // organizationId not null : exclut les intégrations pas encore/plus complètement
+                // configurées — sans ce filtre, syncTransactionsIncremental/syncEventsIncremental
+                // lève "organizationId not configured" à chaque passage cron pour ces
+                // intégrations, indéfiniment (BUG-123-02).
+                where: { tenantId: tenant.id, enabled: true, provider: 'WEEZEVENT', weezevent: { organizationId: { not: null } } },
                 select: { id: true },
             });
 

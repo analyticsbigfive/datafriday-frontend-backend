@@ -41,8 +41,13 @@ export class UpdateWeezeventInstanceDto {
     @MinLength(1)
     clientSecret?: string;
 
+    // MinLength(1) comme les autres champs optionnels ci-dessus : sans elle, un PATCH avec
+    // organizationId: '' passait la validation et effaçait silencieusement la valeur existante
+    // en base (WeezeventIntegrationConfig.organizationId → null), cassant tous les syncs cron
+    // suivants pour cette intégration (BUG-123-02).
     @IsOptional()
     @IsString()
+    @MinLength(1)
     organizationId?: string;
 
     @IsOptional()

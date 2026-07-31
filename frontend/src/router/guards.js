@@ -37,6 +37,28 @@ export async function requireOrganization(to, from, next) {
 }
 
 /**
+ * Guard pour les routes réservées au super-admin PLATEFORME (cross-tenant), ex. la gestion des
+ * Departments/Subtypes (CFG-2, taxonomie globale). Distinct de `requireOrganization` : un
+ * utilisateur authentifié avec organisation mais SANS le flag `isSuperAdmin` est renvoyé au
+ * dashboard plutôt que d'accéder à l'écran (même si le contenu y est en lecture seule pour lui).
+ */
+export async function requireSuperAdmin(to, from, next) {
+  if (!store.getters['auth/isInitialized']) {
+    await store.dispatch('auth/initialize')
+  }
+
+  if (!store.getters['auth/isAuthenticated']) {
+    return next({ path: '/login', query: { redirect: to.fullPath } })
+  }
+
+  if (!store.getters['auth/isSuperAdmin']) {
+    return next('/dashboard')
+  }
+
+  next()
+}
+
+/**
  * Guard de la page d'onboarding (« Créer votre organisation »).
  *
  * Seul un utilisateur AUTHENTIFIÉ SANS organisation doit la voir (création du

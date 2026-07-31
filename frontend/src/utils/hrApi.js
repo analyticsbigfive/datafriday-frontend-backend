@@ -32,12 +32,21 @@ const STAFF_POSITIONS_KEY = 'staff_positions'
 const POSITION_NAMES_KEY = 'position_names'
 const HR_MIGRATION_FLAG = 'hr_localstorage_migrated'
 
-// Départements legacy (hrShared.HR_SUPPLIER_DEPARTMENTS, ex-HR_SECTORS) → departments BD. Hors liste → F&B.
-const HR_DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment']
-const SECTOR_TO_DEPARTMENT = { Merch: 'Merchandising' }
+// CFG-2 Étape 4 : shim legacy pour les positions à l'ancienne forme (`sector`, sans
+// `.department`) — ne sert que les données archivées pré-refonte du drawer RH (le flux normal
+// envoie toujours `.department` directement, déjà résolu). Doit désormais retourner un CODE
+// Department stable ('shop', pas 'F&B') : le backend rejette un libellé brut depuis cette étape.
+// Carte figée intentionnellement (pas de lecture du store `departments` ici, fonction pure
+// synchrone) — les 4 libellés legacy qu'elle couvre sont clos, n'évolueront plus.
+const SECTOR_TO_DEPARTMENT_CODE = {
+  'F&B': 'shop',
+  Merchandising: 'merchshop',
+  Hospitality: 'hospitality',
+  Entertainment: 'entertainment',
+  Merch: 'merchshop',
+}
 function toDepartment(sector) {
-  if (HR_DEPARTMENTS.includes(sector)) return sector
-  return SECTOR_TO_DEPARTMENT[sector] || 'F&B'
+  return SECTOR_TO_DEPARTMENT_CODE[sector] || 'shop'
 }
 
 // ── Mappings BD ↔ formes legacy des vues ─────────────────────────────────────

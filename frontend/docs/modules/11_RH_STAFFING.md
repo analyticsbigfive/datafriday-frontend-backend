@@ -583,3 +583,43 @@ Deux garde-fous ajoutés pour ne rien casser :
   vérifié par test isolé (tenant jetable) : un stand `shop`/`temporary` suggère bien le rôle, un
   `merchshop`/`temporary` ne suggère jamais rien.
 
+### 11.12 CFG-2 Étape 4.5 — `fnbCategories`/`fnbCategory` alignés sur le référentiel Subtype
+
+Retour utilisateur (2026-07-31) après la CRUD-isation Department/Subtype (CFG-2, cf. §10.3) :
+le champ Department du formulaire de rôle RH était déjà dynamique (référentiel global, filtré
+`needsRh`), mais la grille "F&B Category (subtype)" restait `HR_FNB_CATEGORIES`, un vocabulaire
+`UPPERCASE_SNAKE` codé en dur (9 valeurs) — un sous-type F&B créé par le super-admin via
+Configurations n'y apparaissait jamais.
+
+`HR_FNB_CATEGORIES` et la table de correspondance `SUBTYPE_TO_FNB_CATEGORY` (`fnb-tags.util.ts`)
+sont supprimées. `HrRole.fnbCategories`/`HrSinkingRule.fnbCategory` stockent désormais directement
+le `Subtype.code` (département `shop`, ex. `beverages`, `front_food`) — même idiome que
+`HrRole.department`/`Department.code` (§10.3). `HrService.resolveFnbCategories()` valide
+l'existence contre `Subtype` (scope `department.code = 'shop'` strict — un sous-type d'un autre
+département, ex. `lodges`/hospitality, est rejeté) et canonicalise vers `code ?? id`, exactement
+comme `normalizeRole()` le fait pour `department`.
+
+**Périmètre volontairement limité** : `StaffingCalculatorService` (pur, 43 tests) ne connaît pas le
+vocabulaire concret — il compare des chaînes opaques (`fnbTags.has(rule.fnbCategory)`), donc
+inchangé. Seuls les 6 littéraux `fnbTags.has('BEVERAGE'|'BEER'|...)` dans
+`StaffingService.generate()` sont renommés vers les codes minuscules (`beverages`/`beer`/…) —
+même comportement, mêmes 3 catégories regroupées sous `hasBeverage` (cf. §11.11), aucune formule
+touchée. `builder-v2.service.ts::getStaffSuggestions` ne fait aucune comparaison littérale, donc
+inchangé lui aussi.
+
+**Migration** : `backend/scripts/backfill-hr-fnb-categories.ts` (DRY-RUN/`--apply`, idempotent)
+réécrit les valeurs `UPPERCASE_SNAKE` déjà en base vers le `Subtype.code` correspondant (mapping
+figé, les 9 valeurs historiques). Un seul rôle réel concerné en base au moment du changement
+(`Cuisinier`, `[BEVERAGE, FRONT_FOOD]` → `[beverages, front_food]`), 0 `HrSinkingRule`. Vérifié par
+script e2e jetable (tenant + Subtype de test nettoyés en fin de script) : ancien code
+`UPPERCASE_SNAKE` désormais rejeté (plus de vocabulaire parallèle), sous-type d'un autre département
+rejeté, et surtout — le point central de la demande — un `Subtype` fraîchement créé (`code: null`,
+utilisable par son `id`) est immédiatement acceptable comme `fnbCategory`, sans backfill ni
+changement de code.
+
+Frontend (`HrRoleFormDrawer.vue`) : `FNB_CATEGORIES` (tableau figé) retiré, remplacé par un
+`computed` réutilisant `buildTools()`/`toolOf('shop', …)` d'`elementTaxonomy.js` — les mêmes
+fonctions déjà utilisées par le Builder (CFG-2 Étape 5) — sur le sous-type courant du référentiel
+`departments` Vuex. Effet de bord positif : le libellé affiché passe de "Beverage" à "Beverages"
+(`Subtype.name` réel), corrigeant au passage une divergence de wording avec le Builder.
+

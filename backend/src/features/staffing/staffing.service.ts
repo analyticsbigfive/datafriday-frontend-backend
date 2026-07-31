@@ -231,11 +231,24 @@ export class StaffingService {
     const warnedRoles = new Set<string>();
     const globalWarnings: StaffingWarning[] = [];
 
+    // Génération « silencieuse » (BUG-258-01 frontend) : un 201 avec elements: [] est
+    // indiscernable d'un no-op côté UI — on explique pourquoi rien n'a été créé.
+    if (elements.length === 0) {
+      globalWarnings.push({
+        code: 'AUCUN_ELEMENT_STAFFABLE',
+        message:
+          'Aucun point de vente staffable (shop/F&B) rattaché à la configuration de cet event — rien à générer.',
+      });
+    }
+    let totalCreated = 0;
+    let totalKept = 0;
+
     for (const el of elements) {
       const perf = el.performances[0];
       const attrs = ((el as any).attributes ?? {}) as Record<string, any>;
-      // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…),
-      // jamais en UPPERCASE_SNAKE — voir fnb-tags.util.ts.
+      // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…) — voir
+      // fnb-tags.util.ts. CFG-2 Étape 4.5 : ce sont désormais aussi les valeurs stockées dans
+      // HrRole.fnbCategories/HrSinkingRule.fnbCategory (Subtype.code, plus d'UPPERCASE_SNAKE).
       const fnbTags = detectFnbTags((el as any).subtypes);
       const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
@@ -252,17 +265,17 @@ export class StaffingService {
         // désormais les 3 catégories finement (cf. fnb-tags.util.ts).
         hasBeverage:
           el.type === 'fnb_beverages' ||
-          fnbTags.has('BEVERAGE') ||
-          fnbTags.has('BEER') ||
-          fnbTags.has('DRINKEE'),
+          fnbTags.has('beverages') ||
+          fnbTags.has('beer') ||
+          fnbTags.has('drinkee'),
         nbTireuses: num(attrs.nbTireuses) ?? 0,
-        hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('FRONT_FOOD'),
+        hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('front_food'),
         nbFriteuses: num(attrs.nbFriteuses) ?? 0,
         nbBurgersPrevus: num(attrs.nbBurgersPrevus) ?? 0,
         nbDinettes: num(attrs.nbDinettes) ?? 0,
         nbHotdogsPrevus: num(attrs.nbHotdogsPrevus) ?? 0,
-        hasMixology: el.type === 'fnb_bar' || fnbTags.has('MIXOLOGY'),
-        hasKitchenFood: fnbTags.has('KITCHEN_FOOD'),
+        hasMixology: el.type === 'fnb_bar' || fnbTags.has('mixology'),
+        hasKitchenFood: fnbTags.has('kitchen_food'),
       });
 
       const existingForEl = existing.filter((l) => l.elementId === el.id);
@@ -346,6 +359,9 @@ export class StaffingService {
         }
       }
 
+      totalCreated += creations.length;
+      totalKept += kept.length;
+
       await this.prisma.$transaction([
         this.prisma.eventStaffLine.deleteMany({ where: { id: { in: deletableIds } } }),
         ...(creations.length ? [this.prisma.eventStaffLine.createMany({ data: creations })] : []),
@@ -360,6 +376,15 @@ export class StaffingService {
           },
         }),
       ]);
+    }
+
+    if (elements.length > 0 && totalCreated === 0 && totalKept === 0) {
+      globalWarnings.push({
+        code: 'AUCUNE_LIGNE_GENEREE',
+        message:
+          "La génération n'a produit aucune ligne : les effectifs calculés sont tous à 0 " +
+          '(CA prédictif / pic de transactions absents pour les PDV de cette configuration).',
+      });
     }
 
     return this.getStaffing(eventId, tenantId, globalWarnings);

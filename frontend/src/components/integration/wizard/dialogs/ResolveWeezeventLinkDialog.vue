@@ -66,6 +66,14 @@ export default {
       selections: {},
     }
   },
+  watch: {
+    // Sans ce reset, une sélection faite lors d'une ouverture précédente du dialogue (ou pour un
+    // eventId différent réutilisé entre-temps) restait affichée comme pré-sélectionnée à la
+    // réouverture, alors qu'aucune correspondance automatique n'existe réellement (BUG-259-02).
+    modelValue(isOpen) {
+      if (isOpen) this.selections = {}
+    },
+  },
   methods: {
     formattedItemDate(dateStr) {
       return formatDateMedium(dateStr) || '—'

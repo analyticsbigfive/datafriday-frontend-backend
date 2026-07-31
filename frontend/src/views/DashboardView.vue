@@ -558,7 +558,16 @@ export default {
                 const permitted = this.can(group.permission);
                 return { ...group, _permitted: permitted, items: permitted ? this.editSpaceItems : [] };
               }
-              return { ...group, items: group.items.filter((i) => this.can(i.permission)) };
+              // `requiresSuperAdmin` : flag plateforme (isSuperAdmin), distinct de `permission`
+              // (RBAC par tenant) — ne PAS utiliser `can()` pour ça, un rôle ADMIN de tenant y
+              // aurait accès automatiquement (can() accorde tout aux roleSystemKey === 'ADMIN'),
+              // alors que isSuperAdmin est cross-tenant et n'a rien à voir avec ce rôle.
+              return {
+                ...group,
+                items: group.items.filter(
+                  (i) => this.can(i.permission) && (!i.requiresSuperAdmin || this.isSuperAdmin),
+                ),
+              };
             })
             // Groupe dynamique : reste visible dès que la permission est là (même
             // sans espace) pour pouvoir afficher un état vide. Groupes statiques :

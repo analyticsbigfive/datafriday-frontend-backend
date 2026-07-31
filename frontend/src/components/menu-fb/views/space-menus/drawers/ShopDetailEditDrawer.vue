@@ -158,7 +158,7 @@
 import { useI18n } from "@/i18n/useI18n";
 import { Settings, X, Save, Image as ImageIcon, Camera, ImagePlus, Tags, AlertCircle, FileText, Utensils, Coffee, Beer, Package, Clock, Martini, Sandwich, ChefHat } from 'lucide-vue-next';
 import { patchElement } from '@/api/endpoints/builder-v2.api'
-import { TOOLS } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import { SHOP_SUBTYPE_PRESENTATION } from '@/constants/shopSubtypePresentation'
 
 export default {
@@ -178,19 +178,27 @@ export default {
   beforeUnmount() {
     document.body.style.overflow = '';
   },
+  created() {
+    this.$store.dispatch('departments/fetchDepartments');
+  },
   data() {
     return {
       saving: false,
       saveError: '',
       form: { image: '', subtypes: [], notes: '' },
-      // BUG-118 : les valeurs et leur ordre viennent d'elementTaxonomy.js (source unique
-      // Builder v2, ex. `gppremium`) — plus une liste capitalisée locale (`GP Premium`)
-      // désynchronisée du vocabulaire réellement utilisé par le Builder et le staffing RH.
-      availableShopTypes: (TOOLS.find((tool) => tool.type === 'shop')?.subtypes || []).map((st) => ({
+    };
+  },
+  computed: {
+    // BUG-118 : les valeurs et leur ordre viennent du référentiel global Department/Subtype
+    // (source unique Builder v2, ex. `gppremium`) — plus une liste capitalisée locale
+    // (`GP Premium`) désynchronisée du vocabulaire réellement utilisé par le Builder et le RH.
+    availableShopTypes() {
+      const tools = buildTools(this.$store.getters['departments/departments'] || []);
+      return (toolOf('shop', tools)?.subtypes || []).map((st) => ({
         value: st.value,
         ...(SHOP_SUBTYPE_PRESENTATION[st.value] || { labelKey: st.label, iconComponent: 'Tags' }),
-      })),
-    };
+      }));
+    },
   },
   watch: {
     modelValue(isOpen) {

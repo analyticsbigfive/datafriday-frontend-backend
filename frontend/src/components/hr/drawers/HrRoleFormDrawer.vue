@@ -33,7 +33,7 @@
               <div class="hpd-field mb-3">
                 <label class="hpd-field-label" for="hrd-dept">{{ t('hrDepartment') }} <span class="hpd-required">*</span></label>
                 <select id="hrd-dept" v-model="form.department" class="hpd-input hpd-select">
-                  <option v-for="d in DEPARTMENTS" :key="d" :value="d">{{ d }}</option>
+                  <option v-for="d in DEPARTMENTS" :key="d.value" :value="d.value">{{ d.label }}</option>
                 </select>
               </div>
               <div class="hpd-field">
@@ -196,7 +196,8 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { AlertCircle, Briefcase, Building2, Check, Pencil, Save, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
@@ -208,6 +209,7 @@ import {
   deleteHrSinkingRule,
 } from '@/api/endpoints/hr.api'
 import { newId } from '../hrShared'
+import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 
 // Clés d'attributs SpaceElement.attributes déjà consommées par l'algo de staffing
 // (staffing.service.ts) — mêmes noms, pour que la condition d'une règle Sinking
@@ -215,22 +217,7 @@ import { newId } from '../hrShared'
 const CONDITION_ATTRIBUTES = ['nbFriteuses', 'nbTireuses', 'nbBurgersPrevus', 'nbDinettes', 'nbHotdogsPrevus']
 
 // Vocabulaires — miroir du backend (features/hr/hr.service.ts)
-const DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment']
 const RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE']
-// Parité 1:1 avec les 9 sous-types F&B du Builder (elementTaxonomy.js, tool `shop`).
-// Élargi de 4 à 9 le 2026-07-30 (retour utilisateur : "Beer" ne doit plus fusionner
-// silencieusement dans "Beverage").
-const FNB_CATEGORIES = [
-  { value: 'FOOD', label: 'Food' },
-  { value: 'BEVERAGE', label: 'Beverage' },
-  { value: 'BEER', label: 'Beer' },
-  { value: 'GP_PREMIUM', label: 'GP Premium' },
-  { value: 'TEMPORARY', label: 'Temporary' },
-  { value: 'DRINKEE', label: 'Drinkee' },
-  { value: 'MIXOLOGY', label: 'Mixology' },
-  { value: 'FRONT_FOOD', label: 'Front Food' },
-  { value: 'KITCHEN_FOOD', label: 'Kitchen Food' },
-]
 const ALGO_KEYS = [
   'RESPONSABLE_ZONE', 'RESPONSABLE_PDV', 'CAISSIER', 'RUNNER',
   'BARMAN', 'CHEF_DE_PARTIE', 'COMMIS', 'EPR',
@@ -259,6 +246,24 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 const theme = useTheme()
 const isDark = computed(() => !!theme.global.current.value.dark)
 
+// CFG-2 Étape 4 : DEPARTMENTS (liste figée) retiré — référentiel global Department (store
+// `departments`), filtré `needsRh` (un rôle RH n'a de sens que pour un département staffé).
+// `form.department` stocke `code ?? id` (valeur stable), plus le libellé.
+const store = useStore()
+onMounted(() => store.dispatch('departments/fetchDepartments'))
+const DEPARTMENTS = computed(() =>
+  (store.getters['departments/departments'] || [])
+    .filter((d) => d.needsRh)
+    .map((d) => ({ value: d.code ?? d.id, label: d.name })),
+)
+// CFG-2 Étape 4.5 : FNB_CATEGORIES (liste figée) retiré — sous-types du département `shop`
+// (référentiel global Subtype), mêmes fonctions que le Builder (elementTaxonomy.js). Un
+// sous-type F&B ajouté par le super-admin apparaît ici sans changement de code.
+const FNB_CATEGORIES = computed(() => {
+  const tools = buildTools(store.getters['departments/departments'] || [])
+  return toolOf('shop', tools)?.subtypes || []
+})
+
 const loading = ref(false)
 const error = ref('')
 const notLinked = ref(false)
@@ -266,7 +271,7 @@ const ruleDrafts = ref([])
 const sinkingError = ref('')
 const form = reactive({
   id: '',
-  department: 'F&B',
+  department: 'shop',
   name: '',
   contractType: '',
   rateType: 'HOURLY',
@@ -281,7 +286,9 @@ const knownNames = computed(() => {
   return [...new Set(names)]
 })
 
-const isFnb = computed(() => form.department === 'F&B')
+// 'shop' = code STABLE du département F&B (Department.code), jamais affecté par un renommage
+// de Department.name — même raison que côté backend (hr.service.ts::normalizeRole).
+const isFnb = computed(() => form.department === 'shop')
 const needsRate = computed(() => isFnb.value && RATE_REQUIRED_CONTRACTS.includes(form.contractType))
 const rateLabel = computed(() => {
   if (form.rateType === 'DAILY') return t('hrRateLabelDaily')
@@ -301,7 +308,7 @@ const showSinkingRules = computed(() =>
   props.mode === 'edit' && !!props.initial?.id && !notLinked.value && form.fnbCategories.length > 0
 )
 function fnbLabel(value) {
-  return FNB_CATEGORIES.find((c) => c.value === value)?.label || value
+  return FNB_CATEGORIES.value.find((c) => c.value === value)?.label || value
 }
 
 // Validation MIROIR du DTO backend (normalizeRole)
@@ -337,7 +344,9 @@ function autoAlgoKey() {
 function reset() {
   const p = props.initial
   form.id = p?.id || newId()
-  form.department = p?.department || (DEPARTMENTS.includes(p?.sector) ? p.sector : 'F&B')
+  // p?.sector (forme legacy) est déjà résolu en code par hrApi.js::toDepartment() en amont —
+  // simple repli, pas de revalidation ici (le backend est la garde d'existence de toute façon).
+  form.department = p?.department || p?.sector || 'shop'
   form.name = p?.name || p?.positionName || ''
   form.contractType = p?.contractType || ''
   form.rateType = p?.rateType || 'HOURLY'
