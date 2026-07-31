@@ -109,8 +109,7 @@
                 <button
                   v-for="c in subtypeOptions" :key="c.value" type="button"
                   class="hrd-pill"
-                  :class="{ 'hrd-pill--active': !notLinked && form.fnbCategories.includes(c.value), 'hrd-pill--off': notLinked }"
-                  :disabled="notLinked"
+                  :class="{ 'hrd-pill--active': form.fnbCategories.includes(c.value) }"
                   @click="toggleFnb(c.value)"
                 >
                   <Check :size="12" class="hrd-pill__check" />
@@ -118,7 +117,8 @@
                 </button>
                 <button
                   type="button" class="hrd-pill" :class="{ 'hrd-pill--active': notLinked }"
-                  @click="toggleNotLinked"
+                  :title="t('hrFnbNotLinkedHint')"
+                  @click="clearFnbCategories"
                 >
                   <Check :size="12" class="hrd-pill__check" />
                   {{ t('hrFnbNotLinked') }}
@@ -130,7 +130,7 @@
                  contre le département PERSISTÉ (pas form.department) et échoueraient de façon
                  trompeuse — on explique plutôt que de laisser une erreur "fnbCategory invalide". -->
             <div
-              v-if="departmentUnsaved && !notLinked && form.fnbCategories.length > 0"
+              v-if="departmentUnsaved && form.fnbCategories.length > 0"
               class="hpd-notice"
             >
               <AlertCircle :size="18" class="me-2" style="flex-shrink:0" />
@@ -162,7 +162,7 @@
                   <div class="hpd-field mb-2">
                     <label class="hpd-field-label">{{ t('hrSinkingRuleCategory') }}</label>
                     <select v-model="rule.fnbCategory" class="hpd-input hpd-select" @change="saveRuleDraft(rule)">
-                      <option v-for="c in form.fnbCategories" :key="c" :value="c">{{ fnbLabel(c) }}</option>
+                      <option v-for="c in ruleCategoryOptions(rule)" :key="c" :value="c">{{ fnbLabel(c) }}</option>
                     </select>
                   </div>
 
@@ -199,20 +199,21 @@
               </button>
             </div>
 
-            <!-- 7. Avancé — algoKey (repliable) -->
-            <details class="hrd-advanced">
-              <summary>{{ t('hrAdvancedAlgo') }}</summary>
-              <div class="hrd-advanced__inner">
-                <div class="hpd-field">
-                  <label class="hpd-field-label" for="hrd-algo">algoKey</label>
-                  <select id="hrd-algo" v-model="form.algoKey" class="hpd-input hpd-select">
-                    <option value="">—</option>
-                    <option v-for="k in ALGO_KEYS" :key="k" :value="k">{{ k }}</option>
-                  </select>
-                  <span class="hrd-hint">{{ algoHint }}</span>
-                </div>
+            <!-- 7. Avancé — algoKey. Section normale (pas repliable) : un <details> fermé par
+                 défaut en bas d'un formulaire pouvant devenir long (Sinking Rules) se perdait
+                 facilement, retour utilisateur 2026-07-31 ("Avanced algo; ça se perd quand la
+                 liste est longue") — même traitement visuel que les autres sections. -->
+            <div class="hpd-section">
+              <div class="hpd-section__label">{{ t('hrAdvancedAlgo') }}</div>
+              <div class="hpd-field">
+                <label class="hpd-field-label" for="hrd-algo">algoKey</label>
+                <select id="hrd-algo" v-model="form.algoKey" class="hpd-input hpd-select">
+                  <option value="">—</option>
+                  <option v-for="k in ALGO_KEYS" :key="k" :value="k">{{ k }}</option>
+                </select>
+                <span class="hrd-hint">{{ algoHint }}</span>
               </div>
-            </details>
+            </div>
           </div>
 
           <!-- ── Footer ── -->
@@ -302,7 +303,6 @@ const DEPARTMENTS = computed(() =>
 )
 const loading = ref(false)
 const error = ref('')
-const notLinked = ref(false)
 const ruleDrafts = ref([])
 const sinkingError = ref('')
 const form = reactive({
@@ -333,6 +333,12 @@ const subtypeOptions = computed(() => {
 const selectedDepartmentLabel = computed(
   () => DEPARTMENTS.value.find((d) => d.value === form.department)?.label || form.department,
 )
+// "NOT LINKED" n'est pas un champ persisté séparément — HrRole n'a que fnbCategories:String[].
+// Dérivé de l'absence de tags plutôt que d'un ref indépendant : évite le désync qui rendait les
+// pastilles injoignables (ref notLinked resté à `true` après reset() empêchait de cocher quoi que
+// ce soit tant qu'on n'avait pas cliqué "NOT LINKED" pour le repasser à `false` — retour
+// utilisateur 2026-07-31, "je dois cocher/décocher NOT LINKED pour pouvoir en choisir d'autres").
+const notLinked = computed(() => form.fnbCategories.length === 0)
 // Un sous-type coché appartient au vocabulaire du département — invalide dès que le département
 // change (le backend le rejetterait de toute façon, cf. resolveFnbCategories scopé au
 // département du rôle). On FILTRE (pas un clear brutal) : sans effet quand reset() vient de
@@ -343,7 +349,6 @@ watch(() => form.department, (newDept) => {
   const tools = buildTools(store.getters['departments/departments'] || [])
   const validValues = new Set((toolOf(newDept, tools)?.subtypes || []).map((s) => s.value))
   form.fnbCategories = form.fnbCategories.filter((c) => validValues.has(c))
-  if (!form.fnbCategories.length) notLinked.value = false
 })
 
 // 'shop' = code STABLE du département F&B (Department.code), jamais affecté par un renommage
@@ -368,16 +373,32 @@ const algoHint = computed(() =>
 // valide côté backend contre le département PERSISTÉ (assertValidSinkingRule va chercher le rôle
 // par roleId), pas contre form.department. Sans ce garde-fou : "fnbCategory invalide" trompeur dès
 // qu'on ajoute une règle Sinking juste après avoir changé le département sans encore sauvegarder.
-const departmentUnsaved = computed(
-  () => props.mode === 'edit' && !!props.initial?.id && form.department !== (props.initial?.department || '')
+// Repli `sector` IDENTIQUE à reset() (même chaîne `p?.department || p?.sector || 'shop'`) — sinon
+// un rôle chargé uniquement via le champ legacy `sector` déclenchait ce garde-fou immédiatement à
+// l'ouverture, sans qu'aucun changement n'ait eu lieu (faux positif).
+const persistedDepartment = computed(
+  () => props.initial?.department || props.initial?.sector || 'shop',
 )
-// Sinking rules : rôle déjà persisté (édition) + au moins un tag F&B sélectionné + département
-// à jour en base (sinon la validation backend échoue silencieusement, cf. departmentUnsaved).
+const departmentUnsaved = computed(
+  () => props.mode === 'edit' && !!props.initial?.id && form.department !== persistedDepartment.value,
+)
+// Sinking rules : rôle déjà persisté (édition) + au moins un tag sélectionné + département à jour
+// en base (sinon la validation backend échoue silencieusement, cf. departmentUnsaved). `notLinked`
+// est l'inverse de "au moins un tag" — pas reconditionné séparément (cf. définition ci-dessus).
 const showSinkingRules = computed(() =>
-  props.mode === 'edit' && !!props.initial?.id && !notLinked.value && form.fnbCategories.length > 0 && !departmentUnsaved.value
+  props.mode === 'edit' && !!props.initial?.id && form.fnbCategories.length > 0 && !departmentUnsaved.value
 )
 function fnbLabel(value) {
   return subtypeOptions.value.find((c) => c.value === value)?.label || value
+}
+// Une règle Sinking peut référencer un sous-type décoché depuis dans la grille (form.fnbCategories
+// ne le contient plus) — sans ça, le <select> de la règle se retrouvait sans option correspondante
+// et s'affichait vide/muet, sans indiquer quelle valeur était réellement enregistrée.
+function ruleCategoryOptions(rule) {
+  if (rule.fnbCategory && !form.fnbCategories.includes(rule.fnbCategory)) {
+    return [rule.fnbCategory, ...form.fnbCategories]
+  }
+  return form.fnbCategories
 }
 
 // Validation MIROIR du DTO backend (normalizeRole)
@@ -395,14 +416,15 @@ function toggleSupplier(id) {
   else form.supplierIds.push(id)
 }
 function toggleFnb(value) {
-  if (notLinked.value) return
   const i = form.fnbCategories.indexOf(value)
   if (i >= 0) form.fnbCategories.splice(i, 1)
   else form.fnbCategories.push(value)
 }
-function toggleNotLinked() {
-  notLinked.value = !notLinked.value
-  if (notLinked.value) form.fnbCategories = [] // désactivé/vidé si NON LIÉ
+// "NOT LINKED" est un raccourci pour vider la sélection — pas un mode séparé (notLinked est
+// dérivé de form.fnbCategories.length === 0, cf. sa définition) : cliquer dessus quand la liste
+// est déjà vide n'a simplement aucun effet.
+function clearFnbCategories() {
+  form.fnbCategories = []
 }
 function autoAlgoKey() {
   for (const [pattern, key] of ALGO_NAME_PATTERNS) {
@@ -423,7 +445,6 @@ function reset() {
   form.fnbCategories = [...(p?.fnbCategories || [])]
   form.algoKey = p?.algoKey || ''
   form.supplierIds = [...(p?.supplierIds || (p?.supplierId ? [p.supplierId] : []))]
-  notLinked.value = !form.fnbCategories.length && !!p?.id
   error.value = ''
   loading.value = false
   if (!form.algoKey && form.name) autoAlgoKey()
@@ -498,7 +519,7 @@ async function submit() {
       contractType: isFnb.value ? form.contractType : null,
       rateType: needsRate.value ? form.rateType : null,
       rate: needsRate.value ? Number(form.rate) : null,
-      fnbCategories: notLinked.value ? [] : [...form.fnbCategories],
+      fnbCategories: [...form.fnbCategories],
       algoKey: form.algoKey || null,
       supplierIds: form.contractType === 'AGENCY' ? [...form.supplierIds] : [],
     }
@@ -710,31 +731,13 @@ async function submit() {
   font-weight: var(--fw-semibold);
   box-shadow: 0 0 0 2px rgba(255, 49, 49, 0.1);
 }
-.hrd-pill--off { opacity: 0.4; cursor: not-allowed; }
 .hrd-pill__check { opacity: 0; transition: opacity 0.15s; }
 .hrd-pill--active .hrd-pill__check { opacity: 1; }
 .hpd--dark .hrd-pill { background: #1e293b; border-color: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.55); }
 .hpd--dark .hrd-pill:hover:not(:disabled) { border-color: #ff3131; color: #e84444; background: rgba(255, 49, 49, 0.1); }
 .hpd--dark .hrd-pill--active { background: rgba(255, 49, 49, 0.15); border-color: #ff3131; color: #e84444; }
 
-/* Section repliable « Avancé » */
-.hrd-advanced { border: 1px solid #e5e7eb; border-radius: 11px; overflow: hidden; }
-.hrd-advanced summary {
-  padding: 10px 14px;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.9px;
-  color: #9ca3af;
-  cursor: pointer;
-  background: #fafafa;
-  list-style: none;
-}
-.hrd-advanced summary::-webkit-details-marker { display: none; }
-.hrd-advanced__inner { padding: 14px; }
 .hrd-hint { font-size: var(--fs-xs); color: #9ca3af; }
-.hpd--dark .hrd-advanced { border-color: rgba(255, 255, 255, 0.12); }
-.hpd--dark .hrd-advanced summary { background: #1e293b; color: #64748b; }
 
 /* Sinking rules (STF-2) — une carte étiquetée par règle (BUG-263-02) */
 .hrd-sinking__empty {
