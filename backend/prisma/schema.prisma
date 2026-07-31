@@ -623,7 +623,7 @@ model HrRole {
   contractType  String? // 'CDD' | 'FREELANCE' | 'CDI' | 'AGENCY' | 'OTHER' — requis seulement si F&B
   rateType      String? // 'HOURLY' | 'DAILY' | 'MONTHLY' — requis si contractType ∈ {CDD, AGENCY, FREELANCE}
   rate          Float? // montant HT selon rateType
-  fnbCategories String[] // 'BEVERAGE' | 'FRONT_FOOD' | 'KITCHEN_FOOD' | 'MIXOLOGY' — vide = « NON LIÉ »
+  fnbCategories String[] // Subtype.code du département 'shop' (ex. 'beverages', 'front_food') — vide = « NON LIÉ »
   algoKey       String? // 'RESPONSABLE_ZONE'|'RESPONSABLE_PDV'|'CAISSIER'|'RUNNER'|'BARMAN'|'CHEF_DE_PARTIE'|'COMMIS'|'EPR'|null
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -730,7 +730,7 @@ model HrSinkingRule {
   id                 String   @id @default(cuid())
   tenantId           String
   roleId             String
-  fnbCategory        String // 'BEVERAGE' | 'FRONT_FOOD' | 'KITCHEN_FOOD' | 'MIXOLOGY' (HR_FNB_CATEGORIES)
+  fnbCategory        String // Subtype.code du département 'shop' (ex. 'beverages', 'front_food')
   conditionAttribute String? // clé JSON de SpaceElement.attributes (ex. 'nbFriteuses') ; null = toujours actif si le tag est présent
   conditionMinValue  Float? // seuil (attrs[conditionAttribute] >= conditionMinValue) ; ignoré si conditionAttribute est null
   mandatoryQty       Int      @default(1)

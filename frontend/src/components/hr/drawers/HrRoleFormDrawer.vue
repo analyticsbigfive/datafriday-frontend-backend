@@ -209,6 +209,7 @@ import {
   deleteHrSinkingRule,
 } from '@/api/endpoints/hr.api'
 import { newId } from '../hrShared'
+import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 
 // Clés d'attributs SpaceElement.attributes déjà consommées par l'algo de staffing
 // (staffing.service.ts) — mêmes noms, pour que la condition d'une règle Sinking
@@ -217,20 +218,6 @@ const CONDITION_ATTRIBUTES = ['nbFriteuses', 'nbTireuses', 'nbBurgersPrevus', 'n
 
 // Vocabulaires — miroir du backend (features/hr/hr.service.ts)
 const RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE']
-// Parité 1:1 avec les 9 sous-types F&B du Builder (elementTaxonomy.js, tool `shop`).
-// Élargi de 4 à 9 le 2026-07-30 (retour utilisateur : "Beer" ne doit plus fusionner
-// silencieusement dans "Beverage").
-const FNB_CATEGORIES = [
-  { value: 'FOOD', label: 'Food' },
-  { value: 'BEVERAGE', label: 'Beverage' },
-  { value: 'BEER', label: 'Beer' },
-  { value: 'GP_PREMIUM', label: 'GP Premium' },
-  { value: 'TEMPORARY', label: 'Temporary' },
-  { value: 'DRINKEE', label: 'Drinkee' },
-  { value: 'MIXOLOGY', label: 'Mixology' },
-  { value: 'FRONT_FOOD', label: 'Front Food' },
-  { value: 'KITCHEN_FOOD', label: 'Kitchen Food' },
-]
 const ALGO_KEYS = [
   'RESPONSABLE_ZONE', 'RESPONSABLE_PDV', 'CAISSIER', 'RUNNER',
   'BARMAN', 'CHEF_DE_PARTIE', 'COMMIS', 'EPR',
@@ -269,6 +256,13 @@ const DEPARTMENTS = computed(() =>
     .filter((d) => d.needsRh)
     .map((d) => ({ value: d.code ?? d.id, label: d.name })),
 )
+// CFG-2 Étape 4.5 : FNB_CATEGORIES (liste figée) retiré — sous-types du département `shop`
+// (référentiel global Subtype), mêmes fonctions que le Builder (elementTaxonomy.js). Un
+// sous-type F&B ajouté par le super-admin apparaît ici sans changement de code.
+const FNB_CATEGORIES = computed(() => {
+  const tools = buildTools(store.getters['departments/departments'] || [])
+  return toolOf('shop', tools)?.subtypes || []
+})
 
 const loading = ref(false)
 const error = ref('')
@@ -314,7 +308,7 @@ const showSinkingRules = computed(() =>
   props.mode === 'edit' && !!props.initial?.id && !notLinked.value && form.fnbCategories.length > 0
 )
 function fnbLabel(value) {
-  return FNB_CATEGORIES.find((c) => c.value === value)?.label || value
+  return FNB_CATEGORIES.value.find((c) => c.value === value)?.label || value
 }
 
 // Validation MIROIR du DTO backend (normalizeRole)

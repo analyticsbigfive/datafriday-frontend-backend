@@ -234,8 +234,9 @@ export class StaffingService {
     for (const el of elements) {
       const perf = el.performances[0];
       const attrs = ((el as any).attributes ?? {}) as Record<string, any>;
-      // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…),
-      // jamais en UPPERCASE_SNAKE — voir fnb-tags.util.ts.
+      // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…) — voir
+      // fnb-tags.util.ts. CFG-2 Étape 4.5 : ce sont désormais aussi les valeurs stockées dans
+      // HrRole.fnbCategories/HrSinkingRule.fnbCategory (Subtype.code, plus d'UPPERCASE_SNAKE).
       const fnbTags = detectFnbTags((el as any).subtypes);
       const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
@@ -252,17 +253,17 @@ export class StaffingService {
         // désormais les 3 catégories finement (cf. fnb-tags.util.ts).
         hasBeverage:
           el.type === 'fnb_beverages' ||
-          fnbTags.has('BEVERAGE') ||
-          fnbTags.has('BEER') ||
-          fnbTags.has('DRINKEE'),
+          fnbTags.has('beverages') ||
+          fnbTags.has('beer') ||
+          fnbTags.has('drinkee'),
         nbTireuses: num(attrs.nbTireuses) ?? 0,
-        hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('FRONT_FOOD'),
+        hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('front_food'),
         nbFriteuses: num(attrs.nbFriteuses) ?? 0,
         nbBurgersPrevus: num(attrs.nbBurgersPrevus) ?? 0,
         nbDinettes: num(attrs.nbDinettes) ?? 0,
         nbHotdogsPrevus: num(attrs.nbHotdogsPrevus) ?? 0,
-        hasMixology: el.type === 'fnb_bar' || fnbTags.has('MIXOLOGY'),
-        hasKitchenFood: fnbTags.has('KITCHEN_FOOD'),
+        hasMixology: el.type === 'fnb_bar' || fnbTags.has('mixology'),
+        hasKitchenFood: fnbTags.has('kitchen_food'),
       });
 
       const existingForEl = existing.filter((l) => l.elementId === el.id);
