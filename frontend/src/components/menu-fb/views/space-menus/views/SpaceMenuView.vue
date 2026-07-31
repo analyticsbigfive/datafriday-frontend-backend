@@ -434,6 +434,10 @@ export default {
         city: s?.city || "",
         country: s?.country || "",
         type: s?.type || s?.shopType || "",
+        // `shopTypes` (nom de champ hérité de la réponse GET /spaces/:id/shops) est déjà
+        // subtypes-prioritaire côté backend (spaces.service.ts::getSpaceShops) — sans ce
+        // passage, les tiroirs d'édition s'ouvraient toujours avec une sélection vide.
+        subtypes: Array.isArray(s?.shopTypes) ? s.shopTypes : [],
         isOpen: menuItemsCountNum > 0,
         menuItemsCount: menuItemsCountNum,
         _raw: s,

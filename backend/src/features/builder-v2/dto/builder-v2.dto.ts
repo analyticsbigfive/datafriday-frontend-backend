@@ -232,6 +232,16 @@ export class StaffRowDto {
   @IsOptional()
   @IsNumber()
   hourlyRate?: number;
+
+  // Auto-remplissage Sinking RH (2026-07-30) : traçabilité du HrRole d'origine +
+  // provenance de la ligne ('AUTO' posée par une règle, 'MANUAL' tapée par l'utilisateur).
+  @IsOptional()
+  @IsString()
+  roleId?: string;
+
+  @IsOptional()
+  @IsIn(['AUTO', 'MANUAL'])
+  source?: string;
 }
 
 export class PutStaffDto {

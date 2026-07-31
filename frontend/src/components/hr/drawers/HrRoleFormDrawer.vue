@@ -217,11 +217,19 @@ const CONDITION_ATTRIBUTES = ['nbFriteuses', 'nbTireuses', 'nbBurgersPrevus', 'n
 // Vocabulaires — miroir du backend (features/hr/hr.service.ts)
 const DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment']
 const RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE']
+// Parité 1:1 avec les 9 sous-types F&B du Builder (elementTaxonomy.js, tool `shop`).
+// Élargi de 4 à 9 le 2026-07-30 (retour utilisateur : "Beer" ne doit plus fusionner
+// silencieusement dans "Beverage").
 const FNB_CATEGORIES = [
+  { value: 'FOOD', label: 'Food' },
   { value: 'BEVERAGE', label: 'Beverage' },
+  { value: 'BEER', label: 'Beer' },
+  { value: 'GP_PREMIUM', label: 'GP Premium' },
+  { value: 'TEMPORARY', label: 'Temporary' },
+  { value: 'DRINKEE', label: 'Drinkee' },
+  { value: 'MIXOLOGY', label: 'Mixology' },
   { value: 'FRONT_FOOD', label: 'Front Food' },
   { value: 'KITCHEN_FOOD', label: 'Kitchen Food' },
-  { value: 'MIXOLOGY', label: 'Mixology' },
 ]
 const ALGO_KEYS = [
   'RESPONSABLE_ZONE', 'RESPONSABLE_PDV', 'CAISSIER', 'RUNNER',

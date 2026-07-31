@@ -13,7 +13,22 @@ import { PrismaService } from '../../core/database/prisma.service';
 export const HR_DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment'] as const;
 export const HR_CONTRACT_TYPES = ['CDD', 'FREELANCE', 'CDI', 'AGENCY', 'OTHER'] as const;
 export const HR_RATE_TYPES = ['HOURLY', 'DAILY', 'MONTHLY'] as const;
-export const HR_FNB_CATEGORIES = ['BEVERAGE', 'FRONT_FOOD', 'KITCHEN_FOOD', 'MIXOLOGY'] as const;
+// Parité 1:1 avec les 9 sous-types F&B du Builder (elementTaxonomy.js, tool `shop`).
+// Élargi de 4 à 9 le 2026-07-30 (retour utilisateur : "Beer" ne doit plus fusionner
+// silencieusement dans "Beverage" — chaque sous-type coché doit avoir sa propre
+// catégorie RH). BEVERAGE/FRONT_FOOD/KITCHEN_FOOD/MIXOLOGY inchangés (données réelles
+// déjà taguées avec ces valeurs) ; FOOD/BEER/GP_PREMIUM/TEMPORARY/DRINKEE nouveaux.
+export const HR_FNB_CATEGORIES = [
+  'FOOD',
+  'BEVERAGE',
+  'BEER',
+  'GP_PREMIUM',
+  'TEMPORARY',
+  'DRINKEE',
+  'MIXOLOGY',
+  'FRONT_FOOD',
+  'KITCHEN_FOOD',
+] as const;
 export const HR_PERSON_CONTRACTS = ['CDI', 'CDD'] as const;
 /** Contract types pour lesquels rateType + rate sont requis (spec §2.1). */
 export const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as const;

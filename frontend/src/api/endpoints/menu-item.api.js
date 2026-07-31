@@ -156,6 +156,16 @@ export async function replaceMenuItemIngredients(id, ingredients) {
   return api.put(`/menu-items/${id}/ingredients`, ingredients)
 }
 
+/**
+ * Remplacer la composition combo (autres MenuItem vendables) d'un menu item.
+ * @param {string} id - L'ID du menu item
+ * @param {Array<{childId: string, quantity: number, unit?: string, cost?: number}>} comboItems
+ * @returns {Promise<Object>}
+ */
+export async function replaceMenuItemComboItems(id, comboItems) {
+  return api.put(`/menu-items/${id}/combo-items`, { comboItems })
+}
+
 // ============================================
 // PRIX WEEZEVENT (Data Integration étape 3)
 // ============================================

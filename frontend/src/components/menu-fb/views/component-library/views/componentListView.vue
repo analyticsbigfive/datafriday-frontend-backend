@@ -18,6 +18,12 @@
             <button class="cl-action-hbtn" @click="onExportCsv">
               <Download :size="15" /> {{ t('compListExportCsv') }}
             </button>
+            <button class="cl-action-hbtn" @click="onExportCsvPacked">
+              <Download :size="15" /> {{ t('compListExportCsvPacked') }}
+            </button>
+            <button class="cl-action-hbtn" @click="importDrawer = true">
+              <Upload :size="15" /> {{ t('compListImportCsv') }}
+            </button>
             <button class="cl-add-btn" @click="onAddComponent">
               <Plus :size="17" /> {{ t('compListAddComponent') }}
             </button>
@@ -175,6 +181,12 @@
       @confirm="confirmDelete"
     />
 
+    <ComponentCsvImportDrawer
+      v-model="importDrawer"
+      :is-dark="isDark"
+      @imported="loadComponents(true)"
+    />
+
     <!-- Sub-Items Drawer -->
     <v-navigation-drawer
       v-model="subItemsDrawer"
@@ -244,11 +256,12 @@
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
-import { Boxes, Download, Pencil, Plus, Search, Trash2, X } from "lucide-vue-next";
+import { Boxes, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { deleteMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import ComponentDeleteDialog from '../dialogs/ComponentDeleteDialog.vue';
+import ComponentCsvImportDrawer from '../drawers/ComponentCsvImportDrawer.vue';
 
 export default {
   name: "ComponentListView",
@@ -259,8 +272,10 @@ export default {
     Plus,
     Search,
     Trash2,
+    Upload,
     X,
     ComponentDeleteDialog,
+    ComponentCsvImportDrawer,
   },
   setup() {
     const { t, locale } = useI18n();
@@ -276,6 +291,8 @@ export default {
 
       loading: false,
       error: "",
+
+      importDrawer: false,
 
       deleteDialog: false,
       deleteTarget: null,
@@ -474,6 +491,78 @@ export default {
         document.body.removeChild(link);
       } catch (error) {
         console.error('Error exporting to CSV:', error);
+        alert('Failed to export CSV. Please try again.');
+      }
+    },
+    // Export "par recette" — coexiste avec onExportCsv() (format plat, inchangé). Encode
+    // ingredients[]/children[] dans la colonne Recipe avec les VRAIS cuids de cette base (pas les
+    // anciens ids legacy) : permet un cycle export → édition → réimport en upsert sans avoir
+    // besoin du fichier compagnon Market Prices (uniquement nécessaire pour un tout premier
+    // import d'un fichier historique). Même format packé que ComponentCsvImportDrawer.vue attend.
+    onExportCsvPacked() {
+      try {
+        const headers = [
+          'Component ID', 'Component Name', 'Category', 'Component Type', 'Unit',
+          'Number of Units per Recipe', 'Packaging Type', 'Number of units', 'Storage Type',
+          'Description', 'Recipe',
+        ];
+        const csvData = [headers];
+
+        for (const component of this.componentsList || []) {
+          const raw = component._raw || {};
+          const ingredients = Array.isArray(raw.ingredients) ? raw.ingredients : [];
+          const children = Array.isArray(raw.children) ? raw.children : [];
+          const segments = [];
+          let seq = 0;
+          for (const ing of ingredients) {
+            const ingredientId = ing?.ingredientId || ing?.ingredient?.id;
+            const qty = Number(ing?.quantity);
+            if (ingredientId && qty > 0) segments.push(`${++seq}>Ingredient>>${ingredientId}>${qty}`);
+          }
+          for (const child of children) {
+            const childId = child?.childId || child?.child?.id;
+            const qty = Number(child?.quantity);
+            if (childId && qty > 0) segments.push(`${++seq}>Component>${childId}>${qty}`);
+          }
+          const row = [
+            String(component?.id || ''),
+            String(component?.name || ''),
+            String(component?.category || ''),
+            String(component?.type || ''),
+            String(component?.unit || ''),
+            String(component?.unitsPerRecipe || ''),
+            String(raw?.inventoryPackaging || ''),
+            String(raw?.packedUnits ?? ''),
+            String(component?.storageType || ''),
+            String(component?.description || ''),
+            segments.join('|'),
+          ];
+          csvData.push(row);
+        }
+
+        const csvContent = csvData.map(row =>
+          row.map(cell => {
+            const cellStr = String(cell || '');
+            if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+              return '"' + cellStr.replace(/"/g, '""') + '"';
+            }
+            return cellStr;
+          }).join(',')
+        ).join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+
+        link.setAttribute('href', url);
+        link.setAttribute('download', `components-recipe-${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (error) {
+        console.error('Error exporting packed CSV:', error);
         alert('Failed to export CSV. Please try again.');
       }
     },

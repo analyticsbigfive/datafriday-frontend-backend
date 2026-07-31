@@ -499,9 +499,15 @@
               <div v-if="form.readyForSale === 'Yes'" class="mb-2">
                 <label class="field-label">{{ t('menuItemCreate.labelStorage') }}</label>
                 <div class="checkbox-grid">
-                  <v-checkbox v-model="form.storageTypes" value="Dry" :label="t('menuItemCreate.storageDry')" hide-details density="compact" />
-                  <v-checkbox v-model="form.storageTypes" value="Cold" :label="t('menuItemCreate.storageCold')" hide-details density="compact" />
-                  <v-checkbox v-model="form.storageTypes" value="Frozen" :label="t('menuItemCreate.storageFreezer')" hide-details density="compact" />
+                  <v-checkbox
+                    v-for="st in storageTypeOptions"
+                    :key="st.id"
+                    v-model="form.storageTypes"
+                    :value="st.name"
+                    :label="st.name"
+                    hide-details
+                    density="compact"
+                  />
                 </div>
               </div>
 
@@ -757,6 +763,7 @@ export default {
       this.$store.dispatch('brandNames/fetchBrandNames'),
       this.$store.dispatch('displayNames/fetchDisplayNames'),
       this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true }),
+      this.$store.dispatch('storageTypes/fetchStorageTypes'),
     ]);
 
     if (this.isEditMode) {
@@ -765,6 +772,11 @@ export default {
     this.$nextTick(() => this.takeSnapshot());
   },
   computed: {
+    // CFG-2 : Storage Type est un référentiel CRUD-éditable (Configurations, store
+    // storageTypes) — remplace les 3 checkboxes Dry/Cold/Frozen figées.
+    storageTypeOptions() {
+      return this.$store.getters['storageTypes/storageTypes'] || []
+    },
     kitchenTypeOptions() {
       return [
         { title: this.t('menuItemCreate.kitchenCentral'), value: 'Central' },

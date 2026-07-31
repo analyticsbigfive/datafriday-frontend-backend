@@ -1,13 +1,13 @@
 <template>
   <SectionCard
-    v-if="tool && tool.subtypes.length"
+    v-if="tool && subtypeOptions.length"
     :title="`${t('b2SubtypesPrefix')} ${tool.label}`"
     :icon="tool.icon"
     default-open
   >
     <div class="st-list">
       <label
-        v-for="option in tool.subtypes"
+        v-for="option in subtypeOptions"
         :key="option.value"
         class="st-item"
       >
@@ -25,16 +25,27 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed, inject, onMounted } from 'vue'
+import { useStore as useVuexStore } from 'vuex'
 import { Check } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
-import { toolOf } from '../../../constants/elementTaxonomy'
+import { toolOf, storageSubtypesFor } from '../../../constants/elementTaxonomy'
 
 const { t } = useI18n()
 const store = inject('builderStore')
+const vuexStore = useVuexStore()
 const element = computed(() => store.selectedElement.value)
 const tool = computed(() => toolOf(element.value?.type))
+
+// CFG-2 : le tool "storage" a ses sous-types de condition (dry/cold/belowzero + créations
+// tenant) pilotés par le référentiel StorageType — les autres tools gardent leur liste figée
+// d'elementTaxonomy.js, inchangée.
+onMounted(() => { vuexStore.dispatch('storageTypes/fetchStorageTypes') })
+const subtypeOptions = computed(() => {
+  if (tool.value?.type !== 'storage') return tool.value?.subtypes || []
+  return storageSubtypesFor(vuexStore.getters['storageTypes/storageTypes'] || [])
+})
 
 function toggle(value, checked) {
   const el = element.value

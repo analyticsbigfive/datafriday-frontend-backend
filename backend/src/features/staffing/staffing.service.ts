@@ -9,6 +9,7 @@ import {
   DEFAULT_OFFSET_OPEN_MINUTES,
   DEFAULT_OFFSET_CLOSE_MINUTES,
 } from './staffing-calculator.service';
+import { detectFnbTags } from './fnb-tags.util';
 
 /**
  * Orchestration du staffing par événement (spec §1.3) :
@@ -23,25 +24,6 @@ import {
 
 /** Types d'éléments considérés comme PDV pour le staffing (hypothèse, cf. rapport). */
 export const STAFFING_ELEMENT_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack'];
-
-/**
- * Sous-types Builder v2 (SpaceElement.subtypes, vocabulaire minuscule sans
- * underscore, cf. elementTaxonomy.js) → catégorie FNB (HR_FNB_CATEGORIES).
- * BUG-122 (2026-07-30) : le code précédent comparait ces sous-types en
- * UPPERCASE_SNAKE ('BEVERAGE'…) après un simple .toUpperCase(), ce qui ne
- * matchait jamais un élément créé via le Builder v2 — seuls les éléments
- * legacy (el.type === 'fnb_beverages'|'fnb_food'|'fnb_bar') déclenchaient les
- * flags hasBeverage/hasFrontFood/hasMixology. Cette table remplace la
- * comparaison naïve et sert aussi de base aux règles Sinking RH (STF-2).
- */
-export const SUBTYPE_TO_FNB_CATEGORY: Record<string, string> = {
-  beverages: 'BEVERAGE',
-  beer: 'BEVERAGE',
-  drinkee: 'BEVERAGE',
-  front_food: 'FRONT_FOOD',
-  mixology: 'MIXOLOGY',
-  kitchen_food: 'KITCHEN_FOOD',
-};
 
 /** Fallback si l'événement n'a pas de date de fin (hypothèse, cf. rapport). */
 export const DEFAULT_EVENT_DURATION_HOURS = 6;
@@ -253,11 +235,8 @@ export class StaffingService {
       const perf = el.performances[0];
       const attrs = ((el as any).attributes ?? {}) as Record<string, any>;
       // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…),
-      // jamais en UPPERCASE_SNAKE — voir SUBTYPE_TO_FNB_CATEGORY.
-      const subs: string[] = ((el as any).subtypes ?? []).map((s: string) => String(s).toLowerCase());
-      const fnbTags = new Set<string>(
-        subs.map((s) => SUBTYPE_TO_FNB_CATEGORY[s]).filter((v): v is string => Boolean(v)),
-      );
+      // jamais en UPPERCASE_SNAKE — voir fnb-tags.util.ts.
+      const fnbTags = detectFnbTags((el as any).subtypes);
       const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
       const result = this.calculator.calculate({
@@ -268,7 +247,14 @@ export class StaffingService {
         peakTxParMin: perf?.transactionsPerMinute ?? 0,
         txParSeconde: num(attrs.txParSeconde) ?? DEFAULT_TX_PAR_SECONDE,
         hasResponsablePdv: attrs.hasResponsablePdv === true,
-        hasBeverage: el.type === 'fnb_beverages' || fnbTags.has('BEVERAGE'),
+        // BEER/DRINKEE regroupés ici avec BEVERAGE pour préserver le comportement déjà
+        // testé de la formule (2026-07-30) — seul le tagging de rôle RH distingue
+        // désormais les 3 catégories finement (cf. fnb-tags.util.ts).
+        hasBeverage:
+          el.type === 'fnb_beverages' ||
+          fnbTags.has('BEVERAGE') ||
+          fnbTags.has('BEER') ||
+          fnbTags.has('DRINKEE'),
         nbTireuses: num(attrs.nbTireuses) ?? 0,
         hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('FRONT_FOOD'),
         nbFriteuses: num(attrs.nbFriteuses) ?? 0,
