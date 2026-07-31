@@ -134,6 +134,8 @@
 | [120-02](120_02_eventsservice_resolveorcreateteambyname.md) | `EventsService` : résolution/création automatique des équipes par nom (`homeTeamName`/`visitingTeamName`), déplacée du frontend | 🟡 Corrigé non testé | 🟠 | Événements |
 | [121-02](121_02_resolveorcreateteambyname_race_condition_doublons_scope_null.md) | `resolveOrCreateTeamByName` : race condition crée des équipes en double quand le scope compétition est NULL/NULL | 🟡 Corrigé non testé | 🟠 | Événements |
 | [122-02](122_02_staffing_subtype_casing_mismatch_fnb_detection.md) | Détection des tags F&B (subtypes) jamais déclenchée pour les éléments shop créés dans le Builder v2 (comparaison de casse) | 🟢 Corrigé | 🟠 | RH / Staffing |
+| [123-01](123_01_agg_weezeventeventid_contient_ids_datafriday_rpc_noms_uuid.md) | `SpaceRevenueMinuteAgg."weezeventEventId"` contient des ids `Event` DataFriday → la RPC `get_space_shop_details` renvoyait l'UUID brut en guise de `eventName` (barres Predict illisibles) ; jointure directe `Event` ajoutée (régression révélée par BUG-021) | 🟡 Corrigé non testé | 🔴 | Analyse / Agrégation |
+| [124-01](124_01_spaceelement_type_text_vs_enum_prod.md) | `SpaceElement.type` en `text` en prod alors que Prisma déclare l'enum `ElementType` → 500 (`operator does not exist: text = "ElementType"`) sur event-timeline, transaction-baskets et live-status pour tous les espaces ; ALTER COLUMN … USING à appliquer (dérive DDL hors-bande, cf. ADR 0002) | 🟡 Corrigé non déployé | 🔴 | Espaces & builder / Analyse |
 
 **112 bugs au total**, 112 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (18 shops, gros volume) échouant systématiquement avec "délai maximal

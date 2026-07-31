@@ -231,6 +231,18 @@ export class StaffingService {
     const warnedRoles = new Set<string>();
     const globalWarnings: StaffingWarning[] = [];
 
+    // Génération « silencieuse » (BUG-258-01 frontend) : un 201 avec elements: [] est
+    // indiscernable d'un no-op côté UI — on explique pourquoi rien n'a été créé.
+    if (elements.length === 0) {
+      globalWarnings.push({
+        code: 'AUCUN_ELEMENT_STAFFABLE',
+        message:
+          'Aucun point de vente staffable (shop/F&B) rattaché à la configuration de cet event — rien à générer.',
+      });
+    }
+    let totalCreated = 0;
+    let totalKept = 0;
+
     for (const el of elements) {
       const perf = el.performances[0];
       const attrs = ((el as any).attributes ?? {}) as Record<string, any>;
@@ -347,6 +359,9 @@ export class StaffingService {
         }
       }
 
+      totalCreated += creations.length;
+      totalKept += kept.length;
+
       await this.prisma.$transaction([
         this.prisma.eventStaffLine.deleteMany({ where: { id: { in: deletableIds } } }),
         ...(creations.length ? [this.prisma.eventStaffLine.createMany({ data: creations })] : []),
@@ -361,6 +376,15 @@ export class StaffingService {
           },
         }),
       ]);
+    }
+
+    if (elements.length > 0 && totalCreated === 0 && totalKept === 0) {
+      globalWarnings.push({
+        code: 'AUCUNE_LIGNE_GENEREE',
+        message:
+          "La génération n'a produit aucune ligne : les effectifs calculés sont tous à 0 " +
+          '(CA prédictif / pic de transactions absents pour les PDV de cette configuration).',
+      });
     }
 
     return this.getStaffing(eventId, tenantId, globalWarnings);
