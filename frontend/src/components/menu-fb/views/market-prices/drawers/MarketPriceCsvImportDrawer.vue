@@ -104,19 +104,14 @@
               <span class="text-body-2">{{ field.label }}</span>
               <v-chip v-if="field.required" size="x-small" color="error" variant="flat" class="ml-1">{{ t('required') }}</v-chip>
             </div>
-            <v-select
-              :model-value="mapping[field.key]"
-              @update:model-value="setMapping(field.key, $event)"
-              :items="columnOptions"
-              item-title="title"
-              item-value="value"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              :menu-props="{ attach: 'body', offset: 4 }"
+            <select
+              class="form-select form-select-sm mpcid-map-select"
+              :value="mapping[field.key] ?? ''"
+              @change="setMapping(field.key, $event.target.value || null)"
               style="flex: 1;"
-            />
+            >
+              <option v-for="opt in columnOptions" :key="`col-${opt.value ?? 'ignore'}`" :value="opt.value ?? ''">{{ opt.title }}</option>
+            </select>
           </div>
         </div>
       </div>
@@ -140,20 +135,14 @@
 
       <!-- ── Step 3 : Résultats ── -->
       <div v-if="step === 3 && !resolving">
-        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-8">
-          <template v-if="totalToSend > 0">
-            <v-progress-linear
-              :model-value="(sentCount / totalToSend) * 100"
-              color="#ff3131" height="8" rounded style="width: 260px;" class="mb-3"
-            />
-            <div class="text-body-2 text-medium-emphasis">
-              {{ retrying ? t('retryingRows') : t('sendingProgress') }} {{ sentCount }}/{{ totalToSend }}
-            </div>
-          </template>
-          <template v-else>
-            <v-progress-circular indeterminate color="#ff3131" size="48" class="mb-4" />
-            <div class="text-body-2 text-medium-emphasis">{{ t('importing') }} {{ importProgress }}/{{ csvRows.length }}</div>
-          </template>
+        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-8" style="gap:10px; width:100%;">
+          <div class="mpcid-progress">
+            <div class="mpcid-progress__bar" :style="{ width: importPct + '%' }"></div>
+          </div>
+          <div class="mpcid-progress__label">
+            {{ importPct }}% · {{ importDone }}/{{ importTotalRows }}
+            <span>{{ retrying ? t('retryingRows') : (totalToSend > 0 ? t('sendingProgress') : t('importing')) }}</span>
+          </div>
         </div>
         <template v-if="importResults">
           <v-alert v-if="autoCreatedSummary" type="info" variant="tonal" rounded="lg" class="mb-4">
@@ -589,6 +578,16 @@ export default {
       if (c.categories?.length) parts.push(`${c.categories.length} ${fr ? 'catégorie(s)' : 'categor(y/ies)'}`);
       if (!parts.length) return '';
       return (fr ? 'Créé(s) automatiquement : ' : 'Automatically created: ') + parts.join(', ') + '.';
+    },
+    importTotalRows() {
+      return this.totalToSend > 0 ? this.totalToSend : this.csvRows.length;
+    },
+    importDone() {
+      return this.totalToSend > 0 ? this.sentCount : this.importProgress;
+    },
+    importPct() {
+      const t = this.importTotalRows;
+      return t ? Math.round((this.importDone / t) * 100) : 0;
     },
     columnOptions() {
       const ignore = this.locale === 'fr' ? '— Ignorer —' : '— Ignore —';
@@ -1649,4 +1648,19 @@ export default {
 .mpcid--dark :deep(.v-list-item-title) {
   color: #e5e7eb;
 }
+
+/* ── Mapping select (Bootstrap form-select) ── */
+.mpcid-map-select { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-base); }
+.mpcid-map-select:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
+.mpcid--dark .mpcid-map-select {
+  background-color: #1e293b; border-color: rgba(255,255,255,.14); color: #e5e7eb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* ── Unified import progress bar ── */
+.mpcid-progress { width: 280px; max-width: 100%; height: 10px; background: #f1f5f9; border-radius: 100px; overflow: hidden; }
+.mpcid-progress__bar { height: 100%; background: #ff3131; border-radius: 100px; transition: width .25s ease; }
+.mpcid-progress__label { font-size: var(--fs-sm); color: #6b7280; }
+.mpcid--dark .mpcid-progress { background: rgba(255,255,255,.08); }
+.mpcid--dark .mpcid-progress__label { color: #94a3b8; }
 </style>

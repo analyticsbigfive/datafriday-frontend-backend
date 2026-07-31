@@ -92,18 +92,14 @@
               <span class="text-body-2">{{ field.label }}</span>
               <v-chip v-if="field.required" size="x-small" color="error" variant="flat" class="ml-1">requis</v-chip>
             </div>
-            <v-select
-              v-model="mapping[field.key]"
-              :items="columnOptions"
-              item-title="title"
-              item-value="value"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              :menu-props="{ class: 'elv-select-overlay' }"
+            <select
+              class="form-select form-select-sm elv-map-select"
+              :value="mapping[field.key] ?? ''"
+              @change="mapping[field.key] = $event.target.value || null"
               style="flex: 1;"
-            />
+            >
+              <option v-for="opt in columnOptions" :key="`col-${opt.value ?? 'ignore'}`" :value="opt.value ?? ''">{{ opt.title }}</option>
+            </select>
           </div>
         </div>
       </div>
@@ -141,34 +137,20 @@
               <span class="elv-csv-chip__text">{{ val }}</span>
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
-            <v-select
-              :model-value="currentValueStep.valueMap[val]"
-              @update:model-value="onValueSelect(val, $event)"
-              :items="currentValueStep.items"
-              item-title="name"
-              item-value="id"
-              placeholder="Ignorer"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              clearable
-              :menu-props="{ class: 'elv-select-overlay' }"
-              class="elv-mapping-select"
+            <select
+              class="form-select form-select-sm elv-map-select elv-mapping-select"
+              style="flex: 1; min-width: 0;"
+              :value="currentValueStep.valueMap[val] ?? ''"
+              @change="onValueSelect(val, $event.target.value || null)"
             >
-              <template #item="{ item, props }">
-                <v-list-item
-                  v-bind="props"
-                  :style="item.raw.id === CREATE_SENTINEL
-                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
-                    : {}"
-                >
-                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
-                    <Plus :size="14" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
+              <option value="">Ignorer</option>
+              <option
+                v-for="opt in currentValueStep.items"
+                :key="opt.id"
+                :value="opt.id"
+                :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
+              >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
+            </select>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -210,35 +192,21 @@
               <span class="elv-csv-chip__text">{{ pair.configRaw }}</span>
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
-            <v-select
-              :model-value="configValueMap[pair.key]"
-              @update:model-value="onConfigPairSelect(pair, $event)"
-              :items="configSelectItems(pair.spaceRaw)"
-              item-title="name"
-              item-value="id"
-              :placeholder="spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé'"
+            <select
+              class="form-select form-select-sm elv-map-select elv-mapping-select"
+              style="flex: 1; min-width: 0;"
+              :value="configValueMap[pair.key] ?? ''"
               :disabled="!spaceValueMap[pair.spaceRaw]"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              clearable
-              :menu-props="{ class: 'elv-select-overlay' }"
-              class="elv-mapping-select"
+              @change="onConfigPairSelect(pair, $event.target.value || null)"
             >
-              <template #item="{ item, props }">
-                <v-list-item
-                  v-bind="props"
-                  :style="item.raw.id === CREATE_SENTINEL
-                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
-                    : {}"
-                >
-                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
-                    <Plus :size="14" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
+              <option value="">{{ spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé' }}</option>
+              <option
+                v-for="opt in configSelectItems(pair.spaceRaw)"
+                :key="opt.id"
+                :value="opt.id"
+                :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
+              >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
+            </select>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -1432,6 +1400,12 @@ export default {
 .elv-mapping-arrow { color: #9ca3af; flex-shrink: 0; }
 .elv-mapping-select { flex: 1; min-width: 0; }
 
+/* Select natif Bootstrap du mapping colonnes (étape 2) — aligné visuellement sur les champs
+   Vuetify du drawer (border-radius, focus rouge marque). */
+.elv-map-select { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-base); }
+.elv-map-select:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
+.elv-map-select__add { color: #ff3131; font-weight: 700; }
+
 /* État vide (aucune valeur à mapper pour cette colonne) : bloc centré cohérent avec la zone de
    dépôt de l'étape 1, plutôt qu'un simple bandeau d'alerte. */
 .elv-empty-state {
@@ -1511,6 +1485,10 @@ export default {
   color: rgba(255, 255, 255, 0.6) !important;
 }
 
+.elv--dark .elv-map-select {
+  background-color: #1e293b; border-color: rgba(255,255,255,.14); color: #e5e7eb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
 .elv--dark .elv-mapping-card {
   background: #1f2937 !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
