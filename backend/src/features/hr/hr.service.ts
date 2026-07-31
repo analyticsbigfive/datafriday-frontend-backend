@@ -95,15 +95,17 @@ export class HrService {
     return resolved;
   }
 
-  // CFG-2 Étape 4.5 : `fnbCategories`/`fnbCategory` (HrRole, HrSinkingRule) valident désormais
-  // leur existence contre le référentiel global Subtype (département `shop`) et se canonicalisent
-  // vers `code ?? id` — même idiome que `normalizeRole()` pour `department`. Un sous-type F&B créé
-  // par le super-admin devient utilisable dans les rôles/règles Sinking sans changement de code
-  // (plus de vocabulaire HR_FNB_CATEGORIES séparé ni de table de correspondance, cf. fnb-tags.util.ts).
-  private async resolveFnbCategories(values: string[]): Promise<string[]> {
+  // CFG-2 Étape 4.5 (généralisée le 2026-07-31) : `fnbCategories`/`fnbCategory` (HrRole,
+  // HrSinkingRule) valident désormais leur existence contre le référentiel global Subtype —
+  // scopé au DÉPARTEMENT DU RÔLE (`departmentId`), pas figé sur `shop`. Un rôle Hospitality ne
+  // peut être tagué qu'avec les sous-types d'Hospitality (`lodges`/`salon`), un rôle F&B qu'avec
+  // ceux de `shop`, etc. — même idiome de canonicalisation `code ?? id` que `normalizeRole()`
+  // pour `department`. Retour utilisateur (2026-07-31) : le choix du département doit piloter
+  // quel sous-type on peut lier, pas rester câblé sur F&B pour tout le monde.
+  private async resolveFnbCategories(values: string[], departmentId: string): Promise<string[]> {
     if (values.length === 0) return [];
     const rows = await this.prisma.subtype.findMany({
-      where: { department: { code: 'shop' }, OR: values.map((v) => ({ OR: [{ code: v }, { id: v }] })) },
+      where: { departmentId, OR: values.map((v) => ({ OR: [{ code: v }, { id: v }] })) },
     });
     return values.map((v) => {
       const row = rows.find((r) => r.code === v || r.id === v);
@@ -222,6 +224,7 @@ export class HrService {
         : ((existing?.suppliers ?? []).map((x: any) => x.supplierId) as string[]);
     const fnbCategories = await this.resolveFnbCategories(
       input.fnbCategories !== undefined ? (input.fnbCategories ?? []) : (existing?.fnbCategories ?? []),
+      departmentRow.id,
     );
     const algoKey = input.algoKey !== undefined ? (input.algoKey || null) : (existing?.algoKey ?? null);
 
@@ -359,8 +362,22 @@ export class HrService {
     return { data: rows.map((r) => this.mapSinkingRule(r)) };
   }
 
-  private async assertValidSinkingRule(input: any, existing?: any) {
-    const [fnbCategory] = await this.resolveFnbCategories([input.fnbCategory ?? existing?.fnbCategory]);
+  private async assertValidSinkingRule(input: any, tenantId: string, existing?: any) {
+    // CFG-2 (généralisé 2026-07-31) : le sous-type valide dépend du département du RÔLE visé par
+    // la règle, pas figé sur `shop` — même principe que fnbCategories sur HrRole.
+    const roleId = input.roleId ?? existing?.roleId;
+    const role = await this.prisma.hrRole.findFirst({ where: { id: roleId, tenantId } });
+    if (!role) throw new BadRequestException(`Rôle ${roleId} introuvable`);
+    const departmentRow = await this.prisma.department.findFirst({
+      where: { OR: [{ code: role.department }, { id: role.department }] },
+    });
+    if (!departmentRow) {
+      throw new BadRequestException(`department invalide pour le rôle ${roleId} : ${role.department}`);
+    }
+    const [fnbCategory] = await this.resolveFnbCategories(
+      [input.fnbCategory ?? existing?.fnbCategory],
+      departmentRow.id,
+    );
     const conditionAttribute =
       input.conditionAttribute !== undefined ? (input.conditionAttribute || null) : (existing?.conditionAttribute ?? null);
     const conditionMinValue =
@@ -378,7 +395,7 @@ export class HrService {
   async createSinkingRule(input: any, tenantId: string) {
     const role = await this.prisma.hrRole.findFirst({ where: { id: input.roleId, tenantId } });
     if (!role) throw new BadRequestException(`Rôle ${input.roleId} introuvable`);
-    const n = await this.assertValidSinkingRule(input);
+    const n = await this.assertValidSinkingRule(input, tenantId);
     try {
       const row = await this.prisma.hrSinkingRule.create({
         data: {
@@ -402,7 +419,7 @@ export class HrService {
   async updateSinkingRule(id: string, input: any, tenantId: string) {
     const existing = await this.prisma.hrSinkingRule.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSinkingRule ${id} introuvable`);
-    const n = await this.assertValidSinkingRule(input, existing);
+    const n = await this.assertValidSinkingRule(input, tenantId, existing);
     try {
       const row = await this.prisma.hrSinkingRule.update({
         where: { id },

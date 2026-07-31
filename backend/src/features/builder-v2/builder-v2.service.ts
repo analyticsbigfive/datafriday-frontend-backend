@@ -19,7 +19,6 @@ import { SpacesService } from '../spaces/spaces.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { StaffingCalculatorService } from '../staffing/staffing-calculator.service';
 import { detectFnbTags } from '../staffing/fnb-tags.util';
-import { STAFFING_ELEMENT_TYPES } from '../staffing/staffing.service';
 import {
   CreateZoneDto, UpdateZoneDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto,
@@ -938,28 +937,45 @@ export class BuilderV2Service {
   }
 
   /**
-   * Postes obligatoires pour cet élément selon ses sous-types F&B (auto-remplissage
-   * de la section Staff du Builder, 2026-07-30 — révisé le même jour suite retour
-   * utilisateur). Un rôle tagué avec une catégorie F&B présente suffit — pas besoin
-   * d'une règle Sinking en plus (`computeStaffSuggestions`, cf. commentaire). Les
-   * règles Sinking avec condition d'équipement ne matchent jamais en pratique ici :
-   * aucun champ du Builder ne renseigne encore les attributs (nbFriteuses…) sur
-   * SpaceElement.attributes — limite assumée, cf. module doc.
+   * Postes obligatoires pour cet élément selon ses sous-types (auto-remplissage de la section
+   * Staff du Builder, 2026-07-30 — révisé le même jour suite retour utilisateur ; généralisé
+   * au-delà de F&B le 2026-07-31, même retour utilisateur : le choix du département doit
+   * piloter quel sous-type on peut lier, pas rester câblé sur `shop`). Un rôle tagué avec un
+   * sous-type présent suffit — pas besoin d'une règle Sinking en plus (`computeStaffSuggestions`,
+   * cf. commentaire). Les règles Sinking avec condition d'équipement ne matchent jamais en
+   * pratique ici : aucun champ du Builder ne renseigne encore les attributs (nbFriteuses…) sur
+   * SpaceElement.attributes — limite assumée, cf. BUG-260-02.
    */
   async getStaffSuggestions(elementId: string, tenantId: string, configId?: string) {
     const element = await this.getElementOrThrow(elementId, tenantId);
-    // Garde-fou (2026-07-30) : `temporary` existe aussi comme sous-type du tool
-    // `merchshop` — sans ce filtre, un élément non-F&B tagué `temporary` matcherait
-    // à tort un rôle RH catégorie TEMPORARY. Même périmètre que generate().
-    if (!(STAFFING_ELEMENT_TYPES as readonly string[]).includes((element as any).type)) return [];
+    // CFG-2 (généralisé 2026-07-31) : plus limité à STAFFING_ELEMENT_TYPES (shop + legacy
+    // fnb_*) — tout département `needsRh=true` peut avoir des rôles auto-suggérés sur ses
+    // propres éléments. Les rôles considérés sont scopés au MÊME département que l'élément :
+    // un code de sous-type n'est unique QUE par département (ex. `temporary` existe à la fois
+    // sur `shop` et `merchshop`) — comparer tenant-wide sans ce scope créerait de faux positifs
+    // (garde-fou déjà identifié le 2026-07-30, préservé ici sous une forme généralisée).
+    const dept = await this.resolveDepartmentForElementType((element as any).type);
+    if (!dept?.needsRh) return [];
     const fnbTags = detectFnbTags((element as any).subtypes);
     if (fnbTags.size === 0) return [];
     const attrs = ((element as any).attributes ?? {}) as Record<string, any>;
+    const departmentValues = [dept.code, dept.id].filter(Boolean) as string[];
     const [roles, rules] = await Promise.all([
-      this.prisma.hrRole.findMany({ where: { tenantId } }),
+      this.prisma.hrRole.findMany({ where: { tenantId, department: { in: departmentValues } } }),
       this.prisma.hrSinkingRule.findMany({ where: { tenantId } }),
     ]);
     return this.staffingCalculator.computeStaffSuggestions(fnbTags, attrs, roles as any, rules as any);
+  }
+
+  // Résout le département d'un `SpaceElement.type` — replie d'abord les 5 valeurs legacy F&B
+  // pré-`subtypes[]` (jamais réécrites en base, cf. CFG-2 Étape 2/3) sur `shop`, puis résout
+  // contre Department (code ou id). Partagé par getStaffSuggestions() ; mapType() a sa propre
+  // logique (avec repli TOOL_TYPE_MAP complet) pour la création d'éléments.
+  private async resolveDepartmentForElementType(type: string) {
+    const key = ['fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream'].includes(type)
+      ? 'shop'
+      : type;
+    return this.prisma.department.findFirst({ where: { OR: [{ code: key }, { id: key }] } });
   }
 
   async putInventory(elementId: string, tenantId: string, dto: PutInventoryDto, configId?: string) {

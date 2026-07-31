@@ -428,7 +428,7 @@ export default {
 
 /* ── Content ── */
 .mps-content {
-  flex: 1 1 0; overflow-y: auto; padding: 16px 24px;
+  flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 16px 24px;
   scrollbar-width: thin; scrollbar-color: #e5e7eb transparent;
 }
 .mps-content::-webkit-scrollbar { width: 5px; }

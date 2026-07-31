@@ -102,12 +102,12 @@
               </template>
             </div>
 
-            <!-- 6. F&B Category (subtype) + NON LIÉ -->
-            <div class="hpd-section">
-              <div class="hpd-section__label">{{ t('hrFnbCategory') }}</div>
+            <!-- 6. Sous-type (du département choisi ci-dessus) + NON LIÉ -->
+            <div v-if="subtypeOptions.length" class="hpd-section">
+              <div class="hpd-section__label">{{ t('hrFnbCategory') }} — {{ selectedDepartmentLabel }}</div>
               <div class="hrd-pill-grid">
                 <button
-                  v-for="c in FNB_CATEGORIES" :key="c.value" type="button"
+                  v-for="c in subtypeOptions" :key="c.value" type="button"
                   class="hrd-pill"
                   :class="{ 'hrd-pill--active': !notLinked && form.fnbCategories.includes(c.value), 'hrd-pill--off': notLinked }"
                   :disabled="notLinked"
@@ -126,41 +126,78 @@
               </div>
             </div>
 
-            <!-- STF-2 : dotation conditionnelle « Sinking » (rôle × sous-type FNB) -->
-            <details v-if="showSinkingRules" class="hrd-advanced">
-              <summary>{{ t('hrSinkingRulesTitle') }}</summary>
-              <div class="hrd-advanced__inner hrd-sinking">
-                <div v-if="sinkingError" class="hpd-error-inline">{{ sinkingError }}</div>
-                <div v-for="(rule, idx) in ruleDrafts" :key="rule.id ?? `new-${idx}`" class="hrd-sinking__row">
-                  <select v-model="rule.fnbCategory" class="hpd-input hpd-select" @change="saveRuleDraft(rule)">
-                    <option v-for="c in form.fnbCategories" :key="c" :value="c">{{ fnbLabel(c) }}</option>
-                  </select>
-                  <select v-model="rule.conditionAttribute" class="hpd-input hpd-select" @change="saveRuleDraft(rule)">
-                    <option value="">{{ t('hrSinkingRuleConditionNone') }}</option>
-                    <option v-for="a in CONDITION_ATTRIBUTES" :key="a" :value="a">{{ a }}</option>
-                  </select>
-                  <input
-                    v-if="rule.conditionAttribute" v-model.number="rule.conditionMinValue" type="number" min="0"
-                    class="hpd-input hrd-sinking__num" :placeholder="t('hrSinkingRuleMinValue')"
-                    @change="saveRuleDraft(rule)"
-                  />
-                  <input
-                    v-model.number="rule.mandatoryQty" type="number" min="1" class="hpd-input hrd-sinking__num"
-                    :placeholder="t('hrSinkingRuleQty')" @change="saveRuleDraft(rule)"
-                  />
-                  <button
-                    type="button" class="hrd-sinking__remove" :disabled="rule.saving"
-                    :aria-label="t('hrSinkingRuleRemove')" @click="removeRuleDraft(rule, idx)"
-                  >
-                    <X :size="14" />
-                  </button>
+            <!-- Département modifié mais pas encore enregistré : les règles Sinking valideraient
+                 contre le département PERSISTÉ (pas form.department) et échoueraient de façon
+                 trompeuse — on explique plutôt que de laisser une erreur "fnbCategory invalide". -->
+            <div
+              v-if="departmentUnsaved && !notLinked && form.fnbCategories.length > 0"
+              class="hpd-notice"
+            >
+              <AlertCircle :size="18" class="me-2" style="flex-shrink:0" />
+              {{ t('hrSinkingRuleSaveDeptFirst') }}
+            </div>
+
+            <!-- STF-2 : dotation conditionnelle « Sinking » (rôle × sous-type) — une carte par
+                 règle, champs étiquetés (BUG-263-02 : la ligne unique à 4 champs sans libellé
+                 était illisible/peu intuitive). -->
+            <div v-if="showSinkingRules" class="hpd-section">
+              <div class="hpd-section__label">{{ t('hrSinkingRulesTitle') }}</div>
+              <div v-if="sinkingError" class="hpd-error-inline mb-2">{{ sinkingError }}</div>
+
+              <div v-if="!ruleDrafts.length" class="hrd-sinking__empty">{{ t('hrSinkingRulesEmpty') }}</div>
+
+              <div v-else class="hrd-sinking__list">
+                <div v-for="(rule, idx) in ruleDrafts" :key="rule.id ?? `new-${idx}`" class="hrd-sinking__card">
+                  <div class="hrd-sinking__card-header">
+                    <span class="hrd-sinking__card-title">{{ t('hrSinkingRuleNumber') }} {{ idx + 1 }}</span>
+                    <button
+                      type="button" class="hrd-sinking__delete" :disabled="rule.saving"
+                      @click="removeRuleDraft(rule, idx)"
+                    >
+                      <X :size="13" />
+                      {{ t('hrSinkingRuleRemove') }}
+                    </button>
+                  </div>
+
+                  <div class="hpd-field mb-2">
+                    <label class="hpd-field-label">{{ t('hrSinkingRuleCategory') }}</label>
+                    <select v-model="rule.fnbCategory" class="hpd-input hpd-select" @change="saveRuleDraft(rule)">
+                      <option v-for="c in form.fnbCategories" :key="c" :value="c">{{ fnbLabel(c) }}</option>
+                    </select>
+                  </div>
+
+                  <div class="hpd-field mb-2">
+                    <label class="hpd-field-label">{{ t('hrSinkingRuleCondition') }}</label>
+                    <select v-model="rule.conditionAttribute" class="hpd-input hpd-select" @change="saveRuleDraft(rule)">
+                      <option value="">{{ t('hrSinkingRuleConditionNone') }}</option>
+                      <option v-for="a in CONDITION_ATTRIBUTES" :key="a.value" :value="a.value">{{ a.label }}</option>
+                    </select>
+                  </div>
+
+                  <div class="hrd-sinking__field-row">
+                    <div v-if="rule.conditionAttribute" class="hpd-field">
+                      <label class="hpd-field-label">{{ t('hrSinkingRuleMinValue') }}</label>
+                      <input
+                        v-model.number="rule.conditionMinValue" type="number" min="0"
+                        class="hpd-input" @change="saveRuleDraft(rule)"
+                      />
+                    </div>
+                    <div class="hpd-field">
+                      <label class="hpd-field-label">{{ t('hrSinkingRuleQty') }}</label>
+                      <input
+                        v-model.number="rule.mandatoryQty" type="number" min="1"
+                        class="hpd-input" @change="saveRuleDraft(rule)"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <button type="button" class="hrd-pill" @click="addRuleDraft">
-                  <Check :size="12" class="hrd-pill__check" />
-                  {{ t('hrSinkingRuleAdd') }}
-                </button>
               </div>
-            </details>
+
+              <button type="button" class="hrd-sinking__add" @click="addRuleDraft">
+                <Plus :size="15" />
+                {{ t('hrSinkingRuleAdd') }}
+              </button>
+            </div>
 
             <!-- 7. Avancé — algoKey (repliable) -->
             <details class="hrd-advanced">
@@ -199,7 +236,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
-import { AlertCircle, Briefcase, Building2, Check, Pencil, Save, X } from 'lucide-vue-next'
+import { AlertCircle, Briefcase, Building2, Check, Pencil, Plus, Save, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
 import {
@@ -212,9 +249,16 @@ import { newId } from '../hrShared'
 import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 
 // Clés d'attributs SpaceElement.attributes déjà consommées par l'algo de staffing
-// (staffing.service.ts) — mêmes noms, pour que la condition d'une règle Sinking
-// pointe vers un attribut réellement lu par le calcul.
-const CONDITION_ATTRIBUTES = ['nbFriteuses', 'nbTireuses', 'nbBurgersPrevus', 'nbDinettes', 'nbHotdogsPrevus']
+// (staffing.service.ts) — mêmes noms (value), pour que la condition d'une règle Sinking
+// pointe vers un attribut réellement lu par le calcul. Label lisible pour l'utilisateur
+// (BUG-263-02 : la valeur brute "nbFriteuses" s'affichait auparavant telle quelle).
+const CONDITION_ATTRIBUTES = [
+  { value: 'nbFriteuses', label: t('hrCondAttrNbFriteuses') },
+  { value: 'nbTireuses', label: t('hrCondAttrNbTireuses') },
+  { value: 'nbBurgersPrevus', label: t('hrCondAttrNbBurgersPrevus') },
+  { value: 'nbDinettes', label: t('hrCondAttrNbDinettes') },
+  { value: 'nbHotdogsPrevus', label: t('hrCondAttrNbHotdogsPrevus') },
+]
 
 // Vocabulaires — miroir du backend (features/hr/hr.service.ts)
 const RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE']
@@ -256,14 +300,6 @@ const DEPARTMENTS = computed(() =>
     .filter((d) => d.needsRh)
     .map((d) => ({ value: d.code ?? d.id, label: d.name })),
 )
-// CFG-2 Étape 4.5 : FNB_CATEGORIES (liste figée) retiré — sous-types du département `shop`
-// (référentiel global Subtype), mêmes fonctions que le Builder (elementTaxonomy.js). Un
-// sous-type F&B ajouté par le super-admin apparaît ici sans changement de code.
-const FNB_CATEGORIES = computed(() => {
-  const tools = buildTools(store.getters['departments/departments'] || [])
-  return toolOf('shop', tools)?.subtypes || []
-})
-
 const loading = ref(false)
 const error = ref('')
 const notLinked = ref(false)
@@ -286,6 +322,30 @@ const knownNames = computed(() => {
   return [...new Set(names)]
 })
 
+// CFG-2 Étape 4.5, généralisée le 2026-07-31 (retour utilisateur : le sous-type proposé doit
+// suivre le département choisi, pas rester figé sur `shop`) : sous-types du département
+// SÉLECTIONNÉ sur ce rôle, mêmes fonctions que le Builder (elementTaxonomy.js). Un sous-type
+// ajouté par le super-admin, sur n'importe quel département, apparaît ici sans changement de code.
+const subtypeOptions = computed(() => {
+  const tools = buildTools(store.getters['departments/departments'] || [])
+  return toolOf(form.department, tools)?.subtypes || []
+})
+const selectedDepartmentLabel = computed(
+  () => DEPARTMENTS.value.find((d) => d.value === form.department)?.label || form.department,
+)
+// Un sous-type coché appartient au vocabulaire du département — invalide dès que le département
+// change (le backend le rejetterait de toute façon, cf. resolveFnbCategories scopé au
+// département du rôle). On FILTRE (pas un clear brutal) : sans effet quand reset() vient de
+// peupler department+fnbCategories cohérents pour un rôle déjà persisté (le watcher se déclenche
+// après, en post-flush, sur des valeurs déjà valides) ; vide réellement les tags devenus
+// invalides seulement quand l'utilisateur change interactivement le département.
+watch(() => form.department, (newDept) => {
+  const tools = buildTools(store.getters['departments/departments'] || [])
+  const validValues = new Set((toolOf(newDept, tools)?.subtypes || []).map((s) => s.value))
+  form.fnbCategories = form.fnbCategories.filter((c) => validValues.has(c))
+  if (!form.fnbCategories.length) notLinked.value = false
+})
+
 // 'shop' = code STABLE du département F&B (Department.code), jamais affecté par un renommage
 // de Department.name — même raison que côté backend (hr.service.ts::normalizeRole).
 const isFnb = computed(() => form.department === 'shop')
@@ -303,12 +363,21 @@ const rateSuffix = computed(() => {
 const algoHint = computed(() =>
   form.algoKey ? t('hrAlgoKeyHintMapped') : t('hrAlgoKeyHintNone')
 )
-// Sinking rules : rôle déjà persisté (édition) + au moins un tag F&B sélectionné.
+// Un changement de département non enregistré rend les tags de subtype actuellement affichés
+// (form.fnbCategories) invalides pour le rôle tel qu'il existe encore en base — saveRuleDraft()
+// valide côté backend contre le département PERSISTÉ (assertValidSinkingRule va chercher le rôle
+// par roleId), pas contre form.department. Sans ce garde-fou : "fnbCategory invalide" trompeur dès
+// qu'on ajoute une règle Sinking juste après avoir changé le département sans encore sauvegarder.
+const departmentUnsaved = computed(
+  () => props.mode === 'edit' && !!props.initial?.id && form.department !== (props.initial?.department || '')
+)
+// Sinking rules : rôle déjà persisté (édition) + au moins un tag F&B sélectionné + département
+// à jour en base (sinon la validation backend échoue silencieusement, cf. departmentUnsaved).
 const showSinkingRules = computed(() =>
-  props.mode === 'edit' && !!props.initial?.id && !notLinked.value && form.fnbCategories.length > 0
+  props.mode === 'edit' && !!props.initial?.id && !notLinked.value && form.fnbCategories.length > 0 && !departmentUnsaved.value
 )
 function fnbLabel(value) {
-  return FNB_CATEGORIES.value.find((c) => c.value === value)?.label || value
+  return subtypeOptions.value.find((c) => c.value === value)?.label || value
 }
 
 // Validation MIROIR du DTO backend (normalizeRole)
@@ -537,6 +606,9 @@ async function submit() {
 /* Body */
 .hpd__body {
   flex: 1 1 0;
+  min-height: 0; /* sinon un enfant flex refuse de rétrécir sous la hauteur de son contenu
+    (min-height:auto par défaut) — le corps grandit indéfiniment et c'est .hpd-panel
+    (overflow:hidden) qui coupe net, au lieu du scroll interne prévu ici. */
   overflow-y: auto;
   padding: 22px 24px 24px;
   display: flex;
@@ -664,29 +736,72 @@ async function submit() {
 .hpd--dark .hrd-advanced { border-color: rgba(255, 255, 255, 0.12); }
 .hpd--dark .hrd-advanced summary { background: #1e293b; color: #64748b; }
 
-/* Sinking rules (STF-2) */
-.hrd-sinking { display: flex; flex-direction: column; gap: 10px; }
-.hrd-sinking__row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hrd-sinking__row .hpd-select { flex: 1 1 140px; min-width: 120px; }
-.hrd-sinking__num { flex: 0 1 90px; padding: 0.5rem 0.6rem; }
-.hrd-sinking__remove {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 8px;
-  background: #f9fafb;
+/* Sinking rules (STF-2) — une carte étiquetée par règle (BUG-263-02) */
+.hrd-sinking__empty {
+  font-size: var(--fs-sm);
   color: #9ca3af;
+  padding: 14px;
+  border: 1px dashed #e5e7eb;
+  border-radius: 12px;
+  text-align: center;
+}
+.hrd-sinking__list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+.hrd-sinking__card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; background: #fafafa; }
+.hrd-sinking__card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.hrd-sinking__card-title {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: #9ca3af;
+}
+.hrd-sinking__delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+.hrd-sinking__delete:hover:not(:disabled) { background: #fef2f2; color: #ff3131; }
+.hrd-sinking__delete:disabled { opacity: 0.5; cursor: not-allowed; }
+.hrd-sinking__field-row { display: flex; gap: 10px; }
+.hrd-sinking__field-row .hpd-field { flex: 1 1 0; min-width: 0; }
+.hrd-sinking__add {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  border: 1.5px dashed #d1d5db;
+  border-radius: 12px;
+  background: transparent;
+  color: #6b7280;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   cursor: pointer;
+  transition: border-color 0.18s, color 0.18s, background 0.18s;
 }
-.hrd-sinking__remove:hover:not(:disabled) { background: #fef2f2; color: #ff3131; }
-.hrd-sinking__remove:disabled { opacity: 0.5; cursor: not-allowed; }
+.hrd-sinking__add:hover { border-color: #ff3131; color: #ff3131; background: #fff5f5; }
 .hpd-error-inline { font-size: var(--fs-xs); color: #ff3131; }
-.hpd--dark .hrd-sinking__remove { background: #1e293b; color: #64748b; }
-.hpd--dark .hrd-sinking__remove:hover:not(:disabled) { background: rgba(255, 49, 49, 0.1); color: #e84444; }
+.hpd--dark .hrd-sinking__card { background: #1e293b; border-color: rgba(255, 255, 255, 0.12); }
+.hpd--dark .hrd-sinking__empty { border-color: rgba(255, 255, 255, 0.12); color: #64748b; }
+.hpd--dark .hrd-sinking__delete { color: #64748b; }
+.hpd--dark .hrd-sinking__delete:hover:not(:disabled) { background: rgba(255, 49, 49, 0.1); color: #e84444; }
+.hpd--dark .hrd-sinking__add { border-color: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.55); }
+.hpd--dark .hrd-sinking__add:hover { border-color: #ff3131; color: #e84444; background: rgba(255, 49, 49, 0.1); }
 
 /* Footer */
 .hpd__footer {

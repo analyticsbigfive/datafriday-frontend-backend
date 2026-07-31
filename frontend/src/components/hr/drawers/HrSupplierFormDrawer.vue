@@ -354,6 +354,9 @@ async function submit() {
 /* Body */
 .hsd__body {
   flex: 1 1 0;
+  min-height: 0; /* sinon un enfant flex refuse de rétrécir sous la hauteur de son contenu
+    (min-height:auto par défaut) — le corps grandit indéfiniment et c'est le panel parent
+    (overflow:hidden) qui coupe net, au lieu du scroll interne prévu ici (BUG-263-02). */
   overflow-y: auto;
   padding: 22px 24px 24px;
   display: flex;

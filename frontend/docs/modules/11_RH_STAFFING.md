@@ -593,19 +593,19 @@ Configurations n'y apparaissait jamais.
 
 `HR_FNB_CATEGORIES` et la table de correspondance `SUBTYPE_TO_FNB_CATEGORY` (`fnb-tags.util.ts`)
 sont supprimées. `HrRole.fnbCategories`/`HrSinkingRule.fnbCategory` stockent désormais directement
-le `Subtype.code` (département `shop`, ex. `beverages`, `front_food`) — même idiome que
-`HrRole.department`/`Department.code` (§10.3). `HrService.resolveFnbCategories()` valide
-l'existence contre `Subtype` (scope `department.code = 'shop'` strict — un sous-type d'un autre
-département, ex. `lodges`/hospitality, est rejeté) et canonicalise vers `code ?? id`, exactement
-comme `normalizeRole()` le fait pour `department`.
+le `Subtype.code` — même idiome que `HrRole.department`/`Department.code` (§10.3).
+`HrService.resolveFnbCategories()` valide l'existence contre `Subtype`, scopé au département
+**du rôle** (généralisé au-delà de `shop` le 2026-07-31, cf. §11.13 — cette section décrivait
+initialement un scope figé sur `shop`, corrigé depuis) et canonicalise vers `code ?? id`,
+exactement comme `normalizeRole()` le fait pour `department`.
 
-**Périmètre volontairement limité** : `StaffingCalculatorService` (pur, 43 tests) ne connaît pas le
-vocabulaire concret — il compare des chaînes opaques (`fnbTags.has(rule.fnbCategory)`), donc
-inchangé. Seuls les 6 littéraux `fnbTags.has('BEVERAGE'|'BEER'|...)` dans
-`StaffingService.generate()` sont renommés vers les codes minuscules (`beverages`/`beer`/…) —
-même comportement, mêmes 3 catégories regroupées sous `hasBeverage` (cf. §11.11), aucune formule
-touchée. `builder-v2.service.ts::getStaffSuggestions` ne fait aucune comparaison littérale, donc
-inchangé lui aussi.
+**Périmètre volontairement limité (à ce stade de cette section)** : `StaffingCalculatorService`
+(pur, 43 tests) ne connaît pas le vocabulaire concret — il compare des chaînes opaques
+(`fnbTags.has(rule.fnbCategory)`), donc inchangé. Seuls les 6 littéraux
+`fnbTags.has('BEVERAGE'|'BEER'|...)` dans `StaffingService.generate()` sont renommés vers les
+codes minuscules (`beverages`/`beer`/…) — même comportement, mêmes 3 catégories regroupées sous
+`hasBeverage` (cf. §11.11), aucune formule touchée. `builder-v2.service.ts::getStaffSuggestions`
+n'était pas encore touché à ce stade — cf. §11.13 pour sa généralisation.
 
 **Migration** : `backend/scripts/backfill-hr-fnb-categories.ts` (DRY-RUN/`--apply`, idempotent)
 réécrit les valeurs `UPPERCASE_SNAKE` déjà en base vers le `Subtype.code` correspondant (mapping
@@ -621,5 +621,52 @@ Frontend (`HrRoleFormDrawer.vue`) : `FNB_CATEGORIES` (tableau figé) retiré, re
 `computed` réutilisant `buildTools()`/`toolOf('shop', …)` d'`elementTaxonomy.js` — les mêmes
 fonctions déjà utilisées par le Builder (CFG-2 Étape 5) — sur le sous-type courant du référentiel
 `departments` Vuex. Effet de bord positif : le libellé affiché passe de "Beverage" à "Beverages"
-(`Subtype.name` réel), corrigeant au passage une divergence de wording avec le Builder.
+(`Subtype.name` réel), corrigeant au passage une divergence de wording avec le Builder. (Sourcé
+sur `shop` fixe à ce stade — généralisé au département du rôle en §11.13.)
+
+### 11.13 Généralisation au-delà de `shop` — la suggestion auto Builder marche pour tout département RH
+
+Retour utilisateur (2026-07-31), suite à §11.12 : *"le choix du département doit nous permettre de
+choisir le subtype auquel c'est censé être lié"*. La grille "Subtype" du formulaire de rôle restait
+câblée en dur sur les sous-types `shop`, quel que soit le département choisi — un rôle Hospitality
+(ex. "Hôte Lodge") ne pouvait jamais être tagué avec `lodges`/`salon`, ses propres sous-types.
+
+Vérification préalable : `detectFnbTags()`/`StaffingCalculatorService.computeStaffSuggestions()`
+étaient déjà **entièrement génériques** (aucun vocabulaire figé, comparaison de chaînes opaques) —
+la limite à `shop` était purement artificielle, à deux endroits précis :
+
+1. **`HrRoleFormDrawer.vue`** — `subtypeOptions` passe de `toolOf('shop', tools)` à
+   `toolOf(form.department, tools)` : la grille propose désormais les sous-types du département
+   **sélectionné sur le rôle**, pas toujours `shop`. Un `watch(() => form.department, ...)` filtre
+   `form.fnbCategories` pour retirer les tags devenus invalides quand l'utilisateur change de
+   département interactivement (sans effet quand `reset()` peuple un rôle déjà persisté, dont les
+   tags sont déjà cohérents avec leur département). Libellé section renommé de "F&B Category
+   (subtype)" à "Subtype" (+ nom du département affiché), plus F&B-only.
+2. **`HrService.resolveFnbCategories(values, departmentId)`** — accepte désormais un `departmentId`
+   (celui du rôle, résolu dans `normalizeRole()`/`assertValidSinkingRule()`), scope la requête
+   `Subtype` dessus au lieu de `department: { code: 'shop' }`. `assertValidSinkingRule()` devient
+   async et va chercher le département du rôle visé (`roleId`) pour scoper la validation.
+3. **`BuilderV2Service.getStaffSuggestions()`** — remplace le filtre figé `STAFFING_ELEMENT_TYPES`
+   (shop + legacy `fnb_*`) par une résolution dynamique du département de l'élément
+   (`resolveDepartmentForElementType()`, repli des 5 valeurs legacy F&B sur `shop` d'abord),
+   condition `dept.needsRh === true` — couvre les 6 départements RH (shop, hospitality, merchshop,
+   entrance, entertainment, kitchen), pas seulement shop.
+
+**Garde-fou de collision (le point le plus important)** : un `Subtype.code` n'est unique que **par
+département** (`@@unique([departmentId, name])`), pas globalement — `temporary` existe à la fois
+sur `shop` et `merchshop`, avec des sens différents. Avant ce changement, cette collision n'était
+jamais un problème parce que `STAFFING_ELEMENT_TYPES` excluait déjà `merchshop` (BUG-122, §11.11).
+En généralisant, `getStaffSuggestions()` filtre désormais explicitement les rôles considérés au
+**même département que l'élément** (`hrRole.findMany({ where: { department: { in: [dept.code,
+dept.id] } } })`) — sans ce scope, un rôle `shop` tagué `temporary` aurait pu être suggéré à tort
+sur une box `merchshop` tagué `temporary` (même chaîne, sens différent). Vérifié par script e2e
+jetable (tenant + espace/zone/éléments de test nettoyés) : rôle Hospitality `lodges` suggéré sur
+une box Hospitality `lodges`, rôle merchshop `temporary` suggéré sur une box merchshop
+`temporary`, **rôle shop `temporary` PAS suggéré** sur cette même box merchshop malgré la
+collision de code — 8 assertions, toutes passées.
+
+Le calcul par paliers événementiel (`StaffingService.generate()`, `algoKey`) reste **volontairement
+non généralisé** : ses formules (caissiers/runners/barman…) sont conceptuellement F&B (CA
+prédictif, TPE, trafic), sans équivalent métier pour Hospitality/Ticketing — seule la suggestion
+auto **par élément** dans le Builder (`getStaffSuggestions`) est concernée par cette généralisation.
 
