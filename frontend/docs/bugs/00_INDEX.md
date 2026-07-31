@@ -272,6 +272,8 @@
 | [254-02](254_02_market_prices_csv_format_packe_par_article_import_export.md) | Market Prices : absence d'un format CSV « packé par article » (1 ligne = 1 Item, prix fournisseurs empilés + upsert par id) pour la reprise de données historiques | 🟡 Corrigé non testé | 🟠 | Achats & référentiels |
 | [256-02](256_02_components_csv_import_export_recette.md) | Components : aucun import CSV n'existait (export plat seulement) — ajout import/export packé avec recette (ingrédients + sous-composants), résolution des anciens ids Market Price via fichier compagnon, migration `numberOfUnitsRecipe` Int→Float | 🟡 Corrigé non testé | 🟠 | Menu & recettes |
 | [257-02](257_02_menu_items_csv_import_recette_historique.md) | MenuItem : import CSV du format "Recipe" packé historique inutilisable (résolution par ID brut) — résolution par nom via fichiers compagnons Market Prices/Components, nouvelle relation `MenuItemCombo` (composition combo, absente du schéma), import parallélisé + retry 429 (perf) | 🟡 Corrigé non testé | 🟠 | Menu & recettes |
+| [258-02](258_02_csvimportdrawer_doublon_ignore_compte_comme_erreur.md) | Import CSV Events : ligne ignorée (doublon) comptée aussi comme erreur, affichée deux fois dans les résultats | 🟢 Corrigé | 🟡 | Événements |
+| [259-02](259_02_resolveweezeventlinkdialog_selections_jamais_reinitialisees.md) | `ResolveWeezeventLinkDialog` : sélections jamais réinitialisées, valeur d'une ouverture précédente affichée comme pré-sélectionnée | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur

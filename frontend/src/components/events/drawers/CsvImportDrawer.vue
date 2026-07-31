@@ -1410,8 +1410,11 @@ export default {
             continue;
           }
           if (existingKeys.has(built.dedupKey)) {
+            // Compté uniquement dans `skipped`, jamais dans `errors` : un doublon volontairement
+            // ignoré n'est pas un échec d'import (voir l'alerte dédiée "ligne(s) ignorée(s)" dans
+            // le template) — le mettre aussi dans `errors` le faisait apparaître en double, une
+            // fois comme "ignoré" et une fois comme "non importé" (BUG-258-02).
             skippedCount++;
-            errors.push({ row: rowNumber, message: `Ignoré : un événement "${built.name}" existe déjà à cette date` });
             this.importedCount++;
             continue;
           }
