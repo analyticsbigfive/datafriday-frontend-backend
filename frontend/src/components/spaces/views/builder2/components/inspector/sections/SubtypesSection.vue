@@ -30,18 +30,26 @@ import { useStore as useVuexStore } from 'vuex'
 import { Check } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
-import { toolOf, storageSubtypesFor } from '../../../constants/elementTaxonomy'
+import { toolOf, storageSubtypesFor, buildTools } from '../../../constants/elementTaxonomy'
 
 const { t } = useI18n()
 const store = inject('builderStore')
 const vuexStore = useVuexStore()
 const element = computed(() => store.selectedElement.value)
-const tool = computed(() => toolOf(element.value?.type))
 
-// CFG-2 : le tool "storage" a ses sous-types de condition (dry/cold/belowzero + créations
-// tenant) pilotés par le référentiel StorageType — les autres tools gardent leur liste figée
-// d'elementTaxonomy.js, inchangée.
-onMounted(() => { vuexStore.dispatch('storageTypes/fetchStorageTypes') })
+// CFG-2 Étape 5 : les 8 départements (nom/couleur/icône/sous-types génériques) viennent
+// désormais du référentiel global Department — plus de liste statique elementTaxonomy.js.
+onMounted(() => {
+  vuexStore.dispatch('departments/fetchDepartments')
+  vuexStore.dispatch('storageTypes/fetchStorageTypes')
+})
+const tools = computed(() => buildTools(vuexStore.getters['departments/departments'] || []))
+const tool = computed(() => toolOf(element.value?.type, tools.value))
+
+// Le tool "storage" a ses sous-types de CONDITION (dry/cold/belowzero + créations tenant)
+// pilotés par le référentiel StorageType (Configurations), pas par ses propres Subtype
+// génériques (lien délibéré établi avant CFG-2 Étape 5, préservé ici) — les autres tools
+// utilisent leurs sous-types Department normaux.
 const subtypeOptions = computed(() => {
   if (tool.value?.type !== 'storage') return tool.value?.subtypes || []
   return storageSubtypesFor(vuexStore.getters['storageTypes/storageTypes'] || [])

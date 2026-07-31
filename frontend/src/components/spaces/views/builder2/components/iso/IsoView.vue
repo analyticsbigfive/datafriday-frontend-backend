@@ -372,9 +372,11 @@
 
 <script setup>
 import { h, ref, reactive, computed, inject, watch, onMounted, nextTick, defineComponent } from 'vue'
+import { useStore as useVuexStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { ZoomIn, ZoomOut, RotateCw } from 'lucide-vue-next'
 import { containElementInZone } from '../../composables/useIsoProjection'
+import { buildTools, colorOf as colorOfTool, darkerColorOf as darkerColorOfTool } from '../../constants/elementTaxonomy'
 
 // ── SvgPaths : composant inline identique à v1 ────────────────────────────────
 const SvgPaths = defineComponent({
@@ -397,6 +399,9 @@ const SvgPaths = defineComponent({
 })
 
 const store = inject('builderStore')
+const vuexStore = useVuexStore()
+onMounted(() => vuexStore.dispatch('departments/fetchDepartments'))
+const tools = computed(() => buildTools(vuexStore.getters['departments/departments'] || []))
 
 // ── Thème ─────────────────────────────────────────────────────────────────────
 const { global: vuetifyTheme } = useTheme()
@@ -495,13 +500,12 @@ const externalMerchColor  = '#a78bfa'
 const forecourtOpacity    = computed(() => isForecourtSelected.value    ? 0.5 : 0.2)
 const externalMerchOpacity = computed(() => isExternalMerchSelected.value ? 0.5 : 0.2)
 
+// CFG-2 Étape 5 : dérivées du référentiel global Department (elementTaxonomy.js), plus de map locale.
 function getElementColor(type) {
-  const m = { shop:'#10b981', storage:'#f59e0b', entrance:'#ff3131', hospitality:'#ec4899', merchshop:'#a0522d', access:'#64748b', entertainment:'#8b5cf6', kitchen:'#f97316' }
-  return m[String(type||'').startsWith('fnb') ? 'shop' : type] || '#6b7280'
+  return colorOfTool(type, tools.value)
 }
 function getDarkerColor(type) {
-  const m = { shop:'#059669', storage:'#d97706', entrance:'#ff3131', hospitality:'#db2777', merchshop:'#78350f', access:'#475569', entertainment:'#7c3aed', kitchen:'#ea580c' }
-  return m[String(type||'').startsWith('fnb') ? 'shop' : type] || '#4b5563'
+  return darkerColorOfTool(type, tools.value)
 }
 function isElementHighlighted(element) {
   const tool = selectedTool.value

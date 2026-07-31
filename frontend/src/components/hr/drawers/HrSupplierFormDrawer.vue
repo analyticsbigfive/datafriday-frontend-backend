@@ -114,13 +114,13 @@
               <div class="hsd-pill-grid">
                 <div
                   v-for="dep in DEPARTMENTS"
-                  :key="dep"
+                  :key="dep.value"
                   class="hsd-pill"
-                  :class="{ 'hsd-pill--active': form.departments.includes(dep) }"
-                  @click="toggleDepartment(dep)"
+                  :class="{ 'hsd-pill--active': form.departments.includes(dep.value) }"
+                  @click="toggleDepartment(dep.value)"
                 >
                   <Check :size="12" class="hsd-pill__check" />
-                  {{ dep }}
+                  {{ dep.label }}
                 </div>
               </div>
             </div>
@@ -144,12 +144,25 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { AlertCircle, Building2, Camera, Check, ImagePlus, Pencil, Save, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
-import { HR_SUPPLIER_DEPARTMENTS as DEPARTMENTS, newId } from '../hrShared'
+import { newId } from '../hrShared'
+
+// CFG-2 Étape 4 : HR_SUPPLIER_DEPARTMENTS (liste figée) retiré — remplacé par le référentiel
+// global Department (store `departments`), filtré `allowsSuppliers` (mêmes 7 départements que
+// l'ancienne liste, cf. backfill-departments.ts). `form.departments` stocke `code ?? id` (valeur
+// stable), plus le libellé — le backend rejette désormais un libellé brut (CFG-2 Étape 4).
+const store = useStore()
+onMounted(() => store.dispatch('departments/fetchDepartments'))
+const DEPARTMENTS = computed(() =>
+  (store.getters['departments/departments'] || [])
+    .filter((d) => d.allowsSuppliers)
+    .map((d) => ({ value: d.code ?? d.id, label: d.name })),
+)
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
