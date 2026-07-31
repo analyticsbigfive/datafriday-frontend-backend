@@ -59,6 +59,7 @@
               rounded="lg"
               hide-details="auto"
               class="dfd-field mb-4"
+              :menu-props="{ zIndex: 10001 }"
             >
               <template #selection="{ item }">
                 <v-icon :icon="item.value" size="18" class="mr-2" />
