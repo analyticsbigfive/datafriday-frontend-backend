@@ -1,27 +1,5 @@
-import { IsString, IsOptional, IsArray, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsArray } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-
-export enum ElementTypeEnum {
-  access = 'access',
-  hospitality = 'hospitality',
-  entertainment = 'entertainment',
-  shop = 'shop',
-  merchshop = 'merchshop',
-  entrance = 'entrance',
-  storage = 'storage',
-  kitchen = 'kitchen',
-  fnb_food = 'fnb_food',
-  fnb_beverages = 'fnb_beverages',
-  fnb_bar = 'fnb_bar',
-  fnb_snack = 'fnb_snack',
-  fnb_icecream = 'fnb_icecream',
-  seating = 'seating',
-  stage = 'stage',
-  parking = 'parking',
-  restroom = 'restroom',
-  office = 'office',
-  other = 'other',
-}
 
 export class UpdateSpaceElementDto {
   @ApiPropertyOptional({ description: 'Nom du shop' })
@@ -39,10 +17,15 @@ export class UpdateSpaceElementDto {
   @IsString()
   notes?: string;
 
-  @ApiPropertyOptional({ enum: ElementTypeEnum, description: 'Type principal de l\'élément' })
+  // CFG-2 Étape 2 : plus d'enum Postgres figé, donc plus de @IsEnum statique possible ici.
+  // Pas de validation d'existence ajoutée à ce stade (Étape 3, pas encore faite, revoit
+  // spaces.service.ts::updateSpaceElement et les autres consommateurs de ce champ) — ce champ
+  // reste permissif comme les autres champs texte-libre-validés-par-référentiel du backend
+  // (`inventoryPackaging`, `storageType`) en attendant.
+  @ApiPropertyOptional({ description: 'Type principal de l\'élément (code ou id Department)' })
   @IsOptional()
-  @IsEnum(ElementTypeEnum)
-  type?: ElementTypeEnum;
+  @IsString()
+  type?: string;
 
   @ApiPropertyOptional({ type: [String], description: 'Sous-types shop (Food, Beverages, etc.)' })
   @IsOptional()

@@ -843,7 +843,13 @@ model SpaceElement {
   externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
   zoneId          String? // Builder v2 : FK vers Zone (remplace les 3 FK ci-dessus pour les éléments v2)
   name            String
-  type            ElementType
+  // CFG-2 Étape 2 : `String` libre (ex-enum `ElementType`, converti en place, cf. migration
+  // 20260731010500). Stocke `Department.code` (8 valeurs historiques : shop/hospitality/
+  // merchshop/storage/entrance/kitchen/entertainment/access) ou `Department.id` (département
+  // créé par le super-admin) — jamais `Department.name` (renommable). Le type Postgres
+  // `ElementType` reste en base, orphelin, pour une réversibilité bon marché (DROP TYPE différé
+  // en nettoyage final, Étape 7).
+  type            String
   x               Float
   y               Float
   depth           Float?
