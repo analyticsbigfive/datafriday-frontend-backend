@@ -56,19 +56,22 @@ supposer.
 
 ### Cas confirmés
 
-- **#6 (`meta`) n'est PAS appliquée en production** — vérifié le 2026-07-30 par l'erreur runtime :
-  `GET /api/v1/inventory/:spaceId/reconciliations` → 500, « The column `StockReconciliation.meta`
-  does not exist in the current database ». Fiche
-  [248-01](../../../frontend/docs/bugs/248_01_stockreconciliation_meta_non_appliquee_prod.md).
-  **6 requêtes** touchent `meta` implicitement, dont le reset logistique et l'export Logistic.
-- **#7 et #8 (RH) n'ont jamais été créées sur aucun environnement** — l'en-tête de
-  `2026-07-30_hr_settings_goals_ratios.sql` le dit : le commit `56297d8` a ajouté les modèles dans
-  `schema.prisma:542-591` sans script SQL joint. Symptôme : `POST /events/:id/staffing/generate` et
-  les endpoints `/hr-settings/*` échouent (relation inexistante) alors que le code est déployé.
-- **#9 n'est pas encore versionnée** (`git status` : `?? prisma/sql/2026-07-30_event_is_simulated.sql`).
-  À committer avec le reste, sinon elle n'existera pas dans le build Render. Constaté aussi en local
-  le 2026-07-30 : le client Prisma généré ignorait `Event.isSimulated`, ce qui empêchait la suite de
-  tests backend de compiler (`npx prisma generate` corrige le côté local).
+- **2026-07-31, vérification complète des #1-#9 sur `datafriday-dev` (`alsgdtewqeldrrquypdy`, base
+  utilisée par `datafriday-api.onrender.com`)** via les requêtes de vérification ci-dessus :
+  - #1, #4, #5, #7, #8, #9 : déjà appliquées (les modèles Prisma RH #7/#8, un temps absents — voir
+    historique ci-dessous —, existent désormais : `HrRole`, `EventStaffLine`, `HrGoal`,
+    `HrStaffRatio` tous non NULL. `Event.isSimulated` présent et versionné.)
+  - #2, #3, #6 : **manquantes, appliquées ce jour**. Dry-run de #2 avant application : 0 ligne
+    dupliquée sur 152 lignes `InventoryCount` (dédoublonnage no-op, seule la recréation d'index a eu
+    un effet). #3 et #6 : additives, sans risque. Vérifiées après coup (index `NULLS NOT DISTINCT`
+    présent, 2 index de perf présents, colonne `meta` présente).
+  - #10 (BUG-124-01) : **volontairement non appliquée** — superseded, cf. plus haut.
+- Historique (2026-07-30, avant résolution) : #6 avait été constatée absente en prod par une erreur
+  runtime (`GET /api/v1/inventory/:spaceId/reconciliations` → 500, fiche
+  [248-01](../../../frontend/docs/bugs/248_01_stockreconciliation_meta_non_appliquee_prod.md)), et
+  #7/#8 avaient été signalées jamais créées (modèles ajoutés à `schema.prisma` sans script SQL
+  joint, commit `56297d8`). Les deux ont depuis été résolues (migrations Prisma formelles pour
+  #7/#8, script manuel pour #6 le 2026-07-31).
 
 ### Scripts qui ne sont PAS des migrations
 
