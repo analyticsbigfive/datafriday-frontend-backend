@@ -18,8 +18,12 @@
 -- Le vrai correctif pour les 500 sur event-timeline/transaction-baskets/live-status est de
 -- déployer ce code (déjà adapté au `String`), pas de reconvertir la colonne. Voir la fiche
 -- `backend/docs/bugs/124_01_spaceelement_type_text_vs_enum_prod.md` (section "Correction du
--- 2026-07-31") avant toute action. Fichier conservé tel quel ci-dessous pour trace historique
--- du diagnostic initial (JLH) — ne pas l'appliquer sans revalidation explicite.
+-- 2026-07-31") avant toute action.
+--
+-- Tout le SQL ci-dessous est commenté à dessein : ce fichier est conservé pour trace historique
+-- du diagnostic initial (JLH), mais ne doit produire AUCUN effet même si quelqu'un l'exécute tel
+-- quel (`psql -f ...`) sans avoir lu cet en-tête. Pour relancer cette migration après
+-- revalidation explicite, il faudrait décommenter le bloc ci-dessous ligne par ligne.
 
 -- BUG-124 : "SpaceElement"."type" était en `text` en prod alors que le schéma Prisma la déclare
 -- enum "ElementType" — le client Prisma type ses paramètres en "ElementType"[], d'où
@@ -39,21 +43,21 @@
 -- (connexion directe port 5432, jamais le pooler — cf. backend/prisma/sql/README.md).
 
 -- Garde-fou : échoue proprement si une valeur non castable est apparue depuis la vérification.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM "SpaceElement"
-    WHERE "type" NOT IN (
-      SELECT e.enumlabel
-      FROM pg_enum e
-      JOIN pg_type t ON t.oid = e.enumtypid
-      WHERE t.typname = 'ElementType'
-    )
-  ) THEN
-    RAISE EXCEPTION 'BUG-124 : valeurs "SpaceElement"."type" hors enum "ElementType" — migration abandonnée, corriger les données avant de relancer';
-  END IF;
-END
-$$;
-
-ALTER TABLE "SpaceElement"
-  ALTER COLUMN "type" TYPE "ElementType" USING "type"::"ElementType";
+-- DO $$
+-- BEGIN
+--   IF EXISTS (
+--     SELECT 1 FROM "SpaceElement"
+--     WHERE "type" NOT IN (
+--       SELECT e.enumlabel
+--       FROM pg_enum e
+--       JOIN pg_type t ON t.oid = e.enumtypid
+--       WHERE t.typname = 'ElementType'
+--     )
+--   ) THEN
+--     RAISE EXCEPTION 'BUG-124 : valeurs "SpaceElement"."type" hors enum "ElementType" — migration abandonnée, corriger les données avant de relancer';
+--   END IF;
+-- END
+-- $$;
+--
+-- ALTER TABLE "SpaceElement"
+--   ALTER COLUMN "type" TYPE "ElementType" USING "type"::"ElementType";
