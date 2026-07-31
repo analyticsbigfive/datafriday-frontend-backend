@@ -274,6 +274,7 @@
 | [257-02](257_02_menu_items_csv_import_recette_historique.md) | MenuItem : import CSV du format "Recipe" packé historique inutilisable (résolution par ID brut) — résolution par nom via fichiers compagnons Market Prices/Components, nouvelle relation `MenuItemCombo` (composition combo, absente du schéma), import parallélisé + retry 429 (perf) | 🟡 Corrigé non testé | 🟠 | Menu & recettes |
 | [258-02](258_02_departmentformdrawer_v_select_icon_menu_invisible_zindex_drawer.md) | `v-select` "Icon" invisible (menu piégé sous le drawer) dans DepartmentFormDrawer — 3e occurrence du même bug jamais protégé par le fix z-index déjà établi (BUG-241-02/249-02) | 🟢 Corrigé | 🟠 | Espaces & builder |
 | [259-02](259_02_componentcreateview_storagetype_dry_storage_valeur_invalide.md) | Storage Type "Dry Storage" (≠ "Dry" attendu par Prisma) sur ComponentCreateView : sauvegarde en échec systématique sur ce choix, sibling de BUG-05 | 🟢 Corrigé | 🔴 | Menu & recettes |
+| [260-02](260_02_hrsinkingrule_conditionattribute_jamais_saisi_builder.md) | `HrSinkingRule.conditionAttribute` (ex. `nbFriteuses`) ne se déclenche jamais — aucun champ du Builder ne permet de saisir ces attributs sur `SpaceElement.attributes`, déjà signalé en TODO doc de module mais jamais tracé en fiche bug | ⚪ Diagnostiqué | 🟠 | RH / Staffing |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
