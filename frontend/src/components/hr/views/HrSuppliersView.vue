@@ -44,10 +44,10 @@
       <v-progress-linear v-if="loading" indeterminate color="#ff3131" height="3" rounded class="mb-4" />
 
       <div v-if="bulkSelected.length" class="bulk-bar">
-        <span class="bulk-bar__info">{{ bulkSelected.length }} sélectionné{{ bulkSelected.length > 1 ? 's' : '' }}</span>
+        <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
         <div class="bulk-bar__actions">
-          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">Désélectionner</button>
-          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> Supprimer</button>
+          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
         </div>
       </div>
 
@@ -129,9 +129,10 @@
     <!-- Dialog suppression multiple -->
     <BulkDeleteDialog
       v-model="bulkOpen"
-      title="Supprimer des fournisseurs RH"
-      :message="`Voulez-vous vraiment supprimer ${bulkSelected.length} fournisseur${bulkSelected.length > 1 ? 's' : ''} ?`"
-      :progress="bulkProgress" :total="bulkTotal" progress-label="fournisseurs supprimés"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
       :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
       @confirm="confirmBulkDelete"
     />

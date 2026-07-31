@@ -168,7 +168,6 @@
             <div class="elv-bd__progress-label">
               {{ bulkDeleteProgress }}/{{ bulkDeleteTotal }}
               {{ locale === 'fr' ? 'événements supprimés' : 'events deleted' }}
-              <span class="elv-bd__progress-pct">· {{ bulkDeletePct }}%</span>
             </div>
           </template>
           <p v-else class="elv-bd__text">

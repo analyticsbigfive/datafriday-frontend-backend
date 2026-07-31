@@ -23,7 +23,6 @@
           </div>
           <div class="bdd__progress-label">
             {{ progress }}/{{ total }} {{ progressLabel }}
-            <span class="bdd__progress-pct">· {{ pct }}%</span>
           </div>
         </template>
         <p v-else class="bdd__text">
