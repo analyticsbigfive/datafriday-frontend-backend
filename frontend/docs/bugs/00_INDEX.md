@@ -278,6 +278,8 @@
 | [260-02](260_02_hrsinkingrule_conditionattribute_jamais_saisi_builder.md) | `HrSinkingRule.conditionAttribute` (ex. `nbFriteuses`) ne se déclenche jamais — aucun champ du Builder ne permet de saisir ces attributs sur `SpaceElement.attributes`, déjà signalé en TODO doc de module mais jamais tracé en fiche bug | ⚪ Diagnostiqué | 🟠 | RH / Staffing |
 | [261-02](261_02_hrrole_algokey_doublon_silencieusement_ignore.md) | Deux `HrRole` avec le même `algoKey` (ex. deux "CAISSIER") acceptés sans erreur — un seul est utilisé silencieusement par le calcul de staffing (`rolesByAlgo` Map, écrasement sans avertissement), l'autre devient inerte sans le signaler | 🔴 Ouvert | 🟠 | RH / Staffing |
 | [262-02](262_02_hrrole_algokey_non_valide_cote_backend.md) | `HrRole.algoKey` accepté sans validation côté backend (pas de `@IsIn`) — non exploitable via l'UI actuelle (`<select>` fermé), défense en profondeur manquante si un futur import/API direct écrit ce champ | 🔴 Ouvert | 🟡 | RH / Staffing |
+| [258-02](258_02_csvimportdrawer_doublon_ignore_compte_comme_erreur.md) | Import CSV Events : ligne ignorée (doublon) comptée aussi comme erreur, affichée deux fois dans les résultats | 🟢 Corrigé | 🟡 | Événements |
+| [259-02](259_02_resolveweezeventlinkdialog_selections_jamais_reinitialisees.md) | `ResolveWeezeventLinkDialog` : sélections jamais réinitialisées, valeur d'une ouverture précédente affichée comme pré-sélectionnée | 🟢 Corrigé | 🟠 | Intégrations & ventes |
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
