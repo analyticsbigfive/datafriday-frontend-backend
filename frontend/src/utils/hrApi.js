@@ -2,8 +2,9 @@
 //
 // Les signatures historiques sont conservées pour ne pas casser
 // HrSuppliersView / HrPositionsView : mêmes noms, mêmes formes d'objets
-// (supplier { id, name, email, phone, contactName, picture, spaceIds, sectors },
+// (supplier { id, name, email, phone, contactName, picture, spaceIds, departments },
 //  position { id, supplierId, positionName, sector, ratePerHour }).
+// RH-5 (2026-07-30) : `sectors` renommé `departments` (BD HrSupplier.departments).
 // La persistance passe par api/endpoints/hr.api.js (tables HrSupplier / HrRole).
 //
 // Import one-shot : au premier chargement, si des données existent encore en
@@ -31,7 +32,7 @@ const STAFF_POSITIONS_KEY = 'staff_positions'
 const POSITION_NAMES_KEY = 'position_names'
 const HR_MIGRATION_FLAG = 'hr_localstorage_migrated'
 
-// Secteurs legacy (hrShared.HR_SECTORS) → departments BD. Hors liste → F&B.
+// Départements legacy (hrShared.HR_SUPPLIER_DEPARTMENTS, ex-HR_SECTORS) → departments BD. Hors liste → F&B.
 const HR_DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment']
 const SECTOR_TO_DEPARTMENT = { Merch: 'Merchandising' }
 function toDepartment(sector) {
@@ -51,7 +52,7 @@ function supplierFromDb(s) {
     picture: s.picture || '',
     spaceIds: s.spaceIds || [],
     spaces: s.spaceIds || [], // certains écrans legacy lisent `spaces`
-    sectors: s.sectors || [],
+    departments: s.departments || [],
   }
 }
 
@@ -62,7 +63,7 @@ function supplierToDb(supplier) {
     email: supplier.email || null,
     tel: supplier.phone || null,
     picture: supplier.picture || null,
-    sectors: supplier.sectors || [],
+    departments: supplier.departments || [],
     spaceIds: supplier.spaceIds || supplier.spaces || [],
   }
 }

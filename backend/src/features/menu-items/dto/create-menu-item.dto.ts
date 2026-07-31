@@ -45,6 +45,36 @@ export class MenuItemPackagingLineDto {
   numberOfUnits: number;
 }
 
+export class MenuItemComboLineDto {
+  @ApiProperty({ description: "ID de l'article vendable composant ce combo (MenuItem)" })
+  @IsString()
+  childId: string;
+
+  @ApiProperty({ description: "Nombre d'unités" })
+  @IsNumber()
+  @Type(() => Number)
+  quantity: number;
+
+  @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, recalculé automatiquement si non fourni)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  cost?: number;
+}
+
+export class ReplaceMenuItemComboItemsDto {
+  @ApiProperty({ description: 'Liste complète des articles composant ce combo', type: [MenuItemComboLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemComboLineDto)
+  comboItems: MenuItemComboLineDto[];
+}
+
 export class ReplaceMenuItemComponentsDto {
   @ApiProperty({ description: 'Liste complète des composants', type: [MenuItemComponentLineDto] })
   @IsArray()
@@ -241,6 +271,13 @@ export class CreateMenuItemDto {
   @ValidateNested({ each: true })
   @Type(() => MenuItemPackagingLineDto)
   packagings?: MenuItemPackagingLineDto[];
+
+  @ApiPropertyOptional({ description: 'Composition combo (autres MenuItem vendables, source de vérité)', type: [MenuItemComboLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemComboLineDto)
+  comboItems?: MenuItemComboLineDto[];
 }
 
 export class BulkCreateMenuItemsDto {

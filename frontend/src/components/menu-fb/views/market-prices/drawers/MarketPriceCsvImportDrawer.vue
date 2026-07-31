@@ -71,10 +71,16 @@
               <div class="text-body-2 font-weight-medium mb-1">{{ t('expectedFormat') }}</div>
               <div class="text-caption text-medium-emphasis">{{ t('formatDesc') }}</div>
             </div>
-            <v-btn variant="text" size="small" class="text-none" @click="downloadTemplate">
-              <Download :size="14" class="mr-1" />
-              {{ t('downloadTemplate') }}
-            </v-btn>
+            <div class="d-flex" style="gap: 4px;">
+              <v-btn variant="text" size="small" class="text-none" @click="downloadTemplate">
+                <Download :size="14" class="mr-1" />
+                {{ t('downloadTemplate') }}
+              </v-btn>
+              <v-btn variant="text" size="small" class="text-none" @click="downloadPackedTemplate">
+                <Download :size="14" class="mr-1" />
+                {{ t('downloadPackedTemplate') }}
+              </v-btn>
+            </div>
           </div>
         </v-card>
       </div>
@@ -134,18 +140,30 @@
 
       <!-- ── Step 3 : Résultats ── -->
       <div v-if="step === 3 && !resolving">
-        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12">
-          <v-progress-circular indeterminate color="#ff3131" size="48" class="mb-4" />
-          <div class="text-body-2 text-medium-emphasis">
-            {{ sendingToServer ? t('sendingToServer') : `${t('importing')} ${importProgress}/${csvRows.length}` }}
-          </div>
+        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-8">
+          <template v-if="totalToSend > 0">
+            <v-progress-linear
+              :model-value="(sentCount / totalToSend) * 100"
+              color="#ff3131" height="8" rounded style="width: 260px;" class="mb-3"
+            />
+            <div class="text-body-2 text-medium-emphasis">
+              {{ retrying ? t('retryingRows') : t('sendingProgress') }} {{ sentCount }}/{{ totalToSend }}
+            </div>
+          </template>
+          <template v-else>
+            <v-progress-circular indeterminate color="#ff3131" size="48" class="mb-4" />
+            <div class="text-body-2 text-medium-emphasis">{{ t('importing') }} {{ importProgress }}/{{ csvRows.length }}</div>
+          </template>
         </div>
-        <template v-else-if="importResults">
+        <template v-if="importResults">
           <v-alert v-if="autoCreatedSummary" type="info" variant="tonal" rounded="lg" class="mb-4">
             {{ autoCreatedSummary }}
           </v-alert>
           <v-alert v-if="importResults.success > 0" type="success" variant="tonal" rounded="lg" class="mb-4">
             <strong>{{ importResults.success }}</strong> {{ t('importedOk') }}
+          </v-alert>
+          <v-alert v-if="importResults.updated > 0" type="info" variant="tonal" rounded="lg" class="mb-4">
+            <strong>{{ importResults.updated }}</strong> {{ t('updatedOk') }}
           </v-alert>
           <v-alert v-if="importResults.skipped > 0" type="info" variant="tonal" rounded="lg" class="mb-4">
             <strong>{{ importResults.skipped }}</strong> {{ t('skippedDuplicates') }}
@@ -157,8 +175,18 @@
                 {{ t('row') }} {{ err.row }} : {{ err.message }}
               </li>
             </ul>
+            <button
+              v-if="!importLoading && failedItems.length > 0"
+              class="mpcid-btn mpcid-btn--primary mt-3"
+              @click="retryFailedRows"
+            >
+              {{ t('retryFailedRows') }} ({{ failedItems.length }})
+            </button>
           </v-alert>
-          <v-alert v-if="importResults.success === 0 && importResults.skipped === 0 && importResults.errors.length === 0" type="info" variant="tonal" rounded="lg">
+          <v-alert
+            v-if="!importLoading && importResults.success === 0 && importResults.updated === 0 && importResults.skipped === 0 && importResults.errors.length === 0"
+            type="info" variant="tonal" rounded="lg"
+          >
             {{ t('noRows') }}
           </v-alert>
         </template>
@@ -202,6 +230,15 @@ import { importMarketPrices, createSupplier } from '@/api/endpoints/menu.api';
 import { createIndustrial } from '@/api/endpoints/industrial.api';
 import { createMarketPriceType, createMarketPriceCategory } from '@/api/endpoints/market.price.api';
 import { supabase } from '@/lib/supabase';
+import { runWithConcurrency } from '@/utils/asyncPool';
+
+// Un gros import (des centaines/milliers de lignes) envoyé en une seule requête dépasse le
+// timeout Axios de 60s (cf. src/api/client.js) bien avant que le backend n'ait fini de traiter
+// toutes les lignes séquentiellement — même pattern déjà résolu pour l'import CSV Events
+// (BUG-246-02) : lots de taille bornée envoyés en parallèle via runWithConcurrency plutôt qu'un
+// unique payload de taille proportionnelle au fichier.
+const IMPORT_BATCH_SIZE = 30;
+const IMPORT_CONCURRENCY = 4;
 
 // Seuil de similarité (0-1) au-delà duquel deux noms sont considérés comme une probable faute
 // de frappe plutôt que deux entités distinctes ("Metro Auxxerre" vs "Metro Auxerre" ≈ 0.92,
@@ -246,6 +283,42 @@ function detectSeparator(firstLine) {
   if (counts['\t'] > 0) return '\t';
   if (counts[';'] > 0) return ';';
   return ',';
+}
+
+// Ordre des 16 sous-champs d'un enregistrement Market Price dans le format CSV « packé » (1 ligne
+// CSV = 1 Item, un prix fournisseur par segment séparé par « | », chaque segment séparé par « > »)
+// — vérifié contre frontend/docs/example/market-prices-2026-07-29.csv (fichier réel, 368 articles).
+// `_inventoryUnits` (Inventory Information > Number of units) est intentionnellement ignoré à
+// l'import : en base c'est le MÊME champ que `packedUnits` (Packing Information > Packed Units,
+// cf. MarketPriceEditSupplierDrawer.vue `form.packedUnits` partagé entre les deux sections) — pas
+// deux valeurs distinctes aujourd'hui, donc ce n'est pas une perte d'information réelle.
+const PACKED_SUBFIELD_ORDER = [
+  'id',                 // Market Price ID (upsert si connu du tenant, sinon ignoré côté backend)
+  'supplierItem',       // Supplier Item Name
+  'supplierId',         // Supplier ID — id d'un autre système en général, jamais utilisé tel quel
+  'supplier',           // Supplier Name — c'est ce nom qui sert à résoudre/créer le fournisseur
+  'goodType',           // Good Type (par ligne, prioritaire sur le Good Type niveau item)
+  'purchasePackaging',  // Purchase Information > Packaging
+  'unitsPerPurchase',   // Purchase Information > Number of units
+  'unit',               // Purchase Information > Unit
+  'price',              // Purchase Information > Market Price Amount
+  'inventoryPackaging',  // Inventory Information > Packaging
+  '_inventoryUnits',    // Inventory Information > Number of units — ignoré, cf. commentaire ci-dessus
+  'packedUnits',         // Packing Information > Packed Units
+  'numberOfUnits',       // Packing Information > Number of units
+  'packingLength',        // Packing Information > Length
+  'packingWidth',          // Packing Information > Width
+  'packingHeight',          // Packing Information > Height
+];
+
+function parsePackedSubRecord(segment) {
+  const parts = segment.split('>').map((p) => p.trim());
+  const out = {};
+  PACKED_SUBFIELD_ORDER.forEach((key, i) => {
+    if (key.startsWith('_')) return;
+    out[key] = parts[i] !== undefined ? parts[i] : '';
+  });
+  return out;
 }
 
 function parseCSV(text) {
@@ -306,11 +379,23 @@ export default {
       mapping: {},
       importLoading: false,
       importProgress: 0,
-      sendingToServer: false,
       importResults: null,
+      // Progression réelle de l'envoi réseau (lignes envoyées / total), par lots — remplace
+      // l'ancien booléen `sendingToServer` qui ne donnait aucune indication de progression
+      // (cf. BUG-046, jamais complètement résolu pour cet écran).
+      sentCount: 0,
+      totalToSend: 0,
+      retrying: false,
+      // Lignes dont l'envoi a échoué (erreur backend par ligne ou lot entier en échec réseau/
+      // timeout) — payload + numéro de ligne CSV d'origine conservés pour permettre un nouvel
+      // essai ciblé sans ré-uploader tout le fichier.
+      failedItems: [],
       resolving: false,
       resolutionChoices: [],
       pendingAutoCreate: [],
+      // Format « packé » (1 ligne CSV = 1 Item, prix fournisseurs empilés dans une colonne
+      // « Market Prices ») détecté automatiquement à l'upload — cf. detectPackedFormat().
+      isPackedFormat: false,
 
       priceFields: [
         { key: 'itemName',               required: true },
@@ -332,6 +417,19 @@ export default {
         { key: 'packingLength',          required: false },
         { key: 'packingWidth',           required: false },
         { key: 'packingHeight',          required: false },
+      ],
+
+      // Champs niveau Item du format « packé » — un seul par article, appliqués à tous les prix
+      // fournisseurs qu'il contient. `marketPrices` est la colonne à dépaqueter (cf.
+      // parsePackedRow()) ; le Purchase Unit niveau item n'est volontairement PAS mappé ici :
+      // chaque prix fournisseur porte déjà sa propre unité d'achat dans son sous-enregistrement.
+      packedFields: [
+        { key: 'itemName',               required: true },
+        { key: 'marketPrices',           required: true },
+        { key: 'goodType',               required: false },
+        { key: 'category',               required: false },
+        { key: 'recipeUnit',             required: false },
+        { key: 'purchaseUnitConversion', required: false },
       ],
 
       translations: {
@@ -384,15 +482,22 @@ export default {
           f_packingLength: 'Packing Length (cm)',
           f_packingWidth: 'Packing Width (cm)',
           f_packingHeight: 'Packing Height (cm)',
+          f_marketPrices: 'Market Prices (packed)',
+          f_ingredientCategory: 'Ingredient Category',
           err_missingName: 'Missing item name',
           err_missingUnit: 'Missing unit (required)',
           err_missingPrice: 'Missing or invalid price (required)',
           err_missingGoodType: 'Missing good type (required)',
           err_invalidGoodType: 'Could not resolve or auto-create this good type',
+          err_missingMarketPrices: 'Missing or empty "Market Prices" column for this item',
           missingRequiredMapping: 'Map all required fields (unit, price, good type) before importing.',
           skippedDuplicates: 'duplicate(s) skipped (already imported).',
-          sendingToServer: 'Sending to server…',
+          updatedOk: 'price(s) updated (matched by Market Price ID).',
+          sendingProgress: 'Sending…',
+          retryFailedRows: 'Retry failed rows',
+          retryingRows: 'Retrying…',
           unexpectedEmptyResponse: 'Rows were sent to the server, but the response could not be read (0 created/skipped/errors reported) — the backend may need to be restarted with the latest changes. Please check before retrying.',
+          downloadPackedTemplate: 'Download template (grouped by item)',
         },
         fr: {
           drawerTitle: 'Importer des prix du marché',
@@ -443,15 +548,22 @@ export default {
           f_packingLength: 'Longueur emballage (cm)',
           f_packingWidth: 'Largeur emballage (cm)',
           f_packingHeight: 'Hauteur emballage (cm)',
+          f_marketPrices: 'Market Prices (packé)',
+          f_ingredientCategory: "Catégorie d'ingrédient",
           err_missingName: "Nom de l'article manquant",
           err_missingUnit: "Unité manquante (obligatoire)",
           err_missingPrice: 'Prix manquant ou invalide (obligatoire)',
           err_missingGoodType: 'Type de produit manquant (obligatoire)',
           err_invalidGoodType: "Impossible de résoudre ou de créer automatiquement ce type de produit",
+          err_missingMarketPrices: 'Colonne « Market Prices » manquante ou vide pour cet article',
           missingRequiredMapping: 'Associez tous les champs obligatoires (unité, prix, type de produit) avant d\'importer.',
           skippedDuplicates: 'doublon(s) ignoré(s) (déjà importé(s)).',
-          sendingToServer: 'Envoi vers le serveur…',
+          updatedOk: 'prix mis à jour (retrouvé par Market Price ID).',
+          sendingProgress: 'Envoi…',
+          retryFailedRows: 'Réessayer les lignes en échec',
+          retryingRows: 'Nouvel essai…',
           unexpectedEmptyResponse: "Des lignes ont été envoyées au serveur, mais la réponse n'a pas pu être interprétée (0 créé/ignoré/erreur signalé) — le backend doit peut-être être redémarré avec la dernière version. Vérifiez avant de réessayer.",
+          downloadPackedTemplate: 'Télécharger le modèle (par article)',
         },
       },
     };
@@ -486,6 +598,9 @@ export default {
       ];
     },
     canImport() {
+      if (this.isPackedFormat) {
+        return !!(this.mapping['itemName'] && this.mapping['marketPrices'] && this.csvRows.length > 0);
+      }
       return !!(
         this.mapping['itemName'] &&
         this.mapping['unit'] &&
@@ -495,9 +610,12 @@ export default {
       );
     },
     localizedFields() {
-      return this.priceFields.map((f) => ({
+      const fields = this.isPackedFormat ? this.packedFields : this.priceFields;
+      return fields.map((f) => ({
         ...f,
-        label: this.t('f_' + f.key),
+        // "Ingredient Category" (format packé) réutilise le même champ `category` que "Category"
+        // (format plat) — même donnée en base, juste un libellé différent dans chaque contexte.
+        label: this.isPackedFormat && f.key === 'category' ? this.t('f_ingredientCategory') : this.t('f_' + f.key),
       }));
     },
   },
@@ -535,11 +653,15 @@ export default {
       this.mapping = {};
       this.importLoading = false;
       this.importProgress = 0;
-      this.sendingToServer = false;
       this.importResults = null;
+      this.sentCount = 0;
+      this.totalToSend = 0;
+      this.retrying = false;
+      this.failedItems = [];
       this.resolving = false;
       this.resolutionChoices = [];
       this.pendingAutoCreate = [];
+      this.isPackedFormat = false;
     },
 
     onFileChange(e) {
@@ -561,10 +683,44 @@ export default {
         if (parsed.length < 2) return;
         this.csvHeaders = parsed[0];
         this.csvRows = parsed.slice(1).filter((r) => r.some((c) => c !== ''));
-        this.autoMap();
+        this.isPackedFormat = this.detectPackedFormat(this.csvHeaders);
+        if (this.isPackedFormat) this.autoMapPacked();
+        else this.autoMap();
         this.step = 2;
       };
       reader.readAsText(file, 'UTF-8');
+    },
+
+    // Détecte le format « packé » (1 ligne = 1 Item, colonne « Market Prices ») à la seule
+    // présence d'une colonne reconnue comme telle — sinon on reste sur le format plat existant
+    // (1 ligne = 1 prix fournisseur), strictement inchangé.
+    detectPackedFormat(headers) {
+      const normalize = (s) => String(s || '').toLowerCase().replace(/[\s_\-()]+/g, '');
+      const marketPricesAliases = ['marketprices', 'prixmarche', 'prixdumarche', 'prixfournisseurs'];
+      return headers.some((h) => marketPricesAliases.includes(normalize(h)));
+    },
+
+    autoMapPacked() {
+      const normalize = (s) => String(s || '').toLowerCase().replace(/[\s_\-()]+/g, '');
+      const headerNorm = this.csvHeaders.map(normalize);
+      const aliases = {
+        itemName:               ['itemname', 'name', 'nom', 'article', 'item', 'nomarticle', 'produit'],
+        marketPrices:           ['marketprices', 'prixmarche', 'prixdumarche', 'prixfournisseurs'],
+        goodType:               ['goodtype', 'type', 'typeproduit', 'good_type'],
+        category:               ['ingredientcategory', 'category', 'categorie', 'catégorie', 'cat'],
+        recipeUnit:             ['recipeunit', 'uniterecette', 'unitérecette', 'recunit', 'unitederecette'],
+        purchaseUnitConversion: ['purchaseunitconversion', 'purchaseunitconversioneur',
+                                 'conversion', 'conversionunite', 'conversionunitéachat', 'puc'],
+      };
+      const newMapping = {};
+      for (const field of this.packedFields) {
+        newMapping[field.key] = null;
+      }
+      for (const [field, aliasList] of Object.entries(aliases)) {
+        const idx = headerNorm.findIndex((h) => aliasList.includes(h));
+        if (idx !== -1) newMapping[field] = this.csvHeaders[idx];
+      }
+      this.mapping = newMapping;
     },
 
     autoMap() {
@@ -655,6 +811,28 @@ export default {
       URL.revokeObjectURL(url);
     },
 
+    // Modèle du format « packé » (1 ligne = 1 Item), pour cadrer la reprise d'un jeu de données
+    // historique — reprend l'exemple de la spécification fournie par l'utilisateur.
+    downloadPackedTemplate() {
+      const headers = [
+        'Item ID', 'Item Name', 'Good Type', 'Ingredient Category',
+        'Recipe Unit', 'Purchase Unit', 'Purchase Unit Conversion', 'Market Prices',
+      ];
+      const example = [
+        'ItemID1', 'Aiguillette de Poulet', 'Food', 'Meat', 'Kg', 'Pc', '0.250',
+        'MarketPriceID1>Aguillette de poulet 250g>SupplierID1>Metro>Food>Box>5>Pc>12.80>Box>4>2>1>35>25>10'
+        + '|MarketPriceID2>Super Aguillette de poulet 250g>SupplierID2>Lazard>Food>Box>4>Pc>15.80>Box>4>2>1>25>25>10',
+      ];
+      const csv = [headers.join(','), example.join(',')].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'market_prices_packed_template.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+
     async ensureAuth() {
       try {
         const { data } = await supabase.auth.getSession();
@@ -666,7 +844,8 @@ export default {
     buildColumnIndex() {
       const colIdx = (colName) => (colName != null ? this.csvHeaders.indexOf(colName) : -1);
       const idxOf = {};
-      for (const field of this.priceFields) {
+      const fields = this.isPackedFormat ? this.packedFields : this.priceFields;
+      for (const field of fields) {
         idxOf[field.key] = colIdx(this.mapping[field.key]);
       }
       return idxOf;
@@ -674,6 +853,77 @@ export default {
     getCell(row, idxOf, key) {
       const idx = idxOf[key];
       return idx >= 0 ? (row[idx] || '').trim() : '';
+    },
+
+    /**
+     * Dépaquette la cellule « Market Prices » d'une ligne CSV du format packé : découpe par « | »
+     * puis chaque segment par « > » (ordre PACKED_SUBFIELD_ORDER), et remonte le contexte niveau
+     * Item (propagé à chaque sous-enregistrement par l'appelant — cf. doImport()/scanNamesPacked()).
+     * Retourne `{ error }` si la ligne est inexploitable (nom ou colonne Market Prices manquants).
+     */
+    parsePackedRow(row, idxOf) {
+      const get = (key) => this.getCell(row, idxOf, key);
+
+      const itemName = get('itemName');
+      if (!itemName) return { error: this.t('err_missingName') };
+
+      const marketPricesRaw = get('marketPrices');
+      if (!marketPricesRaw) return { error: this.t('err_missingMarketPrices') };
+
+      const segments = marketPricesRaw.split('|').map((s) => s.trim()).filter(Boolean);
+      if (segments.length === 0) return { error: this.t('err_missingMarketPrices') };
+
+      const numOrUndef = (v) => {
+        if (v === '' || v == null) return undefined;
+        const n = parseFloat(String(v).replace(',', '.'));
+        return Number.isFinite(n) ? n : undefined;
+      };
+
+      return {
+        itemName,
+        itemGoodType: get('goodType') || undefined,
+        itemCategory: get('category') || undefined,
+        itemRecipeUnit: get('recipeUnit') || undefined,
+        itemPurchaseUnitConversion: numOrUndef(get('purchaseUnitConversion')),
+        subRecords: segments.map((seg) => parsePackedSubRecord(seg)),
+      };
+    },
+
+    /**
+     * Classe un nom (Good Type/Category/Supplier/Industrial) trouvé dans le fichier : déjà résolu
+     * (rien à faire, retourne sans rien pousser), probable faute de frappe (poussé dans
+     * `ambiguous`, à confirmer par l'utilisateur), ou nom réellement nouveau (poussé dans
+     * `autoCreate`, créé automatiquement sans confirmation). Partagé entre `scanNames()` (format
+     * plat) et `scanNamesPacked()` (format packé) — seule la façon dont chacun extrait `raw`
+     * diffère, la logique de classification est identique.
+     */
+    _classifyCandidate(configs, type, raw, seen, ambiguous, autoCreate, relatedGoodTypeRaw) {
+      if (!raw) return;
+      const key = `${type}::${raw.toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      const cfg = configs[type];
+      const normRaw = raw.toLowerCase();
+      if (cfg.reserved && cfg.reserved.includes(normRaw)) return; // "Packaging", valeur réservée
+
+      const exact = cfg.existing.find((e) => String(e?.name || '').trim().toLowerCase() === normRaw);
+      if (exact) return; // résolu silencieusement, rien à faire
+
+      let best = null;
+      for (const e of cfg.existing) {
+        const name = String(e?.name || '').trim();
+        if (!name) continue;
+        const score = stringSimilarity(raw, name);
+        if (!best || score > best.score) best = { score, name, id: e.id };
+      }
+
+      if (best && best.score >= TYPO_SIMILARITY_THRESHOLD) {
+        ambiguous.push({ key, type, raw, matchName: best.name, matchId: best.id, choice: 'existing' });
+      } else {
+        // Aucune ressemblance : nom réellement nouveau, créé automatiquement sans demander.
+        autoCreate.push({ key, type, raw, relatedGoodTypeRaw: type === 'category' ? relatedGoodTypeRaw : undefined });
+      }
     },
 
     /**
@@ -703,32 +953,41 @@ export default {
         const goodTypeRaw = this.getCell(row, idxOf, 'goodType');
         for (const type of Object.keys(configs)) {
           const raw = this.getCell(row, idxOf, type);
-          if (!raw) continue;
-          const key = `${type}::${raw.toLowerCase()}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
+          this._classifyCandidate(configs, type, raw, seen, ambiguous, autoCreate, goodTypeRaw);
+        }
+      }
 
-          const cfg = configs[type];
-          const normRaw = raw.toLowerCase();
-          if (cfg.reserved && cfg.reserved.includes(normRaw)) continue; // "Packaging", valeur réservée
+      return { ambiguous, autoCreate };
+    },
 
-          const exact = cfg.existing.find((e) => String(e?.name || '').trim().toLowerCase() === normRaw);
-          if (exact) continue; // résolu silencieusement, rien à faire
+    // Même rôle que scanNames() mais pour le format packé : les candidats (Good Type/Category/
+    // Supplier) viennent des sous-enregistrements dépaquetés plutôt que d'une colonne CSV brute.
+    // Pas d'Industrial dans ce format (aucune colonne dédiée par prix fournisseur) — `industrialId`
+    // reste simplement non renseigné pour cet import.
+    scanNamesPacked() {
+      const idxOf = this.buildColumnIndex();
+      const marketPriceTypes = this.$store.getters['marketPriceTypes/marketPriceTypes'] || [];
+      const marketPriceCategories = this.$store.getters['marketPriceCategories/marketPriceCategories'] || [];
 
-          let best = null;
-          for (const e of cfg.existing) {
-            const name = String(e?.name || '').trim();
-            if (!name) continue;
-            const score = stringSimilarity(raw, name);
-            if (!best || score > best.score) best = { score, name, id: e.id };
-          }
+      const configs = {
+        goodType: { existing: marketPriceTypes, reserved: ['packaging'] },
+        category: { existing: marketPriceCategories },
+        supplierName: { existing: this.suppliers || [] },
+      };
 
-          if (best && best.score >= TYPO_SIMILARITY_THRESHOLD) {
-            ambiguous.push({ key, type, raw, matchName: best.name, matchId: best.id, choice: 'existing' });
-          } else {
-            // Aucune ressemblance : nom réellement nouveau, créé automatiquement sans demander.
-            autoCreate.push({ key, type, raw, relatedGoodTypeRaw: type === 'category' ? goodTypeRaw : undefined });
-          }
+      const ambiguous = [];
+      const autoCreate = [];
+      const seen = new Set();
+
+      for (const row of this.csvRows) {
+        const parsed = this.parsePackedRow(row, idxOf);
+        if (parsed.error) continue; // signalé comme erreur ligne à l'étape doImport()
+        const { itemGoodType, itemCategory, subRecords } = parsed;
+        this._classifyCandidate(configs, 'goodType', itemGoodType, seen, ambiguous, autoCreate);
+        this._classifyCandidate(configs, 'category', itemCategory, seen, ambiguous, autoCreate, itemGoodType);
+        for (const sub of subRecords) {
+          this._classifyCandidate(configs, 'goodType', sub.goodType || itemGoodType, seen, ambiguous, autoCreate);
+          this._classifyCandidate(configs, 'supplierName', sub.supplier, seen, ambiguous, autoCreate);
         }
       }
 
@@ -736,7 +995,7 @@ export default {
     },
 
     async startImport() {
-      const { ambiguous, autoCreate } = this.scanNames();
+      const { ambiguous, autoCreate } = this.isPackedFormat ? this.scanNamesPacked() : this.scanNames();
       this.resolutionChoices = ambiguous;
       this.pendingAutoCreate = autoCreate;
       if (ambiguous.length > 0) {
@@ -830,7 +1089,10 @@ export default {
     async doImport() {
       this.importLoading = true;
       this.importProgress = 0;
-      this.sendingToServer = false;
+      this.sentCount = 0;
+      this.totalToSend = 0;
+      this.retrying = false;
+      this.failedItems = [];
       this.step = 3;
       await this.ensureAuth();
       await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
@@ -838,11 +1100,16 @@ export default {
 
       const results = {
         success: 0,
+        updated: 0,
         skipped: 0,
         errors: [],
         sentCount: 0,
         autoCreated: { types: [], categories: [], suppliers: [], industrials: [] },
       };
+      // Assigné dès maintenant (pas seulement à la toute fin) : `sendPairsInBatches` mutera cet
+      // objet lot par lot, donnant une vraie progression live sur l'écran "Résultats" au lieu
+      // d'un seul affichage figé une fois tout terminé.
+      this.importResults = results;
 
       // Crée automatiquement les référentiels manquants (types/catégories/fournisseurs/
       // industriels) et applique les choix de l'écran de vérification, AVANT de résoudre
@@ -866,141 +1133,304 @@ export default {
       // Ligne CSV d'origine (pour remonter une erreur backend à la bonne ligne) alignée
       // index-à-index avec validItems.
       const validItemRows = [];
+      const numOrUndef = (v) => {
+        if (v === '' || v == null) return undefined;
+        const n = parseFloat(String(v).replace(',', '.'));
+        return Number.isFinite(n) ? n : undefined;
+      };
 
-      for (let i = 0; i < this.csvRows.length; i++) {
-        const row = this.csvRows[i];
-        const get = (key) => this.getCell(row, idxOf, key);
-
-        const itemName = get('itemName');
-        if (!itemName) {
-          results.errors.push({ row: i + 2, message: this.t('err_missingName') });
-          this.importProgress++;
-          continue;
-        }
-
-        const unitVal = get('unit');
-        if (!unitVal) {
-          results.errors.push({ row: i + 2, message: this.t('err_missingUnit') });
-          this.importProgress++;
-          continue;
-        }
-
-        const priceRaw = get('price');
-        const priceNum = parseFloat(priceRaw);
-        if (!priceRaw || !Number.isFinite(priceNum)) {
-          results.errors.push({ row: i + 2, message: this.t('err_missingPrice') });
-          this.importProgress++;
-          continue;
-        }
-
-        const goodTypeRaw = get('goodType');
-        if (!goodTypeRaw) {
-          results.errors.push({ row: i + 2, message: this.t('err_missingGoodType') });
-          this.importProgress++;
-          continue;
-        }
-
-        let goodType;
-        let marketPriceTypeId;
-        if (goodTypeRaw.trim().toLowerCase() === 'packaging') {
-          goodType = 'Packaging';
-        } else {
-          const typeMatch = resolveEntity('goodType', goodTypeRaw, marketPriceTypes);
-          if (!typeMatch) {
-            results.errors.push({ row: i + 2, message: this.t('err_invalidGoodType') + ` ("${goodTypeRaw}")` });
+      if (this.isPackedFormat) {
+        for (let i = 0; i < this.csvRows.length; i++) {
+          const row = this.csvRows[i];
+          const parsed = this.parsePackedRow(row, idxOf);
+          if (parsed.error) {
+            results.errors.push({ row: i + 2, message: parsed.error });
             this.importProgress++;
             continue;
           }
-          goodType = typeMatch.name;
-          marketPriceTypeId = typeMatch.id;
+          const { itemName, itemGoodType, itemCategory, itemRecipeUnit, itemPurchaseUnitConversion, subRecords } = parsed;
+
+          const itemCategoryMatch = itemCategory ? resolveEntity('category', itemCategory, marketPriceCategories) : null;
+
+          for (const sub of subRecords) {
+            const goodTypeRaw = sub.goodType || itemGoodType;
+            if (!goodTypeRaw) {
+              results.errors.push({ row: i + 2, message: this.t('err_missingGoodType') });
+              continue;
+            }
+            if (!sub.unit) {
+              results.errors.push({ row: i + 2, message: this.t('err_missingUnit') });
+              continue;
+            }
+            const priceNum = parseFloat(String(sub.price).replace(',', '.'));
+            if (!sub.price || !Number.isFinite(priceNum)) {
+              results.errors.push({ row: i + 2, message: this.t('err_missingPrice') });
+              continue;
+            }
+
+            let goodType;
+            let marketPriceTypeId;
+            if (goodTypeRaw.trim().toLowerCase() === 'packaging') {
+              goodType = 'Packaging';
+            } else {
+              const typeMatch = resolveEntity('goodType', goodTypeRaw, marketPriceTypes);
+              if (!typeMatch) {
+                results.errors.push({ row: i + 2, message: this.t('err_invalidGoodType') + ` ("${goodTypeRaw}")` });
+                continue;
+              }
+              goodType = typeMatch.name;
+              marketPriceTypeId = typeMatch.id;
+            }
+
+            // Le Supplier ID du fichier packé vient en général d'un autre système (id horodaté,
+            // pas un cuid de cette base) — jamais utilisé tel quel comme FK, sous peine de
+            // violation de contrainte côté backend. Seule la résolution par NOM (comme le format
+            // plat) alimente `supplierId`, avec auto-création si besoin (cf. scanNamesPacked()).
+            const supplierNameRaw = sub.supplier || undefined;
+            const supplierMatch = supplierNameRaw ? resolveEntity('supplierName', supplierNameRaw, this.suppliers || []) : null;
+
+            const unitsPerPurchase = numOrUndef(sub.unitsPerPurchase);
+            const pricePerUnit = unitsPerPurchase && unitsPerPurchase > 0 ? priceNum / unitsPerPurchase : priceNum;
+
+            const payload = {
+              // Market Price ID du fichier : transmis pour upsert côté backend (bulkCreate) — s'il
+              // ne correspond à aucun MarketPrice de ce tenant (cas normal du tout premier import
+              // d'un fichier legacy), il est simplement ignoré et une ligne est créée.
+              id:                      sub.id || undefined,
+              itemName,
+              unit:                    sub.unit,
+              price:                   priceNum,
+              goodType,
+              marketPriceTypeId,
+              recipeUnit:              itemRecipeUnit,
+              purchaseUnitConversion:  itemPurchaseUnitConversion,
+              category:                itemCategory,
+              marketPriceCategoryId:   itemCategoryMatch?.id || undefined,
+              supplier:                supplierNameRaw,
+              supplierId:              supplierMatch?.id || undefined,
+              supplierItem:            sub.supplierItem || undefined,
+              unitsPerPurchase,
+              pricePerUnit,
+              purchasePackaging:       sub.purchasePackaging || undefined,
+              inventoryPackaging:      sub.inventoryPackaging || undefined,
+              packedUnits:             numOrUndef(sub.packedUnits),
+              numberOfUnits:           numOrUndef(sub.numberOfUnits),
+              packingLength:           numOrUndef(sub.packingLength),
+              packingWidth:            numOrUndef(sub.packingWidth),
+              packingHeight:           numOrUndef(sub.packingHeight),
+            };
+
+            Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+            validItems.push(payload);
+            validItemRows.push(i + 2);
+          }
+          this.importProgress++;
         }
+      } else {
+        for (let i = 0; i < this.csvRows.length; i++) {
+          const row = this.csvRows[i];
+          const get = (key) => this.getCell(row, idxOf, key);
 
-        const numOrUndef = (v) => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : undefined; };
+          const itemName = get('itemName');
+          if (!itemName) {
+            results.errors.push({ row: i + 2, message: this.t('err_missingName') });
+            this.importProgress++;
+            continue;
+          }
 
-        const categoryRaw = get('category') || undefined;
-        const categoryMatch = categoryRaw ? resolveEntity('category', categoryRaw, marketPriceCategories) : null;
-        const marketPriceCategoryId = categoryMatch?.id || undefined;
+          const unitVal = get('unit');
+          if (!unitVal) {
+            results.errors.push({ row: i + 2, message: this.t('err_missingUnit') });
+            this.importProgress++;
+            continue;
+          }
 
-        const supplierNameRaw = get('supplierName') || undefined;
-        const supplierMatch = supplierNameRaw ? resolveEntity('supplierName', supplierNameRaw, this.suppliers || []) : null;
+          const priceRaw = get('price');
+          const priceNum = parseFloat(priceRaw);
+          if (!priceRaw || !Number.isFinite(priceNum)) {
+            results.errors.push({ row: i + 2, message: this.t('err_missingPrice') });
+            this.importProgress++;
+            continue;
+          }
 
-        const industrialNameRaw = get('industrialName') || undefined;
-        const industrialMatch = industrialNameRaw ? resolveEntity('industrialName', industrialNameRaw, this.industrials || []) : null;
+          const goodTypeRaw = get('goodType');
+          if (!goodTypeRaw) {
+            results.errors.push({ row: i + 2, message: this.t('err_missingGoodType') });
+            this.importProgress++;
+            continue;
+          }
 
-        const unitsPerPurchase = numOrUndef(get('unitsPerPurchase'));
-        // `pricePerUnit` n'est jamais un champ d'entrée (cf. MarketPriceCreateDrawer.vue
-        // recomputePricePerUnit) : toujours dérivé de price/unitsPerPurchase, jamais lu
-        // depuis une colonne CSV.
-        const pricePerUnit = unitsPerPurchase && unitsPerPurchase > 0 ? priceNum / unitsPerPurchase : priceNum;
+          let goodType;
+          let marketPriceTypeId;
+          if (goodTypeRaw.trim().toLowerCase() === 'packaging') {
+            goodType = 'Packaging';
+          } else {
+            const typeMatch = resolveEntity('goodType', goodTypeRaw, marketPriceTypes);
+            if (!typeMatch) {
+              results.errors.push({ row: i + 2, message: this.t('err_invalidGoodType') + ` ("${goodTypeRaw}")` });
+              this.importProgress++;
+              continue;
+            }
+            goodType = typeMatch.name;
+            marketPriceTypeId = typeMatch.id;
+          }
 
-        const payload = {
-          itemName,
-          unit:                   unitVal,
-          price:                  priceNum,
-          goodType,
-          marketPriceTypeId,
-          recipeUnit:             get('recipeUnit') || undefined,
-          purchaseUnitConversion: numOrUndef(get('purchaseUnitConversion')),
-          category:               categoryRaw,
-          marketPriceCategoryId,
-          supplier:               supplierNameRaw,
-          supplierId:             supplierMatch?.id || undefined,
-          supplierItem:           get('supplierItemName') || undefined,
-          industrialId:           industrialMatch?.id || undefined,
-          unitsPerPurchase,
-          pricePerUnit,
-          purchasePackaging:      get('purchasePackaging') || undefined,
-          inventoryPackaging:     get('inventoryPackaging') || undefined,
-          image:                  get('image') || undefined,
-          packedUnits:            numOrUndef(get('packedUnits')),
-          numberOfUnits:          numOrUndef(get('numberOfUnits')),
-          packingLength:          numOrUndef(get('packingLength')),
-          packingWidth:           numOrUndef(get('packingWidth')),
-          packingHeight:          numOrUndef(get('packingHeight')),
-        };
+          const categoryRaw = get('category') || undefined;
+          const categoryMatch = categoryRaw ? resolveEntity('category', categoryRaw, marketPriceCategories) : null;
+          const marketPriceCategoryId = categoryMatch?.id || undefined;
 
-        Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
-        validItems.push(payload);
-        validItemRows.push(i + 2);
-        this.importProgress++;
+          const supplierNameRaw = get('supplierName') || undefined;
+          const supplierMatch = supplierNameRaw ? resolveEntity('supplierName', supplierNameRaw, this.suppliers || []) : null;
+
+          const industrialNameRaw = get('industrialName') || undefined;
+          const industrialMatch = industrialNameRaw ? resolveEntity('industrialName', industrialNameRaw, this.industrials || []) : null;
+
+          const unitsPerPurchase = numOrUndef(get('unitsPerPurchase'));
+          // `pricePerUnit` n'est jamais un champ d'entrée (cf. MarketPriceCreateDrawer.vue
+          // recomputePricePerUnit) : toujours dérivé de price/unitsPerPurchase, jamais lu
+          // depuis une colonne CSV.
+          const pricePerUnit = unitsPerPurchase && unitsPerPurchase > 0 ? priceNum / unitsPerPurchase : priceNum;
+
+          const payload = {
+            itemName,
+            unit:                   unitVal,
+            price:                  priceNum,
+            goodType,
+            marketPriceTypeId,
+            recipeUnit:             get('recipeUnit') || undefined,
+            purchaseUnitConversion: numOrUndef(get('purchaseUnitConversion')),
+            category:               categoryRaw,
+            marketPriceCategoryId,
+            supplier:               supplierNameRaw,
+            supplierId:             supplierMatch?.id || undefined,
+            supplierItem:           get('supplierItemName') || undefined,
+            industrialId:           industrialMatch?.id || undefined,
+            unitsPerPurchase,
+            pricePerUnit,
+            purchasePackaging:      get('purchasePackaging') || undefined,
+            inventoryPackaging:     get('inventoryPackaging') || undefined,
+            image:                  get('image') || undefined,
+            packedUnits:            numOrUndef(get('packedUnits')),
+            numberOfUnits:          numOrUndef(get('numberOfUnits')),
+            packingLength:          numOrUndef(get('packingLength')),
+            packingWidth:           numOrUndef(get('packingWidth')),
+            packingHeight:          numOrUndef(get('packingHeight')),
+          };
+
+          Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+          validItems.push(payload);
+          validItemRows.push(i + 2);
+          this.importProgress++;
+        }
       }
 
-      // Bulk import via /market-prices/import — le backend traite chaque ligne indépendamment
-      // (créée / doublon ignoré / erreur) et remonte un décompte précis, cf. bulkCreate().
+      // Bulk import via /market-prices/import, en lots concurrents bornés (cf. sendPairsInBatches)
+      // au lieu d'un unique payload de taille proportionnelle au fichier — évite le timeout Axios
+      // de 60s sur un gros fichier et donne une progression réelle au lieu d'un spinner figé.
       results.sentCount = validItems.length;
       if (validItems.length > 0) {
-        this.sendingToServer = true;
+        const pairs = validItems.map((item, i) => ({ item, row: validItemRows[i] }));
+        await this.sendPairsInBatches(pairs, results);
+      }
+
+      this.importLoading = false;
+      if (results.success > 0 || results.updated > 0) this.$emit('imported');
+    },
+
+    // Regroupe les paires {item, row} par identité (itemName+unit+price) avant de les répartir en
+    // lots de taille bornée : le backend ne peut jamais considérer deux lignes comme des doublons
+    // l'une de l'autre sans que ce triplet corresponde (le fournisseur ne fait qu'affiner ce match,
+    // cf. bulkCreate() `supplierMatchOr`) — regrouper ainsi garantit qu'un même triplet reste
+    // toujours traité dans la MÊME requête (donc séquentiellement côté backend), préservant le
+    // dédoublonnage même si les lots partent en parallèle.
+    buildBatches(pairs) {
+      const groups = new Map();
+      for (const pair of pairs) {
+        const { item } = pair;
+        const key = `${String(item.itemName || '').trim().toLowerCase()}|${String(item.unit || '').trim().toLowerCase()}|${String(item.price)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(pair);
+      }
+      const batches = [];
+      let current = [];
+      for (const group of groups.values()) {
+        if (current.length > 0 && current.length + group.length > IMPORT_BATCH_SIZE) {
+          batches.push(current);
+          current = [];
+        }
+        current.push(...group);
+        if (current.length >= IMPORT_BATCH_SIZE) {
+          batches.push(current);
+          current = [];
+        }
+      }
+      if (current.length > 0) batches.push(current);
+      return batches;
+    },
+
+    // Envoie `pairs` ({item, row}[]) par lots concurrents (IMPORT_CONCURRENCY lots en parallèle
+    // au plus), en mutant `results` en place au fur et à mesure — réutilisé à la fois par
+    // `doImport()` (envoi initial) et `retryFailedRows()` (nouvel essai ciblé).
+    async sendPairsInBatches(pairs, results) {
+      this.totalToSend = pairs.length;
+      this.sentCount = 0;
+      const batches = this.buildBatches(pairs);
+      await runWithConcurrency(batches, IMPORT_CONCURRENCY, async (batch) => {
         try {
-          const response = await importMarketPrices(validItems);
+          const response = await importMarketPrices(batch.map((p) => p.item));
           const createdCount = Array.isArray(response?.created) ? response.created.length : 0;
+          // `updated` (upsert par Market Price ID, format packé uniquement) : absent des réponses
+          // d'un backend pas encore à jour — `Array.isArray` protège contre `undefined`.
+          const updatedCount = Array.isArray(response?.updated) ? response.updated.length : 0;
           const skipped = Number(response?.skipped) || 0;
           const backendErrors = Array.isArray(response?.errors) ? response.errors : [];
           results.success += createdCount;
+          results.updated += updatedCount;
           results.skipped += skipped;
           for (const err of backendErrors) {
-            const row = validItemRows[err.index] ?? '?';
-            results.errors.push({ row, message: err.message });
+            const pair = batch[err.index];
+            results.errors.push({ row: pair?.row ?? '?', message: err.message });
+            if (pair) this.failedItems.push(pair);
           }
-          // Des lignes ont été envoyées mais le décompte créé/ignoré/erreur retombe à zéro : la
+          // Ce lot a été envoyé mais le décompte créé/mis à jour/ignoré/erreur retombe à zéro : la
           // réponse serveur n'a pas la forme attendue (backend pas à jour, proxy qui réécrit la
-          // réponse, etc). Ne JAMAIS afficher "fichier vide" dans ce cas — on a bien envoyé des
-          // données, on ne sait juste pas ce qui s'est passé côté serveur.
-          if (createdCount === 0 && skipped === 0 && backendErrors.length === 0) {
-            results.errors.push({ row: '?', message: this.t('unexpectedEmptyResponse') });
+          // réponse, etc). Ne JAMAIS laisser ces lignes disparaître silencieusement — on a bien
+          // envoyé des données, on ne sait juste pas ce qui s'est passé côté serveur pour ce lot.
+          if (createdCount === 0 && updatedCount === 0 && skipped === 0 && backendErrors.length === 0) {
+            for (const pair of batch) {
+              results.errors.push({ row: pair.row, message: this.t('unexpectedEmptyResponse') });
+              this.failedItems.push(pair);
+            }
           }
         } catch (e) {
           const errMsg = e?.response?.data?.message || e?.message || 'Import failed';
-          // Échec réseau/serveur global (pas une erreur ligne par ligne) : impossible de savoir
-          // ce qui a réellement été committé côté serveur avant la coupure.
-          results.errors.push({ row: '?', message: errMsg });
+          // Échec réseau/serveur pour CE lot (timeout, 5xx...) — borné aux ~30 lignes qu'il
+          // contenait (numéros de ligne CSV réels déjà connus), pas tout le fichier : les lots déjà
+          // aboutis restent acquis, les lots restants continuent d'être tentés.
+          for (const pair of batch) {
+            results.errors.push({ row: pair.row, message: errMsg });
+            this.failedItems.push(pair);
+          }
         } finally {
-          this.sendingToServer = false;
+          this.sentCount += batch.length;
         }
-      }
+      });
+    },
 
-      this.importResults = results;
+    // Ré-envoie uniquement les lignes dont l'envoi a échoué (erreur backend par ligne ou lot en
+    // échec réseau/timeout), sans ré-uploader ni re-mapper tout le fichier.
+    async retryFailedRows() {
+      if (!this.failedItems.length || this.importLoading) return;
+      const pairsToRetry = this.failedItems;
+      this.failedItems = [];
+      const retriedRows = new Set(pairsToRetry.map((p) => p.row));
+      this.importResults.errors = this.importResults.errors.filter((err) => !retriedRows.has(err.row));
+
+      this.importLoading = true;
+      this.retrying = true;
+      await this.sendPairsInBatches(pairsToRetry, this.importResults);
+      this.retrying = false;
       this.importLoading = false;
-      if (results.success > 0) this.$emit('imported');
     },
   },
 };

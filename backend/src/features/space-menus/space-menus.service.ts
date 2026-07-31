@@ -123,6 +123,7 @@ export class SpaceMenusService {
         image: true,
         attributes: true,
         shopTypes: true,
+        subtypes: true,
         floor: { select: { config: { select: { id: true, spaceId: true } } } },
         forecourt: { select: { config: { select: { id: true, spaceId: true } } } },
         externalMerch: { select: { config: { select: { id: true, spaceId: true } } } },
@@ -400,7 +401,10 @@ export class SpaceMenusService {
       shopId: shopAny.id,
       shopName: shopAny.name,
       shopType: shopAny.type,
-      shopSubTypes: shopAny.shopTypes || [],
+      // Priorité subtypes (Builder v2, autoritaire) > shopTypes (colonne v1 héritée) —
+      // même règle que getSpaceShops (spaces.service.ts), sinon ce endpoint pré-remplirait
+      // ShopDetailEditDrawer avec une valeur périmée pour un shop édité depuis le Builder.
+      shopSubTypes: (Array.isArray(shopAny.subtypes) && shopAny.subtypes.length) ? shopAny.subtypes : (shopAny.shopTypes || []),
       notes: shopAny.notes,
       image: shopAny.image,
       attributes: shopAny.attributes,
@@ -873,8 +877,18 @@ export class SpaceMenusService {
       }),
     );
 
-    const mapStorageType = (st?: string | null): 'dry' | 'cold' | 'belowzero' | null =>
-      st === 'Dry' ? 'dry' : st === 'Cold' ? 'cold' : st === 'Frozen' ? 'belowzero' : null;
+    // StorageType est un référentiel CRUD-éditable (Configurations) depuis CFG-2 — la valeur
+    // stockée sur Ingredient/Packaging/MenuComponent est le `name` (texte libre, renommable),
+    // le code stable 'dry'/'cold'/'belowzero' attendu par SpaceElement.subtypes[] du Builder vit
+    // sur `StorageType.code`, seulement pour les 3 lignes historiques. Compat legacy 'Freezer'
+    // conservée (BUG-005 : anciennes valeurs jamais migrées côté données historiques).
+    const storageTypeRows = await this.prisma.storageType.findMany({ where: { tenantId } });
+    const storageTypeByNameLower = new Map(storageTypeRows.map((r) => [r.name.toLowerCase(), r.code ?? r.id]));
+    const mapStorageType = (st?: string | null): string | null => {
+      if (!st) return null;
+      if (st === 'Freezer') return 'belowzero'; // legacy pré-BUG-005
+      return storageTypeByNameLower.get(st.toLowerCase()) ?? null;
+    };
 
     type StorageLine = {
       kind: 'ingredient' | 'packaging' | 'component' | 'article';
@@ -882,7 +896,7 @@ export class SpaceMenusService {
       name: string;
       unit: string | null;
       picture: string | null; // articles merch uniquement (les références n'ont pas d'image)
-      storageType: 'dry' | 'cold' | 'belowzero' | 'merch' | null;
+      storageType: string | null; // code stable ('dry'|'cold'|'belowzero'), id StorageType custom, ou 'merch'
       usedIn: Array<{
         shopId: string;
         shopName: string;

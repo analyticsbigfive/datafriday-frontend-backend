@@ -64,7 +64,7 @@
           :headers="tableHeaders"
           :items="filteredUsers"
           item-value="id"
-          density="comfortable"
+          density="compact"
           :loading="loading"
           class="ul-table"
         >
@@ -132,7 +132,7 @@
               >
                 <Send :size="14" />
               </button>
-              <button class="ul-icon-btn" :title="t('userList.colActions')" @click.stop="openEditDrawer(item)">
+              <button class="ul-icon-btn ul-icon-btn--edit" :title="t('userList.colActions')" @click.stop="openEditDrawer(item)">
                 <Pencil :size="14" />
               </button>
               <button class="ul-icon-btn ul-icon-btn--danger" @click.stop="openDeleteDialog(item)">
@@ -452,20 +452,24 @@ export default {
 .ul-table-wrap {
   background: #fff; border-radius: 16px;
   border: 1px solid #e5e7eb; overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
-.ul-table :deep(thead tr th) {
-  background: #f9fafb !important;
-  font-size: var(--fs-xs)!important; font-weight: 700 !important;
-  text-transform: uppercase; letter-spacing: 0.05em;
-  color: #6b7280 !important; border-bottom: 1px solid #e5e7eb !important;
+.ul-table :deep(.v-data-table__th),
+.ul-table :deep(.v-data-table__td) {
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
-.ul-table :deep(tbody td) {
-  padding-top: 12px !important; padding-bottom: 12px !important;
-  border-bottom: 1px solid #f3f4f6 !important;
-  font-size: var(--fs-base); color: #374151;
+.ul-table :deep(.v-data-table__td) { vertical-align: middle; }
+.ul-table :deep(.v-data-table__th) {
+  font-size: var(--fs-xs)!important;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
+  background: #fafafa !important;
 }
-.ul-table :deep(tbody tr:last-child td) { border-bottom: none !important; }
 .ul-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 
 /* ── Cellule utilisateur ── */
@@ -497,14 +501,17 @@ export default {
 /* ── Actions ── */
 .ul-actions { display: flex; justify-content: flex-end; gap: 4px; }
 .ul-icon-btn {
-  width: 30px; height: 30px; border-radius: 8px;
+  width: 28px; height: 28px; border-radius: 8px;
   background: #f3f4f6; border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  color: #6b7280; transition: all 0.15s;
+  color: #6b7280; transition: background .15s, color .15s; flex-shrink: 0;
 }
 .ul-icon-btn:hover { background: #e5e7eb; color: #374151; }
 .ul-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.ul-icon-btn--danger:hover { background: rgba(255, 49, 49, 0.1); color: #ff3131; }
+.ul-icon-btn--edit { background: #eff6ff; color: #2563eb; }
+.ul-icon-btn--edit:hover { background: #dbeafe; color: #2563eb; }
+.ul-icon-btn--danger { background: #fef2f2; color: #ff3131; }
+.ul-icon-btn--danger:hover { background: #fee2e2; color: #ff3131; }
 
 /* ── Bouton générique ── */
 .ul-btn {
@@ -540,13 +547,15 @@ export default {
 .ul--dark .ul-searchbar { background: #1a2332; border-bottom-color: #374151; }
 .ul--dark .ul-searchbar__input { color: #f3f4f6; }
 .ul--dark .ul-filter-select { background: #1f2937; border-color: #374151; color: #e5e7eb; }
-.ul--dark .ul-table-wrap { background: #1a2332; border-color: #374151; }
-.ul--dark .ul-table :deep(thead tr th) { background: #1f2937 !important; color: #9ca3af !important; border-bottom-color: #374151 !important; }
-.ul--dark .ul-table :deep(tbody td) { color: #e5e7eb; border-bottom-color: #374151 !important; }
-.ul--dark .ul-table :deep(tbody tr:hover td) { background: #1f2937 !important; }
+.ul--dark .ul-table-wrap { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.ul--dark .ul-table :deep(.v-data-table__th) { background: #1a2332 !important; }
+.ul--dark .ul-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.ul--dark .ul-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
 .ul--dark .ul-user-name { color: #f9fafb; }
-.ul--dark .ul-icon-btn { background: #374151; color: #d1d5db; }
+.ul--dark .ul-icon-btn { background: #1f2937; color: #cbd5e1; }
 .ul--dark .ul-icon-btn:hover { background: #4b5563; color: #f9fafb; }
+.ul--dark .ul-icon-btn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.ul--dark .ul-icon-btn--danger { background: rgba(255,49,49,.14); color: #fca5a5; }
 .ul--dark .ul-empty__icon { background: #1f2937; color: #6b7280; }
 .ul--dark .ul-empty__title { color: #f9fafb; }
 /* Badges statut : soft bg + texte foncé (calibrés fond clair) → voile + clair. */

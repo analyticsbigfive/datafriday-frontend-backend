@@ -13,7 +13,22 @@ import { PrismaService } from '../../core/database/prisma.service';
 export const HR_DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment'] as const;
 export const HR_CONTRACT_TYPES = ['CDD', 'FREELANCE', 'CDI', 'AGENCY', 'OTHER'] as const;
 export const HR_RATE_TYPES = ['HOURLY', 'DAILY', 'MONTHLY'] as const;
-export const HR_FNB_CATEGORIES = ['BEVERAGE', 'FRONT_FOOD', 'KITCHEN_FOOD', 'MIXOLOGY'] as const;
+// Parité 1:1 avec les 9 sous-types F&B du Builder (elementTaxonomy.js, tool `shop`).
+// Élargi de 4 à 9 le 2026-07-30 (retour utilisateur : "Beer" ne doit plus fusionner
+// silencieusement dans "Beverage" — chaque sous-type coché doit avoir sa propre
+// catégorie RH). BEVERAGE/FRONT_FOOD/KITCHEN_FOOD/MIXOLOGY inchangés (données réelles
+// déjà taguées avec ces valeurs) ; FOOD/BEER/GP_PREMIUM/TEMPORARY/DRINKEE nouveaux.
+export const HR_FNB_CATEGORIES = [
+  'FOOD',
+  'BEVERAGE',
+  'BEER',
+  'GP_PREMIUM',
+  'TEMPORARY',
+  'DRINKEE',
+  'MIXOLOGY',
+  'FRONT_FOOD',
+  'KITCHEN_FOOD',
+] as const;
 export const HR_PERSON_CONTRACTS = ['CDI', 'CDD'] as const;
 /** Contract types pour lesquels rateType + rate sont requis (spec §2.1). */
 export const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as const;
@@ -32,7 +47,7 @@ export class HrService {
       email: s.email,
       tel: s.tel,
       picture: s.picture,
-      sectors: s.sectors ?? [],
+      departments: s.departments ?? [],
       spaceIds: s.spaceIds ?? [],
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -86,7 +101,7 @@ export class HrService {
       email?: string;
       tel?: string;
       picture?: string;
-      sectors?: string[];
+      departments?: string[];
       spaceIds?: string[];
     },
     tenantId: string,
@@ -100,7 +115,7 @@ export class HrService {
           email: input.email ?? null,
           tel: input.tel ?? null,
           picture: input.picture ?? null,
-          sectors: input.sectors ?? [],
+          departments: input.departments ?? [],
           spaceIds: input.spaceIds ?? [],
         },
       });
@@ -125,7 +140,7 @@ export class HrService {
           ...(input.email !== undefined && { email: input.email }),
           ...(input.tel !== undefined && { tel: input.tel }),
           ...(input.picture !== undefined && { picture: input.picture }),
-          ...(input.sectors !== undefined && { sectors: input.sectors }),
+          ...(input.departments !== undefined && { departments: input.departments }),
           ...(input.spaceIds !== undefined && { spaceIds: input.spaceIds }),
         },
       });
@@ -285,6 +300,102 @@ export class HrService {
     return { deleted: true };
   }
 
+  // ── Sinking rules (STF-2 : dotation conditionnelle par rôle × sous-type FNB) ─
+
+  private mapSinkingRule(r: any) {
+    return {
+      id: r.id,
+      roleId: r.roleId,
+      fnbCategory: r.fnbCategory,
+      conditionAttribute: r.conditionAttribute,
+      conditionMinValue: r.conditionMinValue,
+      mandatoryQty: r.mandatoryQty,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  async findAllSinkingRules(tenantId: string, filter: { roleId?: string } = {}) {
+    const rows = await this.prisma.hrSinkingRule.findMany({
+      where: { tenantId, ...(filter.roleId && { roleId: filter.roleId }) },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { data: rows.map((r) => this.mapSinkingRule(r)) };
+  }
+
+  private assertValidSinkingRule(input: any, existing?: any) {
+    const fnbCategory = input.fnbCategory ?? existing?.fnbCategory;
+    if (!(HR_FNB_CATEGORIES as readonly string[]).includes(fnbCategory)) {
+      throw new BadRequestException(`fnbCategory invalide : ${fnbCategory}`);
+    }
+    const conditionAttribute =
+      input.conditionAttribute !== undefined ? (input.conditionAttribute || null) : (existing?.conditionAttribute ?? null);
+    const conditionMinValue =
+      input.conditionMinValue !== undefined ? input.conditionMinValue : (existing?.conditionMinValue ?? null);
+    if (conditionAttribute && (conditionMinValue === null || conditionMinValue === undefined)) {
+      throw new BadRequestException('conditionMinValue est requis quand conditionAttribute est renseigné.');
+    }
+    const mandatoryQty = input.mandatoryQty !== undefined ? Number(input.mandatoryQty) : (existing?.mandatoryQty ?? 1);
+    if (!Number.isFinite(mandatoryQty) || mandatoryQty < 1) {
+      throw new BadRequestException('mandatoryQty doit être un entier ≥ 1.');
+    }
+    return { fnbCategory, conditionAttribute, conditionMinValue: conditionAttribute ? conditionMinValue : null, mandatoryQty };
+  }
+
+  async createSinkingRule(input: any, tenantId: string) {
+    const role = await this.prisma.hrRole.findFirst({ where: { id: input.roleId, tenantId } });
+    if (!role) throw new BadRequestException(`Rôle ${input.roleId} introuvable`);
+    const n = this.assertValidSinkingRule(input);
+    try {
+      const row = await this.prisma.hrSinkingRule.create({
+        data: {
+          tenantId,
+          roleId: input.roleId,
+          fnbCategory: n.fnbCategory,
+          conditionAttribute: n.conditionAttribute,
+          conditionMinValue: n.conditionMinValue,
+          mandatoryQty: n.mandatoryQty,
+        },
+      });
+      return this.mapSinkingRule(row);
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Une règle identique (même rôle, catégorie et condition) existe déjà.');
+      }
+      throw error;
+    }
+  }
+
+  async updateSinkingRule(id: string, input: any, tenantId: string) {
+    const existing = await this.prisma.hrSinkingRule.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException(`HrSinkingRule ${id} introuvable`);
+    const n = this.assertValidSinkingRule(input, existing);
+    try {
+      const row = await this.prisma.hrSinkingRule.update({
+        where: { id },
+        data: {
+          fnbCategory: n.fnbCategory,
+          conditionAttribute: n.conditionAttribute,
+          conditionMinValue: n.conditionMinValue,
+          mandatoryQty: n.mandatoryQty,
+        },
+      });
+      return this.mapSinkingRule(row);
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Une règle identique (même rôle, catégorie et condition) existe déjà.');
+      }
+      throw error;
+    }
+  }
+
+  async removeSinkingRule(id: string, tenantId: string) {
+    const existing = await this.prisma.hrSinkingRule.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException(`HrSinkingRule ${id} introuvable`);
+    await this.prisma.hrSinkingRule.delete({ where: { id } });
+    return { deleted: true };
+  }
+
   // ── Persons ────────────────────────────────────────────────────────────────
 
   async findAllPersons(tenantId: string, filter: { roleId?: string; contractType?: string }) {
@@ -398,7 +509,7 @@ export class HrService {
           email: s.email ?? null,
           tel: s.phone ?? s.tel ?? null,
           picture: s.picture ?? null,
-          sectors: Array.isArray(s.sectors) ? s.sectors : [],
+          departments: Array.isArray(s.departments ?? s.sectors) ? (s.departments ?? s.sectors) : [],
           spaceIds: Array.isArray(s.spaces) ? s.spaces : [],
         },
       });

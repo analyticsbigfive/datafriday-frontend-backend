@@ -180,6 +180,26 @@
               </div>
             </div>
 
+            <!-- Artistes / Sponsoring -->
+            <div class="ced-section-label">
+              <v-icon size="12" color="#ff3131">mdi-account-star-outline</v-icon>
+              {{ t('intgCreateEvtSectionEntertainment') }}
+            </div>
+            <div class="ced-row mb-3">
+              <div class="ced-field-group">
+                <label class="ced-label" for="ced-performer">{{ t('intgCreateEvtPerformerLabel') }}</label>
+                <input id="ced-performer" v-model="newEventPerformerName" class="ced-input" type="text" :placeholder="t('intgCreateEvtPerformerPlaceholder')" />
+              </div>
+              <div class="ced-field-group">
+                <label class="ced-label" for="ced-sponsor">{{ t('intgCreateEvtSponsorLabel') }}</label>
+                <input id="ced-sponsor" v-model="newEventSponsor" class="ced-input" type="text" :placeholder="t('intgCreateEvtSponsorPlaceholder')" />
+              </div>
+            </div>
+            <div v-if="newEventHasOpeningAct" class="ced-field-group mb-4">
+              <label class="ced-label" for="ced-opening-act-name">{{ t('intgCreateEvtOpeningActNameLabel') }}</label>
+              <input id="ced-opening-act-name" v-model="newEventOpeningActName" class="ced-input" type="text" :placeholder="t('intgCreateEvtOpeningActNamePlaceholder')" />
+            </div>
+
             <!-- Sessions -->
             <div class="ced-section-label">
               <v-icon size="12" color="#ff3131">mdi-counter</v-icon>
@@ -323,6 +343,9 @@ export default {
       newEventTicketsScanned: null,
       newEventHasOpeningAct: false,
       newEventHasIntermission: false,
+      newEventPerformerName: '',
+      newEventSponsor: '',
+      newEventOpeningActName: '',
       newEventType: '',
       newEventCategory: '',
       newEventSubcategory: '',
@@ -391,6 +414,9 @@ export default {
         this.newEventTicketsScanned = null
         this.newEventHasOpeningAct = false
         this.newEventHasIntermission = false
+        this.newEventPerformerName = ''
+        this.newEventSponsor = ''
+        this.newEventOpeningActName = ''
         this.newEventType = ''
         this.newEventCategory = ''
         this.newEventSubcategory = ''
@@ -529,6 +555,9 @@ export default {
           ticketsScanned: this.newEventTicketsScanned ?? undefined,
           hasOpeningAct: this.newEventHasOpeningAct,
           hasIntermission: this.newEventHasIntermission,
+          performerName: this.newEventPerformerName || undefined,
+          sponsor: this.newEventSponsor || undefined,
+          openingActName: this.newEventOpeningActName || undefined,
           eventTypeId: this.newEventType || undefined,
           eventCategoryId: this.newEventCategory || undefined,
           eventSubcategoryId: this.newEventSubcategory || undefined,

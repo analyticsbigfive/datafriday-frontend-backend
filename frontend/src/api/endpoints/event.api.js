@@ -29,15 +29,6 @@ export async function getEvents({ spaceId, page, limit, excludeSimulated } = {})
 }
 
 /**
- * Récupérer un événement par ID
- * @param {string} id 
- * @returns {Promise<Object>}
- */
-export async function getEvent(id) {
-  return api.get(`/events/${id}`)
-}
-
-/**
  * Créer un événement
  * @param {Object} event 
  * @returns {Promise<Object>}
@@ -204,79 +195,4 @@ export async function updateEventSubcategory(id, updates) {
  */
 export async function deleteEventSubcategory(id) {
   return api.delete(`/event-subcategories/${id}`)
-}
-
-// ============================================
-// EVENT REVENUE
-// ============================================
-
-/**
- * Calculer le revenu d'un événement
- * @param {Object} params 
- * @returns {Promise<Object>}
- */
-export async function calculateEventRevenue(params) {
-  const { spaceId, spaceName, eventId, eventName, eventDate, location } = params
-  return api.post('/events/calculate-single-event-revenue', {
-    spaceId,
-    spaceName,
-    eventId,
-    eventName,
-    eventDate,
-    location
-  })
-}
-
-/**
- * Récupérer le résumé des revenus par événement
- * @param {string} location 
- * @returns {Promise<Array>}
- */
-export async function getEventRevenueSummary(location) {
-  return api.get(`/event-revenue/location/${encodeURIComponent(location)}`)
-}
-
-/**
- * Calculer les revenus des événements non enregistrés
- * @param {string} location 
- * @returns {Promise<Object>}
- */
-export async function calculateUnregisteredEventRevenue(location) {
-  return api.post('/events/calculate-unregistered-revenue', { location })
-}
-
-/**
- * Sauvegarder le calcul des revenus
- * @param {Object} params 
- * @returns {Promise<Object>}
- */
-export async function saveEventRevenueCalculation(params) {
-  const { spaceId, location, registeredEvents, unregisteredEvents } = params
-  return api.post('/events/save-event-revenue-calculation', {
-    spaceId,
-    location,
-    registeredEvents,
-    unregisteredEvents
-  })
-}
-
-/**
- * Charger le calcul des revenus sauvegardé
- * @param {string} spaceId 
- * @returns {Promise<Object>}
- */
-export async function getEventRevenueCalculation(spaceId) {
-  return api.get(`/events/get-event-revenue-calculation/${spaceId}`)
-}
-
-// ============================================
-// SPONSORS
-// ============================================
-
-/**
- * Récupérer tous les sponsors d'événements
- * @returns {Promise<Array>}
- */
-export async function getEventSponsors() {
-  return api.get('/event-sponsors')
 }

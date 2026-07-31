@@ -14,7 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
-import { BulkCreateMenuItemsDto, CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
+import { BulkCreateMenuItemsDto, CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto, ReplaceMenuItemComboItemsDto } from './dto/create-menu-item.dto';
 import { RecipeBatchDto } from './dto/recipe-batch.dto';
 import { ApplyWeezeventPriceDto, ApplyWeezeventPricesBulkDto, BackfillWeezeventPricesDto } from './dto/apply-weezevent-price.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
@@ -358,6 +358,21 @@ export class MenuItemsController {
   ) {
     this.logger.log(`PUT /menu-items/${id}/packagings - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuItemsService.replacePackagings(id, dto.packagings, tenantId);
+  }
+
+  @RequirePermissions('menu.fb.menuItems')
+  @Put(':id/combo-items')
+  @ApiOperation({ summary: "Remplacer la composition combo (autres MenuItem) d'un menu item" })
+  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
+  @ApiResponse({ status: 200, description: 'Composition combo mise à jour' })
+  replaceComboItems(
+    @Param('id') id: string,
+    @Body() dto: ReplaceMenuItemComboItemsDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PUT /menu-items/${id}/combo-items - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.replaceComboItems(id, dto.comboItems, tenantId);
   }
 
   @RequirePermissions('menu.fb.menuItems')

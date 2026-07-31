@@ -319,7 +319,7 @@ export class MenuComponentsService {
           unitCost: dto.unitCost,
           allergens: dto.allergens || [],
           description: dto.description,
-          storageType: dto.storageType as any,
+          storageType: dto.storageType,
           subComponents: dto.subComponents,
           componentCategory: dto.componentCategory,
           numberOfUnitsRecipe: dto.numberOfUnitsRecipe,
@@ -445,7 +445,7 @@ export class MenuComponentsService {
     if (dto.unitCost !== undefined) updateData.unitCost = dto.unitCost;
     if (dto.allergens !== undefined) updateData.allergens = dto.allergens;
     if (dto.description !== undefined) updateData.description = dto.description;
-    if (dto.storageType !== undefined) updateData.storageType = dto.storageType as any;
+    if (dto.storageType !== undefined) updateData.storageType = dto.storageType;
     if (dto.subComponents !== undefined) updateData.subComponents = dto.subComponents;
     if (dto.componentCategory !== undefined) updateData.componentCategory = dto.componentCategory;
     if (dto.numberOfUnitsRecipe !== undefined)

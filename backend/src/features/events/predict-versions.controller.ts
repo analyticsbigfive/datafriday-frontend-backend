@@ -63,7 +63,9 @@ export class PredictVersionsController {
     return this.service.create(eventId, user.tenantId, dto, user.id);
   }
 
-  // Doit être déclaré AVANT :versionId pour que NestJS le matche en premier
+  // 'default' est un segment statique du path ('PUT .../predict-versions/default'), pas un
+  // :versionId — patch/remove par ID de version vivent dans PredictVersionsStandaloneController
+  // (@Controller('predict-versions')), un contrôleur distinct, donc aucun risque de collision ici.
   @RequirePermissions('menu.events.manage')
   @Put('default')
   @ApiOperation({

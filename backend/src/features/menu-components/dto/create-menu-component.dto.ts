@@ -3,21 +3,12 @@ import {
   IsString,
   IsOptional,
   IsNumber,
-  IsInt,
   IsArray,
   IsEnum,
   ValidateNested,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { KitchenType } from '@prisma/client';
-
-export enum StorageType {
-  Dry = 'Dry',
-  Cold = 'Cold',
-  Freezer = 'Freezer',
-  Material = 'Material',
-  NA = 'NA',
-}
 
 /**
  * DTO pour définir une ligne d'ingrédient dans un composant.
@@ -238,7 +229,7 @@ export class CreateMenuComponentDto {
   @IsString()
   description?: string;
 
-  @ApiPropertyOptional({ description: 'Type de stockage (Dry, Cold, Freezer, Material, NA)' })
+  @ApiPropertyOptional({ description: 'Type de stockage (nom du référentiel StorageType, ex. Dry/Cold/Frozen)' })
   @IsOptional()
   @IsString()
   storageType?: string;
@@ -286,9 +277,9 @@ export class CreateMenuComponentDto {
   @IsString()
   componentCategoryId?: string;
 
-  @ApiPropertyOptional({ description: "Nombre d'unités par recette" })
+  @ApiPropertyOptional({ description: "Nombre d'unités par recette (peut être fractionnaire, ex. rendement de batch en kg)" })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Type(() => Number)
   numberOfUnitsRecipe?: number;
 

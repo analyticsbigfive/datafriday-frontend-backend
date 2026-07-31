@@ -4,10 +4,12 @@ import {
   StaffingCalculatorService,
   StaffingWarning,
   AlgoKey,
+  SinkingRuleInput,
   DEFAULT_TX_PAR_SECONDE,
   DEFAULT_OFFSET_OPEN_MINUTES,
   DEFAULT_OFFSET_CLOSE_MINUTES,
 } from './staffing-calculator.service';
+import { detectFnbTags } from './fnb-tags.util';
 
 /**
  * Orchestration du staffing par événement (spec §1.3) :
@@ -22,6 +24,7 @@ import {
 
 /** Types d'éléments considérés comme PDV pour le staffing (hypothèse, cf. rapport). */
 export const STAFFING_ELEMENT_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack'];
+
 /** Fallback si l'événement n'a pas de date de fin (hypothèse, cf. rapport). */
 export const DEFAULT_EVENT_DURATION_HOURS = 6;
 /** front (base RZ) = rpdv + caissiers + runners + barman. */
@@ -108,7 +111,7 @@ export class StaffingService {
   // ── Chargement du référentiel RH ───────────────────────────────────────────
 
   private async loadHrContext(tenantId: string, spaceId: string) {
-    const [roles, persons, defaults, suppliers] = await this.prisma.$transaction([
+    const [roles, persons, defaults, suppliers, sinkingRules] = await this.prisma.$transaction([
       this.prisma.hrRole.findMany({
         where: { tenantId },
         include: { suppliers: { select: { supplierId: true } } },
@@ -116,9 +119,14 @@ export class StaffingService {
       this.prisma.hrPerson.findMany({ where: { tenantId, active: true } }),
       this.prisma.hrRoleSpaceDefault.findMany({ where: { spaceId } }),
       this.prisma.hrSupplier.findMany({ where: { tenantId } }),
+      this.prisma.hrSinkingRule.findMany({ where: { tenantId } }),
     ]);
     const rolesByAlgo = new Map<string, any>();
-    for (const r of roles) if (r.algoKey) rolesByAlgo.set(r.algoKey, r);
+    const rolesById = new Map<string, any>();
+    for (const r of roles) {
+      rolesById.set(r.id, r);
+      if (r.algoKey) rolesByAlgo.set(r.algoKey, r);
+    }
     const personsByRole = new Map<string, { CDI: any[]; CDD: any[] }>();
     for (const p of persons) {
       const bucket = personsByRole.get(p.roleId) ?? { CDI: [], CDD: [] };
@@ -129,7 +137,14 @@ export class StaffingService {
     const defaultSupplierByRole = new Map<string, string>();
     for (const d of defaults) defaultSupplierByRole.set(d.roleId, d.supplierId);
     const suppliersById = new Map<string, any>(suppliers.map((s) => [s.id, s]));
-    return { rolesByAlgo, personsByRole, defaultSupplierByRole, suppliersById };
+    return {
+      rolesByAlgo,
+      rolesById,
+      personsByRole,
+      defaultSupplierByRole,
+      suppliersById,
+      sinkingRules: sinkingRules as SinkingRuleInput[],
+    };
   }
 
   /**
@@ -219,7 +234,9 @@ export class StaffingService {
     for (const el of elements) {
       const perf = el.performances[0];
       const attrs = ((el as any).attributes ?? {}) as Record<string, any>;
-      const subs = ((el as any).subtypes ?? []).map((s: string) => String(s).toUpperCase());
+      // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…),
+      // jamais en UPPERCASE_SNAKE — voir fnb-tags.util.ts.
+      const fnbTags = detectFnbTags((el as any).subtypes);
       const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
       const result = this.calculator.calculate({
@@ -230,14 +247,22 @@ export class StaffingService {
         peakTxParMin: perf?.transactionsPerMinute ?? 0,
         txParSeconde: num(attrs.txParSeconde) ?? DEFAULT_TX_PAR_SECONDE,
         hasResponsablePdv: attrs.hasResponsablePdv === true,
-        hasBeverage: el.type === 'fnb_beverages' || subs.includes('BEVERAGE'),
+        // BEER/DRINKEE regroupés ici avec BEVERAGE pour préserver le comportement déjà
+        // testé de la formule (2026-07-30) — seul le tagging de rôle RH distingue
+        // désormais les 3 catégories finement (cf. fnb-tags.util.ts).
+        hasBeverage:
+          el.type === 'fnb_beverages' ||
+          fnbTags.has('BEVERAGE') ||
+          fnbTags.has('BEER') ||
+          fnbTags.has('DRINKEE'),
         nbTireuses: num(attrs.nbTireuses) ?? 0,
-        hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || subs.includes('FRONT_FOOD'),
+        hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('FRONT_FOOD'),
         nbFriteuses: num(attrs.nbFriteuses) ?? 0,
         nbBurgersPrevus: num(attrs.nbBurgersPrevus) ?? 0,
         nbDinettes: num(attrs.nbDinettes) ?? 0,
         nbHotdogsPrevus: num(attrs.nbHotdogsPrevus) ?? 0,
-        hasMixology: el.type === 'fnb_bar' || subs.includes('MIXOLOGY'),
+        hasMixology: el.type === 'fnb_bar' || fnbTags.has('MIXOLOGY'),
+        hasKitchenFood: fnbTags.has('KITCHEN_FOOD'),
       });
 
       const existingForEl = existing.filter((l) => l.elementId === el.id);
@@ -274,6 +299,39 @@ export class StaffingService {
             elementId: el.id,
             roleId: role?.id ?? null,
             algoKey: key,
+            enabled: true,
+            source: 'ALGO',
+            userModified: false,
+            supplierType: assignment.supplierType,
+            supplierId: assignment.supplierId,
+            personId: assignment.personId,
+            personLabel: assignment.personLabel,
+            hourlyRate: assignment.rateOverride ?? defaultRate,
+            startTime: ctx.lineStart,
+            endTime: ctx.lineEnd,
+          });
+        }
+      }
+
+      // Règles Sinking RH (STF-2) : quota minimal forcé par rôle, en SUPPLÉMENT
+      // du calcul par paliers ci-dessus. Lignes ALGO, algoKey=null, roleId renseigné.
+      const sinkingOutcomes = this.calculator.applySinkingRules(fnbTags, attrs, hr.sinkingRules);
+      for (const { roleId, qty } of sinkingOutcomes) {
+        if (qty <= 0) continue;
+        const role = hr.rolesById.get(roleId) ?? null;
+        const defaultRate = role ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0) : 0;
+        predictedCost += qty * defaultRate * suggestedHours;
+        const keptCount = kept.filter(
+          (l) => l.source === 'ALGO' && l.algoKey === null && l.roleId === roleId,
+        ).length;
+        for (let i = keptCount; i < qty; i++) {
+          const assignment = this.pickAssignment(role, i, hr);
+          creations.push({
+            tenantId,
+            eventId,
+            elementId: el.id,
+            roleId,
+            algoKey: null,
             enabled: true,
             source: 'ALGO',
             userModified: false,

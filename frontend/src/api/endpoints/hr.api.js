@@ -130,6 +130,48 @@ export async function deleteHrPerson(id) {
   }
 }
 
+// ── Sinking rules (STF-2 : dotation conditionnelle par rôle × sous-type FNB) ──
+
+export async function getHrSinkingRules({ roleId } = {}) {
+  try {
+    const res = await api.get('/hr/sinking-rules', { params: { roleId } })
+    return res.data?.data ?? []
+  } catch (error) {
+    console.error('[HR API] Error fetching sinking rules:', error)
+    throw error
+  }
+}
+
+export async function createHrSinkingRule(payload) {
+  try {
+    const res = await api.post('/hr/sinking-rules', payload)
+    return res.data
+  } catch (error) {
+    console.error('[HR API] Error creating sinking rule:', error)
+    throw error
+  }
+}
+
+export async function updateHrSinkingRule(id, payload) {
+  try {
+    const res = await api.patch(`/hr/sinking-rules/${id}`, payload)
+    return res.data
+  } catch (error) {
+    console.error(`[HR API] Error updating sinking rule ${id}:`, error)
+    throw error
+  }
+}
+
+export async function deleteHrSinkingRule(id) {
+  try {
+    const res = await api.delete(`/hr/sinking-rules/${id}`)
+    return res.data
+  } catch (error) {
+    console.error(`[HR API] Error deleting sinking rule ${id}:`, error)
+    throw error
+  }
+}
+
 // ── Import one-shot localStorage → BD (spec §1.4) ────────────────────────────
 
 export async function importHrFromLocalStorage(payload) {

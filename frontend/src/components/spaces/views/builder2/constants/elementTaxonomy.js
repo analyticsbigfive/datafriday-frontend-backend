@@ -15,6 +15,12 @@ export const TOOLS = [
       { value: 'gppremium', label: 'GP Premium' },
       { value: 'temporary', label: 'Temporary' },
       { value: 'drinkee', label: 'Drinkee' },
+      // CFG-1 (2026-07-30) : catégories staffing (voir SUBTYPE_TO_FNB_CATEGORY,
+      // backend staffing.service.ts) — sous-types du tool F&B existant, pas de
+      // nouveau type top-level (décision utilisateur, cf. passe module doc RH).
+      { value: 'mixology', label: 'Mixology' },
+      { value: 'front_food', label: 'Front Food' },
+      { value: 'kitchen_food', label: 'Kitchen Food' },
     ],
   },
   {
@@ -149,6 +155,28 @@ export function normalizeType(type) {
   if (t.startsWith('entrance') || t === 'ticketing') return 'entrance'
   if (t.startsWith('kitchen')) return 'kitchen'
   return t
+}
+
+/**
+ * CFG-2 : sous-types du tool "storage" pour la condition (dry/cold/belowzero) — ceux-là
+ * seuls sont pilotés par le référentiel StorageType (Configurations, CRUD-éditable). Les 3
+ * entrées historiques restent des chaînes figées (compat SpaceElement.subtypes[], déjà
+ * persistées sur des éléments existants) ; toute ligne StorageType créée par un tenant
+ * (code === null) ajoute une entrée `{value: son id, label: son name}`. `material`/`merch`
+ * sont un axe différent — l'USAGE du stockage, pas sa condition (cf. BUG-020/BUG-021) — et
+ * restent toujours figés, non concernés par ce référentiel.
+ * @param {Array<{id:string,name:string,code:string|null}>} tenantStorageTypes
+ */
+export function storageSubtypesFor(tenantStorageTypes = []) {
+  const legacy = [
+    { value: 'dry', label: 'Dry storage' },
+    { value: 'cold', label: 'Cold storage' },
+    { value: 'belowzero', label: 'Below zero storage' },
+  ]
+  const custom = (tenantStorageTypes || [])
+    .filter((st) => st?.code == null)
+    .map((st) => ({ value: st.id, label: st.name }))
+  return [...legacy, ...custom, { value: 'material', label: 'Material storage' }, { value: 'merch', label: 'Merch storage' }]
 }
 
 // ── Matrice sections d'inspecteur × type (doc §wireframe WF-02) ────────────────

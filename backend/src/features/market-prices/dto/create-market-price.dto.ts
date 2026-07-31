@@ -7,6 +7,11 @@ import {
 import { Type } from 'class-transformer';
 
 export class CreateMarketPriceDto {
+  @ApiProperty({ required: false, description: "ID existant — fourni uniquement par l'import en masse pour upsert (cf. bulkCreate), ignoré par create()" })
+  @IsString()
+  @IsOptional()
+  id?: string;
+
   @ApiProperty({ description: 'Nom du produit' })
   @IsString()
   itemName: string;

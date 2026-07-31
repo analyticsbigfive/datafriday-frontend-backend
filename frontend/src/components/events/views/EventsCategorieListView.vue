@@ -94,7 +94,6 @@
          édition + création de type à la volée, les 2 besoins propres à cet écran. -->
     <EventCategoryDialog
       v-model="categoryDialog"
-      :is-dark="isDark"
       :event-types="eventTypes"
       :category="editingCategory"
       allow-create-type
@@ -207,7 +206,9 @@ export default {
       try {
         await this.$store.dispatch('eventTypes/fetchEventTypes')
       } catch (e) {
-        // silent — store handles fallback
+        // Un échec ici laissait le select "Event Type" du dialog vide sans aucune
+        // explication (store jamais rempli) — surfacé maintenant au lieu d'être avalé.
+        this.error = e?.response?.data?.message || e?.message || "Erreur lors du chargement des types d'événements"
       }
     },
     async loadCategories() {
@@ -420,6 +421,7 @@ export default {
 .ecl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 .ecl--dark .ecl-table :deep(.v-data-table__th) { background: #1a2332 !important; }
 .ecl--dark .ecl-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.ecl--dark .ecl-table :deep(.v-data-table__td) { color: #e2e8f0; }
 
 .ecl-type-pill {
   display: inline-flex; align-items: center;

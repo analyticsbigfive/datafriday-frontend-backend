@@ -4,10 +4,17 @@ import { HrService } from './hr.service';
 import { HrSuppliersController, HrImportController } from './hr-suppliers.controller';
 import { HrRolesController } from './hr-roles.controller';
 import { HrPersonsController } from './hr-persons.controller';
+import { HrSinkingRulesController } from './hr-sinking-rules.controller';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [HrSuppliersController, HrImportController, HrRolesController, HrPersonsController],
+  controllers: [
+    HrSuppliersController,
+    HrImportController,
+    HrRolesController,
+    HrPersonsController,
+    HrSinkingRulesController,
+  ],
   providers: [HrService],
   exports: [HrService],
 })

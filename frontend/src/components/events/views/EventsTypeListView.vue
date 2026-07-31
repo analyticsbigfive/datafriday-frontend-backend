@@ -74,7 +74,7 @@
           </template>
           <template #item.actions="{ item }">
             <div class="etl-actions">
-              <div class="etl-abtn etl-abtn--info" @click.stop="openDetailsDialog(item)">
+              <div class="etl-abtn etl-abtn--info" @click.stop="openDetailsDrawer(item)">
                 <Eye :size="15" />
               </div>
               <div class="etl-abtn etl-abtn--edit" @click.stop="openEditDialog(item)">
@@ -276,7 +276,7 @@ export default {
       }
     },
 
-    openDetailsDialog(type) {
+    openDetailsDrawer(type) {
       this.detailsType = type;
       this.detailsDrawer = true;
     },
@@ -503,6 +503,7 @@ export default {
 .etl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 .etl--dark .etl-table :deep(.v-data-table__th) { background: #1a2332 !important; }
 .etl--dark .etl-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.etl--dark .etl-table :deep(.v-data-table__td) { color: #e2e8f0; }
 
 .etl-cat-badge {
   display: inline-flex; align-items: center; justify-content: center;

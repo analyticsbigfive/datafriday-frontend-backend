@@ -125,6 +125,7 @@ export const SETTINGS_NAVIGATION = [
           { title: 'navDisplayNames', route: '/configurations/display-names', permission: 'menu.config.manage' },
           { title: 'navIndustrials', route: '/configurations/industrials', permission: 'menu.config.manage' },
           { title: 'navPackingTypes', route: '/configurations/packing-types', permission: 'menu.config.manage' },
+          { title: 'navStorageTypes', route: '/configurations/storage-types', permission: 'menu.config.manage' },
         ],
       },
     ],
