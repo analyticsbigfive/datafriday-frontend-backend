@@ -143,7 +143,6 @@
               :value="currentValueStep.valueMap[val] ?? ''"
               @change="onValueMapChange(val, $event)"
             >
-<<<<<<< HEAD
               <option value="">Ignorer</option>
               <option
                 v-for="opt in currentValueStep.items"
@@ -152,20 +151,6 @@
                 :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
               >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
             </select>
-=======
-              <template #item="{ item, props }">
-                <v-list-item
-                  v-bind="props"
-                  :style="item.raw.id === CREATE_SENTINEL
-                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
-                    : {}"
-                >
-                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
-                    <Plus :size="14" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
             <v-btn
               v-if="currentValueStep.createKind === 'eventType' && !currentValueStep.valueMap[val]"
               icon
@@ -179,7 +164,6 @@
               <Zap :size="16" />
             </v-btn>
             <span v-if="quickCreateErrors[val]" class="elv-quick-create-error">{{ quickCreateErrors[val] }}</span>
->>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -228,7 +212,6 @@
               :disabled="!spaceValueMap[pair.spaceRaw]"
               @change="onConfigMapChange(pair, $event)"
             >
-<<<<<<< HEAD
               <option value="">{{ spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé' }}</option>
               <option
                 v-for="opt in configSelectItems(pair.spaceRaw)"
@@ -237,20 +220,6 @@
                 :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
               >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
             </select>
-=======
-              <template #item="{ item, props }">
-                <v-list-item
-                  v-bind="props"
-                  :style="item.raw.id === CREATE_SENTINEL
-                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
-                    : {}"
-                >
-                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
-                    <Plus :size="14" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
             <v-btn
               v-if="spaceValueMap[pair.spaceRaw] && !configValueMap[pair.key]"
               icon
@@ -264,7 +233,6 @@
               <Zap :size="16" />
             </v-btn>
             <span v-if="quickCreateErrors[pair.key]" class="elv-quick-create-error">{{ quickCreateErrors[pair.key] }}</span>
->>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -486,11 +454,7 @@
 </template>
 
 <script>
-<<<<<<< HEAD
-import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, X, Check, AlertCircle } from 'lucide-vue-next';
-=======
-import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap } from 'lucide-vue-next';
->>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap, X, Check, AlertCircle } from 'lucide-vue-next';
 import { createEvent, createEventType, createEventCategory, createEventSubcategory } from '@/api/endpoints/event.api';
 import { createConfiguration } from '@/api/endpoints/builder-v2.api';
 import { parseCSV } from '@/utils/csv';
@@ -520,11 +484,7 @@ const CREATE_SENTINEL = '__create__';
 
 export default {
   name: 'CsvImportDrawer',
-<<<<<<< HEAD
-  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, X, Check, AlertCircle, EventDrawerShell, SpaceCreateDrawer },
-=======
-  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap, EventDrawerShell, SpaceCreateDrawer },
->>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, X, Check, AlertCircle, Zap, EventDrawerShell, SpaceCreateDrawer },
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -961,22 +921,6 @@ export default {
       this.configValueMap[pair.key] = newValue;
     },
 
-<<<<<<< HEAD
-    // Un <select> natif conserve l'option choisie par l'utilisateur même si le modèle
-    // ne change pas (contrairement au v-select contrôlé d'origine). Quand on choisit
-    // « + Ajouter » (ouvre un dialog sans committer), le DOM resterait bloqué sur la
-    // sentinelle : on resynchronise donc le <select> sur la valeur réelle du modèle
-    // après chaque changement (no-op visuel pour un vrai choix, retour arrière pour
-    // la sentinelle).
-    onValueMapChange(val, e) {
-      this.onValueSelect(val, e.target.value || null);
-      e.target.value = this.currentValueStep?.valueMap?.[val] ?? '';
-    },
-
-    onConfigMapChange(pair, e) {
-      this.onConfigPairSelect(pair, e.target.value || null);
-      e.target.value = this.configValueMap[pair.key] ?? '';
-=======
     // Même règle de normalisation que le matching des en-têtes CSV (step 2, `readFile`) : les
     // valeurs de taxonomie doivent matcher selon la même tolérance (casse, espaces/tirets/underscores).
     _normalizeStr(s) {
@@ -1060,7 +1004,22 @@ export default {
       } finally {
         this.quickCreating = { ...this.quickCreating, [pair.key]: false };
       }
->>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
+    },
+
+    // Un <select> natif conserve l'option choisie par l'utilisateur même si le modèle
+    // ne change pas (contrairement au v-select contrôlé d'origine). Quand on choisit
+    // « + Ajouter » (ouvre un dialog sans committer), le DOM resterait bloqué sur la
+    // sentinelle : on resynchronise donc le <select> sur la valeur réelle du modèle
+    // après chaque changement (no-op visuel pour un vrai choix, retour arrière pour
+    // la sentinelle).
+    onValueMapChange(val, e) {
+      this.onValueSelect(val, e.target.value || null);
+      e.target.value = this.currentValueStep?.valueMap?.[val] ?? '';
+    },
+
+    onConfigMapChange(pair, e) {
+      this.onConfigPairSelect(pair, e.target.value || null);
+      e.target.value = this.configValueMap[pair.key] ?? '';
     },
 
     defaultCreateDialog() {
@@ -1572,7 +1531,6 @@ export default {
 .elv-mapping-row:hover { background: rgba(var(--v-border-color, 0, 0, 0), 0.04); }
 .elv-mapping-arrow { color: #9ca3af; flex-shrink: 0; }
 .elv-mapping-select { flex: 1; min-width: 0; }
-.elv-quick-create-error { flex-basis: 100%; font-size: 12px; color: #ff3131; }
 
 /* Select natif Bootstrap du mapping colonnes (étape 2) — aligné visuellement sur les champs
    Vuetify du drawer (border-radius, focus rouge marque). */
@@ -1625,6 +1583,7 @@ export default {
 .elv-cd--dark .elv-cd__btn--cancel { background: transparent; border-color: rgba(255,255,255,.14); color: #cbd5e1; }
 .elv-cd--dark .elv-cd__btn--cancel:hover:not(:disabled) { background: #374151; color: #fff; }
 .elv-cd--dark .elv-cd__check { color: #d1d5db; }
+.elv-quick-create-error { flex-basis: 100%; font-size: 12px; color: #ff3131; }
 
 /* État vide (aucune valeur à mapper pour cette colonne) : bloc centré cohérent avec la zone de
    dépôt de l'étape 1, plutôt qu'un simple bandeau d'alerte. */
