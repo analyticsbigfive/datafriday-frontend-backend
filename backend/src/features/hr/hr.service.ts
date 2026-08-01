@@ -257,10 +257,18 @@ export class HrService {
       }
       const found = await this.prisma.hrSupplier.findMany({
         where: { id: { in: supplierIds }, tenantId },
-        select: { id: true },
+        select: { id: true, name: true, departments: true },
       });
       if (found.length !== supplierIds.length) {
         throw new BadRequestException('Une ou plusieurs agences sélectionnées sont introuvables.');
+      }
+      // BUG-266-02 : le frontend filtre déjà les agences proposées par département, mais rien ne
+      // l'imposait côté backend — un appel API direct pouvait lier une agence hors département.
+      const ineligible = found.find((s) => !(s.departments ?? []).includes(department));
+      if (ineligible) {
+        throw new BadRequestException(
+          `L'agence « ${ineligible.name} » ne couvre pas le département « ${department} ».`,
+        );
       }
     } else {
       supplierIds = [];

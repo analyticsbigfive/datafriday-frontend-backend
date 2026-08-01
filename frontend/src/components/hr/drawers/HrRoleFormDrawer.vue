@@ -63,16 +63,20 @@
                 </select>
               </div>
 
-              <!-- 4. SI Agency → Supplier multi-select -->
+              <!-- 4. SI Agency → Supplier multi-select — filtré aux agences éligibles pour CE
+                   département (BUG-266-02 : affichait avant TOUTES les agences du tenant, sans
+                   recouper avec HrSupplier.departments). Création à la volée (2026-08-01, retour
+                   utilisateur) : si aucune agence n'est éligible, on ouvre directement le tiroir
+                   de création plutôt que de forcer un aller-retour vers l'écran Suppliers. -->
               <div v-if="form.contractType === 'AGENCY'" class="hpd-field mb-3">
                 <label class="hpd-field-label">{{ t('hrColSupplier') }} <span class="hpd-required">*</span></label>
-                <div v-if="!suppliers.length" class="hpd-notice">
+                <div v-if="!eligibleSuppliers.length" class="hpd-notice">
                   <Building2 :size="18" class="me-2" style="flex-shrink:0" />
-                  {{ t('hrNoSupplierYet') }}
+                  {{ allSuppliers.length ? t('hrNoSupplierForDept') : t('hrNoSupplierYet') }}
                 </div>
-                <div v-else class="hrd-pill-grid">
+                <div v-else class="hrd-pill-grid mb-2">
                   <button
-                    v-for="s in suppliers" :key="s.id" type="button"
+                    v-for="s in eligibleSuppliers" :key="s.id" type="button"
                     class="hrd-pill" :class="{ 'hrd-pill--active': form.supplierIds.includes(s.id) }"
                     @click="toggleSupplier(s.id)"
                   >
@@ -80,6 +84,10 @@
                     {{ s.name }}
                   </button>
                 </div>
+                <button type="button" class="hrd-create-supplier" @click="openCreateSupplier">
+                  <Plus :size="14" />
+                  {{ t('hrCreateSupplierInline') }}
+                </button>
               </div>
 
               <!-- 5. SI CDD / Agency / Freelance → Rate type + montant -->
@@ -231,6 +239,18 @@
       </div>
     </Transition>
   </Teleport>
+
+  <!-- Création d'agence à la volée (2026-08-01) — tiroir imbriqué, propre Teleport (empile
+       naturellement au-dessus par ordre d'insertion DOM). Département pré-coché avec celui du
+       rôle en cours pour que la nouvelle agence soit immédiatement éligible (cf. eligibleSuppliers
+       ci-dessous) sans étape manuelle supplémentaire. -->
+  <HrSupplierFormDrawer
+    v-model="supplierDrawerOpen"
+    mode="create"
+    :initial="{ departments: [form.department] }"
+    :spaces="spaces"
+    @saved="onSupplierCreated"
+  />
 </template>
 
 <script setup>
@@ -248,6 +268,7 @@ import {
 } from '@/api/endpoints/hr.api'
 import { newId } from '../hrShared'
 import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import HrSupplierFormDrawer from './HrSupplierFormDrawer.vue'
 
 // Clés d'attributs SpaceElement.attributes déjà consommées par l'algo de staffing
 // (staffing.service.ts) — mêmes noms (value), pour que la condition d'une règle Sinking
@@ -284,6 +305,9 @@ const props = defineProps({
   mode: { type: String, default: 'create' },
   initial: { type: Object, default: null },
   suppliers: { type: Array, default: () => [] },
+  // Transmis tel quel au tiroir imbriqué HrSupplierFormDrawer (création d'agence à la volée,
+  // BUG-266-02) — même shape que celui reçu par HrSuppliersView.vue (getSpacesLight()).
+  spaces: { type: Array, default: () => [] },
   positionNames: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['update:modelValue', 'saved'])
@@ -333,6 +357,32 @@ const subtypeOptions = computed(() => {
 const selectedDepartmentLabel = computed(
   () => DEPARTMENTS.value.find((d) => d.value === form.department)?.label || form.department,
 )
+// BUG-266-02 : le sélecteur d'agences affichait TOUTES les agences du tenant, jamais filtrées par
+// HrSupplier.departments — on pouvait lier une agence "shop uniquement" à un rôle Hospitality sans
+// aucun garde-fou, ni ici ni côté backend (qui ne vérifie que l'existence du fournisseur). Filtré
+// au département du rôle, même idiome que subtypeOptions ci-dessus.
+// `extraSuppliers` : agences créées à la volée (voir HrSupplierFormDrawer imbriqué plus bas) —
+// props.suppliers ne se met à jour qu'au prochain `load()` du parent (déclenché par le @saved DE
+// CE rôle, pas par la création d'une agence en cours d'édition) ; fusionné ici pour un affichage
+// immédiat sans attendre. Dédupliqué par id au cas où props.suppliers finirait par les inclure.
+const extraSuppliers = ref([])
+const allSuppliers = computed(() => {
+  const byId = new Map(props.suppliers.map((s) => [s.id, s]))
+  for (const s of extraSuppliers.value) byId.set(s.id, s)
+  return [...byId.values()]
+})
+const eligibleSuppliers = computed(
+  () => allSuppliers.value.filter((s) => (s.departments || []).includes(form.department)),
+)
+const supplierDrawerOpen = ref(false)
+function openCreateSupplier() {
+  supplierDrawerOpen.value = true
+}
+function onSupplierCreated(supplier) {
+  if (!supplier?.id) return
+  extraSuppliers.value.push(supplier)
+  if (!form.supplierIds.includes(supplier.id)) form.supplierIds.push(supplier.id)
+}
 // "NOT LINKED" n'est pas un champ persisté séparément — HrRole n'a que fnbCategories:String[].
 // Dérivé de l'absence de tags plutôt que d'un ref indépendant : évite le désync qui rendait les
 // pastilles injoignables (ref notLinked resté à `true` après reset() empêchait de cocher quoi que
@@ -349,6 +399,12 @@ watch(() => form.department, (newDept) => {
   const tools = buildTools(store.getters['departments/departments'] || [])
   const validValues = new Set((toolOf(newDept, tools)?.subtypes || []).map((s) => s.value))
   form.fnbCategories = form.fnbCategories.filter((c) => validValues.has(c))
+  // Même principe pour les agences déjà cochées : une agence liée pour l'ancien département
+  // n'est pas forcément éligible pour le nouveau (BUG-266-02).
+  const eligibleIds = new Set(
+    allSuppliers.value.filter((s) => (s.departments || []).includes(newDept)).map((s) => s.id),
+  )
+  form.supplierIds = form.supplierIds.filter((id) => eligibleIds.has(id))
 })
 
 // 'shop' = code STABLE du département F&B (Department.code), jamais affecté par un renommage
@@ -805,6 +861,24 @@ async function submit() {
 .hpd--dark .hrd-sinking__delete:hover:not(:disabled) { background: rgba(255, 49, 49, 0.1); color: #e84444; }
 .hpd--dark .hrd-sinking__add { border-color: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.55); }
 .hpd--dark .hrd-sinking__add:hover { border-color: #ff3131; color: #e84444; background: rgba(255, 49, 49, 0.1); }
+
+.hrd-create-supplier {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border: 1.5px dashed #d1d5db;
+  border-radius: 100px;
+  background: transparent;
+  color: #6b7280;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: border-color 0.18s, color 0.18s, background 0.18s;
+}
+.hrd-create-supplier:hover { border-color: #ff3131; color: #ff3131; background: #fff5f5; }
+.hpd--dark .hrd-create-supplier { border-color: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.55); }
+.hpd--dark .hrd-create-supplier:hover { border-color: #ff3131; color: #e84444; background: rgba(255, 49, 49, 0.1); }
 
 /* Footer */
 .hpd__footer {

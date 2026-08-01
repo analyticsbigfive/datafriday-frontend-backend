@@ -256,9 +256,11 @@ async function submit() {
       spaceIds: [...form.spaceIds],
       departments: [...form.departments],
     }
-    if (props.mode === 'edit') await hrApi.updateHRSupplier(payload)
-    else await hrApi.createHRSupplier(payload)
-    emit('saved')
+    // Le fournisseur créé/mis à jour est renvoyé avec l'événement (2026-08-01) : permet à un
+    // appelant qui ouvre ce tiroir en imbriqué (ex. HrRoleFormDrawer, création d'agence à la
+    // volée) de sélectionner automatiquement la nouvelle agence sans re-fetch.
+    const saved = props.mode === 'edit' ? await hrApi.updateHRSupplier(payload) : await hrApi.createHRSupplier(payload)
+    emit('saved', saved)
     close()
   } catch (e) {
     error.value = t('hrSaveError')
