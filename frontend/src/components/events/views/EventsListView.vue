@@ -828,7 +828,6 @@ export default {
 .elv-bd__progress { height: 10px; background: #f1f5f9; border-radius: 100px; overflow: hidden; }
 .elv-bd__progress-bar { height: 100%; background: #ff3131; border-radius: 100px; transition: width .2s ease; }
 .elv-bd__progress-label { font-size: var(--fs-sm); color: #6b7280; text-align: center; font-weight: 600; }
-.elv-bd__progress-pct { color: #ff3131; }
 .elv-bd__footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid #f0f0f0; background: #fafafa; }
 .elv-bd__btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 100px; font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
 .elv-bd__btn:disabled { opacity: .6; cursor: default; }
