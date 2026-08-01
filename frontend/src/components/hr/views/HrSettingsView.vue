@@ -56,8 +56,8 @@
     </div>
 
     <!-- Drawers -->
-    <HrValueFormDrawer v-model="goalDrawer.open" kind="goal" :spaces="spaces" @submit="onGoalSubmit" />
-    <HrValueFormDrawer v-model="staffDrawer.open" kind="staff" :spaces="spaces" @submit="onStaffSubmit" />
+    <HrValueFormDrawer v-model="goalDrawer.open" kind="goal" :spaces="spaces" :lines="goals" @submit="onGoalSubmit" />
+    <HrValueFormDrawer v-model="staffDrawer.open" kind="staff" :spaces="spaces" :lines="staffRatios" @submit="onStaffSubmit" />
     <HrSpaceEditDrawer v-model="editDrawer.open" :space="editDrawer.space" :initial="editDrawer.initial" @submit="onEditSubmit" />
 
     <v-snackbar v-model="snackbar.open" :color="snackbar.color" timeout="3500">{{ snackbar.text }}</v-snackbar>
@@ -72,7 +72,6 @@ import { Target, UserCog, Users, Search, X } from 'lucide-vue-next'
 import HrSpaceCard from '@/components/hr/HrSpaceCard.vue'
 import HrValueFormDrawer from '@/components/hr/HrValueFormDrawer.vue'
 import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
-import { getSpacesLight } from '@/api/endpoints/space.api'
 import { getHrStaffingCosts } from '@/api/endpoints/hrSettings.api'
 import { resolveGoalForSpace, resolveRatioForSpace, findMonoSpaceLine } from '@/utils/hrSettings'
 import { t } from '@/i18n'
@@ -84,7 +83,9 @@ const store = useStore()
 const theme = useTheme()
 const isDark = computed(() => !!theme.global.current.value.dark)
 
-const spaces = ref([])
+// Espaces : store partagé `spaces` (mêmes données que /spaces : image, spaceType,
+// city, maxCapacity, au lieu de /spaces/light qui ne renvoie que id+name).
+const spaces = computed(() => store.getters['spaces/spaces'] || [])
 const costsBySpaceId = ref({})
 const loading = ref(false)
 const searchQuery = ref('')
@@ -99,8 +100,10 @@ const staffRatios = computed(() => store.getters['hrSettings/staffRatios'])
 
 const filteredSpaces = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return spaces.value
-  return spaces.value.filter((s) => (s.name || '').toLowerCase().includes(q) || (s.city || '').toLowerCase().includes(q))
+  const list = q
+    ? spaces.value.filter((s) => (s.name || '').toLowerCase().includes(q) || (s.city || '').toLowerCase().includes(q))
+    : spaces.value
+  return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 })
 
 // Valeurs résolues par espace (règle §9.4 : spécifique > TOUS, dernière gagne).
@@ -124,7 +127,7 @@ function notify(text, color = 'error') {
 async function loadSpaces() {
   loading.value = true
   try {
-    spaces.value = await getSpacesLight()
+    await store.dispatch('spaces/fetchSpaces')
   } catch (_) {
     notify(t('hrSettingsLoadError'))
   } finally {
@@ -310,9 +313,11 @@ async function onEditSubmit(payload) {
 .hsl-content { padding: 24px 28px; }
 .hrs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 20px;
 }
+@media (max-width: 1024px) { .hrs-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px)  { .hrs-grid { grid-template-columns: 1fr; } }
 
 .hsl-empty { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; text-align: center; }
 .hsl-empty__icon {

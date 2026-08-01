@@ -17,7 +17,7 @@
       </div>
 
       <div class="hsc-overlay">
-        <div class="hsc-name">{{ space?.name || '—' }}</div>
+        <div class="hsc-name">{{ space?.name || '-' }}</div>
         <div class="hsc-meta">
           <span v-if="space?.city" class="hsc-meta__item"><MapPin :size="11" />{{ space.city }}</span>
           <span v-if="space?.maxCapacity" class="hsc-meta__item"><Users :size="11" />{{ formatNumber(space.maxCapacity) }}</span>
@@ -27,20 +27,20 @@
 
     <div class="hsc-stats">
       <div class="hsc-stat">
-        <div class="hsc-stat__label"><Wallet :size="11" />{{ t('hrColStaffCostTotal') }}</div>
+        <div class="hsc-stat__label"><Wallet :size="11" /><span class="hsc-stat__label-text">{{ t('hrColStaffCostTotal') }}</span></div>
         <div class="hsc-stat__value" :class="staffCostTotal == null ? 'hsc-stat__value--muted' : 'hsc-stat__value--red'">{{ costTotalLabel }}</div>
       </div>
       <div class="hsc-stat">
-        <div class="hsc-stat__label"><Target :size="11" />{{ t('hrColGoalPerTpe') }}</div>
-        <div class="hsc-stat__value hsc-stat__value--red">{{ goalLabel }}</div>
+        <div class="hsc-stat__label"><Target :size="11" /><span class="hsc-stat__label-text">{{ t('hrColGoalPerTpe') }}</span></div>
+        <div class="hsc-stat__value" :class="goalPerTpe == null ? 'hsc-stat__value--muted' : 'hsc-stat__value--purple'">{{ goalLabel }}</div>
       </div>
       <div class="hsc-stat hsc-stat--bl">
-        <div class="hsc-stat__label"><Calendar :size="11" />{{ t('hrColStaffCostAvgEvent') }}</div>
-        <div class="hsc-stat__value hsc-stat__value--muted">{{ costAvgLabel }}</div>
+        <div class="hsc-stat__label"><Calendar :size="11" /><span class="hsc-stat__label-text">{{ t('hrColStaffCostAvgEvent') }}</span></div>
+        <div class="hsc-stat__value" :class="staffCostAvgEvent == null ? 'hsc-stat__value--muted' : 'hsc-stat__value--amber'">{{ costAvgLabel }}</div>
       </div>
       <div class="hsc-stat hsc-stat--bl">
-        <div class="hsc-stat__label"><UserCog :size="11" />{{ t('hrColStaffPerZone') }}</div>
-        <div class="hsc-stat__value hsc-stat__value--green">{{ staffLabel }}</div>
+        <div class="hsc-stat__label"><UserCog :size="11" /><span class="hsc-stat__label-text">{{ t('hrCardStaffPerZone') }}</span></div>
+        <div class="hsc-stat__value" :class="staffPerZoneManager == null ? 'hsc-stat__value--muted' : 'hsc-stat__value--green'">{{ staffLabel }}</div>
       </div>
     </div>
 
@@ -74,16 +74,16 @@ const spaceImage = computed(() => props.space?.image || props.fallbackImage)
 const eur = (v) =>
   (Number(v) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
 
-const goalLabel = computed(() => (props.goalPerTpe == null ? '—' : eur(props.goalPerTpe)))
-const costTotalLabel = computed(() => (props.staffCostTotal == null ? '—' : eur(props.staffCostTotal)))
-const costAvgLabel = computed(() => (props.staffCostAvgEvent == null ? '—' : eur(props.staffCostAvgEvent)))
+const goalLabel = computed(() => (props.goalPerTpe == null ? '-' : eur(props.goalPerTpe)))
+const costTotalLabel = computed(() => (props.staffCostTotal == null ? '-' : eur(props.staffCostTotal)))
+const costAvgLabel = computed(() => (props.staffCostAvgEvent == null ? '-' : eur(props.staffCostAvgEvent)))
 const staffLabel = computed(() =>
-  props.staffPerZoneManager == null ? '—' : String(props.staffPerZoneManager),
+  props.staffPerZoneManager == null ? '-' : String(props.staffPerZoneManager),
 )
 
 function formatNumber(value) {
   const n = Number(value)
-  return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '—'
+  return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '-'
 }
 </script>
 
@@ -144,14 +144,17 @@ function formatNumber(value) {
 .hsc-stat--bl { border-top: 1px solid #f0f0f0; }
 .hsc-stat:hover { background: #fafafa; }
 .hsc-stat__label {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 4px; min-width: 0;
   font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em;
   text-transform: uppercase; color: #9ca3af;
 }
+.hsc-stat__label-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hsc-stat__value { font-size: var(--fs-md); font-weight: 700; line-height: 1.2; }
-.hsc-stat__value--red { color: #ff3131; }
+.hsc-stat__value--amber { color: #d97706; }
 .hsc-stat__value--green { color: #059669; }
 .hsc-stat__value--muted { color: #cbd5e1; }
+.hsc-stat__value--purple { color: #7c3aed; }
+.hsc-stat__value--red { color: #ff3131; }
 
 /* ── Dark (palette slate, parité MarketPriceListView) ── */
 .hsc--dark { background: #1e293b; border-color: rgba(255, 255, 255, .08); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
@@ -160,7 +163,9 @@ function formatNumber(value) {
 .hsc--dark .hsc-stat--bl { border-top-color: rgba(255, 255, 255, .08); }
 .hsc--dark .hsc-stat:hover { background: #24324a; }
 .hsc--dark .hsc-stat__label { color: #94a3b8; }
+.hsc--dark .hsc-stat__value--amber { color: #fcd34d; }
 .hsc--dark .hsc-stat__value--muted { color: #64748b; }
+.hsc--dark .hsc-stat__value--purple { color: #c4b5fd; }
 .hsc--dark .hsc-action-btn { background: rgba(30, 41, 59, .9); color: #cbd5e1; }
 .hsc--dark .hsc-action-btn:hover { background: #0f172a; color: #ff3131; }
 </style>

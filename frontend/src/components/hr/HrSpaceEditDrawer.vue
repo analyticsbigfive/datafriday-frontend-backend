@@ -155,6 +155,7 @@ function submit() {
 
 .hsd__body {
   flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 22px 24px 24px;
   display: flex;

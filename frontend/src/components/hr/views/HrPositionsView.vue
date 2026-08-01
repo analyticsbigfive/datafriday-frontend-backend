@@ -94,6 +94,7 @@
       :mode="drawerMode"
       :initial="editing"
       :suppliers="suppliers"
+      :spaces="spaces"
       :position-names="positionNames"
       @saved="load"
     />
@@ -117,6 +118,7 @@ import { useTheme } from 'vuetify'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
+import { getSpacesLight } from '@/api/endpoints/space.api'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
 
@@ -162,6 +164,7 @@ const tableHeaders = [
 
 const positions = ref([])
 const suppliers = ref([])
+const spaces = ref([])
 const positionNames = ref([])
 const searchQuery = ref('')
 const loading = ref(false)
@@ -169,14 +172,18 @@ const loading = ref(false)
 async function load() {
   loading.value = true
   try {
-    const [positionRows, supplierRows, nameRows] = await Promise.all([
+    // spaces : nécessaire pour la création d'agence à la volée depuis Edit HR role (BUG-266-02,
+    // tiroir HrSupplierFormDrawer imbriqué) — même source que HrSuppliersView.vue.
+    const [positionRows, supplierRows, nameRows, spaceRows] = await Promise.all([
       hrApi.getAllStaffPositions(),
       hrApi.getAllHRSuppliers(),
       hrApi.getAllPositionNames(),
+      getSpacesLight().catch(() => []),
     ])
     positions.value = Array.isArray(positionRows) ? positionRows : []
     suppliers.value = Array.isArray(supplierRows) ? supplierRows : []
     positionNames.value = Array.isArray(nameRows) ? nameRows : []
+    spaces.value = Array.isArray(spaceRows) ? spaceRows : []
   } finally {
     loading.value = false
   }
