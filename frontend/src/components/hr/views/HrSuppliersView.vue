@@ -43,8 +43,18 @@
     <div class="hsl-content">
       <v-progress-linear v-if="loading" indeterminate color="#ff3131" height="3" rounded class="mb-4" />
 
+      <div v-if="bulkSelected.length" class="bulk-bar">
+        <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+        <div class="bulk-bar__actions">
+          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+        </div>
+      </div>
+
       <div class="hsl-table-wrap">
         <v-data-table
+          v-model="bulkSelected"
+          show-select
           :headers="tableHeaders"
           :items="filtered"
           item-value="id"
@@ -116,6 +126,17 @@
       @confirm="confirmDelete"
     />
 
+    <!-- Dialog suppression multiple -->
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
+      @confirm="confirmBulkDelete"
+    />
+
   </div>
 </template>
 
@@ -129,6 +150,7 @@ import * as hrApi from '@/utils/hrApi'
 import { getSpacesLight } from '@/api/endpoints/space.api'
 import HrSupplierFormDrawer from '../drawers/HrSupplierFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue'
 
 // Dark mode autonome (pattern maison) : suit le thème Vuetify global.
 const theme = useTheme()
@@ -224,6 +246,14 @@ function openEdit(supplier) {
 const deleteOpen = ref(false)
 const deleteTarget = ref(null)
 const deleting = ref(false)
+
+// Suppression multiple
+const bulkSelected = ref([])
+const bulkOpen = ref(false)
+const bulkLoading = ref(false)
+const bulkError = ref('')
+const bulkProgress = ref(0)
+const bulkTotal = ref(0)
 function onDelete(supplier) {
   deleteTarget.value = supplier
   deleteOpen.value = true
@@ -239,6 +269,36 @@ async function confirmDelete() {
   } finally {
     deleting.value = false
   }
+}
+
+// Suppression multiple
+function openBulkDelete() {
+  bulkError.value = ''
+  bulkProgress.value = 0
+  bulkTotal.value = 0
+  bulkOpen.value = true
+}
+async function confirmBulkDelete() {
+  const ids = [...bulkSelected.value]
+  if (!ids.length) return
+  bulkLoading.value = true
+  bulkError.value = ''
+  bulkTotal.value = ids.length
+  bulkProgress.value = 0
+  const failed = []
+  for (const id of ids) {
+    try {
+      await hrApi.deleteHRSupplier(id)
+    } catch (e) {
+      failed.push(id)
+    }
+    bulkProgress.value += 1
+  }
+  await load()
+  bulkLoading.value = false
+  bulkSelected.value = failed
+  if (failed.length) bulkError.value = `${failed.length} fournisseur(s) n'ont pas pu être supprimés.`
+  else bulkOpen.value = false
 }
 </script>
 
@@ -404,4 +464,16 @@ async function confirmDelete() {
 .hsl--dark .hsl-table-btn--del:hover { background: rgba(255, 49, 49, .14); color: #ff3131; }
 .hsl--dark .hsl-empty__icon { background: rgba(255, 255, 255, .06); }
 .hsl--dark .hsl-empty__title { color: #f9fafb; }
+
+/* ── Barre de sélection multiple ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size: var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; transition:background .15s,color .15s; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; transition:box-shadow .18s,transform .18s; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.hsl--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.hsl--dark .bulk-bar__clear { color:#94a3b8; }
+.hsl--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
 </style>

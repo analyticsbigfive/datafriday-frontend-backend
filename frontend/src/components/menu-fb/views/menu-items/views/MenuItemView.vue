@@ -431,18 +431,20 @@
       @confirm="confirmDelete"
     />
 
-    <!-- Bulk Delete Dialog -->
-    <MenuItemDeleteDialog
+    <!-- Bulk Delete Dialog (BulkDeleteDialog partagé : confirmation → progression X/N) -->
+    <BulkDeleteDialog
       v-model="bulkDeleteDialog"
       :is-dark="isDark"
       :title="t('menuItemLib.deleteSelectedTitle')"
-      :subtitle="t('menuItemLib.deleteSubtitle')"
       :message="`${t('menuItemLib.deleteSelectedMessagePrefix')} ${selectedItems.length} ${t('menuItemLib.itemsSelected')}`"
-      item-name=""
+      :progress="bulkProgress"
+      :total="bulkTotal"
+      :progress-label="t('bulkDeleted')"
+      :confirm-label="t('menuItemLib.deleteAllConfirm')"
+      :cancel-label="t('cancel')"
+      :deleting-label="t('bulkDeleting')"
       :loading="bulkDeleteLoading"
       :error="bulkDeleteError"
-      :cancel-label="t('cancel')"
-      :confirm-label="t('menuItemLib.deleteAllConfirm')"
       @confirm="confirmBulkDelete"
     />
 
@@ -470,6 +472,7 @@ import { formatCurrency } from "@/composables/useFormatters";
 import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
 import { getProductMappings, deleteProductMapping } from "@/api/endpoints/mapping.api";
 import MenuItemDeleteDialog from '../dialogs/MenuItemDeleteDialog.vue';
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
 import MenuItemCsvImportDrawer from '../drawers/MenuItemCsvImportDrawer.vue';
 import RecipeImportDrawer from '../drawers/RecipeImportDrawer.vue';
 import {
@@ -507,6 +510,7 @@ export default {
     UtensilsCrossed,
     X,
     MenuItemDeleteDialog,
+    BulkDeleteDialog,
     MenuItemCsvImportDrawer,
     RecipeImportDrawer,
   },
@@ -548,6 +552,8 @@ export default {
       bulkDeleteDialog: false,
       bulkDeleteLoading: false,
       bulkDeleteError: "",
+      bulkProgress: 0,
+      bulkTotal: 0,
 
       importDrawer: false,
       exportLoading: false,
@@ -1080,6 +1086,8 @@ export default {
 
     onBulkDelete() {
       this.bulkDeleteError = "";
+      this.bulkProgress = 0;
+      this.bulkTotal = 0;
       this.bulkDeleteDialog = true;
     },
     async confirmBulkDelete() {
@@ -1088,6 +1096,8 @@ export default {
       this.bulkDeleteError = "";
       // La sélection contient des ids d'articles (une ligne = un article).
       const menuItemIds = [...new Set(this.selectedItems.map(id => String(id)))];
+      this.bulkTotal = menuItemIds.length;
+      this.bulkProgress = 0;
       const failed = [];
       let firstErrorMessage = "";
       for (const id of menuItemIds) {
@@ -1098,11 +1108,10 @@ export default {
           if (!firstErrorMessage) firstErrorMessage = e?.userMessage || e?.message || "";
           failed.push(id);
         }
+        this.bulkProgress += 1;
       }
       const deleted = menuItemIds.filter(id => !failed.includes(id));
 
-      // Fermer le dialogue et mettre à jour la sélection quoi qu'il arrive
-      this.bulkDeleteDialog = false;
       // Garder sélectionnés seulement les articles en échec.
       this.selectedItems = this.selectedItems.filter(sid => failed.includes(String(sid)));
       this.bulkDeleteLoading = false;
@@ -1115,9 +1124,13 @@ export default {
       }
 
       if (failed.length > 0) {
+        // Sur échec : on garde le dialog OUVERT pour afficher l'erreur (auparavant il se
+        // fermait toujours, masquant le message).
         this.bulkDeleteError = firstErrorMessage
           ? `${failed.length} article(s) n'ont pas pu être supprimés : ${firstErrorMessage}`
           : `${failed.length} article(s) n'ont pas pu être supprimés.`;
+      } else {
+        this.bulkDeleteDialog = false;
       }
     },
 

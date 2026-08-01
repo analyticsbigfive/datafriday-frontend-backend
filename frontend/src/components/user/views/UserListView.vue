@@ -59,8 +59,18 @@
         {{ loadError }}
       </div>
 
+      <div v-if="bulkSelected.length" class="bulk-bar">
+        <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+        <div class="bulk-bar__actions">
+          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+        </div>
+      </div>
+
       <div class="ul-table-wrap">
         <v-data-table
+          v-model="bulkSelected"
+          show-select
           :headers="tableHeaders"
           :items="filteredUsers"
           item-value="id"
@@ -164,6 +174,16 @@
       @confirm="confirmDelete"
     />
 
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
+      @confirm="confirmBulkDelete"
+    />
+
     <input ref="importInput" type="file" accept=".csv" style="display:none" @change="onImportFile" />
   </div>
 </template>
@@ -176,10 +196,11 @@ import { Search, Download, Upload, UserPlus, Pencil, Trash2, Users, Send, X, Che
 import { deleteUser, reinviteUser } from '@/api/endpoints/user.api';
 import UserEditDrawer from '../drawers/UserEditDrawer.vue';
 import UserDeleteDialog from '../dialogs/UserDeleteDialog.vue';
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
 
 export default {
   name: 'UserListView',
-  components: { Search, Download, Upload, UserPlus, Pencil, Trash2, Users, Send, X, ChevronDown, AlertTriangle, UserEditDrawer, UserDeleteDialog },
+  components: { Search, Download, Upload, UserPlus, Pencil, Trash2, Users, Send, X, ChevronDown, AlertTriangle, UserEditDrawer, UserDeleteDialog, BulkDeleteDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -201,6 +222,12 @@ export default {
       deleteTarget: null,
       reinvitingId: null,
       snackbar: { show: false, text: '', color: 'success' },
+      bulkSelected: [],
+      bulkOpen: false,
+      bulkLoading: false,
+      bulkError: '',
+      bulkProgress: 0,
+      bulkTotal: 0,
     };
   },
   computed: {
@@ -209,6 +236,9 @@ export default {
     },
     canManageUsers() {
       return this.$store.getters['auth/can']('org.users.manage');
+    },
+    currentUserId() {
+      return this.$store.getters['auth/userId'];
     },
     roles() {
       return this.$store.getters['roles/roles'] || [];
@@ -320,6 +350,43 @@ export default {
         this.deleteError = e?.response?.data?.message || e?.message || 'Échec de la suppression';
       } finally {
         this.deleteLoading = false;
+      }
+    },
+    openBulkDelete() {
+      this.bulkError = '';
+      this.bulkProgress = 0;
+      this.bulkTotal = 0;
+      this.bulkOpen = true;
+    },
+    async confirmBulkDelete() {
+      const ids = [...this.bulkSelected];
+      if (!ids.length) return;
+      this.bulkLoading = true;
+      this.bulkError = '';
+      this.bulkTotal = ids.length;
+      this.bulkProgress = 0;
+      const failed = [];
+      for (const id of ids) {
+        // Garde : on ne peut pas se supprimer soi-même → compté comme échec.
+        if (id === this.currentUserId) {
+          failed.push(id);
+          this.bulkProgress += 1;
+          continue;
+        }
+        try {
+          await deleteUser(id);
+          await this.$store.dispatch('users/removeUser', id);
+        } catch (e) {
+          failed.push(id);
+        }
+        this.bulkProgress += 1;
+      }
+      this.bulkLoading = false;
+      this.bulkSelected = failed;
+      if (failed.length) {
+        this.bulkError = `${failed.length} ${this.t('bulkItems')} ${this.t('bulkDeleteFailed')}`;
+      } else {
+        this.bulkOpen = false;
       }
     },
     onExport() {
@@ -447,6 +514,18 @@ export default {
   background: rgba(255, 49, 49, 0.08); border: 1px solid rgba(255, 49, 49, 0.2);
   border-radius: 10px; font-size: var(--fs-base); color: #ff3131;
 }
+
+/* ── Bulk bar ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size:var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.ul--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.ul--dark .bulk-bar__clear { color:#94a3b8; }
+.ul--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
 
 /* ── Table ── */
 .ul-table-wrap {

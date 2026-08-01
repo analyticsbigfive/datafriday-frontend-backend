@@ -1,39 +1,34 @@
 import { getMenuComponents } from '@/api/endpoints/menu.api'
 
-const TTL = 15 * 60 * 1000 // 15 minutes
-
+// Cache TTL retiré (demande 2026-08-01) : on refetch TOUJOURS frais depuis le backend, pour ne
+// jamais conserver localement un composant supprimé (le TTL de 15 min laissait une fenêtre où la
+// liste restait périmée après une suppression). Seul garde restant : `fetching`, qui évite des
+// appels concurrents en double (le fetch en vol étant lui-même frais).
 export default {
   namespaced: true,
 
   state: () => ({
     rows: [],
-    cachedAt: null,
     fetching: false,
   }),
 
   getters: {
     rows: (state) => state.rows,
-    isCacheValid: (state) =>
-      state.cachedAt !== null && Date.now() - state.cachedAt < TTL,
   },
 
   mutations: {
     SET_ROWS(state, rows) {
       state.rows = rows
-      state.cachedAt = Date.now()
     },
     SET_FETCHING(state, val) {
       state.fetching = val
     },
-    INVALIDATE(state) {
-      state.cachedAt = null
-    },
   },
 
   actions: {
-    async fetchComponents({ state, commit, getters }, { forceRefresh = false } = {}) {
+    // Le payload (`{ forceRefresh }`) est toléré mais ignoré : sans cache, chaque appel refetch.
+    async fetchComponents({ state, commit }) {
       if (state.fetching) return
-      if (!forceRefresh && getters.isCacheValid) return
       commit('SET_FETCHING', true)
       try {
         const limit = 100
@@ -62,8 +57,8 @@ export default {
       }
     },
 
-    invalidate({ commit }) {
-      commit('INVALIDATE')
-    },
+    // Conservée pour compat : ComponentCreateView dispatch encore `invalidate`. Devenue no-op
+    // (plus de cache à invalider) — le prochain fetchComponents refait de toute façon l'appel.
+    invalidate() {},
   },
 }
