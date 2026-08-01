@@ -63,16 +63,16 @@
           @drop.prevent="onDrop"
         >
           <FileSpreadsheet :size="52" class="mb-4" style="color: #9ca3af;" />
-          <div class="text-h6 font-weight-medium mb-1">Glissez un fichier CSV ici</div>
-          <div class="text-body-2 text-medium-emphasis mb-5">ou cliquez pour parcourir</div>
+          <div class="elv-dz-title mb-1">Glissez un fichier CSV ici</div>
+          <div class="elv-dz-sub text-medium-emphasis mb-5">ou cliquez pour parcourir</div>
           <v-btn variant="outlined" rounded="lg" size="small" class="text-none" @click.stop="$refs.fileInput.click()">
             <Upload :size="16" class="mr-2" />
             Choisir un fichier
           </v-btn>
         </div>
         <v-card variant="tonal" rounded="lg" class="mt-4 pa-4" elevation="0">
-          <div class="text-body-2 font-weight-medium mb-1">Format attendu</div>
-          <div class="text-caption text-medium-emphasis">Première ligne = en-têtes · Séparateur virgule · Encodage UTF-8</div>
+          <div class="elv-dz-format-title mb-1">Format attendu</div>
+          <div class="elv-dz-format-hint text-medium-emphasis">Première ligne = en-têtes · Séparateur virgule · Encodage UTF-8</div>
         </v-card>
       </div>
 
@@ -1415,6 +1415,12 @@ export default {
 .elv-map-select { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-base); }
 .elv-map-select:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
 .elv-map-select__add { color: #ff3131; font-weight: 700; }
+
+/* Dropzone import — typographie sur tokens de charte (remplace text-h6/body-2/caption Vuetify) */
+.elv-dz-title { font-size: var(--fs-xl); font-weight: var(--fw-medium); }
+.elv-dz-sub { font-size: var(--fs-md); }
+.elv-dz-format-title { font-size: var(--fs-md); font-weight: var(--fw-medium); }
+.elv-dz-format-hint { font-size: var(--fs-sm); }
 
 /* ── Dialog de création inline stylé (header rouge charte, champs Bootstrap, boutons pilule) ── */
 .elv-cd { background: #fff; border-radius: 16px; overflow: hidden; }
