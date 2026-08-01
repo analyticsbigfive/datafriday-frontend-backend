@@ -114,6 +114,9 @@
           <template #item.ticketsScanned="{ item }">
             {{ item.ticketsScanned != null ? Number(item.ticketsScanned) : '—' }}
           </template>
+          <template #item.configuration="{ item }">
+            {{ item.configuration || '—' }}
+          </template>
           <template #item.actions="{ item }">
             <div class="elv-actions">
               <div class="elv-abtn elv-abtn--edit" @click.stop="openEditEventDialog(item.raw)">
@@ -244,6 +247,9 @@ export default {
       deleteEventId: null,
       deleteEventName: "",
       csvImportDrawer: false,
+      // Noms de configuration résolus (configId → nom) pour la colonne « Configuration »
+      // (les events ne portent que configurationId ; le store spaceConfigurations est stateless).
+      configNameById: {},
       // Suppression multiple (sélection dans la table)
       selected: [],
       bulkDeleteDialog: false,
@@ -423,6 +429,24 @@ export default {
         })
         .filter((s) => s && typeof s === 'object' && !Array.isArray(s));
     },
+    // Résout les noms de configuration des espaces référencés par les events (le store
+    // spaceConfigurations est stateless → fetch par espace, comme l'export CSV), pour la colonne.
+    async loadConfigNames() {
+      const spaceIds = Array.from(new Set((this.mappedEvents || []).map((r) => r.raw?.spaceId).filter(Boolean)));
+      if (!spaceIds.length) return;
+      const lists = await Promise.all(
+        spaceIds.map((sid) => this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId: sid }).catch(() => [])),
+      );
+      const map = {};
+      lists.forEach((list) => {
+        (list || []).forEach((c) => {
+          const id = c?.id || c?._id;
+          if (id) map[id] = c.name || c.configurationName || '';
+        });
+      });
+      this.configNameById = map;
+    },
+
     async exportToCSV() {
       const rows = this.filteredEvents || [];
 
@@ -492,9 +516,9 @@ export default {
     tableHeaders() {
       return [
         { title: this.t('eventsList.colSpace'), key: 'spaceName' },
-        { title: this.t('eventsList.colDate'), key: 'eventStartDate' },
         { title: this.t('eventsList.colName'), key: 'name' },
         { title: this.t('eventsList.colStartDate'), key: 'eventStartDate' },
+        { title: 'Configuration', key: 'configuration', sortable: false },
         { title: this.t('eventsList.colCategory'), key: 'eventCategory' },
         { title: this.t('eventsList.colRevenue'), key: 'revenue', align: 'end' },
         { title: 'Tickets Scanned', key: 'ticketsScanned', align: 'end' },
@@ -558,6 +582,7 @@ export default {
           revenue,
           transactionCount,
           ticketsScanned,
+          configuration: (e.configurationId && this.configNameById[e.configurationId]) || '',
           raw: e,
         };
       });
@@ -608,6 +633,7 @@ export default {
     this.loadTaxonomies();
     this.loadSpaces();
     await this.loadEvents();
+    this.loadConfigNames();
     // Deep-link : ?editEventId=<id> (ex. depuis l'alerte « évènements sans coup
     // d'envoi » de la Moyenne timeline, ou depuis TaxonomyDetailDrawer) → ouvre
     // directement la fiche event.
