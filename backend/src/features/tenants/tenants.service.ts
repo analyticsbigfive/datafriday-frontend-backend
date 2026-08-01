@@ -96,6 +96,10 @@ export class TenantsService {
       skipDuplicates: true,
     });
 
+    // CFG-2 : Department/Subtype sont GLOBAUX (un seul jeu pour toute la plateforme, cf. doc du
+    // modèle Department) — pas de seed par tenant ici, un nouveau tenant lit directement le
+    // référentiel partagé déjà seedé (scripts/backfill-departments.ts).
+
     return tenant;
   }
 

@@ -42,6 +42,9 @@ describe('TenantsService', () => {
       count: jest.fn(),
       groupBy: jest.fn(),
     },
+    storageType: {
+      createMany: jest.fn(),
+    },
   };
 
   beforeEach(async () => {

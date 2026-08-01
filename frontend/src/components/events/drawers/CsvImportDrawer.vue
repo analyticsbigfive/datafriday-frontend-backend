@@ -143,6 +143,7 @@
               :value="currentValueStep.valueMap[val] ?? ''"
               @change="onValueMapChange(val, $event)"
             >
+<<<<<<< HEAD
               <option value="">Ignorer</option>
               <option
                 v-for="opt in currentValueStep.items"
@@ -151,6 +152,34 @@
                 :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
               >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
             </select>
+=======
+              <template #item="{ item, props }">
+                <v-list-item
+                  v-bind="props"
+                  :style="item.raw.id === CREATE_SENTINEL
+                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
+                    : {}"
+                >
+                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
+                    <Plus :size="14" />
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
+            <v-btn
+              v-if="currentValueStep.createKind === 'eventType' && !currentValueStep.valueMap[val]"
+              icon
+              size="small"
+              variant="text"
+              :loading="quickCreating[val]"
+              :disabled="quickCreating[val]"
+              title="Créer automatiquement ce type d'événement"
+              @click="quickCreateType(val)"
+            >
+              <Zap :size="16" />
+            </v-btn>
+            <span v-if="quickCreateErrors[val]" class="elv-quick-create-error">{{ quickCreateErrors[val] }}</span>
+>>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -199,6 +228,7 @@
               :disabled="!spaceValueMap[pair.spaceRaw]"
               @change="onConfigMapChange(pair, $event)"
             >
+<<<<<<< HEAD
               <option value="">{{ spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé' }}</option>
               <option
                 v-for="opt in configSelectItems(pair.spaceRaw)"
@@ -207,6 +237,34 @@
                 :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
               >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
             </select>
+=======
+              <template #item="{ item, props }">
+                <v-list-item
+                  v-bind="props"
+                  :style="item.raw.id === CREATE_SENTINEL
+                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
+                    : {}"
+                >
+                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
+                    <Plus :size="14" />
+                  </template>
+                </v-list-item>
+              </template>
+            </v-select>
+            <v-btn
+              v-if="spaceValueMap[pair.spaceRaw] && !configValueMap[pair.key]"
+              icon
+              size="small"
+              variant="text"
+              :loading="quickCreating[pair.key]"
+              :disabled="quickCreating[pair.key]"
+              title="Créer automatiquement cette configuration"
+              @click="quickCreateConfig(pair)"
+            >
+              <Zap :size="16" />
+            </v-btn>
+            <span v-if="quickCreateErrors[pair.key]" class="elv-quick-create-error">{{ quickCreateErrors[pair.key] }}</span>
+>>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -428,7 +486,11 @@
 </template>
 
 <script>
+<<<<<<< HEAD
 import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, X, Check, AlertCircle } from 'lucide-vue-next';
+=======
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap } from 'lucide-vue-next';
+>>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
 import { createEvent, createEventType, createEventCategory, createEventSubcategory } from '@/api/endpoints/event.api';
 import { createConfiguration } from '@/api/endpoints/builder-v2.api';
 import { parseCSV } from '@/utils/csv';
@@ -458,7 +520,11 @@ const CREATE_SENTINEL = '__create__';
 
 export default {
   name: 'CsvImportDrawer',
+<<<<<<< HEAD
   components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, X, Check, AlertCircle, EventDrawerShell, SpaceCreateDrawer },
+=======
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap, EventDrawerShell, SpaceCreateDrawer },
+>>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -489,6 +555,8 @@ export default {
       taxonomyErrors: {},
       configsLoading: false,
       configsLoadError: '',
+      quickCreating: {},
+      quickCreateErrors: {},
       createDialog: this.defaultCreateDialog(),
       spaceCreateDrawer: { open: false, targetVal: null },
       eventFields: [
@@ -811,6 +879,7 @@ export default {
         }
       });
       this.taxonomyLoading = false;
+      this.autoMatchCurrentStep();
     },
 
     async loadConfigsForCurrentSpaces() {
@@ -834,6 +903,7 @@ export default {
         this.configsLoadError = failures[0];
       }
       this.configsLoading = false;
+      this.autoMatchCurrentStep();
     },
 
     _uniqueColValues(fieldKey) {
@@ -891,6 +961,7 @@ export default {
       this.configValueMap[pair.key] = newValue;
     },
 
+<<<<<<< HEAD
     // Un <select> natif conserve l'option choisie par l'utilisateur même si le modèle
     // ne change pas (contrairement au v-select contrôlé d'origine). Quand on choisit
     // « + Ajouter » (ouvre un dialog sans committer), le DOM resterait bloqué sur la
@@ -905,6 +976,91 @@ export default {
     onConfigMapChange(pair, e) {
       this.onConfigPairSelect(pair, e.target.value || null);
       e.target.value = this.configValueMap[pair.key] ?? '';
+=======
+    // Même règle de normalisation que le matching des en-têtes CSV (step 2, `readFile`) : les
+    // valeurs de taxonomie doivent matcher selon la même tolérance (casse, espaces/tirets/underscores).
+    _normalizeStr(s) {
+      return String(s || '').toLowerCase().replace(/[\s_\-()|]/g, '');
+    },
+
+    // Pré-sélectionne, pour chaque valeur CSV non encore mappée, l'item existant dont le nom
+    // correspond exactement (une fois normalisé) — sans jamais écraser un choix déjà fait par
+    // l'utilisateur (y compris après un retour en arrière dans les étapes).
+    autoMatchValues(values, items, valueMap) {
+      for (const val of values) {
+        if (valueMap[val]) continue;
+        const match = items.find(
+          (it) => it.id !== CREATE_SENTINEL && this._normalizeStr(it.name) === this._normalizeStr(val),
+        );
+        if (match) valueMap[val] = match.id;
+      }
+    },
+
+    autoMatchConfigPairs() {
+      for (const pair of this.uniqueSpaceConfigPairs) {
+        if (this.configValueMap[pair.key]) continue;
+        const match = this.configSelectItems(pair.spaceRaw).find(
+          (it) => it.id !== CREATE_SENTINEL && this._normalizeStr(it.name) === this._normalizeStr(pair.configRaw),
+        );
+        if (match) this.configValueMap[pair.key] = match.id;
+      }
+    },
+
+    // Point d'entrée unique appelé à l'arrivée sur une étape de mapping de valeurs et après
+    // (re)chargement des données dont elle dépend (taxonomies, configurations) — couvre à la
+    // fois la navigation normale et les boutons "Réessayer" affichés en cas d'échec réseau.
+    autoMatchCurrentStep() {
+      if (this.step === 4) {
+        this.autoMatchConfigPairs();
+        return;
+      }
+      const cs = this.currentValueStep;
+      if (cs) this.autoMatchValues(cs.values, cs.items, cs.valueMap);
+    },
+
+    // Création en un clic, réservée aux cas sans info supplémentaire à demander à l'utilisateur :
+    // un type d'événement n'a pas de parent (contrairement à Catégorie/Sous-catégorie) et une
+    // configuration a déjà son espace parent connu via la paire (spaceValueMap). Espace/Catégorie/
+    // Sous-catégorie gardent le dialogue manuel — voir openCreateDialog.
+    async quickCreateType(val) {
+      if (this.quickCreating[val]) return;
+      this.quickCreating = { ...this.quickCreating, [val]: true };
+      this.quickCreateErrors = { ...this.quickCreateErrors, [val]: '' };
+      try {
+        const created = await createEventType({ name: val });
+        await this.$store.dispatch('eventTypes/addEventType', created);
+        this.typeValueMap[val] = created?.id || created?._id;
+      } catch (e) {
+        this.quickCreateErrors = {
+          ...this.quickCreateErrors,
+          [val]: e?.response?.data?.message || e?.message || 'Erreur inconnue',
+        };
+      } finally {
+        this.quickCreating = { ...this.quickCreating, [val]: false };
+      }
+    },
+
+    async quickCreateConfig(pair) {
+      const spaceId = this.spaceValueMap[pair.spaceRaw];
+      if (!spaceId || this.quickCreating[pair.key]) return;
+      this.quickCreating = { ...this.quickCreating, [pair.key]: true };
+      this.quickCreateErrors = { ...this.quickCreateErrors, [pair.key]: '' };
+      try {
+        const created = await createConfiguration(spaceId, { name: pair.configRaw });
+        this._spaceConfigsCache = {
+          ...this._spaceConfigsCache,
+          [spaceId]: [...(this._spaceConfigsCache[spaceId] || []), created],
+        };
+        this.configValueMap[pair.key] = created?.id || created?._id;
+      } catch (e) {
+        this.quickCreateErrors = {
+          ...this.quickCreateErrors,
+          [pair.key]: e?.response?.data?.message || e?.message || 'Erreur inconnue',
+        };
+      } finally {
+        this.quickCreating = { ...this.quickCreating, [pair.key]: false };
+      }
+>>>>>>> f057be6e30bc1904149b03b6292c90325d8f7714
     },
 
     defaultCreateDialog() {
@@ -1011,6 +1167,7 @@ export default {
         await this.loadConfigsForCurrentSpaces();
       }
       this.step = nextStep;
+      this.autoMatchCurrentStep();
     },
 
     navigateBack() {
@@ -1040,6 +1197,8 @@ export default {
       this.taxonomyErrors = {};
       this.configsLoading = false;
       this.configsLoadError = '';
+      this.quickCreating = {};
+      this.quickCreateErrors = {};
       this.dropping = false;
       this.createDialog = this.defaultCreateDialog();
       this.spaceCreateDrawer = { open: false, targetVal: null };
@@ -1270,8 +1429,11 @@ export default {
             continue;
           }
           if (existingKeys.has(built.dedupKey)) {
+            // Compté uniquement dans `skipped`, jamais dans `errors` : un doublon volontairement
+            // ignoré n'est pas un échec d'import (voir l'alerte dédiée "ligne(s) ignorée(s)" dans
+            // le template) — le mettre aussi dans `errors` le faisait apparaître en double, une
+            // fois comme "ignoré" et une fois comme "non importé" (BUG-258-02).
             skippedCount++;
-            errors.push({ row: rowNumber, message: `Ignoré : un événement "${built.name}" existe déjà à cette date` });
             this.importedCount++;
             continue;
           }
@@ -1400,6 +1562,7 @@ export default {
 .elv-mapping-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
@@ -1409,6 +1572,7 @@ export default {
 .elv-mapping-row:hover { background: rgba(var(--v-border-color, 0, 0, 0), 0.04); }
 .elv-mapping-arrow { color: #9ca3af; flex-shrink: 0; }
 .elv-mapping-select { flex: 1; min-width: 0; }
+.elv-quick-create-error { flex-basis: 100%; font-size: 12px; color: #ff3131; }
 
 /* Select natif Bootstrap du mapping colonnes (étape 2) — aligné visuellement sur les champs
    Vuetify du drawer (border-radius, focus rouge marque). */

@@ -20,6 +20,7 @@ import displayNames from './modules/displayNames'
 import industrials from './modules/industrials'
 import packingTypes from './modules/packingTypes'
 import storageTypes from './modules/storageTypes'
+import departments from './modules/departments'
 import permissions from './modules/permissions'
 import roles from './modules/roles'
 import users from './modules/users'
@@ -66,6 +67,7 @@ export default createStore({
     industrials,
     packingTypes,
     storageTypes,
+    departments,
     permissions,
     roles,
     users,

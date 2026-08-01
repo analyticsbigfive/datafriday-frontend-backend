@@ -1,10 +1,15 @@
 // Résolution « ensemble d'espaces → valeur affichée par carte » pour Settings HR.
 //
-// Une ligne (Goal ou StaffRatio) rattache une valeur à un ensemble de spaces
-// (ou à tous via allSpaces). Une carte affiche UNE valeur par espace : règle par
-// défaut (documentée en modules/11_RH_STAFFING.md §9.4, à valider Bertrand #41) :
-//   - une ligne SPÉCIFIQUE (espace listé) prime sur une ligne « TOUS » ;
-//   - en cas de conflit, la ligne la plus RÉCENTE (createdAt) gagne.
+// Une ligne (Goal ou StaffRatio) rattache une valeur à un ensemble de spaces (ou à tous via
+// allSpaces). Une carte affiche UNE valeur par espace — question #41 tranchée (2026-08-01,
+// utilisateur : "on a toujours 1 valeur — faire en groupe ou individuellement garde 1 valeur") :
+//   - une ligne SPÉCIFIQUE (espace listé) prime sur une ligne « TOUS » (override délibéré) ;
+//   - deux lignes ne peuvent normalement JAMAIS se chevaucher sur le même espace — garanti par
+//     construction côté backend (HrSettingsService::assertNoGoalOverlap/assertNoRatioOverlap,
+//     rejet à la création/modification), pas résolu après coup ici.
+// Le tie-break "plus récente gagne" ci-dessous reste en filet de sécurité défensif (ne devrait
+// plus jamais s'activer en pratique) plutôt que d'être supprimé — coûte rien, protège contre un
+// éventuel état incohérent (import direct en base, etc.).
 
 function latestBy(lines) {
   return lines.reduce((a, b) =>

@@ -85,7 +85,7 @@
 
           <template #item.departments="{ item }">
             <div class="d-flex flex-wrap" style="gap:4px">
-              <span v-for="(dep, i) in (item.departments || []).slice(0, 3)" :key="i" class="hsl-badge">{{ dep }}</span>
+              <span v-for="(dep, i) in (item.departments || []).slice(0, 3)" :key="i" class="hsl-badge">{{ departmentLabel(dep) }}</span>
               <span v-if="(item.departments || []).length > 3" class="hsl-badge hsl-badge--more">+{{ (item.departments || []).length - 3 }}</span>
               <span v-if="!(item.departments || []).length" class="hsl-badge hsl-badge--more">—</span>
             </div>
@@ -142,6 +142,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { Building2, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
@@ -154,6 +155,16 @@ import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue'
 // Dark mode autonome (pattern maison) : suit le thème Vuetify global.
 const theme = useTheme()
 const isDark = computed(() => !!theme.global.current.value.dark)
+
+// CFG-2 Étape 4 : HrSupplier.departments stocke désormais un CODE stable ('shop'), plus le
+// libellé — résolu ici pour l'affichage (badges), repli sur la valeur brute si un code n'est
+// (encore) reconnu par aucune ligne Department (ne devrait pas arriver, défensif).
+const store = useStore()
+onMounted(() => store.dispatch('departments/fetchDepartments'))
+function departmentLabel(value) {
+  const dept = (store.getters['departments/departments'] || []).find((d) => (d.code ?? d.id) === value)
+  return dept?.name || value
+}
 
 // Avatars de table (parité SuppliersListView).
 const AVATAR_GRADIENTS = [

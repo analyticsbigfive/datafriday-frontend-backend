@@ -46,6 +46,7 @@ import { InventoryModule } from './features/inventory/inventory.module';
 import { LogisticsModule } from './features/logistics/logistics.module';
 import { PackingTypesModule } from './features/packing-types/packing-types.module';
 import { StorageTypesModule } from './features/storage-types/storage-types.module';
+import { DepartmentsModule } from './features/departments/departments.module';
 import { RestockStateModule } from './features/restock-state/restock-state.module';
 import { HrSettingsModule } from './features/hr-settings/hr-settings.module';
 import { HrModule } from './features/hr/hr.module';
@@ -173,6 +174,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     LogisticsModule,
     PackingTypesModule,
     StorageTypesModule,
+    DepartmentsModule,
     RestockStateModule,
     HrSettingsModule,
     HrModule,

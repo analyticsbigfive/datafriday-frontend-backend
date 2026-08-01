@@ -312,9 +312,13 @@ const aggregated = computed(() => {
     if (dim === null) continue
     if (!byEvent.has(r.eventId)) {
       const meta = metaById.get(String(r.eventId))
+      // BUG-123-01 : la RPC shop-details pouvait renvoyer eventName = eventId brut (UUID) —
+      // un id n'est jamais un libellé, on retombe alors sur le nom du store events.
+      const recordName =
+        r.eventName && String(r.eventName) !== String(r.eventId) ? r.eventName : ''
       byEvent.set(r.eventId, {
         id: r.eventId,
-        eventName: r.eventName || meta?.name || '',
+        eventName: recordName || meta?.name || '',
         eventDate: r.eventDate || meta?.date || '',
         items: {},
         total: 0,

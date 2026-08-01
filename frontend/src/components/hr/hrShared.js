@@ -1,10 +1,12 @@
 // Constantes et utilitaires partagés du domaine RH.
 
-// RH-5 (2026-07-30) : ex-HR_SECTORS, renommé « Département » (HrSupplier.departments
-// en BD). Liste distincte de HR_DEPARTMENTS (backend hr.service.ts, HrRole.department) —
-// un fournisseur peut couvrir plusieurs départements métier, pas alignés sur les 4
-// départements RH des rôles (décision utilisateur, pas de fusion des deux listes).
-export const HR_SUPPLIER_DEPARTMENTS = ['F&B', 'Hospitality', 'Merch', 'Ticketing', 'Access', 'Kitchen', 'Entertainment']
+// CFG-2 Étape 4 (2026-07-31) : HR_SUPPLIER_DEPARTMENTS (liste figée, RH-5 2026-07-30) retiré —
+// remplacé par le référentiel global `Department` (store `departments`, filtré
+// `allowsSuppliers`), lu directement par HrSupplierFormDrawer.vue. `HrRole.department` (rôles)
+// lit le même référentiel filtré `needsRh` — les deux champs RH restent des listes
+// INDÉPENDANTES l'une de l'autre (décision RH-5 non révisée : un fournisseur peut couvrir
+// plusieurs départements métier sans lien avec les départements RH des rôles), mais partagent
+// désormais la même SOURCE de valeurs au lieu de deux listes dupliquées à la main.
 
 /**
  * Génère un id unique. `crypto.randomUUID()` n'existe qu'en contexte SÉCURISÉ

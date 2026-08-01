@@ -284,14 +284,29 @@ Aucune commande lancée par l'agent. Après migration : `pnpm docs:api` régén�
 - **Couche données** : `api/endpoints/hrSettings.api.js` + store Vuex TTL (pattern standard) — pas de
   localStorage (contrairement à l'étape 1 Suppliers/Positions).
 
-### 9.4 Règle de résolution espace → valeur (⚠️ hypothèse, à valider #35)
+### 9.4 Règle de résolution espace → valeur (tranchée le 2026-08-01, question #41)
 
-Une carte affiche **une** valeur par espace, mais les lignes ciblent des **ensembles**. Règle par
-défaut retenue (documentée, **non tranchée par Bertrand**) : **une ligne spécifique (espace listé)
-prime sur une ligne `TOUS`** ; en cas de conflit entre deux lignes spécifiques, **la plus récente
-gagne**. Le bouton **Edit** par carte crée/mets à jour la **ligne mono-espace** de cet espace
-(POST si absente, PATCH sinon) plutôt que d'empiler des doublons. Sémantique à confirmer —
-question [#41](../QUESTIONS_A_BERTRAND.md).
+Une carte affiche **une** valeur par espace, mais les lignes ciblent des **ensembles**. Décision
+utilisateur (2026-08-01) : *"on a toujours 1 valeur — faire en groupe ou individuellement garde 1
+valeur"* — un espace n'est **jamais** couvert par deux lignes actives à la fois, garanti **par
+construction** (rejet backend à l'écriture) plutôt que résolu après coup :
+
+- Au plus **une** ligne `TOUS` par paramètre (Goal, séparément StaffRatio) et par tenant — en créer
+  une deuxième est rejeté (`HrSettingsService::assertNoGoalOverlap`/`assertNoRatioOverlap`).
+- Les `spaceIds` de deux lignes **spécifiques** ne peuvent jamais se chevaucher — créer une ligne
+  spécifique sur un espace déjà couvert par une AUTRE ligne spécifique est rejeté.
+- **Override délibéré autorisé** : une ligne spécifique sur un espace déjà couvert par `TOUS` reste
+  acceptée (c'est le seul cas légitime où une "priorité" s'applique — spécifique gagne sur `TOUS`).
+
+Le bouton **Edit** par carte crée/met à jour la **ligne mono-espace** de cet espace (POST si
+absente, PATCH sinon, `findMonoSpaceLine`/`upsertMono`) — comportement déjà existant, confirmé
+cohérent avec la règle ci-dessus (une mise à jour de sa propre ligne ne se rejette jamais
+elle-même, exclusion par id dans `assertNo*Overlap`).
+
+Vérifié par script e2e jetable (tenant + espaces + lignes nettoyés, 5 cas : doublon `TOUS` Goal
+rejeté, chevauchement spécifique rejeté, espace libre accepté, update sur son propre périmètre
+accepté, doublon `TOUS` StaffRatio rejeté) et `tests/unit/hrSettings.spec.js` (9 cas, résolution
+`resolveValueForSpace`/`findMonoSpaceLine`).
 
 ---
 
@@ -356,7 +371,9 @@ coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ;
    (⚠️ à ne pas confondre avec [ADR-0002 frontend](../adr/0002_builder_v2_relationnel_seul.md), Builder v2 —
    numérotation indépendante par repo) ; mécanisme du no-op détaillé dans [`09_TECHNIQUE.md`](09_TECHNIQUE.md) ligne 449.
 2. **Alimenter le `caPredictif`** — bloquant, cf. §10.5.
-3. **UI de saisie des inputs algo** dans `SpaceElement.attributes` (§10.3, dernière ligne) — bloquant, cf. §10.5.
+3. ~~**UI de saisie des inputs algo** dans `SpaceElement.attributes` (§10.3, dernière ligne) — bloquant, cf. §10.5.~~
+   **Fait le 2026-08-01** — `StaffingInputsSection.vue` dans l'inspecteur Builder (shops
+   uniquement), cf. §11.14 et [BUG-260-02](../bugs/260_02_hrsinkingrule_conditionattribute_jamais_saisi_builder.md).
 4. Écran de gestion des `HrPerson` (le backend + dropdown « Nom » existent ; pas d'écran CRUD dédié).
 5. `HrRoleSpaceDefault` (agence par défaut espace × rôle) : backend + présélection livrés, pas d'UI de saisie.
 6. E2E léger spec §6 : générer → décocher → slider → vérifier pills (une fois le SQL appliqué sur staging).
@@ -582,4 +599,115 @@ Deux garde-fous ajoutés pour ne rien casser :
   en restreignant `getStaffSuggestions` aux mêmes types que `generate()` (`STAFFING_ELEMENT_TYPES`),
   vérifié par test isolé (tenant jetable) : un stand `shop`/`temporary` suggère bien le rôle, un
   `merchshop`/`temporary` ne suggère jamais rien.
+
+### 11.12 CFG-2 Étape 4.5 — `fnbCategories`/`fnbCategory` alignés sur le référentiel Subtype
+
+Retour utilisateur (2026-07-31) après la CRUD-isation Department/Subtype (CFG-2, cf. §10.3) :
+le champ Department du formulaire de rôle RH était déjà dynamique (référentiel global, filtré
+`needsRh`), mais la grille "F&B Category (subtype)" restait `HR_FNB_CATEGORIES`, un vocabulaire
+`UPPERCASE_SNAKE` codé en dur (9 valeurs) — un sous-type F&B créé par le super-admin via
+Configurations n'y apparaissait jamais.
+
+`HR_FNB_CATEGORIES` et la table de correspondance `SUBTYPE_TO_FNB_CATEGORY` (`fnb-tags.util.ts`)
+sont supprimées. `HrRole.fnbCategories`/`HrSinkingRule.fnbCategory` stockent désormais directement
+le `Subtype.code` — même idiome que `HrRole.department`/`Department.code` (§10.3).
+`HrService.resolveFnbCategories()` valide l'existence contre `Subtype`, scopé au département
+**du rôle** (généralisé au-delà de `shop` le 2026-07-31, cf. §11.13 — cette section décrivait
+initialement un scope figé sur `shop`, corrigé depuis) et canonicalise vers `code ?? id`,
+exactement comme `normalizeRole()` le fait pour `department`.
+
+**Périmètre volontairement limité (à ce stade de cette section)** : `StaffingCalculatorService`
+(pur, 43 tests) ne connaît pas le vocabulaire concret — il compare des chaînes opaques
+(`fnbTags.has(rule.fnbCategory)`), donc inchangé. Seuls les 6 littéraux
+`fnbTags.has('BEVERAGE'|'BEER'|...)` dans `StaffingService.generate()` sont renommés vers les
+codes minuscules (`beverages`/`beer`/…) — même comportement, mêmes 3 catégories regroupées sous
+`hasBeverage` (cf. §11.11), aucune formule touchée. `builder-v2.service.ts::getStaffSuggestions`
+n'était pas encore touché à ce stade — cf. §11.13 pour sa généralisation.
+
+**Migration** : `backend/scripts/backfill-hr-fnb-categories.ts` (DRY-RUN/`--apply`, idempotent)
+réécrit les valeurs `UPPERCASE_SNAKE` déjà en base vers le `Subtype.code` correspondant (mapping
+figé, les 9 valeurs historiques). Un seul rôle réel concerné en base au moment du changement
+(`Cuisinier`, `[BEVERAGE, FRONT_FOOD]` → `[beverages, front_food]`), 0 `HrSinkingRule`. Vérifié par
+script e2e jetable (tenant + Subtype de test nettoyés en fin de script) : ancien code
+`UPPERCASE_SNAKE` désormais rejeté (plus de vocabulaire parallèle), sous-type d'un autre département
+rejeté, et surtout — le point central de la demande — un `Subtype` fraîchement créé (`code: null`,
+utilisable par son `id`) est immédiatement acceptable comme `fnbCategory`, sans backfill ni
+changement de code.
+
+Frontend (`HrRoleFormDrawer.vue`) : `FNB_CATEGORIES` (tableau figé) retiré, remplacé par un
+`computed` réutilisant `buildTools()`/`toolOf('shop', …)` d'`elementTaxonomy.js` — les mêmes
+fonctions déjà utilisées par le Builder (CFG-2 Étape 5) — sur le sous-type courant du référentiel
+`departments` Vuex. Effet de bord positif : le libellé affiché passe de "Beverage" à "Beverages"
+(`Subtype.name` réel), corrigeant au passage une divergence de wording avec le Builder. (Sourcé
+sur `shop` fixe à ce stade — généralisé au département du rôle en §11.13.)
+
+### 11.13 Généralisation au-delà de `shop` — la suggestion auto Builder marche pour tout département RH
+
+Retour utilisateur (2026-07-31), suite à §11.12 : *"le choix du département doit nous permettre de
+choisir le subtype auquel c'est censé être lié"*. La grille "Subtype" du formulaire de rôle restait
+câblée en dur sur les sous-types `shop`, quel que soit le département choisi — un rôle Hospitality
+(ex. "Hôte Lodge") ne pouvait jamais être tagué avec `lodges`/`salon`, ses propres sous-types.
+
+Vérification préalable : `detectFnbTags()`/`StaffingCalculatorService.computeStaffSuggestions()`
+étaient déjà **entièrement génériques** (aucun vocabulaire figé, comparaison de chaînes opaques) —
+la limite à `shop` était purement artificielle, à deux endroits précis :
+
+1. **`HrRoleFormDrawer.vue`** — `subtypeOptions` passe de `toolOf('shop', tools)` à
+   `toolOf(form.department, tools)` : la grille propose désormais les sous-types du département
+   **sélectionné sur le rôle**, pas toujours `shop`. Un `watch(() => form.department, ...)` filtre
+   `form.fnbCategories` pour retirer les tags devenus invalides quand l'utilisateur change de
+   département interactivement (sans effet quand `reset()` peuple un rôle déjà persisté, dont les
+   tags sont déjà cohérents avec leur département). Libellé section renommé de "F&B Category
+   (subtype)" à "Subtype" (+ nom du département affiché), plus F&B-only.
+2. **`HrService.resolveFnbCategories(values, departmentId)`** — accepte désormais un `departmentId`
+   (celui du rôle, résolu dans `normalizeRole()`/`assertValidSinkingRule()`), scope la requête
+   `Subtype` dessus au lieu de `department: { code: 'shop' }`. `assertValidSinkingRule()` devient
+   async et va chercher le département du rôle visé (`roleId`) pour scoper la validation.
+3. **`BuilderV2Service.getStaffSuggestions()`** — remplace le filtre figé `STAFFING_ELEMENT_TYPES`
+   (shop + legacy `fnb_*`) par une résolution dynamique du département de l'élément
+   (`resolveDepartmentForElementType()`, repli des 5 valeurs legacy F&B sur `shop` d'abord),
+   condition `dept.needsRh === true` — couvre les 6 départements RH (shop, hospitality, merchshop,
+   entrance, entertainment, kitchen), pas seulement shop.
+
+**Garde-fou de collision (le point le plus important)** : un `Subtype.code` n'est unique que **par
+département** (`@@unique([departmentId, name])`), pas globalement — `temporary` existe à la fois
+sur `shop` et `merchshop`, avec des sens différents. Avant ce changement, cette collision n'était
+jamais un problème parce que `STAFFING_ELEMENT_TYPES` excluait déjà `merchshop` (BUG-122, §11.11).
+En généralisant, `getStaffSuggestions()` filtre désormais explicitement les rôles considérés au
+**même département que l'élément** (`hrRole.findMany({ where: { department: { in: [dept.code,
+dept.id] } } })`) — sans ce scope, un rôle `shop` tagué `temporary` aurait pu être suggéré à tort
+sur une box `merchshop` tagué `temporary` (même chaîne, sens différent). Vérifié par script e2e
+jetable (tenant + espace/zone/éléments de test nettoyés) : rôle Hospitality `lodges` suggéré sur
+une box Hospitality `lodges`, rôle merchshop `temporary` suggéré sur une box merchshop
+`temporary`, **rôle shop `temporary` PAS suggéré** sur cette même box merchshop malgré la
+collision de code — 8 assertions, toutes passées.
+
+Le calcul par paliers événementiel (`StaffingService.generate()`, `algoKey`) reste **volontairement
+non généralisé** : ses formules (caissiers/runners/barman…) sont conceptuellement F&B (CA
+prédictif, TPE, trafic), sans équivalent métier pour Hospitality/Ticketing — seule la suggestion
+auto **par élément** dans le Builder (`getStaffSuggestions`) est concernée par cette généralisation.
+
+### 11.14 Saisie des inputs algo dans le Builder (clôt BUG-260-02)
+
+Depuis l'origine du module (§10.3/§10.4), les 9 clés lues par `StaffingCalculatorService.calculate()`
+dans `SpaceElement.attributes` (`metresLineaires`, `txParSeconde`, `ouvertureObligatoire`,
+`hasResponsablePdv`, `nbTireuses`, `nbFriteuses`, `nbBurgersPrevus`, `nbDinettes`,
+`nbHotdogsPrevus`) n'avaient aucun champ de saisie nulle part — le calcul par paliers et les
+règles Sinking avec condition d'équipement (§11.3) tournaient donc toujours avec des valeurs par
+défaut/vides, jamais les vraies données du PDV.
+
+Deux emplacements possibles ont été évalués : Builder (propriété physique du stand, persistante
+d'un événement à l'autre) vs Event Predict (prévision propre à un événement donné — cohérent avec
+le suffixe "Prevus" de `nbBurgersPrevus`/`nbHotdogsPrevus`, et avec `ouvertureObligatoire` qui
+ressemble à une décision opérationnelle par événement). **Décision utilisateur (2026-08-01) : tout
+dans le Builder**, aucun split — un seul endroit de configuration, plus simple, quitte à ce que
+`nbBurgersPrevus` reste une estimation fixe plutôt que recalculée événement par événement.
+
+Implémentation : `StaffingInputsSection.vue`, nouvelle section de l'inspecteur Builder, visible
+uniquement pour les éléments `shop` (`sectionsForType().staffingInputs`, scope identique à
+`STAFFING_ELEMENT_TYPES` côté backend — ces attributs n'ont pas de sens pour les autres
+départements). Même mécanisme de PATCH que `StorageShopsSection.vue`
+(`store.commitElementPatch(id, { attributes: {...prev, [clé]: valeur} }, ...)`, `attributes`
+toujours fusionné jamais remplacé). Aucun changement backend : `SpaceElement.attributes` est un
+JSON libre déjà lu tel quel par le calculateur, rien à migrer.
 

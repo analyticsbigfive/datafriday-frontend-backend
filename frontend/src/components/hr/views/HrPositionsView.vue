@@ -73,7 +73,7 @@
           </template>
 
           <template #item.sector="{ item }">
-            <span v-if="item.sector" class="hsl-badge">{{ item.sector }}</span>
+            <span v-if="item.sector" class="hsl-badge">{{ departmentLabel(item.sector) }}</span>
             <span v-else class="hsl-badge hsl-badge--more">—</span>
           </template>
 
@@ -104,6 +104,7 @@
       :mode="drawerMode"
       :initial="editing"
       :suppliers="suppliers"
+      :spaces="spaces"
       :position-names="positionNames"
       @saved="load"
     />
@@ -133,13 +134,24 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
+import { getSpacesLight } from '@/api/endpoints/space.api'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
 import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue'
+
+// CFG-2 Étape 4 : HrRole.department (exposé ici comme `sector`, cf. hrApi.js::positionFromDb)
+// stocke désormais un CODE stable ('shop'), plus le libellé — résolu pour l'affichage.
+const store = useStore()
+onMounted(() => store.dispatch('departments/fetchDepartments'))
+function departmentLabel(value) {
+  const dept = (store.getters['departments/departments'] || []).find((d) => (d.code ?? d.id) === value)
+  return dept?.name || value
+}
 
 // Dark mode autonome (pattern maison) : suit le thème Vuetify global.
 const theme = useTheme()
@@ -174,6 +186,7 @@ const tableHeaders = [
 
 const positions = ref([])
 const suppliers = ref([])
+const spaces = ref([])
 const positionNames = ref([])
 const searchQuery = ref('')
 const loading = ref(false)
@@ -181,14 +194,18 @@ const loading = ref(false)
 async function load() {
   loading.value = true
   try {
-    const [positionRows, supplierRows, nameRows] = await Promise.all([
+    // spaces : nécessaire pour la création d'agence à la volée depuis Edit HR role (BUG-266-02,
+    // tiroir HrSupplierFormDrawer imbriqué) — même source que HrSuppliersView.vue.
+    const [positionRows, supplierRows, nameRows, spaceRows] = await Promise.all([
       hrApi.getAllStaffPositions(),
       hrApi.getAllHRSuppliers(),
       hrApi.getAllPositionNames(),
+      getSpacesLight().catch(() => []),
     ])
     positions.value = Array.isArray(positionRows) ? positionRows : []
     suppliers.value = Array.isArray(supplierRows) ? supplierRows : []
     positionNames.value = Array.isArray(nameRows) ? nameRows : []
+    spaces.value = Array.isArray(spaceRows) ? spaceRows : []
   } finally {
     loading.value = false
   }

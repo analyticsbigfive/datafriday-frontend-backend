@@ -8,6 +8,21 @@
         {{ t('epsGenerate') }}
       </button>
       <p v-if="generateError" class="eps-error">{{ generateError }}</p>
+      <!-- Génération résolue mais 0 ligne créée : sans ce bandeau, le clic est
+           indiscernable d'un no-op (BUG-258-01). Les warnings backend expliquent la cause. -->
+      <v-alert
+        v-if="!generateError && hasGeneratedOnce"
+        type="warning"
+        variant="tonal"
+        density="comfortable"
+        class="eps-empty-alert"
+      >
+        <strong>{{ t('epsGenerateEmptyTitle') }}</strong>
+        <template v-if="warnings.length">
+          <div v-for="w in warnings" :key="w.code">{{ w.message || w.code }}</div>
+        </template>
+        <template v-else>{{ t('epsGenerateEmptyText') }}</template>
+      </v-alert>
     </div>
 
     <div v-else-if="fetching && !elements.length" class="eps-empty">
@@ -24,6 +39,9 @@
           <v-icon size="13">mdi-alert</v-icon> {{ warnings.length }}
         </span>
       </div>
+      <!-- Miroir de l'état vide : une erreur de (re)génération doit aussi être
+           visible quand des lignes existent déjà (BUG-258-01). -->
+      <p v-if="generateError" class="eps-error">{{ generateError }}</p>
 
       <!-- Une carte par PDV, calquée sur ep-shop-card (EventPredictMenusSection) -->
       <div v-for="el in elements" :key="el.elementId" class="ep-shop-card">
@@ -235,6 +253,8 @@ const warnings = computed(() => store.getters['staffing/warnings'])
 const schedule = computed(() => store.getters['staffing/schedule'])
 const warningTitle = computed(() => warnings.value.map((w) => w.code).join(' · '))
 const generateError = ref('')
+// Vrai après un generate résolu : distingue « jamais généré » d'une génération vide.
+const hasGeneratedOnce = ref(false)
 
 // ── Temps : minutes depuis minuit du jour de début de fenêtre ────────────────
 const dayStart = computed(() => {
@@ -382,6 +402,9 @@ async function onGenerate() {
   generateError.value = ''
   try {
     await store.dispatch('staffing/generate', props.eventId)
+    // Succès mais potentiellement 0 ligne créée → arme le bandeau explicatif
+    // de l'état vide (BUG-258-01) ; sans effet si des cartes s'affichent.
+    hasGeneratedOnce.value = true
   } catch (e) {
     generateError.value = e?.response?.data?.message || t('epsGenerateError')
   }
@@ -417,6 +440,7 @@ onMounted(async () => {
 }
 .eps-empty-text { margin: 0 0 14px; color: var(--fb-muted, #6b7280); font-size: 0.875rem; }
 .eps-error { margin: 10px 0 0; color: var(--fb-danger, #dc2626); font-size: 0.75rem; }
+.eps-empty-alert { margin-top: 14px; max-width: 560px; text-align: left; font-size: 0.8125rem; }
 
 .eps-generate-btn {
   display: inline-flex;
