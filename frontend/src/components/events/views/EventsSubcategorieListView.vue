@@ -329,7 +329,12 @@ export default {
 
   computed: {
     subcategories() {
+      // Normalise `id` (certains items n'ont que `_id`) — indispensable pour
+      // item-value="id" (sélection/suppression groupée), cohérent avec le fallback
+      // `id || _id` du delete unitaire (BUG-259).
       return this.$store.getters['eventSubcategories/eventSubcategories']
+        .map((s) => ({ ...s, id: s?.id || s?._id }))
+        .filter((s) => !!s.id)
     },
     // Réactif au store (comme `categories` ci-dessous) — contrairement à l'ancienne version
     // qui copiait le résultat une seule fois dans une data() `eventTypes: []` : si le fetch

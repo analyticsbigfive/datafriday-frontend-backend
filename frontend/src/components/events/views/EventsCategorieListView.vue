@@ -361,7 +361,12 @@ export default {
 
   computed: {
     categories() {
+      // Normalise `id` (certains items n'ont que `_id`) — indispensable pour
+      // item-value="id" (sélection/suppression groupée) et cohérent avec le fallback
+      // `id || _id` du delete unitaire (BUG-259).
       return this.$store.getters['eventCategories/eventCategories']
+        .map((c) => ({ ...c, id: c?.id || c?._id }))
+        .filter((c) => !!c.id)
     },
     eventTypes() {
       return this.$store.getters['eventTypes/eventTypes'].map((t) => ({
