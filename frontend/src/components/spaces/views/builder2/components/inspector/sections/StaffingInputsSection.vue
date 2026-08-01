@@ -81,7 +81,8 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
-import { getHrRoles, getHrSinkingRules } from '@/api/endpoints/hr.api'
+import { fetchHrRolesCached, fetchHrSinkingRulesCached } from '@/utils/hrRolesCache'
+import { relevantSinkingRules } from '@/utils/sinkingRules'
 
 // CFG-2 (2026-08-01) : jusqu'ici, aucun champ nulle part ne permettait de saisir ces attributs
 // (BUG-260-02) — StaffingCalculatorService les lit depuis SpaceElement.attributes mais rien ne
@@ -111,12 +112,14 @@ const attrs = computed(() => element.value?.attributes || {})
 
 // Règles Sinking + rôles du tenant, chargés une fois (best effort — n'affecte jamais l'édition
 // des champs ci-dessus si l'appel échoue). Pas de filtre roleId : on veut TOUTES les règles pour
-// les recouper avec les sous-types de CET élément, quel que soit le rôle qui les porte.
+// les recouper avec les sous-types de CET élément, quel que soit le rôle qui les porte. Cache
+// partagé avec StaffSection.vue (fetchHrRolesCached) — évite le double appel getHrRoles() pour
+// le même écran (les deux sections en avaient chacune besoin indépendamment).
 const allRules = ref([])
 const allRoles = ref([])
 onMounted(async () => {
   try {
-    const [rules, roles] = await Promise.all([getHrSinkingRules(), getHrRoles()])
+    const [rules, roles] = await Promise.all([fetchHrSinkingRulesCached(), fetchHrRolesCached()])
     allRules.value = rules
     allRoles.value = roles
   } catch (_) {
@@ -132,28 +135,15 @@ function conditionLabel(attribute) {
   const key = CONDITION_LABEL_KEYS[attribute]
   return key ? t(key) : attribute
 }
-// Même logique de "rempli" que StaffingCalculatorService.applySinkingRules() (backend) : sans
-// condition → toujours rempli ; avec condition → attrs[conditionAttribute] >= conditionMinValue.
 function currentValue(rule) {
   const v = Number(attrs.value[rule.conditionAttribute])
   return Number.isFinite(v) ? v : 0
 }
-function isRuleMet(rule) {
-  if (!rule.conditionAttribute) return true
-  const v = Number(attrs.value[rule.conditionAttribute])
-  return Number.isFinite(v) && v >= (rule.conditionMinValue ?? 0)
-}
-const relevantRules = computed(() => {
-  const subtypes = element.value?.subtypes || []
-  const rolesById = new Map(allRoles.value.map((r) => [r.id, r]))
-  return allRules.value
-    .filter((rule) => subtypes.includes(rule.fnbCategory))
-    .map((rule) => ({
-      ...rule,
-      roleName: rolesById.get(rule.roleId)?.name || rule.roleId,
-      met: isRuleMet(rule),
-    }))
-})
+// Logique de matching extraite dans utils/sinkingRules.js (testée, sinkingRules.spec.js) —
+// miroir de StaffingCalculatorService.applySinkingRules() (backend).
+const relevantRules = computed(() =>
+  relevantSinkingRules(allRules.value, allRoles.value, element.value?.subtypes, attrs.value),
+)
 
 // PATCH attributes = remplacement INTÉGRAL côté backend → toujours renvoyer l'objet attributes
 // fusionné, jamais { [key]: value } seul (même garde-fou que StorageShopsSection.vue).

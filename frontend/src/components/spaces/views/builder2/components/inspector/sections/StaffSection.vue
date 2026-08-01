@@ -51,7 +51,7 @@ import { ref, computed, inject, watch, onMounted } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
 import { putElementStaff, getElementStaffSuggestions } from '@/api/endpoints/builder-v2.api'
-import { getHrRoles } from '@/api/endpoints/hr.api'
+import { fetchHrRolesCached } from '@/utils/hrRolesCache'
 
 const { t } = useI18n()
 const store = inject('builderStore')
@@ -66,11 +66,12 @@ const staff = computed(() => {
 const totalCount = computed(() => staff.value.reduce((sum, r) => sum + (Number(r.count) || 0), 0))
 
 // Ajout manuel = choisir un rôle RH existant, jamais taper un nom libre
-// (2026-07-30, retour utilisateur).
+// (2026-07-30, retour utilisateur). Cache partagé avec StaffingInputsSection.vue
+// (fetchHrRolesCached) — évite un second appel getHrRoles() identique sur le même écran.
 const availableRoles = ref([])
 onMounted(async () => {
   try {
-    availableRoles.value = await getHrRoles()
+    availableRoles.value = await fetchHrRolesCached()
   } catch (_) {
     availableRoles.value = []
   }
