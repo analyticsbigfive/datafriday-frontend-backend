@@ -356,7 +356,9 @@ coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ;
    (⚠️ à ne pas confondre avec [ADR-0002 frontend](../adr/0002_builder_v2_relationnel_seul.md), Builder v2 —
    numérotation indépendante par repo) ; mécanisme du no-op détaillé dans [`09_TECHNIQUE.md`](09_TECHNIQUE.md) ligne 449.
 2. **Alimenter le `caPredictif`** — bloquant, cf. §10.5.
-3. **UI de saisie des inputs algo** dans `SpaceElement.attributes` (§10.3, dernière ligne) — bloquant, cf. §10.5.
+3. ~~**UI de saisie des inputs algo** dans `SpaceElement.attributes` (§10.3, dernière ligne) — bloquant, cf. §10.5.~~
+   **Fait le 2026-08-01** — `StaffingInputsSection.vue` dans l'inspecteur Builder (shops
+   uniquement), cf. §11.14 et [BUG-260-02](../bugs/260_02_hrsinkingrule_conditionattribute_jamais_saisi_builder.md).
 4. Écran de gestion des `HrPerson` (le backend + dropdown « Nom » existent ; pas d'écran CRUD dédié).
 5. `HrRoleSpaceDefault` (agence par défaut espace × rôle) : backend + présélection livrés, pas d'UI de saisie.
 6. E2E léger spec §6 : générer → décocher → slider → vérifier pills (une fois le SQL appliqué sur staging).
@@ -669,4 +671,28 @@ Le calcul par paliers événementiel (`StaffingService.generate()`, `algoKey`) r
 non généralisé** : ses formules (caissiers/runners/barman…) sont conceptuellement F&B (CA
 prédictif, TPE, trafic), sans équivalent métier pour Hospitality/Ticketing — seule la suggestion
 auto **par élément** dans le Builder (`getStaffSuggestions`) est concernée par cette généralisation.
+
+### 11.14 Saisie des inputs algo dans le Builder (clôt BUG-260-02)
+
+Depuis l'origine du module (§10.3/§10.4), les 9 clés lues par `StaffingCalculatorService.calculate()`
+dans `SpaceElement.attributes` (`metresLineaires`, `txParSeconde`, `ouvertureObligatoire`,
+`hasResponsablePdv`, `nbTireuses`, `nbFriteuses`, `nbBurgersPrevus`, `nbDinettes`,
+`nbHotdogsPrevus`) n'avaient aucun champ de saisie nulle part — le calcul par paliers et les
+règles Sinking avec condition d'équipement (§11.3) tournaient donc toujours avec des valeurs par
+défaut/vides, jamais les vraies données du PDV.
+
+Deux emplacements possibles ont été évalués : Builder (propriété physique du stand, persistante
+d'un événement à l'autre) vs Event Predict (prévision propre à un événement donné — cohérent avec
+le suffixe "Prevus" de `nbBurgersPrevus`/`nbHotdogsPrevus`, et avec `ouvertureObligatoire` qui
+ressemble à une décision opérationnelle par événement). **Décision utilisateur (2026-08-01) : tout
+dans le Builder**, aucun split — un seul endroit de configuration, plus simple, quitte à ce que
+`nbBurgersPrevus` reste une estimation fixe plutôt que recalculée événement par événement.
+
+Implémentation : `StaffingInputsSection.vue`, nouvelle section de l'inspecteur Builder, visible
+uniquement pour les éléments `shop` (`sectionsForType().staffingInputs`, scope identique à
+`STAFFING_ELEMENT_TYPES` côté backend — ces attributs n'ont pas de sens pour les autres
+départements). Même mécanisme de PATCH que `StorageShopsSection.vue`
+(`store.commitElementPatch(id, { attributes: {...prev, [clé]: valeur} }, ...)`, `attributes`
+toujours fusionné jamais remplacé). Aucun changement backend : `SpaceElement.attributes` est un
+JSON libre déjà lu tel quel par le calculateur, rien à migrer.
 

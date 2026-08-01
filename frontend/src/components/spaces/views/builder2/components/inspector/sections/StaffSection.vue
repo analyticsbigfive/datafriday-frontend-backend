@@ -189,8 +189,12 @@ async function runAutoSync() {
   save([...manualRows, ...autoRows])
 }
 
+// `attributes` inclus (2026-08-01, StaffingInputsSection) : une règle Sinking avec condition
+// d'équipement (ex. nbFriteuses ≥ 2, cf. BUG-260-02) matche selon la valeur COURANTE de
+// l'attribut — sans ce watcher, éditer nbFriteuses ne rafraîchissait jamais Staff, il fallait
+// changer d'élément et revenir pour voir l'effet.
 watch(
-  () => [element.value?.id, element.value?.subtypes, configKey.value],
+  () => [element.value?.id, element.value?.subtypes, element.value?.attributes, configKey.value],
   () => scheduleAutoSync(),
   { immediate: true },
 )
