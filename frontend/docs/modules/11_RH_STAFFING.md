@@ -284,14 +284,29 @@ Aucune commande lancée par l'agent. Après migration : `pnpm docs:api` régén�
 - **Couche données** : `api/endpoints/hrSettings.api.js` + store Vuex TTL (pattern standard) — pas de
   localStorage (contrairement à l'étape 1 Suppliers/Positions).
 
-### 9.4 Règle de résolution espace → valeur (⚠️ hypothèse, à valider #35)
+### 9.4 Règle de résolution espace → valeur (tranchée le 2026-08-01, question #41)
 
-Une carte affiche **une** valeur par espace, mais les lignes ciblent des **ensembles**. Règle par
-défaut retenue (documentée, **non tranchée par Bertrand**) : **une ligne spécifique (espace listé)
-prime sur une ligne `TOUS`** ; en cas de conflit entre deux lignes spécifiques, **la plus récente
-gagne**. Le bouton **Edit** par carte crée/mets à jour la **ligne mono-espace** de cet espace
-(POST si absente, PATCH sinon) plutôt que d'empiler des doublons. Sémantique à confirmer —
-question [#41](../QUESTIONS_A_BERTRAND.md).
+Une carte affiche **une** valeur par espace, mais les lignes ciblent des **ensembles**. Décision
+utilisateur (2026-08-01) : *"on a toujours 1 valeur — faire en groupe ou individuellement garde 1
+valeur"* — un espace n'est **jamais** couvert par deux lignes actives à la fois, garanti **par
+construction** (rejet backend à l'écriture) plutôt que résolu après coup :
+
+- Au plus **une** ligne `TOUS` par paramètre (Goal, séparément StaffRatio) et par tenant — en créer
+  une deuxième est rejeté (`HrSettingsService::assertNoGoalOverlap`/`assertNoRatioOverlap`).
+- Les `spaceIds` de deux lignes **spécifiques** ne peuvent jamais se chevaucher — créer une ligne
+  spécifique sur un espace déjà couvert par une AUTRE ligne spécifique est rejeté.
+- **Override délibéré autorisé** : une ligne spécifique sur un espace déjà couvert par `TOUS` reste
+  acceptée (c'est le seul cas légitime où une "priorité" s'applique — spécifique gagne sur `TOUS`).
+
+Le bouton **Edit** par carte crée/met à jour la **ligne mono-espace** de cet espace (POST si
+absente, PATCH sinon, `findMonoSpaceLine`/`upsertMono`) — comportement déjà existant, confirmé
+cohérent avec la règle ci-dessus (une mise à jour de sa propre ligne ne se rejette jamais
+elle-même, exclusion par id dans `assertNo*Overlap`).
+
+Vérifié par script e2e jetable (tenant + espaces + lignes nettoyés, 5 cas : doublon `TOUS` Goal
+rejeté, chevauchement spécifique rejeté, espace libre accepté, update sur son propre périmètre
+accepté, doublon `TOUS` StaffRatio rejeté) et `tests/unit/hrSettings.spec.js` (9 cas, résolution
+`resolveValueForSpace`/`findMonoSpaceLine`).
 
 ---
 
