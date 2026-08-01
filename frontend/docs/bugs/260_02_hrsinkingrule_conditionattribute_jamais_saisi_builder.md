@@ -3,7 +3,7 @@
 <!-- AA = code auteur à 2 chiffres (01 Jean-Luc, 02 Ulrich, 03 Emmanuel) — voir "Comment ajouter un
      bug" dans 00_INDEX.md pour éviter les collisions de numérotation entre branches parallèles. -->
 
-- **Statut** : ⚪ Diagnostiqué (root cause connue, fix à faire)
+- **Statut** : 🟢 Corrigé
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : RH / Staffing
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -43,15 +43,18 @@ fiche corrige ce manque de traçabilité (retour utilisateur du 2026-07-31 : les
 
 ## Correction
 
-Non corrigé — nécessite de choisir où/comment saisir ces attributs dans le Builder (ex. nouveaux
-champs numériques dans `ConfigsSection.vue` de l'inspecteur, visibles seulement pour les shops
-concernés), ce qui est un ajout de fonctionnalité, pas un simple fix. Décision d'implémentation à
-prendre côté produit avant de coder — voir aussi la question ouverte liée sur Kitchen Food
-(`QUESTIONS_A_BERTRAND.md` #44) qui recoupe partiellement ce sujet (nouveaux champs d'attributs à
-définir pour une recette de dotation dédiée).
+Corrigé le 2026-08-01. Décision utilisateur explicite sur l'emplacement : **tout dans le Builder**
+(pas de split avec Event Predict, malgré une recommandation initiale de scinder équipement/prévisions
+entre les deux écrans — tranché en faveur d'un seul endroit de configuration).
 
-En attendant : créer une `HrSinkingRule` SANS `conditionAttribute` (condition vide) fonctionne
-normalement — c'est uniquement la variante « avec condition d'équipement » qui est inopérante.
+Nouvelle section `StaffingInputsSection.vue` dans l'inspecteur du Builder, visible uniquement pour
+les éléments `shop` (`sectionsForType().staffingInputs`, cf. `elementTaxonomy.js` — ces attributs ne
+sont consommés que par la formule par paliers, scopée à `shop`/legacy F&B). Couvre les 9 clés lues
+par `StaffingCalculatorService`/`SpaceElement.attributes` : `metresLineaires` (nullable — vide = pas
+de plafond TPE), `txParSeconde` (30|60), `ouvertureObligatoire`, `hasResponsablePdv`, `nbTireuses`,
+`nbFriteuses`, `nbBurgersPrevus`, `nbDinettes`, `nbHotdogsPrevus`. Même mécanisme de PATCH que
+`StorageShopsSection.vue` (`store.commitElementPatch`, `attributes` fusionné jamais remplacé).
+Aucun changement backend nécessaire — `attributes` est un JSON libre déjà lu tel quel.
 
 ## Risque de régression / à surveiller
 

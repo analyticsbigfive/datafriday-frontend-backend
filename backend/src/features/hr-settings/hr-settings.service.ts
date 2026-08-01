@@ -38,6 +38,68 @@ export class HrSettingsService {
     return ids;
   }
 
+  // CFG-2 (2026-08-01, question #41 tranchée par l'utilisateur : "on a toujours 1 valeur — faire
+  // en groupe ou individuellement garde 1 valeur") : un espace ne doit JAMAIS être couvert par
+  // deux lignes actives à la fois, que ce soit deux lignes spécifiques qui se recoupent ou une
+  // ligne "Tous" en plus d'une ligne spécifique. Garanti par construction (rejet à la création/
+  // modification) plutôt que résolu après coup — élimine le besoin même d'une règle de
+  // désambiguïsation (ex-hypothèse "spécifique > TOUS, plus récente gagne", jamais confirmée).
+  private async assertNoGoalOverlap(
+    allSpaces: boolean,
+    spaceIds: string[],
+    tenantId: string,
+    excludeId?: string,
+  ) {
+    if (allSpaces) {
+      const existing = await this.prisma.hrGoal.findFirst({
+        where: { tenantId, allSpaces: true, ...(excludeId && { id: { not: excludeId } }) },
+      });
+      if (existing) {
+        throw new BadRequestException(
+          'Une ligne « Tous les espaces » existe déjà pour ce paramètre — modifiez-la plutôt que d\'en créer une nouvelle.',
+        );
+      }
+      return;
+    }
+    const conflict = await this.prisma.hrGoalSpace.findFirst({
+      where: { spaceId: { in: spaceIds }, goal: { tenantId, ...(excludeId && { id: { not: excludeId } }) } },
+      include: { goal: true, space: { select: { name: true } } },
+    });
+    if (conflict) {
+      throw new BadRequestException(
+        `L'espace « ${conflict.space.name} » a déjà une valeur (${conflict.goal.goalPerTpe} €/TPE) sur une autre ligne — chaque espace ne peut avoir qu'une seule valeur active.`,
+      );
+    }
+  }
+
+  private async assertNoRatioOverlap(
+    allSpaces: boolean,
+    spaceIds: string[],
+    tenantId: string,
+    excludeId?: string,
+  ) {
+    if (allSpaces) {
+      const existing = await this.prisma.hrStaffRatio.findFirst({
+        where: { tenantId, allSpaces: true, ...(excludeId && { id: { not: excludeId } }) },
+      });
+      if (existing) {
+        throw new BadRequestException(
+          'Une ligne « Tous les espaces » existe déjà pour ce paramètre — modifiez-la plutôt que d\'en créer une nouvelle.',
+        );
+      }
+      return;
+    }
+    const conflict = await this.prisma.hrStaffRatioSpace.findFirst({
+      where: { spaceId: { in: spaceIds }, ratio: { tenantId, ...(excludeId && { id: { not: excludeId } }) } },
+      include: { ratio: true, space: { select: { name: true } } },
+    });
+    if (conflict) {
+      throw new BadRequestException(
+        `L'espace « ${conflict.space.name} » a déjà une valeur (${conflict.ratio.staffPerZoneManager}) sur une autre ligne — chaque espace ne peut avoir qu'une seule valeur active.`,
+      );
+    }
+  }
+
   private mapGoal(goal: any) {
     return {
       id: goal.id,
@@ -77,6 +139,7 @@ export class HrSettingsService {
   ) {
     const allSpaces = !!input.allSpaces;
     const ids = await this.resolveSpaces(allSpaces, input.spaceIds, tenantId);
+    await this.assertNoGoalOverlap(allSpaces, ids, tenantId);
     const goal = await this.prisma.hrGoal.create({
       data: {
         tenantId,
@@ -103,6 +166,9 @@ export class HrSettingsService {
     const ids = spacesTouched
       ? await this.resolveSpaces(allSpaces, input.spaceIds, tenantId)
       : null;
+    if (spacesTouched) {
+      await this.assertNoGoalOverlap(allSpaces, ids ?? [], tenantId, id);
+    }
 
     const goal = await this.prisma.$transaction(async (tx) => {
       if (spacesTouched) {
@@ -145,6 +211,7 @@ export class HrSettingsService {
   ) {
     const allSpaces = !!input.allSpaces;
     const ids = await this.resolveSpaces(allSpaces, input.spaceIds, tenantId);
+    await this.assertNoRatioOverlap(allSpaces, ids, tenantId);
     const ratio = await this.prisma.hrStaffRatio.create({
       data: {
         tenantId,
@@ -170,6 +237,9 @@ export class HrSettingsService {
     const ids = spacesTouched
       ? await this.resolveSpaces(allSpaces, input.spaceIds, tenantId)
       : null;
+    if (spacesTouched) {
+      await this.assertNoRatioOverlap(allSpaces, ids ?? [], tenantId, id);
+    }
 
     const ratio = await this.prisma.$transaction(async (tx) => {
       if (spacesTouched) {

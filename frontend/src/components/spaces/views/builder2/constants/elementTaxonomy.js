@@ -171,6 +171,12 @@ export function sectionsForType(type, tools = []) {
     inventory: seller,
     storageShops: t === 'storage',
     storageInventory: t === 'storage',
+    // Inputs de l'algo de staffing par paliers (nbFriteuses, txParSeconde…) — consommés
+    // uniquement par StaffingCalculatorService, lui-même scopé à `shop`/legacy F&B
+    // (STAFFING_ELEMENT_TYPES côté backend) : aucune formule équivalente pour les autres
+    // départements, donc pas de section correspondante ailleurs (cf. BUG-260-02, décision
+    // utilisateur 2026-08-01 : tout dans le Builder).
+    staffingInputs: t === 'shop',
     staff: seller || t === 'entrance' || t === 'kitchen' || t === 'entertainment',
   }
 }

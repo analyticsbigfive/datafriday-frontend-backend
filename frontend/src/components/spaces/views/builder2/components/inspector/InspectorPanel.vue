@@ -50,7 +50,7 @@
     <!-- Sections (matrice sections × type — elementTaxonomy.sectionsForType) -->
     <div class="flex-grow-1 px-4" style="overflow-y: auto; min-height: 0;">
       <!-- Ordre (capture) : Name → Shop Type → [Area] → Configuration →
-           Performance → Menu → Inventory → Staff → Position. -->
+           Performance → Menu → Inventory → Staffing inputs → Staff → Position. -->
       <IdentitySection />
       <SubtypesSection v-if="sections.subtypes" />
       <StorageShopsSection v-if="sections.storageShops" />
@@ -59,6 +59,7 @@
       <MenuSection v-if="sections.menu" />
       <InventorySection v-if="sections.inventory" />
       <StorageInventorySection v-if="sections.storageInventory" />
+      <StaffingInputsSection v-if="sections.staffingInputs" />
       <StaffSection v-if="sections.staff" />
       <GeometrySection v-if="sections.geometry" />
     </div>
@@ -83,6 +84,7 @@ import PerformanceSection from './sections/PerformanceSection.vue'
 import MenuSection from './sections/MenuSection.vue'
 import InventorySection from './sections/InventorySection.vue'
 import StorageInventorySection from './sections/StorageInventorySection.vue'
+import StaffingInputsSection from './sections/StaffingInputsSection.vue'
 import StaffSection from './sections/StaffSection.vue'
 import DeleteElementDialog from '../../dialogs/DeleteElementDialog.vue'
 
