@@ -2,19 +2,6 @@
   <SectionCard :title="t('b2StaffingInputsTitle')" icon="mdi-calculator-variant-outline">
     <div class="sfi-grid">
       <div class="sfi-field">
-        <label class="sfi-label" for="sfi-metres">
-          {{ t('b2MetresLineaires') }}
-          <v-icon icon="mdi-information-outline" size="12" :title="t('b2MetresLineairesHint')" />
-        </label>
-        <input
-          id="sfi-metres" class="sfi-input" type="number" min="0" step="0.1"
-          placeholder="—"
-          :value="attrs.metresLineaires ?? ''"
-          @change="(e) => commit('metresLineaires', e.target.value === '' ? null : Number(e.target.value))"
-        />
-      </div>
-
-      <div class="sfi-field">
         <label class="sfi-label" for="sfi-tx">{{ t('b2TxParSeconde') }}</label>
         <select
           id="sfi-tx" class="sfi-input sfi-select"
@@ -86,17 +73,29 @@ import { relevantSinkingRules } from '@/utils/sinkingRules'
 
 // CFG-2 (2026-08-01) : jusqu'ici, aucun champ nulle part ne permettait de saisir ces attributs
 // (BUG-260-02) — StaffingCalculatorService les lit depuis SpaceElement.attributes mais rien ne
-// les écrivait. Décision utilisateur : tout dans le Builder (pas de split avec Event Predict),
-// même mécanisme de PATCH que StorageShopsSection.vue (attributes fusionné, jamais remplacé).
+// les écrivait. Décision utilisateur : tout dans le Builder, même mécanisme de PATCH que
+// StorageShopsSection.vue (attributes fusionné, jamais remplacé).
+//
+// 2026-08-02, retour utilisateur : seuls les équipements PHYSIQUES du PDV (fixes, indépendants
+// de l'event) restent saisis ici. Retirés :
+//  - metresLineaires  → dérivé de SpaceElement.width (déjà saisi dans Position > Largeur),
+//    plus de champ dédié (lu directement côté backend, staffing.service.ts).
+//  - nbBurgersPrevus / nbHotdogsPrevus → quantités PRÉVUES POUR UN EVENT (donc déjà disponibles
+//    par PDV via Event Predict), pas des attributs de l'espace. La formule staffing.service.ts
+//    ne les lit plus depuis attrs (0 par défaut) tant qu'un vrai branchement Event Predict →
+//    staffing n'est pas fait (nécessite une classification burger/hot-dog des MenuItem qui
+//    n'existe pas encore — question ouverte, cf. QUESTIONS_A_BERTRAND.md).
+//    nbHotdogsPrevus reste néanmoins une valeur de condition Sinking Rule valide (une règle
+//    existante en dépend) — champ retiré du Builder mais valeur déjà en base préservée.
 const NUMBER_FIELDS = [
   { key: 'nbTireuses', labelKey: 'b2NbTireuses' },
   { key: 'nbFriteuses', labelKey: 'b2NbFriteuses' },
-  { key: 'nbBurgersPrevus', labelKey: 'b2NbBurgersPrevus' },
   { key: 'nbDinettes', labelKey: 'b2NbDinettes' },
-  { key: 'nbHotdogsPrevus', labelKey: 'b2NbHotdogsPrevus' },
 ]
 // Mêmes libellés que HrRoleFormDrawer.vue::CONDITION_ATTRIBUTES (clés déjà i18n, réutilisées
-// telles quelles — pas de raison d'avoir deux formulations pour le même attribut).
+// telles quelles — pas de raison d'avoir deux formulations pour le même attribut). Garde
+// nbBurgersPrevus/nbHotdogsPrevus même si retirés de NUMBER_FIELDS ci-dessus : une Sinking Rule
+// existante référence encore nbHotdogsPrevus, ce panneau doit pouvoir afficher son libellé.
 const CONDITION_LABEL_KEYS = {
   nbFriteuses: 'hrCondAttrNbFriteuses',
   nbTireuses: 'hrCondAttrNbTireuses',
