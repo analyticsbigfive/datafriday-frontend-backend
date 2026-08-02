@@ -270,16 +270,16 @@
           </template>
 
           <template #item.price="{ item }">
-            {{ formatCurrency(item.price) }}
+            {{ formatCurrencyDetailed(item.price) }}
           </template>
 
           <template #item.priceHt="{ item }">
-            <span v-if="item.priceHt != null">{{ formatCurrency(item.priceHt) }}</span>
+            <span v-if="item.priceHt != null">{{ formatCurrencyDetailed(item.priceHt) }}</span>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
 
           <template #item.totalCost="{ item }">
-            {{ formatCurrency(item.totalCost) }}
+            {{ formatCurrencyDetailed(item.totalCost) }}
           </template>
 
           <template #item.margin="{ item }">
@@ -363,11 +363,11 @@
                 <div class="mb-3">
                   <div class="d-flex align-center justify-space-between mb-1">
                     <span class="text-caption text-medium-emphasis">{{ t('menuItemLib.colPrice') }}</span>
-                    <span class="text-subtitle-2 font-weight-bold">{{ formatCurrency(item.price) }}</span>
+                    <span class="text-subtitle-2 font-weight-bold">{{ formatCurrencyDetailed(item.price) }}</span>
                   </div>
                   <div class="d-flex align-center justify-space-between mb-1">
                     <span class="text-caption text-medium-emphasis">{{ t('menuItemLib.colTotalCost') }}</span>
-                    <span class="text-subtitle-2">{{ formatCurrency(item.totalCost) }}</span>
+                    <span class="text-subtitle-2">{{ formatCurrencyDetailed(item.totalCost) }}</span>
                   </div>
                   <v-divider class="my-2"></v-divider>
                   <div class="d-flex align-center justify-space-between">
@@ -468,7 +468,7 @@ import { useTheme } from "vuetify";
 // imports, la table serait absente à l'exécution.
 import { VDataTable, VDataTableServer } from "vuetify/components/VDataTable";
 import { useI18n } from "@/i18n/useI18n";
-import { formatCurrency } from "@/composables/useFormatters";
+import { formatCurrency, formatCurrencyDetailed } from "@/composables/useFormatters";
 import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
 import { getProductMappings, deleteProductMapping } from "@/api/endpoints/mapping.api";
 import MenuItemDeleteDialog from '../dialogs/MenuItemDeleteDialog.vue';
@@ -518,7 +518,7 @@ export default {
     const theme = useTheme();
     const { t } = useI18n();
     const isDark = computed(() => !!theme.global.current.value.dark);
-    return { t, isDark, formatCurrency };
+    return { t, isDark, formatCurrency, formatCurrencyDetailed };
   },
   data() {
     return {

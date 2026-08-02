@@ -187,12 +187,7 @@
                       Total Revenue
                     </p>
                     <p class="text-xl font-bold text-blue-700 dark:text-blue-300">
-                      €{{
-                        totalRevenue.toLocaleString(undefined, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0,
-                        })
-                      }}
+                      {{ formatCurrency(totalRevenue) }}
                     </p>
                   </div>
                   <TrendingUp class="w-8 h-8 text-blue-600 dark:text-blue-400 opacity-50" />
@@ -210,12 +205,7 @@
                       Total F&amp;B
                     </p>
                     <p class="text-xl font-bold text-green-700 dark:text-green-300">
-                      €{{
-                        totalFBRevenue.toLocaleString(undefined, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0,
-                        })
-                      }}
+                      {{ formatCurrency(totalFBRevenue) }}
                     </p>
                   </div>
                   <ShoppingBag class="w-8 h-8 text-green-600 dark:text-green-400 opacity-50" />
@@ -233,12 +223,7 @@
                       Total Ticketing
                     </p>
                     <p class="text-xl font-bold text-purple-700 dark:text-purple-300">
-                      €{{
-                        totalTicketingRevenue.toLocaleString(undefined, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0,
-                        })
-                      }}
+                      {{ formatCurrency(totalTicketingRevenue) }}
                     </p>
                   </div>
                   <Ticket class="w-8 h-8 text-purple-600 dark:text-purple-400 opacity-50" />
@@ -256,12 +241,7 @@
                       Total Merch
                     </p>
                     <p class="text-xl font-bold text-amber-700 dark:text-amber-300">
-                      €{{
-                        totalMerchRevenue.toLocaleString(undefined, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0,
-                        })
-                      }}
+                      {{ formatCurrency(totalMerchRevenue) }}
                     </p>
                   </div>
                   <Store class="w-8 h-8 text-amber-600 dark:text-amber-400 opacity-50" />
@@ -371,8 +351,9 @@
                           <Users class="w-4 h-4" />
                           <span class="font-semibold">
                             {{
-                              getMaxCapacity(space.id)?.toLocaleString() ||
-                              'N/A'
+                              getMaxCapacity(space.id) != null
+                                ? formatNumber(getMaxCapacity(space.id))
+                                : 'N/A'
                             }}
                           </span>
                         </div>
@@ -443,15 +424,7 @@
                           <span
                             class="font-semibold text-blue-600 dark:text-blue-400"
                           >
-                            €{{
-                              (salesRevenue[space.id] || 0).toLocaleString(
-                                undefined,
-                                {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 0,
-                                },
-                              )
-                            }}
+                            {{ formatCurrency(salesRevenue[space.id] || 0) }}
                           </span>
                         </div>
 
@@ -466,12 +439,7 @@
                           <span
                             class="font-semibold text-green-600 dark:text-green-400"
                           >
-                            €{{
-                              (spaceMetrics[space.id]?.metrics?.perCapita || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                            }}
+                            {{ formatCurrencyDetailed(spaceMetrics[space.id]?.metrics?.perCapita || 0) }}
                           </span>
                         </div>
 
@@ -486,12 +454,7 @@
                           <span
                             class="font-semibold text-purple-600 dark:text-purple-400"
                           >
-                            €{{
-                              (spaceMetrics[space.id]?.metrics?.avgTransaction || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                            }}
+                            {{ formatCurrencyDetailed(spaceMetrics[space.id]?.metrics?.avgTransaction || 0) }}
                           </span>
                         </div>
 
@@ -506,12 +469,7 @@
                           <span
                             class="font-semibold text-green-600 dark:text-green-400"
                           >
-                            €{{
-                              (spaceMetrics[space.id]?.metrics?.avgEvent || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: 0,
-                                maximumFractionDigits: 0,
-                              })
-                            }}
+                            {{ formatCurrency(spaceMetrics[space.id]?.metrics?.avgEvent || 0) }}
                           </span>
                         </div>
 
@@ -539,15 +497,7 @@
                           <span
                             class="font-semibold text-green-600 dark:text-green-400"
                           >
-                            €{{
-                              calculateTotalRevenue(space.id).toLocaleString(
-                                undefined,
-                                {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 0,
-                                },
-                              )
-                            }}
+                            {{ formatCurrency(calculateTotalRevenue(space.id)) }}
                           </span>
                         </div>
 
@@ -570,12 +520,7 @@
                                 {{ idx + 1 }}. {{ shop.name }}
                               </span>
                               <span class="font-semibold text-blue-600 dark:text-blue-400 ml-2 shrink-0">
-                                €{{
-                                  shop.revenue.toLocaleString(undefined, {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 0,
-                                  })
-                                }}
+                                {{ formatCurrency(shop.revenue) }}
                               </span>
                             </li>
                           </ol>
@@ -679,8 +624,9 @@
                           <Users class="w-4 h-4" />
                           <span class="font-semibold">
                             {{
-                              getMaxCapacity(space.id)?.toLocaleString() ||
-                              'N/A'
+                              getMaxCapacity(space.id) != null
+                                ? formatNumber(getMaxCapacity(space.id))
+                                : 'N/A'
                             }}
                           </span>
                         </div>
@@ -751,15 +697,7 @@
                           <span
                             class="font-semibold text-blue-600 dark:text-blue-400"
                           >
-                            €{{
-                              (salesRevenue[space.id] || 0).toLocaleString(
-                                undefined,
-                                {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 0,
-                                },
-                              )
-                            }}
+                            {{ formatCurrency(salesRevenue[space.id] || 0) }}
                           </span>
                         </div>
 
@@ -774,12 +712,7 @@
                           <span
                             class="font-semibold text-green-600 dark:text-green-400"
                           >
-                            €{{
-                              (spaceMetrics[space.id]?.metrics?.perCapita || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                            }}
+                            {{ formatCurrencyDetailed(spaceMetrics[space.id]?.metrics?.perCapita || 0) }}
                           </span>
                         </div>
 
@@ -794,12 +727,7 @@
                           <span
                             class="font-semibold text-purple-600 dark:text-purple-400"
                           >
-                            €{{
-                              (spaceMetrics[space.id]?.metrics?.avgTransaction || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                            }}
+                            {{ formatCurrencyDetailed(spaceMetrics[space.id]?.metrics?.avgTransaction || 0) }}
                           </span>
                         </div>
 
@@ -814,12 +742,7 @@
                           <span
                             class="font-semibold text-green-600 dark:text-green-400"
                           >
-                            €{{
-                              (spaceMetrics[space.id]?.metrics?.avgEvent || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: 0,
-                                maximumFractionDigits: 0,
-                              })
-                            }}
+                            {{ formatCurrency(spaceMetrics[space.id]?.metrics?.avgEvent || 0) }}
                           </span>
                         </div>
 
@@ -847,15 +770,7 @@
                           <span
                             class="font-semibold text-green-600 dark:text-green-400"
                           >
-                            €{{
-                              calculateTotalRevenue(space.id).toLocaleString(
-                                undefined,
-                                {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 0,
-                                },
-                              )
-                            }}
+                            {{ formatCurrency(calculateTotalRevenue(space.id)) }}
                           </span>
                         </div>
 
@@ -878,12 +793,7 @@
                                 {{ idx + 1 }}. {{ shop.name }}
                               </span>
                               <span class="font-semibold text-blue-600 dark:text-blue-400 ml-2 shrink-0">
-                                €{{
-                                  shop.revenue.toLocaleString(undefined, {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 0,
-                                  })
-                                }}
+                                {{ formatCurrency(shop.revenue) }}
                               </span>
                             </li>
                           </ol>
@@ -1060,6 +970,7 @@ import useMobile from '../ui/useMobile'
 import Label from '../ui/label.vue'
 //import { EventRevenueChart } from './EventRevenueChart'
 import SpaceRevenueByMonthChart from './SpaceRevenueByMonthChart.vue'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 
 export default {
   name: 'SpacesPage',
@@ -1267,7 +1178,10 @@ export default {
 
 
   methods: {
-    
+    formatCurrency,
+    formatCurrencyDetailed,
+    formatNumber,
+
     async loadSpaces() {
       try {
         this.loading = true

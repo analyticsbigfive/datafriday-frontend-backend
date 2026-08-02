@@ -180,7 +180,7 @@
               <div v-if="hasTicketsScannedData" class="ep-side-event-row">
                 <span class="ep-muted">{{ t('epTicketsScannedLabel') }}</span>
                 <span class="ep-side-event-row-val">
-                  {{ Number(selectedEvent.ticketsScanned).toLocaleString() }}
+                  {{ formatNumber(selectedEvent.ticketsScanned) }}
                 </span>
               </div>
             </div>
@@ -308,13 +308,13 @@
                 <div class="ep-side-version-stat-row">
                   <span class="ep-muted">{{ t('epRevenueHt') }}</span>
                   <span class="ep-side-version-stat-val">
-                    €{{ Math.round(Number(v.adjustedTotalRevenue ?? v.totalRevenue ?? 0)).toLocaleString("en-US") }}
+                    {{ formatCurrency(Number(v.adjustedTotalRevenue ?? v.totalRevenue ?? 0)) }}
                   </span>
                 </div>
                 <div class="ep-side-version-stat-row">
                   <span class="ep-muted">{{ t('epPerCap') }}</span>
                   <span class="ep-side-version-stat-val">
-                    €{{ Math.round(Number(v.adjustedPerCapita ?? v.perCapita ?? 0)).toLocaleString("en-US") }}
+                    {{ formatCurrency(Number(v.adjustedPerCapita ?? v.perCapita ?? 0)) }}
                   </span>
                 </div>
               </div>
@@ -420,7 +420,7 @@
                       <div class="ep-multi-list-date">{{ formatDateWithDay(ev.eventDate) }}</div>
                     </div>
                     <span v-if="ev.ticketsSold" class="ep-multi-list-badge">
-                      {{ Number(ev.ticketsSold).toLocaleString() }} {{ t('epTickets') }}
+                      {{ formatNumber(ev.ticketsSold) }} {{ t('epTickets') }}
                     </span>
                   </div>
                 </div>
@@ -959,13 +959,13 @@
           <div class="ep-metric-card ep-metric-card-primary">
             <h3 class="ep-metric-label">{{ t('epTotalRevenueHt') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(totalPredictedRevenue).toLocaleString("en-US") }}
+              {{ formatCurrency(totalPredictedRevenue) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(totalAdjustedRevenue).toLocaleString("en-US") }}
+                {{ formatCurrency(totalAdjustedRevenue) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -975,13 +975,13 @@
           <div class="ep-metric-card ep-metric-card-neutral">
             <h3 class="ep-metric-label">{{ t('epMetricCost') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(totalPredictedCost).toLocaleString("en-US") }}
+              {{ formatCurrency(totalPredictedCost) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(totalAdjustedCost).toLocaleString("en-US") }}
+                {{ formatCurrency(totalAdjustedCost) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1005,13 +1005,13 @@
           <div class="ep-metric-card ep-metric-card-success">
             <h3 class="ep-metric-label">{{ t('epPerCap').replace(':', '') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(perCapitaPredicted).toLocaleString("en-US") }}
+              {{ formatCurrency(perCapitaPredicted) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(perCapitaAdjusted).toLocaleString("en-US") }}
+                {{ formatCurrency(perCapitaAdjusted) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1021,13 +1021,13 @@
           <div class="ep-metric-card ep-metric-card-neutral">
             <h3 class="ep-metric-label">{{ t('epMetricBasket') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(avgPerTransaction).toLocaleString("en-US") }}
+              {{ formatCurrency(avgPerTransaction) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(adjustedAvgPerTransaction).toLocaleString("en-US") }}
+                {{ formatCurrency(adjustedAvgPerTransaction) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1211,6 +1211,8 @@ import { resolveIngredientSupplierId } from "../utils/menuItemAvailability";
 import { runWithConcurrency } from "../utils/asyncPool";
 import { htFromTtc, menuItemPriceHt } from "../utils/price";
 import { useEventPredictVersions } from "../composables/useEventPredictVersions";
+import { currentIntlLocale } from "@/composables/useNumberFormat";
+import { formatNumber } from "@/composables/useFormatters";
 import { usePredictiveTimeline } from "../composables/usePredictiveTimeline";
 import {
   aggregateTimelinePerMinute,
@@ -3294,6 +3296,7 @@ export default {
     }
   },
   methods: {
+    formatNumber,
     scrollToAnchor(id) {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5372,7 +5375,7 @@ export default {
     },
     formatCurrency(n) {
       const v = Number(n) || 0;
-      return new Intl.NumberFormat("fr-FR", {
+      return new Intl.NumberFormat(currentIntlLocale(), {
         style: "currency",
         currency: "EUR",
         minimumFractionDigits: 0,

@@ -126,6 +126,7 @@ import {
 
 import { TrendingUp } from "lucide-vue-next";
 import * as eventApi from "../utils/eventApi";
+import { currentIntlLocale } from "@/composables/useNumberFormat";
 
 // NOTE: dans ton projet actuel, Card est en TSX (React).
 // Je garde les imports/tags pour coller à ton style existant en Vue.
@@ -459,7 +460,7 @@ export default {
     formatNumber(value) {
       const v = Number(value || 0);
 
-      if (!this.isMobile) return v.toLocaleString("fr-FR");
+      if (!this.isMobile) return v.toLocaleString(currentIntlLocale());
 
       if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
       if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;

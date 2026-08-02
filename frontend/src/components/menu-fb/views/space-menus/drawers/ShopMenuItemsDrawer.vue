@@ -193,14 +193,14 @@
 import { useI18n } from "@/i18n/useI18n";
 import { X, UtensilsCrossed, Package, Check, Minus, AlertCircle } from 'lucide-vue-next';
 import { assignMenuItemsToShop, getShopAvailableMenuItems } from "@/api/endpoints/menu.api";
-import { formatCurrency } from "@/composables/useFormatters";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 
 export default {
   name: 'ShopMenuItemsDrawer',
   components: { X, UtensilsCrossed, Package, Check, Minus, AlertCircle },
   setup() {
     const { t } = useI18n();
-    return { t, formatCurrency };
+    return { t, formatCurrency: formatCurrencyDetailed };
   },
   props: {
     modelValue: { type: Boolean, default: false },

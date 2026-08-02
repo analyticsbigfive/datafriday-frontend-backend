@@ -103,7 +103,10 @@
                 <div class="hpd-field">
                   <label class="hpd-field-label" for="hrd-rate">{{ rateLabel }} <span class="hpd-required">*</span></label>
                   <div class="hpd-rate">
-                    <input id="hrd-rate" v-model.number="form.rate" type="number" min="0" step="0.5" class="hpd-input hpd-rate__input" />
+                    <NumberField
+                      id="hrd-rate" v-model="form.rate" :decimals="2" :min="0"
+                      pad grouping class="hpd-input hpd-rate__input"
+                    />
                     <span class="hpd-rate__suffix">{{ rateSuffix }}</span>
                   </div>
                 </div>
@@ -185,16 +188,16 @@
                   <div class="hrd-sinking__field-row">
                     <div v-if="rule.conditionAttribute" class="hpd-field">
                       <label class="hpd-field-label">{{ t('hrSinkingRuleMinValue') }}</label>
-                      <input
-                        v-model.number="rule.conditionMinValue" type="number" min="0"
-                        class="hpd-input" @change="saveRuleDraft(rule)"
+                      <NumberField
+                        v-model="rule.conditionMinValue" :decimals="2" :min="0"
+                        :empty-value="0" class="hpd-input" @change="saveRuleDraft(rule)"
                       />
                     </div>
                     <div class="hpd-field">
                       <label class="hpd-field-label">{{ t('hrSinkingRuleQty') }}</label>
-                      <input
-                        v-model.number="rule.mandatoryQty" type="number" min="1"
-                        class="hpd-input" @change="saveRuleDraft(rule)"
+                      <NumberField
+                        v-model="rule.mandatoryQty" :decimals="0" :step="1" :min="1"
+                        :empty-value="1" class="hpd-input" @change="saveRuleDraft(rule)"
                       />
                     </div>
                   </div>
@@ -269,6 +272,7 @@ import {
 import { newId } from '../hrShared'
 import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import HrSupplierFormDrawer from './HrSupplierFormDrawer.vue'
+import NumberField from '@/components/common/NumberField.vue'
 
 // Clés d'attributs SpaceElement.attributes déjà consommées par l'algo de staffing
 // (staffing.service.ts) — mêmes noms (value), pour que la condition d'une règle Sinking
@@ -725,6 +729,7 @@ async function submit() {
 .hpd-field { display: flex; flex-direction: column; gap: 6px; }
 .hpd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hpd-required { color: #ff3131; }
+.hpd-input.number-field__input { text-align: center; }
 .hpd-input {
   width: 100%;
   border-radius: 11px;

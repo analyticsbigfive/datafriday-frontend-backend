@@ -22,6 +22,8 @@ import {
 } from "lucide-vue-next";
 import * as api from "../utils/api";
 import { toast } from "vue-sonner";
+import { formatCurrencyDetailed, formatPercent } from "@/composables/useFormatters";
+import { currentIntlLocale } from "@/composables/useNumberFormat";
 import Checkbox from "../ui/checkbox.vue";
 import Popover from "../ui/popover.vue";
 import PopoverContent from "../ui/popover.vue";
@@ -168,6 +170,9 @@ export default {
   },
 
   methods: {
+    formatCurrencyDetailed,
+    formatPercent,
+
     async loadData() {
       try {
         this.loading = true;
@@ -265,14 +270,19 @@ export default {
         "Total Price (€)",
         "Margin (%)",
       ];
+      // Export compatible Excel selon la langue de l'app : en fr, Excel attend un
+      // CSV « ; »-séparé avec virgule décimale ; sinon on garde « , » et le point.
+      const isFr = currentIntlLocale() === "fr-FR";
+      const colSep = isFr ? ";" : ",";
+      const num = (v) => (isFr ? String(v.toFixed(2)).replace(".", ",") : v.toFixed(2));
       const rows = this.chartData.map((d) => [
         d.date,
-        d.totalCost.toFixed(2),
-        d.totalPrice.toFixed(2),
-        d.margin.toFixed(2),
+        num(d.totalCost),
+        num(d.totalPrice),
+        num(d.margin),
       ]);
 
-      const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join(
+      const csv = [headers.join(colSep), ...rows.map((row) => row.join(colSep))].join(
         "\n",
       );
 
@@ -557,10 +567,10 @@ export default {
             <div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded">
               <div class="text-sm text-gray-600 dark:text-gray-300">Avg Total Cost</div>
               <div class="text-2xl text-gray-900 dark:text-white">
-                €{{
-                  (
+                {{
+                  formatCurrencyDetailed(
                     chartData.reduce((sum, d) => sum + d.totalCost, 0) / chartData.length
-                  ).toFixed(2)
+                  )
                 }}
               </div>
             </div>
@@ -568,10 +578,10 @@ export default {
             <div class="bg-green-50 dark:bg-green-900/30 p-4 rounded">
               <div class="text-sm text-gray-600 dark:text-gray-300">Avg Total Price</div>
               <div class="text-2xl text-gray-900 dark:text-white">
-                €{{
-                  (
+                {{
+                  formatCurrencyDetailed(
                     chartData.reduce((sum, d) => sum + d.totalPrice, 0) / chartData.length
-                  ).toFixed(2)
+                  )
                 }}
               </div>
             </div>
@@ -580,10 +590,11 @@ export default {
               <div class="text-sm text-gray-600 dark:text-gray-300">Avg Margin</div>
               <div class="text-2xl text-gray-900 dark:text-white">
                 {{
-                  (
-                    chartData.reduce((sum, d) => sum + d.margin, 0) / chartData.length
-                  ).toFixed(2)
-                }}%
+                  formatPercent(
+                    chartData.reduce((sum, d) => sum + d.margin, 0) / chartData.length,
+                    2
+                  )
+                }}
               </div>
             </div>
           </div>
@@ -632,10 +643,10 @@ export default {
  
             <div class="text-right">
               <div class="text-sm text-gray-600 dark:text-gray-400">
-                Cost: €{{ snapshot.totalCost.toFixed(2) }}
+                Cost: {{ formatCurrencyDetailed(snapshot.totalCost) }}
               </div>
               <div class="text-sm text-gray-600 dark:text-gray-400">
-                Price: €{{ snapshot.basePrice.toFixed(2) }}
+                Price: {{ formatCurrencyDetailed(snapshot.basePrice) }}
               </div>
               <div
                 :class="[
@@ -645,7 +656,7 @@ export default {
                     : 'text-red-600 dark:text-red-400',
                 ]"
               >
-                Margin: {{ snapshot.margin.toFixed(2) }}%
+                Margin: {{ formatPercent(snapshot.margin, 2) }}
               </div>
             </div>
           </div>

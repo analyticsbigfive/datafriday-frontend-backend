@@ -5,10 +5,21 @@ import {
   IsNumber,
   IsArray,
   IsEnum,
+  IsPositive,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { KitchenType } from '@prisma/client';
+
+/**
+ * Parse une quantité string en tolérant la virgule décimale.
+ * parseFloat("1,5") rendait 1 (troncature silencieuse) — on normalise d'abord.
+ */
+const parseQuantityString = (raw: string): number => {
+  const parsed = parseFloat(raw.trim().replace(',', '.'));
+  return isNaN(parsed) ? 0 : parsed;
+};
 
 /**
  * DTO pour définir une ligne d'ingrédient dans un composant.
@@ -48,15 +59,12 @@ export class MenuComponentIngredientLineDto {
   @Transform(({ value }) => {
     if (value === null || value === undefined) return 0;
     if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      const parsed = parseFloat(value);
-      return isNaN(parsed) ? 0 : parsed;
-    }
+    if (typeof value === 'string') return parseQuantityString(value);
     if (typeof value === 'object' && value !== null) {
       const qty = value.quantity ?? value.numberOfUnits ?? 0;
-      return typeof qty === 'number' ? qty : parseFloat(String(qty)) || 0;
+      return typeof qty === 'number' ? qty : parseQuantityString(String(qty));
     }
-    return parseFloat(String(value)) || 0;
+    return parseQuantityString(String(value));
   })
   @IsNumber({}, { 
     message: '❌ INGRÉDIENT (ingredients) - quantity invalide. ' +
@@ -69,6 +77,7 @@ export class MenuComponentIngredientLineDto {
   @ApiPropertyOptional({ description: 'Nombre d\'unités (alias de quantity pour compatibilité frontend)' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   numberOfUnits?: number;
 
@@ -81,12 +90,14 @@ export class MenuComponentIngredientLineDto {
   @ApiPropertyOptional({ description: 'Coût unitaire (optionnel, peut être recalculé)' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   unitCost?: number;
 
   @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, peut être recalculé)' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   cost?: number;
 }
@@ -145,16 +156,13 @@ export class MenuComponentChildLineDto {
   @Transform(({ value }) => {
     if (value === null || value === undefined) return 0;
     if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      const parsed = parseFloat(value);
-      return isNaN(parsed) ? 0 : parsed;
-    }
+    if (typeof value === 'string') return parseQuantityString(value);
     if (typeof value === 'object' && value !== null) {
       // Frontend sends numberOfUnits, not quantity
       const qty = value.numberOfUnits ?? value.quantity ?? 0;
-      return typeof qty === 'number' ? qty : parseFloat(String(qty)) || 0;
+      return typeof qty === 'number' ? qty : parseQuantityString(String(qty));
     }
-    return parseFloat(String(value)) || 0;
+    return parseQuantityString(String(value));
   })
   @IsNumber({}, { 
     message: '❌ SOUS-COMPOSANT (children) - quantity invalide. ' +
@@ -179,6 +187,7 @@ export class MenuComponentChildLineDto {
   })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   cost?: number;
 }
@@ -215,6 +224,7 @@ export class CreateMenuComponentDto {
   @ApiPropertyOptional({ description: 'Coût unitaire' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   unitCost?: number;
 
@@ -277,15 +287,17 @@ export class CreateMenuComponentDto {
   @IsString()
   componentCategoryId?: string;
 
-  @ApiPropertyOptional({ description: "Nombre d'unités par recette (peut être fractionnaire, ex. rendement de batch en kg)" })
+  @ApiPropertyOptional({ description: "Nombre d'unités par recette (peut être fractionnaire, ex. rendement de batch en kg) — diviseur du coût, doit être > 0" })
   @IsOptional()
   @IsNumber()
+  @IsPositive()
   @Type(() => Number)
   numberOfUnitsRecipe?: number;
 
   @ApiPropertyOptional({ description: 'Nombre d\'unités par carton/emballage de stockage' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   packedUnits?: number;
 

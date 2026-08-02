@@ -9,7 +9,10 @@ services:
     region: frankfurt  # ou oregon
     plan: free  # ou starter ($7/mois) pour plus de ressources
     buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: npx prisma migrate deploy && node dist/main
+    # Pas de "prisma migrate deploy" ici : migrations toujours manuelles (ADR-0002).
+    # prisma/migrations/* est versionné (depuis le 2026-08-02) donc ce serait sinon
+    # un vrai déclenchement, pas un no-op — voir l'ADR pour le détail de l'incident.
+    startCommand: node dist/main
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
@@ -46,7 +49,8 @@ services:
     region: frankfurt
     plan: free
     buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: npx prisma migrate deploy && node dist/worker
+    # Idem service API ci-dessus : pas de migration auto au démarrage (ADR-0002).
+    startCommand: node dist/worker
     envVars:
       - key: NODE_ENV
         value: production

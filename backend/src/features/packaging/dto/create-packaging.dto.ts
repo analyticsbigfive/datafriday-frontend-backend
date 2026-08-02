@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreatePackagingDto {
   @ApiProperty({ description: 'Nom du packaging', example: 'Gobelet carton 33cl' })
@@ -35,12 +35,14 @@ export class CreatePackagingDto {
   @ApiPropertyOptional({ description: 'Coût par unité recette', type: Number, example: 0.12 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   costPerRecipeUnit?: number;
 
   @ApiPropertyOptional({ description: 'Coût par unité d’achat', type: Number, example: 12 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   costPerPurchaseUnit?: number;
 
@@ -52,6 +54,7 @@ export class CreatePackagingDto {
   @ApiPropertyOptional({ description: 'Nombre d’unités d’achat par unité recette', type: Number, example: 100 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   purchaseUnitsPerRecipeUnit?: number;
 

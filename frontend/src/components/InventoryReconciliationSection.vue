@@ -49,8 +49,9 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 
 defineProps({
   items: { type: Array, default: () => [] }, // [{ id, eventId, eventName, createdAt }]
@@ -59,9 +60,9 @@ defineProps({
 })
 defineEmits(['select', 'delete'])
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 // Format de date suivant la langue de l'app (BUG-240) — plus de 'fr-FR' en dur.
-const intlLocale = computed(() => (String(locale.value).startsWith('en') ? 'en-US' : 'fr-FR'))
+const { intlLocale } = useNumberFormat()
 const open = ref(true)
 
 function formatDate(v) {

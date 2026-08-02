@@ -28,12 +28,13 @@ un bug ou ajouter une fonctionnalité sans créer de dette technique ni de régr
 ## Règles qui ne se voient pas dans le code
 
 - **Migrations toujours manuelles** ([ADR-0002](docs/adr/0002_migrations_manuelles_jamais_plateforme.md)) :
-  Render exécute bien `prisma migrate deploy` au démarrage, mais `prisma/migrations/*` est
-  gitignoré donc c'est un **no-op silencieux** — rien n'est jamais réellement appliqué par la
-  plateforme. Toute migration doit être lancée à la
-  main (`prisma migrate deploy`, `.env` ciblé sur l'environnement exact) **avant ou avec** le
-  déploiement du code qui en dépend — jamais après. C'est la cause la plus fréquente d'incidents de
-  déploiement sur ce projet.
+  `prisma/migrations/*` est versionné (depuis le 2026-08-02, pour corriger un drift entre postes),
+  mais `prisma migrate deploy` a été **retiré** des commandes de démarrage (`render.yaml`,
+  `docker-compose.production.yml`, `docker-compose.staging.yml`) — Render/Docker ne migrent donc
+  jamais tout seuls, garde-fou explicite dans le code plutôt qu'accidentel via le gitignore. Toute
+  migration doit toujours être lancée à la main (`prisma migrate deploy`, `.env` ciblé sur
+  l'environnement exact) **avant** de déployer le code qui en dépend. C'est la cause la plus
+  fréquente d'incidents de déploiement sur ce projet.
 - **Ne pas écrire dans les colonnes JSON gelées** (`MenuItem.spacePrices`/`spaceIds`,
   `Config.data`) : elles sont conservées pour compat descendante mais plus lues par le code vivant
   ([ADR-0003](docs/adr/0003_spacemenuitem_source_verite_prix_espace.md)). Écrire dedans réintroduit

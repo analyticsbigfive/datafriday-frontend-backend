@@ -255,7 +255,9 @@ export class StaffingService {
       const result = this.calculator.calculate({
         caPredictif: perf?.revenue ?? 0,
         goalTpe: settings.goalTpe,
-        metresLineaires: num(attrs.metresLineaires),
+        // 2026-08-02, retour utilisateur : la donnée existe déjà sur l'élément (Position >
+        // Largeur) — plus de champ « Mètres linéaires » dédié dans le Builder (StaffingInputsSection).
+        metresLineaires: num((el as any).width),
         ouvertureObligatoire: attrs.ouvertureObligatoire === true,
         peakTxParMin: perf?.transactionsPerMinute ?? 0,
         txParSeconde: num(attrs.txParSeconde) ?? DEFAULT_TX_PAR_SECONDE,
@@ -271,9 +273,16 @@ export class StaffingService {
         nbTireuses: num(attrs.nbTireuses) ?? 0,
         hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('front_food'),
         nbFriteuses: num(attrs.nbFriteuses) ?? 0,
-        nbBurgersPrevus: num(attrs.nbBurgersPrevus) ?? 0,
         nbDinettes: num(attrs.nbDinettes) ?? 0,
-        nbHotdogsPrevus: num(attrs.nbHotdogsPrevus) ?? 0,
+        // 2026-08-02, retour utilisateur : quantités PRÉVUES POUR UN EVENT (pas un attribut fixe
+        // du PDV) — plus de champ Builder dédié. Restent à 0 tant qu'un branchement réel sur les
+        // quantités prédites par Event Predict n'est pas fait ; cela nécessite une classification
+        // burger/hot-dog des MenuItem qui n'existe pas encore dans le modèle (question ouverte,
+        // cf. QUESTIONS_A_BERTRAND.md). SpaceElement.attributes.nbHotdogsPrevus reste néanmoins lu
+        // tel quel comme condition Sinking Rule (cf. applySinkingRules ci-dessous) — indépendant
+        // de ce calcul par paliers.
+        nbBurgersPrevus: 0,
+        nbHotdogsPrevus: 0,
         hasMixology: el.type === 'fnb_bar' || fnbTags.has('mixology'),
         hasKitchenFood: fnbTags.has('kitchen_food'),
       });

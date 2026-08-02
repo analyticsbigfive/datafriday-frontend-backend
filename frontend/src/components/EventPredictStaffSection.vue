@@ -142,11 +142,11 @@
 
             <div class="ep-line-field">
               <label>{{ t('epsRate') }}</label>
-              <input
-                type="number" min="0" step="0.5"
+              <NumberField
+                :decimals="2" :min="0" pad grouping :empty-value="0"
                 class="ep-line-input ep-line-rate"
-                :value="draft(line.id).hourlyRate"
-                @input="setField(line, 'hourlyRate', Number($event.target.value) || 0)"
+                :model-value="draft(line.id).hourlyRate"
+                @change="setField(line, 'hourlyRate', $event)"
               />
             </div>
 
@@ -235,6 +235,8 @@ import { computed, onMounted, reactive, ref, watch, onBeforeUnmount } from 'vue'
 import { useStore } from 'vuex'
 import { t } from '@/i18n'
 import { getHrPersons } from '@/api/endpoints/hr.api'
+import NumberField from '@/components/common/NumberField.vue'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 
 const PATCH_DEBOUNCE_MS = 500
 const STEP = 15 // minutes
@@ -275,7 +277,7 @@ function fmtTime(min) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 function eur(v) {
-  return (Number(v) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+  return formatCurrencyDetailed(Number(v) || 0)
 }
 function initials(name) {
   return String(name || '?').split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
@@ -566,7 +568,7 @@ onMounted(async () => {
 .ep-line-select:focus, .ep-line-input:focus {
   border-color: #ff3131; outline: none; box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.1);
 }
-.ep-line-rate { width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
+.ep-line-rate { width: 76px; text-align: center; font-variant-numeric: tabular-nums; }
 .ep-line-name { width: 150px; }
 .ep-line-slider { flex: 1 1 190px; min-width: 170px; }
 .ep-line-times {

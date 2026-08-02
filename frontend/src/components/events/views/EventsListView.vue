@@ -208,6 +208,7 @@ import { t as translate, getCurrentLocale } from "@/i18n/translations";
 import { Upload, Download, Plus, Trash2, Pencil, Search, Calendar, AlertCircle, X } from "lucide-vue-next";
 import { deleteEvent } from "@/api/endpoints/event.api";
 import { downloadCSV } from "@/utils/csv";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import EventFormDrawer from "@/components/events/drawers/EventFormDrawer.vue";
 import EventDeleteDialog from "@/components/events/dialogs/EventDeleteDialog.vue";
 import CsvImportDrawer from "@/components/events/drawers/CsvImportDrawer.vue";
@@ -400,9 +401,7 @@ export default {
       return d.toLocaleDateString("fr-FR");
     },
     formatCurrency(value) {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return "€0,00";
-      return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      return formatCurrencyDetailed(value);
     },
     // Un event reste ré-importable tel quel : les en-têtes reprennent les libellés que
     // CsvImportDrawer.vue auto-détecte (aliases d'`eventFields`), et l'ordre des colonnes

@@ -35,7 +35,7 @@
       <div class="mb-2">
         <div class="d-flex justify-space-between mb-1">
           <span class="text-caption text-medium-emphasis">{{ t('sfwCollecting') }}</span>
-          <span class="text-caption text-medium-emphasis">{{ jobData.totalCollected.toLocaleString('fr-FR') }}</span>
+          <span class="text-caption text-medium-emphasis">{{ formatNumber(jobData.totalCollected) }}</span>
         </div>
         <v-progress-linear
           :model-value="collectPct"
@@ -50,7 +50,7 @@
       <div class="mb-3">
         <div class="d-flex justify-space-between mb-1">
           <span class="text-caption text-medium-emphasis">{{ t('sfwInserting') }}</span>
-          <span class="text-caption text-medium-emphasis">{{ jobData.totalInserted.toLocaleString('fr-FR') }} / {{ jobData.totalCollected.toLocaleString('fr-FR') }}</span>
+          <span class="text-caption text-medium-emphasis">{{ formatNumber(jobData.totalInserted) }} / {{ formatNumber(jobData.totalCollected) }}</span>
         </div>
         <v-progress-linear
           :model-value="insertPct"
@@ -61,7 +61,7 @@
       </div>
 
       <div v-if="jobData.status === 'COMPLETED'" class="text-caption text-success">
-        {{ t('sfwDoneCount').replace('{n}', jobData.totalInserted.toLocaleString('fr-FR')) }}
+        {{ t('sfwDoneCount').replace('{n}', formatNumber(jobData.totalInserted)) }}
       </div>
       <div v-else-if="jobData.status === 'FAILED'" class="text-caption text-error">
         {{ jobData.errorMessage || t('intgSyncProgSyncFailed') }}
@@ -76,6 +76,7 @@
 <script>
 import { getWeezeventJobStatus } from '@/api/endpoints/aggregation.api.js'
 import { useI18n } from '@/i18n/useI18n'
+import { formatNumber } from '@/composables/useFormatters'
 
 const STORAGE_KEY = 'weezevent_active_job_id'
 const POLL_INTERVAL = 5000
@@ -85,7 +86,7 @@ export default {
   name: 'SyncJobFloatingWidget',
   setup() {
     const { t } = useI18n()
-    return { t }
+    return { t, formatNumber }
   },
   data() {
     return {

@@ -6,7 +6,7 @@
     <div class="text-center">
       <div class="text-sm text-gray-500 dark:text-gray-400">Revenue</div>
       <div class="font-semibold text-green-600 dark:text-green-400">
-        €{{ Math.round(displayRevenue).toLocaleString('fr-FR') }}
+        {{ formatCurrency(displayRevenue) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.revenue > 0 && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="revenueChange > 0" class="w-3 h-3 text-green-700 dark:text-green-300" />
@@ -21,7 +21,7 @@
     <div class="text-center">
       <div class="text-sm text-gray-500 dark:text-gray-400">Avg/Event</div>
       <div class="font-semibold text-orange-600 dark:text-orange-400">
-        €{{ Math.round(displayAvgRevenuePerEvent).toLocaleString('fr-FR') }}
+        {{ formatCurrency(displayAvgRevenuePerEvent) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.validEventCount > 0 && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="avgEventChange > 0" class="w-3 h-3 text-green-700 dark:text-green-300" />
@@ -41,7 +41,7 @@
     >
       <div class="text-sm text-gray-500 dark:text-gray-400">Cost</div>
       <div class="font-semibold text-red-600 dark:text-red-400">
-        €{{ Math.round(displayCost).toLocaleString('fr-FR') }}
+        {{ formatCurrency(displayCost) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.cost > 0 && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="costChange > 0" class="w-3 h-3 text-red-700 dark:text-red-300" />
@@ -61,7 +61,7 @@
     >
       <div class="text-sm text-gray-500 dark:text-gray-400">Transac.</div>
       <div class="font-semibold text-blue-600 dark:text-blue-400">
-        {{ displayTransactions.toLocaleString('fr-FR') }}
+        {{ formatNumber(displayTransactions) }}
       </div>
       <div v-if="getPreviousPeriodRange && (previousPeriodMetrics.totalTransactions > 0 || displayTransactions > 0) && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="transactionsChange > 0" class="w-3 h-3 text-green-700 dark:text-green-300" />
@@ -81,7 +81,7 @@
     >
       <div class="text-sm text-gray-500 dark:text-gray-400">Avg/Transac.</div>
       <div class="font-semibold text-purple-600 dark:text-purple-400">
-        €{{ displayAvgPerTransaction.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+        {{ formatCurrencyDetailed(displayAvgPerTransaction) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.totalTransactions > 0 && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="avgTransactionChange > 0" class="w-3 h-3 text-green-700 dark:text-green-300" />
@@ -101,7 +101,7 @@
     >
       <div class="text-sm text-gray-500 dark:text-gray-400">Attendees</div>
       <div class="font-semibold text-blue-600 dark:text-blue-400">
-        {{ totalTicketsScanned.toLocaleString('fr-FR') }}
+        {{ formatNumber(totalTicketsScanned) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.totalTicketsScanned > 0" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="attendeesChange > 0" class="w-3 h-3 text-green-700 dark:text-green-300" />
@@ -121,7 +121,7 @@
     >
       <div class="text-sm text-gray-500 dark:text-gray-400">Transf. Rate</div>
       <div class="font-semibold text-teal-600 dark:text-teal-400">
-        {{ totalTicketsScanned > 0 ? `${((displayTransactions / totalTicketsScanned) * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : '0.0%' }}
+        {{ totalTicketsScanned > 0 ? formatPercent((displayTransactions / totalTicketsScanned) * 100, 1) : formatPercent(0, 1) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.totalTicketsScanned > 0 && previousPeriodMetrics.totalTransactions > 0 && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="transformationRateChange > 0" class="w-3 h-3 text-green-700 dark:text-green-300" />
@@ -140,7 +140,7 @@
     >
       <div class="text-sm text-gray-500 dark:text-gray-400">PerCap</div>
       <div class="font-semibold text-pink-600 dark:text-pink-400">
-        €{{ displayPerCapita.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+        {{ formatCurrencyDetailed(displayPerCapita) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.totalTicketsScanned > 0 && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="perCapChange > 0" class="w-3 h-3 text-green-700 dark:text-green-300" />
@@ -154,6 +154,7 @@
 
 <script>
 import { ArrowUp, ArrowDown, Minus } from "lucide-vue-next";
+import { formatCurrency, formatCurrencyDetailed, formatNumber, formatPercent } from "@/composables/useFormatters";
 export default {
   name: "MetricsContent",
   components: {
@@ -247,6 +248,10 @@ export default {
     },
   },
   methods: {
+    formatCurrency,
+    formatCurrencyDetailed,
+    formatNumber,
+    formatPercent,
     handleCostChartToggle() {
       this.$emit('toggle-cost-chart');
       if (!this.showCostChart) {

@@ -159,7 +159,7 @@
 <script>
 import { Check, ChevronDown, ChevronRight, Package, Plus, Search, Truck, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
-import { formatCurrency } from '@/composables/useFormatters';
+import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'PackagingPickerDrawer',
@@ -171,7 +171,7 @@ export default {
   emits: ['update:modelValue', 'add'],
   setup() {
     const { t } = useI18n();
-    return { t, formatCurrency };
+    return { t, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {

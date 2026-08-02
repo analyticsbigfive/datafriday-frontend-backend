@@ -296,7 +296,7 @@ export class AggregationService {
               lsm."spaceElementId",
               SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
               COUNT(ti."id")::int,
-              SUM(ti."quantity")::int,
+              SUM(ti."quantity")::float8,
               NOW(),
               NOW()
             FROM "WeezeventTransaction" t
@@ -335,7 +335,7 @@ export class AggregationService {
               ${eventDate}::date,
               ti."productId",
               SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
-              SUM(ti."quantity")::int,
+              SUM(ti."quantity")::float8,
               NOW(),
               NOW()
             FROM "WeezeventTransaction" t

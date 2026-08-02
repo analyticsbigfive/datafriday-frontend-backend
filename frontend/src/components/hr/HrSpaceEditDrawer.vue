@@ -23,11 +23,13 @@
             <div class="hsd-section">
               <div class="hsd-field mb-3">
                 <label class="hsd-field-label" for="hr-edit-goal">{{ t('hrColGoalPerTpe') }}</label>
-                <input id="hr-edit-goal" v-model.number="form.goalPerTpe" type="number" min="0" step="10" class="hsd-input" />
+                <!-- empty-value laissé à null (défaut) : champ vidé = pas de valeur dédiée
+                     (cf. commentaire d'en-tête + normalize()). -->
+                <NumberField id="hr-edit-goal" v-model="form.goalPerTpe" :decimals="2" :step="10" :min="0" pad grouping class="hsd-input" />
               </div>
               <div class="hsd-field">
                 <label class="hsd-field-label" for="hr-edit-staff">{{ t('hrColStaffPerZone') }}</label>
-                <input id="hr-edit-staff" v-model.number="form.staffPerZoneManager" type="number" min="0" step="1" class="hsd-input" />
+                <NumberField id="hr-edit-staff" v-model="form.staffPerZoneManager" :decimals="0" :step="1" :min="0" class="hsd-input" />
               </div>
               <div class="hsd-hint">{{ t('hrEditSpaceHint') }}</div>
             </div>
@@ -52,6 +54,7 @@ import { reactive, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { Check, Pencil, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
+import NumberField from '@/components/common/NumberField.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -174,6 +177,7 @@ function submit() {
 .hsd-field { display: flex; flex-direction: column; gap: 6px; }
 .hsd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hsd-hint { font-size: var(--fs-xs); color: #9ca3af; margin-top: 4px; }
+.hsd-input.number-field__input { text-align: center; }
 .hsd-input {
   width: 100%;
   border-radius: 11px;

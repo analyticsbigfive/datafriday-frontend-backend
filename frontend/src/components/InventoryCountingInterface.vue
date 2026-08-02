@@ -151,13 +151,13 @@
           <div class="si-count-field">
             <v-text-field
               :model-value="getCount(shop.element.id, item.id).packedUnits"
-              type="number"
-              min="0"
+              type="text"
+              inputmode="numeric"
               :label="packedUnitsLabel(item)"
               density="compact"
               variant="outlined"
               hide-details
-              @update:model-value="$emit('change-value', shop.element.id, item.id, 'packedUnits', $event)"
+              @update:model-value="$emit('change-value', shop.element.id, item.id, 'packedUnits', parseLocaleNumber($event))"
             >
               <template #prepend-inner>
                 <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">mdi-minus</v-icon>
@@ -179,15 +179,13 @@
           <div class="si-count-field">
             <v-text-field
               :model-value="getCount(shop.element.id, item.id).looseUnits"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
               inputmode="decimal"
               :label="t('invCountLooseUnits')"
               density="compact"
               variant="outlined"
               hide-details
-              @update:model-value="$emit('change-value', shop.element.id, item.id, 'looseUnits', $event)"
+              @update:model-value="$emit('change-value', shop.element.id, item.id, 'looseUnits', parseLocaleNumber($event))"
             >
               <template #prepend-inner>
                 <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">mdi-minus</v-icon>
@@ -240,6 +238,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
+import { clampNumber, parseLocaleNumber, stepBy } from '@/utils/number'
 
 const { t } = useI18n()
 
@@ -357,11 +356,11 @@ function uncountedFor(s) {
   return Math.max(0, totalItems - countedFor(s))
 }
 
-// Steppers +/- : lit la valeur courante via getCount, clamp ≥ 0, ré-émet.
-// `looseUnits` peut être décimal → pas de 1, sinon entier.
+// Steppers +/- : lit la valeur courante via getCount (peut contenir "2,5"),
+// ±1 arrondi à 2 décimales, clamp ≥ 0, ré-émet.
 function stepValue(shopId, itemId, field, delta) {
-  const cur = Number(props.getCount(shopId, itemId)?.[field]) || 0
-  const next = Math.max(0, Math.round((cur + delta) * 100) / 100)
+  const cur = parseLocaleNumber(props.getCount(shopId, itemId)?.[field]) ?? 0
+  const next = clampNumber(stepBy(cur, delta, 2), 0)
   emit('change-value', shopId, itemId, field, String(next))
 }
 </script>

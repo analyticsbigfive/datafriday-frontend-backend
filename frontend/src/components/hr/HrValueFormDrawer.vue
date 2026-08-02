@@ -34,12 +34,13 @@
             <div class="hsd-section">
               <div class="hsd-field">
                 <label class="hsd-field-label" for="hr-value">{{ valueLabel }} <span class="hsd-required">*</span></label>
-                <input
+                <NumberField
                   id="hr-value"
-                  v-model.number="form.value"
-                  type="number"
-                  min="0"
-                  :step="kind === 'goal' ? '10' : '1'"
+                  v-model="form.value"
+                  :decimals="2"
+                  :step="kind === 'goal' ? 10 : 1"
+                  :min="0"
+                  :empty-value="0"
                   class="hsd-input"
                 />
               </div>
@@ -116,6 +117,7 @@ import { reactive, ref, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { AlertCircle, Check, Target, UserCog, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
+import NumberField from '@/components/common/NumberField.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -324,6 +326,7 @@ function submit() {
 .hsd-field { display: flex; flex-direction: column; gap: 6px; }
 .hsd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hsd-required { color: #ff3131; }
+.hsd-input.number-field__input { text-align: center; }
 .hsd-input {
   width: 100%;
   border-radius: 11px;

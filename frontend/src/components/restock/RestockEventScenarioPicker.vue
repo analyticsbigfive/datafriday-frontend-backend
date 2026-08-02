@@ -75,7 +75,7 @@
                 </div>
                 <div v-if="sc.units > 0" class="resp-scenario-stat-row">
                   <span class="resp-muted">{{ t('srScenarioUnits') }}</span>
-                  <span class="resp-scenario-stat-val">{{ sc.units.toLocaleString('fr-FR') }}</span>
+                  <span class="resp-scenario-stat-val">{{ formatNumber(sc.units) }}</span>
                 </div>
               </div>
             </div>
@@ -94,6 +94,7 @@
 
 <script setup>
 import { useI18n } from '@/i18n/useI18n'
+import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 
 const { t } = useI18n()
 
@@ -113,8 +114,7 @@ function isSelected(id) {
 }
 
 function formatRevenue(n) {
-  const v = Number(n) || 0
-  return `€${v.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}`
+  return formatCurrency(Number(n) || 0)
 }
 </script>
 

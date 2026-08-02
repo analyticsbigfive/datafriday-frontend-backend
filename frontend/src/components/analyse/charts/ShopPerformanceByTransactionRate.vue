@@ -158,6 +158,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 const { t } = useI18n()
 
@@ -200,10 +201,10 @@ function avgRev(shop) {
   return shop.eventCount > 0 ? shop.totalRevenue / shop.eventCount : 0
 }
 function formatNumber(v) {
-  return Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v || 0)
+  return Intl.NumberFormat(currentIntlLocale(), { maximumFractionDigits: 0 }).format(v || 0)
 }
 function formatInt(v) {
-  return Intl.NumberFormat('fr-FR').format(Math.round(v || 0))
+  return Intl.NumberFormat(currentIntlLocale()).format(Math.round(v || 0))
 }
 function isSelected(shop) {
   return (props.selectedShopIds || []).includes(shop.elementId)

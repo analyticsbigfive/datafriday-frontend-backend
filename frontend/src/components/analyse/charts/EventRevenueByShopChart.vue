@@ -143,6 +143,8 @@ import { parseEventDate, formatDateShort } from '@/utils/dateFr'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 import { useI18n } from '@/i18n/useI18n'
 import { useTheme } from 'vuetify'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
+import { formatCurrency } from '@/composables/useFormatters'
 
 registerChartJs()
 
@@ -464,17 +466,14 @@ function barColorFor(eventEntry, idx, key) {
 }
 
 function formatEuro(v) {
-  return (
-    '€' +
-    Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v || 0)
-  )
+  return formatCurrency(v || 0)
 }
 
 function formatShare(value, total) {
   const n = Number(value) || 0
   const t = Number(total) || 0
   if (!t) return '0%'
-  return Intl.NumberFormat('fr-FR', {
+  return Intl.NumberFormat(currentIntlLocale(), {
     style: 'percent',
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
@@ -710,7 +709,7 @@ const chartOptions = computed(() => ({
       stacked: true,
       ticks: {
         callback: (v) =>
-          '€' + Intl.NumberFormat('fr-FR', { notation: 'compact' }).format(v),
+          '€' + Intl.NumberFormat(currentIntlLocale(), { notation: 'compact' }).format(v),
         font: { size: 11 },
       },
       grid: { color: '#EEEEEE' },
@@ -722,7 +721,7 @@ const chartOptions = computed(() => ({
       position: 'right',
       ticks: {
         callback: (v) =>
-          '€' + Intl.NumberFormat('fr-FR', { notation: 'compact' }).format(v),
+          '€' + Intl.NumberFormat(currentIntlLocale(), { notation: 'compact' }).format(v),
         font: { size: 11 },
       },
       grid: { display: false },

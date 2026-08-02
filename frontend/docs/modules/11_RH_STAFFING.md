@@ -711,3 +711,18 @@ départements). Même mécanisme de PATCH que `StorageShopsSection.vue`
 toujours fusionné jamais remplacé). Aucun changement backend : `SpaceElement.attributes` est un
 JSON libre déjà lu tel quel par le calculateur, rien à migrer.
 
+**Révision du 2026-08-02 (retour utilisateur)** : le « tout dans le Builder » du 2026-08-01
+partiellement revu — seuls les équipements **physiques** du PDV (indépendants de l'event) restent
+saisis dans `StaffingInputsSection.vue` : `nbTireuses`, `nbFriteuses`, `nbDinettes`,
+`ouvertureObligatoire`, `hasResponsablePdv` (+ `txParSeconde`, laissé en l'état pour l'instant).
+Retirés du Builder :
+- `metresLineaires` — redondant avec `SpaceElement.width` (déjà saisi dans Position > Largeur) ;
+  `staffing.service.ts::generate()` lit désormais `el.width` directement, plus de champ dédié.
+- `nbBurgersPrevus` / `nbHotdogsPrevus` — ce sont des quantités **prévues pour un event**, pas des
+  attributs fixes de l'espace (le suffixe "Prevus" le disait déjà, cf. ci-dessus). `generate()` les
+  passe désormais à `0` en dur ; les rebrancher sur une vraie prévision par event nécessite une
+  classification burger/hot-dog des `MenuItem` qui n'existe pas encore dans le modèle — question
+  ouverte, voir [`QUESTIONS_A_BERTRAND.md`](../QUESTIONS_A_BERTRAND.md) #47. `nbHotdogsPrevus`
+  reste néanmoins une valeur de condition Sinking Rule valide (une règle en base en dépend) — sa
+  valeur déjà stockée en base continue de fonctionner, seulement plus éditable via le Builder.
+

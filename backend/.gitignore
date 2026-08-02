@@ -43,10 +43,6 @@ lerna-debug.log*
 .env.*.local
 envFiles/
 
-# Prisma
-prisma/migrations/*
-!prisma/migrations/.gitkeep
-
 # Docker
 docker-compose.override.yml
 
