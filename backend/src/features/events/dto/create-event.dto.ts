@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, IsBoolean, IsArray, MaxLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, IsNumber, Min, IsBoolean, IsArray, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateEventDto {
@@ -36,4 +36,13 @@ export class CreateEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString() performerName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() sponsor?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() openingActName?: string;
+  // Revenue tracking — normalement calculé par le pipeline d'agrégation (jamais écrit
+  // automatiquement à ce jour), mais EventFormDrawer.vue expose ces 4 champs en saisie
+  // manuelle depuis l'origine ; le DTO ne les déclarait pas, ce qui faisait échouer TOUT
+  // le save (whitelist/forbidNonWhitelisted) dès que l'un d'eux était non-null — le cas
+  // pour tout event déjà rapproché de Weezevent (BUG-270).
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() @Min(0) revenue?: number;
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) transactionCount?: number;
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() @Min(0) avgSpendPerTx?: number;
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() @Min(0) perCapita?: number;
 }

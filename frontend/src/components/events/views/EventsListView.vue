@@ -552,7 +552,11 @@ export default {
         const spaceFromId = this.spacesById.get(e.spaceId);
         const spaceName = e.spaceName || spaceFromId?.name || e.space || e.location || "-";
         const eventDate = e.eventDate || e.date || e.startsAt || e.startDate;
-        const eventStartDate = e.eventStartDate || e.startDate || '';
+        // Repli sur eventDate : des événements créés avant que ce champ ne soit envoyé à la
+        // création (ex. import CSV, BUG-270) ont eventStartDate=null en base — sans ce repli,
+        // la colonne restait vide tant que l'événement n'était pas ouvert puis resauvegardé
+        // (EventFormDrawer, lui, fait déjà ce repli à l'édition).
+        const eventStartDate = e.eventStartDate || e.startDate || eventDate || '';
         const eventEndDate = e.eventEndDate || e.endDate || '';
         const eventEndTime = e.eventEndTime || '';
         const name = e.name || e.eventName || "-";

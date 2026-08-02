@@ -1145,12 +1145,14 @@ export class SpacesService {
     spaceId: string,
     uniqueIds: string[],
     tenantId: string,
-  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql } | null> {
+  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string } | null> {
     // All independent queries run in parallel: ownership check, event dates (tried
     // against both DataFriday Event and WeezeventEvent so the frontend can pass
-    // either a DataFriday UUID or a WeezeventEvent CUID), integration scope, and
-    // shop IDs resolved from plan floors + forecourt — none of this varies per event.
-    const [, datafridayEvents, weezeventEvents, locationMapping, shopIds] = await Promise.all([
+    // either a DataFriday UUID or a WeezeventEvent CUID), integration scope,
+    // shop IDs resolved from plan floors + forecourt, and the space's timezone
+    // (used to display transaction hours in venue-local time, see BUG-270) —
+    // none of this varies per event.
+    const [, datafridayEvents, weezeventEvents, locationMapping, shopIds, spaceRow] = await Promise.all([
       this.findOne(spaceId, tenantId),
       this.prisma.event.findMany({
         where: { id: { in: uniqueIds }, tenantId, spaceId },
@@ -1165,7 +1167,12 @@ export class SpacesService {
         select: { salesLocationId: true },
       }),
       this.resolveShopIdsForSpace(spaceId, tenantId),
+      this.prisma.space.findFirst({
+        where: { id: spaceId, tenantId },
+        select: { timezone: true },
+      }),
     ]);
+    const spaceTimezone = spaceRow?.timezone || 'Europe/Paris';
 
     if (shopIds.length === 0) return null;
 
@@ -1220,7 +1227,7 @@ export class SpacesService {
       ', ',
     );
 
-    return { integrationClause, shopScopeClause, valuesSql };
+    return { integrationClause, shopScopeClause, valuesSql, spaceTimezone };
   }
 
   /**
@@ -1241,16 +1248,25 @@ export class SpacesService {
 
     const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
     if (!scope) return out;
-    const { integrationClause, shopScopeClause, valuesSql } = scope;
+    const { integrationClause, shopScopeClause, valuesSql, spaceTimezone } = scope;
 
     // BUG-108 : contrairement au pipeline d'agrégation périodique (executeProcessEvents,
     // exclu depuis BUG-028), cette lecture directe de WeezeventTransaction ne filtrait pas
     // deletedAt — une transaction annulée après un retry webhook restait comptée ici.
+    //
+    // BUG-270 : "transactionDate" est un TIMESTAMP sans fuseau, mais sa valeur littérale
+    // est du vrai UTC (vérifié en comparant avec rawData.created renvoyé par Weezevent,
+    // suffixé 'Z'). Sans conversion, TO_CHAR affichait ces chiffres UTC bruts comme si
+    // c'était déjà l'heure locale du lieu — correct par coïncidence pour un espace UTC+0
+    // (Abidjan), mais décalé de +2h pour un espace Europe/Paris en été (cas de la quasi-
+    // totalité des espaces réels, tous des clubs français). `AT TIME ZONE 'UTC'` réinterprète
+    // la valeur naïve comme un instant UTC réel (timestamptz), puis `AT TIME ZONE ${tz}`
+    // la reprojette en heure murale locale de l'espace.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
       WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql})
       SELECT
         ev."eventId"                                                      AS "eventId",
-        TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')    AS minute,
+        TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'HH24:MI') AS minute,
         COALESCE(mem."spaceElementId", t."locationId")                    AS "shopId",
         COALESCE(se.name, t."locationName", t."locationId")               AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
@@ -1292,7 +1308,7 @@ export class SpacesService {
         ON pc.id = mi."categoryId"
       WHERE ${shopScopeClause}
       GROUP BY
-        ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
+        ev."eventId", DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}),
         COALESCE(mem."spaceElementId", t."locationId"),
         COALESCE(se.name, t."locationName", t."locationId"),
         se.type, se.attributes,
@@ -1361,7 +1377,7 @@ export class SpacesService {
 
     const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
     if (!scope) return out;
-    const { integrationClause, shopScopeClause, valuesSql } = scope;
+    const { integrationClause, shopScopeClause, valuesSql, spaceTimezone } = scope;
 
     // CTE `tx` : UNE ligne par transaction, avec ses deux ensembles de libellés.
     // `ARRAY_AGG(DISTINCT … ORDER BY …)` garantit que « Bières, Consigne » et
@@ -1376,7 +1392,7 @@ export class SpacesService {
         SELECT
           t.id                                                            AS "txId",
           ev."eventId"                                                    AS "eventId",
-          TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')   AS minute,
+          TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'HH24:MI') AS minute,
           COALESCE(mem."spaceElementId", t."locationId")                  AS "shopId",
           COALESCE(se.name, t."locationName", t."locationId")             AS "shopName",
           COALESCE(se.attributes::jsonb->>'originalType', se.type::text)  AS "shopType",
@@ -1416,7 +1432,7 @@ export class SpacesService {
           ON pc.id = mi."categoryId"
         WHERE ${shopScopeClause}
         GROUP BY
-          t.id, ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
+          t.id, ev."eventId", DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}),
           COALESCE(mem."spaceElementId", t."locationId"),
           COALESCE(se.name, t."locationName", t."locationId"),
           se.type, se.attributes
