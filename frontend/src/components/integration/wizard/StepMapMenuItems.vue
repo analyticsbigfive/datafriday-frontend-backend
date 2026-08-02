@@ -179,7 +179,7 @@
               <span class="smi-row__name-text">{{ item.name }}</span>
               <span v-if="item.basePrice != null" class="smi-row__price">
                 {{ fmtPrice(productHt(item)) }} <span class="smi-row__price-tag">{{ t('smmHtTag') }}</span>
-                <span class="smi-row__price-ttc">{{ Number(item.basePrice).toFixed(2) }} € {{ t('smmTtcTag') }}</span>
+                <span class="smi-row__price-ttc">{{ fmtPrice(item.basePrice) }} {{ t('smmTtcTag') }}</span>
               </span>
 
             </div>
@@ -288,12 +288,6 @@
         </div>
       </div>
 
-      <!-- ── Error bar ── -->
-      <div v-if="error" class="smi-infobar smi-infobar--error smi-mt-3">
-        <AlertTriangle :size="14" style="flex-shrink: 0;" />
-        <span>{{ error }}</span>
-      </div>
-
       <!-- ── Blocking warning ── -->
       <div v-if="!loading && unmappedCount > 0" class="smi-infobar smi-infobar--warn smi-mt-2">
         <AlertTriangle :size="14" style="flex-shrink: 0;" />
@@ -311,18 +305,27 @@
     </template>
 
     <!-- ── Footer (teleported) ── -->
+    <!-- BUG-273 : l'erreur principale est téléportée avec le bouton (même Teleport que le
+         footer) pour rester visible dans la zone fixe .iw-footer, au lieu d'être perdue dans
+         le corps scrollable .iw-body du wizard parent (IntegrationWizard.vue). -->
     <Teleport :to="footerTarget" :disabled="!footerTarget">
-      <div class="smi-footer-actions">
-        <span></span>
-        <button
-          class="smi-btn smi-btn--primary"
-          :disabled="mappedCount === 0 || hasPendingSaves"
-          @click="handleSave"
-        >
-          <v-progress-circular v-if="hasPendingSaves" indeterminate size="14" width="2" color="white" />
-          <span v-else>{{ t('smmNext') }}</span>
-          <ChevronRight :size="16" />
-        </button>
+      <div class="smi-footer-teleport">
+        <div v-if="error" class="smi-infobar smi-infobar--error smi-footer-error">
+          <AlertTriangle :size="14" style="flex-shrink: 0;" />
+          <span>{{ error }}</span>
+        </div>
+        <div class="smi-footer-actions">
+          <span></span>
+          <button
+            class="smi-btn smi-btn--primary"
+            :disabled="mappedCount === 0 || hasPendingSaves"
+            @click="handleSave"
+          >
+            <v-progress-circular v-if="hasPendingSaves" indeterminate size="14" width="2" color="white" />
+            <span v-else>{{ t('smmNext') }}</span>
+            <ChevronRight :size="16" />
+          </button>
+        </div>
       </div>
     </Teleport>
 
@@ -405,11 +408,13 @@
               <label class="smi-qc-label">{{ t('smmCreateLabelPriceTtc') }}</label>
               <div class="smi-qc-input-wrap">
                 <span class="smi-qc-prefix">€</span>
-                <input
-                  v-model.number="quickCreateForm.basePrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <NumberField
+                  v-model="quickCreateForm.basePrice"
+                  :decimals="2"
+                  :min="0"
+                  pad
+                  grouping
+                  :empty-value="0"
                   class="smi-qc-input smi-qc-input--prefixed"
                   :placeholder="t('smmCreatePlaceholderPrice')"
                 />
@@ -418,11 +423,12 @@
             <div class="smi-qc-field-wrap">
               <label class="smi-qc-label">{{ t('smmCreateLabelVat') }}</label>
               <div class="smi-qc-input-wrap">
-                <input
-                  v-model.number="quickCreateForm.vatRate"
-                  type="number"
-                  min="0"
-                  step="0.1"
+                <NumberField
+                  v-model="quickCreateForm.vatRate"
+                  :decimals="2"
+                  :step="0.1"
+                  :min="0"
+                  :max="100"
                   class="smi-qc-input smi-qc-input--suffixed"
                   :placeholder="t('smmCreateVatPlaceholder')"
                 />
@@ -444,13 +450,13 @@
               <label class="smi-qc-label">{{ t('smmCreateLabelDiscountValue') }}</label>
               <div class="smi-qc-input-wrap">
                 <span class="smi-qc-prefix">{{ quickCreateForm.discountType === 'amount' ? '€' : '%' }}</span>
-                <input
-                  v-model.number="quickCreateForm.discountValue"
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <NumberField
+                  v-model="quickCreateForm.discountValue"
+                  :decimals="2"
+                  :step="0.01"
+                  :min="0"
+                  :empty-value="0"
                   class="smi-qc-input smi-qc-input--prefixed"
-                  placeholder="0"
                 />
               </div>
             </div>
@@ -699,7 +705,7 @@
           >
             <div class="smi-suggest-row__product">
               <span class="smi-suggest-row__name">{{ s.productName }}</span>
-              <span v-if="s.productPrice != null" class="smi-suggest-row__price">{{ Number(s.productPrice).toFixed(2) }} €</span>
+              <span v-if="s.productPrice != null" class="smi-suggest-row__price">{{ fmtPrice(s.productPrice) }}</span>
             </div>
             <div class="smi-suggest-row__arrow">→</div>
             <div class="smi-suggest-row__item">
@@ -795,6 +801,8 @@ import { getProductMappings, getProductMappingStats, createProductMapping, delet
 import { createProductType, createProductCategory } from '@/api/endpoints/product.api'
 import { useI18n } from '@/i18n/useI18n'
 import { htFromTtc } from '@/utils/price'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import NumberField from '@/components/common/NumberField.vue'
 import { UtensilsCrossed, Check, X, Search, Zap, Plus, ChevronRight, AlertTriangle, Tag, History, Eye } from 'lucide-vue-next'
 import {
   findBestMatch as matchBestMenuItem,
@@ -812,7 +820,7 @@ export default {
     footerTarget: { type: [Object, String], default: null },
   },
 
-  components: { UtensilsCrossed, Check, X, Search, Zap, Plus, ChevronRight, AlertTriangle, Tag, History, Eye },
+  components: { UtensilsCrossed, Check, X, Search, Zap, Plus, ChevronRight, AlertTriangle, Tag, History, Eye, NumberField },
 
   emits: ['completed'],
 
@@ -1219,8 +1227,7 @@ export default {
     // ── Prix Weezevent → menu item (+ historique) ───────────────────────────
 
     fmtPrice(value) {
-      const n = Number(value)
-      return Number.isFinite(n) ? `${n.toFixed(2)} €` : '—'
+      return formatCurrencyDetailed(value)
     },
 
     pricesEqual(a, b) {
@@ -1691,7 +1698,7 @@ export default {
     },
 
     fmtMoney(v) {
-      return v == null ? '—' : `${Number(v).toFixed(2)} €`
+      return formatCurrencyDetailed(v)
     },
 
     async submitQuickCreate() {
@@ -2393,6 +2400,10 @@ export default {
 
 /* ── Footer actions ── */
 .smi-footer-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* BUG-273 : conteneur du Teleport footer — colonne pour empiler l'erreur au-dessus du bouton,
+   dans la zone fixe du wizard (jamais dans le corps scrollable). */
+.smi-footer-teleport { display: flex; flex-direction: column; align-items: stretch; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.smi-footer-error { margin: 0; }
 
 /* ── Quick-create dialog ── */
 .smi-qc-dialog {
@@ -2447,6 +2458,7 @@ export default {
 .smi-qc-dialog--dark .smi-qc-label { color: #d1d5db; }
 
 /* Form floating input */
+.smi-qc-input.number-field__input { text-align: center; }
 .smi-qc-input {
   border-radius: 10px !important; border: 1.5px solid #e5e7eb !important; font-size: 13.5px;
   background: #f9fafb;

@@ -115,6 +115,7 @@
       :item-name="deleteTarget?.positionName || ''"
       :title="t('hrDeletePositionTitle')"
       :loading="deleting"
+      :error="deleteError"
       @confirm="confirmDelete"
     />
 
@@ -138,6 +139,7 @@ import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import * as hrApi from '@/utils/hrApi'
 import { getSpacesLight } from '@/api/endpoints/space.api'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
@@ -220,7 +222,7 @@ function formatRate(rate) {
   if (rate === null || rate === undefined || rate === '') return '—'
   const n = Number(rate)
   if (Number.isNaN(n)) return '—'
-  return `${n.toLocaleString('fr-FR')} / h`
+  return `${formatCurrencyDetailed(n)} / h`
 }
 
 const filtered = computed(() => {
@@ -250,18 +252,25 @@ function openEdit(position) {
 const deleteOpen = ref(false)
 const deleteTarget = ref(null)
 const deleting = ref(false)
+const deleteError = ref('')
 function onDelete(position) {
   deleteTarget.value = position
+  deleteError.value = ''
   deleteOpen.value = true
 }
 async function confirmDelete() {
   if (!deleteTarget.value?.id) return
   deleting.value = true
+  deleteError.value = ''
   try {
     await hrApi.deleteStaffPosition(deleteTarget.value.id)
     deleteOpen.value = false
     deleteTarget.value = null
     await load()
+  } catch (e) {
+    // BUG-273 : un échec de suppression restait auparavant totalement silencieux (aucun
+    // catch, aucun état d'erreur remonté à HrDeleteDialog).
+    deleteError.value = e?.response?.data?.message || e?.message || t('hrDeleteError')
   } finally {
     deleting.value = false
   }

@@ -66,11 +66,28 @@ const HEADER_SYNONYMS: Record<CsvField, string[]> = {
 const normalizeHeader = (h: string) =>
     h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
-/** Nombre tolérant : virgule décimale française, espaces/insécables de milliers. */
-function parseAmount(raw: string): number {
+/**
+ * Nombre tolérant : virgule décimale française, espaces/insécables de milliers,
+ * et formats mixtes "1.234,56" / "1,234.56" (le DERNIER séparateur est le
+ * décimal, l'autre les milliers). Avant : `.replace(',', '.')` ne traitait que
+ * la première virgule et "1.234,56" devenait 1.23456.
+ */
+export function parseAmount(raw: string): number {
     if (raw === null || raw === undefined) return NaN;
-    const cleaned = String(raw).replace(/[\s  ]/g, '').replace(',', '.').replace('%', '');
-    return cleaned === '' ? NaN : parseFloat(cleaned);
+    let cleaned = String(raw).replace(/[\s  ]/g, '').replace(/[%€$]/g, '');
+    if (cleaned === '') return NaN;
+    const lastComma = cleaned.lastIndexOf(',');
+    const lastDot = cleaned.lastIndexOf('.');
+    if (lastComma !== -1 && lastDot !== -1) {
+        if (lastComma > lastDot) cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+        else cleaned = cleaned.replace(/,/g, '');
+    } else if (lastComma !== -1) {
+        cleaned = cleaned.indexOf(',') !== lastComma ? cleaned.replace(/,/g, '') : cleaned.replace(',', '.');
+    } else if (lastDot !== -1 && cleaned.indexOf('.') !== lastDot) {
+        cleaned = cleaned.replace(/\./g, '');
+    }
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : NaN;
 }
 
 /**

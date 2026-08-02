@@ -288,11 +288,20 @@ export default {
     // `rawShops` est déjà scopé par le backend (GET /spaces/:id/shops?configId=...) —
     // ce filtre est un garde-fou bon marché (petit tableau) au cas où rawShops contienne
     // encore des shops d'une config précédente pendant la transition entre deux fetches.
+    //
+    // BUG-274 : le backend renvoie shopTypes = ['shop','fnb_food','fnb_beverages','fnb_bar',
+    // 'fnb_snack','fnb_icecream','merchshop'] — la même liste que EVENT_TIMELINE_SHOP_TYPES/
+    // logistics.SHOP_TYPES (revenu, stock), où merchshop a sa place. Ici (assignation de
+    // MenuItem à un point de vente), merchshop n'a aucun sens produit : le stock merch passe
+    // par Article, pas MenuItem (cf. StorageShopsSection.vue) — rien n'empêchait techniquement
+    // l'assignation, c'était juste un oubli de filtre. Exclu ici plutôt que côté backend pour ne
+    // pas affecter les autres écrans qui consomment le même endpoint (Restock, Event Predict,
+    // Analyse, wizard Weezevent) et où merchshop doit rester.
     shops() {
       if (!this.selectedConfigId) return [];
       return (this.rawShops || []).filter((shop) => {
         const shopConfigId = shop?.configId || shop?._raw?.configId;
-        return shopConfigId === this.selectedConfigId;
+        return shopConfigId === this.selectedConfigId && shop?.type !== 'merchshop';
       });
     },
 

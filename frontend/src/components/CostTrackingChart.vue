@@ -285,6 +285,7 @@
 </template>
 
 <script>
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import { Line } from "vue-chartjs";
 import {
   Chart as ChartJS,
@@ -540,7 +541,7 @@ export default {
               label(context) {
                 const label = context.dataset && context.dataset.label ? context.dataset.label : "";
                 const val = context.parsed && context.parsed.y !== null && context.parsed.y !== undefined ? context.parsed.y : null;
-                const formatted = typeof val === "number" ? `$${val.toFixed(2)}` : "$0.00";
+                const formatted = formatCurrencyDetailed(typeof val === "number" ? val : 0);
                 return `${label}: ${formatted}`;
               },
             },

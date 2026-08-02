@@ -1499,10 +1499,12 @@ model SalesTransactionItem {
   productId   String?
   productName String?
   compoundId  String?
-  quantity    Int
+  // Float : ventes fractionnaires (poids, formules à ratio) — l'ingestion tronquait du CA
+  quantity    Float
   unitPrice   Decimal @db.Decimal(10, 2)
   vat         Decimal @db.Decimal(5, 2)
-  reduction   Decimal @default(0) @db.Decimal(5, 2)
+  // (10,2) : c'est un MONTANT de remise, pas un % — (5,2) plafonnait à 999,99
+  reduction   Decimal @default(0) @db.Decimal(10, 2)
 
   // Metadata
   rawData Json
@@ -1533,7 +1535,7 @@ model SalesPayment {
   amount          Decimal @db.Decimal(10, 2)
   amountVat       Decimal @db.Decimal(10, 2)
   currencyId      String?
-  quantity        Int
+  quantity        Float
   paymentMethodId String?
 
   // Metadata
@@ -2723,7 +2725,7 @@ model SpaceRevenueMinuteAgg {
   // Aggregated metrics
   revenueHt         Decimal @db.Decimal(12, 2)
   transactionsCount Int
-  itemsCount        Int
+  itemsCount        Float
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2745,7 +2747,7 @@ model SpaceProductRevenueDailyAgg {
 
   // Aggregated metrics
   revenueHt Decimal @db.Decimal(12, 2)
-  quantity  Int
+  quantity  Float
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

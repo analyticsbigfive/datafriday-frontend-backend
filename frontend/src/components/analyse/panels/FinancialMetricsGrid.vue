@@ -22,7 +22,7 @@
       <KpiCard
         :config="cards[2]"
         :value="`${metrics.displayMargin.value.toFixed(1)}%`"
-        :subtext="`${t('anTotal')} : ${formatCurrency(metrics.displayRevenue.value - metrics.displayCost.value)}`"
+        :subtext="`${t('anTotal')} : ${formatCurrencyDetailed(metrics.displayRevenue.value - metrics.displayCost.value)}`"
         :variation="v('margin')"
         @click="$emit('open-chart', 'margin')"
       />
@@ -43,7 +43,8 @@
 import { computed } from 'vue'
 import KpiCard from './KpiCard.vue'
 import { KPI_CARDS } from '@/constants/analyseColors'
-import { formatCurrency, formatNumber } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 import { useI18n } from '@/i18n/useI18n'
 
 const props = defineProps({
@@ -53,6 +54,7 @@ const props = defineProps({
 defineEmits(['open-chart'])
 
 const { t } = useI18n()
+const { formatDecimal } = useNumberFormat()
 
 // Labels KPI traduits (KPI_CARDS.label = fallback FR codé en dur ; labelKey = i18n).
 const cards = computed(() =>
@@ -77,7 +79,7 @@ const v = (key) => {
 const transactionRateLabel = computed(() => {
   const rate = props.metrics.displayTransactionRate?.value ?? 0
   if (!rate) return t('anClick')
-  return `${rate.toFixed(2).replace('.', ',')}/min`
+  return `${formatDecimal(rate, 2, { pad: true })}/min`
 })
 
 const transactionRateSubtext = computed(() => {

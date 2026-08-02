@@ -49,10 +49,6 @@
           <!-- ── Body ── -->
           <div class="ipd-body">
 
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3">
-              {{ error }}
-            </v-alert>
-
             <!-- Loading -->
             <div v-if="loading" class="ipd-empty">
               <v-progress-circular indeterminate color="#ff3131" size="32" width="3" />
@@ -155,6 +151,11 @@
             </div>
           </div>
 
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ipd-error">
+            {{ error }}
+          </v-alert>
+
           <!-- ── Footer ── -->
           <div class="ipd-footer">
             <span class="ipd-footer__count">
@@ -188,7 +189,7 @@
 <script>
 import { Check, ChevronDown, ChevronRight, Clock, Plus, Search, Truck, Wheat, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
-import { formatCurrency } from '@/composables/useFormatters';
+import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'IngredientPickerDrawer',
@@ -200,7 +201,7 @@ export default {
   emits: ['update:modelValue', 'add'],
   setup() {
     const { t } = useI18n();
-    return { t, formatCurrency };
+    return { t, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {
@@ -598,6 +599,13 @@ export default {
 .ipd-row__date {
   display: flex; align-items: center; gap: 4px;
   font-size: 11px; color: #9ca3af; white-space: nowrap; flex-shrink: 0;
+}
+
+/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
+.ipd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
 }
 
 /* ── Footer ── */

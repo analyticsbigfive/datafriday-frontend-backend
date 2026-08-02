@@ -20,10 +20,6 @@
 
           <!-- Body -->
           <div class="ctfd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-5">
-              {{ error }}
-            </v-alert>
-
             <div class="ctfd-field-label">{{ t('componentTypeList.labelName') }} <span class="ctfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
@@ -36,6 +32,11 @@
               class="ctfd-field"
             />
           </div>
+
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ctfd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- Footer -->
           <div class="ctfd-footer">
@@ -254,6 +255,13 @@ export default {
 .ctfd-panel--dark .ctfd-field :deep(.v-field input),
 .ctfd-panel--dark .ctfd-field :deep(.v-field__input) { color: #f3f4f6 !important; }
 .ctfd-star { color: #ff3131; }
+
+/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
+.ctfd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
+}
 
 /* ── Footer ── */
 .ctfd-footer {

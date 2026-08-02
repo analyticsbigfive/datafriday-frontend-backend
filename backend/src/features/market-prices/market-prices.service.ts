@@ -526,12 +526,14 @@ export class MarketPricesService {
    * division. Ex: 11.64 €/kg × 0.02 kg/pièce = 0.23 €/pièce.
    */
   private computeRecipeCosts(marketPrice: any) {
-    const price = Number(marketPrice.price) || undefined;
+    // Un prix à 0 est une vraie valeur (produit offert) — seul null/NaN devient undefined.
+    const rawPrice = marketPrice.price == null ? NaN : Number(marketPrice.price);
+    const price = Number.isFinite(rawPrice) ? rawPrice : undefined;
     const purchaseUnitConversion =
       marketPrice.purchaseUnitConversion && Number(marketPrice.purchaseUnitConversion) > 0
         ? Number(marketPrice.purchaseUnitConversion)
         : undefined;
-    const pricePerPurchaseUnit = marketPrice.pricePerUnit ? Number(marketPrice.pricePerUnit) : price;
+    const pricePerPurchaseUnit = marketPrice.pricePerUnit != null ? Number(marketPrice.pricePerUnit) : price;
     const costPerRecipeUnit = pricePerPurchaseUnit != null
       ? Math.round(pricePerPurchaseUnit * (purchaseUnitConversion ?? 1) * 10000) / 10000
       : undefined;

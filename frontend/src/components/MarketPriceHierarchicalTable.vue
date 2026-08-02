@@ -110,6 +110,7 @@
 </template>
 
 <script>
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import Table from '../ui/table.vue'
 import TableBody from '../ui/tableBody.vue'
 import TableCell from '../ui/tableCell.vue'
@@ -323,8 +324,7 @@ export default {
 
     formatRecipeUnitCost(purchaseUnitConversion, pricePerUnit) {
       if (!purchaseUnitConversion) return '-'
-      const value = (purchaseUnitConversion * pricePerUnit).toFixed(2)
-      return `$${value}`
+      return formatCurrencyDetailed(purchaseUnitConversion * pricePerUnit)
     },
 
     formatPackagingInfo(item) {

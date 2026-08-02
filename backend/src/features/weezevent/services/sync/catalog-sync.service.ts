@@ -218,8 +218,9 @@ export class WeezeventCatalogSyncService {
                         : apiProduct.category != null
                             ? String(apiProduct.category)
                             : null,
-                    basePrice: apiProduct.base_price || null,
-                    vatRate: apiProduct.vat_rate || null,
+                    // ?? et non || : un prix/une TVA à 0 (produit offert, exonéré) est une vraie valeur
+                    basePrice: apiProduct.base_price ?? null,
+                    vatRate: apiProduct.vat_rate ?? null,
                     image: apiProduct.image || null,
                     allergens: apiProduct.allergens || [],
                     components: apiProduct.components || null,
@@ -366,7 +367,7 @@ export class WeezeventCatalogSyncService {
                             productId: product.id,
                             name: v.name || 'Unnamed Variant',
                             description: v.description || null,
-                            price: v.price || null,
+                            price: v.price ?? null,
                             sku: v.sku || null,
                             stock: v.stock || null,
                             isDefault: v.is_default || false,

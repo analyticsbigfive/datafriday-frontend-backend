@@ -35,6 +35,15 @@
         <slot />
       </div>
 
+      <!-- BUG-273 : erreur de sauvegarde rendue ICI (hors zone scrollable .eds-body,
+           toujours visible) plutôt qu'en haut du corps du formulaire — sur un drawer long,
+           une erreur affichée en haut restait invisible tant que l'utilisateur n'avait pas
+           remonté manuellement jusqu'en haut après avoir cliqué "Enregistrer" en bas. -->
+      <div v-if="errorMessage" class="eds-error-bar">
+        <AlertCircle :size="14" />
+        <span>{{ errorMessage }}</span>
+      </div>
+
       <footer v-if="$slots.footer" class="eds-footer">
         <slot name="footer" />
       </footer>
@@ -43,6 +52,8 @@
 </template>
 
 <script setup>
+import { AlertCircle } from 'lucide-vue-next';
+
 defineProps({
   modelValue: { type: Boolean, default: false },
   title: { type: String, required: true },
@@ -56,6 +67,10 @@ defineProps({
   // identique : fond #111827, bordures rgba(255,255,255,.08)) — sans ce prop, les migrer vers ce
   // shell aurait régressé leur support dark mode.
   isDark: { type: Boolean, default: false },
+  // BUG-273 : message d'erreur affiché juste au-dessus du footer (toujours visible, même
+  // corps du formulaire scrollé) — le consommateur passe son `formError`/`error` local ici
+  // au lieu de le rendre lui-même en haut du slot par défaut.
+  errorMessage: { type: String, default: '' },
 })
 
 defineEmits(['update:modelValue'])
@@ -177,9 +192,30 @@ defineEmits(['update:modelValue'])
   flex-shrink: 0;
 }
 
+/* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer — jamais
+   scrollée hors champ, toujours juste au-dessus des boutons d'action. */
+.eds-error-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  background: #fef2f2;
+  border-top: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: var(--fs-base, 14px);
+  flex-shrink: 0;
+}
+
+.eds-error-bar span { min-width: 0; }
+
 /* Dark mode (BUG-148) */
 .eds--dark :deep(.v-navigation-drawer__content) { background: #111827; }
 .eds--dark .eds-body { background: #111827; }
+.eds--dark .eds-error-bar {
+  background: rgba(255, 49, 49, .12);
+  border-top-color: rgba(255, 49, 49, .3);
+  color: #fca5a5;
+}
 .eds--dark .eds-footer {
   background: #1f2937;
   border-top-color: #374151;
@@ -196,6 +232,10 @@ defineEmits(['update:modelValue'])
 
   .eds-body {
     padding: 18px 16px;
+  }
+
+  .eds-error-bar {
+    padding: 10px 16px;
   }
 
   .eds-footer {

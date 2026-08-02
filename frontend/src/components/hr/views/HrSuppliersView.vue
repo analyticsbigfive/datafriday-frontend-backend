@@ -123,6 +123,7 @@
       :item-name="deleteTarget?.name || ''"
       :title="t('hrDeleteSupplierTitle')"
       :loading="deleting"
+      :error="deleteError"
       @confirm="confirmDelete"
     />
 
@@ -246,6 +247,7 @@ function openEdit(supplier) {
 const deleteOpen = ref(false)
 const deleteTarget = ref(null)
 const deleting = ref(false)
+const deleteError = ref('')
 
 // Suppression multiple
 const bulkSelected = ref([])
@@ -256,16 +258,22 @@ const bulkProgress = ref(0)
 const bulkTotal = ref(0)
 function onDelete(supplier) {
   deleteTarget.value = supplier
+  deleteError.value = ''
   deleteOpen.value = true
 }
 async function confirmDelete() {
   if (!deleteTarget.value?.id) return
   deleting.value = true
+  deleteError.value = ''
   try {
     await hrApi.deleteHRSupplier(deleteTarget.value.id)
     deleteOpen.value = false
     deleteTarget.value = null
     await load()
+  } catch (e) {
+    // BUG-273 : un échec de suppression restait auparavant totalement silencieux (aucun
+    // catch, aucun état d'erreur remonté à HrDeleteDialog).
+    deleteError.value = e?.response?.data?.message || e?.message || t('hrDeleteError')
   } finally {
     deleting.value = false
   }

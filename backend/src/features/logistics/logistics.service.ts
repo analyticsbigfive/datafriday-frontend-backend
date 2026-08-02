@@ -1758,7 +1758,9 @@ export class LogisticsService {
     const nameById = new Map(elements.map((e) => [e.id, e.name]));
 
     const esc = (v: unknown) => {
-      const s = String(v ?? '');
+      // Décimaux en virgule : un CSV ';' (convention fr) avec des nombres à
+      // point est lu comme du texte par Excel FR.
+      const s = typeof v === 'number' ? String(v).replace('.', ',') : String(v ?? '');
       return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const header = [

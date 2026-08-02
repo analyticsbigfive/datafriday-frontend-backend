@@ -79,9 +79,6 @@
             <div class="lgsim-realmode-hint">{{ t('logiSimulateRealModeHint') }}</div>
           </div>
 
-          <v-alert v-if="error" type="error" density="compact" variant="tonal" class="mt-3">
-            {{ error }}
-          </v-alert>
           <v-alert type="warning" variant="tonal" density="compact" class="mt-3">
             {{ t('logiSimulateWarning') }}
           </v-alert>
@@ -110,6 +107,13 @@
           </v-alert>
         </template>
       </v-card-text>
+
+      <!-- Erreur : rendue ici, hors de v-card-text, toujours visible juste au-dessus du
+           footer d'actions — plutôt qu'au milieu du formulaire (invisible une fois scrollé
+           sur un écran bas, ou perdue derrière plusieurs lignes de vente ajoutées). -->
+      <v-alert v-if="error && !result" type="error" density="compact" variant="tonal" class="lgsim-error">
+        {{ error }}
+      </v-alert>
 
       <v-card-actions class="px-4 pb-4">
         <v-btn
@@ -254,6 +258,9 @@ export default {
 
 <style scoped>
 .lgsim-card { border-radius: 16px; }
+/* Sibling fixe entre v-card-text et v-card-actions, alignée sur le padding horizontal
+   par défaut de v-card-text (16px). */
+.lgsim-error { margin: 0 16px 12px; }
 .lgsim-title { display: flex; align-items: center; font-weight: 700; padding: 16px 20px 4px; }
 .lgsim-intro { font-size: 0.84rem; color: var(--fb-muted, #6b7280); margin: 0 0 14px; }
 .lgsim-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }

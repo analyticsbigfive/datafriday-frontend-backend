@@ -32,12 +32,6 @@
               </div>
             </div>
 
-            <!-- Erreur -->
-            <div v-if="error" class="ued-error">
-              <AlertTriangle :size="14" />
-              {{ error }}
-            </div>
-
             <!-- Avatar preview -->
             <div class="ued-avatar-row">
               <div class="ued-avatar">{{ initials }}</div>
@@ -132,6 +126,12 @@
               </p>
             </div>
 
+          </div>
+
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus du footer -->
+          <div v-if="error" class="ued-error">
+            <AlertTriangle :size="14" />
+            {{ error }}
           </div>
 
           <!-- Footer -->
@@ -415,14 +415,15 @@ export default {
 .ued-step-line { flex: 1; height: 2px; background: #e5e7eb; border-radius: 2px; margin: 0 4px 22px; transition: background 0.2s ease; }
 .ued-step-line.done { background: #ff3131; }
 
-/* ── Error ── */
+/* ── Error : fixée entre le corps scrollable et le footer ── */
 .ued-error {
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; margin-bottom: 16px;
+  padding: 10px 14px; margin: 12px 24px;
   background: rgba(255, 49, 49, 0.08);
   border: 1px solid rgba(255, 49, 49, 0.2);
   border-radius: 10px;
   font-size: 0.8125rem; color: #ff3131;
+  flex-shrink: 0;
 }
 
 /* ── Avatar ── */

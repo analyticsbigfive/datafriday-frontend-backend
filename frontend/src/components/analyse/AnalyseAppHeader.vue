@@ -213,7 +213,7 @@ import { useTheme } from 'vuetify'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import { Bell, Building2, ChevronDown, ChevronLeft, ChevronRight, LogOut, Phone, Settings, TrendingDown, TrendingUp, UserCog } from 'lucide-vue-next'
-import { formatCurrency, formatNumber, formatPercent } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber, formatPercent } from '@/composables/useFormatters'
 import WorkspaceSpaceSwitcher from '@/components/WorkspaceSpaceSwitcher.vue'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -407,7 +407,7 @@ const kpiList = computed(() => [
   {
     label: t('anHeaderKpiCost'),
     kind: 'cost',
-    value: formatCurrency(props.metrics.displayCost?.value ?? 0),
+    value: formatCurrencyDetailed(props.metrics.displayCost?.value ?? 0),
     variation: v('cost'),
     color: '#ff3131',
     rgb: '239, 68, 68',

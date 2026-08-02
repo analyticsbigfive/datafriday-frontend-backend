@@ -18,7 +18,7 @@
           v-if="elementType === 'shop'"
           class="text-sm font-semibold text-green-600"
         >
-          €{{ totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+          {{ formatCurrencyDetailed(totalRevenue) }}
         </span>
         <span
           v-else
@@ -106,9 +106,9 @@
                   >
                     Revenue : {{
                       item.element.type === 'shop' && shopRevenueData[item.element.name.toLowerCase()]
-                        ? `€${shopRevenueData[item.element.name.toLowerCase()].toFixed(2)}`
+                        ? formatCurrencyDetailed(shopRevenueData[item.element.name.toLowerCase()])
                         : item.element.performance?.revenue
-                          ? `€${item.element.performance.revenue.toLocaleString()}`
+                          ? formatCurrencyDetailed(item.element.performance.revenue)
                           : '-'
                     }}
                   </p>
@@ -129,6 +129,7 @@ import Separator  from '../ui/separator.vue'
 import Input from '../ui/input.vue'
 import {Plus, Search } from 'lucide-vue-next'
 import * as api from '../utils/api'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 
 export default {
   name: 'ElementSummaryPanel',
@@ -417,6 +418,7 @@ export default {
     }
   },
   methods: {
+    formatCurrencyDetailed,
     async fetchShopRevenue() {
       if (!this.spaceId || this.elementType !== 'shop') return
 

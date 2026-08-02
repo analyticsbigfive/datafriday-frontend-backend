@@ -19,12 +19,14 @@
       </div>
 
       <div class="frdd-card__body">
-        <div v-if="error" class="frdd-card__error">
-          <AlertCircle :size="14" /> {{ error }}
-        </div>
         <p class="frdd-card__msg">
           {{ t(`${i18nPrefix}.deleteConfirm`) }} <strong>{{ itemName }}</strong>&nbsp;?
         </p>
+      </div>
+
+      <!-- BUG-273 : erreur juste au-dessus du footer plutôt qu'en haut du corps. -->
+      <div v-if="error" class="frdd-card__error">
+        <AlertCircle :size="14" /> {{ error }}
       </div>
 
       <div class="frdd-card__foot">
@@ -125,7 +127,7 @@ export default {
   border-radius: 10px;
   padding: 10px 14px;
   font-size: 13px;
-  margin-bottom: 14px;
+  margin: 0 22px 16px;
 }
 .frdd-card__msg {
   font-size: 14px;

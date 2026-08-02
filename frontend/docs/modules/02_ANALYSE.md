@@ -556,7 +556,7 @@ sur le code React, voir Historique).
 | `charts/GenericByEventChart.vue` | Graphe barres générique par event, rendu inline (le dialog qui l'enveloppait est mort, voir Code mort) |
 | `dialogs/ShopItemEventsDialog.vue` | Events d'un combo PdV×article |
 | `dialogs/UnalignedEventsDialog.vue` | Events écartés de la moyenne (pas d'heure de coup d'envoi saisie) |
-| `charts/EventRevenueByShopChart.vue` (762 l.) | Carte CA par event/PdV, empilable par shop ou par type d'article, atténuation 50% des events passés en mode Predict |
+| `charts/EventRevenueByShopChart.vue` (762 l.) | Carte CA par event/PdV, empilable par shop ou par type d'article, atténuation 50% des events passés en mode Predict. Tooltip plafonné au top 10 des PDV de la barre + ligne « Autres (N) » (somme, PDV à 0 € exclus) — plafond d'affichage uniquement, les barres gardent tous leurs segments (BUG-269-01) |
 | `charts/EventTimelineChart.vue` (761 l., partagé avec `EventPredictView.vue`) | Timeline minute par minute, délègue le bucketing à `utils/timelineBucketing.js` (source unique partagée Analyse/Predict/EventPredict/Stockup) |
 | `charts/ShopDistributionPieChart.vue` | 3 donuts PdV/Type/Zone, sentinelle `UNATTACHED_SHOP_KEY` |
 | `tables/MenuItemRevenueDistribution.vue` | Cartes « by POS type » + 3 donuts article/type/catégorie, sentinelle `UNATTACHED_ITEM_KEY` |
@@ -653,6 +653,7 @@ contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analys
 | 8 | Jointure `Event` DataFriday ↔ `WeezeventEvent` par égalité de DATE seule dans la RPC `get_space_shop_details` | `20260704200000_...sql:175-178,224-227` | Deux events Weezevent le même jour calendaire sur le même espace |
 | 9 | Triple formule « CA moyen par event », deux définitions différentes d'« event valide » affichées côte à côte (valeur vs variation) — **tranché 2026-07-24** : total CA ÷ nb events, sans filtre (Question #17), code à unifier | `useMetricsCalculator.js:39-80`, `analyse.js:71-107`, `AnalyseView.vue:695-727` | Sélectionner une période avec un event à CA nul parmi d'autres à CA positif |
 | 10 | `futureEventsCount` : deux implémentations (store mort, composant vivant) avec des conditions `>` vs `>=` légèrement différentes | `analyse.js:1512-1519` vs `AnalyseView.vue:1126-1133` | Un event ayant lieu le jour même de la consultation |
+| 11 | **Diagnostiqué 2026-08-02, correctif retiré de `develop`** (hors périmètre, domaine Jean-Luc — [BUG-270-02](../bugs/270_02_analyse_timeline_heures_transactiondate_utc_brut_sans_conversion_fuseau.md) pour le correctif proposé, à réappliquer sous son arbitrage) — la timeline minute par minute (`getEventTimelineBatch`/`getTransactionBasketsBatch`) affiche `WeezeventTransaction.transactionDate` (vrai UTC, vérifié contre `rawData`) sans conversion vers le fuseau de l'espace, ~2h de décalage pour tout espace `Europe/Paris` en été (CEST) — la quasi-totalité des espaces réels | `spaces.service.ts` (`resolveEventSalesScope`, `getEventTimelineBatch`, `getTransactionBasketsBatch`) | Consulter la timeline d'un event sur un espace `Europe/Paris` en été, comparer aux heures réelles (portes/coup d'envoi) |
 
 ---
 

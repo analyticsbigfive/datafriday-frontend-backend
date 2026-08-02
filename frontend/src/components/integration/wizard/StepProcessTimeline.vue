@@ -35,20 +35,20 @@
         <div class="spt-stats-banner__top">
           <v-icon color="deep-purple" size="16">mdi-swap-horizontal</v-icon>
           <span class="spt-stats-banner__total">
-            {{ transactionStats.total.toLocaleString('fr-FR') }} {{ t('intgTimelineWeezeventTransactions') }}
+            {{ formatNumber(transactionStats.total) }} {{ t('intgTimelineWeezeventTransactions') }}
           </span>
         </div>
         <div class="spt-stats-banner__chips">
           <span class="spt-chip spt-chip--green">
             <v-icon size="11">mdi-check-circle</v-icon>
-            {{ transactionStats.matched.toLocaleString('fr-FR') }} {{ t('intgTimelineLinkedToEvent') }}
+            {{ formatNumber(transactionStats.matched) }} {{ t('intgTimelineLinkedToEvent') }}
           </span>
           <span
             class="spt-chip"
             :class="transactionStats.unmatched > 0 ? 'spt-chip--red' : 'spt-chip--green'"
           >
             <v-icon size="11">{{ transactionStats.unmatched > 0 ? 'mdi-alert-circle' : 'mdi-check-circle' }}</v-icon>
-            {{ transactionStats.unmatched.toLocaleString('fr-FR') }} {{ t('intgTimelineWithoutEvent') }}
+            {{ formatNumber(transactionStats.unmatched) }} {{ t('intgTimelineWithoutEvent') }}
           </span>
           <span
             v-if="transactionStats.unmappedLocationIds?.length > 0"
@@ -576,6 +576,8 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import { formatNumber } from '@/composables/useFormatters'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 import { formatDateMedium } from '@/utils/dateFr'
 import { useTimelineProcessing } from '@/composables/useTimelineProcessing'
 import { useSynchronization } from '@/composables/useSynchronization'
@@ -636,6 +638,7 @@ export default {
     } = useSynchronization()
     return {
       t,
+      formatNumber,
       events, unregisteredDates, weezeventEvents,
       transactionStats, hasMappings,
       loading, processing, error,
@@ -829,7 +832,7 @@ export default {
       }
       const processed = this.events.filter(e => e.aggregationStatus === 'completed').length
       const matched = this.transactionStats?.matched ?? 0
-      return `${processed} ${this.t('intgTimelineEvent')}${processed !== 1 ? 's' : ''} ${this.t('intgTimelineAggregatedWord')}${processed !== 1 ? 's' : ''} · ${matched.toLocaleString('fr-FR')} ${this.t('intgTimelineTransactionsMatched')}`
+      return `${processed} ${this.t('intgTimelineEvent')}${processed !== 1 ? 's' : ''} ${this.t('intgTimelineAggregatedWord')}${processed !== 1 ? 's' : ''} · ${matched.toLocaleString(currentIntlLocale())} ${this.t('intgTimelineTransactionsMatched')}`
     },
   },
   mounted() {

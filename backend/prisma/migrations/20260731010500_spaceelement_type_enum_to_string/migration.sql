@@ -1,0 +1,13 @@
+-- CFG-2 Étape 2 : SpaceElement.type sort de l'enum Postgres figé `ElementType` (19 valeurs) vers
+-- un `TEXT` libre — précondition pour laisser un tenant créer de nouveaux "départements" au-delà
+-- des 8 historiques. Conversion en place, sans perte : chaque valeur enum existante est un texte
+-- valide (même mécanique déjà utilisée sur cette base pour StorageType/GoodType, vérifiée
+-- directement sur les 804 lignes existantes avant cette migration : shop:777, storage:7,
+-- fnb_beverages:5, hospitality:3, entrance:3, merchshop:3, kitchen:3, fnb_food:1,
+-- entertainment:1, access:1).
+--
+-- Le type Postgres "ElementType" N'EST PAS supprimé ici (DROP TYPE différé à l'Étape 7 de
+-- nettoyage, une fois cette migration stable en prod) — le garder coûte rien et offre un chemin
+-- de retour bon marché (`ALTER COLUMN "type" TYPE "ElementType" USING "type"::"ElementType"`) tant
+-- qu'aucun SpaceElement ne porte une valeur hors des 19 littéraux historiques.
+ALTER TABLE "SpaceElement" ALTER COLUMN "type" TYPE TEXT USING "type"::TEXT;

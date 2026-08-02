@@ -3,6 +3,7 @@ import {
   IsString,
   IsOptional,
   IsNumber,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -22,6 +23,7 @@ export class CreateMarketPriceDto {
 
   @ApiProperty({ description: 'Prix', type: Number })
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   price: number;
 
@@ -76,48 +78,56 @@ export class CreateMarketPriceDto {
 
   @ApiProperty({ required: false, description: 'Conversion unité achat → recette' })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   purchaseUnitConversion?: number;
 
   @ApiProperty({ required: false, description: 'Prix par unité' })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   pricePerUnit?: number;
 
   @ApiProperty({ required: false })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   packedUnits?: number;
 
   @ApiProperty({ required: false })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   numberOfUnits?: number;
 
   @ApiProperty({ required: false })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   unitsPerPurchase?: number;
 
   @ApiProperty({ required: false })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   packingWidth?: number;
 
   @ApiProperty({ required: false })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   packingHeight?: number;
 
   @ApiProperty({ required: false })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   @Type(() => Number)
   packingLength?: number;

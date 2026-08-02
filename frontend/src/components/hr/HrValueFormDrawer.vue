@@ -22,24 +22,19 @@
             </button>
           </div>
 
-          <!-- Error -->
-          <div v-if="error" class="hsd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
-          </div>
-
           <!-- Body -->
           <div class="hsd__body">
             <!-- Valeur -->
             <div class="hsd-section">
               <div class="hsd-field">
                 <label class="hsd-field-label" for="hr-value">{{ valueLabel }} <span class="hsd-required">*</span></label>
-                <input
+                <NumberField
                   id="hr-value"
-                  v-model.number="form.value"
-                  type="number"
-                  min="0"
-                  :step="kind === 'goal' ? '10' : '1'"
+                  v-model="form.value"
+                  :decimals="2"
+                  :step="kind === 'goal' ? 10 : 1"
+                  :min="0"
+                  :empty-value="0"
                   class="hsd-input"
                 />
               </div>
@@ -96,6 +91,13 @@
             </div>
           </div>
 
+          <!-- Error : rendue ici, hors zone scrollable, toujours visible juste au-dessus des
+               boutons — plutôt qu'en haut du corps (invisible une fois scrollé). -->
+          <div v-if="error" class="hsd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            {{ error }}
+          </div>
+
           <!-- Footer -->
           <div class="hsd__footer">
             <button class="hsd-btn hsd-btn--cancel" @click="close">{{ t('hrCancel') }}</button>
@@ -116,6 +118,7 @@ import { reactive, ref, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { AlertCircle, Check, Target, UserCog, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
+import NumberField from '@/components/common/NumberField.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -270,12 +273,14 @@ function submit() {
 }
 .hsd__close-btn:hover { background: rgba(255, 255, 255, 0.3); }
 
+/* Barre fixe entre le corps scrollable et le footer (bordure haute, pas basse, pour se
+   détacher du corps plutôt que du footer). */
 .hsd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: var(--fs-base);
   color: #ff3131;
   flex-shrink: 0;
@@ -324,6 +329,7 @@ function submit() {
 .hsd-field { display: flex; flex-direction: column; gap: 6px; }
 .hsd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hsd-required { color: #ff3131; }
+.hsd-input.number-field__input { text-align: center; }
 .hsd-input {
   width: 100%;
   border-radius: 11px;

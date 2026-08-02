@@ -18,10 +18,6 @@
           </div>
 
           <div class="pfd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-5">
-              {{ error }}
-            </v-alert>
-
             <div class="pfd-field-label">{{ t('permissionList.labelCode') }}</div>
             <v-text-field
               v-model="form.code"
@@ -73,6 +69,11 @@
               auto-grow
             />
           </div>
+
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus du footer -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="pfd-error">
+            {{ error }}
+          </v-alert>
 
           <div class="pfd-footer">
             <v-btn variant="outlined" rounded="lg" size="large" class="text-none pfd-cancel-btn" @click="close">
@@ -304,6 +305,9 @@ export default {
 }
 
 .pfd-panel--dark .pfd-field-label { color: #d1d5db; }
+
+/* Erreur fixe, entre le corps scrollable et le footer. */
+.pfd-error { flex-shrink: 0; margin: 0; border-radius: 0 !important; }
 
 .pfd-footer {
   padding: 16px 24px;

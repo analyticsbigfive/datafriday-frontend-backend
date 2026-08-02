@@ -796,7 +796,8 @@
 </template>
 
 <script>
-import { t as translate } from '@/i18n'
+import { t as translate, getCurrentLocale } from '@/i18n'
+import { toIntlLocale } from '@/composables/useNumberFormat'
 import { getLocationSpaceMappings } from '@/api/endpoints/mapping.api'
 import IntegrationWizard from '@/components/integration/wizard/IntegrationWizard.vue'
 import SyncProgressDialog from '@/components/integration/SyncProgressDialog.vue'
@@ -971,7 +972,7 @@ export default {
       syncAbandoned: false,
 
       // i18n
-      locale: localStorage.getItem('appLocale') || 'en',
+      locale: getCurrentLocale(),
       theme: (() => { const s = localStorage.getItem('datafriday:theme') || localStorage.getItem('appTheme') || 'dataFridayLight'; return (s === 'light' ? 'dataFridayLight' : s === 'dark' ? 'dataFridayDark' : s); })(),
     }
   },
@@ -1009,7 +1010,7 @@ export default {
     },
     // BCP-47 tag derived from the app locale, used for date/number formatting.
     localeTag() {
-      return this.locale === 'fr' ? 'fr-FR' : 'en-US'
+      return toIntlLocale(this.locale)
     },
     // Other integrations of the same provider type, not yet mapped to a space —
     // fed to the wizard's "configure next location" card (WizardSuccess.vue).

@@ -18,8 +18,6 @@
       <!-- Scrollable body -->
       <div class="ced-body">
 
-        <v-alert v-if="createEventError" type="error" variant="tonal" density="compact" class="mb-4">{{ createEventError }}</v-alert>
-
         <!-- Informations -->
         <div class="ced-section-label">
           <v-icon size="12" color="#ff3131">mdi-information-outline</v-icon>
@@ -245,6 +243,10 @@
         </v-expand-transition>
 
       </div>
+
+      <!-- BUG-273 : erreur rendue hors zone scrollable, juste au-dessus du footer (pas en haut
+           du corps, invisible une fois scrollé). -->
+      <v-alert v-if="createEventError" type="error" variant="tonal" density="compact" class="ced-error">{{ createEventError }}</v-alert>
 
       <!-- Footer -->
       <div class="ced-footer">
@@ -839,6 +841,13 @@ export default {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 10px;
+}
+
+/* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
+.ced-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
 }
 
 /* ══ Footer ══════════════════════════════════════════════ */

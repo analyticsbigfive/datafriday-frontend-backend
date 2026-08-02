@@ -1309,6 +1309,11 @@ export default {
       const payload = {
         name,
         eventDate,
+        // Pas de colonne CSV dédiée "date de début" — eventDate EST la date de début,
+        // même convention que les autres chemins de création (wizard, CreateEventDialog).
+        // Sans elle, la colonne "Date de début" de /events restait vide tant que
+        // l'événement n'avait pas été ouvert puis sauvegardé manuellement une fois.
+        eventStartDate: eventDate,
         eventEndDate,
         eventEndTime,
         // Texte brut envoyé tel quel — EventsService.resolveEventTeamFields résout-ou-crée

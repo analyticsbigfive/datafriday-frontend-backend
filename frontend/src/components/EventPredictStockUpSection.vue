@@ -225,6 +225,8 @@ import CollapsibleTrigger from '../ui/collapsibleTrigger.vue'
 import CollapsibleContent from '../ui/collapsibleContent.vue'
 import ImageWithFallback from '../figma/ImageWithFallBack.vue'
 import { useI18n } from '@/i18n/useI18n'
+// Renommé : la méthode locale `formatCurrency` (2 déc.) garde son nom d'appel dans le template.
+import { formatCurrencyDetailed as fmtCurrency } from '@/composables/useFormatters'
 import {
   Store,
   Coffee,
@@ -568,7 +570,7 @@ export default {
       return Number(c) || 0
     },
     formatCurrency(v) {
-      return `€${(Number(v) || 0).toFixed(2)}`
+      return fmtCurrency(Number(v) || 0)
     },
     getStockGroupKey(compositeType) {
       return String(compositeType)

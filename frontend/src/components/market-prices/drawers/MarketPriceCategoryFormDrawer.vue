@@ -20,10 +20,6 @@
 
           <!-- Body -->
           <div class="mpcfd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-5">
-              {{ error }}
-            </v-alert>
-
             <div class="mpcfd-field-label">{{ t('marketPriceCategoryList.labelType') }} <span class="mpcfd-star">*</span></div>
             <v-select
               v-model="form.typeId"
@@ -50,6 +46,11 @@
               class="mpcfd-field"
             />
           </div>
+
+          <!-- BUG-273 : erreur hors zone scrollable, toujours visible juste au-dessus des boutons. -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mpcfd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- Footer -->
           <div class="mpcfd-footer">
@@ -271,6 +272,13 @@ export default {
 .mpcfd-field :deep(.v-field--focused) {
   border-color: #ff3131 !important;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
+}
+
+/* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
+.mpcfd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
 }
 
 /* ── Footer ── */

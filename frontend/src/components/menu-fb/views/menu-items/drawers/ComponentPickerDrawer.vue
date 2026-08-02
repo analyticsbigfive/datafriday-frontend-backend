@@ -47,10 +47,6 @@
           <!-- ── Body ── -->
           <div class="cpd-body">
 
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3">
-              {{ error }}
-            </v-alert>
-
             <div v-if="loading" class="cpd-empty">
               <v-progress-circular indeterminate color="#ff3131" size="32" width="3" />
             </div>
@@ -95,6 +91,11 @@
             </div>
           </div>
 
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="cpd-error">
+            {{ error }}
+          </v-alert>
+
           <!-- ── Footer ── -->
           <div class="cpd-footer">
             <span class="cpd-footer__count">
@@ -128,7 +129,7 @@
 <script>
 import { Boxes, Check, Plus, Search, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
-import { formatCurrency } from '@/composables/useFormatters';
+import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'ComponentPickerDrawer',
@@ -140,7 +141,7 @@ export default {
   emits: ['update:modelValue', 'add'],
   setup() {
     const { t } = useI18n();
-    return { t, formatCurrency };
+    return { t, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {
@@ -462,6 +463,13 @@ export default {
 }
 .cpd-row__price-val { font-size: 13px; font-weight: 700; color: #111827; }
 .cpd-row__price-unit { font-size: 11px; color: #9ca3af; }
+
+/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
+.cpd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
+}
 
 /* ── Footer ── */
 .cpd-footer {

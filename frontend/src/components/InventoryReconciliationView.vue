@@ -164,6 +164,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 import { computeReconciliationSummary } from '@/utils/postEventReconciliation'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 
@@ -179,10 +180,10 @@ const props = defineProps({
 })
 defineEmits(['close'])
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 // Formats dates/nombres suivant la langue de l'app (BUG-240) — plus de 'fr-FR'
 // en dur : un document lu en anglais affichait des séparateurs français.
-const intlLocale = computed(() => (String(locale.value).startsWith('en') ? 'en-US' : 'fr-FR'))
+const { intlLocale } = useNumberFormat()
 const search = ref('')
 const mode = ref('item') // parité capture : ouverture sur « By item »
 const expanded = ref(new Set())

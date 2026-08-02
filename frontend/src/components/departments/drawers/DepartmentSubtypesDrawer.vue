@@ -24,10 +24,6 @@
 
           <!-- Body -->
           <div class="dsd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
-              {{ error }}
-            </v-alert>
-
             <!-- Ajout (super-admin uniquement) -->
             <div v-if="isSuperAdmin" class="dsd-add-row mb-4">
               <v-text-field
@@ -93,6 +89,13 @@
               <div class="mt-3">{{ t('departmentList.noSubtypesFound') }}</div>
             </div>
           </div>
+
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus du footer.
+               Pas de bouton "submit" unique ici (ajout/édition/suppression sont inline
+               par ligne) : le footer fixe est la seule zone garantie visible sans scroll. -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="dsd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- Footer -->
           <div class="dsd-footer">
@@ -308,6 +311,9 @@ export default {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   padding: 48px 0; color: #9ca3af; font-size: 0.9rem;
 }
+
+/* Erreur fixe, entre le corps scrollable et le footer. */
+.dsd-error { flex-shrink: 0; margin: 0; border-radius: 0 !important; }
 
 /* ── Footer ── */
 .dsd-footer {

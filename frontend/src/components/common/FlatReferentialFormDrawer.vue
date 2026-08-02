@@ -18,10 +18,6 @@
 
           <!-- ── Body ── -->
           <div class="frfd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-5">
-              {{ error }}
-            </v-alert>
-
             <div class="frfd-field-label">{{ t(`${i18nPrefix}.labelName`) }} <span class="frfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
@@ -32,6 +28,13 @@
               :placeholder="t(`${i18nPrefix}.namePlaceholder`)"
             />
           </div>
+
+          <!-- BUG-273 : erreur rendue ici, hors zone scrollable, toujours visible juste
+               au-dessus des boutons — plutôt qu'en haut du corps (invisible une fois
+               scrollé, cf. même correctif sur EventDrawerShell.vue). -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="frfd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- ── Footer ── -->
           <div class="frfd-footer">
@@ -253,6 +256,13 @@ export default {
   background: #1f2937 !important;
 }
 .frfd-panel--dark .frfd-field :deep(.v-field input) { color: #f9fafb; }
+
+/* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
+.frfd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
+}
 
 /* ── Footer ── */
 .frfd-footer {

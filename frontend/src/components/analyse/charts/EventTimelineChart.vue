@@ -127,6 +127,7 @@ import { Line } from 'vue-chartjs'
 import { useTheme } from 'vuetify'
 import { registerChartJs } from '@/lib/chartjs'
 import { useI18n } from '@/i18n/useI18n'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 import { Clock, LineChart, RotateCcw, X } from 'lucide-vue-next'
 import { formatDateShort } from '@/utils/dateFr'
 
@@ -534,12 +535,12 @@ const chartOptions = computed(() => ({
           const v = ctx.parsed.y
           const formatted =
             viewMode.value === 'revenue'
-              ? new Intl.NumberFormat('fr-FR', {
+              ? new Intl.NumberFormat(currentIntlLocale(), {
                   style: 'currency',
                   currency: 'EUR',
                   maximumFractionDigits: 0,
                 }).format(v)
-              : new Intl.NumberFormat('fr-FR').format(v)
+              : new Intl.NumberFormat(currentIntlLocale()).format(v)
           return `${ctx.dataset.label}: ${formatted}`
         },
       },
@@ -558,11 +559,11 @@ const chartOptions = computed(() => ({
         color: tickColor.value,
         callback: (v) =>
           viewMode.value === 'revenue'
-            ? new Intl.NumberFormat('fr-FR', {
+            ? new Intl.NumberFormat(currentIntlLocale(), {
                 notation: 'compact',
                 maximumFractionDigits: 1,
               }).format(v) + ' €'
-            : new Intl.NumberFormat('fr-FR').format(v),
+            : new Intl.NumberFormat(currentIntlLocale()).format(v),
       },
       grid: { color: gridColor.value },
     },

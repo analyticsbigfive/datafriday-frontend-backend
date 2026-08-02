@@ -102,6 +102,7 @@
 import { Package, Check, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 export default {
   name: 'InventoryStorageAggregateView',
@@ -137,7 +138,7 @@ export default {
       this.expandedAgg = { ...this.expandedAgg, [key]: !this.expandedAgg[key] }
     },
     formatNumber(value) {
-      return Number(value || 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 })
+      return Number(value || 0).toLocaleString(currentIntlLocale(), { maximumFractionDigits: 2 })
     },
     formatUnits,
     /** Items d'une entrée storage (merchInventory toléré par symétrie). */

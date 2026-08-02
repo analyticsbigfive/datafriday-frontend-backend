@@ -19,12 +19,6 @@
             </button>
           </div>
 
-          <!-- ── Error ── -->
-          <div v-if="error" class="hpd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
-          </div>
-
           <!-- ── Body — logique conditionnelle EXACTE spec §2.1 ── -->
           <div class="hpd__body">
             <!-- 1. Department + 2. Nom du rôle -->
@@ -103,7 +97,10 @@
                 <div class="hpd-field">
                   <label class="hpd-field-label" for="hrd-rate">{{ rateLabel }} <span class="hpd-required">*</span></label>
                   <div class="hpd-rate">
-                    <input id="hrd-rate" v-model.number="form.rate" type="number" min="0" step="0.5" class="hpd-input hpd-rate__input" />
+                    <NumberField
+                      id="hrd-rate" v-model="form.rate" :decimals="2" :min="0"
+                      pad grouping class="hpd-input hpd-rate__input"
+                    />
                     <span class="hpd-rate__suffix">{{ rateSuffix }}</span>
                   </div>
                 </div>
@@ -185,16 +182,16 @@
                   <div class="hrd-sinking__field-row">
                     <div v-if="rule.conditionAttribute" class="hpd-field">
                       <label class="hpd-field-label">{{ t('hrSinkingRuleMinValue') }}</label>
-                      <input
-                        v-model.number="rule.conditionMinValue" type="number" min="0"
-                        class="hpd-input" @change="saveRuleDraft(rule)"
+                      <NumberField
+                        v-model="rule.conditionMinValue" :decimals="2" :min="0"
+                        :empty-value="0" class="hpd-input" @change="saveRuleDraft(rule)"
                       />
                     </div>
                     <div class="hpd-field">
                       <label class="hpd-field-label">{{ t('hrSinkingRuleQty') }}</label>
-                      <input
-                        v-model.number="rule.mandatoryQty" type="number" min="1"
-                        class="hpd-input" @change="saveRuleDraft(rule)"
+                      <NumberField
+                        v-model="rule.mandatoryQty" :decimals="0" :step="1" :min="1"
+                        :empty-value="1" class="hpd-input" @change="saveRuleDraft(rule)"
                       />
                     </div>
                   </div>
@@ -222,6 +219,15 @@
                 <span class="hrd-hint">{{ algoHint }}</span>
               </div>
             </div>
+          </div>
+
+          <!-- ── Error : rendue ici, hors zone scrollable, toujours visible juste au-dessus
+               des boutons — plutôt qu'en haut du corps (invisible une fois scrollé sur ce
+               drawer particulièrement long). Erreur PRINCIPALE seulement — sinkingError reste
+               inline dans sa propre section (contrôle contextuel, pas ce correctif). ── -->
+          <div v-if="error" class="hpd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            {{ error }}
           </div>
 
           <!-- ── Footer ── -->
@@ -269,6 +275,7 @@ import {
 import { newId } from '../hrShared'
 import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import HrSupplierFormDrawer from './HrSupplierFormDrawer.vue'
+import NumberField from '@/components/common/NumberField.vue'
 
 // Clés d'attributs SpaceElement.attributes déjà consommées par l'algo de staffing
 // (staffing.service.ts) — mêmes noms (value), pour que la condition d'une règle Sinking
@@ -668,13 +675,14 @@ async function submit() {
 .hpd__close-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.3); }
 .hpd__close-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Error */
+/* Error : barre fixe entre le corps scrollable et le footer (bordure haute, pas basse,
+   pour se détacher du corps plutôt que du footer). */
 .hpd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: var(--fs-base);
   color: #ff3131;
   flex-shrink: 0;
@@ -725,6 +733,7 @@ async function submit() {
 .hpd-field { display: flex; flex-direction: column; gap: 6px; }
 .hpd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hpd-required { color: #ff3131; }
+.hpd-input.number-field__input { text-align: center; }
 .hpd-input {
   width: 100%;
   border-radius: 11px;
