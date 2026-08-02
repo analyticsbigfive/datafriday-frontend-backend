@@ -326,6 +326,7 @@ function submit() {
 .hsd-field { display: flex; flex-direction: column; gap: 6px; }
 .hsd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hsd-required { color: #ff3131; }
+.hsd-input.number-field__input { text-align: center; }
 .hsd-input {
   width: 100%;
   border-radius: 11px;

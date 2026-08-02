@@ -2451,6 +2451,7 @@ export default {
 .smi-qc-dialog--dark .smi-qc-label { color: #d1d5db; }
 
 /* Form floating input */
+.smi-qc-input.number-field__input { text-align: center; }
 .smi-qc-input {
   border-radius: 10px !important; border: 1.5px solid #e5e7eb !important; font-size: 13.5px;
   background: #f9fafb;

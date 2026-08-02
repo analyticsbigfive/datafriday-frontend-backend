@@ -1244,6 +1244,7 @@ export default {
 }
 
 /* === Bootstrap inputs === */
+.mpcd-input.form-control.number-field__input { text-align: center; }
 .mpcd-input.form-control,
 .mpcd-select.form-select {
   border-radius: 11px;
@@ -1341,6 +1342,7 @@ export default {
 }
 
 /* === Inline inputs (info-card sentences) === */
+.mpcd-inline-input.number-field__input { text-align: center; }
 .mpcd-inline-input,
 .mpcd-inline-select {
   border: 1.5px solid #dbeafe;

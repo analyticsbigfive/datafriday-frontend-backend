@@ -1042,6 +1042,7 @@ export default {
 }
 
 /* === Bootstrap inputs === */
+.mpesd-input.form-control.number-field__input { text-align: center; }
 .mpesd-input.form-control,
 .mpesd-select.form-select {
   border-radius: 11px;
@@ -1123,6 +1124,7 @@ export default {
 }
 
 /* === Inline inputs (sentence style) === */
+.mpesd-inline-input.number-field__input { text-align: center; }
 .mpesd-inline-input,
 .mpesd-inline-select {
   border: 1.5px solid #dbeafe;

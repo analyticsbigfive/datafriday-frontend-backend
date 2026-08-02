@@ -2015,6 +2015,7 @@ label {
 .mic--dark .mic-field-label { color: #cbd5e1; }
 
 /* ── Supplier-style inputs ── */
+.mic-input.form-control.number-field__input { text-align: center; }
 .mic-input.form-control {
   border-radius: 11px;
   border: 1.5px solid #e5e7eb;
@@ -2262,6 +2263,7 @@ label {
   margin-top: 12px;
 }
 
+.mic-inline-input.number-field__input { text-align: center; }
 .mic-inline-input,
 .mic-inline-select {
   border: 1.5px solid #dbeafe;

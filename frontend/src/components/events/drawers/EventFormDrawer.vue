@@ -427,19 +427,19 @@
       <div class="efd-fin-grid mb-4">
         <div class="efd-select-wrap">
           <label class="efd-select-label">Revenue (€)</label>
-          <NumberField v-model="newEvent.revenue" :decimals="2" :min="0" pad grouping :empty-value="0" class="efd-input" />
+          <NumberField v-model="newEvent.revenue" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Transactions</label>
-          <NumberField v-model="newEvent.transactionCount" :decimals="0" :step="1" :min="0" :empty-value="0" class="efd-input" />
+          <NumberField v-model="newEvent.transactionCount" :decimals="0" :step="1" :min="0" :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Avg Spend / Tx</label>
-          <NumberField v-model="newEvent.avgSpendPerTx" :decimals="2" :min="0" pad grouping :empty-value="0" class="efd-input" />
+          <NumberField v-model="newEvent.avgSpendPerTx" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Per Capita</label>
-          <NumberField v-model="newEvent.perCapita" :decimals="2" :min="0" pad grouping :empty-value="0" class="efd-input" />
+          <NumberField v-model="newEvent.perCapita" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
       </div>
     </div>

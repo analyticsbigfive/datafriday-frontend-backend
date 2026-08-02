@@ -729,6 +729,7 @@ async function submit() {
 .hpd-field { display: flex; flex-direction: column; gap: 6px; }
 .hpd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hpd-required { color: #ff3131; }
+.hpd-input.number-field__input { text-align: center; }
 .hpd-input {
   width: 100%;
   border-radius: 11px;

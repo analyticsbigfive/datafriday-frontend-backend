@@ -238,7 +238,6 @@
                     :decimals="2"
                     :min="0.01"
                     :empty-value="1"
-                    class="ccf-field"
                   />
                 </div>
 
@@ -1475,6 +1474,7 @@ export default {
   color: #6b7280;
   line-height: 1;
 }
+.cc-inline-input.number-field__input { text-align: center; }
 .cc-inline-input,
 .cc-inline-select {
   border: 1.5px solid #dbeafe;

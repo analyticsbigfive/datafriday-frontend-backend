@@ -675,6 +675,7 @@ export default {
 }
 
 /* === Bootstrap inputs === */
+.mped-input.form-control.number-field__input { text-align: center; }
 .mped-input.form-control,
 .mped-select.form-select {
   border-radius: 11px;

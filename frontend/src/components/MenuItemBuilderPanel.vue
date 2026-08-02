@@ -672,7 +672,7 @@ export default {
                         :decimals="2"
                         :min="0.01"
                         :empty-value="0.01"
-                        class="w-24 text-right h-8"
+                        class="w-24 text-center h-8"
                         @change="(val) => handleUpdateQuantity(comp.id, val)"
                       />
                     </TableCell>
