@@ -77,7 +77,9 @@ export class DigifoodIngestionService {
             productName: item.variation && item.variation !== item.name
                 ? `${item.name} — ${item.variation}`
                 : item.name,
-            quantity: Math.trunc(item.quantity),
+            // Plus de Math.trunc : quantity est Float en base — les ventes au poids
+            // et formules à ratio ne perdent plus leurs décimales (= du CA).
+            quantity: item.quantity,
             unitPrice: new Prisma.Decimal(item.unitPrice.toFixed(2)),
             vat: new Prisma.Decimal(item.vatRate.toFixed(2)),
             // price_pu Digifood est déjà APRÈS remise → reduction 0 (les agrégats font

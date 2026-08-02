@@ -159,7 +159,7 @@ export class SpaceAggregationService {
         spaceElementId: string | null;
         revenueHt: Decimal;
         transactionsCount: bigint;
-        itemsCount: bigint;
+        itemsCount: number;
       }>
     >`
       SELECT 
@@ -259,7 +259,7 @@ export class SpaceAggregationService {
         day: Date;
         weezeventProductId: string;
         revenueHt: Decimal;
-        quantity: bigint;
+        quantity: number;
       }>
     >`
       SELECT 
