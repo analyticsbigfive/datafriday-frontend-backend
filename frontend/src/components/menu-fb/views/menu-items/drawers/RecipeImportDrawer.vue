@@ -29,8 +29,6 @@
                 </div>
               </div>
 
-              <div v-if="parseError" class="text-error text-body-2 mt-3">{{ parseError }}</div>
-
               <!-- Analyse -->
               <div v-if="rows.length" class="mt-5">
                 <div class="d-flex flex-wrap" style="gap:10px">
@@ -68,6 +66,9 @@
               </div>
             </template>
           </div>
+
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
+          <div v-if="parseError" class="rid-error text-error text-body-2">{{ parseError }}</div>
 
           <!-- Footer -->
           <div class="rid-footer pa-4">
@@ -277,6 +278,7 @@ export default {
 .rid-header { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid #eee; }
 .rid--dark .rid-header { border-color: rgba(255,255,255,.08); }
 .rid-body { flex: 1; overflow-y: auto; }
+.rid-error { flex-shrink: 0; padding: 10px 24px 0; }
 .rid-footer { display: flex; align-items: center; border-top: 1px solid #eee; }
 .rid--dark .rid-footer { border-color: rgba(255,255,255,.08); }
 .rid-dropzone { border: 2px dashed #d0d0d0; border-radius: 12px; cursor: pointer; transition: border-color .15s; }

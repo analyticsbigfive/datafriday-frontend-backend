@@ -156,8 +156,6 @@
               <!-- Scrollable body -->
               <v-form v-model="formValid" class="cc-form-body">
 
-                <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">{{ error }}</v-alert>
-                <v-alert v-if="loadingError" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">{{ loadingError }}</v-alert>
                 <div v-if="loadingComponent" class="d-flex justify-center align-center py-8">
                   <v-progress-circular indeterminate color="#ff3131" size="32" />
                 </div>
@@ -348,6 +346,10 @@
                 </div>
 
               </v-form>
+
+              <!-- Erreurs : hors zone scrollable, toujours visibles juste au-dessus des boutons -->
+              <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="cc-form-error">{{ error }}</v-alert>
+              <v-alert v-if="loadingError" type="error" variant="tonal" density="compact" rounded="lg" class="cc-form-error">{{ loadingError }}</v-alert>
 
               <!-- Sticky footer -->
               <div class="cc-form-footer">
@@ -1301,6 +1303,13 @@ export default {
   min-height: 0;
   padding: 18px 22px;
 }
+
+/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
+.cc-form-error {
+  flex-shrink: 0;
+  margin: 0 22px 10px;
+}
+.cc-form-error + .cc-form-error { margin-top: -4px; }
 
 /* Sticky footer */
 .cc-form-footer {

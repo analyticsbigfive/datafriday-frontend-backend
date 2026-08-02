@@ -19,12 +19,6 @@
             </button>
           </div>
 
-          <!-- ── Error ── -->
-          <div v-if="error" class="hpd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
-          </div>
-
           <!-- ── Body — logique conditionnelle EXACTE spec §2.1 ── -->
           <div class="hpd__body">
             <!-- 1. Department + 2. Nom du rôle -->
@@ -225,6 +219,15 @@
                 <span class="hrd-hint">{{ algoHint }}</span>
               </div>
             </div>
+          </div>
+
+          <!-- ── Error : rendue ici, hors zone scrollable, toujours visible juste au-dessus
+               des boutons — plutôt qu'en haut du corps (invisible une fois scrollé sur ce
+               drawer particulièrement long). Erreur PRINCIPALE seulement — sinkingError reste
+               inline dans sa propre section (contrôle contextuel, pas ce correctif). ── -->
+          <div v-if="error" class="hpd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            {{ error }}
           </div>
 
           <!-- ── Footer ── -->
@@ -672,13 +675,14 @@ async function submit() {
 .hpd__close-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.3); }
 .hpd__close-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Error */
+/* Error : barre fixe entre le corps scrollable et le footer (bordure haute, pas basse,
+   pour se détacher du corps plutôt que du footer). */
 .hpd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: var(--fs-base);
   color: #ff3131;
   flex-shrink: 0;

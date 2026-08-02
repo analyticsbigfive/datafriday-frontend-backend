@@ -22,12 +22,6 @@
             </button>
           </div>
 
-          <!-- Error -->
-          <div v-if="error" class="hsd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
-          </div>
-
           <!-- Body -->
           <div class="hsd__body">
             <!-- Valeur -->
@@ -95,6 +89,13 @@
                 <p v-if="existingAllSpaces" class="hsd-hint">{{ t('hrValueOverrideHint') }}</p>
               </template>
             </div>
+          </div>
+
+          <!-- Error : rendue ici, hors zone scrollable, toujours visible juste au-dessus des
+               boutons — plutôt qu'en haut du corps (invisible une fois scrollé). -->
+          <div v-if="error" class="hsd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            {{ error }}
           </div>
 
           <!-- Footer -->
@@ -272,12 +273,14 @@ function submit() {
 }
 .hsd__close-btn:hover { background: rgba(255, 255, 255, 0.3); }
 
+/* Barre fixe entre le corps scrollable et le footer (bordure haute, pas basse, pour se
+   détacher du corps plutôt que du footer). */
 .hsd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: var(--fs-base);
   color: #ff3131;
   flex-shrink: 0;

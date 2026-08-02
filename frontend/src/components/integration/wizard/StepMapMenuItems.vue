@@ -288,12 +288,6 @@
         </div>
       </div>
 
-      <!-- ── Error bar ── -->
-      <div v-if="error" class="smi-infobar smi-infobar--error smi-mt-3">
-        <AlertTriangle :size="14" style="flex-shrink: 0;" />
-        <span>{{ error }}</span>
-      </div>
-
       <!-- ── Blocking warning ── -->
       <div v-if="!loading && unmappedCount > 0" class="smi-infobar smi-infobar--warn smi-mt-2">
         <AlertTriangle :size="14" style="flex-shrink: 0;" />
@@ -311,18 +305,27 @@
     </template>
 
     <!-- ── Footer (teleported) ── -->
+    <!-- BUG-273 : l'erreur principale est téléportée avec le bouton (même Teleport que le
+         footer) pour rester visible dans la zone fixe .iw-footer, au lieu d'être perdue dans
+         le corps scrollable .iw-body du wizard parent (IntegrationWizard.vue). -->
     <Teleport :to="footerTarget" :disabled="!footerTarget">
-      <div class="smi-footer-actions">
-        <span></span>
-        <button
-          class="smi-btn smi-btn--primary"
-          :disabled="mappedCount === 0 || hasPendingSaves"
-          @click="handleSave"
-        >
-          <v-progress-circular v-if="hasPendingSaves" indeterminate size="14" width="2" color="white" />
-          <span v-else>{{ t('smmNext') }}</span>
-          <ChevronRight :size="16" />
-        </button>
+      <div class="smi-footer-teleport">
+        <div v-if="error" class="smi-infobar smi-infobar--error smi-footer-error">
+          <AlertTriangle :size="14" style="flex-shrink: 0;" />
+          <span>{{ error }}</span>
+        </div>
+        <div class="smi-footer-actions">
+          <span></span>
+          <button
+            class="smi-btn smi-btn--primary"
+            :disabled="mappedCount === 0 || hasPendingSaves"
+            @click="handleSave"
+          >
+            <v-progress-circular v-if="hasPendingSaves" indeterminate size="14" width="2" color="white" />
+            <span v-else>{{ t('smmNext') }}</span>
+            <ChevronRight :size="16" />
+          </button>
+        </div>
       </div>
     </Teleport>
 
@@ -2397,6 +2400,10 @@ export default {
 
 /* ── Footer actions ── */
 .smi-footer-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* BUG-273 : conteneur du Teleport footer — colonne pour empiler l'erreur au-dessus du bouton,
+   dans la zone fixe du wizard (jamais dans le corps scrollable). */
+.smi-footer-teleport { display: flex; flex-direction: column; align-items: stretch; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.smi-footer-error { margin: 0; }
 
 /* ── Quick-create dialog ── */
 .smi-qc-dialog {

@@ -24,6 +24,15 @@
       </div>
     </div>
 
+    <!-- BUG-273 : saveError est lié au bouton "Enregistrer tout" du header ci-dessus, pas au
+         footer du formulaire de droite (bouton différent, action différente) — affiché ici,
+         juste sous le header et son bouton, hors de toute zone scrollable, plutôt qu'en bas
+         à côté de formError (qui lui reste au bon endroit, adjacent à SON propre bouton). -->
+    <div v-if="saveError" class="ucp-error ucp-error--banner">
+      <AlertTriangle :size="14" />
+      {{ saveError }}
+    </div>
+
     <!-- Corps principal -->
     <div class="ucp-body">
 
@@ -34,11 +43,6 @@
           <span class="ucp-count-badge">
             {{ stagingList.length }} {{ stagingList.length === 1 ? t('userCreate.user') : t('userCreate.users') }}
           </span>
-        </div>
-
-        <div v-if="saveError" class="ucp-error">
-          <AlertTriangle :size="14" />
-          {{ saveError }}
         </div>
 
         <div class="ucp-table-wrap">
@@ -119,11 +123,6 @@
             </div>
           </div>
 
-          <div v-if="formError" class="ucp-error">
-            <AlertTriangle :size="14" />
-            {{ formError }}
-          </div>
-
           <!-- ÉTAPE 1 -->
           <div v-show="currentStep === 1">
             <div class="ucp-section"><span>{{ t('userCreate.sectionIdentity') }}</span></div>
@@ -197,6 +196,13 @@
               « Tous » inclut les espaces présents et futurs. Le propriétaire voit toujours tout. L'accès est indépendant du rôle.
             </p>
           </div>
+        </div>
+
+        <!-- formError : hors zone scrollable, toujours visible juste au-dessus du footer
+             du formulaire (validation du formulaire courant, propre au bouton ci-dessous). -->
+        <div v-if="formError" class="ucp-error">
+          <AlertTriangle :size="14" />
+          {{ formError }}
         </div>
 
         <!-- Footer form -->
@@ -541,13 +547,17 @@ export default {
 .ucp-btn--primary { background: #ff3131; color: #fff; }
 .ucp-btn--primary:hover:not(:disabled) { box-shadow: 0 4px 12px rgba(255, 49, 49,0.3); }
 
-/* ── Error ── */
+/* ── Error : fixée entre le corps scrollable et le footer du formulaire (droite) ── */
 .ucp-error {
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; margin-bottom: 14px;
+  padding: 10px 14px; margin: 12px 20px 0;
   background: rgba(255, 49, 49, 0.08); border: 1px solid rgba(255, 49, 49, 0.2);
   border-radius: 10px; font-size: 0.8125rem; color: #ff3131;
+  flex-shrink: 0;
 }
+/* Variante pleine largeur, juste sous le header et son bouton "Enregistrer tout"
+   (saveError) — pas d'inset horizontal, pas de radius, hors de .ucp-body. */
+.ucp-error--banner { margin: 0; border-radius: 0; border-width: 0 0 1px; padding: 10px 24px; }
 
 /* ── Table staging ── */
 .ucp-table-wrap {

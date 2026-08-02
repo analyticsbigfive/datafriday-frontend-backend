@@ -30,12 +30,6 @@
             </button>
           </div>
 
-          <!-- Error -->
-          <div v-if="error" class="sfd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
-          </div>
-
           <!-- ── Scrollable body ── -->
           <div class="sfd__body">
 
@@ -163,6 +157,12 @@
               ></textarea>
             </div>
 
+          </div>
+
+          <!-- Error : hors zone scrollable, toujours visible juste au-dessus du footer -->
+          <div v-if="error" class="sfd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            {{ error }}
           </div>
 
           <!-- ── Footer ── -->
@@ -471,13 +471,13 @@ export default {
 .sfd__close-btn:hover:not(:disabled) { background: rgba(255,255,255,.3); }
 .sfd__close-btn:disabled { opacity: .4; cursor: not-allowed; }
 
-/* ── Error ── */
+/* ── Error : entre le corps scrollable et le footer, toujours visible ── */
 .sfd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: 13px;
   color: #ff3131;
   flex-shrink: 0;

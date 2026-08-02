@@ -14,11 +14,6 @@
             <button class="mpesd__close-btn" :disabled="loading" @click="close"><X :size="18" /></button>
           </div>
 
-          <!-- Error -->
-          <div v-if="error" class="mpesd__error">
-            <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
-          </div>
-
           <!-- Content -->
           <div class="mpesd-content">
 
@@ -378,6 +373,11 @@
               </div>
             </div>
 
+          </div>
+
+          <!-- Error : BUG-273, hors zone scrollable, toujours visible juste au-dessus des boutons. -->
+          <div v-if="error" class="mpesd__error">
+            <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
           </div>
 
           <!-- Footer -->
@@ -976,12 +976,13 @@ export default {
 .mpesd__close-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* === Error === */
+/* BUG-273 : barre d'erreur fixe, entre le contenu scrollable et le footer. */
 .mpesd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: 13px;
   color: #ff3131;
   flex-shrink: 0;

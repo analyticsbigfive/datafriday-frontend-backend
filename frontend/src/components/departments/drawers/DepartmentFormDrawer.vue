@@ -20,10 +20,6 @@
 
           <!-- Body -->
           <div class="dfd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-5">
-              {{ error }}
-            </v-alert>
-
             <div class="dfd-field-label">{{ t('departmentList.labelName') }} <span class="dfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
@@ -94,6 +90,11 @@
               hide-details
             />
           </div>
+
+          <!-- Error : hors zone scrollable, toujours visible juste au-dessus du footer -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="dfd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- Footer -->
           <div class="dfd-footer">
@@ -281,6 +282,9 @@ export default {
 .dfd-panel--dark .dfd-field :deep(.v-field input),
 .dfd-panel--dark .dfd-field :deep(.v-field__input) { color: #f3f4f6 !important; }
 .dfd-star { color: #ff3131; }
+
+/* Erreur fixe, entre le corps scrollable et le footer. */
+.dfd-error { flex-shrink: 0; margin: 0; border-radius: 0 !important; }
 
 /* ── Footer ── */
 .dfd-footer {

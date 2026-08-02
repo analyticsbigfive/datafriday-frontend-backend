@@ -7,6 +7,7 @@
     width="560"
     :title="mode === 'edit' ? t('eventsList.drawerEditTitle') : t('eventsList.drawerCreateTitle')"
     :subtitle="mode === 'edit' ? t('eventsList.drawerEditSubtitle') : t('eventsList.drawerCreateSubtitle')"
+    :error-message="formError"
   >
     <template #icon>
       <Calendar :size="20" color="white" />
@@ -16,11 +17,6 @@
          le CSS scoped de ce composant (`.efd--dark .efd-input` etc.) ne matche que les éléments
          du propre template de ce composant, pas l'intérieur de EventDrawerShell. -->
     <div :class="{ 'efd--dark': isDark }">
-
-      <!-- Error -->
-      <div v-if="formError" class="efd-error">
-        <AlertCircle :size="14" /> {{ formError }}
-      </div>
 
       <!-- ── Section: Informations générales ── -->
       <div class="efd-section-label">
@@ -1102,12 +1098,6 @@ export default {
 
 <style scoped>
 /* Error */
-.efd-error {
-  display: flex; align-items: center; gap: 8px;
-  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 12px; padding: 12px 16px; font-size: var(--fs-base); margin-bottom: 20px;
-}
-
 /* Warning (non bloquant, ex. BUG-146 : ticketsScanned > ticketsSold) */
 .efd-warning {
   display: flex; align-items: center; gap: 8px;
