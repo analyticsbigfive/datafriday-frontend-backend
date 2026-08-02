@@ -999,15 +999,21 @@ export default {
       // le CA par shop tombaient à 0. Les shops sans vente timeline n'ont pas de
       // `_itemIds` (repli `shopType` inchangé).
       if (Array.isArray(this.configShops) && this.configShops.length) {
+        // BUG-275 : `configShops` (prop) vient de `/spaces/:id/shops`, dont le `shopTypes`
+        // backend inclut délibérément `merchshop` (revenu/stock, cf. BUG-274) — mais ici on
+        // assigne des MenuItem F&B à un point de vente, même contexte que BUG-274. Filtré ici
+        // (pas dans `configShops` lui-même, réutilisé pour le CA par shop plus bas où
+        // merchshop doit rester).
+        const shops = this.configShops.filter((el) => el?.type !== 'merchshop')
         const synth = this.syntheticElementsFromTimeline
-        if (!synth.length) return this.configShops
+        if (!synth.length) return shops
         const byId = new Map()
         const byName = new Map()
         for (const s of synth) {
           if (s.id != null) byId.set(String(s.id), s._itemIds)
           if (s.name) byName.set(String(s.name).toLowerCase(), s._itemIds)
         }
-        return this.configShops.map((el) => {
+        return shops.map((el) => {
           const ids =
             byId.get(String(el.id)) ||
             byName.get(String(el.name || '').toLowerCase())
