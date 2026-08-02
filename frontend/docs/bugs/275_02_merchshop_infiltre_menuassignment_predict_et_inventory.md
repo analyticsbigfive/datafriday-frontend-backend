@@ -1,6 +1,8 @@
 # BUG-275-02 — Merch (`merchshop`) infiltré dans l'assignation menu (Event Predict) et dupliqué (Inventory)
 
-- **Statut** : 🟢 Corrigé (2026-08-02)
+- **Statut** : ⚪ Diagnostiqué (root cause connue, correctif écrit et testé, **retiré de
+  `develop` le 2026-08-02** à la demande de l'utilisateur — préservé sur la branche
+  `fix/bug-275-merchshop-predict-inventory`, à merger séparément)
 - **Sévérité** : 🟠 Majeur (Event Predict : écriture d'une association métier incohérente,
   même famille que BUG-274, atteignable depuis un 2ᵉ écran non couvert par ce fix-là) /
   🟡 Mineur (Inventory : affichage dupliqué, pas d'écriture)
@@ -41,6 +43,12 @@ autres consommateurs du même endpoint souffraient du même manque de filtre :
   (:61, `if (el?.type !== 'shop') continue`), celle-ci ingérait tout sans filtre de `type`.
 
 ## Correction
+
+**⚠️ Écrite, testée, puis retirée de `develop` le 2026-08-02** à la demande de l'utilisateur —
+non pas parce que le correctif serait incorrect, mais pour le faire vivre sur une branche dédiée
+plutôt que mêlé au reste des commits de cette session. Le commit d'origine (`4298fd9e`, qui
+groupait aussi BUG-274 — **conservé sur `develop`**, non concerné par ce retrait) reste
+accessible sur la branche `fix/bug-275-merchshop-predict-inventory` pour merge séparé.
 
 Même principe que BUG-274 : filtre ajouté **au point de consommation**, jamais dans l'endpoint ou
 le store partagés (pour ne pas affecter les autres consommateurs légitimes du même endpoint —

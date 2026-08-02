@@ -1,15 +1,18 @@
 # BUG-270-02 — Timeline Analyse : heures affichées en UTC brut, sans conversion vers le fuseau de l'espace
 
-- **Statut** : 🟢 Corrigé (2026-08-02)
+- **Statut** : ⚪ Diagnostiqué (root cause connue, correctif écrit puis **retiré de `develop`
+  le 2026-08-02** — domaine Analyse hors périmètre de cette session, propriétaire produit
+  Jean-Luc. Ne pas réappliquer sans son arbitrage, pour éviter tout conflit avec un travail en
+  cours de son côté sur ce même domaine.)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (backend, seul repo touché)
 - **Découvert le** : 2026-08-02 (signalé par l'utilisateur : "les heures sur la timeline
   d'analyse ne semblent pas correspondre aux heures de l'événement, ~2h de décalage, comme si on
   se calait sur l'heure d'Abidjan au lieu de l'heure indiquée/de l'utilisateur")
-- **Fichiers** : `src/features/spaces/spaces.service.ts` — `getEventTimelineBatch`
-  (anciennement `:1253,1295`), `getTransactionBasketsBatch` (anciennement `:1379,1419`),
-  `resolveEventSalesScope` (anciennement `:1144-1224`)
+- **Fichiers** : `src/features/spaces/spaces.service.ts` — `getEventTimelineBatch`,
+  `getTransactionBasketsBatch`, `resolveEventSalesScope` (correctif retiré, voir "Correction"
+  ci-dessous — la cause racine et le diagnostic restent valides, seul le code a été annulé)
 
 ## Symptôme
 
@@ -47,6 +50,12 @@ cet usage.
 
 ## Correction
 
+**⚠️ Écrite, vérifiée en base, puis retirée de `develop` le 2026-08-02** — le domaine Analyse est
+hors du périmètre confié pour cette session (propriétaire produit : Jean-Luc). Conservée ici
+telle quelle à titre de proposition, pour éviter de refaire le diagnostic ; à réappliquer
+seulement après validation de Jean-Luc, pour éviter un conflit avec un travail en cours de son
+côté sur ce même fichier/domaine.
+
 `resolveEventSalesScope` (source commune à `getEventTimelineBatch` et
 `getTransactionBasketsBatch`) résout désormais aussi `Space.timezone` (repli `'Europe/Paris'` si
 `null`, cohérent avec le défaut du schéma) et le renvoie dans son objet de scope. Les deux requêtes
@@ -64,6 +73,9 @@ correct).
 
 ## Risque de régression / à surveiller
 
+- **Code actuellement absent de `develop`** (revert manuel du fichier à son état d'avant le commit
+  `8ff711ec`, qui reste consultable pour retrouver le diff exact du correctif proposé). Ce commit
+  contenait aussi BUG-271/BUG-272 (conservés, non affectés — fichiers distincts).
 - Espaces réellement situés hors `Europe/Paris` (ex. Abidjan) : `Space.timezone` reste à
   `'Europe/Paris'` par défaut faute d'UI pour la changer — **aucun écran ne permet aujourd'hui de
   configurer le fuseau d'un espace**. Un espace véritablement en Côte d'Ivoire afficherait
