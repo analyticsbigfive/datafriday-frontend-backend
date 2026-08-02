@@ -453,7 +453,7 @@ import { useDisplay, useTheme } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
-import { formatCurrency, formatNumber } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import FilterPanel from './filters/FilterPanel.vue'
 import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
 import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
@@ -1179,7 +1179,7 @@ const headerKpis = computed(() => {
   return [
     { label: t('anHeaderKpiRevenue'), kind: 'revenue', value: formatCurrency(rev), color: '#10B981', variation: headerVariation('revenue') },
     { label: t('anHeaderKpiAvgPerEvent'), kind: 'avg-revenue', value: formatCurrency(m.displayAvgRevenue?.value ?? 0), color: '#F97316', variation: headerVariation('avgRevenuePerEvent') },
-    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrency(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true },
+    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrencyDetailed(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true },
     { label: t('anHeaderKpiTransactions'), kind: 'transactions', value: formatNumber(trans), color: '#3B82F6', variation: headerVariation('transactions') },
     { label: t('anHeaderKpiBasket'), kind: 'avg-trans', value: formatCurrency(trans ? rev / trans : 0, 'EUR', 'fr-FR', 2), color: '#A855F7', variation: headerVariation('avgTransaction') },
     { label: t('anHeaderKpiAttendees'), kind: 'attendees', value: formatNumber(att), color: '#0EA5E9', variation: headerVariation('attendees') },

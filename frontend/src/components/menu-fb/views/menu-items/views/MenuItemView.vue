@@ -223,7 +223,7 @@
                   <div class="d-flex align-center" style="gap: 12px">
                     <div class="group-stat">
                       <div class="text-caption text-medium-emphasis">{{ t('menuItemLib.totalCost') }}</div>
-                      <div class="text-subtitle-2 font-weight-bold">{{ formatCurrency(groupTotals(item.items).totalCost) }}</div>
+                      <div class="text-subtitle-2 font-weight-bold">{{ formatCurrencyDetailed(groupTotals(item.items).totalCost) }}</div>
                     </div>
                     <v-divider vertical />
                     <div class="group-stat">

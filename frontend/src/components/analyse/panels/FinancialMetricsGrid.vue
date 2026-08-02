@@ -22,7 +22,7 @@
       <KpiCard
         :config="cards[2]"
         :value="`${metrics.displayMargin.value.toFixed(1)}%`"
-        :subtext="`${t('anTotal')} : ${formatCurrency(metrics.displayRevenue.value - metrics.displayCost.value)}`"
+        :subtext="`${t('anTotal')} : ${formatCurrencyDetailed(metrics.displayRevenue.value - metrics.displayCost.value)}`"
         :variation="v('margin')"
         @click="$emit('open-chart', 'margin')"
       />
@@ -43,7 +43,7 @@
 import { computed } from 'vue'
 import KpiCard from './KpiCard.vue'
 import { KPI_CARDS } from '@/constants/analyseColors'
-import { formatCurrency, formatNumber } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import { useI18n } from '@/i18n/useI18n'
 

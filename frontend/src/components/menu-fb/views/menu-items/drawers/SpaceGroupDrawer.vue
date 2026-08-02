@@ -109,7 +109,7 @@
 <script>
 import { X, Building2 } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
-import { formatCurrency } from '@/composables/useFormatters.js';
+import { formatCurrencyDetailed } from '@/composables/useFormatters.js';
 
 // Verrou de scroll partagé (module-level) : plusieurs instances de ce drawer
 // peuvent être ouvertes simultanément (voir MenuItemCreateView.vue). On ne
@@ -146,7 +146,7 @@ export default {
   emits: ['update:modelValue', 'confirm'],
   setup() {
     const { t } = useI18n();
-    return { t, formatCurrency };
+    return { t, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {

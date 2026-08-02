@@ -41,7 +41,7 @@
     >
       <div class="text-sm text-gray-500 dark:text-gray-400">Cost</div>
       <div class="font-semibold text-red-600 dark:text-red-400">
-        {{ formatCurrency(displayCost) }}
+        {{ formatCurrencyDetailed(displayCost) }}
       </div>
       <div v-if="getPreviousPeriodRange && previousPeriodMetrics.cost > 0 && !isTimelineFilterActive" class="flex items-center justify-center gap-1 text-xs font-medium mt-1">
         <ArrowUp v-if="costChange > 0" class="w-3 h-3 text-red-700 dark:text-red-300" />
