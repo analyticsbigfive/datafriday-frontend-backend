@@ -6,7 +6,9 @@
 - **Repo(s) concerné(s)** : `datafriday-web`
 - **Découvert le** : 2026-08-02 (règle UX explicite demandée par l'utilisateur : "les erreurs
   doivent toujours être juste au-dessus du bouton de validation")
-- **Fichiers** : 41 fichiers, voir liste par domaine ci-dessous
+- **Fichiers** : 45 fichiers (41 repositionnement + `HrDeleteDialog.vue`,
+  `HrSuppliersView.vue`, `HrPositionsView.vue`, `i18n/translations.js` pour le gap
+  plomberie d'erreur), voir liste par domaine ci-dessous
 
 ## Symptôme
 
@@ -100,16 +102,20 @@ fonctionnaient déjà correctement.
   en particulier : dark mode sur chaque composant migré, comportement du wizard Data Integration
   (Teleport le plus risqué du lot), et `LogisticSimulateSaleDialog.vue` (pas de footer réellement
   fixe — limitation documentée, pas une garantie totale d'absence de scroll).
-- **Gaps découverts en marge, non corrigés ici** (hors périmètre "position de l'erreur", à traiter
-  séparément) :
-  - `src/components/hr/dialogs/HrDeleteDialog.vue` : classe CSS `.hdd__error` définie mais jamais
-    référencée dans le template — un échec de suppression sur ce dialog n'affiche aujourd'hui AUCUNE
-    erreur visible ; ses 2 appelants (`HrSuppliersView.vue`, `HrPositionsView.vue`) n'ont d'ailleurs
-    aucun try/catch autour de l'appel de suppression. Nécessite d'ajouter la plomberie d'état
-    d'erreur (prop/data + try/catch chez les 2 appelants), pas juste un déplacement de markup.
+- **Gaps découverts en marge, corrigés dans un second passage (2026-08-02)** :
+  - `src/components/hr/dialogs/HrDeleteDialog.vue` : la classe CSS `.hdd__error` existait mais
+    n'était jamais référencée — un échec de suppression n'affichait aucune erreur. Corrigé : nouvelle
+    prop `error` (même pattern que `loading`, piloté par le parent), rendue juste au-dessus du
+    footer. Ses 2 appelants (`HrSuppliersView.vue`, `HrPositionsView.vue`) n'avaient par ailleurs
+    aucun try/catch autour de l'appel de suppression (échec = promesse rejetée non gérée,
+    totalement silencieux) — ajouté dans les deux, avec un nouvel état `deleteError` remonté au
+    dialog. Nouvelle clé i18n `hrDeleteError` ("Delete failed" / "Échec de la suppression").
   - `MarketPriceTypeCategoriesDrawer.vue`, `ProductTypeCategoriesDrawer.vue`,
-    `ComponentTypeCategoriesDrawer.vue` : aucun mécanisme d'affichage d'erreur du tout (constaté
-    lors de l'audit initial, non revérifié en détail).
+    `ComponentTypeCategoriesDrawer.vue` : revérifiés en détail — ce sont des **viewers en lecture
+    seule** (affichent `marketPriceType.categoryList`/équivalent depuis une prop, un seul bouton
+    "Fermer", aucun appel API dans leurs `methods`). Il n'y a structurellement rien qui puisse
+    échouer ici — confirmé que ce n'est **pas** un gap, l'absence de gestion d'erreur est correcte
+    pour ce type de composant. Aucune modification.
 - **Formulaires courts déjà "OK" non touchés** (single champ ou dialog de confirmation sans scroll,
   ex. `EventTypeDialog.vue` migré vers le shell par cohérence mais la plupart des "New X"
   quick-create dialogs et delete-confirm dialogs à travers market-prices/component-library/

@@ -22,6 +22,13 @@
         </p>
       </div>
 
+      <!-- BUG-273 : erreur d'échec de suppression, juste au-dessus des boutons — jusqu'ici
+           le composant n'avait ni prop `error` ni rendu, un échec restait invisible. -->
+      <div v-if="error" class="hdd__error">
+        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />
+        {{ error }}
+      </div>
+
       <!-- Footer -->
       <div class="hdd__footer">
         <button class="hdd-btn hdd-btn--cancel" :disabled="loading" @click="close">
@@ -41,7 +48,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
-import { Trash2, X } from 'lucide-vue-next'
+import { Trash2, X, AlertCircle } from 'lucide-vue-next'
 import { t } from '@/i18n'
 
 defineProps({
@@ -52,6 +59,9 @@ defineProps({
   title: { type: String, default: '' },
   // Piloté par le parent pendant la suppression asynchrone.
   loading: { type: Boolean, default: false },
+  // BUG-273 : piloté par le parent (même pattern que `loading`) — le parent fait l'appel API
+  // dans son handler `@confirm` et remonte l'erreur ici plutôt que de la laisser silencieuse.
+  error: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue', 'confirm'])
 

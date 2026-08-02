@@ -317,6 +317,7 @@ export const translations = {
     hrSaved: 'Saved',
     hrDeleted: 'Deleted',
     hrSaveError: 'Save failed',
+    hrDeleteError: 'Delete failed',
     hrNameRequired: 'Name is required',
     // Settings HR (Goals & Staff par Responsable de zone)
     hrSettingsTitle: 'Settings HR',
@@ -4332,6 +4333,7 @@ export const translations = {
     hrSaved: 'Enregistré',
     hrDeleted: 'Supprimé',
     hrSaveError: 'Échec de l\'enregistrement',
+    hrDeleteError: 'Échec de la suppression',
     hrNameRequired: 'Le nom est requis',
     // Settings HR (Goals & Staff par Responsable de zone)
     hrSettingsTitle: 'Paramètres RH',
