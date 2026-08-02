@@ -6,6 +6,8 @@
 export const translations = {
   en: {
     // Common
+    numberFieldDecrease: 'Decrease',
+    numberFieldIncrease: 'Increase',
     cancel: 'Cancel',
     save: 'Save',
     saveChanges: 'Save Changes',
@@ -2350,6 +2352,8 @@ export const translations = {
     menuItemCreateAllergenShellfish: 'Shellfish',
     menuItemCreateAllergenSoy: 'Soy',
     menuItemCreateLabelNumberOfPieces: 'Number of Pieces (Recipe)',
+    menuItemCreatePricePlaceholder: '0.00 incl. VAT',
+    menuItemCreateVatPlaceholder: 'VAT %',
     menuItemCreateActionEdit: 'Edit',
     menuItemCreateActionDelete: 'Delete',
     menuItemCreateErrorNameRequired: 'Item name is required.',
@@ -4018,6 +4022,8 @@ export const translations = {
 
   fr: {
     // Common
+    numberFieldDecrease: 'Diminuer',
+    numberFieldIncrease: 'Augmenter',
     cancel: 'Annuler',
     save: 'Enregistrer',
     saveChanges: 'Enregistrer les modifications',
@@ -6363,6 +6369,8 @@ export const translations = {
     menuItemCreateAllergenShellfish: 'Crustacés',
     menuItemCreateAllergenSoy: 'Soja',
     menuItemCreateLabelNumberOfPieces: 'Nombre de pièces (recette)',
+    menuItemCreatePricePlaceholder: '0,00 TTC',
+    menuItemCreateVatPlaceholder: 'TVA %',
     menuItemCreateActionEdit: 'Modifier',
     menuItemCreateActionDelete: 'Supprimer',
     menuItemCreateErrorNameRequired: 'Le nom de l\'article est requis.',

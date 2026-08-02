@@ -169,18 +169,12 @@ export class SpaceAggregationService {
         t."merchantId" as "weezeventMerchantId",
         mem."spaceElementId" as "spaceElementId",
         SUM(
-          CASE 
-            WHEN p."vatRate" IS NOT NULL THEN 
-              ti."unitPrice" * ti.quantity / (1 + p."vatRate" / 100)
-            ELSE 
-              ti."unitPrice" * ti.quantity / 1.20
-          END
+          (ti."unitPrice" * ti.quantity - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
         ) as "revenueHt",
         COUNT(DISTINCT t.id) as "transactionsCount",
         SUM(ti.quantity) as "itemsCount"
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventProduct" p ON p.id = ti."productId"
       LEFT JOIN "WeezeventLocationShopMapping" mem 
         ON mem."weezeventLocationId" = t."merchantId" 
         AND mem."tenantId" = ${tenantId}
@@ -249,6 +243,9 @@ export class SpaceAggregationService {
     return transactions.length;
   }
 
+  // HT dérivé de la TVA DE LA LIGNE DE VENTE (ti."vat", comme aggregation.service.ts),
+  // remise déduite. Avant : TVA lue sur le produit avec fallback 20 % codé en dur, en
+  // contradiction avec la politique "pas de défaut 20 %" de menu-item-pricing.service.ts.
   private async aggregateProducts(
     tenantId: string,
     spaceId: string,
@@ -269,17 +266,11 @@ export class SpaceAggregationService {
         DATE(t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}) as day,
         ti."productId" as "weezeventProductId",
         SUM(
-          CASE 
-            WHEN p."vatRate" IS NOT NULL THEN 
-              ti."unitPrice" * ti.quantity / (1 + p."vatRate" / 100)
-            ELSE 
-              ti."unitPrice" * ti.quantity / 1.20
-          END
+          (ti."unitPrice" * ti.quantity - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
         ) as "revenueHt",
         SUM(ti.quantity) as quantity
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventProduct" p ON p.id = ti."productId"
       WHERE 
         t."tenantId" = ${tenantId}
         AND t."locationId" = ANY(${locationIds})

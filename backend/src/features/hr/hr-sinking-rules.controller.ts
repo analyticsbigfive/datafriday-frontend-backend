@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsInt, Min } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
@@ -29,10 +29,12 @@ class CreateHrSinkingRuleDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   conditionMinValue?: number;
 
+  // Colonne Prisma Int : @IsInt (un 2.5 passait la validation puis explosait en 500 côté Postgres)
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   mandatoryQty?: number;
 }

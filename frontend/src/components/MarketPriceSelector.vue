@@ -8,6 +8,7 @@ import {
 import * as api from "../utils/api";
 import { toast } from "vue-sonner";
 import ImageWithFallback from "../figma/ImageWithFallBack.vue";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 
 export default {
   name: "MarketPriceSelector",
@@ -84,6 +85,8 @@ export default {
     },
   },
   methods: {
+    formatCurrencyDetailed,
+
     async fetchData() {
       try {
         this.loading = true;
@@ -283,7 +286,7 @@ export default {
                     <!-- Unit price -->
                     <div class="mps-supplier__price">
                       <span class="mps-supplier__price-value">
-                        €{{ (si.pricePerUnit || 0).toFixed(2) }}
+                        {{ formatCurrencyDetailed(si.pricePerUnit || 0) }}
                       </span>
                       <span class="mps-supplier__price-unit">/ {{ si.unit || '—' }}</span>
                     </div>

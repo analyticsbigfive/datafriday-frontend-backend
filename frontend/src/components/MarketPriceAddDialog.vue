@@ -19,6 +19,8 @@ import SelectValue from "../ui/selectValue.vue";
 import { X, Upload, Image as ImageIcon, Plus } from "lucide-vue-next";
 
 import ImageWithFallback from "../figma/ImageWithFallBack.vue";
+import NumberField from "@/components/common/NumberField.vue";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 export default {
   name: "MarketPriceAddDialog",
   components: {
@@ -41,6 +43,7 @@ export default {
     ImageIcon,
     Plus,
     ImageWithFallback,
+    NumberField,
   },
   props: {
     open: { type: Boolean, required: true },
@@ -120,6 +123,8 @@ export default {
   },
 
   methods: {
+    formatCurrencyDetailed,
+
     _syncStepFromProps() {
       if (this.preselectedItemName && this.open) {
         this.selectedItemName = this.preselectedItemName;
@@ -517,38 +522,32 @@ export default {
 
             <div>
               <Label>Units Per Purchase *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                :value="supplierItemData.unitsPerPurchase"
-                @input="
-                  supplierItemData = {
-                    ...supplierItemData,
-                    unitsPerPurchase: parseFloat($event.target.value) || 0,
-                  }
-                "
+              <NumberField
+                v-model="supplierItemData.unitsPerPurchase"
+                :decimals="3"
+                :step="1"
+                :min="0"
+                :empty-value="0"
               />
             </div>
 
             <div>
               <Label>Price *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                :value="supplierItemData.price"
-                @input="
-                  supplierItemData = {
-                    ...supplierItemData,
-                    price: parseFloat($event.target.value) || 0,
-                  }
-                "
+              <NumberField
+                v-model="supplierItemData.price"
+                :decimals="2"
+                :step="0.01"
+                :min="0"
+                steppers
+                pad
+                :empty-value="0"
               />
             </div>
 
             <div>
               <Label>Price Per Unit</Label>
               <Input
-                :value="Number(supplierItemData.pricePerUnit).toFixed(2)"
+                :value="formatCurrencyDetailed(supplierItemData.pricePerUnit || 0)"
                 disabled
                 class="bg-gray-100"
               />
@@ -556,36 +555,23 @@ export default {
 
             <div>
               <Label>Packed Units (Optional)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                :value="supplierItemData.packedUnits || ''"
+              <NumberField
+                v-model="supplierItemData.packedUnits"
+                :decimals="3"
+                :step="1"
+                :min="0"
                 placeholder="e.g., 10"
-                @input="
-                  supplierItemData = {
-                    ...supplierItemData,
-                    packedUnits: $event.target.value
-                      ? parseFloat($event.target.value)
-                      : undefined,
-                  }
-                "
               />
             </div>
 
             <div>
               <Label>Number of Units (Optional)</Label>
-              <Input
-                type="number"
-                :value="supplierItemData.numberOfUnits || ''"
+              <NumberField
+                v-model="supplierItemData.numberOfUnits"
+                :decimals="3"
+                :step="1"
+                :min="0"
                 placeholder="e.g., 5"
-                @input="
-                  supplierItemData = {
-                    ...supplierItemData,
-                    numberOfUnits: $event.target.value
-                      ? parseInt($event.target.value)
-                      : undefined,
-                  }
-                "
               />
             </div>
 
@@ -593,49 +579,28 @@ export default {
               <Label>Packing Dimensions (L/W/H in cm) - Optional</Label>
 
               <div class="grid grid-cols-3 gap-2">
-                <Input
-                  type="number"
-                  step="0.1"
-                  :value="supplierItemData.packingLength || ''"
+                <NumberField
+                  v-model="supplierItemData.packingLength"
+                  :decimals="3"
+                  :step="1"
+                  :min="0"
                   placeholder="Length"
-                  @input="
-                    supplierItemData = {
-                      ...supplierItemData,
-                      packingLength: $event.target.value
-                        ? parseFloat($event.target.value)
-                        : undefined,
-                    }
-                  "
                 />
 
-                <Input
-                  type="number"
-                  step="0.1"
-                  :value="supplierItemData.packingWidth || ''"
+                <NumberField
+                  v-model="supplierItemData.packingWidth"
+                  :decimals="3"
+                  :step="1"
+                  :min="0"
                   placeholder="Width"
-                  @input="
-                    supplierItemData = {
-                      ...supplierItemData,
-                      packingWidth: $event.target.value
-                        ? parseFloat($event.target.value)
-                        : undefined,
-                    }
-                  "
                 />
 
-                <Input
-                  type="number"
-                  step="0.1"
-                  :value="supplierItemData.packingHeight || ''"
+                <NumberField
+                  v-model="supplierItemData.packingHeight"
+                  :decimals="3"
+                  :step="1"
+                  :min="0"
                   placeholder="Height"
-                  @input="
-                    supplierItemData = {
-                      ...supplierItemData,
-                      packingHeight: $event.target.value
-                        ? parseFloat($event.target.value)
-                        : undefined,
-                    }
-                  "
                 />
               </div>
             </div>

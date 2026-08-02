@@ -94,24 +94,15 @@
 
                   <template #item.quantity="{ item }">
                     <div class="mic-qty-stepper">
-                      <button
-                        class="mic-qty-btn"
-                        type="button"
-                        @click="item.quantity = Math.max(0, +((+item.quantity || 0) - 1).toFixed(3))"
-                      >−</button>
-                      <input
-                        v-model.number="item.quantity"
-                        type="number"
-                        min="0"
-                        step="0.001"
+                      <NumberField
+                        v-model="item.quantity"
+                        :decimals="3"
+                        :step="1"
+                        :min="0"
+                        steppers
+                        :empty-value="0"
                         class="mic-qty-input"
-                        @change="item.quantity = Math.max(0, +(+item.quantity || 0).toFixed(3))"
                       />
-                      <button
-                        class="mic-qty-btn"
-                        type="button"
-                        @click="item.quantity = +((+item.quantity || 0) + 1).toFixed(3)"
-                      >+</button>
                     </div>
                   </template>
 
@@ -353,11 +344,12 @@
                       <option v-for="opt in packagingCategoryOptions" :key="opt" :value="opt">{{ opt }}</option>
                     </select>
                     <span class="mic-sentence-text">{{ t('menuItemCreate.of') }}</span>
-                    <input
-                      v-model.number="form.inventoryNumberOfUnits"
-                      type="number"
-                      min="0"
-                      step="0.001"
+                    <NumberField
+                      v-model="form.inventoryNumberOfUnits"
+                      :decimals="3"
+                      :step="1"
+                      :min="0"
+                      :empty-value="0"
                       class="mic-inline-input"
                       style="width: 80px;"
                     />
@@ -381,12 +373,13 @@
               <!-- Number of Pieces (Recipe) -->
               <div class="mb-3">
                 <label for="mic-pieces" class="mic-field-label">{{ t('menuItemCreate.labelNumberOfPieces') }} <span class="mic-required-star">*</span></label>
-                <input
+                <NumberField
                   id="mic-pieces"
-                  v-model.number="form.numberOfPiecesRecipe"
-                  type="number"
-                  min="1"
-                  step="1"
+                  v-model="form.numberOfPiecesRecipe"
+                  :decimals="0"
+                  :step="1"
+                  :min="1"
+                  :empty-value="1"
                   class="form-control mic-input"
                 />
               </div>
@@ -400,24 +393,27 @@
               <div v-if="!isEditMode" class="mic-price-add-row mb-3">
                 <div class="mic-prefix-wrap mic-price-add-row__amount">
                   <span class="mic-prefix-symbol">€</span>
-                  <input
-                    v-model.number="newPriceAmount"
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <NumberField
+                    v-model="newPriceAmount"
+                    :decimals="2"
+                    :step="0.01"
+                    :min="0"
+                    steppers
+                    pad
+                    :empty-value="0"
                     class="form-control mic-input mic-input--prefixed"
-                    placeholder="0.00 TTC"
+                    :placeholder="t('menuItemCreate.pricePlaceholder')"
                   />
                 </div>
                 <div class="mic-suffix-wrap mic-price-add-row__vat">
-                  <input
-                    v-model.number="newPriceVat"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
+                  <NumberField
+                    v-model="newPriceVat"
+                    :decimals="2"
+                    :step="0.1"
+                    :min="0"
+                    :max="100"
                     class="form-control mic-input mic-input--suffixed"
-                    placeholder="TVA %"
+                    :placeholder="t('menuItemCreate.vatPlaceholder')"
                   />
                   <span class="mic-suffix-symbol">%</span>
                 </div>
@@ -450,8 +446,7 @@
                 <div v-for="group in groupedSpaces" :key="group.key" class="mic-price-card mb-2">
                   <div class="mic-price-row">
                     <div class="mic-price-display mic-price-input">
-                      <span class="mic-price-display__prefix">€</span>
-                      <span class="mic-price-display__value">{{ Number(group.price || 0).toFixed(2) }}</span>
+                      <span class="mic-price-display__value">{{ formatCurrencyDetailed(group.price || 0) }}</span>
                     </div>
                     <div class="mic-space-names mic-space-names--clickable" @click="openGroupDrawer(group.spaceIds, group.price, group.vatRate)">
                       <span v-for="sid in group.spaceIds" :key="sid" class="mic-space-name-pill">
@@ -463,15 +458,15 @@
                   <div class="mic-price-summary">
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">HT</span>
-                      <span class="mic-price-value">{{ formatCurrency(getGroupHT(group.price, group.vatRate)) }}</span>
+                      <span class="mic-price-value">{{ formatCurrencyDetailed(getGroupHT(group.price, group.vatRate)) }}</span>
                     </div>
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">TVA{{ group.vatRate != null ? ` (${group.vatRate}%)` : '' }}</span>
-                      <span class="mic-price-value">{{ formatCurrency(group.price - getGroupHT(group.price, group.vatRate)) }}</span>
+                      <span class="mic-price-value">{{ formatCurrencyDetailed(group.price - getGroupHT(group.price, group.vatRate)) }}</span>
                     </div>
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">Coût</span>
-                      <span class="mic-price-value">{{ formatCurrency(costPerPiece) }}</span>
+                      <span class="mic-price-value">{{ formatCurrencyDetailed(costPerPiece) }}</span>
                     </div>
                     <div class="mic-price-sep" />
                     <div class="mic-price-row-info">
@@ -643,7 +638,8 @@ import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints/menu-item.api";
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
-import { formatCurrency } from "@/composables/useFormatters.js";
+import { formatCurrency, formatCurrencyDetailed } from "@/composables/useFormatters.js";
+import NumberField from "@/components/common/NumberField.vue";
 import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
@@ -658,7 +654,7 @@ import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -1276,6 +1272,7 @@ export default {
       }
     },
     formatCurrency,
+    formatCurrencyDetailed,
     getStorageColor(storage) {
       const colors = {
         Cold: "blue",

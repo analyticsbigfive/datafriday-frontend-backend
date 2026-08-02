@@ -401,7 +401,7 @@
                   <option v-for="opt in localPackagingOptions" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
                 <span class="info-label">{{ t('of') }}</span>
-                <input v-model.number="form.unitsPerPurchase" type="number" min="1" class="mpcd-inline-input" style="width:70px;" @input="recomputePricePerUnit" />
+                <NumberField v-model="form.unitsPerPurchase" :decimals="3" :step="1" :min="0" :empty-value="0" class="mpcd-inline-input" style="width:70px;" @change="recomputePricePerUnit" />
               </div>
               <div class="info-card__row">
                 <select v-model="form.unit" class="mpcd-inline-select" style="width:80px;">
@@ -411,7 +411,7 @@
                   <option value="Pc">Pc</option>
                 </select>
                 <span class="info-label">{{ t('forTheAmountOf') }} €</span>
-                <input v-model="form.price" inputmode="decimal" class="mpcd-inline-input" style="width:90px;" placeholder="0.00" @blur="form.price = parseFloat(String(form.price).replace(',', '.')) || 0; recomputePricePerUnit()" @input="recomputePricePerUnit" />
+                <NumberField v-model="form.price" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="mpcd-inline-input" style="width:90px;" placeholder="0.00" @change="recomputePricePerUnit" />
                 <span class="info-label info-label--dot">.</span>
               </div>
             </div>
@@ -427,7 +427,7 @@
                   <option v-for="opt in localPackagingOptions" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
                 <span class="info-label">{{ t('of') }}</span>
-                <input v-model.number="form.packedUnits" type="number" min="0" step="0.001" class="mpcd-inline-input" style="width:80px;" />
+                <NumberField v-model="form.packedUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="mpcd-inline-input" style="width:80px;" />
                 <span class="info-card__unit-badge">{{ form.unit || '—' }}</span>
                 <span class="info-label info-label--dot">.</span>
               </div>
@@ -447,13 +447,13 @@
                 <div class="col-6">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-packedUnits">{{ t('packedUnits') }} ({{ form.unit || 'unit' }})</label>
-                    <input id="mpcd-packedUnits" v-model.number="form.packedUnits" type="number" min="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-packedUnits" v-model="form.packedUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
                 <div class="col-6">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-numberOfUnits">{{ t('numberOfUnits') }}</label>
-                    <input id="mpcd-numberOfUnits" v-model.number="form.numberOfUnits" type="number" min="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-numberOfUnits" v-model="form.numberOfUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
               </div>
@@ -461,19 +461,19 @@
                 <div class="col-4">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-length">{{ t('length') }} (cm)</label>
-                    <input id="mpcd-length" v-model.number="form.packingLength" type="number" min="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-length" v-model="form.packingLength" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-width">{{ t('width') }} (cm)</label>
-                    <input id="mpcd-width" v-model.number="form.packingWidth" type="number" min="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-width" v-model="form.packingWidth" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-height">{{ t('height') }} (cm)</label>
-                    <input id="mpcd-height" v-model.number="form.packingHeight" type="number" min="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-height" v-model="form.packingHeight" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
               </div>
@@ -518,11 +518,12 @@ import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
 import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
 import MarketPriceNewIndustrialDialog from '../dialogs/MarketPriceNewIndustrialDialog.vue';
 import MarketPriceNewPackagingDialog from '../dialogs/MarketPriceNewPackagingDialog.vue';
+import NumberField from '@/components/common/NumberField.vue';
 
 
 export default {
   name: 'MarketPriceCreateDrawer',
-  components: { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog },
+  components: { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog, NumberField },
   props: {
     modelValue: { type: Boolean, default: false },
     // initialData: when set, pre-fills form for "add supplier to existing item" (step 2)
@@ -945,8 +946,8 @@ export default {
       this.step = 1;
     },
     recomputePricePerUnit() {
-      const raw = String(this.form.price ?? '').replace(',', '.');
-      const price = parseFloat(raw) || 0;
+      // NumberField émet déjà un number (point décimal) — plus de replace(',', '.').
+      const price = Number(this.form.price) || 0;
       const units = Number(this.form.unitsPerPurchase) || 0;
       const value = units > 0 ? price / units : 0;
       this.form.pricePerUnit = Number.isFinite(value) ? value : 0;

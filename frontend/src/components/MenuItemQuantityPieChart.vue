@@ -323,6 +323,9 @@ import {
 
 import { Doughnut } from 'vue-chartjs'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
+// Montants € locale-aware (fr "1 235 €" / en "€1,235") — plus de `$` en dur.
+import { formatCurrency } from '@/composables/useFormatters'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
@@ -369,8 +372,8 @@ const LegendList = {
   methods: {
     formatValue(value) {
       const roundedValue = Math.ceil(Number(value || 0))
-      if (this.metric === 'revenue') return `$${roundedValue.toLocaleString()}`
-      return roundedValue.toLocaleString()
+      if (this.metric === 'revenue') return formatCurrency(roundedValue)
+      return roundedValue.toLocaleString(currentIntlLocale())
     },
     colorForEntry(entry) {
       const idx = this.data.indexOf(entry)
@@ -778,8 +781,8 @@ export default {
 
     formatValue(value) {
       const roundedValue = Math.ceil(Number(value || 0))
-      if (this.metric === 'revenue') return `$${roundedValue.toLocaleString()}`
-      return roundedValue.toLocaleString()
+      if (this.metric === 'revenue') return formatCurrency(roundedValue)
+      return roundedValue.toLocaleString(currentIntlLocale())
     },
 
     clearFilters() {

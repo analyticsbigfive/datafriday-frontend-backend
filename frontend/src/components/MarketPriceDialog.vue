@@ -15,11 +15,13 @@ import DialogDescription from "../ui/dialogDescription.vue";
 import DialogFooter from "../ui/dialogFooter.vue";
 import DialogHeader from "../ui/dialogHeader.vue";
 import DialogTitle from "../ui/dialogTitle.vue";
+import NumberField from "@/components/common/NumberField.vue";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 export default {
   name: "MarketPriceDialog",
   components:{
     Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
-    Label,Input,Button,Select,SelectContent,SelectItem,SelectTrigger,ImageWithFallback,X,Upload
+    Label,Input,Button,Select,SelectContent,SelectItem,SelectTrigger,ImageWithFallback,X,Upload,NumberField
   },
   props: {
     item: { type: Object, default: null }, // MarketPriceItem | null
@@ -68,6 +70,8 @@ export default {
   },
 
   methods: {
+    formatCurrencyDetailed,
+
     _recalcPricePerUnit() {
       const units = this.formData.unitsPerPurchase;
       const price = this.formData.price;
@@ -237,33 +241,27 @@ export default {
 
           <div>
             <Label>Units per Purchase</Label>
-            <Input
-              type="number"
-              step="0.001"
-              :value="formData.unitsPerPurchase"
+            <NumberField
+              v-model="formData.unitsPerPurchase"
+              :decimals="3"
+              :step="1"
+              :min="0"
+              :empty-value="0"
               placeholder="0"
-              @input="
-                formData = {
-                  ...formData,
-                  unitsPerPurchase: parseFloat($event.target.value) || 0,
-                }
-              "
             />
           </div>
 
           <div>
             <Label>Price (Total)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              :value="formData.price"
+            <NumberField
+              v-model="formData.price"
+              :decimals="2"
+              :step="0.01"
+              :min="0"
+              steppers
+              pad
+              :empty-value="0"
               placeholder="0.00"
-              @input="
-                formData = {
-                  ...formData,
-                  price: parseFloat($event.target.value) || 0,
-                }
-              "
             />
           </div>
         </div>
@@ -278,38 +276,24 @@ export default {
                 Packed Units ({{ formData.unit || "unit" }})
               </Label>
 
-              <Input
-                type="number"
-                step="0.01"
-                :value="formData.packedUnits || ''"
+              <NumberField
+                v-model="formData.packedUnits"
+                :decimals="3"
+                :step="1"
+                :min="0"
                 placeholder="e.g., 10"
-                @input="
-                  formData = {
-                    ...formData,
-                    packedUnits: $event.target.value
-                      ? parseFloat($event.target.value) || undefined
-                      : undefined,
-                  }
-                "
               />
             </div>
 
             <div>
               <Label class="text-xs text-gray-500">Number of Units</Label>
 
-              <Input
-                type="number"
-                step="1"
-                :value="formData.numberOfUnits || ''"
+              <NumberField
+                v-model="formData.numberOfUnits"
+                :decimals="3"
+                :step="1"
+                :min="0"
                 placeholder="e.g., 5"
-                @input="
-                  formData = {
-                    ...formData,
-                    numberOfUnits: $event.target.value
-                      ? parseInt($event.target.value) || undefined
-                      : undefined,
-                  }
-                "
               />
             </div>
           </div>
@@ -317,55 +301,34 @@ export default {
           <div class="grid grid-cols-3 gap-4 mt-4">
             <div>
               <Label class="text-xs text-gray-500">Length (cm)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                :value="formData.packingLength || ''"
+              <NumberField
+                v-model="formData.packingLength"
+                :decimals="3"
+                :step="1"
+                :min="0"
                 placeholder="0"
-                @input="
-                  formData = {
-                    ...formData,
-                    packingLength: $event.target.value
-                      ? parseFloat($event.target.value) || undefined
-                      : undefined,
-                  }
-                "
               />
             </div>
 
             <div>
               <Label class="text-xs text-gray-500">Width (cm)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                :value="formData.packingWidth || ''"
+              <NumberField
+                v-model="formData.packingWidth"
+                :decimals="3"
+                :step="1"
+                :min="0"
                 placeholder="0"
-                @input="
-                  formData = {
-                    ...formData,
-                    packingWidth: $event.target.value
-                      ? parseFloat($event.target.value) || undefined
-                      : undefined,
-                  }
-                "
               />
             </div>
 
             <div>
               <Label class="text-xs text-gray-500">Height (cm)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                :value="formData.packingHeight || ''"
+              <NumberField
+                v-model="formData.packingHeight"
+                :decimals="3"
+                :step="1"
+                :min="0"
                 placeholder="0"
-                @input="
-                  formData = {
-                    ...formData,
-                    packingHeight: $event.target.value
-                      ? parseFloat($event.target.value) || undefined
-                      : undefined,
-                  }
-                "
               />
             </div>
           </div>
@@ -376,12 +339,12 @@ export default {
           <div class="flex items-center justify-between">
             <span class="text-sm text-gray-600">Price per Unit (Calculated)</span>
             <span class="text-xl">
-              ${{ formData.pricePerUnit?.toFixed(2) || "0.00" }}
+              {{ formatCurrencyDetailed(formData.pricePerUnit || 0) }}
             </span>
           </div>
 
           <p class="text-xs text-gray-500 mt-1">
-            {{ formData.price?.toFixed(2) || "0.00" }}
+            {{ formatCurrencyDetailed(formData.price || 0) }}
             ÷
             {{ formData.unitsPerPurchase || 0 }}
             {{ formData.unit }}

@@ -254,6 +254,8 @@ import Button from '../ui/button.vue'
 import { ChevronDown, ChevronUp, Store } from 'lucide-vue-next'
 
 import { Doughnut } from 'vue-chartjs'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
@@ -460,9 +462,9 @@ export default {
 
     formatValue(value) {
       if (this.metric === 'revenue') {
-        return `€${Number(value || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        return formatCurrencyDetailed(Number(value || 0))
       }
-      return Number(value || 0).toLocaleString()
+      return Number(value || 0).toLocaleString(currentIntlLocale())
     },
 
     toDoughnutData(list) {

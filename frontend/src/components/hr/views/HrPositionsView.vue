@@ -138,6 +138,7 @@ import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import * as hrApi from '@/utils/hrApi'
 import { getSpacesLight } from '@/api/endpoints/space.api'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
@@ -220,7 +221,7 @@ function formatRate(rate) {
   if (rate === null || rate === undefined || rate === '') return '—'
   const n = Number(rate)
   if (Number.isNaN(n)) return '—'
-  return `${n.toLocaleString('fr-FR')} / h`
+  return `${formatCurrencyDetailed(n)} / h`
 }
 
 const filtered = computed(() => {

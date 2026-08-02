@@ -1,5 +1,5 @@
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString, IsNumber, IsBoolean, ValidateNested, ArrayNotEmpty } from 'class-validator';
+import { IsArray, IsOptional, IsString, IsNumber, IsBoolean, Min, Max, ValidateNested, ArrayNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
@@ -31,12 +31,15 @@ export class ApplyWeezeventPriceDto {
   @ApiPropertyOptional({ description: 'Prix TTC affiché du produit, à hériter tel quel.', example: 6.5 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   basePrice?: number;
 
   @ApiPropertyOptional({ description: 'Taux TVA % affiché du produit (null = inconnu).', example: 10 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   @Type(() => Number)
   vatRate?: number;
 }
@@ -57,12 +60,15 @@ export class ApplyWeezeventPriceItemDto {
   @ApiPropertyOptional({ description: 'Prix TTC affiché du produit, à hériter tel quel.', example: 6.5 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   basePrice?: number;
 
   @ApiPropertyOptional({ description: 'Taux TVA % affiché du produit (null = inconnu).', example: 10 })
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   @Type(() => Number)
   vatRate?: number;
 }

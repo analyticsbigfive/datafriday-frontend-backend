@@ -2,7 +2,8 @@
 import Button from "../ui/button.vue";
 import Label from "../ui/label.vue";
 import { Plus, Trash2 } from "lucide-vue-next";
-import NumericInput from "../ui/numericInput.vue";
+import NumberField from "@/components/common/NumberField.vue";
+import { formatCurrencyDetailed, formatPercent } from "@/composables/useFormatters";
 import SpacePricingDialog from "./SpacePricingDialog.vue";
 import Separator from "../ui/separator.vue";
 
@@ -14,7 +15,7 @@ export default {
     Label,
     Plus,
     Trash2,
-    NumericInput,
+    NumberField,
     SpacePricingDialog,
     Separator,
   },
@@ -237,6 +238,9 @@ export default {
       if (price === 0) return 0;
       return ((price - this.totalCost) / price) * 100;
     },
+
+    formatCurrencyDetailed,
+    formatPercent,
   },
 };
 </script>
@@ -250,11 +254,15 @@ export default {
           <Label for="base-price" className="mb-2 block">
             Base Price (€) *
           </Label>
-          <NumericInput
+          <NumberField
             id="base-price"
-            :value="basePrice"
+            :model-value="basePrice"
             :decimals="2"
+            :step="0.01"
             :min="0"
+            steppers
+            pad
+            :empty-value="0"
             @change="(value) => onBasePriceChange(value)"
           />
         </div>
@@ -276,12 +284,12 @@ export default {
       >
         <div className="flex justify-between text-sm">
           <span className="text-gray-600 dark:text-gray-400">Total Cost per Piece:</span>
-          <span className="dark:text-gray-100">€{{ totalCost.toFixed(2) }}</span>
+          <span className="dark:text-gray-100">{{ formatCurrencyDetailed(totalCost) }}</span>
         </div>
 
         <div className="flex justify-between text-sm">
           <span className="text-gray-600 dark:text-gray-400">Base Price:</span>
-          <span className="dark:text-gray-100">€{{ basePrice.toFixed(2) }}</span>
+          <span className="dark:text-gray-100">{{ formatCurrencyDetailed(basePrice) }}</span>
         </div>
 
         <Separator />
@@ -295,7 +303,7 @@ export default {
                 : 'text-green-600 dark:text-green-400'
             "
           >
-            {{ calculateMargin(basePrice).toFixed(1) }}%
+            {{ formatPercent(calculateMargin(basePrice), 1) }}
           </span>
         </div>
       </div>
@@ -305,10 +313,14 @@ export default {
     <div v-for="price in consolidatedPrices" :key="price.id" className="space-y-2">
       <div className="flex items-center gap-3">
         <div className="flex-1">
-          <NumericInput
-            :value="price.price"
+          <NumberField
+            :model-value="price.price"
             :decimals="2"
+            :step="0.01"
             :min="0"
+            steppers
+            pad
+            :empty-value="0"
             @change="(value) => handlePriceChange(price.id, value)"
           />
         </div>
@@ -330,12 +342,12 @@ export default {
       >
         <div className="flex justify-between text-sm">
           <span className="text-gray-600 dark:text-gray-400">Total Cost per Piece:</span>
-          <span className="dark:text-gray-100">€{{ (totalCost || 0).toFixed(2) }}</span>
+          <span className="dark:text-gray-100">{{ formatCurrencyDetailed(totalCost || 0) }}</span>
         </div>
 
         <div className="flex justify-between text-sm">
           <span className="text-gray-600 dark:text-gray-400">Price:</span>
-          <span className="dark:text-gray-100">€{{ (price.price || 0).toFixed(2) }}</span>
+          <span className="dark:text-gray-100">{{ formatCurrencyDetailed(price.price || 0) }}</span>
         </div>
 
         <Separator />
@@ -349,7 +361,7 @@ export default {
                 : 'text-green-600 dark:text-green-400'
             "
           >
-            {{ calculateMargin(price.price || 0).toFixed(1) }}%
+            {{ formatPercent(calculateMargin(price.price || 0), 1) }}
           </span>
         </div>
 

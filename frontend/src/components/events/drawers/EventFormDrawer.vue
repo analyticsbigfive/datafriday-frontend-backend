@@ -427,19 +427,19 @@
       <div class="efd-fin-grid mb-4">
         <div class="efd-select-wrap">
           <label class="efd-select-label">Revenue (€)</label>
-          <v-text-field v-model.number="newEvent.revenue" type="number" min="0" step="0.01" variant="outlined" density="comfortable" hide-details placeholder="0.00" class="efd-input" />
+          <NumberField v-model="newEvent.revenue" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="efd-input" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Transactions</label>
-          <v-text-field v-model.number="newEvent.transactionCount" type="number" min="0" variant="outlined" density="comfortable" hide-details placeholder="0" class="efd-input" />
+          <NumberField v-model="newEvent.transactionCount" :decimals="0" :step="1" :min="0" :empty-value="0" class="efd-input" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Avg Spend / Tx</label>
-          <v-text-field v-model.number="newEvent.avgSpendPerTx" type="number" min="0" step="0.01" variant="outlined" density="comfortable" hide-details placeholder="0.00" class="efd-input" />
+          <NumberField v-model="newEvent.avgSpendPerTx" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="efd-input" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Per Capita</label>
-          <v-text-field v-model.number="newEvent.perCapita" type="number" min="0" step="0.01" variant="outlined" density="comfortable" hide-details placeholder="0.00" class="efd-input" />
+          <NumberField v-model="newEvent.perCapita" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="efd-input" />
         </div>
       </div>
     </div>
@@ -504,6 +504,7 @@
 import { t as translate, getCurrentLocale } from '@/i18n/translations';
 import { Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users } from 'lucide-vue-next';
 import EventDrawerShell from './EventDrawerShell.vue';
+import NumberField from '@/components/common/NumberField.vue';
 import { createEvent, updateEvent } from '@/api/endpoints/event.api';
 import { getTeams as restGetTeams, createTeam as restCreateTeam } from '@/api/endpoints/team.api';
 import EventTypeDialog from '../dialogs/EventTypeDialog.vue';
@@ -547,7 +548,7 @@ export default {
 
   components: {
     Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users,
-    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog, EventDrawerShell,
+    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog, EventDrawerShell, NumberField,
   },
 
   props: {

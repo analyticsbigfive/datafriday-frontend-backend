@@ -100,13 +100,14 @@
                   </template>
 
                   <template #item.numberOfUnits="{ item }">
-                    <input
-                      type="text"
-                      inputmode="decimal"
+                    <NumberField
+                      :model-value="(item?.raw || item)?.numberOfUnits ?? (item?.raw || item)?.quantity ?? 1"
+                      :decimals="3"
+                      :step="1"
+                      :min="0"
+                      :empty-value="0"
                       class="cc-qty-input"
-                      :value="getSubItemQtyDisplay(item?.raw || item)"
-                      @input="(e) => onSubItemQtyInput(item?.raw || item, e.target.value)"
-                      @blur="(e) => onSubItemQtyBlur(item?.raw || item, e.target.value)"
+                      @update:model-value="(v) => onUpdateSubItemUnits(item?.raw || item, v)"
                     />
                   </template>
 
@@ -233,15 +234,12 @@
 
                 <div class="ccf-field-wrap mb-3">
                   <label class="ccf-field-label">{{ t('compCreateFieldUnitsPerRecipe') }}</label>
-                  <v-text-field
-                    v-model.number="form.numberOfUnitsRecipe"
-                    type="number"
-                    min="0.001"
-                    step="0.001"
-                    variant="outlined"
-                    density="compact"
-                    hide-details="auto"
-                    :rules="[rules.positive]"
+                  <NumberField
+                    v-model="form.numberOfUnitsRecipe"
+                    :decimals="3"
+                    :step="1"
+                    :min="0.001"
+                    :empty-value="1"
                     class="ccf-field"
                   />
                 </div>
@@ -258,7 +256,7 @@
                       <option v-for="opt in packagingCategoryOptions" :key="opt" :value="opt">{{ opt }}</option>
                     </select>
                     <span class="cc-info-label">{{ t('of') }}</span>
-                    <input v-model.number="form.packedUnits" type="number" min="0" step="0.001" class="cc-inline-input" style="width:80px;" />
+                    <NumberField v-model="form.packedUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="cc-inline-input" style="width:80px;" />
                     <span class="cc-info-card__unit-badge">{{ form.unit || '—' }}</span>
                     <span class="cc-info-label cc-info-label--dot">.</span>
                   </div>
@@ -316,7 +314,7 @@
                     <span>{{ formatCurrency(subItemsCost) }}</span>
                   </div>
                   <div class="cc-calc-card__row">
-                    <span>÷ {{ Number(form.numberOfUnitsRecipe || 1).toFixed(2) }} {{ t('compCreateCalcUnits') }}</span>
+                    <span>÷ {{ formatUnits(form.numberOfUnitsRecipe || 1) }} {{ t('compCreateCalcUnits') }}</span>
                     <span class="cc-calc-card__result">= {{ formatCurrency(finalUnitCost) }}</span>
                   </div>
                 </div>
@@ -413,6 +411,8 @@ import { useI18n } from '@/i18n/useI18n';
 import { createMenuComponent, getMenuComponent, updateMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import { createPackingType } from "@/api/endpoints/packing-type.api";
+import { formatCurrencyDetailed, formatUnits } from '@/composables/useFormatters';
+import NumberField from '@/components/common/NumberField.vue';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
 import NewCategoryDialog from '../dialogs/NewCategoryDialog.vue';
@@ -428,6 +428,7 @@ export default {
     Trash2,
     X,
     Package,
+    NumberField,
     IngredientPickerDrawer,
     ComponentPickerDrawer,
     NewCategoryDialog,
@@ -451,7 +452,6 @@ export default {
       error: "",
 
       ingredientDrawer: false,
-      _qtyDraft: {},  // rowKey → string en cours de saisie
 
       componentDrawer: false,
       _prefillingForm: false,
@@ -646,10 +646,9 @@ export default {
     },
 
     formatCurrency(value) {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return "€0.00";
-      return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      return formatCurrencyDetailed(value);
     },
+    formatUnits,
     // Colonne « Added » au format dd/mm/yyyy hh:mm.
     formatAddedAt(value) {
       if (!value || value === "-") return "-";
@@ -716,37 +715,6 @@ export default {
       } finally {
         this.packagingCreateLoading = false;
       }
-    },
-
-    // Helpers pour la saisie décimale de la quantité
-    _rowKey(row) {
-      return row?.rowKey || row?.marketPriceId || row?.componentId || '';
-    },
-    getSubItemQtyDisplay(row) {
-      const key = this._rowKey(row);
-      if (Object.prototype.hasOwnProperty.call(this._qtyDraft, key)) {
-        return this._qtyDraft[key];
-      }
-      const val = row?.numberOfUnits ?? row?.quantity ?? 1;
-      return String(Number(val) || 0);
-    },
-    onSubItemQtyInput(row, rawValue) {
-      // Autoriser chiffres, point, virgule, signe moins
-      if (/^-?[\d]*[.,]?\d*$/.test(rawValue)) {
-        const key = this._rowKey(row);
-        this._qtyDraft = { ...this._qtyDraft, [key]: rawValue };
-      }
-    },
-    onSubItemQtyBlur(row, rawValue) {
-      const key = this._rowKey(row);
-      // Nettoyer le draft
-      const draft = { ...this._qtyDraft };
-      delete draft[key];
-      this._qtyDraft = draft;
-      // Parser et appliquer
-      const parsed = parseFloat(String(rawValue).replace(',', '.'));
-      const units = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-      this.onUpdateSubItemUnits(row, units);
     },
 
     onUpdateSubItemUnits(row, value) {

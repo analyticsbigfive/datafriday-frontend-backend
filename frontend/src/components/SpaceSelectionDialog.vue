@@ -240,7 +240,7 @@
                         variant="outline"
                         class="text-xs"
                       >
-                        €{{ getPriceForSpace(space.id).toFixed(2) }} base price
+                        {{ formatCurrencyDetailed(getPriceForSpace(space.id)) }} base price
                       </Badge>
                     </div>
                   </Label>
@@ -304,7 +304,7 @@
                         variant="outline"
                         class="text-xs"
                       >
-                        €{{ getPriceForSpace(space.id).toFixed(2) }} base price
+                        {{ formatCurrencyDetailed(getPriceForSpace(space.id)) }} base price
                       </Badge>
                     </div>
                   </Label>
@@ -349,6 +349,7 @@ import Slider from '../ui/slider.vue'
 import Badge from '../ui/badge.vue'
 import Separator from '../ui/separator.vue'
 import { Building2, Filter, X } from 'lucide-vue-next'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 export default {
   name: 'SpaceSelectionDialog',
   components: {
@@ -564,6 +565,8 @@ export default {
   },
 
   methods: {
+    formatCurrencyDetailed,
+
     // Prix pour un espace donné (base + overrides spécifiques)
     getPriceForSpace(spaceId) {
       if (this.basePrice == null && !this.spaceSpecificPrices) return undefined;

@@ -38,7 +38,7 @@ import ComboItemSelectorDialog from "./ComboItemSelectorDialog.vue";
 import PackagingSelectorDialog from "./PackagingSelectorDialog.vue";
 import MarketPriceSelector from "./MarketPriceSelector.vue";
 import ImageWithFallback from "../figma/ImageWithFallBack.vue";
-import NumericInput from "../ui/numericInput.vue";
+import NumberField from "@/components/common/NumberField.vue";
 import SpaceSelectionDialog from "./SpaceSelectionDialog.vue";
 import SpaceSpecificPricing from "./SpaceSpecificPricing.vue";
 import TypeCategorySelector from "./TypeCategorySelector.vue";
@@ -89,7 +89,7 @@ export default {
     PackagingSelectorDialog,
     MarketPriceSelector,
     ImageWithFallback,
-    NumericInput,
+    NumberField,
     SpaceSelectionDialog,
     SpaceSpecificPricing,
     TypeCategorySelector,
@@ -667,11 +667,13 @@ export default {
                     <TableCell>{{ comp.unit }}</TableCell>
 
                     <TableCell className="text-right">
-                      <NumericInput
-                        :value="comp.numberOfUnits"
+                      <NumberField
+                        :model-value="comp.numberOfUnits"
                         :decimals="3"
+                        :step="1"
                         :min="0.001"
-                        className="w-24 text-right h-8"
+                        :empty-value="0.001"
+                        class="w-24 text-right h-8"
                         @change="(val) => handleUpdateQuantity(comp.id, val)"
                       />
                     </TableCell>
@@ -875,10 +877,12 @@ export default {
           <!-- Number of Pieces -->
           <div className="space-y-2">
             <Label for="pieces">Number of Pieces (Recipe) *</Label>
-            <NumericInput
-              :value="numberOfPiecesRecipe"
+            <NumberField
+              :model-value="numberOfPiecesRecipe"
               :decimals="3"
+              :step="1"
               :min="0.001"
+              :empty-value="0.001"
               @change="(val) => (numberOfPiecesRecipe = val)"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -900,11 +904,15 @@ export default {
 
           <div v-else className="space-y-2">
             <Label for="price">Base Price (€) *</Label>
-            <NumericInput
+            <NumberField
               id="price"
-              :value="basePrice"
+              :model-value="basePrice"
               :decimals="2"
+              :step="0.01"
               :min="0"
+              steppers
+              pad
+              :empty-value="0"
               @change="(val) => (basePrice = val)"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -1167,10 +1175,12 @@ export default {
         <!-- Number of Pieces -->
         <div className="space-y-2">
           <Label for="pieces">Number of Pieces (Recipe) *</Label>
-          <NumericInput
-            :value="numberOfPiecesRecipe"
+          <NumberField
+            :model-value="numberOfPiecesRecipe"
             :decimals="3"
+            :step="1"
             :min="0.001"
+            :empty-value="0.001"
             @change="(val) => (numberOfPiecesRecipe = val)"
           />
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -1192,11 +1202,15 @@ export default {
 
         <div v-else className="space-y-2">
           <Label for="price">Base Price (€) *</Label>
-          <NumericInput
+          <NumberField
             id="price"
-            :value="basePrice"
+            :model-value="basePrice"
             :decimals="2"
+            :step="0.01"
             :min="0"
+            steppers
+            pad
+            :empty-value="0"
             @change="(val) => (basePrice = val)"
           />
           <p className="text-xs text-gray-500 dark:text-gray-400">

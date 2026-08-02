@@ -32,7 +32,7 @@ import { toast } from 'vue-sonner';
 import MarketPriceSelector from './MarketPriceSelector.vue';
 import ComponentSelectorDialog from './ComponentSelectorDialog.vue';
 import useMobile from '../ui/useMobile';
-import NumericInput from '../ui/numericInput.vue';
+import NumberField from '@/components/common/NumberField.vue';
 export default {
   name: "ComponentBuilderPanel",
   mixins: [useMobile],
@@ -74,7 +74,7 @@ export default {
     MarketPriceSelector,
     ComponentSelectorDialog,
 
-    NumericInput,
+    NumberField,
   },
   props: {
     component: {
@@ -708,10 +708,12 @@ export default {
                     </TableCell>
 
                     <TableCell>
-                      <NumericInput
-                        :value="sub.numberOfUnits || 0"
+                      <NumberField
+                        :model-value="sub.numberOfUnits || 0"
                         :decimals="3"
+                        :step="1"
                         :min="0.001"
+                        :empty-value="0.001"
                         class="w-full"
                         @change="
                           (value) => handleUpdateSubComponent(sub.id, value)
@@ -840,10 +842,12 @@ export default {
             <Label for="numberOfUnitsRecipe" class="text-sm font-medium">
               Number of Units per Recipe *
             </Label>
-            <NumericInput
-              :value="numberOfUnitsRecipe"
+            <NumberField
+              :model-value="numberOfUnitsRecipe"
               :decimals="3"
+              :step="1"
               :min="0.001"
+              :empty-value="0.001"
               class="mt-2"
               @change="(value) => (numberOfUnitsRecipe = value)"
             />
@@ -1027,10 +1031,12 @@ export default {
           <Label for="numberOfUnitsRecipe-mobile" class="text-sm font-medium">
             Number of Units per Recipe *
           </Label>
-          <NumericInput
-            :value="numberOfUnitsRecipe"
+          <NumberField
+            :model-value="numberOfUnitsRecipe"
             :decimals="3"
+            :step="1"
             :min="0.001"
+            :empty-value="0.001"
             class="mt-2"
             @change="(value) => (numberOfUnitsRecipe = value)"
           />

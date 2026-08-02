@@ -87,6 +87,7 @@ import { ref, computed } from 'vue'
 import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 const store = useStore()
 const { t } = useI18n()
@@ -234,7 +235,7 @@ function setFilter(key, value) {
   store.dispatch('analyse/updateFilter', { key, value })
 }
 function formatNum(n) {
-  return new Intl.NumberFormat('fr-FR').format(n || 0)
+  return new Intl.NumberFormat(currentIntlLocale()).format(n || 0)
 }
 function formatDate(d) {
   try {

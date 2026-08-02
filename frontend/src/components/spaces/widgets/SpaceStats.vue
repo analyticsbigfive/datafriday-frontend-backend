@@ -38,6 +38,8 @@
 <script>
 import { House, ShoppingBag, Ticket, TrendingUp } from 'lucide-vue-next'
 import { useTheme } from 'vuetify'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 export default {
   name: 'SpaceStats',
@@ -98,10 +100,10 @@ export default {
   },
   methods: {
     formatCurrency(v) {
-      return (Number(v) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
+      return formatCurrencyDetailed(Number(v) || 0)
     },
     formatNumber(v) {
-      return (Number(v) || 0).toLocaleString('fr-FR')
+      return (Number(v) || 0).toLocaleString(currentIntlLocale())
     },
   },
 }

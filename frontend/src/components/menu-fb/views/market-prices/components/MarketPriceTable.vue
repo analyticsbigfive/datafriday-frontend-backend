@@ -127,6 +127,7 @@
 
 <script>
 import { ChevronDown, ChevronRight, ImageOff, Pencil, Plus, Trash2 } from 'lucide-vue-next';
+import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'MarketPriceTable',
@@ -183,9 +184,10 @@ export default {
       return raw?.supplierRows || [];
     },
     formatPrice(value) {
+      // Formatage locale-aware selon la langue de l'app (fr → "12,50 €", en → "€12.50").
       const n = Number(value);
-      if (!Number.isFinite(n)) return "€0.00";
-      return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      if (!Number.isFinite(n)) return formatCurrencyDetailed(0);
+      return formatCurrencyDetailed(n);
     },
     getGoodTypeColor(goodType) {
       const colors = {

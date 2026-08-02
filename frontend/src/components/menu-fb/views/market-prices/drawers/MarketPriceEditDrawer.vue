@@ -140,7 +140,7 @@
           <div class="mped-field-row">
             <label class="mped-field-label" for="mped-conversion">{{ t('purchaseUnitConversion') }}</label>
             <div class="mped-field-subtitle">{{ conversionSubtitle }}</div>
-            <input id="mped-conversion" v-model.number="form.purchaseUnitConversion" type="number" min="0" step="0.001" class="form-control mped-input" />
+            <NumberField id="mped-conversion" v-model="form.purchaseUnitConversion" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mped-input" />
           </div>
         </div>
 
@@ -167,13 +167,14 @@ import { AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus, Pe
 import { updateMarketPrice } from '@/api/endpoints/menu.api';
 import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
 import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
+import NumberField from '@/components/common/NumberField.vue';
 
 export default {
   name: 'MarketPriceEditDrawer',
   components: {
     AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus,
     Pencil, PlusCircle, Save, Scale, Shapes, Tag, X,
-    MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog,
+    MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, NumberField,
   },
   props: {
     modelValue: { type: Boolean, default: false },

@@ -93,6 +93,8 @@ import {
 } from "lucide-vue-next";
 import { clearDemoMode } from "@/utils/demoMode";
 import { getSpaceLiveStatus } from "@/api/endpoints/space.api";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
+import { currentIntlLocale } from "@/composables/useNumberFormat";
 export default {
   name: 'SpaceItem',
   components: {
@@ -179,11 +181,11 @@ export default {
       if (this.deleteSpace) this.deleteSpace(this.space);
     },
     formatCurrency(value) {
-      return (Number(value) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
+      return formatCurrencyDetailed(Number(value) || 0)
     },
     formatNumber(value) {
       const n = Number(value)
-      return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '—'
+      return Number.isFinite(n) ? n.toLocaleString(currentIntlLocale()) : '—'
     },
   },
   mounted() {

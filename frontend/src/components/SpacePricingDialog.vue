@@ -8,6 +8,7 @@ import DialogHeader from "../ui/dialogHeader.vue";
 import DialogTitle from "../ui/dialogTitle.vue";
 import Button from "../ui/button.vue";
 import { Building2, Filter, X } from "lucide-vue-next";
+import { formatNumber } from "@/composables/useFormatters";
 import Badge from "../ui/badge.vue";
 import Checkbox from "../ui/checkbox.vue";
 import Label from "../ui/label.vue";
@@ -203,6 +204,7 @@ export default {
     },
   },
   methods: {
+    formatNumber,
     handleToggleSpace(spaceId) {
       const prev = this.tempSelectedIds;
 
@@ -344,8 +346,8 @@ export default {
                 />
               </div>
               <div className="flex justify-between text-sm text-gray-600">
-                <span>{{ capacityRange[0].toLocaleString() }}</span>
-                <span>{{ capacityRange[1].toLocaleString() }}</span>
+                <span>{{ formatNumber(capacityRange[0]) }}</span>
+                <span>{{ formatNumber(capacityRange[1]) }}</span>
               </div>
             </div>
           </div>
@@ -441,7 +443,7 @@ export default {
                   </Badge>
 
                   <Badge v-if="space.maxCapacity" variant="outline" className="text-xs">
-                    {{ space.maxCapacity.toLocaleString() }} capacity
+                    {{ formatNumber(space.maxCapacity) }} capacity
                   </Badge>
                 </div>
               </Label>
