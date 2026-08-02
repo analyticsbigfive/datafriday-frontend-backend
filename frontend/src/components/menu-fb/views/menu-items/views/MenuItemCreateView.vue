@@ -105,11 +105,11 @@
                   </template>
 
                   <template #item.unitCost="{ item }">
-                    {{ formatCurrency(item.unitCost) }}
+                    {{ formatCurrencyDetailed(item.unitCost) }}
                   </template>
 
                   <template #item.totalCost="{ item }">
-                    <span class="font-weight-bold">{{ formatCurrency(item.quantity * item.unitCost) }}</span>
+                    <span class="font-weight-bold">{{ formatCurrencyDetailed(item.quantity * item.unitCost) }}</span>
                   </template>
 
                   <template #item.storage="{ item }">
@@ -135,16 +135,16 @@
               <div v-if="items.length > 0" class="mic-table-summary mt-3">
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__label">{{ t('menuItemCreate.totalCostLabel') }}</span>
-                  <span class="mic-table-summary__value">{{ formatCurrency(totalCost) }}</span>
+                  <span class="mic-table-summary__value">{{ formatCurrencyDetailed(totalCost) }}</span>
                 </div>
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__label">{{ t('menuItemCreate.pieceCountLabel') }}</span>
-                  <span class="mic-table-summary__value">{{ Number(form.numberOfPiecesRecipe || 1).toFixed(3) }}</span>
+                  <span class="mic-table-summary__value">{{ formatNumber(form.numberOfPiecesRecipe || 1) }}</span>
                 </div>
                 <div class="mic-table-summary__divider" />
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__cost-label">{{ t('menuItemCreate.costPerPieceLabel') }}</span>
-                  <span class="mic-table-summary__cost-value">{{ formatCurrency(costPerPiece) }}</span>
+                  <span class="mic-table-summary__cost-value">{{ formatCurrencyDetailed(costPerPiece) }}</span>
                 </div>
               </div>
 
@@ -634,7 +634,7 @@ import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints/menu-item.api";
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
-import { formatCurrency, formatCurrencyDetailed } from "@/composables/useFormatters.js";
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from "@/composables/useFormatters.js";
 import NumberField from "@/components/common/NumberField.vue";
 import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
@@ -1269,6 +1269,7 @@ export default {
     },
     formatCurrency,
     formatCurrencyDetailed,
+    formatNumber,
     getStorageColor(storage) {
       const colors = {
         Cold: "blue",

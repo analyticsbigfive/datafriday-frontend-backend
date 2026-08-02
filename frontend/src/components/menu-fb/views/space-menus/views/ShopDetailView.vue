@@ -230,7 +230,7 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { formatCurrency } from "@/composables/useFormatters";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import { getShopMenuItems, getShopAvailableMenuItems, assignMenuItemsToShop } from "@/api/endpoints/menu.api";
 import { ArrowLeft, Store, Tag, Building, Settings, UtensilsCrossed, Pencil, AlertCircle, Link, Link2, Package, Check, Minus } from 'lucide-vue-next';
 import ShopDetailEditDrawer from '../drawers/ShopDetailEditDrawer.vue';
@@ -243,7 +243,7 @@ export default {
     const theme = useTheme();
     const { t } = useI18n();
     const isDark = computed(() => !!theme.global.current.value.dark);
-    return { t, isDark, formatCurrency };
+    return { t, isDark, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {

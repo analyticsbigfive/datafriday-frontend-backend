@@ -119,7 +119,7 @@
 import { useI18n } from "@/i18n/useI18n";
 import { Package, Store, ChevronDown, AlertCircle } from 'lucide-vue-next';
 import { assignMenuItemsToShop } from '@/api/endpoints/menu.api';
-import { formatCurrency } from "@/composables/useFormatters";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 
 export default {
   name: "SpaceMenuItemView",
@@ -145,7 +145,7 @@ export default {
   emits: ["show-error", "menu-item-toggled", "retry"],
   setup() {
     const { t } = useI18n();
-    return { t, formatCurrency };
+    return { t, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {
