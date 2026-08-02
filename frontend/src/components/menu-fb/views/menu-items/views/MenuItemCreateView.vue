@@ -96,10 +96,8 @@
                     <div class="mic-qty-stepper">
                       <NumberField
                         v-model="item.quantity"
-                        :decimals="3"
-                        :step="1"
+                        :decimals="2"
                         :min="0"
-                        steppers
                         :empty-value="0"
                         class="mic-qty-input"
                       />
@@ -346,8 +344,7 @@
                     <span class="mic-sentence-text">{{ t('menuItemCreate.of') }}</span>
                     <NumberField
                       v-model="form.inventoryNumberOfUnits"
-                      :decimals="3"
-                      :step="1"
+                      :decimals="2"
                       :min="0"
                       :empty-value="0"
                       class="mic-inline-input"
@@ -396,10 +393,9 @@
                   <NumberField
                     v-model="newPriceAmount"
                     :decimals="2"
-                    :step="0.01"
                     :min="0"
-                    steppers
                     pad
+                    grouping
                     :empty-value="0"
                     class="form-control mic-input mic-input--prefixed"
                     :placeholder="t('menuItemCreate.pricePlaceholder')"
@@ -1808,48 +1804,28 @@ export default {
 }
 
 .mic-qty-stepper {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  overflow: hidden;
-  height: 30px;
-}
-
-.mic-qty-btn {
-  width: 26px;
-  height: 100%;
-  background: #f3f4f6;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  color: #374151;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.mic-qty-btn:hover {
-  background: #e5e7eb;
-  color: #ff3131;
+  align-items: stretch;
+  width: 100%;
 }
 
 .mic-qty-input {
-  width: 48px;
-  height: 100%;
-  border: none;
-  border-left: 1px solid #d1d5db;
-  border-right: 1px solid #d1d5db;
+  width: 100%;
+  height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
   text-align: center;
   font-size: 0.82rem;
   color: #111827;
   outline: none;
-  padding: 0 4px;
+  padding: 0 10px;
   background: white;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.mic-qty-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, .15);
 }
 
 .mic-qty-input::-webkit-outer-spin-button,
@@ -2545,16 +2521,12 @@ label {
   color: #e5e7eb;
 }
 
-/* Contrôle quantité (dans la table) : texte + fond + boutons en dark. */
+/* Contrôle quantité (dans la table) : texte + fond en dark. */
 .mic--dark .mic-qty-input {
   background: #1e293b;
-  border-left-color: rgba(255, 255, 255, .12);
-  border-right-color: rgba(255, 255, 255, .12);
+  border-color: rgba(255, 255, 255, .12);
   color: #f1f5f9;
 }
-.mic--dark .mic-qty-stepper { border-color: rgba(255, 255, 255, .12); }
-.mic--dark .mic-qty-btn { background: #263548; color: #cbd5e1; }
-.mic--dark .mic-qty-btn:hover { background: #2d3748; }
 
 .mic--dark .form-section-divider {
   color: #6b7280;

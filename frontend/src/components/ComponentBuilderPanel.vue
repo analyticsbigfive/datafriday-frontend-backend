@@ -710,10 +710,9 @@ export default {
                     <TableCell>
                       <NumberField
                         :model-value="sub.numberOfUnits || 0"
-                        :decimals="3"
-                        :step="1"
-                        :min="0.001"
-                        :empty-value="0.001"
+                        :decimals="2"
+                        :min="0.01"
+                        :empty-value="0.01"
                         class="w-full"
                         @change="
                           (value) => handleUpdateSubComponent(sub.id, value)
@@ -844,10 +843,9 @@ export default {
             </Label>
             <NumberField
               :model-value="numberOfUnitsRecipe"
-              :decimals="3"
-              :step="1"
-              :min="0.001"
-              :empty-value="0.001"
+              :decimals="2"
+              :min="0.01"
+              :empty-value="0.01"
               class="mt-2"
               @change="(value) => (numberOfUnitsRecipe = value)"
             />
@@ -1033,10 +1031,9 @@ export default {
           </Label>
           <NumberField
             :model-value="numberOfUnitsRecipe"
-            :decimals="3"
-            :step="1"
-            :min="0.001"
-            :empty-value="0.001"
+            :decimals="2"
+            :min="0.01"
+            :empty-value="0.01"
             class="mt-2"
             @change="(value) => (numberOfUnitsRecipe = value)"
           />

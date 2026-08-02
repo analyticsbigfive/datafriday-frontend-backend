@@ -669,10 +669,9 @@ export default {
                     <TableCell className="text-right">
                       <NumberField
                         :model-value="comp.numberOfUnits"
-                        :decimals="3"
-                        :step="1"
-                        :min="0.001"
-                        :empty-value="0.001"
+                        :decimals="2"
+                        :min="0.01"
+                        :empty-value="0.01"
                         class="w-24 text-right h-8"
                         @change="(val) => handleUpdateQuantity(comp.id, val)"
                       />
@@ -879,10 +878,9 @@ export default {
             <Label for="pieces">Number of Pieces (Recipe) *</Label>
             <NumberField
               :model-value="numberOfPiecesRecipe"
-              :decimals="3"
-              :step="1"
-              :min="0.001"
-              :empty-value="0.001"
+              :decimals="2"
+              :min="0.01"
+              :empty-value="0.01"
               @change="(val) => (numberOfPiecesRecipe = val)"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -908,10 +906,9 @@ export default {
               id="price"
               :model-value="basePrice"
               :decimals="2"
-              :step="0.01"
               :min="0"
-              steppers
               pad
+              grouping
               :empty-value="0"
               @change="(val) => (basePrice = val)"
             />
@@ -1177,10 +1174,9 @@ export default {
           <Label for="pieces">Number of Pieces (Recipe) *</Label>
           <NumberField
             :model-value="numberOfPiecesRecipe"
-            :decimals="3"
-            :step="1"
-            :min="0.001"
-            :empty-value="0.001"
+            :decimals="2"
+            :min="0.01"
+            :empty-value="0.01"
             @change="(val) => (numberOfPiecesRecipe = val)"
           />
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -1206,10 +1202,9 @@ export default {
             id="price"
             :model-value="basePrice"
             :decimals="2"
-            :step="0.01"
             :min="0"
-            steppers
             pad
+            grouping
             :empty-value="0"
             @change="(val) => (basePrice = val)"
           />

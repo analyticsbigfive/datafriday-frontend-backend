@@ -6,8 +6,6 @@
 export const translations = {
   en: {
     // Common
-    numberFieldDecrease: 'Decrease',
-    numberFieldIncrease: 'Increase',
     cancel: 'Cancel',
     save: 'Save',
     saveChanges: 'Save Changes',
@@ -4022,8 +4020,6 @@ export const translations = {
 
   fr: {
     // Common
-    numberFieldDecrease: 'Diminuer',
-    numberFieldIncrease: 'Augmenter',
     cancel: 'Annuler',
     save: 'Enregistrer',
     saveChanges: 'Enregistrer les modifications',

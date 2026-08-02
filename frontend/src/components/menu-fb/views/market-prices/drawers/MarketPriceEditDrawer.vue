@@ -140,7 +140,7 @@
           <div class="mped-field-row">
             <label class="mped-field-label" for="mped-conversion">{{ t('purchaseUnitConversion') }}</label>
             <div class="mped-field-subtitle">{{ conversionSubtitle }}</div>
-            <NumberField id="mped-conversion" v-model="form.purchaseUnitConversion" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mped-input" />
+            <NumberField id="mped-conversion" v-model="form.purchaseUnitConversion" :decimals="2" :min="0" :empty-value="0" class="form-control mped-input" />
           </div>
         </div>
 

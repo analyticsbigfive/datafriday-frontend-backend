@@ -401,7 +401,7 @@
                   <option v-for="opt in localPackagingOptions" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
                 <span class="info-label">{{ t('of') }}</span>
-                <NumberField v-model="form.unitsPerPurchase" :decimals="3" :step="1" :min="0" :empty-value="0" class="mpcd-inline-input" style="width:70px;" @change="recomputePricePerUnit" />
+                <NumberField v-model="form.unitsPerPurchase" :decimals="2" :min="0" :empty-value="0" class="mpcd-inline-input" style="width:70px;" @change="recomputePricePerUnit" />
               </div>
               <div class="info-card__row">
                 <select v-model="form.unit" class="mpcd-inline-select" style="width:80px;">
@@ -411,7 +411,7 @@
                   <option value="Pc">Pc</option>
                 </select>
                 <span class="info-label">{{ t('forTheAmountOf') }} €</span>
-                <NumberField v-model="form.price" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="mpcd-inline-input" style="width:90px;" placeholder="0.00" @change="recomputePricePerUnit" />
+                <NumberField v-model="form.price" :decimals="2" :min="0" pad grouping :empty-value="0" class="mpcd-inline-input" style="width:90px;" placeholder="0.00" @change="recomputePricePerUnit" />
                 <span class="info-label info-label--dot">.</span>
               </div>
             </div>
@@ -427,7 +427,7 @@
                   <option v-for="opt in localPackagingOptions" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
                 <span class="info-label">{{ t('of') }}</span>
-                <NumberField v-model="form.packedUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="mpcd-inline-input" style="width:80px;" />
+                <NumberField v-model="form.packedUnits" :decimals="2" :min="0" :empty-value="0" class="mpcd-inline-input" style="width:80px;" />
                 <span class="info-card__unit-badge">{{ form.unit || '—' }}</span>
                 <span class="info-label info-label--dot">.</span>
               </div>
@@ -447,13 +447,13 @@
                 <div class="col-6">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-packedUnits">{{ t('packedUnits') }} ({{ form.unit || 'unit' }})</label>
-                    <NumberField id="mpcd-packedUnits" v-model="form.packedUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-packedUnits" v-model="form.packedUnits" :decimals="2" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
                 <div class="col-6">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-numberOfUnits">{{ t('numberOfUnits') }}</label>
-                    <NumberField id="mpcd-numberOfUnits" v-model="form.numberOfUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-numberOfUnits" v-model="form.numberOfUnits" :decimals="2" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
               </div>
@@ -461,19 +461,19 @@
                 <div class="col-4">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-length">{{ t('length') }} (cm)</label>
-                    <NumberField id="mpcd-length" v-model="form.packingLength" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-length" v-model="form.packingLength" :decimals="2" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-width">{{ t('width') }} (cm)</label>
-                    <NumberField id="mpcd-width" v-model="form.packingWidth" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-width" v-model="form.packingWidth" :decimals="2" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="mpcd-field-row">
                     <label class="mpcd-field-label" for="mpcd-height">{{ t('height') }} (cm)</label>
-                    <NumberField id="mpcd-height" v-model="form.packingHeight" :decimals="3" :step="1" :min="0" :empty-value="0" class="form-control mpcd-input" />
+                    <NumberField id="mpcd-height" v-model="form.packingHeight" :decimals="2" :min="0" :empty-value="0" class="form-control mpcd-input" />
                   </div>
                 </div>
               </div>

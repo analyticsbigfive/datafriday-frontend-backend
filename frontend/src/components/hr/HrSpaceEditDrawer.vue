@@ -25,7 +25,7 @@
                 <label class="hsd-field-label" for="hr-edit-goal">{{ t('hrColGoalPerTpe') }}</label>
                 <!-- empty-value laissé à null (défaut) : champ vidé = pas de valeur dédiée
                      (cf. commentaire d'en-tête + normalize()). -->
-                <NumberField id="hr-edit-goal" v-model="form.goalPerTpe" :decimals="2" :step="10" :min="0" steppers pad class="hsd-input" />
+                <NumberField id="hr-edit-goal" v-model="form.goalPerTpe" :decimals="2" :step="10" :min="0" pad grouping class="hsd-input" />
               </div>
               <div class="hsd-field">
                 <label class="hsd-field-label" for="hr-edit-staff">{{ t('hrColStaffPerZone') }}</label>

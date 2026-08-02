@@ -30,13 +30,20 @@ export function useNumberFormat() {
   const { locale } = useI18n()
   const intlLocale = computed(() => toIntlLocale(locale.value))
 
-  /** "1 234,56" / "1,234.56" — jusqu'à `decimals` décimales (pad = zéros forcés). */
-  const formatDecimal = (value, decimals = 2, { pad = false } = {}) => {
+  /**
+   * "1 234,56" / "1,234.56" — jusqu'à `decimals` décimales (pad = zéros forcés).
+   * `grouping` (déf. true) : séparateur de milliers. À désactiver pour un
+   * COMPTEUR/quantité affiché en ligne (« of 1003 Pc ») — le regroupement en
+   * milliers n'a de sens que pour de gros montants lus isolément (prix,
+   * totaux), pas pour une quantité technique dans une phrase.
+   */
+  const formatDecimal = (value, decimals = 2, { pad = false, grouping = true } = {}) => {
     const n = Number(value)
     if (value == null || value === '' || Number.isNaN(n)) return '—'
     return new Intl.NumberFormat(intlLocale.value, {
       minimumFractionDigits: pad ? decimals : 0,
       maximumFractionDigits: decimals,
+      useGrouping: grouping,
     }).format(n)
   }
 

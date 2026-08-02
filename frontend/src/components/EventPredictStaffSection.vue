@@ -143,7 +143,7 @@
             <div class="ep-line-field">
               <label>{{ t('epsRate') }}</label>
               <NumberField
-                :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0"
+                :decimals="2" :min="0" pad grouping :empty-value="0"
                 class="ep-line-input ep-line-rate"
                 :model-value="draft(line.id).hourlyRate"
                 @change="setField(line, 'hourlyRate', $event)"
@@ -568,7 +568,7 @@ onMounted(async () => {
 .ep-line-select:focus, .ep-line-input:focus {
   border-color: #ff3131; outline: none; box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.1);
 }
-.ep-line-rate { width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
+.ep-line-rate { width: 76px; text-align: center; font-variant-numeric: tabular-nums; }
 .ep-line-name { width: 150px; }
 .ep-line-slider { flex: 1 1 190px; min-width: 170px; }
 .ep-line-times {

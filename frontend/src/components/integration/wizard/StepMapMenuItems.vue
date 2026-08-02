@@ -408,10 +408,9 @@
                 <NumberField
                   v-model="quickCreateForm.basePrice"
                   :decimals="2"
-                  :step="0.01"
                   :min="0"
-                  steppers
                   pad
+                  grouping
                   :empty-value="0"
                   class="smi-qc-input smi-qc-input--prefixed"
                   :placeholder="t('smmCreatePlaceholderPrice')"

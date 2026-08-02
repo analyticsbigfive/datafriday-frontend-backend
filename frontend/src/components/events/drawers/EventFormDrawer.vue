@@ -427,7 +427,7 @@
       <div class="efd-fin-grid mb-4">
         <div class="efd-select-wrap">
           <label class="efd-select-label">Revenue (€)</label>
-          <NumberField v-model="newEvent.revenue" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="efd-input" />
+          <NumberField v-model="newEvent.revenue" :decimals="2" :min="0" pad grouping :empty-value="0" class="efd-input" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Transactions</label>
@@ -435,11 +435,11 @@
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Avg Spend / Tx</label>
-          <NumberField v-model="newEvent.avgSpendPerTx" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="efd-input" />
+          <NumberField v-model="newEvent.avgSpendPerTx" :decimals="2" :min="0" pad grouping :empty-value="0" class="efd-input" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Per Capita</label>
-          <NumberField v-model="newEvent.perCapita" :decimals="2" :step="0.01" :min="0" steppers pad :empty-value="0" class="efd-input" />
+          <NumberField v-model="newEvent.perCapita" :decimals="2" :min="0" pad grouping :empty-value="0" class="efd-input" />
         </div>
       </div>
     </div>

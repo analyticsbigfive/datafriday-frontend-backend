@@ -102,8 +102,7 @@
                   <template #item.numberOfUnits="{ item }">
                     <NumberField
                       :model-value="(item?.raw || item)?.numberOfUnits ?? (item?.raw || item)?.quantity ?? 1"
-                      :decimals="3"
-                      :step="1"
+                      :decimals="2"
                       :min="0"
                       :empty-value="0"
                       class="cc-qty-input"
@@ -236,9 +235,8 @@
                   <label class="ccf-field-label">{{ t('compCreateFieldUnitsPerRecipe') }}</label>
                   <NumberField
                     v-model="form.numberOfUnitsRecipe"
-                    :decimals="3"
-                    :step="1"
-                    :min="0.001"
+                    :decimals="2"
+                    :min="0.01"
                     :empty-value="1"
                     class="ccf-field"
                   />
@@ -256,7 +254,7 @@
                       <option v-for="opt in packagingCategoryOptions" :key="opt" :value="opt">{{ opt }}</option>
                     </select>
                     <span class="cc-info-label">{{ t('of') }}</span>
-                    <NumberField v-model="form.packedUnits" :decimals="3" :step="1" :min="0" :empty-value="0" class="cc-inline-input" style="width:80px;" />
+                    <NumberField v-model="form.packedUnits" :decimals="2" :min="0" :empty-value="0" class="cc-inline-input" style="width:80px;" />
                     <span class="cc-info-card__unit-badge">{{ form.unit || '—' }}</span>
                     <span class="cc-info-label cc-info-label--dot">.</span>
                   </div>

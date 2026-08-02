@@ -524,8 +524,7 @@ export default {
               <Label>Units Per Purchase *</Label>
               <NumberField
                 v-model="supplierItemData.unitsPerPurchase"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 :empty-value="0"
               />
@@ -536,10 +535,9 @@ export default {
               <NumberField
                 v-model="supplierItemData.price"
                 :decimals="2"
-                :step="0.01"
                 :min="0"
-                steppers
                 pad
+                grouping
                 :empty-value="0"
               />
             </div>
@@ -557,8 +555,7 @@ export default {
               <Label>Packed Units (Optional)</Label>
               <NumberField
                 v-model="supplierItemData.packedUnits"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 placeholder="e.g., 10"
               />
@@ -568,8 +565,7 @@ export default {
               <Label>Number of Units (Optional)</Label>
               <NumberField
                 v-model="supplierItemData.numberOfUnits"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 placeholder="e.g., 5"
               />
@@ -581,24 +577,21 @@ export default {
               <div class="grid grid-cols-3 gap-2">
                 <NumberField
                   v-model="supplierItemData.packingLength"
-                  :decimals="3"
-                  :step="1"
+                  :decimals="2"
                   :min="0"
                   placeholder="Length"
                 />
 
                 <NumberField
                   v-model="supplierItemData.packingWidth"
-                  :decimals="3"
-                  :step="1"
+                  :decimals="2"
                   :min="0"
                   placeholder="Width"
                 />
 
                 <NumberField
                   v-model="supplierItemData.packingHeight"
-                  :decimals="3"
-                  :step="1"
+                  :decimals="2"
                   :min="0"
                   placeholder="Height"
                 />

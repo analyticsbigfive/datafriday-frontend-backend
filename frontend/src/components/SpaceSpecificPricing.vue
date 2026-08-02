@@ -258,10 +258,9 @@ export default {
             id="base-price"
             :model-value="basePrice"
             :decimals="2"
-            :step="0.01"
             :min="0"
-            steppers
             pad
+            grouping
             :empty-value="0"
             @change="(value) => onBasePriceChange(value)"
           />
@@ -316,10 +315,9 @@ export default {
           <NumberField
             :model-value="price.price"
             :decimals="2"
-            :step="0.01"
             :min="0"
-            steppers
             pad
+            grouping
             :empty-value="0"
             @change="(value) => handlePriceChange(price.id, value)"
           />

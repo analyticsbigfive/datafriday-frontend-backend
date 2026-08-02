@@ -243,8 +243,7 @@ export default {
             <Label>Units per Purchase</Label>
             <NumberField
               v-model="formData.unitsPerPurchase"
-              :decimals="3"
-              :step="1"
+              :decimals="2"
               :min="0"
               :empty-value="0"
               placeholder="0"
@@ -256,10 +255,9 @@ export default {
             <NumberField
               v-model="formData.price"
               :decimals="2"
-              :step="0.01"
               :min="0"
-              steppers
               pad
+              grouping
               :empty-value="0"
               placeholder="0.00"
             />
@@ -278,8 +276,7 @@ export default {
 
               <NumberField
                 v-model="formData.packedUnits"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 placeholder="e.g., 10"
               />
@@ -290,8 +287,7 @@ export default {
 
               <NumberField
                 v-model="formData.numberOfUnits"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 placeholder="e.g., 5"
               />
@@ -303,8 +299,7 @@ export default {
               <Label class="text-xs text-gray-500">Length (cm)</Label>
               <NumberField
                 v-model="formData.packingLength"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 placeholder="0"
               />
@@ -314,8 +309,7 @@ export default {
               <Label class="text-xs text-gray-500">Width (cm)</Label>
               <NumberField
                 v-model="formData.packingWidth"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 placeholder="0"
               />
@@ -325,8 +319,7 @@ export default {
               <Label class="text-xs text-gray-500">Height (cm)</Label>
               <NumberField
                 v-model="formData.packingHeight"
-                :decimals="3"
-                :step="1"
+                :decimals="2"
                 :min="0"
                 placeholder="0"
               />

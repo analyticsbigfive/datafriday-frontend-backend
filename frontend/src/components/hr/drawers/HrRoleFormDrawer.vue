@@ -104,8 +104,8 @@
                   <label class="hpd-field-label" for="hrd-rate">{{ rateLabel }} <span class="hpd-required">*</span></label>
                   <div class="hpd-rate">
                     <NumberField
-                      id="hrd-rate" v-model="form.rate" :decimals="2" :step="0.01" :min="0"
-                      steppers pad class="hpd-input hpd-rate__input"
+                      id="hrd-rate" v-model="form.rate" :decimals="2" :min="0"
+                      pad grouping class="hpd-input hpd-rate__input"
                     />
                     <span class="hpd-rate__suffix">{{ rateSuffix }}</span>
                   </div>
@@ -189,7 +189,7 @@
                     <div v-if="rule.conditionAttribute" class="hpd-field">
                       <label class="hpd-field-label">{{ t('hrSinkingRuleMinValue') }}</label>
                       <NumberField
-                        v-model="rule.conditionMinValue" :decimals="2" :step="1" :min="0"
+                        v-model="rule.conditionMinValue" :decimals="2" :min="0"
                         :empty-value="0" class="hpd-input" @change="saveRuleDraft(rule)"
                       />
                     </div>
@@ -759,9 +759,7 @@ async function submit() {
 .hpd-rate__input { padding-right: 2.4rem; }
 .hpd-rate__suffix {
   position: absolute;
-  /* 28px (bouton + de NumberField) + 4px (gap) : le suffixe reste sur le champ,
-     pas par-dessus le stepper. */
-  right: calc(0.85rem + 32px);
+  right: 0.85rem;
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   color: #9ca3af;
