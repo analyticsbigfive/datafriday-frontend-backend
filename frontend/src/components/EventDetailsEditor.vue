@@ -47,6 +47,7 @@
       :model-value="drawerOpen"
       :title="t('edeDrawerTitle')"
       :subtitle="editedEvent.eventName || t('edeDrawerSubtitle')"
+      :is-dark="isDark"
       @update:model-value="handleDrawerModel"
     >
       <template #icon>
@@ -453,6 +454,8 @@ import {
   Tags,
   Users,
 } from "lucide-vue-next";
+import { computed } from "vue";
+import { useTheme } from "vuetify";
 import EventDrawerShell from "@/components/events/drawers/EventDrawerShell.vue";
 import { createTeam as restCreateTeam } from "@/api/endpoints/team.api";
 import { useI18n } from "@/i18n/useI18n";
@@ -560,7 +563,11 @@ export default {
   emits: ["event-update", "event-create", "team-created"],
   setup() {
     const { locale, t } = useI18n();
-    return { locale, t };
+    // BUG-277 : le drawer est téléporté dans <body> (EventDrawerShell) — sans ce
+    // prop le shell reste en clair pendant que Vuetify force le texte en blanc.
+    const theme = useTheme();
+    const isDark = computed(() => !!theme.global.current.value.dark);
+    return { locale, t, isDark };
   },
   data() {
     return {
@@ -1501,11 +1508,45 @@ export default {
   margin-top: 16px;
 }
 
-/* ===================== DARK MODE — compléments =====================
-   L'éditeur vit dans l'overlay .event-predict-overlay (drawer NON téléporté) :
-   surfaces/bordures/textes suivent les `--fb-*` hérités. Le bandeau résumé rouge
-   #ff3131 et sa pastille/bouton blancs sont conservés. Ne reste que le bouton
-   « ajouter une session » (rouge très pâle) → voile rouge sur fond sombre. */
+/* ===================== DARK MODE =====================
+   BUG-277 : depuis la migration vers EventDrawerShell (b60e220), le drawer est
+   TÉLÉPORTÉ dans <body> — hors de `.event-predict-overlay`, seule racine où
+   style.css redéfinit les `--fb-*` sombres. Sans redéfinition ici, chaque
+   `var(--fb-…, littéral clair)` retombe sur son fallback clair pendant que
+   Vuetify force le texte en `on-surface` (#FAFAFA) → blanc sur blanc.
+   Le shell peint fond (#111827) et footer (#1f2937) via `.eds--dark` ; on
+   redéfinit les tokens sur la racine slottée pour que le contenu suive.
+   Palette identique au shell/BUG-148. Le rouge de marque #ff3131 est conservé. */
+.eds--dark .ede-drawer-body {
+  --fb-surface: #1f2937;
+  --fb-border: #374151;
+  --fb-text: #f9fafb;
+  --fb-muted: #94a3b8;
+  --fb-faint: #6b7280;
+  color: #e5e7eb;
+}
+.eds--dark .ede-session-card__remove:hover {
+  background: rgba(220, 38, 38, 0.16);
+}
+/* Boutons du slot #footer (hors .ede-drawer-body, sous .eds--dark). */
+.eds--dark .ede-footer-btn--cancel {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #1f2937;
+  color: #e2e8f0;
+}
+.eds--dark .ede-footer-btn--cancel:hover {
+  background: #374151;
+}
+/* Dialog équipe : v-dialog téléporté hors du shell → hors `.eds--dark`,
+   on s'accroche à `.dark` (posé sur <html>) comme .ede-add-session. */
+.dark .ede-team-dialog {
+  background: #1f2937;
+  color: #e5e7eb;
+}
+
+/* Compléments (pré-BUG-277) : bandeau résumé rouge #ff3131 et sa pastille/bouton
+   blancs conservés ; bouton « ajouter une session » (rouge très pâle) → voile
+   rouge sur fond sombre. */
 .dark .ede-add-session {
   background: rgba(220, 38, 38, 0.16);
 }

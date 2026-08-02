@@ -294,6 +294,17 @@
 | [274-02](274_02_spacemenu_merchshop_visible_dans_assignation_menuitem.md) | Menus des Espaces : les stands Merch (`merchshop`) apparaissaient dans la liste des PDV assignables à un menu item — filtre `type` absent, hérité du `shopTypes` backend partagé avec Restock/Event Predict/Analyse | 🟢 Corrigé | 🟠 | Menu & recettes |
 | [275-02](275_02_merchshop_infiltre_menuassignment_predict_et_inventory.md) | Même bug que BUG-274 sur 2 autres écrans : Event Predict (onglet Menus, écriture possible d'un MenuItem sur un stand Merch) et Inventory (onglet Shops, carte Merch dupliquée/fantôme) — correctif écrit puis retiré de `develop`, préservé sur `fix/bug-275-merchshop-predict-inventory` | ⚪ Diagnostiqué | 🟠 | Prévision / Stock |
 | [276-02](276_02_spacemenuitemview_sans_tout_selectionner.md) | Menus des Espaces (« Par menu item ») : pas de « Tout sélectionner » pour attacher un article à toutes les boutiques d'un coup — même demande que BUG-268, écran miroir | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [277-01](277_01_eventdetailseditor_darkmode_drawer_illisible.md) | Drawer « Event detail » (Event Predict) illisible en dark mode : `EventDetailsEditor.vue` seul consommateur d'`EventDrawerShell` sans `:is-dark` ni bloc `--dark`, drawer téléporté hors des racines `--fb-*` → corps clair + texte Vuetify blanc | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation / Thème |
+
+BUG-277-01 ajouté et corrigé le 2026-08-02 (signalement utilisateur avec capture, thème sombre) :
+le drawer « Event detail » de la page Event Predict s'affichait corps clair (`#f9fafb`) avec
+valeurs de champs quasi blanches — illisible. Triple défaut lié à la téléportation dans `<body>`
+via `EventDrawerShell` : `:is-dark` jamais passé au shell, texte forcé en `on-surface` sombre par
+les `themeClasses` Vuetify, tokens `--fb-*` retombant sur leurs fallbacks clairs hors de
+`.event-predict-overlay` (même famille que BUG-198/237-02). Audit de généralisation : les 9
+autres consommateurs du shell passent tous `:is-dark` avec leur propre bloc `--dark` — cas isolé.
+Corrigé dans `EventDetailsEditor.vue` seul (pattern `EventPredictSourcesDrawer`) + commentaire
+obsolète « drawer NON téléporté » remplacé ; non buildé/testé (pas de `pnpm dev` dans la session).
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur
