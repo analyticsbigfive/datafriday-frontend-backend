@@ -975,13 +975,13 @@
           <div class="ep-metric-card ep-metric-card-neutral">
             <h3 class="ep-metric-label">{{ t('epMetricCost') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              {{ formatCurrency(totalPredictedCost) }}
+              {{ formatCurrencyDetailed(totalPredictedCost) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                {{ formatCurrency(totalAdjustedCost) }}
+                {{ formatCurrencyDetailed(totalAdjustedCost) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1212,7 +1212,7 @@ import { runWithConcurrency } from "../utils/asyncPool";
 import { htFromTtc, menuItemPriceHt } from "../utils/price";
 import { useEventPredictVersions } from "../composables/useEventPredictVersions";
 import { currentIntlLocale } from "@/composables/useNumberFormat";
-import { formatNumber } from "@/composables/useFormatters";
+import { formatNumber, formatCurrencyDetailed } from "@/composables/useFormatters";
 import { usePredictiveTimeline } from "../composables/usePredictiveTimeline";
 import {
   aggregateTimelinePerMinute,
@@ -3297,6 +3297,7 @@ export default {
   },
   methods: {
     formatNumber,
+    formatCurrencyDetailed,
     scrollToAnchor(id) {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
