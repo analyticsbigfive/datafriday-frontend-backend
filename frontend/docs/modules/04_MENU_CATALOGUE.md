@@ -148,6 +148,18 @@ générique) pour garder des FK propres vers 3 entités aux règles de coût dif
 - **Builder v1** (`PropertiesPanelView.vue`) lit la liste des menu items via `utils/api.js` (voir
   piège n°1 ci-dessus) pour les associer aux shops du plan.
 
+**Formatage des coûts — exception assumée à la « décision 0 décimale » (BUG-267-01)** :
+l'écran `/menu-fb/menu-items/edit/:id` (`MenuItemCreateView.vue`) affiche ses montants avec **2
+décimales**, via `formatCostCurrency` (`composables/useFormatters.js`), et **non** via le
+`formatCurrency` partagé qui arrondit à l'entier partout ailleurs (« Décision UI 2026-07-12 »).
+Raison : c'est l'écran de calcul du coût de revient, et les coûts unitaires d'ingrédients y sont
+structurellement < 1 € — à 0 décimale, la moitié d'une recette s'affiche « 0 € » et l'écran ne veut
+plus rien dire. **Ne pas « ré-uniformiser » cette page à `formatCurrency`** lors d'un passage de
+cohérence : l'écart est intentionnel. Le reste de l'app (analyse, inventaire, space-menus) reste à
+0 décimale. Voir aussi BUG-101, dont la section « Risque de régression » avait anticipé le cas.
+Candidat suivant pour ce helper : `ComponentCreateView.vue` et son `toLocaleString` local
+(BUG-060).
+
 ### `MenuItemCombo` — composition combo (BUG-257-02)
 
 **Qu'est-ce que c'est** : auto-relation `MenuItem` ↔ `MenuItem` (table de jonction, calquée sur
@@ -382,6 +394,19 @@ scoping, tu réintroduis la fuite entre configurations.
   hors du state réactif pour dédupliquer les appels concurrents — un `if (state.fetching) return`
   naïf avait un bug de course (le getter pouvait être lu vide avant hydratation) ; ne pas revenir à
   ce pattern plus simple si tu retouches ce fichier.
+
+**Attachement en masse — plafond transactionnel à connaître (BUG-268-01)** : depuis l'ajout de la
+barre « Tout sélectionner » dans `ShopMenuItemsDrawer.vue` (onglet « Disponible » uniquement — les
+items non disponibles restent volontairement non sélectionnables), un `POST /space-menu` porte
+couramment 50+ paires shop×item au lieu de 1 à 3. Or `saveMenuConfiguration`
+(`space-menus.service.ts:1223`) fait un `upsert` **séquentiel** par item dans un
+`prisma.$transaction` **sans option `timeout`**, donc au défaut Prisma de 5 s. Ça passe largement
+en conditions normales (~10 ms par aller-retour), mais le plafond n'avait jamais été approché avant
+et un dépassement fait échouer **tout** l'attachement. Si ça se produit : upserts groupés
+(`createMany`/`updateMany`) ou `timeout` explicite sur la transaction. Corollaire côté front : le
+seed de sélection (`ShopMenuItemsDrawer.vue:268-270`) retient tous les items `enabled`, y compris
+devenus indisponibles — `toggleSelectAll` ne doit donc jamais réaffecter le tableau en bloc, sous
+peine de les détacher silencieusement.
 
 ### Le module backend `SpaceMenus` (routes réelles, `space-menus.controller.ts`)
 

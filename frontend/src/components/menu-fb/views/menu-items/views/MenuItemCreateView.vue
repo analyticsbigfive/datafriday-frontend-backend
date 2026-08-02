@@ -92,13 +92,11 @@
                     </v-chip>
                   </template>
 
+                  <!-- BUG-267-01 : pas de stepper −/+ ici — leur pas était codé en dur à 1, donc
+                       inutilisable sur des quantités au kg (0,04 → 1,04 en un clic). Saisie
+                       directe uniquement ; le clamp @change reste le garde-fou anti-négatif. -->
                   <template #item.quantity="{ item }">
                     <div class="mic-qty-stepper">
-                      <button
-                        class="mic-qty-btn"
-                        type="button"
-                        @click="item.quantity = Math.max(0, +((+item.quantity || 0) - 1).toFixed(3))"
-                      >−</button>
                       <input
                         v-model.number="item.quantity"
                         type="number"
@@ -107,20 +105,15 @@
                         class="mic-qty-input"
                         @change="item.quantity = Math.max(0, +(+item.quantity || 0).toFixed(3))"
                       />
-                      <button
-                        class="mic-qty-btn"
-                        type="button"
-                        @click="item.quantity = +((+item.quantity || 0) + 1).toFixed(3)"
-                      >+</button>
                     </div>
                   </template>
 
                   <template #item.unitCost="{ item }">
-                    {{ formatCurrency(item.unitCost) }}
+                    {{ formatCostCurrency(item.unitCost) }}
                   </template>
 
                   <template #item.totalCost="{ item }">
-                    <span class="font-weight-bold">{{ formatCurrency(item.quantity * item.unitCost) }}</span>
+                    <span class="font-weight-bold">{{ formatCostCurrency(item.quantity * item.unitCost) }}</span>
                   </template>
 
                   <template #item.storage="{ item }">
@@ -146,7 +139,7 @@
               <div v-if="items.length > 0" class="mic-table-summary mt-3">
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__label">{{ t('menuItemCreate.totalCostLabel') }}</span>
-                  <span class="mic-table-summary__value">{{ formatCurrency(totalCost) }}</span>
+                  <span class="mic-table-summary__value">{{ formatCostCurrency(totalCost) }}</span>
                 </div>
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__label">{{ t('menuItemCreate.pieceCountLabel') }}</span>
@@ -155,7 +148,7 @@
                 <div class="mic-table-summary__divider" />
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__cost-label">{{ t('menuItemCreate.costPerPieceLabel') }}</span>
-                  <span class="mic-table-summary__cost-value">{{ formatCurrency(costPerPiece) }}</span>
+                  <span class="mic-table-summary__cost-value">{{ formatCostCurrency(costPerPiece) }}</span>
                 </div>
               </div>
 
@@ -463,15 +456,15 @@
                   <div class="mic-price-summary">
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">HT</span>
-                      <span class="mic-price-value">{{ formatCurrency(getGroupHT(group.price, group.vatRate)) }}</span>
+                      <span class="mic-price-value">{{ formatCostCurrency(getGroupHT(group.price, group.vatRate)) }}</span>
                     </div>
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">TVA{{ group.vatRate != null ? ` (${group.vatRate}%)` : '' }}</span>
-                      <span class="mic-price-value">{{ formatCurrency(group.price - getGroupHT(group.price, group.vatRate)) }}</span>
+                      <span class="mic-price-value">{{ formatCostCurrency(group.price - getGroupHT(group.price, group.vatRate)) }}</span>
                     </div>
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">Coût</span>
-                      <span class="mic-price-value">{{ formatCurrency(costPerPiece) }}</span>
+                      <span class="mic-price-value">{{ formatCostCurrency(costPerPiece) }}</span>
                     </div>
                     <div class="mic-price-sep" />
                     <div class="mic-price-row-info">
@@ -643,7 +636,7 @@ import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints/menu-item.api";
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
-import { formatCurrency } from "@/composables/useFormatters.js";
+import { formatCostCurrency } from "@/composables/useFormatters.js";
 import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
@@ -1275,7 +1268,7 @@ export default {
         this.items.splice(index, 1);
       }
     },
-    formatCurrency,
+    formatCostCurrency,
     getStorageColor(storage) {
       const colors = {
         Cold: "blue",
@@ -1819,34 +1812,10 @@ export default {
   height: 30px;
 }
 
-.mic-qty-btn {
-  width: 26px;
-  height: 100%;
-  background: #f3f4f6;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  color: #374151;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.mic-qty-btn:hover {
-  background: #e5e7eb;
-  color: #ff3131;
-}
-
 .mic-qty-input {
-  width: 48px;
+  width: 72px;
   height: 100%;
   border: none;
-  border-left: 1px solid #d1d5db;
-  border-right: 1px solid #d1d5db;
   text-align: center;
   font-size: 0.82rem;
   color: #111827;
@@ -2548,16 +2517,12 @@ label {
   color: #e5e7eb;
 }
 
-/* Contrôle quantité (dans la table) : texte + fond + boutons en dark. */
+/* Contrôle quantité (dans la table) : texte + fond en dark. */
 .mic--dark .mic-qty-input {
   background: #1e293b;
-  border-left-color: rgba(255, 255, 255, .12);
-  border-right-color: rgba(255, 255, 255, .12);
   color: #f1f5f9;
 }
 .mic--dark .mic-qty-stepper { border-color: rgba(255, 255, 255, .12); }
-.mic--dark .mic-qty-btn { background: #263548; color: #cbd5e1; }
-.mic--dark .mic-qty-btn:hover { background: #2d3748; }
 
 .mic--dark .form-section-divider {
   color: #6b7280;

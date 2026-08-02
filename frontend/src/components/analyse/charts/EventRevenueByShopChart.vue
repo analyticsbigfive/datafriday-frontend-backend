@@ -517,6 +517,14 @@ function getOrCreateTooltipEl() {
   return el
 }
 
+// Un stack peut compter 30+ PDV : listés tels quels, le tooltip devenait plus haut que le
+// graphe et masquait le nom de l'événement au-dessus du curseur. On ne détaille donc que les
+// TOOLTIP_TOP_N meilleurs PDV DE CETTE BARRE, le reste étant replié dans une ligne « Autres »
+// portant la somme. Le repli est purement visuel : les barres empilées gardent tous leurs
+// segments, seul le survol est plafonné.
+const TOOLTIP_TOP_N = 10
+const TOOLTIP_OTHERS_COLOR = '#9ca3af'
+
 function externalTooltipHandler(ctx) {
   const { chart, tooltip } = ctx
   const el = getOrCreateTooltipEl()
@@ -526,9 +534,36 @@ function externalTooltipHandler(ctx) {
   }
   const titleLines = tooltip.title || []
   const beforeBody = (tooltip.beforeBody || []).filter(Boolean)
-  const bodyLines = (tooltip.body || []).flatMap((b) => b.lines || [])
   const footerLines = tooltip.footer || []
   const colors = (tooltip.labelColors || []).map((c) => c.backgroundColor)
+
+  // tooltip.body, tooltip.labelColors et tooltip.dataPoints sont construits par Chart.js dans
+  // le même ordre : on peut les recoller par index pour retrouver la valeur derrière chaque
+  // ligne déjà formatée par le callback `label`.
+  const dataPoints = tooltip.dataPoints || []
+  const rows = (tooltip.body || []).map((b, i) => ({
+    line: (b.lines || []).join('<br/>'),
+    color: colors[i] || 'transparent',
+    value: Number(dataPoints[i]?.parsed?.y) || 0,
+    // La courbe « CA cumulé » n'est pas un PDV : jamais repliée, toujours en tête.
+    isLine: dataPoints[i]?.dataset?.type === 'line',
+  }))
+
+  const lineRows = rows.filter((r) => r.isLine)
+  // Un PDV à 0 € n'a rien vendu sur cet événement : hors du décompte « Autres (N) », qui doit
+  // refléter des contributeurs réels et non le catalogue complet des points de vente.
+  const shopRows = rows.filter((r) => !r.isLine && r.value > 0).sort((a, b) => b.value - a.value)
+  const topRows = shopRows.slice(0, TOOLTIP_TOP_N)
+  const otherRows = shopRows.slice(TOOLTIP_TOP_N)
+
+  const bodyRows = [...lineRows, ...topRows]
+  if (otherRows.length) {
+    const othersTotal = otherRows.reduce((sum, r) => sum + r.value, 0)
+    bodyRows.push({
+      line: `${t('anChartTooltipOthers')} (${otherRows.length}) : ${formatEuro(othersTotal)}`,
+      color: TOOLTIP_OTHERS_COLOR,
+    })
+  }
 
   let html = ''
   if (titleLines.length) {
@@ -547,10 +582,9 @@ function externalTooltipHandler(ctx) {
   if (beforeBody.length) {
     html += `<div style="font-size: var(--fs-xs);opacity:0.85;margin-bottom:6px;">${beforeBody.join('<br/>')}</div>`
   }
-  bodyLines.forEach((line, i) => {
-    const c = colors[i] || 'transparent'
+  bodyRows.forEach(({ line, color }) => {
     html += `<div style="display:flex;align-items:center;gap:8px;margin:2px 0;">
-      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${c};flex:0 0 auto;"></span>
+      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color};flex:0 0 auto;"></span>
       <span style="flex:1;white-space:normal;word-break:break-word;">${line}</span>
     </div>`
   })

@@ -1808,6 +1808,7 @@ export const translations = {
     anChartTooltipCumulRev: 'Cumul. Rev.:',
     anChartTooltipTotal: 'Total:',
     anChartTooltipGlobalShare: '· Global share:',
+    anChartTooltipOthers: 'Others',
     anChartTooltipEventSuffix: 'event(s)',
     // EventTimelineChart
     anTimelineDefaultEvent: 'Event',
@@ -5824,6 +5825,7 @@ export const translations = {
     anChartTooltipCumulRev: 'CA cumulé :',
     anChartTooltipTotal: 'Total :',
     anChartTooltipGlobalShare: '· Part globale :',
+    anChartTooltipOthers: 'Autres',
     anChartTooltipEventSuffix: 'évènement(s)',
     // EventTimelineChart
     anTimelineDefaultEvent: 'Évènement',

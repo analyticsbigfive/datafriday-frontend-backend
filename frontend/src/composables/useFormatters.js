@@ -13,6 +13,14 @@ export function formatCurrency(value, currency = 'EUR', locale = 'fr-FR', digits
   }).format(value)
 }
 
+// Exception documentée à la décision « 0 décimale » ci-dessus (cf. BUG-267-01, et la section
+// « Risque de régression » de BUG-101 qui l'avait anticipée) : sur les écrans de coût de revient,
+// les coûts unitaires d'ingrédients sont souvent < 1 € et l'arrondi entier les affiche tous à
+// « 0 € », ce qui vide l'écran de son sens. Réservé à ces écrans — ailleurs, formatCurrency.
+export function formatCostCurrency(value, currency = 'EUR', locale = 'fr-FR') {
+  return formatCurrency(value, currency, locale, 2)
+}
+
 export function formatCurrencyDetailed(value, currency = 'EUR', locale = 'fr-FR') {
   if (value == null || Number.isNaN(value)) return '—'
   return new Intl.NumberFormat(locale, {

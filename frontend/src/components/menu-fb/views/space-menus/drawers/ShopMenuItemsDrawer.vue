@@ -66,6 +66,38 @@
                 </button>
               </div>
 
+              <!-- Tout sélectionner — onglet « Disponible » uniquement : les items non
+                   disponibles restent volontairement non sélectionnables (toggleMenuItem sort
+                   sur !item.available), une barre grisée n'apporterait rien. -->
+              <div
+                v-if="availabilityTab === 'available' && availableCount > 0"
+                class="smi-select-all"
+                @click="toggleSelectAll"
+              >
+                <label class="smi-check-wrap" @click.stop>
+                  <input
+                    type="checkbox"
+                    class="visually-hidden"
+                    :checked="allAvailableSelected"
+                    :indeterminate.prop="someAvailableSelected && !allAvailableSelected"
+                    @change="toggleSelectAll"
+                  />
+                  <span
+                    class="smi-check-box"
+                    :class="{
+                      checked: allAvailableSelected,
+                      indeterminate: someAvailableSelected && !allAvailableSelected,
+                    }"
+                  >
+                    <Check v-if="allAvailableSelected" :size="11" color="white" />
+                    <Minus v-else-if="someAvailableSelected" :size="11" color="white" />
+                  </span>
+                </label>
+                <span class="smi-select-all__label">
+                  {{ t('selectAll') }} ({{ availableCount }})
+                </span>
+              </div>
+
               <!-- List header -->
               <div class="smi-list-header">
                 <div class="smi-list-header__item">{{ t("spaceMenu.menuItem") }}</div>
@@ -159,13 +191,13 @@
 
 <script>
 import { useI18n } from "@/i18n/useI18n";
-import { X, UtensilsCrossed, Package, Check, AlertCircle } from 'lucide-vue-next';
+import { X, UtensilsCrossed, Package, Check, Minus, AlertCircle } from 'lucide-vue-next';
 import { assignMenuItemsToShop, getShopAvailableMenuItems } from "@/api/endpoints/menu.api";
 import { formatCurrency } from "@/composables/useFormatters";
 
 export default {
   name: 'ShopMenuItemsDrawer',
-  components: { X, UtensilsCrossed, Package, Check, AlertCircle },
+  components: { X, UtensilsCrossed, Package, Check, Minus, AlertCircle },
   setup() {
     const { t } = useI18n();
     return { t, formatCurrency };
@@ -231,6 +263,15 @@ export default {
     },
     availableCount()    { return this.availableMenuItems.length; },
     notAvailableCount() { return this.notAvailableMenuItems.length; },
+    // Tri-état de la barre « Tout sélectionner ». Basé sur availableMenuItems (et non
+    // displayedMenuItems) : la barre n'existe que sur l'onglet « Disponible ».
+    allAvailableSelected() {
+      if (!this.availableMenuItems.length) return false;
+      return this.availableMenuItems.every(item => this.selectedMenuItemIds.includes(String(item.id)));
+    },
+    someAvailableSelected() {
+      return this.availableMenuItems.some(item => this.selectedMenuItemIds.includes(String(item.id)));
+    },
     hasChanges() {
       const curr = new Set(this.selectedMenuItemIds);
       const init = new Set(this.initialSelectedIds);
@@ -295,6 +336,20 @@ export default {
       const idx = this.selectedMenuItemIds.indexOf(id);
       if (idx >= 0) this.selectedMenuItemIds.splice(idx, 1);
       else this.selectedMenuItemIds.push(id);
+    },
+
+    // N'ajoute/retire QUE les ids disponibles : les ids déjà attachés mais devenus indisponibles
+    // (seedés depuis `enabled` dans loadMenuItems) sont préservés, sinon un simple « tout
+    // sélectionner » les détacherait silencieusement.
+    toggleSelectAll() {
+      const availableIds = this.availableMenuItems.map(item => String(item.id));
+      if (!availableIds.length) return;
+      if (this.allAvailableSelected) {
+        this.selectedMenuItemIds = this.selectedMenuItemIds.filter(id => !availableIds.includes(id));
+      } else {
+        const newIds = availableIds.filter(id => !this.selectedMenuItemIds.includes(id));
+        this.selectedMenuItemIds = [...this.selectedMenuItemIds, ...newIds];
+      }
     },
     async attachMenuItems() {
       if (!this.shop?.id) return;
@@ -384,6 +439,36 @@ export default {
   font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 100px;
 }
 .smi-tab__count--grey { background: #6b7280; }
+
+/* ── Select all ── (repris de ShopDetailView.vue, transposé sur l'accent rouge du drawer) */
+.smi-select-all {
+  display: flex; align-items: center; gap: 10px;
+  margin: 12px 12px 0; padding: 10px 14px;
+  background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px;
+  cursor: pointer; transition: background .15s;
+}
+.smi-select-all:hover { background: #fee2e2; }
+.smi-select-all__label { font-size: 12.5px; font-weight: 700; color: #ff3131; }
+
+/* ⚠️ .smi-check-box (carrée, ici) ≠ .smi-check-dot (ronde, sur les lignes de la liste). */
+.smi-check-wrap { display: inline-flex; align-items: center; cursor: pointer; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0,0,0,0); border: 0;
+}
+.smi-check-box {
+  width: 18px; height: 18px; border-radius: 4px;
+  border: 2px solid #d1d5db; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s; flex-shrink: 0;
+}
+.smi-check-box.checked,
+.smi-check-box.indeterminate { background: #ff3131; border-color: #ff3131; }
+.smi-panel--dark .smi-select-all { background: rgba(255,49,49,.1); border-color: rgba(255,49,49,.3); }
+.smi-panel--dark .smi-select-all:hover { background: rgba(255,49,49,.18); }
+.smi-panel--dark .smi-check-box { border-color: #475569; background: #1e293b; }
+.smi-panel--dark .smi-check-box.checked,
+.smi-panel--dark .smi-check-box.indeterminate { background: #ff3131; border-color: #ff3131; }
 
 /* ── List header ── */
 .smi-list-header {

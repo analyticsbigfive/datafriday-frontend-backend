@@ -556,7 +556,7 @@ sur le code React, voir Historique).
 | `charts/GenericByEventChart.vue` | Graphe barres générique par event, rendu inline (le dialog qui l'enveloppait est mort, voir Code mort) |
 | `dialogs/ShopItemEventsDialog.vue` | Events d'un combo PdV×article |
 | `dialogs/UnalignedEventsDialog.vue` | Events écartés de la moyenne (pas d'heure de coup d'envoi saisie) |
-| `charts/EventRevenueByShopChart.vue` (762 l.) | Carte CA par event/PdV, empilable par shop ou par type d'article, atténuation 50% des events passés en mode Predict |
+| `charts/EventRevenueByShopChart.vue` (762 l.) | Carte CA par event/PdV, empilable par shop ou par type d'article, atténuation 50% des events passés en mode Predict. Tooltip plafonné au top 10 des PDV de la barre + ligne « Autres (N) » (somme, PDV à 0 € exclus) — plafond d'affichage uniquement, les barres gardent tous leurs segments (BUG-269-01) |
 | `charts/EventTimelineChart.vue` (761 l., partagé avec `EventPredictView.vue`) | Timeline minute par minute, délègue le bucketing à `utils/timelineBucketing.js` (source unique partagée Analyse/Predict/EventPredict/Stockup) |
 | `charts/ShopDistributionPieChart.vue` | 3 donuts PdV/Type/Zone, sentinelle `UNATTACHED_SHOP_KEY` |
 | `tables/MenuItemRevenueDistribution.vue` | Cartes « by POS type » + 3 donuts article/type/catégorie, sentinelle `UNATTACHED_ITEM_KEY` |
