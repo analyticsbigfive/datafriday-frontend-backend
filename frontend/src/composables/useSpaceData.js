@@ -65,7 +65,7 @@ async function fetchAllMenuComponents() {
   return rows
 }
 
-export async function fetchSpaceData(spaceId, onEnrichment = null) {
+export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true } = {}) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
   console.log('[useSpaceData] 🟢 Fetching from API: /api/v1/spaces/' + spaceId)
 
@@ -98,15 +98,16 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       // tenant-wide était lue puis filtrée côté client : un tenant avec >50 events
       // au total pouvait perdre silencieusement les events de ce space.
       //
-      // `excludeSimulated: true` — ce chargement alimente le store analyse, donc
-      // Analyse, l'écran Live ET EventPredict : les events créés par l'outil QA
-      // « simuler une vente » (Event.isSimulated) n'y ont rien à faire. La liste
-      // Events (store/modules/events.js) ne passe PAS ce paramètre et les garde
+      // `excludeSimulated` — ce chargement alimente le store analyse, donc Analyse,
+      // l'écran Live ET EventPredict : les events créés par l'outil QA « simuler une
+      // vente » (Event.isSimulated) n'ont rien à faire sur Analyse/EventPredict (ne
+      // jamais fausser les vrais chiffres). Sur Live en revanche, voir son propre
+      // trafic de test défiler en direct EST le but du widget flask
+      // (LiveSaleSimulatorWidget) — l'appelant passe donc `excludeSimulated: false`
+      // spécifiquement en mode Live (cf. AnalyseView.vue::isLive). La liste Events
+      // (store/modules/events.js) ne passe déjà pas ce paramètre et les garde
       // visibles pour permettre leur suppression manuelle.
-      // ⚠️ Conséquence assumée : sur l'écran Live, une vente simulée un jour SANS
-      // vrai event du jour n'a plus d'event porteur → KPI/timeline vides. Saisir
-      // un vrai event du jour pour tester le Live avec LiveSaleSimulatorWidget.
-      getEvents({ spaceId, limit: 200, excludeSimulated: true }).catch((e) => { console.warn('[useSpaceData] ⚠️ events failed:', e?.response?.status, e?.message); return null }),
+      getEvents({ spaceId, limit: 200, excludeSimulated }).catch((e) => { console.warn('[useSpaceData] ⚠️ events failed:', e?.response?.status, e?.message); return null }),
     ])
 
     // Phase 1 has no granular data (loaded later in background)

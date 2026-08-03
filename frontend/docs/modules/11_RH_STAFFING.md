@@ -758,13 +758,19 @@ La question "quels MenuItem comptent comme burger/hot-dog" ne se pose plus.
 comme des fournisseurs interchangeables du même point d'intégration** :
 1. **Saisie manuelle par shop dans le Builder** (comme l'étaient historiquement
    `nbBurgersPrevus`/`nbHotdogsPrevus`, §11.14) — dans le périmètre, phase 1.
-2. **Ventes réelles live via Weezevent** — dans le périmètre (domaine Intégrations & Ventes
-   d'Ulrich, [`05_INTEGRATIONS_VENTES.md`](05_INTEGRATIONS_VENTES.md)), phase 2. Aucune table
-   prête à l'emploi "quantité vendue par shop × MenuItem", mais tous les ingrédients existent déjà :
-   `GET weezevent/analytics/sales-by-product` (`weezevent-analytics.controller.ts:17`, à scoper par
-   shop) et les tables brutes `SalesTransaction`/`SalesTransactionItem`/`ProductMapping` croisables
-   avec `LocationShopMapping`. Ne reflète que du vendu réel — pertinent pour ajuster le staff
-   affiché pendant/après l'event (module Live), pas pour la planification en amont.
+2. **Ventes réelles live via Weezevent ET Digifood** — dans le périmètre (domaine Intégrations &
+   Ventes d'Ulrich, [`05_INTEGRATIONS_VENTES.md`](05_INTEGRATIONS_VENTES.md)), phase 2. Aucune
+   table prête à l'emploi "quantité vendue par shop × MenuItem", mais tous les ingrédients
+   existent déjà — et sont **partagés entre les deux providers**, pas à dupliquer par provider :
+   les tables brutes `SalesTransaction`/`SalesTransactionItem`/`SalesProduct`/`ProductMapping`
+   sont écrites aussi bien par la sync Weezevent que par `DigifoodIngestionService.ingestOrder()`
+   (webhook + import CSV), et `LocationShopMapping` (le pont vers `SpaceElement`) est lui aussi
+   provider-agnostic. Une requête scopée par shop sur ces tables couvrirait donc nativement les
+   deux intégrations sans code spécifique par provider — `GET weezevent/analytics/sales-by-product`
+   (`weezevent-analytics.controller.ts:17`) n'est qu'un exemple d'agrégat déjà existant côté
+   Weezevent seul, à généraliser plutôt qu'à répliquer côté Digifood. Ne reflète que du vendu réel —
+   pertinent pour ajuster le staff affiché pendant/après l'event (module Live), pas pour la
+   planification en amont.
 3. **Prévision Event Predict** — **hors périmètre de ce chantier**, chantier Jean-Luc. Reste
    bloqué par #43 (`ElementPerformance` vide en base) et nécessite qu'une prévision par
    MenuItem × shop soit exposée côté backend (aujourd'hui calculée uniquement côté client,

@@ -1,9 +1,17 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
 import { Prisma, StockMovementReason } from '@prisma/client';
+import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
+import { QUEUES } from '../../core/queue/queue.constants';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
+import { StartSimulationRunDto } from './dto/simulation-run.dto';
+
+export interface SimulationTickJobData {
+  runId: string;
+}
 
 type ElementRef = { id: string; name: string; spaceId: string };
 
@@ -84,6 +92,10 @@ export class LogisticsService {
     // fermerait un cycle (même raison documentée dans
     // weezevent/services/webhook-event.handler.ts).
     private readonly queueService: QueueService,
+    // Queue dédiée, enregistrée localement dans LogisticsModule (pas dans le QueueModule
+    // global) — même pattern que AggregationModule pour AGGREGATION. Pilote le Job
+    // Scheduler BullMQ (upsertJobScheduler/removeJobScheduler) des runs d'auto-simulation.
+    @InjectQueue(QUEUES.SIMULATION) private readonly simulationQueue: Queue<SimulationTickJobData>,
   ) {}
 
   // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
@@ -735,16 +747,21 @@ export class LogisticsService {
    * comportement front actuel (buildStorageInventory ne fait pas de filtre par
    * sous-type de storage côté Logistic — non reproduit ici, à vérifier en test réel).
    */
+  /** Fragment where : SpaceElement appartenant à CET espace (v1 floor/forecourt/externalMerch + v2 zone). */
+  private spaceElementScopeWhere(spaceId: string, tenantId: string) {
+    return {
+      OR: [
+        { floor: { config: { space: { id: spaceId, tenantId } } } },
+        { forecourt: { config: { space: { id: spaceId, tenantId } } } },
+        { externalMerch: { config: { space: { id: spaceId, tenantId } } } },
+        { zone: { space: { id: spaceId, tenantId } } },
+      ],
+    } as any;
+  }
+
   private async getSpaceElementsWithItems(spaceId: string, tenantId: string, configId?: string) {
     const rows = await this.prisma.spaceElement.findMany({
-      where: {
-        OR: [
-          { floor: { config: { space: { id: spaceId, tenantId } } } },
-          { forecourt: { config: { space: { id: spaceId, tenantId } } } },
-          { externalMerch: { config: { space: { id: spaceId, tenantId } } } },
-          { zone: { space: { id: spaceId, tenantId } } },
-        ],
-      } as any,
+      where: this.spaceElementScopeWhere(spaceId, tenantId),
       select: {
         id: true,
         name: true,
@@ -875,6 +892,50 @@ export class LogisticsService {
       if (loc) result.set(m.spaceElementId, loc.provider);
     }
     return result;
+  }
+
+  /**
+   * PDV simulables (≥1 menu item vendable, à prix réel, ET mappé à une intégration réelle)
+   * — miroir server-side de `LiveSaleSimulatorWidget.vue::menuItemsForShop`/`pickRandom`,
+   * pour le tick d'auto-simulation (`SimulationRunProcessor`). Filtre par `provider != null`
+   * en plus (contrairement au picker manuel front, qui laisse l'utilisateur choisir puis
+   * échouer proprement côté `simulateSale`) : un tick automatique ne doit pas accumuler
+   * des erreurs évitables sur des PDV jamais mappés.
+   *
+   * Écarte aussi les menu items dont le `SalesProduct` mappé n'a pas de `basePrice` réel
+   * (retour utilisateur 2026-08-03) : sur ce tenant, la majorité des produits synchronisés
+   * n'ont jamais eu de prix saisi côté Weezevent — un tirage purement aléatoire produisait
+   * presque toujours des ventes à 0€, noyant les rares tirages à prix réel. Uniquement pour
+   * l'auto-run ; le picker manuel du widget QA n'est pas concerné (utile pour tester la
+   * déduction de stock indépendamment du prix).
+   */
+  async getSimulableShops(spaceId: string, tenantId: string, configId?: string) {
+    const elements = await this.getSpaceElementsWithItems(spaceId, tenantId, configId);
+    const shops = elements
+      .filter((e) => e.type !== 'storage' && e.provider)
+      .map((e) => {
+        const ids = new Set<string>();
+        for (const item of e.items) for (const u of item.usedIn) ids.add(u.id);
+        return { id: e.id, name: e.name, menuItemIds: [...ids] };
+      });
+
+    const allMenuItemIds = [...new Set(shops.flatMap((s) => s.menuItemIds))];
+    if (!allMenuItemIds.length) return shops;
+
+    const mappings = await this.prisma.productMapping.findMany({
+      where: { tenantId, menuItemId: { in: allMenuItemIds } },
+      select: { menuItemId: true, salesProductId: true },
+    });
+    const productIds = [...new Set(mappings.map((m) => m.salesProductId))];
+    const products = productIds.length
+      ? await this.prisma.salesProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, basePrice: true } })
+      : [];
+    const priceByProductId = new Map(products.map((p) => [p.id, Number(p.basePrice) || 0]));
+    const pricedMenuItemIds = new Set(
+      mappings.filter((m) => (priceByProductId.get(m.salesProductId) ?? 0) > 0).map((m) => m.menuItemId),
+    );
+
+    return shops.map((s) => ({ ...s, menuItemIds: s.menuItemIds.filter((id) => pricedMenuItemIds.has(id)) }));
   }
 
   /** Market prices candidats pour le dropdown du popup +/− (itemKey donné, sans le catalogue complet). */
@@ -1805,6 +1866,7 @@ export class LogisticsService {
     userId?: string,
     realMode = false,
     ensureLiveEvent = false,
+    simulationRunId?: string,
   ) {
     if (!lines?.length) throw new BadRequestException('Aucune ligne \u00E0 simuler');
     const element = await this.getElementOrThrow(elementId, tenantId);
@@ -1905,7 +1967,12 @@ export class LogisticsService {
         eventId: salesEventId,
         locationId: location.id,
         locationName: location.name,
-        metadata: { isSimulated: true, simulatedByUserId: userId ?? null, simulatedElementId: elementId },
+        metadata: {
+          isSimulated: true,
+          simulatedByUserId: userId ?? null,
+          simulatedElementId: elementId,
+          ...(simulationRunId ? { simulationRunId } : {}),
+        },
         rawData: { simulated: true },
         items: {
           create: itemsData.map(({ menuItemId, ...data }) => data),
@@ -2134,9 +2201,16 @@ export class LogisticsService {
       },
     });
 
-    // Ne nettoie QUE les SalesEvent que ce m\u00E9canisme a lui-m\u00EAme cr\u00E9\u00E9s (metadata.isSimulated),
-    // jamais un event r\u00E9el \u2014 et seulement si plus AUCUNE transaction (simul\u00E9e ou r\u00E9elle) ne
-    // le r\u00E9f\u00E9rence encore (peut \u00EAtre partag\u00E9 par d'autres PDV/tests du m\u00EAme jour).
+    const deletedEventCount = await this.cleanupOrphanedSimulatedSalesEvents(tenantId, candidateEventIds);
+    return { deletedCount: count, deletedEventCount };
+  }
+
+  /**
+   * Nettoie les SalesEvent cr\u00E9\u00E9s par `ensureTodaySalesEvent` (`metadata.isSimulated`) qui ne
+   * sont plus r\u00E9f\u00E9renc\u00E9s par AUCUNE transaction (simul\u00E9e ou r\u00E9elle) apr\u00E8s une purge \u2014 jamais
+   * un event r\u00E9el. Extrait de `purgeSimulatedSales` pour \u00EAtre partag\u00E9 avec `purgeSimulatedSalesByIds`.
+   */
+  private async cleanupOrphanedSimulatedSalesEvents(tenantId: string, candidateEventIds: string[]): Promise<number> {
     let deletedEventCount = 0;
     for (const salesEventId of candidateEventIds) {
       const salesEvent = await this.prisma.salesEvent.findUnique({
@@ -2161,7 +2235,137 @@ export class LogisticsService {
       await this.prisma.salesEvent.delete({ where: { id: salesEventId } });
       deletedEventCount++;
     }
+    return deletedEventCount;
+  }
 
+  /**
+   * Liste pagin\u00E9e (curseur) des ventes simul\u00E9es d'un espace, tous PDV confondus \u2014 QA
+   * (11_LIVE.md, LiveSimulationHistoryDialog.vue). M\u00EAme cha\u00EEne de jointure que
+   * `simulateSale`/`purgeSimulatedSales` (LocationShopMapping \u2192 SalesLocation), \u00E9largie \u00E0
+   * TOUS les PDV de l'espace au lieu d'un seul.
+   */
+  async listSimulatedSales(spaceId: string, tenantId: string, limit = 50, cursor?: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const elements = await this.prisma.spaceElement.findMany({
+      where: { ...this.spaceElementScopeWhere(spaceId, tenantId), type: { in: SHOP_TYPES } } as any,
+      select: { id: true, name: true },
+    });
+    if (!elements.length) return { items: [], nextCursor: null };
+    const nameById = new Map(elements.map((e) => [e.id, e.name]));
+
+    const mappings = await this.prisma.locationShopMapping.findMany({
+      where: { tenantId, spaceElementId: { in: elements.map((e) => e.id) } },
+      select: { salesLocationId: true },
+    });
+    if (!mappings.length) return { items: [], nextCursor: null };
+    const salesLocationIds = [...new Set(mappings.map((m) => m.salesLocationId))];
+    const locations = await this.prisma.salesLocation.findMany({
+      where: { tenantId, OR: [{ id: { in: salesLocationIds } }, { externalId: { in: salesLocationIds } }] },
+      select: { id: true },
+    });
+    if (!locations.length) return { items: [], nextCursor: null };
+    const locationIds = locations.map((l) => l.id);
+
+    const rows = await this.prisma.salesTransaction.findMany({
+      where: { tenantId, locationId: { in: locationIds }, metadata: { path: ['isSimulated'], equals: true } },
+      orderBy: { transactionDate: 'desc' },
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { items: true },
+    });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      items: page.map((t) => ({
+        id: t.id,
+        elementId: (t.metadata as any)?.simulatedElementId ?? null,
+        elementName: nameById.get((t.metadata as any)?.simulatedElementId) ?? null,
+        runId: (t.metadata as any)?.simulationRunId ?? null,
+        amount: t.amount,
+        transactionDate: t.transactionDate,
+        items: t.items.map((i) => ({ productId: i.productId, productName: i.productName, quantity: i.quantity })),
+      })),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
+  }
+
+  /**
+   * Purge s\u00E9lective par ids de transaction (QA, history dialog) \u2014 contrairement \u00E0
+   * `purgeSimulatedSales` (tout un PDV d'un coup), permet de ne retirer que les lignes
+   * coch\u00E9es. V\u00E9rifie que chaque id appartient bien \u00E0 un PDV de CET espace/tenant avant
+   * suppression \u2014 un id forg\u00E9 d'un autre espace/tenant ne peut rien purger.
+   */
+  async purgeSimulatedSalesByIds(spaceId: string, tenantId: string, transactionIds: string[]) {
+    await this.assertSpace(spaceId, tenantId);
+    if (!transactionIds?.length) return { deletedCount: 0, deletedEventCount: 0 };
+    const elements = await this.prisma.spaceElement.findMany({
+      where: { ...this.spaceElementScopeWhere(spaceId, tenantId), type: { in: SHOP_TYPES } } as any,
+      select: { id: true },
+    });
+    const elementIds = new Set(elements.map((e) => e.id));
+    const rows = await this.prisma.salesTransaction.findMany({
+      where: { id: { in: transactionIds }, tenantId, metadata: { path: ['isSimulated'], equals: true } },
+      select: { id: true, eventId: true, metadata: true },
+    });
+    const allowed = rows.filter((r) => elementIds.has((r.metadata as any)?.simulatedElementId));
+    if (!allowed.length) return { deletedCount: 0, deletedEventCount: 0 };
+    const candidateEventIds = [...new Set(allowed.map((r) => r.eventId).filter((id): id is string => !!id))];
+    const { count } = await this.prisma.salesTransaction.deleteMany({ where: { id: { in: allowed.map((r) => r.id) } } });
+    const deletedEventCount = await this.cleanupOrphanedSimulatedSalesEvents(tenantId, candidateEventIds);
     return { deletedCount: count, deletedEventCount };
+  }
+
+  // \u2500\u2500\u2500 Runs d'auto-simulation (QA, server-side, BullMQ Job Scheduler) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+  /** Idempotent : un run d\u00E9j\u00E0 actif pour cet espace est renvoy\u00E9 tel quel, pas de doublon. */
+  async startSimulationRun(spaceId: string, tenantId: string, userId: string, dto: StartSimulationRunDto) {
+    await this.assertSpace(spaceId, tenantId);
+    const existing = await this.prisma.simulationRun.findFirst({ where: { tenantId, spaceId, status: 'active' } });
+    if (existing) return existing;
+    const run = await this.prisma.simulationRun.create({
+      data: {
+        tenantId,
+        spaceId,
+        intervalMs: dto.intervalMs,
+        realMode: dto.realMode ?? true,
+        configId: dto.configId ?? null,
+        status: 'active',
+        startedByUserId: userId,
+      },
+    });
+    await this.simulationQueue.upsertJobScheduler(
+      run.id,
+      { every: dto.intervalMs },
+      { name: 'simulation-tick', data: { runId: run.id } },
+    );
+    return run;
+  }
+
+  async stopSimulationRun(spaceId: string, runId: string, tenantId: string, userId: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const run = await this.prisma.simulationRun.findFirst({ where: { id: runId, tenantId, spaceId } });
+    if (!run) throw new NotFoundException(`Run ${runId} introuvable`);
+    if (run.status === 'active') {
+      await this.simulationQueue.removeJobScheduler(run.id).catch(() => {});
+      await this.prisma.simulationRun.update({
+        where: { id: run.id },
+        data: { status: 'stopped', stoppedAt: new Date(), stoppedByUserId: userId },
+      });
+    }
+    return this.prisma.simulationRun.findUnique({ where: { id: run.id } });
+  }
+
+  async getActiveSimulationRun(spaceId: string, tenantId: string) {
+    await this.assertSpace(spaceId, tenantId);
+    return this.prisma.simulationRun.findFirst({ where: { tenantId, spaceId, status: 'active' } });
+  }
+
+  async listSimulationRuns(spaceId: string, tenantId: string, limit = 20) {
+    await this.assertSpace(spaceId, tenantId);
+    return this.prisma.simulationRun.findMany({
+      where: { tenantId, spaceId },
+      orderBy: { startedAt: 'desc' },
+      take: limit,
+    });
   }
 }

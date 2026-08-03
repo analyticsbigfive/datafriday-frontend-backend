@@ -2855,6 +2855,47 @@ model AggregationJobLog {
   @@index([status, startedAt])
 }
 
+// Run de simulation de ventes automatique côté serveur (QA module Live, docs/modules/11_LIVE.md).
+// Piloté par un BullMQ Job Scheduler (repeatable, jobSchedulerId = SimulationRun.id, 1:1) — survit
+// à la fermeture de l'onglet navigateur. Un tick = une vente simulée sur un PDV/menu item tirés au
+// hasard parmi ceux simulables de l'espace (LogisticsService.getSimulableShops), via
+// LogisticsService.simulateSale. Au plus un run 'active' par espace : contrôle applicatif dans
+// LogisticsService.startSimulationRun, pas de contrainte DB.
+model SimulationRun {
+  id       String @id @default(cuid())
+  tenantId String
+  spaceId  String
+
+  intervalMs Int
+  realMode   Boolean @default(true)
+  configId   String?
+
+  status String @default("active") // 'active' | 'stopped' | 'failed'
+
+  startedByUserId String?
+  startedAt       DateTime  @default(now())
+  stoppedByUserId String?
+  stoppedAt       DateTime?
+
+  tickCount             Int       @default(0)
+  errorCount            Int       @default(0)
+  consecutiveErrorCount Int       @default(0)
+  lastTickAt            DateTime?
+  lastTickStatus        String?   // 'ok' | 'skipped' | 'error'
+  lastTickError         String?   @db.Text
+  lastElementId         String?
+  lastElementName       String?
+  lastTransactionId     String?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, spaceId, status])
+  @@index([tenantId, status, startedAt])
+}
+
 // ==================== INVENTORY ====================
 
 // Horodated snapshot of the full inventoryCounts JSON (one per POST /inventory call)

@@ -1816,6 +1816,9 @@ const actions = {
   async loadSpace({ commit, dispatch, state }, payload) {
     const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
     const force = typeof payload === 'object' && payload !== null ? !!payload.force : false
+    // Écran Live (AnalyseView.vue::isLive) : inclut les events QA « simulés » dans le
+    // chargement — voir useSpaceDataFetch/fetchSpaceData ci-dessous.
+    const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
     const CACHE_TTL = 15 * 60 * 1000
     const fresh =
       !force &&
@@ -1851,7 +1854,7 @@ const actions = {
       // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
       // données fraîches remplaceront réactivement celles affichées, sans skeleton).
       commit('SET_ERROR', null)
-      dispatch('useSpaceDataFetch', spaceId).catch((err) => {
+      dispatch('useSpaceDataFetch', { spaceId, isLive }).catch((err) => {
         console.warn('[analyse] revalidation arrière-plan échouée:', err?.message)
       })
       return
@@ -1861,7 +1864,7 @@ const actions = {
     commit('SET_ENRICHING', true)
     commit('SET_ERROR', null)
     try {
-      await dispatch('useSpaceDataFetch', spaceId)
+      await dispatch('useSpaceDataFetch', { spaceId, isLive })
     } catch (err) {
       commit('SET_ERROR', err.message || 'Erreur de chargement du space')
       // Phase 2 ne sera jamais appelée si la phase 1 jette → on lève le skeleton.
@@ -1871,7 +1874,9 @@ const actions = {
     }
   },
 
-  async useSpaceDataFetch({ commit, dispatch, getters, state }, spaceId) {
+  async useSpaceDataFetch({ commit, dispatch, getters, state }, payload) {
+    const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
+    const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
     // Délégué au composable useSpaceData (two-phase load).
     // Phase 1 (critique) est attendue → loading=false dès qu'elle complète.
     // Phase 2 (enrichissement) rappelle onEnrichment en arrière-plan.
@@ -1910,7 +1915,7 @@ const actions = {
       if (enrichment.events?.length) commit('SET_EVENTS', enrichment.events)
       // Phase 2 terminée → on retire les skeletons des graphiques.
       commit('SET_ENRICHING', false)
-    })
+    }, { excludeSimulated: !isLive })
     commit('SET_SPACE', data.space)
     commit('SET_CONFIGURATIONS', data.configurations || [])
     commit('SET_SHOP_GRANULAR', data.shopGranularData || [])

@@ -50,6 +50,13 @@ const mockQueueService = {
   queueAggregationJob: jest.fn().mockResolvedValue(undefined),
 };
 
+// Job Scheduler BullMQ des runs d'auto-simulation QA (11_LIVE.md) — aucun chemin exercé
+// ici ne le touche, un stub suffit (même raison que mockQueueService ci-dessus).
+const mockSimulationQueue = {
+  upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
+  removeJobScheduler: jest.fn().mockResolvedValue(true),
+};
+
 // ── Mock Prisma ───────────────────────────────────────────────────────────────
 
 const mockPrisma = {
@@ -130,7 +137,7 @@ describe('InventoryService', () => {
         // QueueService stubé : aucun chemin exercé ici n'enfile de job.
         {
           provide: LogisticsService,
-          useValue: new LogisticsService(mockPrisma as any, mockQueueService as any),
+          useValue: new LogisticsService(mockPrisma as any, mockQueueService as any, mockSimulationQueue as any),
         },
         { provide: PrismaService, useValue: mockPrisma },
       ],

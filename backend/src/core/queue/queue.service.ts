@@ -78,6 +78,10 @@ export class QueueService {
     @InjectQueue(QUEUES.NOTIFICATIONS) private notificationsQueue: Queue<NotificationJobData>,
     @InjectQueue(QUEUES.EXPORTS) private exportsQueue: Queue<ExportJobData>,
     @InjectQueue(QUEUES.AGGREGATION) private aggregationQueue: Queue<AggregationJobEnqueueData>,
+    // Dual-registrée comme AGGREGATION : LogisticsModule l'enregistre aussi localement
+    // pour son propre processor (SimulationRunProcessor) — ici juste pour les stats/
+    // observabilité génériques (getQueueStats/getAllQueueStats).
+    @InjectQueue(QUEUES.SIMULATION) private simulationQueue: Queue,
   ) {}
 
   // ==================== DATA SYNC JOBS ====================
@@ -317,6 +321,7 @@ export class QueueService {
       [QUEUES.NOTIFICATIONS]: this.notificationsQueue,
       [QUEUES.EXPORTS]: this.exportsQueue,
       [QUEUES.AGGREGATION]: this.aggregationQueue,
+      [QUEUES.SIMULATION]: this.simulationQueue,
     };
 
     const queue = queues[queueName];

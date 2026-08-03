@@ -1663,7 +1663,13 @@ const liveTab = ref('analyse')
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 const LIVE_POLL_MS = 15000
 let livePollTimer = null
-function livePoll() {
+async function livePoll() {
+  // Re-résout l'event live à CHAQUE tick — sans ça, un scope figé au premier appel
+  // (ex. page ouverte avant la 1re vente, ou avant qu'un Event existe) ne se
+  // corrige jamais tout seul : la timeline/KPI continuent de tourner sur l'ancien
+  // scope pendant que de vraies transactions arrivent (cause racine confirmée
+  // 2026-08-03 — auparavant applyLiveScope() ne tournait qu'au mount/activate).
+  await applyLiveScope()
   if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
   refreshItemRecords()
   // Les paniers ont leur PROPRE cache session (`_basketCache`, space.api.js) avec
@@ -1674,7 +1680,7 @@ function livePoll() {
 }
 function liveShopDetailsPoll() {
   const spaceId = route.params.spaceId
-  if (spaceId) store.dispatch('analyse/loadSpace', spaceId)
+  if (spaceId) store.dispatch('analyse/loadSpace', { spaceId, isLive: isLive.value })
 }
 function startLivePolling() {
   stopLivePolling()
@@ -1689,10 +1695,20 @@ onActivated(() => {
   // Le composant reste en mémoire (keepAlive) : revenir sur /live après être
   // passé par un autre outil ne redéclenche pas onMounted — on resynchronise
   // quand même sur l'event réellement live à chaque retour sur l'écran.
+  // resetFilters() AVANT applyLiveScope() : neutralise tout filtre secondaire
+  // laissé par une session Analyse précédente (catégorie, recherche, plages de
+  // tickets…) qui pourrait sinon exclure silencieusement l'event live de
+  // filteredEvents malgré selectedEventIds — applyLiveScope() écrase ensuite les 3
+  // clés essentielles (config/timeRange/selectedEventIds) par-dessus ce reset.
+  if (isLive.value) resetFilters()
   applyLiveScope()
 })
-onDeactivated(stopLivePolling)
-onBeforeUnmount(stopLivePolling)
+// Redondant à dessein (comme pour stopLivePolling) : selon que /live→/analyse
+// bascule une route keepAlive→keepAlive (onDeactivated) ou détruit le wrapper
+// <keep-alive> lui-même (onBeforeUnmount, cf. DashboardView.vue), un seul des
+// deux hooks se déclenche réellement — jamais les deux, jamais aucun.
+onDeactivated(() => { stopLivePolling(); resetFilters() })
+onBeforeUnmount(() => { stopLivePolling(); resetFilters() })
 
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
@@ -1781,7 +1797,7 @@ async function ensureAuthAndLoad(spaceId) {
     console.warn('[AnalyseView] Unable to fetch Supabase session:', e?.message)
   }
   try {
-    await store.dispatch('analyse/loadSpace', spaceId)
+    await store.dispatch('analyse/loadSpace', { spaceId, isLive: isLive.value })
     // Prefetch market prices (catalogue global tenant, partagé Inventory/Logistic/
     // Restock) HORS chemin critique : la query coûte ~60s à froid. Le charger dès
     // l'entrée dans l'espace chauffe le cache (SWR) avant l'ouverture d'Inventory.
@@ -1795,6 +1811,9 @@ async function ensureAuthAndLoad(spaceId) {
         store.dispatch('analyse/updateFilter', { key: 'selectedConfigurationId', value: urlConfig })
       }
     }
+    // Même garde-fou qu'onActivated : neutralise les filtres secondaires résiduels
+    // d'une session Analyse avant de (re)scoper sur l'event live.
+    if (isLive.value) resetFilters()
     await applyLiveScope()
   } finally {
     // Navigation rapide entre spaces : ancienne requête ne doit pas masquer
