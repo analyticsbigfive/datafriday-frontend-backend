@@ -94,6 +94,26 @@ export interface SinkingRuleOutcome {
   qty: number;
 }
 
+/**
+ * Association Rôle ↔ Menu Item(s) — miroir pur du modèle Prisma HrRoleMenuItemRatio.
+ * `targetMenuItemIds` est déjà résolu par l'appelant (allMenuItems expansé en amont) — cette
+ * fonction reste pure, sans accès DB. Voir 11_RH_STAFFING.md §11.16.
+ */
+export interface MenuItemRatioInput {
+  roleId: string;
+  ratioBasis: 'REVENUE' | 'QUANTITY';
+  ratioValue: number;
+  unitQty: number;
+  targetMenuItemIds: string[];
+}
+
+/** Valeur "vendu/prévu" pour un Menu Item donné — miroir pur d'ElementMenuItemSalesInput. */
+export interface MenuItemSalesValue {
+  menuItemId: string;
+  quantity: number;
+  revenueHt: number;
+}
+
 /** Miroir pur du HrRole (uniquement les champs nécessaires au calcul). */
 export interface RoleTagInput {
   id: string;
@@ -273,6 +293,36 @@ export class StaffingCalculatorService {
       out.push({ roleId: rule.roleId, qty: rule.mandatoryQty });
     }
     return out;
+  }
+
+  /**
+   * Association Rôle ↔ Menu Item(s) (11_RH_STAFFING.md §11.16) : dimensionne un rôle selon le
+   * volume de vente (CA ou Quantités) d'un ou plusieurs Menu Items sur l'élément courant —
+   * qty = floor(valeur courante / ratioValue) * unitQty. Contrairement à `applySinkingRules` (qui
+   * prend le max entre plusieurs règles pour un même rôle), les résultats sont ICI SOMMÉS par
+   * rôle : chaque ratio est un driver de charge additif ("+2 pour les burgers" ET "+3 pour les
+   * frites" doivent s'ajouter, pas se plafonner l'un l'autre). Pure, sans accès DB —
+   * `targetMenuItemIds` doit déjà avoir résolu `allMenuItems` côté appelant.
+   */
+  applyMenuItemRatios(
+    ratios: MenuItemRatioInput[],
+    sales: MenuItemSalesValue[],
+  ): SinkingRuleOutcome[] {
+    const salesByItem = new Map(sales.map((s) => [s.menuItemId, s]));
+    const byRoleQty = new Map<string, number>();
+    for (const ratio of ratios) {
+      let sum = 0;
+      for (const menuItemId of ratio.targetMenuItemIds) {
+        const s = salesByItem.get(menuItemId);
+        if (!s) continue;
+        sum += ratio.ratioBasis === 'REVENUE' ? s.revenueHt : s.quantity;
+      }
+      const qty = Math.floor(sum / ratio.ratioValue) * ratio.unitQty;
+      if (qty > 0) {
+        byRoleQty.set(ratio.roleId, (byRoleQty.get(ratio.roleId) ?? 0) + qty);
+      }
+    }
+    return [...byRoleQty.entries()].map(([roleId, qty]) => ({ roleId, qty }));
   }
 
   /**

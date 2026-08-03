@@ -111,7 +111,7 @@ export class StaffingService {
   // ── Chargement du référentiel RH ───────────────────────────────────────────
 
   private async loadHrContext(tenantId: string, spaceId: string) {
-    const [roles, persons, defaults, suppliers, sinkingRules] = await this.prisma.$transaction([
+    const [roles, persons, defaults, suppliers, sinkingRules, menuItemRatios] = await this.prisma.$transaction([
       this.prisma.hrRole.findMany({
         where: { tenantId },
         include: { suppliers: { select: { supplierId: true } } },
@@ -120,6 +120,9 @@ export class StaffingService {
       this.prisma.hrRoleSpaceDefault.findMany({ where: { spaceId } }),
       this.prisma.hrSupplier.findMany({ where: { tenantId } }),
       this.prisma.hrSinkingRule.findMany({ where: { tenantId } }),
+      // Associations Rôle↔MenuItem (11_RH_STAFFING.md §11.16), scopées par espace (contrairement
+      // aux Sinking Rules qui sont tenant-wide/tag-scopées).
+      this.prisma.hrRoleMenuItemRatio.findMany({ where: { tenantId, spaceId } }),
     ]);
     const rolesByAlgo = new Map<string, any>();
     const rolesById = new Map<string, any>();
@@ -144,6 +147,7 @@ export class StaffingService {
       defaultSupplierByRole,
       suppliersById,
       sinkingRules: sinkingRules as SinkingRuleInput[],
+      menuItemRatios,
     };
   }
 
@@ -223,7 +227,12 @@ export class StaffingService {
         type: { in: STAFFING_ELEMENT_TYPES as any },
         configurationElements: { some: { configId: ctx.configId } },
       },
-      include: { performances: { where: { configId: ctx.configId } } },
+      include: {
+        performances: { where: { configId: ctx.configId } },
+        // Saisie manuelle "vendu/prévu" par Menu Item (11_RH_STAFFING.md §11.16), source des
+        // associations Rôle↔MenuItem (hr.menuItemRatios) évaluées plus bas dans la boucle.
+        menuItemSalesInputs: { where: { configId: ctx.configId } },
+      },
     });
 
     const existing = await this.prisma.eventStaffLine.findMany({ where: { eventId } });
@@ -339,6 +348,54 @@ export class StaffingService {
       // du calcul par paliers ci-dessus. Lignes ALGO, algoKey=null, roleId renseigné.
       const sinkingOutcomes = this.calculator.applySinkingRules(fnbTags, attrs, hr.sinkingRules);
       for (const { roleId, qty } of sinkingOutcomes) {
+        if (qty <= 0) continue;
+        const role = hr.rolesById.get(roleId) ?? null;
+        const defaultRate = role ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0) : 0;
+        predictedCost += qty * defaultRate * suggestedHours;
+        const keptCount = kept.filter(
+          (l) => l.source === 'ALGO' && l.algoKey === null && l.roleId === roleId,
+        ).length;
+        for (let i = keptCount; i < qty; i++) {
+          const assignment = this.pickAssignment(role, i, hr);
+          creations.push({
+            tenantId,
+            eventId,
+            elementId: el.id,
+            roleId,
+            algoKey: null,
+            enabled: true,
+            source: 'ALGO',
+            userModified: false,
+            supplierType: assignment.supplierType,
+            supplierId: assignment.supplierId,
+            personId: assignment.personId,
+            personLabel: assignment.personLabel,
+            hourlyRate: assignment.rateOverride ?? defaultRate,
+            startTime: ctx.lineStart,
+            endTime: ctx.lineEnd,
+          });
+        }
+      }
+
+      // Associations Rôle↔MenuItem (11_RH_STAFFING.md §11.16) : même principe que les Sinking
+      // Rules ci-dessus (lignes ALGO, algoKey=null, roleId renseigné), mais SOMMÉES entre elles
+      // par applyMenuItemRatios (pas de max) — scopées par espace, pas par tag F&B, donc évaluées
+      // même si fnbTags est vide pour cet élément (une saisie manuelle nulle donne naturellement
+      // qty=0, pas besoin d'un garde-fou supplémentaire).
+      const sales = ((el as any).menuItemSalesInputs ?? []).map((s: any) => ({
+        menuItemId: s.menuItemId,
+        quantity: s.quantity ?? 0,
+        revenueHt: s.revenueHt ?? 0,
+      }));
+      const ratioInputs = (hr.menuItemRatios ?? []).map((r: any) => ({
+        roleId: r.roleId,
+        ratioBasis: r.ratioBasis,
+        ratioValue: r.ratioValue,
+        unitQty: r.unitQty,
+        targetMenuItemIds: r.allMenuItems ? sales.map((s: any) => s.menuItemId) : r.menuItemIds,
+      }));
+      const ratioOutcomes = this.calculator.applyMenuItemRatios(ratioInputs, sales);
+      for (const { roleId, qty } of ratioOutcomes) {
         if (qty <= 0) continue;
         const role = hr.rolesById.get(roleId) ?? null;
         const defaultRate = role ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0) : 0;

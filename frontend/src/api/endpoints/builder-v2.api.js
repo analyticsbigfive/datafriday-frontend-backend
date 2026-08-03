@@ -114,6 +114,22 @@ export async function getElementStaffSuggestions(elementId, configId) {
   return response.data
 }
 
+// Saisie manuelle "vendu/prévu" par Menu Item, scopée par config — source des associations
+// Rôle↔MenuItem (11_RH_STAFFING.md §11.16), voir MenuItemSalesInputSection.vue.
+export async function getElementMenuItemSalesInput(elementId, configId) {
+  const response = await api.get(`/builder-v2/elements/${elementId}/menu-item-sales-input`, {
+    params: configId ? { configId } : {},
+  })
+  return response.data
+}
+
+export async function putElementMenuItemSalesInput(elementId, rows, configId) {
+  const response = await api.put(`/builder-v2/elements/${elementId}/menu-item-sales-input`, { rows }, {
+    params: configId ? { configId } : {},
+  })
+  return response.data
+}
+
 export async function putElementInventory(elementId, inventory, configId) {
   const response = await api.put(`/builder-v2/elements/${elementId}/inventory`, { inventory }, {
     params: configId ? { configId } : {},

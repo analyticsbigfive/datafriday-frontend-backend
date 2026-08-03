@@ -33,6 +33,41 @@
               </div>
               <div class="hsd-hint">{{ t('hrEditSpaceHint') }}</div>
             </div>
+
+            <!-- Association Rôles et Ventes (11_RH_STAFFING.md §11.16) — cycle de vie API propre,
+                 indépendant du submit() du drawer (même précédent que les Sinking Rules dans
+                 HrRoleFormDrawer.vue). -->
+            <div class="hsd-section">
+              <div class="hsd-section__label">{{ t('hrRatiosTitle') }}</div>
+              <div v-if="ratiosError" class="hsd-ratios-error">{{ ratiosError }}</div>
+              <div v-if="!ratiosLoading && !ratios.length" class="hsd-ratios-empty">{{ t('hrRatiosEmpty') }}</div>
+              <div v-else class="hsd-ratios-list">
+                <div v-for="ratio in ratios" :key="ratio.id" class="hsd-ratio-card" @click="openEditRatio(ratio)">
+                  <button type="button" class="hsd-ratio-card__delete" :aria-label="t('hrDelete')" @click.stop="removeRatio(ratio)">
+                    <X :size="13" />
+                  </button>
+                  <div class="hsd-ratio-card__line">
+                    <span class="hsd-ratio-card__muted">{{ t('hrRatioCardRole') }}</span>
+                    <span class="hsd-ratio-card__strong">{{ roleName(ratio.roleId) }}</span>
+                    <span class="hsd-ratio-card__muted">
+                      {{ ratio.ratioBasis === 'REVENUE' ? t('hrRatioCardDependsOnRevenue') : t('hrRatioCardDependsOnQuantity') }}
+                    </span>
+                    <span class="hsd-ratio-card__strong">{{ menuItemsSummary(ratio) }}</span>
+                  </div>
+                  <div class="hsd-ratio-card__line">
+                    <span class="hsd-ratio-card__muted">{{ t('hrRatioCardAddLine') }} {{ ratio.unitQty }}</span>
+                    <span class="hsd-ratio-card__strong">{{ roleName(ratio.roleId) }}</span>
+                    <span class="hsd-ratio-card__muted">{{ t('hrRatioCardEvery') }}</span>
+                    <span class="hsd-ratio-card__strong">
+                      {{ ratio.ratioBasis === 'REVENUE' ? `${ratio.ratioValue} €` : ratio.ratioValue }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="hsd-ratios-add" @click="openAddRatio">
+                <Plus :size="15" /> {{ t('hrRatiosAdd') }}
+              </button>
+            </div>
           </div>
 
           <div class="hsd__footer">
@@ -47,14 +82,26 @@
       </div>
     </Transition>
   </Teleport>
+
+  <HrRoleMenuItemRatioFormDialog
+    v-model="ratioDialogOpen"
+    :space-id="space?.id"
+    :initial="editingRatio"
+    :roles="roles"
+    :menu-items="menuItems"
+    @saved="loadRatios"
+  />
 </template>
 
 <script setup>
-import { reactive, computed, watch } from 'vue'
+import { reactive, computed, watch, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import { Check, Pencil, X } from 'lucide-vue-next'
+import { Check, Pencil, Plus, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import NumberField from '@/components/common/NumberField.vue'
+import HrRoleMenuItemRatioFormDialog from '@/components/hr/HrRoleMenuItemRatioFormDialog.vue'
+import { getHrRoles, getHrRoleMenuItemRatios, deleteHrRoleMenuItemRatio } from '@/api/endpoints/hr.api'
+import { getSpaceMenuItemsWithAvailability } from '@/api/endpoints/menu.api'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -68,10 +115,71 @@ const isDark = computed(() => !!theme.global.current.value.dark)
 
 const form = reactive({ goalPerTpe: null, staffPerZoneManager: null })
 
-watch(() => props.modelValue, (open) => {
-  if (open) {
-    form.goalPerTpe = props.initial?.goalPerTpe ?? null
-    form.staffPerZoneManager = props.initial?.staffPerZoneManager ?? null
+const ratios = ref([])
+const roles = ref([])
+const menuItems = ref([])
+const ratiosLoading = ref(false)
+const ratiosError = ref('')
+const ratioDialogOpen = ref(false)
+const editingRatio = ref(null)
+
+function roleName(roleId) {
+  return roles.value.find((r) => r.id === roleId)?.name || roleId
+}
+function menuItemsSummary(ratio) {
+  if (ratio.allMenuItems) return t('hrRatioCardAllItems')
+  const names = ratio.menuItemIds.map((id) => menuItems.value.find((m) => m.id === id)?.name).filter(Boolean)
+  return names.join(', ') || ratio.menuItemIds.join(', ')
+}
+
+async function loadRatios() {
+  const spaceId = props.space?.id
+  if (!spaceId) { ratios.value = []; return }
+  ratiosLoading.value = true
+  ratiosError.value = ''
+  try {
+    ratios.value = await getHrRoleMenuItemRatios(spaceId)
+  } catch (e) {
+    ratiosError.value = e?.response?.data?.message || t('hrRatiosLoadError')
+  } finally {
+    ratiosLoading.value = false
+  }
+}
+
+async function removeRatio(ratio) {
+  try {
+    await deleteHrRoleMenuItemRatio(ratio.id)
+    ratios.value = ratios.value.filter((r) => r.id !== ratio.id)
+  } catch (e) {
+    ratiosError.value = e?.response?.data?.message || t('hrRatiosDeleteError')
+  }
+}
+
+function openAddRatio() {
+  editingRatio.value = null
+  ratioDialogOpen.value = true
+}
+function openEditRatio(ratio) {
+  editingRatio.value = ratio
+  ratioDialogOpen.value = true
+}
+
+watch(() => props.modelValue, async (open) => {
+  if (!open) return
+  form.goalPerTpe = props.initial?.goalPerTpe ?? null
+  form.staffPerZoneManager = props.initial?.staffPerZoneManager ?? null
+
+  const spaceId = props.space?.id
+  loadRatios()
+  if (spaceId) {
+    if (!roles.value.length) {
+      try { roles.value = await getHrRoles() } catch (_) { /* best effort */ }
+    }
+    try {
+      const res = await getSpaceMenuItemsWithAvailability(spaceId)
+      const payload = res?.data ?? res
+      menuItems.value = payload?.items || []
+    } catch (_) { menuItems.value = [] }
   }
 })
 
@@ -226,10 +334,39 @@ function submit() {
 .hsd-btn--save { background: #ff3131; color: #fff; box-shadow: 0 4px 14px rgba(255, 49, 49, 0.3); }
 .hsd-btn--save:hover { box-shadow: 0 6px 20px rgba(255, 49, 49, 0.4); transform: translateY(-1px); }
 
+.hsd-ratios-error { background: #fef2f2; color: #b91c1c; border-radius: 10px; padding: 8px 12px; font-size: var(--fs-sm); margin-bottom: 10px; }
+.hsd-ratios-empty { font-size: var(--fs-sm); color: #111827; line-height: 1.5; padding: 10px 0; }
+.hsd-ratios-list { display: flex; flex-direction: column; gap: 10px; }
+.hsd-ratio-card {
+  position: relative; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px 34px 12px 14px;
+  background: #f9fafb; cursor: pointer; display: flex; flex-direction: column; gap: 6px;
+}
+.hsd-ratio-card:hover { border-color: #ff3131; }
+.hsd-ratio-card__line { display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; font-size: var(--fs-sm); }
+.hsd-ratio-card__muted { color: #6b7280; }
+.hsd-ratio-card__strong { color: #111827; font-weight: var(--fw-semibold); }
+.hsd-ratio-card__delete {
+  position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border: none; border-radius: 7px;
+  background: transparent; color: #9ca3af; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.hsd-ratio-card__delete:hover { background: #fee2e2; color: #dc2626; }
+.hsd-ratios-add {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 8px 16px;
+  border-radius: 100px; border: 1.5px dashed #d1d5db; background: transparent; color: #ff3131;
+  font-size: var(--fs-sm); font-weight: var(--fw-semibold); cursor: pointer; transition: all 0.2s;
+}
+.hsd-ratios-add:hover { background: rgba(255, 49, 49, 0.06); border-color: #ff3131; }
+
 /* Dark */
 .hsd--dark .hsd-section__label { color: #64748b; }
 .hsd--dark .hsd-field-label { color: #cbd5e1; }
 .hsd--dark .hsd-hint { color: #64748b; }
 .hsd--dark .hsd-input { background: #1e293b; border-color: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.87); }
 .hsd--dark .hsd-input:focus { background: #263548; border-color: #ff3131; }
+.hsd--dark .hsd-ratios-empty { color: #f9fafb; }
+.hsd--dark .hsd-ratio-card { background: #0f172a; border-color: rgba(255, 255, 255, 0.08); }
+.hsd--dark .hsd-ratio-card__muted { color: #94a3b8; }
+.hsd--dark .hsd-ratio-card__strong { color: #f9fafb; }
+.hsd--dark .hsd-ratios-add { border-color: rgba(255, 255, 255, 0.16); }
 </style>
