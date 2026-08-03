@@ -30,7 +30,7 @@ import { Bar } from 'vue-chartjs'
 import { computed, ref, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import '@/lib/chartjs'
-import { formatCurrency, formatNumber } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -57,8 +57,10 @@ const METRICS = computed(() => [
   { key: 'cost',           label: t('anMetricCost'),         format: formatCurrency },
   { key: 'transactions',   label: t('anMetricTransactions'), format: formatNumber },
   { key: 'attendees',      label: t('anMetricAttendees'),    format: formatNumber },
-  { key: 'avgTransaction', label: t('anMetricAvgBasket'),    format: formatCurrency },
-  { key: 'perCap',         label: t('anMetricPerCap'),       format: formatCurrency },
+  // Panier moyen + per-cap : ratios par ticket/transaction → 2 décimales
+  // (parité avec les KPI Analyse, qui passent déjà `digits = 2`).
+  { key: 'avgTransaction', label: t('anMetricAvgBasket'),    format: formatCurrencyDetailed },
+  { key: 'perCap',         label: t('anMetricPerCap'),       format: formatCurrencyDetailed },
   { key: 'transferRate',   label: t('anMetricTransferRate'), format: (v) => `${v.toFixed(1)}%` },
 ])
 
