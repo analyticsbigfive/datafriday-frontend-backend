@@ -112,3 +112,59 @@ export async function simulateSale(spaceId, payload) {
 export async function purgeSimulatedSales(spaceId, elementId) {
   return api.delete(`/logistics/${spaceId}/simulate-sale`, { params: { elementId } })
 }
+
+/**
+ * QA — démarre un run d'auto-simulation côté serveur (BullMQ Job Scheduler) : tire au
+ * hasard un PDV/menu item simulable et appelle simulateSale à intervalle régulier,
+ * indépendamment de tout onglet navigateur ouvert. Idempotent — renvoie le run déjà
+ * actif s'il y en a un pour cet espace.
+ * POST /logistics/:spaceId/simulation-runs
+ * @param {{intervalMs: number, realMode?: boolean, configId?: string}} payload
+ */
+export async function startSimulationRun(spaceId, payload) {
+  return api.post(`/logistics/${spaceId}/simulation-runs`, payload)
+}
+
+/**
+ * QA — arrête un run d'auto-simulation actif (retire le Job Scheduler BullMQ).
+ * POST /logistics/:spaceId/simulation-runs/:runId/stop
+ */
+export async function stopSimulationRun(spaceId, runId) {
+  return api.post(`/logistics/${spaceId}/simulation-runs/${runId}/stop`)
+}
+
+/**
+ * QA — run d'auto-simulation actif de l'espace, s'il y en a un (survit au
+ * reload/fermeture d'onglet — appelé au montage du widget pour reprendre l'affichage).
+ * GET /logistics/:spaceId/simulation-runs/active
+ */
+export async function getActiveSimulationRun(spaceId) {
+  return api.get(`/logistics/${spaceId}/simulation-runs/active`)
+}
+
+/**
+ * QA — historique des runs d'auto-simulation de l'espace (actifs, arrêtés, échoués).
+ * GET /logistics/:spaceId/simulation-runs
+ */
+export async function getSimulationRuns(spaceId, limit) {
+  return api.get(`/logistics/${spaceId}/simulation-runs`, { params: limit ? { limit } : {} })
+}
+
+/**
+ * QA — historique paginé (curseur) des ventes simulées de l'espace, tous PDV confondus.
+ * GET /logistics/:spaceId/simulated-sales
+ */
+export async function getSimulatedSalesHistory(spaceId, { limit, cursor } = {}) {
+  const params = {}
+  if (limit) params.limit = limit
+  if (cursor) params.cursor = cursor
+  return api.get(`/logistics/${spaceId}/simulated-sales`, { params })
+}
+
+/**
+ * QA — purge sélective de ventes simulées par id de transaction (history dialog).
+ * POST /logistics/:spaceId/simulated-sales/purge
+ */
+export async function purgeSimulatedSalesByIds(spaceId, transactionIds) {
+  return api.post(`/logistics/${spaceId}/simulated-sales/purge`, { transactionIds })
+}

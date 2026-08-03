@@ -1,18 +1,6 @@
 <template>
   <SectionCard :title="t('b2StaffingInputsTitle')" icon="mdi-calculator-variant-outline">
     <div class="sfi-grid">
-      <div class="sfi-field">
-        <label class="sfi-label" for="sfi-tx">{{ t('b2TxParSeconde') }}</label>
-        <select
-          id="sfi-tx" class="sfi-input sfi-select"
-          :value="attrs.txParSeconde ?? 30"
-          @change="(e) => commit('txParSeconde', Number(e.target.value))"
-        >
-          <option :value="30">30 tx/s</option>
-          <option :value="60">60 tx/s</option>
-        </select>
-      </div>
-
       <div v-for="field in NUMBER_FIELDS" :key="field.key" class="sfi-field">
         <label class="sfi-label" :for="`sfi-${field.key}`">{{ t(field.labelKey) }}</label>
         <input
@@ -87,6 +75,10 @@ import { relevantSinkingRules } from '@/utils/sinkingRules'
 //    n'existe pas encore — question ouverte, cf. QUESTIONS_A_BERTRAND.md).
 //    nbHotdogsPrevus reste néanmoins une valeur de condition Sinking Rule valide (une règle
 //    existante en dépend) — champ retiré du Builder mais valeur déjà en base préservée.
+//
+// 2026-08-03, retour utilisateur : txParSeconde (« Cadence TPE ») retiré du Builder aussi —
+// staffing-calculator.service.ts retombe sur DEFAULT_TX_PAR_SECONDE (30) via son fallback
+// `input.txParSeconde || DEFAULT_TX_PAR_SECONDE`, valeur déjà en base préservée si présente.
 const NUMBER_FIELDS = [
   { key: 'nbTireuses', labelKey: 'b2NbTireuses' },
   { key: 'nbFriteuses', labelKey: 'b2NbFriteuses' },

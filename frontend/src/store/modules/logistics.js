@@ -16,6 +16,12 @@ import {
   getMarketPricesForItem,
   simulateSale,
   purgeSimulatedSales,
+  startSimulationRun,
+  stopSimulationRun,
+  getActiveSimulationRun,
+  getSimulationRuns,
+  getSimulatedSalesHistory,
+  purgeSimulatedSalesByIds,
 } from '@/api/endpoints/logistics.api'
 
 const keyOf = (elementId, itemKey) => `${elementId}::${String(itemKey ?? '').trim()}`
@@ -51,6 +57,9 @@ const state = () => ({
   consumption: {}, // { `${elementId}::${itemKey}`: quantity (unités loose vendues) }
   anchor: null, // { at, reconciliationId } | null
   reconciliations: [],
+  // QA — run d'auto-simulation serveur actif pour l'espace courant (11_LIVE.md,
+  // LiveSaleSimulatorWidget.vue), s'il y en a un. Survit au reload — cf. loadActiveSimulationRun.
+  activeRun: null,
   loading: false,
   saving: false,
   resetting: false,
@@ -104,6 +113,7 @@ const mutations = {
     state.levels = { ...state.levels, [keyOf(level.elementId, level.itemKey)]: level }
   },
   SET_RECONCILIATIONS(state, v) { state.reconciliations = Array.isArray(v) ? v : [] },
+  SET_ACTIVE_RUN(state, v) { state.activeRun = v || null },
   CLEAR(state) {
     state.spaceId = null
     state.space = null
@@ -114,6 +124,7 @@ const mutations = {
     state.consumption = {}
     state.anchor = null
     state.reconciliations = []
+    state.activeRun = null
     state.error = null
     state.loading = false
     state.saving = false
@@ -239,6 +250,44 @@ const actions = {
   /** QA — purge les ventes simulées d'un PDV puis recharge le stock. */
   async purgeSimulatedSales({ dispatch }, { spaceId, elementId }) {
     const res = await purgeSimulatedSales(spaceId, elementId)
+    await dispatch('loadStock', { spaceId })
+    return res
+  },
+
+  /** QA — démarre un run d'auto-simulation serveur (survit au reload/fermeture d'onglet). */
+  async startSimulationRun({ commit }, { spaceId, intervalMs, realMode, configId }) {
+    const run = await startSimulationRun(spaceId, { intervalMs, realMode, configId })
+    commit('SET_ACTIVE_RUN', run)
+    return run
+  },
+
+  /** QA — arrête le run d'auto-simulation actif. */
+  async stopSimulationRun({ commit }, { spaceId, runId }) {
+    const run = await stopSimulationRun(spaceId, runId)
+    commit('SET_ACTIVE_RUN', null)
+    return run
+  },
+
+  /** QA — reprend/rafraîchit le run actif (appelé au montage du widget et par le poll de statut). */
+  async loadActiveSimulationRun({ commit }, { spaceId }) {
+    const run = await getActiveSimulationRun(spaceId)
+    commit('SET_ACTIVE_RUN', run || null)
+    return run
+  },
+
+  /** QA — historique des runs (non mis en cache : dialog ponctuel). */
+  async loadSimulationRuns(_ctx, { spaceId, limit }) {
+    return getSimulationRuns(spaceId, limit)
+  },
+
+  /** QA — historique des ventes simulées (non mis en cache : dialog ponctuel). */
+  async loadSimulatedSalesHistory(_ctx, { spaceId, limit, cursor }) {
+    return getSimulatedSalesHistory(spaceId, { limit, cursor })
+  },
+
+  /** QA — purge sélective par ids de transaction, puis recharge le stock. */
+  async purgeSimulatedSalesByIds({ dispatch }, { spaceId, transactionIds }) {
+    const res = await purgeSimulatedSalesByIds(spaceId, transactionIds)
     await dispatch('loadStock', { spaceId })
     return res
   },

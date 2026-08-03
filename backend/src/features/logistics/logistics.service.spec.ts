@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { getQueueToken } from '@nestjs/bullmq';
 import { LogisticsService } from './logistics.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
+import { QUEUES } from '../../core/queue/queue.constants';
 
 describe('LogisticsService — readyForSale display logic', () => {
   let service: any;
@@ -32,6 +34,13 @@ describe('LogisticsService — readyForSale display logic', () => {
         LogisticsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: { queueAggregationJob: jest.fn() } },
+        {
+          provide: getQueueToken(QUEUES.SIMULATION),
+          useValue: {
+            upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
+            removeJobScheduler: jest.fn().mockResolvedValue(true),
+          },
+        },
       ],
     }).compile();
     service = module.get<LogisticsService>(LogisticsService);
@@ -450,6 +459,126 @@ describe('LogisticsService — readyForSale display logic', () => {
       const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       expect(p.$queryRaw).not.toHaveBeenCalled();
       expect(result.lines).toEqual([]);
+    });
+  });
+
+  describe('runs d’auto-simulation QA (11_LIVE.md — startSimulationRun/stopSimulationRun)', () => {
+    const p = mockPrisma as any;
+    let simulationQueue: { upsertJobScheduler: jest.Mock; removeJobScheduler: jest.Mock };
+
+    beforeEach(() => {
+      p.space = { findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }) };
+      p.simulationRun = {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      };
+      simulationQueue = service['simulationQueue'];
+    });
+
+    it('startSimulationRun est idempotent : un run déjà actif est renvoyé tel quel, pas de doublon ni de nouveau scheduler', async () => {
+      const existing = { id: 'run-1', status: 'active' };
+      p.simulationRun.findFirst.mockResolvedValue(existing);
+
+      const result = await service.startSimulationRun('space-1', 'tenant-1', 'user-1', { intervalMs: 10000 });
+
+      expect(result).toBe(existing);
+      expect(p.simulationRun.create).not.toHaveBeenCalled();
+      expect(simulationQueue.upsertJobScheduler).not.toHaveBeenCalled();
+    });
+
+    it('startSimulationRun crée le run + programme le Job Scheduler quand aucun run actif n’existe', async () => {
+      p.simulationRun.findFirst.mockResolvedValue(null);
+      const created = { id: 'run-2', status: 'active' };
+      p.simulationRun.create.mockResolvedValue(created);
+
+      const result = await service.startSimulationRun('space-1', 'tenant-1', 'user-1', { intervalMs: 15000, realMode: false });
+
+      expect(result).toBe(created);
+      expect(p.simulationRun.create).toHaveBeenCalledWith({
+        data: {
+          tenantId: 'tenant-1',
+          spaceId: 'space-1',
+          intervalMs: 15000,
+          realMode: false,
+          configId: null,
+          status: 'active',
+          startedByUserId: 'user-1',
+        },
+      });
+      expect(simulationQueue.upsertJobScheduler).toHaveBeenCalledWith(
+        'run-2',
+        { every: 15000 },
+        { name: 'simulation-tick', data: { runId: 'run-2' } },
+      );
+    });
+
+    it('stopSimulationRun sur un run déjà stoppé est un no-op (pas de removeJobScheduler ni update)', async () => {
+      p.simulationRun.findFirst.mockResolvedValue({ id: 'run-3', status: 'stopped' });
+      p.simulationRun.findUnique.mockResolvedValue({ id: 'run-3', status: 'stopped' });
+
+      await service.stopSimulationRun('space-1', 'run-3', 'tenant-1', 'user-1');
+
+      expect(simulationQueue.removeJobScheduler).not.toHaveBeenCalled();
+      expect(p.simulationRun.update).not.toHaveBeenCalled();
+    });
+
+    it('stopSimulationRun sur un run actif retire le scheduler et marque stopped', async () => {
+      p.simulationRun.findFirst.mockResolvedValue({ id: 'run-4', status: 'active' });
+      p.simulationRun.findUnique.mockResolvedValue({ id: 'run-4', status: 'stopped' });
+
+      await service.stopSimulationRun('space-1', 'run-4', 'tenant-1', 'user-1');
+
+      expect(simulationQueue.removeJobScheduler).toHaveBeenCalledWith('run-4');
+      expect(p.simulationRun.update).toHaveBeenCalledWith({
+        where: { id: 'run-4' },
+        data: expect.objectContaining({ status: 'stopped', stoppedByUserId: 'user-1' }),
+      });
+    });
+
+    it('stopSimulationRun sur un run introuvable jette une 404', async () => {
+      p.simulationRun.findFirst.mockResolvedValue(null);
+      await expect(service.stopSimulationRun('space-1', 'run-x', 'tenant-1', 'user-1')).rejects.toThrow(
+        'Run run-x introuvable',
+      );
+    });
+  });
+
+  describe('getSimulableShops — écarte les menu items à prix 0 (retour utilisateur 2026-08-03)', () => {
+    const p = mockPrisma as any;
+
+    it('ne retient que les menu items dont le SalesProduct mappé a un basePrice > 0', async () => {
+      jest.spyOn(service, 'getSpaceElementsWithItems').mockResolvedValue([
+        {
+          id: 'shop-1',
+          name: 'Buvette',
+          type: 'shop',
+          provider: 'WEEZEVENT',
+          items: [
+            { usedIn: [{ id: 'mi-free', name: 'Sandwich' }, { id: 'mi-priced', name: 'Gaufre' }] },
+          ],
+        },
+        { id: 'storage-1', name: 'Réserve', type: 'storage', items: [] },
+        { id: 'shop-unmapped', name: 'Stand non mappé', type: 'shop', provider: null, items: [{ usedIn: [{ id: 'mi-orphan', name: 'X' }] }] },
+      ]);
+      p.productMapping = {
+        findMany: jest.fn().mockResolvedValue([
+          { menuItemId: 'mi-free', salesProductId: 'prod-free' },
+          { menuItemId: 'mi-priced', salesProductId: 'prod-priced' },
+        ]),
+      };
+      p.salesProduct = {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'prod-free', basePrice: 0 },
+          { id: 'prod-priced', basePrice: 6 },
+        ]),
+      };
+
+      const result = await service.getSimulableShops('space-1', 'tenant-1');
+
+      expect(result).toEqual([{ id: 'shop-1', name: 'Buvette', menuItemIds: ['mi-priced'] }]);
+      // storage exclu (type), shop non mappé exclu (provider null) — comportement déjà en place.
     });
   });
 });

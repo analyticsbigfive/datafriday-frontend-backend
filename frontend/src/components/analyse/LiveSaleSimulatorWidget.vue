@@ -1,11 +1,19 @@
 <template>
   <div v-if="canUse" class="lssw-wrap">
+    <div v-if="!hasLiveEvent" class="lssw-no-event">
+      <v-icon size="14" class="mr-1">mdi-calendar-alert-outline</v-icon>
+      <span>{{ t('anLiveNoEventBanner') }}</span>
+      <button type="button" class="lssw-no-event-btn" @click="createEventOpen = true">
+        {{ t('anLiveCreateEventBtn') }}
+      </button>
+    </div>
+
     <div class="lssw-auto">
       <label class="lssw-auto-realmode" :title="t('anLiveSimulateRealModeHint')">
-        <input type="checkbox" v-model="autoRealMode" />
+        <input type="checkbox" v-model="autoRealMode" :disabled="!!activeRun" />
         {{ t('anLiveSimulateRealMode') }}
       </label>
-      <select v-model.number="autoIntervalMs" class="lssw-auto-select" :disabled="autoRunning">
+      <select v-model.number="autoIntervalMs" class="lssw-auto-select" :disabled="!!activeRun">
         <option :value="10000">10s</option>
         <option :value="30000">30s</option>
         <option :value="60000">60s</option>
@@ -13,23 +21,40 @@
       <button
         type="button"
         class="lssw-auto-btn"
-        :class="{ 'lssw-auto-btn--active': autoRunning }"
-        @click="toggleAuto"
+        :class="{ 'lssw-auto-btn--active': !!activeRun }"
+        @click="toggleRun"
       >
-        <span v-if="autoRunning" class="lssw-auto-dot"></span>
-        <v-icon size="14" class="mr-1">{{ autoRunning ? 'mdi-stop' : 'mdi-play' }}</v-icon>
-        {{ autoRunning ? t('anLiveSimulateAutoOn') : t('anLiveSimulateAutoOff') }}
+        <span v-if="activeRun" class="lssw-auto-dot"></span>
+        <v-icon size="14" class="mr-1">{{ activeRun ? 'mdi-stop' : 'mdi-play' }}</v-icon>
+        {{ activeRun ? t('anLiveSimulateAutoOn') : t('anLiveSimulateAutoOff') }}
       </button>
     </div>
 
-    <button
-      class="lssw-fab"
-      :title="t('anLiveSimulateBtn')"
-      :aria-label="t('anLiveSimulateBtn')"
-      @click="openDialog"
-    >
-      <v-icon size="20">mdi-flask-outline</v-icon>
-    </button>
+    <div v-if="activeRun" class="lssw-run-status" :class="{ 'lssw-run-status--stale': isStale }">
+      <v-icon v-if="isStale" size="12" class="mr-1" :title="t('anLiveSimulateRunStale')">mdi-alert-outline</v-icon>
+      {{ activeRun.tickCount }} ventes · {{ lastTickLabel }}
+    </div>
+    <div v-if="runError" class="lssw-run-error">{{ runError }}</div>
+
+    <div class="lssw-actions-row">
+      <button
+        class="lssw-fab"
+        :title="t('anLiveSimulateBtn')"
+        :aria-label="t('anLiveSimulateBtn')"
+        @click="openDialog"
+      >
+        <v-icon size="20">mdi-flask-outline</v-icon>
+      </button>
+      <button
+        type="button"
+        class="lssw-history-btn"
+        :title="t('anLiveSimulateHistoryBtn')"
+        :aria-label="t('anLiveSimulateHistoryBtn')"
+        @click="historyOpen = true"
+      >
+        <v-icon size="18">mdi-history</v-icon>
+      </button>
+    </div>
 
     <div v-if="lastElementId" class="lssw-purge">
       <button type="button" class="lssw-purge-btn" :disabled="purging" @click="purgeLast">
@@ -49,6 +74,16 @@
       @submit="onSubmit"
     />
 
+    <EventFormDrawer
+      v-model="createEventOpen"
+      mode="create"
+      :default-space-id="spaceId"
+      :is-dark="true"
+      @submitted="onEventCreated"
+    />
+
+    <LiveSimulationHistoryDialog v-model="historyOpen" :space-id="spaceId" />
+
     <v-snackbar v-model="snackbar" :timeout="3000" color="success">{{ snackbarText }}</v-snackbar>
   </div>
 </template>
@@ -62,9 +97,19 @@
 // comme une vraie vente. Le PDV choisi doit déjà être mappé à une intégration réelle
 // (Weezevent ou Digifood) et le menu item déjà mappé à un produit — sinon le backend
 // refuse explicitement. Purge scopée par PDV, comme dans Logistique.
-import { ref, computed, onBeforeUnmount } from 'vue'
+//
+// Le mode « Auto » (2026-08-03) est désormais 100% piloté côté SERVEUR (BullMQ Job
+// Scheduler, LogisticsService.startSimulationRun/stopSimulationRun) — plus un
+// setInterval navigateur : un run survit à la fermeture/rechargement de l'onglet,
+// est retrouvable/arrêtable depuis n'importe quel chargement de la page (cf.
+// loadActiveSimulationRun au montage), et le tirage aléatoire PDV/menu item se fait
+// côté backend (LogisticsService.getSimulableShops), plus ici.
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import LogisticSimulateSaleDialog from '@/components/LogisticSimulateSaleDialog.vue'
+import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
+import LiveSimulationHistoryDialog from './LiveSimulationHistoryDialog.vue'
 import { useI18n } from '@/i18n/useI18n'
+import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 import store from '@/store'
 
 const props = defineProps({
@@ -121,6 +166,7 @@ async function onSubmit({ elementId, lines, realMode }) {
     snackbarText.value = t('anLiveSimulateDone')
     snackbar.value = true
     emit('simulated')
+    refreshLiveEventStatus()
   } catch (e) {
     error.value = e?.response?.data?.message || e?.userMessage || t('anLiveSimulateError')
   } finally {
@@ -145,75 +191,101 @@ async function purgeLast() {
   }
 }
 
-// ── Mode auto : simule une vente à intervalle réglable, sans ouvrir la dialog ──
+// ── Run d'auto-simulation serveur (start/stop/status) ──────────────────────────
 const autoIntervalMs = ref(30000)
-const autoRunning = ref(false)
-// Défaut true : l'auto tire des PDV/items au hasard — en mode strict, il resterait
+// Défaut true : le tirage serveur est aléatoire — en mode strict, il resterait
 // bloqué en boucle dès le premier article à la config de stock incomplète.
 const autoRealMode = ref(true)
-let autoTimer = null
+const runError = ref(null)
+const activeRun = computed(() => store.state.logistics.activeRun)
 
-/** Même dérivation que LogisticSimulateSaleDialog.menuItemOptions (usedIn résolu côté serveur). */
-function menuItemsForShop(shop) {
-  const map = new Map()
-  for (const item of shop.items || []) {
-    for (const u of item.usedIn || []) {
-      if (u?.id && !map.has(u.id)) map.set(u.id, u.name)
-    }
-  }
-  return [...map.entries()].map(([value, title]) => ({ value, title }))
-}
+const RUN_STALE_TICK_MULTIPLIER = 3
+const isStale = computed(() => {
+  const run = activeRun.value
+  if (!run?.lastTickAt) return false
+  const elapsed = Date.now() - new Date(run.lastTickAt).getTime()
+  return elapsed > RUN_STALE_TICK_MULTIPLIER * (run.intervalMs || autoIntervalMs.value)
+})
+const lastTickLabel = computed(() => {
+  const at = activeRun.value?.lastTickAt
+  return at ? new Date(at).toLocaleTimeString() : '—'
+})
 
-function pickRandom(arr) {
-  return arr.length ? arr[Math.floor(Math.random() * arr.length)] : null
-}
-
-async function autoSimulateOnce() {
-  if (!shops.value.length) {
-    try {
-      await store.dispatch('logistics/loadStock', { spaceId: props.spaceId })
-    } catch (e) {
-      return // réessaie au tick suivant
-    }
-  }
-  const candidates = shops.value.filter((s) => menuItemsForShop(s).length > 0)
-  const shop = pickRandom(candidates)
-  if (!shop) return // aucun PDV simulable pour l'instant — réessaie au tick suivant
-  const menuItem = pickRandom(menuItemsForShop(shop))
-  if (!menuItem) return
+async function toggleRun() {
+  runError.value = null
   try {
-    const res = await store.dispatch('logistics/simulateSale', {
-      spaceId: props.spaceId,
-      elementId: shop.element.id,
-      lines: [{ menuItemId: menuItem.value, quantity: 1 }],
-      realMode: autoRealMode.value,
-      ensureLiveEvent: true,
-    })
-    lastElementId.value = shop.element.id
-    lastElementName.value = res?.elementName || shop.element.name
-    emit('simulated')
+    if (activeRun.value) {
+      await store.dispatch('logistics/stopSimulationRun', { spaceId: props.spaceId, runId: activeRun.value.id })
+      stopStatusPoll()
+    } else {
+      await store.dispatch('logistics/startSimulationRun', {
+        spaceId: props.spaceId,
+        intervalMs: autoIntervalMs.value,
+        realMode: autoRealMode.value,
+      })
+      startStatusPoll()
+    }
   } catch (e) {
-    // Best-effort : tirage temporairement non simulable (ex. stock épuisé) — ne
-    // stoppe pas la boucle, un autre tirage aléatoire aura lieu au tick suivant.
-    console.warn('[LiveSaleSimulatorWidget] auto-simulate KO —', e?.response?.data?.message || e?.message)
+    runError.value = e?.response?.data?.message || e?.userMessage || t('anLiveSimulateRunError')
   }
 }
 
-function startAuto() {
-  stopAuto()
-  autoRunning.value = true
-  autoTimer = setInterval(autoSimulateOnce, autoIntervalMs.value)
+const STATUS_POLL_MS = 5000
+let statusPollTimer = null
+async function refreshActiveRun() {
+  try {
+    await store.dispatch('logistics/loadActiveSimulationRun', { spaceId: props.spaceId })
+    if (!store.state.logistics.activeRun) stopStatusPoll()
+    refreshLiveEventStatus()
+  } catch (e) {
+    // Best-effort : un raté de poll ne casse pas l'UI, on retente au tick suivant.
+  }
 }
-function stopAuto() {
-  if (autoTimer) { clearInterval(autoTimer); autoTimer = null }
-  autoRunning.value = false
+function startStatusPoll() {
+  stopStatusPoll()
+  statusPollTimer = setInterval(refreshActiveRun, STATUS_POLL_MS)
 }
-function toggleAuto() {
-  if (autoRunning.value) stopAuto()
-  else startAuto()
+function stopStatusPoll() {
+  if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null }
 }
 
-onBeforeUnmount(stopAuto)
+// ── Création d'event inline (si aucun event live pour cet espace) ──────────────
+const hasLiveEvent = ref(true) // optimiste — évite un flash du bandeau avant la 1re vérif
+const createEventOpen = ref(false)
+async function refreshLiveEventStatus() {
+  try {
+    const res = await getSpaceLiveStatus(props.spaceId)
+    hasLiveEvent.value = !!(res?.isLive && res?.eventId)
+  } catch (e) {
+    // Best-effort, même garde qu'AnalyseView.vue::applyLiveScope.
+  }
+}
+function onEventCreated() {
+  createEventOpen.value = false
+  refreshLiveEventStatus()
+}
+
+// ── Historique / purge (LiveSimulationHistoryDialog) ────────────────────────────
+const historyOpen = ref(false)
+
+onMounted(async () => {
+  refreshLiveEventStatus()
+  // Reprend l'affichage d'un run déjà actif (démarré avant un reload/fermeture
+  // d'onglet, ou depuis un autre onglet/session) — c'est le cœur du point A :
+  // le run tourne côté serveur indépendamment de cet onglet, seul l'affichage a
+  // besoin d'être resynchronisé.
+  try {
+    await store.dispatch('logistics/loadActiveSimulationRun', { spaceId: props.spaceId })
+    if (store.state.logistics.activeRun) startStatusPoll()
+  } catch (e) {
+    // Best-effort — le bouton Auto restera juste à l'état "off" si l'appel échoue.
+  }
+})
+// Arrête UNIQUEMENT le poll d'affichage local, jamais le run lui-même — c'est
+// précisément le comportement inverse de l'ancien `onBeforeUnmount(stopAuto)`
+// (setInterval navigateur), et le point central de la fonctionnalité : fermer cet
+// onglet ne doit plus jamais arrêter silencieusement l'auto-simulation.
+onBeforeUnmount(stopStatusPoll)
 </script>
 
 <style scoped>
@@ -226,6 +298,7 @@ onBeforeUnmount(stopAuto)
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+  max-width: 320px;
 }
 .lssw-fab {
   width: 48px;
@@ -242,6 +315,26 @@ onBeforeUnmount(stopAuto)
 }
 .lssw-fab:hover {
   filter: brightness(1.05);
+}
+.lssw-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lssw-history-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.lssw-history-btn:hover {
+  background: rgba(0, 0, 0, 0.9);
 }
 .lssw-purge {
   background: rgba(0, 0, 0, 0.75);
@@ -309,6 +402,50 @@ onBeforeUnmount(stopAuto)
   background: #ff3131;
   margin-right: 5px;
   animation: lssw-pulse 1.2s ease-in-out infinite;
+}
+.lssw-run-status {
+  background: rgba(0, 0, 0, 0.75);
+  color: #cdeccd;
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+}
+.lssw-run-status--stale {
+  color: #ffcf7a;
+}
+.lssw-run-error {
+  background: rgba(255, 49, 49, 0.85);
+  color: #fff;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  max-width: 280px;
+}
+.lssw-no-event {
+  background: rgba(0, 0, 0, 0.8);
+  color: #ffcf7a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 300px;
+}
+.lssw-no-event-btn {
+  border: 1px solid rgba(255, 207, 122, 0.6);
+  background: transparent;
+  color: #ffcf7a;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lssw-no-event-btn:hover {
+  background: rgba(255, 207, 122, 0.15);
 }
 @keyframes lssw-pulse {
   0%, 100% { opacity: 1; }

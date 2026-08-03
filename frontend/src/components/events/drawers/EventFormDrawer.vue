@@ -552,6 +552,11 @@ export default {
     mode: { type: String, default: 'create' },
     initialEvent: { type: Object, default: null },
     isDark: { type: Boolean, default: false },
+    // Pré-remplit newEvent.spaceId en mode création (LiveSaleSimulatorWidget.vue,
+    // 11_LIVE.md) — n'affecte QUE le mode create (initialEvent gouverne déjà le mode
+    // edit). Optionnel : les appelants existants (EventsListView.vue) ne le passent
+    // pas, comportement inchangé pour eux.
+    defaultSpaceId: { type: String, default: null },
   },
 
   emits: ['update:modelValue', 'submitted'],
@@ -700,6 +705,10 @@ export default {
       } else {
         await Promise.allSettled(taxonomyLoads);
         this.newEvent = EMPTY_EVENT();
+        // Pré-remplit l'espace si l'appelant le connaît déjà (widget QA Live) — laisse
+        // le watcher `newEvent.spaceId` existant (ci-dessous) charger ses configurations,
+        // pas de logique dupliquée.
+        if (this.defaultSpaceId) this.newEvent.spaceId = this.defaultSpaceId;
         this.formError = '';
       }
     },

@@ -19,6 +19,7 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { LogisticsService } from './logistics.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
+import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-run.dto';
 
 @ApiTags('Logistics')
 @ApiBearerAuth('supabase-jwt')
@@ -171,5 +172,87 @@ export class LogisticsController {
   ) {
     this.logger.log(`DELETE /logistics/${spaceId}/simulate-sale element=${elementId}`);
     return this.service.purgeSimulatedSales(spaceId, elementId, user.tenantId);
+  }
+
+  @Post(':spaceId/simulation-runs')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({
+    summary:
+      "QA — démarre un run d'auto-simulation côté serveur (BullMQ Job Scheduler) : tire au hasard un PDV/menu item simulable et appelle simulateSale à intervalle régulier, indépendamment de tout onglet navigateur ouvert. Idempotent : renvoie le run déjà actif s'il y en a un pour cet espace.",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async startSimulationRun(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: StartSimulationRunDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /logistics/${spaceId}/simulation-runs intervalMs=${dto.intervalMs}`);
+    return this.service.startSimulationRun(spaceId, user.tenantId, user.id, dto);
+  }
+
+  @Post(':spaceId/simulation-runs/:runId/stop')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: "QA — arrête un run d'auto-simulation actif (retire le Job Scheduler BullMQ)." })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'runId', description: 'ID du SimulationRun' })
+  async stopSimulationRun(
+    @Param('spaceId') spaceId: string,
+    @Param('runId') runId: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /logistics/${spaceId}/simulation-runs/${runId}/stop`);
+    return this.service.stopSimulationRun(spaceId, runId, user.tenantId, user.id);
+  }
+
+  @Get(':spaceId/simulation-runs/active')
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: "QA — run d'auto-simulation actif de l'espace, s'il y en a un (survit au reload/fermeture d'onglet)." })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async getActiveSimulationRun(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
+    return this.service.getActiveSimulationRun(spaceId, user.tenantId);
+  }
+
+  @Get(':spaceId/simulation-runs')
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: "QA — historique des runs d'auto-simulation de l'espace (actifs, arrêtés, échoués)." })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiQuery({ name: 'limit', required: false })
+  async listSimulationRuns(
+    @Param('spaceId') spaceId: string,
+    @CurrentUser() user: any,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listSimulationRuns(spaceId, user.tenantId, Number(limit) || 20);
+  }
+
+  @Get(':spaceId/simulated-sales')
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: "QA — historique paginé des ventes simulées de l'espace, tous PDV confondus." })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'cursor', required: false })
+  async listSimulatedSales(
+    @Param('spaceId') spaceId: string,
+    @CurrentUser() user: any,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.service.listSimulatedSales(spaceId, user.tenantId, Number(limit) || 50, cursor || undefined);
+  }
+
+  @Post(':spaceId/simulated-sales/purge')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: 'QA — purge sélective de ventes simulées par id de transaction (history dialog).' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async purgeSimulatedSalesByIds(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: PurgeSimulatedSalesDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /logistics/${spaceId}/simulated-sales/purge (${dto.transactionIds?.length ?? 0} ids)`);
+    return this.service.purgeSimulatedSalesByIds(spaceId, user.tenantId, dto.transactionIds);
   }
 }
