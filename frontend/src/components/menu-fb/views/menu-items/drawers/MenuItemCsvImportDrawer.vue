@@ -113,15 +113,10 @@
           <v-chip size="x-small" variant="tonal">{{ rawRows.length }} rows</v-chip>
         </div>
 
-        <v-alert
-          v-if="!mapping.name"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          rounded="lg"
-          class="mb-4"
-          text="Map the &quot;Name&quot; field to a column to continue."
-        />
+        <div v-if="!mapping.name" class="mi-notice mb-4">
+          <AlertCircle :size="16" class="mi-notice__icon" />
+          <div class="mi-notice__body">Map the "Name" field to a column to continue.</div>
+        </div>
 
         <div v-for="group in mappingGroups" :key="group.key" class="mb-4">
           <div class="mi-mapping-group-label">{{ group.label }}</div>
@@ -129,18 +124,18 @@
             <div class="mi-mapping-label">
               {{ field.label }}<span v-if="field.required" class="mi-required">*</span>
             </div>
-            <v-select
-              :model-value="mapping[field.key]"
-              @update:model-value="setMapping(field.key, $event)"
-              :items="columnOptions"
-              item-title="title"
-              item-value="value"
-              density="compact"
-              variant="outlined"
-              hide-details
-              rounded="lg"
+            <select
+              class="form-select form-select-sm mi-map-select"
+              :value="mapping[field.key] ?? ''"
+              @change="setMapping(field.key, $event.target.value || null)"
               style="flex: 1; min-width: 0;"
-            />
+            >
+              <option
+                v-for="opt in columnOptions"
+                :key="`col-${field.key}-${opt.value ?? 'ignore'}`"
+                :value="opt.value ?? ''"
+              >{{ opt.title }}</option>
+            </select>
           </div>
         </div>
       </div>
@@ -163,99 +158,77 @@
         </div>
 
         <!-- BUG-88 : fichier vide ou en-têtes non reconnus -->
-        <v-alert
-          v-if="emptyParseWarning"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          rounded="lg"
-          class="mb-4"
-          :text="emptyParseWarning"
-        />
+        <div v-if="emptyParseWarning" class="mi-notice mb-4">
+          <AlertCircle :size="16" class="mi-notice__icon" />
+          <div class="mi-notice__body">{{ emptyParseWarning }}</div>
+        </div>
 
         <!-- BUG-112 : référentiels manquants qui seront créés automatiquement à l'import —
              informatif, pas une erreur (contrairement à avant, BUG-110/111). -->
-        <v-alert
-          v-if="pendingCreationsCount"
-          type="info"
-          variant="tonal"
-          density="compact"
-          rounded="lg"
-          class="mb-4"
-          :text="`${pendingCreationsCount} referential value(s) will be created automatically (type/category/brand/display name not found in this account).`"
-        />
+        <div v-if="pendingCreationsCount" class="mi-notice mb-4">
+          <AlertCircle :size="16" class="mi-notice__icon" />
+          <div class="mi-notice__body">{{ pendingCreationsCount }} referential value(s) will be created automatically (type/category/brand/display name not found in this account).</div>
+        </div>
 
         <!-- Skipped warning (BUG-87 : nom/type/catégorie non résolus) — repliée par défaut
              (BUG-111 : trop de bruit visuel pour de l'information sans action possible). -->
-        <v-alert
-          v-if="invalidRows.length"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          rounded="lg"
-          class="mb-4"
-        >
-          <div class="d-flex align-center justify-space-between" style="gap: 8px;">
-            <span>{{ invalidRows.length }} {{ t('menuItemImportSkipped') }}</span>
-            <button class="mi-detail-toggle" @click="showInvalidDetail = !showInvalidDetail">
-              {{ showInvalidDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
-            </button>
-          </div>
-          <div v-if="showInvalidDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
-            <div v-for="(r, i) in invalidRows.slice(0, 10)" :key="i">
-              • {{ r.row.name || '(sans nom)' }} : {{ r.reason }}
+        <div v-if="invalidRows.length" class="mi-notice mb-4">
+          <AlertCircle :size="16" class="mi-notice__icon" />
+          <div class="mi-notice__body">
+            <div class="d-flex align-center justify-space-between" style="gap: 8px;">
+              <span>{{ invalidRows.length }} {{ t('menuItemImportSkipped') }}</span>
+              <button class="mi-detail-toggle" @click="showInvalidDetail = !showInvalidDetail">
+                {{ showInvalidDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
+              </button>
             </div>
-            <div v-if="invalidRows.length > 10">… +{{ invalidRows.length - 10 }}</div>
+            <div v-if="showInvalidDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
+              <div v-for="(r, i) in invalidRows.slice(0, 10)" :key="i">
+                • {{ r.row.name || '(sans nom)' }} : {{ r.reason }}
+              </div>
+              <div v-if="invalidRows.length > 10">… +{{ invalidRows.length - 10 }}</div>
+            </div>
           </div>
-        </v-alert>
+        </div>
 
         <!-- BUG-86 : lignes ignorées car un menu item du même nom existe déjà -->
-        <v-alert
-          v-if="duplicateRows.length"
-          type="info"
-          variant="tonal"
-          density="compact"
-          rounded="lg"
-          class="mb-4"
-        >
-          <div class="d-flex align-center justify-space-between" style="gap: 8px;">
-            <span>{{ duplicateRows.length }} ligne(s) ignorée(s) — déjà existantes dans le catalogue</span>
-            <button class="mi-detail-toggle" @click="showDuplicateDetail = !showDuplicateDetail">
-              {{ showDuplicateDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
-            </button>
-          </div>
-          <div v-if="showDuplicateDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
-            <div v-for="(row, i) in duplicateRows.slice(0, 10)" :key="i">
-              • {{ row.name }}
+        <div v-if="duplicateRows.length" class="mi-notice mb-4">
+          <AlertCircle :size="16" class="mi-notice__icon" />
+          <div class="mi-notice__body">
+            <div class="d-flex align-center justify-space-between" style="gap: 8px;">
+              <span>{{ duplicateRows.length }} ligne(s) ignorée(s) — déjà existantes dans le catalogue</span>
+              <button class="mi-detail-toggle" @click="showDuplicateDetail = !showDuplicateDetail">
+                {{ showDuplicateDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
+              </button>
             </div>
-            <div v-if="duplicateRows.length > 10">… +{{ duplicateRows.length - 10 }}</div>
+            <div v-if="showDuplicateDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
+              <div v-for="(row, i) in duplicateRows.slice(0, 10)" :key="i">
+                • {{ row.name }}
+              </div>
+              <div v-if="duplicateRows.length > 10">… +{{ duplicateRows.length - 10 }}</div>
+            </div>
           </div>
-        </v-alert>
+        </div>
 
         <!-- BUG-107 : lignes de recette (Ingredient/Component/Packaging) dont le nom ne
              correspond à rien dans ce compte — l'article sera quand même créé, juste sans
              cette ligne précise. -->
-        <v-alert
-          v-if="unresolvedRecipeLines.length"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          rounded="lg"
-          class="mb-4"
-        >
-          <div class="d-flex align-center justify-space-between" style="gap: 8px;">
-            <span>{{ unresolvedRecipeLines.length }} ligne(s) de recette introuvable(s) — l'article sera créé sans elles</span>
-            <button class="mi-detail-toggle" @click="showUnresolvedDetail = !showUnresolvedDetail">
-              {{ showUnresolvedDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
-            </button>
-          </div>
-          <div v-if="showUnresolvedDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
-            <div v-for="(l, i) in unresolvedRecipeLines.slice(0, 10)" :key="i">
-              • {{ l.item }} — {{ l.type }} "{{ l.name }}"
+        <div v-if="unresolvedRecipeLines.length" class="mi-notice mb-4">
+          <AlertCircle :size="16" class="mi-notice__icon" />
+          <div class="mi-notice__body">
+            <div class="d-flex align-center justify-space-between" style="gap: 8px;">
+              <span>{{ unresolvedRecipeLines.length }} ligne(s) de recette introuvable(s) — l'article sera créé sans elles</span>
+              <button class="mi-detail-toggle" @click="showUnresolvedDetail = !showUnresolvedDetail">
+                {{ showUnresolvedDetail ? t('menuItemImportHideDetails') : t('menuItemImportShowDetails') }}
+              </button>
             </div>
-            <div v-if="unresolvedRecipeLines.length > 10">… +{{ unresolvedRecipeLines.length - 10 }}</div>
+            <div v-if="showUnresolvedDetail" class="mi-skip-list mt-2 pa-3 rounded-lg text-caption">
+              <div v-for="(l, i) in unresolvedRecipeLines.slice(0, 10)" :key="i">
+                • {{ l.item }} — {{ l.type }} "{{ l.name }}"
+              </div>
+              <div v-if="unresolvedRecipeLines.length > 10">… +{{ unresolvedRecipeLines.length - 10 }}</div>
+            </div>
           </div>
-        </v-alert>
+        </div>
 
         <!-- Preview table -->
         <div class="mi-table-wrap rounded-lg" style="overflow:hidden;">
@@ -293,13 +266,29 @@
 
       <!-- Step 4 : Result ── -->
       <div v-if="step === 4">
-        <!-- Loading -->
-        <div v-if="importing" class="d-flex flex-column align-center justify-center py-14" style="gap: 18px;">
-          <v-progress-circular indeterminate color="#ff3131" size="52" width="4" />
-          <div class="text-body-2 mi-subtitle">
-            {{ t('menuItemImportInProgress') }}
-            <template v-if="importTotal">{{ importProgress }}/{{ importTotal }}</template>
+        <!-- Loading — progression déterminée X/N (même pattern que CsvImportDrawer.vue, events) -->
+        <div v-if="importing" class="d-flex flex-column align-center justify-center py-12" style="gap: 4px;">
+          <v-progress-circular
+            :model-value="importTotal ? (importProgress / importTotal) * 100 : 0"
+            :indeterminate="!importTotal"
+            color="#ff3131"
+            size="48"
+            width="4"
+            class="mb-4"
+          />
+          <div class="text-body-2 mi-subtitle">{{ t('menuItemImportInProgress') }}</div>
+          <div v-if="importTotal" class="text-caption mi-subtitle">
+            {{ importProgress }} / {{ importTotal }} {{ t('menuItemImportProcessed') }}
           </div>
+          <v-progress-linear
+            v-if="importTotal"
+            :model-value="(importProgress / importTotal) * 100"
+            color="#ff3131"
+            rounded
+            height="6"
+            style="max-width: 280px; width: 100%;"
+            class="mt-3"
+          />
         </div>
 
         <!-- Error -->
@@ -323,25 +312,15 @@
           <div class="text-body-2 mi-subtitle">{{ importedCount }} {{ t('menuItemImportItems') }}</div>
 
           <!-- BUG-112 : récapitulatif des référentiels créés automatiquement pendant cet import -->
-          <v-alert
-            v-if="autoCreatedSummary"
-            type="info"
-            variant="tonal"
-            density="compact"
-            rounded="lg"
-            style="max-width:420px;"
-            :text="`Automatically created: ${autoCreatedSummary}`"
-          />
+          <div v-if="autoCreatedSummary" class="mi-notice" style="max-width:420px;">
+            <AlertCircle :size="16" class="mi-notice__icon" />
+            <div class="mi-notice__body">Automatically created: {{ autoCreatedSummary }}</div>
+          </div>
 
-          <v-alert
-            v-if="importBulkCountUnknown"
-            type="warning"
-            variant="tonal"
-            density="compact"
-            rounded="lg"
-            style="max-width:420px;"
-            text="Le nombre de lignes réellement créées par le lot n'a pas pu être confirmé par le serveur (réponse sans compteur) — vérifiez le catalogue avant de réimporter."
-          />
+          <div v-if="importBulkCountUnknown" class="mi-notice" style="max-width:420px;">
+            <AlertCircle :size="16" class="mi-notice__icon" />
+            <div class="mi-notice__body">Le nombre de lignes réellement créées par le lot n'a pas pu être confirmé par le serveur (réponse sans compteur) — vérifiez le catalogue avant de réimporter.</div>
+          </div>
 
           <div v-if="importFailed.length" class="mi-skip-list pa-3 rounded-lg text-caption mi-subtitle" style="max-width:420px; width:100%;">
             <div class="font-weight-bold mb-1">{{ importFailed.length }} ligne(s) en échec :</div>
@@ -1861,6 +1840,31 @@ export default {
   font-weight: 500;
 }
 .mi-required { color: #ff3131; margin-left: 2px; font-weight: 700; }
+
+/* Select natif Bootstrap du mapping — aligné sur CsvImportDrawer.vue (events) : border-radius,
+   focus rouge marque, chevron adapté en dark. */
+.mi-map-select { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-base); }
+.mi-map-select:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
+.mi-import--dark .mi-map-select {
+  background-color: #1e293b; border-color: rgba(255,255,255,.14); color: #e5e7eb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* Bandeaux info/avertissement unifiés (une seule couleur, neutre + icône rouge marque) —
+   remplacent les v-alert Vuetify multicolores (warning orange / info violet). */
+.mi-notice {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: var(--fs-base);
+  color: #374151;
+}
+.mi-notice__icon { color: #ff3131; flex-shrink: 0; margin-top: 1px; }
+.mi-notice__body { flex: 1; min-width: 0; }
+.mi-import--dark .mi-notice { background: #111827; border-color: rgba(255,255,255,.08); color: #cbd5e1; }
 
 /* ── Preview table ───────────────────────────────────────── */
 .mi-table-wrap {

@@ -73,7 +73,7 @@
           class="spt-banner spt-banner--amber"
         >
           <div class="spt-banner__left">
-            <v-icon size="16" color="#b45309">mdi-link-variant-plus</v-icon>
+            <v-icon size="16" color="#ff3131">mdi-link-variant-plus</v-icon>
             <span>
               <strong>{{ ambiguousMatches.length }}</strong> {{ t('intgTimelineEvent') }}{{ ambiguousMatches.length > 1 ? 's' : '' }} {{ t('intgResolveLinkNeedsChoice') }}
             </span>
@@ -90,7 +90,7 @@
           class="spt-banner spt-banner--blue"
         >
           <div class="spt-banner__left">
-            <v-icon size="16" color="#2563eb">mdi-calendar-plus</v-icon>
+            <v-icon size="16" color="#ff3131">mdi-calendar-plus</v-icon>
             <span>
               <template v-if="unmappedCount > 0">
                 <strong>{{ unmappedCount }}</strong> {{ t('intgTimelineEvent') }}{{ unmappedCount > 1 ? 's' : '' }} {{ t('intgTimelineWeezeventUnlinked') }}{{ unmappedCount > 1 ? 's' : '' }}
@@ -216,7 +216,7 @@
           </template>
 
           <div v-else-if="activeTab === 'uncovered'" class="spt-infobar spt-infobar--success">
-            <v-icon size="16" color="#166534">mdi-check-circle</v-icon>
+            <v-icon size="16" color="#ff3131">mdi-check-circle</v-icon>
             <span><strong>{{ t('intgTimelineAllCoveredTitle') }}</strong> {{ t('intgTimelineAllCoveredSub') }}</span>
           </div>
         </template>
@@ -372,7 +372,7 @@
           </template>
 
           <div v-if="registeredEvents.length === 0 && activeTab === 'covered'" class="spt-infobar spt-infobar--blue">
-            <v-icon size="16" color="#2563eb">mdi-information-outline</v-icon>
+            <v-icon size="16" color="#ff3131">mdi-information-outline</v-icon>
             <span>{{ t('intgTimelineNoDfEvents') }}</span>
           </div>
         </template>
@@ -447,7 +447,7 @@
 
       <!-- Sync: Done -->
       <div v-else-if="syncPhase === 'done'" class="spt-infobar spt-infobar--success">
-        <v-icon size="16" color="#16a34a">mdi-check-circle</v-icon>
+        <v-icon size="16" color="#ff3131">mdi-check-circle</v-icon>
         <div style="flex: 1;">
           <strong>{{ syncDoneTitle }}</strong>
           <span style="margin-left: 8px; font-size: 12px; color: #6b7280;">{{ syncDoneSummary }}</span>
@@ -480,7 +480,7 @@
 
     <!-- ── Dialog: Bulk create events ── -->
     <v-dialog v-model="bulkCreateEventsDialog" max-width="420" :persistent="bulkCreateEventsRunning">
-      <div class="spt-dialog">
+      <div class="spt-dialog" :class="{ 'spt-dialog--dark': isDark }">
         <div class="spt-dialog-header">
           <div class="spt-dialog-header__icon">
             <v-icon color="white" size="20">mdi-creation</v-icon>
@@ -1542,13 +1542,15 @@ export default {
 
 /* ── Stats banner ── */
 .spt-stats-banner {
-  background: #f3f0ff; border: 1.5px solid rgba(124,58,237,.18);
+  background: #f9fafb; border: 1.5px solid #e5e7eb;
   border-radius: 14px; padding: 14px 16px;
 }
+.spt--dark .spt-stats-banner { background: #111827; border-color: rgba(255,255,255,.08); }
 .spt-stats-banner__top {
   display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
 }
-.spt-stats-banner__total { font-size: 13px; font-weight: 700; color: #4c1d95; }
+.spt-stats-banner__total { font-size: 13px; font-weight: 700; color: #374151; }
+.spt--dark .spt-stats-banner__total { color: #e5e7eb; }
 .spt-stats-banner__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* ── Chips ── */
@@ -1582,20 +1584,25 @@ export default {
   gap: 12px; padding: 12px 16px; border-radius: 14px; font-size: 13px;
 }
 .spt-banner__left { display: flex; align-items: center; gap: 8px; flex: 1; }
-.spt-banner--blue { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1e40af; }
-.spt-banner--amber { background: #fffbeb; border: 1.5px solid #fde68a; color: #92400e; }
+/* Bandeaux unifiés : une seule couleur neutre (fond gris, texte gris, icône rouge marque),
+   quelle que soit la variante blue/amber — plus de mix de couleurs. */
+.spt-banner--blue,
+.spt-banner--amber { background: #f9fafb; border: 1.5px solid #e5e7eb; color: #374151; }
+.spt--dark .spt-banner--blue,
+.spt--dark .spt-banner--amber { background: #111827; border-color: rgba(255,255,255,.08); color: #cbd5e1; }
 
 .spt-banner-btn {
   padding: 6px 14px; border-radius: 100px; font-size: 12px; font-weight: 600;
   border: none; cursor: pointer; white-space: nowrap; flex-shrink: 0;
   display: inline-flex; align-items: center; gap: 5px; transition: all .15s;
 }
-.spt-banner-btn--blue { background: #2563eb; color: #fff; }
-.spt-banner-btn--blue:hover { background: #1d4ed8; }
-.spt-banner-btn--amber { background: #b45309; color: #fff; }
-.spt-banner-btn--amber:hover { background: #92400e; }
-.spt-banner-btn--purple { background: #7c3aed; color: #fff; }
-.spt-banner-btn--purple:hover:not(:disabled) { background: #6d28d9; }
+/* Boutons d'action unifiés : rouge marque (couleur d'action unique) au lieu de bleu/amber/violet. */
+.spt-banner-btn--blue,
+.spt-banner-btn--amber,
+.spt-banner-btn--purple { background: #ff3131; color: #fff; }
+.spt-banner-btn--blue:hover:not(:disabled),
+.spt-banner-btn--amber:hover:not(:disabled),
+.spt-banner-btn--purple:hover:not(:disabled) { background: #b91c1c; }
 .spt-banner-btn:disabled { opacity: .6; cursor: not-allowed; }
 
 /* ── Toolbar + pill tabs ── */
@@ -1770,10 +1777,15 @@ export default {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 16px; border-radius: 14px; font-size: 13px;
 }
-.spt-infobar--success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
-.spt-infobar--blue    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+/* Infobars unifiées : neutre gris (l'icône rouge est posée en inline dans le template).
+   Seul --error garde le rouge (sémantique distincte). */
+.spt-infobar--success,
+.spt-infobar--blue,
+.spt-infobar--warning { background: #f9fafb; border: 1px solid #e5e7eb; color: #374151; }
 .spt-infobar--error   { background: #fef2f2; border: 1px solid #fecaca; color: #ff3131; }
-.spt-infobar--warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+.spt--dark .spt-infobar--success,
+.spt--dark .spt-infobar--blue,
+.spt--dark .spt-infobar--warning { background: #111827; border-color: rgba(255,255,255,.08); color: #cbd5e1; }
 
 /* ── Divider ── */
 .spt-divider { height: 1px; background: #e5e7eb; margin: 6px 0; }
@@ -1878,6 +1890,15 @@ export default {
 
 .spt-dialog-result__title { font-size: 15px; font-weight: 700; color: #111827; margin: 0 0 6px; }
 .spt-dialog-result__sub   { font-size: 13px; color: #6b7280; margin: 0; }
+
+/* Dark — le v-dialog est téléporté hors du .spt--dark, d'où la classe portée sur la carte. */
+.spt-dialog--dark { background: #1e293b; }
+.spt-dialog--dark .spt-dialog-body { background: #1e293b; }
+.spt-dialog--dark .spt-dialog-result__title { color: #f9fafb; }
+.spt-dialog--dark .spt-dialog-result__sub { color: #94a3b8; }
+.spt-dialog--dark .spt-dialog-footer { border-top-color: rgba(255,255,255,.08); }
+.spt-dialog--dark .spt-btn--ghost { color: #cbd5e1; border-color: rgba(255,255,255,.14); }
+.spt-dialog--dark .spt-btn--ghost:hover:not(:disabled) { background: #374151; border-color: rgba(255,255,255,.24); color: #fff; }
 
 /* ── Vuetify deep overrides ── */
 :deep(.v-field--focused) {
