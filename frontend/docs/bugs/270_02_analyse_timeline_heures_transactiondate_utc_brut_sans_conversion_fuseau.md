@@ -1,8 +1,11 @@
 # BUG-270-02 — Timeline Analyse : heures affichées en UTC brut, sans conversion vers le fuseau de l'espace
 
-- **Statut** : ⚪ Diagnostiqué — correctif proposé sur la branche
-  `fix/bug-270-analyse-timeline-timezone` (retiré de `develop`, domaine Analyse hors périmètre
-  de cette session, propriétaire produit Jean-Luc). À revoir/merger sous son arbitrage.
+- **Statut** : 🟡 Corrigé non testé — le correctif (branche
+  `fix/bug-270-analyse-timeline-timezone`) a été **re-mergé dans `develop` le 2026-08-03**
+  (merge `9b71b42`, arbitrage Jean-Luc), mais il a introduit une **régression critique** : 500
+  sur `GET /spaces/:id/event-timeline` (placeholders Prisma dupliqués SELECT/GROUP BY) → toute
+  la page Analyse ne chargeait plus. Régression diagnostiquée et corrigée le jour même — voir
+  fiche backend [BUG-125-01](../../../backend/docs/bugs/125_01_event_timeline_groupby_placeholder_fuseau_500.md).
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (backend, seul repo touché)

@@ -1262,11 +1262,18 @@ export class SpacesService {
     // totalité des espaces réels, tous des clubs français). `AT TIME ZONE 'UTC'` réinterprète
     // la valeur naïve comme un instant UTC réel (timestamptz), puis `AT TIME ZONE ${tz}`
     // la reprojette en heure murale locale de l'espace.
+    //
+    // BUG-125-01 : l'expression de conversion est factorisée dans le LATERAL `tz` ci-dessous
+    // au lieu d'être répétée dans le SELECT et le GROUP BY — chaque interpolation Prisma de
+    // ${spaceTimezone} devient un placeholder distinct ($2 vs $5), et Postgres ne peut pas
+    // prouver leur égalité au parse : le GROUP BY ne « couvrait » plus le SELECT → erreur
+    // 42803 (« column t.transactionDate must appear in the GROUP BY clause ») → 500 sur
+    // toute la page Analyse. Une seule occurrence du paramètre = plus de mismatch.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
       WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql})
       SELECT
         ev."eventId"                                                      AS "eventId",
-        TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'HH24:MI') AS minute,
+        TO_CHAR(tz."minuteLocal", 'HH24:MI')                              AS minute,
         COALESCE(mem."spaceElementId", t."locationId")                    AS "shopId",
         COALESCE(se.name, t."locationName", t."locationId")               AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
@@ -1290,6 +1297,9 @@ export class SpacesService {
        ${integrationClause}
        AND t.status = 'V'
        AND t."deletedAt" IS NULL
+      CROSS JOIN LATERAL (
+        SELECT DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}) AS "minuteLocal"
+      ) tz
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
       LEFT JOIN "WeezeventLocationShopMapping" mem
@@ -1308,7 +1318,7 @@ export class SpacesService {
         ON pc.id = mi."categoryId"
       WHERE ${shopScopeClause}
       GROUP BY
-        ev."eventId", DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}),
+        ev."eventId", tz."minuteLocal",
         COALESCE(mem."spaceElementId", t."locationId"),
         COALESCE(se.name, t."locationName", t."locationId"),
         se.type, se.attributes,
