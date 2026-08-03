@@ -38,7 +38,7 @@
       <div v-if="autoSuggestionCount > 0" class="smi-banner smi-banner--amber">
         <div class="smi-banner__left">
           <template v-if="autoMappingRunning">
-            <v-progress-circular indeterminate size="15" width="2" color="#f59e0b" />
+            <v-progress-circular indeterminate size="15" width="2" color="#ff3131" />
           </template>
           <Zap v-else :size="15" class="smi-banner__icon" />
           <span>
@@ -105,7 +105,7 @@
       <div v-if="applicablePriceCount > 0" class="smi-banner smi-banner--blue">
         <div class="smi-banner__left">
           <template v-if="applyAllRunning">
-            <v-progress-circular indeterminate size="15" width="2" color="#2563eb" />
+            <v-progress-circular indeterminate size="15" width="2" color="#ff3131" />
           </template>
           <Tag v-else :size="15" class="smi-banner__icon" />
           <span>
@@ -2111,12 +2111,19 @@ export default {
   font-size: 13px;
 }
 .smi-banner__left  { display: flex; align-items: center; gap: 8px; flex: 1; }
-.smi-banner__icon  { flex-shrink: 0; }
-.smi-banner--amber  { background: #fffbeb; border: 1.5px solid #fde68a; color: #92400e; }
-.smi-banner--red    { background: #fef2f2; border: 1.5px solid #fecaca; color: #ff3131; }
-.smi-banner--green  { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
-.smi-banner--blue   { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1d4ed8; }
+.smi-banner__icon  { flex-shrink: 0; color: #ff3131; }
+/* Bandeaux unifiés : une seule couleur neutre (fond gris, texte gris, icône rouge marque),
+   quelle que soit la variante amber/red/green/blue — plus de mix de couleurs. */
+.smi-banner--amber,
+.smi-banner--red,
+.smi-banner--green,
+.smi-banner--blue,
 .smi-banner--gray   { background: #f9fafb; border: 1.5px solid #e5e7eb; color: #374151; }
+.smi--dark .smi-banner--amber,
+.smi--dark .smi-banner--red,
+.smi--dark .smi-banner--green,
+.smi--dark .smi-banner--blue,
+.smi--dark .smi-banner--gray { background: #111827; border-color: rgba(255,255,255,.08); color: #cbd5e1; }
 
 .smi-banner-btn {
   padding: 6px 14px; border-radius: 100px; font-size: 12px; font-weight: 600;
@@ -2124,18 +2131,19 @@ export default {
   display: inline-flex; align-items: center; gap: 5px;
 }
 .smi-banner-btn:disabled { opacity: .45; cursor: not-allowed; }
-.smi-banner-btn--amber { background: #f59e0b; color: #fff; }
-.smi-banner-btn--amber:hover:not(:disabled) { background: #d97706; }
-.smi-banner-btn--red   { background: #ff3131; color: #fff; }
-.smi-banner-btn--red:hover:not(:disabled) { background: #b91c1c; }
-.smi-banner-btn--blue  { background: #2563eb; color: #fff; }
-.smi-banner-btn--blue:hover:not(:disabled) { background: #1d4ed8; }
+/* Boutons d'action unifiés : rouge marque (couleur d'action unique) au lieu de amber/bleu/rouge. */
+.smi-banner-btn--amber,
+.smi-banner-btn--red,
+.smi-banner-btn--blue  { background: #ff3131; color: #fff; }
+.smi-banner-btn--amber:hover:not(:disabled),
+.smi-banner-btn--red:hover:not(:disabled),
+.smi-banner-btn--blue:hover:not(:disabled) { background: #b91c1c; }
 .smi-banner-btn--ghost { background: transparent; color: inherit; padding: 4px 8px; }
 .smi-banner-btn--gray  { background: #6b7280; color: #fff; }
 .smi-banner-btn--gray:hover:not(:disabled) { background: #4b5563; }
 .smi-banner-btn--ghost:hover { background: rgba(0,0,0,.06); border-radius: 8px; }
-.smi-banner-btn--ghost-amber { background: transparent; color: #92400e; border: 1px solid #fcd34d; padding: 4px 10px; display:inline-flex; align-items:center; }
-.smi-banner-btn--ghost-amber:hover { background: rgba(245,158,11,.12); }
+.smi-banner-btn--ghost-amber { background: transparent; color: #6b7280; border: 1px solid #d1d5db; padding: 4px 10px; display:inline-flex; align-items:center; }
+.smi-banner-btn--ghost-amber:hover { background: rgba(0,0,0,.06); }
 .smi-banner-actions { display:flex; align-items:center; gap:6px; }
 
 /* Suggestions dialog rows */
@@ -2381,7 +2389,10 @@ export default {
   padding: 10px 14px; border-radius: 12px; font-size: 13px;
 }
 .smi-infobar--error { background: #fef2f2; border: 1px solid #fecaca; color: #ff3131; }
-.smi-infobar--warn  { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+/* Avertissement unifié : neutre gris + icône rouge marque (plus d'orange). */
+.smi-infobar--warn  { background: #f9fafb; border: 1px solid #e5e7eb; color: #374151; }
+.smi-infobar--warn > svg { color: #ff3131; }
+.smi--dark .smi-infobar--warn { background: #111827; border-color: rgba(255,255,255,.08); color: #cbd5e1; }
 .smi-mt-2 { margin-top: 8px; }
 .smi-mt-3 { margin-top: 12px; }
 .smi-mb-3 { margin-bottom: 12px; }
