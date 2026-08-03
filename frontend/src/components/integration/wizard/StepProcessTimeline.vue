@@ -480,7 +480,7 @@
 
     <!-- ── Dialog: Bulk create events ── -->
     <v-dialog v-model="bulkCreateEventsDialog" max-width="420" :persistent="bulkCreateEventsRunning">
-      <div class="spt-dialog">
+      <div class="spt-dialog" :class="{ 'spt-dialog--dark': isDark }">
         <div class="spt-dialog-header">
           <div class="spt-dialog-header__icon">
             <v-icon color="white" size="20">mdi-creation</v-icon>
@@ -1890,6 +1890,15 @@ export default {
 
 .spt-dialog-result__title { font-size: 15px; font-weight: 700; color: #111827; margin: 0 0 6px; }
 .spt-dialog-result__sub   { font-size: 13px; color: #6b7280; margin: 0; }
+
+/* Dark — le v-dialog est téléporté hors du .spt--dark, d'où la classe portée sur la carte. */
+.spt-dialog--dark { background: #1e293b; }
+.spt-dialog--dark .spt-dialog-body { background: #1e293b; }
+.spt-dialog--dark .spt-dialog-result__title { color: #f9fafb; }
+.spt-dialog--dark .spt-dialog-result__sub { color: #94a3b8; }
+.spt-dialog--dark .spt-dialog-footer { border-top-color: rgba(255,255,255,.08); }
+.spt-dialog--dark .spt-btn--ghost { color: #cbd5e1; border-color: rgba(255,255,255,.14); }
+.spt-dialog--dark .spt-btn--ghost:hover:not(:disabled) { background: #374151; border-color: rgba(255,255,255,.24); color: #fff; }
 
 /* ── Vuetify deep overrides ── */
 :deep(.v-field--focused) {

@@ -62,35 +62,29 @@
         </div>
 
         <div class="ced-field-group mb-3">
-          <div class="ced-label-row">
-            <label class="ced-label" for="ced-event-type">{{ t('intgCreateEvtTypeLabel') }}</label>
-            <button class="ced-create-link" type="button" @click="evtTypeCreateOpen = true">{{ t('intgCreateEvtCreateType') }}</button>
-          </div>
+          <label class="ced-label" for="ced-event-type">{{ t('intgCreateEvtTypeLabel') }}</label>
           <div class="ced-select-wrap">
             <select
               id="ced-event-type"
               class="ced-input ced-select"
               :value="newEventType"
-              @change="handleNewEventTypeChange($event.target.value)"
+              @change="handleNewEventTypeChange($event)"
             >
               <option value="">{{ t('intgCreateEvtSelectPlaceholder') }}</option>
               <option v-for="item in eventTypesList" :key="item.id" :value="item.id">{{ item.name }}</option>
+              <option value="__create_type__">{{ t('intgCreateEvtCreateType') }}</option>
             </select>
           </div>
         </div>
 
-        <div class="ced-field-group mb-3">
-          <div class="ced-label-row">
-            <label class="ced-label" for="ced-event-category" :class="{ 'ced-label--disabled': !newEventType }">{{ t('intgCreateEvtCategoryLabel') }}</label>
-            <button v-if="newEventType" class="ced-create-link" type="button" @click="evtCategoryCreateOpen = true">{{ t('intgCreateEvtCreateCategory') }}</button>
-          </div>
+        <div v-if="newEventType" class="ced-field-group mb-3">
+          <label class="ced-label" for="ced-event-category">{{ t('intgCreateEvtCategoryLabel') }}</label>
           <div class="ced-select-wrap">
             <select
               id="ced-event-category"
               class="ced-input ced-select"
               :value="newEventCategory"
-              :disabled="!newEventType"
-              @change="handleNewEventCategoryChange($event.target.value)"
+              @change="handleNewEventCategoryChange($event)"
             >
               <option value="">{{ t('intgCreateEvtSelectPlaceholder') }}</option>
               <option
@@ -98,22 +92,19 @@
                 :key="item.id"
                 :value="item.id"
               >{{ item.name }}</option>
+              <option value="__create_category__">{{ t('intgCreateEvtCreateCategory') }}</option>
             </select>
           </div>
         </div>
 
-        <div class="ced-field-group mb-2">
-          <div class="ced-label-row">
-            <label class="ced-label" for="ced-event-subcategory" :class="{ 'ced-label--disabled': !newEventCategory }">{{ t('intgCreateEvtSubcategoryLabel') }}</label>
-            <button v-if="newEventCategory" class="ced-create-link" type="button" @click="evtSubCreateOpen = true">{{ t('intgCreateEvtCreateSubcategory') }}</button>
-          </div>
+        <div v-if="newEventCategory" class="ced-field-group mb-2">
+          <label class="ced-label" for="ced-event-subcategory">{{ t('intgCreateEvtSubcategoryLabel') }}</label>
           <div class="ced-select-wrap">
             <select
               id="ced-event-subcategory"
               class="ced-input ced-select"
               :value="newEventSubcategory"
-              :disabled="!newEventCategory"
-              @change="handleNewEventSubChange($event.target.value)"
+              @change="handleNewEventSubChange($event)"
             >
               <option value="">{{ t('intgCreateEvtSelectPlaceholder') }}</option>
               <option
@@ -121,6 +112,7 @@
                 :key="item.id"
                 :value="item.id"
               >{{ item.name }}</option>
+              <option value="__create_sub__">{{ t('intgCreateEvtCreateSubcategory') }}</option>
             </select>
           </div>
         </div>
@@ -268,52 +260,82 @@
 
   <!-- Sub-dialog: Créer un type d'événement -->
   <v-dialog v-model="evtTypeCreateOpen" max-width="440" persistent>
-    <v-card rounded="xl">
-      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ t('intgCreateEvtTypeDialogTitle') }}</v-card-title>
-      <v-card-text class="px-5 pb-2">
-        <v-alert v-if="evtTypeCreateError" type="error" variant="tonal" density="compact" class="mb-4">{{ evtTypeCreateError }}</v-alert>
-        <v-text-field v-model="evtTypeCreateName" :label="t('intgCreateEvtTypeNameLabel')" variant="outlined" density="comfortable" hide-details :placeholder="t('intgCreateEvtTypeNamePlaceholder')" color="#ff3131" @keyup.enter="submitEvtTypeCreate" />
-      </v-card-text>
-      <v-card-actions class="px-5 pb-5 pt-3">
-        <v-spacer />
-        <v-btn variant="text" :disabled="evtTypeCreateLoading" @click="evtTypeCreateOpen = false">{{ t('intgCreateEvtCancel') }}</v-btn>
-        <v-btn color="#ff3131" variant="flat" rounded="lg" :loading="evtTypeCreateLoading" @click="submitEvtTypeCreate">{{ t('intgCreateEvtCreate') }}</v-btn>
-      </v-card-actions>
-    </v-card>
+    <div class="ced-mini" :class="{ 'ced-mini--dark': isDark }">
+      <div class="ced-mini__header">
+        <div class="ced-mini__icon"><v-icon size="18" color="white">mdi-tag-outline</v-icon></div>
+        <div class="ced-mini__title">{{ t('intgCreateEvtTypeDialogTitle') }}</div>
+        <button type="button" class="ced-mini__close" :disabled="evtTypeCreateLoading" @click="evtTypeCreateOpen = false"><v-icon size="18">mdi-close</v-icon></button>
+      </div>
+      <div class="ced-mini__body">
+        <div v-if="evtTypeCreateError" class="ced-mini__error"><v-icon size="14" color="#ff3131">mdi-alert-circle</v-icon><span>{{ evtTypeCreateError }}</span></div>
+        <div class="ced-field-group">
+          <label class="ced-label" for="ced-type-name">{{ t('intgCreateEvtTypeNameLabel') }}</label>
+          <input id="ced-type-name" v-model="evtTypeCreateName" class="ced-input" type="text" :placeholder="t('intgCreateEvtTypeNamePlaceholder')" @keyup.enter="submitEvtTypeCreate" />
+        </div>
+      </div>
+      <div class="ced-mini__footer">
+        <button class="ced-btn ced-btn--ghost" type="button" :disabled="evtTypeCreateLoading" @click="evtTypeCreateOpen = false">{{ t('intgCreateEvtCancel') }}</button>
+        <button class="ced-btn ced-btn--primary" type="button" :disabled="evtTypeCreateLoading" @click="submitEvtTypeCreate">
+          <v-progress-circular v-if="evtTypeCreateLoading" size="14" width="2" indeterminate color="white" />
+          <v-icon v-else size="14" color="white">mdi-plus</v-icon>
+          {{ t('intgCreateEvtCreate') }}
+        </button>
+      </div>
+    </div>
   </v-dialog>
 
   <!-- Sub-dialog: Créer une catégorie d'événement -->
   <v-dialog v-model="evtCategoryCreateOpen" max-width="440" persistent>
-    <v-card rounded="xl">
-      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ t('intgCreateEvtCategoryDialogTitle') }}</v-card-title>
-      <v-card-text class="px-5 pb-2">
-        <p v-if="newEventTypeName" class="text-body-2 text-medium-emphasis mb-3">{{ t('intgCreateEvtLinkedToType') }} <strong>{{ newEventTypeName }}</strong></p>
-        <v-alert v-if="evtCategoryCreateError" type="error" variant="tonal" density="compact" class="mb-4">{{ evtCategoryCreateError }}</v-alert>
-        <v-text-field v-model="evtCategoryCreateName" :label="t('intgCreateEvtCategoryNameLabel')" variant="outlined" density="comfortable" hide-details :placeholder="t('intgCreateEvtCategoryNamePlaceholder')" color="#ff3131" @keyup.enter="submitEvtCategoryCreate" />
-      </v-card-text>
-      <v-card-actions class="px-5 pb-5 pt-3">
-        <v-spacer />
-        <v-btn variant="text" :disabled="evtCategoryCreateLoading" @click="evtCategoryCreateOpen = false">{{ t('intgCreateEvtCancel') }}</v-btn>
-        <v-btn color="#ff3131" variant="flat" rounded="lg" :loading="evtCategoryCreateLoading" @click="submitEvtCategoryCreate">{{ t('intgCreateEvtCreate') }}</v-btn>
-      </v-card-actions>
-    </v-card>
+    <div class="ced-mini" :class="{ 'ced-mini--dark': isDark }">
+      <div class="ced-mini__header">
+        <div class="ced-mini__icon"><v-icon size="18" color="white">mdi-shape-outline</v-icon></div>
+        <div class="ced-mini__title">{{ t('intgCreateEvtCategoryDialogTitle') }}</div>
+        <button type="button" class="ced-mini__close" :disabled="evtCategoryCreateLoading" @click="evtCategoryCreateOpen = false"><v-icon size="18">mdi-close</v-icon></button>
+      </div>
+      <div class="ced-mini__body">
+        <p v-if="newEventTypeName" class="ced-mini__hint">{{ t('intgCreateEvtLinkedToType') }} <strong>{{ newEventTypeName }}</strong></p>
+        <div v-if="evtCategoryCreateError" class="ced-mini__error"><v-icon size="14" color="#ff3131">mdi-alert-circle</v-icon><span>{{ evtCategoryCreateError }}</span></div>
+        <div class="ced-field-group">
+          <label class="ced-label" for="ced-cat-name">{{ t('intgCreateEvtCategoryNameLabel') }}</label>
+          <input id="ced-cat-name" v-model="evtCategoryCreateName" class="ced-input" type="text" :placeholder="t('intgCreateEvtCategoryNamePlaceholder')" @keyup.enter="submitEvtCategoryCreate" />
+        </div>
+      </div>
+      <div class="ced-mini__footer">
+        <button class="ced-btn ced-btn--ghost" type="button" :disabled="evtCategoryCreateLoading" @click="evtCategoryCreateOpen = false">{{ t('intgCreateEvtCancel') }}</button>
+        <button class="ced-btn ced-btn--primary" type="button" :disabled="evtCategoryCreateLoading" @click="submitEvtCategoryCreate">
+          <v-progress-circular v-if="evtCategoryCreateLoading" size="14" width="2" indeterminate color="white" />
+          <v-icon v-else size="14" color="white">mdi-plus</v-icon>
+          {{ t('intgCreateEvtCreate') }}
+        </button>
+      </div>
+    </div>
   </v-dialog>
 
   <!-- Sub-dialog: Créer une sous-catégorie d'événement -->
   <v-dialog v-model="evtSubCreateOpen" max-width="440" persistent>
-    <v-card rounded="xl">
-      <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">{{ t('intgCreateEvtSubDialogTitle') }}</v-card-title>
-      <v-card-text class="px-5 pb-2">
-        <p v-if="newEventCategoryName" class="text-body-2 text-medium-emphasis mb-3">{{ t('intgCreateEvtLinkedToCategory') }} <strong>{{ newEventCategoryName }}</strong></p>
-        <v-alert v-if="evtSubCreateError" type="error" variant="tonal" density="compact" class="mb-4">{{ evtSubCreateError }}</v-alert>
-        <v-text-field v-model="evtSubCreateName" :label="t('intgCreateEvtSubNameLabel')" variant="outlined" density="comfortable" hide-details :placeholder="t('intgCreateEvtSubNamePlaceholder')" color="#ff3131" @keyup.enter="submitEvtSubCreate" />
-      </v-card-text>
-      <v-card-actions class="px-5 pb-5 pt-3">
-        <v-spacer />
-        <v-btn variant="text" :disabled="evtSubCreateLoading" @click="evtSubCreateOpen = false">{{ t('intgCreateEvtCancel') }}</v-btn>
-        <v-btn color="#ff3131" variant="flat" rounded="lg" :loading="evtSubCreateLoading" @click="submitEvtSubCreate">{{ t('intgCreateEvtCreate') }}</v-btn>
-      </v-card-actions>
-    </v-card>
+    <div class="ced-mini" :class="{ 'ced-mini--dark': isDark }">
+      <div class="ced-mini__header">
+        <div class="ced-mini__icon"><v-icon size="18" color="white">mdi-shape-plus-outline</v-icon></div>
+        <div class="ced-mini__title">{{ t('intgCreateEvtSubDialogTitle') }}</div>
+        <button type="button" class="ced-mini__close" :disabled="evtSubCreateLoading" @click="evtSubCreateOpen = false"><v-icon size="18">mdi-close</v-icon></button>
+      </div>
+      <div class="ced-mini__body">
+        <p v-if="newEventCategoryName" class="ced-mini__hint">{{ t('intgCreateEvtLinkedToCategory') }} <strong>{{ newEventCategoryName }}</strong></p>
+        <div v-if="evtSubCreateError" class="ced-mini__error"><v-icon size="14" color="#ff3131">mdi-alert-circle</v-icon><span>{{ evtSubCreateError }}</span></div>
+        <div class="ced-field-group">
+          <label class="ced-label" for="ced-sub-name">{{ t('intgCreateEvtSubNameLabel') }}</label>
+          <input id="ced-sub-name" v-model="evtSubCreateName" class="ced-input" type="text" :placeholder="t('intgCreateEvtSubNamePlaceholder')" @keyup.enter="submitEvtSubCreate" />
+        </div>
+      </div>
+      <div class="ced-mini__footer">
+        <button class="ced-btn ced-btn--ghost" type="button" :disabled="evtSubCreateLoading" @click="evtSubCreateOpen = false">{{ t('intgCreateEvtCancel') }}</button>
+        <button class="ced-btn ced-btn--primary" type="button" :disabled="evtSubCreateLoading" @click="submitEvtSubCreate">
+          <v-progress-circular v-if="evtSubCreateLoading" size="14" width="2" indeterminate color="white" />
+          <v-icon v-else size="14" color="white">mdi-plus</v-icon>
+          {{ t('intgCreateEvtCreate') }}
+        </button>
+      </div>
+    </div>
   </v-dialog>
 </template>
 
@@ -383,21 +405,6 @@ export default {
     isDark() {
       return this.theme.current.value.dark
     },
-    newEventTypeSelectItems() {
-      return [...this.eventTypesList, { id: '__create_type__', name: '+ Créer un type…' }]
-    },
-    newEventCategorySelectItems() {
-      const filtered = this.eventCategoriesList.filter(c => !this.newEventType || c.eventTypeId === this.newEventType)
-      return [...filtered, { id: '__create_category__', name: '+ Créer une catégorie…' }]
-    },
-    newEventSubSelectItems() {
-      const filtered = this.eventSubcategoriesList.filter(s => {
-        if (!this.newEventCategory) return true
-        const catId = s.eventCategoryId ?? s.categoryId ?? s.category_id ?? s.category?.id
-        return String(catId) === String(this.newEventCategory)
-      })
-      return [...filtered, { id: '__create_sub__', name: '+ Créer une sous-catégorie…' }]
-    },
     newEventTypeName() {
       return this.eventTypesList.find(t => t.id === this.newEventType)?.name || ''
     },
@@ -447,8 +454,13 @@ export default {
         // Silencieux — les selects resteront vides
       }
     },
-    handleNewEventTypeChange(val) {
+    handleNewEventTypeChange(e) {
+      const val = e.target.value
       if (val === '__create_type__') {
+        // Choisir « Créer… » ne sélectionne PAS l'option : on remet le <select> sur la valeur
+        // réelle (Vue ne re-patche pas le DOM car le modèle n'a pas changé) et on ouvre le dialog.
+        // Si l'utilisateur le ferme sans créer, le champ reste donc vide/inchangé.
+        e.target.value = this.newEventType
         this.evtTypeCreateName = ''
         this.evtTypeCreateError = ''
         this.evtTypeCreateOpen = true
@@ -458,8 +470,10 @@ export default {
       this.newEventCategory = ''
       this.newEventSubcategory = ''
     },
-    handleNewEventCategoryChange(val) {
+    handleNewEventCategoryChange(e) {
+      const val = e.target.value
       if (val === '__create_category__') {
+        e.target.value = this.newEventCategory
         this.evtCategoryCreateName = ''
         this.evtCategoryCreateError = ''
         this.evtCategoryCreateOpen = true
@@ -468,8 +482,10 @@ export default {
       this.newEventCategory = val || ''
       this.newEventSubcategory = ''
     },
-    handleNewEventSubChange(val) {
+    handleNewEventSubChange(e) {
+      const val = e.target.value
       if (val === '__create_sub__') {
+        e.target.value = this.newEventSubcategory
         this.evtSubCreateName = ''
         this.evtSubCreateError = ''
         this.evtSubCreateOpen = true
@@ -657,30 +673,8 @@ export default {
   color: #374151;
   margin-bottom: 5px;
 }
-.ced-label--disabled {
-  color: #d1d5db;
-}
 .ced-required {
   color: #ff3131;
-}
-.ced-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 5px;
-}
-.ced-create-link {
-  font-size: 11px;
-  font-weight: 600;
-  color: #ff3131;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  line-height: 1;
-}
-.ced-create-link:hover {
-  text-decoration: underline;
 }
 
 /* ══ Native inputs ═══════════════════════════════════════ */
@@ -691,7 +685,7 @@ export default {
   border-radius: 9px;
   font-size: 13.5px;
   color: #111827;
-  background: #fff;
+  background-color: #fff;
   outline: none;
   transition: border-color 0.18s, box-shadow 0.18s;
   font-family: inherit;
@@ -705,7 +699,9 @@ export default {
   color: #c0c5cc;
 }
 .ced-input:disabled {
-  background: #f9fafb;
+  /* background-color (pas le raccourci `background`) : sinon background-image/-repeat/-position
+     du chevron .ced-select sont réinitialisés → chevron répété en mosaïque sur un select désactivé. */
+  background-color: #f9fafb;
   color: #9ca3af;
   border-color: #f0f0f0;
   cursor: not-allowed;
@@ -910,13 +906,14 @@ export default {
 .ced-card--dark .ced-label {
   color: #e2e8f0;
 }
-.ced-card--dark .ced-label--disabled {
-  color: #64748b;
-}
 .ced-card--dark .ced-input {
   border-color: rgba(255, 255, 255, 0.08);
   color: #f9fafb;
-  background: #0f172a;
+  /* background-color (PAS le raccourci `background`) : sinon background-image/-repeat/-position
+     du chevron .ced-select sont réinitialisés → chevron tuilé sur toute la largeur en dark. */
+  background-color: #0f172a;
+  /* Rend la liste déroulante native du <select> et les pickers date/time en thème sombre. */
+  color-scheme: dark;
 }
 .ced-card--dark .ced-input:focus {
   border-color: #ff3131;
@@ -925,7 +922,7 @@ export default {
   color: #64748b;
 }
 .ced-card--dark .ced-input:disabled {
-  background: rgba(255, 255, 255, 0.04);
+  background-color: rgba(255, 255, 255, 0.04);
   color: #64748b;
   border-color: rgba(255, 255, 255, 0.08);
 }
@@ -981,4 +978,32 @@ export default {
   background: rgba(255, 49, 49, 0.35);
   color: rgba(255, 255, 255, 0.6);
 }
+
+/* ══ Sous-dialogs Type / Catégorie / Sous-catégorie (charte) ═════════════ */
+.ced-mini { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
+.ced-mini__header { display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: #ff3131; }
+.ced-mini__icon { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ced-mini__title { flex: 1; min-width: 0; color: #fff; font-size: 14px; font-weight: 700; }
+.ced-mini__close { width: 30px; height: 30px; border: none; border-radius: 8px; background: rgba(255,255,255,.18); color: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .18s; flex-shrink: 0; }
+.ced-mini__close:hover:not(:disabled) { background: rgba(255,255,255,.3); }
+.ced-mini__close:disabled { opacity: .5; cursor: not-allowed; }
+.ced-mini__body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.ced-mini__hint { font-size: 12.5px; color: #6b7280; margin: 0; }
+.ced-mini__hint strong { color: #111827; }
+.ced-mini__error { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 9px; font-size: 12.5px; }
+.ced-mini__footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+
+/* Dark */
+.ced-mini--dark { background: #1e293b; }
+.ced-mini--dark .ced-mini__body { background: #1e293b; }
+.ced-mini--dark .ced-label { color: #e2e8f0; }
+.ced-mini--dark .ced-input { border-color: rgba(255,255,255,.08); color: #f9fafb; background-color: #0f172a; color-scheme: dark; }
+.ced-mini--dark .ced-input:focus { border-color: #ff3131; }
+.ced-mini--dark .ced-input::placeholder { color: #64748b; }
+.ced-mini--dark .ced-mini__hint { color: #94a3b8; }
+.ced-mini--dark .ced-mini__hint strong { color: #f3f4f6; }
+.ced-mini--dark .ced-mini__error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+.ced-mini--dark .ced-mini__footer { background: #0f172a; border-top-color: rgba(255,255,255,.08); }
+.ced-mini--dark .ced-btn--ghost { color: #e2e8f0; border-color: rgba(255,255,255,.08); }
+.ced-mini--dark .ced-btn--ghost:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
 </style>
