@@ -82,6 +82,15 @@
         {{ debugError }}
       </div>
 
+      <!-- Barre d'action groupée (visible quand des articles sont sélectionnés) -->
+      <div v-if="bulkSelected.length" class="bulk-bar">
+        <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+        <div class="bulk-bar__actions">
+          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+        </div>
+      </div>
+
       <!-- List view -->
       <div class="mpl-table-wrap">
         <MarketPriceTable
@@ -91,6 +100,8 @@
           :loading="marketPricesLoading"
           :expanded="expanded"
           :supplier-headers="supplierHeaders"
+          :selected="bulkSelected"
+          @update:selected="bulkSelected = $event"
           @update:expanded="expanded = $event"
           @toggle-expand="toggleExpand"
           @add-supplier="onAddSupplier"
@@ -109,13 +120,23 @@
     <MarketPriceDeleteItemDialog v-model="deleteItemDialog" :item-name="deleteItemName" :is-dark="isDark" @deleted="onDeleted" />
     <MarketPriceDeleteSupplierDialog v-model="deleteSupplierDialog" :target-row="deleteSupplierTarget" :item-name="deleteSupplierItemName" :is-dark="isDark" @deleted="onDeleted" />
     <MarketPriceEditSupplierDrawer v-model="editSupplierDialog" :item="editSupplierItem" :row="editSupplierRowData" :suppliers="suppliers" :good-type-options="goodTypeOptions" :product-categories="productCategories" :is-dark="isDark" @saved="onSaved" />
+
+    <!-- Suppression multiple : dialog réutilisable (confirmation puis progression X/N) -->
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
+      @confirm="confirmBulkDelete"
+    />
   </div>
 </template>
 <script>
 import {
   AlertCircle,
   Download,
-  PackageX,
   Pencil,
   Plus,
   Search,
@@ -124,7 +145,6 @@ import {
   Upload,
   X,
 } from "lucide-vue-next";
-import MarketPriceFilters from '../components/MarketPriceFilters.vue';
 import MarketPriceTable from '../components/MarketPriceTable.vue';
 import MarketPriceCsvImportDrawer from '../drawers/MarketPriceCsvImportDrawer.vue';
 import MarketPriceCreateDrawer from '../drawers/MarketPriceCreateDrawer.vue';
@@ -132,7 +152,9 @@ import MarketPriceEditDrawer from '../drawers/MarketPriceEditDrawer.vue';
 import MarketPriceDeleteItemDialog from '../dialogs/MarketPriceDeleteItemDialog.vue';
 import MarketPriceDeleteSupplierDialog from '../dialogs/MarketPriceDeleteSupplierDialog.vue';
 import MarketPriceEditSupplierDrawer from '../drawers/MarketPriceEditSupplierDrawer.vue';
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
 
+import { deleteMarketPricesByItemName } from '@/api/endpoints/menu.api';
 import { setAccessToken } from "@/api/client";
 import { supabase } from "@/lib/supabase";
 import { useI18n } from '@/i18n/useI18n';
@@ -140,9 +162,8 @@ import { useI18n } from '@/i18n/useI18n';
 export default {
   name: "MarketPriceListView",
   components: {
-    AlertCircle, Download, PackageX, Pencil, Plus,
+    AlertCircle, Download, Pencil, Plus,
     Search, ShoppingBasket, Trash2, Upload, X,
-    MarketPriceFilters,
     MarketPriceTable,
     MarketPriceCsvImportDrawer,
     MarketPriceCreateDrawer,
@@ -150,6 +171,7 @@ export default {
     MarketPriceDeleteItemDialog,
     MarketPriceDeleteSupplierDialog,
     MarketPriceEditSupplierDrawer,
+    BulkDeleteDialog,
   },
   setup() {
     const { t } = useI18n();
@@ -164,7 +186,6 @@ export default {
       selectedType: "All Types",
       selectedCategory: "All Categories",
       selectedSupplier: "All Suppliers",
-      selectedSpace: "All Spaces",
 
       marketPricesLoading: true,
       marketPricesError: "",
@@ -192,7 +213,14 @@ export default {
       editSupplierRowData: null,
 
       debugError: "",
-      debugResult: null,
+
+      // Suppression multiple (sélection = noms d'articles, cf. item-value="id" = itemName)
+      bulkSelected: [],
+      bulkOpen: false,
+      bulkLoading: false,
+      bulkError: "",
+      bulkProgress: 0,
+      bulkTotal: 0,
 
       tableHeaders: [
         { title: "", key: "expand", sortable: false, width: 44 },
@@ -225,7 +253,6 @@ export default {
     this.$store.dispatch('industrials/fetchIndustrials');
     this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes');
     this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories');
-    this.$store.dispatch('spaces/fetchSpaces');
     // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
     // (suppression bloquée par des MarketPrice dépendants) de lier directement vers la liste déjà
     // filtrée, plutôt que de chercher la bonne ligne à la main.
@@ -265,9 +292,6 @@ export default {
     },
     productCategories() {
       return this.$store.getters['marketPriceCategories/marketPriceCategories'];
-    },
-    spaces() {
-      return this.$store.getters['spaces/spaces'];
     },
     marketPriceRows() {
       return this.$store.getters['marketPrices/rows'];
@@ -426,13 +450,6 @@ export default {
         ...Array.from(new Set(list)).sort((a, b) => String(a).localeCompare(String(b))),
       ];
     },
-    spaceOptions() {
-      const list = (this.spaces || []).map((s) => s?.name).filter(Boolean);
-      return [
-        "All Spaces",
-        ...Array.from(new Set(list)).sort((a, b) => String(a).localeCompare(String(b))),
-      ];
-    },
     recipeUnitOptions() {
       const fromItems = (this.items || []).map((i) => i?.recipeUnit).filter(Boolean);
       const common = ["g", "kg", "ml", "l", "pcs"];
@@ -441,21 +458,6 @@ export default {
     existingItemNames() {
       const names = (this.items || []).map((i) => i?.name).filter(Boolean);
       return Array.from(new Set(names)).sort((a, b) => String(a).localeCompare(String(b)));
-    },
-    totalSuppliers() {
-      const supplierNames = new Set();
-      (this.items || []).forEach(item => {
-        if (Array.isArray(item.supplierNames)) {
-          item.supplierNames.forEach(name => { if (name) supplierNames.add(name); });
-        }
-      });
-      return supplierNames.size;
-    },
-    foodCount() {
-      return (this.items || []).filter(i => i?.goodType === 'Food').length;
-    },
-    beverageCount() {
-      return (this.items || []).filter(i => i?.goodType === 'Beverage').length;
     },
     filteredItems() {
       const q = (this.debouncedSearchQuery || "").trim().toLowerCase();
@@ -597,6 +599,42 @@ export default {
     },
     onDeleted() {
       this.loadMarketPrices(true);
+    },
+    openBulkDelete() {
+      this.bulkError = '';
+      this.bulkProgress = 0;
+      this.bulkTotal = 0;
+      this.bulkOpen = true;
+    },
+    // La sélection contient les noms d'articles (item-value="id" = itemName, table groupée).
+    // Chaque suppression retire TOUTES les lignes fournisseur de l'article (deleteMarketPricesByItemName).
+    async confirmBulkDelete() {
+      const names = [...this.bulkSelected];
+      if (!names.length) return;
+      this.bulkLoading = true;
+      this.bulkError = '';
+      this.bulkTotal = names.length;
+      this.bulkProgress = 0;
+      const failed = [];
+      for (const name of names) {
+        try {
+          await deleteMarketPricesByItemName(String(name).trim());
+        } catch (e) {
+          failed.push(name);
+        }
+        this.bulkProgress += 1;
+      }
+      this.$store.dispatch('marketPriceIngredients/invalidate');
+      await this.loadMarketPrices(true);
+      this.bulkLoading = false;
+      this.bulkSelected = failed;
+      if (failed.length) {
+        this.bulkError = this.locale === 'fr'
+          ? `${failed.length} article(s) n'ont pas pu être supprimés.`
+          : `${failed.length} item(s) could not be deleted.`;
+      } else {
+        this.bulkOpen = false;
+      }
     },
     exportToCSV() {
       try {
@@ -864,6 +902,18 @@ export default {
   border-radius: 10px; font-size: 13px; color: #ff3131;
   margin-bottom: 16px;
 }
+
+/* ── Barre de suppression multiple ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size:var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.mpl--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.mpl--dark .bulk-bar__clear { color:#94a3b8; }
+.mpl--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
 
 /* ── Table view ── */
 .mpl-table-wrap {
