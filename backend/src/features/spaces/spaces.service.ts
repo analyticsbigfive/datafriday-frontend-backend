@@ -967,8 +967,22 @@ export class SpacesService {
       -- Builder v2 : éléments rattachés à une Zone (par ESPACE). Le scoping par config
       -- passe par les adhésions ConfigurationElement ; sous-types v2 exposés en
       -- "shopTypes" (compat consommateurs). floorLevel : FLOOR → level, sinon la zone.
+      --
+      -- UNE LIGNE PAR (élément, config), PAS par élément. Un élément v2 est PARTAGÉ entre
+      -- configs (créer une config par clonage copie ses adhésions, cf. builder-v2.service
+      -- createConfiguration). `DISTINCT ON (se.id)` seul n'émettait qu'une ligne par
+      -- élément, taguée de son adhésion la PLUS ANCIENNE (ORDER BY ce."createdAt") : toute
+      -- config clonée disparaissait de la réponse « toutes configs », et les consommateurs
+      -- qui refiltrent côté client sur `configId` (EventPredictView, SpaceRestockView)
+      -- voyaient 0 point de vente alors que Space Menus — qui passe ?configId= et
+      -- court-circuite ce DISTINCT — en listait (BUG-286-01). Le DISTINCT ON est CONSERVÉ
+      -- sur le couple, mais c'est un no-op garanti par la PK ConfigurationElement
+      -- @@id([configId, elementId]) : au plus une adhésion par (config, élément).
+      -- Corollaire : le menuItemsCount du LEFT JOIN LATERAL plus bas (scopé sur
+      -- a."configId") devient enfin juste pour CHAQUE config, et plus seulement pour la
+      -- plus ancienne.
       zone_shops AS (
-        SELECT DISTINCT ON (se.id)
+        SELECT DISTINCT ON (se.id, ce."configId")
                se.id, se.name, se.type::text AS type,
                CASE WHEN cardinality(se.subtypes) > 0 THEN se.subtypes ELSE se."shopTypes" END AS "shopTypes",
                se.attributes, se.image, se.notes,
@@ -984,7 +998,10 @@ export class SpacesService {
         JOIN "ConfigurationElement" ce ON ce."elementId" = se.id
         JOIN target_configs tc ON tc.id = ce."configId"
         WHERE se.type::text = ANY(${shopTypes})
-        ORDER BY se.id, ce."createdAt" ASC
+        -- Postgres impose que les expressions du DISTINCT ON soient les premières de
+        -- l'ORDER BY, dans le même ordre. Plus de départage sur ce."createdAt" : le
+        -- couple (élément, config) est déjà unique.
+        ORDER BY se.id, ce."configId"
       ),
       all_shops AS (
         SELECT * FROM floor_shops
@@ -1013,7 +1030,14 @@ export class SpacesService {
       )
       SELECT
         EXISTS(SELECT 1 FROM "Space" WHERE id = ${spaceId} AND "tenantId" = ${tenantId}) AS space_exists,
-        COALESCE((SELECT json_agg(enriched) FROM enriched), '[]'::json) AS shops
+        -- ORDER BY explicite : sans lui, l'ordre des lignes est arbitraire et peut varier
+        -- d'une requête à l'autre. Depuis qu'un élément partagé sort une fois PAR config,
+        -- un consommateur en premier-arrivé-gagne (ex. StepMapShops, qui affiche le
+        -- configName suggéré) verrait sa suggestion changer d'un rechargement à l'autre.
+        COALESCE(
+          (SELECT json_agg(enriched ORDER BY enriched.id, enriched."configId") FROM enriched),
+          '[]'::json
+        ) AS shops
     `);
 
     const row = rows[0];

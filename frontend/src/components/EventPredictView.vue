@@ -1314,6 +1314,45 @@ function isEventUnderway(ev) {
   return !Number.isNaN(start.getTime()) && start.getTime() <= Date.now();
 }
 
+/**
+ * Fusionne les lignes `/spaces/:id/shops` qui décrivent le MÊME point de vente.
+ *
+ * Depuis BUG-286-01 (backend `getSpaceShops`, `DISTINCT ON (se.id, ce."configId")`),
+ * la réponse NON filtrée par config renvoie une ligne PAR (élément, config) : un
+ * élément builder-v2 partagé entre plusieurs configs y figure autant de fois qu'il a
+ * d'adhésions. Quand l'event porte une `configurationId`, l'appelant a déjà filtré
+ * dessus et la fusion est un no-op (la PK `ConfigurationElement` garantit au plus une
+ * ligne par couple) ; quand il n'en porte PAS (event brouillon / non configuré), il
+ * FAUT collapser, sinon la liste porte des `:key` dupliqués et les compteurs doublent.
+ *
+ * Règle : OU logique sur `isOpen` (ouvert dans au moins une config = ouvert), MAX sur
+ * `menuItemsCount`. Surtout PAS « première ligne vue » ni « dernière vue » : ce serait
+ * l'ordre des lignes qui déciderait, et l'état Opened/Closed d'un point de vente
+ * changerait d'un rechargement à l'autre.
+ *
+ * Et c'est la MÊME règle pour `isOpenByShop` (clé = nom) et `configShopElements`
+ * (clé = id) : les deux alimentent le même écran — badge Opened/Closed côté enfant,
+ * `closedShopNormSet` (exclusion des PdV fermés du CA) côté parent. Deux règles
+ * divergentes afficheraient un PdV « Opened » dont le CA est pourtant exclu.
+ */
+function mergeShopRowsByKey(rows, keyOf) {
+  const out = new Map();
+  for (const r of rows) {
+    const key = keyOf(r);
+    if (!key) continue;
+    const open = r?.isOpen === true || Number(r?.menuItemsCount) > 0;
+    const count = Number(r?.menuItemsCount) || 0;
+    const prev = out.get(key);
+    if (!prev) {
+      out.set(key, { row: r, isOpen: open, menuItemsCount: count });
+      continue;
+    }
+    prev.isOpen = prev.isOpen || open;
+    prev.menuItemsCount = Math.max(prev.menuItemsCount, count);
+  }
+  return out;
+}
+
 export default {
   name: "EventPredictView",
   components: {
@@ -1956,12 +1995,15 @@ export default {
       const scoped = cfgId
         ? rows.filter((r) => (r?.configId ?? r?._raw?.configId) === cfgId)
         : rows;
+      // Fusion par NOM, règle OU (cf. mergeShopRowsByKey). L'ancien `out[name] = …`
+      // en dernier-écrit-gagne laissait l'ordre des lignes décider de l'état d'un PdV
+      // partagé entre configs — et pouvait contredire `closedShopNormSet`, qui dérive
+      // du même jeu de lignes via `configShopElements`.
+      const merged = mergeShopRowsByKey(scoped, (r) =>
+        String(r?.name || "").trim().toLowerCase(),
+      );
       const out = {};
-      for (const r of scoped) {
-        const name = String(r?.name || "").trim().toLowerCase();
-        if (!name) continue;
-        out[name] = r?.isOpen === true || Number(r?.menuItemsCount) > 0;
-      }
+      for (const [name, m] of merged) out[name] = m.isOpen;
       return out;
     },
     /**
@@ -2001,7 +2043,17 @@ export default {
       const scoped = cfgId
         ? rows.filter((r) => (r?.configId ?? r?._raw?.configId) === cfgId)
         : rows;
-      return scoped.map((r) => ({
+      // Fusion par ID d'élément, MÊME règle que `isOpenByShop` (cf.
+      // mergeShopRowsByKey). Sans `configurationId` d'event, `scoped` = toutes les
+      // lignes, et un élément v2 partagé y figure une fois PAR config : sans fusion,
+      // `:key="element.id"` serait dupliqué côté enfant et les compteurs
+      // ouverts/fermés doubleraient. `isOpen`/`menuItemsCount` viennent du RÉSULTAT
+      // de fusion, pas de `r` — c'est ce qui garde ce computed cohérent avec
+      // `isOpenByShop`.
+      const merged = mergeShopRowsByKey(scoped, (r) =>
+        r?.id != null ? String(r.id) : "",
+      );
+      return [...merged.values()].map(({ row: r, isOpen, menuItemsCount }) => ({
         id: r.id,
         name: r.name,
         type: r.type || "shop",
@@ -2012,8 +2064,8 @@ export default {
         locationId: r.locationId,
         locationName: r.locationName,
         floorLevel: r.floorLevel,
-        isOpen: r.isOpen,
-        menuItemsCount: r.menuItemsCount,
+        isOpen,
+        menuItemsCount,
       }));
     },
     /** Tenant courant (organisation) pour l'en-tête de la popup remap. */
@@ -4147,6 +4199,14 @@ export default {
         const rows = this._spaceShopsCache[spaceId] || [];
         const nextRows = rows.map((r) => {
           if (String(r?.id ?? r?._id ?? r?.shopId ?? "") !== shopId) return r;
+          // Ne bumper QUE la ligne de la config courante : la réponse /shops non
+          // filtrée porte une ligne par (élément, config) et un élément v2 est
+          // partagé entre configs — sans ce test, l'assignation faite ici gonflerait
+          // le compteur des AUTRES configs, et un PdV réellement fermé y passerait
+          // « Opened » au changement d'event. `cfgId` est non nul (garde plus haut) ;
+          // `rc == null` = ligne sans config (défensif) → on la bumpe.
+          const rc = r?.configId ?? r?._raw?.configId;
+          if (rc != null && rc !== cfgId) return r;
           const count = Math.max(
             0,
             Number(r?.menuItemsCount || 0) + (enabled ? 1 : -1),
