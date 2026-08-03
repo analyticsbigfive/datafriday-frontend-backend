@@ -5,6 +5,7 @@ import { HrSuppliersController, HrImportController } from './hr-suppliers.contro
 import { HrRolesController } from './hr-roles.controller';
 import { HrPersonsController } from './hr-persons.controller';
 import { HrSinkingRulesController } from './hr-sinking-rules.controller';
+import { HrRoleMenuItemRatiosController } from './hr-role-menu-item-ratios.controller';
 
 @Module({
   imports: [PrismaModule],
@@ -14,6 +15,7 @@ import { HrSinkingRulesController } from './hr-sinking-rules.controller';
     HrRolesController,
     HrPersonsController,
     HrSinkingRulesController,
+    HrRoleMenuItemRatiosController,
   ],
   providers: [HrService],
   exports: [HrService],

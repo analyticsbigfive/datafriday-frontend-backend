@@ -177,6 +177,9 @@ export function sectionsForType(type, tools = []) {
     // départements, donc pas de section correspondante ailleurs (cf. BUG-260-02, décision
     // utilisateur 2026-08-01 : tout dans le Builder).
     staffingInputs: t === 'shop',
+    // Saisie "vendu/prévu" par Menu Item (11_RH_STAFFING.md §11.16), source des associations
+    // Rôle↔MenuItem — même périmètre que staffingInputs (shop uniquement).
+    menuItemSalesInput: t === 'shop',
     staff: seller || t === 'entrance' || t === 'kitchen' || t === 'entertainment',
   }
 }

@@ -726,3 +726,115 @@ Retirés du Builder :
   reste néanmoins une valeur de condition Sinking Rule valide (une règle en base en dépend) — sa
   valeur déjà stockée en base continue de fonctionner, seulement plus éditable via le Builder.
 
+### 11.15 Association Rôle ↔ Menu Item — architecture retenue (2026-08-03, résout #47)
+
+**Origine** : maquette Bertrand montrant un drawer "Modifier les paramètres RH de l'espace" avec
+une section "Association Rôles et Ventes" (modale "Ajouter une association" : rôle, base de calcul
+CA/Quantités, multi-select Menu Items avec "Tout Sélectionner"). **Vérifié le 2026-08-03 : cette UI
+n'existe pas encore dans le code** — ni dans `HrSpaceEditDrawer.vue` (2 champs seulement
+aujourd'hui : Goal/TPE, Staff par Responsable de zone), ni dans `HrRoleFormDrawer.vue`. C'est une
+cible, pas une capture de l'existant.
+
+**Périmètre tranché avec Bertrand (session 2026-08-03)** : Ulrich construit l'UI RH d'association +
+tout ce qui est calculable côté Builder/Staff. Tout ce qui toucherait au calcul Event Predict
+reste **hors périmètre**, chantier Jean-Luc. Confirmé explicitement : le calcul par paliers
+événementiel (`StaffingService.generate()`, §10.1) pour les 4 rôles fixes — responsable de zone,
+responsable de PDV, caissier, runner — **ne change pas**, même méthode qu'aujourd'hui.
+
+**Architecture retenue** : généraliser le mécanisme Sinking Rule existant (`HrSinkingRule`,
+`isSinkingRuleMet()` — §11.3) plutôt que créer un moteur de calcul séparé. Aujourd'hui une Sinking
+Rule ne sait tester qu'une condition booléenne sur un attribut physique fixe du PDV (`nbFriteuses
+≥ seuil`, etc.). La généralisation ajoute un type de condition "ratio de vente" : un rôle est
+associé à un ou plusieurs `MenuItem` (option "Tout Sélectionner"), avec une base CA ou Quantités et
+un seuil ("1 Commis tous les 100 Burger" / "1 EPR tous les 500€ de CA") — configuré une fois via la
+nouvelle UI RH, consommé automatiquement dans la liste Staff du Builder (`StaffSection.vue`,
+lignes AUTO) exactement comme une Sinking Rule aujourd'hui.
+
+**Ceci résout #47 par construction** : plus besoin de classifier un `MenuItem` comme "burger" ou
+"hot-dog" dans le catalogue — l'utilisateur RH choisit explicitement les items concernés dans l'UI.
+La question "quels MenuItem comptent comme burger/hot-dog" ne se pose plus.
+
+**Trois sources possibles pour la "valeur courante" comparée au seuil — non exclusives, conçues
+comme des fournisseurs interchangeables du même point d'intégration** :
+1. **Saisie manuelle par shop dans le Builder** (comme l'étaient historiquement
+   `nbBurgersPrevus`/`nbHotdogsPrevus`, §11.14) — dans le périmètre, phase 1.
+2. **Ventes réelles live via Weezevent** — dans le périmètre (domaine Intégrations & Ventes
+   d'Ulrich, [`05_INTEGRATIONS_VENTES.md`](05_INTEGRATIONS_VENTES.md)), phase 2. Aucune table
+   prête à l'emploi "quantité vendue par shop × MenuItem", mais tous les ingrédients existent déjà :
+   `GET weezevent/analytics/sales-by-product` (`weezevent-analytics.controller.ts:17`, à scoper par
+   shop) et les tables brutes `SalesTransaction`/`SalesTransactionItem`/`ProductMapping` croisables
+   avec `LocationShopMapping`. Ne reflète que du vendu réel — pertinent pour ajuster le staff
+   affiché pendant/après l'event (module Live), pas pour la planification en amont.
+3. **Prévision Event Predict** — **hors périmètre de ce chantier**, chantier Jean-Luc. Reste
+   bloqué par #43 (`ElementPerformance` vide en base) et nécessite qu'une prévision par
+   MenuItem × shop soit exposée côté backend (aujourd'hui calculée uniquement côté client,
+   `usePredictiveTimeline.js` + `predictiveAnalytics.js`, jamais persistée de façon fiable — voir
+   analyse détaillée session 2026-08-03, non versionnée en doc). Le point d'intégration générique
+   doit rester assez agnostique pour que Jean-Luc puisse brancher cette 3ᵉ source plus tard sans
+   retoucher l'UI RH ni le mécanisme de condition.
+
+**Ce qui ne change pas** : `staffing.service.ts` et le calcul par paliers CA/TPE pour les 4 rôles
+fixes (§10.1) restent intouchés — seule la suggestion auto **par élément** dans le Builder
+(`getStaffSuggestions`, même mécanisme que §11.13) est concernée par cette généralisation.
+
+### 11.16 Implémentation phase 1 (2026-08-03) — saisie manuelle, périmètre Builder/RH
+
+Livre exactement le périmètre tranché en §11.15 (UI RH + Builder, source "manuelle" uniquement —
+sources "live Weezevent" et "predict" laissées pour plus tard, cf. note ci-dessous sur le point
+d'extension).
+
+**Modèles Prisma ajoutés** (`backend/prisma/schema.prisma`, migration
+`20260803142518_hr_role_menu_item_ratio_and_element_menu_item_sales_input`, additive uniquement) :
+- `HrRoleMenuItemRatio` — l'association elle-même. **Table dédiée, pas une extension de
+  `HrSinkingRule`** : contrairement à ce que §11.15 suggérait ("généraliser le mécanisme Sinking
+  Rule"), la contrainte concrète soulevée en session (le picker de Menu Items doit être scopé à
+  l'espace pour rester léger, pas au tenant entier) implique un scope par `spaceId` incompatible
+  avec le modèle `HrSinkingRule` existant (scopé par tag F&B global, contrainte d'unicité
+  `[tenantId, roleId, fnbCategory, conditionAttribute]` qui ne supporte pas plusieurs lignes
+  "item-based" pour le même rôle). Le principe du "même moteur" est préservé au niveau
+  **service** (`StaffingCalculatorService`), pas au niveau table.
+- `ElementMenuItemSalesInput` — la valeur "vendu/prévu" saisie, scopée `(elementId, configId,
+  menuItemId)` — jamais `SpaceElement.attributes` (leçon de §11.14). Porte déjà un discriminant
+  `source: 'MANUAL' | 'LIVE' | 'PREDICT'` (idiome `ElementStaff.source`) : seul `'MANUAL'` est
+  écrit par ce chantier, les deux autres valeurs sont un point d'extension pour les phases 2/3
+  sans migration supplémentaire.
+
+**Backend** :
+- CRUD `HrRoleMenuItemRatio` : `hr-role-menu-item-ratios.controller.ts`
+  (`GET/POST /hr/role-menu-item-ratios`, `PATCH/DELETE /hr/role-menu-item-ratios/:id`), validation
+  dans `HrService.assertValidRoleMenuItemRatio` (les `menuItemIds` doivent être réellement
+  rattachés à l'espace via `SpaceMenuItem`).
+- `StaffingCalculatorService.applyMenuItemRatios(ratios, sales)` — fonction pure, nouvelle méthode
+  à côté de `applySinkingRules`. Différence sémantique volontaire : **sommée par rôle**, pas
+  maxée (plusieurs associations pour le même rôle sont des drivers de charge additifs, ex. "+2
+  pour les burgers" et "+3 pour les frites"). 6 tests dédiés dans
+  `staffing-calculator.service.spec.ts`.
+- `BuilderV2Service.getStaffSuggestions()` : évalue désormais aussi les `HrRoleMenuItemRatio` de
+  l'espace de l'élément (indépendamment des tags F&B — contrairement aux Sinking Rules, une
+  association espace-scopée s'évalue même si l'élément n'a aucun sous-type, le "current value"
+  vaut naturellement 0 si rien n'a été saisi pour ce shop). Résultat additionné à celui des
+  Sinking Rules par rôle.
+- `StaffingService.generate()` (génération event) : même branchement, symétrique, pour rester
+  cohérent avec le principe "un seul moteur" déjà documenté dans `builder-v2.module.ts`.
+- Nouveaux endpoints saisie manuelle : `GET/PUT /builder-v2/elements/:id/menu-item-sales-input`
+  (même patron delete+recreate que `PUT .../staff`).
+
+**Frontend** :
+- `components/hr/HrSpaceEditDrawer.vue` — nouvelle section "Association Rôles et Ventes" (cycle
+  de vie API propre, même précédent que les Sinking Rules dans `HrRoleFormDrawer.vue`).
+- `components/hr/HrRoleMenuItemRatioFormDialog.vue` — modale d'ajout/édition.
+- `components/hr/HrMenuItemMultiSelect.vue` — picker Menu Items réutilisable (recherche + "Tout
+  Sélectionner" + liste à cocher), alimenté par `getSpaceMenuItemsWithAvailability(spaceId)`
+  (déjà existant, strictement scopé à l'espace).
+- `components/spaces/views/builder2/.../MenuItemSalesInputSection.vue` — nouvelle section de
+  l'inspecteur Builder (gate `sections.menuItemSalesInput`, même périmètre `shop` que
+  `staffingInputs`, `elementTaxonomy.js`), n'affiche un champ que pour les Menu Items réellement
+  vendus sur CE shop ET ciblés par une association — pas tout le catalogue. Aperçu client des
+  rôles déclenchés via `utils/menuItemRatios.js` (miroir pur de `applyMenuItemRatios`, testé).
+
+**Point d'extension pour les phases 2/3** (non implémentées ici, cf. §11.15) : un futur job
+"live" (Weezevent) ou "predict" (Jean-Luc) n'a qu'à upserter des lignes
+`ElementMenuItemSalesInput` avec `source: 'LIVE'`/`'PREDICT'` pour la même clé
+`(elementId, configId, menuItemId)` — aucun changement requis côté UI RH, moteur de calcul, ou
+mécanisme de condition.
+

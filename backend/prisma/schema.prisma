@@ -519,6 +519,9 @@ model Space {
   // Staffing RH : agence par défaut de l'espace pour un rôle donné
   hrRoleSpaceDefaults HrRoleSpaceDefault[]
 
+  // Staffing RH : associations Rôle ↔ Menu Item(s) scopées à cet espace (11_RH_STAFFING.md §11.16)
+  hrRoleMenuItemRatios HrRoleMenuItemRatio[]
+
   @@index([tenantId])
   @@index([name])
   @@index([spaceType])
@@ -594,17 +597,17 @@ model HrStaffRatioSpace {
 
 /// Fournisseur RH (agence d'intérim, prestataire staff…).
 model HrSupplier {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  contact   String? // nom du contact
-  email     String?
-  tel       String?
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  contact     String? // nom du contact
+  email       String?
+  tel         String?
   picture     String?  @db.Text // parité avec le drawer existant (photo optionnelle)
   departments String[] // départements libres (F&B, Hospitality…) — ex-"sectors", RH-5 2026-07-30
   spaceIds    String[] // espaces desservis (ids Space, non contraint) — parité localStorage
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   roles         HrRoleSupplier[]
   spaceDefaults HrRoleSpaceDefault[]
@@ -628,12 +631,13 @@ model HrRole {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  suppliers     HrRoleSupplier[] // multi-select si AGENCY
-  persons       HrPerson[]
-  spaceDefaults HrRoleSpaceDefault[]
-  staffLines    EventStaffLine[]
-  sinkingRules  HrSinkingRule[]
-  elementStaff  ElementStaff[] // lignes Staff Builder auto-remplies (source='AUTO')
+  suppliers      HrRoleSupplier[] // multi-select si AGENCY
+  persons        HrPerson[]
+  spaceDefaults  HrRoleSpaceDefault[]
+  staffLines     EventStaffLine[]
+  sinkingRules   HrSinkingRule[]
+  elementStaff   ElementStaff[] // lignes Staff Builder auto-remplies (source='AUTO')
+  menuItemRatios HrRoleMenuItemRatio[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -744,6 +748,34 @@ model HrSinkingRule {
   @@index([roleId])
 }
 
+/// Association Rôle ↔ Menu Item(s), scopée par espace (contrairement à HrSinkingRule qui est
+/// scopé par tag F&B global) — résout QUESTIONS_A_BERTRAND.md #47. Un rôle est dimensionné selon
+/// le volume de vente (CA ou Quantités) d'un ou plusieurs MenuItem sur CET espace :
+/// qty = floor(valeur courante / ratioValue) * unitQty, sommé si plusieurs lignes visent le même
+/// rôle (contrairement aux Sinking Rules qui prennent le max — ici chaque ligne est un driver de
+/// charge additif : "+2 pour les burgers" et "+3 pour les frites" doivent s'additionner).
+/// Voir 11_RH_STAFFING.md §11.15/§11.16.
+model HrRoleMenuItemRatio {
+  id           String   @id @default(cuid())
+  tenantId     String
+  spaceId      String
+  roleId       String
+  ratioBasis   String // 'REVENUE' | 'QUANTITY'
+  ratioValue   Float // seuil ("tous les N")
+  unitQty      Int      @default(1) // rôles accordés par seuil franchi
+  allMenuItems Boolean  @default(false) // "Tout Sélectionner"
+  menuItemIds  String[] @default([]) // ignoré si allMenuItems=true
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  role  HrRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([spaceId])
+  @@index([roleId])
+}
+
 model Config {
   id        String   @id @default(cuid())
   name      String
@@ -755,20 +787,21 @@ model Config {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  space                 Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  floors                Floor[]
-  forecourt             Forecourt?
-  externalMerch         ExternalMerch?
-  stations              Station[]
+  space                      Space                       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  floors                     Floor[]
+  forecourt                  Forecourt?
+  externalMerch              ExternalMerch?
+  stations                   Station[]
   // Builder v2 : adhésions explicites élément ↔ configuration
-  configurationElements ConfigurationElement[]
+  configurationElements      ConfigurationElement[]
   // Assignations menu scopées par config (éléments partagés entre configs en v2)
-  menuAssignments       MenuAssignment[]
+  menuAssignments            MenuAssignment[]
   // Perf/staff/inventaire d'élément scopés par config (même patron que menuAssignments)
-  elementPerformances   ElementPerformance[]
-  elementStaff          ElementStaff[]
-  elementInventories    ElementInventory[]
-  events                Event[]
+  elementPerformances        ElementPerformance[]
+  elementStaff               ElementStaff[]
+  elementInventories         ElementInventory[]
+  events                     Event[]
+  elementMenuItemSalesInputs ElementMenuItemSalesInput[]
 
   @@index([spaceId])
 }
@@ -837,7 +870,7 @@ model Floor {
 // Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
 
 model SpaceElement {
-  id              String      @id @default(cuid())
+  id              String  @id @default(cuid())
   floorId         String? // FK to Floor (if element is inside a floor)
   forecourtId     String? // FK to Forecourt (if element is in forecourt)
   externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
@@ -856,8 +889,8 @@ model SpaceElement {
   width           Float?
   height          Float?
   height3d        Float? // Hauteur 3D en mètres
-  rotation        Float?      @default(0)
-  image           String?     @db.Text
+  rotation        Float?  @default(0)
+  image           String? @db.Text
   notes           String?
   capacity        Int?
 
@@ -887,10 +920,10 @@ model SpaceElement {
   tags       String[]
 
   // Relations
-  floor                 Floor?                 @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  forecourt             Forecourt?             @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
-  externalMerch         ExternalMerch?         @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
-  zone                  Zone?                  @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  floor                 Floor?                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  forecourt             Forecourt?                  @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  externalMerch         ExternalMerch?              @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
+  zone                  Zone?                       @relation(fields: [zoneId], references: [id], onDelete: Cascade)
   configurationElements ConfigurationElement[]
   // 1-N depuis le scoping par config : une ligne de perf PAR config adhérente
   performances          ElementPerformance[]
@@ -899,6 +932,7 @@ model SpaceElement {
   menuAssignments       MenuAssignment[]
   locationShopMappings  LocationShopMapping[]
   eventStaffLines       EventStaffLine[]
+  menuItemSalesInputs   ElementMenuItemSalesInput[]
 
   @@index([floorId])
   @@index([forecourtId])
@@ -962,6 +996,33 @@ model ElementStaff {
   @@index([elementId])
   @@index([configId])
   @@index([roleId])
+}
+
+/// Valeur "vendu/prévu" par Menu Item, par élément (shop), par config (événement) — jamais par
+/// espace seul (leçon de 11_RH_STAFFING.md §11.14 : une quantité prévue est event-scoped, pas un
+/// attribut fixe de l'espace). `source` distingue qui a écrit la valeur ; seul 'MANUAL' est
+/// implémenté dans ce chantier — 'LIVE'/'PREDICT' anticipent un futur branchement (Weezevent live,
+/// Event Predict) sans changer ce modèle ni le moteur de calcul qui le lit. Voir §11.16.
+model ElementMenuItemSalesInput {
+  id         String   @id @default(cuid())
+  tenantId   String
+  elementId  String
+  configId   String?
+  menuItemId String
+  quantity   Float?
+  revenueHt  Float?
+  source     String   @default("MANUAL") // 'MANUAL' | 'LIVE' | 'PREDICT'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element  SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  config   Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+  menuItem MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([elementId, configId, menuItemId])
+  @@index([tenantId])
+  @@index([elementId, configId])
+  @@index([menuItemId])
 }
 
 // ==================== ELEMENT INVENTORY ====================
@@ -1820,21 +1881,21 @@ model Ingredient {
 }
 
 model Packaging {
-  id                         String       @id @default(cuid())
+  id                         String    @id @default(cuid())
   name                       String
-  active                     Boolean      @default(true)
+  active                     Boolean   @default(true)
   supplier                   String?
   recipeUnit                 String
   storageType                String?
   purchaseUnit               String
   marketPriceId              String?
-  costPerRecipeUnit          Decimal?     @db.Decimal(10, 4)
+  costPerRecipeUnit          Decimal?  @db.Decimal(10, 4)
   ingredientCategory         String?
-  costPerPurchaseUnit        Decimal?     @db.Decimal(10, 4)
+  costPerPurchaseUnit        Decimal?  @db.Decimal(10, 4)
   purchaseUnitsPerRecipeUnit Float?
   tenantId                   String
-  createdAt                  DateTime     @default(now())
-  updatedAt                  DateTime     @updatedAt
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
   deletedAt                  DateTime?
 
   tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -2162,7 +2223,7 @@ model Subtype {
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
-  id                     String        @id @default(cuid())
+  id                     String       @id @default(cuid())
   name                   String
   typeId                 String? // FK to ProductType (optional)
   categoryId             String? // FK to ProductCategory (optional)
@@ -2171,11 +2232,11 @@ model MenuItem {
   diet                   Diet[]
   allergens              String[]
   picture                String?
-  basePrice              Decimal       @db.Decimal(10, 2)
-  vatRate                Decimal?      @db.Decimal(5, 2) // Taux TVA % par article (null → défaut tenant)
+  basePrice              Decimal      @db.Decimal(10, 2)
+  vatRate                Decimal?     @db.Decimal(5, 2) // Taux TVA % par article (null → défaut tenant)
   discountType           String? // Remise catalogue : "percent" | "amount" | null
-  discountValue          Decimal?      @db.Decimal(10, 2) // Valeur remise (% si percent, montant TTC si amount)
-  totalCost              Decimal?      @db.Decimal(12, 4)
+  discountValue          Decimal?     @db.Decimal(10, 2) // Valeur remise (% si percent, montant TTC si amount)
+  totalCost              Decimal?     @db.Decimal(12, 4)
   margin                 Float?
   description            String?
   storageType            String[]
@@ -2192,15 +2253,15 @@ model MenuItem {
   // que tout code qui les référencerait encore casse à la compilation. Drop DB différé
   // (migration de nettoyage après validation).
   tenantId               String
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
   deletedAt              DateTime?
 
-  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productType     ProductType?           @relation(fields: [typeId], references: [id])
-  productCategory ProductCategory?       @relation(fields: [categoryId], references: [id])
-  brand           Brand?                 @relation(fields: [brandId], references: [id])
-  displayName     DisplayName?           @relation(fields: [displayNameId], references: [id])
+  tenant          Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productType     ProductType?                @relation(fields: [typeId], references: [id])
+  productCategory ProductCategory?            @relation(fields: [categoryId], references: [id])
+  brand           Brand?                      @relation(fields: [brandId], references: [id])
+  displayName     DisplayName?                @relation(fields: [displayNameId], references: [id])
   components      MenuItemComponent[]
   ingredients     MenuItemIngredient[]
   packagings      MenuItemPackaging[]
@@ -2211,8 +2272,9 @@ model MenuItem {
   // Composition "Combo"/"Menu" par d'autres MenuItem vendables (ex. "Burger + Frites" = composé
   // de "Burger" + "Frites"), distincte de `comboItem` (flag scalaire "cet item est réutilisable
   // tel quel dans un combo") et de `components[]` (qui pointe vers MenuComponent, pas MenuItem).
-  comboChildren   MenuItemCombo[]        @relation("ComboParentToChild")
-  comboParents    MenuItemCombo[]        @relation("ComboChildToParent")
+  comboChildren   MenuItemCombo[]             @relation("ComboParentToChild")
+  comboParents    MenuItemCombo[]             @relation("ComboChildToParent")
+  salesInputs     ElementMenuItemSalesInput[]
 
   @@index([tenantId])
   @@index([name])
@@ -2287,12 +2349,12 @@ model MenuItemPriceHistory {
 }
 
 model MenuItemComponent {
-  id            String       @id @default(cuid())
+  id            String   @id @default(cuid())
   menuItemId    String
   componentId   String
   numberOfUnits Float
-  unitCost      Decimal?     @db.Decimal(10, 4)
-  totalCost     Decimal?     @db.Decimal(12, 4)
+  unitCost      Decimal? @db.Decimal(10, 4)
+  totalCost     Decimal? @db.Decimal(12, 4)
   storageType   String?
 
   menuItem  MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
@@ -2304,12 +2366,12 @@ model MenuItemComponent {
 }
 
 model MenuItemIngredient {
-  id            String       @id @default(cuid())
+  id            String   @id @default(cuid())
   menuItemId    String
   ingredientId  String
   numberOfUnits Float
-  unitCost      Decimal?     @db.Decimal(10, 4)
-  totalCost     Decimal?     @db.Decimal(12, 4)
+  unitCost      Decimal? @db.Decimal(10, 4)
+  totalCost     Decimal? @db.Decimal(12, 4)
   storageType   String?
 
   menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
@@ -2321,12 +2383,12 @@ model MenuItemIngredient {
 }
 
 model MenuItemPackaging {
-  id            String       @id @default(cuid())
+  id            String   @id @default(cuid())
   menuItemId    String
   packagingId   String
   numberOfUnits Float
-  unitCost      Decimal?     @db.Decimal(10, 4)
-  totalCost     Decimal?     @db.Decimal(12, 4)
+  unitCost      Decimal? @db.Decimal(10, 4)
+  totalCost     Decimal? @db.Decimal(12, 4)
   storageType   String?
 
   menuItem  MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)

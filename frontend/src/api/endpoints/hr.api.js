@@ -172,6 +172,48 @@ export async function deleteHrSinkingRule(id) {
   }
 }
 
+// ── Associations Rôle ↔ Menu Item, scopées par espace (11_RH_STAFFING.md §11.16) ────────────
+
+export async function getHrRoleMenuItemRatios(spaceId) {
+  try {
+    const res = await api.get('/hr/role-menu-item-ratios', { params: { spaceId } })
+    return res.data?.data ?? []
+  } catch (error) {
+    console.error('[HR API] Error fetching role/menu-item ratios:', error)
+    throw error
+  }
+}
+
+export async function createHrRoleMenuItemRatio(payload) {
+  try {
+    const res = await api.post('/hr/role-menu-item-ratios', payload)
+    return res.data
+  } catch (error) {
+    console.error('[HR API] Error creating role/menu-item ratio:', error)
+    throw error
+  }
+}
+
+export async function updateHrRoleMenuItemRatio(id, payload) {
+  try {
+    const res = await api.patch(`/hr/role-menu-item-ratios/${id}`, payload)
+    return res.data
+  } catch (error) {
+    console.error(`[HR API] Error updating role/menu-item ratio ${id}:`, error)
+    throw error
+  }
+}
+
+export async function deleteHrRoleMenuItemRatio(id) {
+  try {
+    const res = await api.delete(`/hr/role-menu-item-ratios/${id}`)
+    return res.data
+  } catch (error) {
+    console.error(`[HR API] Error deleting role/menu-item ratio ${id}:`, error)
+    throw error
+  }
+}
+
 // ── Import one-shot localStorage → BD (spec §1.4) ────────────────────────────
 
 export async function importHrFromLocalStorage(payload) {
