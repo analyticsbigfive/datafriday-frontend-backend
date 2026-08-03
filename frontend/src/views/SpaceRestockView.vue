@@ -558,7 +558,7 @@
                   <h3>{{ group.itemName }}</h3>
                   <span
                     v-if="groupSourceSummary(group)"
-                    style="display:block;font-size:0.72rem;color:#64748b;font-weight:500;margin-top:2px;"
+                    style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
                   >{{ t('srUsedIn') }} {{ groupSourceSummary(group) }}</span>
                 </div>
                 <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
@@ -759,7 +759,7 @@
                       <strong>{{ item.itemName }}</strong>
                       <span
                         v-if="item.itemType !== 'MenuItem' && item.usedIn && item.usedIn.length"
-                        style="display:block;font-size:0.72rem;color:#64748b;font-weight:500;margin-top:2px;"
+                        style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
                       >{{ t('srUsedIn') }} {{ item.usedIn.slice(0, 4).join(', ') }}<template v-if="item.usedIn.length > 4"> +{{ item.usedIn.length - 4 }}</template></span>
                       <span class="sr-shop-diag">
                         {{ t('srDiagPredicted') }} {{ formatDiagQty(item.predicted, item.unit) }}
@@ -4532,7 +4532,7 @@ export default {
 .sr-shop-diag {
   display: block;
   font-size: 0.7rem;
-  color: #94a3b8;
+  color: var(--sr-faint, #94a3b8);
   font-weight: 500;
   margin-top: 3px;
   line-height: 1.35;
@@ -4601,10 +4601,10 @@ export default {
   min-width: 94px;
   min-height: 30px;
   padding: 5px 9px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--fb-border-strong, #d1d5db);
   border-radius: 7px;
-  background: #fff;
-  color: #4b5563;
+  background: var(--sr-surface, #fff);
+  color: var(--sr-muted, #4b5563);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
@@ -4613,7 +4613,7 @@ export default {
 
 .sr-confirm-btn:hover {
   border-color: rgba(255, 49, 49, 0.45);
-  background: #fff5f5;
+  background: var(--sr-primary-soft, #fff5f5);
   color: #ff3131;
 }
 
@@ -4661,9 +4661,9 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #475569;
+  border: 1px solid var(--sr-border, #e2e8f0);
+  background: var(--sr-subtle, #f8fafc);
+  color: var(--sr-muted, #475569);
   font-weight: 700;
   font-size: 0.8rem;
   padding: 2px 8px;
@@ -4679,7 +4679,7 @@ export default {
 .sr-shops-detail {
   margin-top: 6px;
   font-size: 0.82rem;
-  color: #475569;
+  color: var(--sr-muted, #475569);
   line-height: 1.45;
 }
 
@@ -5350,6 +5350,30 @@ export default {
 .sr-mobile-config-panel {
   margin-bottom: 0;
 }
+/* BUG-283 : la bottom-sheet est TÉLÉPORTÉE hors de `.space-restock-view` — les
+   tokens --sr-* n'y existent pas (fallbacks clairs ou déclarations invalides).
+   La v-card suit le thème Vuetify ; on ne force que le panneau interne. */
+.dark .sr-mobile-config-sheet .sr-panel {
+  background: #1f2937;
+  border-color: #374151 !important;
+}
+.dark .sr-mobile-config-sheet .sr-panel-head {
+  background: #1a2332;
+  border-bottom-color: #374151;
+}
+.dark .sr-mobile-config-sheet .sr-mobile-sheet-label {
+  color: #94a3b8;
+}
+.dark .sr-mobile-config-sheet .sr-mobile-tool {
+  background: #1f2937;
+  border-color: #374151;
+  color: #d1d5db;
+}
+.dark .sr-mobile-config-sheet .sr-mobile-tool-active {
+  background: rgba(255, 49, 49, 0.16);
+  color: #ff8a80;
+  border-color: rgba(255, 49, 49, 0.4);
+}
 
 .sr-skeleton-side,
 .sr-skeleton-panel {
@@ -5593,7 +5617,7 @@ export default {
   }
 
   .sr-row-confirmed {
-    background: #f0fdf4;
+    background: var(--fb-success-soft, #f0fdf4);
   }
 }
 
@@ -5958,5 +5982,54 @@ export default {
 }
 .v-theme--dataFridayDark .space-restock-view .sr-collapse-icon {
   color: #94a3b8;
+}
+
+/* ===================== DARK MODE — étapes « Réarmement » et « Courses » ==
+   Les surfaces/bordures/textes des tableaux, groupes fournisseurs et boutons
+   passent déjà par les `--sr-*` ci-dessus. Ne restent ici que les valeurs sans
+   variable : les hovers gris ardoise du toggle « X PdV » et les teintes vertes
+   « confirmé » (vert 100/700), calibrées pour fond clair → version claire de la
+   même famille (parité méthode BUG-197). */
+.v-theme--dataFridayDark .space-restock-view .sr-shops-toggle:hover {
+  background: var(--fb-border, #374151);
+  border-color: var(--fb-border-strong, #4b5563);
+}
+.v-theme--dataFridayDark .space-restock-view .sr-confirm-btn.is-confirmed {
+  border-color: rgba(134, 239, 172, 0.4);
+  background: var(--fb-success-soft, rgba(22, 163, 74, 0.14));
+  color: #86efac;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-confirm-btn.is-confirmed:hover {
+  border-color: rgba(74, 222, 128, 0.55);
+  background: rgba(22, 163, 74, 0.24);
+  color: #bbf7d0;
+}
+
+/* Popup email fournisseur : contenu téléporté hors de `.space-restock-view`
+   (v-dialog) → les `var(--sr-*)` y retombent sur leurs littéraux clairs.
+   La v-card est thémée par Vuetify ; on ne rebascule ici que l'éditeur
+   WYSIWYG maison, via `html.dark` (resynchronisée à chaque changement de
+   thème, cf. DashboardView). Valeurs alignées sur la palette sombre `--fb-*`. */
+.dark .sr-wysiwyg {
+  border-color: #374151;
+}
+.dark .sr-wysiwyg-toolbar {
+  background: #172033;
+  border-bottom-color: #374151;
+}
+.dark .sr-wysiwyg-toolbar button {
+  color: #d1d5db;
+}
+.dark .sr-wysiwyg-toolbar button:hover {
+  background: #374151;
+}
+.dark .sr-wysiwyg-sep {
+  background: #374151;
+}
+.dark .sr-wysiwyg-editor {
+  color: #f9fafb;
+}
+.dark .sr-wysiwyg-editor:focus {
+  background: transparent;
 }
 </style>

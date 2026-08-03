@@ -294,6 +294,68 @@
 | [274-02](274_02_spacemenu_merchshop_visible_dans_assignation_menuitem.md) | Menus des Espaces : les stands Merch (`merchshop`) apparaissaient dans la liste des PDV assignables à un menu item — filtre `type` absent, hérité du `shopTypes` backend partagé avec Restock/Event Predict/Analyse | 🟢 Corrigé | 🟠 | Menu & recettes |
 | [275-02](275_02_merchshop_infiltre_menuassignment_predict_et_inventory.md) | Même bug que BUG-274 sur 2 autres écrans : Event Predict (onglet Menus, écriture possible d'un MenuItem sur un stand Merch) et Inventory (onglet Shops, carte Merch dupliquée/fantôme) — correctif écrit puis retiré de `develop`, préservé sur `fix/bug-275-merchshop-predict-inventory` | ⚪ Diagnostiqué | 🟠 | Prévision / Stock |
 | [276-02](276_02_spacemenuitemview_sans_tout_selectionner.md) | Menus des Espaces (« Par menu item ») : pas de « Tout sélectionner » pour attacher un article à toutes les boutiques d'un coup — même demande que BUG-268, écran miroir | 🟢 Corrigé | 🟡 | Menu & recettes |
+| [277-01](277_01_eventdetailseditor_darkmode_drawer_illisible.md) | Drawer « Event detail » (Event Predict) illisible en dark mode : `EventDetailsEditor.vue` seul consommateur d'`EventDrawerShell` sans `:is-dark` ni bloc `--dark`, drawer téléporté hors des racines `--fb-*` → corps clair + texte Vuetify blanc | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation / Thème |
+| [278-01](278_01_analyse_pagination_v_pagination_blanc_sur_sombre.md) | Analyse : pagination du tableau « par shop » en carré blanc illisible en sombre — bloc `.mibs--dark` ne couvrait pas la `v-pagination` ; override défensif + pastille page active | 🟡 Corrigé non déployé | 🟡 | Analyse & agrégation / Thème |
+| [279-01](279_01_delete_dialogs_prop_isdark_declaree_jamais_appliquee.md) | `ProductDeleteDialog` + `SupplierDeleteDialog` : prop `isDark` déclarée mais jamais appliquée (4ᵉ occurrence du défaut type) — modals blanches sur 8 routes en sombre | 🟡 Corrigé non déployé | 🟠 | Achats & référentiels / Thème |
+| [280-01](280_01_analyse_charts_darkmode_phase2.md) | Charts Analyse « phase 2 » (reportée depuis BUG-196) : titres `#212121`, toggle clair, grille Chart.js `#EEEEEE`, carte pastel violette — couleurs canvas dérivées d'`isDark` en JS + blocs `--dark` (5 charts) | 🟡 Corrigé non déployé | 🟡 | Analyse & agrégation / Thème |
+| [281-01](281_01_builder2_inspector_darkmode_vague_dediee.md) | Builder2 : 4 sections de l'inspecteur (0 variable thème, 10-32 littéraux chacune) + 4 dialogs téléportés restés clairs — vague dédiée annoncée par BUG-247-01 | 🟡 Corrigé non déployé | 🟡 | Espaces & builder / Thème |
+| [282-01](282_01_darkmode_chrome_global_et_teleportes.md) | Chrome global : flash blanc du loader de navigation, skeleton Predict clair, `NumberField` sur `prefers-color-scheme` (OS) au lieu de `.dark`, recherche du switcher d'espace, notifications `/spaces-overview`, dialog Weezevent — + 2 faux positifs documentés | 🟡 Corrigé non déployé | 🟡 | Transverse / Thème |
+| [283-01](283_01_restock_etapes_restock_shopping_darkmode.md) | Restock étapes « Réarmement »/« Courses » hors contrat `--sr-*` (reporté depuis BUG-197) : confirm-btn, toggles fournisseurs, verts « confirmé », éditeur e-mail téléporté, bottom-sheet mobile ; `SpaceLogisticView` vérifié conforme | 🟡 Corrigé non déployé | 🟡 | Stock / Logistique / Thème |
+| [284-01](284_01_analyse_freeze_clics_segments_quick_wins.md) | Analyse : freeze momentané au clic segment graph/camembert et au changement de config — clics coalescés 150 ms, cache item-level `shallowRef`+gelé, contexte réconciliation singleton, animations Chart.js 200 ms, boucles `itemTotals` fusionnées ; chantier index partagés reste en fiche 179 | 🟡 Corrigé non déployé | 🟠 | Analyse & agrégation / Performance |
+| [285-01](285_01_analyse_memoire_2_3_go_caches_sans_eviction.md) | Analyse : 2-3 Go de RAM Chrome — caches API/Vuex/composables **sans aucune éviction** (croissance à vie), 5-6 copies simultanées du dataset minute-level, `<keep-alive>` illimité, re-préprocessing idempotent ; + volet fluidité : surlignage optimiste de la part cliquée et voiles squelettes (maquette validée) | 🟡 Corrigé non déployé | 🔴 | Analyse & agrégation / Performance mémoire |
+
+BUG-277-01 ajouté et corrigé le 2026-08-02 (signalement utilisateur avec capture, thème sombre) :
+le drawer « Event detail » de la page Event Predict s'affichait corps clair (`#f9fafb`) avec
+valeurs de champs quasi blanches — illisible. Triple défaut lié à la téléportation dans `<body>`
+via `EventDrawerShell` : `:is-dark` jamais passé au shell, texte forcé en `on-surface` sombre par
+les `themeClasses` Vuetify, tokens `--fb-*` retombant sur leurs fallbacks clairs hors de
+`.event-predict-overlay` (même famille que BUG-198/237-02). Audit de généralisation : les 9
+autres consommateurs du shell passent tous `:is-dark` avec leur propre bloc `--dark` — cas isolé.
+Corrigé dans `EventDetailsEditor.vue` seul (pattern `EventPredictSourcesDrawer`) + commentaire
+obsolète « drawer NON téléporté » remplacé ; non buildé/testé (pas de `pnpm dev` dans la session).
+
+BUG-278 à 283 ajoutés et corrigés le 2026-08-02 (même session) : **audit dark mode complet de
+l'application** demandé après un 2ᵉ signalement (pagination blanche, tableau Analyse). Balayage
+statique croisé avec les 16 fiches dark existantes pour ne re-signaler ni les exclusions
+volontaires ni les 🟡 déjà en code : ~25 fichiers restants répartis en 6 vagues — pagination
+Analyse (278), delete dialogs à prop `isDark` fantôme (279), charts Chart.js « phase 2 » de
+BUG-196 (280), inspecteur Builder2 annoncé « vague dédiée » par BUG-247-01 (281), chrome global
+et téléportés (282), étapes Restock reportées par BUG-197 (283). Deux dettes déclarées de
+longue date soldées (196 phase 2, 197 restock/shopping), 3 faux positifs d'audit documentés
+(`EventPredictRowActions`, `MapEventToExistingDialog`, `LiveSaleSimulatorWidget`),
+`MarketPriceFilters` (verrouillage clair volontaire commenté) laissé intact → question #49 de
+`QUESTIONS_A_BERTRAND.md`. Tout en overrides `.dark`/`--dark`/tokens (clair inchangé par
+construction) ; aucun build ni contrôle navigateur dans la session — contrôle visuel JLH requis
+avant tout passage 🟢.
+
+BUG-284-01 ajouté et corrigé le 2026-08-03 (+ durcissement `!important` de BUG-278, récidive
+constatée à l'écran — source du fond blanc établie comme extérieure au repo, procédure DevTools
+documentée dans la fiche) : freeze momentané de la page Analyse au clic sur un segment de
+graph/camembert et au changement de configuration. Quick wins uniquement, sur la carte
+suivante : clic → dispatch immédiat → ~20 passes synchrones sur les records dans 7+ composants
++ ré-animation Chart.js 1000 ms. Livré : toggle coalescé 150 ms par clé (read-modify-write sur
+l'état en attente, annulé par tout write direct), cache item-level `shallowRef` + `Object.freeze`
+(fin du surcoût Proxy, multiplicateur « vieux PC »), contexte de réconciliation en singleton
+(`effectScope` détaché — mémos 1× au lieu de 3×), animations 200 ms (choix JLH), boucles
+`itemTotals` fusionnées (résultat identique au bit près). Pas de loader (choix JLH). Le chantier
+structurel d'index partagés reste porté par la fiche ⚪ 179 (mise à jour), à déclencher si le
+freeze persiste sur les machines cibles.
+
+BUG-285-01 ajouté et corrigé le 2026-08-03 (même session) : la page Analyse consommait 2-3 Go
+de RAM Chrome. Audit croisé (2 explorations) : dataset minute×shop×article en 5-6 copies
+simultanées, 3 couches de caches sans aucune éviction (API session, accumulateurs Vuex par clé,
+caches composables), `<keep-alive>` illimité sur 33 routes, re-préprocessing idempotent du
+chart timeline. Corrigé : LRU 30 + purge par espace sur les caches API, purge des accumulateurs
+au changement d'espace (mutation `CLEAR_SPACE_KEYED_CACHES` + `clearCache()` composables),
+gels/`shallowRef` sur les 3 chemins jumeaux oubliés de BUG-284, `<keep-alive :max="6">`
+(décisions JLH), ré-agrégation sautée quand l'entrée est déjà agrégée. Volet fluidité (maquette
+artefact validée) : signal partagé `filtersRecomputing`, surlignage optimiste de la part
+cliquée dans les donuts, nouveau `AnalyseSkeletonVeil` (voile shimmer, dark inclus) sur
+donuts/tableau/rail/distribution — la fenêtre de coalescing 150 ms de BUG-284 laisse le
+navigateur peindre le feedback avant le burst de recalculs. Conservés sciemment : chaîne
+`loadTimelineForEvent` (couverte par tests, fiche 178 mise à jour), `picture` des vignettes
+(consommé, hypothèse « toujours nul » de l'audit réfutée). Mesure mémoire réelle à faire par
+JLH après build.
 
 **235 bugs au total**, 235 ajouté et corrigé le 2026-07-28 suite à un signalement utilisateur : import
 complet du tenant Auxerre (gros volume) échouant systématiquement avec "délai maximal dépassé" sur

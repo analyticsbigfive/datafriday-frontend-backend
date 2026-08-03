@@ -312,7 +312,11 @@
 
     <v-main>
       <RouterView v-slot="{ Component, route }">
-        <keep-alive v-if="route.meta.keepAlive">
+        <!-- BUG-285 : :max — sans borne, chaque outil visité (33 routes keepAlive)
+             restait monté à vie avec ses charts et ses datasets. Au 7ᵉ outil, Vue
+             démonte proprement le moins récent (vue-chartjs détruit ses instances
+             au démontage) ; son état d'écran local est perdu, choix validé. -->
+        <keep-alive v-if="route.meta.keepAlive" :max="6">
           <component :is="Component" :key="route.name" />
         </keep-alive>
         <!-- :key=path (PAS fullPath) : la query (?event/?config/?toolbox) est

@@ -332,4 +332,15 @@ function save() {
   background: rgba(0, 0, 0, .03);
   border: 1px solid rgba(0, 0, 0, .07);
 }
+
+/* ── Dark mode : dialog téléporté hors .v-application (pas d'accès aux variables
+   rgb(var(--v-theme-xxx))) → surcharges via la classe .dark posée sur <html>. */
+.dark .b2-dlg-header { border-bottom-color: rgba(255, 255, 255, .1); }
+.dark .b2-dlg-footer { border-top-color: rgba(255, 255, 255, .1); }
+.dark .b2-field-label,
+.dark .b2-sub-label { color: #94a3b8; }
+.dark .b2-hole-box {
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(255, 255, 255, .1);
+}
 </style>

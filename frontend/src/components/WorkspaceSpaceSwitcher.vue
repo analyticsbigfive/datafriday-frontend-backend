@@ -196,6 +196,13 @@ function switchSpace(space) {
 }
 .wsh-space-search :deep(.v-field__outline) { display: none; }
 .wsh-space-search :deep(.v-field--focused) { border-color: #ff3131; }
+/* BUG-282 : seul élément du fichier resté en littéraux clairs (le reste suit
+   rgb(var(--v-theme-*))) — accroché à .dark (posé sur <html>) par cohérence. */
+.dark .wsh-space-search :deep(.v-field) {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #1a2332;
+}
+.dark .wsh-space-search :deep(.v-field--focused) { border-color: #ff3131; }
 .ss-scroll {
   max-height: 280px;
   overflow-y: auto;

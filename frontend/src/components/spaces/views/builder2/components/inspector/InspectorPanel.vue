@@ -26,10 +26,11 @@
             :title="hasImage ? t('b2ChangeImage') : t('b2Image')"
             @click="fileInput?.click()"
           >
+            <!-- Couleur via CSS (.ip-act--upload) et non :color inline : un style inline
+                 ne pourrait pas être surchargé par le dark mode (.dark). -->
             <v-icon
               :icon="hasImage ? 'mdi-camera-outline' : 'mdi-upload'"
               size="18"
-              :color="hasImage ? undefined : '#111827'"
             />
           </button>
           <button type="button" class="ip-act" :title="hasImage ? t('b2RemoveImage') : t('close')" @click="onCloseClick">
@@ -201,10 +202,16 @@ function closeInspector() {
 }
 .ip-act:hover { background: rgba(var(--v-theme-on-surface), 0.08); color: rgb(var(--v-theme-on-surface)); }
 .ip-act:disabled { opacity: 0.45; cursor: default; }
+.ip-act--upload { color: #111827; }
 .ip-act--dup { color: #2563eb; }
 .ip-act--dup:hover { background: rgba(37, 99, 235, 0.1); color: #2563eb; }
 .ip-act--danger { color: #ff3131; }
 .ip-act--danger:hover { background: rgba(255, 49, 49, 0.1); color: #ff3131; }
+/* Dark mode : accents assombris illisibles sur fond sombre → variantes claires
+   de la même famille (.dark posé sur <html>). */
+.dark .ip-act--upload { color: #e2e8f0; }
+.dark .ip-act--dup { color: #93c5fd; }
+.dark .ip-act--dup:hover { background: rgba(147, 197, 253, 0.12); color: #93c5fd; }
 .ip-type-badge {
   display: inline-block;
   padding: 3px 12px;

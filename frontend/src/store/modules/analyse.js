@@ -570,6 +570,18 @@ const state = () => ({
   // Assistant : requête injectée depuis l'extérieur (ex. clic sur une alerte du header)
   pendingAssistantQuery: null,
 
+  // Tables mises à plat des graphiques de la page (`useAnalyseDataset`), publiées
+  // ici pour deux consommateurs : l'export xlsx/csv et l'assistant, dont le
+  // contrat est `answer(store, query)` — passer par le store évite d'en changer
+  // la signature jusqu'au chemin sémantique et à SummaryPanel.
+  //
+  // Construit EN DERNIER (idle, après le rendu) et porteur d'une `signature` :
+  // l'assistant la compare avant usage et retombe sur `filteredShopGranularData`
+  // si elle diverge. Un dataset périmé qui répond est pire que pas de dataset.
+  // Ce sont des tables agrégées (dizaines à centaines de lignes), pas une copie
+  // des records.
+  dataset: null,
+
   // EventPredict : id de l'event à pré-sélectionner quand on entre dans l'overlay
   // (ex. clic sur la barre d'un event futur dans EventRevenueByShopChart en mode predict)
   pendingPredictEventId: null,
@@ -601,8 +613,8 @@ const state = () => ({
   predictScenarioItemRecords: [],
 
   // Caches
-  transactionRateCache: {},
-  shopPerformanceCache: {},
+  // (BUG-285 : `transactionRateCache`/`shopPerformanceCache` supprimés — déclarés
+  // ici depuis l'origine mais jamais lus ni écrits nulle part.)
   // Cache local des shops NestJS (anciennement dans spaceShops/state, maintenant
   // que ce store est stateless on le garde ici pour les getters synchrones).
   spaceShopsRows: {}, // { [spaceId]: [] }
@@ -1682,6 +1694,7 @@ const mutations = {
   SET_TOOLBOX(state, v) { state.selectedToolbox = v },
   SET_MOBILE_PANEL(state, v) { state.activeMobilePanel = v },
   SET_PENDING_ASSISTANT_QUERY(state, v) { state.pendingAssistantQuery = v },
+  SET_ANALYSE_DATASET(state, v) { state.dataset = v || null },
   SET_PENDING_PREDICT_EVENT_ID(state, v) { state.pendingPredictEventId = v },
 
   SET_TIMELINE(state, { start, end }) {
@@ -1707,9 +1720,12 @@ const mutations = {
       eventId,
       menuItemCostMap: state.menuItemCostMap || {},
     })
+    // BUG-285 : gel (même motif que SET_SHOP_GRANULAR) — évite le Proxy profond
+    // sur un gros tableau minute-level retenu en cache.
+    for (const r of records) Object.freeze(r)
     state.timelineCacheByEventId = {
       ...state.timelineCacheByEventId,
-      [eventId]: records,
+      [eventId]: Object.freeze(records),
     }
   },
   INVALIDATE_TIMELINE_FOR_EVENT(state, eventId) {
@@ -1739,7 +1755,22 @@ const mutations = {
     }
   },
   SET_PREDICT_SCENARIO_ITEM_RECORDS(state, records) {
-    state.predictScenarioItemRecords = Array.isArray(records) ? records : []
+    // BUG-285 : gel (même motif que SET_SHOP_GRANULAR).
+    const arr = Array.isArray(records) ? records : []
+    state.predictScenarioItemRecords = Object.isFrozen(arr) ? arr : Object.freeze(arr)
+  },
+  // BUG-285 : purge des caches par clé au CHANGEMENT d'espace. loadSpace remplace
+  // les tableaux plats (events, shopGranularData…) mais ces accumulateurs par
+  // eventId/configId/spaceId gardaient les données de tous les espaces visités —
+  // croissance sans borne sur une session multi-espaces.
+  CLEAR_SPACE_KEYED_CACHES(state, { keepSpaceId } = {}) {
+    state.timelineCacheByEventId = {}
+    state.predictionCacheByEventConfigKey = {}
+    state.activePredictionVersionByEventId = {}
+    state.spaceMenuByConfig = {}
+    state.shopMenusByShop = {}
+    const kept = keepSpaceId != null ? state.spaceShopsRows?.[keepSpaceId] : undefined
+    state.spaceShopsRows = kept !== undefined ? { [keepSpaceId]: kept } : {}
   },
   APPLY_EVENT_PREDICT_VERSION(state, { eventId, version }) {
     if (!eventId || !version) return
@@ -1791,6 +1822,21 @@ const actions = {
       state.space?.id === spaceId &&
       state.spaceCachedAt &&
       Date.now() - state.spaceCachedAt < CACHE_TTL
+
+    // BUG-285 : au CHANGEMENT d'espace (pas au simple re-load du même), on purge les
+    // accumulateurs par clé (timeline/prédictions/menus/shops de l'ancien espace) et
+    // les caches session API des autres espaces — sinon chaque espace visité s'ajoute
+    // aux précédents en mémoire, sans jamais redescendre.
+    const prevSpaceId = state.spaceId || state.space?.id || null
+    if (prevSpaceId && String(prevSpaceId) !== String(spaceId)) {
+      commit('CLEAR_SPACE_KEYED_CACHES', { keepSpaceId: spaceId })
+      // Import dynamique (comme useSpaceData ci-dessous) : un import statique de
+      // space.api tirerait axios (ESM) dans les specs Jest du store — 3 suites
+      // qui n'y touchent pas casseraient au parse.
+      import('@/api/endpoints/space.api')
+        .then(({ clearSpaceSessionCachesExcept }) => clearSpaceSessionCachesExcept(spaceId))
+        .catch(() => {})
+    }
 
     commit('SET_SPACE_ID', spaceId)
     // Le cache contexte-PdV est clé par configId ; on le purge au (re)chargement d'un

@@ -609,6 +609,8 @@ onBeforeUnmount(() => {
 const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  // BUG-284 : 1000 ms → 200 ms (cf. GenericByEventChart).
+  animation: { duration: 200 },
   interaction: { mode: 'index', intersect: false },
   onClick: (_e, elements) => {
     if (!elements || !elements.length) return

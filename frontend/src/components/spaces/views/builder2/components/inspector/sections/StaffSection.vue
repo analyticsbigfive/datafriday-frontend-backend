@@ -219,10 +219,10 @@ watch(
 }
 .stf-card:hover {
   border-color: #e0e0e2;
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 }
-.stf-card--custom { background: #fff; }
+.stf-card--custom { background: rgb(var(--v-theme-surface)); }
 
 .stf-card__row {
   display: flex;
@@ -249,7 +249,7 @@ watch(
   font-size: var(--fs-sm);
   font-weight: 500;
   color: #374151;
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   padding: 4px 8px;
@@ -312,7 +312,7 @@ watch(
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 .stf-add__select:hover:not(:disabled) { background-color: #efeff1; }
-.stf-add__select:focus { background-color: #fff; border-color: #ff3131; }
+.stf-add__select:focus { background-color: rgb(var(--v-theme-surface)); border-color: #ff3131; }
 .stf-add__select:disabled { opacity: 0.55; cursor: not-allowed; }
 .stf-add__count {
   flex-shrink: 0;
@@ -329,7 +329,7 @@ watch(
 }
 .stf-add__count::-webkit-outer-spin-button,
 .stf-add__count::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.stf-add__count:focus { background: #fff; border-color: #ff3131; }
+.stf-add__count:focus { background: rgb(var(--v-theme-surface)); border-color: #ff3131; }
 .stf-add__btn {
   display: inline-flex;
   align-items: center;
@@ -346,4 +346,17 @@ watch(
 }
 .stf-add__btn:hover:not(:disabled) { background: rgba(255, 49, 49, 0.18); }
 .stf-add__btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Dark mode : les gris clairs ci-dessus n'ont pas d'équivalent exact dans le
+   thème Vuetify — surcharges via la classe .dark posée sur <html>. */
+.dark .stf-card { background: #1a2332; }
+.dark .stf-card:hover { border-color: rgba(255, 255, 255, 0.14); background: #1f2937; }
+.dark .stf-card--custom { background: #1f2937; }
+.dark .stf-qty__input { color: #d1d5db; border-color: #374151; }
+.dark .stf-qty__input:focus { border-color: #ff3131; }
+.dark .stf-add__select,
+.dark .stf-add__count { background-color: #111827; }
+.dark .stf-add__select:hover:not(:disabled) { background-color: #1a2332; }
+.dark .stf-add__select:focus { background-color: #1f2937; }
+.dark .stf-add__count:focus { background-color: #1f2937; }
 </style>

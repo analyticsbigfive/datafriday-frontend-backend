@@ -1,9 +1,8 @@
 # BUG-270-02 — Timeline Analyse : heures affichées en UTC brut, sans conversion vers le fuseau de l'espace
 
-- **Statut** : ⚪ Diagnostiqué (root cause connue, correctif écrit puis **retiré de `develop`
-  le 2026-08-02** — domaine Analyse hors périmètre de cette session, propriétaire produit
-  Jean-Luc. Ne pas réappliquer sans son arbitrage, pour éviter tout conflit avec un travail en
-  cours de son côté sur ce même domaine.)
+- **Statut** : ⚪ Diagnostiqué — correctif proposé sur la branche
+  `fix/bug-270-analyse-timeline-timezone` (retiré de `develop`, domaine Analyse hors périmètre
+  de cette session, propriétaire produit Jean-Luc). À revoir/merger sous son arbitrage.
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : `api-datafriday-staging` (backend, seul repo touché)

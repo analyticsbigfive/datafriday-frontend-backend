@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'gbe--dark': isDark }">
     <div class="d-flex align-center justify-space-between mb-3 flex-wrap ga-3">
       <div>
         <div class="section-title">{{ config.title }}</div>
@@ -28,11 +28,21 @@
 <script setup>
 import { Bar } from 'vue-chartjs'
 import { computed, ref, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import '@/lib/chartjs'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+
+// Chart.js peint sur <canvas> : hors du CSS, donc insensible au thème. On dérive
+// grille + ticks de `isDark` (cf. EventTimelineChart). `chartOptions` étant un
+// computed, tout changement de thème le recalcule et vue-chartjs re-rend.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
+// Valeurs claires inchangées : '#EEEEEE' (grille) et undefined (défaut Chart.js).
+const gridColor = computed(() => (isDark.value ? 'rgba(255,255,255,0.08)' : '#EEEEEE'))
+const tickColor = computed(() => (isDark.value ? '#94a3b8' : undefined))
 
 const props = defineProps({
   records: { type: Array, default: () => [] },
@@ -221,6 +231,9 @@ const chartOptions = computed(() => {
   return {
     responsive: true,
     maintainAspectRatio: false,
+    // BUG-284 : 1000 ms (défaut Chart.js) → 200 ms — chaque changement de filtre
+    // ré-anime tous les charts en concurrence avec les recalculs.
+    animation: { duration: 200 },
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -231,13 +244,13 @@ const chartOptions = computed(() => {
     },
     scales: {
       x: {
-        ticks: { maxRotation: 60, minRotation: 30, font: { size: 10 } },
+        ticks: { maxRotation: 60, minRotation: 30, font: { size: 10 }, color: tickColor.value },
         grid: { display: false },
       },
       y: {
         beginAtZero: true,
-        ticks: { callback: (v) => m.format(v) },
-        grid: { color: '#EEEEEE' },
+        ticks: { callback: (v) => m.format(v), color: tickColor.value },
+        grid: { color: gridColor.value },
       },
     },
   }
@@ -273,5 +286,24 @@ const chartOptions = computed(() => {
 .sort-toggle :deep(.v-btn--active) {
   background: #e9eaec;
   color: #1f2937;
+}
+
+/* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
+   en dur. Mode clair inchangé. Grille/ticks du canvas pilotés en JS. ── */
+.gbe--dark .section-title {
+  color: #f9fafb;
+}
+.gbe--dark .section-subtitle {
+  color: #94a3b8;
+}
+.gbe--dark .sort-toggle {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.gbe--dark .sort-toggle :deep(.v-btn) {
+  color: #94a3b8;
+}
+.gbe--dark .sort-toggle :deep(.v-btn--active) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f9fafb;
 }
 </style>

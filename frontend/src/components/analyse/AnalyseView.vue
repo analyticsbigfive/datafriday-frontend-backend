@@ -62,6 +62,46 @@
                 >
                   <v-icon size="18">mdi-share-variant-outline</v-icon>
                 </v-btn>
+                <!-- Export chiffré. Menu (et non clic direct) : deux formats.
+                     Icône `table-arrow-down` et non `mdi-download`, déjà porté par
+                     les exports d'un SEUL bloc (Perf PdV, table Articles) — deux
+                     sens différents pour une même icône sur un même écran.
+                     NE PAS reprendre `mdi-tray-arrow-down` : ce glyphe n'existe
+                     qu'à partir de @mdi/font 6, le projet est en 5.9.55 → bouton
+                     rond vide, sans erreur console.
+                     Désactivé pendant les chargements : un classeur produit sur une
+                     page à moitié enrichie est faux sans le dire. -->
+                <v-menu location="bottom end">
+                  <template #activator="{ props: exportProps }">
+                    <v-btn
+                      v-bind="exportProps"
+                      icon
+                      variant="text"
+                      size="small"
+                      :loading="exporting"
+                      :disabled="exportBusy"
+                      :title="t('anExportMenu')"
+                      :aria-label="t('anExportMenu')"
+                      class="fs-icon-btn"
+                    >
+                      <v-icon size="18">mdi-table-arrow-down</v-icon>
+                    </v-btn>
+                  </template>
+                  <v-list density="compact">
+                    <v-list-item @click="onExportXlsx">
+                      <template #prepend>
+                        <v-icon size="18">mdi-file-excel-outline</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('anExportXlsx') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item @click="onExportCsv">
+                      <template #prepend>
+                        <v-icon size="18">mdi-file-delimited-outline</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('anExportCsv') }}</v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
               </div>
               <!-- Ligne 2 : période + comparaison. -->
               <div v-if="!loading" class="av-header__row2">
@@ -484,6 +524,8 @@ import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
 import { useAnalyseItemRecords } from '@/composables/useAnalyseItemRecords'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
+import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
+import { useAnalyseExport } from '@/composables/useAnalyseExport'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
@@ -539,6 +581,7 @@ const {
   activeFilterChips,
   analysableEvents,
   setFilterImmediate,
+  toggleArrayFilter,
   resetFilters,
 } = useFilters()
 
@@ -604,6 +647,7 @@ const {
   loadedEventIds: mainLoadedEventIds,
   fetchError: itemRecordsError,
   refresh: refreshItemRecords,
+  clearCache: clearItemRecordsCache,
 } = useAnalyseItemRecords(filteredEvents)
 
 // Contexte de réconciliation PARTAGÉ avec useAnalyseItemRecords : voir
@@ -661,6 +705,7 @@ const {
   basketRecords,
   loading: basketsLoading,
   refresh: refreshBaskets,
+  clearCache: clearBasketsCache,
 } = useTransactionBaskets(filteredEvents)
 
 // Réconciliation AVANT filtrage, exactement comme la timeline — et pour la même
@@ -839,6 +884,7 @@ const {
   loading: comparisonLoading,
   loadedEventIds: comparisonLoadedEventIds,
   fetchError: comparisonItemRecordsError,
+  clearCache: clearComparisonCache,
 } = useAnalyseItemRecords(comparisonEventsGated, { maxEvents: 100 })
 
 // État explicite « pas de données de comparaison » (au lieu du silence) : bornes
@@ -901,24 +947,24 @@ watch(() => filters.value.timeRange, (tr) => {
 function itemTotals(records, events, idSet) {
   const costMap = store.state.analyse.menuItemCostMap || {}
   let revenue = 0, cost = 0, transactions = 0, attendees = 0
+  // Parité React (validEventCount) : moyennes par event divisées par les
+  // events AVEC CA (> 0) — un event sans ventes ne dilue pas la moyenne.
+  // BUG-284 : revByEvent rempli dans LA MÊME passe que les totaux (avant : 2ᵉ
+  // boucle complète sur records) — mêmes accumulations, même ordre, résultat
+  // identique au bit près, une passe au lieu de deux par appel (×3 appels).
+  const revByEvent = new Map()
   for (const r of records) {
     if (!idSet.has(r.eventId)) continue
     revenue += r.revenue || 0
     cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
     transactions += r.transactionCount || 0
+    revByEvent.set(r.eventId, (revByEvent.get(r.eventId) || 0) + (r.revenue || 0))
   }
   for (const e of events) {
     if (!idSet.has(e.id)) continue
     attendees += e.ticketsScanned ?? e.attendees ?? e.ticketsSold ?? 0
   }
   const eventCount = idSet.size
-  // Parité React (validEventCount) : moyennes par event divisées par les
-  // events AVEC CA (> 0) — un event sans ventes ne dilue pas la moyenne.
-  const revByEvent = new Map()
-  for (const r of records) {
-    if (!idSet.has(r.eventId)) continue
-    revByEvent.set(r.eventId, (revByEvent.get(r.eventId) || 0) + (r.revenue || 0))
-  }
   let validEventCount = 0
   for (const v of revByEvent.values()) if (v > 0) validEventCount++
   return {
@@ -1207,6 +1253,50 @@ watch(filteredEvents, (evs) => {
   }
 })
 
+// ---- Dataset partagé + export xlsx/csv ------------------------------------
+// Placé ICI et pas plus haut : le composable lit `metrics` et `shopPerformance`,
+// définis juste au-dessus. Il ne déclenche aucune requête — il agrège des records
+// déjà en mémoire, en tâche idle, une fois les trois chargements terminés.
+const exportBusy = computed(
+  () => chartsLoading.value || itemRecordsLoading.value || basketsLoading.value,
+)
+
+const { ensureDataset } = useAnalyseDataset({
+  spaceName,
+  filters,
+  activeFilterChips,
+  filteredEvents,
+  filteredRecords,
+  chartRecords,
+  articleRecords,
+  itemLevelRecords,
+  filteredBaskets,
+  filteredEventAggregates,
+  filteredTimelineData,
+  timelineHeaderLabel,
+  metrics,
+  itemSummary,
+  shopPerformance,
+  // `isPredictRecords` et non `isPredictMode` : même prédicat, mais déclaré plus
+  // haut dans le setup. `isPredictMode` ne l'est qu'après ce bloc.
+  isPredictMode: isPredictRecords,
+  busy: exportBusy,
+})
+
+const { exporting, onExportXlsx, onExportCsv } = useAnalyseExport({
+  ensureDataset,
+  spaceName,
+  isPredictMode: isPredictRecords,
+  // Réutilise le snackbar déjà monté pour la capture d'écran : un échec
+  // d'export doit se voir, pas finir dans la console (défaut des deux exports
+  // par bloc existants).
+  notify: (text, color = 'success') => {
+    snackbarText.value = text
+    snackbarColor.value = color
+    snackbar.value = true
+  },
+})
+
 // Auto-declenchement de la timeline des qu'un (ou plusieurs) event(s) sont
 // sélectionnés comme filtre via FilterSummary, chip, ou tout autre input.
 // Évite à l'utilisateur de devoir cliquer sur une barre du graphe pour voir
@@ -1294,15 +1384,10 @@ function clearChip(key) {
   }
 }
 
-// Lot 2 — toggle d'un filtre tableau (clic sur camembert / segment)
-function toggleArrayFilter(key, value) {
-  if (value == null) return
-  const current = filters.value?.[key] || []
-  const next = current.includes(value)
-    ? current.filter((v) => v !== value)
-    : [...current, value]
-  setFilterImmediate(key, next)
-}
+// Lot 2 / BUG-284 — le toggle d'un filtre tableau (clic camembert / segment) vit
+// désormais dans useFilters (version coalescée 150 ms par clé) : un clic ne
+// déclenche plus la vague de recalculs qu'après accalmie, et des clics rapides
+// sur la même clé se cumulent sans écrasement.
 const previousToolbox = ref('analyse')
 // Predict reste inline dans AnalyseView (mode banner + futurs inclus).
 // Seul Event Predict ouvre l'overlay full-screen.
@@ -1630,7 +1715,18 @@ onMounted(() => {
 
 watch(
   () => route.params.spaceId,
-  (id) => { if (id) ensureAuthAndLoad(id) }
+  (id, prevId) => {
+    if (!id) return
+    // BUG-285 : changement d'espace SANS remontage de la vue (key = route.name) —
+    // les caches par eventId des composables gardaient les lignes de l'ancien
+    // espace, dont les ids ne seront plus jamais redemandés. On purge.
+    if (prevId && prevId !== id) {
+      clearItemRecordsCache()
+      clearComparisonCache()
+      clearBasketsCache()
+    }
+    ensureAuthAndLoad(id)
+  }
 )
 
 // La vue n'est plus remontée sur un changement de query (DashboardView key =

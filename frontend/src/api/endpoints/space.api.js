@@ -134,6 +134,34 @@ const _eventTimelineCache = new Map()
 // comparaison) peuvent demander le même event avant que le cache ne soit rempli.
 const _eventTimelineInflight = new Map()
 
+// BUG-285 : ces caches session n'avaient AUCUNE éviction — chaque event de chaque
+// espace visité restait en mémoire à vie (contributeur n°1 des 2-3 Go observés).
+// Borne LRU : les Map itèrent en ordre d'insertion, un re-set au hit rafraîchit la
+// récence, l'entrée la plus ancienne saute au-delà du cap. Un event évincé se
+// re-fetch simplement au besoin.
+const _SESSION_CACHE_MAX = 30
+function _lruGet(map, key) {
+  if (!map.has(key)) return undefined
+  const v = map.get(key)
+  map.delete(key)
+  map.set(key, v)
+  return v
+}
+function _lruSet(map, key, value) {
+  if (map.has(key)) map.delete(key)
+  map.set(key, value)
+  while (map.size > _SESSION_CACHE_MAX) map.delete(map.keys().next().value)
+}
+/** BUG-285 : purge des entrées des AUTRES espaces (appelé au changement d'espace). */
+export function clearSpaceSessionCachesExcept(spaceId) {
+  const prefix = `${spaceId}:`
+  for (const m of [_eventTimelineCache, _basketCache]) {
+    for (const key of [...m.keys()]) {
+      if (!key.startsWith(prefix)) m.delete(key)
+    }
+  }
+}
+
 export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = false } = {}) {
   // Mode démo : pas de backend → on reconstruit la timeline minute-level de
   // l'event à partir des records du mock (mêmes données minute que le graphe
@@ -154,7 +182,8 @@ export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = fa
   // mais on réécrit quand même le cache avec la réponse fraîche pour les autres
   // consommateurs (useAnalyseTimeline, usePredictiveTimeline, etc.).
   if (!bypassCache) {
-    if (_eventTimelineCache.has(cacheKey)) return _eventTimelineCache.get(cacheKey)
+    const cached = _lruGet(_eventTimelineCache, cacheKey)
+    if (cached !== undefined) return cached
     if (_eventTimelineInflight.has(cacheKey)) return _eventTimelineInflight.get(cacheKey)
   }
   const inflight = (async () => {
@@ -162,7 +191,7 @@ export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = fa
       const response = await api.get(`/spaces/${spaceId}/event-timeline/${eventId}`)
       const data = response.data
       // On ne fige QUE les réponses non vides (cf. commentaire du cache).
-      if (Array.isArray(data) && data.length) _eventTimelineCache.set(cacheKey, data)
+      if (Array.isArray(data) && data.length) _lruSet(_eventTimelineCache, cacheKey, data)
       return data
     } catch (error) {
       console.error(`[SPACES API] Error fetching event timeline for ${spaceId}/${eventId}:`, error)
@@ -202,7 +231,7 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
     if (bypassCache) {
       missing.push(eventId)
     } else if (_eventTimelineCache.has(cacheKey)) {
-      result.set(eventId, _eventTimelineCache.get(cacheKey))
+      result.set(eventId, _lruGet(_eventTimelineCache, cacheKey))
     } else if (_eventTimelineInflight.has(cacheKey)) {
       result.set(eventId, await _eventTimelineInflight.get(cacheKey))
     } else {
@@ -242,7 +271,7 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
   }
   for (const eventId of missing) {
     const data = byEventId[eventId] || []
-    if (Array.isArray(data) && data.length) _eventTimelineCache.set(`${spaceId}:${eventId}`, data)
+    if (Array.isArray(data) && data.length) _lruSet(_eventTimelineCache, `${spaceId}:${eventId}`, data)
     result.set(eventId, data)
   }
   return result
@@ -281,7 +310,7 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
     if (bypassCache) {
       missing.push(eventId)
     } else if (_basketCache.has(cacheKey)) {
-      result.set(eventId, _basketCache.get(cacheKey))
+      result.set(eventId, _lruGet(_basketCache, cacheKey))
     } else if (_basketInflight.has(cacheKey)) {
       result.set(eventId, await _basketInflight.get(cacheKey))
     } else {
@@ -317,7 +346,7 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
   }
   for (const eventId of missing) {
     const data = byEventId[eventId] || []
-    if (Array.isArray(data) && data.length) _basketCache.set(`${spaceId}:${eventId}`, data)
+    if (Array.isArray(data) && data.length) _lruSet(_basketCache, `${spaceId}:${eventId}`, data)
     result.set(eventId, data)
   }
   return result

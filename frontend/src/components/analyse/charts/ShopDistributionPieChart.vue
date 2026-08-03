@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'sdp--dark': isDark }">
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-2 flex-wrap">
       <div>
@@ -73,6 +73,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useTheme } from 'vuetify'
 import DonutChartCard from './DonutChartCard.vue'
 import { SHOP_COLORS, SHOP_TYPE_COLORS, SHOP_AREA_COLORS } from '@/constants/analyseColors'
 import { SHOP_TYPE_LABEL_KEYS } from '@/constants/shopTypes'
@@ -80,9 +81,14 @@ import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { resolveShopType } from '@/utils/analyseDimensions'
+import { groupBy as sharedGroupBy } from '@/utils/analyseAggregations'
 import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
 
 const { t } = useI18n()
+
+// Dark mode autonome : suit le thème global Vuetify (cf. EventTimelineChart).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Couleur du donut PdV, avec gris dédié au bucket « PdV non rattachés ».
 const SHOP_TYPE_COLOR_MAP = { ...SHOP_TYPE_COLORS, [UNATTACHED_SHOP_KEY]: '#B0BEC5' }
@@ -106,23 +112,12 @@ const localMode = ref('revenue')
 
 const totalRevenue = computed(() => props.records.reduce((a, r) => a + (r.revenue || 0), 0))
 
+// Le groupement vit dans `utils/analyseAggregations` : l'export xlsx/csv et
+// l'assistant produisent leurs tables avec CETTE fonction, pas une copie. Deux
+// implémentations du même regroupement, c'est deux chiffres différents pour le
+// même donut le jour où l'une des deux bouge.
 function groupBy(keyFn, valueFn, colorMap, labelFn = null) {
-  const map = new Map()
-  for (const r of props.records) {
-    const k = keyFn(r)
-    if (!k) continue
-    map.set(k, (map.get(k) || 0) + valueFn(r))
-  }
-  const entries = [...map.entries()].sort((a, b) => b[1] - a[1])
-  return {
-    keys: entries.map((e) => e[0]),
-    labels: entries.map((e) => labelFn ? labelFn(e[0]) : e[0]),
-    values: entries.map((e) => e[1]),
-    colors: entries.map(([k], i) => {
-      if (colorMap && colorMap[k]) return colorMap[k]
-      return SHOP_COLORS[i % SHOP_COLORS.length]
-    }),
-  }
+  return sharedGroupBy(props.records, keyFn, valueFn, colorMap, labelFn, SHOP_COLORS)
 }
 
 const valueFn = (r) => (localMode.value === 'quantity' ? r.quantity || 0 : r.revenue || 0)
@@ -169,5 +164,14 @@ const areaPending = computed(() => {
   font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
+}
+
+/* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
+   en dur. Mode clair inchangé. Les donuts internes gèrent leur propre dark. ── */
+.sdp--dark .section-title {
+  color: #f9fafb;
+}
+.sdp--dark .section-subtitle {
+  color: #94a3b8;
 }
 </style>
