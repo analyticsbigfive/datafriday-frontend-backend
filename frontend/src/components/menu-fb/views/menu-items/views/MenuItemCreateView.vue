@@ -76,13 +76,13 @@
                   </template>
 
                   <template #item.type="{ item }">
-                    <v-chip 
-                      size="small" 
-                      variant="tonal" 
-                      rounded="lg" 
-                      :color="item.type === 'Ingredient' ? '#10b981' : '#3b82f6'"
+                    <v-chip
+                      size="small"
+                      variant="tonal"
+                      rounded="lg"
+                      :color="item.type === 'Ingredient' ? '#10b981' : item.type === 'ComboItem' ? '#ff3131' : item.type === 'Packaging' ? '#f59e0b' : '#3b82f6'"
                     >
-                      {{ item.type }}
+                      {{ item.type === 'ComboItem' ? 'Combo' : item.type }}
                     </v-chip>
                   </template>
 
@@ -574,6 +574,9 @@
     <!-- Component Picker Drawer -->
     <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
 
+    <!-- Combo Item Picker Drawer -->
+    <ComboItemPickerDrawer v-model="comboItemDrawer" :is-dark="isDark" :exclude-id="menuItemId" @add="onComboItemsAdded" />
+
     <!-- Packaging Picker Drawer -->
     <PackagingPickerDrawer v-model="packagingDrawer" :is-dark="isDark" @add="onPackagingAdded" />
 
@@ -643,6 +646,7 @@ import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil } fro
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
+import ComboItemPickerDrawer from '../drawers/ComboItemPickerDrawer.vue';
 import PackagingPickerDrawer from '../drawers/PackagingPickerDrawer.vue';
 import SpaceGroupDrawer from '../drawers/SpaceGroupDrawer.vue';
 import CreateTypeDialog from '../dialogs/CreateTypeDialog.vue';
@@ -653,7 +657,7 @@ import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -734,6 +738,9 @@ export default {
 
       // Component drawer
       componentDrawer: false,
+
+      // Combo item drawer
+      comboItemDrawer: false,
 
       // Packaging drawer
       packagingDrawer: false,
@@ -1028,6 +1035,16 @@ export default {
           }))
           .filter((pkg) => pkg.packagingId);
 
+        // Préparer les combo items (MenuItemCombo : childId = menu item référencé). On n'envoie
+        // PAS `cost` (= coût TOTAL de la ligne) : le backend le recalcule depuis l'enfant.
+        const comboItems = (this.items || [])
+          .filter((item) => item.type === "ComboItem" && item.comboItemId)
+          .map((item) => ({
+            childId: String(item.comboItemId || "").trim(),
+            quantity: Math.max(0, Number(item.quantity || 0)),
+          }))
+          .filter((c) => c.childId);
+
         // Calculer le coût total et le coût par pièce
         const totalCost = this.totalCost;
         const costPerPiece = this.costPerPiece;
@@ -1117,6 +1134,7 @@ export default {
           components: components,
           ingredients: ingredients,
           packagings: packagings,
+          comboItems: comboItems,
         };
 
         // N'envoie l'image que si elle a réellement changé (création, upload, suppression) —
@@ -1169,6 +1187,8 @@ export default {
       this.componentDrawer = true;
     },
     onAddComboItem() {
+      this.editingItemIndex = null;
+      this.comboItemDrawer = true;
     },
     onAddPackaging() {
       this.editingItemIndex = null;
@@ -1423,6 +1443,31 @@ export default {
           });
           this.items = [...this.items, ...packagingItems];
         }
+
+        // Charger les combo items (MenuItemCombo → child MenuItem). `comboChildren` est renvoyé
+        // par le GET (includeRelations) ; `child` porte le menu item référencé.
+        if (Array.isArray(menuItem.comboChildren) && menuItem.comboChildren.length > 0) {
+          const comboItems = menuItem.comboChildren.map((combo) => {
+            const child = combo.child || {};
+            const pieces = Math.max(Number(child.numberOfPiecesRecipe) || 1, 1);
+            const unitCost = combo.cost != null
+              ? Number(combo.cost)
+              : (child.costPerPiece != null ? Number(child.costPerPiece) : Number(child.totalCost || 0) / pieces);
+            return {
+              id: `combo-${combo.id || Date.now()}-${Math.random()}`,
+              name: child.name || "-",
+              type: "ComboItem",
+              category: child.category || child.categoryName || "-",
+              unit: combo.unit || "Pc",
+              quantity: Number(combo.quantity) || 1,
+              unitCost: Number.isFinite(unitCost) ? unitCost : 0,
+              totalCost: (Number(combo.quantity) || 1) * (Number.isFinite(unitCost) ? unitCost : 0),
+              storage: child.storageType || "-",
+              comboItemId: combo.childId || child.id || "",
+            };
+          });
+          this.items = [...this.items, ...comboItems];
+        }
       } catch (e) {
         console.error('Error loading menu item:', e);
         this.saveError = e?.userMessage || e?.message || this.t('menuItemCreate.errorLoadFailed');
@@ -1451,6 +1496,16 @@ export default {
       }
     },
     onPackagingAdded(newItems) {
+      if (this.editingItemIndex !== null) {
+        const updated = [...this.items];
+        updated.splice(this.editingItemIndex, 1, newItems[0]);
+        this.items = updated;
+        this.editingItemIndex = null;
+      } else {
+        this.items = [...this.items, ...newItems];
+      }
+    },
+    onComboItemsAdded(newItems) {
       if (this.editingItemIndex !== null) {
         const updated = [...this.items];
         updated.splice(this.editingItemIndex, 1, newItems[0]);
