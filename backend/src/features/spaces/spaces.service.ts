@@ -970,10 +970,10 @@ export class SpacesService {
       --
       -- UNE LIGNE PAR (élément, config), PAS par élément. Un élément v2 est PARTAGÉ entre
       -- configs (créer une config par clonage copie ses adhésions, cf. builder-v2.service
-      -- createConfiguration). `DISTINCT ON (se.id)` seul n'émettait qu'une ligne par
+      -- createConfiguration). Un DISTINCT ON (se.id) seul n'émettait qu'une ligne par
       -- élément, taguée de son adhésion la PLUS ANCIENNE (ORDER BY ce."createdAt") : toute
       -- config clonée disparaissait de la réponse « toutes configs », et les consommateurs
-      -- qui refiltrent côté client sur `configId` (EventPredictView, SpaceRestockView)
+      -- qui refiltrent côté client sur configId (EventPredictView, SpaceRestockView)
       -- voyaient 0 point de vente alors que Space Menus — qui passe ?configId= et
       -- court-circuite ce DISTINCT — en listait (BUG-286-01). Le DISTINCT ON est CONSERVÉ
       -- sur le couple, mais c'est un no-op garanti par la PK ConfigurationElement
