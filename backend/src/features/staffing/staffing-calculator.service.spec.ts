@@ -199,6 +199,71 @@ describe('StaffingCalculatorService', () => {
     });
   });
 
+  describe('applyMenuItemRatios (11_RH_STAFFING.md §11.16)', () => {
+    const ratio = (
+      over: Partial<Parameters<StaffingCalculatorService['applyMenuItemRatios']>[0][number]> = {},
+    ) => ({
+      roleId: 'role-1',
+      ratioBasis: 'QUANTITY' as const,
+      ratioValue: 100,
+      unitQty: 1,
+      targetMenuItemIds: ['item-burger'],
+      ...over,
+    });
+    const sale = (over: Partial<Parameters<StaffingCalculatorService['applyMenuItemRatios']>[1][number]> = {}) => ({
+      menuItemId: 'item-burger',
+      quantity: 0,
+      revenueHt: 0,
+      ...over,
+    });
+
+    it('seuil non atteint → []', () => {
+      const out = calc.applyMenuItemRatios([ratio()], [sale({ quantity: 99 })]);
+      expect(out).toEqual([]);
+    });
+
+    it('seuil atteint (Quantités) → qty = floor(vendu / ratioValue) * unitQty', () => {
+      const out = calc.applyMenuItemRatios([ratio({ unitQty: 2 })], [sale({ quantity: 250 })]);
+      // floor(250 / 100) * 2 = 4
+      expect(out).toEqual([{ roleId: 'role-1', qty: 4 }]);
+    });
+
+    it('base CA (REVENUE) → lit revenueHt et non quantity', () => {
+      const out = calc.applyMenuItemRatios(
+        [ratio({ ratioBasis: 'REVENUE', ratioValue: 500 })],
+        [sale({ quantity: 0, revenueHt: 1200 })],
+      );
+      // floor(1200 / 500) * 1 = 2
+      expect(out).toEqual([{ roleId: 'role-1', qty: 2 }]);
+    });
+
+    it('plusieurs items ciblés par un même ratio → sommés avant division', () => {
+      const out = calc.applyMenuItemRatios(
+        [ratio({ targetMenuItemIds: ['item-burger', 'item-frites'] })],
+        [sale({ menuItemId: 'item-burger', quantity: 60 }), sale({ menuItemId: 'item-frites', quantity: 60 })],
+      );
+      // floor((60+60) / 100) * 1 = 1
+      expect(out).toEqual([{ roleId: 'role-1', qty: 1 }]);
+    });
+
+    it('plusieurs ratios pour le même rôle → SOMMÉS (pas de max, contrairement aux Sinking Rules)', () => {
+      const out = calc.applyMenuItemRatios(
+        [
+          ratio({ targetMenuItemIds: ['item-burger'], ratioValue: 100, unitQty: 2 }),
+          ratio({ targetMenuItemIds: ['item-frites'], ratioValue: 50, unitQty: 3 }),
+        ],
+        [sale({ menuItemId: 'item-burger', quantity: 100 }), sale({ menuItemId: 'item-frites', quantity: 50 })],
+      );
+      // (floor(100/100)*2) + (floor(50/50)*3) = 2 + 3 = 5
+      expect(out).toEqual([{ roleId: 'role-1', qty: 5 }]);
+    });
+
+    it("item ciblé sans valeur de vente connue → traité comme 0, pas d'erreur", () => {
+      const out = calc.applyMenuItemRatios([ratio({ targetMenuItemIds: ['item-inconnu'] })], []);
+      expect(out).toEqual([]);
+    });
+  });
+
   // Auto-remplissage Staff Builder (2026-07-30, révisé suite retour utilisateur) :
   // le tag F&B seul suffit, la règle Sinking n'est qu'un raffinement optionnel.
   describe('computeStaffSuggestions (Builder Staff, tag seul suffit)', () => {

@@ -61,6 +61,7 @@
       <InventorySection v-if="sections.inventory" />
       <StorageInventorySection v-if="sections.storageInventory" />
       <StaffingInputsSection v-if="sections.staffingInputs" />
+      <MenuItemSalesInputSection v-if="sections.menuItemSalesInput" />
       <StaffSection v-if="sections.staff" />
       <GeometrySection v-if="sections.geometry" />
     </div>
@@ -86,6 +87,7 @@ import MenuSection from './sections/MenuSection.vue'
 import InventorySection from './sections/InventorySection.vue'
 import StorageInventorySection from './sections/StorageInventorySection.vue'
 import StaffingInputsSection from './sections/StaffingInputsSection.vue'
+import MenuItemSalesInputSection from './sections/MenuItemSalesInputSection.vue'
 import StaffSection from './sections/StaffSection.vue'
 import DeleteElementDialog from '../../dialogs/DeleteElementDialog.vue'
 

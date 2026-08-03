@@ -253,6 +253,31 @@ export class PutStaffDto {
   staff: StaffRowDto[];
 }
 
+// Saisie manuelle "vendu/prévu" par Menu Item, par élément (shop), par config (événement) —
+// 11_RH_STAFFING.md §11.16. Scopée par configId (jamais SpaceElement.attributes, cf. §11.14).
+export class MenuItemSalesInputRowDto {
+  @IsString()
+  @IsNotEmpty()
+  menuItemId: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quantity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  revenueHt?: number;
+}
+
+export class PutMenuItemSalesInputDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemSalesInputRowDto)
+  rows: MenuItemSalesInputRowDto[];
+}
+
 export class InventoryRowDto {
   @IsString()
   @IsNotEmpty()

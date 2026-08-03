@@ -22,7 +22,7 @@ import { detectFnbTags } from '../staffing/fnb-tags.util';
 import {
   CreateZoneDto, UpdateZoneDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto,
-  PutInventoryDto, CreateConfigurationDto,
+  PutInventoryDto, CreateConfigurationDto, PutMenuItemSalesInputDto,
 } from './dto/builder-v2.dto';
 
 // CFG-2 Étape 2 : les 8 départements canoniques sont désormais résolus dynamiquement contre la
@@ -937,6 +937,68 @@ export class BuilderV2Service {
   }
 
   /**
+   * Saisie manuelle "vendu/prévu" par Menu Item pour ce shop, scopée par config (événement) —
+   * 11_RH_STAFFING.md §11.16. Même patron delete+recreate que putStaff().
+   */
+  async getMenuItemSalesInput(elementId: string, tenantId: string, configId?: string) {
+    await this.getElementOrThrow(elementId, tenantId);
+    const targetConfigId = await this.resolveElementConfigId(elementId, configId);
+    return this.prisma.elementMenuItemSalesInput.findMany({ where: { elementId, configId: targetConfigId } });
+  }
+
+  async putMenuItemSalesInput(elementId: string, tenantId: string, dto: PutMenuItemSalesInputDto, configId?: string) {
+    const element = await this.getElementOrThrow(elementId, tenantId);
+    const targetConfigId = await this.resolveElementConfigId(elementId, configId);
+    await this.prisma.$transaction([
+      this.prisma.elementMenuItemSalesInput.deleteMany({ where: { elementId, configId: targetConfigId } }),
+      ...(dto.rows.length
+        ? [
+            this.prisma.elementMenuItemSalesInput.createMany({
+              data: dto.rows.map((r) => ({
+                tenantId, elementId, configId: targetConfigId, menuItemId: r.menuItemId,
+                quantity: r.quantity ?? null, revenueHt: r.revenueHt ?? null, source: 'MANUAL',
+              })),
+            }),
+          ]
+        : []),
+    ]);
+    await this.invalidate(tenantId, element.zone!.spaceId);
+    return this.prisma.elementMenuItemSalesInput.findMany({ where: { elementId, configId: targetConfigId } });
+  }
+
+  /**
+   * Résout les lignes AUTO issues des associations Rôle↔MenuItem (HrRoleMenuItemRatio) pour cet
+   * élément — additionnées (pas maxées) aux suggestions issues des Sinking Rules dans
+   * getStaffSuggestions(). "allMenuItems" s'expand sur tout ce que l'utilisateur a saisi pour ce
+   * shop (pas besoin d'interroger le catalogue menu séparément — un item sans saisie contribue 0
+   * de toute façon).
+   */
+  private async computeMenuItemRatioOutcomes(
+    elementId: string,
+    targetConfigId: string | null,
+    tenantId: string,
+    ratios: Array<{ roleId: string; ratioBasis: string; ratioValue: number; unitQty: number; allMenuItems: boolean; menuItemIds: string[] }>,
+  ) {
+    if (!ratios.length) return [];
+    const salesRows = await this.prisma.elementMenuItemSalesInput.findMany({
+      where: { elementId, configId: targetConfigId },
+    });
+    const sales = salesRows.map((s) => ({
+      menuItemId: s.menuItemId,
+      quantity: s.quantity ?? 0,
+      revenueHt: s.revenueHt ?? 0,
+    }));
+    const ratioInputs = ratios.map((r) => ({
+      roleId: r.roleId,
+      ratioBasis: r.ratioBasis as 'REVENUE' | 'QUANTITY',
+      ratioValue: r.ratioValue,
+      unitQty: r.unitQty,
+      targetMenuItemIds: r.allMenuItems ? sales.map((s) => s.menuItemId) : r.menuItemIds,
+    }));
+    return this.staffingCalculator.applyMenuItemRatios(ratioInputs, sales);
+  }
+
+  /**
    * Postes obligatoires pour cet élément selon ses sous-types (auto-remplissage de la section
    * Staff du Builder, 2026-07-30 — révisé le même jour suite retour utilisateur ; généralisé
    * au-delà de F&B le 2026-07-31, même retour utilisateur : le choix du département doit
@@ -957,14 +1019,42 @@ export class BuilderV2Service {
     const dept = await this.resolveDepartmentForElementType((element as any).type);
     if (!dept?.needsRh) return [];
     const fnbTags = detectFnbTags((element as any).subtypes);
-    if (fnbTags.size === 0) return [];
     const attrs = ((element as any).attributes ?? {}) as Record<string, any>;
     const departmentValues = [dept.code, dept.id].filter(Boolean) as string[];
-    const [roles, rules] = await Promise.all([
+    const spaceId = element.zone!.spaceId;
+    const targetConfigId = await this.resolveElementConfigId(elementId, configId);
+    const [roles, rules, menuItemRatios] = await Promise.all([
       this.prisma.hrRole.findMany({ where: { tenantId, department: { in: departmentValues } } }),
       this.prisma.hrSinkingRule.findMany({ where: { tenantId } }),
+      this.prisma.hrRoleMenuItemRatio.findMany({ where: { tenantId, spaceId } }),
     ]);
-    return this.staffingCalculator.computeStaffSuggestions(fnbTags, attrs, roles as any, rules as any);
+    // Sinking Rules restent tag-scopées (aucun tag présent → []) ; les associations
+    // Rôle↔MenuItem (11_RH_STAFFING.md §11.16) sont scopées par espace, pas par tag F&B — elles
+    // s'évaluent indépendamment du présent bloc et sont ADDITIONNÉES (pas maxées) au résultat.
+    const tagSuggestions =
+      fnbTags.size > 0 ? this.staffingCalculator.computeStaffSuggestions(fnbTags, attrs, roles as any, rules as any) : [];
+    const ratioOutcomes = await this.computeMenuItemRatioOutcomes(elementId, targetConfigId, tenantId, menuItemRatios as any);
+    if (!ratioOutcomes.length) return tagSuggestions;
+
+    const byRoleQty = new Map<string, number>();
+    const roleMeta = new Map<string, { roleName: string; hourlyRate: number }>();
+    for (const s of tagSuggestions) {
+      byRoleQty.set(s.roleId, s.qty);
+      roleMeta.set(s.roleId, { roleName: s.roleName, hourlyRate: s.hourlyRate });
+    }
+    const missingRoleIds = [...new Set(ratioOutcomes.map((o) => o.roleId))].filter((id) => !roleMeta.has(id));
+    if (missingRoleIds.length) {
+      const extraRoles = await this.prisma.hrRole.findMany({ where: { id: { in: missingRoleIds }, tenantId } });
+      for (const r of extraRoles) {
+        roleMeta.set(r.id, { roleName: r.name, hourlyRate: this.staffingCalculator.hourlyRateFrom(r.rateType, r.rate) ?? 0 });
+      }
+    }
+    for (const o of ratioOutcomes) {
+      byRoleQty.set(o.roleId, (byRoleQty.get(o.roleId) ?? 0) + o.qty);
+    }
+    return [...byRoleQty.entries()]
+      .filter(([roleId]) => roleMeta.has(roleId))
+      .map(([roleId, qty]) => ({ roleId, qty, ...roleMeta.get(roleId)! }));
   }
 
   // Résout le département d'un `SpaceElement.type` — replie d'abord les 5 valeurs legacy F&B
