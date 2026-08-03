@@ -81,6 +81,7 @@ import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { resolveShopType } from '@/utils/analyseDimensions'
+import { groupBy as sharedGroupBy } from '@/utils/analyseAggregations'
 import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
 
 const { t } = useI18n()
@@ -111,23 +112,12 @@ const localMode = ref('revenue')
 
 const totalRevenue = computed(() => props.records.reduce((a, r) => a + (r.revenue || 0), 0))
 
+// Le groupement vit dans `utils/analyseAggregations` : l'export xlsx/csv et
+// l'assistant produisent leurs tables avec CETTE fonction, pas une copie. Deux
+// implémentations du même regroupement, c'est deux chiffres différents pour le
+// même donut le jour où l'une des deux bouge.
 function groupBy(keyFn, valueFn, colorMap, labelFn = null) {
-  const map = new Map()
-  for (const r of props.records) {
-    const k = keyFn(r)
-    if (!k) continue
-    map.set(k, (map.get(k) || 0) + valueFn(r))
-  }
-  const entries = [...map.entries()].sort((a, b) => b[1] - a[1])
-  return {
-    keys: entries.map((e) => e[0]),
-    labels: entries.map((e) => labelFn ? labelFn(e[0]) : e[0]),
-    values: entries.map((e) => e[1]),
-    colors: entries.map(([k], i) => {
-      if (colorMap && colorMap[k]) return colorMap[k]
-      return SHOP_COLORS[i % SHOP_COLORS.length]
-    }),
-  }
+  return sharedGroupBy(props.records, keyFn, valueFn, colorMap, labelFn, SHOP_COLORS)
 }
 
 const valueFn = (r) => (localMode.value === 'quantity' ? r.quantity || 0 : r.revenue || 0)

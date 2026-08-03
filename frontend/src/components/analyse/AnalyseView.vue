@@ -62,6 +62,46 @@
                 >
                   <v-icon size="18">mdi-share-variant-outline</v-icon>
                 </v-btn>
+                <!-- Export chiffré. Menu (et non clic direct) : deux formats.
+                     Icône `table-arrow-down` et non `mdi-download`, déjà porté par
+                     les exports d'un SEUL bloc (Perf PdV, table Articles) — deux
+                     sens différents pour une même icône sur un même écran.
+                     NE PAS reprendre `mdi-tray-arrow-down` : ce glyphe n'existe
+                     qu'à partir de @mdi/font 6, le projet est en 5.9.55 → bouton
+                     rond vide, sans erreur console.
+                     Désactivé pendant les chargements : un classeur produit sur une
+                     page à moitié enrichie est faux sans le dire. -->
+                <v-menu location="bottom end">
+                  <template #activator="{ props: exportProps }">
+                    <v-btn
+                      v-bind="exportProps"
+                      icon
+                      variant="text"
+                      size="small"
+                      :loading="exporting"
+                      :disabled="exportBusy"
+                      :title="t('anExportMenu')"
+                      :aria-label="t('anExportMenu')"
+                      class="fs-icon-btn"
+                    >
+                      <v-icon size="18">mdi-table-arrow-down</v-icon>
+                    </v-btn>
+                  </template>
+                  <v-list density="compact">
+                    <v-list-item @click="onExportXlsx">
+                      <template #prepend>
+                        <v-icon size="18">mdi-file-excel-outline</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('anExportXlsx') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item @click="onExportCsv">
+                      <template #prepend>
+                        <v-icon size="18">mdi-file-delimited-outline</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('anExportCsv') }}</v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
               </div>
               <!-- Ligne 2 : période + comparaison. -->
               <div v-if="!loading" class="av-header__row2">
@@ -484,6 +524,8 @@ import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
 import { useAnalyseItemRecords } from '@/composables/useAnalyseItemRecords'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
+import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
+import { useAnalyseExport } from '@/composables/useAnalyseExport'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
@@ -1209,6 +1251,50 @@ watch(filteredEvents, (evs) => {
     // Recalcul des agregates quand la selection change
     shopPerformance.enrich(evs)
   }
+})
+
+// ---- Dataset partagé + export xlsx/csv ------------------------------------
+// Placé ICI et pas plus haut : le composable lit `metrics` et `shopPerformance`,
+// définis juste au-dessus. Il ne déclenche aucune requête — il agrège des records
+// déjà en mémoire, en tâche idle, une fois les trois chargements terminés.
+const exportBusy = computed(
+  () => chartsLoading.value || itemRecordsLoading.value || basketsLoading.value,
+)
+
+const { ensureDataset } = useAnalyseDataset({
+  spaceName,
+  filters,
+  activeFilterChips,
+  filteredEvents,
+  filteredRecords,
+  chartRecords,
+  articleRecords,
+  itemLevelRecords,
+  filteredBaskets,
+  filteredEventAggregates,
+  filteredTimelineData,
+  timelineHeaderLabel,
+  metrics,
+  itemSummary,
+  shopPerformance,
+  // `isPredictRecords` et non `isPredictMode` : même prédicat, mais déclaré plus
+  // haut dans le setup. `isPredictMode` ne l'est qu'après ce bloc.
+  isPredictMode: isPredictRecords,
+  busy: exportBusy,
+})
+
+const { exporting, onExportXlsx, onExportCsv } = useAnalyseExport({
+  ensureDataset,
+  spaceName,
+  isPredictMode: isPredictRecords,
+  // Réutilise le snackbar déjà monté pour la capture d'écran : un échec
+  // d'export doit se voir, pas finir dans la console (défaut des deux exports
+  // par bloc existants).
+  notify: (text, color = 'success') => {
+    snackbarText.value = text
+    snackbarColor.value = color
+    snackbar.value = true
+  },
 })
 
 // Auto-declenchement de la timeline des qu'un (ou plusieurs) event(s) sont

@@ -83,6 +83,23 @@ function fmtSign(v) {
   return v >= 0 ? `+${s}` : s
 }
 
+/**
+ * Lignes d'une table du dataset Analyse (`useAnalyseDataset`), ou `null`.
+ *
+ * `null` signifie « pas de réponse fiable ici » et déclenche le repli sur le
+ * chemin historique. Pas besoin de comparer une signature : le composable
+ * REMET le dataset à `null` dès que les filtres changent, avant de reconstruire
+ * en idle — un dataset présent est donc, par construction, à jour. C'est plus
+ * sûr qu'une comparaison, qui supposerait de réimplémenter ici le hachage des
+ * filtres et de le garder synchronisé.
+ */
+function datasetRows(store, key) {
+  const dataset = store.state?.analyse?.dataset
+  if (!dataset) return null
+  const table = (dataset.tables || []).find((tb) => tb.key === key)
+  return table && table.rows.length ? table.rows : null
+}
+
 function topByRevenue(records, key, n) {
   const map = new Map()
   for (const r of records) {
@@ -251,11 +268,29 @@ const TOOLS = {
     let records = store.getters['analyse/filteredShopGranularData']
     const events = store.getters['analyse/filteredEvents'] || []
     const filteredEvents = filterEventsByEntity(events, entities)
-    if (entities && (entities.eventType || entities.category)) {
+    const scopedByEntity = !!(entities && (entities.eventType || entities.category))
+    if (scopedByEntity) {
       const ids = new Set(filteredEvents.map((e) => e.id))
       records = records.filter((r) => ids.has(r.eventId))
     }
-    const list = topByRevenue(records, 'menuItemName', n)
+    // `filteredShopGranularData` est du SHOP-level : `menuItemName` y vaut null,
+    // et `topByRevenue` écarte toute clé falsy → la question « top articles »
+    // triait un ensemble vide. Le grain article n'existe que dans le dataset
+    // (`useAnalyseDataset`, table `topArticles`, item-level réconcilié).
+    //
+    // Le repli reste le chemin historique dans deux cas : dataset absent (pas
+    // encore construit — il l'est en idle après le rendu) et question portée par
+    // une entité (type/catégorie d'événement), périmètre que les tables agrégées
+    // ont perdu puisqu'elles ne portent plus d'eventId.
+    const fromDataset = scopedByEntity ? null : datasetRows(store, 'topArticles')
+    const list = fromDataset
+      ? fromDataset.slice(0, n).map((r) => ({
+          name: r.label,
+          revenue: r.revenue || 0,
+          quantity: r.quantity || 0,
+          transactions: 0,
+        }))
+      : topByRevenue(records, 'menuItemName', n)
     if (!list.length) {
       const lbl = entityLabel(entities)
       return { text: lbl ? `Aucune donnée pour les ${lbl}s.` : 'Aucune donnée disponible pour la sélection actuelle.' }
@@ -273,11 +308,25 @@ const TOOLS = {
     let records = store.getters['analyse/filteredShopGranularData']
     const events = store.getters['analyse/filteredEvents'] || []
     const filteredEvents = filterEventsByEntity(events, entities)
-    if (entities && (entities.eventType || entities.category)) {
+    const scopedByEntity = !!(entities && (entities.eventType || entities.category))
+    if (scopedByEntity) {
       const ids = new Set(filteredEvents.map((e) => e.id))
       records = records.filter((r) => ids.has(r.eventId))
     }
-    const list = topByRevenue(records, 'shopName', n)
+    // Le shop-level répondait déjà juste ici : on rebranche pour la cohérence,
+    // pas pour corriger. L'assistant et le panneau « Performance des shops »
+    // affichaient les mêmes nombres par deux agrégations distinctes — une de
+    // trop. Même repli que topMenuItems (dataset absent, ou question portée par
+    // une entité).
+    const fromDataset = scopedByEntity ? null : datasetRows(store, 'shopPerformance')
+    const list = fromDataset
+      ? fromDataset.slice(0, n).map((r) => ({
+          name: r.shop,
+          revenue: r.revenue || 0,
+          quantity: 0,
+          transactions: r.transactions || 0,
+        }))
+      : topByRevenue(records, 'shopName', n)
     if (!list.length) {
       const lbl = entityLabel(entities)
       return { text: lbl ? `Aucune donnée pour les ${lbl}s.` : 'Aucune donnée disponible pour la sélection actuelle.' }
