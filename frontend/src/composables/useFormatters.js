@@ -8,6 +8,11 @@ import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 // Décision UI 2026-07-12 : les KPI/totaux (formatCurrency) restent SANS
 // décimales ; les prix unitaires passent par formatCurrencyDetailed (2 déc.).
+// Exception 2026-08-03 : les RATIOS par ticket/transaction (per-cap, panier
+// moyen) passent aussi par formatCurrencyDetailed — sur des montants de 3 à 5 €
+// l'arrondi entier écrase toute la variation utile (« 3 € » pour 3,45 comme pour
+// 2,51). Concerne les cards Summary d'Event Predict, les KPI Analyse et le
+// graphe par évènement. Les totaux (CA, coût) gardent 0 décimale.
 export function formatCurrency(value, currency = 'EUR', locale = null, digits = 0) {
   const n = Number(value)
   if (value == null || value === '' || Number.isNaN(n)) return '—'
