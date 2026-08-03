@@ -314,7 +314,7 @@
                 <div class="ep-side-version-stat-row">
                   <span class="ep-muted">{{ t('epPerCap') }}</span>
                   <span class="ep-side-version-stat-val">
-                    {{ formatCurrency(Number(v.adjustedPerCapita ?? v.perCapita ?? 0)) }}
+                    {{ formatCurrencyDetailed(Number(v.adjustedPerCapita ?? v.perCapita ?? 0)) }}
                   </span>
                 </div>
               </div>
@@ -614,7 +614,7 @@
                  + timeline (fetchs servis par restTimelineCache, zéro réseau). -->
             <EventPredictSourcesDrawer
               v-model="showSourcesDrawer"
-              :scored-events="scoredPastEvents"
+              :scored-events="drawerScoredEvents"
               :unselected-events="drawerUnselectedEvents"
               :selected-ids="Array.from(selectedPastEventIds)"
               :loading="timeline.timelineLoading"
@@ -1005,13 +1005,13 @@
           <div class="ep-metric-card ep-metric-card-success">
             <h3 class="ep-metric-label">{{ t('epPerCap').replace(':', '') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              {{ formatCurrency(perCapitaPredicted) }}
+              {{ formatCurrencyDetailed(perCapitaPredicted) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                {{ formatCurrency(perCapitaAdjusted) }}
+                {{ formatCurrencyDetailed(perCapitaAdjusted) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1021,13 +1021,13 @@
           <div class="ep-metric-card ep-metric-card-neutral">
             <h3 class="ep-metric-label">{{ t('epMetricBasket') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              {{ formatCurrency(avgPerTransaction) }}
+              {{ formatCurrencyDetailed(avgPerTransaction) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                {{ formatCurrency(adjustedAvgPerTransaction) }}
+                {{ formatCurrencyDetailed(adjustedAvgPerTransaction) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -2483,6 +2483,30 @@ export default {
         this.shopGranularData,
       ).slice(0, 10);
     },
+    /**
+     * CA réel (HT) par évènement passé, indexé une seule fois par eventId.
+     * `pastEventCA()` fait un scan complet de shopGranularData : l'appeler par
+     * ligne du drawer (10 top + N non retenus) rejouerait 20-40 scans à chaque
+     * tick de réactivité. Une Map construite une fois suffit.
+     */
+    caByPastEvent() {
+      const map = new Map();
+      for (const r of this.shopGranularData || []) {
+        if (!r?.eventId || r.isPredictive) continue;
+        const prev = map.get(r.eventId) || 0;
+        map.set(r.eventId, prev + Number(r.revenue ?? r.totalRevenue ?? 0));
+      }
+      return map;
+    },
+    /**
+     * Top 10 scorés enrichis pour le drawer : CA réel, per-cap et tickets
+     * scannés de chaque évènement passé (ce que l'utilisateur regarde pour
+     * décider de garder ou non une source). Computed séparé : `scoredPastEvents`
+     * alimente le scoring / la timeline, on ne le mute pas.
+     */
+    drawerScoredEvents() {
+      return this.scoredPastEvents.map((se) => this.withDrawerMetrics(se));
+    },
     selectedPastEventIds() {
       // start from all top-10 scored events, minus the user-excluded ones,
       // plus les events cochés à la main dans le drawer (hors top 10).
@@ -2504,7 +2528,7 @@ export default {
         const id = se?.event?.id;
         if (!id || seen.has(id)) return;
         seen.add(id);
-        out.push({ ...se, reason });
+        out.push({ ...this.withDrawerMetrics(se), reason });
       };
       for (const se of this.timeline.candidateEvents || []) {
         push(se, `Hors top 10 — score plus bas (${se.score}/${se.maxPossibleScore})`);
@@ -4595,6 +4619,34 @@ export default {
         if (r.eventId !== eventId || r.isPredictive) return sum;
         return sum + Number(r.revenue ?? r.totalRevenue ?? 0);
       }, 0);
+    },
+    /**
+     * Ajoute à un évènement scoré les 3 métriques affichées dans le drawer de
+     * sélection des sources : CA réel, tickets scannés et per-cap (CA ÷ tickets).
+     * Le dénominateur suit la MÊME résolution que le scoring et la timeline
+     * (`ticketsScanned || ticketsSold`), sinon le per-cap du drawer ne
+     * réconcilierait pas avec celui des cards Summary.
+     *
+     * « Aucun record granulaire pour cet event » ≠ « CA de 0 € » : shopGranularData
+     * ne couvre que la période chargée par Analyse, un évènement plus ancien peut
+     * en être absent. On renvoie donc `null` (affiché « — ») plutôt que 0, sinon
+     * l'écran affirme « cet évènement n'a rien vendu » — l'inverse du vrai, sur
+     * l'écran même où l'utilisateur choisit ses sources. Idem `perCap` sans
+     * affluence connue.
+     */
+    withDrawerMetrics(se) {
+      const ev = se?.event || {};
+      const ca = this.caByPastEvent.has(ev.id)
+        ? this.caByPastEvent.get(ev.id)
+        : null;
+      const ticketsScanned =
+        Number(ev.ticketsScanned) || Number(ev.ticketsSold) || 0;
+      return {
+        ...se,
+        ca,
+        ticketsScanned,
+        perCap: ca != null && ticketsScanned > 0 ? ca / ticketsScanned : null,
+      };
     },
     onCalendarChange(date) {
       // Calendrier secondaire : sélection simple. `date` = Date unique.
