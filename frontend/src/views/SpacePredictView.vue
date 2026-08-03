@@ -171,6 +171,30 @@ function onClose() {
   100% { background-position: -120% 0; }
 }
 
+/* BUG-282 : skeleton clair = premier paint de la route Predict, flash blanc en
+   thème sombre. Accroché à .dark (<html>). */
+.dark .sp-skeleton-page {
+  background: #111827;
+  color: #d1d5db;
+}
+.dark .sp-skeleton-header {
+  background: #1f2937;
+  border-bottom-color: #374151;
+}
+.dark .sp-skeleton-card,
+.dark .sp-skeleton-panel,
+.dark .sp-skeleton-metric {
+  border-color: #374151;
+}
+.dark .sp-skeleton-icon,
+.dark .sp-skeleton-line,
+.dark .sp-skeleton-card,
+.dark .sp-skeleton-panel,
+.dark .sp-skeleton-metric {
+  background: linear-gradient(90deg, #1f2937 0%, #263548 42%, #1f2937 78%);
+  background-size: 220% 100%;
+}
+
 @media (max-width: 1100px) {
   .sp-skeleton-body {
     grid-template-columns: 1fr;

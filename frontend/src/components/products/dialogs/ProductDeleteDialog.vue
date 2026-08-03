@@ -4,7 +4,7 @@
     @update:model-value="$emit('update:modelValue', $event)"
     max-width="520"
   >
-    <div class="pdd-card">
+    <div class="pdd-card" :class="{ 'pdd-card--dark': isDark }">
       <!-- Head -->
       <div class="pdd-card__head">
         <div class="pdd-card__icon-wrap">
@@ -193,5 +193,41 @@ export default {
 .pdd-fbtn:disabled {
   opacity: .5;
   cursor: not-allowed;
+}
+
+/* ── Dark mode (BUG-279) : la prop isDark était déclarée mais jamais appliquée —
+   v-dialog téléporté, donc classe --dark sur la racine propre (pattern
+   RoleDeleteDialog). Overrides uniquement, rouge #ff3131 conservé. ── */
+.pdd-card--dark {
+  background: #1f2937;
+}
+.pdd-card--dark .pdd-card__icon-wrap {
+  background: rgba(255, 49, 49, .14);
+}
+.pdd-card--dark .pdd-card__title {
+  color: #f9fafb;
+}
+.pdd-card--dark .pdd-card__sub {
+  color: #94a3b8;
+}
+.pdd-card--dark .pdd-card__close {
+  color: #94a3b8;
+}
+.pdd-card--dark .pdd-card__close:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, .08);
+}
+.pdd-card--dark .pdd-card__msg {
+  color: #d1d5db;
+}
+.pdd-card--dark .pdd-card__foot {
+  border-top-color: #374151;
+}
+.pdd-card--dark .pdd-fbtn--cancel {
+  background: #374151;
+  color: #e2e8f0;
+}
+.pdd-card--dark .pdd-fbtn--cancel:hover {
+  background: #4b5563;
 }
 </style>

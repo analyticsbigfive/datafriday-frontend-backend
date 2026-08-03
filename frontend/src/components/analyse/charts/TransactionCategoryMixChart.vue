@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'txmix--dark': isDark }">
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-2 flex-wrap ga-2">
       <div>
@@ -87,6 +87,7 @@
  * que rien d'autre n'honore.
  */
 import { ref, computed } from 'vue'
+import { useTheme } from 'vuetify'
 import DonutChartCard from './DonutChartCard.vue'
 import { SHOP_COLORS } from '@/constants/analyseColors'
 import { formatNumber } from '@/composables/useFormatters'
@@ -94,6 +95,10 @@ import { comboKey, groupBasketsByCombo } from '@/utils/transactionBaskets'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+
+// Dark mode autonome : suit le thème global Vuetify (cf. EventTimelineChart).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Nombre de parts nommées avant le bucket « Autres », calé sur le graphique de
 // référence produit. Au-delà, la légende devient illisible et les parts
@@ -168,5 +173,18 @@ function onComboClick(key) {
 }
 .tx-warn {
   color: #b26a00;
+}
+
+/* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
+   en dur. Mode clair inchangé. ── */
+.txmix--dark .section-title {
+  color: #f9fafb;
+}
+.txmix--dark .section-subtitle {
+  color: #94a3b8;
+}
+/* Ambre foncé (calibré fond clair) → membre clair de la même famille. */
+.txmix--dark .tx-warn {
+  color: #fcd34d;
 }
 </style>

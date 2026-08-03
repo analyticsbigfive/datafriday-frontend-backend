@@ -88,6 +88,11 @@ export default {
   border: 1px solid #e5e7eb;
   border-radius: 12px;
 }
+/* BUG-282 : seule couleur en dur du fichier (le reste = v-card/typo Vuetify,
+   déjà thémés) — v-dialog téléporté, donc .dark (<html>). */
+.dark .rwl-row {
+  border-color: #374151;
+}
 .rwl-row__info {
   display: flex;
   flex-direction: column;

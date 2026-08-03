@@ -207,7 +207,7 @@ function toggle(shopId, checked) {
   display: flex;
   flex-direction: column;
   padding: 4px 10px 6px;
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
 }
 
 .ss-shop {
@@ -245,4 +245,13 @@ function toggle(shopId, checked) {
   background: rgba(97, 97, 97, 0.12);
   color: #616161;
 }
+
+/* ── Dark mode : les gris clairs ci-dessus n'ont pas d'équivalent exact dans le
+   thème Vuetify — surcharges via la classe .dark posée sur <html>. */
+.dark .ss-group__header { background: #111827; }
+.dark .ss-group__header:hover { background: #1a2332; }
+.dark .ss-shop:hover { background: #1a2332; }
+.dark .ss-shop__name { color: #d1d5db; }
+.dark .ss-group__badge { background: rgba(255, 152, 0, 0.2); color: #fbbf24; }
+.dark .ss-shop__merch { background: rgba(255, 255, 255, 0.08); color: #94a3b8; }
 </style>

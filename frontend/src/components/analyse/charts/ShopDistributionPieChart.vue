@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'sdp--dark': isDark }">
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-2 flex-wrap">
       <div>
@@ -73,6 +73,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useTheme } from 'vuetify'
 import DonutChartCard from './DonutChartCard.vue'
 import { SHOP_COLORS, SHOP_TYPE_COLORS, SHOP_AREA_COLORS } from '@/constants/analyseColors'
 import { SHOP_TYPE_LABEL_KEYS } from '@/constants/shopTypes'
@@ -83,6 +84,10 @@ import { resolveShopType } from '@/utils/analyseDimensions'
 import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
 
 const { t } = useI18n()
+
+// Dark mode autonome : suit le thème global Vuetify (cf. EventTimelineChart).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Couleur du donut PdV, avec gris dédié au bucket « PdV non rattachés ».
 const SHOP_TYPE_COLOR_MAP = { ...SHOP_TYPE_COLORS, [UNATTACHED_SHOP_KEY]: '#B0BEC5' }
@@ -169,5 +174,14 @@ const areaPending = computed(() => {
   font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
+}
+
+/* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
+   en dur. Mode clair inchangé. Les donuts internes gèrent leur propre dark. ── */
+.sdp--dark .section-title {
+  color: #f9fafb;
+}
+.sdp--dark .section-subtitle {
+  color: #94a3b8;
 }
 </style>

@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, effectScope } from 'vue'
 import { buildReconciliationContext } from '@/utils/analyseReconciliation'
 import store from '@/store'
 
@@ -20,17 +20,32 @@ import store from '@/store'
  * après le premier rendu. Un contexte capturé dans un `load()` async figerait
  * l'état du catalogue à cet instant.
  */
+// BUG-284 : singleton au niveau module — avant, chaque site d'appel recevait un
+// `computed` NEUF (3 instances : AnalyseView + les 2 useAnalyseItemRecords), donc
+// 3 constructions du contexte et 3 jeux de mémos (`matchMemo`/`categoryMatchMemo`)
+// payés en parallèle à chaque invalidation du catalogue. Le docblock promettait
+// déjà un contexte UNIQUE ; le store étant un singleton global (importé ici en
+// module), le computed peut l'être aussi — mêmes valeurs, amortissement 1×.
+let _sharedCtx = null
+// Scope DÉTACHÉ : un computed créé pendant le setup d'un composant serait arrêté
+// au démontage de ce composant — le singleton deviendrait figé après une première
+// navigation. Le scope détaché vit avec l'app, comme le store.
+const _detachedScope = effectScope(true)
+
 export function useReconciliationContext() {
-  return computed(() => {
-    const a = store.state.analyse
-    return buildReconciliationContext({
-      menuItems: a.menuItems || [],
-      productCategories: a.productCategoriesList || [],
-      productTypes: a.productTypesList || [],
-      floorElements: a.configShopContext?.floorElements || [],
-      assignment: a.configShopContext?.assignment || null,
-      assignmentItemsByShop: a.configShopContext?.assignmentItemsByShop || null,
-      weezeventProducts: a.weezeventProducts || [],
-    })
-  })
+  if (!_sharedCtx) {
+    _sharedCtx = _detachedScope.run(() => computed(() => {
+      const a = store.state.analyse
+      return buildReconciliationContext({
+        menuItems: a.menuItems || [],
+        productCategories: a.productCategoriesList || [],
+        productTypes: a.productTypesList || [],
+        floorElements: a.configShopContext?.floorElements || [],
+        assignment: a.configShopContext?.assignment || null,
+        assignmentItemsByShop: a.configShopContext?.assignmentItemsByShop || null,
+        weezeventProducts: a.weezeventProducts || [],
+      })
+    }))
+  }
+  return _sharedCtx
 }
