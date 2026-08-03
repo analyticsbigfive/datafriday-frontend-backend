@@ -272,15 +272,17 @@ export default {
   cursor: not-allowed;
 }
 
-@media (prefers-color-scheme: dark) {
-  .number-field__input--bare {
-    border-color: rgba(255, 255, 255, 0.3);
-    background: #1e293b;
-    color: #f1f5f9;
-  }
-  .number-field__input--bare:disabled {
-    background: #111827;
-  }
+/* BUG-282 : était sur `prefers-color-scheme` (préférence OS) — découplé du
+   toggle de thème de l'app (`.dark` sur <html>, plugins/vuetify.js). OS clair +
+   app sombre laissait un champ blanc ; OS sombre + app claire l'assombrissait.
+   Seul usage de prefers-color-scheme du repo, aligné sur `.dark`. */
+.dark .number-field__input--bare {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: #1e293b;
+  color: #f1f5f9;
+}
+.dark .number-field__input--bare:disabled {
+  background: #111827;
 }
 
 .number-field--disabled {

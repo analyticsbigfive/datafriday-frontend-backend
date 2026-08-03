@@ -4,7 +4,7 @@
     @update:model-value="$emit('update:modelValue', $event)"
     max-width="420"
   >
-    <div class="sdd">
+    <div class="sdd" :class="{ 'sdd--dark': isDark }">
 
       <!-- Header -->
       <div class="sdd__header">
@@ -219,5 +219,50 @@ export default {
 .sdd-btn--delete:hover:not(:disabled) {
   box-shadow: 0 6px 20px rgba(255, 49, 49,.42);
   transform: translateY(-1px);
+}
+
+/* ── Dark mode (BUG-279) : la prop isDark était déclarée mais jamais appliquée —
+   v-dialog téléporté, donc classe --dark sur la racine propre (pattern
+   RoleDeleteDialog). Overrides uniquement, rouge #ff3131 conservé. ── */
+.sdd--dark {
+  background: #1f2937;
+}
+.sdd--dark .sdd__header {
+  background: linear-gradient(180deg, rgba(255, 49, 49, .10) 0%, #1f2937 100%);
+}
+.sdd--dark .sdd__close {
+  color: #94a3b8;
+}
+.sdd--dark .sdd__close:hover {
+  background: rgba(255, 255, 255, .08);
+  color: #e2e8f0;
+}
+.sdd--dark .sdd__title {
+  color: #f9fafb;
+}
+.sdd--dark .sdd__message {
+  color: #d1d5db;
+}
+.sdd--dark .sdd__message strong {
+  color: #f9fafb;
+}
+.sdd--dark .sdd__error {
+  background: rgba(255, 49, 49, .12);
+  border-top-color: rgba(255, 49, 49, .3);
+  border-bottom-color: rgba(255, 49, 49, .3);
+  color: #fca5a5;
+}
+.sdd--dark .sdd__footer {
+  background: #111827;
+  border-top-color: #374151;
+}
+.sdd--dark .sdd-btn--cancel {
+  border-color: rgba(255, 255, 255, .14);
+  color: #94a3b8;
+}
+.sdd--dark .sdd-btn--cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .08);
+  border-color: rgba(255, 255, 255, .3);
+  color: #e2e8f0;
 }
 </style>

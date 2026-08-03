@@ -1,5 +1,7 @@
 <template>
   <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'mird--dark': isDark }">
+    <!-- BUG-285 : voile squelette pendant le recalcul des filtres (clic segment). -->
+    <AnalyseSkeletonVeil :active="filtersRecomputing" />
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3 flex-wrap">
       <div>
@@ -117,12 +119,15 @@ import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
+import { useFilters } from '@/composables/useFilters'
+import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
 
 // Couleurs des buckets article (Food / Beverage / Beer / Combo) — utilisées quand
 // un nom de type catalogue coïncide ; sinon palette.
 const BUCKET_COLORS = { Food: '#FF8A65', Beverage: '#5B8DEF', Beer: '#FFB74D', Combo: '#66BB6A' }
 
 const { t } = useI18n()
+const { filtersRecomputing } = useFilters()
 
 // Dark mode autonome : suit le thème global Vuetify.
 const theme = useTheme()

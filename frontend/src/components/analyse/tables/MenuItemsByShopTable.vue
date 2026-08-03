@@ -1,5 +1,7 @@
 <template>
   <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'mibs--dark': isDark }">
+    <!-- BUG-285 : voile squelette pendant le recalcul des filtres (clic segment). -->
+    <AnalyseSkeletonVeil :active="filtersRecomputing" />
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3">
       <div>
@@ -255,6 +257,7 @@ import { useFilters } from '@/composables/useFilters'
 import { useI18n } from '@/i18n/useI18n'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
+import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
 
 const props = defineProps({
   // Data-driven (parité React MenuItemsByShopTable) : rows = PdV vendeurs des
@@ -344,7 +347,7 @@ function itemDims(item) {
 // Les anciennes refs locales `typeFilter` / `categoryFilter` sont supprimées ;
 // `props.records` est déjà filtré en amont (parent passe `filteredRecords`),
 // donc le tableau reflète immédiatement la sélection.
-const { filters, setFilterImmediate, options } = useFilters()
+const { filters, setFilterImmediate, options, filtersRecomputing } = useFilters()
 
 const search = ref('')
 const searchScope = ref('all') // all | shop | type | category | item
@@ -843,4 +846,20 @@ async function exportExcel() {
   border-color: rgba(255, 255, 255, 0.06) !important;
 }
 /* #ff3131 (liens article) et #7C3AED (events cliquables) conservés (sémantiques). */
+
+/* BUG-278 : pagination — constatée à l'écran en carré blanc à contenu invisible
+   en thème sombre (VPagination 3.12 ne pose aucun fond par elle-même — la source
+   du blanc n'est pas identifiable statiquement) : override défensif qui force la
+   transparence, plus une pastille discrète sur la page active (invisible sinon,
+   Vuetify ne la distingue pas). */
+.mibs--dark :deep(.v-pagination .v-btn) {
+  /* !important requis : la source du fond blanc est extérieure au repo (Vuetify
+     ne peint rien, aucune règle globale ne matche) — sans lui l'override perdait. */
+  background-color: transparent !important;
+  color: #d1d5db !important;
+}
+.mibs--dark :deep(.v-pagination__item--is-active .v-btn) {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  color: #f9fafb !important;
+}
 </style>

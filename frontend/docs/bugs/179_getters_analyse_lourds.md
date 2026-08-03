@@ -1,6 +1,13 @@
 # BUG-179 — Getters analyse : ré-itération des tableaux complets à chaque changement de filtre
 
-- **Statut** : ⚪ Diagnostiqué (fix ciblé à planifier, instrumentation en place)
+- **Statut** : ⚪ Diagnostiqué (fix ciblé à planifier, instrumentation en place). **Maj
+  2026-08-03** : la vague de quick wins BUG-284 en réduit la douleur sans faire les index —
+  clics segments coalescés 150 ms (une seule vague de recalculs par accalmie), cache item-level
+  gelé/`shallowRef` (plus de Proxy dans les passes), contexte de réconciliation singleton
+  (mémos 1× au lieu de 3×), animations Chart.js 200 ms. Le chantier index `Map` par
+  eventId/menuItemId/shopId décrit ci-dessous reste entier ; à déclencher si le freeze persiste
+  sur les machines cibles. Références de lignes ci-dessous partiellement périmées :
+  `itemLevelRecords` vit désormais vers `AnalyseView.vue:619-623` (plus :545-597).
 - **Sévérité** : 🟡 Mineur/perf (réactivité des filtres sur gros volumes)
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : `datafriday-web`

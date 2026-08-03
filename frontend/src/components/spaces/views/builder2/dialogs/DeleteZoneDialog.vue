@@ -137,4 +137,9 @@ async function confirm() {
   color: #8a5200 !important;
   font-weight: 500;
 }
+/* Dark mode : l'ambre foncé devient illisible sur le tonal sombre → variante claire.
+   Dialog téléporté hors .v-application : on s'appuie sur .dark posé sur <html>. */
+.dark .b2-blocker-chip {
+  color: #fcd34d !important;
+}
 </style>

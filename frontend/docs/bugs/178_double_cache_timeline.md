@@ -1,6 +1,12 @@
 # BUG-178 — Deux couches de cache timeline indépendantes (store vs module API)
 
-- **Statut** : ⚪ Diagnostiqué (consolidation à planifier)
+- **Statut** : ⚪ Diagnostiqué (consolidation à planifier). **Maj 2026-08-03 (BUG-285)** : la
+  couche store (`timelineCacheByEventId`) est désormais gelée à l'écriture et purgée au
+  changement d'espace ; la couche API (`_eventTimelineCache`) est bornée LRU 30 + purgée par
+  espace. Constat au passage : `loadTimelineForEvent` n'a **aucun appelant applicatif** (le
+  chemin Analyse passe par le batch composable) — la chaîne ne survit que pour
+  `tests/unit/analyseStore.spec.js`. La consolidation restante = supprimer cette couche morte
+  avec ses tests, ou brancher ses consommateurs sur le cache API.
 - **Sévérité** : 🟡 Mineur (mémoire ×2, risque d'incohérence de staleness)
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : `datafriday-web`

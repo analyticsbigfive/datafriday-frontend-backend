@@ -221,9 +221,20 @@ const effectiveTimelineData = computed(() => {
   return []
 })
 
-const preprocessedTimelineData = computed(() =>
-  preprocessTimelineRecords(effectiveTimelineData.value),
-)
+// BUG-285 : ne PAS ré-agréger des données déjà agrégées. Le chemin Analyse passe
+// `filteredTimelineData`, déjà sorti de preprocessTimelineRecords (useAnalyseTimeline)
+// — la ré-agrégation était idempotente mais matérialisait une copie complète du
+// dataset minute-level (+ pic 2× pendant l'agrégation) pour un résultat identique.
+// Discriminant : les lignes agrégées portent des champs dérivés (`avgBasket`,
+// `totalRevenue`) que les records bruts API n'ont jamais — robuste au .filter()/.map()
+// amont, contrairement à un marqueur posé sur le tableau.
+const preprocessedTimelineData = computed(() => {
+  const d = effectiveTimelineData.value
+  if (!d.length) return d
+  const first = d[0]
+  const alreadyAggregated = first && first.avgBasket !== undefined && first.totalRevenue !== undefined
+  return alreadyAggregated ? d : preprocessTimelineRecords(d)
+})
 
 const isShowingPredictedData = computed(
   () =>
@@ -489,6 +500,8 @@ const chartData = computed(() => ({
 const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  // BUG-284 : 1000 ms → 200 ms (cf. GenericByEventChart).
+  animation: { duration: 200 },
   interaction: { mode: 'index', intersect: false },
   // Clic sur une barre / un point → on resserre la plage horaire autour de
   // l'heure cliquée (fenêtre de 1 h) puis on émet `time-range-change` pour

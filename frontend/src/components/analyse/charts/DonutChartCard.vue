@@ -1,5 +1,8 @@
 <template>
-  <v-card variant="outlined" class="pa-3 donut-card" style="height: 100%">
+  <v-card variant="outlined" class="pa-3 donut-card" :class="{ 'donut-card--dark': isDark }" style="height: 100%">
+    <!-- BUG-285 : voile pendant le recalcul des filtres — SAUF sur le donut qui
+         vient d'être cliqué (pendingKey posé) : lui garde son feedback optimiste. -->
+    <AnalyseSkeletonVeil :active="filtersRecomputing && pendingKey == null" />
     <div class="d-flex align-center mb-1">
       <v-icon size="14" color="#5B8DEF" class="mr-1">mdi-circle</v-icon>
       <span class="donut-title">{{ title }}</span>
@@ -36,7 +39,7 @@
           :key="itemKeyAt(idx)"
           min-height="28"
           :class="['px-2 py-0', { 'legend-item--clickable': clickable, 'legend-item--selected': selectedLabels.includes(itemKeyAt(idx)) }]"
-          @click="clickable ? emit('slice-click', itemKeyAt(idx)) : null"
+          @click="clickable ? onLegendClick(idx) : null"
         >
           <template #prepend>
             <span class="legend-dot" :style="{ background: colors[idx] }" />
@@ -61,15 +64,26 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Doughnut } from 'vue-chartjs'
+import { useTheme } from 'vuetify'
 import { registerChartJs } from '@/lib/chartjs'
 import { formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useI18n } from '@/i18n/useI18n'
+import { useFilters } from '@/composables/useFilters'
+import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
 
 registerChartJs()
 
 const { t } = useI18n()
+const { filtersRecomputing } = useFilters()
+
+// Dark mode autonome : suit le thème global Vuetify (cf. EventTimelineChart).
+// Le séparateur inter-tranches du donut (#fff) est peint sur <canvas> → dérivé
+// en JS ; `chartData` est un computed, le changement de thème re-rend le chart.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
+const sliceBorderColor = computed(() => (isDark.value ? '#1f2937' : '#fff'))
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -96,6 +110,21 @@ const emit = defineEmits(['slice-click'])
 
 const expanded = ref(false)
 
+// BUG-285 (fluidité, maquette « A+B ») : feedback OPTIMISTE — la part cliquée se
+// détache immédiatement (offset), sans attendre le round-trip clic → filtre
+// coalescé 150 ms → recalculs. Purement visuel, zéro calcul. La ref se
+// resynchronise quand la sélection réelle (props) revient du store.
+const pendingKey = ref(null)
+watch(() => props.selectedLabels, () => { pendingKey.value = null })
+watch(() => props.values, () => { pendingKey.value = null })
+const highlightedOffsets = computed(() =>
+  (props.values || []).map((_, i) => {
+    const k = itemKeyAt(i)
+    if (pendingKey.value != null && k === pendingKey.value) return 14
+    return props.selectedLabels.includes(k) ? 14 : 0
+  }),
+)
+
 const visibleLabels = computed(() =>
   expanded.value ? props.labels : props.labels.slice(0, props.maxLegend)
 )
@@ -121,14 +150,23 @@ function itemKeyAt(index) {
   return props.itemKeys[index] ?? props.labels[index]
 }
 
+function onLegendClick(index) {
+  const key = itemKeyAt(index)
+  if (key == null) return
+  pendingKey.value = key
+  emit('slice-click', key)
+}
+
 const chartData = computed(() => ({
   labels: props.labels,
   datasets: [
     {
       data: props.values,
       backgroundColor: props.colors,
-      borderColor: '#fff',
+      borderColor: sliceBorderColor.value,
       borderWidth: 2,
+      // BUG-285 : part sélectionnée (ou en attente de sélection) détachée.
+      offset: highlightedOffsets.value,
     },
   ],
 }))
@@ -136,13 +174,18 @@ const chartData = computed(() => ({
 const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  // BUG-284 : 1000 ms → 200 ms (cf. GenericByEventChart).
+  animation: { duration: 200 },
   cutout: '65%',
   onClick: props.clickable
     ? (_e, elements) => {
         if (!elements || !elements.length) return
         const idx = elements[0].index
         const key = itemKeyAt(idx)
-        if (key != null) emit('slice-click', key)
+        if (key != null) {
+          pendingKey.value = key
+          emit('slice-click', key)
+        }
       }
     : undefined,
   onHover: props.clickable
@@ -277,5 +320,30 @@ const chartOptions = computed(() => ({
 }
 .legend-item--selected {
   background-color: rgba(124, 77, 255, 0.12);
+}
+
+/* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
+   en dur. Mode clair inchangé. Le liseré inter-tranches est piloté en JS. ── */
+.donut-card--dark .donut-title {
+  color: #f9fafb;
+}
+.donut-card--dark .donut-subtitle {
+  color: #94a3b8;
+}
+.donut-card--dark .donut-empty {
+  color: #94a3b8;
+}
+.donut-card--dark .legend-text {
+  color: #d1d5db;
+}
+.donut-card--dark .legend-value {
+  color: #f9fafb;
+}
+/* Skeleton : shimmer clair (#EEEEEE/#F7F7F7) invisible ou éblouissant sur fond
+   sombre → même animation, dégradé recalé sur la famille de surfaces sombres. */
+.donut-card--dark .donut-skeleton-ring,
+.donut-card--dark .donut-skeleton-line {
+  background: linear-gradient(90deg, #1f2937 0%, #374151 42%, #1f2937 78%);
+  background-size: 220% 100%;
 }
 </style>

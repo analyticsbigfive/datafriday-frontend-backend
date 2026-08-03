@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue'
+import { ref, shallowRef, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
 
@@ -26,7 +26,11 @@ let _warnedBatchKo = false
  */
 export function useTransactionBaskets(filteredEvents, { maxEvents = MAX_EVENTS } = {}) {
   const route = useRoute()
-  const cache = ref({}) // eventId -> BasketComboRecord[]. [] = tenté/vide.
+  // eventId -> BasketComboRecord[] (GELÉS). [] = tenté/vide.
+  // BUG-285 : shallowRef + Object.freeze, même traitement que useAnalyseItemRecords
+  // (BUG-284) — écritures exclusivement par réassignation, les consommateurs ne
+  // mutent jamais les lignes (reconcileRecord → objets neufs).
+  const cache = shallowRef({})
   const loading = ref(false)
   const fetchError = ref(null)
   let abortController = null
@@ -50,7 +54,8 @@ export function useTransactionBaskets(filteredEvents, { maxEvents = MAX_EVENTS }
       const patch = {}
       for (const id of ids) {
         const data = byEventId.get(id) || []
-        patch[id] = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
+        const rows = Array.isArray(data) ? data.map((r) => Object.freeze({ ...r, eventId: id })) : []
+        patch[id] = Object.freeze(rows)
       }
       // Nouvelle référence pour déclencher la réactivité du computed.
       cache.value = { ...cache.value, ...patch }
@@ -103,5 +108,11 @@ export function useTransactionBaskets(filteredEvents, { maxEvents = MAX_EVENTS }
   /** Events réellement chargés — permet d'aligner un comptage sur le réel. */
   const loadedEventIds = computed(() => new Set(Object.keys(cache.value)))
 
-  return { basketRecords, loading, fetchError, loadedEventIds, refresh }
+  /** BUG-285 : purge (changement d'espace in-page — les eventIds de l'ancien espace
+      ne seront plus jamais demandés, leurs lignes resteraient en mémoire). */
+  function clearCache() {
+    cache.value = {}
+  }
+
+  return { basketRecords, loading, fetchError, loadedEventIds, refresh, clearCache }
 }

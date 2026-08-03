@@ -252,7 +252,7 @@
         </div>
 
         <!-- Notification Panel or Space Cards -->
-        <div v-if="showNotifications" class="flex-1 overflow-hidden bg-white border border-gray-200 rounded-xl">
+        <div v-if="showNotifications" class="flex-1 overflow-hidden bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl">
           <NotificationPanel :onClose="() => (showNotifications = false)" />
         </div>
         <div
