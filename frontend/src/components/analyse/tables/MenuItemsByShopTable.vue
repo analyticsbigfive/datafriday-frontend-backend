@@ -257,6 +257,11 @@ import { useFilters } from '@/composables/useFilters'
 import { useI18n } from '@/i18n/useI18n'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
+import {
+  aggregateByShop,
+  aggregateByItem,
+  buildItemsByShopRows,
+} from '@/utils/analyseAggregations'
 import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
 
 const props = defineProps({
@@ -403,98 +408,17 @@ const failedImages = ref({})
 
 // Rows = PdV vendeurs, fabriqués depuis les ventes (groupées par shopName) —
 // agrégats React : totalQty, avgQty par event, nb events, tri CA desc.
-const shops = computed(() => {
-  const shopMap = new Map()
-  const eventsPerShop = new Map()
-  const pictures = catalogPictureByName.value
-  for (const r of props.records) {
-    if (!shopMap.has(r.shopName)) {
-      shopMap.set(r.shopName, new Map())
-      eventsPerShop.set(r.shopName, new Set())
-    }
-    const itemsMap = shopMap.get(r.shopName)
-    const key = r.menuItemName || r.itemName || r.productName
-    if (!key) continue
-    if (!itemsMap.has(key)) {
-      itemsMap.set(key, {
-        name: key, menuItemId: r.menuItemId || null,
-        type: resolveItemType(r), category: resolveItemCategory(r),
-        picture: r.menuItemPicture || pictures.get(normalizeStr(key)) || null,
-        quantity: 0, revenue: 0, eventIds: new Set(),
-      })
-    }
-    const it = itemsMap.get(key)
-    if (!it.menuItemId && r.menuItemId) it.menuItemId = r.menuItemId
-    it.quantity += r.quantity || 0
-    it.revenue += r.revenue || 0
-    if (r.eventId) it.eventIds.add(r.eventId)
-    eventsPerShop.get(r.shopName).add(r.eventId)
-  }
-  const out = []
-  for (const [shopName, itemsMap] of shopMap.entries()) {
-    const items = [...itemsMap.values()]
-      .map((i) => ({
-        ...i, events: i.eventIds.size,
-        avgQuantity: i.eventIds.size ? Math.round(i.quantity / i.eventIds.size) : 0,
-      }))
-      .sort((a, b) => b.revenue - a.revenue)
-    const total = items.reduce((a, i) => a + i.quantity, 0)
-    const nEvents = eventsPerShop.get(shopName).size
-    out.push({ name: shopName, items, total, events: nEvents, avg: nEvents ? Math.round(total / nEvents) : 0 })
-  }
-  return out.sort((a, b) => b.total - a.total)
-})
+const shops = computed(() =>
+  // Agrégation PARTAGÉE avec l'export du bandeau (`utils/analyseAggregations`).
+  // Seule la résolution d'image reste ici : elle dépend du catalogue, que l'util
+  // n'a pas à connaître.
+  aggregateByShop(props.records, {
+    pictureOf: (key, r) => r.menuItemPicture || catalogPictureByName.value.get(normalizeStr(key)) || null,
+  }),
+)
 
 // Vue inverse « By Item » : liste fabriquée depuis les ventes (groupées par article).
-const items = computed(() => {
-  const itemMap = new Map()
-  for (const r of props.records) {
-    // Nom = catalogue si matché, sinon libellé Weezevent brut ; on ignore les
-    // agrégats shop-level sans nom d'article.
-    const key = r.menuItemName || r.itemName || r.productName
-    if (!key) continue
-    if (!itemMap.has(key)) {
-      itemMap.set(key, {
-        name: key,
-        menuItemId: r.menuItemId || null,
-        type: resolveItemType(r),
-        category: resolveItemCategory(r),
-        totalQuantity: 0,
-        totalRevenue: 0,
-        shopMap: new Map(),
-        eventsPerShop: new Map(),
-      })
-    }
-    const it = itemMap.get(key)
-    if (!it.menuItemId && r.menuItemId) it.menuItemId = r.menuItemId
-    it.totalQuantity += r.quantity || 0
-    it.totalRevenue += r.revenue || 0
-    if (!it.shopMap.has(r.shopName)) {
-      it.shopMap.set(r.shopName, { name: r.shopName, quantity: 0, revenue: 0 })
-      it.eventsPerShop.set(r.shopName, new Set())
-    }
-    const s = it.shopMap.get(r.shopName)
-    s.quantity += r.quantity || 0
-    s.revenue += r.revenue || 0
-    it.eventsPerShop.get(r.shopName).add(r.eventId)
-  }
-  const out = []
-  for (const it of itemMap.values()) {
-    const shopList = [...it.shopMap.values()]
-      .map((s) => ({ ...s, events: it.eventsPerShop.get(s.name).size }))
-      .sort((a, b) => b.revenue - a.revenue)
-    out.push({
-      name: it.name,
-      menuItemId: it.menuItemId,
-      type: it.type,
-      category: it.category,
-      totalQuantity: it.totalQuantity,
-      totalRevenue: it.totalRevenue,
-      shops: shopList,
-    })
-  }
-  return out.sort((a, b) => b.totalRevenue - a.totalRevenue)
-})
+const items = computed(() => aggregateByItem(props.records))
 
 const filteredShops = computed(() => {
   const q = search.value.toLowerCase().trim()
@@ -573,35 +497,22 @@ watch([shopPage, itemPage], () => {
 async function exportExcel() {
   try {
     const XLSX = await import('xlsx')
-    const rows = []
-    if (tableView.value === 'shops') {
-      for (const shop of shops.value) {
-        for (const it of shop.items) {
-          rows.push({
-            [t('anTblShopXlsShop')]: shop.name,
-            [t('anTblShopXlsItem')]: it.name,
-            [t('anTblShopXlsType')]: it.type,
-            [t('anTblShopXlsCategory')]: it.category,
-            [t('anTblShopXlsQuantity')]: it.quantity,
-            [t('anTblShopXlsRevenue')]: it.revenue,
-          })
-        }
-      }
-    } else {
-      for (const it of items.value) {
-        for (const s of it.shops) {
-          rows.push({
-            [t('anTblShopXlsItem')]: it.name,
-            [t('anTblShopXlsType')]: it.type,
-            [t('anTblShopXlsCategory')]: it.category,
-            [t('anTblShopXlsShop')]: s.name,
-            [t('anTblShopXlsQuantity')]: s.quantity,
-            [t('anTblShopXlsRevenue')]: s.revenue,
-            [t('anTblShopXlsEvents')]: s.events,
-          })
-        }
-      }
-    }
+    // Lignes construites par l'util PARTAGÉ : le classeur global de la page
+    // (bouton Télécharger du bandeau) sort exactement le même tableau. Deux
+    // fichiers produits par deux codes différents finiraient par diverger.
+    const rows = buildItemsByShopRows(
+      props.records,
+      {
+        shop: t('anTblShopXlsShop'),
+        item: t('anTblShopXlsItem'),
+        type: t('anTblShopXlsType'),
+        category: t('anTblShopXlsCategory'),
+        quantity: t('anTblShopXlsQuantity'),
+        revenue: t('anTblShopXlsRevenue'),
+        events: t('anTblShopXlsEvents'),
+      },
+      tableView.value === 'shops' ? 'shops' : 'items',
+    )
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     const sheetName = tableView.value === 'shops' ? t('anTblShopXlsSheetByShop') : t('anTblShopXlsSheetByItem')

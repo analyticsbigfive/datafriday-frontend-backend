@@ -160,6 +160,7 @@ import { computed, ref, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
+import { buildShopPerfRows, visibleShopsForPerf } from '@/utils/analyseAggregations'
 
 const { t } = useI18n()
 
@@ -179,11 +180,9 @@ defineEmits(['close', 'shop-click'])
 
 const page = ref(1)
 
-const visibleShops = computed(() =>
-  [...props.shops]
-    .filter((s) => (s.transactionRate || 0) > 0 || (s.totalRevenue || 0) > 0)
-    .sort((a, b) => (b.totalRevenue || 0) - (a.totalRevenue || 0)),
-)
+// Filtre + tri partagés avec l'export : l'onglet du classeur doit lister les
+// mêmes PdV, dans le même ordre que les cartes affichées ici.
+const visibleShops = computed(() => visibleShopsForPerf(props.shops))
 
 const pageCount = computed(() =>
   Math.max(1, Math.ceil(visibleShops.value.length / PAGE_SIZE)),
@@ -218,20 +217,19 @@ function isSelected(shop) {
 async function exportExcel() {
   try {
     const XLSX = await import('xlsx')
-    const rows = visibleShops.value.map((s) => ({
-      [t('anShopPerfShopName')]: s.elementName || s.shopName,
-      [`${t('anShopPerfTotalRevenue')} (\u20ac)`]: Number((s.totalRevenue || 0).toFixed(2)),
-      [t('anMetricTransactions')]: Math.round(s.totalTransactions || 0),
-      'Txn/Min': Number((s.transactionRate || 0).toFixed(2)),
-      [`${t('anShopPerfFirstHour')} Txn/Min`]: s.first60MinTransactionRate
-        ? Number(s.first60MinTransactionRate.toFixed(2))
-        : null,
-      'Peak 15min Txn/Min': s.peakTransactionRate
-        ? Number(s.peakTransactionRate.toFixed(2))
-        : null,
-      [t('anEvents')]: s.eventCount,
-      [t('anShopPerfOperatingMinutes').replace(':', '').trim()]: Math.round(s.operatingMinutes || 0),
-    }))
+    // Colonnes construites par l'util PARTAG\u00c9 : l'onglet \u00ab Performance des shops \u00bb
+    // du classeur global sort le m\u00eame tableau. Une seule d\u00e9finition, donc pas de
+    // divergence entre les deux fichiers que la page sait produire.
+    const rows = buildShopPerfRows(visibleShops.value, {
+      shop: t('anShopPerfShopName'),
+      revenue: `${t('anShopPerfTotalRevenue')} (\u20ac)`,
+      transactions: t('anMetricTransactions'),
+      rate: t('anExportColRate'),
+      firstHour: `${t('anShopPerfFirstHour')} ${t('anExportColRate')}`,
+      peak: t('anExportColPeak'),
+      events: t('anEvents'),
+      minutes: t('anShopPerfOperatingMinutes').replace(':', '').trim(),
+    })
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Shop Performance')

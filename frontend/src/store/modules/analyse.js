@@ -570,6 +570,18 @@ const state = () => ({
   // Assistant : requête injectée depuis l'extérieur (ex. clic sur une alerte du header)
   pendingAssistantQuery: null,
 
+  // Tables mises à plat des graphiques de la page (`useAnalyseDataset`), publiées
+  // ici pour deux consommateurs : l'export xlsx/csv et l'assistant, dont le
+  // contrat est `answer(store, query)` — passer par le store évite d'en changer
+  // la signature jusqu'au chemin sémantique et à SummaryPanel.
+  //
+  // Construit EN DERNIER (idle, après le rendu) et porteur d'une `signature` :
+  // l'assistant la compare avant usage et retombe sur `filteredShopGranularData`
+  // si elle diverge. Un dataset périmé qui répond est pire que pas de dataset.
+  // Ce sont des tables agrégées (dizaines à centaines de lignes), pas une copie
+  // des records.
+  dataset: null,
+
   // EventPredict : id de l'event à pré-sélectionner quand on entre dans l'overlay
   // (ex. clic sur la barre d'un event futur dans EventRevenueByShopChart en mode predict)
   pendingPredictEventId: null,
@@ -1682,6 +1694,7 @@ const mutations = {
   SET_TOOLBOX(state, v) { state.selectedToolbox = v },
   SET_MOBILE_PANEL(state, v) { state.activeMobilePanel = v },
   SET_PENDING_ASSISTANT_QUERY(state, v) { state.pendingAssistantQuery = v },
+  SET_ANALYSE_DATASET(state, v) { state.dataset = v || null },
   SET_PENDING_PREDICT_EVENT_ID(state, v) { state.pendingPredictEventId = v },
 
   SET_TIMELINE(state, { start, end }) {
