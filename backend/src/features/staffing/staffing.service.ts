@@ -13,8 +13,11 @@ import { detectFnbTags } from './fnb-tags.util';
 
 /**
  * Orchestration du staffing par événement (spec §1.3) :
- * charge event + PDV (SpaceElement de la config) + ElementPerformance (CA
- * prédictif, tx/min) + settings RH résolus (HrGoal/HrStaffRatio) + rôles RH →
+ * charge event + PDV (SpaceElement de la config) + CA prédictif par PDV
+ * (EventPredictVersion.predictedRecords de la version par défaut, agrégé par
+ * shopId — #43/11_RH_STAFFING.md §11.15 option b ; repli sur
+ * ElementPerformance.revenue si aucune version par défaut n'existe) + tx/min
+ * (ElementPerformance) + settings RH résolus (HrGoal/HrStaffRatio) + rôles RH →
  * appelle le calculateur pur → upsert des EventStaffLine source='ALGO'.
  * Une ligne MANUAL ou userModified n'est JAMAIS écrasée par une régénération
  * (elle compte dans le quota de son rôle).
@@ -106,6 +109,32 @@ export class StaffingService {
       goalTpe: goal ? (goal as any).goalPerTpe : null,
       staffPerZoneManager: ratio ? (ratio as any).staffPerZoneManager : null,
     };
+  }
+
+  /**
+   * CA prédictif par PDV (#43, 11_RH_STAFFING.md §11.15 option b) : agrège
+   * `EventPredictVersion.predictedRecords` (grain shopId × menuItem, déjà ajusté par les
+   * sliders du scénario — cf. `buildPredictedRecords` frontend) par `shopId`, pour la version
+   * marquée `isDefault` de l'event. Map vide si l'event n'a pas de version par défaut —
+   * l'appelant se replie alors sur `ElementPerformance.revenue`.
+   */
+  private async resolvePredictedRevenueByElement(
+    eventId: string,
+    tenantId: string,
+  ): Promise<Map<string, number>> {
+    const version = await this.prisma.eventPredictVersion.findFirst({
+      where: { eventId, tenantId, isDefault: true },
+      select: { predictedRecords: true },
+    });
+    const records = Array.isArray(version?.predictedRecords) ? (version!.predictedRecords as any[]) : [];
+    const byElement = new Map<string, number>();
+    for (const rec of records) {
+      const shopId = rec?.shopId;
+      const revenue = Number(rec?.totalRevenue);
+      if (!shopId || !Number.isFinite(revenue)) continue;
+      byElement.set(shopId, (byElement.get(shopId) ?? 0) + revenue);
+    }
+    return byElement;
   }
 
   // ── Chargement du référentiel RH ───────────────────────────────────────────
@@ -237,6 +266,7 @@ export class StaffingService {
       );
     }
     const hr = await this.loadHrContext(tenantId, ctx.spaceId);
+    const predictedRevenueByElement = await this.resolvePredictedRevenueByElement(eventId, tenantId);
 
     const elements = await this.prisma.spaceElement.findMany({
       where: {
@@ -278,7 +308,7 @@ export class StaffingService {
       const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
       const result = this.calculator.calculate({
-        caPredictif: perf?.revenue ?? 0,
+        caPredictif: predictedRevenueByElement.get(el.id) ?? perf?.revenue ?? 0,
         goalTpe: settings.goalTpe,
         // 2026-08-02, retour utilisateur : la donnée existe déjà sur l'élément (Position >
         // Largeur) — plus de champ « Mètres linéaires » dédié dans le Builder (StaffingInputsSection).

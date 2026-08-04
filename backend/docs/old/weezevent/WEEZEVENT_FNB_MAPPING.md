@@ -1,3 +1,11 @@
+> ⚠️ **Archivé, jamais implémenté.** Ce document décrit une table `fnb_sales_raw` qui n'existe pas
+> dans `schema.prisma` (pas de modèle `FnbSalesRaw`, pas de service de sync associé). La formule
+> `Total_HT = WeezeventPayment.amount - amountVat` (ligne 67, sans réintégration de `reduction`)
+> ne reflète PAS le calcul HT réellement utilisé en prod aujourd'hui, voir
+> `backend/src/features/aggregation/aggregation.service.ts` (réintègre `reduction`) et
+> `frontend/docs/utiles/HT_TTC_PREDICT.md` §5/§7 pour l'état vérifié du HT côté backend
+> (2026-08-04). Ne pas citer ce fichier comme source de vérité sur le calcul HT/TVA.
+
 # Mapping Weezevent → fnb_sales_raw
 
 ## 📊 Analyse de la Table Existante
