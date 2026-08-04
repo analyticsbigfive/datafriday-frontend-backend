@@ -236,6 +236,15 @@ export class SpaceAggregationService {
       timezone,
     );
 
+    await this.aggregateProductsByMinute(
+      tenantId,
+      spaceId,
+      locationIds,
+      fromDate,
+      toDate,
+      timezone,
+    );
+
     await this.trackUnmappedData(tenantId, locationIds, fromDate, toDate);
 
     await this.incrementDashboardVersion(spaceId, tenantId);
@@ -302,6 +311,110 @@ export class SpaceAggregationService {
         update: {
           revenueHt: agg.revenueHt,
           quantity: Number(agg.quantity),
+        },
+      });
+    }
+  }
+
+  // SpaceRevenueMinuteItemAgg — sert getEventTimelineBatch (grain event × minute × shop ×
+  // article). Contrairement au JOIN mem sur t."merchantId" utilisé plus haut dans
+  // aggregateForSpace (pour SpaceRevenueMinuteAgg), on joint ici WeezeventLocationShopMapping
+  // sur t."locationId" — le bon champ (même convention que aggregation.service.ts, BUG-014) —
+  // pour ne pas reproduire ce bug dans la nouvelle table.
+  //
+  // revenueHt ne soustrait PAS ti."reduction", contrairement à aggregateProducts ci-dessus :
+  // formule historique de getEventTimelineBatch (spaces.service.ts), à préserver pour ne pas
+  // changer les chiffres déjà affichés sur Analyse/Inventory/Live.
+  private async aggregateProductsByMinute(
+    tenantId: string,
+    spaceId: string,
+    locationIds: string[],
+    fromDate: Date,
+    toDate: Date,
+    timezone: string,
+  ): Promise<void> {
+    const itemAggregates = await this.prisma.$queryRaw<
+      Array<{
+        minute: Date;
+        weezeventEventId: string | null;
+        weezeventLocationId: string | null;
+        weezeventLocationName: string | null;
+        weezeventMerchantId: string | null;
+        spaceElementId: string | null;
+        weezeventProductId: string | null;
+        revenueHt: Decimal;
+        transactionsCount: bigint;
+        itemsCount: number;
+      }>
+    >`
+      SELECT
+        DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC') as minute,
+        t."eventId" as "weezeventEventId",
+        t."locationId" as "weezeventLocationId",
+        t."locationName" as "weezeventLocationName",
+        t."merchantId" as "weezeventMerchantId",
+        lsm."spaceElementId" as "spaceElementId",
+        ti."productId" as "weezeventProductId",
+        SUM(ti."unitPrice" * ti.quantity / (1 + ti."vat" / 100)) as "revenueHt",
+        COUNT(DISTINCT t.id) as "transactionsCount",
+        SUM(ti.quantity) as "itemsCount"
+      FROM "WeezeventTransaction" t
+      INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
+      LEFT JOIN "WeezeventLocationShopMapping" lsm
+        ON lsm."weezeventLocationId" = t."locationId"
+        AND lsm."tenantId" = ${tenantId}
+      WHERE
+        t."tenantId" = ${tenantId}
+        AND t."locationId" = ANY(${locationIds})
+        AND t."transactionDate" >= ${fromDate}
+        AND t."transactionDate" <= ${toDate}
+        AND t.status = 'V'
+        AND t."deletedAt" IS NULL
+      GROUP BY
+        minute,
+        t."eventId",
+        t."locationId",
+        t."locationName",
+        t."merchantId",
+        lsm."spaceElementId",
+        ti."productId"
+    `;
+
+    for (const agg of itemAggregates) {
+      await this.prisma.spaceRevenueMinuteItemAgg.upsert({
+        where: {
+          tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId_weezeventProductId:
+            {
+              tenantId,
+              spaceId,
+              minute: agg.minute,
+              weezeventEventId: agg.weezeventEventId,
+              weezeventLocationId: agg.weezeventLocationId,
+              weezeventMerchantId: agg.weezeventMerchantId,
+              spaceElementId: agg.spaceElementId,
+              weezeventProductId: agg.weezeventProductId,
+            },
+        },
+        create: {
+          tenantId,
+          spaceId,
+          minute: agg.minute,
+          timezone,
+          weezeventEventId: agg.weezeventEventId,
+          weezeventLocationId: agg.weezeventLocationId,
+          weezeventLocationName: agg.weezeventLocationName,
+          weezeventMerchantId: agg.weezeventMerchantId,
+          spaceElementId: agg.spaceElementId,
+          weezeventProductId: agg.weezeventProductId,
+          revenueHt: agg.revenueHt,
+          transactionsCount: Number(agg.transactionsCount),
+          itemsCount: Number(agg.itemsCount),
+        },
+        update: {
+          weezeventLocationName: agg.weezeventLocationName,
+          revenueHt: agg.revenueHt,
+          transactionsCount: Number(agg.transactionsCount),
+          itemsCount: Number(agg.itemsCount),
         },
       });
     }

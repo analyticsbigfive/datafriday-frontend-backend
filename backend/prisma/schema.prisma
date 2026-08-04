@@ -2840,6 +2840,43 @@ model SpaceRevenueMinuteAgg {
   @@index([tenantId, spaceId, weezeventLocationId, minute])
 }
 
+// Minute-level revenue aggregates WITH product dimension — sert getEventTimelineBatch
+// (spaces.service.ts). Grain : event × minute × shop × article. Ne stocke pas
+// menuItemId/nom/type/catégorie : résolus à la lecture via WeezeventProductMapping →
+// MenuItem → ProductType/ProductCategory, pour rester à jour si les mappings changent
+// sans jamais devoir réinvalider l'agrégat (même pattern que get_space_shop_details).
+// revenueHt ici NE soustrait PAS la remise, contrairement à SpaceRevenueMinuteAgg
+// (BUG-015) — formule alignée sur le comportement historique de getEventTimelineBatch,
+// à préserver pour ne pas changer les chiffres déjà affichés sur Analyse/Inventory/Live.
+model SpaceRevenueMinuteItemAgg {
+  id       String   @id @default(cuid())
+  tenantId String
+  spaceId  String
+  minute   DateTime
+  timezone String   @default("Europe/Paris")
+
+  weezeventEventId      String?
+  weezeventLocationId   String?
+  // Dénormalisé depuis WeezeventTransaction.locationName — seul moyen de reproduire le
+  // fallback shopName actuel pour un PdV non mappé (COALESCE(se.name, locationName,
+  // locationId)) ; aucun agrégat existant ne le stocke.
+  weezeventLocationName String?
+  weezeventMerchantId   String?
+  spaceElementId        String?
+  weezeventProductId    String?
+
+  revenueHt         Decimal @db.Decimal(12, 2)
+  transactionsCount Int
+  itemsCount        Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId, weezeventProductId])
+  @@index([tenantId, spaceId, weezeventEventId, minute])
+  @@index([tenantId, spaceId, spaceElementId, minute])
+}
+
 // Daily product revenue aggregates
 model SpaceProductRevenueDailyAgg {
   id                 String   @id @default(cuid())
@@ -2922,7 +2959,7 @@ model SimulationRun {
   errorCount            Int       @default(0)
   consecutiveErrorCount Int       @default(0)
   lastTickAt            DateTime?
-  lastTickStatus        String?   // 'ok' | 'skipped' | 'error'
+  lastTickStatus        String? // 'ok' | 'skipped' | 'error'
   lastTickError         String?   @db.Text
   lastElementId         String?
   lastElementName       String?
