@@ -115,6 +115,8 @@
                 <option value="CDI">{{ t('epsInternalCdi') }}</option>
                 <option value="CDD">{{ t('epsInternalCdd') }}</option>
                 <option value="AGENCY">{{ t('epsAgency') }}</option>
+                <option value="FREELANCE">{{ t('epsFreelance') }}</option>
+                <option value="OTHER">{{ t('epsOtherContract') }}</option>
               </select>
             </div>
 
@@ -207,20 +209,31 @@
           <span class="ep-revenue-label">RZ</span>
           <strong>{{ totals.zoneManagers }} × {{ eur(totals.zoneManagerRate) }}/h</strong>
         </span>
-        <!-- RH-2 : lecture seule des réglages RH résolus pour cet espace (déjà
-             renvoyés par GET /events/:id/staffing, aucun nouvel appel). Édition
-             sur la page RH Settings. -->
+        <!-- RH-2 : réglages RH résolus pour cet espace (renvoyés par GET
+             /events/:id/staffing). Édition inline via HrSpaceEditDrawer (même
+             composant que la page RH Settings) plutôt qu'une navigation. -->
         <span v-if="settings" class="ep-revenue-pill eps-settings-pill">
           <span class="ep-revenue-label">{{ t('epsGoalTpe') }}</span>
           <strong>{{ settings.goalTpe != null ? eur(settings.goalTpe) : '—' }}</strong>
           <span class="ep-revenue-label eps-settings-sep">{{ t('epsStaffPerZone') }}</span>
           <strong>{{ settings.staffPerZoneManager ?? '—' }}</strong>
         </span>
-        <router-link :to="{ name: 'hr-settings' }" class="eps-settings-link" :title="t('epsEditSettings')">
+        <button
+          type="button" class="eps-settings-link" :title="t('epsEditSettings')"
+          :disabled="!settings?.spaceId" @click="openSettingsDrawer"
+        >
           <v-icon size="15">mdi-cog-outline</v-icon>
-        </router-link>
+        </button>
       </div>
+      <p v-if="settingsError" class="eps-error">{{ settingsError }}</p>
     </template>
+
+    <HrSpaceEditDrawer
+      v-model="settingsDrawerOpen"
+      :space="settingsSpace"
+      :initial="{ goalPerTpe: settings?.goalTpe ?? null, staffPerZoneManager: settings?.staffPerZoneManager ?? null }"
+      @submit="onSettingsSubmit"
+    />
   </div>
 </template>
 
@@ -236,6 +249,8 @@ import { useStore } from 'vuex'
 import { t } from '@/i18n'
 import { getHrPersons } from '@/api/endpoints/hr.api'
 import NumberField from '@/components/common/NumberField.vue'
+import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
+import { useHrSpaceGoalRatio } from '@/composables/useHrSpaceGoalRatio'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 
 const PATCH_DEBOUNCE_MS = 500
@@ -257,6 +272,29 @@ const warningTitle = computed(() => warnings.value.map((w) => w.code).join(' · 
 const generateError = ref('')
 // Vrai après un generate résolu : distingue « jamais généré » d'une génération vide.
 const hasGeneratedOnce = ref(false)
+
+// ── Popup réglages RH (Goal/TPE, Staff/zone) — HrSpaceEditDrawer réutilisé inline ────
+const { saveSpaceGoalRatio } = useHrSpaceGoalRatio()
+const settingsDrawerOpen = ref(false)
+const settingsError = ref('')
+const spaceName = computed(
+  () => store.getters['spaces/spaces']?.find((s) => s.id === settings.value?.spaceId)?.name || '',
+)
+const settingsSpace = computed(() => ({ id: settings.value?.spaceId ?? null, name: spaceName.value }))
+function openSettingsDrawer() {
+  if (!settings.value?.spaceId) return
+  settingsError.value = ''
+  settingsDrawerOpen.value = true
+}
+async function onSettingsSubmit(payload) {
+  try {
+    await saveSpaceGoalRatio(settings.value.spaceId, payload)
+    settingsDrawerOpen.value = false
+    await store.dispatch('staffing/fetchStaffing', { eventId: props.eventId, force: true })
+  } catch (e) {
+    settingsError.value = e?.response?.data?.message || t('epsSettingsSaveError')
+  }
+}
 
 // ── Temps : minutes depuis minuit du jour de début de fenêtre ────────────────
 const dayStart = computed(() => {
@@ -420,6 +458,7 @@ async function onRemoveLine(line) {
 
 onMounted(async () => {
   store.dispatch('staffing/fetchStaffing', { eventId: props.eventId }).catch(() => {})
+  store.dispatch('spaces/fetchSpaces').catch(() => {})
   try {
     persons.value = await getHrPersons()
   } catch (_) {
@@ -628,9 +667,11 @@ onMounted(async () => {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border-radius: 8px;
   border: 1.5px solid var(--fb-border, #e5e7eb);
-  color: var(--fb-muted, #6b7280); flex-shrink: 0;
+  background: transparent; color: var(--fb-muted, #6b7280); flex-shrink: 0;
+  cursor: pointer; font: inherit; transition: border-color 0.15s, color 0.15s;
 }
-.eps-settings-link:hover { border-color: #ff3131; color: #ff3131; }
+.eps-settings-link:hover:not(:disabled) { border-color: #ff3131; color: #ff3131; }
+.eps-settings-link:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 900px) {
   .ep-menu-item-row { gap: 8px; }

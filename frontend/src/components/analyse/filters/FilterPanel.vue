@@ -732,13 +732,29 @@ const localToolbox = computed({
   set: (v) => emit('update:toolbox', v),
 })
 
-// Presets de dates selon toolbox actif (cf. React §6.1)
+// Presets de dates selon toolbox actif (cf. React §6.1) + saisons de l'espace
+// courant (Rapport Saison, valeur `season:<id>` résolue par le getter dateBounds).
 const dateRangeItems = computed(() => {
   const presets = getDateRangePresets(store.state.analyse.selectedToolbox || 'analyse')
-  return presets.map((p) => ({
+  const items = presets.map((p) => ({
     title: (PRESET_I18N_KEYS[p.value] && t(PRESET_I18N_KEYS[p.value])) || p.labelFr,
     value: p.value,
   }))
+  const spaceId = route.params.spaceId
+  const seasons = spaceId ? store.getters['seasons/seasonsForSpace'](spaceId) : []
+  for (const s of seasons) items.push({ title: s.name, value: `season:${s.id}` })
+  return items
+})
+
+// Saison supprimée (ou hors scope de l'espace) alors qu'elle est sélectionnée →
+// retomber sur 'all', comme le fait déjà le watcher toolbox pour un preset
+// devenu invalide. Garde : ne rien faire tant que le store seasons n'a pas
+// encore chargé (cachedAt=0) — sinon on écraserait la sélection au premier rendu.
+watch(dateRangeItems, (items) => {
+  const tr = filters.value.timeRange
+  if (!String(tr || '').startsWith('season:')) return
+  if (!store.state.seasons.cachedAt) return
+  if (!items.some((i) => i.value === tr)) setFilterImmediate('timeRange', 'all')
 })
 
 // Si l'utilisateur passe en mode predict alors qu'un preset analyse-only est

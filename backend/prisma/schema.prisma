@@ -516,6 +516,9 @@ model Space {
   hrGoalSpaces       HrGoalSpace[]
   hrStaffRatioSpaces HrStaffRatioSpace[]
 
+  // Rapport Saison : périodes personnalisées (custom ranges) rattachées à cet espace
+  seasonSpaces SeasonSpace[]
+
   // Staffing RH : agence par défaut de l'espace pour un rôle donné
   hrRoleSpaceDefaults HrRoleSpaceDefault[]
 
@@ -584,6 +587,44 @@ model HrStaffRatioSpace {
 
   @@id([ratioId, spaceId])
   @@index([ratioId])
+  @@index([spaceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rapport Saison — périodes personnalisées (« Saison 2025-2026 », 1er juil →
+// 30 juin) paramétrées dans Settings > Configuration, rattachées à un ensemble
+// de Spaces (ou à tous via allSpaces) et proposées comme presets de dates dans
+// Analyse et Predict. Même schéma de rattachement que HrGoal (jointure
+// explicite, jamais de spaceIds JSON — ADR-0003). Contrairement aux Settings
+// HR, les saisons PEUVENT se chevaucher sur un même espace (2024-25 et 2025-26
+// coexistent) : aucune règle d'unicité.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Période personnalisée nommée (dates absolues), rattachée à un ensemble de Spaces.
+model Season {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  allSpaces Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  spaces SeasonSpace[]
+
+  @@index([tenantId])
+}
+
+model SeasonSpace {
+  seasonId String
+  spaceId  String
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  space  Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([seasonId, spaceId])
+  @@index([seasonId])
   @@index([spaceId])
 }
 
@@ -2799,6 +2840,43 @@ model SpaceRevenueMinuteAgg {
   @@index([tenantId, spaceId, weezeventLocationId, minute])
 }
 
+// Minute-level revenue aggregates WITH product dimension — sert getEventTimelineBatch
+// (spaces.service.ts). Grain : event × minute × shop × article. Ne stocke pas
+// menuItemId/nom/type/catégorie : résolus à la lecture via WeezeventProductMapping →
+// MenuItem → ProductType/ProductCategory, pour rester à jour si les mappings changent
+// sans jamais devoir réinvalider l'agrégat (même pattern que get_space_shop_details).
+// revenueHt ici NE soustrait PAS la remise, contrairement à SpaceRevenueMinuteAgg
+// (BUG-015) — formule alignée sur le comportement historique de getEventTimelineBatch,
+// à préserver pour ne pas changer les chiffres déjà affichés sur Analyse/Inventory/Live.
+model SpaceRevenueMinuteItemAgg {
+  id       String   @id @default(cuid())
+  tenantId String
+  spaceId  String
+  minute   DateTime
+  timezone String   @default("Europe/Paris")
+
+  weezeventEventId      String?
+  weezeventLocationId   String?
+  // Dénormalisé depuis WeezeventTransaction.locationName — seul moyen de reproduire le
+  // fallback shopName actuel pour un PdV non mappé (COALESCE(se.name, locationName,
+  // locationId)) ; aucun agrégat existant ne le stocke.
+  weezeventLocationName String?
+  weezeventMerchantId   String?
+  spaceElementId        String?
+  weezeventProductId    String?
+
+  revenueHt         Decimal @db.Decimal(12, 2)
+  transactionsCount Int
+  itemsCount        Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId, weezeventProductId])
+  @@index([tenantId, spaceId, weezeventEventId, minute])
+  @@index([tenantId, spaceId, spaceElementId, minute])
+}
+
 // Daily product revenue aggregates
 model SpaceProductRevenueDailyAgg {
   id                 String   @id @default(cuid())
@@ -2881,7 +2959,7 @@ model SimulationRun {
   errorCount            Int       @default(0)
   consecutiveErrorCount Int       @default(0)
   lastTickAt            DateTime?
-  lastTickStatus        String?   // 'ok' | 'skipped' | 'error'
+  lastTickStatus        String? // 'ok' | 'skipped' | 'error'
   lastTickError         String?   @db.Text
   lastElementId         String?
   lastElementName       String?
@@ -3112,7 +3190,7 @@ model RestockState {
 // EXACTEMENT les mêmes chiffres même si prédictions, prix ou recettes ont
 // changé depuis — même famille que StockReconciliation, mais ÉDITABLE.
 // Un plan n'est PAS une source de stock (même avertissement que RestockState).
-// Migration manuelle : prisma/sql/2026-08-04_restockplan.sql
+// Migration : prisma/migrations/20260804170000_add_restockplan/
 // Décision : docs/adr/0005_restockplan_document_fige_vs_restockstate_session.md
 model RestockPlan {
   id       String @id @default(cuid())

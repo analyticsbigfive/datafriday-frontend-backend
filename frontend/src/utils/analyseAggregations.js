@@ -326,6 +326,49 @@ export function buildShopPerfRows(shops, h) {
 }
 
 /**
+ * BUG-298-01 — Coût (et CA de même grain) par événement, depuis les records
+ * ITEM-LEVEL.
+ *
+ * `shopGranularData` (API `shop-details`) est shop-level : ses lignes ne portent
+ * AUCUN `menuItemId`. Le coût, lui, ne se résout que par article (coût unitaire ×
+ * quantité) : sur ce grain `costMap[r.menuItemId]` vaut donc toujours 0. C'est la
+ * raison pour laquelle le getter `filteredEventAggregates`
+ * (store/modules/analyse.js) renvoie un coût nul pour chaque event, alors que le
+ * KPI COÛT du bandeau — qui agrège `event-timeline`, grain article — est juste.
+ *
+ * Formule VERBATIM du KPI (`useMetricsCalculator.js`) : recalcul à la volée, et
+ * surtout PAS `r.totalCost`. Ce dernier est figé au pré-traitement avec la costMap
+ * du moment, qui peut encore être vide en phase 1 (cf. `useSpaceData.js`) — la
+ * somme des barres doit égaler le KPI, pas un instantané périmé.
+ *
+ * Le CA est cumulé dans la même passe pour que tout ratio dérivé (marge) reste
+ * d'un SEUL grain : croiser un coût item-level avec le CA shop-level des agrégats
+ * produit des marges négatives ou > 100 % dès que les deux grains divergent.
+ *
+ * @param {Array} records  records item-level (portent `menuItemId`)
+ * @param {Object<string, number>} costMap  menuItemId → coût unitaire
+ * @returns {Map<string, {cost: number, revenue: number}>} eventId → totaux. VIDE
+ *   si aucun record item-level : l'appelant doit alors laisser ses agrégats
+ *   intacts, surtout pas écrire 0 (l'item-level se charge en asynchrone, un 0
+ *   transitoire serait un faux chiffre affiché).
+ */
+export function itemLevelTotalsByEvent(records, costMap = {}) {
+  const byEvent = new Map()
+  for (const r of records || []) {
+    if (!r?.eventId || r.menuItemId == null) continue
+    const unitCost = costMap[r.menuItemId] || 0
+    let totals = byEvent.get(r.eventId)
+    if (!totals) {
+      totals = { cost: 0, revenue: 0 }
+      byEvent.set(r.eventId, totals)
+    }
+    totals.cost += unitCost * (r.quantity || 0)
+    totals.revenue += r.revenue || 0
+  }
+  return byEvent
+}
+
+/**
  * Repli sans débit : agrégats de base par PdV, calculés depuis les records déjà
  * en mémoire.
  *

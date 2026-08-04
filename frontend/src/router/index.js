@@ -49,6 +49,7 @@ const DisplayNameListView = () => import('@/components/display-name/views/Displa
 const IndustrialListView = () => import('@/components/industrial/views/IndustrialListView.vue')
 const PackingTypeListView = () => import('@/components/packing-type/views/PackingTypeListView.vue')
 const StorageTypeListView = () => import('@/components/storage-type/views/StorageTypeListView.vue')
+const SeasonsListView = () => import('@/components/seasons/views/SeasonsListView.vue')
 const DepartmentListView = () => import('@/components/departments/views/DepartmentListView.vue')
 const PermissionListView = () => import('@/components/permission/views/PermissionListView.vue')
 const RoleListView = () => import('@/components/role/views/RoleListView.vue')
@@ -402,6 +403,12 @@ const routes = [
         name: 'storage-types',
         component: StorageTypeListView,
         meta: { title: 'Liste des storage types', keepAlive: true, permission: 'menu.config.manage' }
+      },
+      {
+        path: '/configurations/seasons',
+        name: 'seasons',
+        component: SeasonsListView,
+        meta: { title: 'Saisons (périodes personnalisées)', keepAlive: true, permission: 'menu.config.manage' }
       },
       {
         path: '/configurations/departments',

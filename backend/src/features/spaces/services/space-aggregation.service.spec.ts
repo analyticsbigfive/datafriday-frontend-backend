@@ -14,6 +14,7 @@ describe('SpaceAggregationService', () => {
     weezeventMerchantElementMapping: { findMany: jest.fn() },
     spaceRevenueMinuteAgg: { upsert: jest.fn() },
     spaceProductRevenueDailyAgg: { upsert: jest.fn() },
+    spaceRevenueMinuteItemAgg: { upsert: jest.fn() },
     dashboardVersion: { upsert: jest.fn() },
     $queryRaw: jest.fn(),
   };

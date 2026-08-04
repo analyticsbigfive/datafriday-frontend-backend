@@ -284,9 +284,7 @@ import NumberField from '@/components/common/NumberField.vue'
 const CONDITION_ATTRIBUTES = [
   { value: 'nbFriteuses', label: t('hrCondAttrNbFriteuses') },
   { value: 'nbTireuses', label: t('hrCondAttrNbTireuses') },
-  { value: 'nbBurgersPrevus', label: t('hrCondAttrNbBurgersPrevus') },
   { value: 'nbDinettes', label: t('hrCondAttrNbDinettes') },
-  { value: 'nbHotdogsPrevus', label: t('hrCondAttrNbHotdogsPrevus') },
 ]
 
 // Vocabulaires — miroir du backend (features/hr/hr.service.ts)

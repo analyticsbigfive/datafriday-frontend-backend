@@ -345,30 +345,153 @@ implémenter B/C/D/E en premier, ou trancher §10.6 avant d'écrire A, plutôt q
 | **A** — bouton ◉ | `spaces/widgets/SpaceItem.vue` (`.si-img`, appel `GET /spaces/:id/live-status` au montage, gardé par `front.fb.live`) | ✅ **livré** — câblé sur le **vrai signal** (endpoint dédié `live-status`, PAS un champ `liveEvent` — §7/§10.6) ; ◉ + tooltip « live depuis X min » via `since` |
 | **B** — entrée « Live » Tools | `analyse/filters/FilterPanel.vue` (`toolboxItems` + `onToolboxSelect` + `livePath`) + clé i18n `anToolLive` | ✅ livré (c'est bien `filters/FilterPanel.vue` qui est importé par `AnalyseView`, pas le doublon racine) |
 | **C** — route `space-live` | `router/index.js` après `space-restock` → rend `AnalyseView`, `meta:{ title:'Live', keepAlive:true, permission:'front.fb.live' }` | ✅ livré — **non** ajoutée à `SPACE_SCREENS` (§10.3) |
-| **D** — mode flux | `analyse/AnalyseView.vue` : `isLive` (route), badge ● LIVE, polling 15 s de la timeline **et** de `loadSpace`/`shop-details` (aligné, 2026-07-29), cleanup `onActivated/onDeactivated/onBeforeUnmount` | ✅ livré (voir limites ci-dessous) |
+| **D** — mode flux | `analyse/AnalyseView.vue` : `isLive` (route), badge ● LIVE, polling 15 s de la timeline **et** du snapshot shop-details (`refreshLiveShopSnapshot`, corrigé 2026-08-04 — voir §14), cleanup `onActivated/onDeactivated/onBeforeUnmount` | ✅ livré |
 | **E** — onglet Inventaire | `analyse/panels/LiveInventoryPanel.vue` + onglets « Analyse/Inventaire » dans `AnalyseView` ; API `getSpaceLiveInventory` | ✅ **livré (v2)** — arbre dépliable Shop→items / Item→shops sur `GET /spaces/:id/live/inventory`, « restant » = level − consumption (repack), colonne Consommé, polling 15 s, dark mode (#22/#23 tranchées) |
 
 **Limites v1 assumées (fidèles à §5)** — ce qui n'est PAS rafraîchi en live et pourquoi :
 
-- **`useAnalyseItemRecords` (records article)** : cache sans API de refresh exposée → non rafraîchi.
-  Petit ajout ultérieur possible (exposer un `refresh()` / bust de cache sur le composable).
+- ✅ **Corrigé depuis, contrairement à ce que disait cette section jusqu'au 2026-08-04** :
+  `useAnalyseItemRecords` expose bien un `refresh()` (`AbortController` + `bypassCache: true`,
+  `useAnalyseItemRecords.js:114-145`), appelé à chaque tick par `livePoll()`
+  (`AnalyseView.vue:1681`, via `refreshItemRecords()`). Les records article sont donc rafraîchis en
+  live comme le reste.
 - **Effectivement live au v1** : la **timeline / TX-min** (`event-timeline` via `loadTimelineForEvents`),
   seule source déjà quasi temps réel (§5), rafraîchie quand la timeline est ouverte, **et** `loadSpace`/
   `shop-details` (KPI par shop, POS Performance, `menuItemCostMap` pour la marge), désormais sur le
   même intervalle 15s (voir révision 2026-07-29 : ancien throttle 45s corrigé, faisait dériver la
-  marge affichée jusqu'à 30s derrière le CA).
+  marge affichée jusqu'à 30s derrière le CA), **et** les records article (`useAnalyseItemRecords`,
+  correction ci-dessus) **et** les paniers (`refreshBaskets()`, cache session propre `_basketCache`).
+
+### ✅ Dette de perf trouvée ET corrigée le 2026-08-04 — `liveShopDetailsPoll()` relançait tout le bootstrap de l'espace
+
+Jusqu'au 2026-08-04, chaque tick de 15 s appelait `store.dispatch('analyse/loadSpace', { spaceId,
+isLive })` dans le seul but de rafraîchir `shop-details` (KPI par shop, marge). Mais `loadSpace`
+dispatchait `useSpaceDataFetch` → `fetchSpaceData`, **le chargeur complet de l'espace** :
+`getSpace`, `getSpaceConfigurations`, `getSpaceShopDetails`, puis en fond `getAllMenuItems`,
+`getSpaceShopGranular` (heavy join), `getProductTypes/Categories`, `getWeezeventProducts`,
+`getProductMappings`, `getIngredients`, pagination complète de `/menu-components` (+ fetch de
+détail par composant manquant sa recette), `getAllPackagingTypes`. Le cache 15 min (`CACHE_TTL`)
+ne bloquait jamais ce dispatch : il décidait seulement si l'appel était *attendu* (chargement
+initial) ou lancé *fire-and-forget* en fond (revalidation), pas s'il avait lieu — donc même avec
+un cache frais, le bootstrap complet repartait à chaque tick. Un onglet Live laissé ouvert 10 min
+déclenchait ~40 exécutions complètes de ce fan-out pour ne réellement changer que le CA par shop.
+**Corrigé** : `liveShopDetailsPoll()` dispatche désormais `analyse/refreshLiveShopSnapshot`, un
+chemin dédié à 2 requêtes réseau. Détail de l'implémentation : §14 ci-dessous.
 
 **Reste à faire** : le front (A→E) **et** le backend (v1+v2, cf. `backend/docs/api/LIVE_API_GUIDE.md`)
 sont **livrés et mergés dans `develop`**. Reste : (1) **déploiement backend** sur Render (endpoints
 Live en 404 tant que `develop` n'est pas déployé) ; (2) **question #34** — ◉ sur la Home sans
-naviguer (aujourd'hui : `live-status` par carte, N requêtes — décision perf à acter) ; (3) finitions
-optionnelles (`refresh()` sur `useAnalyseItemRecords`, « Restant » sur lignes repliées, TTL cache
-events 2 min en mode Live — réponse Q8). Double-header de `space-live` corrigé (BUG-234).
+naviguer (aujourd'hui : `live-status` par carte, N requêtes — décision perf à acter) ; (3)
+finitions optionnelles (« Restant » sur lignes repliées, TTL cache events 2 min en mode Live —
+réponse Q8). Double-header de `space-live` corrigé (BUG-234).
+
+⚠️ **Précision 2026-08-04 sur le filtrage par permission du toolbox** : la doc laissait entendre (via
+BUG-243-01) que l'entrée « Live » manquait dans 4 des 5 listes `toolboxItems` dupliquées. Vérifié
+en code : ce n'est plus le cas — `SpaceRestockView.vue`, `SpaceInventoryView.vue`,
+`SpaceLogisticView.vue` et `useEventPredictHeaderNav.js` ont tous une entrée `live` avec
+`permission: 'front.fb.live'`. Le trou réel, toujours ouvert, est localisé et plus large que
+documenté : `analyse/filters/FilterPanel.vue:631-640` (`toolboxItems` du dropdown Outils
+d'**Analyse**, y compris l'écran Live lui-même) n'a **aucune** clé `permission` sur ses 8 entrées —
+un utilisateur sans le droit voit toutes les entrées et se fait rediriger silencieusement par le
+guard router au clic, plutôt que de ne pas les voir. Pas de fuite de données (le guard bloque bien
+la navigation), mais UX confuse. La cause structurelle (duplication de `toolboxItems` sur 6
+fichiers) reste non traitée.
+
+## 14. Snapshot live découplé du bootstrap catalogue — ✅ implémenté 2026-08-04
+
+> Investigation + implémentation le 2026-08-04. Objectif atteint : `liveShopDetailsPoll()` ne
+> rafraîchit plus que ce qui change réellement pendant un event (ventes), sans rejouer le
+> chargement catalogue de l'espace (menu items, ingrédients, packaging, produits/mappings
+> Weezevent) à chaque tick de 15 s.
+
+**Diagnostic précis** : `fetchSpaceData` (`useSpaceData.js:69`) a deux vagues avec des durées de
+vie très différentes — phase 1 (`space`, `configurations`, `getSpaceShopDetails`, `events`) et
+phase 2a/2b (`getAllMenuItems`, `getSpaceShopGranular`, `getProductTypes/Categories`,
+`getWeezeventProducts`, `getProductMappings`, puis `getIngredients`, pagination
+`/menu-components` + fan-out détail, `getAllPackagingTypes`). Or c'est **`shopGranularData`**
+(peuplé par `getSpaceShopGranular` en phase 2a, pas par le `shops` de la phase 1) qui alimente
+tous les KPI par shop, « Event Revenue by shop » et « POS Performance »
+(`analyse.js:526,888,1573,1590` — tout lit `state.shopGranularData`). Le `details.shops` de la
+phase 1 n'est même stocké nulle part (vérifié : aucun commit ne le lit). Ce qui doit vraiment
+tourner toutes les 15 s se réduit donc à **deux endpoints** : `getSpaceShopGranular` (KPI/shop) et
+`getSpaceShopDetails` (`menuItemCostMap` + `summary`, pour la marge) — pas aux ~10 autres appels
+catalogue du bootstrap complet, qui ne changent pas pendant un event (un menu/ingrédient/packaging
+n'est pas édité en plein service).
+
+**Contrainte à respecter** : `getSpaceShopGranular` renvoie des lignes brutes ; elles doivent être
+enrichies via `enrichGranularMenuDimensions(rows, menuItems, productTypes, productCategories,
+weezeventProducts, weezeventProductMappings)` avant d'être exploitables. Ces 5 catalogues sont
+déjà en store (`state.menuItems`, `state.productTypesList`/`productCategoriesList` via
+`SET_TAXONOMY`, `state.weezeventProducts`, `state.weezeventProductMappings`) depuis le bootstrap
+initial (non-live, au premier `loadSpace`) — pas besoin de les refetch, seulement de les relire.
+
+**Implémentation (respecte le pattern `.vue → composable → store action → api` de ce repo, SOLID)** :
+
+1. **SRP** — `fetchLiveShopSnapshot(spaceId, { menuItems, productTypes, productCategories,
+   weezeventProducts, weezeventProductMappings })`, nouvelle fonction pure dans
+   `useSpaceData.js` (fin de fichier) : appelle en parallèle *seulement* `getSpaceShopGranular` +
+   `getSpaceShopDetails`. La normalisation `revenue`/`enrichGranularMenuDimensions`, auparavant
+   écrite en dur dans `loadEnrichment`, a été extraite en helper module-privé
+   `normalizeAndEnrichGranular()` (juste après `normalizeList`) — réutilisé par les DEUX chemins
+   (bootstrap complet et snapshot live) pour qu'ils ne puissent jamais diverger. Ne dépend d'aucun
+   store (les 5 catalogues sont injectés par l'appelant) : reste testable en isolation, cohérent
+   avec le reste de `useSpaceData.js` qui n'importe pas Vuex.
+2. **Nouvelle action de store dédiée** `analyse/refreshLiveShopSnapshot({ spaceId })`
+   (`store/modules/analyse.js`, juste après `useSpaceDataFetch`) : lit les 5 catalogues depuis
+   `state`, appelle la fonction ci-dessus, puis commit **seulement** `SET_SHOP_GRANULAR`,
+   `SET_MENU_ITEM_COST_MAP` (merge, même logique que `useSpaceDataFetch`) et `SET_SUMMARY`. Ne
+   touche ni `SET_SPACE`, ni `SET_CONFIGURATIONS`, ni `SET_EVENTS`, ni les catalogues
+   (`SET_MENU_ITEMS`, `SET_INGREDIENTS`, `SET_COMPONENTS`, `SET_WEEZEVENT_PRODUCTS`,
+   `SET_WEEZEVENT_PRODUCT_MAPPINGS`) — c'est précisément ce périmètre réduit qui élimine le
+   fan-out. **OCP** : `loadSpace`/`useSpaceDataFetch` sont **inchangées**, tous leurs autres
+   appelants (chargement initial d'Analyse/Restock/Inventory/Logistic/EventPredict) continuent de
+   fonctionner à l'identique — c'est un nouveau chemin ajouté, pas une modification de l'existant.
+3. **`AnalyseView.vue::liveShopDetailsPoll()`** dispatche désormais
+   `analyse/refreshLiveShopSnapshot` au lieu de `analyse/loadSpace`. Le premier chargement de la
+   page (mount, `ensureAuthAndLoad`) continue de passer par `loadSpace` classique — le catalogue
+   complet est bien chargé une fois ; seuls les ticks *suivants* de 15 s deviennent légers.
+4. **Garde de concurrence** — corrigée aussi sur `LiveInventoryPanel` (point 🟠 #3 de l'audit
+   2026-08-04, même trou) : jeton de requête monotone (`liveShopSnapshotRequestId` au niveau
+   module dans `analyse.js`, `_invReqId` en data locale dans `LiveInventoryPanel.vue`) — une
+   réponse qui arrive après une plus récente est ignorée sans être commitée. Pas
+   d'`AbortController` : `getSpaceShopGranular`/`getSpaceShopDetails`/`getSpaceLiveInventory` ne
+   portent pas de signal réseau annulable à ce jour ; le jeton suffit à empêcher l'écrasement par
+   une réponse périmée, seul risque réel identifié.
+5. **Non traité par cette conception, à trancher séparément si besoin** : le catalogue (menu
+   items/prix/ingrédients) peut en théorie changer pendant un event long (correction de prix en
+   plein service). Si ça s'avère un besoin réel, un resync catalogue complet à intervalle plus
+   long (ex. 5 min, séparé du timer 15 s) serait la bonne réponse — pas construit tant qu'aucun
+   besoin concret ne le confirme.
+
+**Effet mesuré** : le tick live passe de ~10-12 requêtes (dont une pagination `/menu-components`
++ fan-out détail par composant) à **2 requêtes**, sans changer le résultat visible à l'écran (les
+mêmes données alimentaient déjà KPI/marge/Revenue by shop) — élimine la charge DB inutile
+identifiée au point 🔴 de §13, à charge auparavant multipliée par le nombre d'onglets/utilisateurs
+restant sur `/spaces/:id/live` pendant un event. Suites `analyseStore.spec.js` (40 tests) et
+`useSpaceDataWaves.spec.js` vertes après implémentation ; pas de test dédié au nouveau chemin
+`refreshLiveShopSnapshot`/`fetchLiveShopSnapshot` à ce stade (à ajouter si ce module reçoit
+d'autres évolutions).
 
 ---
 
 ### Révisions
 
+- **2026-08-04** — Audit détaillé de la page Live (code réel vs doc), puis correction. Deux
+  imprécisions de cette page corrigées : `useAnalyseItemRecords` a bien un `refresh()` (§13,
+  contrairement à ce qui était écrit) et l'entrée « Live » est bien présente dans les 4 autres
+  listes `toolboxItems` (le trou réel, plus large, est l'absence totale de filtrage `permission`
+  sur `FilterPanel.vue`, toujours ouvert, §13). Dette de perf **nouvelle et non documentée
+  jusqu'ici** trouvée puis **corrigée le jour même** : `liveShopDetailsPoll()` relançait tout le
+  bootstrap catalogue de l'espace (menu items, ingrédients, packaging, produits/mappings
+  Weezevent, pagination `/menu-components`) à chaque tick de 15 s au lieu de ne rafraîchir que les
+  2 endpoints réellement volatils pendant un event. Correction SOLID implémentée (§14) :
+  `fetchLiveShopSnapshot()` (nouvelle fonction pure, `useSpaceData.js`) + `normalizeAndEnrichGranular()`
+  extraite en helper partagé avec `loadEnrichment` (évite toute divergence entre bootstrap et
+  live) + nouvelle action `analyse/refreshLiveShopSnapshot` à périmètre de commit réduit
+  (`SET_SHOP_GRANULAR`/`SET_MENU_ITEM_COST_MAP`/`SET_SUMMARY` uniquement) + garde de concurrence
+  par jeton de requête, appliquée aussi à `LiveInventoryPanel.vue` (même trou trouvé en audit).
+  Le tick live passe de ~10-12 requêtes à 2, sans changer une seule donnée affichée. Suites
+  `analyseStore.spec.js` (40 tests) et `useSpaceDataWaves.spec.js` vertes après implémentation.
 - **2026-07-29** — Bug signalé « synchro des prix trop lente en Live » : le `menuItemCostMap` (utilisé
   pour le calcul de marge) n'était rafraîchi que toutes les 45s (`liveShopDetailsPoll`) pendant que le
   CA l'était toutes les 15s (`livePoll`) — la marge affichée pouvait donc dériver jusqu'à 30s derrière

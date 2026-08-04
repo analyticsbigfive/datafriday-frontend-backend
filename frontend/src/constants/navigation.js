@@ -99,6 +99,7 @@ export const SETTINGS_NAVIGATION = [
           { title: 'navIndustrials', route: '/configurations/industrials', permission: 'menu.config.manage' },
           { title: 'navPackingTypes', route: '/configurations/packing-types', permission: 'menu.config.manage' },
           { title: 'navStorageTypes', route: '/configurations/storage-types', permission: 'menu.config.manage' },
+          { title: 'navSeasons', route: '/configurations/seasons', permission: 'menu.config.manage' },
           // GLOBAL (pas de scoping tenant), réservé au super-admin PLATEFORME — `requiresSuperAdmin`
           // est un flag séparé de `permission` (RBAC par tenant) : un rôle ADMIN de tenant ne doit
           // PAS voir ce menu (contrairement à ce que `can()` accorderait automatiquement à ce rôle

@@ -28,6 +28,31 @@ import { enrichGranularMenuDimensions } from '@/utils/analyseDimensions'
 const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
 
 /**
+ * Normalise le champ `revenue` (repli sur `revenueHt`, l'ancien champ seul renvoyé
+ * par la RPC avant migration) puis enrichit les dimensions (nature/subnature/type/
+ * catégorie) d'un lot de lignes granulaires. Partagé entre le bootstrap complet
+ * (`loadEnrichment`) et le snapshot live (`fetchLiveShopSnapshot`, §14 de
+ * `docs/modules/11_LIVE.md`) pour que les deux chemins ne divergent jamais.
+ */
+function normalizeAndEnrichGranular(rawGranularData, {
+  menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
+}) {
+  const revenueNormalizedData = rawGranularData.map((r) => (
+    r.revenue == null || (r.revenue === 0 && r.revenueHt != null)
+      ? { ...r, revenue: r.revenueHt ?? 0 }
+      : r
+  ))
+  return enrichGranularMenuDimensions(
+    revenueNormalizedData,
+    menuItems,
+    productTypes,
+    productCategories,
+    weezeventProducts,
+    weezeventProductMappings,
+  )
+}
+
+/**
  * Charge tous les MenuComponents en paginant sur `meta.total` — le backend plafonne
  * chaque appel à `limit` (cf. BUG-054/BUG-105), donc on boucle pour ne pas tronquer
  * silencieusement les tenants ayant plus de `limit` composants. Même boucle que
@@ -230,24 +255,9 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         granularDetails?.shopGranularData ||
         granularDetails?.records ||
         (Array.isArray(granularDetails) ? granularDetails : [])
-      // Normalise revenue field: the SQL RPC historically returned 'revenueHt' only.
-      // The new migration adds 'revenue' as an alias, but we normalise defensively
-      // here so old cached/pre-migration responses still work correctly.
-      // Parenthèses explicites : la version sans parenthèses reposait sur la
-      // précédence && > || (comportement identique, lisibilité fragile).
-      const revenueNormalizedData = rawGranularData.map((r) => (
-        r.revenue == null || (r.revenue === 0 && r.revenueHt != null)
-          ? { ...r, revenue: r.revenueHt ?? 0 }
-          : r
-      ))
-      const granularData = enrichGranularMenuDimensions(
-        revenueNormalizedData,
-        menuItems,
-        productTypes,
-        productCategories,
-        weezeventProducts,
-        weezeventProductMappings,
-      )
+      const granularData = normalizeAndEnrichGranular(rawGranularData, {
+        menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
+      })
       // Tag each menu item with current spaceId if spaceIds is absent, puis
       // normalise (readyForSale 'Yes'/'No' + components unifiés incluant le
       // packaging) pour que le réarmement et l'inventaire aient une shape stable
@@ -420,5 +430,50 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
     }
     // Re-throw all other errors (no mock fallback)
     throw err
+  }
+}
+
+/**
+ * Snapshot LIVE (module Live, `docs/modules/11_LIVE.md` §14) : rafraîchit
+ * UNIQUEMENT ce qui change réellement pendant un event en cours — les ventes
+ * (`shopGranularData`, source de tous les KPI par shop / Revenue by shop /
+ * POS Performance) et `menuItemCostMap`/`summary` (marge) — sans rejouer le
+ * bootstrap catalogue complet de `fetchSpaceData` (menu items, ingrédients,
+ * packaging, produits/mappings Weezevent, pagination `/menu-components` +
+ * fan-out détail). Ce catalogue ne change pas en plein service ; le rafraîchir
+ * à chaque tick de 15 s ne faisait que gaspiller des requêtes DB.
+ *
+ * Les 5 catalogues nécessaires à l'enrichissement des lignes granulaires sont
+ * INJECTÉS par l'appelant (déjà en store depuis le bootstrap initial) — cette
+ * fonction ne dépend d'aucun store, comme le reste de ce fichier.
+ */
+export async function fetchLiveShopSnapshot(spaceId, {
+  menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
+} = {}) {
+  const [granularDetails, details] = await Promise.all([
+    getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
+      console.warn('[useSpaceData] ⚠️ live shopGranular failed:', e?.response?.status, e?.message)
+      return {}
+    }),
+    getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
+      console.warn('[useSpaceData] ⚠️ live shopDetails failed:', e?.response?.status, e?.message)
+      return {}
+    }),
+  ])
+  const rawGranularData =
+    granularDetails?.shopGranularData ||
+    granularDetails?.records ||
+    (Array.isArray(granularDetails) ? granularDetails : [])
+  const shopGranularData = normalizeAndEnrichGranular(rawGranularData, {
+    menuItems: menuItems || [],
+    productTypes: productTypes || [],
+    productCategories: productCategories || [],
+    weezeventProducts: weezeventProducts || [],
+    weezeventProductMappings: weezeventProductMappings || [],
+  })
+  return {
+    shopGranularData,
+    menuItemCostMap: details?.menuItemCostMap || details?.costMap || {},
+    summary: details?.summary || null,
   }
 }
