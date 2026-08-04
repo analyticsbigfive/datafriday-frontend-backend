@@ -1,6 +1,9 @@
 # Migrations SQL à appliquer à la main
 
-État au **2026-08-04** (ajout de #11 `RestockPlan` et #12 `Season`/`SeasonSpace`, non encore appliquées).
+État au **2026-08-04** : #11 `RestockPlan` et #12 `Season`/`SeasonSpace` ont été converties en
+migrations Prisma formelles (`prisma/migrations/20260804170000_add_restockplan/`,
+`prisma/migrations/20260804180000_add_seasons/`) et appliquées sur dev via `prisma migrate deploy` —
+leurs fichiers `.sql` sous ce dossier ont été supprimés, cf. lignes #11/#12 du tableau.
 
 ## Pourquoi à la main
 
@@ -53,8 +56,8 @@ supposer.
 | 8 | `2026-07-30_hr_settings_goals_ratios.sql` | 4 tables Settings RH : `HrGoal`, `HrGoalSpace`, `HrStaffRatio`, `HrStaffRatioSpace` | ✅ | `SELECT to_regclass('"HrGoal"'), to_regclass('"HrStaffRatio"');` → non NULL |
 | 9 | `2026-07-30_event_is_simulated.sql` | `Event.isSimulated` + backfill heuristique sur le préfixe `[Simulé] ` | ✅ | `SELECT 1 FROM information_schema.columns WHERE table_name='Event' AND column_name='isSimulated';` |
 | 10 | `2026-07-31_spaceelement_type_text_vers_enum.sql` | ⚠️ **SUPERSEDED — NE PAS EXÉCUTER**. `SpaceElement.type` : `text` → enum `"ElementType"` (BUG-124-01). Diagnostic initial erroné : la conversion inverse (enum→text) a été faite délibérément le même jour par CFG-2 Étape 2 (`rh-consolidation-backend`) ; exécuter ce fichier annulerait ce travail. Voir fiche 124-01, section "Correction du 2026-07-31" | ❌ Ne pas lancer | — |
-| 11 | `2026-08-04_restockplan.sql` | Table `RestockPlan` — historique des plans de réapprovisionnement nommés (scope espace), avec photo figée des lignes (`stockLines`/`restockLines`/`shoppingGroups`/`recipeCoeffs`) + 2 index. **À appliquer AVANT de déployer le module backend `restock-plans`** | ✅ (`CREATE TABLE/INDEX IF NOT EXISTS`) | `SELECT to_regclass('"RestockPlan"');` → non NULL |
-| 12 | `2026-08-04_seasons.sql` | 2 tables Rapport Saison : `Season` (périodes personnalisées nommées, dates absolues, allSpaces) + `SeasonSpace` (jointure saison ↔ espaces). Chevauchements autorisés. **À appliquer AVANT de déployer le module backend `seasons`** | ✅ (`CREATE TABLE/INDEX IF NOT EXISTS`) | `SELECT to_regclass('"Season"'), to_regclass('"SeasonSpace"');` → non NULL |
+| 11 | ~~`2026-08-04_restockplan.sql`~~ → `prisma/migrations/20260804170000_add_restockplan/` | Table `RestockPlan` — historique des plans de réapprovisionnement nommés (scope espace), avec photo figée des lignes (`stockLines`/`restockLines`/`shoppingGroups`/`recipeCoeffs`) + 2 index | ✅ **Appliquée sur dev** (2026-08-04, `prisma migrate deploy`) | `SELECT to_regclass('"RestockPlan"');` → non NULL |
+| 12 | ~~`2026-08-04_seasons.sql`~~ → `prisma/migrations/20260804180000_add_seasons/` | 2 tables Rapport Saison : `Season` (périodes personnalisées nommées, dates absolues, allSpaces) + `SeasonSpace` (jointure saison ↔ espaces). Chevauchements autorisés | ✅ **Appliquée sur dev** (2026-08-04, `prisma migrate deploy`) | `SELECT to_regclass('"Season"'), to_regclass('"SeasonSpace"');` → non NULL |
 ### Cas confirmés
 
 - **2026-07-31, vérification complète des #1-#9 sur `datafriday-dev` (`alsgdtewqeldrrquypdy`, base

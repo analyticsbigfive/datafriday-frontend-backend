@@ -3190,7 +3190,7 @@ model RestockState {
 // EXACTEMENT les mêmes chiffres même si prédictions, prix ou recettes ont
 // changé depuis — même famille que StockReconciliation, mais ÉDITABLE.
 // Un plan n'est PAS une source de stock (même avertissement que RestockState).
-// Migration manuelle : prisma/sql/2026-08-04_restockplan.sql
+// Migration : prisma/migrations/20260804170000_add_restockplan/
 // Décision : docs/adr/0005_restockplan_document_fige_vs_restockstate_session.md
 model RestockPlan {
   id       String @id @default(cuid())

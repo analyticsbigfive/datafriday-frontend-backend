@@ -16,8 +16,8 @@ proposées comme **presets de dates** dans les pickers d'**Analyse** et de **Pre
 (2024-25 et 2025-26 coexistent sur le même espace) — aucune règle d'unicité, pas de
 `assertNoOverlap`.
 
-Migration : `backend/prisma/sql/2026-08-04_seasons.sql` (idempotente, **à appliquer à la main
-AVANT de déployer le module backend** — ADR-0002, sinon P2022 → 500). Ligne #12 du README.
+Migration : `backend/prisma/migrations/20260804180000_add_seasons/` (appliquée sur dev le
+2026-08-04 via `prisma migrate deploy`, cf. registre #12 du README `backend/prisma/sql/`).
 
 ## 3. Où (fichiers)
 

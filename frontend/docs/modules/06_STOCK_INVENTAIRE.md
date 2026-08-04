@@ -470,9 +470,9 @@ shop×article — `eventIds` conservé pour les filtres, `sources`/`isExpanded` 
 `shoppingGroups` grain fournisseur, `usedIn` tronqué à 20) + `recipeCoeffs` (coefficients
 d'explosion FIGÉS) + `lineOverrides` (corrections « À déposer ») + compteurs dénormalisés
 `lineCount`/`shoppingItemCount` (**au moment de la photo**, jamais recalculés). Pas d'unicité sur
-le nom (« Dupliquer » planterait ; `EventPredictVersion` n'en a pas non plus). Migration
-manuelle : `backend/prisma/sql/2026-08-04_restockplan.sql` (registre #11) — **à appliquer AVANT
-de déployer le module backend** (sinon 500 P2021, scénario fiche 248-01).
+le nom (« Dupliquer » planterait ; `EventPredictVersion` n'en a pas non plus). Migration :
+`backend/prisma/migrations/20260804170000_add_restockplan/` (appliquée sur dev le 2026-08-04
+via `prisma migrate deploy`, cf. registre #11 du README `backend/prisma/sql/`).
 
 **Routes** (`backend/src/features/restock-plans/`, 2 contrôleurs — pattern
 `predict-versions.controller.ts`) :
