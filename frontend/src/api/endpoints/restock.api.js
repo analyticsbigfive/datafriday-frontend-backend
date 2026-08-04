@@ -65,6 +65,9 @@ export async function putRestockState(spaceId, snapshot) {
   const extras = {}
   if (s.stockExcluded !== undefined) extras.stockExcluded = s.stockExcluded
   if (s.currentStep !== undefined) extras.currentStep = s.currentStep
+  // Plan chargé (RestockPlan) : rechargé au restore. Dans les extras — un
+  // backend antérieur en whitelist stricte retombe sur le noyau sans lui.
+  if (s.loadedPlanId !== undefined) extras.loadedPlanId = s.loadedPlanId
   const url = `/spaces/${encodeURIComponent(spaceId)}/restock-state`
   try {
     const res = await api.put(url, { ...core, ...extras }, { suppressGlobalError: true })
@@ -78,4 +81,83 @@ export async function putRestockState(spaceId, snapshot) {
     const res = await api.put(url, core, { suppressGlobalError: true })
     return res?.state ?? null
   }
+}
+
+// ---------------------------------------------------------------------------
+// RestockPlan — documents figés nommés (ADR-0005), distincts de RestockState.
+// Contrat : backend/src/features/restock-plans/ (GET liste = métadonnées
+// seules, GET :id = photo complète). Sauvegarde EXPLICITE uniquement — aucun
+// auto-save, aucun repli localStorage : un 404 sur la liste signifie que le
+// backend n'est pas déployé → le panneau se masque (useRestockPlans).
+// ---------------------------------------------------------------------------
+
+/**
+ * Liste les plans d'un espace (métadonnées seules, jamais la photo).
+ * GET /spaces/:spaceId/restock-plans → 200 [{ id, name, objectiveSource,
+ *   selectedEventIds, eventsSnapshot, lineCount, shoppingItemCount,
+ *   createdBy, createdAt, updatedAt }]
+ */
+export async function listRestockPlans(spaceId) {
+  return api.get(
+    `/spaces/${encodeURIComponent(spaceId)}/restock-plans`,
+    { suppressGlobalError: true },
+  )
+}
+
+/**
+ * Lit un plan complet (photo comprise).
+ * GET /restock-plans/:id → 200 plan | 404 (supprimé / autre tenant)
+ */
+export async function getRestockPlan(planId) {
+  return api.get(
+    `/restock-plans/${encodeURIComponent(planId)}`,
+    { suppressGlobalError: true },
+  )
+}
+
+/**
+ * Enregistre un nouveau plan (payload = buildPlanSnapshot + name).
+ * POST /spaces/:spaceId/restock-plans → 201 plan
+ */
+export async function createRestockPlan(spaceId, payload) {
+  return api.post(
+    `/spaces/${encodeURIComponent(spaceId)}/restock-plans`,
+    payload,
+    { suppressGlobalError: true },
+  )
+}
+
+/**
+ * Met à jour un plan (rename, nouvelle photo, lineOverrides…).
+ * PATCH /restock-plans/:id → 200 plan
+ */
+export async function patchRestockPlan(planId, payload) {
+  return api.patch(
+    `/restock-plans/${encodeURIComponent(planId)}`,
+    payload,
+    { suppressGlobalError: true },
+  )
+}
+
+/**
+ * Duplique un plan CÔTÉ SERVEUR (pas de ré-upload de la photo).
+ * POST /restock-plans/:id/duplicate → 201 copie
+ */
+export async function duplicateRestockPlan(planId) {
+  return api.post(
+    `/restock-plans/${encodeURIComponent(planId)}/duplicate`,
+    {},
+    { suppressGlobalError: true },
+  )
+}
+
+/**
+ * Supprime un plan.
+ * DELETE /restock-plans/:id → 204
+ */
+export async function deleteRestockPlan(planId) {
+  return api.delete(
+    `/restock-plans/${encodeURIComponent(planId)}`,
+    { suppressGlobalError: true },
+  )
 }

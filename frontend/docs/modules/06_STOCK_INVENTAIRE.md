@@ -448,7 +448,81 @@ volontairement, mais son *envoi* a toujours lieu).
 `SpaceRestockView.vue:2108-2165`) : localStorage immédiat (jamais de perte si l'onglet ferme
 avant les 500ms de debounce) + `PUT` API débouncé. Le flag `isRestockApiDown()` bascule
 uniquement sur non-4xx (réseau/5xx/timeout) — voir piège n°3 pour la conséquence sur un 403
-permanent.
+permanent. Depuis le 2026-08-04, le snapshot porte une 12ᵉ clé `loadedPlanId` (envoyée dans les
+`extras` rétro-compatibles de `putRestockState`) : au restore, le plan chargé est rechargé
+(F5-proof) ; 404 → effacé + snackbar `srSnackPlanGone`.
+
+---
+
+## RestockPlan — l'historique des plans nommés (documents figés) — 2026-08-04, JLH
+
+**Qu'est-ce que c'est** : la réponse à « les plans de réapprovisionnement ne sont pas
+sauvegardés » (demande owner du 2026-08-04). Une table de **documents figés nommés, par ESPACE**
+(un plan couvre N events — `selectedEventIds` est pluriel), là où `RestockState` reste la session
+courante écrasée à chaque frappe. Décision architecturale :
+[ADR-0005](../../../backend/docs/adr/0005_restockplan_document_fige_vs_restockstate_session.md) —
+*un plan est un document figé nommé ; ses lignes sont une photo stockée, jamais recalculées à la
+relecture ; un plan n'est pas une source de stock.*
+
+**Modèle** (`schema.prisma`, `model RestockPlan`) : entrées rejouables (objectif, sélection,
+ajustements…) + **photo figée** des 3 étapes (`stockLines` grain article, `restockLines` grain
+shop×article — `eventIds` conservé pour les filtres, `sources`/`isExpanded` abandonnés —,
+`shoppingGroups` grain fournisseur, `usedIn` tronqué à 20) + `recipeCoeffs` (coefficients
+d'explosion FIGÉS) + `lineOverrides` (corrections « À déposer ») + compteurs dénormalisés
+`lineCount`/`shoppingItemCount` (**au moment de la photo**, jamais recalculés). Pas d'unicité sur
+le nom (« Dupliquer » planterait ; `EventPredictVersion` n'en a pas non plus). Migration
+manuelle : `backend/prisma/sql/2026-08-04_restockplan.sql` (registre #11) — **à appliquer AVANT
+de déployer le module backend** (sinon 500 P2021, scénario fiche 248-01).
+
+**Routes** (`backend/src/features/restock-plans/`, 2 contrôleurs — pattern
+`predict-versions.controller.ts`) :
+
+| Verbe | Route | Permission | Rôle |
+|---|---|---|---|
+| `GET` | `/spaces/:spaceId/restock-plans` | `restock` OU `restockBoard` | Liste — **métadonnées seules** (`select` explicite, jamais les photos) |
+| `POST` | `/spaces/:spaceId/restock-plans` | `front.fb.restock` | Créer (photo complète) |
+| `GET` | `/restock-plans/:id` | `restock` OU `restockBoard` | Lire la photo |
+| `PATCH` | `/restock-plans/:id` | `front.fb.restock` | Rename / overrides / nouvelle photo |
+| `POST` | `/restock-plans/:id/duplicate` | `front.fb.restock` | Copie **côté serveur** (pas de ré-upload) |
+| `DELETE` | `/restock-plans/:id` | `front.fb.restock` | 204 |
+
+Gardes service : `assertSpaceOwnership`, cap 50 plans/espace, 400 `RESTOCK_PLAN_TOO_LARGE`
+au-delà de 5 000 `restockLines` ou 1 Mo (`JSON.stringify`) — protège le rate limiter 20 req/s.
+Bodies en `Record<string, unknown>` (même piège ValidationPipe que `RestockState`, ci-dessus).
+
+**Front** :
+- [`utils/restockPlanSnapshot.js`](../../src/utils/restockPlanSnapshot.js) (pur, testé dans
+  `tests/unit/restockPlanSnapshot.spec.js`) : `buildPlanSnapshot` (whitelist stricte des champs
+  figés, packaging débarrassé de `source` mais gardant `purchaseUnitConversion`),
+  `buildRecipeCoeffs` (grain ITEM — l'explosion `flattenComponentDef` est catalogue-level, pas
+  par PdV ; mode produits finis = coefficient 1 vers soi-même), `applyPlanEdits`,
+  `recomputeShoppingFromOverrides` (deltas × coefficients figés → netting Storage rejoué sur les
+  `storageOnHand` figés — rejouable car `consumeFromPool` consomme le pool indépendamment du
+  besoin — → arrondi packaging rejoué sur les champs figés). **Test d'identité** en tête de la
+  suite : `recomputeShoppingFromOverrides(snapshot, {})` ≡ `snapshot.shoppingGroups`.
+- [`composables/useRestockPlans.js`](../../src/composables/useRestockPlans.js) : REST autoritaire,
+  **sans miroir localStorage** (la machinerie de réconciliation d'`useEventPredictVersions` répond
+  à un bug GET-après-POST que ce flux n'a pas). 404 sur la liste = module backend absent →
+  `available = false`, panneau masqué, réarmement inchangé.
+- `SpaceRestockView.vue` — **bascule figé/live** : les computeds historiques sont renommés
+  `liveStockSettingsRows`/`liveRestockRows`/`liveShoppingGroups` et les noms publics
+  (`stockSettingsRows`/`restockRows`/`shoppingGroups`) deviennent des aiguillages « photo si
+  `loadedPlan`, vivant sinon » — les ~10 consommateurs aval (filtres, groupes, compteurs, exports
+  CSV, impression) ne distinguent rien. Deux gardes `loadingPlan` indispensables
+  (`resetGeneratedOutputs`, `ensureStockItemDefaults`) : sans elles, les watchers
+  `selectedEventIds`/`stockSettingsSignature` détruisent le plan pendant sa pose. Toute mutation
+  invalidante (sélection, ajustements, exclusions, `shoppingMode` — la photo n'existe que pour le
+  mode sauvegardé —, CTA de génération) passe par `guardPlanEdit()` → dialogue à 3 issues
+  (*Enregistrer puis continuer* / *Continuer sans enregistrer* = détachement, document intact /
+  *Annuler*), implémenté à l'entrée des handlers (avant mutation), pas dans les watchers. Watcher
+  `route.params.spaceId` (routes keepAlive) : détache le plan au changement d'espace. Corriger
+  une quantité « À déposer » sur un plan chargé (colonne éditable, `NumberField`) recalcule la
+  feuille de course **sur les coefficients figés, jamais le catalogue vivant** (décision 5).
+  Sauvegarde **explicite uniquement** — aucun auto-save (rate limiter). Permissions : un rôle
+  `restockBoard` seul voit l'historique et charge (GET OR-permissionné), les écritures sont
+  `:disabled` + tooltip — le piège n°3 (`restockState`) n'est ni aggravé ni corrigé.
+- Panneau sidebar [`components/restock/RestockPlansPanel.vue`](../../src/components/restock/RestockPlansPanel.vue)
+  (présentation pure : émissions `load/rename/duplicate/delete`).
 
 ---
 
@@ -456,6 +530,11 @@ permanent.
 
 C'est l'écran le plus gros du domaine. 3 étapes pilotées par `currentStep` + synchronisées dans
 l'URL (`?step=stock|restock|shopping`) :
+
+> ⚠️ Depuis le 2026-08-04, les trois computeds de sortie décrits ci-dessous sont les versions
+> **`live*`** (`liveStockSettingsRows`/`liveRestockRows`/`liveShoppingGroups`) : les noms publics
+> sont devenus des aiguillages photo/vivant — cf. section RestockPlan ci-dessus. Tout le contenu
+> qui suit reste exact pour le mode vivant (aucun plan chargé), qui est le mode par défaut.
 
 1. **"Éléments à stocker"** — agrégat par item tous shops confondus, inclusion/exclusion
    (`stockExcluded`), ajustement % (`stockAdjustments`, slider 0–200%, presets 80/100/120%), mode
@@ -595,7 +674,7 @@ est indicatif, "le backend reste juge de paix final (casse de pack exacte)".
 | `api/endpoints/inventory.api.js` | `getInventory`, `getLatestInventory`, `saveInventory`, `saveInventoryCount`, `getAllPackagingTypes` | Toutes vivantes — appelées par `store/modules/inventory.js` et directement par `SpaceRestockView.vue` (les 2 fonctions `get*`) |
 | `api/endpoints/logistics.api.js` | `getLogisticsStock`, `createStockMovement`, `getElementHistory`, `resetLogisticsInventory`, `getReconciliations`, `getMarketPricesForItem`, `simulateSale`, `purgeSimulatedSales`, `downloadReconciliationCsv` | Toutes vivantes via `store/modules/logistics.js`, sauf `downloadReconciliationCsv` qui **contourne le store** — appelée directement par `SpaceLogisticView.vue` |
 | ↳ `getReconciliation` (singulier) | — | **Mort** — export inutilisé, zéro importeur nulle part dans `src/` (grep exhaustif confirmé) |
-| `api/endpoints/restock.api.js` | `getRestockState`, `putRestockState`, `isRestockApiDown`, `onRestockApiError` | Toutes vivantes, exclusivement dans `SpaceRestockView.vue` |
+| `api/endpoints/restock.api.js` | `getRestockState`, `putRestockState`, `isRestockApiDown`, `onRestockApiError` + plans : `listRestockPlans`, `getRestockPlan`, `createRestockPlan`, `patchRestockPlan`, `duplicateRestockPlan`, `deleteRestockPlan` | Toutes vivantes — état dans `SpaceRestockView.vue`, plans via `useRestockPlans.js` |
 | `utils/api.js` (legacy monolithe, backend Supabase Edge distinct) | `getShopElementMappings` | Vivant **au sens "appelé"**, mais cible un backend qui n'implémente pas cette route dans le NestJS actuel — voir piège n°4 |
 | ↳ `getSalesForSpace`/`getSalesSummaryForSpace` | — | Vivants au sens "appelés" par `useReferenceSales.js`, mais alimentent un mode (`objectiveSource='sales'`) actuellement masqué de l'UI — voir piège n°4 |
 | `composables/useInventoryApi.js` | Wrapper de `inventory.api.js`+`market.price.api.js` | **Mort** — zéro importeur dans tout le repo en dehors de sa propre définition |

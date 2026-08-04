@@ -871,7 +871,7 @@
                     @click="goToInventory"
                   >
                     <v-icon size="16">mdi-package-variant</v-icon>
-                    {{ t('epSpaceInventory') }}
+                    {{ inventoryTargetLabel }}
                   </button>
                   <button
                     type="button"
@@ -1239,6 +1239,7 @@ import TabsContent from "../ui/tabsContent.vue";
 import { parseEventDate as parseDDMMYYYY } from "../utils/dateFr";
 import { isDemoMode } from "../utils/demoMode";
 import { mergeEffectiveMenuConfig } from "../utils/menuConfigSelection";
+import { resolveInventoryRouteName } from "../utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "../data/localDb";
 
 // PERF : les Edge Functions de mappings (shop-element / menu-item) sont lentes
@@ -1918,6 +1919,18 @@ export default {
     },
     selectedEvent() {
       return this.events.find((e) => e.id === this.selectedEventId) || null;
+    },
+    /** Écran d'inventaire cohérent avec l'event sélectionné : pre pour un match
+     *  à venir (le cas courant ici), post pour un match passé. */
+    inventoryTargetRouteName() {
+      return resolveInventoryRouteName(this.selectedEvent);
+    },
+    inventoryTargetLabel() {
+      return this.t(
+        this.inventoryTargetRouteName === "space-pre-inventory"
+          ? "epPreEventInventory"
+          : "epPostEventInventory",
+      );
     },
     /** Liste plate des configurations du space (depuis le store analyse). */
     configurations() {
@@ -4517,17 +4530,27 @@ export default {
       if (date) query.date = date;
       this.$router.push({ name: "space-restock", params: { spaceId }, query });
     },
-    // Ouvre l'inventaire de l'espace avec l'event courant + SA config (scope PdV).
-    // La config vient de selectedEvent.configurationId (copie locale → reflète un
-    // changement live) ; l'inventaire la préfère à la config du store (?configuration=).
+    // Ouvre l'inventaire de l'event courant + SA config (scope PdV). La config
+    // vient de selectedEvent.configurationId (copie locale → reflète un changement
+    // live) ; l'inventaire la préfère à la config du store (?configuration=).
+    // Cible DYNAMIQUE : un match à venir part sur le pre-event inventory — le
+    // post-event rejette un ?event= futur et se ré-ancre en silence sur le dernier
+    // match passé (cf. utils/inventoryRouteTarget.js).
     goToInventory() {
       const spaceId = this.space?.id || this.$route?.params?.spaceId;
       if (!spaceId) return;
       const query = {};
       if (this.selectedEventId) query.event = this.selectedEventId;
-      const cfgId = this.selectedEvent?.configurationId || null;
+      // Repli sur le ?configuration= de l'URL — parité navigateToTool : un event
+      // sans configurationId envoyait l'inventaire sur « Aucun évènement sélectionné ».
+      const cfgId =
+        this.selectedEvent?.configurationId || this.$route?.query?.configuration || null;
       if (cfgId) query.configuration = cfgId;
-      this.$router.push({ name: "space-inventory", params: { spaceId }, query });
+      this.$router.push({
+        name: this.inventoryTargetRouteName,
+        params: { spaceId },
+        query,
+      });
     },
     /**
      * Persiste les records de prédiction calculés (+ ajustements % + menuConfig)

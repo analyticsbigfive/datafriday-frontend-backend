@@ -131,11 +131,28 @@
       <!-- Titre du bandeau (parité Analyse / Réarmement / Logistique). -->
       <div class="si-band-title">
         <h1 class="si-band-title__main">{{ t(isPreMode ? 'preInvPageTitle' : 'invPageTitle') }}</h1>
-        <!-- Vue réconciliation active → sous-titre « Réconciliation : {event} » (parité capture). -->
+        <!-- Vue réconciliation active → sous-titre « Réconciliation : {event} » (parité capture).
+             Inchangé : le document nomme DÉJÀ son propre event, empiler un second
+             nom ici recréerait la confusion qu'on corrige juste en dessous. -->
         <p v-if="activeReconciliation" class="si-band-title__sub">
           {{ t('invRecoSection') }} : {{ activeReconciliation.eventName || t('invRecoUnknownEvent') }}
         </p>
-        <p v-else-if="spaceLabel" class="si-band-title__sub">{{ spaceLabel }}</p>
+        <!-- Contexte évènement (lecture seule) : nom · date · pourquoi ce match ·
+             espace. L'ancrage est automatique et silencieux (docs modules/10
+             §12.4) — sans ce sous-titre, l'écran ne dit jamais quel match il
+             affiche, ni pourquoi ce n'est pas celui du deep-link. -->
+        <p v-else-if="contextEvent" class="si-band-title__sub">
+          <strong class="si-band-title__event">{{ contextEventName }}</strong>
+          <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
+          <span class="si-band-title__anchor"> · {{ contextAnchorLabel }}</span>
+          <span v-if="spaceLabel"> · {{ spaceLabel }}</span>
+          <span v-if="countsAreEventIndependent" class="si-band-title__warn">
+            · {{ t('invContextCountsIndependent') }}
+          </span>
+        </p>
+        <p v-else-if="spaceLabel" class="si-band-title__sub">
+          {{ spaceLabel }} · {{ t(isPreMode ? 'preInvNoUpcoming' : 'invContextNoPastEvent') }}
+        </p>
       </div>
 
       <div class="si-band-right justify-content-end d-flex align-center">
@@ -624,7 +641,10 @@
         <h1>{{ t('invPrintInvTitle') }}</h1>
         <div class="si-print-sub">
           <strong>{{ spaceLabel }}</strong>
-          <span v-if="selectedEventOption"> · {{ selectedEventOption.label }}</span>
+          <!-- Event d'ANCRAGE et non `selectedEventOption` : eventOptions ne liste
+               que les events PASSÉS → en mode pre l'en-tête d'impression était muet. -->
+          <span v-if="contextEventName"> · {{ contextEventName }}</span>
+          <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
           <span v-if="printDate"> · {{ printDate }}</span>
         </div>
       </div>
@@ -711,6 +731,10 @@ import {
 } from '@/utils/postEventReconciliation'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
+// Contexte évènement du bandeau (nom + date + règle d'ancrage).
+import { describeAnchorEvent } from '@/utils/inventoryEventContext'
+import { parseEventDate } from '@/utils/dateFr'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 
 const TOP_TABS = [
   { value: 'shops',   labelKey: 'invTabShops',   icon: 'mdi-store' },
@@ -758,6 +782,8 @@ export default {
     const router = useRouter()
     const route = useRoute()
     const { t } = useI18n()
+    // Locale de l'app pour la date du bandeau (jamais 'fr-FR' en dur, BUG-240).
+    const { intlLocale } = useNumberFormat()
     // Inventaire = config de l'event ouvert dans Event Predict (?event=). Le
     // composable est PROPRIÉTAIRE UNIQUE : la vue n'appelle que loadContext/
     // resetContext et lit les refs.
@@ -774,6 +800,7 @@ export default {
     } = useInventoryData(selectedConfigId)
     return {
       t,
+      intlLocale,
       store,
       router,
       route,
@@ -802,6 +829,12 @@ export default {
       sortMode: 'name',
       // Index courant du carousel boutiques (mobile).
       selectedEventId: null,
+      // Event d'ANCRAGE de l'écran, résolu par resolveEventContext. DISTINCT de
+      // `selectedEventId`, qui est la clé de comptage : le drawer mobile peut la
+      // mettre à null (« Indépendant d'un évènement », InventoryFilterDrawer:28)
+      // sans que le match affiché par la page change. On ne garde que l'id :
+      // `events` peut arriver après le montage, le computed se répare seul.
+      contextEventId: null,
       search: '',
       countingShop: null,
       mobileCountingOpen: false,
@@ -925,6 +958,35 @@ export default {
     inventoryError() { return this.store.state.inventory?.error || null },
     spaceLabel() { return this.currentSpace?.name || this.route?.params?.spaceId || null },
     events() { return this.store.state.analyse?.events || [] },
+    // ── Contexte évènement du bandeau ────────────────────────────────────────
+    // L'écran s'ancre tout seul sur un match (règle owner « un match = un
+    // eventId, aucune bascule silencieuse », docs modules/10 §12.4) sans jamais
+    // dire lequel : un deep-link ?event=<futur> en mode post atterrit sur le
+    // dernier match passé, en silence. Ces computeds rendent l'ancrage visible.
+    /** Event d'ancrage résolu, objet complet (null tant que le store est vide). */
+    contextEvent() {
+      if (!this.contextEventId) return null
+      return (this.events || []).find((e) => String(e.id) === String(this.contextEventId)) || null
+    },
+    contextEventName() {
+      return describeAnchorEvent(this.contextEvent)?.name || null
+    },
+    contextEventDateLabel() {
+      // parseEventDate tolère ISO et DD/MM/YYYY ; le formatage suit la locale de
+      // l'app (formatDateMedium coderait 'fr-FR' en dur — écart fermé par BUG-240).
+      const d = parseEventDate(describeAnchorEvent(this.contextEvent)?.dateISO)
+      if (!d) return ''
+      return d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' })
+    },
+    /** Pourquoi CE match : « dernier match terminé » (post) / « prochain match » (pre). */
+    contextAnchorLabel() {
+      return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
+    },
+    /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
+     *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */
+    countsAreEventIndependent() {
+      return !!this.contextEventId && !this.selectedEventId
+    },
     pastEvents() {
       const now = Date.now()
       return (this.events || [])
@@ -1546,11 +1608,13 @@ export default {
           this.store.dispatch('inventory/clearContext')
           this.selectedConfigId = null
           this.selectedEventId = null
+          this.contextEventId = null
           return
         }
 
         this.selectedConfigId = ctx.configId
         this.selectedEventId = ctx.event.id
+        this.contextEventId = ctx.event.id
         this.store.dispatch('inventory/loadMarketPrices')
         this.store.dispatch('inventory/loadPackagingTypes')
 
@@ -2816,6 +2880,9 @@ export default {
 .si-band-title { min-width: 0; margin-right: auto; }
 .si-band-title__main { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .si-band-title__sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.78); }
+.si-band-title__event { font-weight: 700; color: #fff; }
+.si-band-title__anchor { opacity: 0.82; }
+.si-band-title__warn { opacity: 0.95; font-weight: 600; }
 /* Search bar collé sous le bandeau, même largeur (colonne centre). */
 .si-carried-alert { margin: 10px 0 0; font-size: 13px; }
 .si-search-wrap {

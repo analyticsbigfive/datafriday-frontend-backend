@@ -37,6 +37,19 @@
           class="sr-toolbox-select wsl-toolbox"
           @update:model-value="onToolboxSelect"
         />
+        <!-- Historique des plans (RestockPlan) — masqué si le module backend
+             est absent (404 liste) ou en mode démo. -->
+        <RestockPlansPanel
+          v-if="plansAvailable"
+          :plans="plans"
+          :loading="plansLoading"
+          :active-plan-id="loadedPlanId"
+          :can-write="canWritePlans"
+          @load="loadPlan"
+          @rename="renamePlan"
+          @duplicate="duplicatePlanAction"
+          @delete="deletePlanAction"
+        />
         <v-card variant="outlined" class="sr-panel">
           <header class="sr-panel-head">
             <div>
@@ -139,6 +152,31 @@
             </div>
 
             <div class="sr-header__right">
+              <!-- Sauvegarde EXPLICITE d'un plan nommé (jamais d'auto-save). -->
+              <v-btn
+                v-if="plansAvailable && !loadedPlanId"
+                variant="outlined"
+                size="small"
+                class="sr-hbtn"
+                :disabled="!canWritePlans || !restockGenerated"
+                :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
+                @click="openSavePlanDialog"
+              >
+                <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
+                {{ t('srSavePlan') }}
+              </v-btn>
+              <v-btn
+                v-else-if="plansAvailable && loadedPlanId"
+                variant="outlined"
+                size="small"
+                class="sr-hbtn"
+                :disabled="!canWritePlans || !planDirty"
+                :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
+                @click="updateLoadedPlan"
+              >
+                <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
+                {{ t('srUpdatePlan') }}
+              </v-btn>
               <v-btn
                 variant="outlined"
                 size="small"
@@ -164,6 +202,19 @@
             <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
           </p>
         </header>
+        <!-- Bandeau « plan chargé » : les 3 étapes affichent la PHOTO du plan,
+             pas le calcul vivant (ADR-0005). -->
+        <div v-if="loadedPlanId" class="sr-plan-banner" role="status">
+          <v-icon size="16" class="sr-plan-banner__icon">mdi-file-lock-outline</v-icon>
+          <span class="sr-plan-banner__text">
+            {{ t('srPlanLoadedBanner') }}
+            <strong>{{ loadedPlanMeta?.name || t('srPlanUnnamed') }}</strong>
+            <span v-if="planDirty" class="sr-plan-banner__dirty"> · {{ t('srPlanDirtyHint') }}</span>
+          </span>
+          <v-btn size="x-small" variant="text" class="sr-plan-banner__btn" @click="detachPlan()">
+            {{ t('srPlanDetachBtn') }}
+          </v-btn>
+        </div>
         <!-- Assistant pas-à-pas : indicateur d'étapes (cercles + connecteurs). -->
         <nav class="sr-wizard" :aria-label="t('srStepOf') + ' ' + currentStep + '/3'">
           <template v-for="(label, idx) in [t('srStep1'), t('srStep2'), t('srStep3')]" :key="idx">
@@ -473,7 +524,28 @@
                     </td>
                     <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
-                    <td :data-label="t('srColToDeposit')" class="sr-strong">{{ formatRestockQuantity(row) }}</td>
+                    <td :data-label="t('srColToDeposit')" class="sr-strong">
+                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                           feuille de course se rejoue sur les coefficients figés. -->
+                      <span v-if="loadedPlanId" class="sr-deposit-edit">
+                        <NumberField
+                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
+                          :min="0"
+                          :decimals="2"
+                          :disabled="!canWritePlans"
+                          :aria-label="t('srColToDeposit')"
+                          class="sr-deposit-field"
+                          @update:model-value="setLineOverride(row.rowKey, $event)"
+                        />
+                        <v-icon
+                          v-if="row.edited"
+                          size="12"
+                          class="sr-deposit-edited"
+                          :title="t('srPlanLineEdited')"
+                        >mdi-pencil</v-icon>
+                      </span>
+                      <template v-else>{{ formatRestockQuantity(row) }}</template>
+                    </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
                         type="button"
@@ -533,7 +605,28 @@
                       </td>
                       <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
                       <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
-                      <td :data-label="t('srColToDeposit')" class="sr-strong">{{ formatRestockQuantity(row) }}</td>
+                      <td :data-label="t('srColToDeposit')" class="sr-strong">
+                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                           feuille de course se rejoue sur les coefficients figés. -->
+                      <span v-if="loadedPlanId" class="sr-deposit-edit">
+                        <NumberField
+                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
+                          :min="0"
+                          :decimals="2"
+                          :disabled="!canWritePlans"
+                          :aria-label="t('srColToDeposit')"
+                          class="sr-deposit-field"
+                          @update:model-value="setLineOverride(row.rowKey, $event)"
+                        />
+                        <v-icon
+                          v-if="row.edited"
+                          size="12"
+                          class="sr-deposit-edited"
+                          :title="t('srPlanLineEdited')"
+                        >mdi-pencil</v-icon>
+                      </span>
+                      <template v-else>{{ formatRestockQuantity(row) }}</template>
+                    </td>
                       <td :data-label="t('srColConfirmed')">
                         <button
                           type="button"
@@ -606,7 +699,28 @@
                     </td>
                     <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
-                    <td :data-label="t('srColToDeposit')" class="sr-strong">{{ formatRestockQuantity(row) }}</td>
+                    <td :data-label="t('srColToDeposit')" class="sr-strong">
+                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                           feuille de course se rejoue sur les coefficients figés. -->
+                      <span v-if="loadedPlanId" class="sr-deposit-edit">
+                        <NumberField
+                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
+                          :min="0"
+                          :decimals="2"
+                          :disabled="!canWritePlans"
+                          :aria-label="t('srColToDeposit')"
+                          class="sr-deposit-field"
+                          @update:model-value="setLineOverride(row.rowKey, $event)"
+                        />
+                        <v-icon
+                          v-if="row.edited"
+                          size="12"
+                          class="sr-deposit-edited"
+                          :title="t('srPlanLineEdited')"
+                        >mdi-pencil</v-icon>
+                      </span>
+                      <template v-else>{{ formatRestockQuantity(row) }}</template>
+                    </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
                         type="button"
@@ -716,14 +830,14 @@
           <v-expand-transition>
           <div v-show="!collapsed.shopping">
           <v-alert
-            v-if="shoppingGenerated && nettedShopping.unmatchedStorage.length"
+            v-if="shoppingGenerated && displayedUnmatchedStorage.length"
             type="warning"
             density="compact"
             variant="tonal"
             class="sr-storage-warn"
           >
             {{ t('srStorageUnmatchedWarn') }}
-            <strong>{{ nettedShopping.unmatchedStorage.map((e) => e.name || e.itemId).join(', ') }}</strong>
+            <strong>{{ displayedUnmatchedStorage.map((e) => e.name || e.itemId).join(', ') }}</strong>
           </v-alert>
           <div v-if="!shoppingGenerated" class="sr-empty">
             {{ t('srGenerateShoppingHint') }}
@@ -1014,6 +1128,54 @@
       </v-card>
     </v-bottom-sheet>
 
+    <!-- Nommage d'un nouveau plan (sauvegarde explicite). -->
+    <v-dialog v-model="planSaveDialog.show" max-width="440">
+      <v-card>
+        <v-card-title class="sr-plan-dialog-title">{{ t('srSavePlan') }}</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="planSaveDialog.name"
+            :label="t('srPlanName')"
+            :placeholder="t('srPlanNamePlaceholder')"
+            density="compact"
+            variant="outlined"
+            hide-details
+            autofocus
+            @keydown.enter.prevent="confirmSavePlan"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="planSaveDialog.show = false">{{ t('srPlanRenameCancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :disabled="!planSaveDialog.name.trim()" @click="confirmSavePlan">
+            {{ t('srSavePlan') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Conflit : mutation invalidante avec un plan chargé — 3 issues
+         (ADR-0005 : une photo n'est jamais recalculée en silence). -->
+    <v-dialog v-model="planGuardDialog.show" max-width="480" persistent>
+      <v-card>
+        <v-card-title class="sr-plan-dialog-title">{{ t('srPlanDetachTitle') }}</v-card-title>
+        <v-card-text>{{ t('srPlanDetachBody') }}</v-card-text>
+        <v-card-actions class="sr-plan-guard-actions">
+          <v-btn variant="text" @click="resolvePlanGuard('cancel')">{{ t('srPlanDetachCancel') }}</v-btn>
+          <v-spacer />
+          <v-btn variant="outlined" @click="resolvePlanGuard('discard')">{{ t('srPlanDetachContinue') }}</v-btn>
+          <v-btn
+            v-if="canWritePlans"
+            color="primary"
+            variant="flat"
+            @click="resolvePlanGuard('save')"
+          >
+            {{ t('srPlanDetachSave') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3500">
       {{ snackbarText }}
     </v-snackbar>
@@ -1080,7 +1242,23 @@ import {
   isRestockApiDown,
   onRestockApiError,
 } from '@/api/endpoints/restock.api'
+// Plans de réappro nommés (RestockPlan, ADR-0005) : photo figée des 3 étapes,
+// rejouée depuis la photo — jamais depuis le catalogue vivant.
+import {
+  buildPlanSnapshot,
+  buildRecipeCoeffs,
+  applyPlanEdits,
+  recomputeShoppingFromOverrides,
+  estimateSnapshotBytes,
+} from '@/utils/restockPlanSnapshot'
+import { useRestockPlans } from '@/composables/useRestockPlans'
+import RestockPlansPanel from '@/components/restock/RestockPlansPanel.vue'
+import NumberField from '@/components/common/NumberField.vue'
 import { isDemoMode } from '@/utils/demoMode'
+
+// Garde-fou client AVANT le POST d'un plan — marge sous la garde backend
+// (restock-plans.service.ts : 1 000 000). Même métrique (JSON.stringify).
+const PLAN_MAX_BYTES = 900_000
 
 const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
@@ -1132,13 +1310,23 @@ function roundForUnit(value, unit) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceAppHeader },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceAppHeader, RestockPlansPanel, NumberField },
   setup() {
     const store = useStore()
     const route = useRoute()
     const router = useRouter()
     const { t } = useI18n()
-    return { store, route, router, t }
+    // Historique des plans (REST autoritaire, sans miroir localStorage).
+    // Refs exposées à plat pour l'auto-unwrap Options API ; `plansApi` porte
+    // les méthodes (refresh/load/create/…).
+    const plansApi = useRestockPlans()
+    return {
+      store, route, router, t,
+      plansApi,
+      plans: plansApi.plans,
+      plansLoading: plansApi.loading,
+      plansAvailable: plansApi.available,
+    }
   },
   data() {
     return {
@@ -1247,6 +1435,20 @@ export default {
       collapsed: { stock: true, restock: true, shopping: true },
       restockedRows: {},
       restoringState: false,
+      // --- Plan chargé (RestockPlan, ADR-0005) ---
+      // Distinct de l'état de session : tant que loadedPlanId est posé, les
+      // 3 étapes affichent la PHOTO du plan (aiguillage stockSettingsRows /
+      // restockRows / shoppingGroups), jamais le calcul vivant.
+      loadedPlanId: null,
+      loadedPlan: null, // photo complète (GET /restock-plans/:id)
+      lineOverrides: {}, // rowKey → quantité « À déposer » corrigée
+      planDirty: false, // correction non enregistrée sur le plan chargé
+      // Guard : true pendant loadPlan — neutralise resetGeneratedOutputs et
+      // ensureStockItemDefaults (sinon les watchers détruisent le plan posé).
+      loadingPlan: false,
+      // Dialogue de sauvegarde (nommage) et dialogue de conflit (3 issues).
+      planSaveDialog: { show: false, name: '' },
+      planGuardDialog: { show: false, resolver: null },
       snackbar: false,
       snackbarText: '',
       snackbarColor: 'success',
@@ -1540,7 +1742,8 @@ export default {
         return String(a.itemName).localeCompare(String(b.itemName))
       })
     },
-    stockSettingsRows() {
+    /** Étape 1 — calcul VIVANT (catalogue + prédictions du moment). */
+    liveStockSettingsRows() {
       const grouped = new Map()
       this.stockRowsRaw.forEach((row) => {
         const existing = grouped.get(row.itemKey)
@@ -1576,6 +1779,25 @@ export default {
           recipeComponents: this.recipeComponentsForStockItem(row),
         }))
         .sort((a, b) => String(a.itemName).localeCompare(String(b.itemName)))
+    },
+    /**
+     * Étape 1 affichée : PHOTO du plan chargé, sinon calcul vivant. Les lignes
+     * figées (stockLines) ne portent ni sources ni recipeComponents — l'étape 1
+     * d'un plan est volontairement gelée (relancer une génération passe par le
+     * dialogue de détachement, cf. guardPlanEdit).
+     */
+    stockSettingsRows() {
+      if (!this.loadedPlan) return this.liveStockSettingsRows
+      return (this.loadedPlan.stockLines || []).map((line) => ({
+        ...line,
+        itemId: null,
+        sourceId: null,
+        shopIds: new Set(),
+        shopCount: 0,
+        sources: [],
+        sourceNames: [],
+        recipeComponents: [],
+      }))
     },
     filteredStockSettingsRows() {
       const q = (this.stockSearch || '').trim().toLowerCase()
@@ -1635,7 +1857,8 @@ export default {
     stockSettingsSignature() {
       return this.stockSettingsRows.map((row) => row.itemKey).sort().join('|')
     },
-    restockRows() {
+    /** Étape 2 — calcul VIVANT (catalogue + comptages du moment). */
+    liveRestockRows() {
       return this.stockRowsRaw.map((row) => {
         const targetQuantity = this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey)
         const packaging = this.packagingForItem(row, targetQuantity)
@@ -1657,6 +1880,16 @@ export default {
           sourceBreakdown: this.buildSourceBreakdown(row),
         }
       }).filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
+    },
+    /**
+     * Étape 2 affichée : PHOTO du plan (avec corrections « À déposer »
+     * appliquées via les valeurs figées), sinon calcul vivant. Les ~10
+     * consommateurs aval (filtres, groupes, compteurs, exports, impression)
+     * passent tous par ici — aucun d'eux ne distingue figé/vivant.
+     */
+    restockRows() {
+      if (!this.loadedPlan) return this.liveRestockRows
+      return applyPlanEdits(this.loadedPlan.restockLines || [], this.lineOverrides)
     },
     /** Events réellement présents dans la feuille (id + label), pour le filtre. */
     restockEventOptions() {
@@ -1967,9 +2200,55 @@ export default {
       const unmatchedStorage = storagePool.filter((e) => !e.matched && e.qty > 0)
       return { groups, unmatchedStorage }
     },
-    /** Groupes affichés à l'étape 3 (feuille de course nette). */
-    shoppingGroups() {
+    /** Étape 3 — feuille de course nette VIVANTE. */
+    liveShoppingGroups() {
       return this.nettedShopping.groups
+    },
+    /**
+     * Étape 3 affichée : rejeu de la PHOTO (deltas de corrections × coefficients
+     * de recette figés, netting Storage et packaging rejoués sur les valeurs
+     * figées — jamais le catalogue vivant), sinon calcul vivant. La recherche
+     * est appliquée après coup en mode plan (le mode vivant la porte plus haut,
+     * dans shoppingSupplierGroups / shoppingIngredientGroups).
+     */
+    shoppingGroups() {
+      if (!this.loadedPlan) return this.liveShoppingGroups
+      const groups = recomputeShoppingFromOverrides(this.loadedPlan, this.lineOverrides)
+      const q = (this.shoppingSearch || '').trim().toLowerCase()
+      if (!q) return groups
+      return groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => {
+            const haystack = [group.supplierName, item.itemName, ...(item.shopNames || [])]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+            return haystack.includes(q)
+          }),
+        }))
+        .filter((group) => group.items.length > 0)
+    },
+    /**
+     * Storage non rattaché affiché à l'étape 3 : figé dans meta pour un plan
+     * chargé (une photo n'est jamais recalculée), vivant sinon.
+     */
+    displayedUnmatchedStorage() {
+      if (this.loadedPlan) return this.loadedPlan.meta?.unmatchedStorage || []
+      return this.nettedShopping.unmatchedStorage
+    },
+    /** Droit d'écriture sur les plans (BUG-19 : restockBoard seul = lecture). */
+    canWritePlans() {
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? !!can('front.fb.restock') : false
+    },
+    /** Métadonnées du plan chargé (bandeau) — nom depuis la liste si dispo. */
+    loadedPlanMeta() {
+      if (!this.loadedPlanId) return null
+      return (
+        (this.plans || []).find((p) => p.id === this.loadedPlanId) ||
+        { id: this.loadedPlanId, name: this.loadedPlan?.name || '' }
+      )
     },
     confirmedRestockCount() {
       return this.restockRows.filter((row) => this.isRestocked(row.rowKey)).length
@@ -1995,6 +2274,9 @@ export default {
         restockViewMode: this.restockViewMode,
         currentStep: this.currentStep,
         stockExcluded: this.stockExcluded,
+        // Envoyé dans les `extras` du PUT (restock.api.js) : un backend plus
+        // ancien en whitelist stricte retombe sur le noyau sans lui.
+        loadedPlanId: this.loadedPlanId,
       }
     },
     overviewMetrics() {
@@ -2028,6 +2310,15 @@ export default {
     },
   },
   watch: {
+    // Les 3 routes de l'espace sont keepAlive : au changement d'espace, le
+    // composant survit — sans ce watcher, un plan de l'espace X resterait
+    // affiché sur l'espace Y. On repart en mode vivant + liste de plans vierge.
+    'route.params.spaceId'(spaceId, previous) {
+      if (!spaceId || spaceId === previous) return
+      this.detachPlan({ silent: true })
+      this.plansApi.reset()
+      if (this.plansAvailable !== false) this.plansApi.refresh(spaceId)
+    },
     selectedEventIds: {
       deep: true,
       handler() {
@@ -2076,6 +2367,10 @@ export default {
   async mounted() {
     // Active le Teleport une fois la cible du v-app-bar parent présente dans le DOM.
     this.$nextTick(() => { this.headerReady = true })
+    // Historique des plans (best-effort, jamais bloquant) : un 404 = module
+    // backend absent → panneau masqué (plansAvailable = false).
+    const mountSpaceId = this.route.params?.spaceId
+    if (mountSpaceId) this.plansApi.refresh(mountSpaceId)
     await this.loadAll()
     // Assistant : le panneau de l'étape active doit s'afficher déplié. L'URL
     // (?step=) prime sur l'étape restaurée (deep-link / refresh / partage).
@@ -2249,7 +2544,13 @@ export default {
         // 2026-07-06) — toujours démarrer à l'étape 1 (Stock). Seul un
         // deep-link explicite ?step= (géré au mounted) ouvre plus loin.
         // `saved.currentStep` reste persisté pour compat, mais ignoré ici.
-        this.$nextTick(() => { this.restoringState = false })
+        this.$nextTick(() => {
+          this.restoringState = false
+          // F5 avec un plan chargé : on le recharge (404 → effacé + snackbar,
+          // géré dans loadPlan). Après la levée du guard, sinon la restauration
+          // du plan serait elle-même re-persistée en boucle.
+          if (saved.loadedPlanId) this.loadPlan(saved.loadedPlanId)
+        })
       })
     },
     /**
@@ -2285,6 +2586,219 @@ export default {
           }
         })
       }, 500)
+    },
+    // ------------------------------------------------------------------
+    // Plans de réappro nommés (RestockPlan, ADR-0005)
+    // ------------------------------------------------------------------
+    /**
+     * Charge un plan : réapplique les ENTRÉES (rejouables), puis pose la PHOTO
+     * après le flush des watchers. `loadingPlan` neutralise
+     * resetGeneratedOutputs et ensureStockItemDefaults pendant toute la pose —
+     * sans ces gardes le plan se détruit lui-même (watchers selectedEventIds
+     * et stockSettingsSignature).
+     */
+    async loadPlan(planId) {
+      if (!planId || this.loadingPlan) return
+      this.loadingPlan = true
+      try {
+        let plan = null
+        try {
+          plan = await this.plansApi.load(planId)
+        } catch (err) {
+          this.showSnackbar(this.t('srSnackPlanLoadError'), 'error')
+          return
+        }
+        if (!plan) {
+          // Supprimé (autre onglet / autre tenant) → mode vivant, sans plan.
+          this.loadedPlanId = null
+          this.loadedPlan = null
+          this.lineOverrides = {}
+          this.planDirty = false
+          this.showSnackbar(this.t('srSnackPlanGone'), 'warning')
+          return
+        }
+        // 1) Entrées — rejouées telles quelles (elles restent utiles au
+        //    détachement : l'utilisateur retrouve sa sélection).
+        this.objectiveSource = plan.objectiveSource || 'forecast'
+        this.referenceEventId = plan.referenceEventId ?? null
+        this.selectedEventIds = Array.isArray(plan.selectedEventIds) ? [...plan.selectedEventIds] : []
+        this.selectedScenarioByEventId = { ...(plan.scenarioByEventId || {}) }
+        this.stockAdjustments = { ...(plan.stockAdjustments || {}) }
+        this.stockPackedModes = { ...(plan.stockPackedModes || {}) }
+        this.stockExcluded = { ...(plan.stockExcluded || {}) }
+        this.shoppingMode = plan.shoppingMode || 'finished'
+        await this.$nextTick()
+        // 2) Photo — posée après le flush des watchers d'entrées.
+        this.loadedPlan = plan
+        this.loadedPlanId = plan.id
+        this.lineOverrides = { ...(plan.lineOverrides || {}) }
+        this.restockedRows = { ...(plan.restockedRows || {}) }
+        this.restockGenerated = true
+        this.shoppingGenerated = true
+        this.planDirty = false
+        this.goToStep(2)
+        this.showSnackbar(this.t('srSnackPlanLoaded'), 'success')
+        await this.$nextTick()
+      } finally {
+        // Double nextTick (pattern restoringState) : la garde doit survivre au
+        // flush des watchers déclenchés par la pose de la photo.
+        this.$nextTick(() => { this.loadingPlan = false })
+      }
+    },
+    /** Détache le plan (le document stocké reste intact) → mode vivant. */
+    detachPlan({ silent = false } = {}) {
+      const hadPlan = !!this.loadedPlanId
+      this.loadedPlanId = null
+      this.loadedPlan = null
+      this.lineOverrides = {}
+      this.planDirty = false
+      if (hadPlan && !silent) this.showSnackbar(this.t('srSnackPlanDetached'), 'info')
+    },
+    /**
+     * Garde de mutation invalidante quand un plan est chargé (règle ADR-0005 :
+     * une photo n'est jamais recalculée en silence). Au niveau des CONTRÔLES
+     * (entrée des handlers, avant mutation), pas dans les watchers — un watcher
+     * se déclenche après la mutation, et un rollback le re-déclencherait.
+     * @returns {Promise<boolean>} true = continuer (plan détaché), false = annuler
+     */
+    guardPlanEdit() {
+      if (!this.loadedPlanId) return Promise.resolve(true)
+      return new Promise((resolve) => {
+        this.planGuardDialog = { show: true, resolver: resolve }
+      })
+    },
+    /** Issue du dialogue de conflit : 'save' | 'discard' | 'cancel'. */
+    async resolvePlanGuard(choice) {
+      const resolver = this.planGuardDialog.resolver
+      this.planGuardDialog = { show: false, resolver: null }
+      if (choice === 'cancel') {
+        if (resolver) resolver(false)
+        return
+      }
+      if (choice === 'save') {
+        const saved = await this.updateLoadedPlan()
+        if (!saved) {
+          if (resolver) resolver(false)
+          return
+        }
+      }
+      this.detachPlan({ silent: true })
+      if (resolver) resolver(true)
+    },
+    /** Payload complet depuis l'état VIVANT (photo au moment de la sauvegarde). */
+    buildPlanPayload() {
+      const components = this.hydratedComponents.length ? this.hydratedComponents : this.components
+      const restockRows = this.liveRestockRows
+      return buildPlanSnapshot({
+        stockRows: this.liveStockSettingsRows,
+        restockRows,
+        shoppingGroups: this.liveShoppingGroups,
+        recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: this.shoppingMode, components }),
+        unmatchedStorage: this.nettedShopping.unmatchedStorage,
+        inputs: {
+          objectiveSource: this.objectiveSource,
+          referenceEventId: this.referenceEventId,
+          selectedEventIds: this.selectedEventIds,
+          scenarioByEventId: this.selectedScenarioByEventId,
+          stockAdjustments: this.stockAdjustments,
+          stockPackedModes: this.stockPackedModes,
+          stockExcluded: this.stockExcluded,
+          restockedRows: this.restockedRows,
+          shoppingMode: this.shoppingMode,
+          snapshotAt: new Date().toISOString(),
+        },
+        events: this.selectedEvents,
+      })
+    },
+    /** CTA « Sauvegarder le plan » (aucun plan chargé) : ouvre le nommage. */
+    openSavePlanDialog() {
+      if (!this.canWritePlans) return
+      const eventName = this.selectedEvents.length ? this.eventLabel(this.selectedEvents[0]) : ''
+      this.planSaveDialog = { show: true, name: eventName }
+    },
+    /** Crée le plan nommé depuis l'état vivant (sauvegarde EXPLICITE). */
+    async confirmSavePlan() {
+      const name = (this.planSaveDialog.name || '').trim()
+      if (!name) return
+      const spaceId = this.route.params?.spaceId
+      const payload = { name, ...this.buildPlanPayload() }
+      if (estimateSnapshotBytes(payload) > PLAN_MAX_BYTES) {
+        this.showSnackbar(this.t('srSnackPlanTooLarge'), 'error')
+        return
+      }
+      this.planSaveDialog = { show: false, name: '' }
+      try {
+        const created = await this.plansApi.create(spaceId, payload)
+        // Le plan fraîchement créé devient le plan chargé (photo = état actuel).
+        if (created?.id) await this.loadPlan(created.id)
+        this.showSnackbar(this.t('srSnackPlanSaved'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
+    },
+    /**
+     * « Mettre à jour » un plan chargé : persiste corrections + confirmations.
+     * La photo elle-même ne bouge pas (document figé) — seuls lineOverrides et
+     * restockedRows sont réécrits.
+     * @returns {Promise<boolean>} succès
+     */
+    async updateLoadedPlan() {
+      if (!this.loadedPlanId) return false
+      try {
+        const updated = await this.plansApi.update(
+          this.loadedPlanId,
+          { lineOverrides: this.lineOverrides, restockedRows: this.restockedRows },
+          this.route.params?.spaceId,
+        )
+        if (updated) this.loadedPlan = { ...this.loadedPlan, lineOverrides: { ...this.lineOverrides } }
+        this.planDirty = false
+        this.showSnackbar(this.t('srSnackPlanUpdated'), 'success')
+        return true
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          this.detachPlan({ silent: true })
+          this.showSnackbar(this.t('srSnackPlanGone'), 'warning')
+        } else {
+          this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+        }
+        return false
+      }
+    },
+    /** Correction « À déposer » sur une ligne du plan chargé. */
+    setLineOverride(rowKey, value) {
+      if (!this.loadedPlanId) return
+      const next = { ...this.lineOverrides }
+      const n = Number(value)
+      if (value === null || value === '' || !Number.isFinite(n) || n < 0) delete next[rowKey]
+      else next[rowKey] = n
+      this.lineOverrides = next
+      this.planDirty = true
+    },
+    async renamePlan({ id, name }) {
+      try {
+        await this.plansApi.update(id, { name }, this.route.params?.spaceId)
+        if (this.loadedPlan?.id === id) this.loadedPlan = { ...this.loadedPlan, name }
+        this.showSnackbar(this.t('srSnackPlanRenamed'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
+    },
+    async duplicatePlanAction(planId) {
+      try {
+        await this.plansApi.duplicate(planId, this.route.params?.spaceId)
+        this.showSnackbar(this.t('srSnackPlanDuplicated'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
+    },
+    async deletePlanAction(planId) {
+      try {
+        await this.plansApi.remove(planId, this.route.params?.spaceId)
+        if (this.loadedPlanId === planId) this.detachPlan({ silent: true })
+        this.showSnackbar(this.t('srSnackPlanDeleted'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
     },
     goBack() {
       const spaceId = this.route.params?.spaceId
@@ -2736,7 +3250,8 @@ export default {
      * agrège déjà par shop+item sur objectiveEvents). Chaque évènement garde son
      * scénario (version) propre dans selectedScenarioByEventId.
      */
-    selectEvent(id) {
+    async selectEvent(id) {
+      if (!(await this.guardPlanEdit())) return
       if (!id) { this.selectedEventIds = []; return }
       if (this.selectedEventIds.includes(id)) {
         this.selectedEventIds = this.selectedEventIds.filter((eid) => eid !== id)
@@ -2758,7 +3273,8 @@ export default {
       }
     },
     /** Changement de scénario (version) → relit les records → quantités MAJ. */
-    selectScenario(eventId, versionId) {
+    async selectScenario(eventId, versionId) {
+      if (!(await this.guardPlanEdit())) return
       this.selectedScenarioByEventId = { ...this.selectedScenarioByEventId, [eventId]: versionId }
       this.resetGeneratedOutputs()
       this.refreshSelectedPredictions()
@@ -2886,11 +3402,18 @@ export default {
       return formatDateMedium(event?.eventDate || event?.date)
     },
     resetGeneratedOutputs() {
+      // Garde loadPlan : poser selectedEventIds déclenche le watcher qui
+      // arrive ici et viderait restockedRows + drapeaux fraîchement restaurés
+      // → le plan chargé se détruirait lui-même.
+      if (this.loadingPlan) return
       this.restockGenerated = false
       this.shoppingGenerated = false
       this.restockedRows = {}
     },
     ensureStockItemDefaults() {
+      // Garde loadPlan : le watcher stockSettingsSignature ÉCRIT
+      // stockAdjustments/stockPackedModes et écraserait les valeurs du plan.
+      if (this.loadingPlan) return
       const adjustments = { ...this.stockAdjustments }
       const packedModes = { ...this.stockPackedModes }
       this.stockSettingsRows.forEach((row) => {
@@ -2942,13 +3465,15 @@ export default {
     isStockSelected(itemKey) {
       return !this.stockExcluded[itemKey]
     },
-    setStockSelected(itemKey, checked) {
+    async setStockSelected(itemKey, checked) {
+      if (!(await this.guardPlanEdit())) return
       const next = { ...this.stockExcluded }
       if (checked) delete next[itemKey]
       else next[itemKey] = true
       this.stockExcluded = next
     },
-    toggleAllStock(select) {
+    async toggleAllStock(select) {
+      if (!(await this.guardPlanEdit())) return
       if (select) {
         this.stockExcluded = {}
       } else {
@@ -2960,14 +3485,16 @@ export default {
     stockAdjustment(itemKey) {
       return Number(this.stockAdjustments[itemKey] ?? 100)
     },
-    setStockAdjustment(itemKey, value) {
+    async setStockAdjustment(itemKey, value) {
+      if (!(await this.guardPlanEdit())) return
       this.stockAdjustments = {
         ...this.stockAdjustments,
         [itemKey]: Number(value) || 0,
       }
       this.resetGeneratedOutputs()
     },
-    applyStockAdjustmentToAll(percent) {
+    async applyStockAdjustmentToAll(percent) {
+      if (!(await this.guardPlanEdit())) return
       const next = { ...this.stockAdjustments }
       this.stockSettingsRows.forEach((row) => {
         next[row.itemKey] = Number(percent) || 0
@@ -2981,7 +3508,8 @@ export default {
     isPackedMode(itemKey) {
       return !!this.stockPackedModes[itemKey]
     },
-    setPackedMode(itemKey, checked) {
+    async setPackedMode(itemKey, checked) {
+      if (!(await this.guardPlanEdit())) return
       this.stockPackedModes = {
         ...this.stockPackedModes,
         [itemKey]: !!checked,
@@ -3198,6 +3726,8 @@ export default {
     },
     async generateRestockTable() {
       if (!this.canGenerate) return
+      // Régénérer = recalculer en vivant → invalide la photo du plan chargé.
+      if (!(await this.guardPlanEdit())) return
       await this.loadPreviousInventory()
       this.restockGenerated = true
       this.shoppingGenerated = false
@@ -3207,6 +3737,7 @@ export default {
     },
     async generateShoppingList() {
       if (!this.canGenerate) return
+      if (!(await this.guardPlanEdit())) return
       if (!this.restockGenerated) await this.generateRestockTable()
       this.shoppingGenerated = true
       // Mode ingrédients : hydrate les recettes (détail /menu-items/:id) avant
@@ -3218,6 +3749,9 @@ export default {
     },
     /** Bascule produits finis / ingrédients ; hydrate les recettes au besoin. */
     async setShoppingMode(mode) {
+      // La photo d'un plan ne contient les groupes que pour le mode sauvegardé :
+      // il n'existe AUCUNE donnée figée pour l'autre → mutation invalidante.
+      if (mode !== this.shoppingMode && !(await this.guardPlanEdit())) return
       this.shoppingMode = mode
       if (mode === 'ingredients' && this.shoppingGenerated) await this.ensureRecipesLoaded()
     },
@@ -3425,6 +3959,9 @@ export default {
         ...this.restockedRows,
         [rowKey]: !!checked,
       }
+      // Sur un plan chargé, les confirmations font partie du document
+      // (persistées par « Mettre à jour », avec lineOverrides).
+      if (this.loadedPlanId) this.planDirty = true
     },
     markAllVisibleRestocked(checked) {
       const next = { ...this.restockedRows }
@@ -3432,6 +3969,7 @@ export default {
         next[row.rowKey] = !!checked
       })
       this.restockedRows = next
+      if (this.loadedPlanId) this.planDirty = true
     },
     /** Toutes les lignes (boutiques) de la carte article sont-elles confirmées ? */
     isGroupRestocked(group) {
@@ -3444,6 +3982,7 @@ export default {
         next[row.rowKey] = !!checked
       })
       this.restockedRows = next
+      if (this.loadedPlanId) this.planDirty = true
     },
     formatLooseQuantity(quantity, unit) {
       const n = roundForUnit(quantity, unit)
@@ -6282,5 +6821,51 @@ export default {
 }
 .dark .sr-wysiwyg-editor:focus {
   background: transparent;
+}
+
+/* --- Plans de réappro (RestockPlan, ADR-0005) --- */
+.sr-plan-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 8px 0 0;
+  border: 1px solid var(--fb-primary, #2563eb);
+  border-radius: 8px;
+  background: var(--fb-primary-soft, rgba(37, 99, 235, 0.08));
+  color: var(--fb-text, #111827);
+  font-size: 0.8125rem;
+}
+.sr-plan-banner__icon {
+  color: var(--fb-primary, #2563eb);
+  flex-shrink: 0;
+}
+.sr-plan-banner__text {
+  flex: 1;
+  min-width: 0;
+}
+.sr-plan-banner__dirty {
+  color: var(--fb-warning, #d97706);
+}
+.sr-plan-banner__btn {
+  flex-shrink: 0;
+}
+.sr-deposit-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sr-deposit-field {
+  max-width: 110px;
+}
+.sr-deposit-edited {
+  color: var(--fb-warning, #d97706);
+}
+.sr-plan-dialog-title {
+  font-size: 1rem;
+}
+.sr-plan-guard-actions {
+  flex-wrap: wrap;
+  gap: 4px;
 }
 </style>
