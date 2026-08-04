@@ -7,15 +7,15 @@
     @update:model-value="$emit('update:modelValue', $event)"
   >
     <div class="lgh-head">
-      <div>
+      <div class="lgh-head__icon"><v-icon size="20" color="white">mdi-history</v-icon></div>
+      <div class="lgh-head__text">
         <div class="lgh-title">{{ t('logiHistoryTitle') }}</div>
         <div class="lgh-subtitle">{{ element?.name }}</div>
       </div>
-      <v-btn icon variant="text" size="small" @click="$emit('update:modelValue', false)">
-        <v-icon>mdi-close</v-icon>
-      </v-btn>
+      <button type="button" class="lgh-close" :aria-label="t('logiClose')" @click="$emit('update:modelValue', false)">
+        <v-icon size="18">mdi-close</v-icon>
+      </button>
     </div>
-    <v-divider />
 
     <div class="lgh-body">
       <div v-if="loading" class="lgh-center">
@@ -39,13 +39,17 @@
             <button
               type="button"
               class="lgh-date-header"
+              :class="{ 'lgh-date-header--open': isDateExpanded(group.dateKey, idx) }"
               :aria-expanded="isDateExpanded(group.dateKey, idx)"
               @click="toggleDate(group.dateKey, idx)"
             >
-              <span>{{ group.dateLabel }}</span>
+              <span class="lgh-date-header-left">
+                <v-icon size="14" class="lgh-date-ico">mdi-calendar-blank-outline</v-icon>
+                <span class="lgh-date-label">{{ group.dateLabel }}</span>
+              </span>
               <span class="lgh-date-header-right">
                 <span class="lgh-date-count">{{ group.items.length }}</span>
-                <v-icon size="16">{{ isDateExpanded(group.dateKey, idx) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+                <v-icon size="16" class="lgh-date-chevron">{{ isDateExpanded(group.dateKey, idx) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
               </span>
             </button>
             <v-list v-show="isDateExpanded(group.dateKey, idx)" density="compact" class="py-0">
@@ -274,16 +278,30 @@ export default {
 
 <style scoped>
 :deep(.v-navigation-drawer) { max-width: 100vw; }
+/* Header rouge charte (le corps reste piloté par le contrat --fb-* de l'hôte). */
 .lgh-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
+  gap: 12px;
+  /* padding-top généreux : le contenu ne colle plus au bord haut du drawer. */
+  padding: 22px 18px 18px;
+  background: #ff3131;
 }
-.lgh-title { font-weight: 700; font-size: 1rem; }
-/* Couleurs via le contrat `--fb-*` de l'hôte (.space-logistic-view) : bascule
-   automatique en thème sombre, cf. style.css. */
-.lgh-subtitle { color: var(--fb-muted, #6b7280); font-size: 0.82rem; }
+.lgh-head__icon {
+  width: 38px; height: 38px; border-radius: 11px;
+  background: rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.lgh-head__text { flex: 1; min-width: 0; }
+.lgh-title { font-weight: 700; font-size: 1rem; color: #fff; }
+.lgh-subtitle { color: rgba(255,255,255,.8); font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgh-close {
+  width: 30px; height: 30px; border: none; border-radius: 8px;
+  background: rgba(255,255,255,.18); color: rgba(255,255,255,.9);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .18s; flex-shrink: 0;
+}
+.lgh-close:hover { background: rgba(255,255,255,.3); }
 .lgh-body { overflow-y: auto; }
 .lgh-date-header {
   appearance: none;
@@ -295,26 +313,34 @@ export default {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 8px 16px;
+  padding: 11px 16px;
   border: 0;
   border-bottom: 1px solid var(--fb-border, #f3f4f6);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--fb-muted, #6b7280);
   background: var(--fb-subtle, #f9fafb);
   cursor: pointer;
+  transition: background .15s, color .15s;
 }
 .lgh-date-header:hover { background: var(--fb-border, #f3f4f6); }
-.lgh-date-header-right { display: flex; align-items: center; gap: 4px; color: var(--fb-faint, #9ca3af); }
+/* Jour déplié : léger fond marque + libellé plus contrasté → repère visuel clair. */
+.lgh-date-header--open { background: rgba(255, 49, 49, 0.06); color: var(--fb-text, #111827); }
+.lgh-date-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lgh-date-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgh-date-ico { color: #ff3131; opacity: .55; flex-shrink: 0; }
+.lgh-date-header--open .lgh-date-ico { opacity: 1; }
+.lgh-date-header-right { display: flex; align-items: center; gap: 6px; color: var(--fb-faint, #9ca3af); flex-shrink: 0; }
+.lgh-date-chevron { color: var(--fb-faint, #9ca3af); }
 .lgh-date-count {
-  min-width: 18px;
-  padding: 0 5px;
+  min-width: 20px;
+  padding: 1px 6px;
   border-radius: 999px;
-  background: var(--fb-border, #e5e7eb);
-  color: var(--fb-muted, #4b5563);
+  background: rgba(255, 49, 49, 0.12);
+  color: #ff3131;
   font-size: 0.68rem;
   font-weight: 700;
   text-align: center;

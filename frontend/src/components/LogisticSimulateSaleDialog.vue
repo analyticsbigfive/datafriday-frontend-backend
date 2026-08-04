@@ -1,28 +1,26 @@
 <template>
   <v-dialog :model-value="modelValue" max-width="560" @update:model-value="$emit('update:modelValue', $event)">
-    <v-card class="lgsim-card">
-      <v-card-title class="lgsim-title">
-        <v-icon size="20" class="mr-2">mdi-flask-outline</v-icon>
-        {{ t('logiSimulateTitle') }}
-      </v-card-title>
+    <div class="lgsim-card" :class="{ 'lgsim-card--dark': isDark }">
+      <div class="lgsim-header">
+        <div class="lgsim-header__icon"><v-icon size="20" color="white">mdi-flask-outline</v-icon></div>
+        <div class="lgsim-header__title">{{ t('logiSimulateTitle') }}</div>
+        <button type="button" class="lgsim-header__close" :aria-label="t('logiClose')" @click="close"><v-icon size="18">mdi-close</v-icon></button>
+      </div>
 
-      <v-card-text>
+      <div class="lgsim-body">
         <template v-if="!result">
+          <div class="lgsim-notice">
+            <v-icon size="16" class="lgsim-notice__icon">mdi-alert-outline</v-icon>
+            <span>{{ t('logiSimulateWarning') }}</span>
+          </div>
+
           <p class="lgsim-intro">{{ t('logiSimulateIntro') }}</p>
 
           <div class="lgsim-field">
             <div class="lgsim-label">{{ t('logiSimulateShop') }}</div>
-            <v-select
-              v-model="form.elementId"
-              :items="shopOptions"
-              item-title="title"
-              item-value="value"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              :menu-props="{ zIndex: 3500 }"
-            />
+            <select v-model="form.elementId" class="form-select lgsim-select">
+              <option v-for="opt in shopOptions" :key="opt.value" :value="opt.value">{{ opt.title }}</option>
+            </select>
           </div>
 
           <div v-if="form.elementId && !menuItemOptions.length" class="lgsim-empty">
@@ -30,29 +28,16 @@
           </div>
 
           <div v-for="(line, i) in form.lines" :key="i" class="lgsim-line">
-            <v-select
-              v-model="line.menuItemId"
-              :items="menuItemOptions"
-              item-title="title"
-              item-value="value"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              class="lgsim-line-item"
-              :placeholder="t('logiSimulateMenuItem')"
-              :menu-props="{ zIndex: 3500 }"
-            />
-            <v-text-field
+            <select v-model="line.menuItemId" class="form-select lgsim-select lgsim-line-item">
+              <option :value="null" disabled>{{ t('logiSimulateMenuItem') }}</option>
+              <option v-for="opt in menuItemOptions" :key="opt.value" :value="opt.value">{{ opt.title }}</option>
+            </select>
+            <input
               v-model.number="line.quantity"
               type="number"
               min="1"
               step="1"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              class="lgsim-line-qty"
+              class="form-control lgsim-input lgsim-line-qty"
             />
             <button
               type="button"
@@ -78,13 +63,14 @@
             />
             <div class="lgsim-realmode-hint">{{ t('logiSimulateRealModeHint') }}</div>
           </div>
-
-          <v-alert type="warning" variant="tonal" density="compact" class="mt-3">
-            {{ t('logiSimulateWarning') }}
-          </v-alert>
         </template>
 
         <template v-else>
+          <div class="lgsim-notice">
+            <v-icon size="16" class="lgsim-notice__icon">mdi-alert-outline</v-icon>
+            <span>{{ t('logiSimulateWarning') }}</span>
+          </div>
+
           <div class="lgsim-result-shop">{{ result.elementName }}</div>
           <table class="lgsim-result-table">
             <thead>
@@ -102,11 +88,8 @@
               </tr>
             </tbody>
           </table>
-          <v-alert type="warning" variant="tonal" density="compact" class="mt-3">
-            {{ t('logiSimulateWarning') }}
-          </v-alert>
         </template>
-      </v-card-text>
+      </div>
 
       <!-- Erreur : rendue ici, hors de v-card-text, toujours visible juste au-dessus du
            footer d'actions — plutôt qu'au milieu du formulaire (invisible une fois scrollé
@@ -115,34 +98,38 @@
         {{ error }}
       </v-alert>
 
-      <v-card-actions class="px-4 pb-4">
-        <v-btn
+      <div class="lgsim-footer">
+        <button
           v-if="result"
-          variant="text"
-          color="error"
-          :loading="purging"
+          type="button"
+          class="lgsim-btn lgsim-btn--danger"
+          :disabled="purging"
           @click="$emit('purge', result.elementId)"
         >
-          <v-icon size="16" class="mr-1">mdi-delete-sweep-outline</v-icon>
+          <v-progress-circular v-if="purging" size="15" width="2" indeterminate color="#ff3131" class="mr-1" />
+          <v-icon v-else size="16" class="mr-1">mdi-delete-sweep-outline</v-icon>
           {{ t('logiSimulatePurge') }}
-        </v-btn>
+        </button>
         <v-spacer />
         <template v-if="!result">
-          <v-btn variant="text" @click="close">{{ t('logiCancel') }}</v-btn>
-          <v-btn color="#ff3131" variant="flat" :loading="saving" :disabled="!isValid" @click="submit">
+          <button type="button" class="lgsim-btn lgsim-btn--ghost" @click="close">{{ t('logiCancel') }}</button>
+          <button type="button" class="lgsim-btn lgsim-btn--primary" :disabled="!isValid || saving" @click="submit">
+            <v-progress-circular v-if="saving" size="15" width="2" indeterminate color="white" class="mr-1" />
             {{ t('logiSimulateGo') }}
-          </v-btn>
+          </button>
         </template>
         <template v-else>
-          <v-btn variant="text" @click="simulateAnother">{{ t('logiSimulateAnother') }}</v-btn>
-          <v-btn color="#ff3131" variant="flat" @click="close">{{ t('logiClose') }}</v-btn>
+          <button type="button" class="lgsim-btn lgsim-btn--ghost" @click="simulateAnother">{{ t('logiSimulateAnother') }}</button>
+          <button type="button" class="lgsim-btn lgsim-btn--primary" @click="close">{{ t('logiClose') }}</button>
         </template>
-      </v-card-actions>
-    </v-card>
+      </div>
+    </div>
   </v-dialog>
 </template>
 
 <script>
+import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 
@@ -171,7 +158,9 @@ export default {
   emits: ['update:modelValue', 'submit', 'purge', 'reset-result'],
   setup() {
     const { t } = useI18n()
-    return { t, formatUnits }
+    const theme = useTheme()
+    const isDark = computed(() => !!theme.global.current.value.dark)
+    return { t, formatUnits, isDark }
   },
   data() {
     return {
@@ -257,18 +246,37 @@ export default {
 </script>
 
 <style scoped>
-.lgsim-card { border-radius: 16px; }
-/* Sibling fixe entre v-card-text et v-card-actions, alignée sur le padding horizontal
-   par défaut de v-card-text (16px). */
-.lgsim-error { margin: 0 16px 12px; }
-.lgsim-title { display: flex; align-items: center; font-weight: 700; padding: 16px 20px 4px; }
+.lgsim-card { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
+
+/* Header rouge charte */
+.lgsim-header { display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: #ff3131; }
+.lgsim-header__icon { width: 38px; height: 38px; border-radius: 11px; background: rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lgsim-header__title { flex: 1; min-width: 0; color: #fff; font-size: var(--fs-md); font-weight: 700; }
+.lgsim-header__close { width: 30px; height: 30px; border: none; border-radius: 8px; background: rgba(255,255,255,.18); color: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .18s; flex-shrink: 0; }
+.lgsim-header__close:hover { background: rgba(255,255,255,.3); }
+
+.lgsim-body { padding: 20px; }
+.lgsim-footer { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+
+/* Boutons pilule charte */
+.lgsim-btn { display: inline-flex; align-items: center; gap: 5px; padding: 8px 18px; border-radius: 100px; font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
+.lgsim-btn:disabled { opacity: .55; cursor: not-allowed; }
+.lgsim-btn--ghost { background: transparent; border: 1.5px solid #e5e7eb; color: #6b7280; }
+.lgsim-btn--ghost:hover:not(:disabled) { background: #f3f4f6; color: #374151; }
+.lgsim-btn--primary { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255,49,49,.3); }
+.lgsim-btn--primary:hover:not(:disabled) { box-shadow: 0 6px 18px rgba(255,49,49,.4); transform: translateY(-1px); }
+.lgsim-btn--danger { background: transparent; color: #ff3131; }
+.lgsim-btn--danger:hover:not(:disabled) { background: rgba(255,49,49,.08); }
+
+/* Sibling fixe entre le corps et le footer, alignée sur le padding horizontal du body. */
+.lgsim-error { margin: 0 20px 12px; }
 .lgsim-intro { font-size: 0.84rem; color: var(--fb-muted, #6b7280); margin: 0 0 14px; }
 .lgsim-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .lgsim-label { font-size: 0.8rem; font-weight: 600; color: var(--fb-muted, #374151); }
 .lgsim-empty { font-size: 0.82rem; color: var(--fb-faint, #9ca3af); margin-bottom: 10px; }
 .lgsim-line { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .lgsim-line-item { flex: 1 1 auto; }
-.lgsim-line-qty { width: 84px; flex: 0 0 84px; }
+.lgsim-line-qty { width: 92px; flex: 0 0 92px; }
 .lgsim-line-remove {
   flex-shrink: 0;
   width: 28px;
@@ -295,8 +303,13 @@ export default {
   cursor: pointer;
   padding: 4px 0;
 }
-.lgsim-realmode { margin: 4px 0 2px; }
-.lgsim-realmode-hint { font-size: 0.76rem; color: var(--fb-muted, #6b7280); margin: -6px 0 4px 2px; }
+.lgsim-realmode { margin: 8px 0 2px; }
+.lgsim-realmode-hint { font-size: 0.76rem; color: var(--fb-muted, #6b7280); margin: 4px 0 4px 2px; line-height: 1.4; }
+
+/* Panneau d'avertissement unifié (neutre gris + icône rouge marque, plus de jaune Vuetify).
+   Affiché en tête du dialog → marge basse. */
+.lgsim-notice { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 14px; padding: 10px 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; font-size: 0.82rem; color: #374151; line-height: 1.45; }
+.lgsim-notice__icon { color: #ff3131; flex-shrink: 0; margin-top: 1px; }
 .lgsim-result-shop { font-weight: 700; font-size: 0.95rem; margin-bottom: 10px; }
 .lgsim-result-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
 .lgsim-result-table th {
@@ -309,4 +322,33 @@ export default {
   border-bottom: 1px solid var(--fb-border, #e5e7eb);
 }
 .lgsim-result-table td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--fb-subtle, #f3f4f6); }
+
+/* Champs Bootstrap — focus rouge marque, taille confortable */
+.lgsim-select,
+.lgsim-input { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-md); }
+.lgsim-input { padding: 9px 12px; }
+.lgsim-select:focus,
+.lgsim-input:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
+
+/* ── Dark (v-dialog téléporté → classe portée sur la carte) ── */
+.lgsim-card--dark { background: #1e293b; }
+.lgsim-card--dark .lgsim-body { background: #1e293b; }
+.lgsim-card--dark .lgsim-footer { background: #111827; border-top-color: rgba(255,255,255,.08); }
+.lgsim-card--dark .lgsim-intro { color: #94a3b8; }
+.lgsim-card--dark .lgsim-label { color: #cbd5e1; }
+.lgsim-card--dark .lgsim-empty { color: #64748b; }
+.lgsim-card--dark .lgsim-realmode-hint { color: #94a3b8; }
+.lgsim-card--dark .lgsim-line-remove { color: #94a3b8; }
+.lgsim-card--dark .lgsim-line-remove:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+.lgsim-card--dark .lgsim-result-shop { color: #f1f5f9; }
+.lgsim-card--dark .lgsim-result-table th { color: #94a3b8; border-bottom-color: rgba(255,255,255,.1); }
+.lgsim-card--dark .lgsim-result-table td { color: #e2e8f0; border-bottom-color: rgba(255,255,255,.06); }
+.lgsim-card--dark .lgsim-select,
+.lgsim-card--dark .lgsim-input { background-color: #0f172a; border-color: rgba(255,255,255,.14); color: #e5e7eb; color-scheme: dark; }
+.lgsim-card--dark .lgsim-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
+.lgsim-card--dark .lgsim-notice { background: #111827; border-color: rgba(255,255,255,.08); color: #cbd5e1; }
+.lgsim-card--dark .lgsim-btn--ghost { background: transparent; border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.lgsim-card--dark .lgsim-btn--ghost:hover:not(:disabled) { background: #374151; color: #fff; }
 </style>
