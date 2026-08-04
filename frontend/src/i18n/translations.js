@@ -4233,6 +4233,7 @@ export const translations = {
     rj1TopFood: 'Top 5 Food',
     rj1Product: 'Product',
     rj1GeneratedAt: 'Generated on',
+    rj1Scenario: 'Scenario',
   },
 
   fr: {
@@ -8463,6 +8464,7 @@ export const translations = {
     rj1TopFood: 'Top 5 Food',
     rj1Product: 'Produit',
     rj1GeneratedAt: 'Généré le',
+    rj1Scenario: 'Scénario',
   },
 };
 

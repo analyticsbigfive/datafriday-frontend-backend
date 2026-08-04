@@ -31,6 +31,7 @@ import { computed, ref, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import '@/lib/chartjs'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { itemLevelTotalsByEvent } from '@/utils/analyseAggregations'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -107,9 +108,26 @@ function safeEventName(name, id) {
   return name && String(name) !== String(id) ? name : ''
 }
 
+// BUG-298-01 : `props.records` porte le grain ARTICLE (event-timeline) quand il
+// est chargé — seule source d'où un coût peut sortir. Voir
+// `itemLevelTotalsByEvent` pour pourquoi les agrégats shop-level n'en ont pas.
+const itemTotalsByEvent = computed(() =>
+  itemLevelTotalsByEvent(props.records, props.costMap || {})
+)
+
 const eventRows = computed(() => {
   if (Array.isArray(props.eventAggregates) && props.eventAggregates.length) {
-    return props.eventAggregates
+    // BUG-298-01 : les agrégats viennent du getter store, bâti sur du shop-level
+    // → `cost` y est nul pour TOUS les events (barres plates alors que le KPI
+    // COÛT affiche un montant). On superpose le coût item-level quand il est
+    // disponible ; sinon on ne touche à rien (chargement asynchrone en cours).
+    // Seul `cost` est réécrit : `margin` n'est pas une métrique de ce graphe, et
+    // la dériver ici croiserait deux grains (CA shop-level / coût item-level).
+    const totals = itemTotalsByEvent.value
+    if (!totals.size) return props.eventAggregates
+    return props.eventAggregates.map((row) =>
+      totals.has(row.eventId) ? { ...row, cost: totals.get(row.eventId).cost } : row
+    )
   }
 
   const byEvent = new Map()

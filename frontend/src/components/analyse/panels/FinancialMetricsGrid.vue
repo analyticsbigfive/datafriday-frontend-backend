@@ -12,7 +12,7 @@
     <v-col cols="12" sm="6" lg="3">
       <KpiCard
         :config="cards[1]"
-        :value="formatCurrency(metrics.displayPerCapita.value, 'EUR', 'fr-FR', 2)"
+        :value="formatCurrencyDetailed(metrics.displayPerCapita.value)"
         :subtext="`${t('anHeaderKpiAttendees')} : ${formatNumber(metrics.displayAttendees.value)}`"
         :variation="v('perCapita')"
         @click="$emit('open-chart', 'percap')"

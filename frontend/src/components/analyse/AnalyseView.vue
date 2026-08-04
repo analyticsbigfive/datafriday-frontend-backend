@@ -74,9 +74,14 @@
                 <!-- Rapport J+1 : PDF récapitulatif d'UN event passé (réel vs
                      prédictif). Icône `mdi-file-pdf-box` (présente en @mdi/font
                      5.9.55, contrairement à `mdi-file-pdf-outline`, v6+).
+                     Visible UNIQUEMENT en mode Analyse (décision JLH 2026-08-04 :
+                     le rapport porte sur du réalisé, pas sur une projection).
                      Désactivé hors mode mono-événement passé — le title reste
                      lisible sur bouton désactivé grâce au span englobant. -->
-                <span :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')">
+                <span
+                  v-if="selectedToolbox === 'analyse'"
+                  :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')"
+                >
                   <v-btn
                     icon
                     variant="text"
@@ -518,6 +523,7 @@ import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 import FilterPanel from './filters/FilterPanel.vue'
 import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
 import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
@@ -569,6 +575,8 @@ import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+// Format % localisé (« 47,0 % » fr / « 47.0% » en) — règle BUG-240.
+const { formatPercentLocale } = useNumberFormat()
 
 const route = useRoute()
 const router = useRouter()
@@ -1262,10 +1270,12 @@ const headerKpis = computed(() => {
     { label: t('anHeaderKpiAvgPerEvent'), kind: 'avg-revenue', value: formatCurrency(m.displayAvgRevenue?.value ?? 0), color: '#F97316', variation: headerVariation('avgRevenuePerEvent') },
     { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrencyDetailed(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true },
     { label: t('anHeaderKpiTransactions'), kind: 'transactions', value: formatNumber(trans), color: '#3B82F6', variation: headerVariation('transactions') },
-    { label: t('anHeaderKpiBasket'), kind: 'avg-trans', value: formatCurrency(trans ? rev / trans : 0, 'EUR', 'fr-FR', 2), color: '#A855F7', variation: headerVariation('avgTransaction') },
+    // Locale-aware (règle BUG-240 « plus jamais de fr-FR en dur ») : ces trois
+    // valeurs suivaient le format français même en interface anglaise.
+    { label: t('anHeaderKpiBasket'), kind: 'avg-trans', value: formatCurrencyDetailed(trans ? rev / trans : 0), color: '#A855F7', variation: headerVariation('avgTransaction') },
     { label: t('anHeaderKpiAttendees'), kind: 'attendees', value: formatNumber(att), color: '#0EA5E9', variation: headerVariation('attendees') },
-    { label: t('anHeaderKpiTransformation'), kind: 'transformation', value: att ? `${((trans / att) * 100).toFixed(1).replace('.', ',')} %` : '—', color: '#14B8A6', variation: headerVariation('transferRate') },
-    { label: t('anHeaderKpiPerCap'), kind: 'percap', value: formatCurrency(m.displayPerCapita?.value ?? 0, 'EUR', 'fr-FR', 2), color: '#EC4899', variation: headerVariation('perCapita') },
+    { label: t('anHeaderKpiTransformation'), kind: 'transformation', value: att ? formatPercentLocale((trans / att) * 100, 1) : '—', color: '#14B8A6', variation: headerVariation('transferRate') },
+    { label: t('anHeaderKpiPerCap'), kind: 'percap', value: formatCurrencyDetailed(m.displayPerCapita?.value ?? 0), color: '#EC4899', variation: headerVariation('perCapita') },
   ]
 })
 
@@ -1354,9 +1364,14 @@ const reportEvent = computed(() => {
   return ev
 })
 
-const { generatingReport, reportData: reportJ1Data, onGenerateReportJ1 } = useReportJ1({
+const {
+  generatingReport,
+  reportData: reportJ1Data,
+  onGenerateReportJ1,
+} = useReportJ1({
   space,
   reportEvent,
+  events,
   metrics,
   articleRecords,
   busy: exportBusy,

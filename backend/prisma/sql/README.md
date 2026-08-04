@@ -55,7 +55,6 @@ supposer.
 | 10 | `2026-07-31_spaceelement_type_text_vers_enum.sql` | ⚠️ **SUPERSEDED — NE PAS EXÉCUTER**. `SpaceElement.type` : `text` → enum `"ElementType"` (BUG-124-01). Diagnostic initial erroné : la conversion inverse (enum→text) a été faite délibérément le même jour par CFG-2 Étape 2 (`rh-consolidation-backend`) ; exécuter ce fichier annulerait ce travail. Voir fiche 124-01, section "Correction du 2026-07-31" | ❌ Ne pas lancer | — |
 | 11 | `2026-08-04_restockplan.sql` | Table `RestockPlan` — historique des plans de réapprovisionnement nommés (scope espace), avec photo figée des lignes (`stockLines`/`restockLines`/`shoppingGroups`/`recipeCoeffs`) + 2 index. **À appliquer AVANT de déployer le module backend `restock-plans`** | ✅ (`CREATE TABLE/INDEX IF NOT EXISTS`) | `SELECT to_regclass('"RestockPlan"');` → non NULL |
 | 12 | `2026-08-04_seasons.sql` | 2 tables Rapport Saison : `Season` (périodes personnalisées nommées, dates absolues, allSpaces) + `SeasonSpace` (jointure saison ↔ espaces). Chevauchements autorisés. **À appliquer AVANT de déployer le module backend `seasons`** | ✅ (`CREATE TABLE/INDEX IF NOT EXISTS`) | `SELECT to_regclass('"Season"'), to_regclass('"SeasonSpace"');` → non NULL |
-
 ### Cas confirmés
 
 - **2026-07-31, vérification complète des #1-#9 sur `datafriday-dev` (`alsgdtewqeldrrquypdy`, base

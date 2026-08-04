@@ -144,8 +144,16 @@ export const MENU_BUCKET_LABELS = { FOOD: 'Food', BEVERAGE: 'Beverage', BEER: 'B
  * est une boisson mais on la veut distincte). Sans aucun signal → Beverage par
  * défaut (concession générique = majorité boissons).
  */
-export function classifyMenuRevenueBucket(record) {
-  const hay = [
+// Signaux ARTICLE par famille — exportés pour que le Rapport J+1 puisse classer
+// au niveau article seul (sans le repli PdV, qui envoie un Coca vendu à un stand
+// food dans Food). Toute évolution d'un motif ici vaut pour les deux consommateurs.
+export const BEER_SIGNAL_RE = /\b(beer|bi[eè]re|ale|lager|ipa|pils|pression|draught|stout|blonde|brune)\b/
+export const FOOD_SIGNAL_RE = /\b(food|nourriture|meal|snack|burger|pizza|sandwich|dessert|hot ?dog|fri(t|es)|nacho|popcorn|candy|sweet|cr[eê]pe|gaufre|tacos|kebab|wrap|salad|salade)\b/
+export const BEVERAGE_SIGNAL_RE = /\b(beverage|drink|boisson|soft|water|eau|cocktail|wine|vin|soda|cola|coca|coffee|caf[eé]|th[eé]|tea|juice|jus|champagne|spirit|alcool|cider|cidre)\b/
+
+/** Concatène les champs ARTICLE d'un record en clé normalisée (sans le PdV). */
+export function menuItemSignalHay(record) {
+  return [
     record?.menuItemType,
     record?.menuItemCategory,
     record?.menuItemName,
@@ -154,6 +162,10 @@ export function classifyMenuRevenueBucket(record) {
     record?.weezpayNature,
     record?.weezpaySubnature,
   ].map(normalizedKey).join(' ')
+}
+
+export function classifyMenuRevenueBucket(record) {
+  const hay = menuItemSignalHay(record)
   const shop = normalizedKey(record?.shopType || record?.shopName)
 
   // Combo en premier : signal explicite (flag ou mot-clé), jamais déduit.
@@ -161,11 +173,11 @@ export function classifyMenuRevenueBucket(record) {
     || record?.comboItem === true
     || /\b(combo|formule|meal ?deal)\b/.test(hay)) return 'COMBO'
 
-  if (/\b(beer|bi[eè]re|ale|lager|ipa|pils|pression|draught|stout|blonde|brune)\b/.test(hay)
+  if (BEER_SIGNAL_RE.test(hay)
     || /\b(beer|biere|brew)\b/.test(shop)) return 'BEER'
-  if (/\b(food|nourriture|meal|snack|burger|pizza|sandwich|dessert|hot ?dog|fri(t|es)|nacho|popcorn|candy|sweet|cr[eê]pe|gaufre|tacos|kebab|wrap|salad|salade)\b/.test(hay)
+  if (FOOD_SIGNAL_RE.test(hay)
     || shop.includes('food') || shop.includes('snack') || shop.includes('rest')) return 'FOOD'
-  if (/\b(beverage|drink|boisson|soft|water|eau|cocktail|wine|vin|soda|cola|coca|coffee|caf[eé]|th[eé]|tea|juice|jus|champagne|spirit|alcool|cider|cidre)\b/.test(hay)
+  if (BEVERAGE_SIGNAL_RE.test(hay)
     || shop.includes('bar') || shop.includes('beverage') || shop.includes('drink') || shop.includes('boisson')) return 'BEVERAGE'
 
   return 'BEVERAGE'

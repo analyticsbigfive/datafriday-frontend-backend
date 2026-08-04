@@ -36,6 +36,7 @@ import {
   buildShopPerfRows,
   buildBaseShopRows,
   buildItemsByShopRows,
+  itemLevelTotalsByEvent,
 } from '@/utils/analyseAggregations'
 import { resolveShopType, resolveItemType, resolveItemCategory, resolveItemName } from '@/utils/analyseDimensions'
 import { UNATTACHED_SHOP_KEY, UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
@@ -117,6 +118,10 @@ export function useAnalyseDataset(sources) {
       (filteredBaskets.value || []).length,
       (filteredEvents.value || []).length,
       (filteredTimelineData.value || []).length,
+      // BUG-298-01 : la costMap arrive en phase 2 (useSpaceData). Sans elle dans
+      // la signature, un dataset construit avant l'enrichissement resterait
+      // « valide » avec ses colonnes Coût / Marge vides.
+      Object.keys(store.state.analyse.menuItemCostMap || {}).length,
       shopPerformance?.enriched?.value ? 'perf' : 'base',
     ].join('§')
   })
@@ -319,6 +324,16 @@ export function useAnalyseDataset(sources) {
   }
 
   function buildEventAggregatesTable() {
+    // BUG-298-01 : `filteredEventAggregates` est bâti sur du shop-level, dont le
+    // `cost` est nul par construction (aucun `menuItemId` sur ce grain). Le coût
+    // par event est donc recalculé ici depuis l'item-level, avec la formule du
+    // KPI. Colonnes ajoutées SEULEMENT si cet item-level est chargé : mieux vaut
+    // pas de colonne qu'une colonne « 0 € » qui se lirait comme un chiffre.
+    const itemTotals = itemLevelTotalsByEvent(
+      itemLevelRecords?.value || [],
+      store.state.analyse.menuItemCostMap || {},
+    )
+    const withCost = itemTotals.size > 0
     // Titre FIXE et non calé sur `byEventMetric` : la table porte TOUTES les
     // métriques par événement, pas seulement celle que le drill-down affiche.
     // Un nom qui changerait d'un export à l'autre selon un état d'écran
@@ -330,6 +345,9 @@ export function useAnalyseDataset(sources) {
         col('event', t('anEvents')),
         col('date', t('anExportColDate')),
         col('revenue', t('anRevenue'), 'currency'),
+        ...(withCost
+          ? [col('cost', t('anMetricCost'), 'currency'), col('margin', t('anKpiCardMargin'), 'percent')]
+          : []),
         col('transactions', t('anMetricTransactions'), 'int'),
         col('attendees', t('anExportColAttendees'), 'int'),
         col('basket', t('anExportColBasket'), 'currency'),
@@ -337,14 +355,30 @@ export function useAnalyseDataset(sources) {
       rows: (filteredEventAggregates.value || [])
         .slice()
         .sort((a, b) => b.revenue - a.revenue)
-        .map((e) => ({
-          event: e.eventName,
-          date: e.eventDate || '',
-          revenue: round2(e.revenue),
-          transactions: Math.round(e.transactions || 0),
-          attendees: Math.round(e.attendees || 0),
-          basket: round2(e.avgTransaction),
-        })),
+        .map((e) => {
+          const row = {
+            event: e.eventName,
+            date: e.eventDate || '',
+            revenue: round2(e.revenue),
+            transactions: Math.round(e.transactions || 0),
+            attendees: Math.round(e.attendees || 0),
+            basket: round2(e.avgTransaction),
+          }
+          if (withCost) {
+            // Event hors du cap de fetch item-level (useAnalyseItemRecords) :
+            // cellules VIDES, jamais 0 — un coût absent n'est pas un coût nul.
+            const totals = itemTotals.get(e.eventId) || null
+            row.cost = totals ? round2(totals.cost) : null
+            // Marge calculée sur le CA ITEM-LEVEL, pas sur la colonne `revenue`
+            // (shop-level) : croiser les deux grains sortirait des marges
+            // négatives ou > 100 % dès qu'ils divergent.
+            row.margin =
+              totals && totals.revenue
+                ? round2(((totals.revenue - totals.cost) / totals.revenue) * 100)
+                : null
+          }
+          return row
+        }),
     }
   }
 

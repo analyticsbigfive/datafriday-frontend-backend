@@ -7,6 +7,7 @@ import {
   buildItemsByShopRows,
   buildBaseShopRows,
   buildShopPerfRows,
+  itemLevelTotalsByEvent,
 } from '@/utils/analyseAggregations';
 
 describe('groupBy — regroupement partagé donuts / export', () => {
@@ -196,5 +197,57 @@ describe('Performance PdV', () => {
       { shop: 'Sud', revenue: 40, transactions: 1, events: 1 },
       { shop: 'Nord', revenue: 15, transactions: 5, events: 2 },
     ]);
+  });
+});
+
+describe('itemLevelTotalsByEvent — BUG-298-01', () => {
+  const costMap = { m1: 1.5, m2: 0.4 };
+
+  it('somme coût unitaire × quantité et CA par event', () => {
+    const byEvent = itemLevelTotalsByEvent(
+      [
+        { eventId: 'e1', menuItemId: 'm1', quantity: 10, revenue: 60 },
+        { eventId: 'e1', menuItemId: 'm2', quantity: 5, revenue: 15 },
+        { eventId: 'e2', menuItemId: 'm1', quantity: 2, revenue: 12 },
+      ],
+      costMap,
+    );
+    expect(byEvent.get('e1').cost).toBeCloseTo(17, 5); // 10×1,5 + 5×0,4
+    expect(byEvent.get('e1').revenue).toBeCloseTo(75, 5);
+    expect(byEvent.get('e2').cost).toBeCloseTo(3, 5);
+  });
+
+  it('renvoie une Map VIDE sur du shop-level (aucun menuItemId)', () => {
+    // Le cas du bug : shop-details n'a pas de grain article. Une Map vide dit à
+    // l'appelant « je ne sais pas », pas « le coût vaut 0 » — sans quoi le graphe
+    // écraserait ses agrégats avec des zéros pendant le chargement item-level.
+    const byEvent = itemLevelTotalsByEvent(
+      [
+        { eventId: 'e1', shopName: 'Nord', revenue: 100, quantity: 10 },
+        { eventId: 'e2', shopName: 'Sud', revenue: 50, quantity: 4 },
+      ],
+      costMap,
+    );
+    expect(byEvent.size).toBe(0);
+  });
+
+  it('compte 0 pour un article absent de la costMap, sans perdre l\'event', () => {
+    const byEvent = itemLevelTotalsByEvent(
+      [
+        { eventId: 'e1', menuItemId: 'inconnu', quantity: 7, revenue: 30 },
+        { eventId: 'e1', menuItemId: 'm2', quantity: 10, revenue: 20 },
+      ],
+      costMap,
+    );
+    expect(byEvent.get('e1').cost).toBeCloseTo(4, 5);
+    expect(byEvent.get('e1').revenue).toBeCloseTo(50, 5);
+  });
+
+  it('ignore les records sans eventId et tolère records/costMap absents', () => {
+    expect(itemLevelTotalsByEvent([{ menuItemId: 'm1', quantity: 3 }], costMap).size).toBe(0);
+    expect(itemLevelTotalsByEvent(null).size).toBe(0);
+    expect(
+      itemLevelTotalsByEvent([{ eventId: 'e1', menuItemId: 'm1', quantity: 3 }]).get('e1').cost,
+    ).toBe(0);
   });
 });

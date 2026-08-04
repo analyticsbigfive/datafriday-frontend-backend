@@ -36,11 +36,27 @@ Un bouton dans le **bandeau rouge d'Analyse** génère un **PDF A4 (2 pages)** r
   donuts).
 - **Familles** : « CA Boissons » = type Beverage **bière incluse** ; « CA Bière » = la catégorie,
   comptée en plus (cf. maquette : « Beer Pint » figure dans le top 5 Beverage). Question #44.
-- **Prédictif** : version par défaut de l'event (`isDefault`), sinon la plus récente, via
-  `listEventPredictVersions`. Seuls les champs persistés sont affichés (CA prévu, per cap prévu,
-  tickets du `eventSnapshot`) ; transformation/panier prévus = « — » — jamais de chiffre
-  reconstitué dans un PDF qui se transfère. Pas de version → barre Prédictif remplacée par
-  « Aucun prédictif enregistré », rapport généré quand même. Questions #43.
+- **Prédictif — résolution en cascade, lecture seule** (décision JLH 2026-08-05 : pas de dialogue,
+  aucune écriture en base) : ① versions de l'event lui-même (`isDefault`, sinon la plus récente) ;
+  ② sinon **appariement automatique** avec un autre event du space — même nom normalisé d'abord,
+  même date calendaire ensuite (le doublon typique : event prédit créé à la main vs event réel
+  importé de Weezevent), premier candidat porteur d'un scénario retenu (borné à 5 essais) ;
+  ③ sinon barre « Aucun prédictif enregistré », rapport généré quand même. Quand le scénario vient
+  d'un event apparié, la provenance est imprimée sous la barre (« Scénario "X" (event Y) »).
+  Seuls les champs persistés sont affichés (CA prévu, per cap prévu, tickets du `eventSnapshot`) ;
+  transformation/panier prévus = « — » — jamais de chiffre reconstitué dans un PDF qui se
+  transfère. Questions #43.
+- **Classification du rapport ≠ écran** (décision JLH 2026-08-04, question #47) : le rapport teste
+  d'abord les signaux ARTICLE (`classifyForReport` dans `useReportJ1.js`, regex partagées
+  `*_SIGNAL_RE` d'`analyseDimensions.js`) et ne retombe sur `classifyMenuRevenueBucket` (repli PdV
+  inclus) qu'à défaut — un Coca vendu à un stand food reste une boisson dans le PDF, alors que les
+  camemberts écran le comptent en Food. Divergence assumée, à trancher côté écran par Bertrand.
+- **Style** : tokens de la charte (`--font-ui`, `--fs-*`, `--fw-*` — ils cascadent depuis `:root`
+  jusque dans le document hors écran), gris slate d'Analyse, liseré coloré à gauche des widgets
+  (pattern `KpiCard::before`), bandeau photo radius 18px, logo `assets/datafriday.png`, tables au
+  pattern `MenuItemsByShopTable` (bande `#F9FAFB`). Locale unique (BUG-240) : montants
+  `formatPrice`/`formatCurrency` sans locale forcée, % `formatPercentLocale`, dates
+  `Intl.DateTimeFormat(intlLocale)`. `pnpm lint:typo` conforme.
 - **Météo (facultative)** : géocodage `Space.city` puis archive horaire Open-Meteo à l'heure du
   show (20 h par défaut). `fetchEventWeather` ne jette jamais — échec = section omise. Question #46.
 - **Heure du show** : `event.showTime` dérivé par le store (`sessions[0].showTime`), sinon omise.
