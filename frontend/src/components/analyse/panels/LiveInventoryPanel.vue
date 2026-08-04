@@ -24,8 +24,33 @@
         >{{ t('anLiveInvByItem') }}</button>
       </div>
       <v-spacer />
+      <!-- Module Live ← Event Predict (docs/modules/11_LIVE.md) : déclenchement
+           MANUEL uniquement (décision utilisateur) — pas d'écriture stock
+           automatique/surprise au passage en live. -->
+      <span :title="eventId ? '' : t('anLiveInvInitBtnNoVersion')">
+        <v-btn
+          v-if="eventId"
+          size="small"
+          variant="tonal"
+          color="#ff3131"
+          :loading="initializing"
+          @click="showInitDialog = true"
+        >{{ t('anLiveInvInitBtn') }}</v-btn>
+      </span>
       <span v-if="lastUpdatedLabel" class="lip-updated">{{ t('anLiveInvUpdated') }} {{ lastUpdatedLabel }}</span>
     </div>
+
+    <v-dialog v-model="showInitDialog" max-width="480">
+      <v-card>
+        <v-card-title>{{ t('anLiveInvInitConfirmTitle') }}</v-card-title>
+        <v-card-text>{{ t('anLiveInvInitConfirmText') }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showInitDialog = false">{{ t('anLiveInvInitConfirmCancel') }}</v-btn>
+          <v-btn color="#ff3131" variant="flat" :loading="initializing" @click="confirmInit">{{ t('anLiveInvInitConfirmOk') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3">
       {{ error }}
@@ -107,6 +132,7 @@
 import { Boxes, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
+import { useLiveStockInit } from '@/composables/useLiveStockInit';
 
 // Rafraîchissement live aligné sur le mode flux d'AnalyseView (11_LIVE.md §5).
 const LIVE_POLL_MS = 15000;
@@ -122,13 +148,20 @@ export default {
   components: { Boxes, ChevronDown, ChevronRight, AlertTriangle },
   props: {
     spaceId: { type: String, default: '' },
+    // Event live courant (résolu par AnalyseView::applyLiveScope) — nécessaire
+    // pour retrouver son plan Event Predict par défaut. Bouton d'init masqué
+    // sans lui (aucun event live résolu = rien à initialiser).
+    eventId: { type: String, default: '' },
+    eventName: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
     // Onglet réellement affiché → ne poller que quand visible.
     active: { type: Boolean, default: true },
   },
+  emits: ['notify'],
   setup() {
     const { t } = useI18n();
-    return { t };
+    const { initializing, initFromEventPredict } = useLiveStockInit();
+    return { t, initializing, initFromEventPredict };
   },
   data() {
     return {
@@ -139,6 +172,7 @@ export default {
       expanded: [], // clés dépliées
       lastUpdated: null,
       pollTimer: null,
+      showInitDialog: false,
       // Jeton de requête (même pattern que analyse.js::refreshLiveShopSnapshot,
       // docs/modules/11_LIVE.md §14) : un tick de 15s qui répond après un tick
       // plus récent est ignoré, sinon il peut écraser l'arbre avec du stock périmé.
@@ -247,6 +281,21 @@ export default {
     },
     stopPolling() {
       if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    },
+    async confirmInit() {
+      this.showInitDialog = false;
+      const res = await this.initFromEventPredict(this.spaceId, this.eventId, this.eventName);
+      if (res.ok) {
+        this.$emit('notify', { text: this.t('anLiveInvInitSuccess').replace('{n}', String(res.lineCount)), color: 'success' });
+        this.fetchInventory();
+      } else {
+        const key = {
+          'no-event-predict-version': 'anLiveInvInitErrorNoVersion',
+          'no-configuration': 'anLiveInvInitErrorNoConfig',
+          'no-requirements': 'anLiveInvInitErrorNoRequirements',
+        }[res.reason] || 'anLiveInvInitErrorGeneric';
+        this.$emit('notify', { text: this.t(key), color: 'error' });
+      }
     },
     toggle(key) {
       const i = this.expanded.indexOf(key);

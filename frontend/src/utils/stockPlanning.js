@@ -241,6 +241,12 @@ export function buildStockRequirements({
   // BUG-291-02 — cf. buildUnavailableIndex. Défaut vide → sortie strictement
   // identique pour tout appelant qui ne le passe pas.
   unavailableItems = null,
+  // Module Live (docs/modules/11_LIVE.md) — quantités absolues forcées à la
+  // main pour un item à prédiction 0, même clé/sémantique que
+  // `EventPredictStockUpSection.getAdjustedQuantity()` (`${shopId}-${menuItemId}`
+  // → unités, mises à l'échelle par le même slider % que la prédiction). Défaut
+  // `{}` → sortie strictement identique pour Restock, qui ne le passe pas.
+  manualQuantities = {},
 } = {}) {
   const rowsByKey = new Map()
   const menuItemsById = new Map(menuItems.map((mi) => [mi.id, mi]))
@@ -291,7 +297,11 @@ export function buildStockRequirements({
         menuItemId,
       )
       const adjustment = toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
-      const adjustedQuantity = Math.round((predictedQuantity * adjustment) / 100)
+      // Parité EventPredictStockUpSection.getAdjustedQuantity() : sans prédiction,
+      // la quantité MANUELLE (unités absolues) sert de base, mise à l'échelle par
+      // le même slider % shop — pas un simple override du résultat final.
+      const base = predictedQuantity || Math.max(0, toNumber(manualQuantities[`${shop.id}-${menuItemId}`], 0))
+      const adjustedQuantity = Math.round((base * adjustment) / 100)
       if (!adjustedQuantity) return
 
       // Catalogue trouvé → expansion recette/packaging (id catalogue, PAS l'id
