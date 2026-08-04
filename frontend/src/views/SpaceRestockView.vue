@@ -575,7 +575,14 @@
                     </li>
                   </ul>
                 </div>
-                <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
+                <div class="sr-group-head-end">
+                  <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
+                  <button
+                    type="button"
+                    class="sr-inline-btn"
+                    @click="setGroupRestocked(group, !isGroupRestocked(group))"
+                  >{{ isGroupRestocked(group) ? t('srUncheckAll') : t('srConfirmAll') }}</button>
+                </div>
               </header>
               <table class="sr-table sr-restock-table">
                 <thead>
@@ -1037,10 +1044,12 @@ import {
   findStockReference,
 } from '@/utils/stockPlanning'
 // BOM (achats/production) : explosion des plats en ingrédients, indépendamment
-// de readyForSale. Recette lue via le détail /menu-items/:id (hydratation).
-import { normalizeRecipe, buildIngredientRequirements } from '@/utils/bomPlanning'
+// de readyForSale. Recettes lues via le BATCH POST /menu-items/recipes (un appel,
+// BUG-294-01 — le fan-out /menu-items/:id déclenchait le rate limit 429) ; le
+// détail /menu-items/:id ne sert plus qu'au repli borné si le batch échoue.
+import { normalizeRecipe, normalizeRecipeFromBatch, buildIngredientRequirements } from '@/utils/bomPlanning'
 import { hydrateSubComponents } from '@/utils/componentCatalog'
-import { getMenuItemById } from '@/api/endpoints/menu-item.api'
+import { getMenuItemById, getMenuItemRecipes } from '@/api/endpoints/menu-item.api'
 // Versions de prédiction (scénarios) — rapatriées depuis la BDD pour pré-remplir
 // le réarmement même sans pont localStorage (cf. recompute depuis la version active).
 import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
@@ -3266,24 +3275,68 @@ export default {
       if (!missing.length) return
       this.recipesLoading = true
       try {
-        const results = await Promise.all(
-          missing.map((id) =>
-            getMenuItemById(id)
-              .then((res) => ({ id, detail: res?.data || res }))
-              .catch((e) => {
-                console.warn('[restock] recette détail échouée:', id, e?.message)
-                return { id, detail: null }
-              }),
-          ),
-        )
+        // BUG-294-01 — UN appel batch au lieu de N × GET /menu-items/:id : le
+        // fan-out (~40 requêtes simultanées) déclenchait le TenantThrottlerGuard
+        // (429) et chaque échec était caché comme « recette vide » → faux groupe
+        // « Sans fournisseur (ingrédients manquants) », jamais retenté.
+        // ⚠️ ids vide = TOUT le tenant côté backend — le guard !missing.length
+        // ci-dessus est indispensable.
+        const res = await getMenuItemRecipes(missing)
+        const payload = res?.data || res
+        const items = Array.isArray(payload?.items) ? payload.items : []
         const next = { ...this.recipeByMenuItemId }
-        results.forEach(({ id, detail }) => {
-          next[id] = detail ? normalizeRecipe(detail) : { numberOfPiecesRecipe: 1, lines: [] }
+        const returned = new Set()
+        items.forEach((dto) => {
+          if (!dto?.id) return
+          returned.add(dto.id)
+          next[dto.id] = normalizeRecipeFromBatch(dto)
         })
+        // Id demandé mais absent de la réponse = item supprimé / hors tenant :
+        // vraie absence de recette → cache vide LÉGITIME (produit fini), pas un
+        // échec réseau.
+        missing.forEach((id) => {
+          if (!returned.has(id)) next[id] = { numberOfPiecesRecipe: 1, lines: [] }
+        })
+        this.mergeBomSuppliers(payload?.suppliers)
         this.recipeByMenuItemId = next
+      } catch (e) {
+        // Batch KO (500, timeout…) : repli détail per-id BORNÉ. Anti-poison :
+        // aucun échec réseau n'est écrit comme « recette vide ».
+        console.warn('[restock] batch recettes échoué — repli per-id borné:', e?.message)
+        await this.loadRecipesFallback(missing)
       } finally {
         this.recipesLoading = false
       }
+    },
+    /** Fusionne les fournisseurs renvoyés par le batch dans bomSuppliers (dédupe par id). */
+    mergeBomSuppliers(suppliers) {
+      if (!Array.isArray(suppliers) || !suppliers.length) return
+      const known = new Set(this.bomSuppliers.map((s) => s?.id))
+      const added = suppliers.filter((s) => s?.id && !known.has(s.id))
+      if (added.length) this.bomSuppliers = [...this.bomSuppliers, ...added]
+    },
+    /**
+     * Repli si le batch échoue : détail /menu-items/:id avec concurrence bornée
+     * à 4 (sous le seuil du TenantThrottlerGuard). Un id en échec n'est PAS
+     * caché : absent de recipeByMenuItemId, il sera retenté au prochain
+     * « Générer » — c'est l'état « à retenter », pas une recette vide.
+     */
+    async loadRecipesFallback(ids) {
+      const next = { ...this.recipeByMenuItemId }
+      let failed = 0
+      await runWithConcurrency(ids, 4, async (id) => {
+        try {
+          const res = await getMenuItemById(id)
+          const detail = res?.data || res
+          if (detail) next[id] = normalizeRecipe(detail)
+          else failed += 1
+        } catch (e) {
+          failed += 1
+          console.warn('[restock] recette détail échouée:', id, e?.message)
+        }
+      })
+      this.recipeByMenuItemId = next
+      if (failed) this.showSnackbar(this.t('srSnackRecipesPartial'), 'warning')
     },
     /**
      * Résout le fournisseur d'une ligne d'ingrédient BOM par la chaîne réelle :
@@ -3376,6 +3429,18 @@ export default {
     markAllVisibleRestocked(checked) {
       const next = { ...this.restockedRows }
       this.filteredRestockRows.forEach((row) => {
+        next[row.rowKey] = !!checked
+      })
+      this.restockedRows = next
+    },
+    /** Toutes les lignes (boutiques) de la carte article sont-elles confirmées ? */
+    isGroupRestocked(group) {
+      return (group?.rows || []).length > 0 && group.rows.every((row) => this.isRestocked(row.rowKey))
+    },
+    /** Confirme / décoche d'un coup toutes les boutiques d'une carte article. */
+    setGroupRestocked(group, checked) {
+      const next = { ...this.restockedRows }
+      ;(group?.rows || []).forEach((row) => {
         next[row.rowKey] = !!checked
       })
       this.restockedRows = next
@@ -4708,6 +4773,8 @@ export default {
 }
 .sr-supplier-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .sr-supplier-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Compteur boutiques + « Tout confirmer » par carte article (vue Par article). */
+.sr-group-head-end { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .sr-group-head span,
 .sr-supplier-head span {

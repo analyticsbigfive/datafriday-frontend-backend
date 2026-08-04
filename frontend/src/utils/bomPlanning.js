@@ -85,6 +85,49 @@ export function normalizeRecipe(detail) {
 }
 
 /**
+ * Normalise un RecipeDto du BATCH POST /menu-items/recipes vers le même shape
+ * que normalizeRecipe (BUG-294-01 : le batch remplace le fan-out /menu-items/:id
+ * qui déclenchait le rate limit). Ses `components[]` sont déjà aplatis :
+ *   { id: <join line id>, sourceId, name, itemType, numberOfUnits, unit,
+ *     marketPriceId, supplierId, cost }
+ * ⚠️ `id` est l'id de la LIGNE DE JOINTURE — la clé d'agrégation doit être
+ * `sourceId` (entité liée), sinon deux plats partageant un ingrédient ne
+ * s'agrègent plus en une ligne d'achat.
+ * `supplierName` absent du batch : résolu en aval (resolveSupplier) via
+ * supplierId/marketPriceId + suppliers[] renvoyés par le même appel.
+ * `refMenuItemId` : rien à perdre, jamais peuplé non plus côté détail (cf.
+ * en-tête, BUG-292-01).
+ * @param {object} dto  un élément de `items[]` de POST /menu-items/recipes
+ * @returns {{ numberOfPiecesRecipe:number, lines: Array }}
+ */
+export function normalizeRecipeFromBatch(dto) {
+  if (!dto || typeof dto !== 'object') return { numberOfPiecesRecipe: 1, lines: [] }
+  const npr = toNumber(dto.numberOfPiecesRecipe, 1) || 1
+  const lines = []
+  for (const c of dto.components || []) {
+    if (!c || typeof c !== 'object') continue
+    const numberOfUnits = toNumber(c.numberOfUnits, 0)
+    if (numberOfUnits <= 0) continue // même règle que normalizeRecipe : 0 → pas de besoin
+    lines.push({
+      key: String(pick(c.sourceId, c.name, c.id) || ''),
+      sourceId: pick(c.sourceId),
+      name: pick(c.name, '—'),
+      unit: pick(c.unit, 'unit'),
+      numberOfUnits,
+      marketPriceId: pick(c.marketPriceId),
+      supplierId: pick(c.supplierId),
+      supplierName: undefined,
+      // `cost` batch = coût de LIGNE ; non consommé par la feuille de course
+      // (addLeaf ne le propage pas) — dérivé pour parité de shape uniquement.
+      costPerRecipeUnit: toNumber(c.cost, 0) / numberOfUnits,
+      itemType: c.itemType,
+      refMenuItemId: undefined,
+    })
+  }
+  return { numberOfPiecesRecipe: npr, lines }
+}
+
+/**
  * Explose la demande menu item en besoin d'ingrédients agrégé par FOURNISSEUR.
  *
  * @param {object} params
