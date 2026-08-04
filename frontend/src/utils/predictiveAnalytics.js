@@ -122,7 +122,33 @@ export const GATE_LABELS = Object.freeze({
   showTime: "Écart d'horaire supérieur à 3h",
   attendance: 'Affluence hors de ±40%',
   adhoc: 'Évènement ad hoc (exclu des comparables automatiques)',
+  seasonSpan: 'Évènement multi-jours (saison) — exclu des comparables minute par minute',
 });
+
+/**
+ * Certains `Event` ne représentent pas une session unique mais un conteneur pour
+ * toute une saison (ex. "AJ AUXERRE - Saison 26/27", eventDate → eventEndDate sur
+ * 356 jours). Rien à la création ne les distingue structurellement d'un vrai
+ * match/concert (même eventType/category), et le scoring de similarité ne regarde
+ * jamais la durée — un tel event peut donc atterrir dans le top 10 des comparables.
+ * Backend (`resolveEventSalesScope`, spaces.service.ts) applique déjà le même seuil
+ * et renvoie [] pour ces events : cette fonction n'est qu'une optimisation pour ne
+ * pas gâcher une place du top 10 sur un candidat dont le backend refusera de toute
+ * façon les données. Défensif : si l'une des deux dates ne se parse pas, ne PAS
+ * exclure (le backend reste le vrai garde-fou, pas cette heuristique frontend).
+ */
+// Seuil à 2 jours : couvre un event à cheval sur minuit sans risquer de repêcher un
+// conteneur de saison (271 à 356 jours observés) — même seuil que le backend
+// (resolveEventSalesScope, spaces.service.ts), à garder synchronisé avec lui.
+const MAX_EVENT_SPAN_DAYS = 2;
+export function isSeasonSpanningEvent(event) {
+  if (!event) return false;
+  const start = parseDDMMYYYY(event.eventDate);
+  const end = parseDDMMYYYY(event.eventEndDate);
+  if (!start || !end) return false;
+  const spanDays = (end.getTime() - start.getTime()) / 86_400_000;
+  return spanDays > MAX_EVENT_SPAN_DAYS;
+}
 
 /**
  * Détecte un évènement « ad hoc » (ex. « Transactions Adhoc »). Le modèle de
@@ -429,7 +455,8 @@ export function findAndScorePastEvents(targetEvent, allEvents, shopGranularData,
     (e) =>
       e.id !== targetEvent.id &&
       eventsWithDataIds.has(e.id) &&
-      (!isAdhocEvent(e) || (allowIds && allowIds.has(e.id))),
+      (!isAdhocEvent(e) || (allowIds && allowIds.has(e.id))) &&
+      (!isSeasonSpanningEvent(e) || (allowIds && allowIds.has(e.id))),
   );
 
   const scored = [];
@@ -478,6 +505,11 @@ export function findAndScorePastEventsWithTrace(targetEvent, allEvents, shopGran
     // Gate ad hoc : jamais candidat automatique (sélection manuelle possible).
     if (isAdhocEvent(e)) {
       excluded.push({ event: e, reason: GATE_LABELS.adhoc, gate: 'adhoc' });
+      continue;
+    }
+    // Gate saison : event multi-jours (conteneur de saison) — cf. isSeasonSpanningEvent.
+    if (isSeasonSpanningEvent(e)) {
+      excluded.push({ event: e, reason: GATE_LABELS.seasonSpan, gate: 'seasonSpan' });
       continue;
     }
     // Gates 1 + 9 (+ 7) : pas de ventes réelles rattachées à cet event.

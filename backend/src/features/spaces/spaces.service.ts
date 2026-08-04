@@ -1203,6 +1203,20 @@ export class SpacesService {
     // Resolve date window per event: prefer DataFriday Event (accurate multi-day), fall
     // back to WeezeventEvent (when the frontend passes a Weezevent CUID). Same precedence
     // as the single-event method before batching.
+    //
+    // MAX_EVENT_SPAN_DAYS : certains "Event" ne représentent pas une session unique mais
+    // un conteneur pour toute une saison (ex. "AJ AUXERRE - Saison 26/27", 356 jours) —
+    // rien en amont (création de l'event, scoring predict-v2, filtres Analyse) ne les
+    // distingue d'un vrai match. Demander le détail minute par minute sur une fenêtre
+    // aussi large fait exploser le volume renvoyé (100k+ lignes, des dizaines de
+    // secondes) ET fausse Event Predict : chaque event pèse dans la somme finale au
+    // même ordre de grandeur qu'un vrai match (poids basé sur le score de similarité,
+    // pas sur le volume de données), alors qu'une "saison" agrège des centaines de
+    // jours sur un seul axe 24h — son total entre dans le calcul quasi sans réduction.
+    // Seuil à 2 jours : couvre un event à cheval sur minuit (coup d'envoi tard le soir,
+    // fin après 00h) sans risquer de repêcher un conteneur de saison (271 à 356 jours
+    // observés). Les vrais events observés font 0 à 1 jour.
+    const MAX_EVENT_SPAN_DAYS = 2;
     const dfMap = new Map(datafridayEvents.map(e => [e.id, e]));
     const wzMap = new Map(weezeventEvents.map(e => [e.id, e]));
     const windows: { id: string; eventDate: Date; windowEnd: Date }[] = [];
@@ -1222,6 +1236,8 @@ export class SpacesService {
           : eventDate;
       const windowEnd = new Date(endDate);
       windowEnd.setDate(windowEnd.getDate() + 1);
+      const spanDays = (windowEnd.getTime() - eventDate.getTime()) / 86_400_000;
+      if (spanDays > MAX_EVENT_SPAN_DAYS) continue; // event-conteneur (saison…) → stays []
       windows.push({ id, eventDate, windowEnd });
     }
     if (!windows.length) return null;
