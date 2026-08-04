@@ -184,7 +184,7 @@ Par PDV (CA = CA prédit du shop, catégorie = type de PDV Beverage/Kitchen food
   EPR si Front Food (dinettes/hot-dogs)
 - Responsable de zone = ROUNDUP(staff front total/15) — niveau espace
 - Alertes productivité front : > 2 500 €/pers = sous-effectif, < 1 000 = sureffectif
-- Horaires suggérés : ouverture PDV − 1 h → fermeture + 1 h ; coût prédit = Σ staff × taux × heures
+- Horaires suggérés : ouverture des portes − 2 h → heure de fin + 2 h ; coût prédit = Σ staff × taux × heures
 
 Prérequis données identifiés (absents du schéma actuel) : catégorie RH par shop (l'enum
 `ShopType` food/beverages/beer/merch ne correspond pas), agences staffing, employés + contrats,
@@ -359,7 +359,7 @@ coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ;
 | Q7 « disponible » (HrPerson) | `pickAssignment` | active + distribution par index dans l'event |
 | Types d'éléments PDV | `STAFFING_ELEMENT_TYPES` | `shop, fnb_food, fnb_beverages, fnb_bar, fnb_snack` |
 | Inputs algo par PDV | `SpaceElement.attributes` (Json) | clés `metresLineaires`, `ouvertureObligatoire`, `hasResponsablePdv`, `txParSeconde`, `nbTireuses`, `nbFriteuses`, `nbBurgersPrevus`, `nbDinettes`, `nbHotdogsPrevus` ; capacités via `type` + `subtypes` ; mètres inconnus → pas de plafond TPE |
-| Fin d'event absente | `DEFAULT_EVENT_DURATION_HOURS` | portes + 6 h ; offsets lignes −1 h/+1 h |
+| Fin d'event absente | `DEFAULT_EVENT_DURATION_HOURS` | portes + 6 h ; offsets lignes −2 h/+2 h |
 | Résolution goal/ratio | `resolveSettings` (server-side) | ligne contenant l'espace > `TOUS`, plus récente gagne (miroir §9.4) |
 
 ### 10.4 Reste à faire (hors périmètre de la branche)

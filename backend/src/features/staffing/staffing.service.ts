@@ -47,7 +47,7 @@ interface EventContext {
   event: any;
   configId: string;
   spaceId: string;
-  /** Fenêtre suggérée des lignes : portes ± offsets (−1 h / +1 h par défaut). */
+  /** Fenêtre suggérée des lignes : portes ± offsets (−2 h / +2 h par défaut). */
   lineStart: Date;
   lineEnd: Date;
 }
