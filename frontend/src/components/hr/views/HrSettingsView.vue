@@ -73,10 +73,12 @@ import HrSpaceCard from '@/components/hr/HrSpaceCard.vue'
 import HrValueFormDrawer from '@/components/hr/HrValueFormDrawer.vue'
 import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
 import { getHrStaffingCosts } from '@/api/endpoints/hrSettings.api'
-import { resolveGoalForSpace, resolveRatioForSpace, findMonoSpaceLine } from '@/utils/hrSettings'
+import { resolveGoalForSpace, resolveRatioForSpace } from '@/utils/hrSettings'
+import { useHrSpaceGoalRatio } from '@/composables/useHrSpaceGoalRatio'
 import { t } from '@/i18n'
 
 const store = useStore()
+const { saveSpaceGoalRatio } = useHrSpaceGoalRatio()
 
 // Thème sombre (BUG-247-01) — classe racine hsl--dark + prop vers HrSpaceCard
 // (la carte avait déjà sa moitié sombre, la prop n'était pas branchée).
@@ -197,30 +199,11 @@ function onCardEdit(space) {
   editDrawer.open = true
 }
 
-async function upsertMono(kind, lines, spaceId, value) {
-  const mono = findMonoSpaceLine(lines, spaceId)
-  const valueKey = kind === 'goal' ? 'goalPerTpe' : 'staffPerZoneManager'
-  const createAction = kind === 'goal' ? 'createGoal' : 'createRatio'
-  const updateAction = kind === 'goal' ? 'updateGoal' : 'updateRatio'
-  const removeAction = kind === 'goal' ? 'removeGoal' : 'removeRatio'
-
-  if (value == null) {
-    if (mono) await store.dispatch(`hrSettings/${removeAction}`, mono.id)
-    return
-  }
-  if (mono) {
-    await store.dispatch(`hrSettings/${updateAction}`, { id: mono.id, [valueKey]: value })
-  } else {
-    await store.dispatch(`hrSettings/${createAction}`, { [valueKey]: value, allSpaces: false, spaceIds: [spaceId] })
-  }
-}
-
 async function onEditSubmit(payload) {
   const space = editDrawer.space
   if (!space) return
   try {
-    await upsertMono('goal', goals.value, space.id, payload.goalPerTpe)
-    await upsertMono('staff', staffRatios.value, space.id, payload.staffPerZoneManager)
+    await saveSpaceGoalRatio(space.id, payload)
     editDrawer.open = false
     notify(t('hrSettingsSaved'), 'success')
   } catch (_) {

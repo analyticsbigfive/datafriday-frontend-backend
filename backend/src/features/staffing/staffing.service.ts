@@ -114,7 +114,9 @@ export class StaffingService {
     const [roles, persons, defaults, suppliers, sinkingRules, menuItemRatios] = await this.prisma.$transaction([
       this.prisma.hrRole.findMany({
         where: { tenantId },
-        include: { suppliers: { select: { supplierId: true } } },
+        include: {
+          suppliers: { select: { supplierId: true, supplier: { select: { spaceIds: true } } } },
+        },
       }),
       this.prisma.hrPerson.findMany({ where: { tenantId, active: true } }),
       this.prisma.hrRoleSpaceDefault.findMany({ where: { spaceId } }),
@@ -161,6 +163,7 @@ export class StaffingService {
     role: any | null,
     index: number,
     hr: Awaited<ReturnType<StaffingService['loadHrContext']>>,
+    spaceId: string,
   ): {
     supplierType: string | null;
     supplierId: string | null;
@@ -192,8 +195,21 @@ export class StaffingService {
         rateOverride: p.hourlyRate ?? null,
       };
     }
-    const defaultSupplierId =
-      hr.defaultSupplierByRole.get(role.id) ?? (role.suppliers?.[0]?.supplierId as string | undefined);
+    // Aucune Personne dispo pour ce rôle : la Position (HrRole.contractType) devient le
+    // défaut de la ligne plutôt qu'un repli silencieux sur Agence (retour utilisateur
+    // 2026-08-04) — seul contractType='AGENCY' déclenche la résolution d'agence ci-dessous.
+    if (role.contractType && role.contractType !== 'AGENCY') {
+      return { ...none, supplierType: role.contractType };
+    }
+    // "Espaces" de l'Agence (HrSupplier.spaceIds, 2026-08-04) : n'est éligible au repli
+    // automatique qu'une agence sans restriction déclarée (liste vide) ou couvrant CET
+    // espace — évite de proposer une agence configurée pour un autre espace. Liste vide =
+    // pas de restriction déclarée par le tenant, éligible partout (ce champ était jusque-là
+    // purement décoratif, aucune agence existante ne l'avait renseigné).
+    const eligibleSupplierId = (role.suppliers ?? []).find(
+      (rs: any) => !rs.supplier?.spaceIds?.length || rs.supplier.spaceIds.includes(spaceId),
+    )?.supplierId as string | undefined;
+    const defaultSupplierId = hr.defaultSupplierByRole.get(role.id) ?? eligibleSupplierId;
     if (defaultSupplierId) {
       const supplier = hr.suppliersById.get(defaultSupplierId);
       return {
@@ -323,7 +339,7 @@ export class StaffingService {
         }
         const keptCount = kept.filter((l) => l.source === 'ALGO' && l.algoKey === key).length;
         for (let i = keptCount; i < count; i++) {
-          const assignment = this.pickAssignment(role, i, hr);
+          const assignment = this.pickAssignment(role, i, hr, ctx.spaceId);
           creations.push({
             tenantId,
             eventId,
@@ -356,7 +372,7 @@ export class StaffingService {
           (l) => l.source === 'ALGO' && l.algoKey === null && l.roleId === roleId,
         ).length;
         for (let i = keptCount; i < qty; i++) {
-          const assignment = this.pickAssignment(role, i, hr);
+          const assignment = this.pickAssignment(role, i, hr, ctx.spaceId);
           creations.push({
             tenantId,
             eventId,
@@ -404,7 +420,7 @@ export class StaffingService {
           (l) => l.source === 'ALGO' && l.algoKey === null && l.roleId === roleId,
         ).length;
         for (let i = keptCount; i < qty; i++) {
-          const assignment = this.pickAssignment(role, i, hr);
+          const assignment = this.pickAssignment(role, i, hr, ctx.spaceId);
           creations.push({
             tenantId,
             eventId,
@@ -552,7 +568,7 @@ export class StaffingService {
 
     return {
       eventId,
-      settings,
+      settings: { ...settings, spaceId: ctx.spaceId },
       schedule: { startTime: ctx.lineStart, endTime: ctx.lineEnd },
       elements: elementsOut,
       totals: {
@@ -608,7 +624,7 @@ export class StaffingService {
       }
     }
     const hr = await this.loadHrContext(tenantId, ctx.spaceId);
-    const assignment = this.pickAssignment(role, 0, hr);
+    const assignment = this.pickAssignment(role, 0, hr, ctx.spaceId);
     return this.prisma.eventStaffLine.create({
       data: {
         tenantId,
