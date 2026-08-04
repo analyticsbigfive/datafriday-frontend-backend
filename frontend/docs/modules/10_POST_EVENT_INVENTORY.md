@@ -176,6 +176,16 @@ Ici, le **flux vu de l'écran** :
   `navigateToTool` — sans lui, un event sans `configurationId` atterrissait sur « Aucun évènement
   sélectionné »). En mode pre, l'event effectivement ancré peut différer du `?event=` transmis
   (§ 2/§ 8.2) — acceptable uniquement parce que le bandeau le rend visible.
+- **Retrait du bouton du bandeau Réappro (2026-08-04, JLH)** : le second point d'entrée — le
+  bouton « Inventaire pré-événement » du bandeau « Réarmement prêt » (onglet Réappro
+  d'EventPredictView) — a été retiré le jour même. Redondant (le réarmement expose déjà
+  `space-pre-inventory` dans son sélecteur Outils, et l'onglet Configuration garde son lien
+  `goToInventory`) et concerné par la bascule silencieuse d'event documentée en
+  [`QUESTIONS_A_BERTRAND.md` #52](../QUESTIONS_A_BERTRAND.md). Le seul point d'entrée Event
+  Predict restant est donc le lien de l'onglet Configuration ; `resolveInventoryRouteName` et
+  `goToInventory()` (décrits ci-dessus) restent en place pour lui. Clés i18n
+  `epPreEventInventory` / `epPostEventInventory` / `epOpenInventoryForEvent` supprimées
+  (orphelines).
 
 ### 4.3 Analyse — events et ventes réelles
 

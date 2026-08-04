@@ -462,19 +462,36 @@ export function computePackagingForQuantity(
   const src = findStockReference(item, ingredients, components, menuItems)
   if (!src) return null
 
+  // Un ingrédient (/ingredients) ne porte AUCUN champ conditionnement à plat :
+  // tout vit dans son MarketPrice niché (inventoryPackaging, packedUnits…).
+  // Sans ce repli, le réarmement ne résolvait jamais de colis pour un ingrédient
+  // — seuls les menu items (carte « Inventory Information ») fonctionnaient.
+  const mp = src.marketPrice || null
   const packagingType =
     src.packagingType ||
     src.inventoryPackagingName ||
     src.inventoryPackagingType ||
+    // Libellé de stockage à plat (MenuComponent.inventoryPackaging, ex. « Bag »).
+    src.inventoryPackaging ||
     src.inventoryPackagingId ||
+    mp?.inventoryPackaging ||
+    mp?.purchasePackaging ||
     null
   const packagingUnitNumber = toNumber(
-    // Repli final : carte « Inventory Information » du menu item lui-même
-    // (inventoryNumberOfUnits), symétrique du repli type inventoryPackagingType.
-    src.packagingUnitNumber ?? src.inventoryQuantityPackaged ?? src.inventoryNumberOfUnits,
+    // Carte « Inventory Information » du menu item (inventoryNumberOfUnits),
+    // puis qté/paquet du drawer Market Price — persistée dans `packedUnits`,
+    // jamais dans `inventoryQuantityPackaged` (même repli qu'inventoryUtils
+    // resolveQtyPackaged, qui pilote déjà le comptage d'inventaire).
+    src.packagingUnitNumber ??
+      src.inventoryQuantityPackaged ??
+      src.inventoryNumberOfUnits ??
+      src.packedUnits ??
+      mp?.inventoryQuantityPackaged ??
+      mp?.packedUnits,
   )
-  const packagingUnit = src.packagingUnit || src.unit || item?.unit
-  const purchaseUnitConversion = toNumber(src.purchaseUnitConversion, 1) || 1
+  const packagingUnit = src.packagingUnit || src.unit || mp?.unit || item?.unit
+  const purchaseUnitConversion =
+    toNumber(src.purchaseUnitConversion, 0) || toNumber(mp?.purchaseUnitConversion, 1) || 1
 
   if (!packagingType || !packagingUnitNumber || !packagingUnit) return null
 
@@ -487,4 +504,23 @@ export function computePackagingForQuantity(
     packagingUnit,
     looseQty: packedCount * packagingUnitNumber,
   }
+}
+
+/**
+ * Quantité réellement couverte par les colis entiers d'un packaging, exprimée
+ * dans l'unité de la ligne de stock (l'inverse exact de la formule packedCount :
+ * covered = packedCount × packagingUnitNumber ÷ purchaseUnitConversion).
+ * Accepte un packaging vivant (computePackagingForQuantity, conversion portée
+ * par `source`) ou figé (restockPlanSnapshot.freezePackaging, conversion à plat).
+ * Renvoie null si le packaging est absent ou sans taille de colis exploitable.
+ */
+export function coveredQuantityForPackaging(packaging) {
+  if (!packaging) return null
+  const packagingUnitNumber = toNumber(packaging.packagingUnitNumber)
+  if (!packagingUnitNumber) return null
+  const purchaseUnitConversion =
+    toNumber(packaging.purchaseUnitConversion, 0) ||
+    toNumber(packaging.source?.purchaseUnitConversion, 1) ||
+    1
+  return (toNumber(packaging.packedCount) * packagingUnitNumber) / purchaseUnitConversion
 }

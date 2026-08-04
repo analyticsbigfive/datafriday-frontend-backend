@@ -1453,10 +1453,28 @@ const activeFilterEditor = computed(() => {
   }
 })
 const isPredictMode = computed(() => selectedToolbox.value === 'predict')
+// Libellé « Nom — date » de l'évènement quand la sélection en contient EXACTEMENT
+// un, chaîne vide sinon. Recherche dans `analysableEvents` (et non `events`) avec
+// la même comparaison stricte d'id que le store (`new Set(selectedEventIds).has(e.id)`,
+// appliqué lui aussi sur analysableEvents) : le titre ne peut donc pas nommer un
+// évènement hors périmètre pendant que la page affiche des zéros. Date omise si
+// absente/illisible (formatDateShort renvoie '' dans ce cas).
+const singleSelectedEventLabel = computed(() => {
+  const ids = filters.value.selectedEventIds || []
+  if (ids.length !== 1) return ''
+  const ev = (analysableEvents.value || []).find((e) => e.id === ids[0])
+  const name = ev?.name || ev?.eventName || ''
+  if (!name) return ''
+  const date = formatDateShort(ev.date || ev.eventDate)
+  return date ? `${name} — ${date}` : name
+})
 // Titre du bandeau selon l'outil actif (Analyse / Prédire / Préd. Événement).
 const toolTitle = computed(() => {
   if (selectedToolbox.value === 'predict') return t('anToolPredict')
   if (selectedToolbox.value === 'event-predict') return t('anToolEventPredict')
+  // Un seul évènement sélectionné : son nom remplace « Analyse » (le mot n'apporte
+  // rien quand la page est déjà cadrée sur un évènement précis).
+  if (singleSelectedEventLabel.value) return singleSelectedEventLabel.value
   return t('analyseTitle')
 })
 const predictionsGenerating = computed(() => store.state.analyse.predictionsGenerating)

@@ -2778,7 +2778,6 @@ export const translations = {
     epNoEventAvailable: 'No event available',
     epNoTimelineData: 'No timeline data',
     epNotifications: 'Notifications',
-    epOpenInventoryForEvent: 'Open inventory for this event',
     epOpenRestockForEvent: 'Open restock for this event',
     epPastEventPlural: 'past events',
     epPastEventSingular: 'past event',
@@ -2808,11 +2807,6 @@ export const translations = {
     epSignOut: 'Sign out',
     epSoldItemLabel: 'Sold item:',
     epSources: 'Sources',
-    // Libellé DYNAMIQUE du CTA inventaire (remplace epSpaceInventory) : la cible
-    // dépend de l'event sélectionné (à venir → pre). Aligné sur invPageTitle /
-    // preInvPageTitle — garder les deux cohérents.
-    epPostEventInventory: 'Post event inventory',
-    epPreEventInventory: 'Pre event inventory',
     epSpaceLabel: 'Space:',
     epStockTab: 'Stock up',
     epStaffTab: 'Staff',
@@ -6970,7 +6964,6 @@ export const translations = {
     epNoEventAvailable: 'Aucun événement disponible',
     epNoTimelineData: 'Aucune donnée de timeline',
     epNotifications: 'Notifications',
-    epOpenInventoryForEvent: 'Ouvrir l’inventaire pour cet événement',
     epOpenRestockForEvent: 'Ouvrir le réarmement pour cet événement',
     epPastEventPlural: 'événements passés',
     epPastEventSingular: 'événement passé',
@@ -7000,9 +6993,6 @@ export const translations = {
     epSignOut: 'Se déconnecter',
     epSoldItemLabel: 'Article vendu :',
     epSources: 'Sources',
-    // Libellé dynamique du CTA inventaire (remplace epSpaceInventory) — cf. bloc EN.
-    epPostEventInventory: 'Inventaire post-événement',
-    epPreEventInventory: 'Inventaire pré-événement',
     epSpaceLabel: 'Espace :',
     epStockTab: 'Réappro',
     epStaffTab: 'Staff',

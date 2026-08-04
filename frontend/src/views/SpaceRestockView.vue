@@ -1202,6 +1202,7 @@ import {
   collectFbElements,
   collectStorageElements,
   computePackagingForQuantity,
+  coveredQuantityForPackaging,
   deriveSelectedMenuItemsByShop,
   findStockReference,
 } from '@/utils/stockPlanning'
@@ -1861,12 +1862,19 @@ export default {
     liveRestockRows() {
       return this.stockRowsRaw.map((row) => {
         const targetQuantity = this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey)
-        const packaging = this.packagingForItem(row, targetQuantity)
-        const remainingQuantity = this.remainingQuantityForRow(row, packaging)
-        const restockQuantity = Math.max(
-          0,
-          roundForUnit(targetQuantity - remainingQuantity, row.unit),
-        )
+        // Packaging de référence (taille de colis) pour décoder le comptage
+        // packed/loose — la taille ne dépend pas de la quantité passée.
+        const packagingRef = this.packagingForItem(row, targetQuantity)
+        const remainingQuantity = this.remainingQuantityForRow(row, packagingRef)
+        const rawGap = Math.max(0, targetQuantity - remainingQuantity)
+        // Le packedCount porte sur le MANQUE (ce qu'on dépose), pas sur la cible.
+        const packaging = this.packagingForItem(row, rawGap)
+        // Un article conditionné se réarme en colis ENTIERS : la quantité
+        // suggérée est la couverture des colis (0,7 kg en paquets de 0,5 kg →
+        // 2 paquets → 1 kg). Sans « Inventory Information », arrondi historique.
+        const restockQuantity = packaging
+          ? coveredQuantityForPackaging(packaging)
+          : roundForUnit(rawGap, row.unit)
         return {
           ...row,
           rowKey: `${row.shopId}|||${row.itemKey}`,

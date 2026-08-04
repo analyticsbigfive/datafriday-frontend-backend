@@ -862,17 +862,6 @@
                   <span>{{ t('epRestockReadyText') }}</span>
                 </div>
                 <div class="ep-stockup-cta-actions">
-                  <!-- Inventaire AVANT réarmement : compter le restant sur place avant
-                       de générer la feuille de réarmement (gap = besoin − restant). -->
-                  <button
-                    type="button"
-                    class="fb-btn fb-btn--secondary ep-stockup-cta-btn"
-                    :title="t('epOpenInventoryForEvent')"
-                    @click="goToInventory"
-                  >
-                    <v-icon size="16">mdi-package-variant</v-icon>
-                    {{ inventoryTargetLabel }}
-                  </button>
                   <button
                     type="button"
                     class="fb-btn fb-btn--primary ep-stockup-cta-btn"
@@ -1924,13 +1913,6 @@ export default {
      *  à venir (le cas courant ici), post pour un match passé. */
     inventoryTargetRouteName() {
       return resolveInventoryRouteName(this.selectedEvent);
-    },
-    inventoryTargetLabel() {
-      return this.t(
-        this.inventoryTargetRouteName === "space-pre-inventory"
-          ? "epPreEventInventory"
-          : "epPostEventInventory",
-      );
     },
     /** Liste plate des configurations du space (depuis le store analyse). */
     configurations() {
