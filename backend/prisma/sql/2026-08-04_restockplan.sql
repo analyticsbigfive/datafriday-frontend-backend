@@ -60,3 +60,17 @@ CREATE INDEX IF NOT EXISTS "RestockPlan_spaceId_idx"
 
 -- Pas d'unicité sur (tenantId, spaceId, name) : « Dupliquer » créerait un conflit,
 -- et EventPredictVersion — le pattern de référence — n'en a pas non plus.
+
+-- ---------------------------------------------------------------------------
+-- Suivi d'application (à tenir à jour à chaque environnement traité)
+--   develop  : script présent au dépôt, application manuelle à confirmer
+--   staging  : idem
+--   prod     : idem
+-- Le script n'est jamais joué par un déploiement : tant qu'un environnement
+-- n'est pas coché ci-dessus, le backend qui référence RestockPlan y renverra
+-- un 500 (P2021 « table does not exist »).
+--
+-- Rollback (destructif — supprime les plans enregistrés, aucune sauvegarde
+-- implicite ; les index tombent avec la table) :
+--   DROP TABLE IF EXISTS "RestockPlan";
+-- ---------------------------------------------------------------------------
