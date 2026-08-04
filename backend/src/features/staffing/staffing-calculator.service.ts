@@ -37,8 +37,8 @@ export const MONTHLY_HOURS = 151.67; // Q6 : conversion Monthly → horaire
 export const PRODUCTIVITY_UNDERSTAFF_THRESHOLD = 2500; // > 2500 €/pers → SOUS_EFFECTIF
 export const PRODUCTIVITY_OVERSTAFF_THRESHOLD = 1000; // < 1000 €/pers → SUREFFECTIF
 export const DEFAULT_TX_PAR_SECONDE = 30; // capacité type : 30 | 60
-export const DEFAULT_OFFSET_OPEN_MINUTES = -60; // horaires suggérés : portes − 1 h
-export const DEFAULT_OFFSET_CLOSE_MINUTES = 60; // portes + 1 h
+export const DEFAULT_OFFSET_OPEN_MINUTES = -120; // horaires suggérés : ouverture des portes − 2 h
+export const DEFAULT_OFFSET_CLOSE_MINUTES = 120; // heure de fin + 2 h
 
 export const ALGO_KEYS = [
   'RESPONSABLE_ZONE',
