@@ -211,6 +211,15 @@ async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, comm
  * dans toutes les configs) → pas de scoping par memberships.
  */
 let builder2SubtypesCache = { spaceId: null, promise: null }
+
+/**
+ * Jeton de requête monotone pour `refreshLiveShopSnapshot` (module Live, §14
+ * de `docs/modules/11_LIVE.md`) : incrémenté à chaque dispatch, la réponse
+ * n'est commit que si elle est encore la dernière demandée — un tick de 15 s
+ * qui répond après un tick plus récent est ignoré (pas d'AbortController, ces
+ * endpoints ne portent pas de signal réseau annulable ici).
+ */
+let liveShopSnapshotRequestId = 0
 function getBuilder2SubtypesByName(spaceId) {
   if (!spaceId) return Promise.resolve(null)
   if (builder2SubtypesCache.spaceId !== spaceId || !builder2SubtypesCache.promise) {
@@ -2008,6 +2017,52 @@ const actions = {
     // couvert par la dédup in-flight de `loadConfigShopContext` (BUG-225, point 2)
     // pour les cas où les deux partent ensemble (config préservée + watcher au mount).
     if (preserved) dispatch('loadConfigShopContext', preserved)
+  },
+
+  /**
+   * Snapshot LIVE (module Live, `docs/modules/11_LIVE.md` §14) : appelé par
+   * `AnalyseView.vue::liveShopDetailsPoll()` à chaque tick de 15 s à la place de
+   * `loadSpace`. Ne commit QUE `shopGranularData` (KPI par shop, Revenue by
+   * shop, POS Performance), `menuItemCostMap` et `summary` (marge) — ne touche
+   * ni l'espace, ni les configs, ni les events, ni aucun catalogue (menu items,
+   * ingrédients, packaging, produits/mappings Weezevent). C'est précisément ce
+   * périmètre réduit (2 requêtes réseau au lieu du bootstrap complet
+   * `fetchSpaceData`, ~10-12) qui élimine la dette de perf documentée en §13 de
+   * `11_LIVE.md` : le catalogue ne change pas en plein service, inutile de le
+   * rejouer à chaque tick.
+   *
+   * Jeton de requête (pas d'AbortController : les endpoints shop-details/
+   * shop-granular ne portent pas de signal réseau annulable ici) — un tick lent
+   * qui répond après un tick plus récent est ignoré, même pattern que
+   * `useAnalyseItemRecords.refresh()` pour éviter un flash de KPI obsolètes.
+   */
+  async refreshLiveShopSnapshot({ commit, state }, payload) {
+    const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
+    if (!spaceId) return
+    const requestId = ++liveShopSnapshotRequestId
+    const { fetchLiveShopSnapshot } = await import('@/composables/useSpaceData')
+    let snapshot
+    try {
+      snapshot = await fetchLiveShopSnapshot(spaceId, {
+        menuItems: state.menuItems,
+        productTypes: state.productTypesList,
+        productCategories: state.productCategoriesList,
+        weezeventProducts: state.weezeventProducts,
+        weezeventProductMappings: state.weezeventProductMappings,
+      })
+    } catch (err) {
+      console.warn('[analyse] refreshLiveShopSnapshot KO:', err?.message)
+      return
+    }
+    if (requestId !== liveShopSnapshotRequestId) return // une réponse plus récente est déjà arrivée
+    commit('SET_SHOP_GRANULAR', snapshot.shopGranularData)
+    // MERGE (même logique que useSpaceDataFetch) : ne jamais écraser un
+    // menuItemCostMap déjà peuplé par un snapshot vide/partiel.
+    commit('SET_MENU_ITEM_COST_MAP', {
+      ...state.menuItemCostMap,
+      ...(snapshot.menuItemCostMap || {}),
+    })
+    commit('SET_SUMMARY', snapshot.summary || null)
   },
 
   /**

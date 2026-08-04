@@ -1794,9 +1794,13 @@ async function livePoll() {
   refreshBaskets()
   liveShopDetailsPoll()
 }
+// Module Live (docs/modules/11_LIVE.md §14) : snapshot dédié qui ne rafraîchit
+// QUE les ventes (shopGranularData/menuItemCostMap/summary), pas tout le
+// catalogue de l'espace — `loadSpace`/`fetchSpaceData` reste le chemin du
+// premier chargement (mount), pas des ticks live suivants.
 function liveShopDetailsPoll() {
   const spaceId = route.params.spaceId
-  if (spaceId) store.dispatch('analyse/loadSpace', { spaceId, isLive: isLive.value })
+  if (spaceId) store.dispatch('analyse/refreshLiveShopSnapshot', { spaceId })
 }
 function startLivePolling() {
   stopLivePolling()

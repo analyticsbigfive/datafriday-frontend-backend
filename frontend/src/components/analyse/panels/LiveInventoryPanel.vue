@@ -139,6 +139,10 @@ export default {
       expanded: [], // clés dépliées
       lastUpdated: null,
       pollTimer: null,
+      // Jeton de requête (même pattern que analyse.js::refreshLiveShopSnapshot,
+      // docs/modules/11_LIVE.md §14) : un tick de 15s qui répond après un tick
+      // plus récent est ignoré, sinon il peut écraser l'arbre avec du stock périmé.
+      _invReqId: 0,
     };
   },
   computed: {
@@ -222,16 +226,19 @@ export default {
     },
     async fetchInventory() {
       if (!this.spaceId) return;
+      const reqId = ++this._invReqId;
       this.loading = true;
       this.error = '';
       try {
         const res = await getSpaceLiveInventory(this.spaceId);
+        if (reqId !== this._invReqId) return; // réponse périmée, un tick plus récent est déjà en vol
         this.inv = res || { shops: [], items: [] };
         this.lastUpdated = Date.now();
       } catch (e) {
+        if (reqId !== this._invReqId) return;
         this.error = e?.response?.data?.message || e?.message || this.t('anLiveInvError');
       } finally {
-        this.loading = false;
+        if (reqId === this._invReqId) this.loading = false;
       }
     },
     startPolling() {
