@@ -17,6 +17,7 @@ import { getSpace, getSpaceConfigurations, getSpaceShopDetails, getSpaceShopGran
 import { getEvents } from '@/api/endpoints/event.api'
 import { getAllMenuItems } from '@/api/endpoints/menu-item.api'
 import { normalizeMenuItem, menuItemsCoverage, resolveComponentRefs } from '@/utils/menuItemNormalize'
+import { mergeSubComponentsFromCatalog, hydrateSubComponents } from '@/utils/componentCatalog'
 import { getProductTypes, getProductCategories, getMenuComponents } from '@/api/endpoints/menu.api'
 import { getIngredients } from '@/api/endpoints/ingredient.api'
 import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
@@ -320,95 +321,24 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         : catalogComponents
       // shop-details ne porte PAS la recette (`subComponents`/`numberOfUnitsRecipe`) :
       // on l'enrichit depuis /menu-components (catalogComponents) par id puis nom.
-      // REQUIS à la décomposition composant→ingrédients (Restock, F6) : sans
-      // subComponents, un composant reste réarmé en 1 ligne. NB : Space Inventory
-      // ne décompose PLUS (décision 2026-07-18) — seul le restock éclate encore.
-      const cnorm = (s) => String(s ?? '').trim().toLowerCase()
-      const catBy = new Map()
-      for (const c of catalogComponents) {
-        if (c?.id != null && !catBy.has(`id:${c.id}`)) catBy.set(`id:${c.id}`, c)
-        const n = cnorm(c?.name)
-        if (n && !catBy.has(`nm:${n}`)) catBy.set(`nm:${n}`, c)
-      }
-      const components = baseComponents.map((c) => {
-        if (Array.isArray(c?.subComponents) && c.subComponents.length) return c
-        const hit = catBy.get(`id:${c?.id}`) || catBy.get(`nm:${cnorm(c?.name)}`)
-        return hit?.subComponents?.length
-          ? { ...c, subComponents: hit.subComponents, numberOfUnitsRecipe: c.numberOfUnitsRecipe ?? hit.numberOfUnitsRecipe }
-          : c
+      // À qui sert cette recette : à la FEUILLE DE COURSE, et à elle seule — c'est
+      // le seul écran qui a le droit d'éclater un composant en ingrédients (on
+      // n'achète pas de la sauce pickle, on achète son vinaigre). Stock-up,
+      // inventaires et réarmement s'arrêtent au composant : il arrive prêt de la
+      // cuisine centrale (BUG-292-01, décision Bertrand 2026-08-04).
+      // BUG-292-01 — cette hydratation vit désormais dans `utils/componentCatalog`,
+      // partagée avec la feuille de course (`SpaceRestockView`), qui lit le
+      // catalogue depuis le store `analyse` et n'avait donc jamais de recette :
+      // son éclatement composant→ingrédients était silencieusement inerte.
+      // Étape 1 (synchrone, gratuite) : compléter depuis le catalogue déjà chargé.
+      const mergedComponents = mergeSubComponentsFromCatalog(baseComponents, catalogComponents)
+      // Étape 2 (fetch détail borné, échec toléré) : la LISTE /menu-components ne
+      // renvoie pas `subComponents`, seul le détail /menu-components/:id les porte,
+      // sous `ingredients[]` + `children[]`. Sans eux, un composant reste réarmé en
+      // une ligne et la feuille de course l'achète tel quel.
+      const { components } = await hydrateSubComponents(mergedComponents, {
+        ingredients: catalogIngredients,
       })
-      // La LISTE /menu-components ne renvoie PAS `subComponents` (seul le détail
-      // /menu-components/:id les porte). On hydrate la recette par fetch détail pour
-      // les composants qui en manquent — REQUIS à la décomposition composant→ingrédients
-      // côté Restock (F6). Borné (runWithConcurrency) + toléré (échec = composant non éclaté).
-      const needDetail = components.filter((c) => c?.id && !(c?.subComponents?.length))
-      if (needDetail.length) {
-        try {
-          const { runWithConcurrency } = await import('@/utils/asyncPool')
-          const { getMenuComponent } = await import('@/api/endpoints/menu.api')
-          // Résolution des noms d'ingrédients : le détail `ingredients[]` peut ne
-          // porter que des refs (ingredientId) sans libellé → on résout via le
-          // catalogue ingredients déjà chargé (évite N fetchs getIngredient).
-          const ingById = new Map(
-            catalogIngredients.filter((x) => x?.id != null).map((x) => [String(x.id), x]),
-          )
-          const detailById = new Map()
-          await runWithConcurrency(needDetail, 5, async (c) => {
-            try {
-              const d = await getMenuComponent(c.id)
-              const full = d?.data ?? d
-              // Le détail expose `ingredients[]` + `children[]` (PAS `subComponents`,
-              // qui est la shape du builder front). On les fusionne en subComponents
-              // normalisés attendus par flattenComponentDef. `ing.ingredientId` EST le
-              // marketPriceId (cf. ComponentCreateView) ; `child.componentId` = ref def.
-              const ings = Array.isArray(full?.ingredients) ? full.ingredients : []
-              const children = Array.isArray(full?.children) ? full.children : []
-              const subs = [
-                ...ings.map((ing) => {
-                  const iid = ing?.ingredientId || ing?.ingredient_id || null
-                  const cat = iid != null ? ingById.get(String(iid)) : null
-                  return {
-                    itemType: 'Ingredient',
-                    id: iid,
-                    marketPriceId: iid,
-                    name:
-                      ing?.itemName || ing?.name ||
-                      cat?.name || cat?.itemName || cat?.marketPrice?.supplierItem || null,
-                    numberOfUnits: Number(ing?.quantity ?? ing?.numberOfUnits ?? 0) || 0,
-                    unit: ing?.unit || ing?.recipeUnit || cat?.unit || 'unit',
-                  }
-                }),
-                ...children.map((ch) => {
-                  const cid = ch?.componentId || ch?.id || null
-                  return {
-                    itemType: 'Component',
-                    id: cid,
-                    sourceId: cid,
-                    name: ch?.itemName || ch?.name || null,
-                    numberOfUnits: Number(ch?.numberOfUnits ?? 0) || 0,
-                    unit: ch?.unit || 'unit',
-                  }
-                }),
-              ].filter((s) => s.name)
-              if (subs.length) {
-                detailById.set(c.id, { subComponents: subs, numberOfUnitsRecipe: full?.numberOfUnitsRecipe })
-              }
-            } catch (_) { /* toléré : composant sans détail → non éclaté */ }
-          })
-          for (let i = 0; i < components.length; i++) {
-            const hit = detailById.get(components[i]?.id)
-            if (hit) {
-              components[i] = {
-                ...components[i],
-                subComponents: hit.subComponents,
-                numberOfUnitsRecipe: components[i].numberOfUnitsRecipe ?? hit.numberOfUnitsRecipe,
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[useSpaceData] ⚠️ hydratation subComponents (détail) échouée:', e?.message)
-        }
-      }
       console.log(
         `[useSpaceData] 🧩 components recette — base=${baseComponents.length}, catalog=${catalogComponents.length}, ` +
           `avec subComponents=${components.filter((c) => c?.subComponents?.length).length}`,

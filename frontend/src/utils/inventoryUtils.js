@@ -73,6 +73,12 @@ export function flattenComponentDef(def, components, depth = 0, visited = null, 
       name,
       unit: sub?.unit || 'unit',
       qtyFactor: subFactor,
+      // BUG-292-01 — champs AJOUTÉS (aucun consommateur existant ne les lit) :
+      // la feuille de course groupe par fournisseur, et une feuille qui perd son
+      // `marketPriceId` en chemin atterrit dans « fournisseur inconnu ».
+      marketPriceId: sub?.marketPriceId ?? null,
+      supplierId: sub?.supplierId ?? null,
+      supplierName: sub?.supplierName ?? null,
     });
   }
   return out;
@@ -228,6 +234,9 @@ export function buildConsolidatedInventory(
       return result;
     }
 
+    // BUG-292-01 — nature du PARENT : un combo est un panier qu'on ouvre.
+    const isCombo = menuItem.comboItem === 'Yes';
+
     menuItem.components.forEach(component => {
       // Check if this is a packaging item - packaging should NOT be inherited from combo items
       // Packaging must be explicitly added to each menu item
@@ -254,10 +263,15 @@ export function buildConsolidatedInventory(
         mi => mi.name === component.name || mi.id === component.sourceId,
       );
 
-      if (componentMenuItem && componentMenuItem.comboItem === 'Yes') {
+      if (componentMenuItem && (isCombo || componentMenuItem.comboItem === 'Yes')) {
         // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
         // ses constituants, indépendamment de son propre readyForSale.
-        // This is a combo item that should be expanded - recursively get its components
+        // BUG-292-01 : la récursion suit le PARENT autant que l'enfant. Un combo est
+        // un panier qu'on ouvre, et chaque constituant redevient un menu item
+        // ordinaire — y compris quand c'est le parent qui est le combo. Sans le
+        // `isCombo`, un constituant readyForSale='No' d'un combo restait UNE ligne
+        // ici alors que le stock-up et le réarmement émettaient ses composants :
+        // deux listes différentes pour le même stand.
         const subComponents = getAllComponentsAndIngredients(
           componentMenuItem,
           depth + 1,
@@ -265,12 +279,17 @@ export function buildConsolidatedInventory(
         result.push(...subComponents);
       } else if (String(component.name ?? '').trim()) {
         // Composant ou ingrédient = ligne comptable telle quelle : PAS d'éclatement
-        // en sous-ingrédients côté Space Inventory (décision 2026-07-18 — le restock,
-        // lui, éclate toujours, cf. stockPlanning). Nom requis : une entrée sans nom
-        // deviendrait une clé Map undefined → crash au sort.
+        // en sous-ingrédients (décision 2026-07-18, généralisée au réarmement par
+        // BUG-292-01 — c'est désormais la règle partout sauf feuille de course).
+        // Nom requis : une entrée sans nom deviendrait une clé Map undefined →
+        // crash au sort.
         result.push({
           name: component.name,
-          id: component.id,
+          // BUG-292-01 : identité CATALOGUE (marketPriceId → sourceId → id), la même
+          // que `stockPlanning`/`menuItemExpansion`. `component.id` était la PK de la
+          // LIGNE DE RECETTE : le comptage et le réarmement désignaient le même objet
+          // physique par deux clés différentes, donc le netting ne joignait pas.
+          id: componentIngredientId(component) ?? component.id,
         });
       }
     });
@@ -334,7 +353,8 @@ export function buildConsolidatedInventory(
           if (isPackaging) {
             if (!inventoryMap.has(component.name)) {
               inventoryMap.set(component.name, {
-                id: component.id,
+                // BUG-292-01 — identité catalogue, cf. getAllComponentsAndIngredients.
+                id: componentIngredientId(component) ?? component.id,
                 usedIn: new Set(),
                 usedInDetails: [],
               });
@@ -429,7 +449,8 @@ export function buildConsolidatedInventory(
 
           if (!inventoryMap.has(component.name)) {
             inventoryMap.set(component.name, {
-              id: component.id,
+              // BUG-292-01 — identité catalogue, cf. getAllComponentsAndIngredients.
+              id: componentIngredientId(component) ?? component.id,
               usedIn: new Set(),
               usedInDetails: [],
             });

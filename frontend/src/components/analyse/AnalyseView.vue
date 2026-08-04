@@ -1161,6 +1161,15 @@ watch(
   { immediate: true },
 )
 
+// Le fetch item-level vit hors store : sans ce relais, `filtersState` voit des
+// options articles vides pendant le chargement et affiche « Aucun article
+// disponible pour cette configuration. » alors que les donuts tournent encore.
+watch(
+  itemRecordsLoading,
+  (v) => store.dispatch('analyse/setSoldItemOptionsLoading', v),
+  { immediate: true },
+)
+
 // Purge les sélections de filtres obsolètes (article/PdV/type/zone) dès que les options
 // se stabilisent — typiquement après un changement de config (scope events recomposé).
 // Gardé par filtersState === 'ready' ; l'action ignore en plus toute dimension dont les
@@ -1240,6 +1249,8 @@ const showTransactionRateShops = ref(false)
 const shopPerformance = useShopPerformance({
   shopGranularData: filteredRecords,
   spaceId: computed(() => route.params.spaceId),
+  // BUG-287-01 : la plage horaire de la timeline fenêtre txn/min + agrégats.
+  timeRange: computed(() => filters.value?.selectedTimeRange || null),
 })
 
 // Ferme automatiquement le panneau si la sélection devient vide

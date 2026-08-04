@@ -59,6 +59,47 @@ voir piège n°1. Les 6 modèles Prisma : `InventorySnapshot`, `InventoryCount` 
 
 ---
 
+## Règle n°0 : on découpe une recette d'un seul cran, jamais deux
+
+Règle métier fondatrice du domaine (owner, 2026-08-04 ; décision Bertrand du même jour sur les
+combos, Question #18). Elle gouverne **quatre** écrans, et une exception en concerne **un seul**.
+
+| Ce qu'on demande à l'écran | Niveau de décomposition |
+|---|---|
+| Stock-up (« qu'est-ce qu'on charge ? ») | 1 cran |
+| Inventaire pré-event (« qu'est-ce qu'on compte ? ») | 1 cran — **la même liste** |
+| Inventaire post-event | 1 cran — la même liste |
+| Réarmement (`predict − compté`) | 1 cran — la même liste |
+| **Feuille de course** (« qu'est-ce qu'on achète ? ») | **jusqu'aux ingrédients** |
+
+Concrètement, pour un menu item :
+
+- `readyForSale='Yes'` → on stocke **l'article tel quel**, packaging non séparé (il arrive emballé) ;
+- `readyForSale='No'` → on stocke **toute sa recette** : ingrédients + composants + packaging ;
+- un **composant** n'est jamais ouvert : la sauce pickle arrive prête de la cuisine centrale, on
+  stocke « sauce pickle », jamais son ail ;
+- un **combo** est un panier, pas un article : on l'ouvre, et chaque constituant redevient un menu
+  item ordinaire soumis aux règles ci-dessus. La récursion dépend donc de la nature du **parent**,
+  jamais du `readyForSale` de l'enfant.
+
+L'exception de la feuille de course n'est pas une incohérence : on n'achète pas un composant à un
+fournisseur. C'est **le seul endroit** où les composants sont éclatés en ingrédients, agrégés et
+groupés par fournisseur.
+
+**Où vit la règle** : `src/utils/menuItemExpansion.js` — une implémentation unique, que les écrans
+consomment. Elle a existé en **cinq** copies divergentes jusqu'au 2026-08-04
+([BUG-292-01](../bugs/292_01_decomposition_unique_stockup_inventaire_restock_feuille_de_course.md)) ;
+si vous vous apprêtez à écrire une sixième expansion de recette, c'est le signe qu'il faut étendre ce
+module. L'éclatement composant → ingrédients vit dans `src/utils/bomPlanning.js`, et sa recette est
+hydratée par `src/utils/componentCatalog.js` (la LISTE `/menu-components` ne porte pas
+`subComponents` — seul le détail les a).
+
+**Exception documentée** : l'inventaire compte **en plus** le packaging des articles
+`readyForSale='Yes'` (`inventoryUtils.js:311-334`, décision owner du 2026-08-04). Les trois listes
+sont donc « identiques + ce packaging », et c'est voulu.
+
+---
+
 ## ⚠️ Piège n°1 : Inventory et Logistic sont deux représentations du stock totalement indépendantes
 
 Ce domaine a **deux écrans qui répondent chacun à "combien de stock reste-t-il ?"**, avec des
@@ -419,8 +460,12 @@ l'URL (`?step=stock|restock|shopping`) :
 1. **"Éléments à stocker"** — agrégat par item tous shops confondus, inclusion/exclusion
    (`stockExcluded`), ajustement % (`stockAdjustments`, slider 0–200%, presets 80/100/120%), mode
    "colis" (`stockPackedModes`).
-2. **"Réarmement"** — par shop×item : cible / restant / à déposer, vue "Par shop" ou "Par
-   article", confirmation ligne à ligne (`restockedRows`).
+2. **"Réarmement"** — par shop×item : cible / restant / à déposer, confirmation ligne à ligne
+   (`restockedRows`). La bascule "Par shop" / "Par article" est **masquée depuis le 2026-08-04**
+   (`restockViewMode` forcé à `'item'`, segmented retiré du slot `#filters`) : la vue "Par shop"
+   porte le split « Non rattachés au menu — à remapper » qui bascule des PdV entiers en rouge
+   ([BUG-293-01](../bugs/293_01_rearmement_vue_par_shop_non_rattaches_faux_positifs.md)). Le rendu
+   "Par shop" reste dans le template, inaccessible.
 3. **"Feuille de course"** — regroupée par fournisseur, bascule produits finis / ingrédients,
    export CSV, impression, email fournisseur.
 

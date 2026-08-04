@@ -89,6 +89,11 @@ describe('onItemCheckboxChange : émission selon appartenance', () => {
       isShopOpen: () => false,
       toggleMenuItem: () => {},
       isInShopMenu: () => true,
+      // BUG-291-02 : `onItemCheckboxChange` consulte la disponibilité serveur en
+      // tête. Ce `this` est construit à la main → la méthode doit y figurer.
+      // Le refus d'un article indisponible est couvert par
+      // `eventPredictUnavailableNoSales.spec.js` ; ici on teste l'appartenance.
+      isItemUnavailable: () => false,
       $emit(name, payload) {
         emitted.push([name, payload]);
       },

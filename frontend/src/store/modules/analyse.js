@@ -551,6 +551,10 @@ const state = () => ({
   // setSoldItemOptions. Source des getters salesMenuItem* (data-driven : filtres
   // alignés sur les ventes affichées, jamais sur le catalogue/assignation).
   soldItemOptions: { names: [], types: [], categories: [] },
+  // true tant que le fetch item-level (useAnalyseItemRecords, hors store) tourne :
+  // `soldItemOptions` est alors vide PARCE QUE ça charge, pas parce qu'il n'y a
+  // rien → filtersState doit afficher le loader, pas « Aucun article disponible ».
+  soldItemOptionsLoading: false,
   events: [],
   summary: null,              // { totalRevenue, totalCost, variations: {...} } fourni par l'API ou le mock
   fromMock: false,             // true quand fallback mock (affiche badge "Données démo")
@@ -1197,8 +1201,15 @@ const getters = {
     // tant qu'aucun record n'est là (sinon la data affichée suffit au panneau).
     if (state.loading) return 'loading'
     if (state.enriching && !(state.shopGranularData || []).length) return 'loading'
-    if (!(g.salesShopNames || []).length) return 'empty-no-shops'
-    if (!(g.salesMenuItemNames || []).length) return 'empty-no-items'
+    // Options vides PENDANT un chargement = pas encore arrivées, pas « rien à
+    // afficher » → spinner. Deux chargements concernés : la phase 2 (`enriching`)
+    // et le fetch item-level hors store (`soldItemOptionsLoading`, qui alimente
+    // salesMenuItem* et tourne APRÈS la fin de la phase 2). Avant : « Aucun
+    // article disponible pour cette configuration. » s'affichait pendant que les
+    // donuts et la table articles chargeaient encore — message mensonger.
+    const busy = state.enriching || state.soldItemOptionsLoading
+    if (!(g.salesShopNames || []).length) return busy ? 'loading' : 'empty-no-shops'
+    if (!(g.salesMenuItemNames || []).length) return busy ? 'loading' : 'empty-no-items'
     return 'ready'
   },
 
@@ -1637,6 +1648,7 @@ const mutations = {
       categories: Array.isArray(categories) ? categories : [],
     }
   },
+  SET_SOLD_ITEM_OPTIONS_LOADING(state, v) { state.soldItemOptionsLoading = !!v },
   SET_MENU_ITEMS(state, m) { state.menuItems = m || [] },
   SET_SUPPLIERS(state, s) { state.suppliers = s || [] },
   SET_INGREDIENTS(state, i) { state.ingredients = i || [] },
@@ -2158,6 +2170,12 @@ const actions = {
   // (qui vit dans AnalyseView, hors store). Alimente salesMenuItem*.
   setSoldItemOptions({ commit }, payload) {
     commit('SET_SOLD_ITEM_OPTIONS', payload || {})
+  },
+  // Remonté par AnalyseView depuis useAnalyseItemRecords.loading — le fetch
+  // item-level vit hors store, le panneau de filtres a besoin de savoir qu'il
+  // tourne pour afficher un loader au lieu d'un état vide.
+  setSoldItemOptionsLoading({ commit }, v) {
+    commit('SET_SOLD_ITEM_OPTIONS_LOADING', v)
   },
   // Purge les sélections de filtres devenues obsolètes après un changement de config :
   // pour chaque dimension, retire de la sélection les valeurs absentes des options

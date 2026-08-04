@@ -140,7 +140,123 @@ html.elv-drawer-open .v-main {
   overflow: hidden !important;
 }
 
-/* Boutons */
+/* ============================================================================
+   BOUTONS — design system `.fb-btn` (2026-08-03)
+   ============================================================================
+   Référence visuelle : le bouton « Commencer le comptage » de la page
+   Pré-inventaire (`InventoryShopCard.si-row-action`) — casse normale (jamais de
+   MAJUSCULES Vuetify), graisse 700, rayon de contrôle 8px, rouge de marque
+   #ff3131 plein.
+
+   Pourquoi une classe et pas le `Button` de `src/ui/` : `src/ui/` est une zone
+   morte (CLAUDE.md, portage shadcn/Figma) et ses classes utilitaires Tailwind
+   ont la même spécificité que les nôtres → l'ordre de chargement décide du
+   rendu. Un `<button class="fb-btn …">` nu est prévisible et sans dépendance.
+
+   Usage :
+     <button class="fb-btn fb-btn--primary">…</button>      action principale
+     <button class="fb-btn fb-btn--secondary">…</button>    action secondaire
+     + `fb-btn--block` (pleine largeur), `fb-btn--sm` (barres denses)
+   Fonctionne avec une icône lucide (<svg>) ou un <v-icon> en premier enfant.
+
+   Volontairement SANS box-shadow : certains boutons empilent leur propre anneau
+   (ex. `.ep-save-dirty`), et `box-shadow` ne se cumule pas entre règles.
+   Tailles/graisses = tokens de la charte (ADR-0003), pas de valeurs libres.
+
+   Migration : opportuniste (charte §5). Les boutons déjà conformes ne sont pas
+   refactorés en masse — `si-row-action` (la référence) et le pied d'assistant
+   Réarmement (`.sr-wizard-nav .v-btn`) produisent déjà ces valeurs.
+   ============================================================================ */
+:root {
+  --fb-btn-primary: #ff3131;
+  --fb-btn-primary-hover: #e62a2a;
+  --fb-btn-height: 36px;
+  --fb-btn-height-sm: 30px;
+}
+
+.fb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--fb-btn-height);
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--fb-radius-control, 8px);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease,
+    transform 120ms ease;
+}
+
+/* Icônes : lucide sort un <svg> sans dimension, v-icon se dimensionne au
+   font-size. On fixe les deux pour que tous les boutons s'alignent. */
+.fb-btn > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.fb-btn > .v-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.fb-btn:disabled,
+.fb-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.fb-btn:focus-visible {
+  outline: 3px solid rgba(255, 49, 49, 0.18);
+  outline-offset: 2px;
+}
+
+.fb-btn--primary {
+  background: var(--fb-btn-primary);
+  color: #fff;
+}
+.fb-btn--primary:hover:not(:disabled) {
+  background: var(--fb-btn-primary-hover);
+}
+.fb-btn--primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.fb-btn--secondary {
+  background: var(--fb-surface, #fff);
+  color: var(--fb-text, #212121);
+  border-color: var(--fb-border-strong, #d1d5db);
+}
+.fb-btn--secondary:hover:not(:disabled) {
+  background: var(--fb-subtle, #f9fafb);
+  border-color: var(--fb-border-strong, #9ca3af);
+}
+.fb-btn--secondary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.fb-btn--block {
+  width: 100%;
+}
+
+.fb-btn--sm {
+  height: var(--fb-btn-height-sm);
+  padding: 0 10px;
+  font-size: var(--fs-base);
+}
+
+/* Boutons — legacy (aucun consommateur restant dans src/, conservé le temps de
+   vérifier qu'aucun template hors src/ ne s'en sert). Pour tout nouveau bouton :
+   `.fb-btn` ci-dessus. */
 .btn {
   padding: 0.5rem 1rem;
   border: 1px solid #ddd;

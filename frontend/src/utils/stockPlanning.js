@@ -1,10 +1,52 @@
-import { resolveComponentDef, flattenComponentDef } from './inventoryUtils'
+// BUG-292-01 — `resolveComponentDef` / `flattenComponentDef` / `componentIngredientId`
+// ne sont plus importés ici : la décomposition a quitté ce fichier pour
+// `utils/menuItemExpansion` (règle commune), et l'éclatement composant→ingrédients
+// pour `utils/bomPlanning` (feuille de course). `MAX_DEPTH` est porté par le module.
+import { expandMenuItem, buildComponentLookup } from './menuItemExpansion'
 
-const MAX_DEPTH = 10
 const FB_ELEMENT_TYPES = new Set(['shop', 'hospitality', 'kitchen'])
 
 function normalizeName(value) {
   return String(value || '').trim().toLowerCase()
+}
+
+/**
+ * BUG-291-02 — index des articles IMPOSSIBLES À PRODUIRE côté serveur (recette
+ * absente, ingrédient inactif / sans fournisseur, ou fournisseur ne livrant pas
+ * l'espace). Un tel article ne génère aucune ligne de réarmement : on ne réarme
+ * pas ce qu'on ne peut pas fabriquer.
+ *
+ * Index PLAT au niveau ESPACE — pas de jointure par shop, et c'est délibéré
+ * (correctif v2) : `available` est calculé PAR ESPACE côté serveur
+ * (`getItemsWithAvailabilityForSpace`), donc un improduisible l'est pour tous
+ * les PDV de l'écran. La première version joignait par nom de shop et ratait en
+ * silence dès que la config était synthétique (`buildSyntheticConfig` peut
+ * poser un ID brut comme `shop.name`) — le Cookie repassait.
+ *
+ * Entrée : `{ ids: string[], names: string[] }`, noms BRUTS renormalisés ici
+ * avec le normaliseur local (l'appelant n'a pas à le connaître).
+ */
+function buildUnavailableIndex(unavailableItems) {
+  return {
+    ids: new Set((unavailableItems?.ids || []).map((id) => String(id))),
+    names: new Set(
+      (unavailableItems?.names || []).map((n) => normalizeName(n)).filter(Boolean),
+    ),
+  }
+}
+
+/**
+ * Appariement id PUIS nom, sur les DEUX ids disponibles : celui du record
+ * (timeline / Weezevent) et celui du catalogue. Ils diffèrent régulièrement —
+ * c'est précisément ce que BUG-290-01 a documenté — donc tester un seul des deux
+ * laisserait passer la moitié des cas.
+ */
+function isUnavailableItem(index, menuItemId, catalogId, itemName) {
+  if (!index.ids.size && !index.names.size) return false
+  if (index.ids.has(String(menuItemId))) return true
+  if (catalogId && index.ids.has(String(catalogId))) return true
+  const nm = normalizeName(itemName)
+  return !!(nm && index.names.has(nm))
 }
 
 /**
@@ -150,182 +192,42 @@ export function expandMenuItemStock(
   menuItemQuantity,
   rootMenuItemName,
   menuItems,
+  // eslint-disable-next-line no-unused-vars
   components = [],
   depth = 0,
 ) {
-  if (depth > MAX_DEPTH) return []
+  // BUG-292-01 — la règle de décomposition vit dans `utils/menuItemExpansion`, une
+  // seule fois pour les quatre écrans. Cette fonction n'est plus qu'un adaptateur
+  // de signature : elle existe parce que trois appelants la consomment
+  // (`buildStockRequirements`, `useShoppingList`, `usePredictedNeed`).
+  //
+  // Trois comportements ont changé ici, tous voulus :
+  //  1. la récursion suit désormais le PARENT (combo), plus le `readyForSale` de
+  //     l'enfant — un composant préparé en cuisine centrale (sauce pickle) reste
+  //     UNE LIGNE au lieu d'être dissous en son ail (symptôme S2) ;
+  //  2. un ComponentDefinition n'est PLUS éclaté en ingrédients feuilles. Cet
+  //     éclatement n'a pas disparu : il a été DÉPLACÉ dans la feuille de course
+  //     (`bomPlanning`), seul écran où l'on achète — on ne commande pas un
+  //     composant. ⚠️ Ce n'était pas un no-op : `useSpaceData` hydrate les
+  //     `subComponents` et les réinjecte dans `analyse.components`, donc la
+  //     branche s'exécutait bel et bien (cf. fiche BUG-292-01, cause B) ;
+  //  3. un combo est ouvert, comme sur le Stock-up (Question #18, Bertrand).
+  //
+  // `components` devient inutile ici — paramètre CONSERVÉ pour ne pas casser les
+  // appelants, dont la signature positionnelle place `depth` juste après.
   const menuItemsById = new Map((menuItems || []).map((mi) => [mi.id, mi]))
-  const menuItem = menuItemsById.get(menuItemId)
-  if (!menuItem) return []
-
-  if (menuItem.readyForSale === 'Yes') {
-    // Article livré prêt au PDV, déjà emballé (cuisine centrale) : chips, paquets
-    // de bonbon, bouteilles d'eau, certains sandwichs. On réarme le Menu Item tel
-    // quel, SANS séparer le packaging — rien à ajouter au PDV. Si un packaging
-    // doit être ajouté sur place (ex. serviette + sandwich), l'article est
-    // modélisé en readyForSale='No' avec un composant dédié.
-    return [
-      {
-        id: menuItem.id,
-        name: menuItem.name,
-        totalQuantity: menuItemQuantity,
-        unit: 'pcs',
-        isExpanded: false,
-        sources: [
-          {
-            menuItemId,
-            menuItemName: rootMenuItemName,
-            menuItemQuantity,
-            componentQuantity: menuItemQuantity,
-            unit: 'pcs',
-          },
-        ],
-      },
-    ]
-  }
-
-  if (
-    menuItem.readyForSale === 'No' &&
-    Array.isArray(menuItem.components) &&
-    menuItem.components.length > 0
-  ) {
-    const out = []
-    const numberOfPiecesRecipe = toNumber(menuItem.numberOfPiecesRecipe, 1) || 1
-
-    menuItem.components.forEach((component) => {
-      const numberOfUnits = toNumber(component.numberOfUnits)
-      const calculatedQuantity = (numberOfUnits * menuItemQuantity) / numberOfPiecesRecipe
-      const componentUnit = component.unit || 'unit'
-      // Match par nom UNIQUEMENT si le composant en a un : `component.name` peut
-      // être null (recette dont les composants n'ont pas de libellé en base) et
-      // `null === null` matcherait un menu item lui-même sans nom.
-      const componentMenuItem = (menuItems || []).find(
-        (mi) =>
-          (component.name && mi.name === component.name) ||
-          (component.sourceId && mi.id === component.sourceId),
-      )
-
-      if (componentMenuItem && componentMenuItem.readyForSale === 'No') {
-        out.push(
-          ...expandMenuItemStock(
-            componentMenuItem.id,
-            calculatedQuantity,
-            rootMenuItemName,
-            menuItems,
-            components,
-            depth + 1,
-          ),
-        )
-      } else if (component.name || componentMenuItem?.name) {
-        // « On ne commande pas un composant » : si ce composant est un
-        // ComponentDefinition (Pickles Auxerre…), l'éclater en ingrédients feuilles
-        // avec quantités BOM (qtyFactor = numberOfUnits/numberOfUnitsRecipe le long
-        // de l'arbre). Identité ingrédient IDENTIQUE à l'inventaire (helpers partagés)
-        // → le netting comptage↔réarmement joint. Un Ingredient ne s'éclate jamais.
-        const def =
-          component.itemType === 'Ingredient'
-            ? null
-            : resolveComponentDef(component, components)
-        if (def && Array.isArray(def.subComponents) && def.subComponents.length) {
-          flattenComponentDef(def, components).forEach((leaf) => {
-            const leafQty = calculatedQuantity * leaf.qtyFactor
-            out.push({
-              id: leaf.id ?? leaf.sourceId ?? leaf.name,
-              sourceId: leaf.sourceId,
-              name: leaf.name,
-              totalQuantity: leafQty,
-              unit: leaf.unit,
-              isExpanded: true,
-              sources: [
-                {
-                  menuItemId,
-                  menuItemName: rootMenuItemName,
-                  menuItemQuantity,
-                  componentQuantity: leafQty,
-                  unit: leaf.unit,
-                },
-              ],
-            })
-          })
-        } else {
-          out.push({
-            id: component.id,
-            sourceId: component.sourceId,
-            name: component.name || componentMenuItem.name,
-            totalQuantity: calculatedQuantity,
-            unit: componentUnit,
-            isExpanded: true,
-            sources: [
-              {
-                menuItemId,
-                menuItemName: rootMenuItemName,
-                menuItemQuantity,
-                componentQuantity: calculatedQuantity,
-                unit: componentUnit,
-              },
-            ],
-          })
-        }
-      } else {
-        // Composant sans nom résolvable (ref backend non jointe) : on le SAUTE
-        // au lieu d'émettre une ligne placeholder « Composant de … » — elles se
-        // dupliquaient (1 par composant anonyme) et leur id (component.id) ne
-        // joignait jamais les comptages d'inventaire.
-        console.log(
-          `[stockPlanning] Composant sans nom ignoré dans "${rootMenuItemName}" (id=${component.id ?? '?'}, sourceId=${component.sourceId ?? '?'})`,
-        )
-      }
-    })
-
-    // Filet de sécurité (miroir inventoryUtils) : un article vendu ne peut
-    // jamais produire 0 ligne. Si aucune feuille exploitable, on réarme
-    // l'article lui-même — id = menuItem.id, la clé sous laquelle l'inventaire
-    // a compté dans le même cas dégradé.
-    if (!out.length) {
-      console.log(
-        `[stockPlanning] Expansion vide pour "${menuItem.name}" — fallback sur l'article lui-même`,
-      )
-      return [
-        {
-          id: menuItem.id,
-          name: menuItem.name,
-          totalQuantity: menuItemQuantity,
-          unit: 'pcs',
-          isExpanded: false,
-          sources: [
-            {
-              menuItemId,
-              menuItemName: rootMenuItemName,
-              menuItemQuantity,
-              componentQuantity: menuItemQuantity,
-              unit: 'pcs',
-            },
-          ],
-        },
-      ]
-    }
-
-    return out
-  }
-
-  return [
-    {
-      id: menuItem.id,
-      name: menuItem.name,
-      totalQuantity: menuItemQuantity,
-      unit: 'pcs',
-      isExpanded: false,
-      sources: [
-        {
-          menuItemId,
-          menuItemName: rootMenuItemName,
-          menuItemQuantity,
-          componentQuantity: menuItemQuantity,
-          unit: 'pcs',
-        },
-      ],
-    },
-  ]
+  return expandMenuItem({
+    menuItemId,
+    quantity: menuItemQuantity,
+    rootMenuItemName,
+    menuItemsById,
+    lookup: buildComponentLookup(menuItems),
+    depth,
+    // Le réarmement n'a pas de signal d'hydratation : `true` préserve son
+    // comportement historique (le filet de sécurité reste disponible).
+    recipeCatalogLoaded: true,
+    fallbackWhenEmpty: true,
+  })
 }
 
 export function buildStockRequirements({
@@ -336,6 +238,9 @@ export function buildStockRequirements({
   selectedMenuItems = {},
   quantityAdjustments = {},
   closedShopNames = [],
+  // BUG-291-02 — cf. buildUnavailableIndex. Défaut vide → sortie strictement
+  // identique pour tout appelant qui ne le passe pas.
+  unavailableItems = null,
 } = {}) {
   const rowsByKey = new Map()
   const menuItemsById = new Map(menuItems.map((mi) => [mi.id, mi]))
@@ -349,6 +254,7 @@ export function buildStockRequirements({
   // points fermés »). Noms bruts normalisés ici pour matcher `shop.name` avec le
   // MÊME normaliseur, quel que soit le normaliseur de l'appelant.
   const closedSet = new Set((closedShopNames || []).map((n) => normalizeName(n)).filter(Boolean))
+  const unavailableIndex = buildUnavailableIndex(unavailableItems)
 
   collectFbElements(configuration).forEach((shop) => {
     if (closedSet.size && shop?.name && closedSet.has(normalizeName(shop.name))) return
@@ -369,6 +275,15 @@ export function buildStockRequirements({
         (sample?.mappedMenuItemId ? menuItemsById.get(sample.mappedMenuItemId) : null) ||
         (recordName ? menuItemsByName.get(normalizeName(recordName)) : null) ||
         null
+
+      // BUG-291-02 : placé APRÈS la résolution catalogue (on dispose alors des
+      // deux ids et du nom) et AVANT le calcul de quantité — un article qu'on ne
+      // peut pas fabriquer ne produit ni sa ligne ni celles de ses ingrédients.
+      if (
+        isUnavailableItem(unavailableIndex, menuItemId, menuItem?.id, recordName || menuItem?.name)
+      ) {
+        return
+      }
 
       const predictedQuantity = getPredictedQuantityForElement(
         predictedRecords,
@@ -469,11 +384,15 @@ export function buildMenuItemDemand({
   selectedMenuItems = {},
   quantityAdjustments = {},
   closedShopNames = [],
+  // BUG-291-02 — parité buildStockRequirements : on n'achète pas non plus les
+  // ingrédients d'un plat qu'on ne peut pas produire.
+  unavailableItems = null,
 } = {}) {
   const out = new Map()
   const menuItemsById = new Map(menuItems.map((mi) => [mi.id, mi]))
   // PdV fermés exclus (parité buildStockRequirements) : pas d'achat pour un point fermé.
   const closedSet = new Set((closedShopNames || []).map((n) => normalizeName(n)).filter(Boolean))
+  const unavailableIndex = buildUnavailableIndex(unavailableItems)
 
   collectFbElements(configuration).forEach((shop) => {
     if (closedSet.size && shop?.name && closedSet.has(normalizeName(shop.name))) return
@@ -485,6 +404,9 @@ export function buildMenuItemDemand({
     selectedIds.forEach((menuItemId) => {
       const menuItem = menuItemsById.get(menuItemId)
       if (!menuItem) return
+      if (isUnavailableItem(unavailableIndex, menuItemId, menuItem.id, menuItem.name)) {
+        return
+      }
       const predictedQuantity = getPredictedQuantityForElement(predictedRecords, shop, menuItemId)
       const adjustment = toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
       const adjustedQuantity = Math.round((predictedQuantity * adjustment) / 100)

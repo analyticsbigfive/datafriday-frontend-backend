@@ -1,8 +1,12 @@
 # BUG-275-02 — Merch (`merchshop`) infiltré dans l'assignation menu (Event Predict) et dupliqué (Inventory)
 
-- **Statut** : ⚪ Diagnostiqué (root cause connue, correctif écrit et testé, **retiré de
-  `develop` le 2026-08-02** à la demande de l'utilisateur — préservé sur la branche
-  `fix/bug-275-merchshop-predict-inventory`, à merger séparément)
+- **Statut** : 🟡 Corrigé non déployé — correctif écrit et testé, **retiré de `develop` le
+  2026-08-02** à la demande de l'utilisateur (préservé sur `fix/bug-275-merchshop-predict-inventory`),
+  puis **repris le 2026-08-04** sur `fix/bug-290-01-eventpredict-config-stockup` dans le lot
+  [BUG-290-01](290_01_eventpredict_stockup_prediction_zero_et_decomposition.md) — les 2 hunks de
+  `4298fd9` à l'identique.
+  ⚠️ La branche d'origine porte le **même diff** (17 lignes) : conflit à prévoir si elle est mergée
+  après ce lot — à signaler à Ulrich.
 - **Sévérité** : 🟠 Majeur (Event Predict : écriture d'une association métier incohérente,
   même famille que BUG-274, atteignable depuis un 2ᵉ écran non couvert par ce fix-là) /
   🟡 Mineur (Inventory : affichage dupliqué, pas d'écriture)

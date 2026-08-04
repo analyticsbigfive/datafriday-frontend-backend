@@ -13,6 +13,19 @@
 //   ingredients[].ingredient.{name, recipeUnit, marketPriceId, supplier, …}
 //   components[].component.{…}   packagings[].packaging.{…}
 // normalizeRecipe aplatit ça en lignes exploitables (tolérant aux variantes).
+//
+// BUG-292-01 — ce fichier est le SEUL endroit de l'application qui a le droit
+// d'éclater un ComponentDefinition en ses ingrédients. Règle métier : on ne
+// commande pas « de la sauce pickle » à un fournisseur, on commande du vinaigre
+// et de l'ail. Partout ailleurs (stock-up, inventaires, réarmement) un composant
+// est UNE ligne — il arrive prêt de la cuisine centrale, cf. menuItemExpansion.js.
+//
+// ⚠️ La récursion `refMenuItemId` ne suffisait pas : elle ne descend que dans un
+// sous-MENU ITEM (combo). Un `MenuComponent` ne porte ni `menuItemId` ni
+// `sourceMenuItemId` (schema.prisma), donc `refMenuItemId` est toujours undefined
+// pour un vrai composant et la feuille de course s'arrêtait au composant.
+
+import { resolveComponentDef, flattenComponentDef } from './inventoryUtils'
 
 function toNumber(v, f = 0) {
   const n = Number(v)
@@ -77,12 +90,18 @@ export function normalizeRecipe(detail) {
  * @param {object} params
  * @param {Array}  params.demand               [{shopId, shopName, menuItemId, menuItemName, quantity}]
  * @param {Object} params.recipeByMenuItemId   menuItemId -> normalizeRecipe()
+ * @param {Array}  params.components           catalogue ComponentDefinition, avec
+ *   `subComponents` HYDRATÉS (cf. `componentCatalog.hydrateSubComponents`). Sans
+ *   lui un composant reste une ligne d'achat — ce que la règle « on n'achète jamais
+ *   un composant » interdit. Vide par défaut : les appelants historiques gardent
+ *   leur comportement, l'éclatement est simplement inerte.
  * @param {(line:object)=>{supplierId,supplierName,supplierEmail?,supplierPhone?}} params.resolveSupplier
  * @returns {Array} groupes fournisseur (même shape que shoppingSupplierGroups)
  */
 export function buildIngredientRequirements({
   demand = [],
   recipeByMenuItemId = {},
+  components = [],
   resolveSupplier = () => ({ supplierId: '__unknown_supplier__', supplierName: '' }),
 } = {}) {
   const agg = new Map() // aggKey -> ingrédient agrégé
@@ -136,9 +155,46 @@ export function buildIngredientRequirements({
       if (line.refMenuItemId && recipeByMenuItemId[line.refMenuItemId]) {
         // composant = sous-menu-item (combo) → on l'éclate à son tour
         explode(line.refMenuItemId, line.name, q, shopName, depth + 1, rootName || menuItemName)
-      } else {
-        addLeaf(line, q, shopName, rootName || menuItemName)
+        return
       }
+      // BUG-292-01 — ComponentDefinition → ses ingrédients feuilles. C'est LE
+      // geste qui distingue la feuille de course des trois autres écrans : eux
+      // stockent/comptent/réarment la sauce pickle, ici on achète son vinaigre.
+      // `qtyFactor` = Π(numberOfUnits / numberOfUnitsRecipe) le long de l'arbre,
+      // donc `q × qtyFactor` est déjà la quantité de matière première.
+      // `flattenComponentDef` porte l'anti-cycle et MAX_DEPTH.
+      if (line.itemType === 'Component') {
+        const def = resolveComponentDef(line, components)
+        const leaves =
+          def && Array.isArray(def.subComponents) && def.subComponents.length
+            ? flattenComponentDef(def, components)
+            : []
+        if (leaves.length) {
+          leaves.forEach((leaf) => {
+            addLeaf(
+              {
+                key: leaf.id ?? leaf.sourceId ?? leaf.name,
+                name: leaf.name,
+                unit: leaf.unit,
+                itemType: 'Ingredient',
+                // Identité « matière achetée » remontée telle quelle : c'est elle
+                // qui rattache la ligne à son fournisseur et au comptage.
+                marketPriceId: leaf.marketPriceId ?? null,
+                sourceId: leaf.sourceId ?? null,
+                supplierId: leaf.supplierId ?? null,
+                supplierName: leaf.supplierName ?? null,
+              },
+              q * leaf.qtyFactor,
+              shopName,
+              rootName || menuItemName,
+            )
+          })
+          return
+        }
+        // Def absente ou sans recette → on n'invente rien : le composant reste une
+        // ligne d'achat, visible telle quelle plutôt que disparue silencieusement.
+      }
+      addLeaf(line, q, shopName, rootName || menuItemName)
     })
   }
 
