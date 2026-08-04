@@ -68,6 +68,20 @@ La résolution vit dans `resolveEventContext()`
    décalage comptage/réconciliation, § 11.3 clos.)
 3. Aucun event résoluble → état « Aucun évènement sélectionné » (save désactivé).
 
+**Affichage du contexte (2026-08-04, JLH)** : l'événement d'ancrage est désormais **visible** dans
+le bandeau rouge `.si-band-title` — nom du match, date localisée (`intlLocale`, jamais `fr-FR` en
+dur, cf. BUG-240) et règle d'ancrage (« Dernier match terminé » / « Prochain match »). Lecture
+seule : pas de sélecteur (règle owner « un match = un eventId, aucune bascule silencieuse », § 12.4) —
+le but est de rendre la bascule *visible*, pas de la permettre. Implémentation :
+`contextEventId` posé par `loadForSpace()` (distinct de `selectedEventId`, le filtre de comptage
+que le drawer mobile peut mettre à `null`), computeds `contextEvent*` et util pur
+[`utils/inventoryEventContext.js`](../../src/utils/inventoryEventContext.js)
+(`describeAnchorEvent` normalise `name|eventName` / `date|eventDate` ; `pickAnchorEvent` porte la
+règle futur/passé strict, testé dans `tests/unit/inventoryEventContext.spec.js`). Quand le filtre
+mobile est sur « Indépendant d'un évènement », une puce `invContextCountsIndependent` signale que
+les comptages partent sans eventId alors que la page reste ancrée. Espace sans match passé (mode
+post) → `invContextNoPastEvent` ; sans match futur (mode pre) → `preInvNoUpcoming`.
+
 **Point d'attention pour la réconciliation post-event** : ce défaut ancre sur le *futur* d'abord.
 Le résolveur « dernier event passé » existe déjà dans le store —
 `inventory/resolveLastPastEvent` ([store/modules/inventory.js:319-341](../../src/store/modules/inventory.js)) :
@@ -152,6 +166,26 @@ Ici, le **flux vu de l'écran** :
   post-event (§ 7) en devient le **3ᵉ consommateur** (colonne Qty Pred).
 - Contrat de dépendance complet : [01_EVENT_PREDICT_ALGORITHME.md § « Ce qui dépend
   d'EventPredictVersion »](01_EVENT_PREDICT_ALGORITHME.md).
+- **CTA « Inventaire » à cible dynamique (2026-08-04, JLH)** : le bouton d'Event Predict
+  (ex-`epSpaceInventory`, libellé unique « Inventaire de l'espace ») route désormais selon la date
+  de l'event — futur → `space-pre-inventory` (« Inventaire pré-événement »), passé ou date
+  illisible → `space-inventory` (« Inventaire post-événement », comportement historique). Décision
+  dans [`utils/inventoryRouteTarget.js`](../../src/utils/inventoryRouteTarget.js)
+  (`resolveInventoryRouteName`, testé dans `tests/unit/inventoryRouteTarget.spec.js`) ;
+  `goToInventory()` reprend aussi le repli `?configuration=` de l'URL courante (parité
+  `navigateToTool` — sans lui, un event sans `configurationId` atterrissait sur « Aucun évènement
+  sélectionné »). En mode pre, l'event effectivement ancré peut différer du `?event=` transmis
+  (§ 2/§ 8.2) — acceptable uniquement parce que le bandeau le rend visible.
+- **Retrait du bouton du bandeau Réappro (2026-08-04, JLH)** : le second point d'entrée — le
+  bouton « Inventaire pré-événement » du bandeau « Réarmement prêt » (onglet Réappro
+  d'EventPredictView) — a été retiré le jour même. Redondant (le réarmement expose déjà
+  `space-pre-inventory` dans son sélecteur Outils, et l'onglet Configuration garde son lien
+  `goToInventory`) et concerné par la bascule silencieuse d'event documentée en
+  [`QUESTIONS_A_BERTRAND.md` #52](../QUESTIONS_A_BERTRAND.md). Le seul point d'entrée Event
+  Predict restant est donc le lien de l'onglet Configuration ; `resolveInventoryRouteName` et
+  `goToInventory()` (décrits ci-dessus) restent en place pour lui. Clés i18n
+  `epPreEventInventory` / `epPostEventInventory` / `epOpenInventoryForEvent` supprimées
+  (orphelines).
 
 ### 4.3 Analyse — events et ventes réelles
 
@@ -387,7 +421,10 @@ toolbox des 4 écrans stock, AppHeader (`hdrSecPreInventory`), loader de route.
 mode pre = **prochain futur strict** — `resolveEventContext` ignore TOUT `?event=` (même un
 futur lointain) et recalcule le prochain événement à venir ; aucun futur → état vide
 `preInvNoUpcoming`. Miroir exact du mode post qui, lui, ancre le **dernier événement fini**
-(§ 12.4).
+(§ 12.4). Depuis le 2026-08-04 (JLH), l'écran **nomme** son événement d'ancrage dans le bandeau
+(§ 2) — l'ignorance du `?event=` devient visible au lieu de silencieuse, et l'en-tête
+d'impression reprend le même nom/date (avant : muet en pre-event, `eventOptions` ne listant que
+les events passés).
 
 ### 8.3 Quantités attendues — gating serveur
 

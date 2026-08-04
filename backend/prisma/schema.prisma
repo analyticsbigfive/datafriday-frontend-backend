@@ -3102,6 +3102,69 @@ model RestockState {
   @@index([spaceId])
 }
 
+// ==================== RESTOCK PLANS ====================
+
+// Plan de réarmement NOMMÉ, scope ESPACE (un plan couvre N events : le
+// réarmement travaille sur selectedEventIds pluriel). Contrairement à
+// RestockState (1 ligne écrasée = session courante), un plan est un DOCUMENT
+// FIGÉ : stockLines / restockLines / shoppingGroups sont la PHOTO des lignes
+// calculées au moment de la sauvegarde. Rouvrir un plan ancien réaffiche
+// EXACTEMENT les mêmes chiffres même si prédictions, prix ou recettes ont
+// changé depuis — même famille que StockReconciliation, mais ÉDITABLE.
+// Un plan n'est PAS une source de stock (même avertissement que RestockState).
+// Migration manuelle : prisma/sql/2026-08-04_restockplan.sql
+// Décision : docs/adr/0005_restockplan_document_fige_vs_restockstate_session.md
+model RestockPlan {
+  id       String @id @default(cuid())
+  tenantId String
+  spaceId  String
+  name     String
+
+  // ── Entrées (rejouées au détachement du plan) ────────────────────────────
+  objectiveSource   String  @default("forecast")
+  referenceEventId  String?
+  selectedEventIds  String[]
+  // [{ id, name, date }] dénormalisé : un event supprimé ou renommé ne doit pas
+  // effacer l'intitulé du plan (même raison que StockReconciliation.eventName).
+  eventsSnapshot    Json    @default("[]")
+  scenarioByEventId Json    @default("{}")
+  stockAdjustments  Json    @default("{}")
+  stockPackedModes  Json    @default("{}")
+  stockExcluded     Json    @default("{}")
+  restockedRows     Json    @default("{}")
+
+  // ── Photo figée (sorties des 3 étapes) ───────────────────────────────────
+  stockLines     Json   @default("[]") // étape 1, grain article
+  restockLines   Json   @default("[]") // étape 2, grain shop × article
+  shoppingMode   String @default("finished")
+  shoppingGroups Json   @default("[]") // étape 3, grain fournisseur
+  // Coefficients d'explosion recette FIGÉS : permettent de recalculer la feuille
+  // de course quand l'utilisateur corrige une quantité, SANS relire le catalogue
+  // vivant (qui a pu changer depuis la photo).
+  recipeCoeffs   Json   @default("{}")
+  // Corrections manuelles appliquées PAR-DESSUS restockLines (rowKey → quantité).
+  // Séparées des lignes pour que « calculé » et « corrigé à la main » restent
+  // distinguables à la relecture d'un vieux plan.
+  lineOverrides  Json   @default("{}")
+
+  // Compteurs dénormalisés (au moment de la photo) → la liste s'affiche sans
+  // jamais lire les blobs.
+  lineCount         Int @default(0)
+  shoppingItemCount Int @default(0)
+
+  // Contexte de fabrication (parité StockReconciliation.meta) : snapshotAt,
+  // unmatchedStorage, dégradations connues au moment de la photo.
+  meta Json?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Couvre la liste : where { tenantId, spaceId } orderBy updatedAt desc.
+  @@index([tenantId, spaceId, updatedAt])
+  @@index([spaceId])
+}
+
 // Tracks unmapped Weezevent entities for data quality monitoring
 model UnmappedDataMetrics {
   id               String   @id @default(cuid())

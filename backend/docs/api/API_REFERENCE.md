@@ -3,7 +3,7 @@
 > ⚙️ **Document généré** par `node scripts/generate-api-reference.mjs` — ne pas éditer à la main.
 > Les descriptions viennent des décorateurs `@ApiOperation` des contrôleurs ; les notes de module vivent dans le script.
 
-**305 routes** · générées le 2026-07-05
+**421 routes** · générées le 2026-08-04
 
 ## Base URL
 
@@ -29,12 +29,13 @@ Codes d'erreur : voir [HTTP_ERROR_CODES.md](./HTTP_ERROR_CODES.md). Guides déta
 ## Sommaire
 
 - [Général](#général) — 9 routes
-- [Auth, comptes & RBAC](#auth-comptes-rbac) — 43 routes
-- [Espaces & Builder](#espaces-builder) — 56 routes
-- [Menus d'espace, inventaire & réarmement](#menus-d-espace-inventaire-réarmement) — 16 routes
-- [Événements & prédiction](#événements-prédiction) — 26 routes
-- [Catalogue, recettes & coûts](#catalogue-recettes-coûts) — 78 routes
-- [Intégration Weezevent & analytics](#intégration-weezevent-analytics) — 77 routes
+- [Auth, comptes & RBAC](#auth-comptes-rbac) — 42 routes
+- [Espaces & Builder](#espaces-builder) — 61 routes
+- [Menus d'espace, inventaire & réarmement](#menus-d-espace-inventaire-réarmement) — 24 routes
+- [Événements & prédiction](#événements-prédiction) — 27 routes
+- [Catalogue, recettes & coûts](#catalogue-recettes-coûts) — 81 routes
+- [Intégration Weezevent & analytics](#intégration-weezevent-analytics) — 86 routes
+- [Non classé (à ranger dans le générateur)](#non-classé-à-ranger-dans-le-générateur) — 91 routes
 
 ---
 
@@ -80,7 +81,6 @@ _Source : `src/features/onboarding/onboarding.controller.ts`_
 | GET | `/onboarding/status` | Vérifier le statut de l'utilisateur |
 | POST | `/onboarding` | Créer une organisation |
 | POST | `/onboarding/join-by-code` | Rejoindre une organisation via code d'invitation |
-| POST | `/onboarding/join/:slug` | [DÉPRÉCIÉ] Rejoindre par slug |
 
 ### Me
 
@@ -192,7 +192,11 @@ _Source : `src/features/spaces/spaces.controller.ts`_
 | GET | `/spaces/:id/configurations` | Obtenir les configurations d'un espace |
 | GET | `/spaces/:id/shops` | Lister les shops (SpaceElements) d'un espace — version légère — Query : `configId`. |
 | GET | `/spaces/:id/shop-details` | Obtenir tous les shops (points de vente) d'un espace |
+| GET | `/spaces/:id/event-timeline` | Timeline minute par minute de plusieurs événements (batch) |
+| GET | `/spaces/:id/transaction-baskets` | Combinaisons de catégories/articles par transaction (batch) |
 | GET | `/spaces/:id/event-timeline/:eventId` | Timeline minute par minute d'un événement |
+| GET | `/spaces/:id/live-status` | Statut live d'un espace |
+| GET | `/spaces/:id/live/inventory` | Inventaire live d'un espace |
 | GET | `/spaces/:id/weezevent-events` | Liste des WeezeventEvents d'un espace avec métadonnées d'enrichissement |
 | PATCH | `/spaces/:id/weezevent-events/:eventId` | Mettre à jour les métadonnées d'enrichissement d'un WeezeventEvent |
 | POST | `/spaces/:id/weezevent-events/:eventId/sync-attendees` | Synchronise les participants d'un événement depuis l'API WeezPay |
@@ -217,8 +221,6 @@ Legacy v1 (floors JSON). À n'utiliser que pour les espaces sans zones v2 ; le s
 |---|---|---|
 | POST | `/configurations` | Créer ou mettre à jour une configuration |
 | GET | `/configurations/:id` | Obtenir une configuration par ID |
-| DELETE | `/configurations/:id` | Supprimer une configuration |
-| PATCH | `/configurations/:id` | Mettre à jour une configuration |
 | PATCH | `/configurations/elements/:elementId` | Modifier un shop (SpaceElement) |
 | POST | `/configurations/:id/quick-element` | Créer rapidement un shop dans un espace (import Weezevent) |
 
@@ -243,6 +245,9 @@ Verrou optimiste : `PATCH /elements/:id` exige le header `If-Match` (version él
 | DELETE | `/builder-v2/elements/:id` | Supprimer un élément — 409 { reasons } si utilisé, ?force=true après confirmation — Query : `force`. |
 | PUT | `/builder-v2/elements/:id/performance` | Remplacer les métriques de performance de l'élément (scopé config : ?configId=, défaut 1re adhésion) |
 | PUT | `/builder-v2/elements/:id/staff` | Remplacer la liste des postes staff de l'élément (scopé config : ?configId=, défaut 1re adhésion) |
+| GET | `/builder-v2/elements/:id/staff-suggestions` | Postes obligatoires selon les sous-types F&B de l'élément + les règles Sinking RH du tenant (scopé config : ?configId=) |
+| GET | `/builder-v2/elements/:id/menu-item-sales-input` | Saisie manuelle 'vendu/prévu' par Menu Item pour ce shop (scopé config : ?configId=) |
+| PUT | `/builder-v2/elements/:id/menu-item-sales-input` | Remplacer la saisie 'vendu/prévu' par Menu Item de l'élément (scopé config : ?configId=) |
 | PUT | `/builder-v2/elements/:id/inventory` | Remplacer l'inventaire de l'élément (scopé config : ?configId=, défaut 1re adhésion) |
 | POST | `/builder-v2/configurations/:configId/elements/:elementId` | Cocher : ajouter l'élément à la configuration (idempotent) |
 | DELETE | `/builder-v2/configurations/:configId/elements/:elementId` | Décocher : retirer l'adhésion — 409 si c'est la dernière de l'élément |
@@ -289,6 +294,7 @@ _Source : `src/features/space-menus/space-menus.controller.ts`_
 | GET | `/space-menu/shop/:shopId/inventory` | Get derived inventory lines for a shop (deduplicated recipe references) |
 | GET | `/space-menu/storage-inventory` | Get aggregated derived inventory for a set of shops (Storage element, builder2) — Query : `shopIds` (csv). |
 | GET | `/space-menu/space/:spaceId/items` | Get menu items associated to a space with server-computed availability |
+| GET | `/space-menu/:spaceId/:configId/shop-items` | Get enabled menu items per shop for a whole config (batch, light) |
 | GET | `/space-menu/:spaceId/:configId` | Get menu configuration for a space/config |
 | POST | `/space-menu` | Save menu configuration for a space/config |
 
@@ -301,6 +307,15 @@ Snapshots append-only par espace(+event) ; `POST /inventory-counts` fait un upse
 | Méthode | Route | Description |
 |---|---|---|
 | GET | `/inventory/:spaceId/latest` | Dernier snapshot d'inventaire d'un espace (tous events) |
+| GET | `/inventory/:spaceId/reconciliations` | Documents de réconciliation pre + post-événement du space (lines et kind inclus) |
+| DELETE | `/inventory/:spaceId/reconciliations/:id` | Supprimer un document de réconciliation pre/post-event |
+| GET | `/inventory/:spaceId/pre-event-baseline/:eventId` | Quantités attendues du Pre-event Inventory (post-event précédent + mouvements Logistic) — permission dédiée |
+| GET | `/inventory/:spaceId/:eventId` | — |
+| GET | `/inventory/:spaceId/post-event-baseline/:eventId` | Indice attendu du Post-event Inventory (pre-event du même match + mouvements de la fenêtre − ventes) — permission dédiée |
+| POST | `/inventory/:spaceId/pre-event-reconciliations` | Créer la réconciliation PRE-event (attendu vs compté) — lignes construites côté serveur |
+| GET | `/inventory/:spaceId/event-consumption/:eventId` | Ventes de l'événement explosées en consommation d'ingrédients (cascade Logistic) — source « Vendu » de la réconciliation post-event (Q35 Option 1). Les ventes non rattachables (PdV non mappé, produit sans mapping) sortent dans `unjoined`, jamais écartées en silence. |
+| GET | `/inventory/:spaceId/pre-event/:eventId` | Inventaire de référence pré-événement (dernier snapshot antérieur au jour de l'event) |
+| POST | `/inventory/:spaceId/reconciliations` | Créer un document de réconciliation post-événement (kind=post-event) |
 | GET | `/inventory/:spaceId/:eventId` | Dernier snapshot d'inventaire pour un espace+événement |
 | POST | `/inventory` | Enregistrer un snapshot d'inventaire (append-only) |
 | POST | `/inventory-counts` | Upsert un comptage unitaire (par space+event+shop+item) |
@@ -314,17 +329,6 @@ _Source : `src/features/restock-state/restock-state.controller.ts`_
 | GET | `/spaces/:spaceId/restock-state` | Lire l'état de réarmement d'un space |
 | PUT | `/spaces/:spaceId/restock-state` | Enregistrer / mettre à jour l'état de réarmement (upsert) |
 | DELETE | `/spaces/:spaceId/restock-state` | Réinitialiser l'état de réarmement |
-
-### KV
-
-_Source : `src/features/kv/kv.controller.ts`_
-
-⚠️ **Module non enregistré dans AppModule** : ces routes existent dans le code mais renvoient 404 en réel (décision « KV front » en attente). Absentes de la spec OpenAPI.
-
-| Méthode | Route | Description |
-|---|---|---|
-| GET | `/kv/:key` | Lire une valeur KV |
-| PUT | `/kv/:key` | Écrire / mettre à jour une valeur KV |
 
 ---
 
@@ -340,8 +344,10 @@ _Source : `src/features/events/events.controller.ts`_
 |---|---|---|
 | POST | `/events` | Créer un événement |
 | GET | `/events` | Lister les événements |
+| GET | `/events/weezevent-ambiguous-matches` | Lister les events sans lien Weezevent univoque (BUG-021) |
 | GET | `/events/:id` | Obtenir un événement par ID |
 | PATCH | `/events/:id` | Mettre à jour un événement |
+| PATCH | `/events/:id/weezevent-link` | Résoudre manuellement le lien Weezevent d'un event (BUG-021) |
 | DELETE | `/events/:id` | Supprimer un événement |
 
 ### Event Types
@@ -396,7 +402,6 @@ _Source : `src/features/events/predict-versions.controller.ts`_
 |---|---|---|
 | GET | `/events/:eventId/predict-versions` | Lister les versions de prédiction d'un événement |
 | POST | `/events/:eventId/predict-versions` | Créer une version de prédiction |
-| PUT | `/events/:eventId/predict-versions/default` | Définir la version par défaut (exclusif) |
 | PATCH | `/predict-versions/:id` | Mettre à jour partiellement une version de prédiction |
 | DELETE | `/predict-versions/:id` | Supprimer une version de prédiction |
 
@@ -429,6 +434,7 @@ _Source : `src/features/menu-items/menu-items.controller.ts`_
 | PUT | `/menu-items/:id/components` | Remplacer les composants d'un menu item |
 | PUT | `/menu-items/:id/ingredients` | Remplacer les ingrédients d'un menu item |
 | PUT | `/menu-items/:id/packagings` | Remplacer les packagings d'un menu item |
+| PUT | `/menu-items/:id/combo-items` | Remplacer la composition combo (autres MenuItem) d'un menu item |
 | PATCH | `/menu-items/:id` | Mettre à jour un article |
 | DELETE | `/menu-items/:id` | Supprimer un article |
 
@@ -460,7 +466,7 @@ _Source : `src/features/brands/brands.controller.ts`_
 
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/brand-names` | Lister les brands du tenant |
+| GET | `/brand-names` | Lister les brands du tenant (paginé) |
 | POST | `/brand-names` | Créer un brand |
 | GET | `/brand-names/:id` | Récupérer un brand par id |
 | PATCH | `/brand-names/:id` | Mettre à jour un brand |
@@ -472,8 +478,10 @@ _Source : `src/features/display-names/display-names.controller.ts`_
 
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/display-names` | Lister les display names du tenant |
+| GET | `/display-names` | Lister les display names du tenant (paginé) |
 | POST | `/display-names` | Créer un display name |
+| GET | `/display-names/:id` | Récupérer un display name par id |
+| PATCH | `/display-names/:id` | Mettre à jour un display name |
 | DELETE | `/display-names/:id` | Supprimer un display name |
 
 ### Menu Components
@@ -593,8 +601,16 @@ _Source : `src/features/integrations/integrations.controller.ts`_
 | PATCH | `/organizations/:organizationId/integrations/weezevent/instances/:instanceId` | Mettre à jour une instance Weezevent |
 | DELETE | `/organizations/:organizationId/integrations/weezevent/instances/:instanceId` | Supprimer une instance Weezevent |
 | POST | `/organizations/:organizationId/integrations/weezevent/instances/:instanceId/test` | Tester les credentials d'une instance Weezevent |
+| GET | `/organizations/:organizationId/integrations/weezevent/instances/:instanceId/webhook` | Obtenir la configuration webhook d'une instance Weezevent |
+| PATCH | `/organizations/:organizationId/integrations/weezevent/instances/:instanceId/webhook` | Configurer le secret webhook d'une instance Weezevent |
 | PATCH | `/organizations/:organizationId/integrations/webhooks` | Mettre à jour la configuration des webhooks |
 | GET | `/organizations/:organizationId/integrations/webhooks` | Obtenir la configuration des webhooks |
+| GET | `/organizations/:organizationId/integrations/digifood/instances` | Lister les instances Digifood |
+| POST | `/organizations/:organizationId/integrations/digifood/instances` | Créer une instance Digifood |
+| PATCH | `/organizations/:organizationId/integrations/digifood/instances/:instanceId` | Mettre à jour une instance Digifood |
+| DELETE | `/organizations/:organizationId/integrations/digifood/instances/:instanceId` | Supprimer une instance Digifood |
+| POST | `/organizations/:organizationId/integrations/digifood/instances/:instanceId/test` | Tester une instance Digifood |
+| POST | `/organizations/:organizationId/integrations/digifood/instances/:instanceId/import-csv` | Importer un CSV d'historique Digifood |
 
 ### Mappings
 
@@ -672,6 +688,7 @@ _Source : `src/features/weezevent/weezevent.controller.ts`_
 | GET | `/weezevent/sync/status/:jobId` | État d'un job de synchronisation |
 | GET | `/weezevent/sync/jobs` | Lister les jobs de sync pour une intégration |
 | GET | `/weezevent/sync/jobs/:jobId/stats` | Statistiques d'un job de sync (transactions, events, locations, produits) |
+| PATCH | `/weezevent/sync/jobs/:jobId/cancel` | Annuler un job de sync en conservant son historique |
 | DELETE | `/weezevent/sync/jobs/:jobId` | Supprimer un job de sync |
 
 ### Weezevent Analytics
@@ -699,11 +716,11 @@ _Source : `src/features/analyse/analyse.controller.ts`_
 
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/analyse/dashboard` | Tableau de bord analytique global |
-| GET | `/analyse/kpis/menu` | KPIs par article de menu |
-| GET | `/analyse/kpis/events` | KPIs par événement |
+| GET | `/analyse/dashboard` | Compteurs d'entités du tenant (dashboard analytique) |
+| GET | `/analyse/kpis/menu` | KPIs agrégés du catalogue menu du tenant |
+| GET | `/analyse/kpis/events` | KPIs agrégés des événements du tenant |
 | GET | `/analyse/timeline/:eventId` | Timeline minute par minute d'un événement (via WeezeventEvent.id) |
-| GET | `/analyse/cost-breakdown` | Ventilation des coûts |
+| GET | `/analyse/cost-breakdown` | Articles à plus faible marge (top 20) |
 
 ### Orchestrator
 
@@ -714,6 +731,248 @@ _Source : `src/features/orchestrator/orchestrator.controller.ts`_
 | GET | `/orchestrator/health` | Check health of all processing backends |
 | POST | `/orchestrator/invalidate-cache` | Invalidate cache for a tenant |
 | GET | `/orchestrator/strategy` | Get recommended processing strategy for a context |
+
+---
+
+## Non classé (à ranger dans le générateur)
+
+### Departments
+
+_Source : `src/features/departments/departments.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/departments` | Lister les départements (paginé, avec leurs sous-types) — plateforme entière, lecture ouverte |
+| GET | `/departments/:id` | Récupérer un département par id |
+| POST | `/departments` | Créer un département (réservé au super-admin plateforme) |
+| PATCH | `/departments/:id` | Mettre à jour un département — nom/couleur/icône/needsRh/isSeller/allowsSuppliers (réservé au super-admin plateforme) |
+| DELETE | `/departments/:id` | Supprimer un département (réservé au super-admin plateforme) |
+
+### Subtypes
+
+_Source : `src/features/departments/departments.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/subtypes` | Lister les sous-types (paginé, filtrable par département) — plateforme entière, lecture ouverte |
+| POST | `/subtypes` | Créer un sous-type sous un département (réservé au super-admin plateforme) |
+| PATCH | `/subtypes/:id` | Mettre à jour un sous-type — nom et/ou changer de département (réservé au super-admin plateforme) |
+| DELETE | `/subtypes/:id` | Supprimer un sous-type (réservé au super-admin plateforme) |
+
+### Digifood Webhooks
+
+_Source : `src/features/digifood/digifood-webhook.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| POST | `/webhooks/digifood/:tenantId/:integrationId` | Recevoir un webhook Digifood (order.completed / order.refunded) |
+
+### (sans tag)
+
+_Source : `src/features/events/predict-versions.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| PUT | `/predict-versions/default` | Définir la version par défaut (exclusif) |
+
+### HR Settings — Goals
+
+_Source : `src/features/hr-settings/hr-goals.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr-settings/goals` | Lister les objectifs de CA par TPE du tenant |
+| POST | `/hr-settings/goals` | Créer un objectif de CA par TPE (rattaché à un ensemble de spaces) |
+| PATCH | `/hr-settings/goals/:id` | Mettre à jour un objectif de CA par TPE |
+| DELETE | `/hr-settings/goals/:id` | Supprimer un objectif de CA par TPE |
+
+### HR Settings — Staff par Responsable de zone
+
+_Source : `src/features/hr-settings/hr-staff-ratios.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr-settings/staff-ratios` | Lister les ratios staff/Responsable de zone du tenant |
+| POST | `/hr-settings/staff-ratios` | Créer un ratio staff/Responsable de zone (rattaché à un ensemble de spaces) |
+| PATCH | `/hr-settings/staff-ratios/:id` | Mettre à jour un ratio staff/Responsable de zone |
+| DELETE | `/hr-settings/staff-ratios/:id` | Supprimer un ratio staff/Responsable de zone |
+
+### HR — Persons
+
+_Source : `src/features/hr/hr-persons.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr/persons` | Lister les personnes internes (dropdown « Nom » des lignes staff) |
+| POST | `/hr/persons` | Créer une personne interne (CDI/CDD) |
+| PATCH | `/hr/persons/:id` | Mettre à jour une personne interne |
+| DELETE | `/hr/persons/:id` | Supprimer une personne interne |
+
+### HR — Role/MenuItem ratios
+
+_Source : `src/features/hr/hr-role-menu-item-ratios.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr/role-menu-item-ratios` | Lister les associations Rôle↔MenuItem du tenant (filtrable par espace) |
+| POST | `/hr/role-menu-item-ratios` | Créer une association Rôle↔MenuItem |
+| PATCH | `/hr/role-menu-item-ratios/:id` | Mettre à jour une association Rôle↔MenuItem |
+| DELETE | `/hr/role-menu-item-ratios/:id` | Supprimer une association Rôle↔MenuItem |
+
+### HR — Roles
+
+_Source : `src/features/hr/hr-roles.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr/roles` | Lister les rôles RH du tenant |
+| POST | `/hr/roles` | Créer un rôle RH (validation conditionnelle F&B / AGENCY) |
+| PATCH | `/hr/roles/:id` | Mettre à jour un rôle RH |
+| DELETE | `/hr/roles/:id` | Supprimer un rôle RH |
+
+### HR — Sinking rules
+
+_Source : `src/features/hr/hr-sinking-rules.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr/sinking-rules` | Lister les règles Sinking RH du tenant (filtrable par rôle) |
+| POST | `/hr/sinking-rules` | Créer une règle Sinking RH |
+| PATCH | `/hr/sinking-rules/:id` | Mettre à jour une règle Sinking RH |
+| DELETE | `/hr/sinking-rules/:id` | Supprimer une règle Sinking RH |
+
+### HR — Suppliers
+
+_Source : `src/features/hr/hr-suppliers.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr/suppliers` | Lister les fournisseurs RH (agences) du tenant |
+| POST | `/hr/suppliers` | Créer un fournisseur RH |
+| PATCH | `/hr/suppliers/:id` | Mettre à jour un fournisseur RH |
+| DELETE | `/hr/suppliers/:id` | Supprimer un fournisseur RH |
+
+### HR — Import
+
+_Source : `src/features/hr/hr-suppliers.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| POST | `/hr/import` | Import one-shot des données RH localStorage (hr_suppliers / staff_positions) |
+
+### Industrials
+
+_Source : `src/features/industrials/industrials.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/industrials` | Lister les industrials du tenant (paginé) |
+| POST | `/industrials` | Créer un industrial |
+| GET | `/industrials/:id` | Récupérer un industrial par id |
+| PATCH | `/industrials/:id` | Mettre à jour un industrial |
+| DELETE | `/industrials/:id` | Supprimer un industrial |
+
+### Logistics
+
+_Source : `src/features/logistics/logistics.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/logistics/:spaceId/stock` | Stock attendu de l'espace : espace/configs + référentiel d'items par élément (PDV/Storage, noms résolus côté serveur) + StockLevel (mouvements manuels) + consommation ventes dérivée depuis la dernière réconciliation. Attendu affiché = level − consumption (casse de pack au rendu). Réponse auto-suffisante : le front n'a plus besoin du catalogue complet (menu items/ingredients/market prices). |
+| GET | `/logistics/:spaceId/market-prices` | Market prices candidats pour le dropdown du popup +/− d'une denrée donnée — évite de charger le catalogue complet côté front. |
+| POST | `/logistics/movements` | Mouvement de stock manuel (ajout/suppression avec raison). Un transfert crée atomiquement le mouvement miroir sur la contrepartie et met à jour les deux niveaux. |
+| GET | `/logistics/element/:elementId/history` | Historique d'un PDV/storage : mouvements manuels paginés (cursor) + ventes agrégées par event (une ligne par event). |
+| POST | `/logistics/:spaceId/reset` | Inventory Reset : fige les écarts attendu vs compté dans une réconciliation (nouvelle ancre des ventes), pose les mouvements d'ajustement et remplace les niveaux par les valeurs comptées. |
+| GET | `/logistics/:spaceId/reconciliations` | Liste des réconciliations de l'espace (section Réconciliation) |
+| GET | `/logistics/reconciliations/:id` | Détail d'une réconciliation (lignes d'écart) |
+| GET | `/logistics/reconciliations/:id/export` | Export CSV des écarts d'une réconciliation |
+| POST | `/logistics/:spaceId/simulate-sale` | QA — simule une vente Weezevent (transaction + items synthétiques marqués isSimulated dans les mêmes tables que le pipeline réel) pour tester la déduction de stock sans attendre une vraie vente. PDV et menu items doivent déjà être mappés à Weezevent. ⚠️ Visible aussi dans les dashboards revenus/analytics tant que non purgée (DELETE simulate-sale). |
+| DELETE | `/logistics/:spaceId/simulate-sale` | QA — purge les ventes simulées (isSimulated) d'un PDV, nettoyage post-test. |
+| POST | `/logistics/:spaceId/simulation-runs` | QA — démarre un run d'auto-simulation côté serveur (BullMQ Job Scheduler) : tire au hasard un PDV/menu item simulable et appelle simulateSale à intervalle régulier, indépendamment de tout onglet navigateur ouvert. Idempotent : renvoie le run déjà actif s'il y en a un pour cet espace. |
+| POST | `/logistics/:spaceId/simulation-runs/:runId/stop` | QA — arrête un run d'auto-simulation actif (retire le Job Scheduler BullMQ). |
+| GET | `/logistics/:spaceId/simulation-runs/active` | QA — run d'auto-simulation actif de l'espace, s'il y en a un (survit au reload/fermeture d'onglet). |
+| GET | `/logistics/:spaceId/simulation-runs` | QA — historique des runs d'auto-simulation de l'espace (actifs, arrêtés, échoués). |
+| GET | `/logistics/:spaceId/simulated-sales` | QA — historique paginé des ventes simulées de l'espace, tous PDV confondus. |
+| POST | `/logistics/:spaceId/simulated-sales/purge` | QA — purge sélective de ventes simulées par id de transaction (history dialog). |
+
+### Component Types
+
+_Source : `src/features/menu-components/component-taxonomy.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/component-types` | Lister tous les Component Types |
+| POST | `/component-types` | Créer un Component Type |
+| PATCH | `/component-types/:id` | Mettre à jour un Component Type |
+| DELETE | `/component-types/:id` | Supprimer un Component Type |
+
+### Component Categories
+
+_Source : `src/features/menu-components/component-taxonomy.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/component-categories` | Lister toutes les Component Categories |
+| POST | `/component-categories` | Créer une Component Category |
+| PATCH | `/component-categories/:id` | Mettre à jour une Component Category |
+| DELETE | `/component-categories/:id` | Supprimer une Component Category |
+
+### Packing Types
+
+_Source : `src/features/packing-types/packing-types.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/packing-types` | Lister les packing types du tenant (paginé) |
+| POST | `/packing-types` | Créer un packing type |
+| GET | `/packing-types/:id` | Récupérer un packing type par id |
+| PATCH | `/packing-types/:id` | Mettre à jour un packing type |
+| DELETE | `/packing-types/:id` | Supprimer un packing type |
+
+### Restock Plans
+
+_Source : `src/features/restock-plans/restock-plans.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/spaces/:spaceId/restock-plans` | Lister les plans de réarmement d'un espace (métadonnées seules, sans les lignes) |
+| POST | `/spaces/:spaceId/restock-plans` | Enregistrer un nouveau plan (photo figée des lignes calculées) |
+| GET | `/restock-plans/:id` | Lire un plan complet (photo comprise) |
+| PATCH | `/restock-plans/:id` | Mettre à jour un plan (renommage, corrections, nouvelle photo) |
+| POST | `/restock-plans/:id/duplicate` | Dupliquer un plan (copie serveur, sans ré-téléverser la photo) |
+| DELETE | `/restock-plans/:id` | Supprimer un plan |
+
+### Staffing
+
+_Source : `src/features/staffing/staffing.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/events/:eventId/staffing` | Lignes de staff de l'événement groupées par PDV + totaux (§5) |
+| POST | `/events/:eventId/staffing/generate` | (Re)génère les lignes ALGO de l'événement |
+| POST | `/events/:eventId/staffing/lines` | Ajout manuel d’une ligne de staff (bouton « Ajouter un staff ») |
+| PATCH | `/staffing/lines/:id` | Modifier une ligne (enabled / fournisseur / personne / horaires / taux) |
+| DELETE | `/staffing/lines/:id` | Supprimer une ligne (lignes MANUAL uniquement) |
+
+### HR Settings — Costs
+
+_Source : `src/features/staffing/staffing.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/hr-settings/costs` | Σ EventStaffLine enabled × durée × taux, groupé par espace |
+
+### Storage Types
+
+_Source : `src/features/storage-types/storage-types.controller.ts`_
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/storage-types` | Lister les storage types du tenant (paginé) |
+| POST | `/storage-types` | Créer un storage type |
+| GET | `/storage-types/:id` | Récupérer un storage type par id |
+| PATCH | `/storage-types/:id` | Mettre à jour un storage type (renomme aussi partout où le nom est utilisé) |
+| DELETE | `/storage-types/:id` | Supprimer un storage type |
 
 ---
 

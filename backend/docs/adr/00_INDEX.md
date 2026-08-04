@@ -15,6 +15,7 @@
 | [0002](0002_migrations_manuelles_jamais_plateforme.md) | Migrations Prisma jamais automatiques (toujours manuelles) | Accepté | Déploiement / DB |
 | [0003](0003_spacemenuitem_source_verite_prix_espace.md) | SpaceMenuItem = source de vérité du prix par espace | Accepté, migré | Menu & recettes |
 | [0004](0004_prisma_driver_adapter_pg.md) | Adopter @prisma/adapter-pg (retire le double-wrapping pgbouncer) | Accepté | Base de données / Perf |
+| [0005](0005_restockplan_document_fige_vs_restockstate_session.md) | Séparer le plan de réarmement (document figé `RestockPlan`) de l'état de session (`RestockState`) | Accepté | Stock / Réarmement |
 
 ## Comment ajouter une ADR
 

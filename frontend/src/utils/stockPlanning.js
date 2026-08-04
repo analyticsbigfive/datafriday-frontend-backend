@@ -462,19 +462,36 @@ export function computePackagingForQuantity(
   const src = findStockReference(item, ingredients, components, menuItems)
   if (!src) return null
 
+  // Un ingrédient (/ingredients) ne porte AUCUN champ conditionnement à plat :
+  // tout vit dans son MarketPrice niché (inventoryPackaging, packedUnits…).
+  // Sans ce repli, le réarmement ne résolvait jamais de colis pour un ingrédient
+  // — seuls les menu items (carte « Inventory Information ») fonctionnaient.
+  const mp = src.marketPrice || null
   const packagingType =
     src.packagingType ||
     src.inventoryPackagingName ||
     src.inventoryPackagingType ||
+    // Libellé de stockage à plat (MenuComponent.inventoryPackaging, ex. « Bag »).
+    src.inventoryPackaging ||
     src.inventoryPackagingId ||
+    mp?.inventoryPackaging ||
+    mp?.purchasePackaging ||
     null
   const packagingUnitNumber = toNumber(
-    // Repli final : carte « Inventory Information » du menu item lui-même
-    // (inventoryNumberOfUnits), symétrique du repli type inventoryPackagingType.
-    src.packagingUnitNumber ?? src.inventoryQuantityPackaged ?? src.inventoryNumberOfUnits,
+    // Carte « Inventory Information » du menu item (inventoryNumberOfUnits),
+    // puis qté/paquet du drawer Market Price — persistée dans `packedUnits`,
+    // jamais dans `inventoryQuantityPackaged` (même repli qu'inventoryUtils
+    // resolveQtyPackaged, qui pilote déjà le comptage d'inventaire).
+    src.packagingUnitNumber ??
+      src.inventoryQuantityPackaged ??
+      src.inventoryNumberOfUnits ??
+      src.packedUnits ??
+      mp?.inventoryQuantityPackaged ??
+      mp?.packedUnits,
   )
-  const packagingUnit = src.packagingUnit || src.unit || item?.unit
-  const purchaseUnitConversion = toNumber(src.purchaseUnitConversion, 1) || 1
+  const packagingUnit = src.packagingUnit || src.unit || mp?.unit || item?.unit
+  const purchaseUnitConversion =
+    toNumber(src.purchaseUnitConversion, 0) || toNumber(mp?.purchaseUnitConversion, 1) || 1
 
   if (!packagingType || !packagingUnitNumber || !packagingUnit) return null
 
@@ -487,4 +504,91 @@ export function computePackagingForQuantity(
     packagingUnit,
     looseQty: packedCount * packagingUnitNumber,
   }
+}
+
+/**
+ * Quantité réellement couverte par les colis entiers d'un packaging, exprimée
+ * dans l'unité de la ligne de stock (l'inverse exact de la formule packedCount :
+ * covered = packedCount × packagingUnitNumber ÷ purchaseUnitConversion).
+ * Accepte un packaging vivant (computePackagingForQuantity, conversion portée
+ * par `source`) ou figé (restockPlanSnapshot.freezePackaging, conversion à plat).
+ * Renvoie null si le packaging est absent ou sans taille de colis exploitable.
+ */
+export function coveredQuantityForPackaging(packaging) {
+  if (!packaging) return null
+  const packagingUnitNumber = toNumber(packaging.packagingUnitNumber)
+  if (!packagingUnitNumber) return null
+  const purchaseUnitConversion =
+    toNumber(packaging.purchaseUnitConversion, 0) ||
+    toNumber(packaging.source?.purchaseUnitConversion, 1) ||
+    1
+  return (toNumber(packaging.packedCount) * packagingUnitNumber) / purchaseUnitConversion
+}
+
+/**
+ * BUG-296-01 — décomposition d'une ligne de réarmement (grain shop × article).
+ * `restockQuantity` est la quantité DÉJÀ arrondie en colis entiers (sortie de
+ * coveredQuantityForPackaging) : aucun arrondi n'est refait ici.
+ * - gap : manque réel (besoin − restant, plancher 0) ;
+ * - surplusLoose : reste en vrac créé par l'arrondi en colis (déposé − manque) ;
+ * - finalStock : stock final prévu après dépôt (restant + déposé − besoin).
+ */
+export function computeRestockOutcome({ targetQuantity, remainingQuantity, restockQuantity } = {}) {
+  const target = toNumber(targetQuantity)
+  const remaining = toNumber(remainingQuantity)
+  const deposited = toNumber(restockQuantity)
+  const gap = Math.max(0, target - remaining)
+  return {
+    gap,
+    surplusLoose: Math.max(0, deposited - gap),
+    finalStock: remaining + deposited - target,
+  }
+}
+
+/**
+ * BUG-296-01 — agrégat grain ARTICLE pour l'étape 1, à partir des lignes
+ * shop × article NON filtrées (shape liveRestockRows). L'arrondi en colis se
+ * fait PAR PDV avant la somme — comportement métier acté fiche 295-01
+ * (3 PDV × 0,7 kg en paquets de 0,5 kg → 2 paquets chacun, 6 au total).
+ * `packedCount` reste null si aucune ligne ne porte de packaging ; les
+ * métadonnées de colis (type, taille) viennent du premier packaging non nul
+ * (la taille est définie au catalogue, identique entre PDV).
+ */
+export function aggregateRestockOutcomesByItem(rows = []) {
+  const byItem = {}
+  rows.forEach((row) => {
+    if (!row || !row.itemKey) return
+    const outcome = computeRestockOutcome(row)
+    const entry = byItem[row.itemKey] || (byItem[row.itemKey] = {
+      itemKey: row.itemKey,
+      unit: row.unit ?? null,
+      targetQuantity: 0,
+      remainingQuantity: 0,
+      gap: 0,
+      coveredQuantity: 0,
+      surplusLoose: 0,
+      finalStock: 0,
+      packedCount: null,
+      packagingType: null,
+      packagingUnitNumber: null,
+      packagingUnit: null,
+      shopCount: 0,
+    })
+    entry.targetQuantity += toNumber(row.targetQuantity)
+    entry.remainingQuantity += toNumber(row.remainingQuantity)
+    entry.gap += outcome.gap
+    entry.coveredQuantity += toNumber(row.restockQuantity)
+    entry.surplusLoose += outcome.surplusLoose
+    entry.finalStock += outcome.finalStock
+    entry.shopCount += 1
+    if (row.packaging) {
+      entry.packedCount = (entry.packedCount ?? 0) + toNumber(row.packaging.packedCount)
+      if (!entry.packagingType) {
+        entry.packagingType = row.packaging.packagingType ?? null
+        entry.packagingUnitNumber = toNumber(row.packaging.packagingUnitNumber) || null
+        entry.packagingUnit = row.packaging.packagingUnit ?? null
+      }
+    }
+  })
+  return byItem
 }
