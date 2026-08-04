@@ -7,7 +7,7 @@
           <v-parallax
             class="parallax-img"
             height="100vh"
-            src="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=2070&auto=format&fit=crop"
+            :src="require('@/assets/datafriday-homepage.jpg')"
           >
             <div class="parallax-overlay">
               <div class="brand-header">
