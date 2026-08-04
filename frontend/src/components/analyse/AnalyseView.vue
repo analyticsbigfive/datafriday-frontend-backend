@@ -1660,15 +1660,22 @@ function onShowAverage() {
 const isLive = computed(() => route.name === 'space-live')
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
+// Passe à true dès qu'applyLiveScope() a réellement modifié les filtres (donc
+// uniquement pour une instance jamais utilisée en Live, ex. l'Analyse classique, pas
+// de resetFilters() au démontage). Sans ce garde-fou, chaque démontage d'AnalyseView
+// (y compris une simple Analyse qui n'a jamais vu /live) déclenchait un reset
+// réactif inutile, travail superflu pile au moment du teardown, cf. onDeactivated/
+// onBeforeUnmount ci-dessous.
+const liveScopeApplied = ref(false)
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 const LIVE_POLL_MS = 15000
 let livePollTimer = null
 async function livePoll() {
-  // Re-résout l'event live à CHAQUE tick — sans ça, un scope figé au premier appel
+  // Re-résout l'event live à CHAQUE tick, sans ça un scope figé au premier appel
   // (ex. page ouverte avant la 1re vente, ou avant qu'un Event existe) ne se
   // corrige jamais tout seul : la timeline/KPI continuent de tourner sur l'ancien
   // scope pendant que de vraies transactions arrivent (cause racine confirmée
-  // 2026-08-03 — auparavant applyLiveScope() ne tournait qu'au mount/activate).
+  // 2026-08-03, auparavant applyLiveScope() ne tournait qu'au mount/activate).
   await applyLiveScope()
   if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
   refreshItemRecords()
@@ -1693,22 +1700,32 @@ function stopLivePolling() {
 onActivated(() => {
   startLivePolling()
   // Le composant reste en mémoire (keepAlive) : revenir sur /live après être
-  // passé par un autre outil ne redéclenche pas onMounted — on resynchronise
+  // passé par un autre outil ne redéclenche pas onMounted, on resynchronise
   // quand même sur l'event réellement live à chaque retour sur l'écran.
   // resetFilters() AVANT applyLiveScope() : neutralise tout filtre secondaire
   // laissé par une session Analyse précédente (catégorie, recherche, plages de
-  // tickets…) qui pourrait sinon exclure silencieusement l'event live de
-  // filteredEvents malgré selectedEventIds — applyLiveScope() écrase ensuite les 3
+  // tickets...) qui pourrait sinon exclure silencieusement l'event live de
+  // filteredEvents malgré selectedEventIds, applyLiveScope() écrase ensuite les 3
   // clés essentielles (config/timeRange/selectedEventIds) par-dessus ce reset.
   if (isLive.value) resetFilters()
   applyLiveScope()
 })
-// Redondant à dessein (comme pour stopLivePolling) : selon que /live→/analyse
-// bascule une route keepAlive→keepAlive (onDeactivated) ou détruit le wrapper
+// Redondant à dessein (comme pour stopLivePolling) : selon que /live vers /analyse
+// bascule une route keepAlive vers keepAlive (onDeactivated) ou détruit le wrapper
 // <keep-alive> lui-même (onBeforeUnmount, cf. DashboardView.vue), un seul des
-// deux hooks se déclenche réellement — jamais les deux, jamais aucun.
-onDeactivated(() => { stopLivePolling(); resetFilters() })
-onBeforeUnmount(() => { stopLivePolling(); resetFilters() })
+// deux hooks se déclenche réellement, jamais les deux, jamais aucun.
+// resetFilters() gardé par liveScopeApplied : sur une instance qui n'a jamais
+// scopé sur Live (Analyse classique), ce reset ne servirait à rien, évite le
+// recalcul réactif superflu pile au moment du démontage.
+function resetLiveFiltersIfNeeded() {
+  stopLivePolling()
+  if (liveScopeApplied.value) {
+    resetFilters()
+    liveScopeApplied.value = false
+  }
+}
+onDeactivated(resetLiveFiltersIfNeeded)
+onBeforeUnmount(resetLiveFiltersIfNeeded)
 
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
@@ -1833,6 +1850,7 @@ async function applyLiveScope() {
   if (!isLive.value) return
   const spaceId = route.params.spaceId
   if (!spaceId) return
+  liveScopeApplied.value = true
   try {
     const res = await getSpaceLiveStatus(spaceId)
     if (res?.isLive && res?.eventId) {
