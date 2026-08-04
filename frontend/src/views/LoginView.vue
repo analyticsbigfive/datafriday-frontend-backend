@@ -7,7 +7,7 @@
           <v-parallax
             class="parallax-img"
             height="100vh"
-            src="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=2070&auto=format&fit=crop"
+            :src="require('@/assets/datafriday-homepage.jpg')"
           >
             <div class="parallax-overlay">
               <div class="brand-header">
@@ -18,12 +18,12 @@
                 />
                 <div>
                   <p class="brand-name">Data Friday</p>
-                  <p class="brand-tagline">Intelligence F&B</p>
+                  <p class="brand-tagline">vous êtes déjà en Weekend !</p>
                 </div>
               </div>
               <h1 class="parallax-title">
                 Prenez le contrôle de votre
-                <span class="highlight">business F&B</span>
+                <span class="highlight">Arena</span>
               </h1>
               <p class="parallax-subtitle">
                 La plateforme tout-en-un pour optimiser vos revenus, gérer vos
@@ -55,7 +55,7 @@
               <img :src="require('@/assets/datafriday.png')" alt="Logo" style="width:36px;height:36px;object-fit:contain;" />
               <div>
                 <p style="color:white;font-size:16px;font-weight:700;margin:0;">Data Friday</p>
-                <p style="color:#ff3131;font-size:12px;margin:0;">Intelligence F&B</p>
+                <p style="color:#ff3131;font-size:12px;margin:0;">vous êtes déjà en Weekend !</p>
               </div>
             </div>
 
