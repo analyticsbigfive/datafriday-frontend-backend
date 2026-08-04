@@ -524,3 +524,71 @@ export function coveredQuantityForPackaging(packaging) {
     1
   return (toNumber(packaging.packedCount) * packagingUnitNumber) / purchaseUnitConversion
 }
+
+/**
+ * BUG-296-01 — décomposition d'une ligne de réarmement (grain shop × article).
+ * `restockQuantity` est la quantité DÉJÀ arrondie en colis entiers (sortie de
+ * coveredQuantityForPackaging) : aucun arrondi n'est refait ici.
+ * - gap : manque réel (besoin − restant, plancher 0) ;
+ * - surplusLoose : reste en vrac créé par l'arrondi en colis (déposé − manque) ;
+ * - finalStock : stock final prévu après dépôt (restant + déposé − besoin).
+ */
+export function computeRestockOutcome({ targetQuantity, remainingQuantity, restockQuantity } = {}) {
+  const target = toNumber(targetQuantity)
+  const remaining = toNumber(remainingQuantity)
+  const deposited = toNumber(restockQuantity)
+  const gap = Math.max(0, target - remaining)
+  return {
+    gap,
+    surplusLoose: Math.max(0, deposited - gap),
+    finalStock: remaining + deposited - target,
+  }
+}
+
+/**
+ * BUG-296-01 — agrégat grain ARTICLE pour l'étape 1, à partir des lignes
+ * shop × article NON filtrées (shape liveRestockRows). L'arrondi en colis se
+ * fait PAR PDV avant la somme — comportement métier acté fiche 295-01
+ * (3 PDV × 0,7 kg en paquets de 0,5 kg → 2 paquets chacun, 6 au total).
+ * `packedCount` reste null si aucune ligne ne porte de packaging ; les
+ * métadonnées de colis (type, taille) viennent du premier packaging non nul
+ * (la taille est définie au catalogue, identique entre PDV).
+ */
+export function aggregateRestockOutcomesByItem(rows = []) {
+  const byItem = {}
+  rows.forEach((row) => {
+    if (!row || !row.itemKey) return
+    const outcome = computeRestockOutcome(row)
+    const entry = byItem[row.itemKey] || (byItem[row.itemKey] = {
+      itemKey: row.itemKey,
+      unit: row.unit ?? null,
+      targetQuantity: 0,
+      remainingQuantity: 0,
+      gap: 0,
+      coveredQuantity: 0,
+      surplusLoose: 0,
+      finalStock: 0,
+      packedCount: null,
+      packagingType: null,
+      packagingUnitNumber: null,
+      packagingUnit: null,
+      shopCount: 0,
+    })
+    entry.targetQuantity += toNumber(row.targetQuantity)
+    entry.remainingQuantity += toNumber(row.remainingQuantity)
+    entry.gap += outcome.gap
+    entry.coveredQuantity += toNumber(row.restockQuantity)
+    entry.surplusLoose += outcome.surplusLoose
+    entry.finalStock += outcome.finalStock
+    entry.shopCount += 1
+    if (row.packaging) {
+      entry.packedCount = (entry.packedCount ?? 0) + toNumber(row.packaging.packedCount)
+      if (!entry.packagingType) {
+        entry.packagingType = row.packaging.packagingType ?? null
+        entry.packagingUnitNumber = toNumber(row.packaging.packagingUnitNumber) || null
+        entry.packagingUnit = row.packaging.packagingUnit ?? null
+      }
+    }
+  })
+  return byItem
+}

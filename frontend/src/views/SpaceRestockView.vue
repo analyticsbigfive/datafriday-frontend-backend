@@ -296,7 +296,7 @@
           <template v-else>
           <div class="sr-settings-list">
             <div
-              v-for="item in filteredStockSettingsRows"
+              v-for="item in pagedStockSettingsRows"
               :key="item.itemKey"
               class="sr-setting-row"
               :style="isStockSelected(item.itemKey) ? '' : 'opacity:0.5'"
@@ -339,6 +339,52 @@
                     {{ t('srTargetLabel') }} {{ formatDisplayQuantity(adjustedItemQuantity(item), item.unit, item.itemKey) }}
                   </span>
                 </div>
+                <!-- BUG-296-01 — ventilation besoin/restant/manque dès l'étape 1,
+                     avec paquets suggérés, reste en vrac et stock final prévu. -->
+                <div v-if="previousInventoryLoading" class="sr-breakdown sr-breakdown-loading">
+                  {{ t('srBreakdownLoading') }}
+                </div>
+                <div v-else-if="stockOutcomeByItem[item.itemKey]" class="sr-breakdown">
+                  <span class="sr-breakdown-part">
+                    {{ t('srBreakdownRemaining') }}
+                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].remainingQuantity, item.unit) }}</strong>
+                  </span>
+                  <span class="sr-breakdown-part">
+                    {{ t('srBreakdownGap') }}
+                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].gap, item.unit) }}</strong>
+                  </span>
+                  <span
+                    v-if="stockOutcomeByItem[item.itemKey].packedCount != null"
+                    class="sr-breakdown-part"
+                  >
+                    {{ t('srBreakdownPacks') }}
+                    <strong>
+                      {{ stockOutcomeByItem[item.itemKey].packedCount.toLocaleString('fr-FR') }}
+                      {{ stockOutcomeByItem[item.itemKey].packagingType }}
+                      <template v-if="stockOutcomeByItem[item.itemKey].packagingUnitNumber">
+                        ({{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].packagingUnitNumber, stockOutcomeByItem[item.itemKey].packagingUnit) }})
+                      </template>
+                    </strong>
+                  </span>
+                  <span class="sr-breakdown-part">
+                    {{ t('srBreakdownCovered') }}
+                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].coveredQuantity, item.unit) }}</strong>
+                  </span>
+                  <span
+                    v-if="stockOutcomeByItem[item.itemKey].surplusLoose > 0"
+                    class="sr-breakdown-part"
+                  >
+                    {{ t('srColLooseLeft') }}
+                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].surplusLoose, item.unit) }}</strong>
+                  </span>
+                  <span
+                    class="sr-breakdown-part"
+                    :class="stockOutcomeByItem[item.itemKey].finalStock >= 0 ? 'sr-breakdown-ok' : 'sr-breakdown-warn'"
+                  >
+                    {{ t('srColFinalStock') }}
+                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].finalStock, item.unit) }}</strong>
+                  </span>
+                </div>
               </div>
 
               <div class="sr-slider-wrap">
@@ -357,23 +403,24 @@
                 </div>
               </div>
 
-              <label class="sr-pack-toggle">
-                <input
-                  type="checkbox"
-                  :checked="isPackedMode(item.itemKey)"
-                  :disabled="!packagingForItem(item, adjustedItemQuantity(item))"
-                  @change="setPackedMode(item.itemKey, $event.target.checked)"
-                />
-                {{ t('srPacked') }}
-              </label>
             </div>
           </div>
           </template>
           </div>
           </v-expand-transition>
-          <!-- Assistant — pied d'étape 1 : générer le réarmement puis avancer. -->
-          <footer class="sr-wizard-nav">
-            <v-spacer />
+          <!-- Assistant — pied d'étape 1 : sticky à l'écran, pagination de la
+               liste au centre, génération à droite. -->
+          <footer class="sr-wizard-nav sr-wizard-nav-grid">
+            <span class="sr-wizard-nav-side" aria-hidden="true" />
+            <v-pagination
+              v-if="stockPageCount > 1"
+              v-model="stockPage"
+              :length="stockPageCount"
+              :total-visible="5"
+              density="compact"
+              class="sr-wizard-nav-pagination"
+            />
+            <span v-else class="sr-wizard-nav-side" aria-hidden="true" />
             <div class="sr-wizard-nav-end">
               <p v-if="!canGenerate" class="sr-wizard-nav-hint">
                 <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
@@ -487,7 +534,7 @@
             class="sr-table-groups"
           >
             <section
-              v-for="group in restockGroupsByShopSplit"
+              v-for="group in pagedRestockGroups"
               :key="group.shopId"
               class="sr-table-group"
             >
@@ -502,6 +549,8 @@
                     <th>{{ t('srColTarget') }}</th>
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
+                    <th>{{ t('srColLooseLeft') }}</th>
+                    <th>{{ t('srColFinalStock') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -546,6 +595,17 @@
                       </span>
                       <template v-else>{{ formatRestockQuantity(row) }}</template>
                     </td>
+                    <!-- BUG-296-01 — reste en vrac + stock final prévu. Tiret sur
+                         les plans sauvegardés avant le changement (champs absents). -->
+                    <td :data-label="t('srColLooseLeft')">
+                      {{ row.surplusLoose == null ? '—' : formatLooseQuantity(row.surplusLoose, row.unit) }}
+                    </td>
+                    <td
+                      :data-label="t('srColFinalStock')"
+                      :class="row.finalStock == null ? '' : (row.finalStock >= 0 ? 'sr-final-ok' : 'sr-final-warn')"
+                    >
+                      {{ row.finalStock == null ? '—' : formatLooseQuantity(row.finalStock, row.unit) }}
+                    </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
                         type="button"
@@ -581,6 +641,8 @@
                       <th>{{ t('srColTarget') }}</th>
                       <th>{{ t('srColRemaining') }}</th>
                       <th>{{ t('srColToDeposit') }}</th>
+                      <th>{{ t('srColLooseLeft') }}</th>
+                      <th>{{ t('srColFinalStock') }}</th>
                       <th>{{ t('srColConfirmed') }}</th>
                     </tr>
                   </thead>
@@ -627,6 +689,16 @@
                       </span>
                       <template v-else>{{ formatRestockQuantity(row) }}</template>
                     </td>
+                      <!-- BUG-296-01 — reste en vrac + stock final prévu. -->
+                      <td :data-label="t('srColLooseLeft')">
+                        {{ row.surplusLoose == null ? '—' : formatLooseQuantity(row.surplusLoose, row.unit) }}
+                      </td>
+                      <td
+                        :data-label="t('srColFinalStock')"
+                        :class="row.finalStock == null ? '' : (row.finalStock >= 0 ? 'sr-final-ok' : 'sr-final-warn')"
+                      >
+                        {{ row.finalStock == null ? '—' : formatLooseQuantity(row.finalStock, row.unit) }}
+                      </td>
                       <td :data-label="t('srColConfirmed')">
                         <button
                           type="button"
@@ -649,7 +721,7 @@
 
           <div v-else-if="restockGenerated && restockRows.length" class="sr-table-groups">
             <section
-              v-for="group in restockGroupsByItem"
+              v-for="group in pagedRestockGroups"
               :key="group.itemKey"
               class="sr-table-group"
             >
@@ -684,6 +756,8 @@
                     <th>{{ t('srColTarget') }}</th>
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
+                    <th>{{ t('srColLooseLeft') }}</th>
+                    <th>{{ t('srColFinalStock') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -721,6 +795,17 @@
                       </span>
                       <template v-else>{{ formatRestockQuantity(row) }}</template>
                     </td>
+                    <!-- BUG-296-01 — reste en vrac + stock final prévu. Tiret sur
+                         les plans sauvegardés avant le changement (champs absents). -->
+                    <td :data-label="t('srColLooseLeft')">
+                      {{ row.surplusLoose == null ? '—' : formatLooseQuantity(row.surplusLoose, row.unit) }}
+                    </td>
+                    <td
+                      :data-label="t('srColFinalStock')"
+                      :class="row.finalStock == null ? '' : (row.finalStock >= 0 ? 'sr-final-ok' : 'sr-final-warn')"
+                    >
+                      {{ row.finalStock == null ? '—' : formatLooseQuantity(row.finalStock, row.unit) }}
+                    </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
                         type="button"
@@ -741,13 +826,22 @@
           </div>
           </div>
           </v-expand-transition>
-          <!-- Assistant — pied d'étape 2 : précédent + générer la feuille. -->
-          <footer class="sr-wizard-nav">
+          <!-- Assistant — pied d'étape 2 : sticky, précédent | pagination des
+               groupes | générer la feuille. -->
+          <footer class="sr-wizard-nav sr-wizard-nav-grid">
             <v-btn variant="text" @click="goToStep(1)">
               <v-icon size="16" class="mr-1">mdi-chevron-left</v-icon>
               {{ t('srPrevious') }}
             </v-btn>
-            <v-spacer />
+            <v-pagination
+              v-if="restockPageCount > 1"
+              v-model="restockPage"
+              :length="restockPageCount"
+              :total-visible="5"
+              density="compact"
+              class="sr-wizard-nav-pagination"
+            />
+            <span v-else class="sr-wizard-nav-side" aria-hidden="true" />
             <div class="sr-wizard-nav-end">
               <p v-if="!canGenerate" class="sr-wizard-nav-hint">
                 <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
@@ -853,7 +947,7 @@
 
           <div v-else class="sr-supplier-list">
             <section
-              v-for="supplier in shoppingGroups"
+              v-for="supplier in pagedShoppingGroups"
               :id="`sr-supplier-${supplier.supplierId}`"
               :key="supplier.supplierId"
               class="sr-supplier-group"
@@ -926,13 +1020,23 @@
           </div>
           </div>
           </v-expand-transition>
-          <!-- Assistant — pied d'étape 3 : précédent (export/impression dans l'en-tête). -->
-          <footer class="sr-wizard-nav">
+          <!-- Assistant — pied d'étape 3 : sticky, précédent | pagination des
+               fournisseurs (export/impression dans l'en-tête). -->
+          <footer class="sr-wizard-nav sr-wizard-nav-grid">
             <v-btn variant="text" @click="goToStep(2)">
               <v-icon size="16" class="mr-1">mdi-chevron-left</v-icon>
               {{ t('srPrevious') }}
             </v-btn>
-            <v-spacer />
+            <v-pagination
+              v-if="shoppingPageCount > 1"
+              v-model="shoppingPage"
+              :length="shoppingPageCount"
+              :total-visible="5"
+              density="compact"
+              class="sr-wizard-nav-pagination"
+            />
+            <span v-else class="sr-wizard-nav-side" aria-hidden="true" />
+            <span class="sr-wizard-nav-side" aria-hidden="true" />
           </footer>
         </v-card>
       </main>
@@ -1202,6 +1306,8 @@ import {
   collectFbElements,
   collectStorageElements,
   computePackagingForQuantity,
+  computeRestockOutcome,
+  aggregateRestockOutcomesByItem,
   coveredQuantityForPackaging,
   deriveSelectedMenuItemsByShop,
   findStockReference,
@@ -1390,6 +1496,14 @@ export default {
       // par évènement, pour reproduire les quantités EventPredict.
       predictionMetaByEventId: {},
       stockSearch: '',
+      // Pagination des 3 étapes (contrôles centrés dans les pieds sticky) :
+      // étape 1 = articles, étape 2 = groupes (PDV ou article), étape 3 =
+      // fournisseurs.
+      stockPage: 1,
+      stockPageSize: 20,
+      restockPage: 1,
+      shoppingPage: 1,
+      groupPageSize: 10,
       restockSearch: '',
       shoppingSearch: '',
       mobileConfigSheet: false,
@@ -1812,6 +1926,14 @@ export default {
         return searchable.includes(q)
       })
     },
+    /** Pagination de la liste étape 1 (pied de carte, contrôles au centre). */
+    stockPageCount() {
+      return Math.max(1, Math.ceil(this.filteredStockSettingsRows.length / this.stockPageSize))
+    },
+    pagedStockSettingsRows() {
+      const start = (this.stockPage - 1) * this.stockPageSize
+      return this.filteredStockSettingsRows.slice(start, start + this.stockPageSize)
+    },
     stockCompositionGroups() {
       const groups = new Map()
       this.stockSettingsRows.forEach((row) => {
@@ -1858,8 +1980,12 @@ export default {
     stockSettingsSignature() {
       return this.stockSettingsRows.map((row) => row.itemKey).sort().join('|')
     },
-    /** Étape 2 — calcul VIVANT (catalogue + comptages du moment). */
-    liveRestockRows() {
+    /**
+     * Étape 2 — calcul VIVANT (catalogue + comptages du moment), TOUTES lignes
+     * (BUG-296-01 : la ventilation étape 1 a besoin des lignes à dépôt nul et
+     * des articles exclus — le filtre d'affichage vit dans liveRestockRows).
+     */
+    liveRestockRowsAll() {
       return this.stockRowsRaw.map((row) => {
         const targetQuantity = this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey)
         // Packaging de référence (taille de colis) pour décoder le comptage
@@ -1882,12 +2008,37 @@ export default {
           remainingQuantity,
           restockQuantity,
           packaging,
+          // BUG-296-01 : gap / surplusLoose (reste en vrac) / finalStock
+          // (stock final prévu) portés par chaque ligne, formule unique.
+          ...computeRestockOutcome({ targetQuantity, remainingQuantity, restockQuantity }),
           // BUG-288-01 : détail « utilisé dans » par menu item. Les parts portent
           // sur le BESOIN (targetQuantity), pas sur « À déposer » — le restant du
           // PDV n'est pas attribuable à un plat plutôt qu'à un autre.
           sourceBreakdown: this.buildSourceBreakdown(row),
         }
-      }).filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
+      })
+    },
+    /** Étape 2 affichable : lignes à déposer, hors articles exclus. */
+    liveRestockRows() {
+      return this.liveRestockRowsAll.filter(
+        (row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey],
+      )
+    },
+    /**
+     * BUG-296-01 — ventilation grain ARTICLE pour l'étape 1 :
+     * besoin / restant / manque / paquets / couvert / vrac / stock final.
+     * Plan chargé : valeurs FIGÉES des stockLines (absentes sur les plans
+     * sauvegardés avant le changement → bloc masqué) ; sinon agrégat vivant.
+     */
+    stockOutcomeByItem() {
+      if (this.loadedPlan) {
+        const byItem = {}
+        ;(this.loadedPlan.stockLines || []).forEach((line) => {
+          if (line && line.itemKey != null && line.gap !== undefined) byItem[line.itemKey] = line
+        })
+        return byItem
+      }
+      return aggregateRestockOutcomesByItem(this.liveRestockRowsAll)
     },
     /**
      * Étape 2 affichée : PHOTO du plan (avec corrections « À déposer »
@@ -1982,6 +2133,28 @@ export default {
       return Array.from(groups.values()).sort((a, b) =>
         String(a.itemName).localeCompare(String(b.itemName)),
       )
+    },
+    /** Pagination étape 2 : groupes de la vue active (PDV ou article). */
+    activeRestockGroups() {
+      return this.restockViewMode === 'shop'
+        ? this.restockGroupsByShopSplit
+        : this.restockGroupsByItem
+    },
+    restockPageCount() {
+      return Math.max(1, Math.ceil(this.activeRestockGroups.length / this.groupPageSize))
+    },
+    pagedRestockGroups() {
+      const start = (this.restockPage - 1) * this.groupPageSize
+      return this.activeRestockGroups.slice(start, start + this.groupPageSize)
+    },
+    /** Pagination étape 3 : sections fournisseur (l'aperçu latéral, l'export
+     *  CSV et l'impression restent sur la liste COMPLÈTE shoppingGroups). */
+    shoppingPageCount() {
+      return Math.max(1, Math.ceil(this.shoppingGroups.length / this.groupPageSize))
+    },
+    pagedShoppingGroups() {
+      const start = (this.shoppingPage - 1) * this.groupPageSize
+      return this.shoppingGroups.slice(start, start + this.groupPageSize)
     },
     shoppingSupplierGroups() {
       const supplierMap = new Map()
@@ -2337,6 +2510,30 @@ export default {
     },
     stockSettingsSignature() {
       this.ensureStockItemDefaults()
+      this.stockPage = 1
+    },
+    stockSearch() {
+      this.stockPage = 1
+    },
+    // Les listes rétrécissent (recherche, filtres, régénération) → on reste
+    // sur une page valide.
+    stockPageCount(count) {
+      if (this.stockPage > count) this.stockPage = count
+    },
+    restockPageCount(count) {
+      if (this.restockPage > count) this.restockPage = count
+    },
+    shoppingPageCount(count) {
+      if (this.shoppingPage > count) this.shoppingPage = count
+    },
+    restockSearch() {
+      this.restockPage = 1
+    },
+    restockViewMode() {
+      this.restockPage = 1
+    },
+    restockEventFilter() {
+      this.restockPage = 1
     },
     restockEventOptions(options) {
       // L'event filtré a quitté la sélection (ou n'a plus de lignes) → retour à « tous ».
@@ -2347,6 +2544,10 @@ export default {
     objectiveSource() {
       this.resetGeneratedOutputs()
       this.loadReferenceSales()
+      // BUG-296-01 — le countsEventId dépend du mode (forecast/reference) :
+      // sans rechargement, la ventilation étape 1 garde l'inventaire de
+      // l'ancien ancrage.
+      this.loadPreviousInventory()
     },
     referenceEventId() {
       this.loadReferenceSales()
@@ -2716,6 +2917,8 @@ export default {
           snapshotAt: new Date().toISOString(),
         },
         events: this.selectedEvents,
+        // BUG-296-01 — ventilation étape 1 figée avec le plan.
+        stockOutcomes: this.stockOutcomeByItem,
       })
     },
     /** CTA « Sauvegarder le plan » (aucun plan chargé) : ouvre le nommage. */
@@ -3513,16 +3716,14 @@ export default {
     resetStockAdjustments() {
       this.applyStockAdjustmentToAll(100)
     },
+    /**
+     * Affichage en colis PAR DÉFAUT dès que le conditionnement se résout — la
+     * case « Empaqueté » a été retirée (le calcul arrondit toujours en colis
+     * entiers depuis BUG-295-01, la case ne pilotait plus que le format).
+     * `false` explicite (plans sauvegardés avec la case décochée) respecté.
+     */
     isPackedMode(itemKey) {
-      return !!this.stockPackedModes[itemKey]
-    },
-    async setPackedMode(itemKey, checked) {
-      if (!(await this.guardPlanEdit())) return
-      this.stockPackedModes = {
-        ...this.stockPackedModes,
-        [itemKey]: !!checked,
-      }
-      this.resetGeneratedOutputs()
+      return this.stockPackedModes[itemKey] !== false
     },
     adjustedQuantity(quantity, unit, itemKey) {
       return roundForUnit((Number(quantity) || 0) * (this.stockAdjustment(itemKey) / 100), unit)
@@ -4098,8 +4299,13 @@ export default {
       return Math.round((this.supplierUnitsTotal(group) / max) * 100)
     },
     scrollToSupplier(supplierId) {
-      const el = document.getElementById(`sr-supplier-${supplierId}`)
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Liste paginée : bascule d'abord sur la page qui porte ce fournisseur.
+      const index = this.shoppingGroups.findIndex((g) => g.supplierId === supplierId)
+      if (index >= 0) this.shoppingPage = Math.floor(index / this.groupPageSize) + 1
+      this.$nextTick(() => {
+        const el = document.getElementById(`sr-supplier-${supplierId}`)
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     },
     exportShoppingCsv() {
       if (!this.shoppingGroups.length) return
@@ -4668,6 +4874,32 @@ export default {
   gap: 12px;
 }
 
+/* Pieds d'assistant en grille 3 zones : navigation à gauche, pagination de la
+   liste au CENTRE, action à droite. Le collage à l'écran vient du sticky
+   global `.sr-wizard-nav` (plus bas), libéré par `overflow: clip` sur
+   `.sr-panel`. Sélecteur doublé : bat le display:flex de la règle de base. */
+.sr-wizard-nav.sr-wizard-nav-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.sr-wizard-nav-grid .sr-wizard-nav-side {
+  min-width: 0;
+}
+
+.sr-wizard-nav-grid .sr-wizard-nav-pagination {
+  justify-self: center;
+}
+
+.sr-wizard-nav-grid > :first-child {
+  justify-self: start;
+}
+
+.sr-wizard-nav-grid .sr-wizard-nav-end {
+  justify-self: end;
+}
+
 /* Boutons du pied d'assistant : les `v-btn` bruts héritent du style Vuetify
    (MAJUSCULES + letter-spacing + radius 4px) — hors charte. On les aligne sur
    les boutons de la page (`sr-inline-btn`, `sr-confirm-btn`, `sr-cta-btn`) :
@@ -4706,7 +4938,9 @@ export default {
   border: 1px solid #d9e2ec;
   border-radius: 18px;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-  overflow: hidden;
+  /* clip (pas hidden) : même écrêtage au radius, mais SANS créer de scroll
+     container — le pied sticky des 3 étapes colle au bas du viewport. */
+  overflow: clip;
   margin-bottom: 16px;
 }
 
@@ -5176,6 +5410,36 @@ export default {
   font-size: 0.82rem;
 }
 
+/* BUG-296-01 — ventilation étape 1 (restant / manque / paquets / couvert /
+   vrac / stock final). */
+.sr-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.sr-breakdown-part strong {
+  color: #475569;
+  font-weight: 700;
+}
+
+.sr-breakdown-ok strong,
+.sr-final-ok {
+  color: #16a34a;
+}
+
+.sr-breakdown-warn strong,
+.sr-final-warn {
+  color: #dc2626;
+}
+
+.sr-breakdown-loading {
+  font-style: italic;
+}
+
 .sr-slider-label {
   font-size: 0.62rem;
   font-weight: 800;
@@ -5208,14 +5472,6 @@ export default {
   font-weight: 750;
 }
 
-.sr-pack-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #475569;
-}
 
 .sr-segmented {
   align-self: flex-start;
@@ -5511,14 +5767,10 @@ export default {
   }
 
   .sr-setting-info,
-  .sr-slider-wrap,
-  .sr-pack-toggle {
+  .sr-slider-wrap {
     grid-column: 2;
   }
 
-  .sr-pack-toggle {
-    justify-content: flex-start;
-  }
 
   .sr-panel-head {
     flex-direction: column;
@@ -5678,7 +5930,10 @@ export default {
   gap: 18px;
   align-items: stretch;
   margin: 0 24px 24px;
-  /* Remplit .sr-content : chaque colonne borne sa propre hauteur + overflow. */
+  /* Remplit .sr-content : chaque colonne borne sa propre hauteur + overflow.
+     La ligne unique est bornée à la hauteur du conteneur (minmax(0,1fr)) sinon
+     max-height:100% des colonnes ne borne rien et le scroll interne ne marche pas. */
+  grid-template-rows: minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -5693,6 +5948,9 @@ export default {
 /* Colonne fournisseurs masquée quand vide : 2 colonnes. */
 .sr-body.sr-body--no-suppliers { grid-template-columns: 292px minmax(0, 1fr); }
 .sr-body.sr-body--no-aside.sr-body--no-suppliers { grid-template-columns: minmax(0, 1fr); }
+/* Panneau filtres replié (cas réel du WorkspacePanelToggle) : le centre
+   récupère la track de gauche au lieu de s'écraser dedans. */
+.sr-body.sr-body--no-aside { grid-template-columns: minmax(0, 1fr) 340px; }
 
 /* ── Colonne droite : aperçu fournisseurs (design « Résumé inventaire »). ── */
 .sr-suppliers { min-width: 0; }
@@ -5819,7 +6077,7 @@ export default {
 }
 
 .sr-panel {
-  overflow: hidden;
+  overflow: clip;
   margin-bottom: 16px;
 }
 
@@ -5996,8 +6254,7 @@ export default {
   box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05) !important;
 }
 
-.sr-include-toggle input,
-.sr-pack-toggle input {
+.sr-include-toggle input {
   accent-color: var(--sr-primary);
 }
 
@@ -6086,12 +6343,6 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-.sr-pack-toggle {
-  justify-content: flex-end;
-  color: var(--sr-muted, #6b7280);
-  font-size: 11px;
-  font-weight: 600;
-}
 
 .sr-wizard-nav {
   position: sticky;
@@ -6327,14 +6578,10 @@ export default {
   }
 
   .sr-setting-info,
-  .sr-slider-wrap,
-  .sr-pack-toggle {
+  .sr-slider-wrap {
     grid-column: 2;
   }
 
-  .sr-pack-toggle {
-    justify-content: flex-start;
-  }
 
   .sr-panel-head-actions {
     align-items: stretch;
@@ -6753,6 +7000,8 @@ export default {
     overflow: visible;
     min-height: 0;
     flex: none;
+    /* Colonnes empilées : pas de borne de ligne (scroll rendu à la page). */
+    grid-template-rows: none;
   }
   .sr-body > *,
   .sr-skeleton > * {
@@ -6777,6 +7026,19 @@ export default {
 }
 .v-theme--dataFridayDark .space-restock-view .sr-qty-target {
   color: #fdba74;
+}
+/* BUG-296-01 — ventilation étape 1 : valeurs lisibles sur fond sombre,
+   verts/rouges éclaircis (parité méthode BUG-197). */
+.v-theme--dataFridayDark .space-restock-view .sr-breakdown-part strong {
+  color: #cbd5e1;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-breakdown-ok strong,
+.v-theme--dataFridayDark .space-restock-view .sr-final-ok {
+  color: #86efac;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-breakdown-warn strong,
+.v-theme--dataFridayDark .space-restock-view .sr-final-warn {
+  color: #fca5a5;
 }
 .v-theme--dataFridayDark .space-restock-view .sr-collapse-icon {
   color: #94a3b8;

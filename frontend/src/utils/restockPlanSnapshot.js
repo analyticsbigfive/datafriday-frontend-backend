@@ -23,6 +23,8 @@
 
 import { resolveComponentDef, flattenComponentDef } from '@/utils/inventoryUtils'
 import { describeAnchorEvent } from '@/utils/inventoryEventContext'
+// BUG-296-01 — formule unique gap/surplus/finalStock (jamais dupliquée ici).
+import { computeRestockOutcome } from '@/utils/stockPlanning'
 
 const USED_IN_MAX = 20
 
@@ -124,8 +126,11 @@ export function buildRecipeCoeffs({ restockRows = [], shoppingMode = 'finished',
   return coeffs
 }
 
-/** Ligne d'étape 1 figée (grain article) — whitelist stricte, rien d'autre. */
-function freezeStockLine(row, inputs) {
+/** Ligne d'étape 1 figée (grain article) — whitelist stricte, rien d'autre.
+ *  BUG-296-01 : `outcome` (agrégat stockOutcomeByItem) fige la ventilation
+ *  restant/manque/paquets/couvert/vrac/stock final ; absent sur les plans
+ *  sauvegardés avant le changement → le bloc ventilation reste masqué. */
+function freezeStockLine(row, inputs, outcome) {
   return {
     itemKey: row.itemKey,
     itemName: row.itemName,
@@ -134,6 +139,21 @@ function freezeStockLine(row, inputs) {
     adjustmentPercent: toNumber(inputs?.stockAdjustments?.[row.itemKey], 100),
     packedMode: !!inputs?.stockPackedModes?.[row.itemKey],
     excluded: !!inputs?.stockExcluded?.[row.itemKey],
+    ...(outcome
+      ? {
+          targetQuantity: toNumber(outcome.targetQuantity),
+          remainingQuantity: toNumber(outcome.remainingQuantity),
+          gap: toNumber(outcome.gap),
+          packedCount: outcome.packedCount == null ? null : toNumber(outcome.packedCount),
+          coveredQuantity: toNumber(outcome.coveredQuantity),
+          surplusLoose: toNumber(outcome.surplusLoose),
+          finalStock: toNumber(outcome.finalStock),
+          packagingType: outcome.packagingType ?? null,
+          packagingUnitNumber:
+            outcome.packagingUnitNumber == null ? null : toNumber(outcome.packagingUnitNumber),
+          packagingUnit: outcome.packagingUnit ?? null,
+        }
+      : {}),
   }
 }
 
@@ -154,6 +174,9 @@ function freezeRestockLine(row) {
     targetQuantity: toNumber(row.targetQuantity),
     remainingQuantity: toNumber(row.remainingQuantity),
     restockQuantity: toNumber(row.restockQuantity),
+    // BUG-296-01 — reste en vrac et stock final prévu, figés avec la ligne.
+    surplusLoose: toNumber(row.surplusLoose),
+    finalStock: toNumber(row.finalStock),
     packaging: freezePackaging(row.packaging),
     eventIds: Array.isArray(row.eventIds) ? [...row.eventIds] : [],
     eventNames: Array.isArray(row.eventNames) ? [...row.eventNames] : [],
@@ -221,8 +244,12 @@ export function buildPlanSnapshot({
   unmatchedStorage = [],
   inputs = {},
   events = [],
+  // BUG-296-01 — ventilation étape 1 (stockOutcomeByItem), keyée itemKey.
+  stockOutcomes = {},
 } = {}) {
-  const stockLines = stockRows.map((row) => freezeStockLine(row, inputs))
+  const stockLines = stockRows.map((row) =>
+    freezeStockLine(row, inputs, stockOutcomes?.[row.itemKey]),
+  )
   const restockLines = restockRows.map(freezeRestockLine)
   const frozenShopping = shoppingGroups.map(freezeShoppingGroup)
   return {
@@ -275,9 +302,18 @@ export function applyPlanEdits(lines = [], overrides = {}) {
     if (value === null) {
       return { ...line, packaging: line.packaging ? { ...line.packaging } : null }
     }
+    // BUG-296-01 — surplus/stock final recalculés depuis les valeurs FIGÉES
+    // (target/remaining de la photo), via la formule unique de stockPlanning.
+    const { surplusLoose, finalStock } = computeRestockOutcome({
+      targetQuantity: line.targetQuantity,
+      remainingQuantity: line.remainingQuantity,
+      restockQuantity: value,
+    })
     return {
       ...line,
       restockQuantity: value,
+      surplusLoose,
+      finalStock,
       packaging: recomputePackaging(line.packaging, value),
       edited: true,
     }

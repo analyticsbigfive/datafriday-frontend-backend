@@ -267,6 +267,56 @@ describe('buildPlanSnapshot — whitelist', () => {
     ])
   })
 
+  // BUG-296-01 — ventilation figée.
+  it('restockLines portent surplusLoose et finalStock (0 par défaut)', () => {
+    const restockRows = makeRestockRows()
+    restockRows[0].surplusLoose = 6
+    restockRows[0].finalStock = 6
+    const snapshot = buildPlanSnapshot({
+      restockRows,
+      shoppingGroups: makeShoppingGroups(),
+      recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: 'finished' }),
+      inputs: { selectedEventIds: [] },
+    })
+    expect(snapshot.restockLines[0].surplusLoose).toBe(6)
+    expect(snapshot.restockLines[0].finalStock).toBe(6)
+    expect(snapshot.restockLines[1].surplusLoose).toBe(0)
+    expect(snapshot.restockLines[1].finalStock).toBe(0)
+  })
+
+  it('stockLines figent la ventilation quand stockOutcomes est fourni, sinon rien', () => {
+    const restockRows = makeRestockRows()
+    const stockRows = [
+      { itemKey: 'beer', itemName: 'Bière blonde 33cl', unit: 'pcs', totalQuantity: 180 },
+    ]
+    const outcomes = {
+      beer: {
+        targetQuantity: 180, remainingQuantity: 40, gap: 140, packedCount: 7,
+        coveredQuantity: 140, surplusLoose: 0, finalStock: 0,
+        packagingType: 'Carton', packagingUnitNumber: 24, packagingUnit: 'pcs',
+      },
+    }
+    const withOutcomes = buildPlanSnapshot({
+      stockRows, restockRows,
+      recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: 'finished' }),
+      inputs: { selectedEventIds: [] },
+      stockOutcomes: outcomes,
+    })
+    expect(withOutcomes.stockLines[0]).toMatchObject({
+      remainingQuantity: 40, gap: 140, packedCount: 7, coveredQuantity: 140,
+      surplusLoose: 0, finalStock: 0, packagingType: 'Carton',
+      packagingUnitNumber: 24, packagingUnit: 'pcs',
+    })
+    // Sans stockOutcomes (anciens appels), aucune clé de ventilation.
+    const without = buildPlanSnapshot({
+      stockRows, restockRows,
+      recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: 'finished' }),
+      inputs: { selectedEventIds: [] },
+    })
+    expect(without.stockLines[0].gap).toBeUndefined()
+    expect(without.stockLines[0].remainingQuantity).toBeUndefined()
+  })
+
   it('immuabilité : muter les lignes vivantes ne change pas la photo', () => {
     const restockRows = makeRestockRows()
     const shoppingGroups = makeShoppingGroups()
@@ -372,6 +422,21 @@ describe('applyPlanEdits', () => {
     const before = JSON.parse(JSON.stringify(snapshot.restockLines))
     applyPlanEdits(snapshot.restockLines, { 'shop-1|||beer': 999 })
     expect(snapshot.restockLines).toEqual(before)
+  })
+
+  // BUG-296-01 — surplus/stock final recalculés depuis les valeurs FIGÉES.
+  it('override recalcule surplusLoose et finalStock depuis target/remaining figés', () => {
+    const snapshot = makeSnapshot()
+    // shop-1|||beer figé : target 120, remaining 30 → gap 90. Override 100 :
+    // surplus 10, final 30 + 100 − 120 = 10.
+    const lines = applyPlanEdits(snapshot.restockLines, { 'shop-1|||beer': 100 })
+    const edited = lines.find((l) => l.rowKey === 'shop-1|||beer')
+    expect(edited.surplusLoose).toBe(10)
+    expect(edited.finalStock).toBe(10)
+    // Sans override, valeurs figées intactes (ici 0 : dépôt = gap exact).
+    const untouched = lines.find((l) => l.rowKey === 'shop-2|||beer')
+    expect(untouched.surplusLoose).toBe(0)
+    expect(untouched.finalStock).toBe(0)
   })
 })
 
