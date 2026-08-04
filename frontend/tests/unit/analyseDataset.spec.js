@@ -20,12 +20,12 @@ const RECORDS = [
   { eventId: 'e1', eventName: 'AJA vs Angers', shopName: 'Sud', shopArea: 'Tribune Sud', menuItemName: 'Frites', revenue: 40, quantity: 8, transactionCount: 5 },
 ];
 
-function makeStore() {
+function makeStore(menuItemCostMap = {}) {
   return createStore({
     modules: {
       analyse: {
         namespaced: true,
-        state: () => ({ selectedToolbox: 'analyse', dataset: null }),
+        state: () => ({ selectedToolbox: 'analyse', dataset: null, menuItemCostMap }),
         mutations: {
           SET_ANALYSE_DATASET(state, v) {
             state.dataset = v || null;
@@ -184,6 +184,46 @@ describe('useAnalyseDataset — publication', () => {
     const table = api.ensureDataset().tables.find((t) => t.key === 'shopPerformance');
     expect(table.partial).toBe(true);
     expect(table.columns).toHaveLength(4);
+  });
+
+  it('BUG-298-01 — table by-event sans colonne coût tant que l\'item-level manque', () => {
+    // Records du fixture : shop-level (aucun menuItemId) → coût inconnu. Mieux
+    // vaut pas de colonne qu'une colonne « 0 € » qui se lirait comme un chiffre.
+    const { api } = mountHost(makeStore());
+    const table = api.ensureDataset().tables.find((t) => t.key === 'byEvent');
+    expect(table.columns.map((c) => c.key)).toEqual([
+      'event', 'date', 'revenue', 'transactions', 'attendees', 'basket',
+    ]);
+    expect(table.rows[0].cost).toBeUndefined();
+  });
+
+  it('BUG-298-01 — coût et marge par event dès que l\'item-level est là', () => {
+    const itemRecords = ref([
+      { eventId: 'e1', menuItemId: 'm1', menuItemName: 'Pression', shopName: 'Nord', revenue: 100, quantity: 20, transactionCount: 12 },
+      { eventId: 'e1', menuItemId: 'm2', menuItemName: 'Frites', shopName: 'Sud', revenue: 40, quantity: 8, transactionCount: 5 },
+      // Event hors agrégats (cap item-level) : ne doit pas créer de ligne.
+      { eventId: 'e9', menuItemId: 'm1', revenue: 10, quantity: 2, transactionCount: 1 },
+    ]);
+    const { api } = mountHost(makeStore({ m1: 1.5, m2: 0.4 }), { itemLevelRecords: itemRecords });
+    const table = api.ensureDataset().tables.find((t) => t.key === 'byEvent');
+    expect(table.columns.map((c) => c.key)).toEqual([
+      'event', 'date', 'revenue', 'cost', 'margin', 'transactions', 'attendees', 'basket',
+    ]);
+    // 20×1,5 + 8×0,4 = 33,2 ; marge sur le CA ITEM-LEVEL (140), pas sur la
+    // colonne `revenue` shop-level : (140 − 33,2) / 140 = 76,29 %.
+    expect(table.rows[0].cost).toBe(33.2);
+    expect(table.rows[0].margin).toBe(76.29);
+  });
+
+  it('BUG-298-01 — event non couvert par l\'item-level : cellules vides, jamais 0', () => {
+    const itemRecords = ref([
+      { eventId: 'autre', menuItemId: 'm1', revenue: 10, quantity: 2, transactionCount: 1 },
+    ]);
+    const { api } = mountHost(makeStore({ m1: 1.5 }), { itemLevelRecords: itemRecords });
+    const table = api.ensureDataset().tables.find((t) => t.key === 'byEvent');
+    const row = table.rows.find((r) => r.event === 'AJA vs Angers');
+    expect(row.cost).toBeNull();
+    expect(row.margin).toBeNull();
   });
 
   it('sépare la valeur KPI de son unité, en Number nu', () => {

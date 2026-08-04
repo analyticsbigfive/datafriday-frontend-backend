@@ -368,6 +368,10 @@ const props = defineProps({
   // Shops enrichis (useShopPerformance) — utilisés pour afficher le
   // transactionRate (txn/min) une fois calculé.
   shopRates: { type: Array, default: () => [] },
+  // Construit le dataset Analyse à la demande (useAnalyseDataset.ensureDataset,
+  // idempotent) pour que l'assistant lise les mêmes chiffres que le bandeau
+  // KPI sans attendre la construction en idle.
+  ensureDataset: { type: Function, default: null },
 })
 defineEmits(['update:modelValue', 'analyze', 'shop-click', 'event-click', 'item-click'])
 
@@ -425,6 +429,13 @@ async function runAnalyze(maybeText) {
   if (!text || !text.trim() || analyzing.value) return
   aiQuery.value = text
   analyzing.value = true
+  // Dataset prêt avant de répondre : sans lui, les outils KPI retombent sur le
+  // getter shop-level et divergent du bandeau. Best-effort, jamais bloquant.
+  try {
+    props.ensureDataset?.()
+  } catch (e) {
+    console.warn('[SummaryPanel] ensureDataset a échoué :', e)
+  }
   await nextTick()
   await new Promise((r) => setTimeout(r, 120))
   if (useSemantic.value) {

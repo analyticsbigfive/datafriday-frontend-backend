@@ -717,13 +717,26 @@ const getters = {
   // Étendu pour supporter tous les presets (analyse + predict) cf. React §6.1.
   // En mode 'predict', les presets thismonth/quarter/year vont jusqu'à la
   // fin de la période ; en mode 'analyse', ils s'arrêtent à today.
-  dateBounds(state) {
+  dateBounds(state, g, rootState) {
     const { timeRange, startDate, endDate } = state.filters
     if (timeRange === 'custom') {
       return {
         start: startDate ? new Date(startDate) : null,
         end: endDate ? new Date(endDate) : null,
       }
+    }
+    // Saison (préset dynamique `season:<id>`, module Rapport Saison). Une saison
+    // supprimée/inconnue retombe sur « tout l'historique » ({null,null}) et
+    // SURTOUT pas sur le `default` du switch (année en cours) — un id orphelin
+    // ne doit jamais filtrer silencieusement sur une mauvaise période.
+    if (String(timeRange || '').startsWith('season:')) {
+      const id = String(timeRange).slice('season:'.length)
+      const season = (rootState.seasons?.seasons || []).find((s) => s.id === id)
+      if (!season) return { start: null, end: null }
+      const start = new Date(season.startDate)
+      const end = new Date(season.endDate)
+      end.setHours(23, 59, 59, 999)
+      return { start, end }
     }
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -1294,7 +1307,7 @@ const getters = {
     }
   },
 
-  activeFilterChips(state, g) {
+  activeFilterChips(state, g, rootState) {
     const chips = []
     const { filters } = state
     // Préfixes de chips traduits (locale courante). Note : getter non réactif au
@@ -1348,7 +1361,15 @@ const getters = {
     // bandeau et « Tout effacer » semble ne pas agir dessus. clearValue = défaut.
     const defaultTimeRange = DEFAULT_FILTERS().timeRange
     if (filters.timeRange && filters.timeRange !== defaultTimeRange) {
-      const rangeLabel = (PRESET_I18N_KEYS[filters.timeRange] && T(PRESET_I18N_KEYS[filters.timeRange]))
+      // Saison (`season:<id>`) : libellé = nom de la saison (store seasons).
+      const seasonId = String(filters.timeRange).startsWith('season:')
+        ? String(filters.timeRange).slice('season:'.length)
+        : null
+      const seasonName = seasonId
+        ? (rootState.seasons?.seasons || []).find((s) => s.id === seasonId)?.name || seasonId
+        : null
+      const rangeLabel = seasonName
+        || (PRESET_I18N_KEYS[filters.timeRange] && T(PRESET_I18N_KEYS[filters.timeRange]))
         || DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
         || PREDICT_DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
         || filters.timeRange

@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { sanitizeOklchColors } from '@/utils/oklchFallback'
 
 /**
  * Gère la capture d'écran (html2canvas), la copie presse-papiers et le
@@ -28,6 +29,9 @@ export function useAnalyseCapture({ spaceName }) {
       scale: window.devicePixelRatio || 1,
       useCORS: true,
       logging: false,
+      // Même contrainte que le Rapport J+1 : html2canvas 1.4.1 ne parse pas
+      // `oklch()`, syntaxe des tokens Tailwind v4 hérités par toute la page.
+      onclone: (clonedDoc) => sanitizeOklchColors(clonedDoc),
     })
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {

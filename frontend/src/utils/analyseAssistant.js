@@ -100,6 +100,36 @@ function datasetRows(store, key) {
   return table && table.rows.length ? table.rows : null
 }
 
+/**
+ * Totaux KPI lus depuis la table `kpi` du dataset — les MÊMES nombres que le
+ * bandeau KPI et les exports CSV/XLSX (item-level via useMetricsCalculator).
+ * `null` si dataset absent ou table sans champ `metric` (version antérieure) →
+ * repli sur `analyse/currentPeriodTotals` (shop-level, source divergente :
+ * `menuItemId` y est null → coût 0, et les transactions y sont comptées par
+ * minute × PdV au lieu de minute × PdV × produit).
+ */
+function datasetKpiTotals(store) {
+  const rows = datasetRows(store, 'kpi')
+  if (!rows) return null
+  const byKey = {}
+  for (const r of rows) {
+    if (r.metric) byKey[r.metric] = r.value
+  }
+  if (byKey.revenue == null) return null
+  const revenue = byKey.revenue || 0
+  const cost = byKey.cost || 0
+  return {
+    revenue,
+    cost,
+    margin: revenue ? ((revenue - cost) / revenue) * 100 : 0,
+    transactions: byKey.transactions || 0,
+    attendees: byKey.attendees || 0,
+    perCapita: byKey.perCapita || 0,
+    avgPerTransaction: byKey.avgTransaction || 0,
+    isPredict: !!store.state?.analyse?.dataset?.isPredict,
+  }
+}
+
 function topByRevenue(records, key, n) {
   const map = new Map()
   for (const r of records) {
@@ -213,12 +243,17 @@ function computeTotalsForEntities(store, entities) {
   const records = (store.getters['analyse/filteredShopGranularData'] || []).filter((r) =>
     ids.has(r.eventId),
   )
+  // Même formule de coût que `totalsForEventIds` (store/modules/analyse.js) :
+  // aucun record ne porte de champ `cost`, le coût se résout via la carte
+  // menuItemId → coût unitaire. Sur du shop-level `menuItemId` est souvent
+  // null → le coût peut rester 0 sur ce grain (limite connue du scope entité).
+  const costMap = store.state.analyse.menuItemCostMap || {}
   let revenue = 0
   let cost = 0
   let transactions = 0
   for (const r of records) {
     revenue += r.revenue || 0
-    cost += r.cost || 0
+    cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
     transactions += r.transactionCount || 0
   }
   const attendees = scopedEvents.reduce((s, e) => s + (e.attendees || 0), 0)
@@ -342,7 +377,10 @@ const TOOLS = {
 
   kpiSummary(store, { entities } = {}) {
     const scoped = computeTotalsForEntities(store, entities)
-    const totals = scoped || store.getters['analyse/currentPeriodTotals']
+    // Priorité au dataset (mêmes chiffres que le bandeau KPI et les exports) ;
+    // le getter shop-level ne sert plus que de repli si le dataset n'est pas
+    // encore construit. Même logique dans les autres outils KPI ci-dessous.
+    const totals = scoped || datasetKpiTotals(store) || store.getters['analyse/currentPeriodTotals']
     const events = scoped ? scoped.scopedEvents : store.getters['analyse/filteredEvents']
     if (!totals || !events?.length) {
       const lbl = entityLabel(entities)
@@ -364,7 +402,7 @@ const TOOLS = {
   },
 
   costSummary(store, { entities } = {}) {
-    const t = computeTotalsForEntities(store, entities) || store.getters['analyse/currentPeriodTotals']
+    const t = computeTotalsForEntities(store, entities) || datasetKpiTotals(store) || store.getters['analyse/currentPeriodTotals']
     if (!t || !t.revenue) return { text: 'Aucune donnée disponible.' }
     const suffix = scopeSuffix(entities)
     return {
@@ -375,7 +413,7 @@ const TOOLS = {
   },
 
   margin(store, { entities } = {}) {
-    const t = computeTotalsForEntities(store, entities) || store.getters['analyse/currentPeriodTotals']
+    const t = computeTotalsForEntities(store, entities) || datasetKpiTotals(store) || store.getters['analyse/currentPeriodTotals']
     if (!t || !t.revenue) return { text: 'Aucune donnée disponible.' }
     const suffix = scopeSuffix(entities)
     return {
@@ -384,25 +422,25 @@ const TOOLS = {
   },
 
   perCapita(store, { entities } = {}) {
-    const t = computeTotalsForEntities(store, entities) || store.getters['analyse/currentPeriodTotals']
+    const t = computeTotalsForEntities(store, entities) || datasetKpiTotals(store) || store.getters['analyse/currentPeriodTotals']
     if (!t || !t.attendees) return { text: 'Aucune donnée disponible.' }
     const suffix = scopeSuffix(entities)
     return {
-      text: `Panier par tête${suffix} : **${formatCurrency(t.revenue / t.attendees)}** (${formatNumber(t.attendees)} spectateurs).`,
+      text: `Panier par tête${suffix} : **${formatCurrency(t.perCapita ?? t.revenue / t.attendees)}** (${formatNumber(t.attendees)} spectateurs).`,
     }
   },
 
   avgTransaction(store, { entities } = {}) {
-    const t = computeTotalsForEntities(store, entities) || store.getters['analyse/currentPeriodTotals']
+    const t = computeTotalsForEntities(store, entities) || datasetKpiTotals(store) || store.getters['analyse/currentPeriodTotals']
     if (!t || !t.transactions) return { text: 'Aucune donnée disponible.' }
     const suffix = scopeSuffix(entities)
     return {
-      text: `Transaction moyenne${suffix} : **${formatCurrency(t.revenue / t.transactions)}** sur ${formatNumber(t.transactions)} transactions.`,
+      text: `Transaction moyenne${suffix} : **${formatCurrency(t.avgPerTransaction ?? t.revenue / t.transactions)}** sur ${formatNumber(t.transactions)} transactions.`,
     }
   },
 
   transactions(store, { entities } = {}) {
-    const t = computeTotalsForEntities(store, entities) || store.getters['analyse/currentPeriodTotals']
+    const t = computeTotalsForEntities(store, entities) || datasetKpiTotals(store) || store.getters['analyse/currentPeriodTotals']
     if (!t) return { text: 'Aucune donnée disponible.' }
     const suffix = scopeSuffix(entities)
     return {

@@ -516,6 +516,9 @@ model Space {
   hrGoalSpaces       HrGoalSpace[]
   hrStaffRatioSpaces HrStaffRatioSpace[]
 
+  // Rapport Saison : périodes personnalisées (custom ranges) rattachées à cet espace
+  seasonSpaces SeasonSpace[]
+
   // Staffing RH : agence par défaut de l'espace pour un rôle donné
   hrRoleSpaceDefaults HrRoleSpaceDefault[]
 
@@ -584,6 +587,44 @@ model HrStaffRatioSpace {
 
   @@id([ratioId, spaceId])
   @@index([ratioId])
+  @@index([spaceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rapport Saison — périodes personnalisées (« Saison 2025-2026 », 1er juil →
+// 30 juin) paramétrées dans Settings > Configuration, rattachées à un ensemble
+// de Spaces (ou à tous via allSpaces) et proposées comme presets de dates dans
+// Analyse et Predict. Même schéma de rattachement que HrGoal (jointure
+// explicite, jamais de spaceIds JSON — ADR-0003). Contrairement aux Settings
+// HR, les saisons PEUVENT se chevaucher sur un même espace (2024-25 et 2025-26
+// coexistent) : aucune règle d'unicité.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Période personnalisée nommée (dates absolues), rattachée à un ensemble de Spaces.
+model Season {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  allSpaces Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  spaces SeasonSpace[]
+
+  @@index([tenantId])
+}
+
+model SeasonSpace {
+  seasonId String
+  spaceId  String
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  space  Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([seasonId, spaceId])
+  @@index([seasonId])
   @@index([spaceId])
 }
 

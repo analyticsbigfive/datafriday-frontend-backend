@@ -36,6 +36,7 @@ import shopMenuAvailability from './modules/shopMenuAvailability'
 import notifications from './modules/notifications'
 import hrSettings from './modules/hrSettings'
 import staffing from './modules/staffing'
+import seasons from './modules/seasons'
 
 export default createStore({
   state: {
@@ -84,5 +85,6 @@ export default createStore({
     notifications,
     hrSettings,
     staffing,
+    seasons,
   }
 })
