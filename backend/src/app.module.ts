@@ -50,6 +50,7 @@ import { DepartmentsModule } from './features/departments/departments.module';
 import { RestockStateModule } from './features/restock-state/restock-state.module';
 import { RestockPlansModule } from './features/restock-plans/restock-plans.module';
 import { HrSettingsModule } from './features/hr-settings/hr-settings.module';
+import { SeasonsModule } from './features/seasons/seasons.module';
 import { HrModule } from './features/hr/hr.module';
 import { StaffingModule } from './features/staffing/staffing.module';
 import { AuditModule } from './core/audit/audit.module';
@@ -181,6 +182,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     // AVANT de déployer (ADR-0002/0005) — sinon 500 P2021 au premier appel.
     RestockPlansModule,
     HrSettingsModule,
+    SeasonsModule,
     HrModule,
     StaffingModule,
   ],

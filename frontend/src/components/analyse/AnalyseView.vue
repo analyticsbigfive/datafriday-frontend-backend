@@ -71,6 +71,25 @@
                      rond vide, sans erreur console.
                      Désactivé pendant les chargements : un classeur produit sur une
                      page à moitié enrichie est faux sans le dire. -->
+                <!-- Rapport J+1 : PDF récapitulatif d'UN event passé (réel vs
+                     prédictif). Icône `mdi-file-pdf-box` (présente en @mdi/font
+                     5.9.55, contrairement à `mdi-file-pdf-outline`, v6+).
+                     Désactivé hors mode mono-événement passé — le title reste
+                     lisible sur bouton désactivé grâce au span englobant. -->
+                <span :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')">
+                  <v-btn
+                    icon
+                    variant="text"
+                    size="small"
+                    :loading="generatingReport"
+                    :disabled="!reportEvent || exportBusy"
+                    :aria-label="t('rj1Button')"
+                    class="fs-icon-btn"
+                    @click="onGenerateReportJ1"
+                  >
+                    <v-icon size="18">mdi-file-pdf-box</v-icon>
+                  </v-btn>
+                </span>
                 <v-menu location="bottom end">
                   <template #activator="{ props: exportProps }">
                     <v-btn
@@ -438,6 +457,7 @@
             :item-records="itemLevelRecords"
             :events="filteredEvents"
             :shop-rates="shopPerformance.shops.value"
+            :ensure-dataset="ensureAssistantDataset"
             @analyze="onAnalyzeQuery"
             @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
             @event-click="(v) => toggleArrayFilter('selectedEventIds', v)"
@@ -483,6 +503,10 @@
       {{ snackbarText }}
     </v-snackbar>
 
+    <!-- Document du Rapport J+1 : monté hors écran UNIQUEMENT pendant la
+         génération (useReportJ1), capturé par html2canvas puis démonté. -->
+    <ReportJ1Document v-if="reportJ1Data" :data="reportJ1Data" />
+
   </v-app>
 </template>
 
@@ -526,6 +550,8 @@ import { useAnalyseItemRecords } from '@/composables/useAnalyseItemRecords'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
 import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
+import { useReportJ1 } from '@/composables/useReportJ1'
+import ReportJ1Document from './ReportJ1Document.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
@@ -1294,6 +1320,12 @@ const { ensureDataset } = useAnalyseDataset({
   busy: exportBusy,
 })
 
+// Construction à la demande du dataset au clic « Analyser » (assistant local),
+// pour que ses outils KPI lisent les mêmes chiffres que le bandeau. Garde busy :
+// pendant un chargement, figer un dataset sur des records partiels serait pire
+// que le repli getter de l'assistant.
+const ensureAssistantDataset = () => (exportBusy.value ? null : ensureDataset())
+
 const { exporting, onExportXlsx, onExportCsv } = useAnalyseExport({
   ensureDataset,
   spaceName,
@@ -1301,6 +1333,33 @@ const { exporting, onExportXlsx, onExportCsv } = useAnalyseExport({
   // Réutilise le snackbar déjà monté pour la capture d'écran : un échec
   // d'export doit se voir, pas finir dans la console (défaut des deux exports
   // par bloc existants).
+  notify: (text, color = 'success') => {
+    snackbarText.value = text
+    snackbarColor.value = color
+    snackbar.value = true
+  },
+})
+
+// ---- Rapport J+1 (PDF pour UN event passé) --------------------------------
+// Actif uniquement en mode mono-événement (même définition que le calculateur)
+// ET si cet event est passé : un « rapport J+1 » d'un event futur n'a pas de
+// réel à raconter. En dehors de ce cas, bouton désactivé + tooltip explicite.
+const reportEvent = computed(() => {
+  const ids = filters.value.selectedEventIds || []
+  if (ids.length !== 1) return null
+  const ev = (filteredEvents.value || []).find((e) => e?.id === ids[0]) || null
+  if (!ev) return null
+  const d = parseEventDateLocal(ev.date ?? ev.eventDate)
+  if (!d || d.getTime() > Date.now()) return null
+  return ev
+})
+
+const { generatingReport, reportData: reportJ1Data, onGenerateReportJ1 } = useReportJ1({
+  space,
+  reportEvent,
+  metrics,
+  articleRecords,
+  busy: exportBusy,
   notify: (text, color = 'success') => {
     snackbarText.value = text
     snackbarColor.value = color
@@ -1407,12 +1466,18 @@ const selectedToolbox = computed(() => store.state.analyse.selectedToolbox)
 watch(selectedToolbox, () => { inlineChartVisible.value = false })
 
 // ── Bandeau : sélecteur de période (ligne 2) ──────────────────────────────
+// Presets statiques + saisons de l'espace courant (Rapport Saison), en queue de
+// liste sous la valeur `season:<id>` — résolue par le getter store `dateBounds`.
 const dateRangeItems = computed(() => {
   const presets = getDateRangePresets(selectedToolbox.value || 'analyse')
-  return presets.map((p) => ({
+  const items = presets.map((p) => ({
     title: (PRESET_I18N_KEYS[p.value] && t(PRESET_I18N_KEYS[p.value])) || p.labelFr,
     value: p.value,
   }))
+  const spaceId = route.params.spaceId
+  const seasons = spaceId ? store.getters['seasons/seasonsForSpace'](spaceId) : []
+  for (const s of seasons) items.push({ title: s.name, value: `season:${s.id}` })
+  return items
 })
 
 // ── Tags cliquables → éditeur de dimension dans la colonne droite ──────────
@@ -1759,6 +1824,9 @@ onBeforeUnmount(resetLiveFiltersIfNeeded)
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
   startLivePolling()
+  // Saisons (Rapport Saison) : alimente les presets `season:<id>` des pickers
+  // de dates. Cache 15 min côté store, échec non bloquant (picker inchangé).
+  store.dispatch('seasons/fetchAll').catch(() => {})
   // Deep-link : ?toolbox=predict|analyse|event-predict sync l'état toolbox.
   // L'URL est la SOURCE DE VÉRITÉ au montage : sans ?toolbox=, on force le
   // retour à 'analyse'. Sans ce reset, un selectedToolbox résiduel du store

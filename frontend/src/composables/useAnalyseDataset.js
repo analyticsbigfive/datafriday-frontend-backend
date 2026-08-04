@@ -227,6 +227,10 @@ export function useAnalyseDataset(sources) {
     // pourcentages ne peuvent pas cohabiter dans « Valeur ». L'unité vit donc
     // dans sa propre colonne texte, et « Valeur » ne contient que des Number nus.
     const line = (label, value, unit, key) => ({
+      // Clé stable non localisée pour les consommateurs programmatiques
+      // (assistant local) — absente de `columns`, donc jamais sérialisée
+      // dans les exports.
+      metric: key,
       indicator: label,
       value: round2(value),
       unit,

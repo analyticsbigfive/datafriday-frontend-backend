@@ -21,6 +21,7 @@
     "core-js": "^3.8.3",
     "html2canvas": "^1.4.1",
     "install": "^0.13.0",
+    "jspdf": "^2.5.2",
     "lucide-vue-next": "^0.554.0",
     "npm": "^11.8.0",
     "register-service-worker": "^1.7.2",
