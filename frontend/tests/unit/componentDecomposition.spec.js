@@ -99,7 +99,38 @@ describe('flattenComponentDef', () => {
       ] },
       [], // pas de catalogue
     )
-    expect(leaves).toEqual([{ id: 'orphan', sourceId: null, name: 'Orphelin', unit: 'l', qtyFactor: 3 }])
+    // BUG-292-01 : la feuille porte en plus `marketPriceId`/`supplierId`/
+    // `supplierName` — sans eux, un ingrédient éclaté perd son fournisseur en
+    // route et la feuille de course le range en « fournisseur inconnu ».
+    expect(leaves).toEqual([
+      {
+        id: 'orphan',
+        sourceId: null,
+        name: 'Orphelin',
+        unit: 'l',
+        qtyFactor: 3,
+        marketPriceId: null,
+        supplierId: null,
+        supplierName: null,
+      },
+    ])
+  })
+
+  it('BUG-292-01 — remonte marketPriceId et fournisseur de la matière achetée', () => {
+    const leaves = flattenComponentDef(
+      { id: 'x', name: 'X', numberOfUnitsRecipe: 2, subComponents: [
+        { id: 'mp-ail', marketPriceId: 'mp-ail', supplierId: 'sup-1', supplierName: 'Metro',
+          itemType: 'Ingredient', name: 'Ail', unit: 'kg', numberOfUnits: 1 },
+      ] },
+      [],
+    )
+    expect(leaves[0]).toMatchObject({
+      id: 'mp-ail',
+      marketPriceId: 'mp-ail',
+      supplierId: 'sup-1',
+      supplierName: 'Metro',
+      qtyFactor: 0.5,
+    })
   })
 })
 
@@ -112,33 +143,59 @@ describe('buildConsolidatedInventory — inventaire garde le composant tel quel'
     expect(names).not.toContain('Canelle')
   })
 
-  it('émet l’identité du composant (id de la ligne de recette)', () => {
+  it('BUG-292-01 — émet l’identité CATALOGUE, plus la PK de la ligne de recette', () => {
+    // Avant : `c-pickles`, l'id de la ligne MenuItemComponent (unique par couple
+    // menu item × article). Le réarmement, lui, émettait déjà `cmp-pickles` : les
+    // deux écrans désignaient le même objet physique par deux clés différentes,
+    // donc le netting comptage ⇄ réarmement ne joignait pas sur ces lignes.
     const result = buildConsolidatedInventory([dish], [dish], [], true, [pickleDef])
     const pickles = result.find((r) => r.name === 'Pickles Auxerre')
-    expect(pickles.id).toBe('c-pickles')
+    expect(pickles.id).toBe('cmp-pickles')
+  })
+
+  it('BUG-292-01 — inventaire et réarmement désignent le composant par la MÊME clé', () => {
+    // Le test qui garde la propriété, plutôt que sa valeur : c'est cette égalité
+    // qui fait joindre le comptage et le réarmement.
+    const inv = buildConsolidatedInventory([dish], [dish], [], true, [pickleDef])
+    const restock = expandMenuItemStock('mi-burger', 10, 'Burger Auxerre', [dish], [pickleDef])
+    const invId = inv.find((r) => r.name === 'Pickles Auxerre').id
+    const restockId = restock.find((r) => r.name === 'Pickles Auxerre').id
+    expect(invId).toBe(restockId)
   })
 })
 
-describe('expandMenuItemStock — restock éclate avec quantités BOM', () => {
-  it('émet les ingrédients avec quantité = calculatedQuantity × qtyFactor', () => {
-    // 10 plats × 2 unités pickles / 1 pièce recette = 20 unités pickles.
-    // Badiane : 20 × 0.5 = 10 ; Canelle : 20 × 0.25 = 5.
+describe('expandMenuItemStock — le réarmement NE décompose PLUS un composant (BUG-292-01)', () => {
+  // Renversement assumé de la règle. Jusqu'au 2026-08-04, le réarmement éclatait
+  // « Pickles Auxerre » en Badiane + Canelle (« on ne commande pas un composant »),
+  // pendant que l'inventaire le gardait entier : les deux ne joignaient plus.
+  // Décision owner : c'est l'INVENTAIRE qui a raison — un composant arrive prêt de
+  // la cuisine centrale, on le stocke, on le compte et on le réarme tel quel.
+  // L'éclatement n'a pas disparu, il a été déplacé dans la FEUILLE DE COURSE
+  // (bomPlanning), seul écran où l'on achète — cf. bomPlanningComponentExplosion.spec.js.
+
+  it('garde « Pickles Auxerre » entier, sans jamais émettre son Badiane', () => {
+    // 10 plats × 2 unités pickles / 1 pièce recette = 20 unités de pickles.
     const rows = expandMenuItemStock('mi-burger', 10, 'Burger Auxerre', [dish], [pickleDef])
     const names = rows.map((r) => r.name)
-    expect(names).toContain('Badiane')
-    expect(names).toContain('Canelle')
-    expect(names).not.toContain('Pickles Auxerre')
-    expect(rows.find((r) => r.name === 'Badiane').totalQuantity).toBe(10)
-    expect(rows.find((r) => r.name === 'Canelle').totalQuantity).toBe(5)
+    expect(names).toContain('Pickles Auxerre')
+    expect(names).not.toContain('Badiane')
+    expect(names).not.toContain('Canelle')
+    expect(rows.find((r) => r.name === 'Pickles Auxerre').totalQuantity).toBe(20)
   })
 
-  it('émet l’identité ingrédient feuille (marketPriceId)', () => {
+  it('émet l’identité CATALOGUE du composant — la même que l’inventaire', () => {
+    // C'est la condition du netting comptage ⇄ réarmement : les deux écrans
+    // doivent désigner le même objet physique par la même clé.
     const rows = expandMenuItemStock('mi-burger', 10, 'Burger Auxerre', [dish], [pickleDef])
-    expect(rows.find((r) => r.name === 'Badiane').id).toBe('mp-badiane')
+    expect(rows.find((r) => r.name === 'Pickles Auxerre').id).toBe('cmp-pickles')
   })
 
-  it('composant sans def catalogue → ligne composant inchangée (fallback)', () => {
-    const rows = expandMenuItemStock('mi-burger', 10, 'Burger Auxerre', [dish], [])
-    expect(rows.map((r) => r.name)).toContain('Pickles Auxerre')
+  it('résultat identique avec ou sans catalogue de composants', () => {
+    // Le catalogue ne sert plus à cette expansion : la sortie ne peut plus
+    // dépendre de l'état d'hydratation des `subComponents`.
+    const avec = expandMenuItemStock('mi-burger', 10, 'Burger Auxerre', [dish], [pickleDef])
+    const sans = expandMenuItemStock('mi-burger', 10, 'Burger Auxerre', [dish], [])
+    expect(sans).toEqual(avec)
+    expect(sans.map((r) => r.name)).toContain('Pickles Auxerre')
   })
 })

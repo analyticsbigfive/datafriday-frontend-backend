@@ -21,6 +21,7 @@ const baseState = (over = {}) => ({
   configContextLoading: false,
   loading: false,
   enriching: false,
+  soldItemOptionsLoading: false,
   shopGranularData: [{ id: 'r1' }],
   filters: { selectedConfigurationId: null },
   ...over,
@@ -63,6 +64,25 @@ describe('filtersState — cascade error / loading / empty / ready', () => {
     const st = baseState({ loading: true })
     const g = baseGetters({ salesShopNames: [], salesMenuItemNames: [] })
     expect(filtersState(st, g)).toBe('loading')
+  })
+
+  it('loader (pas « aucun article ») tant que la phase 2 enrichit avec des options vides', () => {
+    // Records déjà là mais options articles pas encore agrégées : afficher
+    // « Aucun article disponible pour cette configuration. » pendant que les
+    // donuts chargent est mensonger → spinner.
+    const st = baseState({ enriching: true })
+    expect(filtersState(st, baseGetters({ salesMenuItemNames: [] }))).toBe('loading')
+    expect(filtersState(st, baseGetters({ salesShopNames: [] }))).toBe('loading')
+  })
+
+  it('loader tant que le fetch item-level tourne, même phase 2 terminée', () => {
+    // Fenêtre réelle du bug : enriching déjà false (KPI affichés) mais
+    // useAnalyseItemRecords charge encore → options articles vides.
+    const st = baseState({ enriching: false, soldItemOptionsLoading: true })
+    expect(filtersState(st, baseGetters({ salesMenuItemNames: [] }))).toBe('loading')
+    // Fetch terminé et toujours rien vendu → message vide légitime.
+    const done = baseState({ soldItemOptionsLoading: false })
+    expect(filtersState(done, baseGetters({ salesMenuItemNames: [] }))).toBe('empty-no-items')
   })
 })
 

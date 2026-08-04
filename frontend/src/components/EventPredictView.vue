@@ -207,26 +207,25 @@
                 {{ t('epSaveHintEn') }}
               </p>
               <div class="ep-side-event-actions">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="ep-side-event-btn"
+                <button
+                  type="button"
+                  class="fb-btn fb-btn--secondary fb-btn--block"
                   :title="t('epResetTitle')"
                   @click="handleReset"
                 >
-                  <RotateCcw class="w-4 h-4 mr-1" />
+                  <RotateCcw />
                   {{ t('epReset') }}
-                </Button>
-                <Button
-                  size="sm"
-                  class="ep-side-event-btn"
+                </button>
+                <button
+                  type="button"
+                  class="fb-btn fb-btn--primary fb-btn--block"
                   :class="{ 'ep-save-dirty': hasUnsavedChanges }"
                   :title="t('epSaveAsTitle')"
                   @click="onSaveVersion"
                 >
-                  <Save class="w-4 h-4 mr-1" />
+                  <Save />
                   {{ t('epSaveAs') }}
-                </Button>
+                </button>
               </div>
             </div>
           </CardContent>
@@ -318,16 +317,16 @@
                   </span>
                 </div>
               </div>
-              <Button
+              <button
                 v-if="currentEditingVersionId === v.id"
-                size="sm"
-                class="ep-side-update-btn"
+                type="button"
+                class="fb-btn fb-btn--primary fb-btn--block"
                 :class="{ 'ep-save-dirty': hasUnsavedChanges }"
                 :disabled="!hasUnsavedChanges"
                 @click.stop="onUpdateVersion(v.id)"
               >
                 {{ t('epUpdate') }}
-              </Button>
+              </button>
             </CardContent>
           </Card>
         </div>
@@ -826,6 +825,7 @@
                 :shop-menu-assignment="shopMenuAssignmentForSection"
                 :shop-menu-assignment-items="shopMenuAssignmentItemsForSection"
                 :shop-menu-membership="shopMenuMembership"
+                :shop-menu-unavailable="shopMenuUnavailable"
                 :unmapped-items-by-shop="unmappedItemsByShop"
                 :view-mode="viewMode"
                 :items-context="predictionItemsContext"
@@ -864,25 +864,24 @@
                 <div class="ep-stockup-cta-actions">
                   <!-- Inventaire AVANT réarmement : compter le restant sur place avant
                        de générer la feuille de réarmement (gap = besoin − restant). -->
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    class="ep-stockup-cta-btn"
+                  <button
+                    type="button"
+                    class="fb-btn fb-btn--secondary ep-stockup-cta-btn"
                     :title="t('epOpenInventoryForEvent')"
                     @click="goToInventory"
                   >
-                    <v-icon size="16" class="mr-1">mdi-package-variant</v-icon>
+                    <v-icon size="16">mdi-package-variant</v-icon>
                     {{ t('epSpaceInventory') }}
-                  </Button>
-                  <Button
-                    size="sm"
-                    class="ep-stockup-cta-btn"
+                  </button>
+                  <button
+                    type="button"
+                    class="fb-btn fb-btn--primary ep-stockup-cta-btn"
                     :title="t('epOpenRestockForEvent')"
                     @click="goToRestock"
                   >
-                    <v-icon size="16" class="mr-1">mdi-truck-delivery-outline</v-icon>
+                    <v-icon size="16">mdi-truck-delivery-outline</v-icon>
                     {{ t('epGoToRestock') }}
-                  </Button>
+                  </button>
                 </div>
               </div>
               <EventPredictStockUpSection
@@ -899,6 +898,8 @@
                 :view-mode="viewMode"
                 :menu-item-cost-map="effectiveMenuItemCostMap"
                 :items-context="predictionItemsContext"
+                :shop-menu-unavailable="shopMenuUnavailable"
+                :config-shops="configShopElements"
               />
             </TabsContent>
 
@@ -1178,7 +1179,6 @@ import {
   Settings,
 } from "lucide-vue-next";
 
-import Button from "../ui/button.vue";
 import Card from "../ui/card.vue";
 import CardHeader from "../ui/cardHeader.vue";
 import CardTitle from "../ui/cardTitle.vue";
@@ -1357,7 +1357,6 @@ export default {
   name: "EventPredictView",
   components: {
     AlgoTraceTerminal,
-    Button,
     Card,
     CardHeader,
     CardTitle,
@@ -1587,6 +1586,10 @@ export default {
       // Appartenance COMPLÈTE au Space Menu du shop (enabled+disabled) pour le
       // garde-fou d'ouverture. Map<normalizeStr(shopName), {ids:Set, names:Set}>.
       shopMenuMembership: null,
+      // Articles assignés au Space Menu du shop mais NON DISPONIBLES côté serveur
+      // (recette absente / ingrédient bloqué) — BUG-291-02 : quantité prévue
+      // forcée à 0 partout. Map<normalizeStr(shopName), {ids:Set, names:Set}>.
+      shopMenuUnavailable: null,
       // Cache par configId (évite re-fetch au changement d'event même config).
       _shopMenuAssignmentCache: null,
       // Cache local des shops NestJS par spaceId (stateless store, alimenté par fetchForSpace).
@@ -2034,6 +2037,21 @@ export default {
      * bon `configId`, donc TOUS les shops de la config s'affichent. `[]` en mock /
      * sans données → MenusSection garde son fallback synthetic.
      */
+    // BUG-291-01 — miroirs réactifs du store `analyse`. Les copies locales
+    // (`this.menuItems` / `ingredients` / `components`) sont posées UNE FOIS dans
+    // `loadRealData`, avant que la vague 2b de `useSpaceData` (catalogues recette)
+    // n'ait répondu : sans ces miroirs + leurs watchers, elles restaient figées à
+    // l'état vague 2a pour toute la session (relevé 2026-08-04 : store à
+    // 100 ingrédients / 24 composants, composant à 0 / 0).
+    storeAnalyseMenuItems() {
+      return store.state.analyse?.menuItems || [];
+    },
+    storeAnalyseIngredients() {
+      return store.state.analyse?.ingredients || [];
+    },
+    storeAnalyseComponents() {
+      return store.state.analyse?.components || [];
+    },
     configShopElements() {
       const spaceId = this.space?.id;
       if (!spaceId || this.fromMock) return [];
@@ -3204,6 +3222,36 @@ export default {
     },
   },
   watch: {
+    // ── BUG-291-01 : adoption des catalogues recette arrivés APRÈS le chargement ──
+    // Règle commune : on n'adopte que ce qui est STRICTEMENT plus riche. Un simple
+    // `if (list.length)` écraserait un payload API correct par un store plus pauvre
+    // au premier commit de la vague 2a.
+    storeAnalyseIngredients(list) {
+      if (Array.isArray(list) && list.length > (this.ingredients?.length || 0)) {
+        this.ingredients = list;
+      }
+    },
+    storeAnalyseComponents(list) {
+      if (Array.isArray(list) && list.length > (this.components?.length || 0)) {
+        this.components = list;
+      }
+    },
+    // `menuItems` ne se compare pas en NOMBRE d'articles (identique entre les deux
+    // vagues) mais en nombre de LIGNES DE RECETTE : la vague 2b réémet les mêmes
+    // articles avec leurs refs résolues. Sans ce critère, la garde `apiMisEnriched`
+    // de `loadRealData` (vraie dès qu'UN article a un composant, fût-il anonyme)
+    // gelait la version pauvre.
+    storeAnalyseMenuItems(list) {
+      if (!Array.isArray(list) || !list.length) return;
+      const recipeDepth = (arr) =>
+        (arr || []).reduce(
+          (n, mi) => n + (Array.isArray(mi?.components) ? mi.components.length : 0),
+          0,
+        );
+      if (recipeDepth(list) > recipeDepth(this.menuItems)) {
+        this.menuItems = list;
+      }
+    },
     // Reset des extras du snackbar à sa fermeture : le bouton Recharger et le
     // timeout long ne sont armés que pour le nudge post-Save ; sans ça ils
     // fuiraient sur le snackbar suivant (qui n'arme pas ces champs).
@@ -3915,6 +3963,7 @@ export default {
         this.shopMenuAssignment = null;
         this.shopMenuAssignmentItems = null;
         this.shopMenuMembership = null;
+        this.shopMenuUnavailable = null;
         // Rien à charger (mock / pas de config) → l'Adjusted ne doit pas
         // rester bloqué en skeleton : « chargé » avec assignation nulle.
         this._assignmentLoaded = true;
@@ -3926,6 +3975,7 @@ export default {
         this.shopMenuAssignment = cache[cfgId].ids;
         this.shopMenuAssignmentItems = cache[cfgId].items;
         this.shopMenuMembership = cache[cfgId].membership || null;
+        this.shopMenuUnavailable = cache[cfgId].unavailable || null;
         this._assignmentLoaded = true;
         return;
       }
@@ -3949,6 +3999,7 @@ export default {
         this.shopMenuAssignment = null;
         this.shopMenuAssignmentItems = null;
         this.shopMenuMembership = null;
+        this.shopMenuUnavailable = null;
         this._assignmentLoaded = true;
         return;
       }
@@ -3957,12 +4008,20 @@ export default {
         // Concurrence bornée (≤3) : sans plafond, cette boucle par shop tirait
         // /space-menu/shop/:id en parallèle EN PLUS de la boucle Analyse (config
         // context) → 429 Render. Pool + résultats collectés par index.
-        // Passe par le store `shopMenuItems` (single-flight + cache TTL keyé
-        // `shopId::configId`) PARTAGÉ avec Restock + Inventory → chaque (shop,
-        // config) n'est fetché qu'une fois, dédupliqué : effondre le burst
-        // /space-menu/shop qui provoquait des 429 (assignation vide → items
-        // grisés + comptage instable 6↔3). Cap 3 conservé pour borner la
-        // concurrence au premier remplissage du cache.
+        // BUG-291-02 : passe par le store `shopMenuAvailability`
+        // (`GET /space-menu/shop/:id/items`) et NON plus `shopMenuItems`
+        // (`GET /space-menu/shop/:id`). Deux raisons :
+        //  1. c'est le SEUL endpoint qui porte `available` — la disponibilité
+        //     calculée côté serveur (ingrédient inactif / sans fournisseur /
+        //     fournisseur ne livrant pas l'espace), celle qu'affiche le tiroir
+        //     Space Menu. La dériver côté front rejouerait la divergence qu'on
+        //     passe ce lot à supprimer ;
+        //  2. son payload est LÉGER (pas de recettes) là où /space-menu/shop/:id
+        //     renvoie tout l'arbre composants+ingrédients+coûts dont seul
+        //     l'Inventaire a besoin → moins de charge sur la boucle par shop qui
+        //     avait provoqué des 429 Render, pas plus.
+        // Le store `shopMenuItems` reste INCHANGÉ pour Restock/Inventory : les
+        // deux endpoints ne sont pas interchangeables. Cap 3 conservé.
         const results = new Array(rows.length);
         await runWithConcurrency(rows, 3, async (r) => {
           const idx = rows.indexOf(r);
@@ -3970,8 +4029,8 @@ export default {
           const name = r?.name ?? r?.shopName ?? "";
           if (!shopId) { results[idx] = { name, items: [] }; return; }
           try {
-            await store.dispatch("shopMenuItems/fetchForShop", { shopId, configId: cfgId });
-            const forShop = store.getters["shopMenuItems/forShop"];
+            await store.dispatch("shopMenuAvailability/fetchForShop", { shopId, configId: cfgId });
+            const forShop = store.getters["shopMenuAvailability/forShop"];
             const items = typeof forShop === "function" ? forShop(shopId, cfgId) || [] : [];
             results[idx] = { name, items };
           } catch (_) {
@@ -3987,6 +4046,9 @@ export default {
         // (shop fermé) DOIT rester distinguable d'un item Weezevent non mappé, donc
         // construit AVANT le filtre `enabled` et hors du `continue`.
         const membershipMap = new Map();
+        // Ids/noms NON DISPONIBLES par shop (BUG-291-02) — même forme que
+        // `membershipMap` pour permettre l'appariement id PUIS nom normalisé.
+        const unavailableMap = new Map();
         for (const { name, items: rawItems } of results) {
           const items = Array.isArray(rawItems) ? rawItems : [];
           const key = normalizeStr(name);
@@ -3998,28 +4060,97 @@ export default {
               ),
             });
           }
-          const enabled = items.filter((it) => it && it.enabled === true);
-          if (!enabled.length) continue;
+          // BUG-291-02 — un article marqué NON DISPONIBLE par le serveur (pas de
+          // recette, ingrédient inactif, fournisseur non résolu ou ne livrant pas
+          // l'espace) ne doit compter dans AUCUNE vente prédite, ni entrer dans le
+          // stock-up, ni dans le réarmement. Décision JLH 2026-08-04 : c'est
+          // `available` qui fait foi — PAS `unmapped`, qui signifie « vendu sur
+          // Weezevent mais non assigné », un tout autre sujet.
+          //
+          // Le filtre était appliqué AUX DEUX maps, ce qui sortait l'article du
+          // menu assigné → `getGroupedMenuItems` le reclassait en « non attaché »
+          // AVEC sa quantité intacte : il ressortait par une autre porte. On sépare
+          // donc les deux usages :
+          //  - `itemMap` (liste AFFICHÉE) garde les indisponibles, pour qu'ils
+          //    restent visibles dans « Sans ventes prévues » avec leur raison ;
+          //  - `idMap` (ids AUTO-SÉLECTIONNABLES, aussi lu par
+          //    `derivedMenuConfigFromRecords`) les exclut : jamais cochés d'office ;
+          //  - `unavailableMap` porte l'index d'indisponibilité pour le Stock-up,
+          //    qui ne reçoit que des ids et n'a aucun objet portant `available`.
+          //
+          // Correctif v2 (même jour, capture Cookie 1 A) : `available === false`
+          // fait foi SEUL, sans condition `enabled`. Un article à la fois
+          // désactivé ET improduisible passait entre les mailles du filtre
+          // `enabled === true` et ressortait en « Non attachés » avec ses 7
+          // ventes. Calculé AVANT les `continue` (comme `membershipMap`) : un
+          // shop sans item activé doit quand même enregistrer ses indisponibles.
+          // Strict `=== false` conservé (garde anti-backend-legacy — un backend
+          // qui n'enverrait pas le champ ne doit pas tout déclarer indisponible).
+          const unavailable = items.filter((it) => it && it.available === false);
+          if (key && unavailable.length) {
+            unavailableMap.set(key, {
+              ids: new Set(unavailable.map((it) => String(it.id))),
+              names: new Set(unavailable.map((it) => normalizeStr(it.name)).filter(Boolean)),
+            });
+          }
+          const assignedEnabled = items.filter((it) => it && it.enabled === true);
+          if (!assignedEnabled.length) continue;
           if (!key) continue;
-          idMap.set(key, new Set(enabled.map((it) => it.id)));
+          // `available !== false` (et non `=== true`) : un backend antérieur qui
+          // n'enverrait pas le champ ne doit pas vider tous les menus.
+          idMap.set(
+            key,
+            new Set(assignedEnabled.filter((it) => it.available !== false).map((it) => it.id)),
+          );
+          // Liste affichée = activés + assignés-désactivés-IMPRODUISIBLES (v2) :
+          // ces derniers doivent apparaître en « Sans ventes prévues » avec badge
+          // « indisponible » et raison, pas en « Non attachés » avec le flux
+          // réactiver. Un non-assigné improduisible reste, lui, hors liste.
+          const displayItems = items.filter(
+            (it) =>
+              it &&
+              (it.enabled === true ||
+                (it.assigned === true && it.available === false)),
+          );
           itemMap.set(
             key,
-            enabled.map((it) => ({
+            // `price` de /items est TTC ; `basePrice` reste lu en premier au cas où
+            // le backend l'expose — on ne substitue JAMAIS l'un à l'autre en silence
+            // (cela injecterait de la TVA dans le CA des items synthétiques).
+            displayItems.map((it) => ({
               id: it.id,
               name: it.name,
               basePrice: it.basePrice,
               category: it.productCategory?.name || it.category || "",
               picture: it.picture || null,
+              // Vérité SERVEUR de disponibilité, transportée jusqu'à la section
+              // Menus qui l'oppose à sa propre dérivation front (obsolète : elle
+              // applique encore « fournisseur sans sites = livre tous les espaces »).
+              // `missingIngredients` est APLATI EN NOMS : le backend renvoie des
+              // objets { kind, name, reason, … } et le template fait `.join(', ')`.
+              available: it.available,
+              hasRecipe: it.hasRecipe,
+              missingIngredients: Array.isArray(it.missingIngredients)
+                ? it.missingIngredients
+                    .map((m) => (typeof m === "string" ? m : m?.name))
+                    .filter(Boolean)
+                : [],
             })),
           );
         }
-        cache[cfgId] = { ids: idMap, items: itemMap, membership: membershipMap };
+        cache[cfgId] = {
+          ids: idMap,
+          items: itemMap,
+          membership: membershipMap,
+          unavailable: unavailableMap,
+        };
         this.shopMenuAssignment = idMap;
         this.shopMenuAssignmentItems = itemMap;
         this.shopMenuMembership = membershipMap;
+        this.shopMenuUnavailable = unavailableMap;
         // eslint-disable-next-line no-console
         console.log(
-          `[EVENT PREDICT] assignation NestJS chargée : ${idMap.size}/${rows.length} shops avec menu (clé=nom)`,
+          `[EVENT PREDICT] assignation NestJS chargée : ${idMap.size}/${rows.length} shops avec menu (clé=nom), ${unavailableMap.size} shop(s) avec article(s) indisponible(s)`,
         );
       } catch (e) {
         // eslint-disable-next-line no-console
@@ -4029,6 +4160,7 @@ export default {
         );
         this.shopMenuAssignment = null;
         this.shopMenuAssignmentItems = null;
+        this.shopMenuUnavailable = null;
       } finally {
         this._assignmentLoaded = true;
       }
@@ -4166,6 +4298,9 @@ export default {
         // Refresh : invalider cache shop + assignation → recompute réactif (sans reload).
         try {
           store.dispatch("shopMenuItems/invalidateForShop", d.shopId);
+          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
+          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
+          store.dispatch("shopMenuAvailability/invalidateForShop", d.shopId);
         } catch (_) {
           /* noop */
         }
@@ -4241,6 +4376,9 @@ export default {
         // Invalidation caches assignation (même refresh que applyRemap).
         try {
           store.dispatch("shopMenuItems/invalidateForShop", shopId);
+          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
+          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
+          store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
         } catch (_) {
           /* noop */
         }
@@ -4284,6 +4422,9 @@ export default {
         await assignMenuItemsToShop(spaceId, cfgId, shopId, changes);
         try {
           store.dispatch("shopMenuItems/invalidateForShop", shopId);
+          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
+          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
+          store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
         } catch (_) {
           /* noop */
         }
@@ -7024,9 +7165,6 @@ export default {
   gap: 8px;
   padding-top: 4px;
 }
-.ep-side-event-btn {
-  flex: 1 1 0;
-}
 /* ===== Zone Version (sépare actions version vs infos évènement) ===== */
 .ep-side-version-zone {
   margin-top: 4px;
@@ -7233,9 +7371,6 @@ export default {
 }
 .ep-side-version-stat-val {
   font-weight: 500;
-}
-.ep-side-update-btn {
-  width: 100%;
 }
 /* ===== Empty state placeholder (cf. React :2166-2177) ===== */
 .ep-empty-state {
@@ -9167,17 +9302,14 @@ export default {
   width: 100%;
 }
 
-.ep-side-event-btn {
-  width: 100%;
+/* Colonne latérale étroite : les libellés ("Enregistrer sous") doivent pouvoir
+   passer à la ligne, alors que `.fb-btn` est en `nowrap` par défaut. Seule
+   dérogation locale au design system. */
+.ep-side-event-actions .fb-btn {
   min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-}
-
-.ep-side-event-actions :deep(button) {
-  width: 100%;
-  min-width: 0;
-  padding-inline: 10px !important;
+  height: auto;
+  min-height: var(--fb-btn-height, 36px);
+  padding: 6px 10px;
   white-space: normal;
 }
 
@@ -9187,10 +9319,11 @@ export default {
   border-radius: 999px;
 }
 
-.ep-side-event-actions :deep(button),
-.ep-side-update-btn,
-.ep-prediction-base-actions :deep(button) {
-  border-radius: var(--fb-radius-control, 8px) !important;
+/* Boutons de l'écran encore hors design system (`.ep-sources-btn`) : on leur
+   garde le rayon de contrôle. Les autres passent par `.fb-btn`, qui l'applique
+   déjà. */
+.ep-prediction-base-actions button {
+  border-radius: var(--fb-radius-control, 8px);
 }
 
 .ep-prediction-base-header {

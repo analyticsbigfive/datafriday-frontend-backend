@@ -372,6 +372,17 @@
                                           @click.stop="removeAssignedItem(element, item)"
                                         ><v-icon size="13">mdi-link-variant-off</v-icon> {{ t('epmRemoveFromMenu') }}</button>
                                       </template>
+                                      <!-- BUG-291-02 : assigné au menu du PDV mais
+                                           NON DISPONIBLE côté serveur (recette
+                                           absente / ingrédient bloqué) → 0 vente
+                                           prévue, mais on le laisse visible avec
+                                           sa raison plutôt que de le faire
+                                           disparaître sans explication. -->
+                                      <span
+                                        v-else-if="item._serverUnavailable"
+                                        class="ep-map-badge ep-map-badge--unavailable"
+                                        :title="t('epmUnavailableTitle')"
+                                      >{{ t('epmUnavailableBadge') }}</span>
                                       <span
                                         v-else-if="itemMapStatus(element, item.id) === 'remapped'"
                                         class="ep-map-badge ep-map-badge--remapped"
@@ -445,6 +456,13 @@
                                         v-if="!item.isAvailable && item.missingIngredients && item.missingIngredients.length"
                                         class="text-xs text-orange-600 dark:text-orange-400 mt-1"
                                       >{{ t('epmMissing') }} {{ item.missingIngredients.join(', ') }}</p>
+                                      <!-- Aucune recette du tout : `missingIngredients`
+                                           est vide, la ligne « Manquant » ne dirait
+                                           rien — on nomme la vraie cause. -->
+                                      <p
+                                        v-else-if="item._serverNoRecipe"
+                                        class="text-xs text-orange-600 dark:text-orange-400 mt-1"
+                                      >{{ t('epmNoRecipe') }}</p>
                                     </div>
                                     <div class="ep-menu-item-quantity flex items-center gap-3 flex-shrink-0">
                                       <p class="font-medium text-sm whitespace-nowrap">
@@ -800,6 +818,12 @@
 import { nextTick } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
+import {
+  buildTimelineQuantityIndex,
+  shopLookupKeys,
+  itemLookupKeys,
+  lookupPredictedQuantity,
+} from '@/utils/predictedQuantityIndex'
 import { menuItemPriceHt } from '@/utils/price'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import Card from '../ui/card.vue'
@@ -916,6 +940,11 @@ export default {
      *  garde-fou : on n'ouvre un PDV fermé qu'avec un item présent dans son menu.
      *  null = pas encore chargé (garde-fou inactif, rétro-compat). */
     shopMenuMembership: { type: Object, default: null },
+    /** Articles assignés au Space Menu du shop mais NON DISPONIBLES côté serveur
+     *  (BUG-291-02) : Map(normalizeStr(shopName) → { ids:Set, names:Set }).
+     *  Même forme que `shopMenuMembership`. null = pas encore chargé → garde
+     *  inactive (rétro-compat stricte). */
+    shopMenuUnavailable: { type: Object, default: null },
     /** Items prédits sans correspondance, par shop, pour la section
      *  « Non rattachés » : Object<elementId, MenuItem[]>. */
     unmappedItemsByShop: { type: Object, default: () => ({}) },
@@ -999,15 +1028,21 @@ export default {
       // le CA par shop tombaient à 0. Les shops sans vente timeline n'ont pas de
       // `_itemIds` (repli `shopType` inchangé).
       if (Array.isArray(this.configShops) && this.configShops.length) {
+        // BUG-275 : `configShops` (prop) vient de `/spaces/:id/shops`, dont le `shopTypes`
+        // backend inclut délibérément `merchshop` (revenu/stock, cf. BUG-274) — mais ici on
+        // assigne des MenuItem F&B à un point de vente, même contexte que BUG-274. Filtré ici
+        // (pas dans `configShops` lui-même, réutilisé pour le CA par shop plus bas où
+        // merchshop doit rester).
+        const shops = this.configShops.filter((el) => el?.type !== 'merchshop')
         const synth = this.syntheticElementsFromTimeline
-        if (!synth.length) return this.configShops
+        if (!synth.length) return shops
         const byId = new Map()
         const byName = new Map()
         for (const s of synth) {
           if (s.id != null) byId.set(String(s.id), s._itemIds)
           if (s.name) byName.set(String(s.name).toLowerCase(), s._itemIds)
         }
-        return this.configShops.map((el) => {
+        return shops.map((el) => {
           const ids =
             byId.get(String(el.id)) ||
             byName.get(String(el.name || '').toLowerCase())
@@ -1120,41 +1155,12 @@ export default {
     },
     // ----- Timeline index (cf. React :262-281) -----
     timelineDataIndex() {
-      const idx = new Map()
-      const data = this.predictedTimelineData || []
-      for (const r of data) {
-        const qty = r.totalQuantity || 0
-        // Clés SHOP : id brut (r.shopId) ET NOM normalisé (r.shopName). Le nom
-        // est la clé STABLE inter-config : les records prédits portent le shopId
-        // d'UNE config (celle des ventes passées), mais l'utilisateur peut
-        // afficher une AUTRE config dont les elementId diffèrent pour le même
-        // shop physique (même nom). Sans la clé nom, tous les items ressortent
-        // à 0 sur ces configs.
-        const shopKeys = [
-          ...new Set(
-            [r.shopId || r.shop, r.shopName ? normalizeStr(r.shopName) : null].filter(Boolean),
-          ),
-        ]
-        if (!shopKeys.length) continue
-        const idKey = r.menuItemId || r.mappedMenuItemId
-        const nameKey =
-          r.itemName || r.menuItemName
-            ? String(r.itemName || r.menuItemName).toLowerCase()
-            : null
-        // Indexe par ID ET par nom d'item : la timeline peut ne pas exposer un
-        // `menuItemId` mappé au catalogue → on retombe sur le nom de l'item.
-        for (const sk of shopKeys) {
-          if (idKey) {
-            const k = `${sk}|${idKey}`
-            idx.set(k, (idx.get(k) || 0) + qty)
-          }
-          if (nameKey) {
-            const k = `${sk}|${nameKey}`
-            idx.set(k, (idx.get(k) || 0) + qty)
-          }
-        }
-      }
-      return idx
+      // BUG-290-01 : indexation déplacée dans `utils/predictedQuantityIndex.js`
+      // et PARTAGÉE avec EventPredictStockUpSection, qui n'indexait ni par nom
+      // de shop ni par nom d'item et ressortait donc 0 là où cet écran-ci
+      // trouvait la bonne quantité. Comportement inchangé ici : le code déplacé
+      // est celui de cet écran, qui fait référence.
+      return buildTimelineQuantityIndex(this.predictedTimelineData)
     },
     // ----- Index REVENUE par shop|item (id ET nom), depuis la timeline ------
     // Source fiable pour le CA prédit/ajusté (le `basePrice` catalogue n'est
@@ -1507,7 +1513,11 @@ export default {
         let ids
         if (featureActive) {
           const assigned = this.assignedIdsForElement(el)
-          ids = assigned ? [...assigned] : []
+          // BUG-291-02 : `assignedIdsForElement` dérive de la liste AFFICHÉE, qui
+          // porte désormais aussi les articles indisponibles — on les retire ici,
+          // sinon un article qu'on ne peut pas fabriquer serait coché d'office sur
+          // un événement neuf.
+          ids = assigned ? [...assigned].filter((id) => !this.isItemUnavailable(el, id)) : []
         } else {
           const items = this.menuItemsPerElement.get(el.id) || []
           ids = items
@@ -1680,37 +1690,31 @@ export default {
       if (this.timelineDataIndex.size === 0) return 0
       const el = this.fbElementsById.get(elementId)
       if (!el) return 0
+      // BUG-291-02 : article indisponible (ingrédients manquants / pas de recette)
+      // → 0 vente prévue. Porte PRINCIPALE : irrigue les buckets, `unitSliderMax`
+      // et le filtre d'auto-sélection.
+      if (this.isItemUnavailable(el, menuItemId)) return 0
       // Cl\u00e9s SHOP : id/registryId bruts + NOM normalis\u00e9 (cl\u00e9 stable inter-config,
       // cf. timelineDataIndex). L'index contient les M\u00caMES sommes sous la cl\u00e9 id
-      // ET sous la cl\u00e9 nom \u2192 on prend le MAX across cl\u00e9s (pas la somme) pour
-      // \u00e9viter le double-comptage, tout en captant la cl\u00e9 la plus compl\u00e8te.
-      const shopKeys = [
-        ...new Set([el.id, el.registryId, normalizeStr(el.name)].filter(Boolean)),
-      ]
-      const mi = this.menuItemsById.get(menuItemId)
-      const itemKeys = [
-        ...new Set(
-          [menuItemId, mi && mi.name ? String(mi.name).toLowerCase() : null].filter(
-            Boolean,
-          ),
-        ),
-      ]
-      let q = 0
-      for (const sk of shopKeys) {
-        for (const ik of itemKeys) {
-          const c = this.timelineDataIndex.get(`${sk}|${ik}`)
-          if (c) {
-            if (c > q) q = c
-            break
-          }
-        }
-      }
-      return Math.round(q)
+      // ET sous la cl\u00e9 nom \u2192 `lookupPredictedQuantity` prend le MAX (pas la
+      // somme) pour \u00e9viter le double-comptage, tout en captant la cl\u00e9 la plus
+      // compl\u00e8te. Helpers partag\u00e9s avec le Stock-up (BUG-290-01).
+      return lookupPredictedQuantity(
+        this.timelineDataIndex,
+        shopLookupKeys(el),
+        itemLookupKeys(menuItemId, this.menuItemsById.get(menuItemId)),
+      )
     },
     getAdjustedQuantity(elementId, menuItemId) {
       // Shop fermé → 0 (y compris la quantité manuelle 0-vente, sinon elle
       // regonfle l'ajusté / le CA d'un PDV fermé). Cf. getPredictedQuantity.
       if (this.hasOpenData && !this.isShopOpen(elementId)) return 0
+      // BUG-291-02 — garde INDISPENSABLE, pas défensive : la ligne `manual` plus
+      // bas n'est active QUE si `base === 0`. Forcer le prédit à 0 sur un article
+      // indisponible ouvrirait donc la branche quantité manuelle, et un ajusté > 0
+      // franchirait le garde `adjustedQty === 0` du stock-up — le correctif
+      // rouvrirait la porte qu'il ferme.
+      if (this.isItemUnavailable(this.fbElementsById.get(elementId), menuItemId)) return 0
       const base = this.getPredictedQuantity(elementId, menuItemId)
       const manual = base === 0 ? this.getManualQuantity(elementId, menuItemId) : 0
       // Item DÉCOCHÉ = insensible au slider global → quantité de BASE non
@@ -1732,6 +1736,10 @@ export default {
       if (this.timelineRevenueIndex.size === 0) return 0
       const el = this.fbElementsById.get(elementId)
       if (!el) return 0
+      // BUG-291-02 : `timelineRevenueIndex` est un index DISTINCT, non routé par
+      // `getPredictedQuantity` — la garde doit être répétée ici, sinon un article
+      // indisponible afficherait 0 unité mais continuerait à porter du CA prévu.
+      if (this.isItemUnavailable(el, menuItemId)) return 0
       const shopKeys = [
         ...new Set([el.id, el.registryId, normalizeStr(el.name)].filter(Boolean)),
       ]
@@ -2038,6 +2046,23 @@ export default {
           _ghost:
             this.spaceCatalogIdSet.size > 0 &&
             !this.spaceCatalogIdSet.has(String(it.id)),
+          // BUG-291-02 — la vérité SERVEUR écrase la dérivation front de
+          // `checkMenuItemAvailability`, qui applique encore la règle abandonnée
+          // « fournisseur sans sites = livre tous les espaces ». Écrit APRÈS le
+          // spread, sans quoi la dérivation front reprendrait la main.
+          // La quantité prévue étant forcée à 0 en amont, `_bucket` vaut alors
+          // 'noSales' : l'article reste visible, avec sa raison, au lieu de
+          // ressortir en « Non attachés au menu » avec sa quantité intacte.
+          ...(it.available === false
+            ? {
+                isAvailable: false,
+                _serverUnavailable: true,
+                _serverNoRecipe: it.hasRecipe === false,
+                missingIngredients: Array.isArray(it.missingIngredients)
+                  ? it.missingIngredients
+                  : [],
+              }
+            : {}),
         }))
         // « Non rattachés » = items vendus (qté prédite > 0) absents du menu assigné.
         const unmapped = base.filter(
@@ -2105,6 +2130,29 @@ export default {
       return !!(nm && entry.names && entry.names.has(nm))
     },
     /**
+     * Article assigné au Space Menu du shop mais NON DISPONIBLE côté serveur
+     * (BUG-291-02) : recette absente, ingrédient inactif / sans fournisseur, ou
+     * fournisseur ne livrant pas l'espace. Un tel article ne peut pas être servi
+     * → aucune vente prévue, aucun CA, aucune ligne de stock.
+     *
+     * ⚠️ À ne PAS confondre avec `enabled === false` (article désactivé sur le
+     * menu du PDV) : celui-là garde son flux « réactiver » inchangé.
+     *
+     * Appariement id PUIS nom normalisé, comme `isInShopMenu` — l'id porté par la
+     * timeline peut différer de l'id catalogue. Garde inactive tant que la prop
+     * n'est pas chargée.
+     */
+    isItemUnavailable(element, menuItemId, itemName) {
+      const src = this.shopMenuUnavailable
+      if (!src) return false
+      const key = normalizeStr(element?.name)
+      const entry = src instanceof Map ? src.get(key) : src[key]
+      if (!entry) return false
+      if (entry.ids && entry.ids.has(String(menuItemId))) return true
+      const nm = normalizeStr(itemName ?? this.menuItemsById.get(menuItemId)?.name)
+      return !!(nm && entry.names && entry.names.has(nm))
+    },
+    /**
      * Action proposée pour une ligne HORS menu activé :
      *  - 'reactivate' : article MEMBRE du Space Menu du PDV mais désactivé →
      *                   POST enabled:true le réactive ;
@@ -2135,6 +2183,10 @@ export default {
      *    affichait des items « cochés » sur un PDV fermé — mensonger.
      */
     itemCheckboxState(element, menuItemId) {
+      // BUG-291-02 : article indisponible → jamais présenté comme coché. Une
+      // version sauvegardée antérieure peut encore le porter dans sa sélection ;
+      // on la neutralise à la LECTURE, sans réécrire le choix de l'utilisateur.
+      if (this.isItemUnavailable(element, menuItemId)) return false
       if (this.isShopOpen(element.id)) return this.isMenuItemSelected(element.id, menuItemId)
       return this.isItemAssigned(element, menuItemId)
     },
@@ -2159,6 +2211,10 @@ export default {
       })
     },
     onItemCheckboxChange(element, menuItemId, checked, item) {
+      // BUG-291-02 : un article indisponible n'est pas sélectionnable — le cocher
+      // le réinjecterait dans le CA et le stock-up. La correction se fait dans
+      // Space Menus (recette / fournisseur), pas ici.
+      if (this.isItemUnavailable(element, menuItemId, item && item.name)) return
       if (this.isShopOpen(element.id)) {
         // Sélection locale INSTANTANÉE → pilote le CA ajusté sans latence réseau.
         this.toggleMenuItem(element.id, menuItemId)
@@ -2429,6 +2485,16 @@ export default {
 .ep-map-badge--remapped {
   color: var(--primary, #2563eb);
   background: color-mix(in srgb, var(--primary, #2563eb) 12%, transparent);
+}
+/* Article au menu du PDV mais impossible à fabriquer (BUG-291-02) : orange, comme
+   le fond de ligne et la ligne « Manquant : … » qui portent déjà cette sémantique. */
+.ep-map-badge--unavailable {
+  color: #c2410c;
+  background: color-mix(in srgb, #c2410c 12%, transparent);
+}
+.dark .ep-map-badge--unavailable {
+  color: #fb923c;
+  background: color-mix(in srgb, #fb923c 16%, transparent);
 }
 /* PDV sans historique de vente : badge neutre (pas d'alerte) + toggle simulation. */
 .ep-map-badge--nohist {

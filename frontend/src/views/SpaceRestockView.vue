@@ -381,22 +381,12 @@
             :clear-label="t('srClear') || 'Clear'"
           >
             <template #filters>
-              <div class="sr-segmented">
-                <button
-                  type="button"
-                  :class="{ active: restockViewMode === 'shop' }"
-                  @click="restockViewMode = 'shop'"
-                >
-                  {{ t('srByShop') }}
-                </button>
-                <button
-                  type="button"
-                  :class="{ active: restockViewMode === 'item' }"
-                  @click="restockViewMode = 'item'"
-                >
-                  {{ t('srByItem') }}
-                </button>
-              </div>
+              <!-- Bascule « Par shop / Par item » MASQUÉE (demande JLH 2026-08-04) :
+                   la vue « Par shop » est buggée (split « Non rattachés au menu —
+                   à remapper » qui bascule des PdV entiers en rouge, cf. la section
+                   plus bas). Le réarmement ne sert donc plus que la vue « Par item ».
+                   Le rendu « Par shop » est conservé mais inaccessible : réactiver =
+                   restaurer ce segmented + le défaut `restockViewMode`. -->
               <v-select
                 v-if="restockEventOptions.length > 1"
                 v-model="restockEventFilter"
@@ -438,6 +428,9 @@
             </div>
           </div>
 
+          <!-- Vue « Par shop » — INACCESSIBLE depuis l'UI (bascule masquée plus haut,
+               `restockViewMode` forcé à 'item'). Conservée telle quelle : le split
+               « non rattachés » qu'elle porte doit être corrigé avant réactivation. -->
           <div
             v-if="restockGenerated && restockRows.length && restockViewMode === 'shop'"
             class="sr-table-groups"
@@ -469,7 +462,14 @@
                   >
                     <td :data-label="t('srColItem')">
                       <strong>{{ row.itemName }}</strong>
-                      <span><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                      <span v-if="(row.sourceBreakdown || []).length < 2"><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                      <ul v-else class="sr-source-breakdown">
+                        <li class="sr-source-breakdown-head"><span>{{ t('srUsedIn') }}</span></li>
+                        <li v-for="source in row.sourceBreakdown || []" :key="source.key">
+                          <span>{{ source.name }}</span>
+                          <span :title="t('srColTarget')">{{ formatLooseQuantity(source.quantity, row.unit) }}</span>
+                        </li>
+                      </ul>
                     </td>
                     <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
@@ -522,7 +522,14 @@
                       <td :data-label="t('srColItem')">
                         <strong>{{ row.itemName }}</strong>
                         <span class="sr-unmapped-badge">non mappé</span>
-                        <span><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                        <span v-if="(row.sourceBreakdown || []).length < 2"><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                        <ul v-else class="sr-source-breakdown">
+                          <li class="sr-source-breakdown-head"><span>{{ t('srUsedIn') }}</span></li>
+                          <li v-for="source in row.sourceBreakdown || []" :key="source.key">
+                            <span>{{ source.name }}</span>
+                            <span :title="t('srColTarget')">{{ formatLooseQuantity(source.quantity, row.unit) }}</span>
+                          </li>
+                        </ul>
                       </td>
                       <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
                       <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
@@ -557,11 +564,25 @@
                 <div>
                   <h3>{{ group.itemName }}</h3>
                   <span
-                    v-if="groupSourceSummary(group)"
+                    v-if="(group.sourceBreakdown || []).length < 2 && groupSourceSummary(group)"
                     style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
                   >{{ t('srUsedIn') }} {{ groupSourceSummary(group) }}</span>
+                  <ul v-else-if="(group.sourceBreakdown || []).length >= 2" class="sr-source-breakdown">
+                    <li class="sr-source-breakdown-head"><span>{{ t('srUsedIn') }}</span></li>
+                    <li v-for="source in group.sourceBreakdown || []" :key="source.key">
+                      <span>{{ source.name }}</span>
+                      <span :title="t('srColTarget')">{{ formatLooseQuantity(source.quantity, source.unit) }}</span>
+                    </li>
+                  </ul>
                 </div>
-                <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
+                <div class="sr-group-head-end">
+                  <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
+                  <button
+                    type="button"
+                    class="sr-inline-btn"
+                    @click="setGroupRestocked(group, !isGroupRestocked(group))"
+                  >{{ isGroupRestocked(group) ? t('srUncheckAll') : t('srConfirmAll') }}</button>
+                </div>
               </header>
               <table class="sr-table sr-restock-table">
                 <thead>
@@ -1023,9 +1044,12 @@ import {
   findStockReference,
 } from '@/utils/stockPlanning'
 // BOM (achats/production) : explosion des plats en ingrédients, indépendamment
-// de readyForSale. Recette lue via le détail /menu-items/:id (hydratation).
-import { normalizeRecipe, buildIngredientRequirements } from '@/utils/bomPlanning'
-import { getMenuItemById } from '@/api/endpoints/menu-item.api'
+// de readyForSale. Recettes lues via le BATCH POST /menu-items/recipes (un appel,
+// BUG-294-01 — le fan-out /menu-items/:id déclenchait le rate limit 429) ; le
+// détail /menu-items/:id ne sert plus qu'au repli borné si le batch échoue.
+import { normalizeRecipe, normalizeRecipeFromBatch, buildIngredientRequirements } from '@/utils/bomPlanning'
+import { hydrateSubComponents } from '@/utils/componentCatalog'
+import { getMenuItemById, getMenuItemRecipes } from '@/api/endpoints/menu-item.api'
 // Versions de prédiction (scénarios) — rapatriées depuis la BDD pour pré-remplir
 // le réarmement même sans pont localStorage (cf. recompute depuis la version active).
 import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
@@ -1138,6 +1162,14 @@ export default {
       // exclus du réarmement. Peuplé par loadRestockShopAssignment (mêmes rows).
       closedShopNames: [],
       _restockClosedCache: null,
+      // BUG-291-02 — articles IMPOSSIBLES À PRODUIRE côté serveur (recette
+      // absente / ingrédient bloqué) : exclus du réarmement, eux et leurs
+      // ingrédients. Index PLAT `{ ids: [], names: [] }` au niveau ESPACE
+      // (correctif v2) : `available` est calculé par espace côté serveur, et la
+      // jointure par nom de shop de la v1 ratait en silence sur les configs
+      // synthétiques (`buildSyntheticConfig` peut poser un id brut en `name`).
+      unavailableStockItems: null,
+      _restockUnavailableCache: null,
       // Repli de la section « non rattachés » par shop (clé = shopId).
       restockUnmappedOpen: {},
       // Popup email fournisseur (colonne Aperçu) : contenu éditable + envoi/annulation.
@@ -1181,7 +1213,9 @@ export default {
       previousInventoryEvent: null,
       restockGenerated: false,
       shoppingGenerated: false,
-      restockViewMode: 'shop',
+      // Vue « Par shop » masquée (JLH 2026-08-04) : seule 'item' est servie tant
+      // que le split « non rattachés au menu » n'est pas corrigé.
+      restockViewMode: 'item',
       // Filtre d'affichage de la feuille de réarmement : null = tous les events.
       // N'altère pas les quantités (agrégées sur tous les events sélectionnés) —
       // masque seulement les lignes qui ne concernent pas l'event choisi.
@@ -1195,6 +1229,13 @@ export default {
       // contenu mais réassigné en bloc pour déclencher la réactivité.
       recipeByMenuItemId: {},
       recipesLoading: false,
+      // BUG-292-01 — catalogue composants AVEC leur recette (`subComponents`).
+      // `store.analyse.components` vient de la LISTE /menu-components, qui ne la
+      // porte pas : sans cette hydratation, la feuille de course achèterait « de
+      // la sauce pickle » au lieu de son vinaigre et de son ail. Hydraté une fois,
+      // à l'entrée du mode ingrédients (cf. ensureRecipesLoaded).
+      hydratedComponents: [],
+      componentsHydrated: false,
       // Catalogue fournisseurs complet (/suppliers) pour nommer le fournisseur
       // d'un ingrédient (le store analyse n'en a qu'un sous-ensemble).
       bomSuppliers: [],
@@ -1460,6 +1501,7 @@ export default {
           selectedMenuItems,
           quantityAdjustments: meta?.quantityAdjustments || undefined,
           closedShopNames: this.closedShopNames,
+          unavailableItems: this.unavailableStockItems,
         })
 
         rows.forEach((row) => {
@@ -1609,6 +1651,10 @@ export default {
           remainingQuantity,
           restockQuantity,
           packaging,
+          // BUG-288-01 : détail « utilisé dans » par menu item. Les parts portent
+          // sur le BESOIN (targetQuantity), pas sur « À déposer » — le restant du
+          // PDV n'est pas attribuable à un plat plutôt qu'à un autre.
+          sourceBreakdown: this.buildSourceBreakdown(row),
         }
       }).filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
     },
@@ -1678,6 +1724,20 @@ export default {
         }
         groups.get(row.itemKey).rows.push(row)
       })
+      // Détail « utilisé dans » cumulé sur tous les PDV du groupe (BUG-288-01).
+      groups.forEach((group) => {
+        const byName = new Map()
+        group.rows.forEach((row) => {
+          ;(row.sourceBreakdown || []).forEach((source) => {
+            const previous = byName.get(source.key)
+            if (previous) previous.quantity += source.quantity
+            else byName.set(source.key, { ...source })
+          })
+        })
+        group.sourceBreakdown = Array.from(byName.values()).sort(
+          (a, b) => b.quantity - a.quantity,
+        )
+      })
       return Array.from(groups.values()).sort((a, b) =>
         String(a.itemName).localeCompare(String(b.itemName)),
       )
@@ -1699,8 +1759,9 @@ export default {
           '__unknown_supplier__'
         const supplier = this.suppliers.find((s) => s.id === supplierId)
         // Mode produits finis : un plat fini sans fournisseur n'est pas un
-        // « fournisseur non défini » → groupe « Produits finis » (clé partagée
-        // avec resolveIngredientSupplier).
+        // « fournisseur non défini » → groupe « Produits finis ». En mode
+        // ingrédients, resolveIngredientSupplier étiquette le même cas
+        // « Sans fournisseur (ingrédients manquants) » (srNoSupplierGroup).
         const supplierName = supplier?.name || this.t('srFinishedProductsGroup')
 
         if (!supplierMap.has(supplierId)) {
@@ -1795,6 +1856,7 @@ export default {
           selectedMenuItems,
           quantityAdjustments: meta?.quantityAdjustments || undefined,
           closedShopNames: this.closedShopNames,
+          unavailableItems: this.unavailableStockItems,
         })
         demand.forEach((d) => {
           const key = `${d.shopId}|||${d.menuItemId}`
@@ -1810,6 +1872,9 @@ export default {
       const groups = buildIngredientRequirements({
         demand: this.menuItemDemandRows,
         recipeByMenuItemId: this.recipeByMenuItemId,
+        // BUG-292-01 : sans ce catalogue hydraté, l'éclatement composant →
+        // ingrédients est inerte et la feuille de course s'arrête au composant.
+        components: this.hydratedComponents,
         resolveSupplier: (line) => this.resolveIngredientSupplier(line),
       })
       const q = (this.shoppingSearch || '').trim().toLowerCase()
@@ -2170,7 +2235,10 @@ export default {
       if (saved.stockAdjustments) this.stockAdjustments = { ...saved.stockAdjustments }
       if (saved.stockPackedModes) this.stockPackedModes = { ...saved.stockPackedModes }
       if (saved.stockExcluded) this.stockExcluded = { ...saved.stockExcluded }
-      if (saved.restockViewMode) this.restockViewMode = saved.restockViewMode
+      // Vue « Par shop » masquée : un état persisté `'shop'` (utilisateur qui
+      // l'avait sélectionnée avant) ne doit PAS la ressusciter — sans la bascule
+      // dans l'UI, il n'aurait aucun moyen d'en sortir.
+      if (saved.restockViewMode === 'item') this.restockViewMode = 'item'
       // 2) Sorties : après le flush des watchers (selectedEventIds → reset),
       // on restaure lignes confirmées + état généré, puis on lève le guard.
       this.$nextTick(() => {
@@ -2450,13 +2518,16 @@ export default {
       const cfgId = cfg?.id || null
       if (!spaceId || !cfgId) {
         this.restockAssignmentByName = null
+        this.unavailableStockItems = null
         return
       }
       const cache = this._restockAssignmentCache || (this._restockAssignmentCache = {})
       const closedCache = this._restockClosedCache || (this._restockClosedCache = {})
+      const unavailCache = this._restockUnavailableCache || (this._restockUnavailableCache = {})
       if (cache[cfgId]) {
         this.restockAssignmentByName = cache[cfgId]
         this.closedShopNames = closedCache[cfgId] || []
+        this.unavailableStockItems = unavailCache[cfgId] || null
         return
       }
       const rows = ((await this.store.dispatch('spaceShops/fetchForSpace', { spaceId }).catch(() => [])) || []).filter(
@@ -2475,6 +2546,7 @@ export default {
       console.log(`[RESTOCK] PdV fermés exclus du réarmement (${closed.length}) : [${closed.join(', ')}]`)
       if (!rows.length) {
         this.restockAssignmentByName = null
+        this.unavailableStockItems = null
         return
       }
       try {
@@ -2487,19 +2559,47 @@ export default {
           const idx = rows.indexOf(r)
           const shopId = String(r?.id ?? r?._id ?? r?.shopId ?? '')
           const name = r?.name ?? r?.shopName ?? ''
-          if (!shopId) { results[idx] = { name, items: [] }; return }
+          if (!shopId) { results[idx] = { name, items: [], unavailable: [] }; return }
+          // BUG-291-02 — `shopMenuItems` (GET /space-menu/shop/:id) ne porte PAS
+          // `available` : la disponibilité serveur vient de l'endpoint LÉGER
+          // /items, via le store `shopMenuAvailability`. Même clé de cache
+          // (`shopId::configId`) et même TTL 15 min que ceux qu'EventPredict
+          // remplit → sur un parcours Predict → Réarmement, servi par le cache.
+          // Dans la MÊME boucle plafonnée à 3 : pas de nouveau parallélisme.
+          // Try INDÉPENDANT du fetch lourd (v2) : un échec de `shopMenuItems` ne
+          // doit pas emporter la disponibilité avec lui, ni l'inverse.
+          let unavailable = []
+          try {
+            await this.store.dispatch('shopMenuAvailability/fetchForShop', { shopId, configId: cfgId })
+            const availFor = this.store.getters['shopMenuAvailability/forShop']
+            const rowsAvail = typeof availFor === 'function' ? availFor(shopId, cfgId) || [] : []
+            // `available === false` STRICT : un backend antérieur qui n'enverrait
+            // pas le champ ne doit pas vider le réarmement.
+            unavailable = rowsAvail.filter((it) => it && it.available === false)
+          } catch (_) {
+            /* disponibilité indisponible → on n'exclut rien (comportement antérieur) */
+          }
           try {
             await this.store.dispatch('shopMenuItems/fetchForShop', { shopId, configId: cfgId })
             const forShop = this.store.getters['shopMenuItems/forShop']
             const items = typeof forShop === 'function' ? forShop(shopId, cfgId) || [] : []
-            results[idx] = { name, items }
+            results[idx] = { name, items, unavailable }
           } catch (_) {
-            results[idx] = { name, items: [] }
+            results[idx] = { name, items: [], unavailable }
           }
         })
         const map = new Map()
-        for (const { name, items: rawItems } of results) {
+        // Union PLATE au niveau espace (v2) : `available` est par espace — chaque
+        // shop renvoie le même verdict pour un article donné, et un index plat ne
+        // dépend plus d'aucune jointure par nom de shop (cf. `unavailableStockItems`).
+        const unavailIds = new Set()
+        const unavailNames = new Set()
+        for (const { name, items: rawItems, unavailable } of results) {
           const items = Array.isArray(rawItems) ? rawItems : []
+          for (const it of unavailable || []) {
+            unavailIds.add(String(it.id))
+            if (it.name) unavailNames.add(it.name)
+          }
           const enabled = items.filter((it) => it && it.enabled === true)
           if (!enabled.length) continue
           const key = normalizeStr(name)
@@ -2509,16 +2609,22 @@ export default {
             items: enabled.map((it) => ({ id: it.id, name: it.name, basePrice: it.basePrice })),
           })
         }
+        const unavailableStockItems = unavailIds.size
+          ? { ids: [...unavailIds], names: [...unavailNames] }
+          : null
         cache[cfgId] = map
+        unavailCache[cfgId] = unavailableStockItems
         this.restockAssignmentByName = map
+        this.unavailableStockItems = unavailableStockItems
         // eslint-disable-next-line no-console
         console.log(
-          `[RESTOCK] assignation NestJS chargée : ${map.size}/${rows.length} shops avec menu`,
+          `[RESTOCK] assignation NestJS chargée : ${map.size}/${rows.length} shops avec menu ; ${unavailIds.size} article(s) non produisible(s) exclus${unavailNames.size ? ` : [${[...unavailNames].join(', ')}]` : ''}`,
         )
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('[RESTOCK] chargement assignation échoué:', e?.message)
         this.restockAssignmentByName = null
+        this.unavailableStockItems = null
       }
     },
     refreshSelectedPredictions() {
@@ -3136,6 +3242,32 @@ export default {
           console.warn('[restock] getSuppliers échoué:', e?.message)
         }
       }
+      // BUG-292-01 — recette des COMPOSANTS. La liste /menu-components ne renvoie
+      // pas `subComponents` : on complète depuis le catalogue déjà en mémoire, puis
+      // par fetch détail borné pour ce qu'il reste. Échec toléré (le composant
+      // reste une ligne d'achat), mais la couverture est tracée : un éclatement
+      // inerte doit être lisible dans les logs, pas silencieux.
+      if (!this.componentsHydrated) {
+        this.componentsHydrated = true
+        try {
+          // Pas de `mergeSubComponentsFromCatalog` ici : il n'y a qu'UN catalogue
+          // (`store.analyse.components`), et le fusionner avec lui-même serait un
+          // no-op qui se lirait comme une étape utile. Ce catalogue est déjà hydraté
+          // quand il vient de `useSpaceData` (vague 2b → `SET_COMPONENTS`) — dans ce
+          // cas `hydrateSubComponents` ne déclenche aucun appel. Le fetch ne sert
+          // qu'au chemin legacy (`utils/api.js`, liste brute sans `subComponents`).
+          const { components: hydrated, hydrated: okCount, missing: koCount } =
+            await hydrateSubComponents(this.components, { ingredients: this.ingredients })
+          this.hydratedComponents = hydrated
+          console.log(
+            `[restock] 🧩 recettes composants — ${hydrated.filter((c) => c?.subComponents?.length).length}/${hydrated.length} avec subComponents ` +
+              `(détail : ${okCount} hydratés, ${koCount} sans recette)`,
+          )
+        } catch (e) {
+          console.warn('[restock] hydratation composants échouée:', e?.message)
+          this.hydratedComponents = this.components
+        }
+      }
       const ids = Array.from(
         new Set(this.menuItemDemandRows.map((d) => d.menuItemId).filter(Boolean)),
       )
@@ -3143,24 +3275,68 @@ export default {
       if (!missing.length) return
       this.recipesLoading = true
       try {
-        const results = await Promise.all(
-          missing.map((id) =>
-            getMenuItemById(id)
-              .then((res) => ({ id, detail: res?.data || res }))
-              .catch((e) => {
-                console.warn('[restock] recette détail échouée:', id, e?.message)
-                return { id, detail: null }
-              }),
-          ),
-        )
+        // BUG-294-01 — UN appel batch au lieu de N × GET /menu-items/:id : le
+        // fan-out (~40 requêtes simultanées) déclenchait le TenantThrottlerGuard
+        // (429) et chaque échec était caché comme « recette vide » → faux groupe
+        // « Sans fournisseur (ingrédients manquants) », jamais retenté.
+        // ⚠️ ids vide = TOUT le tenant côté backend — le guard !missing.length
+        // ci-dessus est indispensable.
+        const res = await getMenuItemRecipes(missing)
+        const payload = res?.data || res
+        const items = Array.isArray(payload?.items) ? payload.items : []
         const next = { ...this.recipeByMenuItemId }
-        results.forEach(({ id, detail }) => {
-          next[id] = detail ? normalizeRecipe(detail) : { numberOfPiecesRecipe: 1, lines: [] }
+        const returned = new Set()
+        items.forEach((dto) => {
+          if (!dto?.id) return
+          returned.add(dto.id)
+          next[dto.id] = normalizeRecipeFromBatch(dto)
         })
+        // Id demandé mais absent de la réponse = item supprimé / hors tenant :
+        // vraie absence de recette → cache vide LÉGITIME (produit fini), pas un
+        // échec réseau.
+        missing.forEach((id) => {
+          if (!returned.has(id)) next[id] = { numberOfPiecesRecipe: 1, lines: [] }
+        })
+        this.mergeBomSuppliers(payload?.suppliers)
         this.recipeByMenuItemId = next
+      } catch (e) {
+        // Batch KO (500, timeout…) : repli détail per-id BORNÉ. Anti-poison :
+        // aucun échec réseau n'est écrit comme « recette vide ».
+        console.warn('[restock] batch recettes échoué — repli per-id borné:', e?.message)
+        await this.loadRecipesFallback(missing)
       } finally {
         this.recipesLoading = false
       }
+    },
+    /** Fusionne les fournisseurs renvoyés par le batch dans bomSuppliers (dédupe par id). */
+    mergeBomSuppliers(suppliers) {
+      if (!Array.isArray(suppliers) || !suppliers.length) return
+      const known = new Set(this.bomSuppliers.map((s) => s?.id))
+      const added = suppliers.filter((s) => s?.id && !known.has(s.id))
+      if (added.length) this.bomSuppliers = [...this.bomSuppliers, ...added]
+    },
+    /**
+     * Repli si le batch échoue : détail /menu-items/:id avec concurrence bornée
+     * à 4 (sous le seuil du TenantThrottlerGuard). Un id en échec n'est PAS
+     * caché : absent de recipeByMenuItemId, il sera retenté au prochain
+     * « Générer » — c'est l'état « à retenter », pas une recette vide.
+     */
+    async loadRecipesFallback(ids) {
+      const next = { ...this.recipeByMenuItemId }
+      let failed = 0
+      await runWithConcurrency(ids, 4, async (id) => {
+        try {
+          const res = await getMenuItemById(id)
+          const detail = res?.data || res
+          if (detail) next[id] = normalizeRecipe(detail)
+          else failed += 1
+        } catch (e) {
+          failed += 1
+          console.warn('[restock] recette détail échouée:', id, e?.message)
+        }
+      })
+      this.recipeByMenuItemId = next
+      if (failed) this.showSnackbar(this.t('srSnackRecipesPartial'), 'warning')
     },
     /**
      * Résout le fournisseur d'une ligne d'ingrédient BOM par la chaîne réelle :
@@ -3171,13 +3347,14 @@ export default {
      * marketPrice niché si présent, sinon du catalogue suppliers.
      */
     resolveIngredientSupplier(line) {
-      // Plat fini sans recette (Coca, chips, bouteille d'eau…) : pas de matière à
-      // commander, pas de fournisseur → groupe dédié « Produits finis » (distinct
+      // Plat sans recette exploitable (vrai produit fini type Coca/chips, OU
+      // recette absente en base) : pas de matière à commander, pas de fournisseur
+      // → groupe dédié « Sans fournisseur (ingrédients manquants) » (distinct
       // d'un ingrédient au mapping fournisseur cassé, qui reste « non défini »).
       if (line.itemType === 'MenuItem') {
         return {
           supplierId: '__finished__',
-          supplierName: this.t('srFinishedProductsGroup'),
+          supplierName: this.t('srNoSupplierGroup'),
           supplierEmail: '',
           supplierPhone: '',
         }
@@ -3256,6 +3433,18 @@ export default {
       })
       this.restockedRows = next
     },
+    /** Toutes les lignes (boutiques) de la carte article sont-elles confirmées ? */
+    isGroupRestocked(group) {
+      return (group?.rows || []).length > 0 && group.rows.every((row) => this.isRestocked(row.rowKey))
+    },
+    /** Confirme / décoche d'un coup toutes les boutiques d'une carte article. */
+    setGroupRestocked(group, checked) {
+      const next = { ...this.restockedRows }
+      ;(group?.rows || []).forEach((row) => {
+        next[row.rowKey] = !!checked
+      })
+      this.restockedRows = next
+    },
     formatLooseQuantity(quantity, unit) {
       const n = roundForUnit(quantity, unit)
       return `${n.toLocaleString('fr-FR')} ${unit || ''}`.trim()
@@ -3296,6 +3485,25 @@ export default {
       if (!row.sources?.length) return row.eventNames.join(', ')
       const names = row.sources.map((source) => source.menuItemName)
       return Array.from(new Set(names)).slice(0, 3).join(', ')
+    },
+    /**
+     * BUG-288-01 — parts par menu item d'un article de stock partagé.
+     * Fusionne les `sources` par NOM de plat (un même plat peut apparaître via
+     * plusieurs lignes de recette) et applique le même ajustement % que
+     * `targetQuantity` : la somme des parts reconstitue la colonne BESOIN.
+     */
+    buildSourceBreakdown(row) {
+      if (!row?.sources?.length) return []
+      const byName = new Map()
+      row.sources.forEach((source) => {
+        const name = source.menuItemName || ''
+        if (!name) return
+        const quantity = this.adjustedQuantity(source.componentQuantity, row.unit, row.itemKey)
+        const previous = byName.get(name)
+        if (previous) previous.quantity += quantity
+        else byName.set(name, { key: name, name, quantity, unit: row.unit })
+      })
+      return Array.from(byName.values()).sort((a, b) => b.quantity - a.quantity)
     },
     // Plats (menu items) couverts par cet article de stock, agrégés sur toutes
     // les lignes du groupe « par article » → affiché dans l'en-tête du groupe.
@@ -3911,6 +4119,17 @@ export default {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Boutons du pied d'assistant : les `v-btn` bruts héritent du style Vuetify
+   (MAJUSCULES + letter-spacing + radius 4px) — hors charte. On les aligne sur
+   les boutons de la page (`sr-inline-btn`, `sr-confirm-btn`, `sr-cta-btn`) :
+   casse normale, graisse 700, radius de contrôle. */
+.sr-wizard-nav :deep(.v-btn) {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 700;
+  border-radius: var(--fb-radius-control, 8px);
 }
 
 .sr-wizard-nav-hint {
@@ -4554,6 +4773,8 @@ export default {
 }
 .sr-supplier-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .sr-supplier-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Compteur boutiques + « Tout confirmer » par carte article (vue Par article). */
+.sr-group-head-end { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .sr-group-head span,
 .sr-supplier-head span {
@@ -4649,6 +4870,36 @@ export default {
   color: #64748b;
   font-size: 0.72rem;
   margin-top: 2px;
+}
+
+/* Détail « utilisé dans » par menu item d'un article partagé (BUG-288-01). */
+.sr-source-breakdown {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.sr-source-breakdown li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 280px;
+}
+
+/* Rendu identique dans la table (hérite de `.sr-table td span`) et dans l'en-tête
+   de groupe du mode « par article » (qui, lui, n'hérite de rien). */
+.sr-source-breakdown li span {
+  display: block;
+  margin-top: 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--sr-muted, #64748b);
+}
+
+.sr-source-breakdown li span:last-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .sr-strong {

@@ -2246,6 +2246,10 @@ export const translations = {
     epsNoStockItems: 'No stock items to display',
     epsSelectMenuItemsHint: 'Select menu items in the Configuration settings section above',
     epsTotalEstimatedCost: 'Estimated total stock-up cost',
+    // BUG-291-01 : ce total valorise des unités ENTIÈRES ; le « Coût ajusté » du
+    // résumé garde les décimales. L'écart est de l'arrondi, pas une erreur.
+    epsTotalEstimatedCostHint:
+      'Costed on whole units to be loaded — slightly above the summary adjusted cost, which keeps decimals.',
     epsOtherCategory: 'Other',
     epsUnitCostTitle: 'Unit cost',
     epsItem: 'item',
@@ -2253,6 +2257,14 @@ export const translations = {
     epsFrom: 'from',
     epsPackagingOf: 'of',
     epsNoShopType: 'No Shop Type',
+    // BUG-291-01 — nature d'un élément stockable (badge de ligne). `Component`
+    // = préparé en cuisine centrale, arrive prêt : on le stocke tel quel, on ne
+    // descend jamais dans sa recette.
+    epsTypeIngredient: 'Ingredient',
+    epsTypeComponent: 'Component',
+    epsTypePackaging: 'Packaging',
+    epsElements: 'elements',
+    epsElement: 'element',
     epsAndJoiner: 'and',
     epsTypeFood: 'Food',
     epsTypeBeverages: 'Beverages',
@@ -2637,6 +2649,9 @@ export const translations = {
     epmGhostTitle: 'Assignment row whose item does not exist in the catalog (assigned by mistake) — invisible in Space Menus, remove it here',
     epmGross: 'Gross',
     epmManualQtyWhy: 'Why a manual quantity?',
+    epmNoRecipe: 'No recipe — this item cannot be produced',
+    epmUnavailableBadge: 'unavailable',
+    epmUnavailableTitle: 'Item is on this shop menu but cannot be produced (missing recipe or blocked ingredient) — no predicted sales, no stock-up, no restock',
     epmNeverSold: 'Never sold here',
     epmNeverSoldHint: 'This point of sale has no past sales for this item — nothing to predict.',
     epmNoConfigShopsHint: 'Add shops to the configuration to prepare point-of-sale prediction.',
@@ -3025,6 +3040,7 @@ export const translations = {
     srShoppingModeIngredients: 'Ingredients',
     srShoppingIngredientsHint: 'Raw materials to produce/buy in the central kitchen — every dish is broken down into ingredients, regardless of "Ready for Sale".',
     srFinishedProductsGroup: 'Finished products',
+    srNoSupplierGroup: 'No supplier (missing ingredients)',
     srRecipesLoading: 'Loading recipes…',
     srNoIngredientNeeded: 'No ingredient to produce for the predicted sales.',
     srEmail: 'Email',
@@ -3060,6 +3076,7 @@ export const translations = {
     srCannotGenGeneric: 'Objective or theoretical need unavailable.',
     srSnackRestockGenerated: 'Restock table generated.',
     srSnackShoppingGenerated: 'Shopping list generated.',
+    srSnackRecipesPartial: 'Some recipes could not be loaded — supplier grouping is incomplete. Regenerate the shopping list to retry.',
     srSnackLoadError: 'Error loading restock',
     srSnackEmailMissing: 'Supplier email not provided — add the recipient in your mail client.',
     srSnackEmailBodyCopied: 'Order list too long for email — copied to clipboard, paste it into the email body.',
@@ -6369,6 +6386,10 @@ export const translations = {
     epsNoStockItems: 'Aucun article de stock à afficher',
     epsSelectMenuItemsHint: 'Sélectionnez des articles de menu dans la section Paramètres de configuration ci-dessus',
     epsTotalEstimatedCost: 'Coût total estimé du stock-up',
+    // BUG-291-01 : ce total valorise des unités ENTIÈRES ; le « Coût ajusté » du
+    // résumé garde les décimales. L'écart est de l'arrondi, pas une erreur.
+    epsTotalEstimatedCostHint:
+      'Valorisé sur des unités entières à charger — légèrement supérieur au coût ajusté du résumé, qui conserve les décimales.',
     epsOtherCategory: 'Autres',
     epsUnitCostTitle: 'Coût unitaire',
     epsItem: 'article',
@@ -6376,6 +6397,14 @@ export const translations = {
     epsFrom: 'depuis',
     epsPackagingOf: 'de',
     epsNoShopType: 'Aucun type de point de vente',
+    // BUG-291-01 — nature d'un élément stockable (badge de ligne). « Composant »
+    // = préparé en cuisine centrale, arrive prêt : on le stocke tel quel, on ne
+    // descend jamais dans sa recette.
+    epsTypeIngredient: 'Ingrédient',
+    epsTypeComponent: 'Composant',
+    epsTypePackaging: 'Packaging',
+    epsElements: 'éléments',
+    epsElement: 'élément',
     epsAndJoiner: 'et',
     epsTypeFood: 'Nourriture',
     epsTypeBeverages: 'Boissons',
@@ -6760,6 +6789,9 @@ export const translations = {
     epmGhostTitle: 'Ligne d\'assignation dont l\'article n\'existe pas au catalogue (assignée par erreur) — invisible dans Space Menus, retirez-la ici',
     epmGross: 'Brut',
     epmManualQtyWhy: 'Pourquoi une quantité manuelle ?',
+    epmNoRecipe: 'Aucune recette — cet article ne peut pas être produit',
+    epmUnavailableBadge: 'indisponible',
+    epmUnavailableTitle: 'Article au menu de ce PDV mais impossible à produire (recette absente ou ingrédient bloqué) — aucune vente prévue, aucun stock-up, aucun réarmement',
     epmNeverSold: 'Jamais vendu ici',
     epmNeverSoldHint: 'Ce point de vente n\'a aucune vente passée pour cet article — rien à prédire.',
     epmNoConfigShopsHint: 'Ajoutez des shops à la configuration pour préparer la prédiction par point de vente.',
@@ -7148,6 +7180,7 @@ export const translations = {
     srShoppingModeIngredients: 'Ingrédients',
     srShoppingIngredientsHint: 'Matière première à produire/acheter en cuisine centrale — chaque plat est éclaté en ingrédients, indépendamment de « Prêt à la vente ».',
     srFinishedProductsGroup: 'Produits finis',
+    srNoSupplierGroup: 'Sans fournisseur (ingrédients manquants)',
     srRecipesLoading: 'Chargement des recettes…',
     srNoIngredientNeeded: 'Aucun ingrédient à produire pour les ventes prédites.',
     srEmail: 'Email',
@@ -7183,6 +7216,7 @@ export const translations = {
     srCannotGenGeneric: 'Objectif ou besoin théorique indisponible.',
     srSnackRestockGenerated: 'Tableau de réarmement généré.',
     srSnackShoppingGenerated: 'Feuille de course générée.',
+    srSnackRecipesPartial: 'Certaines recettes n’ont pas pu être chargées — le regroupement fournisseur est incomplet. Régénérez la feuille de course pour réessayer.',
     srSnackLoadError: 'Erreur de chargement du réarmement',
     srSnackEmailMissing: 'Email fournisseur non renseigné — ajoutez le destinataire dans votre messagerie.',
     srSnackEmailBodyCopied: 'Liste trop longue pour l’email — copiée dans le presse-papier, collez-la dans le corps du message.',

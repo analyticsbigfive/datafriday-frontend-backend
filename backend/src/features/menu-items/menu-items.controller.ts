@@ -238,7 +238,10 @@ export class MenuItemsController {
     });
   }
 
-  @RequirePermissions('menu.fb.menuItems')
+  // Pas de @RequirePermissions : lecture pure (POST uniquement pour porter ids[]),
+  // mêmes données que GET :id/recipe et GET :id qui n'en exigent pas. BUG-294-01 :
+  // la feuille de course (rôles restreints inclus) consomme ce batch — une
+  // permission d'édition menu ici rendait la liste d'achats inaccessible en 403.
   @Post('recipes')
   @ApiOperation({
     summary: 'Recettes de plusieurs menu items (réarmement plats composés)',
