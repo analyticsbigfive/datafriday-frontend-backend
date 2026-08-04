@@ -50,7 +50,15 @@ export function consumeFromPool(item, pool) {
   const needName = need.name ? normalizeStr(need.name) : ''
   const matchers = [
     (e) => needIds.size > 0 && [...idSet(e)].some((id) => needIds.has(id)),
-    (e) => needName && e.name && normalizeStr(e.name) === needName,
+    // BUG-299-01 — repli nom UNIQUEMENT quand l'un des deux côtés n'a AUCUN id :
+    // deux lignes identifiées qui ne partagent aucun id désignent deux articles
+    // DIFFÉRENTS (deux conditionnements homonymes, « Beurre » ≠ « Beurre doux
+    // motte ») — l'homonymie ne doit pas netter l'un avec le stock de l'autre.
+    (e) =>
+      (needIds.size === 0 || idSet(e).size === 0) &&
+      needName &&
+      e.name &&
+      normalizeStr(e.name) === needName,
   ]
   let cut = 0
   for (const matches of matchers) {

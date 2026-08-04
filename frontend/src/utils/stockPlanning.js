@@ -443,23 +443,34 @@ export function buildMenuItemDemand({
 
 export function findStockReference(item, ingredients = [], components = [], menuItems = []) {
   const idCandidates = new Set(
-    [item?.itemId, item?.id, item?.sourceId].filter(Boolean).map(String),
+    [item?.itemId, item?.id, item?.sourceId, item?.marketPriceId].filter(Boolean).map(String),
   )
   const name = normalizeName(item?.itemName || item?.name)
+  const pools = [ingredients || [], components || [], menuItems || []]
 
-  const byIdOrName = (candidate) => {
-    if (!candidate) return false
-    if (idCandidates.has(String(candidate.id))) return true
-    if (idCandidates.has(String(candidate.sourceId))) return true
-    return normalizeName(candidate.name || candidate.itemName) === name
+  // BUG-299-01 — deux passes STRICTES : l'ID sur TOUT le catalogue d'abord, le nom
+  // seulement si aucun id ne résout nulle part. L'ancien prédicat mixte (id OU nom,
+  // testés candidat par candidat dans un seul .find) laissait un homonyme placé
+  // plus tôt dans la liste (« Beurre ») gagner PAR NOM contre l'ingrédient
+  // réellement référencé plus loin (« Beurre doux motte ») — et remonter le
+  // conditionnement du mauvais article.
+  const matchesId = (c) =>
+    !!c &&
+    [c.id, c.sourceId, c.marketPriceId, c.marketPrice?.id].some(
+      (v) => v != null && idCandidates.has(String(v)),
+    )
+  if (idCandidates.size) {
+    for (const pool of pools) {
+      const hit = pool.find(matchesId)
+      if (hit) return hit
+    }
   }
-
-  return (
-    (ingredients || []).find(byIdOrName) ||
-    (components || []).find(byIdOrName) ||
-    (menuItems || []).find(byIdOrName) ||
-    null
-  )
+  if (!name) return null
+  for (const pool of pools) {
+    const hit = pool.find((c) => c && normalizeName(c.name || c.itemName) === name)
+    if (hit) return hit
+  }
+  return null
 }
 
 export function computePackagingForQuantity(
