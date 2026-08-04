@@ -60,15 +60,42 @@
             <span class="lip-rows__col lip-rows__col--main">
               {{ view === 'shop' ? t('anLiveInvColItem') : t('anLiveInvColShop') }}
             </span>
-            <span class="lip-rows__col lip-rows__col--num">{{ t('anLiveInvColRemaining') }}</span>
-            <span class="lip-rows__col lip-rows__col--num">{{ t('anLiveInvColConsumed') }}</span>
+            <span class="lip-rows__col lip-rows__col--gauge">{{ t('anLiveInvColRemaining') }}</span>
           </div>
           <div v-for="child in node.children" :key="child.key" class="lip-row">
-            <span class="lip-row__main">{{ child.label }}</span>
-            <span class="lip-row__val" :class="{ 'lip-row__val--empty': child.remainingLoose <= 0 }">
-              {{ child.remainingLabel }}
-            </span>
-            <span class="lip-row__consumed">{{ formatNumber(child.consumedLoose) }}</span>
+            <div class="lip-row__main-col">
+              <span class="lip-row__main">{{ child.label }}</span>
+              <span class="lip-row__consumed-sub">{{ t('anLiveInvColConsumed') }} : {{ formatNumber(child.consumedLoose) }}</span>
+            </div>
+
+            <!-- Jauge "stock restant / stock de départ" (départ = niveau déjà fixé par
+                 Reset/mouvements Logistique, cf. buildChild), purement visuelle, aucune
+                 écriture. Toujours affichée, y compris à 0% (rouge) quand rien n'a jamais
+                 été compté. Sous le seuil critique, le remplissage est trop étroit pour
+                 loger le texte "%" lisiblement, le label bascule à l'extérieur, à droite
+                 de la piste. -->
+            <div class="lip-row__gauge">
+              <span class="lip-row__gauge-num lip-row__gauge-num--start">{{ formatNumber(child.remainingLoose) }}</span>
+              <div class="lip-row__gauge-track">
+                <div
+                  class="lip-row__gauge-fill"
+                  :class="`lip-row__gauge-fill--${child.gaugeStatus}`"
+                  :style="{ width: child.gaugePercent + '%' }"
+                >
+                  <span v-if="child.gaugeLabelInside" class="lip-row__gauge-pct lip-row__gauge-pct--inside">{{ child.gaugeLabel }}</span>
+                </div>
+                <span
+                  v-if="!child.gaugeLabelInside"
+                  class="lip-row__gauge-pct lip-row__gauge-pct--outside"
+                  :class="`lip-row__gauge-pct--${child.gaugeStatus}`"
+                  :style="{ left: `calc(${child.gaugePercent}% + 4px)` }"
+                >
+                  <AlertTriangle v-if="child.gaugeStatus === 'critical'" :size="10" />
+                  {{ child.gaugeLabel }}
+                </span>
+              </div>
+              <span class="lip-row__gauge-num lip-row__gauge-num--end">{{ formatNumber(child.totalLoose) }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -77,16 +104,22 @@
 </template>
 
 <script>
-import { Boxes, ChevronDown, ChevronRight } from 'lucide-vue-next';
+import { Boxes, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
 
 // Rafraîchissement live aligné sur le mode flux d'AnalyseView (11_LIVE.md §5).
 const LIVE_POLL_MS = 15000;
 
+// Seuils de la jauge "restant / départ", palette status figée (jamais thémée),
+// cf. skill dataviz : good ≥50%, warning 20-50%, critical <20%. Mode-invariant
+// (validée à la fois sur surface claire et sombre), donc pas de variante dark ici.
+const GAUGE_WARNING_THRESHOLD = 50;
+const GAUGE_CRITICAL_THRESHOLD = 20;
+
 export default {
   name: 'LiveInventoryPanel',
-  components: { Boxes, ChevronDown, ChevronRight },
+  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle },
   props: {
     spaceId: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
@@ -165,7 +198,27 @@ export default {
       } else {
         remainingLabel = this.formatNumber(remainingLoose);
       }
-      return { key: keySeed, label, remainingLoose, consumedLoose: consumed, remainingLabel };
+
+      // Jauge : "départ" = totalLoose (niveau déjà fixé par Reset/mouvements Logistique,
+      // avant décrément ventes), sert de référence 100%, vert. Décroît vers 0%, rouge,
+      // au fil des ventes (habillage visuel, aucune écriture nouvelle).
+      const gaugePercent = totalLoose > 0
+        ? Math.round(Math.min(100, Math.max(0, (remainingLoose / totalLoose) * 100)))
+        : 0;
+      const gaugeStatus = gaugePercent < GAUGE_CRITICAL_THRESHOLD
+        ? 'critical'
+        : gaugePercent < GAUGE_WARNING_THRESHOLD
+          ? 'warning'
+          : 'good';
+      const gaugeLabel = `${gaugePercent}%`;
+      // Sous le seuil critique, le remplissage est trop étroit pour loger le texte
+      // en lisible, le label bascule à l'extérieur de la piste (cf. template).
+      const gaugeLabelInside = gaugePercent >= GAUGE_CRITICAL_THRESHOLD;
+
+      return {
+        key: keySeed, label, remainingLoose, consumedLoose: consumed, remainingLabel,
+        totalLoose, gaugePercent, gaugeStatus, gaugeLabel, gaugeLabelInside,
+      };
     },
     async fetchInventory() {
       if (!this.spaceId) return;
@@ -289,7 +342,7 @@ export default {
 .lip-rows { padding: 2px 6px 8px 30px; }
 .lip-rows__header {
   display: grid;
-  grid-template-columns: 1fr 130px 110px;
+  grid-template-columns: 1fr 260px;
   gap: 8px;
   padding: 8px 12px 6px;
   font-size: 0.7rem;
@@ -298,15 +351,21 @@ export default {
   letter-spacing: .04em;
   color: #9ca3af;
 }
-.lip-rows__col--num { text-align: right; }
+.lip-rows__col--gauge { text-align: right; }
 .lip-row {
   display: grid;
-  grid-template-columns: 1fr 130px 110px;
-  gap: 8px;
-  padding: 8px 12px;
+  grid-template-columns: 1fr 260px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
   border-top: 1px solid #f3f4f6;
   font-size: 0.8125rem;
-  align-items: center;
+}
+.lip-row__main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .lip-row__main {
   color: #374151;
@@ -314,9 +373,63 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lip-row__val { text-align: right; font-weight: 700; color: #111827; font-variant-numeric: tabular-nums; }
-.lip-row__val--empty { color: #ff3131; }
-.lip-row__consumed { text-align: right; color: #6b7280; font-variant-numeric: tabular-nums; }
+.lip-row__consumed-sub { font-size: 0.72rem; color: #9ca3af; }
+
+/* Jauge "[restant] [piste + % dedans] [départ]", palette status figée (dataviz
+   skill), mode-invariante. Cf. LogisticsService.getStock : départ = niveau déjà fixé
+   par Reset/mouvements, avant décrément ventes ; jauge = habillage visuel, aucune
+   écriture propre. */
+.lip-row__gauge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lip-row__gauge-num {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lip-row__gauge-track {
+  position: relative;
+  flex: 1;
+  height: 20px;
+  border-radius: 10px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+.lip-row__gauge-fill {
+  height: 100%;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  transition: width .3s ease;
+  min-width: 0;
+}
+.lip-row__gauge-fill--good { background: #0ca30c; }
+.lip-row__gauge-fill--warning { background: #fab219; }
+.lip-row__gauge-fill--critical { background: #d03b3b; }
+.lip-row__gauge-pct {
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lip-row__gauge-pct--inside { color: #fff; }
+.lip-row__gauge-pct--outside {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.lip-row__gauge-pct--outside.lip-row__gauge-pct--good { color: #0ca30c; }
+.lip-row__gauge-pct--outside.lip-row__gauge-pct--warning { color: #b8860b; }
+.lip-row__gauge-pct--outside.lip-row__gauge-pct--critical { color: #d03b3b; }
 
 /* ── Dark mode (palette slate, alignée AnalyseView) ── */
 .lip--dark { background: #1e293b; border-color: rgba(255,255,255,.08); }
@@ -332,7 +445,12 @@ export default {
 .lip--dark .lip-node__name { color: #f1f5f9; }
 .lip--dark .lip-row { border-top-color: rgba(255,255,255,.06); }
 .lip--dark .lip-row__main { color: #cbd5e1; }
-.lip--dark .lip-row__val { color: #f1f5f9; }
-.lip--dark .lip-row__val--empty { color: #fca5a5; }
-.lip--dark .lip-row__consumed { color: #94a3b8; }
+.lip--dark .lip-row__consumed-sub { color: #94a3b8; }
+.lip--dark .lip-row__gauge-num { color: #f1f5f9; }
+.lip--dark .lip-row__gauge-track { background: rgba(255, 255, 255, .1); }
+/* Statuts good/critical mode-invariants (validés dataviz skill sur les 2 surfaces),
+   seul warning est réajusté : #b8860b (assombri pour lisibilité en texte clair sur
+   fond blanc) est trop terne sur fond sombre, on reprend le hex status brut #fab219,
+   déjà validé (contraste 9.49 sur surface sombre). */
+.lip--dark .lip-row__gauge-pct--outside.lip-row__gauge-pct--warning { color: #fab219; }
 </style>
