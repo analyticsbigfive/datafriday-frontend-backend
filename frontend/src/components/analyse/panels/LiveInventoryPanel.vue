@@ -111,10 +111,11 @@
 
             <!-- Jauge "stock restant / stock de départ" (départ = niveau déjà fixé par
                  l'auto-init pré-événement/mouvements Logistique, cf. buildLiveInventoryChild),
-                 purement visuelle, aucune écriture. "uninitialized" (gris, "—") = rien n'a
-                 encore été fixé, distinct d'une vraie rupture (rouge, "0%"). Sous le seuil
-                 critique, le remplissage est trop étroit pour loger le texte "%" lisiblement,
-                 le label bascule à l'extérieur, à droite de la piste. -->
+                 purement visuelle, aucune écriture. 0 restant = rupture (rouge, "0%"), sans
+                 exception — jamais initialisé ou réellement épuisé, le résultat opérationnel
+                 est identique : rien à servir (cf. retour utilisateur 2026-08-05). Sous le
+                 seuil critique, le remplissage est trop étroit pour loger le texte "%"
+                 lisiblement, le label bascule à l'extérieur, à droite de la piste. -->
             <div class="lip-row__gauge">
               <span class="lip-row__gauge-num lip-row__gauge-num--start">{{ formatQty(child.remainingLoose, child.unit) }}</span>
               <div class="lip-row__gauge-track">
@@ -507,9 +508,6 @@ export default {
 .lip-row__gauge-fill--good { background: #0ca30c; }
 .lip-row__gauge-fill--warning { background: #fab219; }
 .lip-row__gauge-fill--critical { background: #d03b3b; }
-/* "uninitialized" : gris neutre, pas rouge — rien à signaler, juste pas encore
-   compté (cf. buildLiveInventoryChild). */
-.lip-row__gauge-fill--uninitialized { background: #9ca3af; }
 .lip-row__gauge-pct {
   font-size: 0.7rem;
   font-weight: 700;
@@ -528,7 +526,6 @@ export default {
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--good { color: #0ca30c; }
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--warning { color: #b8860b; }
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--critical { color: #d03b3b; }
-.lip-row__gauge-pct--outside.lip-row__gauge-pct--uninitialized { color: #9ca3af; }
 
 /* ── Dark mode (palette slate, alignée AnalyseView) ── */
 .lip--dark { background: #1e293b; border-color: rgba(255,255,255,.08); }
@@ -559,7 +556,7 @@ export default {
 .lip--dark .lip-row__consumed-sub { color: #94a3b8; }
 .lip--dark .lip-row__gauge-num { color: #f1f5f9; }
 .lip--dark .lip-row__gauge-track { background: rgba(255, 255, 255, .1); }
-/* Statuts good/critical/uninitialized mode-invariants (validés dataviz skill sur
+/* Statuts good/critical mode-invariants (validés dataviz skill sur
    les 2 surfaces), seul warning est réajusté : #b8860b (assombri pour lisibilité en
    texte clair sur fond blanc) est trop terne sur fond sombre, on reprend le hex
    status brut #fab219, déjà validé (contraste 9.49 sur surface sombre). */

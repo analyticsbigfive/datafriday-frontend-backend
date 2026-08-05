@@ -559,19 +559,22 @@ MenuItem gagne en cas de collision d'id. **Limite résiduelle** : un composant s
 mais pas l'`unit` du référentiel (`item.unit`, présent dans `getSpaceElementsWithItems` mais
 jusque-là non propagé) — ajouté aux deux vues (`shops[].items[]` et `items[]`).
 
-**Écran Live — filtre/tri/statut "uninitialized"** : `LiveInventoryPanel.vue` n'a plus AUCUNE
-notion d'init (plus de prop `eventId`/`eventName`, plus d'emit `notify`) — pur affichage +
-polling. Logique de construction de l'arbre extraite dans `utils/liveInventoryRows.js`
-(`buildLiveInventoryChild`, `buildLiveInventoryRows`, `countCritical`) :
+**Écran Live — filtre/tri** : `LiveInventoryPanel.vue` n'a plus AUCUNE notion d'init (plus de prop
+`eventId`/`eventName`, plus d'emit `notify`) — pur affichage + polling. Logique de construction de
+l'arbre extraite dans `utils/liveInventoryRows.js` (`buildLiveInventoryChild`,
+`buildLiveInventoryRows`, `countByStatus`) :
 - `formatQty()` affiche l'unité (minuscule, cosmétique) à côté de chaque quantité.
 - Recherche texte (nom d'article/shop) dans la toolbar.
-- Tri des articles par criticité au sein de chaque groupe : critical > warning > uninitialized > good.
-- Nouveau statut **`uninitialized`** (gris, label `—`) distinct de `critical` (rouge, `0%`) : un
-  article dont `totalLoose === 0` n'a **jamais** eu de stock fixé (rien à comparer), ce n'est pas
-  une vraie rupture — règle maison du projet (jamais de 0 fabriqué qui se lit comme un signal réel,
-  même philosophie que `getPreEventInventory`/`getPostEventBaseline`). Avant le passage du cron
-  (portes pas encore ouvertes), tous les articles sont `uninitialized`, pas faussement `critical`.
-- Badge "N critiques" sur l'en-tête de chaque groupe (compte `critical` uniquement, pas `uninitialized`).
+- Tri des articles par criticité au sein de chaque groupe : critical > warning > good.
+- **0 restant = `critical` (rupture), sans exception, que le stock ait été fixé puis épuisé par
+  les ventes OU jamais initialisé du tout** (`totalLoose === 0`). Une 1re version distinguait un
+  statut `uninitialized` (gris, label `—`) pour éviter un 0% qui se lit comme un signal fabriqué
+  avant l'ouverture des portes (même philosophie que `getPreEventInventory`/`getPostEventBaseline`,
+  « jamais de 0 fabriqué ») — **retiré le jour même**, retour utilisateur direct sur cette page :
+  ça cachait des articles à 0 du filtre "Rupture" ("pourquoi rupture ne trouve rien alors que c'est
+  à 0 ?"), contre-intuitif pour un usage opérationnel (0 restant = rien à servir, peu importe la
+  raison). `computeGaugeStatus()` ne dépend plus que du pourcentage.
+- Badge "N critiques" sur l'en-tête de chaque groupe (compte `critical`, `totalLoose === 0` inclus).
 - **Deux toggles indépendants et combinables, "Stock bas" (warning) et "Rupture" (critical)**
   (`countGlobalByStatus`, `statusFilters` sur `buildLiveInventoryRows`) — retour utilisateur
   same-day, en deux temps : (1) la recherche seule ne répond pas au besoin de « gestion des stocks
@@ -602,7 +605,7 @@ i18n : clés `anLiveInvInit*` retirées, `anLiveInvSearchPlaceholder`/`anLiveInv
 **Tests** : `inventory-live-init.spec.ts` (4, orchestration isolée — LogisticsService mocké),
 `inventory-live-init.cron.spec.ts` (5, fenêtre temporelle + idempotence + toggle),
 `logistics.service.spec.ts::getLiveInventory` (3, mis à jour pour `unit`),
-`liveInventoryRows.spec.js` (19, jauge/tri/filtre/statut uninitialized/statusFilters séparés warning↔critical/countGlobalByStatus).
+`liveInventoryRows.spec.js` (19, jauge/tri/filtre/statusFilters séparés warning↔critical/countGlobalByStatus, y compris 0/jamais-initialisé = critical).
 
 ## 16. Panneau de filtres (gauche) — sections sans effet ou trompeuses en Live — ✅ corrigé 2026-08-05
 
@@ -733,6 +736,12 @@ identique au chip Période de BUG-305-02). Ajout de `&& !isLive`.
 
 ### Révisions
 
+- **2026-08-05 (correction statut)** — Retrait du statut `uninitialized` (§15) : introduit dans la
+  révision précédente pour distinguer "jamais compté" (gris, `—`) d'une vraie rupture (rouge, `0%`),
+  ce statut cachait des articles à 0 restant du filtre "Rupture" — retour utilisateur direct sur
+  l'écran ("pourquoi rupture ne trouve rien alors que c'est à 0 ?"). `computeGaugeStatus()`
+  simplifié : ne dépend plus que du pourcentage, 0% est toujours `critical`. `STATUS_RANK` et le
+  label "—" retirés. 19 tests réécrits (`liveInventoryRows.spec.js`).
 - **2026-08-05 (pivot final)** — Stock Live : bouton manuel retiré, **tout devient automatique**
   (§15) — demande explicite de l'utilisateur après le correctif ci-dessous, qui gardait encore un
   bouton « Initialiser depuis l'inventaire pré-événement ». Implémente enfin la question #24

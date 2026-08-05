@@ -1,11 +1,10 @@
 import { buildLiveInventoryChild, buildLiveInventoryRows, countByStatus, countCritical, countGlobalByStatus } from '@/utils/liveInventoryRows'
 
 describe('buildLiveInventoryChild', () => {
-  it("statut 'uninitialized' (gris, '—') quand aucun stock n'a jamais été fixé (totalLoose = 0)", () => {
+  it("0 restant = 'critical' (rupture), même quand le stock n'a jamais été initialisé (totalLoose = 0)", () => {
     const child = buildLiveInventoryChild({ packedUnits: 0, looseUnits: 0, consumedLoose: 0 }, 'Badiane', 'k1')
-    expect(child.gaugeStatus).toBe('uninitialized')
-    expect(child.gaugeLabel).toBe('—')
-    expect(child.gaugeLabelInside).toBe(false)
+    expect(child.gaugeStatus).toBe('critical')
+    expect(child.gaugeLabel).toBe('0%')
   })
 
   it("statut 'critical' (rupture réelle) quand le stock est fixé mais épuisé par les ventes", () => {
@@ -36,19 +35,19 @@ describe('buildLiveInventoryChild', () => {
 
 describe('countByStatus / countCritical', () => {
   const children = [
-    buildLiveInventoryChild({ packedUnits: 0, looseUnits: 10, consumedLoose: 10 }, 'A', 'a'), // critical
+    buildLiveInventoryChild({ packedUnits: 0, looseUnits: 10, consumedLoose: 10 }, 'A', 'a'), // critical (0%, fixé puis épuisé)
     buildLiveInventoryChild({ packedUnits: 0, looseUnits: 10, consumedLoose: 7 }, 'B', 'b'), // warning
-    buildLiveInventoryChild({ packedUnits: 0, looseUnits: 0, consumedLoose: 0 }, 'C', 'c'), // uninitialized
+    buildLiveInventoryChild({ packedUnits: 0, looseUnits: 0, consumedLoose: 0 }, 'C', 'c'), // critical (jamais initialisé = 0 aussi)
     buildLiveInventoryChild({ packedUnits: 0, looseUnits: 10, consumedLoose: 0 }, 'D', 'd'), // good
   ]
 
   it("countByStatus('critical') et countByStatus('warning') sont DISTINCTS — jamais confondus", () => {
-    expect(countByStatus(children, 'critical')).toBe(1)
+    expect(countByStatus(children, 'critical')).toBe(2)
     expect(countByStatus(children, 'warning')).toBe(1)
   })
 
   it('countCritical (alias) ne compte que critical', () => {
-    expect(countCritical(children)).toBe(1)
+    expect(countCritical(children)).toBe(2)
   })
 })
 
@@ -61,7 +60,7 @@ describe('buildLiveInventoryRows', () => {
         items: [
           { itemKey: 'Coca-Cola', packedUnits: 0, looseUnits: 10, consumedLoose: 10 }, // critical (0%)
           { itemKey: 'Chips', packedUnits: 0, looseUnits: 10, consumedLoose: 7 }, // warning (30%)
-          { itemKey: 'Badiane', packedUnits: 0, looseUnits: 0, consumedLoose: 0 }, // uninitialized
+          { itemKey: 'Badiane', packedUnits: 0, looseUnits: 0, consumedLoose: 0 }, // critical (jamais initialisé, 0%)
           { itemKey: 'Eau', packedUnits: 0, looseUnits: 10, consumedLoose: 1 }, // good (90%)
         ],
       },
@@ -76,9 +75,9 @@ describe('buildLiveInventoryRows', () => {
     items: [],
   }
 
-  it('trie les enfants par criticité : critical > warning > uninitialized > good', () => {
+  it('trie les enfants par criticité : critical > warning > good (ordre stable entre égaux)', () => {
     const rows = buildLiveInventoryRows(inv, 'shop', '')
-    expect(rows[0].children.map((c) => c.label)).toEqual(['Coca-Cola', 'Chips', 'Badiane', 'Eau'])
+    expect(rows[0].children.map((c) => c.label)).toEqual(['Coca-Cola', 'Badiane', 'Chips', 'Eau'])
   })
 
   it('filtre par recherche texte, insensible à la casse', () => {
@@ -100,9 +99,9 @@ describe('buildLiveInventoryRows', () => {
     expect(buildLiveInventoryRows(null, 'shop', '')).toEqual([])
   })
 
-  it("statusFilters=['critical'] ne garde QUE les ruptures réelles — pas les stocks bas (warning)", () => {
+  it("statusFilters=['critical'] garde les ruptures — y compris un article jamais initialisé (0/0)", () => {
     const rows = buildLiveInventoryRows(inv, 'shop', '', ['critical'])
-    expect(rows[0].children.map((c) => c.label)).toEqual(['Coca-Cola'])
+    expect(rows[0].children.map((c) => c.label)).toEqual(['Coca-Cola', 'Badiane'])
   })
 
   it("statusFilters=['warning'] ne garde QUE les stocks bas — pas les ruptures (critical)", () => {
@@ -113,7 +112,7 @@ describe('buildLiveInventoryRows', () => {
   it("statusFilters=['warning','critical'] combine les deux (les 2 toggles activés ensemble)", () => {
     const rows = buildLiveInventoryRows(inv, 'shop', '', ['warning', 'critical'])
     expect(rows.map((g) => g.label)).toEqual(['Bar Nord']) // Bar Sud (100% good) disparaît entièrement
-    expect(rows[0].children.map((c) => c.label)).toEqual(['Coca-Cola', 'Chips'])
+    expect(rows[0].children.map((c) => c.label)).toEqual(['Coca-Cola', 'Badiane', 'Chips'])
   })
 
   it('combine recherche ET filtre statut (ET logique, pas OU)', () => {
@@ -131,18 +130,18 @@ describe('countGlobalByStatus', () => {
   const inv = {
     shops: [
       { shopId: 's1', shopName: 'A', items: [
-        { itemKey: 'X', looseUnits: 10, consumedLoose: 10 }, // critical
+        { itemKey: 'X', looseUnits: 10, consumedLoose: 10 }, // critical (fixé puis épuisé)
         { itemKey: 'Y', looseUnits: 10, consumedLoose: 7 }, // warning
         { itemKey: 'Z', looseUnits: 10, consumedLoose: 0 }, // good
       ] },
       { shopId: 's2', shopName: 'B', items: [
-        { itemKey: 'X', looseUnits: 0, consumedLoose: 0 }, // uninitialized
+        { itemKey: 'X', looseUnits: 0, consumedLoose: 0 }, // critical (jamais initialisé, 0 aussi)
       ] },
     ],
   }
 
-  it("compte les ruptures ('critical') et les stocks bas ('warning') SÉPARÉMENT sur tout l'espace", () => {
-    expect(countGlobalByStatus(inv, 'critical')).toBe(1)
+  it("compte les ruptures ('critical', y compris jamais initialisé) et les stocks bas ('warning') SÉPARÉMENT", () => {
+    expect(countGlobalByStatus(inv, 'critical')).toBe(2)
     expect(countGlobalByStatus(inv, 'warning')).toBe(1)
   })
 

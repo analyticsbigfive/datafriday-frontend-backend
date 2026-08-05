@@ -10,20 +10,20 @@
 export const GAUGE_WARNING_THRESHOLD = 50;
 export const GAUGE_CRITICAL_THRESHOLD = 20;
 
-// Ordre de tri par criticité — les vrais problèmes (critical/warning) remontent
-// en premier ; "uninitialized" (rien à signaler, juste pas encore compté) reste
-// après, "good" en dernier. Même logique côté badge (countByStatus ci-dessous).
-const STATUS_RANK = { critical: 0, warning: 1, uninitialized: 2, good: 3 };
+// Ordre de tri par criticité — les vrais problèmes remontent en premier, "good" en
+// dernier. Même logique côté badge (countByStatus ci-dessous).
+const STATUS_RANK = { critical: 0, warning: 1, good: 2 };
 
 /**
- * Un article un jamais eu de stock fixé (aucun Reset/mouvement Logistique
- * n'a encore posé de StockLevel > 0) : distinct d'une vraie rupture (stock
- * fixé mais épuisé par les ventes). Règle maison du projet (cf.
- * getPreEventInventory/getPostEventBaseline) : jamais de 0 fabriqué qui se lit
- * comme un vrai signal — "uninitialized" est neutre (gris, "—"), pas rouge.
+ * 0 restant = rupture, sans exception — qu'il s'agisse d'un stock jamais
+ * initialisé ou d'un stock réellement épuisé par les ventes, le résultat
+ * opérationnel est identique : rien à servir. Une 1re version distinguait un
+ * statut "uninitialized" (gris, neutre) pour éviter un 0% qui se lit comme un
+ * signal fabriqué avant même l'ouverture des portes — retour utilisateur
+ * 2026-08-05 : ça cachait des articles à 0 du filtre "Rupture" ("pourquoi
+ * rupture ne trouve rien alors que c'est à 0 ?"), contre-intuitif. Retiré.
  */
-function computeGaugeStatus(gaugePercent, totalLoose) {
-  if (totalLoose === 0) return 'uninitialized';
+function computeGaugeStatus(gaugePercent) {
   if (gaugePercent < GAUGE_CRITICAL_THRESHOLD) return 'critical';
   if (gaugePercent < GAUGE_WARNING_THRESHOLD) return 'warning';
   return 'good';
@@ -44,12 +44,11 @@ export function buildLiveInventoryChild(node, label, keySeed) {
   const gaugePercent = totalLoose > 0
     ? Math.round(Math.min(100, Math.max(0, (remainingLoose / totalLoose) * 100)))
     : 0;
-  const gaugeStatus = computeGaugeStatus(gaugePercent, totalLoose);
-  // "—" plutôt qu'un "0%" fabriqué quand rien n'a jamais été compté (cf. doc ci-dessus).
-  const gaugeLabel = gaugeStatus === 'uninitialized' ? '—' : `${gaugePercent}%`;
+  const gaugeStatus = computeGaugeStatus(gaugePercent);
+  const gaugeLabel = `${gaugePercent}%`;
   // Sous le seuil critique, le remplissage est trop étroit pour loger le texte
   // en lisible, le label bascule à l'extérieur de la piste (cf. template).
-  const gaugeLabelInside = gaugeStatus !== 'uninitialized' && gaugePercent >= GAUGE_CRITICAL_THRESHOLD;
+  const gaugeLabelInside = gaugePercent >= GAUGE_CRITICAL_THRESHOLD;
 
   return {
     key: keySeed, label, unit, remainingLoose, consumedLoose: consumed,
