@@ -1111,6 +1111,7 @@ export class LogisticsService {
           const level = levelByKey.get(`${el.id}::${item.name}`);
           return {
             itemKey: item.name,
+            unit: item.unit ?? null,
             packedUnits: level?.packedUnits ?? 0,
             looseUnits: level?.looseUnits ?? 0,
             unitsPerPack: level?.unitsPerPack ?? item.unitsPerPack ?? null,
@@ -1122,12 +1123,12 @@ export class LogisticsService {
 
     // Index inversé item → shops (11_LIVE.md §3.2) — n'existe nulle part ailleurs, seul vrai
     // travail neuf de ce chantier : les deux vues partagent la même donnée déjà assemblée ci-dessus.
-    const itemsByKey = new Map<string, { itemKey: string; shops: any[] }>();
+    const itemsByKey = new Map<string, { itemKey: string; unit: string | null; shops: any[] }>();
     for (const shop of shops) {
       for (const item of shop.items) {
         let entry = itemsByKey.get(item.itemKey);
         if (!entry) {
-          entry = { itemKey: item.itemKey, shops: [] };
+          entry = { itemKey: item.itemKey, unit: item.unit, shops: [] };
           itemsByKey.set(item.itemKey, entry);
         }
         entry.shops.push({

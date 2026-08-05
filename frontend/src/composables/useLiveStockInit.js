@@ -15,14 +15,23 @@ import store from '@/store'
 import { getPreEventInventory } from '@/api/endpoints/inventory.api'
 
 /**
- * itemId (InventoryCount) → itemKey (nom, référentiel Logistic/StockMovement) :
- * même résolution que `itemNameById` côté backend (`buildPostEventReconciliationLines`,
- * inventory.service.ts) et `catalogById` côté front (useInventoryData.js) — le
- * catalogue MenuItem fait foi, les lignes non résolvables (composant/ingrédient
- * sans MenuItem correspondant) sont orphelines et écartées, même convention.
+ * itemId (InventoryCount) → itemKey (nom, référentiel Logistic/StockMovement).
+ * `componentIngredientId()` (utils/inventoryUtils.js) pose l'id d'une ligne de
+ * comptage à `marketPriceId || sourceId || id` — un article readyForSale se
+ * compte sous son MenuItem.id, un ingrédient/composant sous son MarketPrice.id
+ * (vérifié en base : « Badiane »/« Canelle » n'ont AUCUNE ligne MenuItem, mais
+ * existent en MarketPrice). Les deux catalogues sont donc consultés ; MenuItem
+ * gagne en cas de collision d'id (readyForSale prioritaire, même ordre que
+ * l'explosion Logistic dans `getSpaceElementsWithItems`). Lignes non résolvables
+ * dans NI l'un NI l'autre catalogue (composant sans MarketPrice ni MenuItem) :
+ * orphelines et écartées — même limitation connue que `itemNameById` côté
+ * backend (`buildPostEventReconciliationLines`, cf. Q39/Q45 QUESTIONS_A_BERTRAND.md).
  */
-function buildItemKeyById(menuItems) {
+function buildItemKeyById(menuItems, marketPrices) {
   const m = new Map()
+  for (const mp of marketPrices || []) {
+    if (mp?.id != null && mp?.itemName) m.set(String(mp.id), mp.itemName)
+  }
   for (const mi of menuItems || []) {
     if (mi?.id != null && mi?.name) m.set(String(mi.id), mi.name)
   }
@@ -53,7 +62,10 @@ export function useLiveStockInit() {
         return { ok: false, reason: lastError.value }
       }
 
-      const itemKeyById = buildItemKeyById(store.state.analyse.menuItems)
+      // Nécessaire à la résolution itemId→itemKey des lignes ingrédient/composant
+      // (cf. buildItemKeyById) — action standard mise en cache 15 min, no-op si déjà fraîche.
+      await store.dispatch('inventory/loadMarketPrices')
+      const itemKeyById = buildItemKeyById(store.state.analyse.menuItems, store.state.inventory.marketPrices)
       const lines = []
       for (const [shopId, byItem] of Object.entries(pre.inventoryCounts || {})) {
         for (const [itemId, count] of Object.entries(byItem || {})) {

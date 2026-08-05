@@ -90,7 +90,7 @@
           <div v-for="child in node.children" :key="child.key" class="lip-row">
             <div class="lip-row__main-col">
               <span class="lip-row__main">{{ child.label }}</span>
-              <span class="lip-row__consumed-sub">{{ t('anLiveInvColConsumed') }} : {{ formatNumber(child.consumedLoose) }}</span>
+              <span class="lip-row__consumed-sub">{{ t('anLiveInvColConsumed') }} : {{ formatQty(child.consumedLoose, child.unit) }}</span>
             </div>
 
             <!-- Jauge "stock restant / stock de départ" (départ = niveau déjà fixé par
@@ -100,7 +100,7 @@
                  loger le texte "%" lisiblement, le label bascule à l'extérieur, à droite
                  de la piste. -->
             <div class="lip-row__gauge">
-              <span class="lip-row__gauge-num lip-row__gauge-num--start">{{ formatNumber(child.remainingLoose) }}</span>
+              <span class="lip-row__gauge-num lip-row__gauge-num--start">{{ formatQty(child.remainingLoose, child.unit) }}</span>
               <div class="lip-row__gauge-track">
                 <div
                   class="lip-row__gauge-fill"
@@ -119,7 +119,7 @@
                   {{ child.gaugeLabel }}
                 </span>
               </div>
-              <span class="lip-row__gauge-num lip-row__gauge-num--end">{{ formatNumber(child.totalLoose) }}</span>
+              <span class="lip-row__gauge-num lip-row__gauge-num--end">{{ formatQty(child.totalLoose, child.unit) }}</span>
             </div>
           </div>
         </div>
@@ -218,6 +218,7 @@ export default {
     // Restant affiché = (packs × unitsPerPack + loose) − consumedLoose, repack côté
     // vue (casse de pack). Composants bruts fournis par l'endpoint (LIVE_API_GUIDE §3.3).
     buildChild(node, label, keySeed) {
+      const unit = node.unit || '';
       const unitsPerPack = Number(node.unitsPerPack) || 0;
       const packed = Number(node.packedUnits) || 0;
       const loose = Number(node.looseUnits) || 0;
@@ -254,7 +255,7 @@ export default {
       const gaugeLabelInside = gaugePercent >= GAUGE_CRITICAL_THRESHOLD;
 
       return {
-        key: keySeed, label, remainingLoose, consumedLoose: consumed, remainingLabel,
+        key: keySeed, label, unit, remainingLoose, consumedLoose: consumed, remainingLabel,
         totalLoose, gaugePercent, gaugeStatus, gaugeLabel, gaugeLabelInside,
       };
     },
@@ -305,6 +306,12 @@ export default {
     formatNumber(v) {
       const n = Number(v);
       return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '0';
+    },
+    // Unité affichée en minuscules (cosmétique, n'affecte pas la donnée stockée) —
+    // le référentiel MarketPrice mélange casses ("kg"/"Kg") selon la saisie d'origine.
+    formatQty(v, unit) {
+      const num = this.formatNumber(v);
+      return unit ? `${num} ${unit.toLowerCase()}` : num;
     },
   },
 };

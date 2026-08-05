@@ -545,16 +545,32 @@ comme un reset manuel — seule la provenance des quantités change. Zéro migra
 réseau ; handler `onLiveInventoryNotify`). i18n : clés `anLiveInvInit*`
 (`i18n/translations.js`).
 
-**Tests** : `tests/unit/useLiveStockInit.spec.js` (store/API mockés, couvre la résolution
-itemId→itemKey et les lignes orphelines).
+**Résolution itemId → itemKey (MenuItem + MarketPrice)** : `componentIngredientId()`
+(`utils/inventoryUtils.js`) pose l'id d'une ligne de comptage à `marketPriceId || sourceId || id` —
+un article `readyForSale` se compte sous son `MenuItem.id`, un ingrédient/composant sous son
+`MarketPrice.id`. Vérifié empiriquement en base (espace `cmovsjbiz01lzvwyn30wweqpf`, 2026-08-05) :
+des articles affichés en Live comme « Badiane »/« Canelle »/« Cheddar Tranche » n'ont **aucune**
+ligne `MenuItem` mais existent en `MarketPrice`. `buildItemKeyById()` consulte donc les deux
+catalogues (`store.state.analyse.menuItems` + `store.state.inventory.marketPrices`, ce dernier
+chargé via `inventory/loadMarketPrices`, cache 15 min) — MenuItem gagne en cas de collision d'id.
 
-**Limite connue** : la résolution itemId→itemKey ne joint que sur la table `MenuItem` (même
-limitation que `buildPostEventReconciliationLines`, cf. Q39/Q45 `QUESTIONS_A_BERTRAND.md`) — un
-composant/ingrédient compté en pré-event sans `MenuItem` correspondant est orphelin et écarté du
-reset, avec le même angle mort documenté ailleurs sur ce point. Par ailleurs, le déclenchement
-automatique de ce reset à l'ouverture des portes (« Door opening », décision Bertrand du
-2026-07-24, question #24) reste **non implémenté** — le bouton manuel de cette section n'est qu'un
-palliatif tant que ce chantier n'est pas repris.
+**Unité affichée** : `LogisticsService.getLiveInventory()` exposait déjà `packedUnits`/`looseUnits`
+mais pas l'`unit` du référentiel (`item.unit`, présent dans `getSpaceElementsWithItems` mais
+jusque-là non propagé) — ajouté aux deux vues (`shops[].items[]` et `items[]`). Front :
+`LiveInventoryPanel.vue::formatQty()` affiche l'unité (minuscule, cosmétique) à côté de chaque
+quantité (restant/départ/consommé) au lieu d'un chiffre nu.
+
+**Tests** : `tests/unit/useLiveStockInit.spec.js` (5 tests — résolution MenuItem, résolution
+MarketPrice, orphelins, absence de comptage, garde spaceId/eventId) ;
+`logistics.service.spec.ts::getLiveInventory` (3 tests, mis à jour pour le champ `unit`).
+
+**Limite connue** : la résolution itemId→itemKey ne joint QUE sur `MenuItem` + `MarketPrice` — un
+composant sans aucun des deux (ex. `sourceId` d'un `ComponentComponent` imbriqué sans MarketPrice
+propre) reste orphelin et écarté du reset, même angle mort que `buildPostEventReconciliationLines`
+côté backend (cf. Q39/Q45 `QUESTIONS_A_BERTRAND.md`) — non résolu ici, juste réduit. Par ailleurs,
+le déclenchement automatique de ce reset à l'ouverture des portes (« Door opening », décision
+Bertrand du 2026-07-24, question #24) reste **non implémenté** — le bouton manuel de cette section
+n'est qu'un palliatif tant que ce chantier n'est pas repris.
 
 ## 16. Panneau de filtres (gauche) — sections sans effet ou trompeuses en Live — ✅ corrigé 2026-08-05
 
@@ -696,6 +712,14 @@ identique au chip Période de BUG-305-02). Ajout de `&& !isLive`.
   et son paramètre `manualQuantities` restent en place pour Restock (usage indépendant, préexistant
   à ce chantier) mais ne sont plus appelés par Live. 4 tests unitaires réécrits
   (`useLiveStockInit.spec.js`).
+  **Correctif same-day** (vérification en base sur données réelles, demandée par l'utilisateur) :
+  la résolution ne joignait QUE `MenuItem`, or des ingrédients affichés en Live (« Badiane »,
+  « Canelle », « Cheddar Tranche ») n'ont AUCUNE ligne `MenuItem` — ils sont identifiés par
+  `MarketPrice.id` (`componentIngredientId()`). `buildItemKeyById()` consulte désormais aussi
+  `store.state.inventory.marketPrices`, sans quoi ces lignes auraient été silencieusement
+  écartées comme orphelines à chaque init. +1 test dédié (5 au total). Au passage, `unit` (absent
+  de la réponse `getLiveInventory` bien que déjà connu du référentiel) ajouté et affiché à côté de
+  chaque quantité (`formatQty()`), suite à une remarque UX de l'utilisateur.
 - **2026-08-05** — Badge ● LIVE fiabilisé + bouton édition (§18, BUG-306-02) : le badge se basait
   sur la route seule, pas la détection réelle d'un event live — corrigé (`liveEventDetected`).
   Nouveau bouton "voir/modifier l'event live" (demande utilisateur), ouvre `EventFormDrawer` avec

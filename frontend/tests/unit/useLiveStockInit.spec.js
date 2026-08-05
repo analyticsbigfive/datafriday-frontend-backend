@@ -3,10 +3,10 @@
  * `useLiveStockInit` orchestre la lecture du comptage pré-événement validé
  * d'un event et le dispatch du reset Logistic générique existant
  * (`logistics/reset`) — pas de nouvel endpoint backend. La résolution
- * itemId → itemKey (catalogue MenuItem) tourne réellement ici, ces tests
- * couvrent l'orchestration autour.
+ * itemId → itemKey (catalogues MenuItem + MarketPrice, cf. buildItemKeyById)
+ * tourne réellement ici, ces tests couvrent l'orchestration autour.
  */
-const mockState = { analyse: { menuItems: [] } }
+const mockState = { analyse: { menuItems: [] }, inventory: { marketPrices: [] } }
 const mockDispatch = jest.fn()
 
 jest.mock('@/store', () => ({
@@ -25,9 +25,11 @@ jest.mock('@/api/endpoints/inventory.api', () => ({
 import { useLiveStockInit } from '@/composables/useLiveStockInit'
 
 const menuItems = [{ id: 'mi-cookie', name: 'Cookie', readyForSale: 'Yes' }]
+const marketPrices = [{ id: 'mp-badiane', itemName: 'Badiane' }]
 
 function setupStore() {
   mockState.analyse.menuItems = menuItems
+  mockState.inventory.marketPrices = marketPrices
 }
 
 beforeEach(() => {
@@ -56,6 +58,26 @@ describe('useLiveStockInit', () => {
     })
   })
 
+  it("résout aussi une ligne ingrédient dont l'itemId est un MarketPrice.id (aucun MenuItem correspondant)", async () => {
+    mockGetPreEventInventory.mockResolvedValue({
+      source: 'pre-event',
+      inventoryCounts: {
+        'shop-1': { 'mp-badiane': { packedUnits: 0, looseUnits: 2, isCounted: true } },
+      },
+    })
+
+    const { initFromPreEventInventory } = useLiveStockInit()
+    const res = await initFromPreEventInventory('space-1', 'ev-1')
+
+    expect(res).toEqual({ ok: true, lineCount: 1, source: 'pre-event' })
+    expect(mockDispatch).toHaveBeenCalledWith('logistics/reset', {
+      spaceId: 'space-1',
+      eventId: 'ev-1',
+      eventName: undefined,
+      lines: [{ elementId: 'shop-1', itemKey: 'Badiane', countedPacked: 0, countedLoose: 2 }],
+    })
+  })
+
   it('écarte les lignes orphelines (itemId absent du catalogue courant)', async () => {
     mockGetPreEventInventory.mockResolvedValue({
       source: 'pre-event',
@@ -68,7 +90,7 @@ describe('useLiveStockInit', () => {
     const res = await initFromPreEventInventory('space-1', 'ev-1')
 
     expect(res).toEqual({ ok: false, reason: 'no-requirements' })
-    expect(mockDispatch).not.toHaveBeenCalled()
+    expect(mockDispatch).not.toHaveBeenCalledWith('logistics/reset', expect.anything())
   })
 
   it("échoue proprement quand l'event n'a aucun comptage pré-événement", async () => {
