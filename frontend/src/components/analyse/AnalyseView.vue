@@ -1838,7 +1838,7 @@ const liveScopeApplied = ref(false)
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 // Event live courant, dérivé du scope déjà posé par applyLiveScope() (pas de
 // nouvel appel réseau) — passé à LiveInventoryPanel pour l'init de stock
-// depuis Event Predict (docs/modules/11_LIVE.md).
+// depuis l'Inventaire pré-événement (docs/modules/11_LIVE.md §15).
 const liveEventId = computed(() => (isLive.value ? (filters.value.selectedEventIds || [])[0] || '' : ''))
 const liveEventName = computed(() => {
   if (!liveEventId.value) return ''

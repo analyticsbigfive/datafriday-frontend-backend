@@ -495,65 +495,66 @@ fetch a réussi (`events !== null` — sentinelle qui distingue « échec résea
 liste » de « l'espace n'a vraiment aucun event », les deux donnant `[]` après normalisation sinon).
 Tests ajoutés : `useSpaceDataWaves.spec.js` (2 tests, dont le cas d'échec réseau).
 
-## 15. Stock Live initialisé depuis Event Predict — ✅ implémenté 2026-08-05
+## 15. Stock Live initialisé depuis l'Inventaire pré-événement — ✅ implémenté 2026-08-05, corrigé le jour même
 
 > Jusqu'ici, le stock de l'onglet Inventaire live (§3, §7) ne pouvait être initialisé que par un
-> reset manuel du module Logistic (comptage physique). L'utilisateur a demandé que le stock de
-> départ d'un event live soit celui **prédit/configuré dans Event Predict** (onglet Stock Up), les
-> mouvements (ventes en temps réel, transferts, resets ultérieurs) continuant à s'appliquer
-> par-dessus exactement comme aujourd'hui.
+> reset manuel du module Logistic (comptage physique). Une première version de cette feature
+> (décrite ci-dessous jusqu'à la révision du jour) initialisait le stock de départ depuis **Event
+> Predict** (onglet Stock Up) — **erreur corrigée le jour même** : Bertrand a précisé que le stock
+> d'un event live n'est PAS géré depuis Event Predict (une prédiction), mais depuis
+> **l'Inventaire pré-événement** (`InventorySnapshot`/`InventoryCount` kind='pre-event' — le
+> comptage physique réel validé avant le match, cf. `10_POST_EVENT_INVENTORY.md`). Les mouvements
+> (ventes en temps réel, transferts, resets ultérieurs) continuent de s'appliquer par-dessus
+> exactement comme aujourd'hui — cette partie de la conception initiale reste valide, seule la
+> **source des quantités de départ** change.
 
-**Déclenchement : manuel uniquement** (décision produit) — un bouton « Initialiser depuis Event
-Predict » dans la toolbar de `LiveInventoryPanel.vue`, avec confirmation (`v-dialog`). Aucune
-écriture stock automatique au passage en live : le staff peut avoir déjà fait un comptage manuel
-juste avant, une écriture silencieuse l'aurait écrasé sans prévenir.
+**Déclenchement : manuel uniquement** (décision produit inchangée) — un bouton « Initialiser depuis
+l'inventaire pré-événement » dans la toolbar de `LiveInventoryPanel.vue`, avec confirmation
+(`v-dialog`). Aucune écriture stock automatique au passage en live : le staff peut avoir déjà fait
+un comptage manuel juste avant, une écriture silencieuse l'aurait écrasé sans prévenir.
 
 **Aucun changement backend** — la feature réutilise TEL QUEL le mécanisme de reset Logistic déjà en
-production :
+production, et l'endpoint pré-event déjà existant :
 
 ```
 bouton confirmé
-  → useLiveStockInit.initFromEventPredict(spaceId, eventId, eventName)
-  → GET /events/:eventId/predict-versions (listEventPredictVersions, déjà existant)
-  → sélection de la version isDefault (sinon la 1re) — même priorité que
-    SpaceRestockView.activeVersionForEvent (`:3119-3134`)
-  → configuration = store.state.analyse.configurations.find(c => c.id === event.configurationId)
-    (même lookup qu'EventPredictView.vue:1962-1977)
-  → buildStockRequirements({ configuration, menuItems, components, predictedRecords,
-    selectedMenuItems: version.menuConfig, quantityAdjustments, manualQuantities })
-    (utils/stockPlanning.js — fonction pure déjà utilisée par Restock)
-  → conversion en lignes ResetLineDto (countedLoose = totalQuantity, countedPacked = 0)
+  → useLiveStockInit.initFromPreEventInventory(spaceId, eventId, eventName)
+  → GET /inventory/:spaceId/pre-event/:eventId (getPreEventInventory, déjà existant —
+    dernier snapshot kind='pre-event' du MÊME event, repli scopé sur le post-event du
+    match précédent sinon, cf. inventory.service.ts:397)
+  → résolution itemId (InventoryCount, clé = id catalogue MenuItem) → itemKey (nom, référentiel
+    StockMovement/StockLevel) via store.state.analyse.menuItems — même convention que
+    `itemNameById` côté backend (`buildPostEventReconciliationLines`) et `catalogById` côté front
+    (`useInventoryData.js`) ; lignes orphelines (id absent du catalogue courant) écartées, même
+    garde-fou
+  → conversion en lignes ResetLineDto (countedPacked/countedLoose = comptage réel, PAS 0 —
+    contrairement à la version Event Predict, un comptage physique a de vrais packs)
   → store.dispatch('logistics/reset', { spaceId, eventId, eventName, lines })
     (action Vuex déjà existante → POST /logistics/:spaceId/reset, LogisticsService.reset())
 ```
 
 `StockLevel` n'a pas de notion d'event (`logistics.service.ts` — c'est `StockReconciliation.createdAt`
 qui sert d'ancre pour dériver la consommation, cf. §14) : créer une réconciliation avec les
-quantités Event Predict fait mécaniquement de ce moment la nouvelle ancre, exactement comme un
-reset manuel — seule la provenance des quantités change. Zéro migration de schéma.
+quantités du comptage pré-événement fait mécaniquement de ce moment la nouvelle ancre, exactement
+comme un reset manuel — seule la provenance des quantités change. Zéro migration de schéma.
 
-**`buildStockRequirements()` étendue** (`utils/stockPlanning.js`) avec un paramètre optionnel
-`manualQuantities` (défaut `{}`, rétrocompatible — comportement de Restock inchangé, vérifié par
-`stockPlanningUnavailable.spec.js`/`stockPlanningSharedComponent.spec.js` toujours verts). Reprend
-la sémantique de `EventPredictStockUpSection.getAdjustedQuantity()` : pour un item à prédiction 0,
-la quantité manuelle sert de **base**, mise à l'échelle par le même slider % que la prédiction —
-pas un simple override du résultat final. Live et Restock partagent désormais le même calcul
-complet, au lieu d'une 3e implémentation dupliquée.
-
-**Fichiers** : `composables/useLiveStockInit.js` (nouveau, orchestration pure) ;
-`utils/stockPlanning.js` (`buildStockRequirements` étendue) ;
+**Fichiers** : `composables/useLiveStockInit.js` (orchestration pure, résolution itemId→itemKey) ;
 `components/analyse/panels/LiveInventoryPanel.vue` (bouton + dialog + prop `eventId`/`eventName`,
 émet `notify` pour le snackbar du parent) ; `components/analyse/AnalyseView.vue` (`liveEventId`/
 `liveEventName` computed, dérivés du scope déjà posé par `applyLiveScope()` — aucun nouvel appel
 réseau ; handler `onLiveInventoryNotify`). i18n : clés `anLiveInvInit*`
 (`i18n/translations.js`).
 
-**Tests** : `tests/unit/stockPlanningManualQuantities.spec.js` (nouveau, 4 tests) et
-`tests/unit/useLiveStockInit.spec.js` (nouveau, 5 tests, store/API mockés).
+**Tests** : `tests/unit/useLiveStockInit.spec.js` (store/API mockés, couvre la résolution
+itemId→itemKey et les lignes orphelines).
 
-**Limite connue** : la sélection de version ne retient QUE la version par défaut (`isDefault`) ou
-la 1re — pas de sélecteur de scénario côté Live (contrairement à Restock qui propose un choix). Si
-un besoin de choisir un scénario spécifique depuis Live émerge, revoir cette limite à ce moment-là.
+**Limite connue** : la résolution itemId→itemKey ne joint que sur la table `MenuItem` (même
+limitation que `buildPostEventReconciliationLines`, cf. Q39/Q45 `QUESTIONS_A_BERTRAND.md`) — un
+composant/ingrédient compté en pré-event sans `MenuItem` correspondant est orphelin et écarté du
+reset, avec le même angle mort documenté ailleurs sur ce point. Par ailleurs, le déclenchement
+automatique de ce reset à l'ouverture des portes (« Door opening », décision Bertrand du
+2026-07-24, question #24) reste **non implémenté** — le bouton manuel de cette section n'est qu'un
+palliatif tant que ce chantier n'est pas repris.
 
 ## 16. Panneau de filtres (gauche) — sections sans effet ou trompeuses en Live — ✅ corrigé 2026-08-05
 
@@ -684,6 +685,17 @@ identique au chip Période de BUG-305-02). Ajout de `&& !isLive`.
 
 ### Révisions
 
+- **2026-08-05 (correction)** — Stock Live initialisé depuis Event Predict → **Inventaire
+  pré-événement** (§15) : Bertrand a signalé que le stock d'un event live n'est pas géré depuis
+  Event Predict (une prédiction) mais depuis l'Inventaire pré-événement (le comptage physique
+  réel). `useLiveStockInit.js` réécrit pour lire `GET /inventory/:spaceId/pre-event/:eventId` au
+  lieu de `listEventPredictVersions`/`buildStockRequirements`, avec résolution itemId→itemKey via
+  le catalogue `MenuItem` (même convention que `buildPostEventReconciliationLines`). Bouton/dialog/
+  i18n de `LiveInventoryPanel.vue` renommés en conséquence. Le mécanisme de reset Logistic
+  réutilisé reste inchangé (toujours aucun changement backend/schéma) ; `buildStockRequirements()`
+  et son paramètre `manualQuantities` restent en place pour Restock (usage indépendant, préexistant
+  à ce chantier) mais ne sont plus appelés par Live. 4 tests unitaires réécrits
+  (`useLiveStockInit.spec.js`).
 - **2026-08-05** — Badge ● LIVE fiabilisé + bouton édition (§18, BUG-306-02) : le badge se basait
   sur la route seule, pas la détection réelle d'un event live — corrigé (`liveEventDetected`).
   Nouveau bouton "voir/modifier l'event live" (demande utilisateur), ouvre `EventFormDrawer` avec

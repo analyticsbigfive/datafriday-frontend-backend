@@ -24,10 +24,10 @@
         >{{ t('anLiveInvByItem') }}</button>
       </div>
       <v-spacer />
-      <!-- Module Live ← Event Predict (docs/modules/11_LIVE.md) : déclenchement
-           MANUEL uniquement (décision utilisateur) — pas d'écriture stock
-           automatique/surprise au passage en live. -->
-      <span :title="eventId ? '' : t('anLiveInvInitBtnNoVersion')">
+      <!-- Module Live ← Inventaire pré-événement (docs/modules/11_LIVE.md §15) :
+           déclenchement MANUEL uniquement (décision utilisateur) — pas d'écriture
+           stock automatique/surprise au passage en live. -->
+      <span :title="eventId ? '' : t('anLiveInvInitBtnNoEvent')">
         <v-btn
           v-if="eventId"
           size="small"
@@ -149,8 +149,8 @@ export default {
   props: {
     spaceId: { type: String, default: '' },
     // Event live courant (résolu par AnalyseView::applyLiveScope) — nécessaire
-    // pour retrouver son plan Event Predict par défaut. Bouton d'init masqué
-    // sans lui (aucun event live résolu = rien à initialiser).
+    // pour retrouver son comptage d'Inventaire pré-événement. Bouton d'init
+    // masqué sans lui (aucun event live résolu = rien à initialiser).
     eventId: { type: String, default: '' },
     eventName: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
@@ -160,8 +160,8 @@ export default {
   emits: ['notify'],
   setup() {
     const { t } = useI18n();
-    const { initializing, initFromEventPredict } = useLiveStockInit();
-    return { t, initializing, initFromEventPredict };
+    const { initializing, initFromPreEventInventory } = useLiveStockInit();
+    return { t, initializing, initFromPreEventInventory };
   },
   data() {
     return {
@@ -284,14 +284,13 @@ export default {
     },
     async confirmInit() {
       this.showInitDialog = false;
-      const res = await this.initFromEventPredict(this.spaceId, this.eventId, this.eventName);
+      const res = await this.initFromPreEventInventory(this.spaceId, this.eventId, this.eventName);
       if (res.ok) {
         this.$emit('notify', { text: this.t('anLiveInvInitSuccess').replace('{n}', String(res.lineCount)), color: 'success' });
         this.fetchInventory();
       } else {
         const key = {
-          'no-event-predict-version': 'anLiveInvInitErrorNoVersion',
-          'no-configuration': 'anLiveInvInitErrorNoConfig',
+          'no-pre-event-inventory': 'anLiveInvInitErrorNoPreEvent',
           'no-requirements': 'anLiveInvInitErrorNoRequirements',
         }[res.reason] || 'anLiveInvInitErrorGeneric';
         this.$emit('notify', { text: this.t(key), color: 'error' });
