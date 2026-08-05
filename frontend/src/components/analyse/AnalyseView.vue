@@ -78,9 +78,13 @@
                      Visible UNIQUEMENT en mode Analyse (décision JLH 2026-08-04 :
                      le rapport porte sur du réalisé, pas sur une projection).
                      Désactivé hors mode mono-événement passé — le title reste
-                     lisible sur bouton désactivé grâce au span englobant. -->
+                     lisible sur bouton désactivé grâce au span englobant.
+                     ET pas en Live (trouvé 2026-08-05) : `reportEvent` vérifie
+                     seulement `date <= now`, pas que l'event soit TERMINÉ — un
+                     event daté d'aujourd'hui passe ce test dès la 1re minute,
+                     activant un bouton « réalisé » sur un event encore en cours. -->
                 <span
-                  v-if="selectedToolbox === 'analyse'"
+                  v-if="selectedToolbox === 'analyse' && !isLive"
                   :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')"
                 >
                   <v-btn
@@ -128,8 +132,14 @@
                   </v-list>
                 </v-menu>
               </div>
-              <!-- Ligne 2 : période + comparaison. -->
-              <div v-if="!loading" class="av-header__row2">
+              <!-- Ligne 2 : période + comparaison. Masquée en Live (trouvé
+                   2026-08-05) : le select de période est éditable en apparence
+                   mais applyLiveScope() force timeRange='all' à chaque tick (15s) —
+                   même trappe que Dates/Configuration/Événements dans FilterPanel.
+                   « Comparer à » s'auto-masque déjà quand timeRange==='all'
+                   (FilterSummary.vue:22), mais le select de période, lui, reste
+                   affiché et cliquable pour rien. -->
+              <div v-if="!loading && !isLive" class="av-header__row2">
                 <FilterSummary
                   :comparison-mode="filters.comparisonMode"
                   :comparison-empty="comparisonEmpty"
@@ -142,13 +152,17 @@
               </div>
             </div>
 
-            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge. -->
+            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge.
+                 Chip événements masqué en Live (trouvé 2026-08-05) : toujours
+                 "1 événement(s) sélectionné(s)" (l'event live, forcé par
+                 applyLiveScope), redondant avec le badge ● LIVE — et sa croix
+                 de fermeture ne fait rien de durable (re-forcé au tick suivant). -->
             <div
-              v-if="!loading && ((filters.selectedEventIds || []).length || activeFilterChips.length)"
+              v-if="!loading && ((!isLive && (filters.selectedEventIds || []).length) || activeFilterChips.length)"
               class="av-tags d-flex align-center flex-wrap ga-2"
             >
               <v-chip
-                v-if="(filters.selectedEventIds || []).length"
+                v-if="!isLive && (filters.selectedEventIds || []).length"
                 closable
                 size="small"
                 variant="tonal"

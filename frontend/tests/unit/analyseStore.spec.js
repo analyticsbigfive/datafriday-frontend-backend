@@ -487,3 +487,35 @@ describe('bornes de comparaison Précédent / N-1 (parité versionReact)', () =>
     expect(yoy.end.getDate()).toBe(13)
   })
 })
+
+// Module Live (docs/modules/11_LIVE.md §16), bug trouvé le 2026-08-05 : sur la
+// route Live tant que l'event live n'est pas encore détecté, applyLiveScope()
+// bascule sciemment timeRange sur 'today' (≠ défaut 'all') — un chip « Période :
+// Aujourd'hui » apparaissait alors que Dates/FilterSummary sont déjà masqués
+// pour toute la route Live. isLiveRoute supprime ce chip précis sans toucher
+// aux autres (shops/zones/menu items restent des chips légitimes).
+describe('analyse store — activeFilterChips (chip Période masqué en Live)', () => {
+  const g = analyse.getters
+
+  it("affiche le chip Période quand timeRange diffère du défaut et qu'on n'est pas en Live", () => {
+    const state = { ...analyse.state(), filters: { ...analyse.state().filters, timeRange: 'today' }, isLiveRoute: false }
+    const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
+    expect(chips.some((c) => c.key === 'timeRange')).toBe(true)
+  })
+
+  it('masque le chip Période quand isLiveRoute est vrai (ex. fallback "today" avant détection live)', () => {
+    const state = { ...analyse.state(), filters: { ...analyse.state().filters, timeRange: 'today' }, isLiveRoute: true }
+    const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
+    expect(chips.some((c) => c.key === 'timeRange')).toBe(false)
+  })
+
+  it('un filtre PDV légitime reste un chip en Live (pas de sur-suppression)', () => {
+    const state = {
+      ...analyse.state(),
+      filters: { ...analyse.state().filters, timeRange: 'today', selectedShopTypes: ['beverages'] },
+      isLiveRoute: true,
+    }
+    const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
+    expect(chips.some((c) => c.key === 'selectedShopTypes')).toBe(true)
+  })
+})

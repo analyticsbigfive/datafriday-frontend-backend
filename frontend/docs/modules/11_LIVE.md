@@ -597,10 +597,47 @@ un besoin de choisir un scénario spécifique depuis Live émerge, revoir cette 
 
 **Tests** : 2 nouveaux dans `analyseStore.spec.js` (scope Live vs scope Analyse inchangé).
 
+## 17. Bandeau rouge (haut de page) — mêmes trappes que le panneau de filtres — ✅ corrigé 2026-08-05
+
+> Suite du §16 : après avoir nettoyé le panneau de filtres, l'utilisateur a repéré du bruit
+> équivalent dans le bandeau rouge (Ligne 2 période/comparaison, chip "N événement(s)
+> sélectionné(s)") et un bouton d'export qui n'aurait pas dû être actif en Live.
+
+**Quatre défauts trouvés (code de `AnalyseView.vue`) :**
+
+1. **Ligne 2 du bandeau (`FilterSummary` : select de période + « Comparer à »)** — le select de
+   période reste affiché et cliquable en Live alors qu'`applyLiveScope()` écrase `timeRange` à
+   chaque tick (même trappe que Dates au §16) — « Comparer à » s'auto-masque déjà quand
+   `timeRange==='all'` (`FilterSummary.vue:22`), mais uniquement une fois l'event live détecté ;
+   avant détection (fallback `timeRange:'today'`, voir point 3), il restait visible pour rien.
+2. **Chip "N événement(s) sélectionné(s)"** (rangée de tags sous le bandeau) — toujours "1" (l'event
+   live forcé), avec une croix de fermeture qui ne fait rien de durable (re-forcé au tick suivant) —
+   redondant avec le badge ● LIVE déjà affiché dans le titre.
+3. **Chip "Période : Aujourd'hui"** (`activeFilterChips`, `analyse.js`) — visible spécifiquement
+   pendant la fenêtre où l'event live n'est pas encore détecté : `applyLiveScope()` bascule alors
+   sciemment `timeRange` sur `'today'` (≠ défaut `'all'`) le temps que `/live-status` réponde
+   `isLive:true` — ce chip apparaissait sans aucune UI pour l'expliquer ou le changer (Dates déjà
+   masqué pour toute la route Live, indépendamment de l'état de détection).
+4. **Bouton "Rapport J+1"** — conçu pour un event TERMINÉ (réalisé vs prédictif), mais son garde-fou
+   (`reportEvent` computed) ne vérifie que `date <= now`, pas que l'event soit fini : un event daté
+   d'aujourd'hui passe ce test dès sa 1re minute, activant un bouton "réalisé" sur un event encore
+   en cours.
+
+**Corrigé** : les 4 masqués avec `v-if="... && !isLive"` (ou équivalent) dans `AnalyseView.vue` ; le
+chip Période masqué via `!state.isLiveRoute` dans `activeFilterChips` (`analyse.js`, même flag que
+§16). Les chips légitimes (shops/zones/type PdV/menu items) ne sont pas affectés — vérifié par
+test dédié.
+
+**Tests** : 3 nouveaux dans `analyseStore.spec.js` (chip Période affiché/masqué + non-régression
+sur un chip légitime).
+
 ---
 
 ### Révisions
 
+- **2026-08-05** — Bandeau rouge Live (§17) : Ligne 2 (période/comparaison), chip "N événement(s)
+  sélectionné(s)", chip "Période : Aujourd'hui" (fallback avant détection live) et bouton Rapport
+  J+1 masqués/désactivés en Live — même famille de trappes que §16. 3 tests ajoutés.
 - **2026-08-05** — Panneau de filtres Live (§16) : Configuration/Événements/Dates/Filtres
   avancés/Affluence masqués en Live (auto-réécrasés ou trompeurs — Affluence calculait ses bornes
   sur tout l'historique de l'espace, aucun scope). Types de PDV/Zones/Points de vente corrigés pour

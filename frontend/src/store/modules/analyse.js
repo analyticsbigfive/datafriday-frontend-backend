@@ -1384,7 +1384,12 @@ const getters = {
     // que le preset diffère du défaut, sinon le filtre est invisible dans le
     // bandeau et « Tout effacer » semble ne pas agir dessus. clearValue = défaut.
     const defaultTimeRange = DEFAULT_FILTERS().timeRange
-    if (filters.timeRange && filters.timeRange !== defaultTimeRange) {
+    // isLiveRoute : timeRange vaut TOUJOURS 'all' en Live (forcé par
+    // applyLiveScope() à chaque tick, AnalyseView.vue) — un chip « Période :
+    // Tout l'historique » en permanence, sur un filtre déjà masqué côté
+    // FilterPanel/FilterSummary (§16, 11_LIVE.md), n'est que du bruit.
+    // Trouvé le 2026-08-05.
+    if (!state.isLiveRoute && filters.timeRange && filters.timeRange !== defaultTimeRange) {
       // Saison (`season:<id>`) : libellé = nom de la saison (store seasons).
       const seasonId = String(filters.timeRange).startsWith('season:')
         ? String(filters.timeRange).slice('season:'.length)
