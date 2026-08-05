@@ -36,10 +36,31 @@
                   @toggle="drawer = !drawer"
                 />
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
-                <!-- Badge Live (module Live, greffe D) : visible sur la route space-live. -->
-                <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
+                <!-- Badge Live : basé sur la VRAIE détection (liveEventDetected, posé par
+                     applyLiveScope() depuis /live-status), pas juste la route — corrigé
+                     2026-08-05 (BUG-305-02) : affichait "● LIVE" même sans event dans la
+                     fenêtre de 30 min, alors que le titre retombait sur "Analyse" à côté —
+                     combinaison contradictoire, mal vue par l'utilisateur à raison. -->
+                <span v-if="liveEventDetected" class="av-live-badge" :title="t('anToolLive')">
                   <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
                 </span>
+                <!-- Voir/modifier l'event live en cours (module Live, 2026-08-05) : ouvre le
+                     même drawer que /events, dates verrouillées (event en cours — déplacer sa
+                     fenêtre casserait le calcul de live et l'historique déjà affiché), tous
+                     les autres champs éditables. Visible seulement si un event est VRAIMENT
+                     détecté live (même garde que le badge). -->
+                <v-btn
+                  v-if="liveEventDetected"
+                  icon
+                  variant="text"
+                  size="small"
+                  :title="t('anLiveEditEvent')"
+                  :aria-label="t('anLiveEditEvent')"
+                  class="fs-icon-btn"
+                  @click="liveEventEditOpen = true"
+                >
+                  <v-icon size="18">mdi-pencil-outline</v-icon>
+                </v-btn>
                 <v-spacer />
                 <v-btn
                   icon
@@ -530,6 +551,17 @@
          génération (useReportJ1), capturé par html2canvas puis démonté. -->
     <ReportJ1Document v-if="reportJ1Data" :data="reportJ1Data" />
 
+    <!-- Édition de l'event live en cours (module Live, 2026-08-05) — même drawer
+         que /events, dates verrouillées (lock-date). -->
+    <EventFormDrawer
+      v-model="liveEventEditOpen"
+      mode="edit"
+      :initial-event="liveEventObject"
+      :is-dark="isDark"
+      lock-date
+      @submitted="liveShopDetailsPoll"
+    />
+
   </v-app>
 </template>
 
@@ -576,6 +608,7 @@ import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
 import { useReportJ1 } from '@/composables/useReportJ1'
 import ReportJ1Document from './ReportJ1Document.vue'
+import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
@@ -1810,6 +1843,16 @@ const liveEventName = computed(() => {
   const ev = (store.state.analyse.events || []).find((e) => e.id === liveEventId.value)
   return ev?.name || ev?.eventName || ''
 })
+// Objet event complet (module Live, 2026-08-05) — pour le drawer d'édition
+// (EventFormDrawer::initialEvent). Même liste que liveEventName ci-dessus.
+const liveEventObject = computed(() => (store.state.analyse.events || []).find((e) => e.id === liveEventId.value) || null)
+const liveEventEditOpen = ref(false)
+// Détection RÉELLE d'un event live (posée par applyLiveScope() depuis
+// /live-status), distincte de `isLive` (route seule). Corrigé 2026-08-05
+// (BUG-305-02) : le badge ● LIVE et le bouton d'édition ne doivent s'afficher
+// que si un event est VRAIMENT dans la fenêtre live, pas juste parce qu'on est
+// sur la route /live.
+const liveEventDetected = ref(false)
 function onLiveInventoryNotify({ text, color }) {
   snackbarText.value = text
   snackbarColor.value = color
@@ -1874,6 +1917,9 @@ function resetLiveFiltersIfNeeded() {
     resetFilters()
     liveScopeApplied.value = false
   }
+  // Sinon `liveEventDetected` garderait sa dernière valeur (badge/bouton
+  // édition qui persisteraient hors de la route Live).
+  liveEventDetected.value = false
 }
 onDeactivated(resetLiveFiltersIfNeeded)
 onBeforeUnmount(resetLiveFiltersIfNeeded)
@@ -2013,6 +2059,7 @@ async function applyLiveScope() {
   liveScopeApplied.value = true
   try {
     const res = await getSpaceLiveStatus(spaceId)
+    liveEventDetected.value = !!(res?.isLive && res?.eventId)
     if (res?.isLive && res?.eventId) {
       setFilterImmediate('selectedConfigurationId', null)
       setFilterImmediate('timeRange', 'all')
@@ -2022,6 +2069,7 @@ async function applyLiveScope() {
       setFilterImmediate('timeRange', 'today')
     }
   } catch (e) {
+    liveEventDetected.value = false
     console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
   }
 }

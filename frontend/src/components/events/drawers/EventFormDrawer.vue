@@ -84,6 +84,8 @@
             variant="outlined"
             density="comfortable"
             hide-details
+            :disabled="lockDate"
+            :title="lockDate ? t('eventsList.dateLockedLive') : undefined"
             class="efd-input"
           />
         </div>
@@ -95,6 +97,8 @@
             variant="outlined"
             density="comfortable"
             hide-details
+            :disabled="lockDate"
+            :title="lockDate ? t('eventsList.dateLockedLive') : undefined"
             class="efd-input"
           />
         </div>
@@ -557,6 +561,11 @@ export default {
     // edit). Optionnel : les appelants existants (EventsListView.vue) ne le passent
     // pas, comportement inchangé pour eux.
     defaultSpaceId: { type: String, default: null },
+    // Édition depuis l'écran Live (module Live, docs/modules/11_LIVE.md) : les
+    // dates d'un event EN COURS sont sensibles (déplacer sa fenêtre pendant
+    // qu'il tourne casserait le calcul de "live" et l'historique déjà affiché)
+    // — tous les autres champs restent éditables.
+    lockDate: { type: Boolean, default: false },
   },
 
   emits: ['update:modelValue', 'submitted'],

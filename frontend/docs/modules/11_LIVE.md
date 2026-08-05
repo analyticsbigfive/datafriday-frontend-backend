@@ -631,10 +631,47 @@ test dédié.
 **Tests** : 3 nouveaux dans `analyseStore.spec.js` (chip Période affiché/masqué + non-régression
 sur un chip légitime).
 
+## 18. Badge ● LIVE fiable + bouton "voir/modifier l'event live" — ✅ implémenté 2026-08-05
+
+> Suite du §17 : l'utilisateur a effectivement rencontré le point laissé ouvert (badge ● LIVE +
+> titre "Analyse" en même temps) et a proposé, dans la foulée, un bouton pour consulter/éditer
+> l'event live sans quitter l'écran.
+
+**Bug fermé (BUG-306-02)** : `isLive` (`AnalyseView.vue`) était purement basé sur la route
+(`route.name === 'space-live'`) — le badge s'affichait dès qu'on est sur `/live`, indépendamment de
+la détection réelle d'un event (`/live-status`, fenêtre glissante de 30 min). Résultat concret :
+badge "● LIVE" affiché en même temps que le titre générique "Analyse" (aucun event sélectionné,
+puisque `applyLiveScope()` vide `selectedEventIds` quand rien n'est live) — combinaison
+contradictoire.
+
+**Corrigé** : nouveau `liveEventDetected` (ref), posé par `applyLiveScope()` depuis la vraie réponse
+`res?.isLive && res?.eventId`, réinitialisé à `false` en quittant la route Live
+(`resetLiveFiltersIfNeeded`). Badge `v-if="liveEventDetected"` au lieu de `v-if="isLive"` (route).
+`isLive` reste utilisée telle quelle pour tout ce qui est purement route-based (masquage du panneau
+de filtres, §16/§17) — ne pas confondre les deux signaux.
+
+**Feature ajoutée (demande utilisateur)** : bouton crayon dans le bandeau, à côté du badge, `v-if`
+sur le même `liveEventDetected` — ouvre `EventFormDrawer` (le même drawer que `/events`) en mode
+`edit`, pré-rempli avec l'event live (`liveEventObject`, résolu dans `state.analyse.events`, déjà
+tenu à jour par le poll live depuis BUG-302-02). Nouvelle prop `lock-date` sur `EventFormDrawer.vue`
+(défaut `false`, rétrocompatible pour `/events`) : désactive les 2 champs date début/fin — un event
+EN COURS ne doit pas voir sa fenêtre de dates déplacée (casserait le calcul de live et l'historique
+déjà affiché) — tous les autres champs restent éditables normalement. Sauvegarde → callback
+`liveShopDetailsPoll()` (rafraîchit immédiatement le snapshot live plutôt que d'attendre le
+prochain tick de 15s).
+
+**Fichiers** : `AnalyseView.vue` (`liveEventDetected`, `liveEventObject`, `liveEventEditOpen`,
+badge + bouton + montage du drawer), `events/drawers/EventFormDrawer.vue` (prop `lock-date`). i18n :
+`anLiveEditEvent`, `eventsListDateLockedLive`.
+
 ---
 
 ### Révisions
 
+- **2026-08-05** — Badge ● LIVE fiabilisé + bouton édition (§18, BUG-306-02) : le badge se basait
+  sur la route seule, pas la détection réelle d'un event live — corrigé (`liveEventDetected`).
+  Nouveau bouton "voir/modifier l'event live" (demande utilisateur), ouvre `EventFormDrawer` avec
+  les dates verrouillées (`lock-date`, nouvelle prop rétrocompatible).
 - **2026-08-05** — Bandeau rouge Live (§17) : Ligne 2 (période/comparaison), chip "N événement(s)
   sélectionné(s)", chip "Période : Aujourd'hui" (fallback avant détection live) et bouton Rapport
   J+1 masqués/désactivés en Live — même famille de trappes que §16. 3 tests ajoutés.

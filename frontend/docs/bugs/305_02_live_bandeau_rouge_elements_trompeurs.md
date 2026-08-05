@@ -39,11 +39,12 @@ Les chips légitimes (shops/zones/type PdV/menu items) ne sont pas affectés.
 
 ## Risque de régression / à surveiller
 
-Le badge ● LIVE lui-même reste purement basé sur la route (`route.name === 'space-live'`), pas sur
-la détection réelle d'un event live (`/live-status`) — peut afficher "LIVE" alors qu'aucun event
-n'est actuellement dans la fenêtre de 30 min (cf. question utilisateur du 2026-08-05 sur le titre
-"Analyse" malgré le badge LIVE). Non corrigé ici, à trancher séparément si ça prête à confusion en
-usage réel. Tests : 3 nouveaux dans `analyseStore.spec.js`.
+~~Le badge ● LIVE lui-même reste purement basé sur la route...~~ **Corrigé le jour même** (même
+session) : l'utilisateur a effectivement rencontré le cas (badge LIVE + titre "Analyse" alors
+qu'aucun event n'était dans la fenêtre de 30 min) — nouveau `liveEventDetected` (ref posée par
+`applyLiveScope()` depuis la vraie réponse `/live-status`), badge conditionné dessus au lieu de la
+seule route. Voir `docs/modules/11_LIVE.md` §18. Tests : 3 nouveaux dans `analyseStore.spec.js`
+(pour le reste de cette fiche).
 
 ## Références
 
