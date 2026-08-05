@@ -19,6 +19,7 @@
           ref="filterPanelRef"
           :events="analysableEvents"
           :shops="shopNames"
+          :is-live="isLive"
           @update:toolbox="onToolboxChange"
         />
 
