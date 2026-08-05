@@ -157,7 +157,13 @@
         </v-expansion-panel>
 
         <!-- ========================= AFFLUENCE ========================= -->
-        <v-expansion-panel value="attendance">
+        <!-- Masqué en Live : attendanceBounds (analyse.js) calcule min/max sur
+             state.events SANS AUCUN scope (ni analysableEvents, ni l'event live) —
+             les bornes affichées viennent de tout l'historique de l'espace, pas de
+             l'event en cours. Même en les corrigeant, un curseur de PLAGE n'a pas
+             de sens sur UN SEUL event (min=max, rien à régler) — masqué plutôt que
+             rendu inerte, trouvé le 2026-08-05. -->
+        <v-expansion-panel v-if="!isLive" value="attendance">
           <v-expansion-panel-title class="section-title">{{ t('anAttendance') }}</v-expansion-panel-title>
           <v-expansion-panel-text>
             <div class="range-label">{{ t('anTicketsSold') }}</div>
@@ -664,9 +670,14 @@ const props = defineProps({
   // opèrent au niveau EVENT alors qu'un seul event est jamais en scope en
   // Live — pire : contrairement aux 3 premiers, rien ne les réinitialise
   // automatiquement, un choix qui ne matche pas l'event live vide l'écran
-  // silencieusement et ça reste vide. Les 6 filtres restants (shops, types de
-  // PdV, zones, articles, type/catégorie, affluence) gardent leur utilité en
-  // Live (ex. suivre un seul shop en direct) — non touchés par applyLiveScope.
+  // silencieusement et ça reste vide. Affluence (curseur de PLAGE) : bornes
+  // calculées sur tout l'historique de l'espace (attendanceBounds ne scope
+  // rien), et un curseur de plage n'a de toute façon aucun sens sur un seul
+  // event — trouvé le 2026-08-05. Les 5 filtres restants (shops, types de
+  // PdV, zones, articles, type/catégorie) gardent leur utilité en Live (ex.
+  // suivre un seul shop en direct) — non touchés par applyLiveScope, et leurs
+  // compteurs sont désormais scopés au seul event live via
+  // state.isLiveRoute → optionsBaseRecords (analyse.js).
   isLive: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue', 'update:toolbox'])

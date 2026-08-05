@@ -555,10 +555,57 @@ réseau ; handler `onLiveInventoryNotify`). i18n : clés `anLiveInvInit*`
 la 1re — pas de sélecteur de scénario côté Live (contrairement à Restock qui propose un choix). Si
 un besoin de choisir un scénario spécifique depuis Live émerge, revoir cette limite à ce moment-là.
 
+## 16. Panneau de filtres (gauche) — sections sans effet ou trompeuses en Live — ✅ corrigé 2026-08-05
+
+> `FilterPanel.vue` n'avait aucune logique conditionnelle sur le mode Live — panneau strictement
+> identique à l'Analyse classique. Or plusieurs sections y sont soit écrasées automatiquement, soit
+> calculées sur un périmètre qui n'a pas de sens en Live (un seul event, toujours).
+
+**Trois défauts distincts identifiés (audit + vérification code) :**
+
+1. **Configuration / Événements / Dates** — `applyLiveScope()` (`AnalyseView.vue`) écrase ces 3
+   filtres à *chaque tick* (15s). Éditables en apparence, tout changement utilisateur y tient au
+   mieux 15s avant de revenir tout seul.
+2. **Filtres avancés** (catégorie/type d'event, équipes, sponsor, entracte...) — filtres au niveau
+   **event**, alors qu'un seul event est jamais en scope en Live. Contrairement au point 1, **rien
+   ne les réinitialise automatiquement** : un choix qui ne matche pas l'event live exclut cet event
+   de `filteredEvents` (`analyse.js:829-846`) et vide tout l'écran, silencieusement, durablement.
+3. **Affluence** (curseur de plage billets vendus/scannés) — pire cas trouvé : `attendanceBounds`
+   (`analyse.js:1298-1317`) calcule ses bornes sur `state.events` **sans aucun scope**, pas même
+   `analysableEvents` — les chiffres affichés (ex. 0-55 000) viennent de tout l'historique de
+   l'espace, aucun rapport avec l'event live. Un curseur de PLAGE n'a de toute façon pas de sens sur
+   un seul event (min=max, rien à régler).
+4. **Types de PDV / Zones / Points de vente** — leurs compteurs (`optionsBaseRecords`,
+   `analyse.js`) étaient scopés à `analysableEvents` (tout l'historique analysable de l'espace),
+   pas à l'event live — un stand ayant vendu 25 fois sur toute la saison affichait "25" au lieu du
+   nombre de ventes de l'event en cours. Contrairement aux points 1-3, ces filtres restent
+   pertinents en Live (suivre un shop précis en direct) — **corrigés pour se scoper**, pas masqués.
+
+**Corrigé** :
+- Masqué en Live (`FilterPanel.vue`, prop `isLive`) : Configuration, Événements, Dates, Filtres
+  avancés, Affluence. Restent visibles et fonctionnels : Points de vente, Types de PDV, Zones,
+  Articles du menu, Type & Catégorie.
+- Nouveau `state.isLiveRoute` (`analyse.js`), posé par un `watch(isLive, ...)` dans
+  `AnalyseView.vue` (pas juste au montage — suit `route.name` en continu, y compris sous
+  `keepAlive` où le composant ne démonte jamais entre Live et Analyse classique). `optionsBaseRecords`
+  bascule sa base de `analysableEvents` vers `filteredEvents` (déjà réduit au seul event live par
+  `applyLiveScope`) quand `isLiveRoute` est vrai — comportement Analyse/Predict/EventPredict
+  inchangé (vérifié par test dédié).
+- **Articles du menu / Type & Catégorie** : vérifiés déjà corrects — sourcés de
+  `soldItemOptions` → `useAnalyseItemRecords(filteredEvents)`, donc déjà scopés au seul event live,
+  aucun changement nécessaire.
+
+**Tests** : 2 nouveaux dans `analyseStore.spec.js` (scope Live vs scope Analyse inchangé).
+
 ---
 
 ### Révisions
 
+- **2026-08-05** — Panneau de filtres Live (§16) : Configuration/Événements/Dates/Filtres
+  avancés/Affluence masqués en Live (auto-réécrasés ou trompeurs — Affluence calculait ses bornes
+  sur tout l'historique de l'espace, aucun scope). Types de PDV/Zones/Points de vente corrigés pour
+  se scoper au seul event live (`state.isLiveRoute` → `optionsBaseRecords`) au lieu de tout
+  l'historique analysable — affichaient des compteurs de saison entière. 2 tests ajoutés.
 - **2026-08-05** — Stock Live initialisé depuis Event Predict (§15) : bouton manuel dans
   `LiveInventoryPanel.vue`, réutilise le reset Logistic générique existant (aucun changement
   backend/schéma) + `buildStockRequirements()` (Restock) désormais partagée avec Live via un

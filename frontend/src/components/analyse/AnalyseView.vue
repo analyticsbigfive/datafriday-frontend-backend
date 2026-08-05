@@ -1771,6 +1771,12 @@ function onShowAverage() {
 //    re-dispatch plus fréquent est sûr.
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
+// Relais vers le store (module Live, docs/modules/11_LIVE.md) : `optionsBaseRecords`
+// (Types de PDV/Zones/Points de vente) a besoin de savoir qu'on est en Live pour se
+// scoper au seul event live plutôt qu'à tout l'historique analysable de l'espace.
+// `watch` (pas juste un commit au montage) : suit route.name en continu, y compris
+// sous keepAlive où le composant ne démonte jamais entre Live et Analyse classique.
+watch(isLive, (v) => store.commit('analyse/SET_LIVE_ROUTE', v), { immediate: true })
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
 // Passe à true dès qu'applyLiveScope() a réellement modifié les filtres (donc

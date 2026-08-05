@@ -160,11 +160,12 @@ describe('analyse store — getters data-driven (options depuis les ventes)', ()
     { eventId: 'e9', shopName: 'Hors Scope', shopArea: 'N9', shopType: 'bar' }, // event hors analysables
   ]
 
-  function makeGetters({ records = RECORDS, events = [{ id: 'e1' }, { id: 'e9' }], analysable = [{ id: 'e1' }], stateOverrides = {} } = {}) {
+  function makeGetters({ records = RECORDS, events = [{ id: 'e1' }, { id: 'e9' }], analysable = [{ id: 'e1' }], filtered = analysable, stateOverrides = {} } = {}) {
     const state = { ...analyse.state(), events, ...stateOverrides }
     const getters = {
       reconciledShopGranularData: records,
       analysableEvents: analysable,
+      filteredEvents: filtered,
     }
     for (const name of ['optionsBaseRecords', 'salesShopNames', 'salesShopTypes', 'salesShopAreas', 'salesMenuItemNames', 'salesMenuItemTypes', 'salesMenuItemCategories', 'filtersState']) {
       Object.defineProperty(getters, name, {
@@ -183,6 +184,37 @@ describe('analyse store — getters data-driven (options depuis les ventes)', ()
   it('optionsBaseRecords ne filtre pas pendant le loading (state.events vide)', () => {
     const { getters } = makeGetters({ events: [], analysable: [] })
     expect(getters.optionsBaseRecords).toHaveLength(3)
+  })
+
+  // Module Live (docs/modules/11_LIVE.md), bug trouvé le 2026-08-05 : Types de
+  // PDV/Zones/Points de vente affichaient des compteurs sur TOUT l'historique
+  // analysable de l'espace au lieu du seul event live. isLiveRoute bascule la
+  // base sur filteredEvents (déjà réduit au seul event live par applyLiveScope).
+  it('optionsBaseRecords se scope à filteredEvents (pas analysableEvents) quand isLiveRoute', () => {
+    const { getters } = makeGetters({
+      // analysable inclut e1 ET un event historique e2 ; filteredEvents (le
+      // scope live réel) ne contient QUE l'event live e1.
+      analysable: [{ id: 'e1' }, { id: 'e2' }],
+      filtered: [{ id: 'e1' }],
+      stateOverrides: { isLiveRoute: true },
+      records: [
+        ...RECORDS,
+        { eventId: 'e2', shopName: 'Ancien Event', shopArea: 'N2', shopType: 'beer' },
+      ],
+    })
+    expect(getters.optionsBaseRecords.map((r) => r.shopName)).toEqual(['Bar Nord', 'Food Court'])
+  })
+
+  it('optionsBaseRecords reste sur analysableEvents quand isLiveRoute est false (comportement Analyse inchangé)', () => {
+    const { getters } = makeGetters({
+      analysable: [{ id: 'e1' }, { id: 'e2' }],
+      filtered: [{ id: 'e1' }],
+      records: [
+        ...RECORDS,
+        { eventId: 'e2', shopName: 'Ancien Event', shopArea: 'N2', shopType: 'beer' },
+      ],
+    })
+    expect(getters.optionsBaseRecords.map((r) => r.shopName)).toEqual(['Bar Nord', 'Food Court', 'Ancien Event'])
   })
 
   it('salesShopNames / salesShopAreas dérivés des ventes (distinct + tri)', () => {
