@@ -44,13 +44,15 @@
                 <span v-if="liveEventDetected" class="av-live-badge" :title="t('anToolLive')">
                   <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
                 </span>
-                <!-- Voir/modifier l'event live en cours (module Live, 2026-08-05) : ouvre le
-                     même drawer que /events, dates verrouillées (event en cours — déplacer sa
-                     fenêtre casserait le calcul de live et l'historique déjà affiché), tous
-                     les autres champs éditables. Visible seulement si un event est VRAIMENT
-                     détecté live (même garde que le badge). -->
+                <!-- Voir/modifier l'event en cours (module Live, 2026-08-05) : ouvre le même
+                     drawer que /events, dates verrouillées, tous les autres champs éditables.
+                     Visible dès qu'un event est résolu pour AUJOURD'HUI (liveEventId, cf.
+                     findTodayEventId), PAS seulement pendant le pulse strict de 30 min
+                     (liveEventDetected, réservé au badge ● LIVE) — sinon le bouton disparaissait
+                     à la moindre pause de ventes alors que l'event est toujours en cours
+                     (retour utilisateur 2026-08-05). -->
                 <v-btn
-                  v-if="liveEventDetected"
+                  v-if="liveEventId"
                   icon
                   variant="text"
                   size="small"
@@ -2059,11 +2061,20 @@ async function applyLiveScope() {
   liveScopeApplied.value = true
   try {
     const res = await getSpaceLiveStatus(spaceId)
+    // `liveEventDetected` (badge ● LIVE, pulse) reste STRICT : vente réelle dans
+    // les 30 dernières minutes (getLiveStatus). Mais titre/bouton d'édition ne
+    // doivent pas disparaître à la moindre pause de ventes (>30 min sans vente =
+    // event toujours en cours, juste un creux) — trouvé le 2026-08-05 (retour
+    // utilisateur : "pourquoi Analyse alors que je suis sur Live", bouton
+    // d'édition introuvable). Repli : un event dont la fenêtre couvre AUJOURD'HUI
+    // pour cet espace (`findTodayEventId`, sur `state.events` déjà à jour, aucun
+    // appel réseau de plus) sert d'ancre stable pour le reste de l'écran.
     liveEventDetected.value = !!(res?.isLive && res?.eventId)
-    if (res?.isLive && res?.eventId) {
+    const anchorEventId = res?.eventId || findTodayEventId()
+    if (anchorEventId) {
       setFilterImmediate('selectedConfigurationId', null)
       setFilterImmediate('timeRange', 'all')
-      setFilterImmediate('selectedEventIds', [res.eventId])
+      setFilterImmediate('selectedEventIds', [anchorEventId])
     } else {
       setFilterImmediate('selectedEventIds', [])
       setFilterImmediate('timeRange', 'today')
@@ -2072,6 +2083,26 @@ async function applyLiveScope() {
     liveEventDetected.value = false
     console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
   }
+}
+
+/**
+ * Event de CET espace dont la fenêtre [eventStartDate, eventEndDate] (repli sur
+ * `date`/`eventDate` seul si pas de bornes) couvre AUJOURD'HUI — repli de
+ * `applyLiveScope()` quand aucune vente n'est tombée dans les 30 dernières
+ * minutes mais qu'un event est bien "celui du jour". `state.events` est déjà
+ * tenu à jour par le poll live (BUG-302-02) : lecture pure, pas de fetch.
+ */
+function findTodayEventId() {
+  const events = store.state.analyse.events || []
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999)
+  for (const e of events) {
+    const start = parseEventDateLocal(e.eventStartDate || e.date || e.eventDate)
+    if (!start) continue
+    const end = parseEventDateLocal(e.eventEndDate || e.date || e.eventDate) || start
+    if (start <= todayEnd && end >= today) return e.id
+  }
+  return null
 }
 </script>
 

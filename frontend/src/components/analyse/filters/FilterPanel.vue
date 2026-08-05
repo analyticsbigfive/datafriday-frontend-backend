@@ -529,8 +529,11 @@
         </v-expansion-panel>
       </v-expansion-panels>
 
-      <!-- Comparison — masqué en « Tout l'historique » (pas de période de référence). -->
-      <div v-if="filters.timeRange !== 'all'" class="mt-4">
+      <!-- Comparison — masqué en « Tout l'historique » (pas de période de référence), ET en
+           Live (trouvé 2026-08-05, même trappe que §16/§17 : avant détection de l'event live,
+           timeRange vaut 'today' ≠ 'all', donc ce bloc restait visible et cliquable pour rien —
+           applyLiveScope() l'écrase de toute façon au tick suivant). -->
+      <div v-if="filters.timeRange !== 'all' && !isLive" class="mt-4">
         <div class="section-label mb-2">{{ t('anComparison') }}</div>
         <!-- Pas de `mandatory` : désélection possible = comparaison OFF (null). -->
         <v-btn-toggle
