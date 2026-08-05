@@ -447,6 +447,92 @@ export class InventoryService {
     };
   }
 
+  /**
+   * itemId (InventoryCount) → itemKey (nom, référentiel Logistic/StockMovement).
+   * `componentIngredientId()` (front, utils/inventoryUtils.js) pose l'id d'une ligne
+   * de comptage à `marketPriceId || sourceId || id` — un article readyForSale se
+   * compte sous son MenuItem.id, un ingrédient/composant sous son MarketPrice.id
+   * (vérifié en base 2026-08-05 : des ingrédients affichés en Live n'ont AUCUNE
+   * ligne MenuItem). Les deux catalogues sont donc consultés ; MenuItem gagne en
+   * cas de collision d'id. Un id résolu dans NI l'un NI l'autre reste orphelin —
+   * même limitation connue que `itemNameById` plus haut (Q39/Q45).
+   */
+  private async resolveItemKeysByIds(itemIds: string[], tenantId: string): Promise<Map<string, string>> {
+    const m = new Map<string, string>();
+    if (!itemIds.length) return m;
+    const [marketPrices, menuItems] = await Promise.all([
+      this.prisma.marketPrice.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, itemName: true } }),
+      this.prisma.menuItem.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
+    ]);
+    for (const mp of marketPrices) if (mp.itemName) m.set(mp.id, mp.itemName);
+    for (const mi of menuItems) if (mi.name) m.set(mi.id, mi.name);
+    return m;
+  }
+
+  /**
+   * Stock Live initialisé automatiquement depuis l'Inventaire pré-événement, à
+   * « l'ouverture des portes » (décision Bertrand 2026-07-24, question #24 —
+   * jamais implémentée jusqu'ici). Aucun signal « portes ouvertes » n'existe dans
+   * les données (ni Weezevent ni Digifood ne remontent un scan d'entrée) : le
+   * proxy technique retenu est `eventStartDate ?? eventDate`, déclenché par le
+   * cron `InventoryLiveInitCronService` toutes les 5 min — même tolérance qu'un
+   * webhook manqué que `WeezeventCronService.triggerLiveAggregationSafetyNet`
+   * (BUG-109) : un appel redondant ne duplique rien de grave, `LogisticsService
+   * .reset()` recalcule un delta nul si le stock cible est déjà atteint.
+   *
+   * Idempotence : marqueur `KvStore` (`live-pre-event-init:{spaceId}:{eventId}`)
+   * posé uniquement APRÈS un reset réussi — si aucun comptage pré-événement
+   * n'existe encore au moment du passage cron, on ne pose rien et on retente au
+   * prochain tick (jamais de stock fabriqué à partir de rien, même règle que
+   * `getPreEventInventory`).
+   */
+  async autoInitLiveStockFromPreEventInventory(
+    spaceId: string,
+    eventId: string,
+    eventName: string | null,
+    tenantId: string,
+  ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
+    const already = await this.prisma.kvStore.findUnique({
+      where: { uniq_kv_store: { tenantId, key: `live-pre-event-init:${spaceId}:${eventId}` } },
+    });
+    if (already) return { ok: false, reason: 'already-initialized' };
+
+    const pre = await this.getPreEventInventory(spaceId, eventId, tenantId);
+    if (!pre || !pre.inventoryCounts) return { ok: false, reason: 'no-pre-event-inventory' };
+
+    const countedBlob = pre.inventoryCounts as Record<string, Record<string, any>>;
+    const itemIds = new Set<string>();
+    for (const byItem of Object.values(countedBlob)) for (const itemId of Object.keys(byItem ?? {})) itemIds.add(itemId);
+    const itemKeyById = await this.resolveItemKeysByIds([...itemIds], tenantId);
+
+    const lines: Array<{ elementId: string; itemKey: string; countedPacked: number; countedLoose: number }> = [];
+    for (const [shopId, byItem] of Object.entries(countedBlob)) {
+      for (const [itemId, count] of Object.entries(byItem ?? {})) {
+        const itemKey = itemKeyById.get(itemId);
+        if (!itemKey) continue; // orphelin : id absent des deux catalogues, non adressable côté Logistic
+        lines.push({
+          elementId: shopId,
+          itemKey,
+          countedPacked: Number((count as any)?.packedUnits) || 0,
+          countedLoose: Number((count as any)?.looseUnits) || 0,
+        });
+      }
+    }
+    if (!lines.length) return { ok: false, reason: 'no-requirements' };
+
+    await this.logistics.reset(spaceId, { eventId, eventName: eventName ?? undefined, lines }, tenantId, 'system-live-door-opening');
+
+    await this.prisma.kvStore.create({
+      data: {
+        tenantId,
+        key: `live-pre-event-init:${spaceId}:${eventId}`,
+        value: { spaceId, eventId, lineCount: lines.length, source: pre.source, at: new Date().toISOString() },
+      },
+    });
+
+    return { ok: true, lineCount: lines.length };
+  }
+
   // ── Pre-event Inventory : baseline « quantités attendues » ───────────────────
   // attendu = comptage POST-event de l'événement précédent + Σ mouvements
   // Logistic depuis ce comptage. Cycle complet :

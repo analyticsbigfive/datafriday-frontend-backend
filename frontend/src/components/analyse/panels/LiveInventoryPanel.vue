@@ -1,8 +1,11 @@
 <template>
-  <!-- Onglet Inventaire live (module Live v2, 11_LIVE.md §3 / LIVE_API_GUIDE.md §3).
+  <!-- Onglet Inventaire live (module Live v2, 11_LIVE.md §3/§15 / LIVE_API_GUIDE.md §3).
        Arbre dépliable Shop→items ou Item→shops sur GET /spaces/:id/live/inventory.
-       « Restant » = (packs × unitsPerPack + loose) − consumedLoose, repack côté vue
-       (convention Logistic, logistics.api.js:8-15). -->
+       Stock de départ initialisé automatiquement depuis l'Inventaire pré-événement à
+       l'ouverture des portes (InventoryLiveInitCronService, backend) — plus de
+       déclenchement manuel côté écran (retiré 2026-08-05, décision utilisateur : tout
+       doit être automatique). Logique de jauge/tri/filtre extraite dans
+       utils/liveInventoryRows.js. -->
   <div class="lip" :class="{ 'lip--dark': isDark }">
 
     <!-- Toolbar -->
@@ -23,34 +26,18 @@
           @click="view = 'item'"
         >{{ t('anLiveInvByItem') }}</button>
       </div>
+      <div class="lip-search">
+        <Search :size="14" class="lip-search__icon" />
+        <input
+          v-model="search"
+          type="text"
+          class="lip-search__input"
+          :placeholder="t('anLiveInvSearchPlaceholder')"
+        >
+      </div>
       <v-spacer />
-      <!-- Module Live ← Inventaire pré-événement (docs/modules/11_LIVE.md §15) :
-           déclenchement MANUEL uniquement (décision utilisateur) — pas d'écriture
-           stock automatique/surprise au passage en live. -->
-      <span :title="eventId ? '' : t('anLiveInvInitBtnNoEvent')">
-        <v-btn
-          v-if="eventId"
-          size="small"
-          variant="tonal"
-          color="#ff3131"
-          :loading="initializing"
-          @click="showInitDialog = true"
-        >{{ t('anLiveInvInitBtn') }}</v-btn>
-      </span>
       <span v-if="lastUpdatedLabel" class="lip-updated">{{ t('anLiveInvUpdated') }} {{ lastUpdatedLabel }}</span>
     </div>
-
-    <v-dialog v-model="showInitDialog" max-width="480">
-      <v-card>
-        <v-card-title>{{ t('anLiveInvInitConfirmTitle') }}</v-card-title>
-        <v-card-text>{{ t('anLiveInvInitConfirmText') }}</v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showInitDialog = false">{{ t('anLiveInvInitConfirmCancel') }}</v-btn>
-          <v-btn color="#ff3131" variant="flat" :loading="initializing" @click="confirmInit">{{ t('anLiveInvInitConfirmOk') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3">
       {{ error }}
@@ -64,7 +51,7 @@
     <!-- Vide -->
     <div v-else-if="!rows.length" class="lip-empty">
       <div class="lip-empty__icon"><Boxes :size="24" /></div>
-      <p class="lip-empty__text">{{ t('anLiveInvEmpty') }}</p>
+      <p class="lip-empty__text">{{ search ? t('anLiveInvNoMatch') : t('anLiveInvEmpty') }}</p>
     </div>
 
     <!-- Arbre -->
@@ -74,6 +61,9 @@
           <ChevronDown v-if="isOpen(node.key)" :size="16" class="lip-chevron" />
           <ChevronRight v-else :size="16" class="lip-chevron" />
           <span class="lip-node__name">{{ node.label }}</span>
+          <span v-if="node.criticalCount" class="lip-node__critical-badge">
+            <AlertTriangle :size="10" />{{ node.criticalCount }}
+          </span>
           <span class="lip-node__count">
             {{ node.children.length }}
             {{ view === 'shop' ? t('anLiveInvItemsUnit') : t('anLiveInvShopsUnit') }}
@@ -94,11 +84,11 @@
             </div>
 
             <!-- Jauge "stock restant / stock de départ" (départ = niveau déjà fixé par
-                 Reset/mouvements Logistique, cf. buildChild), purement visuelle, aucune
-                 écriture. Toujours affichée, y compris à 0% (rouge) quand rien n'a jamais
-                 été compté. Sous le seuil critique, le remplissage est trop étroit pour
-                 loger le texte "%" lisiblement, le label bascule à l'extérieur, à droite
-                 de la piste. -->
+                 l'auto-init pré-événement/mouvements Logistique, cf. buildLiveInventoryChild),
+                 purement visuelle, aucune écriture. "uninitialized" (gris, "—") = rien n'a
+                 encore été fixé, distinct d'une vraie rupture (rouge, "0%"). Sous le seuil
+                 critique, le remplissage est trop étroit pour loger le texte "%" lisiblement,
+                 le label bascule à l'extérieur, à droite de la piste. -->
             <div class="lip-row__gauge">
               <span class="lip-row__gauge-num lip-row__gauge-num--start">{{ formatQty(child.remainingLoose, child.unit) }}</span>
               <div class="lip-row__gauge-track">
@@ -129,39 +119,26 @@
 </template>
 
 <script>
-import { Boxes, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-vue-next';
+import { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
-import { useLiveStockInit } from '@/composables/useLiveStockInit';
+import { buildLiveInventoryRows, countCritical } from '@/utils/liveInventoryRows';
 
 // Rafraîchissement live aligné sur le mode flux d'AnalyseView (11_LIVE.md §5).
 const LIVE_POLL_MS = 15000;
 
-// Seuils de la jauge "restant / départ", palette status figée (jamais thémée),
-// cf. skill dataviz : good ≥50%, warning 20-50%, critical <20%. Mode-invariant
-// (validée à la fois sur surface claire et sombre), donc pas de variante dark ici.
-const GAUGE_WARNING_THRESHOLD = 50;
-const GAUGE_CRITICAL_THRESHOLD = 20;
-
 export default {
   name: 'LiveInventoryPanel',
-  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle },
+  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search },
   props: {
     spaceId: { type: String, default: '' },
-    // Event live courant (résolu par AnalyseView::applyLiveScope) — nécessaire
-    // pour retrouver son comptage d'Inventaire pré-événement. Bouton d'init
-    // masqué sans lui (aucun event live résolu = rien à initialiser).
-    eventId: { type: String, default: '' },
-    eventName: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
     // Onglet réellement affiché → ne poller que quand visible.
     active: { type: Boolean, default: true },
   },
-  emits: ['notify'],
   setup() {
     const { t } = useI18n();
-    const { initializing, initFromPreEventInventory } = useLiveStockInit();
-    return { t, initializing, initFromPreEventInventory };
+    return { t };
   },
   data() {
     return {
@@ -169,10 +146,10 @@ export default {
       loading: false,
       error: '',
       view: 'shop', // 'shop' | 'item'
+      search: '',
       expanded: [], // clés dépliées
       lastUpdated: null,
       pollTimer: null,
-      showInitDialog: false,
       // Jeton de requête (même pattern que analyse.js::refreshLiveShopSnapshot,
       // docs/modules/11_LIVE.md §14) : un tick de 15s qui répond après un tick
       // plus récent est ignoré, sinon il peut écraser l'arbre avec du stock périmé.
@@ -181,19 +158,8 @@ export default {
   },
   computed: {
     rows() {
-      if (!this.inv) return [];
-      if (this.view === 'shop') {
-        return (this.inv.shops || []).map((s) => ({
-          key: `shop:${s.shopId}`,
-          label: s.shopName || s.shopId || '—',
-          children: (s.items || []).map((it) => this.buildChild(it, it.itemKey || '—', `${s.shopId}:${it.itemKey}`)),
-        }));
-      }
-      return (this.inv.items || []).map((it) => ({
-        key: `item:${it.itemKey}`,
-        label: it.itemKey || '—',
-        children: (it.shops || []).map((s) => this.buildChild(s, s.shopName || s.shopId || '—', `${it.itemKey}:${s.shopId}`)),
-      }));
+      const groups = buildLiveInventoryRows(this.inv, this.view, this.search);
+      return groups.map((g) => ({ ...g, criticalCount: countCritical(g.children) }));
     },
     lastUpdatedLabel() {
       if (!this.lastUpdated) return '';
@@ -215,50 +181,6 @@ export default {
     this.stopPolling();
   },
   methods: {
-    // Restant affiché = (packs × unitsPerPack + loose) − consumedLoose, repack côté
-    // vue (casse de pack). Composants bruts fournis par l'endpoint (LIVE_API_GUIDE §3.3).
-    buildChild(node, label, keySeed) {
-      const unit = node.unit || '';
-      const unitsPerPack = Number(node.unitsPerPack) || 0;
-      const packed = Number(node.packedUnits) || 0;
-      const loose = Number(node.looseUnits) || 0;
-      const consumed = Number(node.consumedLoose) || 0;
-      const perPack = unitsPerPack > 0 ? unitsPerPack : 1;
-      const totalLoose = packed * perPack + loose;
-      const remainingLoose = Math.max(0, totalLoose - consumed);
-
-      let remainingLabel;
-      if (unitsPerPack > 1) {
-        const packs = Math.floor(remainingLoose / unitsPerPack);
-        const rest = remainingLoose % unitsPerPack;
-        remainingLabel = packs > 0
-          ? `${this.formatNumber(packs)} × ${unitsPerPack}${rest ? ` + ${rest}` : ''}`
-          : `${this.formatNumber(rest)}`;
-      } else {
-        remainingLabel = this.formatNumber(remainingLoose);
-      }
-
-      // Jauge : "départ" = totalLoose (niveau déjà fixé par Reset/mouvements Logistique,
-      // avant décrément ventes), sert de référence 100%, vert. Décroît vers 0%, rouge,
-      // au fil des ventes (habillage visuel, aucune écriture nouvelle).
-      const gaugePercent = totalLoose > 0
-        ? Math.round(Math.min(100, Math.max(0, (remainingLoose / totalLoose) * 100)))
-        : 0;
-      const gaugeStatus = gaugePercent < GAUGE_CRITICAL_THRESHOLD
-        ? 'critical'
-        : gaugePercent < GAUGE_WARNING_THRESHOLD
-          ? 'warning'
-          : 'good';
-      const gaugeLabel = `${gaugePercent}%`;
-      // Sous le seuil critique, le remplissage est trop étroit pour loger le texte
-      // en lisible, le label bascule à l'extérieur de la piste (cf. template).
-      const gaugeLabelInside = gaugePercent >= GAUGE_CRITICAL_THRESHOLD;
-
-      return {
-        key: keySeed, label, unit, remainingLoose, consumedLoose: consumed, remainingLabel,
-        totalLoose, gaugePercent, gaugeStatus, gaugeLabel, gaugeLabelInside,
-      };
-    },
     async fetchInventory() {
       if (!this.spaceId) return;
       const reqId = ++this._invReqId;
@@ -282,20 +204,6 @@ export default {
     },
     stopPolling() {
       if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-    },
-    async confirmInit() {
-      this.showInitDialog = false;
-      const res = await this.initFromPreEventInventory(this.spaceId, this.eventId, this.eventName);
-      if (res.ok) {
-        this.$emit('notify', { text: this.t('anLiveInvInitSuccess').replace('{n}', String(res.lineCount)), color: 'success' });
-        this.fetchInventory();
-      } else {
-        const key = {
-          'no-pre-event-inventory': 'anLiveInvInitErrorNoPreEvent',
-          'no-requirements': 'anLiveInvInitErrorNoRequirements',
-        }[res.reason] || 'anLiveInvInitErrorGeneric';
-        this.$emit('notify', { text: this.t(key), color: 'error' });
-      }
     },
     toggle(key) {
       const i = this.expanded.indexOf(key);
@@ -363,6 +271,27 @@ export default {
 .lip-view-btn--active { background: #ff3131; color: #fff; }
 .lip-updated { font-size: 0.75rem; color: #9ca3af; white-space: nowrap; }
 
+/* Recherche */
+.lip-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 100px;
+  background: #f3f4f6;
+  min-width: 180px;
+}
+.lip-search__icon { color: #9ca3af; flex-shrink: 0; }
+.lip-search__input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 0.8125rem;
+  color: #111827;
+  width: 100%;
+}
+.lip-search__input::placeholder { color: #9ca3af; }
+
 /* Empty / loading */
 .lip-empty {
   display: flex;
@@ -400,6 +329,18 @@ export default {
 .lip-chevron { color: #9ca3af; flex-shrink: 0; }
 .lip-node__name { font-size: 0.875rem; font-weight: 700; color: #111827; flex: 1; text-align: left; }
 .lip-node__count { font-size: 0.75rem; color: #9ca3af; white-space: nowrap; }
+.lip-node__critical-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 100px;
+  background: #fee2e2;
+  color: #d03b3b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .lip-rows { padding: 2px 6px 8px 30px; }
 .lip-rows__header {
@@ -439,8 +380,8 @@ export default {
 
 /* Jauge "[restant] [piste + % dedans] [départ]", palette status figée (dataviz
    skill), mode-invariante. Cf. LogisticsService.getStock : départ = niveau déjà fixé
-   par Reset/mouvements, avant décrément ventes ; jauge = habillage visuel, aucune
-   écriture propre. */
+   par l'auto-init/mouvements, avant décrément ventes ; jauge = habillage visuel,
+   aucune écriture propre. */
 .lip-row__gauge {
   display: flex;
   align-items: center;
@@ -474,6 +415,9 @@ export default {
 .lip-row__gauge-fill--good { background: #0ca30c; }
 .lip-row__gauge-fill--warning { background: #fab219; }
 .lip-row__gauge-fill--critical { background: #d03b3b; }
+/* "uninitialized" : gris neutre, pas rouge — rien à signaler, juste pas encore
+   compté (cf. buildLiveInventoryChild). */
+.lip-row__gauge-fill--uninitialized { background: #9ca3af; }
 .lip-row__gauge-pct {
   font-size: 0.7rem;
   font-weight: 700;
@@ -492,6 +436,7 @@ export default {
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--good { color: #0ca30c; }
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--warning { color: #b8860b; }
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--critical { color: #d03b3b; }
+.lip-row__gauge-pct--outside.lip-row__gauge-pct--uninitialized { color: #9ca3af; }
 
 /* ── Dark mode (palette slate, alignée AnalyseView) ── */
 .lip--dark { background: #1e293b; border-color: rgba(255,255,255,.08); }
@@ -501,18 +446,22 @@ export default {
 .lip--dark .lip-view-btn { color: #94a3b8; }
 .lip--dark .lip-view-btn--active { background: #ff3131; color: #fff; }
 .lip--dark .lip-updated { color: #94a3b8; }
+.lip--dark .lip-search { background: #0f172a; }
+.lip--dark .lip-search__input { color: #f1f5f9; }
+.lip--dark .lip-search__input::placeholder { color: #64748b; }
 .lip--dark .lip-empty__text { color: #94a3b8; }
 .lip--dark .lip-node__head { background: #0f172a; }
 .lip--dark .lip-node__head:hover { background: rgba(255,255,255,.05); }
 .lip--dark .lip-node__name { color: #f1f5f9; }
+.lip--dark .lip-node__critical-badge { background: rgba(208,59,59,.2); color: #f87171; }
 .lip--dark .lip-row { border-top-color: rgba(255,255,255,.06); }
 .lip--dark .lip-row__main { color: #cbd5e1; }
 .lip--dark .lip-row__consumed-sub { color: #94a3b8; }
 .lip--dark .lip-row__gauge-num { color: #f1f5f9; }
 .lip--dark .lip-row__gauge-track { background: rgba(255, 255, 255, .1); }
-/* Statuts good/critical mode-invariants (validés dataviz skill sur les 2 surfaces),
-   seul warning est réajusté : #b8860b (assombri pour lisibilité en texte clair sur
-   fond blanc) est trop terne sur fond sombre, on reprend le hex status brut #fab219,
-   déjà validé (contraste 9.49 sur surface sombre). */
+/* Statuts good/critical/uninitialized mode-invariants (validés dataviz skill sur
+   les 2 surfaces), seul warning est réajusté : #b8860b (assombri pour lisibilité en
+   texte clair sur fond blanc) est trop terne sur fond sombre, on reprend le hex
+   status brut #fab219, déjà validé (contraste 9.49 sur surface sombre). */
 .lip--dark .lip-row__gauge-pct--outside.lip-row__gauge-pct--warning { color: #fab219; }
 </style>
