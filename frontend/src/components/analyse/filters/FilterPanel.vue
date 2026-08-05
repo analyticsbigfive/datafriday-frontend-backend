@@ -15,22 +15,26 @@
     />
 
     <div class="pa-4 fp-card">
-      <!-- Configuration -->
-      <div class="section-label mb-2">{{ t('anConfiguration') }}</div>
-      <v-select
-        :model-value="filters.selectedConfigurationId"
-        :items="configurationItems"
-        item-title="title"
-        item-value="value"
-        variant="outlined"
-        rounded="lg"
-        density="compact"
-        bg-color="grey-lighten-5"
-        hide-details
-        class="mb-4"
-        :menu-props="{ contentClass: isDark ? 'fp-select-menu fp-select-menu--dark' : 'fp-select-menu' }"
-        @update:model-value="onConfigurationChange"
-      />
+      <!-- Configuration : masqué en Live — applyLiveScope() (AnalyseView.vue)
+           écrase selectedConfigurationId à chaque tick, l'éditer ici n'a aucun
+           effet durable (cf. prop isLive). -->
+      <template v-if="!isLive">
+        <div class="section-label mb-2">{{ t('anConfiguration') }}</div>
+        <v-select
+          :model-value="filters.selectedConfigurationId"
+          :items="configurationItems"
+          item-title="title"
+          item-value="value"
+          variant="outlined"
+          rounded="lg"
+          density="compact"
+          bg-color="grey-lighten-5"
+          hide-details
+          class="mb-4"
+          :menu-props="{ contentClass: isDark ? 'fp-select-menu fp-select-menu--dark' : 'fp-select-menu' }"
+          @update:model-value="onConfigurationChange"
+        />
+      </template>
 
       <v-expansion-panels
         v-model="openPanels"
@@ -39,7 +43,9 @@
         class="filter-accordion filter-group"
       >
         <!-- ========================= ÉVÉNEMENTS ========================= -->
-        <v-expansion-panel value="events">
+        <!-- Masqué en Live : applyLiveScope() force selectedEventIds sur le seul
+             event live à chaque tick, cf. prop isLive. -->
+        <v-expansion-panel v-if="!isLive" value="events">
           <v-expansion-panel-title class="section-title">
             {{ t('anEvents') }}
             <template #actions>
@@ -99,7 +105,10 @@
         </v-expansion-panel>
 
         <!-- ========================= DATES ========================= -->
+        <!-- Masqué en Live : applyLiveScope() force timeRange='all' à chaque
+             tick, cf. prop isLive. -->
         <v-expansion-panel
+          v-if="!isLive"
           ref="datesPanelRef"
           value="dates"
           :class="{ 'fp-dates-highlight': datesHighlight }"
@@ -148,7 +157,13 @@
         </v-expansion-panel>
 
         <!-- ========================= AFFLUENCE ========================= -->
-        <v-expansion-panel value="attendance">
+        <!-- Masqué en Live : attendanceBounds (analyse.js) calcule min/max sur
+             state.events SANS AUCUN scope (ni analysableEvents, ni l'event live) —
+             les bornes affichées viennent de tout l'historique de l'espace, pas de
+             l'event en cours. Même en les corrigeant, un curseur de PLAGE n'a pas
+             de sens sur UN SEUL event (min=max, rien à régler) — masqué plutôt que
+             rendu inerte, trouvé le 2026-08-05. -->
+        <v-expansion-panel v-if="!isLive" value="attendance">
           <v-expansion-panel-title class="section-title">{{ t('anAttendance') }}</v-expansion-panel-title>
           <v-expansion-panel-text>
             <div class="range-label">{{ t('anTicketsSold') }}</div>
@@ -198,7 +213,12 @@
         </v-expansion-panel>
 
         <!-- ========================= AVANCÉ ========================= -->
-        <v-expansion-panel value="advanced">
+        <!-- Masqué en Live : filtres au niveau EVENT (catégorie, type, équipes,
+             sponsor...) alors qu'un seul event est jamais en scope en Live —
+             contrairement à Événements/Dates/Configuration, rien ne réinitialise
+             ces filtres automatiquement : un choix qui ne matche pas l'event live
+             viderait l'écran silencieusement et ça resterait vide. Cf. prop isLive. -->
+        <v-expansion-panel v-if="!isLive" value="advanced">
           <v-expansion-panel-title class="section-title">
             {{ t('anAdvancedFilters') }}
             <template #actions>
@@ -509,8 +529,11 @@
         </v-expansion-panel>
       </v-expansion-panels>
 
-      <!-- Comparison — masqué en « Tout l'historique » (pas de période de référence). -->
-      <div v-if="filters.timeRange !== 'all'" class="mt-4">
+      <!-- Comparison — masqué en « Tout l'historique » (pas de période de référence), ET en
+           Live (trouvé 2026-08-05, même trappe que §16/§17 : avant détection de l'event live,
+           timeRange vaut 'today' ≠ 'all', donc ce bloc restait visible et cliquable pour rien —
+           applyLiveScope() l'écrase de toute façon au tick suivant). -->
+      <div v-if="filters.timeRange !== 'all' && !isLive" class="mt-4">
         <div class="section-label mb-2">{{ t('anComparison') }}</div>
         <!-- Pas de `mandatory` : désélection possible = comparaison OFF (null). -->
         <v-btn-toggle
@@ -643,6 +666,22 @@ const props = defineProps({
   modelValue: { type: Boolean, default: true },
   events: { type: Array, default: () => [] },
   shops: { type: Array, default: () => [] },
+  // Mode Live (AnalyseView::isLive) : Configuration/Événements/Dates sont
+  // écrasés à chaque tick par applyLiveScope() (AnalyseView.vue) — les montrer
+  // comme éditables est trompeur (le choix tient ~15s avant de revenir tout
+  // seul). Les Filtres avancés (catégorie/type d'event, équipes, sponsor...)
+  // opèrent au niveau EVENT alors qu'un seul event est jamais en scope en
+  // Live — pire : contrairement aux 3 premiers, rien ne les réinitialise
+  // automatiquement, un choix qui ne matche pas l'event live vide l'écran
+  // silencieusement et ça reste vide. Affluence (curseur de PLAGE) : bornes
+  // calculées sur tout l'historique de l'espace (attendanceBounds ne scope
+  // rien), et un curseur de plage n'a de toute façon aucun sens sur un seul
+  // event — trouvé le 2026-08-05. Les 5 filtres restants (shops, types de
+  // PdV, zones, articles, type/catégorie) gardent leur utilité en Live (ex.
+  // suivre un seul shop en direct) — non touchés par applyLiveScope, et leurs
+  // compteurs sont désormais scopés au seul event live via
+  // state.isLiveRoute → optionsBaseRecords (analyse.js).
+  isLive: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue', 'update:toolbox'])
 

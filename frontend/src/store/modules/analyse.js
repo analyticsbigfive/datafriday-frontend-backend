@@ -579,6 +579,13 @@ const state = () => ({
   cumulativeRevenue: false,
   selectedToolbox: 'analyse',   // analyse | predict | inventory
   activeMobilePanel: 'middle',  // left | middle | right
+  // Module Live (docs/modules/11_LIVE.md) : posé par AnalyseView (route
+  // space-live), pas dérivé de selectedToolbox (Live est une route dédiée,
+  // pas un onglet du toolbox). Bascule `optionsBaseRecords` sur les seuls
+  // events filtrés (l'event live) au lieu de tous les events analysables —
+  // sinon Types de PDV/Zones/Points de vente affichent des compteurs agrégés
+  // sur TOUT l'historique de l'espace plutôt que sur l'event en cours.
+  isLiveRoute: false,
 
   // Assistant : requête injectée depuis l'extérieur (ex. clic sur une alerte du header)
   pendingAssistantQuery: null,
@@ -1026,7 +1033,15 @@ const getters = {
   // options se réduiraient à la sélection courante. Garde hasEvents : pendant le
   // loading, state.events est vide → on ne masque pas le skeleton.
   optionsBaseRecords(state, g) {
-    const ids = new Set((g.analysableEvents || []).map((e) => e.id))
+    // Module Live (docs/modules/11_LIVE.md) : `analysableEvents` couvre TOUT
+    // l'historique analysable de l'espace — le raisonnement « options = scope
+    // large pour pouvoir élargir la sélection » (cf. commentaire ci-dessous)
+    // ne tient pas en Live, où il n'y a jamais qu'UN SEUL event (`filteredEvents`,
+    // déjà réduit par applyLiveScope). Sans ce cas, Types de PDV/Zones/Points de
+    // vente affichaient des compteurs agrégés sur tout l'historique de l'espace
+    // au lieu du seul event en cours — trouvé le 2026-08-05.
+    const base = state.isLiveRoute ? (g.filteredEvents || []) : (g.analysableEvents || [])
+    const ids = new Set(base.map((e) => e.id))
     const hasEvents = (state.events || []).length > 0
     if (!hasEvents) return g.reconciledShopGranularData || []
     return (g.reconciledShopGranularData || []).filter((r) => ids.has(r.eventId))
@@ -1369,7 +1384,12 @@ const getters = {
     // que le preset diffère du défaut, sinon le filtre est invisible dans le
     // bandeau et « Tout effacer » semble ne pas agir dessus. clearValue = défaut.
     const defaultTimeRange = DEFAULT_FILTERS().timeRange
-    if (filters.timeRange && filters.timeRange !== defaultTimeRange) {
+    // isLiveRoute : timeRange vaut TOUJOURS 'all' en Live (forcé par
+    // applyLiveScope() à chaque tick, AnalyseView.vue) — un chip « Période :
+    // Tout l'historique » en permanence, sur un filtre déjà masqué côté
+    // FilterPanel/FilterSummary (§16, 11_LIVE.md), n'est que du bruit.
+    // Trouvé le 2026-08-05.
+    if (!state.isLiveRoute && filters.timeRange && filters.timeRange !== defaultTimeRange) {
       // Saison (`season:<id>`) : libellé = nom de la saison (store seasons).
       const seasonId = String(filters.timeRange).startsWith('season:')
         ? String(filters.timeRange).slice('season:'.length)
@@ -1722,6 +1742,7 @@ const mutations = {
   },
   SET_MENU_ITEM_COST_MAP(state, m) { state.menuItemCostMap = m },
   SET_SUMMARY(state, s) { state.summary = s },
+  SET_LIVE_ROUTE(state, v) { state.isLiveRoute = !!v },
   SET_FROM_MOCK(state, v) { state.fromMock = v },
   SET_WEEZEVENT_SETUP_INCOMPLETE(state, v) { state.weezeventSetupIncomplete = v },
 
@@ -1813,6 +1834,19 @@ const mutations = {
     state.shopMenusByShop = {}
     const kept = keepSpaceId != null ? state.spaceShopsRows?.[keepSpaceId] : undefined
     state.spaceShopsRows = kept !== undefined ? { [keepSpaceId]: kept } : {}
+    // BUG-300-01 — le contexte config (floorElements → shopArea) appartient à
+    // l'ESPACE : conservé après un changement d'espace, il faisait croire au
+    // différé « All Configurations » que le contexte était déjà chargé, et la
+    // réconciliation joignait les ventes du nouvel espace aux éléments de
+    // l'ancien → donut « Par zone » définitivement vide (« Aucune donnée »).
+    state.configShopContext = { configId: null, floorElements: [], assignment: null }
+    state.configContextSettled = false
+    state.configContextError = null
+    state.configContextLoadingId = null
+    // Invalide un chargement de contexte de l'ancien espace encore en vol :
+    // sans ce bump, son commit tardif écraserait le contexte vierge (les
+    // actions vérifient `stale()` sur ce jeton).
+    state.configContextReqId = (state.configContextReqId || 0) + 1
   },
   APPLY_EVENT_PREDICT_VERSION(state, { eventId, version }) {
     if (!eventId || !version) return
@@ -2063,6 +2097,10 @@ const actions = {
       ...(snapshot.menuItemCostMap || {}),
     })
     commit('SET_SUMMARY', snapshot.summary || null)
+    // Bug 2026-08-05 : un event créé après le 1er chargement (ex. run QA) doit
+    // apparaître sans recharger la page — `events: null` = fetch KO, on garde
+    // l'ancienne liste plutôt que d'écraser par erreur avec [].
+    if (snapshot.events !== null) commit('SET_EVENTS', snapshot.events)
   },
 
   /**

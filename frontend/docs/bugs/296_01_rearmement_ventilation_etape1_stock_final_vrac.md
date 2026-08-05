@@ -1,5 +1,34 @@
 # BUG-296-01 — Réarmement : ventilation besoin/restant/manque invisible à l'étape 1, stock final et reste en vrac non calculés
 
+> **Mise à jour 2026-08-04 (Lot 2, JLH)** : l'AFFICHAGE étape 1 introduit par cette fiche
+> (Restant / Manque / Paquets / Quantité couverte / Reste en vrac / Stock final) a été remplacé
+> par 4 colonnes — Prédit / Inventaire restant / Cible à atteindre / À commander (« À
+> commander » = besoin net des shops − Storage, même netting que la feuille de course, cf.
+> `stockOrderByItem` et `orderQuantitiesByItemKey`). Les clés i18n `srBreakdownGap` /
+> `srBreakdownPacks` / `srBreakdownCovered` ont été supprimées. Les CALCULS de cette fiche
+> (`computeRestockOutcome`, `aggregateRestockOutcomesByItem`, snapshot, colonnes étape 2)
+> restent en place et inchangés.
+>
+> **Mise à jour 2026-08-05 (Lot 4, JLH)** — trois évolutions, toujours sans toucher aux calculs :
+> 1. **Correctif de lecture** : la 3ᵉ valeur de l'étape 1 affichait `targetQuantity` (besoin BRUT
+>    ajusté) sous le libellé « Nécessaire ». Sur un article à 45 pc de besoin et 252 pc en
+>    inventaire, cela affichait « Nécessaire 45 » à côté de « Inventaire 252 » — contradictoire.
+>    Elle lit désormais `gap`, le manque réel calculé PAR PDV puis sommé (un PDV sur-stocké ne
+>    compense jamais un PDV vide). Test de non-régression : `restockOutcome.spec.js`.
+> 2. **Étape 1 compactée** : nom + curseur sur un rang, les 4 valeurs sur un seul rang, et
+>    l'explication (dont la règle du colis) déplacée dans une infobulle. Le bloc « prédit →
+>    ajusté » a été supprimé (il convertissait le besoin TOTAL en colis, à côté de l'achat réel :
+>    deux comptages de packs contradictoires sur la même ligne).
+> 3. **Colonne « Stock final prévu » retirée de l'affichage** (les 3 tables de l'étape 2) : elle
+>    affiche le MÊME nombre que « Reste en vrac » dès que `target ≥ remaining`, c'est-à-dire dans
+>    le cas courant (`deposited − gap = remaining + deposited − target`). ⚠️ Le champ `finalStock`
+>    reste calculé et persisté dans le snapshot — seul son rendu disparaît, pour ne pas casser la
+>    relecture des plans déjà sauvegardés.
+>
+> Arrondis (Lot 4) : nouveau `ceilForUnit` dans `stockPlanning.js` (avec `roundForUnit`, déplacé
+> depuis la vue pour être testable). « À déposer » et « Reste en vrac » arrondissent désormais au
+> supérieur ; les packs l'étaient déjà (`computePackagingForQuantity`).
+
 - **Statut** : 🟡 Corrigé non déployé (2026-08-04)
 - **Sévérité** : 🟠 Majeur (réunion du 2026-08-04 — test live Bertrand le 2026-08-05)
 - **Domaine** : Stock (Réarmement / SpaceRestockView)

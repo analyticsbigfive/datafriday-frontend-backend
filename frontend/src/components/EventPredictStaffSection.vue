@@ -59,6 +59,10 @@
                   </div>
                   <div class="ep-shop-card-revenue">
                     <span class="ep-revenue-pill">
+                      <span class="ep-revenue-label">{{ t('epsRevenue') }}</span>
+                      <strong>{{ eur(el.predictedRevenue) }}</strong>
+                    </span>
+                    <span class="ep-revenue-pill">
                       <span class="ep-revenue-label">{{ t('epsPredicted') }}</span>
                       <strong>{{ eur(el.predictedCost) }}</strong>
                     </span>
@@ -296,12 +300,36 @@ async function onSettingsSubmit(payload) {
   }
 }
 
-// ── Temps : minutes depuis minuit du jour de début de fenêtre ────────────────
+// ── Temps : minutes depuis minuit, HEURE DU LIEU (schedule.timezone, ex. Europe/Paris) ──
+// Le fuseau de l'appareil qui consulte l'écran peut différer de celui de l'espace (même
+// classe de bug que BUG-270 sur transactionDate) : `new Date().setHours()` calerait les
+// horaires sur le fuseau du navigateur au lieu de celui du lieu de l'événement.
+function venueOffsetMinutes(instant, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'longOffset',
+    hour: '2-digit',
+  }).formatToParts(instant)
+  const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+00:00'
+  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(raw)
+  if (!match) return 0
+  const sign = match[1] === '-' ? -1 : 1
+  return sign * (parseInt(match[2], 10) * 60 + parseInt(match[3] ?? '0', 10))
+}
+function venueMidnightUtc(instant, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant)
+  const get = (type) => Number(parts.find((p) => p.type === type)?.value)
+  const naiveUtc = Date.UTC(get('year'), get('month') - 1, get('day'))
+  return new Date(naiveUtc - venueOffsetMinutes(new Date(naiveUtc), timeZone) * 60_000)
+}
 const dayStart = computed(() => {
   const s = schedule.value?.startTime ? new Date(schedule.value.startTime) : new Date()
-  const d = new Date(s)
-  d.setHours(0, 0, 0, 0)
-  return d
+  return venueMidnightUtc(s, schedule.value?.timezone || 'Europe/Paris')
 })
 const toMin = (iso) => Math.round((new Date(iso).getTime() - dayStart.value.getTime()) / 60_000)
 const toIso = (min) => new Date(dayStart.value.getTime() + min * 60_000).toISOString()
@@ -349,22 +377,21 @@ function draft(lineId) {
   return drafts[lineId] || { enabled: true, hourlyRate: 0, startMin: bounds.value.min, endMin: bounds.value.max }
 }
 
-function schedulePatch(line) {
+// N'envoie QUE les champs réellement modifiés (`changes`) — jamais tout le
+// brouillon : PATCHer le taux horaire ne doit pas ré-écraser startTime/endTime
+// avec des valeurs recalculées à côté, sous peine de figer la ligne
+// (userModified=true) sur des heures fausses qu'aucune régénération future ne
+// pourra plus corriger. Le backend accepte déjà des updates partiels.
+const pendingChanges = {}
+
+function schedulePatch(line, changes) {
+  pendingChanges[line.id] = { ...(pendingChanges[line.id] || {}), ...changes }
   clearTimeout(timers[line.id])
   timers[line.id] = setTimeout(async () => {
-    const d = drafts[line.id]
+    const payload = pendingChanges[line.id]
+    delete pendingChanges[line.id]
     try {
-      await store.dispatch('staffing/patchLine', {
-        lineId: line.id,
-        enabled: d.enabled,
-        supplierType: d.supplierType,
-        supplierId: d.supplierId,
-        personId: d.personId,
-        personLabel: d.personLabel,
-        hourlyRate: d.hourlyRate,
-        startTime: toIso(d.startMin),
-        endTime: toIso(d.endMin),
-      })
+      await store.dispatch('staffing/patchLine', { lineId: line.id, ...payload })
     } finally {
       delete timers[line.id]
     }
@@ -376,14 +403,14 @@ function setField(line, field, value) {
   const d = drafts[line.id]
   if (!d) return
   d[field] = value
-  schedulePatch(line)
+  schedulePatch(line, { [field]: value })
 }
 function onSlider(line, field, value) {
   const d = drafts[line.id]
   if (!d) return
   if (field === 'startMin') d.startMin = Math.min(value, d.endMin - STEP)
   else d.endMin = Math.max(value, d.startMin + STEP)
-  schedulePatch(line)
+  schedulePatch(line, { startTime: toIso(d.startMin), endTime: toIso(d.endMin) })
 }
 function rangeStyle(startMin, endMin) {
   const { min, max } = bounds.value
@@ -417,24 +444,33 @@ function personsFor(line) {
 function onSupplierTypeChange(line, value) {
   const d = drafts[line.id]
   d.supplierType = value
+  const changes = { supplierType: value }
   if (value === 'AGENCY') {
     d.personId = null
+    changes.personId = null
   } else {
     const first = personsFor(line)[0]
     d.personId = first?.id ?? null
     d.personLabel = first ? `${first.firstName} ${first.lastName}` : d.personLabel
+    changes.personId = d.personId
+    changes.personLabel = d.personLabel
   }
-  schedulePatch(line)
+  schedulePatch(line, changes)
 }
 function onPersonChange(line, personId) {
   const d = drafts[line.id]
   const p = persons.value.find((x) => x.id === personId)
   d.personId = personId || null
+  const changes = { personId: d.personId }
   if (p) {
     d.personLabel = `${p.firstName} ${p.lastName}`
-    if (p.hourlyRate != null) d.hourlyRate = p.hourlyRate
+    changes.personLabel = d.personLabel
+    if (p.hourlyRate != null) {
+      d.hourlyRate = p.hourlyRate
+      changes.hourlyRate = d.hourlyRate
+    }
   }
-  schedulePatch(line)
+  schedulePatch(line, changes)
 }
 
 // ── Actions carte / section ──────────────────────────────────────────────────

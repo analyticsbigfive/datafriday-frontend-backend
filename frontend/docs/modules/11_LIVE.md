@@ -472,10 +472,235 @@ restant sur `/spaces/:id/live` pendant un event. Suites `analyseStore.spec.js` (
 `refreshLiveShopSnapshot`/`fetchLiveShopSnapshot` à ce stade (à ajouter si ce module reçoit
 d'autres évolutions).
 
+### 🔴→✅ Régression trouvée et corrigée le 2026-08-05 — un nouvel event n'apparaissait jamais sans recharger la page
+
+Le découplage ci-dessus a été fait un peu trop strict : `refreshLiveShopSnapshot` ne rafraîchissait
+QUE `shopGranularData`/`menuItemCostMap`/`summary` — plus jamais `state.analyse.events`. Or
+`applyLiveScope()` (`AnalyseView.vue`) résout bien un `eventId` frais à chaque tick (il appelle
+`/live-status` directement, indépendamment du store), mais `filteredEvents`
+(`store/modules/analyse.js:829`) part de `state.events` et filtre par `selectedEventIds` — un event
+qui n'existe pas encore dans `state.events` au moment du premier chargement de la page (ex. un event
+QA créé par `ensureTodaySalesEvent` pendant que Live était déjà ouvert) ne pouvait donc **jamais**
+apparaître tant que la page restait ouverte : `filteredEvents` retombait à `[]`, écran Live
+complètement vide malgré un vrai signal live détecté côté backend (vérifié : `getLiveStatus`
+recalculé à la main renvoyait bien `isLive:true`, données saines en base — la régression était
+strictement frontend).
+
+**Corrigé** : `fetchLiveShopSnapshot` (`useSpaceData.js`) ajoute un 3e appel léger, `getEvents({
+spaceId, limit: 200, excludeSimulated: false })` — une seule requête liste, pas le catalogue, donc
+sans réintroduire la dette de perf du point ci-dessus. `excludeSimulated:false` : ce chemin ne
+tourne qu'en mode Live, où voir son propre trafic de test (QA) est le but recherché, même règle que
+`fetchSpaceData` en mode live (§7). `refreshLiveShopSnapshot` commit `SET_EVENTS` seulement si le
+fetch a réussi (`events !== null` — sentinelle qui distingue « échec réseau, garder l'ancienne
+liste » de « l'espace n'a vraiment aucun event », les deux donnant `[]` après normalisation sinon).
+Tests ajoutés : `useSpaceDataWaves.spec.js` (2 tests, dont le cas d'échec réseau).
+
+## 15. Stock Live initialisé depuis Event Predict — ✅ implémenté 2026-08-05
+
+> Jusqu'ici, le stock de l'onglet Inventaire live (§3, §7) ne pouvait être initialisé que par un
+> reset manuel du module Logistic (comptage physique). L'utilisateur a demandé que le stock de
+> départ d'un event live soit celui **prédit/configuré dans Event Predict** (onglet Stock Up), les
+> mouvements (ventes en temps réel, transferts, resets ultérieurs) continuant à s'appliquer
+> par-dessus exactement comme aujourd'hui.
+
+**Déclenchement : manuel uniquement** (décision produit) — un bouton « Initialiser depuis Event
+Predict » dans la toolbar de `LiveInventoryPanel.vue`, avec confirmation (`v-dialog`). Aucune
+écriture stock automatique au passage en live : le staff peut avoir déjà fait un comptage manuel
+juste avant, une écriture silencieuse l'aurait écrasé sans prévenir.
+
+**Aucun changement backend** — la feature réutilise TEL QUEL le mécanisme de reset Logistic déjà en
+production :
+
+```
+bouton confirmé
+  → useLiveStockInit.initFromEventPredict(spaceId, eventId, eventName)
+  → GET /events/:eventId/predict-versions (listEventPredictVersions, déjà existant)
+  → sélection de la version isDefault (sinon la 1re) — même priorité que
+    SpaceRestockView.activeVersionForEvent (`:3119-3134`)
+  → configuration = store.state.analyse.configurations.find(c => c.id === event.configurationId)
+    (même lookup qu'EventPredictView.vue:1962-1977)
+  → buildStockRequirements({ configuration, menuItems, components, predictedRecords,
+    selectedMenuItems: version.menuConfig, quantityAdjustments, manualQuantities })
+    (utils/stockPlanning.js — fonction pure déjà utilisée par Restock)
+  → conversion en lignes ResetLineDto (countedLoose = totalQuantity, countedPacked = 0)
+  → store.dispatch('logistics/reset', { spaceId, eventId, eventName, lines })
+    (action Vuex déjà existante → POST /logistics/:spaceId/reset, LogisticsService.reset())
+```
+
+`StockLevel` n'a pas de notion d'event (`logistics.service.ts` — c'est `StockReconciliation.createdAt`
+qui sert d'ancre pour dériver la consommation, cf. §14) : créer une réconciliation avec les
+quantités Event Predict fait mécaniquement de ce moment la nouvelle ancre, exactement comme un
+reset manuel — seule la provenance des quantités change. Zéro migration de schéma.
+
+**`buildStockRequirements()` étendue** (`utils/stockPlanning.js`) avec un paramètre optionnel
+`manualQuantities` (défaut `{}`, rétrocompatible — comportement de Restock inchangé, vérifié par
+`stockPlanningUnavailable.spec.js`/`stockPlanningSharedComponent.spec.js` toujours verts). Reprend
+la sémantique de `EventPredictStockUpSection.getAdjustedQuantity()` : pour un item à prédiction 0,
+la quantité manuelle sert de **base**, mise à l'échelle par le même slider % que la prédiction —
+pas un simple override du résultat final. Live et Restock partagent désormais le même calcul
+complet, au lieu d'une 3e implémentation dupliquée.
+
+**Fichiers** : `composables/useLiveStockInit.js` (nouveau, orchestration pure) ;
+`utils/stockPlanning.js` (`buildStockRequirements` étendue) ;
+`components/analyse/panels/LiveInventoryPanel.vue` (bouton + dialog + prop `eventId`/`eventName`,
+émet `notify` pour le snackbar du parent) ; `components/analyse/AnalyseView.vue` (`liveEventId`/
+`liveEventName` computed, dérivés du scope déjà posé par `applyLiveScope()` — aucun nouvel appel
+réseau ; handler `onLiveInventoryNotify`). i18n : clés `anLiveInvInit*`
+(`i18n/translations.js`).
+
+**Tests** : `tests/unit/stockPlanningManualQuantities.spec.js` (nouveau, 4 tests) et
+`tests/unit/useLiveStockInit.spec.js` (nouveau, 5 tests, store/API mockés).
+
+**Limite connue** : la sélection de version ne retient QUE la version par défaut (`isDefault`) ou
+la 1re — pas de sélecteur de scénario côté Live (contrairement à Restock qui propose un choix). Si
+un besoin de choisir un scénario spécifique depuis Live émerge, revoir cette limite à ce moment-là.
+
+## 16. Panneau de filtres (gauche) — sections sans effet ou trompeuses en Live — ✅ corrigé 2026-08-05
+
+> `FilterPanel.vue` n'avait aucune logique conditionnelle sur le mode Live — panneau strictement
+> identique à l'Analyse classique. Or plusieurs sections y sont soit écrasées automatiquement, soit
+> calculées sur un périmètre qui n'a pas de sens en Live (un seul event, toujours).
+
+**Trois défauts distincts identifiés (audit + vérification code) :**
+
+1. **Configuration / Événements / Dates** — `applyLiveScope()` (`AnalyseView.vue`) écrase ces 3
+   filtres à *chaque tick* (15s). Éditables en apparence, tout changement utilisateur y tient au
+   mieux 15s avant de revenir tout seul.
+2. **Filtres avancés** (catégorie/type d'event, équipes, sponsor, entracte...) — filtres au niveau
+   **event**, alors qu'un seul event est jamais en scope en Live. Contrairement au point 1, **rien
+   ne les réinitialise automatiquement** : un choix qui ne matche pas l'event live exclut cet event
+   de `filteredEvents` (`analyse.js:829-846`) et vide tout l'écran, silencieusement, durablement.
+3. **Affluence** (curseur de plage billets vendus/scannés) — pire cas trouvé : `attendanceBounds`
+   (`analyse.js:1298-1317`) calcule ses bornes sur `state.events` **sans aucun scope**, pas même
+   `analysableEvents` — les chiffres affichés (ex. 0-55 000) viennent de tout l'historique de
+   l'espace, aucun rapport avec l'event live. Un curseur de PLAGE n'a de toute façon pas de sens sur
+   un seul event (min=max, rien à régler).
+4. **Types de PDV / Zones / Points de vente** — leurs compteurs (`optionsBaseRecords`,
+   `analyse.js`) étaient scopés à `analysableEvents` (tout l'historique analysable de l'espace),
+   pas à l'event live — un stand ayant vendu 25 fois sur toute la saison affichait "25" au lieu du
+   nombre de ventes de l'event en cours. Contrairement aux points 1-3, ces filtres restent
+   pertinents en Live (suivre un shop précis en direct) — **corrigés pour se scoper**, pas masqués.
+
+**Corrigé** :
+- Masqué en Live (`FilterPanel.vue`, prop `isLive`) : Configuration, Événements, Dates, Filtres
+  avancés, Affluence. Restent visibles et fonctionnels : Points de vente, Types de PDV, Zones,
+  Articles du menu, Type & Catégorie.
+- Nouveau `state.isLiveRoute` (`analyse.js`), posé par un `watch(isLive, ...)` dans
+  `AnalyseView.vue` (pas juste au montage — suit `route.name` en continu, y compris sous
+  `keepAlive` où le composant ne démonte jamais entre Live et Analyse classique). `optionsBaseRecords`
+  bascule sa base de `analysableEvents` vers `filteredEvents` (déjà réduit au seul event live par
+  `applyLiveScope`) quand `isLiveRoute` est vrai — comportement Analyse/Predict/EventPredict
+  inchangé (vérifié par test dédié).
+- **Articles du menu / Type & Catégorie** : vérifiés déjà corrects — sourcés de
+  `soldItemOptions` → `useAnalyseItemRecords(filteredEvents)`, donc déjà scopés au seul event live,
+  aucun changement nécessaire.
+
+**Tests** : 2 nouveaux dans `analyseStore.spec.js` (scope Live vs scope Analyse inchangé).
+
+## 17. Bandeau rouge (haut de page) — mêmes trappes que le panneau de filtres — ✅ corrigé 2026-08-05
+
+> Suite du §16 : après avoir nettoyé le panneau de filtres, l'utilisateur a repéré du bruit
+> équivalent dans le bandeau rouge (Ligne 2 période/comparaison, chip "N événement(s)
+> sélectionné(s)") et un bouton d'export qui n'aurait pas dû être actif en Live.
+
+**Quatre défauts trouvés (code de `AnalyseView.vue`) :**
+
+1. **Ligne 2 du bandeau (`FilterSummary` : select de période + « Comparer à »)** — le select de
+   période reste affiché et cliquable en Live alors qu'`applyLiveScope()` écrase `timeRange` à
+   chaque tick (même trappe que Dates au §16) — « Comparer à » s'auto-masque déjà quand
+   `timeRange==='all'` (`FilterSummary.vue:22`), mais uniquement une fois l'event live détecté ;
+   avant détection (fallback `timeRange:'today'`, voir point 3), il restait visible pour rien.
+2. **Chip "N événement(s) sélectionné(s)"** (rangée de tags sous le bandeau) — toujours "1" (l'event
+   live forcé), avec une croix de fermeture qui ne fait rien de durable (re-forcé au tick suivant) —
+   redondant avec le badge ● LIVE déjà affiché dans le titre.
+3. **Chip "Période : Aujourd'hui"** (`activeFilterChips`, `analyse.js`) — visible spécifiquement
+   pendant la fenêtre où l'event live n'est pas encore détecté : `applyLiveScope()` bascule alors
+   sciemment `timeRange` sur `'today'` (≠ défaut `'all'`) le temps que `/live-status` réponde
+   `isLive:true` — ce chip apparaissait sans aucune UI pour l'expliquer ou le changer (Dates déjà
+   masqué pour toute la route Live, indépendamment de l'état de détection).
+4. **Bouton "Rapport J+1"** — conçu pour un event TERMINÉ (réalisé vs prédictif), mais son garde-fou
+   (`reportEvent` computed) ne vérifie que `date <= now`, pas que l'event soit fini : un event daté
+   d'aujourd'hui passe ce test dès sa 1re minute, activant un bouton "réalisé" sur un event encore
+   en cours.
+
+**Corrigé** : les 4 masqués avec `v-if="... && !isLive"` (ou équivalent) dans `AnalyseView.vue` ; le
+chip Période masqué via `!state.isLiveRoute` dans `activeFilterChips` (`analyse.js`, même flag que
+§16). Les chips légitimes (shops/zones/type PdV/menu items) ne sont pas affectés — vérifié par
+test dédié.
+
+**Tests** : 3 nouveaux dans `analyseStore.spec.js` (chip Période affiché/masqué + non-régression
+sur un chip légitime).
+
+## 18. Badge ● LIVE fiable + bouton "voir/modifier l'event live" — ✅ implémenté 2026-08-05
+
+> Suite du §17 : l'utilisateur a effectivement rencontré le point laissé ouvert (badge ● LIVE +
+> titre "Analyse" en même temps) et a proposé, dans la foulée, un bouton pour consulter/éditer
+> l'event live sans quitter l'écran.
+
+**Bug fermé (BUG-306-02)** : `isLive` (`AnalyseView.vue`) était purement basé sur la route
+(`route.name === 'space-live'`) — le badge s'affichait dès qu'on est sur `/live`, indépendamment de
+la détection réelle d'un event (`/live-status`, fenêtre glissante de 30 min). Résultat concret :
+badge "● LIVE" affiché en même temps que le titre générique "Analyse" (aucun event sélectionné,
+puisque `applyLiveScope()` vide `selectedEventIds` quand rien n'est live) — combinaison
+contradictoire.
+
+**Corrigé** : nouveau `liveEventDetected` (ref), posé par `applyLiveScope()` depuis la vraie réponse
+`res?.isLive && res?.eventId`, réinitialisé à `false` en quittant la route Live
+(`resetLiveFiltersIfNeeded`). Badge `v-if="liveEventDetected"` au lieu de `v-if="isLive"` (route).
+`isLive` reste utilisée telle quelle pour tout ce qui est purement route-based (masquage du panneau
+de filtres, §16/§17) — ne pas confondre les deux signaux.
+
+**Feature ajoutée (demande utilisateur)** : bouton crayon dans le bandeau, à côté du badge, `v-if`
+sur le même `liveEventDetected` — ouvre `EventFormDrawer` (le même drawer que `/events`) en mode
+`edit`, pré-rempli avec l'event live (`liveEventObject`, résolu dans `state.analyse.events`, déjà
+tenu à jour par le poll live depuis BUG-302-02). Nouvelle prop `lock-date` sur `EventFormDrawer.vue`
+(défaut `false`, rétrocompatible pour `/events`) : désactive les 2 champs date début/fin — un event
+EN COURS ne doit pas voir sa fenêtre de dates déplacée (casserait le calcul de live et l'historique
+déjà affiché) — tous les autres champs restent éditables normalement. Sauvegarde → callback
+`liveShopDetailsPoll()` (rafraîchit immédiatement le snapshot live plutôt que d'attendre le
+prochain tick de 15s).
+
+**Fichiers** : `AnalyseView.vue` (`liveEventDetected`, `liveEventObject`, `liveEventEditOpen`,
+badge + bouton + montage du drawer), `events/drawers/EventFormDrawer.vue` (prop `lock-date`). i18n :
+`anLiveEditEvent`, `eventsListDateLockedLive`.
+
+**BUG-308-02 (correctif le même jour)** : le bouton d'édition ci-dessus disparaissait dès qu'aucune
+vente n'était tombée depuis 30 min, alors qu'un event pour AUJOURD'HUI existait bien pour l'espace —
+`applyLiveScope()` liait titre ET bouton au même signal strict que le badge. Fix : `findTodayEventId()`
+(repli sur `state.events`, event dont la fenêtre couvre aujourd'hui) sert d'ancre pour `liveEventId`/
+le titre, indépendamment du pulse strict (`liveEventDetected`) réservé au seul badge ● LIVE.
+
+**BUG-307-02 (trouvé en testant ce nouveau drawer)** : "Avg Spend/Tx"/"Per Capita" toujours vides
+dans la fiche event malgré Revenue/Transactions renseignés — le pipeline d'agrégation automatique
+(`aggregation.service.ts::executeProcessEvents`, BUG-033) n'avait jamais été étendu pour calculer
+ces 2 champs. Corrigé : `avgSpendPerTx = revenue/transactionCount` ; `perCapita = revenue/attendees`
+(`null`, pas `0`, sans vraie donnée de billetterie — cas normal pour un event QA simulé).
+
+**Sidebar "Comparaison" (`FilterPanel.vue`)** : même trappe que §16/§17, ratée dans la 1re passe —
+son `v-if="timeRange !== 'all'"` ne suffisait pas (fallback `timeRange:'today'` avant détection live,
+identique au chip Période de BUG-305-02). Ajout de `&& !isLive`.
+
 ---
 
 ### Révisions
 
+- **2026-08-05** — Badge ● LIVE fiabilisé + bouton édition (§18, BUG-306-02) : le badge se basait
+  sur la route seule, pas la détection réelle d'un event live — corrigé (`liveEventDetected`).
+  Nouveau bouton "voir/modifier l'event live" (demande utilisateur), ouvre `EventFormDrawer` avec
+  les dates verrouillées (`lock-date`, nouvelle prop rétrocompatible).
+- **2026-08-05** — Bandeau rouge Live (§17) : Ligne 2 (période/comparaison), chip "N événement(s)
+  sélectionné(s)", chip "Période : Aujourd'hui" (fallback avant détection live) et bouton Rapport
+  J+1 masqués/désactivés en Live — même famille de trappes que §16. 3 tests ajoutés.
+- **2026-08-05** — Panneau de filtres Live (§16) : Configuration/Événements/Dates/Filtres
+  avancés/Affluence masqués en Live (auto-réécrasés ou trompeurs — Affluence calculait ses bornes
+  sur tout l'historique de l'espace, aucun scope). Types de PDV/Zones/Points de vente corrigés pour
+  se scoper au seul event live (`state.isLiveRoute` → `optionsBaseRecords`) au lieu de tout
+  l'historique analysable — affichaient des compteurs de saison entière. 2 tests ajoutés.
+- **2026-08-05** — Stock Live initialisé depuis Event Predict (§15) : bouton manuel dans
+  `LiveInventoryPanel.vue`, réutilise le reset Logistic générique existant (aucun changement
+  backend/schéma) + `buildStockRequirements()` (Restock) désormais partagée avec Live via un
+  nouveau paramètre `manualQuantities` (rétrocompatible). Nouveau composable
+  `useLiveStockInit.js`. 9 nouveaux tests unitaires.
 - **2026-08-04** — Audit détaillé de la page Live (code réel vs doc), puis correction. Deux
   imprécisions de cette page corrigées : `useAnalyseItemRecords` a bien un `refresh()` (§13,
   contrairement à ce qui était écrit) et l'entrée « Live » est bien présente dans les 4 autres

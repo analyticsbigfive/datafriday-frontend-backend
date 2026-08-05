@@ -4,6 +4,7 @@ import { LogisticsService } from './logistics.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 
 describe('LogisticsService — readyForSale display logic', () => {
   let service: any;
@@ -14,6 +15,9 @@ describe('LogisticsService — readyForSale display logic', () => {
     marketPrice: { findMany: jest.fn(), findFirst: jest.fn() },
     spaceElement: { findFirst: jest.fn() },
     $transaction: jest.fn(),
+  };
+  const mockPricingService: any = {
+    getTenantDefaultVatRate: jest.fn().mockResolvedValue(null),
   };
 
   // itemRefsCache/componentRefsCache/perUnitCache : caches par requête ajoutés à
@@ -41,6 +45,7 @@ describe('LogisticsService — readyForSale display logic', () => {
             removeJobScheduler: jest.fn().mockResolvedValue(true),
           },
         },
+        { provide: MenuItemPricingService, useValue: mockPricingService },
       ],
     }).compile();
     service = module.get<LogisticsService>(LogisticsService);
@@ -548,7 +553,12 @@ describe('LogisticsService — readyForSale display logic', () => {
   describe('getSimulableShops — écarte les menu items à prix 0 (retour utilisateur 2026-08-03)', () => {
     const p = mockPrisma as any;
 
-    it('ne retient que les menu items dont le SalesProduct mappé a un basePrice > 0', async () => {
+    // 2026-08-05 : l'éligibilité "simulable" lit désormais le prix catalogue
+    // DataFriday de l'espace (SpaceMenuItem.priceTtc → MenuItem.basePrice), plus
+    // SalesProduct.basePrice — même raison que simulateSale (menu item mappé à
+    // plusieurs produits Weezevent, un doublon au prix incomplet ne doit plus
+    // masquer un item au prix catalogue pourtant sain).
+    it('ne retient que les menu items dont le prix catalogue DataFriday (espace) est > 0', async () => {
       jest.spyOn(service, 'getSpaceElementsWithItems').mockResolvedValue([
         {
           id: 'shop-1',
@@ -564,21 +574,40 @@ describe('LogisticsService — readyForSale display logic', () => {
       ]);
       p.productMapping = {
         findMany: jest.fn().mockResolvedValue([
-          { menuItemId: 'mi-free', salesProductId: 'prod-free' },
-          { menuItemId: 'mi-priced', salesProductId: 'prod-priced' },
+          { menuItemId: 'mi-free' },
+          { menuItemId: 'mi-priced' },
         ]),
       };
-      p.salesProduct = {
-        findMany: jest.fn().mockResolvedValue([
-          { id: 'prod-free', basePrice: 0 },
-          { id: 'prod-priced', basePrice: 6 },
-        ]),
-      };
+      p.menuItem.findMany.mockResolvedValue([
+        { id: 'mi-free', basePrice: 0 },
+        { id: 'mi-priced', basePrice: 6 },
+      ]);
+      p.spaceMenuItem = { findMany: jest.fn().mockResolvedValue([]) };
 
       const result = await service.getSimulableShops('space-1', 'tenant-1');
 
       expect(result).toEqual([{ id: 'shop-1', name: 'Buvette', menuItemIds: ['mi-priced'] }]);
       // storage exclu (type), shop non mappé exclu (provider null) — comportement déjà en place.
+    });
+
+    it('un override SpaceMenuItem.priceTtc prime sur MenuItem.basePrice', async () => {
+      jest.spyOn(service, 'getSpaceElementsWithItems').mockResolvedValue([
+        {
+          id: 'shop-1',
+          name: 'Buvette',
+          type: 'shop',
+          provider: 'WEEZEVENT',
+          items: [{ usedIn: [{ id: 'mi-override', name: 'Bière' }] }],
+        },
+      ]);
+      p.productMapping = { findMany: jest.fn().mockResolvedValue([{ menuItemId: 'mi-override' }]) };
+      // Catalogue global à 0€ (article pas encore configuré) mais prix posé pour CET espace.
+      p.menuItem.findMany.mockResolvedValue([{ id: 'mi-override', basePrice: 0 }]);
+      p.spaceMenuItem = { findMany: jest.fn().mockResolvedValue([{ menuItemId: 'mi-override', priceTtc: 5.5 }]) };
+
+      const result = await service.getSimulableShops('space-1', 'tenant-1');
+
+      expect(result).toEqual([{ id: 'shop-1', name: 'Buvette', menuItemIds: ['mi-override'] }]);
     });
   });
 });

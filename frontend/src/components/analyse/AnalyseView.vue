@@ -19,6 +19,7 @@
           ref="filterPanelRef"
           :events="analysableEvents"
           :shops="shopNames"
+          :is-live="isLive"
           @update:toolbox="onToolboxChange"
         />
 
@@ -35,10 +36,33 @@
                   @toggle="drawer = !drawer"
                 />
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
-                <!-- Badge Live (module Live, greffe D) : visible sur la route space-live. -->
-                <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
+                <!-- Badge Live : basé sur la VRAIE détection (liveEventDetected, posé par
+                     applyLiveScope() depuis /live-status), pas juste la route — corrigé
+                     2026-08-05 (BUG-305-02) : affichait "● LIVE" même sans event dans la
+                     fenêtre de 30 min, alors que le titre retombait sur "Analyse" à côté —
+                     combinaison contradictoire, mal vue par l'utilisateur à raison. -->
+                <span v-if="liveEventDetected" class="av-live-badge" :title="t('anToolLive')">
                   <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
                 </span>
+                <!-- Voir/modifier l'event en cours (module Live, 2026-08-05) : ouvre le même
+                     drawer que /events, dates verrouillées, tous les autres champs éditables.
+                     Visible dès qu'un event est résolu pour AUJOURD'HUI (liveEventId, cf.
+                     findTodayEventId), PAS seulement pendant le pulse strict de 30 min
+                     (liveEventDetected, réservé au badge ● LIVE) — sinon le bouton disparaissait
+                     à la moindre pause de ventes alors que l'event est toujours en cours
+                     (retour utilisateur 2026-08-05). -->
+                <v-btn
+                  v-if="liveEventId"
+                  icon
+                  variant="text"
+                  size="small"
+                  :title="t('anLiveEditEvent')"
+                  :aria-label="t('anLiveEditEvent')"
+                  class="fs-icon-btn"
+                  @click="liveEventEditOpen = true"
+                >
+                  <v-icon size="18">mdi-pencil-outline</v-icon>
+                </v-btn>
                 <v-spacer />
                 <v-btn
                   icon
@@ -77,9 +101,13 @@
                      Visible UNIQUEMENT en mode Analyse (décision JLH 2026-08-04 :
                      le rapport porte sur du réalisé, pas sur une projection).
                      Désactivé hors mode mono-événement passé — le title reste
-                     lisible sur bouton désactivé grâce au span englobant. -->
+                     lisible sur bouton désactivé grâce au span englobant.
+                     ET pas en Live (trouvé 2026-08-05) : `reportEvent` vérifie
+                     seulement `date <= now`, pas que l'event soit TERMINÉ — un
+                     event daté d'aujourd'hui passe ce test dès la 1re minute,
+                     activant un bouton « réalisé » sur un event encore en cours. -->
                 <span
-                  v-if="selectedToolbox === 'analyse'"
+                  v-if="selectedToolbox === 'analyse' && !isLive"
                   :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')"
                 >
                   <v-btn
@@ -127,8 +155,14 @@
                   </v-list>
                 </v-menu>
               </div>
-              <!-- Ligne 2 : période + comparaison. -->
-              <div v-if="!loading" class="av-header__row2">
+              <!-- Ligne 2 : période + comparaison. Masquée en Live (trouvé
+                   2026-08-05) : le select de période est éditable en apparence
+                   mais applyLiveScope() force timeRange='all' à chaque tick (15s) —
+                   même trappe que Dates/Configuration/Événements dans FilterPanel.
+                   « Comparer à » s'auto-masque déjà quand timeRange==='all'
+                   (FilterSummary.vue:22), mais le select de période, lui, reste
+                   affiché et cliquable pour rien. -->
+              <div v-if="!loading && !isLive" class="av-header__row2">
                 <FilterSummary
                   :comparison-mode="filters.comparisonMode"
                   :comparison-empty="comparisonEmpty"
@@ -141,13 +175,17 @@
               </div>
             </div>
 
-            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge. -->
+            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge.
+                 Chip événements masqué en Live (trouvé 2026-08-05) : toujours
+                 "1 événement(s) sélectionné(s)" (l'event live, forcé par
+                 applyLiveScope), redondant avec le badge ● LIVE — et sa croix
+                 de fermeture ne fait rien de durable (re-forcé au tick suivant). -->
             <div
-              v-if="!loading && ((filters.selectedEventIds || []).length || activeFilterChips.length)"
+              v-if="!loading && ((!isLive && (filters.selectedEventIds || []).length) || activeFilterChips.length)"
               class="av-tags d-flex align-center flex-wrap ga-2"
             >
               <v-chip
-                v-if="(filters.selectedEventIds || []).length"
+                v-if="!isLive && (filters.selectedEventIds || []).length"
                 closable
                 size="small"
                 variant="tonal"
@@ -515,6 +553,17 @@
          génération (useReportJ1), capturé par html2canvas puis démonté. -->
     <ReportJ1Document v-if="reportJ1Data" :data="reportJ1Data" />
 
+    <!-- Édition de l'event live en cours (module Live, 2026-08-05) — même drawer
+         que /events, dates verrouillées (lock-date). -->
+    <EventFormDrawer
+      v-model="liveEventEditOpen"
+      mode="edit"
+      :initial-event="liveEventObject"
+      :is-dark="isDark"
+      lock-date
+      @submitted="liveShopDetailsPoll"
+    />
+
   </v-app>
 </template>
 
@@ -561,6 +610,7 @@ import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
 import { useReportJ1 } from '@/composables/useReportJ1'
 import ReportJ1Document from './ReportJ1Document.vue'
+import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
@@ -1770,6 +1820,12 @@ function onShowAverage() {
 //    re-dispatch plus fréquent est sûr.
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
+// Relais vers le store (module Live, docs/modules/11_LIVE.md) : `optionsBaseRecords`
+// (Types de PDV/Zones/Points de vente) a besoin de savoir qu'on est en Live pour se
+// scoper au seul event live plutôt qu'à tout l'historique analysable de l'espace.
+// `watch` (pas juste un commit au montage) : suit route.name en continu, y compris
+// sous keepAlive où le composant ne démonte jamais entre Live et Analyse classique.
+watch(isLive, (v) => store.commit('analyse/SET_LIVE_ROUTE', v), { immediate: true })
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
 // Passe à true dès qu'applyLiveScope() a réellement modifié les filtres (donc
@@ -1789,6 +1845,16 @@ const liveEventName = computed(() => {
   const ev = (store.state.analyse.events || []).find((e) => e.id === liveEventId.value)
   return ev?.name || ev?.eventName || ''
 })
+// Objet event complet (module Live, 2026-08-05) — pour le drawer d'édition
+// (EventFormDrawer::initialEvent). Même liste que liveEventName ci-dessus.
+const liveEventObject = computed(() => (store.state.analyse.events || []).find((e) => e.id === liveEventId.value) || null)
+const liveEventEditOpen = ref(false)
+// Détection RÉELLE d'un event live (posée par applyLiveScope() depuis
+// /live-status), distincte de `isLive` (route seule). Corrigé 2026-08-05
+// (BUG-305-02) : le badge ● LIVE et le bouton d'édition ne doivent s'afficher
+// que si un event est VRAIMENT dans la fenêtre live, pas juste parce qu'on est
+// sur la route /live.
+const liveEventDetected = ref(false)
 function onLiveInventoryNotify({ text, color }) {
   snackbarText.value = text
   snackbarColor.value = color
@@ -1853,6 +1919,9 @@ function resetLiveFiltersIfNeeded() {
     resetFilters()
     liveScopeApplied.value = false
   }
+  // Sinon `liveEventDetected` garderait sa dernière valeur (badge/bouton
+  // édition qui persisteraient hors de la route Live).
+  liveEventDetected.value = false
 }
 onDeactivated(resetLiveFiltersIfNeeded)
 onBeforeUnmount(resetLiveFiltersIfNeeded)
@@ -1890,6 +1959,12 @@ watch(
       clearItemRecordsCache()
       clearComparisonCache()
       clearBasketsCache()
+      // BUG-300-01 — reset immédiat du latch du différé « All Configurations »
+      // (le watcher `loading` le remet aussi à false, mais plus tard) : la
+      // cause racine du « Par zone » vide était la garde « déjà chargé » de
+      // requestDeferredAllConfigsContext, qui voyait le contexte de l'ANCIEN
+      // espace — purgé désormais par CLEAR_SPACE_KEYED_CACHES (store).
+      allConfigsCtxRequested = false
     }
     ensureAuthAndLoad(id)
   }
@@ -1986,17 +2061,48 @@ async function applyLiveScope() {
   liveScopeApplied.value = true
   try {
     const res = await getSpaceLiveStatus(spaceId)
-    if (res?.isLive && res?.eventId) {
+    // `liveEventDetected` (badge ● LIVE, pulse) reste STRICT : vente réelle dans
+    // les 30 dernières minutes (getLiveStatus). Mais titre/bouton d'édition ne
+    // doivent pas disparaître à la moindre pause de ventes (>30 min sans vente =
+    // event toujours en cours, juste un creux) — trouvé le 2026-08-05 (retour
+    // utilisateur : "pourquoi Analyse alors que je suis sur Live", bouton
+    // d'édition introuvable). Repli : un event dont la fenêtre couvre AUJOURD'HUI
+    // pour cet espace (`findTodayEventId`, sur `state.events` déjà à jour, aucun
+    // appel réseau de plus) sert d'ancre stable pour le reste de l'écran.
+    liveEventDetected.value = !!(res?.isLive && res?.eventId)
+    const anchorEventId = res?.eventId || findTodayEventId()
+    if (anchorEventId) {
       setFilterImmediate('selectedConfigurationId', null)
       setFilterImmediate('timeRange', 'all')
-      setFilterImmediate('selectedEventIds', [res.eventId])
+      setFilterImmediate('selectedEventIds', [anchorEventId])
     } else {
       setFilterImmediate('selectedEventIds', [])
       setFilterImmediate('timeRange', 'today')
     }
   } catch (e) {
+    liveEventDetected.value = false
     console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
   }
+}
+
+/**
+ * Event de CET espace dont la fenêtre [eventStartDate, eventEndDate] (repli sur
+ * `date`/`eventDate` seul si pas de bornes) couvre AUJOURD'HUI — repli de
+ * `applyLiveScope()` quand aucune vente n'est tombée dans les 30 dernières
+ * minutes mais qu'un event est bien "celui du jour". `state.events` est déjà
+ * tenu à jour par le poll live (BUG-302-02) : lecture pure, pas de fetch.
+ */
+function findTodayEventId() {
+  const events = store.state.analyse.events || []
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999)
+  for (const e of events) {
+    const start = parseEventDateLocal(e.eventStartDate || e.date || e.eventDate)
+    if (!start) continue
+    const end = parseEventDateLocal(e.eventEndDate || e.date || e.eventDate) || start
+    if (start <= todayEnd && end >= today) return e.id
+  }
+  return null
 }
 </script>
 

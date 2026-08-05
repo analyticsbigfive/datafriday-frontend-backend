@@ -11,6 +11,67 @@ import {
 } from './staffing-calculator.service';
 import { detectFnbTags } from './fnb-tags.util';
 
+/** JSON.parse tolérant : renvoie `fallback` en cas d'échec plutôt que de throw. */
+function safeJsonParse<T>(str: string, fallback: T): T {
+  try {
+    return JSON.parse(str) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Parse `Event.sessions` (miroir de `frontend/src/utils/eventSessions.js`) : le champ est
+ * parfois une string JSON d'array, parfois un array dont chaque élément est lui-même une
+ * string JSON — sans ce parsing tolérant, `sessions[0].doorsOpening` lit un caractère
+ * (« [ ») au lieu du champ attendu.
+ */
+function parseEventSessions(raw: unknown): Array<{ doorsOpening?: string; showTime?: string }> {
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (typeof raw === 'string' && raw.trim()) {
+    const parsed = safeJsonParse<unknown>(raw, []);
+    list = Array.isArray(parsed) ? parsed : [];
+  }
+  return list
+    .map((s) => (typeof s === 'string' ? safeJsonParse(s, null) : s))
+    .filter(
+      (s): s is { doorsOpening?: string; showTime?: string } =>
+        !!s && typeof s === 'object' && !Array.isArray(s),
+    );
+}
+
+/** Décalage UTC (minutes) d'un fuseau IANA à un instant donné, via `Intl` (pas de dépendance). */
+function utcOffsetMinutes(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset', hour: '2-digit' }).formatToParts(
+    instant,
+  );
+  const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+00:00';
+  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(raw);
+  if (!match) return 0;
+  const sign = match[1] === '-' ? -1 : 1;
+  return sign * (parseInt(match[2], 10) * 60 + parseInt(match[3] ?? '0', 10));
+}
+
+/**
+ * Combine un jour calendaire (Date ancrée à minuit UTC — `Event.eventDate`/`eventStartDate`/
+ * `eventEndDate` ne portent aucune heure) avec une heure locale « HH:mm » saisie par
+ * l'utilisateur pour ce fuseau (`Space.timezone`, défaut Europe/Paris, même convention que
+ * BUG-270) → instant UTC réel. `null` si `hhmm` absent/invalide (l'appelant se replie alors
+ * sur le jour calendaire brut).
+ */
+function combineDayAndLocalTime(day: Date, hhmm: string | undefined | null, timeZone: string): Date | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec((hhmm ?? '').trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  // Passe 1 : traite HH:mm comme UTC ; passe 2 : corrige par le décalage réel du fuseau à
+  // cet instant (gère les changements d'heure été/hiver).
+  const naiveUtc = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hours, minutes);
+  const offsetMin = utcOffsetMinutes(new Date(naiveUtc), timeZone);
+  return new Date(naiveUtc - offsetMin * 60_000);
+}
+
 /**
  * Orchestration du staffing par événement (spec §1.3) :
  * charge event + PDV (SpaceElement de la config) + CA prédictif par PDV
@@ -50,6 +111,9 @@ interface EventContext {
   /** Fenêtre suggérée des lignes : portes ± offsets (−2 h / +2 h par défaut). */
   lineStart: Date;
   lineEnd: Date;
+  /** `Space.timezone` (défaut Europe/Paris) — le frontend en a besoin pour afficher les
+   * horaires en heure LOCALE DU LIEU plutôt qu'en heure locale du navigateur (BUG-270). */
+  timezone: string;
 }
 
 @Injectable()
@@ -72,15 +136,29 @@ export class StaffingService {
     if (!event.spaceId) {
       throw new BadRequestException("L'événement n'a pas d'espace associé.");
     }
-    const doorsOpen: Date = event.eventStartDate ?? event.eventDate;
-    const doorsClose: Date =
-      event.eventEndDate ?? new Date(doorsOpen.getTime() + DEFAULT_EVENT_DURATION_HOURS * 3_600_000);
+    const space = await this.prisma.space.findFirst({ where: { id: event.spaceId }, select: { timezone: true } });
+    const timezone = space?.timezone || 'Europe/Paris';
+
+    // `eventStartDate`/`eventEndDate`/`eventDate` ne portent qu'un jour calendaire (minuit,
+    // sans heure) — la vraie heure de « portes » vient de `sessions[0].doorsOpening` (retour
+    // utilisateur 2026-08-04 : Session 1 → dernière session, une seule fenêtre de staff pour
+    // tout l'event) et la vraie heure de fin de `eventEndTime`, repli sur le `showTime` de la
+    // dernière session si absent. Repli final sur le jour calendaire brut si aucune heure
+    // n'est renseignée (comportement historique, préférable à une exception bloquante).
+    const startDay: Date = event.eventStartDate ?? event.eventDate;
+    const endDay: Date = event.eventEndDate ?? startDay;
+    const sessions = parseEventSessions(event.sessions);
+    const doorsOpen = combineDayAndLocalTime(startDay, sessions[0]?.doorsOpening, timezone) ?? startDay;
+    const doorsClose =
+      combineDayAndLocalTime(endDay, event.eventEndTime ?? sessions[sessions.length - 1]?.showTime, timezone) ??
+      new Date(doorsOpen.getTime() + DEFAULT_EVENT_DURATION_HOURS * 3_600_000);
     return {
       event,
       configId: event.configurationId,
       spaceId: event.spaceId,
       lineStart: new Date(doorsOpen.getTime() + DEFAULT_OFFSET_OPEN_MINUTES * 60_000),
       lineEnd: new Date(doorsClose.getTime() + DEFAULT_OFFSET_CLOSE_MINUTES * 60_000),
+      timezone,
     };
   }
 
@@ -520,14 +598,19 @@ export class StaffingService {
     });
 
     const elementIds = Array.from(new Set(lines.map((l) => l.elementId)));
-    const [elements, perfs] = await this.prisma.$transaction([
-      this.prisma.spaceElement.findMany({
-        where: { id: { in: elementIds } },
-        select: { id: true, name: true, type: true },
-      }),
-      this.prisma.elementPerformance.findMany({
-        where: { configId: ctx.configId, elementId: { in: elementIds } },
-      }),
+    const [[elements, perfs], predictedRevenueByElement] = await Promise.all([
+      this.prisma.$transaction([
+        this.prisma.spaceElement.findMany({
+          where: { id: { in: elementIds } },
+          select: { id: true, name: true, type: true },
+        }),
+        this.prisma.elementPerformance.findMany({
+          where: { configId: ctx.configId, elementId: { in: elementIds } },
+        }),
+      ]),
+      // Même source que le calcul (§`generate`) : CA prédictif par PDV pour affichage
+      // à côté du coût staff « Prédit », pas de nouvelle logique métier.
+      this.resolvePredictedRevenueByElement(eventId, tenantId),
     ]);
     const elementById = new Map(elements.map((e) => [e.id, e]));
     const perfByElement = new Map(perfs.map((p) => [p.elementId, p]));
@@ -541,6 +624,9 @@ export class StaffingService {
         elementType: elementById.get(l.elementId)?.type ?? null,
         peakTxParMin: perfByElement.get(l.elementId)?.transactionsPerMinute ?? 0,
         predictedCost: this.calculator.round2(perfByElement.get(l.elementId)?.staffCost ?? 0),
+        predictedRevenue: this.calculator.round2(
+          predictedRevenueByElement.get(l.elementId) ?? perfByElement.get(l.elementId)?.revenue ?? 0,
+        ),
         adjustedCost: 0,
         lines: [],
       };
@@ -599,7 +685,7 @@ export class StaffingService {
     return {
       eventId,
       settings: { ...settings, spaceId: ctx.spaceId },
-      schedule: { startTime: ctx.lineStart, endTime: ctx.lineEnd },
+      schedule: { startTime: ctx.lineStart, endTime: ctx.lineEnd, timezone: ctx.timezone },
       elements: elementsOut,
       totals: {
         predictedCost: this.calculator.round2(predictedTotal),

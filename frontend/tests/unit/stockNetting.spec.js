@@ -4,7 +4,12 @@
  * consommation/marquage des entrées (détection non-rattaché), clamp Math.max(0),
  * et la math complète buy = max(0, besoin − stock shops − stock Storage).
  */
-import { itemIdentity, consumeFromPool, preparePool } from '@/utils/stockNetting'
+import {
+  itemIdentity,
+  consumeFromPool,
+  preparePool,
+  orderQuantitiesByItemKey,
+} from '@/utils/stockNetting'
 import { collectStorageElements } from '@/utils/stockPlanning'
 
 const entry = (over = {}) => ({
@@ -92,6 +97,59 @@ describe('consumeFromPool — cascade de matching', () => {
   it('pool vide ou nul → 0', () => {
     expect(consumeFromPool({ itemId: 'i1' }, [])).toBe(0)
     expect(consumeFromPool({ itemId: 'i1' }, null)).toBe(0)
+  })
+})
+
+describe('Lot 2 — orderQuantitiesByItemKey (« À commander » grain article, étape 1)', () => {
+  it('besoin 5, Storage 2 matché par itemId → 3', () => {
+    const pool = preparePool([entry({ itemId: 'i1', name: 'Bun', qty: 2 })])
+    const map = orderQuantitiesByItemKey(
+      [{ itemKey: 'bun|||pcs', itemId: 'i1', itemName: 'Bun', unit: 'pcs', need: 5 }],
+      pool,
+    )
+    expect(map['bun|||pcs']).toBe(3)
+    expect(pool[0].matched).toBe(true)
+  })
+
+  it('entièrement couvert par le Storage → 0, jamais négatif (clamp)', () => {
+    const pool = preparePool([entry({ itemId: 'i1', name: 'Bun', qty: 10 })])
+    const map = orderQuantitiesByItemKey(
+      [{ itemKey: 'bun|||pcs', itemId: 'i1', itemName: 'Bun', unit: 'pcs', need: 4 }],
+      pool,
+    )
+    expect(map['bun|||pcs']).toBe(0)
+  })
+
+  it("entrée partagée : consommée en entier par le PREMIER article de l'ordre (consume-all)", () => {
+    // consumeFromPool vide toute entrée qui matche — le second article homonyme
+    // sans id repart donc avec son besoin plein. Trier comme l'étape 3 pour que
+    // le cas limite tombe du même côté sur les deux écrans.
+    const pool = preparePool([entry({ name: 'Bun', qty: 6 })])
+    const map = orderQuantitiesByItemKey(
+      [
+        { itemKey: 'a', itemName: 'Bun', unit: 'pcs', need: 2 },
+        { itemKey: 'b', itemName: 'Bun', unit: 'pcs', need: 5 },
+      ],
+      pool,
+    )
+    expect(map['a']).toBe(0)
+    expect(map['b']).toBe(5)
+  })
+
+  it('BUG-299-01 — pas de netting par nom entre deux lignes identifiées sans id commun', () => {
+    const pool = preparePool([entry({ itemId: 'ing-beurre', name: 'Beurre', qty: 10 })])
+    const map = orderQuantitiesByItemKey(
+      [{ itemKey: 'motte', itemId: 'ing-beurre-motte', itemName: 'Beurre', unit: 'kg', need: 1 }],
+      pool,
+    )
+    expect(map['motte']).toBe(1)
+    expect(pool[0].matched).toBe(false)
+  })
+
+  it('items invalides ignorés, need absent → 0 − storage clampé', () => {
+    const pool = preparePool([entry({ itemId: 'i1', qty: 3 })])
+    const map = orderQuantitiesByItemKey([null, { itemId: 'i1' }, { itemKey: 'k', itemId: 'i1' }], pool)
+    expect(map).toEqual({ k: 0 })
   })
 })
 

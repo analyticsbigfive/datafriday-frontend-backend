@@ -347,12 +347,15 @@ onMounted(drawPie)
   gap: 14px;
   padding: 24px 30px;
   box-sizing: border-box;
+  /* Lot 5 (JLH) — document entièrement centré, texte compris. */
+  text-align: center;
 }
 
 /* ── Barre de marque (lockup des pages auth, sans le fond rosé) ── */
 .rj1-brand {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
 }
 .rj1-brand__logo {
@@ -374,7 +377,8 @@ onMounted(drawPie)
 /* ── Bandeau photo — radius 18px du bandeau rouge Analyse ── */
 .rj1-hero {
   position: relative;
-  height: 230px;
+  /* Lot 5 (JLH) — photo réduite : à 230px elle mangeait un cinquième de la page. */
+  height: 150px;
   border-radius: 18px;
   overflow: hidden;
   background: #ff3131;
@@ -393,7 +397,8 @@ onMounted(drawPie)
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 18px 22px;
+  align-items: center;
+  padding: 14px 22px;
   background: linear-gradient(180deg, rgba(0, 0, 0, 0) 35%, rgba(0, 0, 0, 0.65) 100%);
   color: #ffffff;
 }
@@ -411,7 +416,8 @@ onMounted(drawPie)
 }
 .rj1-hero__meta {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 14px;
   align-items: center;
   font-size: var(--fs-base);
   margin-top: 5px;
@@ -432,6 +438,7 @@ onMounted(drawPie)
 .rj1-section__title {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
@@ -462,7 +469,8 @@ onMounted(drawPie)
   overflow: hidden;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 9px 8px 9px 13px;
+  /* Padding symétrique : le contenu est centré, le rail reste collé à gauche. */
+  padding: 9px 12px;
   background: #ffffff;
 }
 .rj1-widget::before {
@@ -520,12 +528,14 @@ onMounted(drawPie)
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 40px;
+  gap: 28px;
   padding: 6px 0;
 }
 .rj1-pie canvas {
-  width: 220px;
-  height: 220px;
+  /* Lot 5 — affiché en 150px, buffer canvas laissé à 300 : html2canvas capture
+     alors un bitmap 2× plus dense, donc net à l'impression. */
+  width: 150px;
+  height: 150px;
 }
 .rj1-pie__legend {
   display: flex;
@@ -587,7 +597,7 @@ onMounted(drawPie)
   font-size: var(--fs-sm);
 }
 .rj1-table th {
-  text-align: left;
+  text-align: center;
   font-weight: var(--fw-medium);
   color: #6b7280;
   background: #f9fafb;
@@ -602,7 +612,7 @@ onMounted(drawPie)
   font-weight: var(--fw-medium);
 }
 .rj1-table .num {
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -621,6 +631,7 @@ onMounted(drawPie)
 .rj1-meta__label {
   display: inline-block;
   min-width: 90px;
+  text-align: center;
   color: #64748b;
   font-weight: var(--fw-semibold);
 }

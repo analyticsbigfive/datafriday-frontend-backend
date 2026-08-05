@@ -35,6 +35,31 @@ un bug ou ajouter une fonctionnalité sans créer de dette technique ni de régr
   migration doit toujours être lancée à la main (`prisma migrate deploy`, `.env` ciblé sur
   l'environnement exact) **avant** de déployer le code qui en dépend. C'est la cause la plus
   fréquente d'incidents de déploiement sur ce projet.
+- **Où écrire une migration** (règle JLH du 2026-08-04, vaut aussi pour les sous-agents) : toute
+  nouvelle migration de schéma va dans `prisma/migrations/<YYYYMMDDHHMMSS>_<slug_snake_case>/migration.sql`
+  — **plus dans `prisma/sql/`**, qui ne garde que l'historique déjà là et les scripts qui ne sont
+  pas des migrations (audits en lecture seule, nettoyages en deux phases, réparations ponctuelles).
+  Respecter le format en dossier : un `.sql` posé en vrac à la racine de `prisma/migrations/` est
+  ignoré par Prisma. Ne pas toucher `migration_lock.toml`. Le timestamp doit être postérieur au
+  dernier dossier présent. Ça ne change **rien** au point précédent : l'application reste manuelle.
+  Le dossier et son `migration.sql` s'écrivent **à la main** : ne jamais lancer `prisma migrate dev`
+  (ni `--create-only`) — la commande se connecte à la base et peut la réinitialiser. Et une fois une
+  migration appliquée, ne plus toucher son `migration.sql` : Prisma en stocke la somme de contrôle et
+  `migrate deploy` refuserait de tourner.
+- **⚠️ État de `_prisma_migrations` non vérifié (au 2026-08-04)** : `prisma migrate deploy` ne fait
+  ce qu'on croit que si la table `_prisma_migrations` de l'environnement visé enregistre déjà les
+  dossiers existants comme appliqués. L'historique du projet est mixte (migrations Prisma formelles,
+  scripts psql à la main, fichiers `prisma/sql/` jamais appliqués) et rien dans le dépôt ne trace
+  l'état réel par base. Si la table est vide ou partielle, `migrate deploy` rejoue tout et échoue sur
+  `relation already exists`. À faire trancher par JLH avant de recommander la commande sur un
+  environnement donné ; le cas échéant, `prisma migrate resolve --applied <dossier>` pour aligner
+  l'historique sans rejouer le DDL. Point acquis en revanche : `schema.prisma` déclare
+  `directUrl = env("DIRECT_URL")`, donc `prisma migrate deploy` utilise la connexion directe (5432)
+  tout seul — jamais le pooler.
+- **Aucun backtick dans le SQL**, nulle part : ni dans les templates `Prisma.sql` (un backtick en
+  commentaire ferme le template et casse le build TypeScript sur Render, cf. BUG-286-01), ni dans
+  `prisma/sql/*.sql`, ni dans `prisma/migrations/*/migration.sql`. Citer un identifiant avec « … »
+  ou sans rien.
 - **Ne pas écrire dans les colonnes JSON gelées** (`MenuItem.spacePrices`/`spaceIds`,
   `Config.data`) : elles sont conservées pour compat descendante mais plus lues par le code vivant
   ([ADR-0003](docs/adr/0003_spacemenuitem_source_verite_prix_espace.md)). Écrire dedans réintroduit

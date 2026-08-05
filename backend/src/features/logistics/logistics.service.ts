@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
 import { StartSimulationRunDto } from './dto/simulation-run.dto';
 
@@ -96,6 +97,10 @@ export class LogisticsService {
     // global) — même pattern que AggregationModule pour AGGREGATION. Pilote le Job
     // Scheduler BullMQ (upsertJobScheduler/removeJobScheduler) des runs d'auto-simulation.
     @InjectQueue(QUEUES.SIMULATION) private readonly simulationQueue: Queue<SimulationTickJobData>,
+    // Source de vérité prix (shared/pricing) : simulateSale doit facturer le prix
+    // DataFriday de l'ESPACE courant (SpaceMenuItem.priceTtc → MenuItem.basePrice),
+    // pas le prix du produit Weezevent mappé (cf. §ci-dessous, simulateSale).
+    private readonly pricingService: MenuItemPricingService,
   ) {}
 
   // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
@@ -922,17 +927,29 @@ export class LogisticsService {
     const allMenuItemIds = [...new Set(shops.flatMap((s) => s.menuItemIds))];
     if (!allMenuItemIds.length) return shops;
 
-    const mappings = await this.prisma.productMapping.findMany({
-      where: { tenantId, menuItemId: { in: allMenuItemIds } },
-      select: { menuItemId: true, salesProductId: true },
-    });
-    const productIds = [...new Set(mappings.map((m) => m.salesProductId))];
-    const products = productIds.length
-      ? await this.prisma.salesProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, basePrice: true } })
-      : [];
-    const priceByProductId = new Map(products.map((p) => [p.id, Number(p.basePrice) || 0]));
+    // Éligibilité "simulable" alignée sur simulateSale (même raison ci-dessous) : il
+    // faut un mapping Weezevent (simulateSale a besoin d'un salesProductId pour la
+    // ligne de vente), mais le PRIX qui détermine si l'item est simulable est
+    // désormais le prix catalogue DataFriday de l'ESPACE courant (SpaceMenuItem.priceTtc
+    // → MenuItem.basePrice), pas SalesProduct.basePrice — un menu item peut être mappé
+    // à un produit Weezevent au prix incomplet alors que son prix catalogue est sain.
+    const [mappings, menuItems, spaceMenuItems] = await Promise.all([
+      this.prisma.productMapping.findMany({
+        where: { tenantId, menuItemId: { in: allMenuItemIds } },
+        select: { menuItemId: true },
+      }),
+      this.prisma.menuItem.findMany({
+        where: { id: { in: allMenuItemIds }, tenantId, deletedAt: null },
+        select: { id: true, basePrice: true },
+      }),
+      this.prisma.spaceMenuItem.findMany({ where: { spaceId, menuItemId: { in: allMenuItemIds } } }),
+    ]);
+    const mappedMenuItemIds = new Set(mappings.map((m) => m.menuItemId));
+    const spaceOverrideById = new Map(spaceMenuItems.map((s) => [s.menuItemId, s]));
     const pricedMenuItemIds = new Set(
-      mappings.filter((m) => (priceByProductId.get(m.salesProductId) ?? 0) > 0).map((m) => m.menuItemId),
+      menuItems
+        .filter((mi) => mappedMenuItemIds.has(mi.id) && Number(spaceOverrideById.get(mi.id)?.priceTtc ?? mi.basePrice) > 0)
+        .map((mi) => mi.id),
     );
 
     return shops.map((s) => ({ ...s, menuItemIds: s.menuItemIds.filter((id) => pricedMenuItemIds.has(id)) }));
@@ -1897,11 +1914,27 @@ export class LogisticsService {
       : location.eventId;
 
     const menuItemIds = [...new Set(lines.map((l) => l.menuItemId))];
-    const [menuItems, productMappings] = await Promise.all([
-      this.prisma.menuItem.findMany({ where: { id: { in: menuItemIds }, tenantId, deletedAt: null }, select: { id: true, name: true } }),
+    // ProductMapping reste n\u00E9cessaire pour attribuer la vente \u00E0 un produit Weezevent
+    // (reporting/corr\u00E9lation), MAIS le PRIX factur\u00E9 vient d\u00E9sormais du catalogue
+    // DataFriday de l'ESPACE courant (SpaceMenuItem.priceTtc \u2192 MenuItem.basePrice),
+    // pas de SalesProduct.basePrice. Raison : un menu item peut \u00EAtre mapp\u00E9 \u00E0 PLUSIEURS
+    // produits Weezevent (sch\u00E9ma : @@unique([salesProductId]) seulement, aucune
+    // contrainte sur menuItemId) \u2014 un doublon de mapping vers un produit au prix
+    // incomplet (basePrice null) rendait la vente simul\u00E9e silencieusement gratuite,
+    // alors que le prix catalogue DataFriday, lui, est toujours la source unique et
+    // fiable (menu-item-pricing.service.ts). Le prix de vente r\u00E9el (webhook Weezevent)
+    // n'est PAS concern\u00E9 : il porte son propre prix, ind\u00E9pendant de cette r\u00E9solution.
+    const [menuItems, spaceMenuItems, productMappings, tenantDefaultVatRate] = await Promise.all([
+      this.prisma.menuItem.findMany({
+        where: { id: { in: menuItemIds }, tenantId, deletedAt: null },
+        select: { id: true, name: true, basePrice: true, vatRate: true },
+      }),
+      this.prisma.spaceMenuItem.findMany({ where: { spaceId, menuItemId: { in: menuItemIds } } }),
       this.prisma.productMapping.findMany({ where: { tenantId, menuItemId: { in: menuItemIds } } }),
+      this.pricingService.getTenantDefaultVatRate(tenantId),
     ]);
     const menuItemById = new Map(menuItems.map((m) => [m.id, m]));
+    const spaceOverrideById = new Map(spaceMenuItems.map((s) => [s.menuItemId, s]));
     const mappingByMenuItemId = new Map(productMappings.map((m) => [m.menuItemId, m]));
     const missing = menuItemIds.filter((id) => !mappingByMenuItemId.has(id));
     if (missing.length) {
@@ -1917,13 +1950,16 @@ export class LogisticsService {
       const menuItem = menuItemById.get(line.menuItemId);
       const mapping = mappingByMenuItemId.get(line.menuItemId)!;
       const product = productById.get(mapping.salesProductId);
+      const spaceOverride = spaceOverrideById.get(line.menuItemId);
+      const unitPrice = spaceOverride?.priceTtc ?? menuItem?.basePrice ?? new Prisma.Decimal(0);
+      const vat = spaceOverride?.vatRate ?? menuItem?.vatRate ?? tenantDefaultVatRate ?? 0;
       return {
         menuItemId: line.menuItemId,
         productId: mapping.salesProductId,
-        productName: product?.name ?? menuItem?.name ?? null,
+        productName: menuItem?.name ?? product?.name ?? null,
         quantity: line.quantity,
-        unitPrice: product?.basePrice ?? new Prisma.Decimal(0),
-        vat: product?.vatRate ?? new Prisma.Decimal(0),
+        unitPrice,
+        vat,
         rawData: { simulated: true },
       };
     });

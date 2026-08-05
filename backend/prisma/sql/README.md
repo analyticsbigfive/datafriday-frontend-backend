@@ -5,13 +5,23 @@ migrations Prisma formelles (`prisma/migrations/20260804170000_add_restockplan/`
 `prisma/migrations/20260804180000_add_seasons/`) et appliquées sur dev via `prisma migrate deploy` —
 leurs fichiers `.sql` sous ce dossier ont été supprimés, cf. lignes #11/#12 du tableau.
 
+> ⚠️ **Dossier fermé aux nouvelles migrations (décision JLH, 2026-08-04).** Toute nouvelle migration
+> va désormais dans `prisma/migrations/<YYYYMMDDHHMMSS>_<slug>/migration.sql` — c'est l'option 3 de
+> la section « À faire pour que ça ne se reproduise pas » ci-dessous, désormais tranchée. Ce dossier
+> ne garde que l'historique ci-dessous et les scripts qui **ne sont pas** des migrations (audits en
+> lecture seule, nettoyages en deux phases, réparations ponctuelles). L'application reste **manuelle**
+> — ADR-0002 est inchangé. Le reste de ce README décrit l'état antérieur et n'a pas encore été
+> réécrit ; en particulier, le paragraphe suivant est **périmé**.
+
 ## Pourquoi à la main
 
-`prisma/migrations/*` est gitignoré (`backend/.gitignore:47-48` — le dossier ne contient qu'un
-`.gitkeep`). Le `startCommand` de Render (`render.yaml:7` et `:41`) lance
-`npx prisma migrate deploy` : la commande ne trouve **aucun** dossier de migration et réussit.
-C'est un **no-op silencieux** — la cause racine la plus fréquente des incidents de déploiement de ce
-projet, documentée dans
+~~`prisma/migrations/*` est gitignoré (`backend/.gitignore:47-48` — le dossier ne contient qu'un
+`.gitkeep`).~~ **Périmé depuis le 2026-08-02** : `prisma/migrations/*` est versionné (73 dossiers) et
+`.gitignore` ne l'exclut plus. Le garde-fou est ailleurs : `npx prisma migrate deploy` a été retiré
+des `startCommand` (`render.yaml`, `docker-compose.production.yml`, `docker-compose.staging.yml`).
+Historiquement, la commande tournait sur Render sans trouver aucun dossier de migration et
+réussissait : un **no-op silencieux** — la cause racine la plus fréquente des incidents de déploiement
+de ce projet, documentée dans
 [`../../docs/adr/0002_migrations_manuelles_jamais_plateforme.md`](../../docs/adr/0002_migrations_manuelles_jamais_plateforme.md).
 
 Conséquence directe : **le schéma peut être déployé sans que la colonne existe**. Le client Prisma

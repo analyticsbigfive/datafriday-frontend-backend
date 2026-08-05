@@ -357,9 +357,10 @@ describe('buildComponentLookup', () => {
     expect(buildComponentLookup([a, b]).byName.get('Doublon').item).toBe(a)
   })
 
-  it('départage nom vs sourceId par la position dans le tableau', () => {
-    // Sémantique historique : « le premier élément du tableau qui matche l'un OU
-    // l'autre ». Ici le match par NOM est en position 0, celui par id en 1.
+  it("BUG-299-01 — le sourceId PRIME sur le nom quand les deux résolvent des items différents", () => {
+    // Sémantique historique supprimée : « le premier élément du tableau qui matche
+    // l'un OU l'autre » faisait gagner un homonyme par NOM contre l'article
+    // réellement référencé par ID. Désormais l'ID gagne toujours.
     const parNom = { id: 'aaa', name: 'Ambigu', readyForSale: 'Yes', comboItem: 'No' }
     const parId = { id: 'bbb', name: 'Autre', readyForSale: 'Yes', comboItem: 'No' }
     const parent = {
@@ -369,6 +370,7 @@ describe('buildComponentLookup', () => {
     const rows = expandMenuItem({
       menuItemId: 'mi-p', quantity: 1, rootMenuItemName: 'P', ...ctx([parent, parNom, parId]),
     })
-    expect(rows[0].name).toBe('Ambigu')
+    expect(rows[0].name).toBe('Autre')
+    expect(rows[0].id).toBe('bbb')
   })
 })
