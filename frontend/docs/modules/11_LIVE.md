@@ -664,6 +664,22 @@ prochain tick de 15s).
 badge + bouton + montage du drawer), `events/drawers/EventFormDrawer.vue` (prop `lock-date`). i18n :
 `anLiveEditEvent`, `eventsListDateLockedLive`.
 
+**BUG-308-02 (correctif le même jour)** : le bouton d'édition ci-dessus disparaissait dès qu'aucune
+vente n'était tombée depuis 30 min, alors qu'un event pour AUJOURD'HUI existait bien pour l'espace —
+`applyLiveScope()` liait titre ET bouton au même signal strict que le badge. Fix : `findTodayEventId()`
+(repli sur `state.events`, event dont la fenêtre couvre aujourd'hui) sert d'ancre pour `liveEventId`/
+le titre, indépendamment du pulse strict (`liveEventDetected`) réservé au seul badge ● LIVE.
+
+**BUG-307-02 (trouvé en testant ce nouveau drawer)** : "Avg Spend/Tx"/"Per Capita" toujours vides
+dans la fiche event malgré Revenue/Transactions renseignés — le pipeline d'agrégation automatique
+(`aggregation.service.ts::executeProcessEvents`, BUG-033) n'avait jamais été étendu pour calculer
+ces 2 champs. Corrigé : `avgSpendPerTx = revenue/transactionCount` ; `perCapita = revenue/attendees`
+(`null`, pas `0`, sans vraie donnée de billetterie — cas normal pour un event QA simulé).
+
+**Sidebar "Comparaison" (`FilterPanel.vue`)** : même trappe que §16/§17, ratée dans la 1re passe —
+son `v-if="timeRange !== 'all'"` ne suffisait pas (fallback `timeRange:'today'` avant détection live,
+identique au chip Période de BUG-305-02). Ajout de `&& !isLive`.
+
 ---
 
 ### Révisions

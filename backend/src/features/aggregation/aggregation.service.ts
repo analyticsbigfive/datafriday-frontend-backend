@@ -433,11 +433,23 @@ export class AggregationService {
           });
           const eventRevenue = Number(eventRollup._sum.revenueHt ?? 0);
           const eventTransactionCount = eventRollup._sum.transactionsCount ?? 0;
+          // Trouvé le 2026-08-05 (retour utilisateur : "Avg Spend/Tx" et "Per Capita"
+          // vides dans la fiche event malgré Revenue/Transactions renseignés) :
+          // avgSpendPerTx/perCapita n'étaient JAMAIS calculés par ce pipeline — seul
+          // un edit manuel du formulaire (events.service.ts) pouvait les poser.
+          // avgSpendPerTx = simple dérivé revenue/transactionCount (même source que
+          // ci-dessus). perCapita nécessite un dénominateur RÉEL (ticketsScanned/
+          // ticketsSold, posés par le sync attendees, cf. commentaire plus bas dans
+          // ce fichier) — reste `null` (pas 0) tant qu'aucune vraie donnée de
+          // billetterie n'existe (ex. events QA simulés, jamais scannés).
+          const attendees = event.ticketsScanned ?? event.ticketsSold ?? null;
           await this.prisma.event.update({
             where: { id: event.id },
             data: {
               revenue: eventRevenue,
               transactionCount: eventTransactionCount,
+              avgSpendPerTx: eventTransactionCount > 0 ? Math.round((eventRevenue / eventTransactionCount) * 100) / 100 : null,
+              perCapita: attendees && attendees > 0 ? Math.round((eventRevenue / attendees) * 100) / 100 : null,
               calculatedAt: new Date(),
             },
           });

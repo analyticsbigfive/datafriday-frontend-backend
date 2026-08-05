@@ -456,6 +456,67 @@ describe('AggregationService', () => {
         data: expect.objectContaining({ revenue: 0, transactionCount: 0 }),
       });
     });
+
+    // Trouvé le 2026-08-05 (retour utilisateur : "Avg Spend/Tx"/"Per Capita" vides
+    // dans la fiche event malgré Revenue/Transactions renseignés) — avgSpendPerTx/
+    // perCapita n'étaient jamais calculés par ce pipeline.
+    it('écrit avgSpendPerTx = revenue / transactionCount', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '200', transactionsCount: 40 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ avgSpendPerTx: 5 }),
+      });
+    });
+
+    it('avgSpendPerTx reste null sans transaction (pas de division par zéro)', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: null, transactionsCount: null },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ avgSpendPerTx: null }),
+      });
+    });
+
+    it("perCapita reste null sans donnée de billetterie réelle (ex. event QA simulé)", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]); // ticketsScanned/ticketsSold absents
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '200', transactionsCount: 40 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ perCapita: null }),
+      });
+    });
+
+    it('perCapita = revenue / ticketsScanned quand une vraie donnée de billetterie existe', async () => {
+      mockPrisma.event.findMany.mockResolvedValue([{ ...makeEvent(EVENT_1), ticketsScanned: 50 }]);
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '200', transactionsCount: 40 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ perCapita: 4 }),
+      });
+    });
   });
 
   // ─── executeSynchronize ──────────────────────────────────────────────────
