@@ -495,65 +495,117 @@ fetch a réussi (`events !== null` — sentinelle qui distingue « échec résea
 liste » de « l'espace n'a vraiment aucun event », les deux donnant `[]` après normalisation sinon).
 Tests ajoutés : `useSpaceDataWaves.spec.js` (2 tests, dont le cas d'échec réseau).
 
-## 15. Stock Live initialisé depuis Event Predict — ✅ implémenté 2026-08-05
+## 15. Stock Live initialisé automatiquement depuis l'Inventaire pré-événement — ✅ implémenté 2026-08-05
 
-> Jusqu'ici, le stock de l'onglet Inventaire live (§3, §7) ne pouvait être initialisé que par un
-> reset manuel du module Logistic (comptage physique). L'utilisateur a demandé que le stock de
-> départ d'un event live soit celui **prédit/configuré dans Event Predict** (onglet Stock Up), les
-> mouvements (ventes en temps réel, transferts, resets ultérieurs) continuant à s'appliquer
-> par-dessus exactement comme aujourd'hui.
+> Historique du jour (pour comprendre le code si une trace subsiste ailleurs) : une 1re version
+> initialisait le stock de départ depuis **Event Predict** (une prédiction) — erreur corrigée dans
+> l'heure, Bertrand ayant précisé que la source est **l'Inventaire pré-événement** (comptage
+> physique réel). Une 2e version ajoutait un bouton manuel « Initialiser depuis l'inventaire
+> pré-événement » dans `LiveInventoryPanel.vue` — retiré à son tour le même jour, demande explicite
+> de l'utilisateur : « tout doit être automatique ». Ce qui suit décrit l'architecture **finale**,
+> intégralement backend, sans aucun déclenchement manuel côté écran.
 
-**Déclenchement : manuel uniquement** (décision produit) — un bouton « Initialiser depuis Event
-Predict » dans la toolbar de `LiveInventoryPanel.vue`, avec confirmation (`v-dialog`). Aucune
-écriture stock automatique au passage en live : le staff peut avoir déjà fait un comptage manuel
-juste avant, une écriture silencieuse l'aurait écrasé sans prévenir.
-
-**Aucun changement backend** — la feature réutilise TEL QUEL le mécanisme de reset Logistic déjà en
-production :
+**Déclenchement : automatique, à l'ouverture des portes** (décision Bertrand 2026-07-24, question
+#24 — laissée non implémentée pendant deux semaines faute de déclencheur technique défini).
+Aucun signal « portes ouvertes » n'existe dans les données (ni Weezevent ni Digifood ne remontent
+un scan d'entrée) : le proxy retenu est `eventStartDate ?? eventDate`. `InventoryLiveInitCronService`
+(`backend/src/features/inventory/inventory-live-init.cron.ts`, `@Cron(EVERY_5_MINUTES)`) scanne,
+**tous providers confondus** (contrairement à `WeezeventCronService`, ce chantier n'est pas
+spécifique à une intégration), les events dont la fenêtre `[eventStartDate, eventEndDate + 3h de
+grâce]` couvre l'instant présent, et appelle pour chacun
+`InventoryService.autoInitLiveStockFromPreEventInventory(spaceId, eventId, eventName, tenantId)`.
 
 ```
-bouton confirmé
-  → useLiveStockInit.initFromEventPredict(spaceId, eventId, eventName)
-  → GET /events/:eventId/predict-versions (listEventPredictVersions, déjà existant)
-  → sélection de la version isDefault (sinon la 1re) — même priorité que
-    SpaceRestockView.activeVersionForEvent (`:3119-3134`)
-  → configuration = store.state.analyse.configurations.find(c => c.id === event.configurationId)
-    (même lookup qu'EventPredictView.vue:1962-1977)
-  → buildStockRequirements({ configuration, menuItems, components, predictedRecords,
-    selectedMenuItems: version.menuConfig, quantityAdjustments, manualQuantities })
-    (utils/stockPlanning.js — fonction pure déjà utilisée par Restock)
-  → conversion en lignes ResetLineDto (countedLoose = totalQuantity, countedPacked = 0)
-  → store.dispatch('logistics/reset', { spaceId, eventId, eventName, lines })
-    (action Vuex déjà existante → POST /logistics/:spaceId/reset, LogisticsService.reset())
+cron (toutes les 5 min)
+  → pour chaque event dont eventStartDate ?? eventDate ≤ now ≤ eventEndDate + 3h
+  → InventoryService.autoInitLiveStockFromPreEventInventory(spaceId, eventId, eventName, tenantId)
+      → garde idempotence : KvStore["live-pre-event-init:{spaceId}:{eventId}"] déjà posé ? → skip
+      → getPreEventInventory(spaceId, eventId, tenantId) (déjà existant — dernier snapshot
+        kind='pre-event' du MÊME event, repli scopé sur le post-event du match précédent sinon,
+        cf. inventory.service.ts:397). Rien trouvé → ne pose PAS le marqueur, retente au prochain
+        tick (jamais de stock fabriqué à partir de rien, même règle que getPreEventInventory)
+      → résolution itemId (InventoryCount, clé = MenuItem.id OU MarketPrice.id selon
+        componentIngredientId() côté saisie) → itemKey (nom, référentiel StockMovement/StockLevel)
+        via resolveItemKeysByIds() — requête MenuItem + MarketPrice par id, même convention que
+        itemNameById (buildPostEventReconciliationLines) ; lignes orphelines écartées
+      → LogisticsService.reset(spaceId, { eventId, eventName, lines }, tenantId,
+        'system-live-door-opening') — même mécanisme que n'importe quel reset manuel (nouvelle
+        StockReconciliation = nouvelle ancre + StockMovement INVENTORY_RESET + StockLevel mis à jour)
+      → marqueur KvStore posé APRÈS succès
 ```
 
-`StockLevel` n'a pas de notion d'event (`logistics.service.ts` — c'est `StockReconciliation.createdAt`
-qui sert d'ancre pour dériver la consommation, cf. §14) : créer une réconciliation avec les
-quantités Event Predict fait mécaniquement de ce moment la nouvelle ancre, exactement comme un
-reset manuel — seule la provenance des quantités change. Zéro migration de schéma.
+**Idempotence, pas de verrou distribué** : `reset()` est naturellement idempotent (delta nul si le
+stock cible est déjà atteint) — un double déclenchement (ex. redémarrage du process pendant le
+tick) ne duplique rien de grave, juste une `StockReconciliation` de plus avec des deltas à 0. Le
+marqueur `KvStore` (contrainte unique `[tenantId, key]`) évite le cas courant (retenter à chaque
+tick une fois déjà fait) sans nécessiter de lock. `InventoryModule` n'est chargé que côté process
+API principal (`app.module.ts`) — pas de risque de double cron process comme pour
+`WeezeventCronService` (chargé à la fois par `app.module.ts` et `worker.module.ts` → `QueueModule`).
+Toggle opérationnel : `INVENTORY_LIVE_INIT_CRON_ENABLED=false`.
 
-**`buildStockRequirements()` étendue** (`utils/stockPlanning.js`) avec un paramètre optionnel
-`manualQuantities` (défaut `{}`, rétrocompatible — comportement de Restock inchangé, vérifié par
-`stockPlanningUnavailable.spec.js`/`stockPlanningSharedComponent.spec.js` toujours verts). Reprend
-la sémantique de `EventPredictStockUpSection.getAdjustedQuantity()` : pour un item à prédiction 0,
-la quantité manuelle sert de **base**, mise à l'échelle par le même slider % que la prédiction —
-pas un simple override du résultat final. Live et Restock partagent désormais le même calcul
-complet, au lieu d'une 3e implémentation dupliquée.
+**Résolution itemId → itemKey (MenuItem + MarketPrice)** : `componentIngredientId()`
+(front, `utils/inventoryUtils.js`) pose l'id d'une ligne de comptage à `marketPriceId || sourceId
+|| id` — un article `readyForSale` se compte sous son `MenuItem.id`, un ingrédient/composant sous
+son `MarketPrice.id`. Vérifié empiriquement en base (espace `cmovsjbiz01lzvwyn30wweqpf`,
+2026-08-05) : des articles affichés en Live comme « Badiane »/« Canelle »/« Cheddar Tranche » n'ont
+**aucune** ligne `MenuItem` mais existent en `MarketPrice`. `InventoryService.resolveItemKeysByIds()`
+consulte donc les deux tables (`prisma.marketPrice.findMany` + `prisma.menuItem.findMany`) —
+MenuItem gagne en cas de collision d'id. **Limite résiduelle** : un composant sans aucun des deux
+(ex. `sourceId` d'un `ComponentComponent` imbriqué sans MarketPrice propre) reste orphelin et
+écarté, même angle mort que `buildPostEventReconciliationLines` (cf. Q39/Q45
+`QUESTIONS_A_BERTRAND.md`) — non résolu ici, juste réduit.
 
-**Fichiers** : `composables/useLiveStockInit.js` (nouveau, orchestration pure) ;
-`utils/stockPlanning.js` (`buildStockRequirements` étendue) ;
-`components/analyse/panels/LiveInventoryPanel.vue` (bouton + dialog + prop `eventId`/`eventName`,
-émet `notify` pour le snackbar du parent) ; `components/analyse/AnalyseView.vue` (`liveEventId`/
-`liveEventName` computed, dérivés du scope déjà posé par `applyLiveScope()` — aucun nouvel appel
-réseau ; handler `onLiveInventoryNotify`). i18n : clés `anLiveInvInit*`
-(`i18n/translations.js`).
+**Unité affichée** : `LogisticsService.getLiveInventory()` exposait déjà `packedUnits`/`looseUnits`
+mais pas l'`unit` du référentiel (`item.unit`, présent dans `getSpaceElementsWithItems` mais
+jusque-là non propagé) — ajouté aux deux vues (`shops[].items[]` et `items[]`).
 
-**Tests** : `tests/unit/stockPlanningManualQuantities.spec.js` (nouveau, 4 tests) et
-`tests/unit/useLiveStockInit.spec.js` (nouveau, 5 tests, store/API mockés).
+**Écran Live — filtre/tri** : `LiveInventoryPanel.vue` n'a plus AUCUNE notion d'init (plus de prop
+`eventId`/`eventName`, plus d'emit `notify`) — pur affichage + polling. Logique de construction de
+l'arbre extraite dans `utils/liveInventoryRows.js` (`buildLiveInventoryChild`,
+`buildLiveInventoryRows`, `countByStatus`) :
+- `formatQty()` affiche l'unité (minuscule, cosmétique) à côté de chaque quantité.
+- Recherche texte (nom d'article/shop) dans la toolbar.
+- Tri des articles par criticité au sein de chaque groupe : critical > warning > good.
+- **0 restant = `critical` (rupture), sans exception, que le stock ait été fixé puis épuisé par
+  les ventes OU jamais initialisé du tout** (`totalLoose === 0`). Une 1re version distinguait un
+  statut `uninitialized` (gris, label `—`) pour éviter un 0% qui se lit comme un signal fabriqué
+  avant l'ouverture des portes (même philosophie que `getPreEventInventory`/`getPostEventBaseline`,
+  « jamais de 0 fabriqué ») — **retiré le jour même**, retour utilisateur direct sur cette page :
+  ça cachait des articles à 0 du filtre "Rupture" ("pourquoi rupture ne trouve rien alors que c'est
+  à 0 ?"), contre-intuitif pour un usage opérationnel (0 restant = rien à servir, peu importe la
+  raison). `computeGaugeStatus()` ne dépend plus que du pourcentage.
+- Badge "N critiques" sur l'en-tête de chaque groupe (compte `critical`, `totalLoose === 0` inclus).
+- **Deux toggles indépendants et combinables, "Stock bas" (warning) et "Rupture" (critical)**
+  (`countGlobalByStatus`, `statusFilters` sur `buildLiveInventoryRows`) — retour utilisateur
+  same-day, en deux temps : (1) la recherche seule ne répond pas au besoin de « gestion des stocks
+  en urgence » (il faut connaître le nom d'un article à l'avance) et le tri par criticité ne sert à
+  rien tant qu'il faut déplier chaque shop pour le voir ; (2) un premier essai avait fusionné
+  `critical`+`warning` sous un seul bouton **mal étiqueté "Stock bas"** — cliquer dessus faisait
+  aussi apparaître les vraies ruptures (0%), l'utilisateur l'a lu comme un bug ("pourquoi je vois
+  aussi des ruptures dans stock bas"). Chaque bouton filtre sur un SEUL statut (couleur alignée sur
+  la jauge : orange pour warning, rouge pour critical), porte son propre badge de total sur TOUT
+  l'espace, et les deux se combinent (les deux actifs = équivalent de l'ancien comportement fusionné,
+  mais explicite). Un groupe sans aucun article du/des statut(s) sélectionné(s) disparaît entièrement.
+  Un filtre actif (recherche ET/OU statut) **force l'ouverture de tous les groupes affichés**
+  (`isOpen()`) — sans ce correctif, filtrer sans rien déplier ensuite ne montre toujours rien, même
+  trou d'UX que la recherche avant ce correctif. Message vide dédié ("Aucun article ne correspond à
+  ce filtre — tout est sous contrôle") plutôt que le message générique de recherche vide.
 
-**Limite connue** : la sélection de version ne retient QUE la version par défaut (`isDefault`) ou
-la 1re — pas de sélecteur de scénario côté Live (contrairement à Restock qui propose un choix). Si
-un besoin de choisir un scénario spécifique depuis Live émerge, revoir cette limite à ce moment-là.
+**Fichiers** : `backend/src/features/inventory/inventory-live-init.cron.ts` (nouveau),
+`inventory.service.ts::resolveItemKeysByIds`/`autoInitLiveStockFromPreEventInventory` (nouveau),
+`inventory.module.ts` (provider ajouté) ; `logistics.service.ts::getLiveInventory` (`unit` ajouté) ;
+front `utils/liveInventoryRows.js` (nouveau, `buildLiveInventoryRows` + `countGlobalByStatus`),
+`components/analyse/panels/LiveInventoryPanel.vue` (bouton/dialog/composable retirés, recherche +
+toggle alertes + badge critique ajoutés), `components/analyse/AnalyseView.vue` (props
+`event-id`/`event-name`/`@notify` retirés du binding `LiveInventoryPanel`, `onLiveInventoryNotify`
+supprimé). `composables/useLiveStockInit.js` et son test supprimés (dead code, plus aucun appelant).
+i18n : clés `anLiveInvInit*` retirées, `anLiveInvSearchPlaceholder`/`anLiveInvNoMatch`/
+`anLiveInvAlertsToggle`/`anLiveInvNoAlerts` ajoutées.
+
+**Tests** : `inventory-live-init.spec.ts` (4, orchestration isolée — LogisticsService mocké),
+`inventory-live-init.cron.spec.ts` (5, fenêtre temporelle + idempotence + toggle),
+`logistics.service.spec.ts::getLiveInventory` (3, mis à jour pour `unit`),
+`liveInventoryRows.spec.js` (19, jauge/tri/filtre/statusFilters séparés warning↔critical/countGlobalByStatus, y compris 0/jamais-initialisé = critical).
 
 ## 16. Panneau de filtres (gauche) — sections sans effet ou trompeuses en Live — ✅ corrigé 2026-08-05
 
@@ -684,6 +736,46 @@ identique au chip Période de BUG-305-02). Ajout de `&& !isLive`.
 
 ### Révisions
 
+- **2026-08-05 (correction statut)** — Retrait du statut `uninitialized` (§15) : introduit dans la
+  révision précédente pour distinguer "jamais compté" (gris, `—`) d'une vraie rupture (rouge, `0%`),
+  ce statut cachait des articles à 0 restant du filtre "Rupture" — retour utilisateur direct sur
+  l'écran ("pourquoi rupture ne trouve rien alors que c'est à 0 ?"). `computeGaugeStatus()`
+  simplifié : ne dépend plus que du pourcentage, 0% est toujours `critical`. `STATUS_RANK` et le
+  label "—" retirés. 19 tests réécrits (`liveInventoryRows.spec.js`).
+- **2026-08-05 (pivot final)** — Stock Live : bouton manuel retiré, **tout devient automatique**
+  (§15) — demande explicite de l'utilisateur après le correctif ci-dessous, qui gardait encore un
+  bouton « Initialiser depuis l'inventaire pré-événement ». Implémente enfin la question #24
+  (Bertrand, 2026-07-24, jamais close faute de déclencheur technique) : reset automatique à
+  « l'ouverture des portes », proxy `eventStartDate ?? eventDate`, via un nouveau
+  `InventoryLiveInitCronService` (`@Cron(EVERY_5_MINUTES)`, tous providers confondus). Logique
+  d'orchestration déplacée côté backend (`InventoryService.autoInitLiveStockFromPreEventInventory` +
+  `resolveItemKeysByIds`), idempotente via marqueur `KvStore`. `composables/useLiveStockInit.js` et
+  son test supprimés (plus aucun appelant) ; `LiveInventoryPanel.vue` perd toute trace du bouton/
+  dialog/props `eventId`/`eventName`/emit `notify`. Au passage (repérage utilisateur sur les
+  captures d'écran) : logique de jauge extraite dans `utils/liveInventoryRows.js`, ajout d'une
+  recherche texte, d'un tri par criticité, d'un badge "N critiques" par groupe, et d'un nouveau
+  statut `uninitialized` (gris, `—`) distinct d'une vraie rupture (`critical`, rouge, `0%`) — sans
+  lui, tout article jamais compté s'affichait comme une fausse alerte rouge. 9 tests ajoutés/adaptés
+  (`inventory-live-init.spec.ts`, `inventory-live-init.cron.spec.ts`, `liveInventoryRows.spec.js`).
+- **2026-08-05 (correction)** — Stock Live initialisé depuis Event Predict → **Inventaire
+  pré-événement** (§15) : Bertrand a signalé que le stock d'un event live n'est pas géré depuis
+  Event Predict (une prédiction) mais depuis l'Inventaire pré-événement (le comptage physique
+  réel). `useLiveStockInit.js` réécrit pour lire `GET /inventory/:spaceId/pre-event/:eventId` au
+  lieu de `listEventPredictVersions`/`buildStockRequirements`, avec résolution itemId→itemKey via
+  le catalogue `MenuItem` (même convention que `buildPostEventReconciliationLines`). Bouton/dialog/
+  i18n de `LiveInventoryPanel.vue` renommés en conséquence. Le mécanisme de reset Logistic
+  réutilisé reste inchangé (toujours aucun changement backend/schéma) ; `buildStockRequirements()`
+  et son paramètre `manualQuantities` restent en place pour Restock (usage indépendant, préexistant
+  à ce chantier) mais ne sont plus appelés par Live. 4 tests unitaires réécrits
+  (`useLiveStockInit.spec.js`).
+  **Correctif same-day** (vérification en base sur données réelles, demandée par l'utilisateur) :
+  la résolution ne joignait QUE `MenuItem`, or des ingrédients affichés en Live (« Badiane »,
+  « Canelle », « Cheddar Tranche ») n'ont AUCUNE ligne `MenuItem` — ils sont identifiés par
+  `MarketPrice.id` (`componentIngredientId()`). `buildItemKeyById()` consulte désormais aussi
+  `store.state.inventory.marketPrices`, sans quoi ces lignes auraient été silencieusement
+  écartées comme orphelines à chaque init. +1 test dédié (5 au total). Au passage, `unit` (absent
+  de la réponse `getLiveInventory` bien que déjà connu du référentiel) ajouté et affiché à côté de
+  chaque quantité (`formatQty()`), suite à une remarque UX de l'utilisateur.
 - **2026-08-05** — Badge ● LIVE fiabilisé + bouton édition (§18, BUG-306-02) : le badge se basait
   sur la route seule, pas la détection réelle d'un event live — corrigé (`liveEventDetected`).
   Nouveau bouton "voir/modifier l'event live" (demande utilisateur), ouvre `EventFormDrawer` avec

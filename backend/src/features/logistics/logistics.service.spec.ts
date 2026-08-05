@@ -294,6 +294,7 @@ describe('LogisticsService — readyForSale display logic', () => {
           shopName: 'Bar Nord',
           items: [{
             itemKey: 'Heineken 33cl',
+            unit: null,
             packedUnits: 5,
             looseUnits: 3,
             unitsPerPack: 24,
@@ -317,6 +318,7 @@ describe('LogisticsService — readyForSale display logic', () => {
 
       expect(result.shops[0].items[0]).toEqual({
         itemKey: 'Nouveau Cocktail',
+        unit: null,
         packedUnits: 0,
         looseUnits: 0,
         unitsPerPack: null,
@@ -341,9 +343,10 @@ describe('LogisticsService — readyForSale display logic', () => {
       const result = await service.getLiveInventory('space-1', 'tenant-1');
 
       expect(result.items).toEqual([
-        { itemKey: 'Coca-Cola', shops: [{ shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 0, looseUnits: 0, unitsPerPack: null, marketPriceId: null, consumedLoose: 0 }] },
+        { itemKey: 'Coca-Cola', unit: null, shops: [{ shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 0, looseUnits: 0, unitsPerPack: null, marketPriceId: null, consumedLoose: 0 }] },
         {
           itemKey: 'Heineken 33cl',
+          unit: null,
           shops: [
             { shopId: 'shop-1', shopName: 'Bar Nord', packedUnits: 5, looseUnits: 0, unitsPerPack: 24, marketPriceId: 'mp-1', consumedLoose: 0 },
             { shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 2, looseUnits: 1, unitsPerPack: 24, marketPriceId: 'mp-1', consumedLoose: 0 },

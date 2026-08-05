@@ -230,11 +230,8 @@
       <LiveInventoryPanel
         v-if="showInventory"
         :space-id="route.params.spaceId"
-        :event-id="liveEventId"
-        :event-name="liveEventName"
         :is-dark="isDark"
         :active="showInventory"
-        @notify="onLiveInventoryNotify"
       />
 
       <!-- Bouton flottant QA (module Live) : simuler une vraie vente Weezevent/Digifood
@@ -1838,7 +1835,7 @@ const liveScopeApplied = ref(false)
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
 // Event live courant, dérivé du scope déjà posé par applyLiveScope() (pas de
 // nouvel appel réseau) — passé à LiveInventoryPanel pour l'init de stock
-// depuis Event Predict (docs/modules/11_LIVE.md).
+// depuis l'Inventaire pré-événement (docs/modules/11_LIVE.md §15).
 const liveEventId = computed(() => (isLive.value ? (filters.value.selectedEventIds || [])[0] || '' : ''))
 const liveEventName = computed(() => {
   if (!liveEventId.value) return ''
@@ -1855,11 +1852,6 @@ const liveEventEditOpen = ref(false)
 // que si un event est VRAIMENT dans la fenêtre live, pas juste parce qu'on est
 // sur la route /live.
 const liveEventDetected = ref(false)
-function onLiveInventoryNotify({ text, color }) {
-  snackbarText.value = text
-  snackbarColor.value = color
-  snackbar.value = true
-}
 const LIVE_POLL_MS = 15000
 let livePollTimer = null
 async function livePoll() {
