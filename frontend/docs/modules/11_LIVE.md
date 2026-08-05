@@ -472,6 +472,29 @@ restant sur `/spaces/:id/live` pendant un event. Suites `analyseStore.spec.js` (
 `refreshLiveShopSnapshot`/`fetchLiveShopSnapshot` à ce stade (à ajouter si ce module reçoit
 d'autres évolutions).
 
+### 🔴→✅ Régression trouvée et corrigée le 2026-08-05 — un nouvel event n'apparaissait jamais sans recharger la page
+
+Le découplage ci-dessus a été fait un peu trop strict : `refreshLiveShopSnapshot` ne rafraîchissait
+QUE `shopGranularData`/`menuItemCostMap`/`summary` — plus jamais `state.analyse.events`. Or
+`applyLiveScope()` (`AnalyseView.vue`) résout bien un `eventId` frais à chaque tick (il appelle
+`/live-status` directement, indépendamment du store), mais `filteredEvents`
+(`store/modules/analyse.js:829`) part de `state.events` et filtre par `selectedEventIds` — un event
+qui n'existe pas encore dans `state.events` au moment du premier chargement de la page (ex. un event
+QA créé par `ensureTodaySalesEvent` pendant que Live était déjà ouvert) ne pouvait donc **jamais**
+apparaître tant que la page restait ouverte : `filteredEvents` retombait à `[]`, écran Live
+complètement vide malgré un vrai signal live détecté côté backend (vérifié : `getLiveStatus`
+recalculé à la main renvoyait bien `isLive:true`, données saines en base — la régression était
+strictement frontend).
+
+**Corrigé** : `fetchLiveShopSnapshot` (`useSpaceData.js`) ajoute un 3e appel léger, `getEvents({
+spaceId, limit: 200, excludeSimulated: false })` — une seule requête liste, pas le catalogue, donc
+sans réintroduire la dette de perf du point ci-dessus. `excludeSimulated:false` : ce chemin ne
+tourne qu'en mode Live, où voir son propre trafic de test (QA) est le but recherché, même règle que
+`fetchSpaceData` en mode live (§7). `refreshLiveShopSnapshot` commit `SET_EVENTS` seulement si le
+fetch a réussi (`events !== null` — sentinelle qui distingue « échec réseau, garder l'ancienne
+liste » de « l'espace n'a vraiment aucun event », les deux donnant `[]` après normalisation sinon).
+Tests ajoutés : `useSpaceDataWaves.spec.js` (2 tests, dont le cas d'échec réseau).
+
 ## 15. Stock Live initialisé depuis Event Predict — ✅ implémenté 2026-08-05
 
 > Jusqu'ici, le stock de l'onglet Inventaire live (§3, §7) ne pouvait être initialisé que par un

@@ -2076,6 +2076,10 @@ const actions = {
       ...(snapshot.menuItemCostMap || {}),
     })
     commit('SET_SUMMARY', snapshot.summary || null)
+    // Bug 2026-08-05 : un event créé après le 1er chargement (ex. run QA) doit
+    // apparaître sans recharger la page — `events: null` = fetch KO, on garde
+    // l'ancienne liste plutôt que d'écraser par erreur avec [].
+    if (snapshot.events !== null) commit('SET_EVENTS', snapshot.events)
   },
 
   /**

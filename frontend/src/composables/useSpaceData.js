@@ -450,7 +450,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
 export async function fetchLiveShopSnapshot(spaceId, {
   menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
 } = {}) {
-  const [granularDetails, details] = await Promise.all([
+  const [granularDetails, details, eventsResponse] = await Promise.all([
     getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
       console.warn('[useSpaceData] ⚠️ live shopGranular failed:', e?.response?.status, e?.message)
       return {}
@@ -458,6 +458,24 @@ export async function fetchLiveShopSnapshot(spaceId, {
     getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
       console.warn('[useSpaceData] ⚠️ live shopDetails failed:', e?.response?.status, e?.message)
       return {}
+    }),
+    // BUG trouvé le 2026-08-05 : un event créé APRÈS le premier chargement de la
+    // page (ex. le run QA d'auto-simulation, ensureTodaySalesEvent) n'apparaissait
+    // jamais tant que la page restait ouverte — state.events n'était plus
+    // rafraîchi par ce chemin léger (§14), alors qu'applyLiveScope() résout bien
+    // l'eventId live à chaque tick. Sans lui dans state.events, filteredEvents
+    // (filtré par selectedEventIds) retombe à [] → écran vide malgré un vrai
+    // signal live. Requête volontairement légère (une seule liste, pas le
+    // catalogue) — excludeSimulated:false : ce chemin ne tourne QU'en mode Live
+    // (AnalyseView::isLive), où voir son propre trafic de test EST le but
+    // (LiveSaleSimulatorWidget), même règle que fetchSpaceData en mode live.
+    // `__failed` (pas juste `null`) : distingue « fetch KO, garder l'ancienne
+    // liste » de « fetch OK, l'espace n'a vraiment aucun event » — les deux
+    // donneraient sinon [] après normalizeList, et écraseraient à tort
+    // state.events sur une erreur réseau transitoire.
+    getEvents({ spaceId, limit: 200, excludeSimulated: false }).catch((e) => {
+      console.warn('[useSpaceData] ⚠️ live events failed:', e?.response?.status, e?.message)
+      return { __failed: true }
     }),
   ])
   const rawGranularData =
@@ -475,5 +493,6 @@ export async function fetchLiveShopSnapshot(spaceId, {
     shopGranularData,
     menuItemCostMap: details?.menuItemCostMap || details?.costMap || {},
     summary: details?.summary || null,
+    events: eventsResponse?.__failed ? null : normalizeList(eventsResponse?.data ?? eventsResponse),
   }
 }

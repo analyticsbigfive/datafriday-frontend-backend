@@ -40,7 +40,7 @@ import { getIngredients } from '@/api/endpoints/ingredient.api'
 import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
 import { getWeezeventProducts } from '@/api/endpoints/aggregation.api'
 import { getProductMappings } from '@/api/endpoints/mapping.api'
-import { fetchSpaceData } from '@/composables/useSpaceData'
+import { fetchSpaceData, fetchLiveShopSnapshot } from '@/composables/useSpaceData'
 
 const SPACE_ID = 'sp-1'
 
@@ -144,5 +144,39 @@ describe('useSpaceData — phase 2 en deux vagues', () => {
     expect(data.components).toHaveLength(1)
     expect(data.ingredients).toHaveLength(1)
     expect(data.productTypes).toHaveLength(1)
+  })
+})
+
+/**
+ * Bug 2026-08-05 (module Live, docs/modules/11_LIVE.md §14) : `fetchLiveShopSnapshot`
+ * ne rafraîchissait QUE shopGranularData/menuItemCostMap/summary — un event créé
+ * APRÈS le 1er chargement de la page (ex. run QA d'auto-simulation) n'apparaissait
+ * jamais dans `state.events`, donc jamais dans `filteredEvents` malgré un vrai
+ * signal live détecté par `applyLiveScope()` : écran Live vide. Corrigé en
+ * ajoutant un fetch `getEvents` léger (une seule liste, pas le catalogue) à ce
+ * chemin, avec `excludeSimulated:false` (mode Live only).
+ */
+describe('fetchLiveShopSnapshot — rafraîchit aussi la liste des events', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    getSpaceShopGranular.mockResolvedValue({ shopGranularData: [] })
+    getSpaceShopDetails.mockResolvedValue({ menuItemCostMap: {}, summary: null })
+  })
+
+  it('renvoie les events fraîchement fetchés, excludeSimulated:false', async () => {
+    getEvents.mockResolvedValue({ data: [{ id: 'e-new', name: '[Simulé] Test' }] })
+
+    const snapshot = await fetchLiveShopSnapshot(SPACE_ID, {})
+
+    expect(getEvents).toHaveBeenCalledWith({ spaceId: SPACE_ID, limit: 200, excludeSimulated: false })
+    expect(snapshot.events).toEqual([{ id: 'e-new', name: '[Simulé] Test' }])
+  })
+
+  it('renvoie events:null (pas []) quand le fetch échoue, pour ne pas écraser state.events', async () => {
+    getEvents.mockRejectedValue(new Error('network'))
+
+    const snapshot = await fetchLiveShopSnapshot(SPACE_ID, {})
+
+    expect(snapshot.events).toBeNull()
   })
 })
