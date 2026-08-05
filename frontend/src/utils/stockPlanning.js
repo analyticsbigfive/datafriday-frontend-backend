@@ -128,6 +128,33 @@ export function normalizeSelectedIds(value) {
   return []
 }
 
+function isPieceUnit(unit) {
+  const u = String(unit || '').toLowerCase()
+  return u === 'pcs' || u === 'pc' || u === 'piece' || u === 'pieces'
+}
+
+/**
+ * Arrondi d'affichage/réarmement : les pièces sont indivisibles (toujours au
+ * supérieur), les unités continues (kg, L) tombent au dixième le plus proche.
+ */
+export function roundForUnit(value, unit) {
+  const q = toNumber(value)
+  if (isPieceUnit(unit)) return Math.ceil(q)
+  return Math.round(q * 10) / 10
+}
+
+/**
+ * Lot 4 (JLH) — arrondi TOUJOURS au supérieur, pour les grandeurs qu'on va
+ * physiquement manipuler : ce qu'on dépose au PdV et le vrac qui restera.
+ * `roundForUnit` arrondit au plus proche hors pièces (0,64 kg → 0,6 kg), ce qui
+ * laissait un manque non couvert sur les articles au poids.
+ */
+export function ceilForUnit(value, unit) {
+  const q = toNumber(value)
+  if (isPieceUnit(unit)) return Math.ceil(q)
+  return Math.ceil(q * 10) / 10
+}
+
 export function stockItemKey(item) {
   return `${item?.id || item?.name || 'item'}|||${item?.unit || 'unit'}`
 }
@@ -443,23 +470,34 @@ export function buildMenuItemDemand({
 
 export function findStockReference(item, ingredients = [], components = [], menuItems = []) {
   const idCandidates = new Set(
-    [item?.itemId, item?.id, item?.sourceId].filter(Boolean).map(String),
+    [item?.itemId, item?.id, item?.sourceId, item?.marketPriceId].filter(Boolean).map(String),
   )
   const name = normalizeName(item?.itemName || item?.name)
+  const pools = [ingredients || [], components || [], menuItems || []]
 
-  const byIdOrName = (candidate) => {
-    if (!candidate) return false
-    if (idCandidates.has(String(candidate.id))) return true
-    if (idCandidates.has(String(candidate.sourceId))) return true
-    return normalizeName(candidate.name || candidate.itemName) === name
+  // BUG-299-01 — deux passes STRICTES : l'ID sur TOUT le catalogue d'abord, le nom
+  // seulement si aucun id ne résout nulle part. L'ancien prédicat mixte (id OU nom,
+  // testés candidat par candidat dans un seul .find) laissait un homonyme placé
+  // plus tôt dans la liste (« Beurre ») gagner PAR NOM contre l'ingrédient
+  // réellement référencé plus loin (« Beurre doux motte ») — et remonter le
+  // conditionnement du mauvais article.
+  const matchesId = (c) =>
+    !!c &&
+    [c.id, c.sourceId, c.marketPriceId, c.marketPrice?.id].some(
+      (v) => v != null && idCandidates.has(String(v)),
+    )
+  if (idCandidates.size) {
+    for (const pool of pools) {
+      const hit = pool.find(matchesId)
+      if (hit) return hit
+    }
   }
-
-  return (
-    (ingredients || []).find(byIdOrName) ||
-    (components || []).find(byIdOrName) ||
-    (menuItems || []).find(byIdOrName) ||
-    null
-  )
+  if (!name) return null
+  for (const pool of pools) {
+    const hit = pool.find((c) => c && normalizeName(c.name || c.itemName) === name)
+    if (hit) return hit
+  }
+  return null
 }
 
 export function computePackagingForQuantity(
@@ -563,6 +601,8 @@ export function computeRestockOutcome({ targetQuantity, remainingQuantity, resto
  * `packedCount` reste null si aucune ligne ne porte de packaging ; les
  * métadonnées de colis (type, taille) viennent du premier packaging non nul
  * (la taille est définie au catalogue, identique entre PDV).
+ * Lot 2 — `predictedQuantity` : besoin prédit BRUT (Σ `totalQuantity`, AVANT le
+ * slider % d'ajustement), distinct de `targetQuantity` (cible ajustée).
  */
 export function aggregateRestockOutcomesByItem(rows = []) {
   const byItem = {}
@@ -572,6 +612,7 @@ export function aggregateRestockOutcomesByItem(rows = []) {
     const entry = byItem[row.itemKey] || (byItem[row.itemKey] = {
       itemKey: row.itemKey,
       unit: row.unit ?? null,
+      predictedQuantity: 0,
       targetQuantity: 0,
       remainingQuantity: 0,
       gap: 0,
@@ -584,6 +625,7 @@ export function aggregateRestockOutcomesByItem(rows = []) {
       packagingUnit: null,
       shopCount: 0,
     })
+    entry.predictedQuantity += toNumber(row.totalQuantity)
     entry.targetQuantity += toNumber(row.targetQuantity)
     entry.remainingQuantity += toNumber(row.remainingQuantity)
     entry.gap += outcome.gap

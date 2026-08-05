@@ -168,6 +168,9 @@ import { normalizeStr } from '@/utils/predictiveAnalytics'
 // méthode locale du même nom garde sa signature positionnelle (appelée via `this`
 // depuis `shopStockData`), le module est appelé par objet nommé.
 import { expandMenuItem as expandMenuItemShared } from '@/utils/menuItemExpansion'
+// BUG-299-01 — résolution catalogue partagée (ID d'abord, nom en repli) pour le
+// conditionnement, au lieu d'un .find local mélangeant id et nom.
+import { findStockReference } from '@/utils/stockPlanning'
 import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 
 const MAX_DEPTH = 10
@@ -246,12 +249,11 @@ export default {
       for (const mi of list) if (mi && mi.id != null) m.set(mi.id, mi)
       return m
     },
-    // PERF: résolution component → menuItem par nom OU sourceId en O(1) dans
-    // expandMenuItem (au lieu d'un Array.find O(catalogue) par composant/item/shop,
-    // récursif). On conserve la sémantique du .find d'origine : « premier élément
-    // du tableau dont le name OU le sourceId matche ». `byName` garde la 1re
-    // occurrence ; `idxById` donne la position pour départager si nom ET sourceId
-    // pointent des items différents (cas pathologique → on garde le plus petit idx).
+    // PERF: résolution component → menuItem en O(1) dans expandMenuItem (au lieu
+    // d'un Array.find O(catalogue) par composant/item/shop, récursif).
+    // BUG-299-01 — la sémantique du module est ID D'ABORD (`byId`, fourni au call
+    // site via menuItemsById) ; `byName` n'est qu'un repli pour les lignes sans
+    // sourceId. `idxById` n'arbitre plus rien — conservé pour le shape attendu.
     componentLookup() {
       const byName = new Map()
       const idxById = new Map()
@@ -683,21 +685,12 @@ export default {
      */
     computePackaging(item) {
       if (!item) return null
-      // Recherche dans ingredients d'abord (par nom ou id), puis dans components
-      const lc = String(item.name || '').toLowerCase()
-      const ing = (this.ingredients || []).find(
-        (i) =>
-          i?.id === item.id ||
-          String(i?.name || '').toLowerCase() === lc,
-      )
-      const cmp = ing
-        ? null
-        : (this.components || []).find(
-            (c) =>
-              c?.id === item.id ||
-              String(c?.name || '').toLowerCase() === lc,
-          )
-      const src = ing || cmp
+      // BUG-299-01 — résolution partagée findStockReference : l'ID (id/sourceId/
+      // marketPriceId) sur ingredients PUIS components d'abord, le nom seulement
+      // si aucun id ne résout. L'ancien prédicat mixte (id OU nom dans un seul
+      // .find) faisait gagner un homonyme par nom (« Beurre ») contre l'ingrédient
+      // réellement référencé (« Beurre doux motte ») → mauvais conditionnement.
+      const src = findStockReference(item, this.ingredients, this.components, [])
       if (!src) return null
       const packagingType = src.packagingType
       const packagingUnitNumber = Number(src.packagingUnitNumber || 0)

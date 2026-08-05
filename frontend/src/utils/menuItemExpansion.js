@@ -43,10 +43,11 @@ const MAX_DEPTH = 10
 /**
  * Index de résolution composant → menu item, en O(1).
  *
- * Sémantique à préserver : « le PREMIER élément du tableau dont le `name` OU le
- * `sourceId` matche ». `byName` garde la 1re occurrence d'un nom, `idxById` donne
- * la position d'un id — c'est ce qui permet de départager quand un composant
- * matche par nom ET par sourceId vers deux articles différents.
+ * BUG-299-01 — la résolution est désormais ID D'ABORD (cf.
+ * `resolveComponentMenuItem`) : `byId` est l'index principal, `byName` un simple
+ * repli pour les lignes sans référence. `idxById` n'arbitre plus rien (l'ancien
+ * départage « premier du tableau » entre nom et sourceId a disparu) — conservé
+ * car des appelants construisent encore ce shape.
  *
  * @param {Array<object>} menuItems catalogue
  * @returns {{ byId: Map, byName: Map, idxById: Map }}
@@ -72,13 +73,20 @@ export function buildComponentLookup(menuItems = []) {
  * est « un article » (donc potentiellement un panier à ouvrir) ou « de la matière ».
  */
 function resolveComponentMenuItem(component, lookup) {
-  const nameHit = component?.name != null ? lookup.byName.get(component.name) : undefined
+  // BUG-299-01 — l'ID (sourceId) PRIME toujours sur le nom : la ligne de recette
+  // référence une entité précise, l'homonymie de libellé (« Beurre » vs « Beurre
+  // doux motte ») ne doit jamais rerouter vers un autre article. Trois cas :
+  //  1. sourceId résolu dans le catalogue → c'est LUI, point.
+  //  2. sourceId posé mais absent du catalogue menu items → la ligne référence une
+  //     autre table (ingrédient, packaging…) : c'est de la matière, on ne la
+  //     requalifie pas en menu item parce qu'un homonyme existe.
+  //  3. pas de sourceId ET pas typée matière → repli nom (lignes legacy sans réf).
   const idItem = component?.sourceId != null ? lookup.byId.get(component.sourceId) : undefined
-  if (nameHit && idItem) {
-    const idIdx = lookup.idxById.get(component.sourceId)
-    return nameHit.idx <= idIdx ? nameHit.item : idItem
-  }
-  return nameHit ? nameHit.item : idItem || null
+  if (idItem) return idItem
+  if (component?.sourceId != null) return null
+  if (component?.itemType === 'Ingredient' || component?.itemType === 'Packaging') return null
+  const nameHit = component?.name != null ? lookup.byName.get(component.name) : undefined
+  return nameHit ? nameHit.item : null
 }
 
 /**

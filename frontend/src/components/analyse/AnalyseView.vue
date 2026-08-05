@@ -1890,6 +1890,12 @@ watch(
       clearItemRecordsCache()
       clearComparisonCache()
       clearBasketsCache()
+      // BUG-300-01 — reset immédiat du latch du différé « All Configurations »
+      // (le watcher `loading` le remet aussi à false, mais plus tard) : la
+      // cause racine du « Par zone » vide était la garde « déjà chargé » de
+      // requestDeferredAllConfigsContext, qui voyait le contexte de l'ANCIEN
+      // espace — purgé désormais par CLEAR_SPACE_KEYED_CACHES (store).
+      allConfigsCtxRequested = false
     }
     ensureAuthAndLoad(id)
   }

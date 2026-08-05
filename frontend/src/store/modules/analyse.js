@@ -1813,6 +1813,19 @@ const mutations = {
     state.shopMenusByShop = {}
     const kept = keepSpaceId != null ? state.spaceShopsRows?.[keepSpaceId] : undefined
     state.spaceShopsRows = kept !== undefined ? { [keepSpaceId]: kept } : {}
+    // BUG-300-01 — le contexte config (floorElements → shopArea) appartient à
+    // l'ESPACE : conservé après un changement d'espace, il faisait croire au
+    // différé « All Configurations » que le contexte était déjà chargé, et la
+    // réconciliation joignait les ventes du nouvel espace aux éléments de
+    // l'ancien → donut « Par zone » définitivement vide (« Aucune donnée »).
+    state.configShopContext = { configId: null, floorElements: [], assignment: null }
+    state.configContextSettled = false
+    state.configContextError = null
+    state.configContextLoadingId = null
+    // Invalide un chargement de contexte de l'ancien espace encore en vol :
+    // sans ce bump, son commit tardif écraserait le contexte vierge (les
+    // actions vérifient `stale()` sur ce jeton).
+    state.configContextReqId = (state.configContextReqId || 0) + 1
   },
   APPLY_EVENT_PREDICT_VERSION(state, { eventId, version }) {
     if (!eventId || !version) return

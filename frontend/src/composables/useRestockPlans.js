@@ -63,6 +63,12 @@ export function useRestockPlans() {
         available.value = false
         plans.value = []
       } else {
+        // Lot 3 — réseau coupé / 5xx : le module EXISTE, c'est l'appel qui a
+        // échoué. Laisser `available` à `null` masquait panneau ET bouton
+        // « Sauvegarder le plan » définitivement, sans message ni retry (le
+        // v-if traite null comme faux) — la sauvegarde paraissait cassée.
+        // `true` + `error` posé : le panneau reste visible et rend l'échec.
+        available.value = true
         error.value = err
         plans.value = []
       }

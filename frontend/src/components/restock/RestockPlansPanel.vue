@@ -1,5 +1,8 @@
 <template>
   <v-card variant="outlined" class="rpp-panel">
+    <!-- Lot 3 — bandeau d'en-tête pleine largeur, parité stricte avec le
+         panneau « Événements » (.sr-panel-head) juste en dessous dans la
+         sidebar : fond teinté, filet bas, titre en majuscules, chip compteur. -->
     <header class="rpp-head">
       <div>
         <h2>{{ t('srPlansPanelTitle') }}</h2>
@@ -9,9 +12,23 @@
         </p>
       </div>
       <v-progress-circular v-if="loading" indeterminate size="16" width="2" />
+      <v-chip v-else size="x-small" color="primary" variant="tonal">
+        {{ plans.length }}
+      </v-chip>
     </header>
 
-    <p v-if="!loading && !plans.length" class="rpp-empty">{{ t('srPlansPanelEmpty') }}</p>
+    <div class="rpp-body">
+    <!-- Lot 3 — l'échec de chargement était invisible : `available` restait à
+         null sur erreur non-404, ce qui masquait le panneau ET le bouton
+         « Sauvegarder le plan », sans message ni retry. -->
+    <div v-if="error" class="rpp-error">
+      <p>{{ t('srPlansPanelError') }}</p>
+      <v-btn size="x-small" variant="tonal" @click="$emit('retry')">
+        {{ t('srPlansPanelRetry') }}
+      </v-btn>
+    </div>
+
+    <p v-else-if="!loading && !plans.length" class="rpp-empty">{{ t('srPlansPanelEmpty') }}</p>
 
     <ul v-else class="rpp-list">
       <li
@@ -103,6 +120,7 @@
     </ul>
 
     <p v-if="!canWrite" class="rpp-readonly-hint">{{ t('srPlanReadOnlyHint') }}</p>
+    </div>
 
     <!-- Confirmation de suppression (action destructive → jamais en un clic). -->
     <v-dialog :model-value="!!deletingPlan" max-width="420" @update:model-value="deletingPlan = null">
@@ -140,8 +158,10 @@ export default {
     activePlanId: { type: String, default: null },
     /** front.fb.restock — sans lui : chargement seul (rôle restockBoard). */
     canWrite: { type: Boolean, default: false },
+    /** Échec du chargement de la liste (hors 404) — rendu avec un retry. */
+    error: { type: [Object, Error], default: null },
   },
-  emits: ['load', 'rename', 'duplicate', 'delete'],
+  emits: ['load', 'rename', 'duplicate', 'delete', 'retry'],
   setup() {
     const { t } = useI18n()
     // Locale de l'UI (BUG-240 : jamais 'fr-FR' en dur pour les dates).
@@ -190,33 +210,63 @@ export default {
 </script>
 
 <style scoped>
+/* Lot 3 — parité visuelle avec `.sr-panel` / `.sr-panel-head` de
+   SpaceRestockView (panneau « Événements », frère direct dans la sidebar).
+   Le `padding` vivait sur la CARTE, ce qui interdisait structurellement un
+   bandeau d'en-tête pleine largeur : il est descendu dans `.rpp-body`. */
 .rpp-panel {
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  overflow: clip;
+  margin-bottom: 16px;
+  border-radius: var(--fb-radius-panel, 12px);
+  border: 1px solid var(--sr-border, var(--fb-border, #e5e7eb));
+  background: var(--sr-surface, var(--fb-surface, #fff));
+  box-shadow: var(--fb-shadow-card, 0 1px 2px rgba(15, 23, 42, 0.06));
 }
 .rpp-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  padding: 14px 16px;
+  background: var(--sr-subtle, var(--fb-surface-subtle, #f8fafc));
+  border-bottom: 1px solid var(--sr-border, var(--fb-border, #e5e7eb));
 }
 .rpp-head h2 {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--fb-text, #111827);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sr-text, var(--fb-text, #111827));
 }
 .rpp-head p {
-  font-size: 0.75rem;
-  color: var(--fb-text-muted, #6b7280);
+  font-size: 12px;
+  color: var(--sr-muted, var(--fb-text-muted, #6b7280));
   margin: 0;
+}
+.rpp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
 }
 .rpp-empty,
 .rpp-readonly-hint {
   font-size: 0.75rem;
-  color: var(--fb-text-muted, #6b7280);
+  color: var(--sr-muted, var(--fb-text-muted, #6b7280));
   margin: 0;
+}
+.rpp-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rpp-error p {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--fb-danger, #dc2626);
 }
 .rpp-list {
   list-style: none;

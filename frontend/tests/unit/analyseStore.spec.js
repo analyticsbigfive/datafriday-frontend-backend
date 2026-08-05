@@ -119,6 +119,36 @@ describe('analyse store — cache invalidation', () => {
     expect(out).toHaveLength(1)
     expect(out[0].totalRevenue).toBe(100)
   })
+
+  /**
+   * BUG-300-01 — changement d'espace : le contexte config (floorElements →
+   * shopArea) doit être purgé, sinon la garde « déjà chargé » du différé
+   * « All Configurations » voit le contexte de l'ANCIEN espace et ne recharge
+   * jamais → donut « Par zone » définitivement vide sur le nouvel espace.
+   */
+  it("BUG-300-01 — CLEAR_SPACE_KEYED_CACHES purge le contexte config et invalide les vols en cours", () => {
+    const { state, mutations } = makeStore()
+    state.configShopContext = {
+      configId: null,
+      floorElements: [{ id: 'el-aix-1', name: 'Bar Nord', area: 'Zone A' }],
+      assignment: {},
+    }
+    state.configContextSettled = true
+    state.configContextError = 'boom'
+    state.configContextLoadingId = 'cfg-42'
+    const reqBefore = state.configContextReqId
+
+    mutations.CLEAR_SPACE_KEYED_CACHES(state, { keepSpaceId: 'space-auxerre' })
+
+    expect(state.configShopContext.floorElements).toHaveLength(0)
+    expect(state.configShopContext.configId).toBeNull()
+    expect(state.configContextSettled).toBe(false)
+    expect(state.configContextError).toBeNull()
+    expect(state.configContextLoadingId).toBeNull()
+    // Jeton bumpé : un loadAllConfigsShopContext de l'ancien espace encore en
+    // vol se verra `stale()` et ne commitera pas ses floorElements par-dessus.
+    expect(state.configContextReqId).toBe((reqBefore || 0) + 1)
+  })
 })
 
 describe('analyse store — getters data-driven (options depuis les ventes)', () => {
