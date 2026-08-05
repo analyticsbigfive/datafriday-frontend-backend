@@ -128,6 +128,33 @@ export function normalizeSelectedIds(value) {
   return []
 }
 
+function isPieceUnit(unit) {
+  const u = String(unit || '').toLowerCase()
+  return u === 'pcs' || u === 'pc' || u === 'piece' || u === 'pieces'
+}
+
+/**
+ * Arrondi d'affichage/réarmement : les pièces sont indivisibles (toujours au
+ * supérieur), les unités continues (kg, L) tombent au dixième le plus proche.
+ */
+export function roundForUnit(value, unit) {
+  const q = toNumber(value)
+  if (isPieceUnit(unit)) return Math.ceil(q)
+  return Math.round(q * 10) / 10
+}
+
+/**
+ * Lot 4 (JLH) — arrondi TOUJOURS au supérieur, pour les grandeurs qu'on va
+ * physiquement manipuler : ce qu'on dépose au PdV et le vrac qui restera.
+ * `roundForUnit` arrondit au plus proche hors pièces (0,64 kg → 0,6 kg), ce qui
+ * laissait un manque non couvert sur les articles au poids.
+ */
+export function ceilForUnit(value, unit) {
+  const q = toNumber(value)
+  if (isPieceUnit(unit)) return Math.ceil(q)
+  return Math.ceil(q * 10) / 10
+}
+
 export function stockItemKey(item) {
   return `${item?.id || item?.name || 'item'}|||${item?.unit || 'unit'}`
 }

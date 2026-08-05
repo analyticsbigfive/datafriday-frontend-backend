@@ -7,7 +7,7 @@
       <div>
         <div class="section-title">{{ t('anMenuItemDistTitle') }}</div>
         <div class="section-subtitle">
-          {{ t('anTotalRevenue') }} : {{ formatCurrencyDetailed(totalRevenue) }}
+          {{ t('anTotalRevenue') }} : {{ formatCurrency(totalRevenue) }}
         </div>
         <!-- Mode Predict : les events prédits sans scénario Event Predict n'ont
              aucune dimension article → exclus d'ici. Signalé plutôt que sous-compté
@@ -53,7 +53,10 @@
             <span class="cat-dot" />
             {{ entry.label }}
           </div>
-          <div class="cat-value">{{ formatCurrencyDetailed(entry.value) }}</div>
+          <!-- Totaux par famille → 0 décimale (décision UI 2026-07-12, cf.
+               useFormatters.js:9-16). Les 2 décimales sont réservées aux prix
+               unitaires et aux ratios par ticket, pas aux totaux à 6 chiffres. -->
+          <div class="cat-value">{{ formatCurrency(entry.value) }}</div>
         </v-card>
       </v-col>
     </v-row>
@@ -114,7 +117,7 @@ import { ref, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import DonutChartCard from '../charts/DonutChartCard.vue'
 import { SHOP_COLORS } from '@/constants/analyseColors'
-import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { formatCurrency } from '@/composables/useFormatters'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'

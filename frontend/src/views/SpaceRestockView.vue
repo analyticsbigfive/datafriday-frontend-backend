@@ -64,6 +64,21 @@
             </v-chip>
           </header>
 
+          <!-- Lot 5 (JLH) — plusieurs évènements cochés = leurs besoins s'ADDITIONNENT
+               en un seul objectif. Rien ne le disait : on l'annonce, avec le raccourci
+               vers l'étape 1 où la répartition se règle (article par article, curseur %). -->
+          <div
+            v-if="objectiveSource === 'forecast' && selectedEventIds.length > 1"
+            class="sr-multi-event-hint"
+            role="status"
+          >
+            <v-icon size="14">mdi-information-outline</v-icon>
+            <span>{{ selectedEventIds.length }} {{ t('srMultiEventHint') }}</span>
+            <button v-if="currentStep !== 1" type="button" class="sr-multi-event-btn" @click="goToStep(1)">
+              {{ t('srItemsToStock') }}
+            </button>
+          </div>
+
           <div class="sr-objective-source">
             <!-- Switch Prévision/Ventes masqué (objectiveSource forcé 'forecast').
                  v-if="false" au lieu de suppression : mode Ventes reste fonctionnel
@@ -332,52 +347,6 @@
                     <em v-if="component.quantity">× {{ component.quantity }}{{ component.unit ? ` ${component.unit}` : '' }}</em>
                   </span>
                 </div>
-                <div class="sr-qty-block">
-                  <span class="sr-qty-base">
-                    {{ t('srPredictedLabel') }} {{ formatDisplayQuantity(item.totalQuantity, item.unit, item.itemKey) }}
-                  </span>
-                  <v-icon size="14" class="sr-qty-arrow">mdi-arrow-right</v-icon>
-                  <span class="sr-qty-target">
-                    {{ t('srTargetLabel') }} {{ formatDisplayQuantity(adjustedItemQuantity(item), item.unit, item.itemKey) }}
-                  </span>
-                </div>
-                <!-- Lot 2 (JLH) — 4 colonnes : Predict (besoin brut, avant slider %) /
-                     Remaining stock / Cible à atteindre (ajustée) / À commander
-                     (= besoin net des shops − Storage, cf. stockOrderByItem — même
-                     netting que la feuille de course étape 3). -->
-                <div v-if="previousInventoryLoading" class="sr-breakdown sr-breakdown-loading">
-                  {{ t('srBreakdownLoading') }}
-                </div>
-                <div v-else-if="stockOutcomeByItem[item.itemKey]" class="sr-tiers">
-                  <!-- Rang BESOIN — unité de recette : ce qu'il faut vraiment. -->
-                  <div class="sr-tier">
-                    <span class="sr-tier-label">{{ t('srTierNeed') }}</span>
-                    <span class="sr-tier-cell">
-                      <span class="sr-tier-cell-label">{{ t('srBreakdownPredict') }}</span>
-                      <strong class="sr-tier-cell-value">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].predictedQuantity ?? item.totalQuantity, item.unit) }}</strong>
-                    </span>
-                    <span class="sr-tier-cell">
-                      <span class="sr-tier-cell-label">{{ t('srBreakdownRemaining') }}</span>
-                      <strong class="sr-tier-cell-value">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].remainingQuantity, item.unit) }}</strong>
-                    </span>
-                    <span class="sr-tier-cell">
-                      <span class="sr-tier-cell-label">{{ t('srBreakdownRequired') }}</span>
-                      <strong class="sr-tier-cell-value" :class="{ 'sr-tier-ok': (buyInfoByItem[item.itemKey] || {}).covered }">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].targetQuantity, item.unit) }}</strong>
-                    </span>
-                  </div>
-                  <!-- Rang ACHAT — unité d'ACHAT : ce que le fournisseur vend
-                       réellement. Un besoin de 3 pc sur un article vendu par
-                       sachet de 50 donne 1 sachet, et 47 pc en vrac : c'est ce
-                       saut d'unité que la rangée unique n'expliquait pas. -->
-                  <div class="sr-tier sr-tier-buy">
-                    <span class="sr-tier-label">{{ t('srTierBuy') }}</span>
-                    <span class="sr-tier-cell">
-                      <span class="sr-tier-cell-label">{{ t('srBreakdownToOrder') }}</span>
-                      <strong class="sr-tier-cell-value" :class="{ 'sr-tier-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-tier-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
-                      <span v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-tier-cell-sub">{{ buyInfoByItem[item.itemKey].sub }}</span>
-                    </span>
-                  </div>
-                </div>
               </div>
 
               <div class="sr-slider-wrap">
@@ -394,6 +363,54 @@
                   />
                   <span class="sr-slider-value">{{ stockAdjustment(item.itemKey) }}%</span>
                 </div>
+              </div>
+
+              <!-- Lot 4 (JLH) — les 4 valeurs sur UNE ligne, sous le nom et le
+                   curseur. Le bloc « prédit → ajusté » a disparu : il convertissait
+                   le besoin TOTAL en colis (« 12 pack ») juste à côté de l'achat
+                   réel (« 2 pack »), deux comptages contradictoires. Toute
+                   l'explication (règle du colis, vrac) vit dans l'infobulle. -->
+              <div v-if="previousInventoryLoading" class="sr-values sr-values-loading">
+                {{ t('srBreakdownLoading') }}
+              </div>
+              <div v-else-if="stockOutcomeByItem[item.itemKey]" class="sr-values">
+                <span class="sr-value">
+                  <span class="sr-value-label">{{ t('srBreakdownPredict') }}</span>
+                  <strong class="sr-value-num">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].predictedQuantity ?? item.totalQuantity, item.unit) }}</strong>
+                </span>
+                <span class="sr-value">
+                  <span class="sr-value-label">{{ t('srBreakdownRemaining') }}</span>
+                  <strong class="sr-value-num">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].remainingQuantity, item.unit) }}</strong>
+                </span>
+                <span class="sr-value">
+                  <!-- Manque RÉEL (gap), calculé par PdV puis sommé — jamais la
+                       cible brute : avec 252 en inventaire pour 45 de besoin,
+                       afficher 45 ici se lisait comme une contradiction. -->
+                  <span class="sr-value-label">{{ t('srBreakdownRequired') }}</span>
+                  <strong class="sr-value-num" :class="{ 'sr-value-ok': !(stockOutcomeByItem[item.itemKey].gap > 0) }">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].gap, item.unit) }}</strong>
+                </span>
+                <span class="sr-value sr-value-buy">
+                  <span class="sr-value-label">{{ t('srBreakdownToOrder') }}</span>
+                  <strong class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
+                </span>
+                <v-tooltip location="bottom" max-width="320">
+                  <template #activator="{ props: helpProps }">
+                    <v-icon
+                      v-bind="helpProps"
+                      size="14"
+                      class="sr-values-help"
+                      tabindex="0"
+                      :aria-label="t('srValuesHelpTitle')"
+                    >mdi-information-outline</v-icon>
+                  </template>
+                  <div class="sr-values-help-body">
+                    <p><strong>{{ t('srBreakdownPredict') }}</strong> — {{ t('srHelpPredict') }}</p>
+                    <p><strong>{{ t('srBreakdownRemaining') }}</strong> — {{ t('srHelpRemaining') }}</p>
+                    <p><strong>{{ t('srBreakdownRequired') }}</strong> — {{ t('srHelpRequired') }}</p>
+                    <p><strong>{{ t('srBreakdownToOrder') }}</strong> — {{ t('srHelpToOrder') }}</p>
+                    <p v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-values-help-detail">{{ buyInfoByItem[item.itemKey].sub }}</p>
+                  </div>
+                </v-tooltip>
               </div>
 
             </div>
@@ -543,7 +560,6 @@
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
                     <th>{{ t('srColLooseLeft') }}</th>
-                    <th>{{ t('srColFinalStock') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -564,7 +580,7 @@
                         </li>
                       </ul>
                     </td>
-                    <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
+                    <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
                     <td :data-label="t('srColToDeposit')" class="sr-strong">
                       <!-- Plan chargé : quantité corrigeable (décision 5) — la
@@ -587,17 +603,25 @@
                         >mdi-pencil</v-icon>
                       </span>
                       <template v-else>{{ formatRestockQuantity(row) }}</template>
+                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                        <template #activator="{ props: depositProps }">
+                          <v-icon
+                            v-bind="depositProps"
+                            size="13"
+                            class="sr-deposit-help"
+                            tabindex="0"
+                            :aria-label="t('srDepositHelpTitle')"
+                          >mdi-information-outline</v-icon>
+                        </template>
+                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                      </v-tooltip>
                     </td>
-                    <!-- BUG-296-01 — reste en vrac + stock final prévu. Tiret sur
-                         les plans sauvegardés avant le changement (champs absents). -->
+                    <!-- BUG-296-01 — reste en vrac (le stock final prévu a été
+                         retiré au Lot 4 : doublon exact de cette colonne dès que
+                         le besoin dépasse l'inventaire). Tiret sur les plans
+                         sauvegardés avant le changement (champ absent). -->
                     <td :data-label="t('srColLooseLeft')">
-                      {{ row.surplusLoose == null ? '—' : formatLooseQuantity(row.surplusLoose, row.unit) }}
-                    </td>
-                    <td
-                      :data-label="t('srColFinalStock')"
-                      :class="row.finalStock == null ? '' : (row.finalStock >= 0 ? 'sr-final-ok' : 'sr-final-warn')"
-                    >
-                      {{ row.finalStock == null ? '—' : formatLooseQuantity(row.finalStock, row.unit) }}
+                      {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
                     </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
@@ -635,7 +659,6 @@
                       <th>{{ t('srColRemaining') }}</th>
                       <th>{{ t('srColToDeposit') }}</th>
                       <th>{{ t('srColLooseLeft') }}</th>
-                      <th>{{ t('srColFinalStock') }}</th>
                       <th>{{ t('srColConfirmed') }}</th>
                     </tr>
                   </thead>
@@ -658,7 +681,7 @@
                           </li>
                         </ul>
                       </td>
-                      <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
+                      <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                       <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
                       <td :data-label="t('srColToDeposit')" class="sr-strong">
                       <!-- Plan chargé : quantité corrigeable (décision 5) — la
@@ -681,16 +704,22 @@
                         >mdi-pencil</v-icon>
                       </span>
                       <template v-else>{{ formatRestockQuantity(row) }}</template>
+                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                        <template #activator="{ props: depositProps }">
+                          <v-icon
+                            v-bind="depositProps"
+                            size="13"
+                            class="sr-deposit-help"
+                            tabindex="0"
+                            :aria-label="t('srDepositHelpTitle')"
+                          >mdi-information-outline</v-icon>
+                        </template>
+                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                      </v-tooltip>
                     </td>
                       <!-- BUG-296-01 — reste en vrac + stock final prévu. -->
                       <td :data-label="t('srColLooseLeft')">
-                        {{ row.surplusLoose == null ? '—' : formatLooseQuantity(row.surplusLoose, row.unit) }}
-                      </td>
-                      <td
-                        :data-label="t('srColFinalStock')"
-                        :class="row.finalStock == null ? '' : (row.finalStock >= 0 ? 'sr-final-ok' : 'sr-final-warn')"
-                      >
-                        {{ row.finalStock == null ? '—' : formatLooseQuantity(row.finalStock, row.unit) }}
+                        {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
                       </td>
                       <td :data-label="t('srColConfirmed')">
                         <button
@@ -750,7 +779,6 @@
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
                     <th>{{ t('srColLooseLeft') }}</th>
-                    <th>{{ t('srColFinalStock') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -764,7 +792,7 @@
                       <strong>{{ row.shopName }}</strong>
                       <span>{{ row.eventNames.join(', ') }}</span>
                     </td>
-                    <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
+                    <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
                     <td :data-label="t('srColToDeposit')" class="sr-strong">
                       <!-- Plan chargé : quantité corrigeable (décision 5) — la
@@ -787,17 +815,25 @@
                         >mdi-pencil</v-icon>
                       </span>
                       <template v-else>{{ formatRestockQuantity(row) }}</template>
+                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                        <template #activator="{ props: depositProps }">
+                          <v-icon
+                            v-bind="depositProps"
+                            size="13"
+                            class="sr-deposit-help"
+                            tabindex="0"
+                            :aria-label="t('srDepositHelpTitle')"
+                          >mdi-information-outline</v-icon>
+                        </template>
+                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                      </v-tooltip>
                     </td>
-                    <!-- BUG-296-01 — reste en vrac + stock final prévu. Tiret sur
-                         les plans sauvegardés avant le changement (champs absents). -->
+                    <!-- BUG-296-01 — reste en vrac (le stock final prévu a été
+                         retiré au Lot 4 : doublon exact de cette colonne dès que
+                         le besoin dépasse l'inventaire). Tiret sur les plans
+                         sauvegardés avant le changement (champ absent). -->
                     <td :data-label="t('srColLooseLeft')">
-                      {{ row.surplusLoose == null ? '—' : formatLooseQuantity(row.surplusLoose, row.unit) }}
-                    </td>
-                    <td
-                      :data-label="t('srColFinalStock')"
-                      :class="row.finalStock == null ? '' : (row.finalStock >= 0 ? 'sr-final-ok' : 'sr-final-warn')"
-                    >
-                      {{ row.finalStock == null ? '—' : formatLooseQuantity(row.finalStock, row.unit) }}
+                      {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
                     </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
@@ -1302,6 +1338,8 @@ import {
   computeRestockOutcome,
   aggregateRestockOutcomesByItem,
   coveredQuantityForPackaging,
+  roundForUnit,
+  ceilForUnit,
   deriveSelectedMenuItemsByShop,
   findStockReference,
 } from '@/utils/stockPlanning'
@@ -1397,15 +1435,6 @@ function extractInventoryCounts(payload) {
     values.length > 0 &&
     values.every((shopCounts) => shopCounts && typeof shopCounts === 'object')
   return looksLikeCounts ? payload : {}
-}
-
-function roundForUnit(value, unit) {
-  const q = Number(value) || 0
-  const u = String(unit || '').toLowerCase()
-  if (u === 'pcs' || u === 'pc' || u === 'piece' || u === 'pieces') {
-    return Math.ceil(q)
-  }
-  return Math.round(q * 10) / 10
 }
 
 export default {
@@ -1992,9 +2021,11 @@ export default {
         // Un article conditionné se réarme en colis ENTIERS : la quantité
         // suggérée est la couverture des colis (0,7 kg en paquets de 0,5 kg →
         // 2 paquets → 1 kg). Sans « Inventory Information », arrondi historique.
+        // Lot 4 — sans conditionnement, arrondi au SUPÉRIEUR : `roundForUnit`
+        // ramenait 0,64 kg de manque à 0,6 kg déposé, donc un manque non couvert.
         const restockQuantity = packaging
           ? coveredQuantityForPackaging(packaging)
-          : roundForUnit(rawGap, row.unit)
+          : ceilForUnit(rawGap, row.unit)
         return {
           ...row,
           rowKey: `${row.shopId}|||${row.itemKey}`,
@@ -3778,9 +3809,6 @@ export default {
     adjustedQuantity(quantity, unit, itemKey) {
       return roundForUnit((Number(quantity) || 0) * (this.stockAdjustment(itemKey) / 100), unit)
     },
-    adjustedItemQuantity(item) {
-      return this.adjustedQuantity(item.totalQuantity, item.unit, item.itemKey)
-    },
     packagingForItem(item, quantity) {
       return computePackagingForQuantity(
         item,
@@ -4247,6 +4275,11 @@ export default {
       const n = roundForUnit(quantity, unit)
       return `${n.toLocaleString('fr-FR')} ${unit || ''}`.trim()
     },
+    /** Lot 4 — affichage arrondi au SUPÉRIEUR (à déposer, reste en vrac). */
+    formatCeilQuantity(quantity, unit) {
+      const n = ceilForUnit(quantity, unit)
+      return `${n.toLocaleString('fr-FR')} ${unit || ''}`.trim()
+    },
     /**
      * Lot 3 — rang ACHAT de l'étape 1 : ce qu'on achète RÉELLEMENT, dans
      * l'unité où le fournisseur vend, et le vrac que l'arrondi au colis laisse.
@@ -4297,20 +4330,31 @@ export default {
         unknown: false,
       }
     },
-    formatDisplayQuantity(quantity, unit, itemKey) {
-      const pseudoItem = this.stockSettingsRows.find((row) => row.itemKey === itemKey) ||
-        this.stockRowsRaw.find((row) => row.itemKey === itemKey)
-      const packaging = pseudoItem ? this.packagingForItem(pseudoItem, quantity) : null
-      if (this.isPackedMode(itemKey) && packaging) {
-        return `${packaging.packedCount.toLocaleString('fr-FR')} ${packaging.packagingType} de ${packaging.packagingUnitNumber} ${packaging.packagingUnit}`
-      }
-      return this.formatLooseQuantity(quantity, unit)
+    /**
+     * Lot 5 (JLH) — explication du conditionnement, sur « À déposer » (le seul
+     * endroit où le colis a un sens : la Prévision, elle, reste en unités de
+     * recette). Null si la ligne n'a pas de conditionnement au catalogue.
+     */
+    depositHelp(row) {
+      const p = row && row.packaging
+      if (!p || !p.packedCount) return null
+      // `gap` n'est PAS figé dans le snapshot (freezeRestockLine) : on le dérive
+      // de la cible et du restant, tous deux figés — l'infobulle reste donc juste
+      // sur un plan chargé comme sur un calcul vivant.
+      const gap = Math.max(0, (Number(row.targetQuantity) || 0) - (Number(row.remainingQuantity) || 0))
+      return this.t('srDepositHelpBody')
+        .replace('{pack}', `${p.packagingType} ${this.t('srDepositHelpOf')} ${p.packagingUnitNumber} ${p.packagingUnit}`)
+        .replace('{need}', this.formatLooseQuantity(gap, row.unit))
+        .replace('{count}', p.packedCount.toLocaleString('fr-FR'))
+        .replace('{deposited}', this.formatCeilQuantity(row.restockQuantity, row.unit))
+        .replace('{loose}', this.formatCeilQuantity(row.surplusLoose, row.unit))
     },
     formatRestockQuantity(row) {
+      // Lot 4 — au supérieur : c'est une quantité qu'on dépose physiquement.
       if (this.isPackedMode(row.itemKey) && row.packaging) {
-        return `${row.packaging.packedCount.toLocaleString('fr-FR')} ${row.packaging.packagingType} (${this.formatLooseQuantity(row.restockQuantity, row.unit)})`
+        return `${row.packaging.packedCount.toLocaleString('fr-FR')} ${row.packaging.packagingType} (${this.formatCeilQuantity(row.restockQuantity, row.unit)})`
       }
-      return this.formatLooseQuantity(row.restockQuantity, row.unit)
+      return this.formatCeilQuantity(row.restockQuantity, row.unit)
     },
     formatShoppingQuantity(item) {
       if (this.isPackedMode(item.itemKey) && item.packaging) {
@@ -5441,10 +5485,11 @@ export default {
 
 .sr-setting-row {
   display: grid;
-  /* Lot 3 — 3 pistes = 3 enfants (case, infos, slider) ; cf. override plus bas. */
+  /* Lot 4 — 2 rangs : [case | nom+compo | curseur], puis la ligne de valeurs
+     sur les colonnes 2-3 ; cf. override plus bas. */
   grid-template-columns: 26px minmax(160px, 1fr) minmax(190px, 280px);
-  gap: 14px;
-  align-items: center;
+  gap: 6px 14px;
+  align-items: start;
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -5488,115 +5533,125 @@ export default {
   justify-content: center;
 }
 
-.sr-qty-block {
+/* Lot 4 — les 4 valeurs sur UNE ligne, en rang 2 de la grille (sous le nom et
+   le curseur). Les deux rangs BESOIN/ACHAT du Lot 3 prenaient trop de hauteur ;
+   la sémantique est portée par l'infobulle. */
+.sr-values {
+  grid-column: 2 / -1;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  align-items: baseline;
   flex-wrap: wrap;
-}
-
-.sr-qty-base {
-  color: #94a3b8;
-  font-size: 0.74rem;
-}
-
-.sr-qty-arrow {
-  color: #cbd5e1;
-}
-
-.sr-qty-target {
-  color: #ea580c;
-  font-weight: 750;
-  font-size: 0.82rem;
-}
-
-/* Lot 3 — ventilation étape 1 en DEUX RANGS : le besoin (unité de recette) et
-   l'achat (unité du fournisseur). Grid à colonnes fixes, et non flex-wrap : les
-   valeurs doivent s'aligner verticalement d'une ligne d'article à l'autre. */
-.sr-tiers {
-  display: flex;
-  flex-direction: column;
-  margin-top: 4px;
+  gap: 4px 16px;
+  margin-top: 2px;
+  padding: 6px 10px;
   border: 1px solid var(--sr-border, #e5e7eb);
   border-radius: 8px;
-  overflow: clip;
-}
-
-.sr-tier {
-  display: grid;
-  grid-template-columns: 62px repeat(3, minmax(0, 1fr));
-  align-items: baseline;
-  gap: 2px 10px;
-  padding: 6px 10px;
-}
-
-.sr-tier-buy {
-  grid-template-columns: 62px minmax(0, 1fr);
   background: var(--sr-subtle, #fafafa);
-  border-top: 1px solid var(--sr-border, #e5e7eb);
 }
 
-.sr-tier-label {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--sr-faint, #9ca3af);
-}
-
-.sr-tier-cell {
+.sr-value {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: baseline;
+  gap: 5px;
   min-width: 0;
 }
 
-.sr-tier-cell-label {
+.sr-value-buy {
+  margin-left: auto;
+}
+
+.sr-value-label {
   font-size: 0.6875rem;
   color: var(--sr-muted, #6b7280);
 }
 
-.sr-tier-cell-value {
+.sr-value-num {
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--sr-text, #212121);
   font-variant-numeric: tabular-nums;
 }
 
-.sr-tier-buy .sr-tier-cell-value {
-  font-size: 0.8125rem;
-}
-
-.sr-tier-cell-sub {
-  font-size: 0.6875rem;
-  color: var(--sr-faint, #9ca3af);
-  font-variant-numeric: tabular-nums;
-}
-
-.sr-tier-ok {
+.sr-value-ok {
   color: #16a34a;
 }
 
-.sr-tier-dash {
+.sr-value-dash {
   color: var(--sr-faint, #9ca3af);
   font-weight: 400;
 }
 
-/* Colonne étroite (sidebar 292px puis mobile) : les 3 mesures du rang Besoin
-   ne tiennent plus côte à côte → le libellé de rang passe pleine largeur et
-   les mesures se répartissent sur deux colonnes. */
+/* Lot 5 — bandeau « plusieurs évènements cumulés » du panneau Événements. */
+.sr-multi-event-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 16px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--sr-border, #e5e7eb);
+  border-left: 3px solid var(--sr-primary, #ff3131);
+  border-radius: 8px;
+  background: var(--sr-subtle, #fafafa);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--sr-muted, #6b7280);
+}
+
+.sr-multi-event-btn {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--sr-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--sr-surface, #fff);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--sr-text, #212121);
+  cursor: pointer;
+}
+
+.sr-multi-event-btn:hover {
+  border-color: var(--sr-primary, #ff3131);
+  color: var(--sr-primary, #ff3131);
+}
+
+.sr-values-loading {
+  font-style: italic;
+  color: var(--sr-faint, #9ca3af);
+  font-size: 0.72rem;
+}
+
+.sr-values-help,
+.sr-deposit-help {
+  color: var(--sr-faint, #9ca3af);
+  cursor: help;
+}
+
+/* L'icône suit la valeur « À déposer » dans la cellule, sans la pousser. */
+.sr-deposit-help {
+  margin-left: 4px;
+  vertical-align: baseline;
+}
+
+.sr-values-help-body p {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.sr-values-help-body p:last-child {
+  margin-bottom: 0;
+}
+
+.sr-values-help-detail {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Colonne étroite : « À commander » repasse dans le flux au lieu d'être poussé
+   à droite, sinon il se retrouve seul sur sa ligne. */
 @media (max-width: 1400px) {
-  .sr-tier {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .sr-tier-buy {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sr-tier-label {
-    grid-column: 1 / -1;
+  .sr-value-buy {
+    margin-left: 0;
   }
 }
 
@@ -5607,14 +5662,6 @@ export default {
   margin-top: 4px;
   font-size: 0.72rem;
   color: #94a3b8;
-}
-
-.sr-final-ok {
-  color: #16a34a;
-}
-
-.sr-final-warn {
-  color: #dc2626;
 }
 
 .sr-breakdown-loading {
@@ -5948,7 +5995,8 @@ export default {
   }
 
   .sr-setting-info,
-  .sr-slider-wrap {
+  .sr-slider-wrap,
+  .sr-values {
     grid-column: 2;
   }
 
@@ -6422,11 +6470,12 @@ export default {
 }
 
 .sr-setting-row {
-  /* Lot 3 — 3 pistes pour 3 enfants réels (case, infos, slider). La 4e piste
-     de 78px n'a jamais eu d'enfant : elle mangeait 78px + un gap à droite de
-     chaque ligne, au détriment du bloc de valeurs. */
+  /* Lot 4 — 2 rangs : [case | nom+compo | curseur] puis la ligne de valeurs
+     étalée sur les colonnes 2-3. La 4e piste de 78px du Lot 2 n'avait aucun
+     enfant : elle mangeait 78px + un gap à droite de chaque ligne. */
   grid-template-columns: 24px minmax(260px, 1fr) minmax(220px, 260px);
-  gap: 12px;
+  gap: 6px 12px;
+  align-items: start;
   min-height: 68px;
   padding: 9px 12px;
   border-radius: 10px;
@@ -6497,15 +6546,6 @@ export default {
   font-style: normal;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-}
-
-.sr-qty-block {
-  margin-top: 2px;
-}
-
-.sr-qty-base,
-.sr-qty-target {
-  font-size: 11px;
 }
 
 .sr-slider-label {
@@ -6762,7 +6802,8 @@ export default {
   }
 
   .sr-setting-info,
-  .sr-slider-wrap {
+  .sr-slider-wrap,
+  .sr-values {
     grid-column: 2;
   }
 
@@ -7208,24 +7249,15 @@ export default {
 .v-theme--dataFridayDark .space-restock-view .sr-wizard-nav-hint {
   color: #fcd34d;
 }
-.v-theme--dataFridayDark .space-restock-view .sr-qty-target {
-  color: #fdba74;
-}
 /* BUG-296-01 puis Lot 3 — ventilation étape 1 : valeurs lisibles sur fond
    sombre, verts/rouges éclaircis (parité méthode BUG-197). Les libellés et
    fonds des rangs suivent les tokens --sr-* (redéfinis en dark via --fb-*) ;
    seules les couleurs codées en dur sont reprises ici. */
-.v-theme--dataFridayDark .space-restock-view .sr-tier-cell-value {
+.v-theme--dataFridayDark .space-restock-view .sr-value-num {
   color: #cbd5e1;
 }
-.v-theme--dataFridayDark .space-restock-view .sr-tier-ok {
+.v-theme--dataFridayDark .space-restock-view .sr-value-ok {
   color: #86efac;
-}
-.v-theme--dataFridayDark .space-restock-view .sr-final-ok {
-  color: #86efac;
-}
-.v-theme--dataFridayDark .space-restock-view .sr-final-warn {
-  color: #fca5a5;
 }
 .v-theme--dataFridayDark .space-restock-view .sr-collapse-icon {
   color: #94a3b8;
