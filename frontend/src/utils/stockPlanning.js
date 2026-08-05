@@ -574,6 +574,8 @@ export function computeRestockOutcome({ targetQuantity, remainingQuantity, resto
  * `packedCount` reste null si aucune ligne ne porte de packaging ; les
  * métadonnées de colis (type, taille) viennent du premier packaging non nul
  * (la taille est définie au catalogue, identique entre PDV).
+ * Lot 2 — `predictedQuantity` : besoin prédit BRUT (Σ `totalQuantity`, AVANT le
+ * slider % d'ajustement), distinct de `targetQuantity` (cible ajustée).
  */
 export function aggregateRestockOutcomesByItem(rows = []) {
   const byItem = {}
@@ -583,6 +585,7 @@ export function aggregateRestockOutcomesByItem(rows = []) {
     const entry = byItem[row.itemKey] || (byItem[row.itemKey] = {
       itemKey: row.itemKey,
       unit: row.unit ?? null,
+      predictedQuantity: 0,
       targetQuantity: 0,
       remainingQuantity: 0,
       gap: 0,
@@ -595,6 +598,7 @@ export function aggregateRestockOutcomesByItem(rows = []) {
       packagingUnit: null,
       shopCount: 0,
     })
+    entry.predictedQuantity += toNumber(row.totalQuantity)
     entry.targetQuantity += toNumber(row.targetQuantity)
     entry.remainingQuantity += toNumber(row.remainingQuantity)
     entry.gap += outcome.gap

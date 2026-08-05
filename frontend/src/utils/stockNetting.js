@@ -77,3 +77,23 @@ export function consumeFromPool(item, pool) {
 export function preparePool(entries) {
   return (entries || []).map((e) => ({ ...e, remaining: e.qty, matched: false }))
 }
+
+/**
+ * Lot 2 — « À commander » au grain ARTICLE (étape 1 du Réarmement) :
+ * buy = max(0, besoin − Storage), même formule et même `consumeFromPool` que le
+ * netting produits finis de la feuille de course (étape 3). `items` porte
+ * l'identité de matching ({ itemKey, itemId, sourceId, itemName, unit }) et le
+ * besoin net des shops dans `need` ; le trier comme l'étape 3 (itemName) pour
+ * que les cas limites de consommation partagée tombent du même côté.
+ * ⚠️ Mute le pool passé — préparer un pool DÉDIÉ via `preparePool`.
+ * @returns {Record<string, number>} itemKey → quantité à commander
+ */
+export function orderQuantitiesByItemKey(items = [], pool = []) {
+  const map = {}
+  for (const item of items) {
+    if (!item || item.itemKey == null) continue
+    const storageOnHand = consumeFromPool(item, pool)
+    map[item.itemKey] = Math.max(0, (Number(item.need) || 0) - storageOnHand)
+  }
+  return map
+}

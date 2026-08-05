@@ -66,20 +66,23 @@ describe('BUG-296-01 — aggregateRestockOutcomesByItem', () => {
 
   it('2 PDV même article : arrondi par PDV avant somme (règle 295-01)', () => {
     // Chaque PDV manque de 0,7 kg → 2 paquets de 0,5 kg chacun (1 kg couvert).
+    // Lot 2 : totalQuantity = besoin BRUT avant slider % (ici 0,5/PDV, cible
+    // ajustée à 0,7) → predictedQuantity distincte de targetQuantity.
     const rows = [
       {
         itemKey: 'farine', unit: 'kg', shopId: 's1',
-        targetQuantity: 0.7, remainingQuantity: 0, restockQuantity: 1,
+        totalQuantity: 0.5, targetQuantity: 0.7, remainingQuantity: 0, restockQuantity: 1,
         packaging,
       },
       {
         itemKey: 'farine', unit: 'kg', shopId: 's2',
-        targetQuantity: 0.7, remainingQuantity: 0, restockQuantity: 1,
+        totalQuantity: 0.5, targetQuantity: 0.7, remainingQuantity: 0, restockQuantity: 1,
         packaging,
       },
     ]
     const byItem = aggregateRestockOutcomesByItem(rows)
     const farine = byItem['farine']
+    expect(farine.predictedQuantity).toBeCloseTo(1)
     expect(farine.targetQuantity).toBeCloseTo(1.4)
     expect(farine.gap).toBeCloseTo(1.4)
     expect(farine.coveredQuantity).toBe(2)
@@ -101,6 +104,8 @@ describe('BUG-296-01 — aggregateRestockOutcomesByItem', () => {
     ]
     const byItem = aggregateRestockOutcomesByItem(rows)
     expect(byItem['citron'].packedCount).toBeNull()
+    // Lot 2 — ligne sans totalQuantity (photo legacy) → predictedQuantity 0.
+    expect(byItem['citron'].predictedQuantity).toBe(0)
     expect(byItem['citron'].gap).toBe(3)
     expect(byItem['citron'].coveredQuantity).toBe(3)
     expect(byItem['citron'].surplusLoose).toBe(0)

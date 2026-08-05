@@ -45,10 +45,12 @@
           :loading="plansLoading"
           :active-plan-id="loadedPlanId"
           :can-write="canWritePlans"
+          :error="plansError"
           @load="loadPlan"
           @rename="renamePlan"
           @duplicate="duplicatePlanAction"
           @delete="deletePlanAction"
+          @retry="refreshPlans"
         />
         <v-card variant="outlined" class="sr-panel">
           <header class="sr-panel-head">
@@ -339,51 +341,42 @@
                     {{ t('srTargetLabel') }} {{ formatDisplayQuantity(adjustedItemQuantity(item), item.unit, item.itemKey) }}
                   </span>
                 </div>
-                <!-- BUG-296-01 — ventilation besoin/restant/manque dès l'étape 1,
-                     avec paquets suggérés, reste en vrac et stock final prévu. -->
+                <!-- Lot 2 (JLH) — 4 colonnes : Predict (besoin brut, avant slider %) /
+                     Remaining stock / Cible à atteindre (ajustée) / À commander
+                     (= besoin net des shops − Storage, cf. stockOrderByItem — même
+                     netting que la feuille de course étape 3). -->
                 <div v-if="previousInventoryLoading" class="sr-breakdown sr-breakdown-loading">
                   {{ t('srBreakdownLoading') }}
                 </div>
-                <div v-else-if="stockOutcomeByItem[item.itemKey]" class="sr-breakdown">
-                  <span class="sr-breakdown-part">
-                    {{ t('srBreakdownRemaining') }}
-                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].remainingQuantity, item.unit) }}</strong>
-                  </span>
-                  <span class="sr-breakdown-part">
-                    {{ t('srBreakdownGap') }}
-                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].gap, item.unit) }}</strong>
-                  </span>
-                  <span
-                    v-if="stockOutcomeByItem[item.itemKey].packedCount != null"
-                    class="sr-breakdown-part"
-                  >
-                    {{ t('srBreakdownPacks') }}
-                    <strong>
-                      {{ stockOutcomeByItem[item.itemKey].packedCount.toLocaleString('fr-FR') }}
-                      {{ stockOutcomeByItem[item.itemKey].packagingType }}
-                      <template v-if="stockOutcomeByItem[item.itemKey].packagingUnitNumber">
-                        ({{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].packagingUnitNumber, stockOutcomeByItem[item.itemKey].packagingUnit) }})
-                      </template>
-                    </strong>
-                  </span>
-                  <span class="sr-breakdown-part">
-                    {{ t('srBreakdownCovered') }}
-                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].coveredQuantity, item.unit) }}</strong>
-                  </span>
-                  <span
-                    v-if="stockOutcomeByItem[item.itemKey].surplusLoose > 0"
-                    class="sr-breakdown-part"
-                  >
-                    {{ t('srColLooseLeft') }}
-                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].surplusLoose, item.unit) }}</strong>
-                  </span>
-                  <span
-                    class="sr-breakdown-part"
-                    :class="stockOutcomeByItem[item.itemKey].finalStock >= 0 ? 'sr-breakdown-ok' : 'sr-breakdown-warn'"
-                  >
-                    {{ t('srColFinalStock') }}
-                    <strong>{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].finalStock, item.unit) }}</strong>
-                  </span>
+                <div v-else-if="stockOutcomeByItem[item.itemKey]" class="sr-tiers">
+                  <!-- Rang BESOIN — unité de recette : ce qu'il faut vraiment. -->
+                  <div class="sr-tier">
+                    <span class="sr-tier-label">{{ t('srTierNeed') }}</span>
+                    <span class="sr-tier-cell">
+                      <span class="sr-tier-cell-label">{{ t('srBreakdownPredict') }}</span>
+                      <strong class="sr-tier-cell-value">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].predictedQuantity ?? item.totalQuantity, item.unit) }}</strong>
+                    </span>
+                    <span class="sr-tier-cell">
+                      <span class="sr-tier-cell-label">{{ t('srBreakdownRemaining') }}</span>
+                      <strong class="sr-tier-cell-value">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].remainingQuantity, item.unit) }}</strong>
+                    </span>
+                    <span class="sr-tier-cell">
+                      <span class="sr-tier-cell-label">{{ t('srBreakdownRequired') }}</span>
+                      <strong class="sr-tier-cell-value" :class="{ 'sr-tier-ok': (buyInfoByItem[item.itemKey] || {}).covered }">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].targetQuantity, item.unit) }}</strong>
+                    </span>
+                  </div>
+                  <!-- Rang ACHAT — unité d'ACHAT : ce que le fournisseur vend
+                       réellement. Un besoin de 3 pc sur un article vendu par
+                       sachet de 50 donne 1 sachet, et 47 pc en vrac : c'est ce
+                       saut d'unité que la rangée unique n'expliquait pas. -->
+                  <div class="sr-tier sr-tier-buy">
+                    <span class="sr-tier-label">{{ t('srTierBuy') }}</span>
+                    <span class="sr-tier-cell">
+                      <span class="sr-tier-cell-label">{{ t('srBreakdownToOrder') }}</span>
+                      <strong class="sr-tier-cell-value" :class="{ 'sr-tier-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-tier-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
+                      <span v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-tier-cell-sub">{{ buyInfoByItem[item.itemKey].sub }}</span>
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -1340,7 +1333,7 @@ import { findBestMatch } from '@/utils/menuItemMatching'
 // Formule de restant compté partagée avec useShoppingList (Règle 3) — source unique.
 import { countedRemaining } from '@/utils/shoppingList'
 // Netting stock ↔ feuille de course (cascade de matching + pool consommable).
-import { consumeFromPool, preparePool } from '@/utils/stockNetting'
+import { consumeFromPool, preparePool, orderQuantitiesByItemKey } from '@/utils/stockNetting'
 // DB locale (localStorage) — persiste l'état réarmement sans backend.
 import * as localDb from '@/data/localDb'
 import {
@@ -1433,6 +1426,7 @@ export default {
       plans: plansApi.plans,
       plansLoading: plansApi.loading,
       plansAvailable: plansApi.available,
+      plansError: plansApi.error,
     }
   },
   data() {
@@ -2025,8 +2019,10 @@ export default {
       )
     },
     /**
-     * BUG-296-01 — ventilation grain ARTICLE pour l'étape 1 :
-     * besoin / restant / manque / paquets / couvert / vrac / stock final.
+     * BUG-296-01, réduit au Lot 2 — agrégat grain ARTICLE pour l'étape 1.
+     * L'affichage n'en lit plus que predictedQuantity / remainingQuantity /
+     * targetQuantity (les autres champs restent calculés : étape 2 et snapshot
+     * de plan les consomment toujours).
      * Plan chargé : valeurs FIGÉES des stockLines (absentes sur les plans
      * sauvegardés avant le changement → bloc masqué) ; sinon agrégat vivant.
      */
@@ -2039,6 +2035,51 @@ export default {
         return byItem
       }
       return aggregateRestockOutcomesByItem(this.liveRestockRowsAll)
+    },
+    /**
+     * Lot 2 — « À commander » par article (étape 1) : max(0, besoin net des
+     * shops − Storage), netting par IDs (BUG-299-01) sur un pool DÉDIÉ
+     * (`preparePool` clone les entrées — aucune interférence avec
+     * `nettedShopping`). Toujours au grain article, quel que soit
+     * `shoppingMode` : en produits finis (recherche étape 3 vide), identique au
+     * `buyQuantity` de la feuille de course ; en ingrédients, lecture
+     * « article » du même besoin (l'étape 3, elle, nette au grain ingrédient).
+     * `need` = coveredQuantity de l'agrégat (Σ restockQuantity, arrondie en
+     * colis par PDV) — même grandeur que `item.quantity` à l'étape 3.
+     * Tri par itemName = ordre de consommation de l'étape 3 : si deux articles
+     * matchent la même entrée Storage (consumeFromPool consomme tout), le cas
+     * limite tombe du même côté. Article décoché → absent de la map → « — ».
+     * Plan chargé → null (la photo ne porte pas de buyQuantity par article).
+     * Coût O(articles × entrées Storage), mémoïsé — le template ne fait que
+     * des lookups O(1), jamais de netting dans la boucle v-for.
+     */
+    /**
+     * Lot 3 — rang ACHAT prêt à afficher, pour la PAGE COURANTE seulement.
+     * Mémoïsé : le template lit 5 champs par ligne, et `buyInfo` résout un
+     * packaging (parcours des catalogues) — l'appeler depuis le template le
+     * referait à chaque lecture et à chaque re-render.
+     */
+    buyInfoByItem() {
+      const out = {}
+      for (const item of this.pagedStockSettingsRows) out[item.itemKey] = this.buyInfo(item)
+      return out
+    },
+    stockOrderByItem() {
+      if (this.loadedPlan) return null
+      const outcomes = this.stockOutcomeByItem
+      const items = this.liveStockSettingsRows
+        .filter((row) => !this.stockExcluded[row.itemKey])
+        .map((row) => ({
+          itemKey: row.itemKey,
+          itemId: row.itemId,
+          sourceId: row.sourceId,
+          itemName: row.itemName,
+          unit: row.unit,
+          need: outcomes[row.itemKey]?.coveredQuantity ?? 0,
+        }))
+        .sort((a, b) => String(a.itemName).localeCompare(String(b.itemName)))
+      const storagePool = preparePool(this.aggregateCountsForElements(this.storageElementIds))
+      return orderQuantitiesByItemKey(items, storagePool)
     },
     /**
      * Étape 2 affichée : PHOTO du plan (avec corrections « À déposer »
@@ -2993,6 +3034,15 @@ export default {
       } catch (err) {
         this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
       }
+    },
+    /**
+     * Lot 3 — retry explicite après un échec de chargement de la liste (réseau
+     * coupé / 5xx). Le composable ne retente jamais tout seul : sans ce bouton,
+     * l'échec restait définitif jusqu'au prochain changement d'espace.
+     */
+    refreshPlans() {
+      const spaceId = this.route.params?.spaceId
+      if (spaceId) this.plansApi.refresh(spaceId)
     },
     async duplicatePlanAction(planId) {
       try {
@@ -4197,6 +4247,56 @@ export default {
       const n = roundForUnit(quantity, unit)
       return `${n.toLocaleString('fr-FR')} ${unit || ''}`.trim()
     },
+    /**
+     * Lot 3 — rang ACHAT de l'étape 1 : ce qu'on achète RÉELLEMENT, dans
+     * l'unité où le fournisseur vend, et le vrac que l'arrondi au colis laisse.
+     *
+     * Règle métier (JLH) : besoin de 3 pains, article vendu par sachet de 50 →
+     * on commande 1 sachet, il reste 47 en vrac. Les trois mesures du rang
+     * BESOIN disent « voilà ton vrai besoin », celle-ci dit « voilà ce que tu
+     * vas réellement acheter ». Un colis qui paraît faux vient d'une quantité
+     * par colis erronée sur la FICHE PRODUIT — jamais d'un ajustement ici.
+     *
+     * @returns {{main: string, sub: string, covered: boolean, unknown: boolean}}
+     */
+    buyInfo(item) {
+      const order = this.stockOrderByItem ? this.stockOrderByItem[item.itemKey] : undefined
+      // Plan chargé (photo sans quantité d'achat) ou article décoché.
+      if (order == null) {
+        return { main: '—', sub: '', covered: false, unknown: true }
+      }
+      if (!(order > 0)) {
+        return {
+          main: this.t('srBuyNothing'),
+          sub: this.t('srBuyNothingHint'),
+          covered: true,
+          unknown: false,
+        }
+      }
+      const packaging = this.packagingForItem(item, order)
+      if (!packaging) {
+        // Pas de conditionnement au catalogue : on commande en vrac et on le
+        // DIT, pour que le trou soit corrigé dans la fiche produit.
+        return {
+          main: this.formatLooseQuantity(order, item.unit),
+          sub: this.t('srBuyNoPackaging'),
+          covered: false,
+          unknown: false,
+        }
+      }
+      const covered = coveredQuantityForPackaging(packaging)
+      const loose = Math.max(0, roundForUnit(covered - order, item.unit))
+      const parts = [`= ${this.formatLooseQuantity(covered, item.unit)}`]
+      if (loose > 0) {
+        parts.push(`${this.formatLooseQuantity(loose, item.unit)} ${this.t('srBuyLooseAfter')}`)
+      }
+      return {
+        main: `${packaging.packedCount.toLocaleString('fr-FR')} ${packaging.packagingType} de ${packaging.packagingUnitNumber} ${packaging.packagingUnit}`,
+        sub: parts.join(' · '),
+        covered: false,
+        unknown: false,
+      }
+    },
     formatDisplayQuantity(quantity, unit, itemKey) {
       const pseudoItem = this.stockSettingsRows.find((row) => row.itemKey === itemKey) ||
         this.stockRowsRaw.find((row) => row.itemKey === itemKey)
@@ -5341,7 +5441,8 @@ export default {
 
 .sr-setting-row {
   display: grid;
-  grid-template-columns: 26px minmax(160px, 1fr) minmax(190px, 280px) auto;
+  /* Lot 3 — 3 pistes = 3 enfants (case, infos, slider) ; cf. override plus bas. */
+  grid-template-columns: 26px minmax(160px, 1fr) minmax(190px, 280px);
   gap: 14px;
   align-items: center;
   padding: 12px;
@@ -5410,8 +5511,95 @@ export default {
   font-size: 0.82rem;
 }
 
-/* BUG-296-01 — ventilation étape 1 (restant / manque / paquets / couvert /
-   vrac / stock final). */
+/* Lot 3 — ventilation étape 1 en DEUX RANGS : le besoin (unité de recette) et
+   l'achat (unité du fournisseur). Grid à colonnes fixes, et non flex-wrap : les
+   valeurs doivent s'aligner verticalement d'une ligne d'article à l'autre. */
+.sr-tiers {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  border: 1px solid var(--sr-border, #e5e7eb);
+  border-radius: 8px;
+  overflow: clip;
+}
+
+.sr-tier {
+  display: grid;
+  grid-template-columns: 62px repeat(3, minmax(0, 1fr));
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 6px 10px;
+}
+
+.sr-tier-buy {
+  grid-template-columns: 62px minmax(0, 1fr);
+  background: var(--sr-subtle, #fafafa);
+  border-top: 1px solid var(--sr-border, #e5e7eb);
+}
+
+.sr-tier-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sr-faint, #9ca3af);
+}
+
+.sr-tier-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sr-tier-cell-label {
+  font-size: 0.6875rem;
+  color: var(--sr-muted, #6b7280);
+}
+
+.sr-tier-cell-value {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--sr-text, #212121);
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-tier-buy .sr-tier-cell-value {
+  font-size: 0.8125rem;
+}
+
+.sr-tier-cell-sub {
+  font-size: 0.6875rem;
+  color: var(--sr-faint, #9ca3af);
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-tier-ok {
+  color: #16a34a;
+}
+
+.sr-tier-dash {
+  color: var(--sr-faint, #9ca3af);
+  font-weight: 400;
+}
+
+/* Colonne étroite (sidebar 292px puis mobile) : les 3 mesures du rang Besoin
+   ne tiennent plus côte à côte → le libellé de rang passe pleine largeur et
+   les mesures se répartissent sur deux colonnes. */
+@media (max-width: 1400px) {
+  .sr-tier {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sr-tier-buy {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sr-tier-label {
+    grid-column: 1 / -1;
+  }
+}
+
 .sr-breakdown {
   display: flex;
   flex-wrap: wrap;
@@ -5421,17 +5609,10 @@ export default {
   color: #94a3b8;
 }
 
-.sr-breakdown-part strong {
-  color: #475569;
-  font-weight: 700;
-}
-
-.sr-breakdown-ok strong,
 .sr-final-ok {
   color: #16a34a;
 }
 
-.sr-breakdown-warn strong,
 .sr-final-warn {
   color: #dc2626;
 }
@@ -6241,7 +6422,10 @@ export default {
 }
 
 .sr-setting-row {
-  grid-template-columns: 24px minmax(260px, 1fr) minmax(220px, 260px) 78px;
+  /* Lot 3 — 3 pistes pour 3 enfants réels (case, infos, slider). La 4e piste
+     de 78px n'a jamais eu d'enfant : elle mangeait 78px + un gap à droite de
+     chaque ligne, au détriment du bloc de valeurs. */
+  grid-template-columns: 24px minmax(260px, 1fr) minmax(220px, 260px);
   gap: 12px;
   min-height: 68px;
   padding: 9px 12px;
@@ -7027,16 +7211,19 @@ export default {
 .v-theme--dataFridayDark .space-restock-view .sr-qty-target {
   color: #fdba74;
 }
-/* BUG-296-01 — ventilation étape 1 : valeurs lisibles sur fond sombre,
-   verts/rouges éclaircis (parité méthode BUG-197). */
-.v-theme--dataFridayDark .space-restock-view .sr-breakdown-part strong {
+/* BUG-296-01 puis Lot 3 — ventilation étape 1 : valeurs lisibles sur fond
+   sombre, verts/rouges éclaircis (parité méthode BUG-197). Les libellés et
+   fonds des rangs suivent les tokens --sr-* (redéfinis en dark via --fb-*) ;
+   seules les couleurs codées en dur sont reprises ici. */
+.v-theme--dataFridayDark .space-restock-view .sr-tier-cell-value {
   color: #cbd5e1;
 }
-.v-theme--dataFridayDark .space-restock-view .sr-breakdown-ok strong,
+.v-theme--dataFridayDark .space-restock-view .sr-tier-ok {
+  color: #86efac;
+}
 .v-theme--dataFridayDark .space-restock-view .sr-final-ok {
   color: #86efac;
 }
-.v-theme--dataFridayDark .space-restock-view .sr-breakdown-warn strong,
 .v-theme--dataFridayDark .space-restock-view .sr-final-warn {
   color: #fca5a5;
 }

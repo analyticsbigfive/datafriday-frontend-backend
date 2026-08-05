@@ -1,5 +1,14 @@
 # BUG-296-01 — Réarmement : ventilation besoin/restant/manque invisible à l'étape 1, stock final et reste en vrac non calculés
 
+> **Mise à jour 2026-08-04 (Lot 2, JLH)** : l'AFFICHAGE étape 1 introduit par cette fiche
+> (Restant / Manque / Paquets / Quantité couverte / Reste en vrac / Stock final) a été remplacé
+> par 4 colonnes — Prédit / Inventaire restant / Cible à atteindre / À commander (« À
+> commander » = besoin net des shops − Storage, même netting que la feuille de course, cf.
+> `stockOrderByItem` et `orderQuantitiesByItemKey`). Les clés i18n `srBreakdownGap` /
+> `srBreakdownPacks` / `srBreakdownCovered` ont été supprimées. Les CALCULS de cette fiche
+> (`computeRestockOutcome`, `aggregateRestockOutcomesByItem`, snapshot, colonnes étape 2)
+> restent en place et inchangés.
+
 - **Statut** : 🟡 Corrigé non déployé (2026-08-04)
 - **Sévérité** : 🟠 Majeur (réunion du 2026-08-04 — test live Bertrand le 2026-08-05)
 - **Domaine** : Stock (Réarmement / SpaceRestockView)
