@@ -184,7 +184,12 @@ Par PDV (CA = CA prédit du shop, catégorie = type de PDV Beverage/Kitchen food
   EPR si Front Food (dinettes/hot-dogs)
 - Responsable de zone = ROUNDUP(staff front total/15) — niveau espace
 - Alertes productivité front : > 2 500 €/pers = sous-effectif, < 1 000 = sureffectif
-- Horaires suggérés : ouverture des portes − 2 h → heure de fin + 2 h ; coût prédit = Σ staff × taux × heures
+- Horaires suggérés : ouverture des portes − 2 h → heure de fin + 2 h ; coût prédit = Σ staff × taux × heures.
+  L'heure d'ouverture réelle vient de `Event.sessions[0].doorsOpening` (Session 1) et l'heure de
+  fin de `Event.eventEndTime` (repli sur le `showTime` de la dernière session) — `eventStartDate`/
+  `eventEndDate`/`eventDate` ne portent qu'un jour calendaire (minuit, sans heure) et ne suffisent
+  pas seuls. Ces heures locales sont converties en UTC via `Space.timezone` (défaut Europe/Paris,
+  même convention que BUG-270).
 
 Prérequis données identifiés (absents du schéma actuel) : catégorie RH par shop (l'enum
 `ShopType` food/beverages/beer/merch ne correspond pas), agences staffing, employés + contrats,
