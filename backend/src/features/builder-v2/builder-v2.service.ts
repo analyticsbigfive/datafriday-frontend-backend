@@ -17,16 +17,22 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { StaffingCalculatorService } from '../staffing/staffing-calculator.service';
+import { detectFnbTags } from '../staffing/fnb-tags.util';
 import {
   CreateZoneDto, UpdateZoneDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto,
-  PutInventoryDto, CreateConfigurationDto,
+  PutInventoryDto, CreateConfigurationDto, PutMenuItemSalesInputDto,
 } from './dto/builder-v2.dto';
 
-// Les 8 types d'outil du front + les valeurs enum déjà valides passent tels quels.
+// CFG-2 Étape 2 : les 8 départements canoniques sont désormais résolus dynamiquement contre la
+// table `Department` (voir mapType() ci-dessous) — cette carte ne couvre plus QUE les 11 valeurs
+// legacy qui ne sont pas (encore, cf. Étape 3) des lignes Department : les 5 sous-cas F&B
+// aplatis pré-`subtypes[]` (fnb_food/fnb_beverages/fnb_bar/fnb_snack/fnb_icecream) et les 6
+// valeurs apparemment mortes de l'ex-enum (seating/stage/parking/restroom/office/other — stage et
+// parking sont en réalité des SOUS-types Builder aujourd'hui, pas des types racine ; vérifié
+// sans référence vivante hors table de correspondance lors de l'audit CFG-2 Étape 0).
 const TOOL_TYPE_MAP: Record<string, string> = {
-  shop: 'shop', hospitality: 'hospitality', merchshop: 'merchshop', storage: 'storage',
-  entrance: 'entrance', entertainment: 'entertainment', access: 'access', kitchen: 'kitchen',
   fnb_food: 'fnb_food', fnb_beverages: 'fnb_beverages', fnb_bar: 'fnb_bar',
   fnb_snack: 'fnb_snack', fnb_icecream: 'fnb_icecream', seating: 'seating', stage: 'stage',
   parking: 'parking', restroom: 'restroom', office: 'office', other: 'other',
@@ -38,6 +44,7 @@ export class BuilderV2Service {
     private readonly prisma: PrismaService,
     private readonly spacesService: SpacesService,
     private readonly storage: SupabaseStorageService,
+    private readonly staffingCalculator: StaffingCalculatorService,
   ) {}
 
   // ─── Garde-fous tenant (par jointure) ──────────────────────────────────────
@@ -78,8 +85,14 @@ export class BuilderV2Service {
     return config;
   }
 
-  private mapType(type: string): any {
+  // CFG-2 Étape 2 : résout d'abord contre `Department` (les 8 codes historiques + tout
+  // département créé par le super-admin, par code OU id — un client peut passer l'un ou
+  // l'autre), puis retombe sur la carte legacy (11 valeurs hors périmètre Department, cf. plus
+  // haut), puis 'other'. Devenue async (lookup DB) — seul appelant : createElement().
+  private async mapType(type: string): Promise<string> {
     const key = String(type || '').toLowerCase().replace(/-/g, '_');
+    const dept = await this.prisma.department.findFirst({ where: { OR: [{ code: key }, { id: type }] } });
+    if (dept) return dept.code ?? dept.id;
     return TOOL_TYPE_MAP[key] || TOOL_TYPE_MAP[String(type || '').toLowerCase()] || 'other';
   }
 
@@ -127,6 +140,7 @@ export class BuilderV2Service {
       ),
       staffByConfig: this.groupByConfig(el.staffPositions, (s: any) => ({
         id: s.id, position: s.position, count: s.count, hourlyRate: s.hourlyRate,
+        roleId: s.roleId, source: s.source,
       })),
       inventoryByConfig: this.groupByConfig(el.inventoryItems, (i: any) => ({
         id: i.id, name: i.name, quantity: i.quantity, unit: i.unit,
@@ -228,7 +242,7 @@ export class BuilderV2Service {
               'staffByConfig', COALESCE((
                 SELECT json_object_agg(g.cfg, g.rows) FROM (
                   SELECT COALESCE(st."configId", '') AS cfg,
-                         json_agg(json_build_object('id', st.id, 'position', st.position, 'count', st.count, 'hourlyRate', st."hourlyRate")) AS rows
+                         json_agg(json_build_object('id', st.id, 'position', st.position, 'count', st.count, 'hourlyRate', st."hourlyRate", 'roleId', st."roleId", 'source', st.source)) AS rows
                   FROM "ElementStaff" st WHERE st."elementId" = se.id GROUP BY 1
                 ) g
               ), '{}'::json),
@@ -605,7 +619,7 @@ export class BuilderV2Service {
       data: {
         zoneId,
         name: dto.name,
-        type: this.mapType(dto.type),
+        type: await this.mapType(dto.type),
         subtypes: dto.subtypes || [],
         x: dto.x,
         y: dto.y,
@@ -788,6 +802,7 @@ export class BuilderV2Service {
               createMany: {
                 data: source.staffPositions.map((s) => ({
                   configId: s.configId, position: s.position, count: s.count, hourlyRate: s.hourlyRate,
+                  roleId: s.roleId, source: s.source,
                 })),
               },
             }
@@ -911,6 +926,7 @@ export class BuilderV2Service {
               data: dto.staff.map((s) => ({
                 elementId, configId: targetConfigId,
                 position: s.position, count: s.count, hourlyRate: s.hourlyRate ?? null,
+                roleId: s.roleId ?? null, source: s.source ?? 'MANUAL',
               })),
             }),
           ]
@@ -918,6 +934,138 @@ export class BuilderV2Service {
     ]);
     await this.invalidate(tenantId, element.zone!.spaceId);
     return this.prisma.elementStaff.findMany({ where: { elementId, configId: targetConfigId } });
+  }
+
+  /**
+   * Saisie manuelle "vendu/prévu" par Menu Item pour ce shop, scopée par config (événement) —
+   * 11_RH_STAFFING.md §11.16. Même patron delete+recreate que putStaff().
+   */
+  async getMenuItemSalesInput(elementId: string, tenantId: string, configId?: string) {
+    await this.getElementOrThrow(elementId, tenantId);
+    const targetConfigId = await this.resolveElementConfigId(elementId, configId);
+    return this.prisma.elementMenuItemSalesInput.findMany({ where: { elementId, configId: targetConfigId } });
+  }
+
+  async putMenuItemSalesInput(elementId: string, tenantId: string, dto: PutMenuItemSalesInputDto, configId?: string) {
+    const element = await this.getElementOrThrow(elementId, tenantId);
+    const targetConfigId = await this.resolveElementConfigId(elementId, configId);
+    await this.prisma.$transaction([
+      this.prisma.elementMenuItemSalesInput.deleteMany({ where: { elementId, configId: targetConfigId } }),
+      ...(dto.rows.length
+        ? [
+            this.prisma.elementMenuItemSalesInput.createMany({
+              data: dto.rows.map((r) => ({
+                tenantId, elementId, configId: targetConfigId, menuItemId: r.menuItemId,
+                quantity: r.quantity ?? null, revenueHt: r.revenueHt ?? null, source: 'MANUAL',
+              })),
+            }),
+          ]
+        : []),
+    ]);
+    await this.invalidate(tenantId, element.zone!.spaceId);
+    return this.prisma.elementMenuItemSalesInput.findMany({ where: { elementId, configId: targetConfigId } });
+  }
+
+  /**
+   * Résout les lignes AUTO issues des associations Rôle↔MenuItem (HrRoleMenuItemRatio) pour cet
+   * élément — additionnées (pas maxées) aux suggestions issues des Sinking Rules dans
+   * getStaffSuggestions(). "allMenuItems" s'expand sur tout ce que l'utilisateur a saisi pour ce
+   * shop (pas besoin d'interroger le catalogue menu séparément — un item sans saisie contribue 0
+   * de toute façon).
+   */
+  private async computeMenuItemRatioOutcomes(
+    elementId: string,
+    targetConfigId: string | null,
+    tenantId: string,
+    ratios: Array<{ roleId: string; ratioBasis: string; ratioValue: number; unitQty: number; allMenuItems: boolean; menuItemIds: string[] }>,
+  ) {
+    if (!ratios.length) return [];
+    const salesRows = await this.prisma.elementMenuItemSalesInput.findMany({
+      where: { elementId, configId: targetConfigId },
+    });
+    const sales = salesRows.map((s) => ({
+      menuItemId: s.menuItemId,
+      quantity: s.quantity ?? 0,
+      revenueHt: s.revenueHt ?? 0,
+    }));
+    const ratioInputs = ratios.map((r) => ({
+      roleId: r.roleId,
+      ratioBasis: r.ratioBasis as 'REVENUE' | 'QUANTITY',
+      ratioValue: r.ratioValue,
+      unitQty: r.unitQty,
+      targetMenuItemIds: r.allMenuItems ? sales.map((s) => s.menuItemId) : r.menuItemIds,
+    }));
+    return this.staffingCalculator.applyMenuItemRatios(ratioInputs, sales);
+  }
+
+  /**
+   * Postes obligatoires pour cet élément selon ses sous-types (auto-remplissage de la section
+   * Staff du Builder, 2026-07-30 — révisé le même jour suite retour utilisateur ; généralisé
+   * au-delà de F&B le 2026-07-31, même retour utilisateur : le choix du département doit
+   * piloter quel sous-type on peut lier, pas rester câblé sur `shop`). Un rôle tagué avec un
+   * sous-type présent suffit — pas besoin d'une règle Sinking en plus (`computeStaffSuggestions`,
+   * cf. commentaire). Les règles Sinking avec condition d'équipement ne matchent jamais en
+   * pratique ici : aucun champ du Builder ne renseigne encore les attributs (nbFriteuses…) sur
+   * SpaceElement.attributes — limite assumée, cf. BUG-260-02.
+   */
+  async getStaffSuggestions(elementId: string, tenantId: string, configId?: string) {
+    const element = await this.getElementOrThrow(elementId, tenantId);
+    // CFG-2 (généralisé 2026-07-31) : plus limité à STAFFING_ELEMENT_TYPES (shop + legacy
+    // fnb_*) — tout département `needsRh=true` peut avoir des rôles auto-suggérés sur ses
+    // propres éléments. Les rôles considérés sont scopés au MÊME département que l'élément :
+    // un code de sous-type n'est unique QUE par département (ex. `temporary` existe à la fois
+    // sur `shop` et `merchshop`) — comparer tenant-wide sans ce scope créerait de faux positifs
+    // (garde-fou déjà identifié le 2026-07-30, préservé ici sous une forme généralisée).
+    const dept = await this.resolveDepartmentForElementType((element as any).type);
+    if (!dept?.needsRh) return [];
+    const fnbTags = detectFnbTags((element as any).subtypes);
+    const attrs = ((element as any).attributes ?? {}) as Record<string, any>;
+    const departmentValues = [dept.code, dept.id].filter(Boolean) as string[];
+    const spaceId = element.zone!.spaceId;
+    const targetConfigId = await this.resolveElementConfigId(elementId, configId);
+    const [roles, rules, menuItemRatios] = await Promise.all([
+      this.prisma.hrRole.findMany({ where: { tenantId, department: { in: departmentValues } } }),
+      this.prisma.hrSinkingRule.findMany({ where: { tenantId } }),
+      this.prisma.hrRoleMenuItemRatio.findMany({ where: { tenantId, spaceId } }),
+    ]);
+    // Sinking Rules restent tag-scopées (aucun tag présent → []) ; les associations
+    // Rôle↔MenuItem (11_RH_STAFFING.md §11.16) sont scopées par espace, pas par tag F&B — elles
+    // s'évaluent indépendamment du présent bloc et sont ADDITIONNÉES (pas maxées) au résultat.
+    const tagSuggestions =
+      fnbTags.size > 0 ? this.staffingCalculator.computeStaffSuggestions(fnbTags, attrs, roles as any, rules as any) : [];
+    const ratioOutcomes = await this.computeMenuItemRatioOutcomes(elementId, targetConfigId, tenantId, menuItemRatios as any);
+    if (!ratioOutcomes.length) return tagSuggestions;
+
+    const byRoleQty = new Map<string, number>();
+    const roleMeta = new Map<string, { roleName: string; hourlyRate: number }>();
+    for (const s of tagSuggestions) {
+      byRoleQty.set(s.roleId, s.qty);
+      roleMeta.set(s.roleId, { roleName: s.roleName, hourlyRate: s.hourlyRate });
+    }
+    const missingRoleIds = [...new Set(ratioOutcomes.map((o) => o.roleId))].filter((id) => !roleMeta.has(id));
+    if (missingRoleIds.length) {
+      const extraRoles = await this.prisma.hrRole.findMany({ where: { id: { in: missingRoleIds }, tenantId } });
+      for (const r of extraRoles) {
+        roleMeta.set(r.id, { roleName: r.name, hourlyRate: this.staffingCalculator.hourlyRateFrom(r.rateType, r.rate) ?? 0 });
+      }
+    }
+    for (const o of ratioOutcomes) {
+      byRoleQty.set(o.roleId, (byRoleQty.get(o.roleId) ?? 0) + o.qty);
+    }
+    return [...byRoleQty.entries()]
+      .filter(([roleId]) => roleMeta.has(roleId))
+      .map(([roleId, qty]) => ({ roleId, qty, ...roleMeta.get(roleId)! }));
+  }
+
+  // Résout le département d'un `SpaceElement.type` — replie d'abord les 5 valeurs legacy F&B
+  // pré-`subtypes[]` (jamais réécrites en base, cf. CFG-2 Étape 2/3) sur `shop`, puis résout
+  // contre Department (code ou id). Partagé par getStaffSuggestions() ; mapType() a sa propre
+  // logique (avec repli TOOL_TYPE_MAP complet) pour la création d'éléments.
+  private async resolveDepartmentForElementType(type: string) {
+    const key = ['fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream'].includes(type)
+      ? 'shop'
+      : type;
+    return this.prisma.department.findFirst({ where: { OR: [{ code: key }, { id: key }] } });
   }
 
   async putInventory(elementId: string, tenantId: string, dto: PutInventoryDto, configId?: string) {

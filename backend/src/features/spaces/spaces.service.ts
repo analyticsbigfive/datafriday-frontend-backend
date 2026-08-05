@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { Prisma, ElementType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
@@ -967,8 +967,22 @@ export class SpacesService {
       -- Builder v2 : éléments rattachés à une Zone (par ESPACE). Le scoping par config
       -- passe par les adhésions ConfigurationElement ; sous-types v2 exposés en
       -- "shopTypes" (compat consommateurs). floorLevel : FLOOR → level, sinon la zone.
+      --
+      -- UNE LIGNE PAR (élément, config), PAS par élément. Un élément v2 est PARTAGÉ entre
+      -- configs (créer une config par clonage copie ses adhésions, cf. builder-v2.service
+      -- createConfiguration). Un DISTINCT ON (se.id) seul n'émettait qu'une ligne par
+      -- élément, taguée de son adhésion la PLUS ANCIENNE (ORDER BY ce."createdAt") : toute
+      -- config clonée disparaissait de la réponse « toutes configs », et les consommateurs
+      -- qui refiltrent côté client sur configId (EventPredictView, SpaceRestockView)
+      -- voyaient 0 point de vente alors que Space Menus — qui passe ?configId= et
+      -- court-circuite ce DISTINCT — en listait (BUG-286-01). Le DISTINCT ON est CONSERVÉ
+      -- sur le couple, mais c'est un no-op garanti par la PK ConfigurationElement
+      -- @@id([configId, elementId]) : au plus une adhésion par (config, élément).
+      -- Corollaire : le menuItemsCount du LEFT JOIN LATERAL plus bas (scopé sur
+      -- a."configId") devient enfin juste pour CHAQUE config, et plus seulement pour la
+      -- plus ancienne.
       zone_shops AS (
-        SELECT DISTINCT ON (se.id)
+        SELECT DISTINCT ON (se.id, ce."configId")
                se.id, se.name, se.type::text AS type,
                CASE WHEN cardinality(se.subtypes) > 0 THEN se.subtypes ELSE se."shopTypes" END AS "shopTypes",
                se.attributes, se.image, se.notes,
@@ -984,7 +998,10 @@ export class SpacesService {
         JOIN "ConfigurationElement" ce ON ce."elementId" = se.id
         JOIN target_configs tc ON tc.id = ce."configId"
         WHERE se.type::text = ANY(${shopTypes})
-        ORDER BY se.id, ce."createdAt" ASC
+        -- Postgres impose que les expressions du DISTINCT ON soient les premières de
+        -- l'ORDER BY, dans le même ordre. Plus de départage sur ce."createdAt" : le
+        -- couple (élément, config) est déjà unique.
+        ORDER BY se.id, ce."configId"
       ),
       all_shops AS (
         SELECT * FROM floor_shops
@@ -1013,7 +1030,14 @@ export class SpacesService {
       )
       SELECT
         EXISTS(SELECT 1 FROM "Space" WHERE id = ${spaceId} AND "tenantId" = ${tenantId}) AS space_exists,
-        COALESCE((SELECT json_agg(enriched) FROM enriched), '[]'::json) AS shops
+        -- ORDER BY explicite : sans lui, l'ordre des lignes est arbitraire et peut varier
+        -- d'une requête à l'autre. Depuis qu'un élément partagé sort une fois PAR config,
+        -- un consommateur en premier-arrivé-gagne (ex. StepMapShops, qui affiche le
+        -- configName suggéré) verrait sa suggestion changer d'un rechargement à l'autre.
+        COALESCE(
+          (SELECT json_agg(enriched ORDER BY enriched.id, enriched."configId") FROM enriched),
+          '[]'::json
+        ) AS shops
     `);
 
     const row = rows[0];
@@ -1081,7 +1105,10 @@ export class SpacesService {
   private readonly SPACE_SHOPIDS_CACHE_KEY = (tenantId: string, spaceId: string) =>
     `spaces:shopids:${tenantId}:${spaceId}`;
 
-  private readonly EVENT_TIMELINE_SHOP_TYPES: ElementType[] = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
+  // CFG-2 Étape 2 : ElementType (enum Postgres) supprimé du typage — SpaceElement.type est
+  // désormais un `string` libre (valeur inchangée ici, uniquement l'annotation TS). La
+  // réécriture de cette liste elle-même contre `Department` est Étape 3, pas encore faite.
+  private readonly EVENT_TIMELINE_SHOP_TYPES: string[] = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
 
   /**
    * Resolve the shop (SpaceElement) ids attached to a space across all its configs —
@@ -1142,12 +1169,14 @@ export class SpacesService {
     spaceId: string,
     uniqueIds: string[],
     tenantId: string,
-  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql } | null> {
+  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string } | null> {
     // All independent queries run in parallel: ownership check, event dates (tried
     // against both DataFriday Event and WeezeventEvent so the frontend can pass
-    // either a DataFriday UUID or a WeezeventEvent CUID), integration scope, and
-    // shop IDs resolved from plan floors + forecourt — none of this varies per event.
-    const [, datafridayEvents, weezeventEvents, locationMapping, shopIds] = await Promise.all([
+    // either a DataFriday UUID or a WeezeventEvent CUID), integration scope,
+    // shop IDs resolved from plan floors + forecourt, and the space's timezone
+    // (used to display transaction hours in venue-local time, see BUG-270) —
+    // none of this varies per event.
+    const [, datafridayEvents, weezeventEvents, locationMapping, shopIds, spaceRow] = await Promise.all([
       this.findOne(spaceId, tenantId),
       this.prisma.event.findMany({
         where: { id: { in: uniqueIds }, tenantId, spaceId },
@@ -1162,13 +1191,32 @@ export class SpacesService {
         select: { salesLocationId: true },
       }),
       this.resolveShopIdsForSpace(spaceId, tenantId),
+      this.prisma.space.findFirst({
+        where: { id: spaceId, tenantId },
+        select: { timezone: true },
+      }),
     ]);
+    const spaceTimezone = spaceRow?.timezone || 'Europe/Paris';
 
     if (shopIds.length === 0) return null;
 
     // Resolve date window per event: prefer DataFriday Event (accurate multi-day), fall
     // back to WeezeventEvent (when the frontend passes a Weezevent CUID). Same precedence
     // as the single-event method before batching.
+    //
+    // MAX_EVENT_SPAN_DAYS : certains "Event" ne représentent pas une session unique mais
+    // un conteneur pour toute une saison (ex. "AJ AUXERRE - Saison 26/27", 356 jours) —
+    // rien en amont (création de l'event, scoring predict-v2, filtres Analyse) ne les
+    // distingue d'un vrai match. Demander le détail minute par minute sur une fenêtre
+    // aussi large fait exploser le volume renvoyé (100k+ lignes, des dizaines de
+    // secondes) ET fausse Event Predict : chaque event pèse dans la somme finale au
+    // même ordre de grandeur qu'un vrai match (poids basé sur le score de similarité,
+    // pas sur le volume de données), alors qu'une "saison" agrège des centaines de
+    // jours sur un seul axe 24h — son total entre dans le calcul quasi sans réduction.
+    // Seuil à 2 jours : couvre un event à cheval sur minuit (coup d'envoi tard le soir,
+    // fin après 00h) sans risquer de repêcher un conteneur de saison (271 à 356 jours
+    // observés). Les vrais events observés font 0 à 1 jour.
+    const MAX_EVENT_SPAN_DAYS = 2;
     const dfMap = new Map(datafridayEvents.map(e => [e.id, e]));
     const wzMap = new Map(weezeventEvents.map(e => [e.id, e]));
     const windows: { id: string; eventDate: Date; windowEnd: Date }[] = [];
@@ -1188,6 +1236,8 @@ export class SpacesService {
           : eventDate;
       const windowEnd = new Date(endDate);
       windowEnd.setDate(windowEnd.getDate() + 1);
+      const spanDays = (windowEnd.getTime() - eventDate.getTime()) / 86_400_000;
+      if (spanDays > MAX_EVENT_SPAN_DAYS) continue; // event-conteneur (saison…) → stays []
       windows.push({ id, eventDate, windowEnd });
     }
     if (!windows.length) return null;
@@ -1217,7 +1267,7 @@ export class SpacesService {
       ', ',
     );
 
-    return { integrationClause, shopScopeClause, valuesSql };
+    return { integrationClause, shopScopeClause, valuesSql, spaceTimezone };
   }
 
   /**
@@ -1230,6 +1280,14 @@ export class SpacesService {
    * locationId, shopName to locationName) — same resilience as the shop-details RPC;
    * the frontend buckets them as "unattached" (grey). Only when the space has no
    * integration mapping (tenant-wide degraded scope) are unmapped rows excluded.
+   *
+   * PERF (event-timeline-item-agg) : lit désormais `SpaceRevenueMinuteItemAgg` (pré-agrégée
+   * à l'écriture par aggregation.service.ts et space-aggregation.service.ts) au lieu de
+   * scanner WeezeventTransaction/WeezeventTransactionItem à chaque appel. Le grain stocké
+   * (event × minute × shop × article) est déjà celui dont cette méthode a besoin — il ne
+   * reste que la résolution du nom/type/catégorie d'article (WeezeventProductMapping →
+   * MenuItem → ProductType/ProductCategory), faite ici à la lecture pour rester à jour sans
+   * jamais réinvalider l'agrégat.
    */
   async getEventTimelineBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
     const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
@@ -1238,48 +1296,61 @@ export class SpacesService {
 
     const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
     if (!scope) return out;
-    const { integrationClause, shopScopeClause, valuesSql } = scope;
+    const { shopScopeClause, valuesSql, spaceTimezone } = scope;
 
-    // BUG-108 : contrairement au pipeline d'agrégation périodique (executeProcessEvents,
-    // exclu depuis BUG-028), cette lecture directe de WeezeventTransaction ne filtrait pas
-    // deletedAt — une transaction annulée après un retry webhook restait comptée ici.
+    // BUG-270 : "minute" est un TIMESTAMP sans fuseau mais sa valeur littérale est du vrai
+    // UTC (même nature que WeezeventTransaction."transactionDate", dont elle est dérivée par
+    // date_trunc('minute', t."transactionDate") côté écriture, sans conversion — voir
+    // aggregation.service.ts). Même conversion `AT TIME ZONE 'UTC' AT TIME ZONE ${tz}` qu'avant
+    // pour reprojeter en heure murale locale de l'espace (BUG-125-01 : factorisée dans le
+    // LATERAL `tz` pour que Postgres ne voie qu'une seule interpolation du paramètre).
+    //
+    // Le JOIN reste borné par fenêtre de dates (ev."eventDate"/"windowEnd"), PAS par égalité
+    // sur "weezeventEventId" : les deux pipelines d'écriture (aggregation.service.ts,
+    // space-aggregation.service.ts) taguent ce champ avec des conventions d'id différentes
+    // (id "Event" DataFriday vs id "WeezeventEvent" brut — cf. BUG-123-01 dans la RPC
+    // get_space_shop_details) ; une égalité stricte manquerait les events qui n'existent
+    // qu'en WeezeventEvent. La fenêtre de dates reproduit le comportement historique du scan
+    // brut à l'identique, y compris le chevauchement légitime entre deux events dont les
+    // fenêtres se recoupent.
+    //
+    // MAX(...) au lieu de SUM(...) sur les colonnes agrégées : si les deux pipelines ont
+    // toutes les deux écrit pour la même fenêtre, on obtient DEUX lignes "SpaceRevenueMinuteItemAgg"
+    // pour le même (minute, shop, article) — même transactions réelles, seul le tag
+    // "weezeventEventId" diffère (volontairement exclu du GROUP BY ci-dessous). Les deux
+    // lignes portent la même valeur (même source, même formule) ; SUM les compterait en
+    // double, MAX retombe sur la valeur correcte sans hypothèse fragile sur quel writer a
+    // tourné en dernier.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
       WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql})
       SELECT
         ev."eventId"                                                      AS "eventId",
-        TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')    AS minute,
-        COALESCE(mem."spaceElementId", t."locationId")                    AS "shopId",
-        COALESCE(se.name, t."locationName", t."locationId")               AS "shopName",
+        TO_CHAR(tz."minuteLocal", 'HH24:MI')                              AS minute,
+        COALESCE(mem."spaceElementId", mem."weezeventLocationId")         AS "shopId",
+        COALESCE(se.name, mem."weezeventLocationName", mem."weezeventLocationId") AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
         se.attributes::jsonb->>'area'                                     AS "shopArea",
-        ti."productId"                                                    AS "weezeventProductId",
+        mem."weezeventProductId"                                          AS "weezeventProductId",
         wpm."menuItemId",
         mi.name                                                           AS "menuItemName",
         pt.name                                                           AS "menuItemType",
         pc.name                                                           AS "menuItemCategory",
-        SUM(ti.quantity)::integer                                         AS quantity,
-        COUNT(DISTINCT t.id)::integer                                     AS "transactionCount",
-        SUM(
-          ti."unitPrice" * ti.quantity
-          / (1 + ti."vat" / 100)
-        )::numeric(12,2)                                                  AS "revenueHt"
+        MAX(mem."itemsCount")::integer                                    AS quantity,
+        MAX(mem."transactionsCount")::integer                             AS "transactionCount",
+        MAX(mem."revenueHt")::numeric(12,2)                               AS "revenueHt"
       FROM ev
-      INNER JOIN "WeezeventTransaction" t
-        ON t."transactionDate" >= ev."eventDate"
-       AND t."transactionDate" <  ev."windowEnd"
-       AND t."tenantId" = ${tenantId}
-       ${integrationClause}
-       AND t.status = 'V'
-       AND t."deletedAt" IS NULL
-      INNER JOIN "WeezeventTransactionItem" ti
-        ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventLocationShopMapping" mem
-        ON mem."weezeventLocationId" = t."locationId"
-       AND mem."tenantId"         = ${tenantId}
+      INNER JOIN "SpaceRevenueMinuteItemAgg" mem
+        ON mem."minute" >= ev."eventDate"
+       AND mem."minute" <  ev."windowEnd"
+       AND mem."tenantId" = ${tenantId}
+       AND mem."spaceId"  = ${spaceId}
+      CROSS JOIN LATERAL (
+        SELECT DATE_TRUNC('minute', mem."minute" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}) AS "minuteLocal"
+      ) tz
       LEFT JOIN "SpaceElement" se
         ON se.id = mem."spaceElementId"
       LEFT JOIN "WeezeventProductMapping" wpm
-        ON wpm."weezeventProductId" = ti."productId"
+        ON wpm."weezeventProductId" = mem."weezeventProductId"
        AND wpm."tenantId" = ${tenantId}
       LEFT JOIN "MenuItem" mi
         ON mi.id = wpm."menuItemId"
@@ -1289,11 +1360,11 @@ export class SpacesService {
         ON pc.id = mi."categoryId"
       WHERE ${shopScopeClause}
       GROUP BY
-        ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
-        COALESCE(mem."spaceElementId", t."locationId"),
-        COALESCE(se.name, t."locationName", t."locationId"),
+        ev."eventId", tz."minuteLocal",
+        COALESCE(mem."spaceElementId", mem."weezeventLocationId"),
+        COALESCE(se.name, mem."weezeventLocationName", mem."weezeventLocationId"),
         se.type, se.attributes,
-        ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name
+        mem."weezeventProductId", wpm."menuItemId", mi.name, pt.name, pc.name
       ORDER BY ev."eventId", minute ASC
     `);
 
@@ -1358,7 +1429,7 @@ export class SpacesService {
 
     const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
     if (!scope) return out;
-    const { integrationClause, shopScopeClause, valuesSql } = scope;
+    const { integrationClause, shopScopeClause, valuesSql, spaceTimezone } = scope;
 
     // CTE `tx` : UNE ligne par transaction, avec ses deux ensembles de libellés.
     // `ARRAY_AGG(DISTINCT … ORDER BY …)` garantit que « Bières, Consigne » et
@@ -1373,7 +1444,7 @@ export class SpacesService {
         SELECT
           t.id                                                            AS "txId",
           ev."eventId"                                                    AS "eventId",
-          TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')   AS minute,
+          TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'HH24:MI') AS minute,
           COALESCE(mem."spaceElementId", t."locationId")                  AS "shopId",
           COALESCE(se.name, t."locationName", t."locationId")             AS "shopName",
           COALESCE(se.attributes::jsonb->>'originalType', se.type::text)  AS "shopType",
@@ -1413,7 +1484,7 @@ export class SpacesService {
           ON pc.id = mi."categoryId"
         WHERE ${shopScopeClause}
         GROUP BY
-          t.id, ev."eventId", DATE_TRUNC('minute', t."transactionDate"),
+          t.id, ev."eventId", DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}),
           COALESCE(mem."spaceElementId", t."locationId"),
           COALESCE(se.name, t."locationName", t."locationId"),
           se.type, se.attributes

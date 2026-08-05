@@ -7,10 +7,50 @@ import {
   IsArray,
   IsEnum,
   IsIn,
+  Min,
+  Max,
   ValidateNested,
+  registerDecorator,
+  ValidationOptions,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { KitchenType } from '@prisma/client';
+
+/**
+ * Valide le blob spacePrices : { [spaceId]: { ttc >= 0, vatRate 0-100 } }
+ * ou forme legacy { [spaceId]: number >= 0 }. Historiquement non validé,
+ * alors qu'il alimente directement SpaceMenuItem.priceTtc/vatRate.
+ */
+function IsSpacePricesRecord(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      name: 'isSpacePricesRecord',
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: unknown) {
+          if (value == null) return true;
+          if (typeof value !== 'object' || Array.isArray(value)) return false;
+          return Object.values(value as Record<string, unknown>).every((v) => {
+            if (typeof v === 'number') return Number.isFinite(v) && v >= 0;
+            if (v && typeof v === 'object') {
+              const { ttc, vatRate } = v as { ttc?: unknown; vatRate?: unknown };
+              const ttcOk = typeof ttc === 'number' && Number.isFinite(ttc) && ttc >= 0;
+              const vatOk =
+                vatRate == null ||
+                (typeof vatRate === 'number' && Number.isFinite(vatRate) && vatRate >= 0 && vatRate <= 100);
+              return ttcOk && vatOk;
+            }
+            return false;
+          });
+        },
+        defaultMessage: () =>
+          'spacePrices doit être { [spaceId]: { ttc: number >= 0, vatRate?: 0-100 } } ou { [spaceId]: number >= 0 }',
+      },
+    });
+  };
+}
 
 export class MenuItemComponentLineDto {
   @ApiProperty({ description: 'ID du composant (MenuComponent)' })
@@ -19,6 +59,7 @@ export class MenuItemComponentLineDto {
 
   @ApiProperty({ description: "Nombre d'unités" })
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   numberOfUnits: number;
 }
@@ -30,6 +71,7 @@ export class MenuItemIngredientLineDto {
 
   @ApiProperty({ description: "Nombre d'unités" })
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   numberOfUnits: number;
 }
@@ -41,8 +83,41 @@ export class MenuItemPackagingLineDto {
 
   @ApiProperty({ description: "Nombre d'unités" })
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   numberOfUnits: number;
+}
+
+export class MenuItemComboLineDto {
+  @ApiProperty({ description: "ID de l'article vendable composant ce combo (MenuItem)" })
+  @IsString()
+  childId: string;
+
+  @ApiProperty({ description: "Nombre d'unités" })
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  quantity: number;
+
+  @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, recalculé automatiquement si non fourni)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  cost?: number;
+}
+
+export class ReplaceMenuItemComboItemsDto {
+  @ApiProperty({ description: 'Liste complète des articles composant ce combo', type: [MenuItemComboLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemComboLineDto)
+  comboItems: MenuItemComboLineDto[];
 }
 
 export class ReplaceMenuItemComponentsDto {
@@ -100,12 +175,15 @@ export class CreateMenuItemDto {
 
   @ApiProperty({ description: 'Prix de vente de base (TTC brut)' })
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   basePrice: number;
 
   @ApiPropertyOptional({ description: 'Taux de TVA % par article (null → défaut tenant)' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   @Type(() => Number)
   vatRate?: number;
 
@@ -117,12 +195,14 @@ export class CreateMenuItemDto {
   @ApiPropertyOptional({ description: 'Valeur de remise (% si percent, montant TTC si amount)' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   discountValue?: number;
 
   @ApiPropertyOptional({ description: 'Coût total calculé' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   totalCost?: number;
 
@@ -175,9 +255,10 @@ export class CreateMenuItemDto {
   @IsString()
   comboItem?: string;
 
-  @ApiPropertyOptional({ description: 'Nombre de pièces par recette' })
+  @ApiPropertyOptional({ description: 'Nombre de pièces par recette (diviseur du coût — minimum 1)' })
   @IsOptional()
   @IsInt()
+  @Min(1)
   @Type(() => Number)
   numberOfPiecesRecipe?: number;
 
@@ -193,6 +274,7 @@ export class CreateMenuItemDto {
   @ApiPropertyOptional({ description: "Nombre d'unités par conditionnement inventaire" })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   @Type(() => Number)
   inventoryNumberOfUnits?: number;
 
@@ -219,6 +301,7 @@ export class CreateMenuItemDto {
       'Prix de vente par espace. Forme courante : { [spaceId]: { ttc, vatRate } } (TVA propre à l’espace). Forme legacy tolérée : { [spaceId]: number } (TTC seul).',
   })
   @IsOptional()
+  @IsSpacePricesRecord()
   spacePrices?: Record<string, { ttc: number; vatRate?: number | null } | number>;
 
   @ApiPropertyOptional({ description: 'Composants (source de vérité)', type: [MenuItemComponentLineDto] })
@@ -241,6 +324,13 @@ export class CreateMenuItemDto {
   @ValidateNested({ each: true })
   @Type(() => MenuItemPackagingLineDto)
   packagings?: MenuItemPackagingLineDto[];
+
+  @ApiPropertyOptional({ description: 'Composition combo (autres MenuItem vendables, source de vérité)', type: [MenuItemComboLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemComboLineDto)
+  comboItems?: MenuItemComboLineDto[];
 }
 
 export class BulkCreateMenuItemsDto {

@@ -46,10 +46,6 @@
 
           <!-- ── Body ── -->
           <div class="ccd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3">
-              {{ error }}
-            </v-alert>
-
             <!-- Loading -->
             <div v-if="loading" class="ccd-empty">
               <v-progress-circular indeterminate color="#ff3131" size="32" width="3" />
@@ -108,6 +104,11 @@
               </table>
             </div>
           </div>
+
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ccd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- ── Footer ── -->
           <div class="cld-drawer__footer">
@@ -378,7 +379,7 @@ export default {
 
 /* ── Body ── */
 .ccd-body {
-  flex: 1 1 0; overflow-y: auto; padding: 16px 20px;
+  flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 16px 20px;
   scrollbar-width: thin; scrollbar-color: #e5e7eb transparent;
 }
 .ccd-body::-webkit-scrollbar { width: 5px; }
@@ -447,6 +448,13 @@ export default {
   transition: border-color .15s, background .15s;
 }
 .ccd-checkbox--on { background: #ff3131; border-color: #ff3131; }
+
+/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
+.ccd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
+}
 
 /* ── Footer ── */
 .cld-drawer__footer {

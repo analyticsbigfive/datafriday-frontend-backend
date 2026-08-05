@@ -50,7 +50,15 @@ export function consumeFromPool(item, pool) {
   const needName = need.name ? normalizeStr(need.name) : ''
   const matchers = [
     (e) => needIds.size > 0 && [...idSet(e)].some((id) => needIds.has(id)),
-    (e) => needName && e.name && normalizeStr(e.name) === needName,
+    // BUG-299-01 — repli nom UNIQUEMENT quand l'un des deux côtés n'a AUCUN id :
+    // deux lignes identifiées qui ne partagent aucun id désignent deux articles
+    // DIFFÉRENTS (deux conditionnements homonymes, « Beurre » ≠ « Beurre doux
+    // motte ») — l'homonymie ne doit pas netter l'un avec le stock de l'autre.
+    (e) =>
+      (needIds.size === 0 || idSet(e).size === 0) &&
+      needName &&
+      e.name &&
+      normalizeStr(e.name) === needName,
   ]
   let cut = 0
   for (const matches of matchers) {
@@ -68,4 +76,24 @@ export function consumeFromPool(item, pool) {
 /** Prépare un pool consommable (copie avec `remaining`/`matched`). */
 export function preparePool(entries) {
   return (entries || []).map((e) => ({ ...e, remaining: e.qty, matched: false }))
+}
+
+/**
+ * Lot 2 — « À commander » au grain ARTICLE (étape 1 du Réarmement) :
+ * buy = max(0, besoin − Storage), même formule et même `consumeFromPool` que le
+ * netting produits finis de la feuille de course (étape 3). `items` porte
+ * l'identité de matching ({ itemKey, itemId, sourceId, itemName, unit }) et le
+ * besoin net des shops dans `need` ; le trier comme l'étape 3 (itemName) pour
+ * que les cas limites de consommation partagée tombent du même côté.
+ * ⚠️ Mute le pool passé — préparer un pool DÉDIÉ via `preparePool`.
+ * @returns {Record<string, number>} itemKey → quantité à commander
+ */
+export function orderQuantitiesByItemKey(items = [], pool = []) {
+  const map = {}
+  for (const item of items) {
+    if (!item || item.itemKey == null) continue
+    const storageOnHand = consumeFromPool(item, pool)
+    map[item.itemKey] = Math.max(0, (Number(item.need) || 0) - storageOnHand)
+  }
+  return map
 }

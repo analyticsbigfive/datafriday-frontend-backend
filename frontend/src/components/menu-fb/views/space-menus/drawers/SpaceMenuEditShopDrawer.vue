@@ -56,19 +56,19 @@
                 <div class="smed-section__label">
                   <Tags :size="13" style="color:#ff3131" />
                   {{ t("spaceMenu.shopTypes") }}
-                  <span class="smed-section__count">{{ form.subTypes?.length || 0 }} {{ t("spaceMenu.selected") }}</span>
+                  <span class="smed-section__count">{{ form.subtypes?.length || 0 }} {{ t("spaceMenu.selected") }}</span>
                 </div>
                 <div class="smed-types-grid">
                   <label
                     v-for="type in shopTypes"
                     :key="type.value"
                     class="smed-type-pill"
-                    :class="{ 'smed-type-pill--active': form.subTypes?.includes(type.value) }"
+                    :class="{ 'smed-type-pill--active': form.subtypes?.includes(type.value) }"
                   >
                     <input
                       type="checkbox"
                       :value="type.value"
-                      :checked="form.subTypes?.includes(type.value)"
+                      :checked="form.subtypes?.includes(type.value)"
                       class="visually-hidden"
                       @change="toggleShopType(type.value)"
                     />
@@ -130,12 +130,14 @@
 
 <script>
 import { useI18n } from "@/i18n/useI18n";
-import { Store, X, Save, Settings, CheckCircle, AlertCircle, Image as ImageIcon, Camera, ImagePlus, Tags, Utensils, Coffee, Beer, Package, Clock } from 'lucide-vue-next';
-import { updateSpaceElement } from '@/api/endpoints/space.api'
+import { Store, X, Save, Settings, CheckCircle, AlertCircle, Image as ImageIcon, Camera, ImagePlus, Tags, Utensils, Coffee, Beer, Package, Clock, Martini, Sandwich, ChefHat } from 'lucide-vue-next';
+import { patchElement } from '@/api/endpoints/builder-v2.api'
+import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import { SHOP_SUBTYPE_PRESENTATION } from '@/constants/shopSubtypePresentation'
 
 export default {
   name: 'SpaceMenuEditShopDrawer',
-  components: { Store, X, Save, Settings, CheckCircle, AlertCircle, ImageIcon, Camera, ImagePlus, Tags, Utensils, Coffee, Beer, Package, Clock },
+  components: { Store, X, Save, Settings, CheckCircle, AlertCircle, ImageIcon, Camera, ImagePlus, Tags, Utensils, Coffee, Beer, Package, Clock, Martini, Sandwich, ChefHat },
   setup() {
     const { t } = useI18n();
     return { t };
@@ -157,22 +159,14 @@ export default {
   deactivated() {
     document.body.style.overflow = '';
   },
+  created() {
+    this.$store.dispatch('departments/fetchDepartments');
+  },
   data() {
     return {
       form: null,
       saving: false,
       saveError: '',
-      // BUG-118 : valeurs alignées sur le contrat réel (identique à ShopDetailEditDrawer.vue,
-      // `availableShopTypes`) — ce tiroir écrivait auparavant des valeurs lowercase/snake_case
-      // (`gp_premium`) qu'aucun autre écran ne pouvait relire.
-      shopTypes: [
-        { value: 'Food',       labelKey: 'food',                       iconComponent: 'Utensils' },
-        { value: 'Beverages',  labelKey: 'beverage',                   iconComponent: 'Coffee' },
-        { value: 'Beer',       labelKey: 'spaceMenu.shopTypeBeer',      iconComponent: 'Beer' },
-        { value: 'GP Premium', labelKey: 'spaceMenu.shopTypeGpPremium', iconComponent: 'Package' },
-        { value: 'Temporary',  labelKey: 'spaceMenu.shopTypeTemporary', iconComponent: 'Clock' },
-        { value: 'Drinkee',    labelKey: 'spaceMenu.shopTypeDrinkee',   iconComponent: 'Coffee' },
-      ],
     };
   },
   watch: {
@@ -186,11 +180,10 @@ export default {
         this._clearTimer = null;
       }
       if (isOpen && this.shop) {
-        // BUG-118 : le champ réel du shop est `subTypes` (valeurs capitalisées, cf.
-        // ShopDetailEditDrawer.vue) — `selectedTypes` n'existe nulle part ailleurs et était
-        // donc toujours undefined, faisant retomber ce formulaire sur le défaut codé en dur
-        // ['food','beverages'] à CHAQUE ouverture, écrasant silencieusement le vrai type au save.
-        this.form = { ...this.shop, subTypes: Array.isArray(this.shop.subTypes) ? [...this.shop.subTypes] : [] };
+        // BUG-118 : le champ réel du shop est `subtypes` (valeurs canoniques Builder v2,
+        // propagées par normalizeShop() depuis `shopTypes` de la liste GET /spaces/:id/shops —
+        // ce dernier alias déjà `subtypes` en priorité côté backend, cf. spaces.service.ts).
+        this.form = { ...this.shop, subtypes: Array.isArray(this.shop.subtypes) ? [...this.shop.subtypes] : [] };
       } else if (!isOpen) {
         this._clearTimer = setTimeout(() => { this.form = null; this._clearTimer = null; }, 300);
       }
@@ -200,6 +193,16 @@ export default {
     currentConfigName() {
       const config = (this.configOptions || []).find(c => c.id === this.selectedConfigId);
       return config ? config.name : this.t('spaceMenu.unknownConfiguration');
+    },
+    // BUG-118 : les valeurs et leur ordre viennent du référentiel global Department/Subtype
+    // (source unique Builder v2, ex. `gppremium`) — plus une liste capitalisée locale
+    // (`GP Premium`) désynchronisée du vocabulaire réellement utilisé par le Builder et le RH.
+    shopTypes() {
+      const tools = buildTools(this.$store.getters['departments/departments'] || []);
+      return (toolOf('shop', tools)?.subtypes || []).map((st) => ({
+        value: st.value,
+        ...(SHOP_SUBTYPE_PRESENTATION[st.value] || { labelKey: st.label, iconComponent: 'Tags' }),
+      }));
     },
   },
   methods: {
@@ -212,24 +215,24 @@ export default {
       reader.readAsDataURL(file);
     },
     toggleShopType(typeValue) {
-      if (!this.form.subTypes) this.form.subTypes = [];
-      const index = this.form.subTypes.indexOf(typeValue);
-      if (index > -1) this.form.subTypes.splice(index, 1);
-      else this.form.subTypes.push(typeValue);
+      if (!this.form.subtypes) this.form.subtypes = [];
+      const index = this.form.subtypes.indexOf(typeValue);
+      if (index > -1) this.form.subtypes.splice(index, 1);
+      else this.form.subtypes.push(typeValue);
     },
     async save() {
       if (!this.shop?.id || !this.form) return;
       this.saving = true;
       this.saveError = '';
       try {
-        // BUG-118 : la clé du payload PATCH est `subTypes` (contrat backend réel, identique à
-        // ShopDetailEditDrawer.vue) — l'ancienne clé `selectedTypes` n'était lue par aucun
-        // écran, le type édité ici n'était donc jamais réellement persisté.
-        const updated = await updateSpaceElement(this.shop.id, {
+        // BUG-118 : écrit désormais via l'endpoint Builder v2 (`subtypes`), la seule colonne
+        // lue par Analyse/staffing — l'ancien endpoint /configurations/elements/:id écrivait
+        // dans SpaceElement.shopTypes (colonne v1 héritée, jamais relue par ces écrans).
+        const updated = await patchElement(this.shop.id, {
           image:    this.form.image,
-          subTypes: this.form.subTypes,
+          subtypes: this.form.subtypes,
         });
-        this.$emit('saved', { ...this.form, ...(updated || {}), image: this.form.image, subTypes: [...(this.form.subTypes || [])] });
+        this.$emit('saved', { ...this.form, ...(updated || {}), image: this.form.image, subtypes: [...(this.form.subtypes || [])] });
         this.$emit('update:modelValue', false);
       } catch (e) {
         // BUG-120 : émis même si le tiroir a déjà été fermé (backdrop-click/X non désactivés

@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue'
+import { ref, shallowRef, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
@@ -37,7 +37,20 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   // réconcilient avec le même, sinon une même ligne peut recevoir deux
   // catégories différentes selon le consommateur.
   const reconciliationCtx = useReconciliationContext()
-  const cache = ref({}) // eventId -> records[] (preprocessés). [] = tenté/vide.
+  // eventId -> records[] (preprocessés, GELÉS). [] = tenté/vide.
+  // BUG-284 : shallowRef + Object.freeze — avec un ref() profond, chaque lecture
+  // de propriété dans les ~20 agrégations aval traversait un Proxy Vue (surcoût
+  // dominant sur les vieux CPU). Les écritures se font déjà exclusivement par
+  // réassignation (`cache.value = { ...cache.value, ...patch }`), la réactivité
+  // superficielle suffit. Même pattern que analyse.js (Object.freeze) et
+  // usePredictiveTimeline.js (shallowRef).
+  const cache = shallowRef({})
+  // Gel des lignes ET du tableau : reconcileRecord/les consommateurs ne mutent
+  // jamais les records (map → objets neufs) — vérifié avant bascule.
+  function freezeRows(rows) {
+    for (const r of rows) Object.freeze(r)
+    return Object.freeze(rows)
+  }
   const loading = ref(false)
   const fetchError = ref(null)
   let abortController = null
@@ -63,9 +76,9 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
       for (const id of ids) {
         const data = byEventId.get(id) || []
         const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
-        patch[id] = preprocessTimelineRecords(raw, {
+        patch[id] = freezeRows(preprocessTimelineRecords(raw, {
           menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-        })
+        }))
       }
       // Nouvelle référence pour déclencher la réactivité du computed.
       cache.value = { ...cache.value, ...patch }
@@ -116,9 +129,9 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
       for (const id of ids) {
         const data = byEventId.get(id) || []
         const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
-        patch[id] = preprocessTimelineRecords(raw, {
+        patch[id] = freezeRows(preprocessTimelineRecords(raw, {
           menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-        })
+        }))
       }
       cache.value = { ...cache.value, ...patch }
       _warnedBatchKo = false
@@ -150,5 +163,11 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   // records effectivement disponibles.
   const loadedEventIds = computed(() => new Set(Object.keys(cache.value)))
 
-  return { itemRecords, loading, loadedEventIds, fetchError, refresh }
+  /** BUG-285 : purge (changement d'espace in-page — les eventIds de l'ancien espace
+      ne seront plus jamais demandés, leurs lignes resteraient en mémoire). */
+  function clearCache() {
+    cache.value = {}
+  }
+
+  return { itemRecords, loading, loadedEventIds, fetchError, refresh, clearCache }
 }

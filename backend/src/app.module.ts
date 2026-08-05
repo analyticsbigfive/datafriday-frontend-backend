@@ -45,8 +45,12 @@ import { IndustrialsModule } from './features/industrials/industrials.module';
 import { InventoryModule } from './features/inventory/inventory.module';
 import { LogisticsModule } from './features/logistics/logistics.module';
 import { PackingTypesModule } from './features/packing-types/packing-types.module';
+import { StorageTypesModule } from './features/storage-types/storage-types.module';
+import { DepartmentsModule } from './features/departments/departments.module';
 import { RestockStateModule } from './features/restock-state/restock-state.module';
+import { RestockPlansModule } from './features/restock-plans/restock-plans.module';
 import { HrSettingsModule } from './features/hr-settings/hr-settings.module';
+import { SeasonsModule } from './features/seasons/seasons.module';
 import { HrModule } from './features/hr/hr.module';
 import { StaffingModule } from './features/staffing/staffing.module';
 import { AuditModule } from './core/audit/audit.module';
@@ -171,8 +175,14 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     InventoryModule,
     LogisticsModule,
     PackingTypesModule,
+    StorageTypesModule,
+    DepartmentsModule,
     RestockStateModule,
+    // ⚠ Requiert la table RestockPlan : appliquer prisma/sql/2026-08-04_restockplan.sql
+    // AVANT de déployer (ADR-0002/0005) — sinon 500 P2021 au premier appel.
+    RestockPlansModule,
     HrSettingsModule,
+    SeasonsModule,
     HrModule,
     StaffingModule,
   ],

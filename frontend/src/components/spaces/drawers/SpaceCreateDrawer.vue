@@ -39,11 +39,6 @@
       <!-- Body -->
       <div class="scd-body">
 
-        <!-- Inline error -->
-        <div v-if="createError" class="scd-form-error">
-          <AlertCircle :size="14" /> {{ createError }}
-        </div>
-
         <!-- Step 0: Infos de base -->
         <div v-show="createStep === 0" class="scd-step-body">
           <!-- Image upload -->
@@ -198,6 +193,13 @@
         </div>
 
       </div><!-- end scd-body -->
+
+      <!-- Erreur : rendue ici, hors zone scrollable de .scd-body, toujours visible juste
+           au-dessus du footer commun aux 4 étapes — plutôt qu'en haut du corps (invisible
+           une fois scrollé, ou sur une étape différente de celle où l'erreur est survenue). -->
+      <div v-if="createError" class="scd-form-error">
+        <AlertCircle :size="14" /> {{ createError }}
+      </div>
 
       <!-- Footer -->
       <div class="scd-footer">
@@ -622,7 +624,8 @@ export default {
 .scd-body::-webkit-scrollbar { width: 5px; }
 .scd-body::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
 
-/* Inline error */
+/* Inline error : sibling fixe entre .scd-body (scrollable) et .scd-footer, toujours visible
+   quelle que soit l'étape active et sans avoir à scroller. */
 .scd-form-error {
   display: flex;
   align-items: center;
@@ -633,7 +636,8 @@ export default {
   border-radius: 10px;
   padding: 10px 14px;
   font-size: var(--fs-base);
-  margin-bottom: 16px;
+  flex-shrink: 0;
+  margin: 12px 20px;
 }
 
 /* Step section label */

@@ -151,11 +151,14 @@
                 :placeholder="t('logiOtherReasonPlaceholder')"
               />
             </div>
-
-            <v-alert v-if="error" type="error" density="compact" variant="tonal" class="lgmv-alert">
-              {{ error }}
-            </v-alert>
           </div>
+
+          <!-- Erreur : rendue ici, hors zone scrollable de .lgmv-body, toujours visible juste
+               au-dessus du footer — plutôt qu'en bas du corps (visible seulement une fois
+               scrollé tout en bas). -->
+          <v-alert v-if="error" type="error" density="compact" variant="tonal" class="lgmv-alert">
+            {{ error }}
+          </v-alert>
 
           <!-- Footer -->
           <div class="lgmv-footer">
@@ -534,7 +537,8 @@ export default {
   font-weight: 600;
   color: var(--fb-muted, #374151);
 }
-.lgmv-alert { border-radius: var(--fb-radius-control, 8px); }
+/* Sibling fixe entre .lgmv-body (scrollable) et .lgmv-footer, toujours visible sans scroll. */
+.lgmv-alert { border-radius: var(--fb-radius-control, 8px); flex-shrink: 0; margin: 14px 20px; }
 .lgmv-cap {
   display: flex;
   align-items: center;

@@ -1,7 +1,9 @@
 # HT vs TTC dans Analyse / Predict / EventPredict — constat, preuves, plan
 
 > Document de travail. Partie **Front** = **LIVRÉE** (voir statut ci-dessous).
-> Partie **Backend** = à compléter par Ulrich (la RPC `revenueHt` + éventuels champs à exposer).
+> Partie **Backend** = **complétée le 2026-08-04** (voir §7 : l'affirmation "le backend ne gère
+> pas le HT" était fausse, un moteur HT complet existe et est déjà branché sur plusieurs
+> endpoints. Seul `GET /weezevent/products` reste TTC-only, cf. §5.2 mis à jour).
 
 ---
 
@@ -184,37 +186,39 @@ per-capita/panier baissent ; pas de NaN.
 
 ---
 
-## 5. BACKEND — à compléter (Ulrich)
+## 5. BACKEND, état vérifié (mis à jour 2026-08-04, voir §7 pour le détail de l'audit)
 
-> Section ouverte : le backend voudra probablement ajouter/clarifier ici.
-
-### 5.1 Bug probable : `reduction` non réintégrée dans `revenueHt`
-Formule documentée backend : `Total_HT = WeezeventPayment.amount − amountVat`
-(`api-datafriday-main/docs/WEEZEVENT_FNB_MAPPING.md:67`) — **sans `+ reduction`**.
-Règle métier attendue :
+### 5.1 Bug `reduction` non réintégrée dans `revenueHt`, ✅ RÉSOLU (n'est plus un bug ouvert)
+La formule redoutée (`Total_HT = amount − amountVat`, sans `+ reduction`) provenait d'un doc
+archivé (`backend/docs/old/weezevent/WEEZEVENT_FNB_MAPPING.md`, jamais implémenté, pas de modèle
+`FnbSalesRaw` en base). Le pipeline réellement en prod (`backend/src/features/aggregation/
+aggregation.service.ts:279-811`) réintègre bien la remise :
 ```
-Total HT = (amount − amount_vat + reduction) / 100
+revenueHt = SUM((unitPrice * quantity - reduction) / (1 + vat/100))   // lignes ~297, ~337
 ```
-→ si la RPC suit la doc, `revenueHt` est **sous-évalué du montant des remises** (l'écart
-= exactement `reduction`). Impacte Analyse **et** EventPredict (qui liront le HT corrigé).
+`revenueHt` est persisté sur `SpaceRevenueMinuteAgg`/`SpaceProductRevenueDailyAgg` et exposé tel
+quel par la RPC `get_space_shop_details` (migration `20260731120000_...sql`) et par
+`dashboard-response.dto.ts` (`revenueHt`, `avgTicketHt`). **Rien à corriger ici.**
 
-Données brutes dispo en base (`WeezeventPayment`) : `amount` (TTC), `amountVat` ;
-`reduction` synced (`api-datafriday-main/src/features/weezevent/services/weezevent-sync.service.ts:212`)
-mais stockée dans `rawData`/transaction, pas en colonne dédiée.
+### 5.2 Exposer un prix HT direct sur `GET /weezevent/products` (toujours pas fait, mais trivial)
+Le moteur de calcul existe déjà et est déjà branché ailleurs :
+- `MenuItemPricingService.computePricing()` (`backend/src/shared/pricing/
+  menu-item-pricing.service.ts:45-96`), source de vérité HT/TTC/taxe/remise du backend.
+- Déjà exposé sous `pricing.gross.ht` / `pricing.net.ht` par `getShopMenu` et
+  `getConfigShopMenuItemsFull` (`space-menus.service.ts:303-309`, `:1159-1187`).
+- Déjà exposé sous `weezeventProduct.pricing.ht` par `enrichMappingsPricing`
+  (`mappings.service.ts:596`), consommé par l'étape 3 du wizard Data Integration.
 
-**À confirmer par le backend :**
-- [ ] La RPC granular (`revenueHt`) inclut-elle `+ reduction` ? Sinon, l'ajouter.
-- [ ] Où vit `reduction` exactement (colonne vs `rawData`) et est-elle exploitable dans la RPC ?
-- [ ] Localiser la RPC/migration réelle (absente du snapshot `api-datafriday-main`).
+**Ce qui manque précisément** : `GET /weezevent/products`
+(`backend/src/features/weezevent/weezevent.controller.ts:688-851`), l'endpoint que le front
+consomme réellement pour peupler `weezeventProducts[]` (Analyse, EventPredict) via
+`aggregation.api.js:148` → `useSpaceData.js:214-247`, ne renvoie que `basePrice` (TTC) +
+`vatRate`. Un HT existe déjà dans un sous-champ `salesPrices[].ht` (quand `priceSource` vaut
+`sales_*`), mais le front actuel ne le lit pas ; en `priceSource:'catalog'` il n'y a aucun champ
+HT du tout.
 
-### 5.2 Option (facultative) : exposer un prix HT par produit
-Le front corrige la TVA via `vatRate` (déjà exposé). Si le backend préfère porter la
-vérité, il pourrait exposer `basePriceHt` (= `basePrice / (1 + vatRate/100)`) sur
-`weezeventProducts` → le front remplacerait juste `basePrice` par `basePriceHt`
-(le levier A devient trivial). À décider côté backend.
-
-**À compléter par le backend :**
-- [ ] _(Ulrich)_ …
+**Ampleur estimée pour brancher `computePricing()` sur cet endpoint** : voir le scoping détaillé
+en cours (§7 sera complété avec fichiers exacts à toucher, risques perf/breaking change).
 
 ---
 
@@ -223,8 +227,63 @@ vérité, il pourrait exposer `basePriceHt` (= `basePrice / (1 + vatRate/100)`) 
 | Surface | État | Action |
 |---|---|---|
 | Analyse | HT ✅ | Aucune (dépend du `revenueHt` backend) |
-| EventPredict / Predict | TTC ❌ | Fix front (§4) : détaxer via `vatRate` |
-| RPC `revenueHt` (remises) | À vérifier ⚠️ | Backend §5.1 : `+ reduction` |
+| EventPredict / Predict | HT ✅ (fix front livré 2026-07-05) | Aucune, détaxe via `htFromTtc`/`vatRate` au point d'entrée unique |
+| RPC `revenueHt` (remises) | ✅ Résolu | `reduction` bien réintégrée en prod (`aggregation.service.ts`), doc archivé était trompeur |
+| `GET /weezevent/products` (HT direct) | TTC-only, moteur existant non branché | Optionnel (§5.2/§7), simplifierait le front si fait |
 
-Les deux correctifs sont **indépendants et cumulables** : le front retire la TVA ;
-le backend corrige les remises.
+Le front convertit déjà correctement TTC→HT partout où c'est nécessaire ; le vrai reliquat est
+côté backend, purement optionnel : brancher `MenuItemPricingService.computePricing()` (déjà
+utilisé par `getShopMenu`/`enrichMappingsPricing`) sur `GET /weezevent/products` pour éviter au
+front de refaire la conversion à la main.
+
+---
+
+## 7. Audit backend complet (2026-08-04) : le backend gère-t-il le HT ?
+
+**Verdict : oui, largement.** Dire "le backend ne fait rien pour le HT" est faux. Un moteur HT
+central (`MenuItemPricingService`) existe, est riche (gross/net, remise, marge), et est déjà
+branché sur `getShopMenu`, `getConfigShopMenuItemsFull` et `enrichMappingsPricing`. `revenueHt`
+est natif sur tout le pipeline dashboard/agrégation, remise incluse.
+
+Le seul point réellement TTC-only aujourd'hui est l'endpoint spécifique consommé par
+Analyse/EventPredict pour le catalogue produit (`GET /weezevent/products`), un gap précis et
+ciblé, pas une absence générale de gestion du HT côté backend.
+
+Schéma Prisma (`backend/prisma/schema.prisma`) : aucune colonne HT n'a jamais existé en face de
+`basePrice`/`vatRate` sur `SalesProduct` (:1289-1290), `MenuItem` (:2235-2236),
+`SpaceMenuItem` (:2314-2315, `priceTtc`), choix structurel constant (TTC + taux stockés, HT
+toujours dérivé à la volée, jamais persisté). Seuls les agrégats de revenu
+(`SpaceRevenueMinuteAgg.revenueHt`, `SpaceProductRevenueDailyAgg.revenueHt`,
+`ElementMenuItemSalesInput.revenueHt`, `UnmappedDataMetrics.revenueHt`) stockent du HT, au niveau
+agrégat, jamais au niveau prix unitaire produit.
+
+### 7.1 Scoping : brancher `computePricing()` sur `GET /weezevent/products`
+
+**Ampleur : S.** Rien de bloquant : `MenuItemPricingService` est déjà injecté dans
+`WeezeventController` (`weezevent.controller.ts:37`, module déjà importé via `PricingModule`
+dans `weezevent.module.ts:16,31`). Pas de N+1, pas de requête supplémentaire hors un éventuel
+`getTenantDefaultVatRate(tenantId)` unique en tête de méthode (même pattern que
+`space-menus.service.ts:276`). Pas de DTO typé à casser (réponse `any[]` non typée
+aujourd'hui). Changement additif, aucun breaking change pour les appelants actuels
+(`useSpaceData.js:214`, `StepMapMenuItems.vue:1128,1842`) qui continueraient de lire
+`basePrice`/`vatRate` TTC comme avant.
+
+Fichiers à toucher si on implémente :
+1. `backend/src/features/weezevent/weezevent.controller.ts` (~lignes 749-831, les 3 branches de
+   mapping `data = products.map(...)`), ajouter `pricing: this.pricing.computePricing(pr,
+   tenantVatRate, null)` (ou juste `basePriceHt`), `tenantVatRate` récupéré une fois en tête de
+   méthode.
+2. `frontend/src/api/endpoints/aggregation.api.js` (~ligne 148), documenter le nouveau champ en
+   JSDoc.
+3. `frontend/src/utils/price.js` / `useSpaceData.js` (optionnel), `menuItemPriceHt` préfère déjà
+   `mi.pricing?.gross?.ht` en étape 2 de sa résolution ; il consommerait le nouveau champ sans
+   modif s'il est branché sur `weezeventProducts[]`.
+4. Tests backend existants sur `getProducts` (à localiser) à mettre à jour si assertions strictes
+   sur la forme de réponse.
+
+Cas limite : en `priceSource: 'catalog'`, `vatRate` peut être `null` → `computePricing` renverrait
+`gross.ht: null` (comportement voulu, pas de taux inventé) ; le front devrait gérer ce `null`
+comme il le fait déjà via le garde-fou de `htFromTtc` (`price.js:27-28`).
+
+**Décision : non implémenté à ce stade** (scoping demandé par Ulrich le 2026-08-04, à planifier
+séparément si jugé utile).

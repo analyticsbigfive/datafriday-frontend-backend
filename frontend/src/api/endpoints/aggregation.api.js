@@ -145,6 +145,13 @@ export async function getWeezeventEvents(integrationId) {
   }
 }
 
+/**
+ * Chaque produit renvoyé porte désormais `pricing` (calculé par `MenuItemPricingService`,
+ * backend/src/shared/pricing/menu-item-pricing.service.ts) en plus de `basePrice`/`vatRate` bruts :
+ * `pricing.gross.ht` / `pricing.net.ht` (null si aucun vatRate résolu, jamais de taux inventé).
+ * `frontend/src/utils/price.js` (`menuItemPriceHt`) préfère déjà `pricing.gross.ht` avant de
+ * détaxer `basePrice` lui-même.
+ */
 export async function getWeezeventProducts(merchantId, integrationId, spaceId, onlySold, opts = {}) {
   try {
     const PER_PAGE = 500

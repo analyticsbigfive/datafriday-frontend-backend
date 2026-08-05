@@ -22,66 +22,80 @@
             </button>
           </div>
 
-          <!-- Error -->
-          <div v-if="error" class="hsd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
-          </div>
-
           <!-- Body -->
           <div class="hsd__body">
             <!-- Valeur -->
             <div class="hsd-section">
               <div class="hsd-field">
                 <label class="hsd-field-label" for="hr-value">{{ valueLabel }} <span class="hsd-required">*</span></label>
-                <input
+                <NumberField
                   id="hr-value"
-                  v-model.number="form.value"
-                  type="number"
-                  min="0"
-                  :step="kind === 'goal' ? '10' : '1'"
+                  v-model="form.value"
+                  :decimals="2"
+                  :step="kind === 'goal' ? 10 : 1"
+                  :min="0"
+                  :empty-value="0"
                   class="hsd-input"
                 />
               </div>
             </div>
 
-            <!-- Espaces + TOUS -->
+            <!-- Espaces + TOUS — un espace déjà couvert par une AUTRE ligne spécifique n'est
+                 plus proposé (2026-08-01, retour utilisateur : plutôt que de laisser choisir puis
+                 rejeter à l'enregistrement, "on retire de la liste des possibilités" ceux qui ont
+                 déjà une valeur). Un override délibéré sur "Tous" reste possible (cf. question
+                 #41) : seul le chevauchement entre deux lignes spécifiques est exclu ici. -->
             <div class="hsd-section">
-              <div class="hsd-section__header">
-                <div class="hsd-section__label mb-0">
-                  {{ t('hrColSpaces') }}
-                  <span class="hsd-site-count">({{ form.allSpaces ? spaces.length : form.spaceIds.length }}/{{ spaces.length }})</span>
-                </div>
-                <button
-                  v-if="spaces.length && !form.allSpaces"
-                  type="button"
-                  class="hsd-toggle-all"
-                  @click="toggleAllSpaces"
-                >
-                  {{ isAllSpacesChecked ? t('hrSelectNone') : t('hrSelectAll') }}
-                </button>
+              <div v-if="!selectableSpaces.length && existingAllSpaces" class="hsd-notice">
+                <AlertCircle :size="18" class="me-2" style="flex-shrink:0" />
+                {{ t('hrValueAllCovered') }}
               </div>
-              <div class="hsd-pill-grid">
-                <div
-                  class="hsd-pill hsd-pill--all"
-                  :class="{ 'hsd-pill--active': form.allSpaces }"
-                  @click="toggleAll"
-                >
-                  <Check :size="12" class="hsd-pill__check" />
-                  {{ t('hrAllSpaces') }}
+              <template v-else>
+                <div class="hsd-section__header">
+                  <div class="hsd-section__label mb-0">
+                    {{ t('hrColSpaces') }}
+                    <span class="hsd-site-count">({{ form.allSpaces ? selectableSpaces.length : form.spaceIds.length }}/{{ selectableSpaces.length }})</span>
+                  </div>
+                  <button
+                    v-if="selectableSpaces.length && !form.allSpaces"
+                    type="button"
+                    class="hsd-toggle-all"
+                    @click="toggleAllSpaces"
+                  >
+                    {{ isAllSpacesChecked ? t('hrSelectNone') : t('hrSelectAll') }}
+                  </button>
                 </div>
-                <div
-                  v-for="s in spaces"
-                  :key="s.id"
-                  class="hsd-pill"
-                  :class="{ 'hsd-pill--active': !form.allSpaces && form.spaceIds.includes(s.id), 'hsd-pill--disabled': form.allSpaces }"
-                  @click="toggleSpace(s.id)"
-                >
-                  <Check :size="12" class="hsd-pill__check" />
-                  {{ s.name }}
+                <div class="hsd-pill-grid">
+                  <div
+                    v-if="!existingAllSpaces"
+                    class="hsd-pill hsd-pill--all"
+                    :class="{ 'hsd-pill--active': form.allSpaces }"
+                    @click="toggleAll"
+                  >
+                    <Check :size="12" class="hsd-pill__check" />
+                    {{ t('hrAllSpaces') }}
+                  </div>
+                  <div
+                    v-for="s in selectableSpaces"
+                    :key="s.id"
+                    class="hsd-pill"
+                    :class="{ 'hsd-pill--active': !form.allSpaces && form.spaceIds.includes(s.id), 'hsd-pill--disabled': form.allSpaces }"
+                    @click="toggleSpace(s.id)"
+                  >
+                    <Check :size="12" class="hsd-pill__check" />
+                    {{ s.name }}
+                  </div>
                 </div>
-              </div>
+                <p v-if="existingAllSpaces" class="hsd-hint">{{ t('hrValueOverrideHint') }}</p>
+              </template>
             </div>
+          </div>
+
+          <!-- Error : rendue ici, hors zone scrollable, toujours visible juste au-dessus des
+               boutons — plutôt qu'en haut du corps (invisible une fois scrollé). -->
+          <div v-if="error" class="hsd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            {{ error }}
           </div>
 
           <!-- Footer -->
@@ -104,6 +118,7 @@ import { reactive, ref, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { AlertCircle, Check, Target, UserCog, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
+import NumberField from '@/components/common/NumberField.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -111,6 +126,11 @@ const props = defineProps({
   mode: { type: String, default: 'create' },
   initial: { type: Object, default: null },
   spaces: { type: Array, default: () => [] },
+  // Lignes existantes (goals ou staffRatios selon `kind`) — sert à retirer de la liste les
+  // espaces déjà couverts par une AUTRE ligne spécifique (2026-08-01). Ce tiroir n'est utilisé
+  // qu'en création (mode toujours 'create' en pratique, cf. HrSettingsView.vue) : pas de logique
+  // d'exclusion-de-soi-même nécessaire ici, contrairement au backend (assertNoGoalOverlap).
+  lines: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['update:modelValue', 'submit'])
 
@@ -141,9 +161,24 @@ const isValid = computed(() => {
   return form.allSpaces || form.spaceIds.length > 0
 })
 
-const isAllSpacesChecked = computed(() => props.spaces.length > 0 && form.spaceIds.length === props.spaces.length)
+// Un espace couvert par une AUTRE ligne spécifique n'est plus proposé — chevauchement rejeté de
+// toute façon côté backend (assertNoGoalOverlap/assertNoRatioOverlap), autant ne pas le proposer.
+const coveredSpaceIds = computed(() => {
+  const ids = new Set()
+  for (const l of props.lines) {
+    if (!l.allSpaces) for (const id of l.spaceIds || []) ids.add(id)
+  }
+  return ids
+})
+const selectableSpaces = computed(() => props.spaces.filter((s) => !coveredSpaceIds.value.has(s.id)))
+// Une ligne "Tous" existe déjà pour ce paramètre → en créer une deuxième est rejeté par le
+// backend, donc l'option n'est plus proposée ici (l'override par ligne spécifique reste possible).
+const existingAllSpaces = computed(() => props.lines.some((l) => l.allSpaces))
+
+const isAllSpacesChecked = computed(() => selectableSpaces.value.length > 0 && form.spaceIds.length === selectableSpaces.value.length)
 
 function toggleAll() {
+  if (existingAllSpaces.value) return
   form.allSpaces = !form.allSpaces
   if (form.allSpaces) form.spaceIds = []
 }
@@ -154,7 +189,7 @@ function toggleSpace(id) {
   else form.spaceIds.splice(i, 1)
 }
 function toggleAllSpaces() {
-  form.spaceIds = isAllSpacesChecked.value ? [] : props.spaces.map((s) => s.id)
+  form.spaceIds = isAllSpacesChecked.value ? [] : selectableSpaces.value.map((s) => s.id)
 }
 
 function close() { emit('update:modelValue', false) }
@@ -238,12 +273,14 @@ function submit() {
 }
 .hsd__close-btn:hover { background: rgba(255, 255, 255, 0.3); }
 
+/* Barre fixe entre le corps scrollable et le footer (bordure haute, pas basse, pour se
+   détacher du corps plutôt que du footer). */
 .hsd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: var(--fs-base);
   color: #ff3131;
   flex-shrink: 0;
@@ -251,6 +288,7 @@ function submit() {
 
 .hsd__body {
   flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 22px 24px 24px;
   display: flex;
@@ -275,10 +313,23 @@ function submit() {
 .hsd-site-count { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: #9ca3af; text-transform: none; letter-spacing: 0; margin-left: 4px; }
 .hsd-toggle-all { background: none; border: none; font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #ff3131; cursor: pointer; padding: 0; }
 .hsd-toggle-all:hover { text-decoration: underline; }
+.hsd-notice {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  font-size: var(--fs-base);
+  color: #b45309;
+}
+.hsd-hint { font-size: var(--fs-xs); color: #9ca3af; margin: 10px 0 0; }
+.hsd--dark .hsd-notice { background: rgba(180, 83, 9, 0.14); border-color: rgba(251, 146, 60, 0.35); color: #fdba74; }
 
 .hsd-field { display: flex; flex-direction: column; gap: 6px; }
 .hsd-field-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: #374151; }
 .hsd-required { color: #ff3131; }
+.hsd-input.number-field__input { text-align: center; }
 .hsd-input {
   width: 100%;
   border-radius: 11px;

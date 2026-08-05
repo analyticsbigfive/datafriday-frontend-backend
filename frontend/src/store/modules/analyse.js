@@ -30,6 +30,7 @@ import { t as translate, getCurrentLocale } from '@/i18n/translations'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
 import { parseEventSessions } from '@/utils/eventSessions'
+import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
 // call-site (buildConfigShopEntry) et NON statique : configuration.api → client.js
@@ -210,6 +211,15 @@ async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, comm
  * dans toutes les configs) → pas de scoping par memberships.
  */
 let builder2SubtypesCache = { spaceId: null, promise: null }
+
+/**
+ * Jeton de requête monotone pour `refreshLiveShopSnapshot` (module Live, §14
+ * de `docs/modules/11_LIVE.md`) : incrémenté à chaque dispatch, la réponse
+ * n'est commit que si elle est encore la dernière demandée — un tick de 15 s
+ * qui répond après un tick plus récent est ignoré (pas d'AbortController, ces
+ * endpoints ne portent pas de signal réseau annulable ici).
+ */
+let liveShopSnapshotRequestId = 0
 function getBuilder2SubtypesByName(spaceId) {
   if (!spaceId) return Promise.resolve(null)
   if (builder2SubtypesCache.spaceId !== spaceId || !builder2SubtypesCache.promise) {
@@ -219,11 +229,9 @@ function getBuilder2SubtypesByName(spaceId) {
         .then((m) => m.getBuilderState(spaceId))
         .then((s) => {
           // Types legacy Data Integration (fnb_food, fnb-bar, fb…) = shops F&B
-          // (même règle que normalizeType d'elementTaxonomy.js côté builder2).
-          const isShopType = (type) => {
-            const t = String(type || '').toLowerCase().replace(/_/g, '-')
-            return t === 'shop' || t === 'fb' || t.startsWith('fnb')
-          }
+          // (normalizeType d'elementTaxonomy.js côté builder2, réutilisé ici au lieu
+          // d'une réimplémentation locale).
+          const isShopType = (type) => normalizeType(type) === 'shop'
           const byName = new Map()
           for (const zone of s?.zones || []) {
             for (const el of zone?.elements || []) {
@@ -401,43 +409,28 @@ function buildConfigShopEntryCached(spaceId, configId, ctx) {
  * bug « le sélecteur retombe sur All Configurations » : loadSpace est re-dispatché
  * par d'autres écrans (ex. EventPredictView.loadAll) pendant que l'utilisateur a
  * déjà fait sa sélection — on ne l'écrase plus aveuglément.
+ *
+ * @param {string|null} currentId
+ * @param {Array<{id:string}>} configurations — liste FRAÎCHE (déjà passée par
+ *   `filterValidConfigurations`)
+ * @param {{ configurationsFetchFailed?: boolean }} [opts] — `true` quand
+ *   `GET /configurations` a échoué : la liste reçue est alors `[]` par repli et ne
+ *   dit RIEN sur la validité de `currentId` → on conserve la sélection.
  */
-export function resolveConfigSelectionAfterLoad(currentId, configurations = []) {
+export function resolveConfigSelectionAfterLoad(
+  currentId,
+  configurations = [],
+  { configurationsFetchFailed = false } = {},
+) {
   if (!currentId || currentId === 'cfg-all') return null
+  // Fetch dégradé (`GET /configurations` en échec, avalé en `[]` par useSpaceData) :
+  // une liste absente n'est PAS une preuve que l'id est périmé. Sans cette garde, un
+  // échec réseau transitoire fait retomber la sélection utilisateur sur
+  // « All Configurations » — l'écran change de périmètre sans que personne l'ait
+  // demandé. Liste VIDE mais fetch OK = l'espace n'a réellement aucune config → on
+  // purge (comportement inchangé, sinon le select afficherait l'id BRUT).
+  if (configurationsFetchFailed) return currentId
   return configurations.some((c) => c?.id === currentId) ? currentId : null
-}
-
-/**
- * Configuration à PRÉ-SÉLECTIONNER à l'ouverture d'un espace (Analyse / Prédire),
- * quand l'utilisateur n'a encore rien choisi. Règle validée : la PREMIÈRE config
- * de la liste qui a réellement des events rattachés.
- *
- * Pourquoi la condition « avec events » : une config sélectionnée SCOPE STRICTEMENT
- * les events (`eventsInActiveConfiguration`) — pré-sélectionner une config vide
- * ouvrirait l'écran sur « Aucun event rattaché à cette configuration ».
- *
- * Repli `null` = « All Configurations » (comportement historique) si aucune config
- * n'a d'event : mieux vaut l'union que l'écran vide.
- *
- * Le rattachement event↔config suit la MÊME double règle que
- * `eventsInActiveConfiguration` : `config.eventIds` OU `event.configurationId`.
- *
- * @returns {string|null} id de configuration, ou null pour « All Configurations »
- */
-export function pickDefaultConfiguration(configurations = [], events = []) {
-  const list = (configurations || []).filter((c) => c?.id && c.id !== 'cfg-all')
-  if (!list.length) return null
-  const evs = events || []
-  for (const c of list) {
-    // Intersection RÉELLE avec les events chargés : un `eventIds` qui pointe des
-    // events absents du space donnerait quand même un écran vide.
-    const ids = new Set(c.eventIds || [])
-    const hasEvents = evs.some(
-      (e) => ids.has(e?.id) || (e?.configurationId && e.configurationId === c.id),
-    )
-    if (hasEvents) return c.id
-  }
-  return null
 }
 
 // Statuts backend considérés comme « supprimé/invalide » (comparaison lowercase).
@@ -562,14 +555,15 @@ const state = () => ({
   // (shopArea vient des FloorElements) s'affiche VIDE pendant tout le différé.
   configContextSettled: false,
   configContextLoadingId: null, // configId du chargement de contexte en cours (dédup des dispatchs concurrents)
-  // Espace pour lequel la pré-sélection auto de configuration a déjà été jouée.
-  // Garantit qu'elle ne s'applique QU'UNE fois par espace (cf. pickDefaultConfiguration).
-  configAutoSelectedSpaceId: null,
   // Options du filtre articles = articles VENDUS dans le scope events courant.
   // Remontées depuis AnalyseView (dataset item-level, hors store) via
   // setSoldItemOptions. Source des getters salesMenuItem* (data-driven : filtres
   // alignés sur les ventes affichées, jamais sur le catalogue/assignation).
   soldItemOptions: { names: [], types: [], categories: [] },
+  // true tant que le fetch item-level (useAnalyseItemRecords, hors store) tourne :
+  // `soldItemOptions` est alors vide PARCE QUE ça charge, pas parce qu'il n'y a
+  // rien → filtersState doit afficher le loader, pas « Aucun article disponible ».
+  soldItemOptionsLoading: false,
   events: [],
   summary: null,              // { totalRevenue, totalCost, variations: {...} } fourni par l'API ou le mock
   fromMock: false,             // true quand fallback mock (affiche badge "Données démo")
@@ -585,9 +579,28 @@ const state = () => ({
   cumulativeRevenue: false,
   selectedToolbox: 'analyse',   // analyse | predict | inventory
   activeMobilePanel: 'middle',  // left | middle | right
+  // Module Live (docs/modules/11_LIVE.md) : posé par AnalyseView (route
+  // space-live), pas dérivé de selectedToolbox (Live est une route dédiée,
+  // pas un onglet du toolbox). Bascule `optionsBaseRecords` sur les seuls
+  // events filtrés (l'event live) au lieu de tous les events analysables —
+  // sinon Types de PDV/Zones/Points de vente affichent des compteurs agrégés
+  // sur TOUT l'historique de l'espace plutôt que sur l'event en cours.
+  isLiveRoute: false,
 
   // Assistant : requête injectée depuis l'extérieur (ex. clic sur une alerte du header)
   pendingAssistantQuery: null,
+
+  // Tables mises à plat des graphiques de la page (`useAnalyseDataset`), publiées
+  // ici pour deux consommateurs : l'export xlsx/csv et l'assistant, dont le
+  // contrat est `answer(store, query)` — passer par le store évite d'en changer
+  // la signature jusqu'au chemin sémantique et à SummaryPanel.
+  //
+  // Construit EN DERNIER (idle, après le rendu) et porteur d'une `signature` :
+  // l'assistant la compare avant usage et retombe sur `filteredShopGranularData`
+  // si elle diverge. Un dataset périmé qui répond est pire que pas de dataset.
+  // Ce sont des tables agrégées (dizaines à centaines de lignes), pas une copie
+  // des records.
+  dataset: null,
 
   // EventPredict : id de l'event à pré-sélectionner quand on entre dans l'overlay
   // (ex. clic sur la barre d'un event futur dans EventRevenueByShopChart en mode predict)
@@ -620,8 +633,8 @@ const state = () => ({
   predictScenarioItemRecords: [],
 
   // Caches
-  transactionRateCache: {},
-  shopPerformanceCache: {},
+  // (BUG-285 : `transactionRateCache`/`shopPerformanceCache` supprimés — déclarés
+  // ici depuis l'origine mais jamais lus ni écrits nulle part.)
   // Cache local des shops NestJS (anciennement dans spaceShops/state, maintenant
   // que ce store est stateless on le garde ici pour les getters synchrones).
   spaceShopsRows: {}, // { [spaceId]: [] }
@@ -720,13 +733,26 @@ const getters = {
   // Étendu pour supporter tous les presets (analyse + predict) cf. React §6.1.
   // En mode 'predict', les presets thismonth/quarter/year vont jusqu'à la
   // fin de la période ; en mode 'analyse', ils s'arrêtent à today.
-  dateBounds(state) {
+  dateBounds(state, g, rootState) {
     const { timeRange, startDate, endDate } = state.filters
     if (timeRange === 'custom') {
       return {
         start: startDate ? new Date(startDate) : null,
         end: endDate ? new Date(endDate) : null,
       }
+    }
+    // Saison (préset dynamique `season:<id>`, module Rapport Saison). Une saison
+    // supprimée/inconnue retombe sur « tout l'historique » ({null,null}) et
+    // SURTOUT pas sur le `default` du switch (année en cours) — un id orphelin
+    // ne doit jamais filtrer silencieusement sur une mauvaise période.
+    if (String(timeRange || '').startsWith('season:')) {
+      const id = String(timeRange).slice('season:'.length)
+      const season = (rootState.seasons?.seasons || []).find((s) => s.id === id)
+      if (!season) return { start: null, end: null }
+      const start = new Date(season.startDate)
+      const end = new Date(season.endDate)
+      end.setHours(23, 59, 59, 999)
+      return { start, end }
     }
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -1007,7 +1033,15 @@ const getters = {
   // options se réduiraient à la sélection courante. Garde hasEvents : pendant le
   // loading, state.events est vide → on ne masque pas le skeleton.
   optionsBaseRecords(state, g) {
-    const ids = new Set((g.analysableEvents || []).map((e) => e.id))
+    // Module Live (docs/modules/11_LIVE.md) : `analysableEvents` couvre TOUT
+    // l'historique analysable de l'espace — le raisonnement « options = scope
+    // large pour pouvoir élargir la sélection » (cf. commentaire ci-dessous)
+    // ne tient pas en Live, où il n'y a jamais qu'UN SEUL event (`filteredEvents`,
+    // déjà réduit par applyLiveScope). Sans ce cas, Types de PDV/Zones/Points de
+    // vente affichaient des compteurs agrégés sur tout l'historique de l'espace
+    // au lieu du seul event en cours — trouvé le 2026-08-05.
+    const base = state.isLiveRoute ? (g.filteredEvents || []) : (g.analysableEvents || [])
+    const ids = new Set(base.map((e) => e.id))
     const hasEvents = (state.events || []).length > 0
     if (!hasEvents) return g.reconciledShopGranularData || []
     return (g.reconciledShopGranularData || []).filter((r) => ids.has(r.eventId))
@@ -1204,8 +1238,15 @@ const getters = {
     // tant qu'aucun record n'est là (sinon la data affichée suffit au panneau).
     if (state.loading) return 'loading'
     if (state.enriching && !(state.shopGranularData || []).length) return 'loading'
-    if (!(g.salesShopNames || []).length) return 'empty-no-shops'
-    if (!(g.salesMenuItemNames || []).length) return 'empty-no-items'
+    // Options vides PENDANT un chargement = pas encore arrivées, pas « rien à
+    // afficher » → spinner. Deux chargements concernés : la phase 2 (`enriching`)
+    // et le fetch item-level hors store (`soldItemOptionsLoading`, qui alimente
+    // salesMenuItem* et tourne APRÈS la fin de la phase 2). Avant : « Aucun
+    // article disponible pour cette configuration. » s'affichait pendant que les
+    // donuts et la table articles chargeaient encore — message mensonger.
+    const busy = state.enriching || state.soldItemOptionsLoading
+    if (!(g.salesShopNames || []).length) return busy ? 'loading' : 'empty-no-shops'
+    if (!(g.salesMenuItemNames || []).length) return busy ? 'loading' : 'empty-no-items'
     return 'ready'
   },
 
@@ -1290,7 +1331,7 @@ const getters = {
     }
   },
 
-  activeFilterChips(state, g) {
+  activeFilterChips(state, g, rootState) {
     const chips = []
     const { filters } = state
     // Préfixes de chips traduits (locale courante). Note : getter non réactif au
@@ -1343,8 +1384,21 @@ const getters = {
     // que le preset diffère du défaut, sinon le filtre est invisible dans le
     // bandeau et « Tout effacer » semble ne pas agir dessus. clearValue = défaut.
     const defaultTimeRange = DEFAULT_FILTERS().timeRange
-    if (filters.timeRange && filters.timeRange !== defaultTimeRange) {
-      const rangeLabel = (PRESET_I18N_KEYS[filters.timeRange] && T(PRESET_I18N_KEYS[filters.timeRange]))
+    // isLiveRoute : timeRange vaut TOUJOURS 'all' en Live (forcé par
+    // applyLiveScope() à chaque tick, AnalyseView.vue) — un chip « Période :
+    // Tout l'historique » en permanence, sur un filtre déjà masqué côté
+    // FilterPanel/FilterSummary (§16, 11_LIVE.md), n'est que du bruit.
+    // Trouvé le 2026-08-05.
+    if (!state.isLiveRoute && filters.timeRange && filters.timeRange !== defaultTimeRange) {
+      // Saison (`season:<id>`) : libellé = nom de la saison (store seasons).
+      const seasonId = String(filters.timeRange).startsWith('season:')
+        ? String(filters.timeRange).slice('season:'.length)
+        : null
+      const seasonName = seasonId
+        ? (rootState.seasons?.seasons || []).find((s) => s.id === seasonId)?.name || seasonId
+        : null
+      const rangeLabel = seasonName
+        || (PRESET_I18N_KEYS[filters.timeRange] && T(PRESET_I18N_KEYS[filters.timeRange]))
         || DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
         || PREDICT_DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
         || filters.timeRange
@@ -1635,7 +1689,6 @@ const mutations = {
   BUMP_CONFIG_CTX_REQ(state) { state.configContextReqId = (state.configContextReqId || 0) + 1 },
   SET_CONFIG_CONTEXT_LOADING(state, v) { state.configContextLoading = !!v },
   SET_CONFIG_CONTEXT_SETTLED(state, v) { state.configContextSettled = !!v },
-  SET_CONFIG_AUTO_SELECTED_SPACE_ID(state, id) { state.configAutoSelectedSpaceId = id || null },
   SET_CONFIG_CONTEXT_LOADING_ID(state, id) { state.configContextLoadingId = id || null },
   SET_CONFIG_CONTEXT_ERROR(state, e) { state.configContextError = e || null },
   SET_SOLD_ITEM_OPTIONS(state, { names, types, categories } = {}) {
@@ -1645,6 +1698,7 @@ const mutations = {
       categories: Array.isArray(categories) ? categories : [],
     }
   },
+  SET_SOLD_ITEM_OPTIONS_LOADING(state, v) { state.soldItemOptionsLoading = !!v },
   SET_MENU_ITEMS(state, m) { state.menuItems = m || [] },
   SET_SUPPLIERS(state, s) { state.suppliers = s || [] },
   SET_INGREDIENTS(state, i) { state.ingredients = i || [] },
@@ -1688,6 +1742,7 @@ const mutations = {
   },
   SET_MENU_ITEM_COST_MAP(state, m) { state.menuItemCostMap = m },
   SET_SUMMARY(state, s) { state.summary = s },
+  SET_LIVE_ROUTE(state, v) { state.isLiveRoute = !!v },
   SET_FROM_MOCK(state, v) { state.fromMock = v },
   SET_WEEZEVENT_SETUP_INCOMPLETE(state, v) { state.weezeventSetupIncomplete = v },
 
@@ -1702,6 +1757,7 @@ const mutations = {
   SET_TOOLBOX(state, v) { state.selectedToolbox = v },
   SET_MOBILE_PANEL(state, v) { state.activeMobilePanel = v },
   SET_PENDING_ASSISTANT_QUERY(state, v) { state.pendingAssistantQuery = v },
+  SET_ANALYSE_DATASET(state, v) { state.dataset = v || null },
   SET_PENDING_PREDICT_EVENT_ID(state, v) { state.pendingPredictEventId = v },
 
   SET_TIMELINE(state, { start, end }) {
@@ -1727,9 +1783,12 @@ const mutations = {
       eventId,
       menuItemCostMap: state.menuItemCostMap || {},
     })
+    // BUG-285 : gel (même motif que SET_SHOP_GRANULAR) — évite le Proxy profond
+    // sur un gros tableau minute-level retenu en cache.
+    for (const r of records) Object.freeze(r)
     state.timelineCacheByEventId = {
       ...state.timelineCacheByEventId,
-      [eventId]: records,
+      [eventId]: Object.freeze(records),
     }
   },
   INVALIDATE_TIMELINE_FOR_EVENT(state, eventId) {
@@ -1759,7 +1818,35 @@ const mutations = {
     }
   },
   SET_PREDICT_SCENARIO_ITEM_RECORDS(state, records) {
-    state.predictScenarioItemRecords = Array.isArray(records) ? records : []
+    // BUG-285 : gel (même motif que SET_SHOP_GRANULAR).
+    const arr = Array.isArray(records) ? records : []
+    state.predictScenarioItemRecords = Object.isFrozen(arr) ? arr : Object.freeze(arr)
+  },
+  // BUG-285 : purge des caches par clé au CHANGEMENT d'espace. loadSpace remplace
+  // les tableaux plats (events, shopGranularData…) mais ces accumulateurs par
+  // eventId/configId/spaceId gardaient les données de tous les espaces visités —
+  // croissance sans borne sur une session multi-espaces.
+  CLEAR_SPACE_KEYED_CACHES(state, { keepSpaceId } = {}) {
+    state.timelineCacheByEventId = {}
+    state.predictionCacheByEventConfigKey = {}
+    state.activePredictionVersionByEventId = {}
+    state.spaceMenuByConfig = {}
+    state.shopMenusByShop = {}
+    const kept = keepSpaceId != null ? state.spaceShopsRows?.[keepSpaceId] : undefined
+    state.spaceShopsRows = kept !== undefined ? { [keepSpaceId]: kept } : {}
+    // BUG-300-01 — le contexte config (floorElements → shopArea) appartient à
+    // l'ESPACE : conservé après un changement d'espace, il faisait croire au
+    // différé « All Configurations » que le contexte était déjà chargé, et la
+    // réconciliation joignait les ventes du nouvel espace aux éléments de
+    // l'ancien → donut « Par zone » définitivement vide (« Aucune donnée »).
+    state.configShopContext = { configId: null, floorElements: [], assignment: null }
+    state.configContextSettled = false
+    state.configContextError = null
+    state.configContextLoadingId = null
+    // Invalide un chargement de contexte de l'ancien espace encore en vol :
+    // sans ce bump, son commit tardif écraserait le contexte vierge (les
+    // actions vérifient `stale()` sur ce jeton).
+    state.configContextReqId = (state.configContextReqId || 0) + 1
   },
   APPLY_EVENT_PREDICT_VERSION(state, { eventId, version }) {
     if (!eventId || !version) return
@@ -1805,12 +1892,30 @@ const actions = {
   async loadSpace({ commit, dispatch, state }, payload) {
     const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
     const force = typeof payload === 'object' && payload !== null ? !!payload.force : false
+    // Écran Live (AnalyseView.vue::isLive) : inclut les events QA « simulés » dans le
+    // chargement — voir useSpaceDataFetch/fetchSpaceData ci-dessous.
+    const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
     const CACHE_TTL = 15 * 60 * 1000
     const fresh =
       !force &&
       state.space?.id === spaceId &&
       state.spaceCachedAt &&
       Date.now() - state.spaceCachedAt < CACHE_TTL
+
+    // BUG-285 : au CHANGEMENT d'espace (pas au simple re-load du même), on purge les
+    // accumulateurs par clé (timeline/prédictions/menus/shops de l'ancien espace) et
+    // les caches session API des autres espaces — sinon chaque espace visité s'ajoute
+    // aux précédents en mémoire, sans jamais redescendre.
+    const prevSpaceId = state.spaceId || state.space?.id || null
+    if (prevSpaceId && String(prevSpaceId) !== String(spaceId)) {
+      commit('CLEAR_SPACE_KEYED_CACHES', { keepSpaceId: spaceId })
+      // Import dynamique (comme useSpaceData ci-dessous) : un import statique de
+      // space.api tirerait axios (ESM) dans les specs Jest du store — 3 suites
+      // qui n'y touchent pas casseraient au parse.
+      import('@/api/endpoints/space.api')
+        .then(({ clearSpaceSessionCachesExcept }) => clearSpaceSessionCachesExcept(spaceId))
+        .catch(() => {})
+    }
 
     commit('SET_SPACE_ID', spaceId)
     // Le cache contexte-PdV est clé par configId ; on le purge au (re)chargement d'un
@@ -1825,7 +1930,7 @@ const actions = {
       // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
       // données fraîches remplaceront réactivement celles affichées, sans skeleton).
       commit('SET_ERROR', null)
-      dispatch('useSpaceDataFetch', spaceId).catch((err) => {
+      dispatch('useSpaceDataFetch', { spaceId, isLive }).catch((err) => {
         console.warn('[analyse] revalidation arrière-plan échouée:', err?.message)
       })
       return
@@ -1835,7 +1940,7 @@ const actions = {
     commit('SET_ENRICHING', true)
     commit('SET_ERROR', null)
     try {
-      await dispatch('useSpaceDataFetch', spaceId)
+      await dispatch('useSpaceDataFetch', { spaceId, isLive })
     } catch (err) {
       commit('SET_ERROR', err.message || 'Erreur de chargement du space')
       // Phase 2 ne sera jamais appelée si la phase 1 jette → on lève le skeleton.
@@ -1845,7 +1950,9 @@ const actions = {
     }
   },
 
-  async useSpaceDataFetch({ commit, dispatch, getters, state }, spaceId) {
+  async useSpaceDataFetch({ commit, dispatch, getters, state }, payload) {
+    const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
+    const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
     // Délégué au composable useSpaceData (two-phase load).
     // Phase 1 (critique) est attendue → loading=false dès qu'elle complète.
     // Phase 2 (enrichissement) rappelle onEnrichment en arrière-plan.
@@ -1884,7 +1991,7 @@ const actions = {
       if (enrichment.events?.length) commit('SET_EVENTS', enrichment.events)
       // Phase 2 terminée → on retire les skeletons des graphiques.
       commit('SET_ENRICHING', false)
-    })
+    }, { excludeSimulated: !isLive })
     commit('SET_SPACE', data.space)
     commit('SET_CONFIGURATIONS', data.configurations || [])
     commit('SET_SHOP_GRANULAR', data.shopGranularData || [])
@@ -1920,21 +2027,17 @@ const actions = {
     // l'id est périmé (hérité d'un autre espace, s'afficherait BRUT dans le select).
     // Le deep-link ?config=<id> restaure une config précise APRÈS loadSpace
     // (cf. AnalyseView.ensureAuthAndLoad). Non bloquant (fire-and-forget).
+    //
+    // AUCUNE pré-sélection par défaut (décision user 2026-07-30, annule BUG-225) :
+    // on atterrit toujours sur « All Configurations ». `pickDefaultConfiguration` et
+    // son garde-fou `configAutoSelectedSpaceId` ont été retirés avec cette décision.
     const validConfigs = filterValidConfigurations(data.configurations)
     const previousCfg = state.filters.selectedConfigurationId
-    let preserved = resolveConfigSelectionAfterLoad(
+    const preserved = resolveConfigSelectionAfterLoad(
       previousCfg,
       validConfigs,
+      { configurationsFetchFailed: !!data._configurationsFetchFailed },
     )
-    // Pré-sélection par défaut (1ère config AVEC events) à la PREMIÈRE ouverture de
-    // cet espace seulement. Le garde-fou `configAutoSelectedSpaceId` est ce qui
-    // empêche d'écraser un « All Configurations » choisi ensuite par l'utilisateur :
-    // loadSpace est re-dispatché par d'autres écrans (EventPredictView.loadAll…),
-    // sans lui on rejouerait la pré-sélection à chaque fois (bug « retombe sur X »).
-    if (!preserved && state.configAutoSelectedSpaceId !== spaceId) {
-      preserved = pickDefaultConfiguration(validConfigs, data.events || [])
-      commit('SET_CONFIG_AUTO_SELECTED_SPACE_ID', spaceId)
-    }
     commit('UPDATE_FILTER', { key: 'selectedConfigurationId', value: preserved })
     // PERF (décision user « différer seulement ») : le chemin « All Configurations »
     // (~2-3 requêtes/config depuis le batch getConfigShopMenuItemsLight) n'est PLUS
@@ -1942,10 +2045,62 @@ const actions = {
     // Une config précise reste chargée immédiatement (2-3 requêtes).
     //
     // Dispatch INCONDITIONNEL (d'autres écrans que AnalyseView dispatchent loadSpace
-    // sans watcher `selectedConfigurationId` derrière). Le doublon avec le watcher —
-    // réel depuis la pré-sélection auto (null → cfg, la valeur CHANGE donc le watcher
-    // fire aussi) — est absorbé par la dédup interne de `loadConfigShopContext`.
+    // sans watcher `selectedConfigurationId` derrière). Depuis le retrait de la
+    // pré-sélection auto (2026-07-30) la valeur ne CHANGE plus ici — le watcher
+    // d'AnalyseView ne re-fire donc pas et ce dispatch est le seul chemin. Il reste
+    // couvert par la dédup in-flight de `loadConfigShopContext` (BUG-225, point 2)
+    // pour les cas où les deux partent ensemble (config préservée + watcher au mount).
     if (preserved) dispatch('loadConfigShopContext', preserved)
+  },
+
+  /**
+   * Snapshot LIVE (module Live, `docs/modules/11_LIVE.md` §14) : appelé par
+   * `AnalyseView.vue::liveShopDetailsPoll()` à chaque tick de 15 s à la place de
+   * `loadSpace`. Ne commit QUE `shopGranularData` (KPI par shop, Revenue by
+   * shop, POS Performance), `menuItemCostMap` et `summary` (marge) — ne touche
+   * ni l'espace, ni les configs, ni les events, ni aucun catalogue (menu items,
+   * ingrédients, packaging, produits/mappings Weezevent). C'est précisément ce
+   * périmètre réduit (2 requêtes réseau au lieu du bootstrap complet
+   * `fetchSpaceData`, ~10-12) qui élimine la dette de perf documentée en §13 de
+   * `11_LIVE.md` : le catalogue ne change pas en plein service, inutile de le
+   * rejouer à chaque tick.
+   *
+   * Jeton de requête (pas d'AbortController : les endpoints shop-details/
+   * shop-granular ne portent pas de signal réseau annulable ici) — un tick lent
+   * qui répond après un tick plus récent est ignoré, même pattern que
+   * `useAnalyseItemRecords.refresh()` pour éviter un flash de KPI obsolètes.
+   */
+  async refreshLiveShopSnapshot({ commit, state }, payload) {
+    const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
+    if (!spaceId) return
+    const requestId = ++liveShopSnapshotRequestId
+    const { fetchLiveShopSnapshot } = await import('@/composables/useSpaceData')
+    let snapshot
+    try {
+      snapshot = await fetchLiveShopSnapshot(spaceId, {
+        menuItems: state.menuItems,
+        productTypes: state.productTypesList,
+        productCategories: state.productCategoriesList,
+        weezeventProducts: state.weezeventProducts,
+        weezeventProductMappings: state.weezeventProductMappings,
+      })
+    } catch (err) {
+      console.warn('[analyse] refreshLiveShopSnapshot KO:', err?.message)
+      return
+    }
+    if (requestId !== liveShopSnapshotRequestId) return // une réponse plus récente est déjà arrivée
+    commit('SET_SHOP_GRANULAR', snapshot.shopGranularData)
+    // MERGE (même logique que useSpaceDataFetch) : ne jamais écraser un
+    // menuItemCostMap déjà peuplé par un snapshot vide/partiel.
+    commit('SET_MENU_ITEM_COST_MAP', {
+      ...state.menuItemCostMap,
+      ...(snapshot.menuItemCostMap || {}),
+    })
+    commit('SET_SUMMARY', snapshot.summary || null)
+    // Bug 2026-08-05 : un event créé après le 1er chargement (ex. run QA) doit
+    // apparaître sans recharger la page — `events: null` = fetch KO, on garde
+    // l'ancienne liste plutôt que d'écraser par erreur avec [].
+    if (snapshot.events !== null) commit('SET_EVENTS', snapshot.events)
   },
 
   /**
@@ -2129,6 +2284,12 @@ const actions = {
   // (qui vit dans AnalyseView, hors store). Alimente salesMenuItem*.
   setSoldItemOptions({ commit }, payload) {
     commit('SET_SOLD_ITEM_OPTIONS', payload || {})
+  },
+  // Remonté par AnalyseView depuis useAnalyseItemRecords.loading — le fetch
+  // item-level vit hors store, le panneau de filtres a besoin de savoir qu'il
+  // tourne pour afficher un loader au lieu d'un état vide.
+  setSoldItemOptionsLoading({ commit }, v) {
+    commit('SET_SOLD_ITEM_OPTIONS_LOADING', v)
   },
   // Purge les sélections de filtres devenues obsolètes après un changement de config :
   // pour chaque dimension, retire de la sélection les valeurs absentes des options

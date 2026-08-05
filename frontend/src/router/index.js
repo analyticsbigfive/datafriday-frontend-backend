@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import store from '@/store'
-import { requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard } from './guards'
+import { requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard, requireSuperAdmin } from './guards'
 
 // Views — PERF: imports LAZY (`() => import(...)`) au lieu de statiques. En
 // statique, ces ~31 vues étaient inlinées dans le chunk eager `app.js` (953KB),
@@ -48,6 +48,9 @@ const BrandNameListView = () => import('@/components/brand-name/views/BrandNameL
 const DisplayNameListView = () => import('@/components/display-name/views/DisplayNameListView.vue')
 const IndustrialListView = () => import('@/components/industrial/views/IndustrialListView.vue')
 const PackingTypeListView = () => import('@/components/packing-type/views/PackingTypeListView.vue')
+const StorageTypeListView = () => import('@/components/storage-type/views/StorageTypeListView.vue')
+const SeasonsListView = () => import('@/components/seasons/views/SeasonsListView.vue')
+const DepartmentListView = () => import('@/components/departments/views/DepartmentListView.vue')
 const PermissionListView = () => import('@/components/permission/views/PermissionListView.vue')
 const RoleListView = () => import('@/components/role/views/RoleListView.vue')
 const UserListView = () => import('@/components/user/views/UserListView.vue')
@@ -395,6 +398,29 @@ const routes = [
         meta: { title: 'Liste des packing types', keepAlive: true, permission: 'menu.config.manage' }
       },
       { path: '/packing-types', redirect: '/configurations/packing-types' },
+      {
+        path: '/configurations/storage-types',
+        name: 'storage-types',
+        component: StorageTypeListView,
+        meta: { title: 'Liste des storage types', keepAlive: true, permission: 'menu.config.manage' }
+      },
+      {
+        path: '/configurations/seasons',
+        name: 'seasons',
+        component: SeasonsListView,
+        meta: { title: 'Saisons (périodes personnalisées)', keepAlive: true, permission: 'menu.config.manage' }
+      },
+      {
+        path: '/configurations/departments',
+        name: 'departments',
+        component: DepartmentListView,
+        // Écran réservé au super-admin PLATEFORME (isSuperAdmin) — ni le menu ni l'URL directe
+        // ne doivent être accessibles à un utilisateur normal, même en lecture. `beforeEnter`
+        // en plus de `requireOrganization` (hérité du parent `dashboard`) : celui-ci ne vérifie
+        // que l'authentification/organisation, pas le flag plateforme.
+        beforeEnter: requireSuperAdmin,
+        meta: { title: 'Liste des départements', keepAlive: true, permission: null }
+      },
       {
         path: '/permissions',
         name: 'permissions',

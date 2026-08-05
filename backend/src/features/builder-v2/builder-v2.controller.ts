@@ -12,7 +12,7 @@ import {
   CreateZoneDto, UpdateZoneDto, ReorderZonesDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto, PutInventoryDto,
   CreateConfigurationDto, RenameConfigurationDto, DeleteConfigurationQueryDto,
-  DeleteElementQueryDto, DeleteZoneQueryDto,
+  DeleteElementQueryDto, DeleteZoneQueryDto, PutMenuItemSalesInputDto,
 } from './dto/builder-v2.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
@@ -180,6 +180,47 @@ export class BuilderV2Controller {
     @Query('configId') configId?: string,
   ) {
     return this.service.putStaff(id, tenantId, dto, configId || undefined);
+  }
+
+  @Get('elements/:id/staff-suggestions')
+  @ApiOperation({
+    summary:
+      "Postes obligatoires selon les sous-types F&B de l'élément + les règles Sinking RH du tenant (scopé config : ?configId=)",
+    description:
+      'Auto-remplissage de la section Staff (2026-07-30). Les règles Sinking avec condition ' +
+      "d'équipement ne matchent jamais ici (aucun champ Builder ne renseigne encore ces attributs).",
+  })
+  async getStaffSuggestions(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Query('configId') configId?: string,
+  ) {
+    return this.service.getStaffSuggestions(id, tenantId, configId || undefined);
+  }
+
+  @Get('elements/:id/menu-item-sales-input')
+  @ApiOperation({
+    summary: "Saisie manuelle 'vendu/prévu' par Menu Item pour ce shop (scopé config : ?configId=)",
+    description: '11_RH_STAFFING.md §11.16 — source des associations Rôle↔MenuItem (HrRoleMenuItemRatio).',
+  })
+  async getMenuItemSalesInput(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Query('configId') configId?: string,
+  ) {
+    return this.service.getMenuItemSalesInput(id, tenantId, configId || undefined);
+  }
+
+  @Put('elements/:id/menu-item-sales-input')
+  @RequirePermissions('space.edit')
+  @ApiOperation({ summary: "Remplacer la saisie 'vendu/prévu' par Menu Item de l'élément (scopé config : ?configId=)" })
+  async putMenuItemSalesInput(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: PutMenuItemSalesInputDto,
+    @Query('configId') configId?: string,
+  ) {
+    return this.service.putMenuItemSalesInput(id, tenantId, dto, configId || undefined);
   }
 
   @Put('elements/:id/inventory')

@@ -18,6 +18,12 @@
             <button class="cl-action-hbtn" @click="onExportCsv">
               <Download :size="15" /> {{ t('compListExportCsv') }}
             </button>
+            <button class="cl-action-hbtn" @click="onExportCsvPacked">
+              <Download :size="15" /> {{ t('compListExportCsvPacked') }}
+            </button>
+            <button class="cl-action-hbtn" @click="importDrawer = true">
+              <Upload :size="15" /> {{ t('compListImportCsv') }}
+            </button>
             <button class="cl-add-btn" @click="onAddComponent">
               <Plus :size="17" /> {{ t('compListAddComponent') }}
             </button>
@@ -102,12 +108,24 @@
       </div>
 
       <!-- Table Section -->
-      <div v-else-if="!loading" class="table-card">
+      <template v-else-if="!loading">
+        <!-- Bulk delete bar -->
+        <div v-if="bulkSelected.length" class="bulk-bar">
+          <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+          <div class="bulk-bar__actions">
+            <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+            <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+          </div>
+        </div>
+
+        <div class="table-card">
         <v-data-table
+          v-model="bulkSelected"
+          show-select
           :headers="tableHeaders"
           :items="filteredComponents"
           item-value="id"
-          density="comfortable"
+          density="compact"
           class="cl-table"
           hover
         >
@@ -158,7 +176,8 @@
             </div>
           </template>
         </v-data-table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <ComponentDeleteDialog
@@ -173,6 +192,28 @@
       :cancel-label="t('cancel')"
       :confirm-label="t('delete')"
       @confirm="confirmDelete"
+    />
+
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress"
+      :total="bulkTotal"
+      :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')"
+      :cancel-label="t('cancel')"
+      :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading"
+      :error="bulkError"
+      :is-dark="isDark"
+      @confirm="confirmBulkDelete"
+    />
+
+    <ComponentCsvImportDrawer
+      v-model="importDrawer"
+      :is-dark="isDark"
+      @imported="loadComponents(true)"
     />
 
     <!-- Sub-Items Drawer -->
@@ -244,11 +285,13 @@
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
-import { Boxes, Download, Pencil, Plus, Search, Trash2, X } from "lucide-vue-next";
+import { Boxes, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { deleteMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import ComponentDeleteDialog from '../dialogs/ComponentDeleteDialog.vue';
+import ComponentCsvImportDrawer from '../drawers/ComponentCsvImportDrawer.vue';
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
 
 export default {
   name: "ComponentListView",
@@ -259,8 +302,11 @@ export default {
     Plus,
     Search,
     Trash2,
+    Upload,
     X,
     ComponentDeleteDialog,
+    ComponentCsvImportDrawer,
+    BulkDeleteDialog,
   },
   setup() {
     const { t, locale } = useI18n();
@@ -277,10 +323,19 @@ export default {
       loading: false,
       error: "",
 
+      importDrawer: false,
+
       deleteDialog: false,
       deleteTarget: null,
       deleteLoading: false,
       deleteError: "",
+
+      bulkSelected: [],
+      bulkOpen: false,
+      bulkLoading: false,
+      bulkError: "",
+      bulkProgress: 0,
+      bulkTotal: 0,
 
       subItemsDrawer: false,
       subItemsComponent: null,
@@ -477,6 +532,78 @@ export default {
         alert('Failed to export CSV. Please try again.');
       }
     },
+    // Export "par recette" — coexiste avec onExportCsv() (format plat, inchangé). Encode
+    // ingredients[]/children[] dans la colonne Recipe avec les VRAIS cuids de cette base (pas les
+    // anciens ids legacy) : permet un cycle export → édition → réimport en upsert sans avoir
+    // besoin du fichier compagnon Market Prices (uniquement nécessaire pour un tout premier
+    // import d'un fichier historique). Même format packé que ComponentCsvImportDrawer.vue attend.
+    onExportCsvPacked() {
+      try {
+        const headers = [
+          'Component ID', 'Component Name', 'Category', 'Component Type', 'Unit',
+          'Number of Units per Recipe', 'Packaging Type', 'Number of units', 'Storage Type',
+          'Description', 'Recipe',
+        ];
+        const csvData = [headers];
+
+        for (const component of this.componentsList || []) {
+          const raw = component._raw || {};
+          const ingredients = Array.isArray(raw.ingredients) ? raw.ingredients : [];
+          const children = Array.isArray(raw.children) ? raw.children : [];
+          const segments = [];
+          let seq = 0;
+          for (const ing of ingredients) {
+            const ingredientId = ing?.ingredientId || ing?.ingredient?.id;
+            const qty = Number(ing?.quantity);
+            if (ingredientId && qty > 0) segments.push(`${++seq}>Ingredient>>${ingredientId}>${qty}`);
+          }
+          for (const child of children) {
+            const childId = child?.childId || child?.child?.id;
+            const qty = Number(child?.quantity);
+            if (childId && qty > 0) segments.push(`${++seq}>Component>${childId}>${qty}`);
+          }
+          const row = [
+            String(component?.id || ''),
+            String(component?.name || ''),
+            String(component?.category || ''),
+            String(component?.type || ''),
+            String(component?.unit || ''),
+            String(component?.unitsPerRecipe || ''),
+            String(raw?.inventoryPackaging || ''),
+            String(raw?.packedUnits ?? ''),
+            String(component?.storageType || ''),
+            String(component?.description || ''),
+            segments.join('|'),
+          ];
+          csvData.push(row);
+        }
+
+        const csvContent = csvData.map(row =>
+          row.map(cell => {
+            const cellStr = String(cell || '');
+            if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+              return '"' + cellStr.replace(/"/g, '""') + '"';
+            }
+            return cellStr;
+          }).join(',')
+        ).join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+
+        link.setAttribute('href', url);
+        link.setAttribute('download', `components-recipe-${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (error) {
+        console.error('Error exporting packed CSV:', error);
+        alert('Failed to export CSV. Please try again.');
+      }
+    },
     onAddComponent() {
       this.$router.push({ path: "/menu-fb/components/new" });
     },
@@ -622,6 +749,35 @@ export default {
       } finally {
         this.deleteLoading = false;
       }
+    },
+
+    openBulkDelete() {
+      this.bulkError = '';
+      this.bulkProgress = 0;
+      this.bulkTotal = 0;
+      this.bulkOpen = true;
+    },
+    async confirmBulkDelete() {
+      const ids = [...this.bulkSelected];
+      if (!ids.length) return;
+      this.bulkLoading = true;
+      this.bulkError = '';
+      this.bulkTotal = ids.length;
+      this.bulkProgress = 0;
+      const failed = [];
+      for (const id of ids) {
+        try {
+          await deleteMenuComponent(id);
+        } catch (e) {
+          failed.push(id);
+        }
+        this.bulkProgress += 1;
+      }
+      await this.loadComponents(true);
+      this.bulkLoading = false;
+      this.bulkSelected = failed;
+      if (failed.length) this.bulkError = `${failed.length} composant(s) n'ont pas pu être supprimés.`;
+      else this.bulkOpen = false;
     },
   },
   mounted() {
@@ -827,6 +983,18 @@ export default {
   text-align: center;
 }
 
+/* ── Bulk delete bar ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size:var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.cl--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.cl--dark .bulk-bar__clear { color:#94a3b8; }
+.cl--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
+
 /* ── Table ── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
@@ -841,31 +1009,24 @@ export default {
   animation: fadeIn 0.3s ease-out;
 }
 
-.cl-table :deep(.v-data-table__th) {
-  background: #f9fafb !important;
-  color: #6b7280 !important;
-  font-size: 0.75rem !important;
-  font-weight: 700 !important;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 12px 16px !important;
-  border-bottom: 1.5px solid #e5e7eb !important;
-  white-space: nowrap;
-}
-
+.cl-table :deep(.v-data-table__th),
 .cl-table :deep(.v-data-table__td) {
-  padding: 13px 16px !important;
-  vertical-align: middle;
-  border-bottom: 1px solid #f3f4f6 !important;
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
-
-.cl-table :deep(.v-data-table__tr:last-child .v-data-table__td) {
-  border-bottom: none !important;
+.cl-table :deep(.v-data-table__td) { vertical-align: middle; }
+.cl-table :deep(.v-data-table__th) {
+  font-size: var(--fs-xs) !important;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
+  background: #fafafa !important;
 }
-
-.cl-table :deep(.v-data-table__tr:hover .v-data-table__td) {
-  background: #fff8f8 !important;
-}
+.cl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 
 /* Name */
 .cl-row-name {
@@ -929,22 +1090,23 @@ export default {
 }
 
 /* Action buttons */
-.cl-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.cl-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .cl-act-btn {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
 }
 .cl-act-btn--edit   { background: #eff6ff; color: #2563eb; }
-.cl-act-btn--edit:hover   { background: #dbeafe; box-shadow: 0 2px 8px rgba(37,99,235,.2); transform: translateY(-1px); }
+.cl-act-btn--edit:hover   { background: #dbeafe; }
 .cl-act-btn--delete { background: #fef2f2; color: #ff3131; }
-.cl-act-btn--delete:hover { background: #fee2e2; box-shadow: 0 2px 8px rgba(255,49,49,.2); transform: translateY(-1px); }
+.cl-act-btn--delete:hover { background: #fee2e2; }
 
 /* ── Sub-items drawer ── */
 .sub-items-drawer :deep(.v-navigation-drawer__content) {
@@ -1071,8 +1233,8 @@ export default {
   color: #e2e8f0;
   border-bottom-color: rgba(255, 255, 255, .06) !important;
 }
-.cl--dark .cl-table :deep(.v-data-table__tr:hover .v-data-table__td) {
-  background: rgba(255, 49, 49, .08) !important;
+.cl--dark .cl-table :deep(tbody tr:hover td) {
+  background: #1a2332 !important;
 }
 .cl--dark .cl-row-name__text { color: #e2e8f0; }
 .cl--dark .cl-badge--category { background: rgba(255, 255, 255, .08); color: #cbd5e1; border-color: rgba(255, 255, 255, .12); }

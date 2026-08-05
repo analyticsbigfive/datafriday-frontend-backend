@@ -44,12 +44,6 @@ enum ZoneKind {
   EXTERNAL
 }
 
-enum StorageType {
-  Cold
-  Dry
-  Frozen
-}
-
 enum KitchenType {
   Central
   Local
@@ -522,8 +516,14 @@ model Space {
   hrGoalSpaces       HrGoalSpace[]
   hrStaffRatioSpaces HrStaffRatioSpace[]
 
+  // Rapport Saison : périodes personnalisées (custom ranges) rattachées à cet espace
+  seasonSpaces SeasonSpace[]
+
   // Staffing RH : agence par défaut de l'espace pour un rôle donné
   hrRoleSpaceDefaults HrRoleSpaceDefault[]
+
+  // Staffing RH : associations Rôle ↔ Menu Item(s) scopées à cet espace (11_RH_STAFFING.md §11.16)
+  hrRoleMenuItemRatios HrRoleMenuItemRatio[]
 
   @@index([tenantId])
   @@index([name])
@@ -591,6 +591,44 @@ model HrStaffRatioSpace {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Rapport Saison — périodes personnalisées (« Saison 2025-2026 », 1er juil →
+// 30 juin) paramétrées dans Settings > Configuration, rattachées à un ensemble
+// de Spaces (ou à tous via allSpaces) et proposées comme presets de dates dans
+// Analyse et Predict. Même schéma de rattachement que HrGoal (jointure
+// explicite, jamais de spaceIds JSON — ADR-0003). Contrairement aux Settings
+// HR, les saisons PEUVENT se chevaucher sur un même espace (2024-25 et 2025-26
+// coexistent) : aucune règle d'unicité.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Période personnalisée nommée (dates absolues), rattachée à un ensemble de Spaces.
+model Season {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  allSpaces Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  spaces SeasonSpace[]
+
+  @@index([tenantId])
+}
+
+model SeasonSpace {
+  seasonId String
+  spaceId  String
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  space  Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([seasonId, spaceId])
+  @@index([seasonId])
+  @@index([spaceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Staffing RH (feat/Hr, 2026-07-29) — fournisseurs RH, rôles métier, personnes
 // internes, agence par défaut par espace, lignes de staff par événement × PDV.
 // Migre hr_suppliers / staff_positions du localStorage (frontend utils/hrApi.js).
@@ -600,17 +638,17 @@ model HrStaffRatioSpace {
 
 /// Fournisseur RH (agence d'intérim, prestataire staff…).
 model HrSupplier {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  contact   String? // nom du contact
-  email     String?
-  tel       String?
-  picture   String?  @db.Text // parité avec le drawer existant (photo optionnelle)
-  sectors   String[] // secteurs libres (F&B, Hospitality…) — parité localStorage
-  spaceIds  String[] // espaces desservis (ids Space, non contraint) — parité localStorage
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  contact     String? // nom du contact
+  email       String?
+  tel         String?
+  picture     String?  @db.Text // parité avec le drawer existant (photo optionnelle)
+  departments String[] // départements libres (F&B, Hospitality…) — ex-"sectors", RH-5 2026-07-30
+  spaceIds    String[] // espaces desservis (ids Space, non contraint) — parité localStorage
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   roles         HrRoleSupplier[]
   spaceDefaults HrRoleSpaceDefault[]
@@ -629,15 +667,18 @@ model HrRole {
   contractType  String? // 'CDD' | 'FREELANCE' | 'CDI' | 'AGENCY' | 'OTHER' — requis seulement si F&B
   rateType      String? // 'HOURLY' | 'DAILY' | 'MONTHLY' — requis si contractType ∈ {CDD, AGENCY, FREELANCE}
   rate          Float? // montant HT selon rateType
-  fnbCategories String[] // 'BEVERAGE' | 'FRONT_FOOD' | 'KITCHEN_FOOD' | 'MIXOLOGY' — vide = « NON LIÉ »
+  fnbCategories String[] // Subtype.code du département 'shop' (ex. 'beverages', 'front_food') — vide = « NON LIÉ »
   algoKey       String? // 'RESPONSABLE_ZONE'|'RESPONSABLE_PDV'|'CAISSIER'|'RUNNER'|'BARMAN'|'CHEF_DE_PARTIE'|'COMMIS'|'EPR'|null
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  suppliers     HrRoleSupplier[] // multi-select si AGENCY
-  persons       HrPerson[]
-  spaceDefaults HrRoleSpaceDefault[]
-  staffLines    EventStaffLine[]
+  suppliers      HrRoleSupplier[] // multi-select si AGENCY
+  persons        HrPerson[]
+  spaceDefaults  HrRoleSpaceDefault[]
+  staffLines     EventStaffLine[]
+  sinkingRules   HrSinkingRule[]
+  elementStaff   ElementStaff[] // lignes Staff Builder auto-remplies (source='AUTO')
+  menuItemRatios HrRoleMenuItemRatio[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -725,6 +766,57 @@ model EventStaffLine {
   @@index([elementId])
 }
 
+/// Règle « Sinking RH » (STF-2, 2026-07-30) — force un quota minimal d'un rôle
+/// sur un PDV selon son tag F&B détecté (subtypes → fnbCategory, voir
+/// SUBTYPE_TO_FNB_CATEGORY dans staffing.service.ts) et une condition optionnelle
+/// sur SpaceElement.attributes (ex. nbFriteuses ≥ seuil). Appliquée en SUPPLÉMENT
+/// du calcul par paliers (staffing-calculator.service.ts), jamais à sa place.
+model HrSinkingRule {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  roleId             String
+  fnbCategory        String // Subtype.code du département 'shop' (ex. 'beverages', 'front_food')
+  conditionAttribute String? // clé JSON de SpaceElement.attributes (ex. 'nbFriteuses') ; null = toujours actif si le tag est présent
+  conditionMinValue  Float? // seuil (attrs[conditionAttribute] >= conditionMinValue) ; ignoré si conditionAttribute est null
+  mandatoryQty       Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  role HrRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, roleId, fnbCategory, conditionAttribute])
+  @@index([tenantId])
+  @@index([roleId])
+}
+
+/// Association Rôle ↔ Menu Item(s), scopée par espace (contrairement à HrSinkingRule qui est
+/// scopé par tag F&B global) — résout QUESTIONS_A_BERTRAND.md #47. Un rôle est dimensionné selon
+/// le volume de vente (CA ou Quantités) d'un ou plusieurs MenuItem sur CET espace :
+/// qty = floor(valeur courante / ratioValue) * unitQty, sommé si plusieurs lignes visent le même
+/// rôle (contrairement aux Sinking Rules qui prennent le max — ici chaque ligne est un driver de
+/// charge additif : "+2 pour les burgers" et "+3 pour les frites" doivent s'additionner).
+/// Voir 11_RH_STAFFING.md §11.15/§11.16.
+model HrRoleMenuItemRatio {
+  id           String   @id @default(cuid())
+  tenantId     String
+  spaceId      String
+  roleId       String
+  ratioBasis   String // 'REVENUE' | 'QUANTITY'
+  ratioValue   Float // seuil ("tous les N")
+  unitQty      Int      @default(1) // rôles accordés par seuil franchi
+  allMenuItems Boolean  @default(false) // "Tout Sélectionner"
+  menuItemIds  String[] @default([]) // ignoré si allMenuItems=true
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  role  HrRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([spaceId])
+  @@index([roleId])
+}
+
 model Config {
   id        String   @id @default(cuid())
   name      String
@@ -736,20 +828,21 @@ model Config {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  space                 Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  floors                Floor[]
-  forecourt             Forecourt?
-  externalMerch         ExternalMerch?
-  stations              Station[]
+  space                      Space                       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  floors                     Floor[]
+  forecourt                  Forecourt?
+  externalMerch              ExternalMerch?
+  stations                   Station[]
   // Builder v2 : adhésions explicites élément ↔ configuration
-  configurationElements ConfigurationElement[]
+  configurationElements      ConfigurationElement[]
   // Assignations menu scopées par config (éléments partagés entre configs en v2)
-  menuAssignments       MenuAssignment[]
+  menuAssignments            MenuAssignment[]
   // Perf/staff/inventaire d'élément scopés par config (même patron que menuAssignments)
-  elementPerformances   ElementPerformance[]
-  elementStaff          ElementStaff[]
-  elementInventories    ElementInventory[]
-  events                Event[]
+  elementPerformances        ElementPerformance[]
+  elementStaff               ElementStaff[]
+  elementInventories         ElementInventory[]
+  events                     Event[]
+  elementMenuItemSalesInputs ElementMenuItemSalesInput[]
 
   @@index([spaceId])
 }
@@ -818,21 +911,27 @@ model Floor {
 // Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
 
 model SpaceElement {
-  id              String      @id @default(cuid())
+  id              String  @id @default(cuid())
   floorId         String? // FK to Floor (if element is inside a floor)
   forecourtId     String? // FK to Forecourt (if element is in forecourt)
   externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
   zoneId          String? // Builder v2 : FK vers Zone (remplace les 3 FK ci-dessus pour les éléments v2)
   name            String
-  type            ElementType
+  // CFG-2 Étape 2 : `String` libre (ex-enum `ElementType`, converti en place, cf. migration
+  // 20260731010500). Stocke `Department.code` (8 valeurs historiques : shop/hospitality/
+  // merchshop/storage/entrance/kitchen/entertainment/access) ou `Department.id` (département
+  // créé par le super-admin) — jamais `Department.name` (renommable). Le type Postgres
+  // `ElementType` reste en base, orphelin, pour une réversibilité bon marché (DROP TYPE différé
+  // en nettoyage final, Étape 7).
+  type            String
   x               Float
   y               Float
   depth           Float?
   width           Float?
   height          Float?
   height3d        Float? // Hauteur 3D en mètres
-  rotation        Float?      @default(0)
-  image           String?     @db.Text
+  rotation        Float?  @default(0)
+  image           String? @db.Text
   notes           String?
   capacity        Int?
 
@@ -862,10 +961,10 @@ model SpaceElement {
   tags       String[]
 
   // Relations
-  floor                 Floor?                 @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  forecourt             Forecourt?             @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
-  externalMerch         ExternalMerch?         @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
-  zone                  Zone?                  @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  floor                 Floor?                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  forecourt             Forecourt?                  @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  externalMerch         ExternalMerch?              @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
+  zone                  Zone?                       @relation(fields: [zoneId], references: [id], onDelete: Cascade)
   configurationElements ConfigurationElement[]
   // 1-N depuis le scoping par config : une ligne de perf PAR config adhérente
   performances          ElementPerformance[]
@@ -874,6 +973,7 @@ model SpaceElement {
   menuAssignments       MenuAssignment[]
   locationShopMappings  LocationShopMapping[]
   eventStaffLines       EventStaffLine[]
+  menuItemSalesInputs   ElementMenuItemSalesInput[]
 
   @@index([floorId])
   @@index([forecourtId])
@@ -920,14 +1020,50 @@ model ElementStaff {
   position   String // "Cashier", "Cook", "Security", etc.
   count      Int      @default(1)
   hourlyRate Float?
+  // Auto-remplissage depuis les règles Sinking RH (2026-07-30) : roleId trace le HrRole
+  // d'origine (position régénérée depuis role.name à chaque sync), source distingue une
+  // ligne posée par la règle ('AUTO', resynchronisée sans jamais toucher aux lignes
+  // tapées à la main) d'une ligne manuelle ('MANUAL', défaut — parité des lignes
+  // existantes avant cette migration).
+  roleId     String?
+  source     String   @default("MANUAL") // 'AUTO' | 'MANUAL'
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
   config  Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+  role    HrRole?      @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   @@index([elementId])
   @@index([configId])
+  @@index([roleId])
+}
+
+/// Valeur "vendu/prévu" par Menu Item, par élément (shop), par config (événement) — jamais par
+/// espace seul (leçon de 11_RH_STAFFING.md §11.14 : une quantité prévue est event-scoped, pas un
+/// attribut fixe de l'espace). `source` distingue qui a écrit la valeur ; seul 'MANUAL' est
+/// implémenté dans ce chantier — 'LIVE'/'PREDICT' anticipent un futur branchement (Weezevent live,
+/// Event Predict) sans changer ce modèle ni le moteur de calcul qui le lit. Voir §11.16.
+model ElementMenuItemSalesInput {
+  id         String   @id @default(cuid())
+  tenantId   String
+  elementId  String
+  configId   String?
+  menuItemId String
+  quantity   Float?
+  revenueHt  Float?
+  source     String   @default("MANUAL") // 'MANUAL' | 'LIVE' | 'PREDICT'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element  SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  config   Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+  menuItem MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([elementId, configId, menuItemId])
+  @@index([tenantId])
+  @@index([elementId, configId])
+  @@index([menuItemId])
 }
 
 // ==================== ELEMENT INVENTORY ====================
@@ -1465,10 +1601,12 @@ model SalesTransactionItem {
   productId   String?
   productName String?
   compoundId  String?
-  quantity    Int
+  // Float : ventes fractionnaires (poids, formules à ratio) — l'ingestion tronquait du CA
+  quantity    Float
   unitPrice   Decimal @db.Decimal(10, 2)
   vat         Decimal @db.Decimal(5, 2)
-  reduction   Decimal @default(0) @db.Decimal(5, 2)
+  // (10,2) : c'est un MONTANT de remise, pas un % — (5,2) plafonnait à 999,99
+  reduction   Decimal @default(0) @db.Decimal(10, 2)
 
   // Metadata
   rawData Json
@@ -1499,7 +1637,7 @@ model SalesPayment {
   amount          Decimal @db.Decimal(10, 2)
   amountVat       Decimal @db.Decimal(10, 2)
   currencyId      String?
-  quantity        Int
+  quantity        Float
   paymentMethodId String?
 
   // Metadata
@@ -1759,7 +1897,7 @@ model Ingredient {
   active                     Boolean             @default(true)
   supplier                   String?
   recipeUnit                 String
-  storageType                StorageType?
+  storageType                String?
   purchaseUnit               String
   marketPriceId              String?
   costPerRecipeUnit          Decimal?            @db.Decimal(10, 4)
@@ -1784,21 +1922,21 @@ model Ingredient {
 }
 
 model Packaging {
-  id                         String       @id @default(cuid())
+  id                         String    @id @default(cuid())
   name                       String
-  active                     Boolean      @default(true)
+  active                     Boolean   @default(true)
   supplier                   String?
   recipeUnit                 String
-  storageType                StorageType?
+  storageType                String?
   purchaseUnit               String
   marketPriceId              String?
-  costPerRecipeUnit          Decimal?     @db.Decimal(10, 4)
+  costPerRecipeUnit          Decimal?  @db.Decimal(10, 4)
   ingredientCategory         String?
-  costPerPurchaseUnit        Decimal?     @db.Decimal(10, 4)
+  costPerPurchaseUnit        Decimal?  @db.Decimal(10, 4)
   purchaseUnitsPerRecipeUnit Float?
   tenantId                   String
-  createdAt                  DateTime     @default(now())
-  updatedAt                  DateTime     @updatedAt
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
   deletedAt                  DateTime?
 
   tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1821,10 +1959,10 @@ model MenuComponent {
   unitCost            Decimal?     @db.Decimal(10, 4)
   allergens           String[]
   description         String?
-  storageType         StorageType?
+  storageType         String?
   subComponents       Json? // Pour stocker les subComponents JSON de Figma
   componentCategory   String? // "Veg", "Sauce", etc.
-  numberOfUnitsRecipe Int? // Nombre d'unités par recette
+  numberOfUnitsRecipe Float? // Nombre d'unités par recette (rendement de batch — peut être fractionnaire, ex. 0.75 kg)
   packedUnits         Float?
   inventoryPackaging  String? // Emballage de stockage ("Item is stored in", ex: Box)
   readyForSale        String? // "Yes", "No" ou null — même contrat que MenuItem.readyForSale
@@ -2053,10 +2191,80 @@ model PackingType {
   @@index([tenantId])
 }
 
+/// Référentiel de conditions de stockage (Cold/Dry/Frozen par défaut, CRUD-éditable dans
+/// Configurations). Comme PackingType, la valeur stockée sur Ingredient/Packaging/MenuComponent/
+/// MenuItem/les 3 tables de snapshot est le NOM (String, non-FK), avec cascade de renommage
+/// en transaction dans StorageTypesService.update(). `code` est distinct de `name` : il porte
+/// l'identifiant STABLE ('dry'|'cold'|'belowzero') déjà persisté tel quel dans
+/// SpaceElement.subtypes[] par le tool "Storage" du Builder v2 (elementTaxonomy.js) — seules les
+/// 3 lignes historiques seedées en ont un, jamais éditable, pour que renommer/traduire "Cold" ne
+/// casse jamais les éléments Storage déjà posés en plan. Lignes avec `code` non-null : rename
+/// autorisé, delete bloqué (StorageTypesService.remove()).
+model StorageType {
+  id        String   @id @default(cuid())
+  name      String
+  code      String?
+  tenantId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// CFG-2 (taxonomie unifiée) — Étape 1 : référentiel des "départements" (types d'outil Builder v2 /
+/// départements RH). GLOBAL, pas par tenant — un seul jeu de départements/sous-types pour toute la
+/// plateforme (décision explicite : "les 8 départements sont pareils pour tout le monde"), édition
+/// réservée au super-admin plateforme (SuperAdminGuard), lecture ouverte à tout utilisateur
+/// authentifié. `code` porte l'identifiant STABLE des 8 départements historiques
+/// (shop/hospitality/merchshop/storage/entrance/kitchen/entertainment/access) — même mécanisme que
+/// StorageType.code : SpaceElement.type (Étape 2, pas encore fait) stockera `code ?? id`, jamais
+/// `name` (renommable), pour que renommer un département ne casse jamais les éléments déjà posés
+/// en plan. `needsRh`/`isSeller`/`allowsSuppliers` remplacent (à partir de l'Étape 3/4, pas encore
+/// branché) les listes dispersées sectionsForType()/STAFFING_ELEMENT_TYPES/SELLER_TYPES/
+/// HR_SUPPLIER_DEPARTMENTS. À la fin de l'Étape 1, RIEN ne lit encore cette table —
+/// SpaceElement.type, HrRole.department, HrSupplier.departments et elementTaxonomy.js restent
+/// inchangés (voir plan "Taxonomie unifiée Département/Sous-type").
+model Department {
+  id              String   @id @default(cuid())
+  name            String
+  code            String? // stable pour les 8 départements historiques, null si créé par le super-admin
+  color           String
+  icon            String // nom d'icône MDI, ex. "mdi-store"
+  needsRh         Boolean  @default(false)
+  isSeller        Boolean  @default(false)
+  allowsSuppliers Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  subtypes Subtype[]
+
+  @@unique([name])
+}
+
+/// CFG-2 — sous-type d'un Department (ex. "Beverages" sous "F&B"). Global comme Department (pas
+/// par tenant). Même mécanisme `code` que Department (et que StorageType) pour les ~35 sous-types
+/// historiques déjà persistés tels quels dans SpaceElement.subtypes[]
+/// (elementTaxonomy.js TOOLS[].subtypes).
+model Subtype {
+  id           String   @id @default(cuid())
+  departmentId String
+  name         String
+  code         String? // stable pour les sous-types historiques, null si créé par le super-admin
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, name])
+  @@index([departmentId])
+}
+
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
-  id                     String        @id @default(cuid())
+  id                     String       @id @default(cuid())
   name                   String
   typeId                 String? // FK to ProductType (optional)
   categoryId             String? // FK to ProductCategory (optional)
@@ -2065,14 +2273,14 @@ model MenuItem {
   diet                   Diet[]
   allergens              String[]
   picture                String?
-  basePrice              Decimal       @db.Decimal(10, 2)
-  vatRate                Decimal?      @db.Decimal(5, 2) // Taux TVA % par article (null → défaut tenant)
+  basePrice              Decimal      @db.Decimal(10, 2)
+  vatRate                Decimal?     @db.Decimal(5, 2) // Taux TVA % par article (null → défaut tenant)
   discountType           String? // Remise catalogue : "percent" | "amount" | null
-  discountValue          Decimal?      @db.Decimal(10, 2) // Valeur remise (% si percent, montant TTC si amount)
-  totalCost              Decimal?      @db.Decimal(12, 4)
+  discountValue          Decimal?     @db.Decimal(10, 2) // Valeur remise (% si percent, montant TTC si amount)
+  totalCost              Decimal?     @db.Decimal(12, 4)
   margin                 Float?
   description            String?
-  storageType            StorageType[]
+  storageType            String[]
   readyForSale           String? // "Yes", "No" ou null
   kitchenType            KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
   comboItem              String? // "Yes", "No" ou null
@@ -2086,15 +2294,15 @@ model MenuItem {
   // que tout code qui les référencerait encore casse à la compilation. Drop DB différé
   // (migration de nettoyage après validation).
   tenantId               String
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
   deletedAt              DateTime?
 
-  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productType     ProductType?           @relation(fields: [typeId], references: [id])
-  productCategory ProductCategory?       @relation(fields: [categoryId], references: [id])
-  brand           Brand?                 @relation(fields: [brandId], references: [id])
-  displayName     DisplayName?           @relation(fields: [displayNameId], references: [id])
+  tenant          Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productType     ProductType?                @relation(fields: [typeId], references: [id])
+  productCategory ProductCategory?            @relation(fields: [categoryId], references: [id])
+  brand           Brand?                      @relation(fields: [brandId], references: [id])
+  displayName     DisplayName?                @relation(fields: [displayNameId], references: [id])
   components      MenuItemComponent[]
   ingredients     MenuItemIngredient[]
   packagings      MenuItemPackaging[]
@@ -2102,6 +2310,12 @@ model MenuItem {
   salesMappings   ProductMapping[]
   priceHistory    MenuItemPriceHistory[]
   spaceLinks      SpaceMenuItem[]
+  // Composition "Combo"/"Menu" par d'autres MenuItem vendables (ex. "Burger + Frites" = composé
+  // de "Burger" + "Frites"), distincte de `comboItem` (flag scalaire "cet item est réutilisable
+  // tel quel dans un combo") et de `components[]` (qui pointe vers MenuComponent, pas MenuItem).
+  comboChildren   MenuItemCombo[]             @relation("ComboParentToChild")
+  comboParents    MenuItemCombo[]             @relation("ComboChildToParent")
+  salesInputs     ElementMenuItemSalesInput[]
 
   @@index([tenantId])
   @@index([name])
@@ -2111,6 +2325,22 @@ model MenuItem {
   @@index([displayNameId])
   @@index([readyForSale])
   @@index([tenantId, deletedAt])
+}
+
+model MenuItemCombo {
+  id       String   @id @default(cuid())
+  parentId String
+  childId  String
+  quantity Float
+  unit     String?
+  cost     Decimal? @db.Decimal(10, 4)
+
+  parent MenuItem @relation("ComboParentToChild", fields: [parentId], references: [id], onDelete: Cascade)
+  child  MenuItem @relation("ComboChildToParent", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, childId])
+  @@index([parentId])
+  @@index([childId])
 }
 
 /// Association espace↔menu item + prix par espace. UNE ligne = « cet item est vendu dans cet
@@ -2160,13 +2390,13 @@ model MenuItemPriceHistory {
 }
 
 model MenuItemComponent {
-  id            String       @id @default(cuid())
+  id            String   @id @default(cuid())
   menuItemId    String
   componentId   String
   numberOfUnits Float
-  unitCost      Decimal?     @db.Decimal(10, 4)
-  totalCost     Decimal?     @db.Decimal(12, 4)
-  storageType   StorageType?
+  unitCost      Decimal? @db.Decimal(10, 4)
+  totalCost     Decimal? @db.Decimal(12, 4)
+  storageType   String?
 
   menuItem  MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   component MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
@@ -2177,13 +2407,13 @@ model MenuItemComponent {
 }
 
 model MenuItemIngredient {
-  id            String       @id @default(cuid())
+  id            String   @id @default(cuid())
   menuItemId    String
   ingredientId  String
   numberOfUnits Float
-  unitCost      Decimal?     @db.Decimal(10, 4)
-  totalCost     Decimal?     @db.Decimal(12, 4)
-  storageType   StorageType?
+  unitCost      Decimal? @db.Decimal(10, 4)
+  totalCost     Decimal? @db.Decimal(12, 4)
+  storageType   String?
 
   menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
@@ -2194,13 +2424,13 @@ model MenuItemIngredient {
 }
 
 model MenuItemPackaging {
-  id            String       @id @default(cuid())
+  id            String   @id @default(cuid())
   menuItemId    String
   packagingId   String
   numberOfUnits Float
-  unitCost      Decimal?     @db.Decimal(10, 4)
-  totalCost     Decimal?     @db.Decimal(12, 4)
-  storageType   StorageType?
+  unitCost      Decimal? @db.Decimal(10, 4)
+  totalCost     Decimal? @db.Decimal(12, 4)
+  storageType   String?
 
   menuItem  MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   packaging Packaging @relation(fields: [packagingId], references: [id], onDelete: Cascade)
@@ -2450,6 +2680,15 @@ model Event {
   status       String? // "success", "pending", etc.
   calculatedAt DateTime?
 
+  // Événement créé par l'outil QA « simuler une vente » (LogisticsService
+  // .ensureTodaySalesEvent) et non par un utilisateur : il n'a ni configuration
+  // ni type, et sert uniquement à ancrer une vente simulée sur « aujourd'hui ».
+  // Exclu d'EventPredict et de l'écran Live (GET /events?excludeSimulated=true),
+  // mais VOLONTAIREMENT conservé dans la liste Events pour pouvoir le supprimer
+  // à la main. À ne pas confondre avec un événement « ad hoc » (créé quand des
+  // transactions arrivent sans événement) : celui-là reste isSimulated=false.
+  isSimulated Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2589,7 +2828,7 @@ model SpaceRevenueMinuteAgg {
   // Aggregated metrics
   revenueHt         Decimal @db.Decimal(12, 2)
   transactionsCount Int
-  itemsCount        Int
+  itemsCount        Float
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2599,6 +2838,43 @@ model SpaceRevenueMinuteAgg {
   @@index([tenantId, spaceId, weezeventEventId, minute])
   @@index([tenantId, spaceId, spaceElementId, minute])
   @@index([tenantId, spaceId, weezeventLocationId, minute])
+}
+
+// Minute-level revenue aggregates WITH product dimension — sert getEventTimelineBatch
+// (spaces.service.ts). Grain : event × minute × shop × article. Ne stocke pas
+// menuItemId/nom/type/catégorie : résolus à la lecture via WeezeventProductMapping →
+// MenuItem → ProductType/ProductCategory, pour rester à jour si les mappings changent
+// sans jamais devoir réinvalider l'agrégat (même pattern que get_space_shop_details).
+// revenueHt ici NE soustrait PAS la remise, contrairement à SpaceRevenueMinuteAgg
+// (BUG-015) — formule alignée sur le comportement historique de getEventTimelineBatch,
+// à préserver pour ne pas changer les chiffres déjà affichés sur Analyse/Inventory/Live.
+model SpaceRevenueMinuteItemAgg {
+  id       String   @id @default(cuid())
+  tenantId String
+  spaceId  String
+  minute   DateTime
+  timezone String   @default("Europe/Paris")
+
+  weezeventEventId      String?
+  weezeventLocationId   String?
+  // Dénormalisé depuis WeezeventTransaction.locationName — seul moyen de reproduire le
+  // fallback shopName actuel pour un PdV non mappé (COALESCE(se.name, locationName,
+  // locationId)) ; aucun agrégat existant ne le stocke.
+  weezeventLocationName String?
+  weezeventMerchantId   String?
+  spaceElementId        String?
+  weezeventProductId    String?
+
+  revenueHt         Decimal @db.Decimal(12, 2)
+  transactionsCount Int
+  itemsCount        Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId, weezeventProductId])
+  @@index([tenantId, spaceId, weezeventEventId, minute])
+  @@index([tenantId, spaceId, spaceElementId, minute])
 }
 
 // Daily product revenue aggregates
@@ -2611,7 +2887,7 @@ model SpaceProductRevenueDailyAgg {
 
   // Aggregated metrics
   revenueHt Decimal @db.Decimal(12, 2)
-  quantity  Int
+  quantity  Float
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2655,6 +2931,47 @@ model AggregationJobLog {
   @@index([tenantId, status, startedAt])
   @@index([spaceId, status])
   @@index([status, startedAt])
+}
+
+// Run de simulation de ventes automatique côté serveur (QA module Live, docs/modules/11_LIVE.md).
+// Piloté par un BullMQ Job Scheduler (repeatable, jobSchedulerId = SimulationRun.id, 1:1) — survit
+// à la fermeture de l'onglet navigateur. Un tick = une vente simulée sur un PDV/menu item tirés au
+// hasard parmi ceux simulables de l'espace (LogisticsService.getSimulableShops), via
+// LogisticsService.simulateSale. Au plus un run 'active' par espace : contrôle applicatif dans
+// LogisticsService.startSimulationRun, pas de contrainte DB.
+model SimulationRun {
+  id       String @id @default(cuid())
+  tenantId String
+  spaceId  String
+
+  intervalMs Int
+  realMode   Boolean @default(true)
+  configId   String?
+
+  status String @default("active") // 'active' | 'stopped' | 'failed'
+
+  startedByUserId String?
+  startedAt       DateTime  @default(now())
+  stoppedByUserId String?
+  stoppedAt       DateTime?
+
+  tickCount             Int       @default(0)
+  errorCount            Int       @default(0)
+  consecutiveErrorCount Int       @default(0)
+  lastTickAt            DateTime?
+  lastTickStatus        String? // 'ok' | 'skipped' | 'error'
+  lastTickError         String?   @db.Text
+  lastElementId         String?
+  lastElementName       String?
+  lastTransactionId     String?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, spaceId, status])
+  @@index([tenantId, status, startedAt])
 }
 
 // ==================== INVENTORY ====================
@@ -2860,6 +3177,69 @@ model RestockState {
 
   @@unique([tenantId, spaceId])
   @@index([tenantId])
+  @@index([spaceId])
+}
+
+// ==================== RESTOCK PLANS ====================
+
+// Plan de réarmement NOMMÉ, scope ESPACE (un plan couvre N events : le
+// réarmement travaille sur selectedEventIds pluriel). Contrairement à
+// RestockState (1 ligne écrasée = session courante), un plan est un DOCUMENT
+// FIGÉ : stockLines / restockLines / shoppingGroups sont la PHOTO des lignes
+// calculées au moment de la sauvegarde. Rouvrir un plan ancien réaffiche
+// EXACTEMENT les mêmes chiffres même si prédictions, prix ou recettes ont
+// changé depuis — même famille que StockReconciliation, mais ÉDITABLE.
+// Un plan n'est PAS une source de stock (même avertissement que RestockState).
+// Migration : prisma/migrations/20260804170000_add_restockplan/
+// Décision : docs/adr/0005_restockplan_document_fige_vs_restockstate_session.md
+model RestockPlan {
+  id       String @id @default(cuid())
+  tenantId String
+  spaceId  String
+  name     String
+
+  // ── Entrées (rejouées au détachement du plan) ────────────────────────────
+  objectiveSource   String  @default("forecast")
+  referenceEventId  String?
+  selectedEventIds  String[]
+  // [{ id, name, date }] dénormalisé : un event supprimé ou renommé ne doit pas
+  // effacer l'intitulé du plan (même raison que StockReconciliation.eventName).
+  eventsSnapshot    Json    @default("[]")
+  scenarioByEventId Json    @default("{}")
+  stockAdjustments  Json    @default("{}")
+  stockPackedModes  Json    @default("{}")
+  stockExcluded     Json    @default("{}")
+  restockedRows     Json    @default("{}")
+
+  // ── Photo figée (sorties des 3 étapes) ───────────────────────────────────
+  stockLines     Json   @default("[]") // étape 1, grain article
+  restockLines   Json   @default("[]") // étape 2, grain shop × article
+  shoppingMode   String @default("finished")
+  shoppingGroups Json   @default("[]") // étape 3, grain fournisseur
+  // Coefficients d'explosion recette FIGÉS : permettent de recalculer la feuille
+  // de course quand l'utilisateur corrige une quantité, SANS relire le catalogue
+  // vivant (qui a pu changer depuis la photo).
+  recipeCoeffs   Json   @default("{}")
+  // Corrections manuelles appliquées PAR-DESSUS restockLines (rowKey → quantité).
+  // Séparées des lignes pour que « calculé » et « corrigé à la main » restent
+  // distinguables à la relecture d'un vieux plan.
+  lineOverrides  Json   @default("{}")
+
+  // Compteurs dénormalisés (au moment de la photo) → la liste s'affiche sans
+  // jamais lire les blobs.
+  lineCount         Int @default(0)
+  shoppingItemCount Int @default(0)
+
+  // Contexte de fabrication (parité StockReconciliation.meta) : snapshotAt,
+  // unmatchedStorage, dégradations connues au moment de la photo.
+  meta Json?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Couvre la liste : where { tenantId, spaceId } orderBy updatedAt desc.
+  @@index([tenantId, spaceId, updatedAt])
   @@index([spaceId])
 }
 

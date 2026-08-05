@@ -26,10 +26,11 @@
             :title="hasImage ? t('b2ChangeImage') : t('b2Image')"
             @click="fileInput?.click()"
           >
+            <!-- Couleur via CSS (.ip-act--upload) et non :color inline : un style inline
+                 ne pourrait pas être surchargé par le dark mode (.dark). -->
             <v-icon
               :icon="hasImage ? 'mdi-camera-outline' : 'mdi-upload'"
               size="18"
-              :color="hasImage ? undefined : '#111827'"
             />
           </button>
           <button type="button" class="ip-act" :title="hasImage ? t('b2RemoveImage') : t('close')" @click="onCloseClick">
@@ -50,7 +51,7 @@
     <!-- Sections (matrice sections × type — elementTaxonomy.sectionsForType) -->
     <div class="flex-grow-1 px-4" style="overflow-y: auto; min-height: 0;">
       <!-- Ordre (capture) : Name → Shop Type → [Area] → Configuration →
-           Performance → Menu → Inventory → Staff → Position. -->
+           Performance → Menu → Inventory → Staffing inputs → Staff → Position. -->
       <IdentitySection />
       <SubtypesSection v-if="sections.subtypes" />
       <StorageShopsSection v-if="sections.storageShops" />
@@ -59,6 +60,8 @@
       <MenuSection v-if="sections.menu" />
       <InventorySection v-if="sections.inventory" />
       <StorageInventorySection v-if="sections.storageInventory" />
+      <StaffingInputsSection v-if="sections.staffingInputs" />
+      <MenuItemSalesInputSection v-if="sections.menuItemSalesInput" />
       <StaffSection v-if="sections.staff" />
       <GeometrySection v-if="sections.geometry" />
     </div>
@@ -68,9 +71,12 @@
 </template>
 
 <script setup>
-import { ref, computed, inject } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
+import { useStore as useVuexStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
-import { colorOf, labelOf, sectionsForType, normalizeType } from '../../constants/elementTaxonomy'
+import {
+  colorOf as colorOfTool, labelOf as labelOfTool, sectionsForType as sectionsForTypeOf, normalizeType, buildTools,
+} from '../../constants/elementTaxonomy'
 import IdentitySection from './sections/IdentitySection.vue'
 import StorageShopsSection from './sections/StorageShopsSection.vue'
 import SubtypesSection from './sections/SubtypesSection.vue'
@@ -80,13 +86,24 @@ import PerformanceSection from './sections/PerformanceSection.vue'
 import MenuSection from './sections/MenuSection.vue'
 import InventorySection from './sections/InventorySection.vue'
 import StorageInventorySection from './sections/StorageInventorySection.vue'
+import StaffingInputsSection from './sections/StaffingInputsSection.vue'
+import MenuItemSalesInputSection from './sections/MenuItemSalesInputSection.vue'
 import StaffSection from './sections/StaffSection.vue'
 import DeleteElementDialog from '../../dialogs/DeleteElementDialog.vue'
 
 const { t } = useI18n()
 const store = inject('builderStore')
+const vuexStore = useVuexStore()
+onMounted(() => vuexStore.dispatch('departments/fetchDepartments'))
+// CFG-2 Étape 5 : départements/sous-types depuis le référentiel global (store `departments`),
+// plus la liste statique elementTaxonomy.js — wrappers locaux exposés au template sous les mêmes
+// noms (`labelOf`/`colorOf`) pour ne pas changer le template.
+const tools = computed(() => buildTools(vuexStore.getters['departments/departments'] || []))
+function labelOf(type) { return labelOfTool(type, tools.value) }
+function colorOf(type) { return colorOfTool(type, tools.value) }
+
 const element = computed(() => store.selectedElement.value)
-const sections = computed(() => sectionsForType(element.value?.type))
+const sections = computed(() => sectionsForTypeOf(element.value?.type, tools.value))
 const hasImage = computed(() => !!element.value?.image)
 // Badge de type : texte à la couleur de l'élément, fond = teinte légère.
 const typeBadgeStyle = computed(() => {
@@ -187,10 +204,16 @@ function closeInspector() {
 }
 .ip-act:hover { background: rgba(var(--v-theme-on-surface), 0.08); color: rgb(var(--v-theme-on-surface)); }
 .ip-act:disabled { opacity: 0.45; cursor: default; }
+.ip-act--upload { color: #111827; }
 .ip-act--dup { color: #2563eb; }
 .ip-act--dup:hover { background: rgba(37, 99, 235, 0.1); color: #2563eb; }
 .ip-act--danger { color: #ff3131; }
 .ip-act--danger:hover { background: rgba(255, 49, 49, 0.1); color: #ff3131; }
+/* Dark mode : accents assombris illisibles sur fond sombre → variantes claires
+   de la même famille (.dark posé sur <html>). */
+.dark .ip-act--upload { color: #e2e8f0; }
+.dark .ip-act--dup { color: #93c5fd; }
+.dark .ip-act--dup:hover { background: rgba(147, 197, 253, 0.12); color: #93c5fd; }
 .ip-type-badge {
   display: inline-block;
   padding: 3px 12px;

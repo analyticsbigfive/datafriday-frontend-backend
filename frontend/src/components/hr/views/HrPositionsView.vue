@@ -1,5 +1,5 @@
 <template>
-  <div id="hr-positions-page">
+  <div id="hr-positions-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -43,12 +43,22 @@
     <div class="hsl-content">
       <v-progress-linear v-if="loading" indeterminate color="#ff3131" height="3" rounded class="mb-4" />
 
+      <div v-if="bulkSelected.length" class="bulk-bar">
+        <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+        <div class="bulk-bar__actions">
+          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+        </div>
+      </div>
+
       <div class="hsl-table-wrap">
         <v-data-table
+          v-model="bulkSelected"
           :headers="tableHeaders"
           :items="filtered"
           item-value="id"
-          density="comfortable"
+          show-select
+          density="compact"
           class="hsl-table"
         >
           <template #item.positionName="{ item }">
@@ -63,7 +73,7 @@
           </template>
 
           <template #item.sector="{ item }">
-            <span v-if="item.sector" class="hsl-badge">{{ item.sector }}</span>
+            <span v-if="item.sector" class="hsl-badge">{{ departmentLabel(item.sector) }}</span>
             <span v-else class="hsl-badge hsl-badge--more">—</span>
           </template>
 
@@ -94,6 +104,7 @@
       :mode="drawerMode"
       :initial="editing"
       :suppliers="suppliers"
+      :spaces="spaces"
       :position-names="positionNames"
       @saved="load"
     />
@@ -104,7 +115,19 @@
       :item-name="deleteTarget?.positionName || ''"
       :title="t('hrDeletePositionTitle')"
       :loading="deleting"
+      :error="deleteError"
       @confirm="confirmDelete"
+    />
+
+    <!-- Dialog suppression multiple -->
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
+      @confirm="confirmBulkDelete"
     />
 
   </div>
@@ -112,11 +135,29 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useStore } from 'vuex'
+import { useTheme } from 'vuetify'
 import { Briefcase, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import * as hrApi from '@/utils/hrApi'
+import { getSpacesLight } from '@/api/endpoints/space.api'
 import HrRoleFormDrawer from '../drawers/HrRoleFormDrawer.vue'
 import HrDeleteDialog from '../dialogs/HrDeleteDialog.vue'
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue'
+
+// CFG-2 Étape 4 : HrRole.department (exposé ici comme `sector`, cf. hrApi.js::positionFromDb)
+// stocke désormais un CODE stable ('shop'), plus le libellé — résolu pour l'affichage.
+const store = useStore()
+onMounted(() => store.dispatch('departments/fetchDepartments'))
+function departmentLabel(value) {
+  const dept = (store.getters['departments/departments'] || []).find((d) => (d.code ?? d.id) === value)
+  return dept?.name || value
+}
+
+// Dark mode autonome (pattern maison) : suit le thème Vuetify global.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 // Avatars de table (parité HrSuppliersView).
 const AVATAR_GRADIENTS = [
@@ -147,6 +188,7 @@ const tableHeaders = [
 
 const positions = ref([])
 const suppliers = ref([])
+const spaces = ref([])
 const positionNames = ref([])
 const searchQuery = ref('')
 const loading = ref(false)
@@ -154,14 +196,18 @@ const loading = ref(false)
 async function load() {
   loading.value = true
   try {
-    const [positionRows, supplierRows, nameRows] = await Promise.all([
+    // spaces : nécessaire pour la création d'agence à la volée depuis Edit HR role (BUG-266-02,
+    // tiroir HrSupplierFormDrawer imbriqué) — même source que HrSuppliersView.vue.
+    const [positionRows, supplierRows, nameRows, spaceRows] = await Promise.all([
       hrApi.getAllStaffPositions(),
       hrApi.getAllHRSuppliers(),
       hrApi.getAllPositionNames(),
+      getSpacesLight().catch(() => []),
     ])
     positions.value = Array.isArray(positionRows) ? positionRows : []
     suppliers.value = Array.isArray(supplierRows) ? supplierRows : []
     positionNames.value = Array.isArray(nameRows) ? nameRows : []
+    spaces.value = Array.isArray(spaceRows) ? spaceRows : []
   } finally {
     loading.value = false
   }
@@ -176,7 +222,7 @@ function formatRate(rate) {
   if (rate === null || rate === undefined || rate === '') return '—'
   const n = Number(rate)
   if (Number.isNaN(n)) return '—'
-  return `${n.toLocaleString('fr-FR')} / h`
+  return `${formatCurrencyDetailed(n)} / h`
 }
 
 const filtered = computed(() => {
@@ -206,21 +252,47 @@ function openEdit(position) {
 const deleteOpen = ref(false)
 const deleteTarget = ref(null)
 const deleting = ref(false)
+const deleteError = ref('')
 function onDelete(position) {
   deleteTarget.value = position
+  deleteError.value = ''
   deleteOpen.value = true
 }
 async function confirmDelete() {
   if (!deleteTarget.value?.id) return
   deleting.value = true
+  deleteError.value = ''
   try {
     await hrApi.deleteStaffPosition(deleteTarget.value.id)
     deleteOpen.value = false
     deleteTarget.value = null
     await load()
+  } catch (e) {
+    // BUG-273 : un échec de suppression restait auparavant totalement silencieux (aucun
+    // catch, aucun état d'erreur remonté à HrDeleteDialog).
+    deleteError.value = e?.response?.data?.message || e?.message || t('hrDeleteError')
   } finally {
     deleting.value = false
   }
+}
+
+// Suppression multiple
+const bulkSelected = ref([])
+const bulkOpen = ref(false)
+const bulkLoading = ref(false)
+const bulkError = ref('')
+const bulkProgress = ref(0)
+const bulkTotal = ref(0)
+function openBulkDelete() { bulkError.value = ''; bulkProgress.value = 0; bulkTotal.value = 0; bulkOpen.value = true }
+async function confirmBulkDelete() {
+  const ids = [...bulkSelected.value]; if (!ids.length) return
+  bulkLoading.value = true; bulkError.value = ''; bulkTotal.value = ids.length; bulkProgress.value = 0
+  const failed = []
+  for (const id of ids) { try { await hrApi.deleteStaffPosition(id) } catch (e) { failed.push(id) } bulkProgress.value += 1 }
+  await load()
+  bulkLoading.value = false; bulkSelected.value = failed
+  if (failed.length) bulkError.value = `${failed.length} poste(s) n'ont pas pu être supprimés.`
+  else bulkOpen.value = false
 }
 </script>
 
@@ -306,30 +378,12 @@ async function confirmDelete() {
 /* ── Contenu ── */
 .hsl-content { padding: 24px 28px; }
 
-/* ── Table (parité .hsl-table) ── */
-.hsl-table-wrap {
-  background: #fff;
-  border-radius: 16px;
-  border: 1px solid #e5e7eb;
-  overflow: hidden;
-}
-.hsl-table :deep(.v-data-table__td) {
-  vertical-align: middle;
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-size: var(--fs-base);
-}
-.hsl-table :deep(.v-data-table__th) {
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-weight: var(--fw-bold) !important;
-  font-size: var(--fs-xs) !important;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #9ca3af !important;
-  background: #fafafa !important;
-}
-.hsl-table :deep(.v-data-table__tr:hover) { background: #fafafa !important; }
+/* ── Table (référence EventsListView : .elv-table*) ── */
+.hsl-table-wrap { background: #fff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden; }
+.hsl-table :deep(.v-data-table__th), .hsl-table :deep(.v-data-table__td) { font-size: var(--fs-base); padding-top: 10px; padding-bottom: 10px; padding-left: 16px; padding-right: 16px; }
+.hsl-table :deep(.v-data-table__td) { vertical-align: middle; }
+.hsl-table :deep(.v-data-table__th) { font-size: var(--fs-xs) !important; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #9ca3af !important; background: #fafafa !important; }
+.hsl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 .hsl-table :deep(.v-data-table-footer) { border-top: 1px solid #e5e7eb; background: #fafafa !important; }
 
 .hsl-cell-name { font-weight: var(--fw-semibold); font-size: var(--fs-md); }
@@ -360,21 +414,10 @@ async function confirmDelete() {
   white-space: nowrap;
 }
 .hsl-badge--more { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
-.hsl-table-btn {
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 8px;
-  background: #f3f4f6;
-  color: #6b7280;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.18s;
-}
-.hsl-table-btn:hover { background: #e5e7eb; color: #374151; }
-.hsl-table-btn--del:hover { background: #fef2f2; color: #ff3131; }
+.hsl-table-btn { width: 30px; height: 30px; border: none; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .18s; }
+.hsl-table-btn:hover { background: #dbeafe; }
+.hsl-table-btn--del { background: #fef2f2; color: #ff3131; }
+.hsl-table-btn--del:hover { background: #fee2e2; }
 
 .hsl-empty { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; text-align: center; }
 .hsl-empty__icon {
@@ -388,4 +431,40 @@ async function confirmDelete() {
   margin-bottom: 16px;
 }
 .hsl-empty__title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; margin: 0; }
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
+   Header rouge #ff3131 volontairement identique dans les deux thèmes (parité
+   BUG-197 « bandeaux rouges inchangés »). ── */
+#hr-positions-page.hsl--dark { background: #111827; }
+.hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
+.hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }
+.hsl--dark .hsl-searchbar__icon,
+.hsl--dark .hsl-searchbar__count,
+.hsl--dark .hsl-searchbar__clear { color: #64748b; }
+.hsl--dark .hsl-searchbar__clear:hover { color: #ff3131; }
+.hsl--dark .hsl-table-wrap { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-table :deep(.v-data-table__th) { background: #0f172a !important; color: #64748b !important; }
+.hsl--dark .hsl-table :deep(.v-data-table__tr:hover) { background: rgba(255, 255, 255, .04) !important; }
+.hsl--dark .hsl-table :deep(.v-data-table-footer) { background: #0f172a !important; border-top-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-cell-rate { color: #f9fafb; }
+.hsl--dark .hsl-badge { background: rgba(255, 49, 49, .12); border-color: rgba(255, 49, 49, .3); }
+.hsl--dark .hsl-badge--more { background: rgba(255, 255, 255, .08); color: #94a3b8; border-color: rgba(255, 255, 255, .12); }
+.hsl--dark .hsl-table-btn { background: rgba(255, 255, 255, .08); color: #94a3b8; }
+.hsl--dark .hsl-table-btn:hover { background: rgba(255, 255, 255, .14); color: #e2e8f0; }
+.hsl--dark .hsl-table-btn--del:hover { background: rgba(255, 49, 49, .14); color: #ff3131; }
+.hsl--dark .hsl-empty__icon { background: rgba(255, 255, 255, .06); }
+.hsl--dark .hsl-empty__title { color: #f9fafb; }
+
+/* ── Barre de sélection multiple ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size:var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; transition:background .15s,color .15s; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; transition:box-shadow .18s,transform .18s; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.hsl--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.hsl--dark .bulk-bar__clear { color:#94a3b8; }
+.hsl--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
 </style>

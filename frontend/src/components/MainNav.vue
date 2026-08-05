@@ -26,6 +26,36 @@
         title="Espaces"
         @click="trigger('spaces')"
       />
+      <!-- Outils F&B (Analyse / Prédire / Préd. Événement / Live) : ce tiroir
+           sert SpacesPage, MenuBuilder et Account — sans ces entrées, les outils
+           et le Live n'étaient atteignables que depuis le dropdown « Outils »
+           interne aux écrans Analyse/EventPredict/Inventaire/Logistique/
+           Réarmement. Comme Inventory/Réarmement ci-dessous, ils passent par
+           `trigger()` qui résout `:spaceId` depuis la route (repli /spaces). -->
+      <v-list-item
+        v-if="can('front.fb.analyse')"
+        prepend-icon="mdi-chart-line"
+        title="Analyse"
+        @click="trigger('space-analyse')"
+      />
+      <v-list-item
+        v-if="can('front.fb.predict')"
+        prepend-icon="mdi-trending-up"
+        title="Prédire"
+        @click="trigger('space-predict')"
+      />
+      <v-list-item
+        v-if="can('front.fb.eventPredict')"
+        prepend-icon="mdi-lightning-bolt"
+        title="Préd. Événement"
+        @click="trigger('space-event-predict')"
+      />
+      <v-list-item
+        v-if="can('front.fb.live')"
+        prepend-icon="mdi-record-circle-outline"
+        title="Live"
+        @click="trigger('space-live')"
+      />
       <v-list-item
         v-if="onOpenAccount && canAny(ACCOUNT_CODES)"
         prepend-icon="mdi-account-circle-outline"
@@ -67,6 +97,12 @@
         prepend-icon="mdi-clipboard-list-outline"
         title="Post-event Inventory"
         @click="trigger('space-inventory')"
+      />
+      <v-list-item
+        v-if="can('front.fb.logistic')"
+        prepend-icon="mdi-forklift"
+        title="Logistique"
+        @click="trigger('space-logistic')"
       />
       <v-list-item
         v-if="canAny(RESTOCK_CODES)"
@@ -120,25 +156,28 @@ const drawer = computed({
 import { useRouter, useRoute } from 'vue-router'
 const router = useRouter()
 const route = useRoute()
+
+// Destinations scopées à un espace : le `:spaceId` vient de la route courante.
+// Ce tiroir est aussi ouvert depuis des pages HORS espace (SpacesPage, Account,
+// MenuBuilder) où il n'y a pas de spaceId → repli sur `/spaces` pour que
+// l'utilisateur en choisisse un. Analyse/Prédire/Préd. Événement partagent la
+// route `space-analyse`, différenciées par `?toolbox=` ; Live a sa route dédiée.
+const SPACE_SCOPED_PATHS = {
+  'space-analyse': (id) => `/spaces/${id}`,
+  'space-predict': (id) => `/spaces/${id}?toolbox=predict`,
+  'space-event-predict': (id) => `/spaces/${id}?toolbox=event-predict`,
+  'space-live': (id) => `/spaces/${id}/live`,
+  'space-pre-inventory': (id) => `/spaces/${id}/pre-inventory`,
+  'space-inventory': (id) => `/spaces/${id}/inventory`,
+  'space-logistic': (id) => `/spaces/${id}/logistic`,
+  restock: (id) => `/spaces/${id}/restock`,
+}
+
 function trigger(kind) {
-  if (kind === 'space-inventory') {
+  const toPath = SPACE_SCOPED_PATHS[kind]
+  if (toPath) {
     const spaceId = route.params?.spaceId
-    if (spaceId) router.push(`/spaces/${spaceId}/inventory`)
-    else router.push('/spaces')
-    drawer.value = false
-    return
-  }
-  if (kind === 'space-pre-inventory') {
-    const spaceId = route.params?.spaceId
-    if (spaceId) router.push(`/spaces/${spaceId}/pre-inventory`)
-    else router.push('/spaces')
-    drawer.value = false
-    return
-  }
-  if (kind === 'restock') {
-    const spaceId = route.params?.spaceId
-    if (spaceId) router.push(`/spaces/${spaceId}/restock`)
-    else router.push('/spaces')
+    router.push(spaceId ? toPath(spaceId) : '/spaces')
     drawer.value = false
     return
   }

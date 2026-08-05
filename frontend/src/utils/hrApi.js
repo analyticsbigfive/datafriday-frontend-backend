@@ -2,8 +2,9 @@
 //
 // Les signatures historiques sont conservées pour ne pas casser
 // HrSuppliersView / HrPositionsView : mêmes noms, mêmes formes d'objets
-// (supplier { id, name, email, phone, contactName, picture, spaceIds, sectors },
+// (supplier { id, name, email, phone, contactName, picture, spaceIds, departments },
 //  position { id, supplierId, positionName, sector, ratePerHour }).
+// RH-5 (2026-07-30) : `sectors` renommé `departments` (BD HrSupplier.departments).
 // La persistance passe par api/endpoints/hr.api.js (tables HrSupplier / HrRole).
 //
 // Import one-shot : au premier chargement, si des données existent encore en
@@ -31,12 +32,21 @@ const STAFF_POSITIONS_KEY = 'staff_positions'
 const POSITION_NAMES_KEY = 'position_names'
 const HR_MIGRATION_FLAG = 'hr_localstorage_migrated'
 
-// Secteurs legacy (hrShared.HR_SECTORS) → departments BD. Hors liste → F&B.
-const HR_DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment']
-const SECTOR_TO_DEPARTMENT = { Merch: 'Merchandising' }
+// CFG-2 Étape 4 : shim legacy pour les positions à l'ancienne forme (`sector`, sans
+// `.department`) — ne sert que les données archivées pré-refonte du drawer RH (le flux normal
+// envoie toujours `.department` directement, déjà résolu). Doit désormais retourner un CODE
+// Department stable ('shop', pas 'F&B') : le backend rejette un libellé brut depuis cette étape.
+// Carte figée intentionnellement (pas de lecture du store `departments` ici, fonction pure
+// synchrone) — les 4 libellés legacy qu'elle couvre sont clos, n'évolueront plus.
+const SECTOR_TO_DEPARTMENT_CODE = {
+  'F&B': 'shop',
+  Merchandising: 'merchshop',
+  Hospitality: 'hospitality',
+  Entertainment: 'entertainment',
+  Merch: 'merchshop',
+}
 function toDepartment(sector) {
-  if (HR_DEPARTMENTS.includes(sector)) return sector
-  return SECTOR_TO_DEPARTMENT[sector] || 'F&B'
+  return SECTOR_TO_DEPARTMENT_CODE[sector] || 'shop'
 }
 
 // ── Mappings BD ↔ formes legacy des vues ─────────────────────────────────────
@@ -51,7 +61,7 @@ function supplierFromDb(s) {
     picture: s.picture || '',
     spaceIds: s.spaceIds || [],
     spaces: s.spaceIds || [], // certains écrans legacy lisent `spaces`
-    sectors: s.sectors || [],
+    departments: s.departments || [],
   }
 }
 
@@ -62,7 +72,7 @@ function supplierToDb(supplier) {
     email: supplier.email || null,
     tel: supplier.phone || null,
     picture: supplier.picture || null,
-    sectors: supplier.sectors || [],
+    departments: supplier.departments || [],
     spaceIds: supplier.spaceIds || supplier.spaces || [],
   }
 }

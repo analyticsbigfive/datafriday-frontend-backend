@@ -152,6 +152,7 @@
               :space="space"
               :edit-space="editSpace"
               :delete-space="askDeleteSpace"
+              :is-dark="isDark"
             />
           </div>
 
@@ -183,7 +184,7 @@
               <div class="slv-card-row__stats">
                 <div v-if="space.maxCapacity" class="slv-card-row__stat">
                   <Users :size="12" />
-                  <span>{{ space.maxCapacity.toLocaleString('fr-FR') }}</span>
+                  <span>{{ formatNumber(space.maxCapacity) }}</span>
                 </div>
                 <div class="slv-card-row__stat slv-card-row__stat--rev">
                   {{ formatCurrency(space.fbRevenue || 0) }}
@@ -225,6 +226,7 @@
       v-model="showDeleteConfirm"
       :space="selectedSpace"
       :loading="deleting"
+      :is-dark="isDark"
       @confirm="doDeleteSpace"
     />
 
@@ -255,6 +257,7 @@ import SpaceItem from "../widgets/SpaceItem.vue";
 import SpaceCreateDrawer from "../drawers/SpaceCreateDrawer.vue";
 import SpaceDeleteDialog from "../dialogs/SpaceDeleteDialog.vue";
 import { deleteSpace } from "@/api/endpoints/space.api";
+import { formatCurrencyDetailed, formatNumber } from "@/composables/useFormatters";
 import { getLocationSpaceMappings, deleteLocationSpaceMapping } from "@/api/endpoints/mapping.api";
 
 export default {
@@ -425,8 +428,9 @@ export default {
       }
     },
 
+    formatNumber,
     formatCurrency(value) {
-      return (Number(value) || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      return formatCurrencyDetailed(Number(value) || 0);
     },
     goToSpace(id) {
       this.$router.push(`/spaces/${id}`);

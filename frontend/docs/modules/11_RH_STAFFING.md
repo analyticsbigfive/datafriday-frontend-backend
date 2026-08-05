@@ -184,7 +184,12 @@ Par PDV (CA = CA prédit du shop, catégorie = type de PDV Beverage/Kitchen food
   EPR si Front Food (dinettes/hot-dogs)
 - Responsable de zone = ROUNDUP(staff front total/15) — niveau espace
 - Alertes productivité front : > 2 500 €/pers = sous-effectif, < 1 000 = sureffectif
-- Horaires suggérés : ouverture PDV − 1 h → fermeture + 1 h ; coût prédit = Σ staff × taux × heures
+- Horaires suggérés : ouverture des portes − 2 h → heure de fin + 2 h ; coût prédit = Σ staff × taux × heures.
+  L'heure d'ouverture réelle vient de `Event.sessions[0].doorsOpening` (Session 1) et l'heure de
+  fin de `Event.eventEndTime` (repli sur le `showTime` de la dernière session) — `eventStartDate`/
+  `eventEndDate`/`eventDate` ne portent qu'un jour calendaire (minuit, sans heure) et ne suffisent
+  pas seuls. Ces heures locales sont converties en UTC via `Space.timezone` (défaut Europe/Paris,
+  même convention que BUG-270).
 
 Prérequis données identifiés (absents du schéma actuel) : catégorie RH par shop (l'enum
 `ShopType` food/beverages/beer/merch ne correspond pas), agences staffing, employés + contrats,
@@ -266,7 +271,8 @@ tous dans le tenant. Réponse liste `{ data: [{ id, goalPerTpe|staffPerZoneManag
 spaceIds[], createdAt, updatedAt }] }`. Enregistré dans
 [`app.module.ts`](../../../backend/src/app.module.ts).
 
-**Migration Prisma — à lancer manuellement** (ADR-0002, dossier `prisma/migrations` gitignoré) :
+**Migration Prisma — à lancer manuellement** ([ADR-0002 **backend**](../../../backend/docs/adr/0002_migrations_manuelles_jamais_plateforme.md),
+dossier `prisma/migrations` gitignoré) :
 `pnpm prisma:migrate` (dev, avec `DIRECT_URL` port 5432) puis `prisma migrate deploy` sur chaque env.
 Aucune commande lancée par l'agent. Après migration : `pnpm docs:api` régénère la doc API.
 
@@ -283,14 +289,29 @@ Aucune commande lancée par l'agent. Après migration : `pnpm docs:api` régén�
 - **Couche données** : `api/endpoints/hrSettings.api.js` + store Vuex TTL (pattern standard) — pas de
   localStorage (contrairement à l'étape 1 Suppliers/Positions).
 
-### 9.4 Règle de résolution espace → valeur (⚠️ hypothèse, à valider #35)
+### 9.4 Règle de résolution espace → valeur (tranchée le 2026-08-01, question #41)
 
-Une carte affiche **une** valeur par espace, mais les lignes ciblent des **ensembles**. Règle par
-défaut retenue (documentée, **non tranchée par Bertrand**) : **une ligne spécifique (espace listé)
-prime sur une ligne `TOUS`** ; en cas de conflit entre deux lignes spécifiques, **la plus récente
-gagne**. Le bouton **Edit** par carte crée/mets à jour la **ligne mono-espace** de cet espace
-(POST si absente, PATCH sinon) plutôt que d'empiler des doublons. Sémantique à confirmer —
-question [#41](../QUESTIONS_A_BERTRAND.md).
+Une carte affiche **une** valeur par espace, mais les lignes ciblent des **ensembles**. Décision
+utilisateur (2026-08-01) : *"on a toujours 1 valeur — faire en groupe ou individuellement garde 1
+valeur"* — un espace n'est **jamais** couvert par deux lignes actives à la fois, garanti **par
+construction** (rejet backend à l'écriture) plutôt que résolu après coup :
+
+- Au plus **une** ligne `TOUS` par paramètre (Goal, séparément StaffRatio) et par tenant — en créer
+  une deuxième est rejeté (`HrSettingsService::assertNoGoalOverlap`/`assertNoRatioOverlap`).
+- Les `spaceIds` de deux lignes **spécifiques** ne peuvent jamais se chevaucher — créer une ligne
+  spécifique sur un espace déjà couvert par une AUTRE ligne spécifique est rejeté.
+- **Override délibéré autorisé** : une ligne spécifique sur un espace déjà couvert par `TOUS` reste
+  acceptée (c'est le seul cas légitime où une "priorité" s'applique — spécifique gagne sur `TOUS`).
+
+Le bouton **Edit** par carte crée/met à jour la **ligne mono-espace** de cet espace (POST si
+absente, PATCH sinon, `findMonoSpaceLine`/`upsertMono`) — comportement déjà existant, confirmé
+cohérent avec la règle ci-dessus (une mise à jour de sa propre ligne ne se rejette jamais
+elle-même, exclusion par id dans `assertNo*Overlap`).
+
+Vérifié par script e2e jetable (tenant + espaces + lignes nettoyés, 5 cas : doublon `TOUS` Goal
+rejeté, chevauchement spécifique rejeté, espace libre accepté, update sur son propre périmètre
+accepté, doublon `TOUS` StaffRatio rejeté) et `tests/unit/hrSettings.spec.js` (9 cas, résolution
+`resolveValueForSpace`/`findMonoSpaceLine`).
 
 ---
 
@@ -323,7 +344,7 @@ coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ;
 
 | Commit | Contenu |
 |---|---|
-| `94cf2db` | Prisma : `HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine` + SQL manuel [`2026-07-29_hr_staffing_module.sql`](../../../backend/prisma/sql/2026-07-29_hr_staffing_module.sql) (ADR-0002, **à appliquer manuellement**) |
+| `94cf2db` | Prisma : `HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine` + SQL manuel [`2026-07-29_hr_staffing_module.sql`](../../../backend/prisma/sql/2026-07-29_hr_staffing_module.sql) ([ADR-0002 backend](../../../backend/docs/adr/0002_migrations_manuelles_jamais_plateforme.md), **à appliquer manuellement**) |
 | `28ad6b2` | Features NestJS [`hr/`](../../../backend/src/features/hr/) (CRUD suppliers/roles/persons, validation conditionnelle, import one-shot) + [`staffing/`](../../../backend/src/features/staffing/) (calculateur **pur** + orchestration + `GET /hr-settings/costs`) + **29 tests jest** (paliers, invariant, clamp, 212,50 €) |
 | `b84668f` | [`utils/hrApi.js`](../../src/utils/hrApi.js) → API (signatures conservées), import one-shot localStorage puis purge |
 | `cb69c4a` | `HrPositionFormDrawer` → [`HrRoleFormDrawer`](../../src/components/hr/drawers/HrRoleFormDrawer.vue) (champs conditionnels §2.1 spec, algoKey auto) ; fix route `/hr` (pointait sur `HrView` inexistant) + `/hr/positions` ; coûts staff réels sur les cartes HR Settings |
@@ -343,12 +364,488 @@ coûts §5 : prédit = figé à la génération (ElementPerformance.staffCost) ;
 | Q7 « disponible » (HrPerson) | `pickAssignment` | active + distribution par index dans l'event |
 | Types d'éléments PDV | `STAFFING_ELEMENT_TYPES` | `shop, fnb_food, fnb_beverages, fnb_bar, fnb_snack` |
 | Inputs algo par PDV | `SpaceElement.attributes` (Json) | clés `metresLineaires`, `ouvertureObligatoire`, `hasResponsablePdv`, `txParSeconde`, `nbTireuses`, `nbFriteuses`, `nbBurgersPrevus`, `nbDinettes`, `nbHotdogsPrevus` ; capacités via `type` + `subtypes` ; mètres inconnus → pas de plafond TPE |
-| Fin d'event absente | `DEFAULT_EVENT_DURATION_HOURS` | portes + 6 h ; offsets lignes −1 h/+1 h |
+| Fin d'event absente | `DEFAULT_EVENT_DURATION_HOURS` | portes + 6 h ; offsets lignes −2 h/+2 h |
 | Résolution goal/ratio | `resolveSettings` (server-side) | ligne contenant l'espace > `TOUS`, plus récente gagne (miroir §9.4) |
 
 ### 10.4 Reste à faire (hors périmètre de la branche)
 
-1. **Appliquer le SQL manuel** (ADR-0002) sur chaque environnement, puis `prisma generate`.
-2. Écran de gestion des `HrPerson` (le backend + dropdown « Nom » existent ; pas d'écran CRUD dédié).
-3. `HrRoleSpaceDefault` (agence par défaut espace × rôle) : backend + présélection livrés, pas d'UI de saisie.
-4. E2E léger spec §6 : générer → décocher → slider → vérifier pills (une fois le SQL appliqué sur staging).
+1. **Appliquer les DEUX SQL manuels** sur chaque environnement, dans l'ordre, puis `prisma generate` :
+   [`2026-07-29_hr_staffing_module.sql`](../../../backend/prisma/sql/2026-07-29_hr_staffing_module.sql)
+   puis [`2026-07-30_hr_settings_goals_ratios.sql`](../../../backend/prisma/sql/2026-07-30_hr_settings_goals_ratios.sql).
+   Procédure : [ADR-0002 **backend**](../../../backend/docs/adr/0002_migrations_manuelles_jamais_plateforme.md)
+   (⚠️ à ne pas confondre avec [ADR-0002 frontend](../adr/0002_builder_v2_relationnel_seul.md), Builder v2 —
+   numérotation indépendante par repo) ; mécanisme du no-op détaillé dans [`09_TECHNIQUE.md`](09_TECHNIQUE.md) ligne 449.
+2. **Alimenter le `caPredictif`** — bloquant, cf. §10.5.
+3. ~~**UI de saisie des inputs algo** dans `SpaceElement.attributes` (§10.3, dernière ligne) — bloquant, cf. §10.5.~~
+   **Fait le 2026-08-01** — `StaffingInputsSection.vue` dans l'inspecteur Builder (shops
+   uniquement), cf. §11.14 et [BUG-260-02](../bugs/260_02_hrsinkingrule_conditionattribute_jamais_saisi_builder.md).
+4. Écran de gestion des `HrPerson` (le backend + dropdown « Nom » existent ; pas d'écran CRUD dédié).
+5. `HrRoleSpaceDefault` (agence par défaut espace × rôle) : backend + présélection livrés, pas d'UI de saisie.
+6. E2E léger spec §6 : générer → décocher → slider → vérifier pills (une fois le SQL appliqué sur staging).
+
+### 10.5 Vérification en base (2026-07-30, Supabase `alsgdtewqeldrrquypdy`)
+
+> Rédaction : **JLH**, 2026-07-30. Audit de contrôle du rapport étape 2 (§10.2) : chaque affirmation
+> rejouée contre le code (`file:line`) et contre la base.
+
+Audit `information_schema` + `SELECT` sur l'environnement de travail. L'algo (§10.1) est conforme
+au code ligne à ligne ; les trois écarts sont des écarts de **déploiement et de données**, pas de
+logique.
+
+| Constat | Preuve | Effet |
+|---|---|---|
+| Aucune table `Hr*` ni `EventStaffLine` en base | `information_schema.tables` : seule `ElementStaff` matche | tous les endpoints `/hr*` et `/staffing` échouent (relation inexistante) |
+| Le SQL des 4 tables Settings n'existait pas | `56297d8` = `schema.prisma +63`, zéro fichier `prisma/sql/` | corrigé : `2026-07-30_hr_settings_goals_ratios.sql` écrit le 2026-07-30 |
+| **`ElementPerformance` est vide (0 ligne)** | `SELECT count(*) FROM "ElementPerformance"` → `0` | `perf?.revenue ?? 0` → `caPredictif = 0` → `n = FLOOR(0/goal) = 0` → `open = false` sur 100 % des PDV → `generate` rend **zéro ligne de staff**, même après migration + seed |
+| Clés algo absentes de `SpaceElement.attributes` | `jsonb_each` sur 742 lignes : seules `originalType` (695), `importedFromWeezevent` (686), `storageShopIds` (5) | jamais de RPDV, pas de plafond TPE, `ouvertureObligatoire` jamais vrai (donc pas de repli quand le CA manque), commis/EPR = 0 |
+| `ElementPerformance.staffCost` déjà en base | `information_schema.columns` : `double precision` | aucun `ALTER TABLE` nécessaire |
+
+**Question ouverte — source du `caPredictif`.** `staffing.service.ts:226` lit
+`ElementPerformance.revenue`, une métrique builder par `configId`, pas le CA prédit de l'événement
+(`EventPredictVersion.predictedRecords`, `schema.prisma:2833`). Deux options : alimenter
+`ElementPerformance.revenue` depuis le pipeline predict, ou agréger `predictedRecords` par élément
+à la génération. Non tranché → question
+[#43](../QUESTIONS_A_BERTRAND.md#questions-ouvertes).
+
+**Réserve sur §9.4.** `resolveSettings` (`staffing.service.ts:85-106`) implémente exactement la
+règle §9.4 — mais §9.4 est elle-même marquée « hypothèse à valider » (questions #35 / #41). La
+conformité du code ne vaut donc pas validation métier.
+
+## 11. Étape 3 — déploiement des tables + consolidation backlog RH/STF/CFG (2026-07-30)
+
+> Rédaction : Claude (session Ulrich), 2026-07-30. Croisement d'un backlog externe (tickets
+> STF-1/STF-2, RH-1 à RH-5, CFG-1/CFG-2) avec le code déjà écrit (§9-10) : la majorité des tickets
+> étaient déjà couverts par le schéma non déployé — seul un sous-ensemble volontairement réduit a
+> nécessité du nouveau code, pour éviter la dispersion.
+
+### 11.1 Tables déployées (levée du blocage §10.5/§10.4 point 1)
+
+Les 4 migrations suivantes ont été créées sous `backend/prisma/migrations/` et appliquées via
+`npx prisma migrate deploy` sur l'environnement Supabase de `backend/.env`
+(`aws-1-eu-west-1.pooler.supabase.com`), puis `npx prisma generate` :
+
+1. `20260730160000_hr_staffing_module` — copie conforme de `2026-07-29_hr_staffing_module.sql`.
+2. `20260730160100_hr_settings_goals_ratios` — copie conforme de `2026-07-30_hr_settings_goals_ratios.sql`.
+3. `20260730160200_hr_supplier_rename_sectors_departments` — RH-5 (§11.4).
+4. `20260730160300_hr_sinking_rule` — nouvelle table `HrSinkingRule` (§11.3).
+
+Vérifié après coup (audit isolé, tenant fictif nettoyé) : les 11 tables existent
+(`HrSupplier`, `HrRole`, `HrRoleSupplier`, `HrPerson`, `HrRoleSpaceDefault`, `EventStaffLine`,
+`HrGoal`, `HrGoalSpace`, `HrStaffRatio`, `HrStaffRatioSpace`, `HrSinkingRule`), `HrSupplier.departments`
+répond bien à la place de `sectors`, et la contrainte unique de `HrSinkingRule` rejette bien un
+doublon (`tenantId`, `roleId`, `fnbCategory`, `conditionAttribute`). Le point bloquant de §10.5
+(« aucune table `Hr*` en base ») est donc levé. **Reste ouvert, hors périmètre de cette passe** :
+la question #43 (source de `caPredictif`, `ElementPerformance` toujours vide) — `generate` continue
+de renvoyer une dotation nulle tant qu'elle n'est pas tranchée.
+
+### 11.2 BUG-122 — détection des tags F&B corrigée
+
+`staffing.service.ts` comparait les sous-types Builder v2 (minuscules : `beverages`, `front_food`…)
+après un `.toUpperCase()` contre des valeurs `UPPERCASE_SNAKE` (`'BEVERAGE'`…) qui ne matchaient
+jamais. Remplacé par une table `SUBTYPE_TO_FNB_CATEGORY` explicite. Détail :
+[`backend/docs/bugs/122_02_staffing_subtype_casing_mismatch_fnb_detection.md`](../../../backend/docs/bugs/122_02_staffing_subtype_casing_mismatch_fnb_detection.md).
+C'est probablement la cause réelle derrière le ticket backlog **STF-1** (« la formule runners ajoute
+un runner à tort ») : rejoué contre le code, la formule elle-même est correcte (question #28, déjà
+résolue le 2026-07-29) — c'est la détection en amont qui ne nourrissait jamais le bon signal pour un
+PDV créé dans le Builder v2.
+
+### 11.3 STF-2 — table « Sinking RH » (dotation conditionnelle par sous-type)
+
+Nouveau modèle `HrSinkingRule` (tenantId, roleId → HrRole, fnbCategory, conditionAttribute?,
+conditionMinValue?, mandatoryQty) : force un quota minimal d'un rôle quand un tag FNB est détecté
+sur un PDV et qu'une condition d'équipement optionnelle (ex. `nbFriteuses ≥ seuil`) est remplie.
+Appliquée en **supplément** du calcul par paliers (§10.1), jamais à sa place — méthode pure
+`StaffingCalculatorService.applySinkingRules()`, câblée dans `StaffingService.generate()` juste
+après la boucle `ALGO_COUNT_FIELDS`, avec la même garde « ne jamais écraser une ligne MANUAL/userModified »
+que le reste de l'algo. CRUD backend : `hr-sinking-rules.controller.ts` (mirroring
+`hr-roles.controller.ts`). UI : section repliable dans `HrRoleFormDrawer.vue` (pas de nouvel écran),
+visible seulement en édition d'un rôle déjà persisté ayant au moins un tag F&B sélectionné.
+7 tests unitaires ajoutés (`staffing-calculator.service.spec.ts`).
+
+### 11.4 CFG-1 — Mixology / Front Food / Kitchen Food (CFG-2 explicitement hors périmètre)
+
+Ajoutés comme **sous-types du tool `shop` existant** dans la palette Builder v2
+(`elementTaxonomy.js`), pas comme nouvelles valeurs d'`ElementType` — décision utilisateur, pour
+éviter la migration d'enum + les 5 fichiers de mapping (backend `mapElementType`/`reverseMapElementType`,
+DTO enum, `STAFFING_ELEMENT_TYPES`) qu'aurait exigés un vrai nouveau type de palette. Zéro migration,
+zéro changement backend pour ce ticket seul. **CFG-2** (types de PDV entièrement dynamiques, chargés
+depuis la BD) reste **délibérément hors périmètre** : le ticket lui-même indique que sa faisabilité
+doit encore être discutée (« Ulrich voit la faisabilité avec Emmanuel ») — construire l'architecture
+dynamique maintenant aurait contredit cette réserve. `hasKitchenFood` est câblé dans le calcul (§11.2)
+avec un comportement par défaut conservateur, documenté comme question ouverte : voir
+[question #44](../QUESTIONS_A_BERTRAND.md#questions-ouvertes).
+
+### 11.5 RH-5 — renommage `HrSupplier.sectors` → `departments`
+
+Renommage de bout en bout (schéma, backend, shim `utils/hrApi.js`, drawer, vue liste, i18n) — décision
+utilisateur : garder la liste de valeurs actuelle (F&B/Hospitality/Merch/Ticketing/Access/Kitchen/Entertainment),
+sans l'aligner sur `HrRole.department`/`HR_DEPARTMENTS` (liste distincte, 4 valeurs, sémantique différente).
+Point trouvé en cours de route : le shim `frontend/src/utils/hrApi.js` (`supplierFromDb`/`supplierToDb`)
+aurait cassé silencieusement l'écran Suppliers après la seule migration DB si son mapping interne
+n'avait pas été renommé aussi. La mention du ticket « renommer aussi les éléments de la palette en
+Département » ne correspond à rien dans le code — `PalettePanel.vue` (palette du Builder 3D) n'a
+aucun champ « Secteur » ; probable confusion de l'auteur du ticket entre la palette d'outils du
+Builder et la liste `HrSupplier` — non traité, à clarifier si le point est reformulé.
+
+### 11.6 RH-2 — affichage Goal TPE / Staff par zone dans EventPredict
+
+Affichage lecture seule dans l'onglet Staff d'EventPredict (`EventPredictStaffSection.vue`),
+réutilisant le getter déjà résolu `staffing/settings` (aucun nouvel appel API, aucune nouvelle route
+backend) + un lien vers la page RH Settings pour l'édition. Le câblage dans le Builder 3D reste hors
+périmètre — il n'existe aujourd'hui aucun panneau de réglages par espace à étendre dans
+`components/spaces/views/builder2/` ; en créer un est un chantier UI à part entière, non demandé pour
+cette passe.
+
+### 11.7 RH-1 / RH-3 / RH-4 — statut
+
+RH-1 (formulaire StaffPosition complet) et RH-3 (page RH Settings, cartes par espace) étaient déjà
+entièrement implémentés dans le code non déployé (§9, §10) — aucun changement de code, seul le
+déploiement des tables (§11.1) les rend fonctionnels. RH-4 (harmonisation UI) : audit ciblé contre
+l'écran fournisseur Market Price (référence explicite du code, commentaire « parité SupplierFormDrawer »)
+— deux écarts concrets corrigés (sous-titre de drawer statique au lieu de varier Add/Edit ; largeur de
+panneau 520px au lieu de 560px). L'écart structurel repéré (la référence propose une vue grille/carte
+en plus de la table, RH n'a que la table) est noté comme décision de périmètre à confirmer plutôt que
+construit d'office, les listes RH (agences, rôles) étant nettement plus courtes que le catalogue
+Market Price.
+
+### 11.8 Auto-remplissage du Staff dans le 3D Builder (STF-2, suite — 2026-07-30)
+
+> Correction d'angle mort : §11.6 confond deux écrans différents. Le câblage laissé « hors périmètre »
+> là-bas concerne les réglages Goal TPE/Staff-par-zone (niveau **espace**, §9). Il existe par ailleurs,
+> **niveau stand**, une section **« Staff » dans l'inspecteur du Builder** (modèle `ElementStaff`,
+> composant `StaffSection.vue`) — antérieure au module RH, 100 % manuelle (texte libre + quantité),
+> qui ne communiquait ni avec les sous-types F&B cochés juste au-dessus dans le même panneau, ni avec
+> les Rôles RH. C'est cette section-là que le ticket STF-2 visait avec « Staff auto-ajouté dans le 3D
+> Builder selon le type » — repérée après coup, sur retour utilisateur avec captures d'écran à l'appui,
+> après une première implémentation qui n'alimentait que la génération d'événement (§11.3).
+
+**Ce qui a été fait** : `ElementStaff` gagne `roleId` (traçabilité du `HrRole` d'origine) et `source`
+(`'AUTO'|'MANUAL'`, défaut `'MANUAL'` — toutes les lignes déjà en base avant cette migration sont
+manuelles, aucune n'a jamais été auto-générée). Nouvelle route
+`GET builder-v2/elements/:id/staff-suggestions` (`BuilderV2Service.getStaffSuggestions`). Côté
+frontend, `StaffSection.vue` appelle cette route au montage et à chaque changement des sous-types de
+l'élément sélectionné (debounce 400 ms), puis fusionne : les lignes `source='MANUAL'` ne sont jamais
+touchées, les lignes `source='AUTO'` sont intégralement remplacées par le nouveau résultat — décocher
+un sous-type fait donc disparaître la ligne au cycle suivant. Ajout **automatique, sans étape de
+confirmation** (décision utilisateur).
+
+**Limite assumée** : les règles Sinking **avec** condition d'équipement (`conditionAttribute`, ex.
+« Kitchen Food + ≥ 1 friteuse ») ne se déclenchent jamais dans le Builder — aucun champ n'existe
+aujourd'hui sur un stand pour saisir un nombre réel d'équipements (§10.4 point 3, toujours ouvert).
+Décision utilisateur explicite : ne pas élargir cette passe pour construire ces champs de saisie —
+chantier séparé, plus gros, à faire une prochaine fois.
+
+### 11.9 Révision le jour même — le tag F&B seul doit suffire (retour utilisateur)
+
+Première implémentation de §11.8 : un poste n'apparaissait que si une `HrSinkingRule` explicite avait
+été créée pour lui (miroir strict d'`applySinkingRules`, déjà utilisé par la génération d'événement,
+§11.3). Test réel : un rôle « Cuisinier » tagué `BEVERAGE` dans HR → Rôles, un stand avec le sous-type
+Beverages coché — **rien ne se remplit**, parce qu'aucune `HrSinkingRule` n'existait nulle part en
+base (vérifié : 0 ligne, tous tenants confondus). L'utilisateur attendait que le tag seul suffise, sans
+étape de configuration supplémentaire.
+
+**Nouvelle règle, implémentée** (méthode pure `StaffingCalculatorService.computeStaffSuggestions`,
+7 tests dédiés) : un rôle dont `fnbCategories` contient une catégorie présente sur le stand apparaît
+automatiquement, quantité **1 par défaut**. Une `HrSinkingRule` **sans condition** sur ce couple
+(rôle, catégorie) ne fait qu'ajuster cette quantité par défaut. Une `HrSinkingRule` **avec condition**
+rend au contraire ce couple (rôle, catégorie) **conditionnel** : il disparaît du défaut « tag seul » et
+n'apparaît que si la condition est remplie (comportement inchangé pour le cas « EPR uniquement si
+bain-marie » de la spec d'origine). Si un rôle matche plusieurs catégories présentes en même temps, la
+quantité retenue est le **maximum** des quantités trouvées pour chacune, pas leur somme (un seul poste,
+pas un doublon parce que deux tags se recoupent). Reconfirmé sur les données réelles (lecture seule,
+aucune écriture) : le cas rapporté (Cuisinier/Beverage, 0 règle Sinking) produit désormais bien
+`{ roleName: 'Cuisinier', qty: 1 }`.
+
+**Deuxième retour, même test** : l'ajout manuel dans `StaffSection.vue` était un champ texte libre —
+l'utilisateur voulait une liste des Rôles RH existants à sélectionner, jamais de saisie libre. Corrigé :
+le champ texte est remplacé par un menu déroulant peuplé via `getHrRoles()`, le taux horaire du poste
+ajouté est calculé depuis le rôle choisi (`hourlyRateFrom`, même formule que le backend) ; le poste
+reste `source='MANUAL'` (jamais retouché par la synchronisation automatique), avec `roleId` renseigné
+pour la traçabilité.
+
+### 11.10 Design + deux bugs corrigés le même jour
+
+**Design** : passage d'une liste plate à des cartes façon `InventorySection.vue` (même recette
+`.inv-card`/`.inv-qty`), puis simplifié sur retour utilisateur (« texte en trop, épuré et intuitif ») —
+suppression des titres de groupe « Recommandé (RH) »/« Ajouté manuellement », une seule liste, un icône
+discret (`mdi-auto-fix`, info-bulle au survol) distingue une ligne `AUTO` d'une ligne `MANUAL` sans texte
+permanent.
+
+**Bug 1 — doublons** : rien n'empêchait de sélectionner deux fois le même rôle dans le menu déroulant
+manuel. Corrigé : `selectableRoles` (computed) retire du menu tout rôle déjà présent dans la liste
+(`roleId` déjà utilisé, auto ou manuel) — sélection impossible en double, le menu se réinitialise si le
+rôle sélectionné disparaît (ex. absorbé par une synchronisation automatique entre-temps).
+
+**Bug 2 — `property id should not exist`** : les lignes déjà enregistrées portent leur `id` serveur
+(`staffByConfig`) ; les renvoyer telles quelles au `PUT .../staff` (whitelist + forbidNonWhitelisted)
+déclenchait un 400 dès qu'on modifiait une quantité ou qu'on ajoutait une ligne à côté de lignes
+existantes. Même bug déjà résolu ailleurs dans le Builder — `InventorySection.vue::cleanRow()` fait
+exactement ça pour l'inventaire. Corrigé par un `cleanRow()` identique dans `StaffSection.vue::save()` :
+ne renvoie que `position`/`count`/`hourlyRate`/`roleId`/`source`, jamais `id`.
+
+### 11.11 Catégories F&B élargies de 4 à 9 (parité avec les sous-types Builder)
+
+Autre test réel : cocher "Beer" à la place de "Beverages" ne faisait pas disparaître un poste tagué
+"Beverage" — normal, `beer`/`beverages`/`drinkee` fusionnaient tous dans la même catégorie
+`BEVERAGE` (héritage du fix BUG-122, pensé pour la formule de calcul, pas pour un tagging fin). Décision
+utilisateur : chaque sous-type du panneau "Sous-types F&B" doit avoir sa propre catégorie RH. `HR_FNB_CATEGORIES`
+passe de 4 à 9 (`FOOD, BEVERAGE, BEER, GP_PREMIUM, TEMPORARY, DRINKEE, MIXOLOGY, FRONT_FOOD, KITCHEN_FOOD`),
+mapping 1:1 dans `fnb-tags.util.ts`. Aucune migration : `HrRole.fnbCategories`/`HrSinkingRule.fnbCategory`
+sont de simples colonnes `TEXT`/`TEXT[]`, validées uniquement côté application — le rôle réel déjà en
+production (`Cuisinier`, `BEVERAGE`/`FRONT_FOOD`) reste valide sans aucune action.
+
+Deux garde-fous ajoutés pour ne rien casser :
+- **La formule de calcul du personnel** (déjà validée, 43 tests) regroupe toujours `BEVERAGE`+`BEER`+`DRINKEE`
+  sous `hasBeverage` — seul le *tagging* d'un rôle RH devient fin, la formule ne change pas de résultat
+  (vérifié : un stand taggé seulement "beer" produit toujours `runners = MAX(runners, tireuses)`).
+- **Collision `temporary`** : ce sous-type existe aussi sur le tool `merchshop` (valeur identique, tool
+  différent). `BuilderV2Service.getStaffSuggestions` ne filtrait par aucun type d'élément — un élément
+  `merchshop` taggé `temporary` aurait pu, à tort, déclencher un rôle RH catégorie `TEMPORARY`. Corrigé
+  en restreignant `getStaffSuggestions` aux mêmes types que `generate()` (`STAFFING_ELEMENT_TYPES`),
+  vérifié par test isolé (tenant jetable) : un stand `shop`/`temporary` suggère bien le rôle, un
+  `merchshop`/`temporary` ne suggère jamais rien.
+
+### 11.12 CFG-2 Étape 4.5 — `fnbCategories`/`fnbCategory` alignés sur le référentiel Subtype
+
+Retour utilisateur (2026-07-31) après la CRUD-isation Department/Subtype (CFG-2, cf. §10.3) :
+le champ Department du formulaire de rôle RH était déjà dynamique (référentiel global, filtré
+`needsRh`), mais la grille "F&B Category (subtype)" restait `HR_FNB_CATEGORIES`, un vocabulaire
+`UPPERCASE_SNAKE` codé en dur (9 valeurs) — un sous-type F&B créé par le super-admin via
+Configurations n'y apparaissait jamais.
+
+`HR_FNB_CATEGORIES` et la table de correspondance `SUBTYPE_TO_FNB_CATEGORY` (`fnb-tags.util.ts`)
+sont supprimées. `HrRole.fnbCategories`/`HrSinkingRule.fnbCategory` stockent désormais directement
+le `Subtype.code` — même idiome que `HrRole.department`/`Department.code` (§10.3).
+`HrService.resolveFnbCategories()` valide l'existence contre `Subtype`, scopé au département
+**du rôle** (généralisé au-delà de `shop` le 2026-07-31, cf. §11.13 — cette section décrivait
+initialement un scope figé sur `shop`, corrigé depuis) et canonicalise vers `code ?? id`,
+exactement comme `normalizeRole()` le fait pour `department`.
+
+**Périmètre volontairement limité (à ce stade de cette section)** : `StaffingCalculatorService`
+(pur, 43 tests) ne connaît pas le vocabulaire concret — il compare des chaînes opaques
+(`fnbTags.has(rule.fnbCategory)`), donc inchangé. Seuls les 6 littéraux
+`fnbTags.has('BEVERAGE'|'BEER'|...)` dans `StaffingService.generate()` sont renommés vers les
+codes minuscules (`beverages`/`beer`/…) — même comportement, mêmes 3 catégories regroupées sous
+`hasBeverage` (cf. §11.11), aucune formule touchée. `builder-v2.service.ts::getStaffSuggestions`
+n'était pas encore touché à ce stade — cf. §11.13 pour sa généralisation.
+
+**Migration** : `backend/scripts/backfill-hr-fnb-categories.ts` (DRY-RUN/`--apply`, idempotent)
+réécrit les valeurs `UPPERCASE_SNAKE` déjà en base vers le `Subtype.code` correspondant (mapping
+figé, les 9 valeurs historiques). Un seul rôle réel concerné en base au moment du changement
+(`Cuisinier`, `[BEVERAGE, FRONT_FOOD]` → `[beverages, front_food]`), 0 `HrSinkingRule`. Vérifié par
+script e2e jetable (tenant + Subtype de test nettoyés en fin de script) : ancien code
+`UPPERCASE_SNAKE` désormais rejeté (plus de vocabulaire parallèle), sous-type d'un autre département
+rejeté, et surtout — le point central de la demande — un `Subtype` fraîchement créé (`code: null`,
+utilisable par son `id`) est immédiatement acceptable comme `fnbCategory`, sans backfill ni
+changement de code.
+
+Frontend (`HrRoleFormDrawer.vue`) : `FNB_CATEGORIES` (tableau figé) retiré, remplacé par un
+`computed` réutilisant `buildTools()`/`toolOf('shop', …)` d'`elementTaxonomy.js` — les mêmes
+fonctions déjà utilisées par le Builder (CFG-2 Étape 5) — sur le sous-type courant du référentiel
+`departments` Vuex. Effet de bord positif : le libellé affiché passe de "Beverage" à "Beverages"
+(`Subtype.name` réel), corrigeant au passage une divergence de wording avec le Builder. (Sourcé
+sur `shop` fixe à ce stade — généralisé au département du rôle en §11.13.)
+
+### 11.13 Généralisation au-delà de `shop` — la suggestion auto Builder marche pour tout département RH
+
+Retour utilisateur (2026-07-31), suite à §11.12 : *"le choix du département doit nous permettre de
+choisir le subtype auquel c'est censé être lié"*. La grille "Subtype" du formulaire de rôle restait
+câblée en dur sur les sous-types `shop`, quel que soit le département choisi — un rôle Hospitality
+(ex. "Hôte Lodge") ne pouvait jamais être tagué avec `lodges`/`salon`, ses propres sous-types.
+
+Vérification préalable : `detectFnbTags()`/`StaffingCalculatorService.computeStaffSuggestions()`
+étaient déjà **entièrement génériques** (aucun vocabulaire figé, comparaison de chaînes opaques) —
+la limite à `shop` était purement artificielle, à deux endroits précis :
+
+1. **`HrRoleFormDrawer.vue`** — `subtypeOptions` passe de `toolOf('shop', tools)` à
+   `toolOf(form.department, tools)` : la grille propose désormais les sous-types du département
+   **sélectionné sur le rôle**, pas toujours `shop`. Un `watch(() => form.department, ...)` filtre
+   `form.fnbCategories` pour retirer les tags devenus invalides quand l'utilisateur change de
+   département interactivement (sans effet quand `reset()` peuple un rôle déjà persisté, dont les
+   tags sont déjà cohérents avec leur département). Libellé section renommé de "F&B Category
+   (subtype)" à "Subtype" (+ nom du département affiché), plus F&B-only.
+2. **`HrService.resolveFnbCategories(values, departmentId)`** — accepte désormais un `departmentId`
+   (celui du rôle, résolu dans `normalizeRole()`/`assertValidSinkingRule()`), scope la requête
+   `Subtype` dessus au lieu de `department: { code: 'shop' }`. `assertValidSinkingRule()` devient
+   async et va chercher le département du rôle visé (`roleId`) pour scoper la validation.
+3. **`BuilderV2Service.getStaffSuggestions()`** — remplace le filtre figé `STAFFING_ELEMENT_TYPES`
+   (shop + legacy `fnb_*`) par une résolution dynamique du département de l'élément
+   (`resolveDepartmentForElementType()`, repli des 5 valeurs legacy F&B sur `shop` d'abord),
+   condition `dept.needsRh === true` — couvre les 6 départements RH (shop, hospitality, merchshop,
+   entrance, entertainment, kitchen), pas seulement shop.
+
+**Garde-fou de collision (le point le plus important)** : un `Subtype.code` n'est unique que **par
+département** (`@@unique([departmentId, name])`), pas globalement — `temporary` existe à la fois
+sur `shop` et `merchshop`, avec des sens différents. Avant ce changement, cette collision n'était
+jamais un problème parce que `STAFFING_ELEMENT_TYPES` excluait déjà `merchshop` (BUG-122, §11.11).
+En généralisant, `getStaffSuggestions()` filtre désormais explicitement les rôles considérés au
+**même département que l'élément** (`hrRole.findMany({ where: { department: { in: [dept.code,
+dept.id] } } })`) — sans ce scope, un rôle `shop` tagué `temporary` aurait pu être suggéré à tort
+sur une box `merchshop` tagué `temporary` (même chaîne, sens différent). Vérifié par script e2e
+jetable (tenant + espace/zone/éléments de test nettoyés) : rôle Hospitality `lodges` suggéré sur
+une box Hospitality `lodges`, rôle merchshop `temporary` suggéré sur une box merchshop
+`temporary`, **rôle shop `temporary` PAS suggéré** sur cette même box merchshop malgré la
+collision de code — 8 assertions, toutes passées.
+
+Le calcul par paliers événementiel (`StaffingService.generate()`, `algoKey`) reste **volontairement
+non généralisé** : ses formules (caissiers/runners/barman…) sont conceptuellement F&B (CA
+prédictif, TPE, trafic), sans équivalent métier pour Hospitality/Ticketing — seule la suggestion
+auto **par élément** dans le Builder (`getStaffSuggestions`) est concernée par cette généralisation.
+
+### 11.14 Saisie des inputs algo dans le Builder (clôt BUG-260-02)
+
+Depuis l'origine du module (§10.3/§10.4), les 9 clés lues par `StaffingCalculatorService.calculate()`
+dans `SpaceElement.attributes` (`metresLineaires`, `txParSeconde`, `ouvertureObligatoire`,
+`hasResponsablePdv`, `nbTireuses`, `nbFriteuses`, `nbBurgersPrevus`, `nbDinettes`,
+`nbHotdogsPrevus`) n'avaient aucun champ de saisie nulle part — le calcul par paliers et les
+règles Sinking avec condition d'équipement (§11.3) tournaient donc toujours avec des valeurs par
+défaut/vides, jamais les vraies données du PDV.
+
+Deux emplacements possibles ont été évalués : Builder (propriété physique du stand, persistante
+d'un événement à l'autre) vs Event Predict (prévision propre à un événement donné — cohérent avec
+le suffixe "Prevus" de `nbBurgersPrevus`/`nbHotdogsPrevus`, et avec `ouvertureObligatoire` qui
+ressemble à une décision opérationnelle par événement). **Décision utilisateur (2026-08-01) : tout
+dans le Builder**, aucun split — un seul endroit de configuration, plus simple, quitte à ce que
+`nbBurgersPrevus` reste une estimation fixe plutôt que recalculée événement par événement.
+
+Implémentation : `StaffingInputsSection.vue`, nouvelle section de l'inspecteur Builder, visible
+uniquement pour les éléments `shop` (`sectionsForType().staffingInputs`, scope identique à
+`STAFFING_ELEMENT_TYPES` côté backend — ces attributs n'ont pas de sens pour les autres
+départements). Même mécanisme de PATCH que `StorageShopsSection.vue`
+(`store.commitElementPatch(id, { attributes: {...prev, [clé]: valeur} }, ...)`, `attributes`
+toujours fusionné jamais remplacé). Aucun changement backend : `SpaceElement.attributes` est un
+JSON libre déjà lu tel quel par le calculateur, rien à migrer.
+
+**Révision du 2026-08-02 (retour utilisateur)** : le « tout dans le Builder » du 2026-08-01
+partiellement revu — seuls les équipements **physiques** du PDV (indépendants de l'event) restent
+saisis dans `StaffingInputsSection.vue` : `nbTireuses`, `nbFriteuses`, `nbDinettes`,
+`ouvertureObligatoire`, `hasResponsablePdv` (+ `txParSeconde`, laissé en l'état pour l'instant).
+Retirés du Builder :
+- `metresLineaires` — redondant avec `SpaceElement.width` (déjà saisi dans Position > Largeur) ;
+  `staffing.service.ts::generate()` lit désormais `el.width` directement, plus de champ dédié.
+- `nbBurgersPrevus` / `nbHotdogsPrevus` — ce sont des quantités **prévues pour un event**, pas des
+  attributs fixes de l'espace (le suffixe "Prevus" le disait déjà, cf. ci-dessus). `generate()` les
+  passe désormais à `0` en dur ; les rebrancher sur une vraie prévision par event nécessite une
+  classification burger/hot-dog des `MenuItem` qui n'existe pas encore dans le modèle — question
+  ouverte, voir [`QUESTIONS_A_BERTRAND.md`](../QUESTIONS_A_BERTRAND.md) #47. `nbHotdogsPrevus`
+  reste néanmoins une valeur de condition Sinking Rule valide (une règle en base en dépend) — sa
+  valeur déjà stockée en base continue de fonctionner, seulement plus éditable via le Builder.
+
+### 11.15 Association Rôle ↔ Menu Item — architecture retenue (2026-08-03, résout #47)
+
+**Origine** : maquette Bertrand montrant un drawer "Modifier les paramètres RH de l'espace" avec
+une section "Association Rôles et Ventes" (modale "Ajouter une association" : rôle, base de calcul
+CA/Quantités, multi-select Menu Items avec "Tout Sélectionner"). **Vérifié le 2026-08-03 : cette UI
+n'existe pas encore dans le code** — ni dans `HrSpaceEditDrawer.vue` (2 champs seulement
+aujourd'hui : Goal/TPE, Staff par Responsable de zone), ni dans `HrRoleFormDrawer.vue`. C'est une
+cible, pas une capture de l'existant.
+
+**Périmètre tranché avec Bertrand (session 2026-08-03)** : Ulrich construit l'UI RH d'association +
+tout ce qui est calculable côté Builder/Staff. Tout ce qui toucherait au calcul Event Predict
+reste **hors périmètre**, chantier Jean-Luc. Confirmé explicitement : le calcul par paliers
+événementiel (`StaffingService.generate()`, §10.1) pour les 4 rôles fixes — responsable de zone,
+responsable de PDV, caissier, runner — **ne change pas**, même méthode qu'aujourd'hui.
+
+**Architecture retenue** : généraliser le mécanisme Sinking Rule existant (`HrSinkingRule`,
+`isSinkingRuleMet()` — §11.3) plutôt que créer un moteur de calcul séparé. Aujourd'hui une Sinking
+Rule ne sait tester qu'une condition booléenne sur un attribut physique fixe du PDV (`nbFriteuses
+≥ seuil`, etc.). La généralisation ajoute un type de condition "ratio de vente" : un rôle est
+associé à un ou plusieurs `MenuItem` (option "Tout Sélectionner"), avec une base CA ou Quantités et
+un seuil ("1 Commis tous les 100 Burger" / "1 EPR tous les 500€ de CA") — configuré une fois via la
+nouvelle UI RH, consommé automatiquement dans la liste Staff du Builder (`StaffSection.vue`,
+lignes AUTO) exactement comme une Sinking Rule aujourd'hui.
+
+**Ceci résout #47 par construction** : plus besoin de classifier un `MenuItem` comme "burger" ou
+"hot-dog" dans le catalogue — l'utilisateur RH choisit explicitement les items concernés dans l'UI.
+La question "quels MenuItem comptent comme burger/hot-dog" ne se pose plus.
+
+**Trois sources possibles pour la "valeur courante" comparée au seuil — non exclusives, conçues
+comme des fournisseurs interchangeables du même point d'intégration** :
+1. **Saisie manuelle par shop dans le Builder** (comme l'étaient historiquement
+   `nbBurgersPrevus`/`nbHotdogsPrevus`, §11.14) — dans le périmètre, phase 1.
+2. **Ventes réelles live via Weezevent ET Digifood** — dans le périmètre (domaine Intégrations &
+   Ventes d'Ulrich, [`05_INTEGRATIONS_VENTES.md`](05_INTEGRATIONS_VENTES.md)), phase 2. Aucune
+   table prête à l'emploi "quantité vendue par shop × MenuItem", mais tous les ingrédients
+   existent déjà — et sont **partagés entre les deux providers**, pas à dupliquer par provider :
+   les tables brutes `SalesTransaction`/`SalesTransactionItem`/`SalesProduct`/`ProductMapping`
+   sont écrites aussi bien par la sync Weezevent que par `DigifoodIngestionService.ingestOrder()`
+   (webhook + import CSV), et `LocationShopMapping` (le pont vers `SpaceElement`) est lui aussi
+   provider-agnostic. Une requête scopée par shop sur ces tables couvrirait donc nativement les
+   deux intégrations sans code spécifique par provider — `GET weezevent/analytics/sales-by-product`
+   (`weezevent-analytics.controller.ts:17`) n'est qu'un exemple d'agrégat déjà existant côté
+   Weezevent seul, à généraliser plutôt qu'à répliquer côté Digifood. Ne reflète que du vendu réel —
+   pertinent pour ajuster le staff affiché pendant/après l'event (module Live), pas pour la
+   planification en amont.
+3. **Prévision Event Predict** — **hors périmètre de ce chantier**, chantier Jean-Luc. Reste
+   bloqué par #43 (`ElementPerformance` vide en base) et nécessite qu'une prévision par
+   MenuItem × shop soit exposée côté backend (aujourd'hui calculée uniquement côté client,
+   `usePredictiveTimeline.js` + `predictiveAnalytics.js`, jamais persistée de façon fiable — voir
+   analyse détaillée session 2026-08-03, non versionnée en doc). Le point d'intégration générique
+   doit rester assez agnostique pour que Jean-Luc puisse brancher cette 3ᵉ source plus tard sans
+   retoucher l'UI RH ni le mécanisme de condition.
+
+**Ce qui ne change pas** : `staffing.service.ts` et le calcul par paliers CA/TPE pour les 4 rôles
+fixes (§10.1) restent intouchés — seule la suggestion auto **par élément** dans le Builder
+(`getStaffSuggestions`, même mécanisme que §11.13) est concernée par cette généralisation.
+
+### 11.16 Implémentation phase 1 (2026-08-03) — saisie manuelle, périmètre Builder/RH
+
+Livre exactement le périmètre tranché en §11.15 (UI RH + Builder, source "manuelle" uniquement —
+sources "live Weezevent" et "predict" laissées pour plus tard, cf. note ci-dessous sur le point
+d'extension).
+
+**Modèles Prisma ajoutés** (`backend/prisma/schema.prisma`, migration
+`20260803142518_hr_role_menu_item_ratio_and_element_menu_item_sales_input`, additive uniquement) :
+- `HrRoleMenuItemRatio` — l'association elle-même. **Table dédiée, pas une extension de
+  `HrSinkingRule`** : contrairement à ce que §11.15 suggérait ("généraliser le mécanisme Sinking
+  Rule"), la contrainte concrète soulevée en session (le picker de Menu Items doit être scopé à
+  l'espace pour rester léger, pas au tenant entier) implique un scope par `spaceId` incompatible
+  avec le modèle `HrSinkingRule` existant (scopé par tag F&B global, contrainte d'unicité
+  `[tenantId, roleId, fnbCategory, conditionAttribute]` qui ne supporte pas plusieurs lignes
+  "item-based" pour le même rôle). Le principe du "même moteur" est préservé au niveau
+  **service** (`StaffingCalculatorService`), pas au niveau table.
+- `ElementMenuItemSalesInput` — la valeur "vendu/prévu" saisie, scopée `(elementId, configId,
+  menuItemId)` — jamais `SpaceElement.attributes` (leçon de §11.14). Porte déjà un discriminant
+  `source: 'MANUAL' | 'LIVE' | 'PREDICT'` (idiome `ElementStaff.source`) : seul `'MANUAL'` est
+  écrit par ce chantier, les deux autres valeurs sont un point d'extension pour les phases 2/3
+  sans migration supplémentaire.
+
+**Backend** :
+- CRUD `HrRoleMenuItemRatio` : `hr-role-menu-item-ratios.controller.ts`
+  (`GET/POST /hr/role-menu-item-ratios`, `PATCH/DELETE /hr/role-menu-item-ratios/:id`), validation
+  dans `HrService.assertValidRoleMenuItemRatio` (les `menuItemIds` doivent être réellement
+  rattachés à l'espace via `SpaceMenuItem`).
+- `StaffingCalculatorService.applyMenuItemRatios(ratios, sales)` — fonction pure, nouvelle méthode
+  à côté de `applySinkingRules`. Différence sémantique volontaire : **sommée par rôle**, pas
+  maxée (plusieurs associations pour le même rôle sont des drivers de charge additifs, ex. "+2
+  pour les burgers" et "+3 pour les frites"). 6 tests dédiés dans
+  `staffing-calculator.service.spec.ts`.
+- `BuilderV2Service.getStaffSuggestions()` : évalue désormais aussi les `HrRoleMenuItemRatio` de
+  l'espace de l'élément (indépendamment des tags F&B — contrairement aux Sinking Rules, une
+  association espace-scopée s'évalue même si l'élément n'a aucun sous-type, le "current value"
+  vaut naturellement 0 si rien n'a été saisi pour ce shop). Résultat additionné à celui des
+  Sinking Rules par rôle.
+- `StaffingService.generate()` (génération event) : même branchement, symétrique, pour rester
+  cohérent avec le principe "un seul moteur" déjà documenté dans `builder-v2.module.ts`.
+- Nouveaux endpoints saisie manuelle : `GET/PUT /builder-v2/elements/:id/menu-item-sales-input`
+  (même patron delete+recreate que `PUT .../staff`).
+
+**Frontend** :
+- `components/hr/HrSpaceEditDrawer.vue` — nouvelle section "Association Rôles et Ventes" (cycle
+  de vie API propre, même précédent que les Sinking Rules dans `HrRoleFormDrawer.vue`).
+- `components/hr/HrRoleMenuItemRatioFormDialog.vue` — modale d'ajout/édition.
+- `components/hr/HrMenuItemMultiSelect.vue` — picker Menu Items réutilisable (recherche + "Tout
+  Sélectionner" + liste à cocher), alimenté par `getSpaceMenuItemsWithAvailability(spaceId)`
+  (déjà existant, strictement scopé à l'espace).
+- `components/spaces/views/builder2/.../MenuItemSalesInputSection.vue` — nouvelle section de
+  l'inspecteur Builder (gate `sections.menuItemSalesInput`, même périmètre `shop` que
+  `staffingInputs`, `elementTaxonomy.js`), n'affiche un champ que pour les Menu Items réellement
+  vendus sur CE shop ET ciblés par une association — pas tout le catalogue. Aperçu client des
+  rôles déclenchés via `utils/menuItemRatios.js` (miroir pur de `applyMenuItemRatios`, testé).
+
+**Point d'extension pour les phases 2/3** (non implémentées ici, cf. §11.15) : un futur job
+"live" (Weezevent) ou "predict" (Jean-Luc) n'a qu'à upserter des lignes
+`ElementMenuItemSalesInput` avec `source: 'LIVE'`/`'PREDICT'` pour la même clé
+`(elementId, configId, menuItemId)` — aucun changement requis côté UI RH, moteur de calcul, ou
+mécanisme de condition.
+

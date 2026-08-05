@@ -1,6 +1,5 @@
 import analyse, {
   resolveConfigSelectionAfterLoad,
-  pickDefaultConfiguration,
   filterValidConfigurations,
   isDeletedConfig,
   isValidConfigId,
@@ -120,6 +119,36 @@ describe('analyse store — cache invalidation', () => {
     expect(out).toHaveLength(1)
     expect(out[0].totalRevenue).toBe(100)
   })
+
+  /**
+   * BUG-300-01 — changement d'espace : le contexte config (floorElements →
+   * shopArea) doit être purgé, sinon la garde « déjà chargé » du différé
+   * « All Configurations » voit le contexte de l'ANCIEN espace et ne recharge
+   * jamais → donut « Par zone » définitivement vide sur le nouvel espace.
+   */
+  it("BUG-300-01 — CLEAR_SPACE_KEYED_CACHES purge le contexte config et invalide les vols en cours", () => {
+    const { state, mutations } = makeStore()
+    state.configShopContext = {
+      configId: null,
+      floorElements: [{ id: 'el-aix-1', name: 'Bar Nord', area: 'Zone A' }],
+      assignment: {},
+    }
+    state.configContextSettled = true
+    state.configContextError = 'boom'
+    state.configContextLoadingId = 'cfg-42'
+    const reqBefore = state.configContextReqId
+
+    mutations.CLEAR_SPACE_KEYED_CACHES(state, { keepSpaceId: 'space-auxerre' })
+
+    expect(state.configShopContext.floorElements).toHaveLength(0)
+    expect(state.configShopContext.configId).toBeNull()
+    expect(state.configContextSettled).toBe(false)
+    expect(state.configContextError).toBeNull()
+    expect(state.configContextLoadingId).toBeNull()
+    // Jeton bumpé : un loadAllConfigsShopContext de l'ancien espace encore en
+    // vol se verra `stale()` et ne commitera pas ses floorElements par-dessus.
+    expect(state.configContextReqId).toBe((reqBefore || 0) + 1)
+  })
 })
 
 describe('analyse store — getters data-driven (options depuis les ventes)', () => {
@@ -131,11 +160,12 @@ describe('analyse store — getters data-driven (options depuis les ventes)', ()
     { eventId: 'e9', shopName: 'Hors Scope', shopArea: 'N9', shopType: 'bar' }, // event hors analysables
   ]
 
-  function makeGetters({ records = RECORDS, events = [{ id: 'e1' }, { id: 'e9' }], analysable = [{ id: 'e1' }], stateOverrides = {} } = {}) {
+  function makeGetters({ records = RECORDS, events = [{ id: 'e1' }, { id: 'e9' }], analysable = [{ id: 'e1' }], filtered = analysable, stateOverrides = {} } = {}) {
     const state = { ...analyse.state(), events, ...stateOverrides }
     const getters = {
       reconciledShopGranularData: records,
       analysableEvents: analysable,
+      filteredEvents: filtered,
     }
     for (const name of ['optionsBaseRecords', 'salesShopNames', 'salesShopTypes', 'salesShopAreas', 'salesMenuItemNames', 'salesMenuItemTypes', 'salesMenuItemCategories', 'filtersState']) {
       Object.defineProperty(getters, name, {
@@ -154,6 +184,37 @@ describe('analyse store — getters data-driven (options depuis les ventes)', ()
   it('optionsBaseRecords ne filtre pas pendant le loading (state.events vide)', () => {
     const { getters } = makeGetters({ events: [], analysable: [] })
     expect(getters.optionsBaseRecords).toHaveLength(3)
+  })
+
+  // Module Live (docs/modules/11_LIVE.md), bug trouvé le 2026-08-05 : Types de
+  // PDV/Zones/Points de vente affichaient des compteurs sur TOUT l'historique
+  // analysable de l'espace au lieu du seul event live. isLiveRoute bascule la
+  // base sur filteredEvents (déjà réduit au seul event live par applyLiveScope).
+  it('optionsBaseRecords se scope à filteredEvents (pas analysableEvents) quand isLiveRoute', () => {
+    const { getters } = makeGetters({
+      // analysable inclut e1 ET un event historique e2 ; filteredEvents (le
+      // scope live réel) ne contient QUE l'event live e1.
+      analysable: [{ id: 'e1' }, { id: 'e2' }],
+      filtered: [{ id: 'e1' }],
+      stateOverrides: { isLiveRoute: true },
+      records: [
+        ...RECORDS,
+        { eventId: 'e2', shopName: 'Ancien Event', shopArea: 'N2', shopType: 'beer' },
+      ],
+    })
+    expect(getters.optionsBaseRecords.map((r) => r.shopName)).toEqual(['Bar Nord', 'Food Court'])
+  })
+
+  it('optionsBaseRecords reste sur analysableEvents quand isLiveRoute est false (comportement Analyse inchangé)', () => {
+    const { getters } = makeGetters({
+      analysable: [{ id: 'e1' }, { id: 'e2' }],
+      filtered: [{ id: 'e1' }],
+      records: [
+        ...RECORDS,
+        { eventId: 'e2', shopName: 'Ancien Event', shopArea: 'N2', shopType: 'beer' },
+      ],
+    })
+    expect(getters.optionsBaseRecords.map((r) => r.shopName)).toEqual(['Bar Nord', 'Food Court', 'Ancien Event'])
   })
 
   it('salesShopNames / salesShopAreas dérivés des ventes (distinct + tri)', () => {
@@ -321,42 +382,25 @@ describe('resolveConfigSelectionAfterLoad (fix « retombe sur All »)', () => {
     expect(resolveConfigSelectionAfterLoad('cfg-all', [{ id: 'cfg-all' }])).toBeNull()
     expect(resolveConfigSelectionAfterLoad('cfg-1', [])).toBeNull()
   })
-})
 
-describe('pickDefaultConfiguration (pré-sélection à l\'ouverture d\'un espace)', () => {
-  it('retourne la 1re config AYANT des events (via eventIds)', () => {
-    const configs = [{ id: 'cfg-1', eventIds: [] }, { id: 'cfg-2', eventIds: ['e1'] }]
-    const events = [{ id: 'e1' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
+  // Fetch `/configurations` en échec → useSpaceData replie sur `[]`. Cette liste ne
+  // prouve RIEN sur la validité de l'id : l'effacer ferait retomber le select sur
+  // « All Configurations » sur un simple aléa réseau.
+  it('fetch configurations en ÉCHEC → conserve la sélection malgré la liste vide', () => {
+    expect(
+      resolveConfigSelectionAfterLoad('cfg-1', [], { configurationsFetchFailed: true }),
+    ).toBe('cfg-1')
   })
 
-  it('reconnaît aussi le rattachement par event.configurationId', () => {
-    const configs = [{ id: 'cfg-1' }, { id: 'cfg-2' }]
-    const events = [{ id: 'e1', configurationId: 'cfg-2' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
+  it('fetch OK avec liste vide → purge (l\'espace n\'a réellement aucune config)', () => {
+    expect(
+      resolveConfigSelectionAfterLoad('cfg-1', [], { configurationsFetchFailed: false }),
+    ).toBeNull()
   })
 
-  it('ignore un eventIds qui pointe des events absents du space', () => {
-    const configs = [{ id: 'cfg-1', eventIds: ['ghost'] }, { id: 'cfg-2', eventIds: ['e1'] }]
-    const events = [{ id: 'e1' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-2')
-  })
-
-  it('respecte l\'ordre de la liste quand plusieurs configs ont des events', () => {
-    const configs = [{ id: 'cfg-1', eventIds: ['e1'] }, { id: 'cfg-2', eventIds: ['e2'] }]
-    const events = [{ id: 'e1' }, { id: 'e2' }]
-    expect(pickDefaultConfiguration(configs, events)).toBe('cfg-1')
-  })
-
-  it('aucune config avec events → null (repli « All Configurations »)', () => {
-    expect(pickDefaultConfiguration([{ id: 'cfg-1', eventIds: [] }], [{ id: 'e1' }])).toBeNull()
-    expect(pickDefaultConfiguration([{ id: 'cfg-1', eventIds: ['e1'] }], [])).toBeNull()
-  })
-
-  it('listes vides / sentinelle cfg-all → null', () => {
-    expect(pickDefaultConfiguration([], [{ id: 'e1' }])).toBeNull()
-    expect(pickDefaultConfiguration([{ id: 'cfg-all', eventIds: ['e1'] }], [{ id: 'e1' }])).toBeNull()
-    expect(pickDefaultConfiguration()).toBeNull()
+  it('échec du fetch ne ressuscite ni null ni la sentinelle cfg-all', () => {
+    expect(resolveConfigSelectionAfterLoad(null, [], { configurationsFetchFailed: true })).toBeNull()
+    expect(resolveConfigSelectionAfterLoad('cfg-all', [], { configurationsFetchFailed: true })).toBeNull()
   })
 })
 
@@ -441,5 +485,37 @@ describe('bornes de comparaison Précédent / N-1 (parité versionReact)', () =>
     expect(yoy.end.getFullYear()).toBe(2025)
     expect(yoy.end.getMonth()).toBe(6)
     expect(yoy.end.getDate()).toBe(13)
+  })
+})
+
+// Module Live (docs/modules/11_LIVE.md §16), bug trouvé le 2026-08-05 : sur la
+// route Live tant que l'event live n'est pas encore détecté, applyLiveScope()
+// bascule sciemment timeRange sur 'today' (≠ défaut 'all') — un chip « Période :
+// Aujourd'hui » apparaissait alors que Dates/FilterSummary sont déjà masqués
+// pour toute la route Live. isLiveRoute supprime ce chip précis sans toucher
+// aux autres (shops/zones/menu items restent des chips légitimes).
+describe('analyse store — activeFilterChips (chip Période masqué en Live)', () => {
+  const g = analyse.getters
+
+  it("affiche le chip Période quand timeRange diffère du défaut et qu'on n'est pas en Live", () => {
+    const state = { ...analyse.state(), filters: { ...analyse.state().filters, timeRange: 'today' }, isLiveRoute: false }
+    const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
+    expect(chips.some((c) => c.key === 'timeRange')).toBe(true)
+  })
+
+  it('masque le chip Période quand isLiveRoute est vrai (ex. fallback "today" avant détection live)', () => {
+    const state = { ...analyse.state(), filters: { ...analyse.state().filters, timeRange: 'today' }, isLiveRoute: true }
+    const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
+    expect(chips.some((c) => c.key === 'timeRange')).toBe(false)
+  })
+
+  it('un filtre PDV légitime reste un chip en Live (pas de sur-suppression)', () => {
+    const state = {
+      ...analyse.state(),
+      filters: { ...analyse.state().filters, timeRange: 'today', selectedShopTypes: ['beverages'] },
+      isLiveRoute: true,
+    }
+    const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
+    expect(chips.some((c) => c.key === 'selectedShopTypes')).toBe(true)
   })
 })

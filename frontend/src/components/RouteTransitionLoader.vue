@@ -189,6 +189,19 @@ export default {
   letter-spacing: 0.02em;
   overflow-wrap: anywhere;
 }
+/* BUG-282 : voile blanc à chaque navigation en thème sombre (composant global,
+   monté depuis App.vue). Accroché à .dark (<html>), ancêtre garanti. */
+.dark .rtl-overlay {
+  background: rgba(17, 24, 39, 0.92);
+}
+.dark .rtl-ring {
+  border-color: rgba(255, 255, 255, 0.12);
+  border-top-color: #FF6E40;
+}
+.dark .rtl-label {
+  color: #94a3b8;
+}
+
 .rtl-fade-enter-active,
 .rtl-fade-leave-active {
   transition: opacity 180ms ease;

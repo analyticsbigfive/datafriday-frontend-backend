@@ -61,7 +61,17 @@ export function normalizeComponent(c) {
       c.component?.name, c.packaging?.name,
     ),
     numberOfUnits: Number(pick(c.numberOfUnits, c.quantity, c.qty, c.numberOfPieces) ?? 0) || 0,
-    unit: pick(c.unit, c.unitOfMeasure, c.uom, c.ingredient?.recipeUnit, c.ingredient?.unit) ?? 'unit',
+    // BUG-291-01 : les relations `component` et `packaging` nichent leur entité
+    // au même titre que `ingredient` — sans ces replis, une ligne de composant
+    // du payload liste ressortait en 'unit' générique alors que son unité de
+    // recette est en base (ex. « kg » pour la sauce burger).
+    unit:
+      pick(
+        c.unit, c.unitOfMeasure, c.uom,
+        c.ingredient?.recipeUnit, c.ingredient?.unit,
+        c.component?.recipeUnit, c.component?.unit,
+        c.packaging?.recipeUnit, c.packaging?.unit,
+      ) ?? 'unit',
     category: pick(c.category, c.goodType, c.ingredient?.category, c.packaging?.category),
     storageType: pick(c.storageType, c.ingredient?.storageType, c.packaging?.storageType),
     itemType: pick(c.itemType, c.type, c.kind),
@@ -73,18 +83,55 @@ export function normalizeComponent(c) {
  * possibles, en marquant le packaging issu d'une relation dédiée.
  */
 function buildComponents(mi) {
-  let comps = toArray(mi.components)
-  if (!comps.length) comps = toArray(mi.componentsData)
-  if (!comps.length) {
-    comps = [
-      ...toArray(mi.ingredients),
-      ...toArray(mi.componentsList),
-      // Le packaging d'une relation dédiée n'a pas forcément category/storageType :
-      // on le tague pour que isPackagingComponent le détecte.
-      ...toArray(mi.packagings).map((p) => ({ storageType: 'material', ...p })),
-    ]
+  // BUG-291-01 : les trois relations étaient chaînées en ALTERNATIVES
+  // (`if (!comps.length)`), pas en union — dès qu'un article portait un seul
+  // composant, ses ingrédients ET son packaging étaient jetés. Relevé du
+  // 2026-08-04 sur « Burger 25/26 (Aux) » : `/menu-items` renvoie
+  // components:2 + ingredients:4 + packagings:1, et 2 lignes sur 7 seulement
+  // atteignaient l'écran (les 2 composants, sans nom faute de jointure).
+  //
+  // `itemType` est posé ICI, d'après la relation d'origine : les lignes du
+  // payload LISTE ne le portent pas (contrairement à /menu-items/:id/recipe),
+  // et la règle « on n'éclate jamais un Component » en dépend. Le spread place
+  // la valeur par défaut AVANT `...r` : un itemType explicite gagne toujours.
+  const rel = [
+    ...toArray(mi.ingredients).map((r) => ({ itemType: 'Ingredient', ...r })),
+    ...toArray(mi.components).map((r) => ({ itemType: 'Component', ...r })),
+    ...toArray(mi.componentsList).map((r) => ({ itemType: 'Component', ...r })),
+    // Le packaging d'une relation dédiée n'a pas forcément category/storageType :
+    // on le tague pour que isPackagingComponent le détecte.
+    ...toArray(mi.packagings).map((r) => ({
+      storageType: 'material',
+      itemType: 'Packaging',
+      ...r,
+    })),
+  ]
+  // `componentsData` est la version DÉNORMALISÉE des mêmes lignes : repli
+  // uniquement si aucune relation n'est présente, jamais en supplément —
+  // sinon chaque élément serait compté deux fois.
+  const comps = rel.length ? rel : toArray(mi.componentsData)
+
+  // Dédoublonnage — IDEMPOTENCE (contrat documenté sur normalizeMenuItem).
+  // `normalizeMenuItem` renvoie `{...mi}` : un article déjà normalisé conserve
+  // ses `ingredients`/`packagings` bruts À CÔTÉ du `components[]` fusionné. Sans
+  // cette passe, re-normaliser (ce que fait `useSpaceData` après la vague 2b)
+  // refusionnait les relations avec le résultat précédent → 12 lignes au lieu de
+  // 7, donc des quantités de réappro gonflées en silence.
+  // Clé = id de la LIGNE de recette (unique par (menuItem, article)) ; repli sur
+  // l'identité catalogue pour les payloads dénormalisés qui n'en portent pas.
+  const seen = new Set()
+  const out = []
+  for (const raw of comps) {
+    const c = normalizeComponent(raw)
+    const key =
+      c?.id != null
+        ? `id:${c.id}`
+        : `k:${c?.sourceId ?? ''}|${c?.itemType ?? ''}|${c?.name ?? ''}|${c?.unit ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(c)
   }
-  return comps.map(normalizeComponent)
+  return out
 }
 
 /**

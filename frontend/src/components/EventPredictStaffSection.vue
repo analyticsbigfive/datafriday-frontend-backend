@@ -8,6 +8,21 @@
         {{ t('epsGenerate') }}
       </button>
       <p v-if="generateError" class="eps-error">{{ generateError }}</p>
+      <!-- Génération résolue mais 0 ligne créée : sans ce bandeau, le clic est
+           indiscernable d'un no-op (BUG-258-01). Les warnings backend expliquent la cause. -->
+      <v-alert
+        v-if="!generateError && hasGeneratedOnce"
+        type="warning"
+        variant="tonal"
+        density="comfortable"
+        class="eps-empty-alert"
+      >
+        <strong>{{ t('epsGenerateEmptyTitle') }}</strong>
+        <template v-if="warnings.length">
+          <div v-for="w in warnings" :key="w.code">{{ w.message || w.code }}</div>
+        </template>
+        <template v-else>{{ t('epsGenerateEmptyText') }}</template>
+      </v-alert>
     </div>
 
     <div v-else-if="fetching && !elements.length" class="eps-empty">
@@ -24,6 +39,9 @@
           <v-icon size="13">mdi-alert</v-icon> {{ warnings.length }}
         </span>
       </div>
+      <!-- Miroir de l'état vide : une erreur de (re)génération doit aussi être
+           visible quand des lignes existent déjà (BUG-258-01). -->
+      <p v-if="generateError" class="eps-error">{{ generateError }}</p>
 
       <!-- Une carte par PDV, calquée sur ep-shop-card (EventPredictMenusSection) -->
       <div v-for="el in elements" :key="el.elementId" class="ep-shop-card">
@@ -97,6 +115,8 @@
                 <option value="CDI">{{ t('epsInternalCdi') }}</option>
                 <option value="CDD">{{ t('epsInternalCdd') }}</option>
                 <option value="AGENCY">{{ t('epsAgency') }}</option>
+                <option value="FREELANCE">{{ t('epsFreelance') }}</option>
+                <option value="OTHER">{{ t('epsOtherContract') }}</option>
               </select>
             </div>
 
@@ -124,11 +144,11 @@
 
             <div class="ep-line-field">
               <label>{{ t('epsRate') }}</label>
-              <input
-                type="number" min="0" step="0.5"
+              <NumberField
+                :decimals="2" :min="0" pad grouping :empty-value="0"
                 class="ep-line-input ep-line-rate"
-                :value="draft(line.id).hourlyRate"
-                @input="setField(line, 'hourlyRate', Number($event.target.value) || 0)"
+                :model-value="draft(line.id).hourlyRate"
+                @change="setField(line, 'hourlyRate', $event)"
               />
             </div>
 
@@ -189,8 +209,31 @@
           <span class="ep-revenue-label">RZ</span>
           <strong>{{ totals.zoneManagers }} × {{ eur(totals.zoneManagerRate) }}/h</strong>
         </span>
+        <!-- RH-2 : réglages RH résolus pour cet espace (renvoyés par GET
+             /events/:id/staffing). Édition inline via HrSpaceEditDrawer (même
+             composant que la page RH Settings) plutôt qu'une navigation. -->
+        <span v-if="settings" class="ep-revenue-pill eps-settings-pill">
+          <span class="ep-revenue-label">{{ t('epsGoalTpe') }}</span>
+          <strong>{{ settings.goalTpe != null ? eur(settings.goalTpe) : '—' }}</strong>
+          <span class="ep-revenue-label eps-settings-sep">{{ t('epsStaffPerZone') }}</span>
+          <strong>{{ settings.staffPerZoneManager ?? '—' }}</strong>
+        </span>
+        <button
+          type="button" class="eps-settings-link" :title="t('epsEditSettings')"
+          :disabled="!settings?.spaceId" @click="openSettingsDrawer"
+        >
+          <v-icon size="15">mdi-cog-outline</v-icon>
+        </button>
       </div>
+      <p v-if="settingsError" class="eps-error">{{ settingsError }}</p>
     </template>
+
+    <HrSpaceEditDrawer
+      v-model="settingsDrawerOpen"
+      :space="settingsSpace"
+      :initial="{ goalPerTpe: settings?.goalTpe ?? null, staffPerZoneManager: settings?.staffPerZoneManager ?? null }"
+      @submit="onSettingsSubmit"
+    />
   </div>
 </template>
 
@@ -205,6 +248,10 @@ import { computed, onMounted, reactive, ref, watch, onBeforeUnmount } from 'vue'
 import { useStore } from 'vuex'
 import { t } from '@/i18n'
 import { getHrPersons } from '@/api/endpoints/hr.api'
+import NumberField from '@/components/common/NumberField.vue'
+import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
+import { useHrSpaceGoalRatio } from '@/composables/useHrSpaceGoalRatio'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 
 const PATCH_DEBOUNCE_MS = 500
 const STEP = 15 // minutes
@@ -218,17 +265,67 @@ const fetching = computed(() => store.getters['staffing/fetching'])
 const saving = computed(() => store.getters['staffing/saving'])
 const elements = computed(() => store.getters['staffing/elements'])
 const totals = computed(() => store.getters['staffing/totals'])
+const settings = computed(() => store.getters['staffing/settings'])
 const warnings = computed(() => store.getters['staffing/warnings'])
 const schedule = computed(() => store.getters['staffing/schedule'])
 const warningTitle = computed(() => warnings.value.map((w) => w.code).join(' · '))
 const generateError = ref('')
+// Vrai après un generate résolu : distingue « jamais généré » d'une génération vide.
+const hasGeneratedOnce = ref(false)
 
-// ── Temps : minutes depuis minuit du jour de début de fenêtre ────────────────
+// ── Popup réglages RH (Goal/TPE, Staff/zone) — HrSpaceEditDrawer réutilisé inline ────
+const { saveSpaceGoalRatio } = useHrSpaceGoalRatio()
+const settingsDrawerOpen = ref(false)
+const settingsError = ref('')
+const spaceName = computed(
+  () => store.getters['spaces/spaces']?.find((s) => s.id === settings.value?.spaceId)?.name || '',
+)
+const settingsSpace = computed(() => ({ id: settings.value?.spaceId ?? null, name: spaceName.value }))
+function openSettingsDrawer() {
+  if (!settings.value?.spaceId) return
+  settingsError.value = ''
+  settingsDrawerOpen.value = true
+}
+async function onSettingsSubmit(payload) {
+  try {
+    await saveSpaceGoalRatio(settings.value.spaceId, payload)
+    settingsDrawerOpen.value = false
+    await store.dispatch('staffing/fetchStaffing', { eventId: props.eventId, force: true })
+  } catch (e) {
+    settingsError.value = e?.response?.data?.message || t('epsSettingsSaveError')
+  }
+}
+
+// ── Temps : minutes depuis minuit, HEURE DU LIEU (schedule.timezone, ex. Europe/Paris) ──
+// Le fuseau de l'appareil qui consulte l'écran peut différer de celui de l'espace (même
+// classe de bug que BUG-270 sur transactionDate) : `new Date().setHours()` calerait les
+// horaires sur le fuseau du navigateur au lieu de celui du lieu de l'événement.
+function venueOffsetMinutes(instant, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'longOffset',
+    hour: '2-digit',
+  }).formatToParts(instant)
+  const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+00:00'
+  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(raw)
+  if (!match) return 0
+  const sign = match[1] === '-' ? -1 : 1
+  return sign * (parseInt(match[2], 10) * 60 + parseInt(match[3] ?? '0', 10))
+}
+function venueMidnightUtc(instant, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant)
+  const get = (type) => Number(parts.find((p) => p.type === type)?.value)
+  const naiveUtc = Date.UTC(get('year'), get('month') - 1, get('day'))
+  return new Date(naiveUtc - venueOffsetMinutes(new Date(naiveUtc), timeZone) * 60_000)
+}
 const dayStart = computed(() => {
   const s = schedule.value?.startTime ? new Date(schedule.value.startTime) : new Date()
-  const d = new Date(s)
-  d.setHours(0, 0, 0, 0)
-  return d
+  return venueMidnightUtc(s, schedule.value?.timezone || 'Europe/Paris')
 })
 const toMin = (iso) => Math.round((new Date(iso).getTime() - dayStart.value.getTime()) / 60_000)
 const toIso = (min) => new Date(dayStart.value.getTime() + min * 60_000).toISOString()
@@ -242,7 +339,7 @@ function fmtTime(min) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 function eur(v) {
-  return (Number(v) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+  return formatCurrencyDetailed(Number(v) || 0)
 }
 function initials(name) {
   return String(name || '?').split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
@@ -276,22 +373,21 @@ function draft(lineId) {
   return drafts[lineId] || { enabled: true, hourlyRate: 0, startMin: bounds.value.min, endMin: bounds.value.max }
 }
 
-function schedulePatch(line) {
+// N'envoie QUE les champs réellement modifiés (`changes`) — jamais tout le
+// brouillon : PATCHer le taux horaire ne doit pas ré-écraser startTime/endTime
+// avec des valeurs recalculées à côté, sous peine de figer la ligne
+// (userModified=true) sur des heures fausses qu'aucune régénération future ne
+// pourra plus corriger. Le backend accepte déjà des updates partiels.
+const pendingChanges = {}
+
+function schedulePatch(line, changes) {
+  pendingChanges[line.id] = { ...(pendingChanges[line.id] || {}), ...changes }
   clearTimeout(timers[line.id])
   timers[line.id] = setTimeout(async () => {
-    const d = drafts[line.id]
+    const payload = pendingChanges[line.id]
+    delete pendingChanges[line.id]
     try {
-      await store.dispatch('staffing/patchLine', {
-        lineId: line.id,
-        enabled: d.enabled,
-        supplierType: d.supplierType,
-        supplierId: d.supplierId,
-        personId: d.personId,
-        personLabel: d.personLabel,
-        hourlyRate: d.hourlyRate,
-        startTime: toIso(d.startMin),
-        endTime: toIso(d.endMin),
-      })
+      await store.dispatch('staffing/patchLine', { lineId: line.id, ...payload })
     } finally {
       delete timers[line.id]
     }
@@ -303,14 +399,14 @@ function setField(line, field, value) {
   const d = drafts[line.id]
   if (!d) return
   d[field] = value
-  schedulePatch(line)
+  schedulePatch(line, { [field]: value })
 }
 function onSlider(line, field, value) {
   const d = drafts[line.id]
   if (!d) return
   if (field === 'startMin') d.startMin = Math.min(value, d.endMin - STEP)
   else d.endMin = Math.max(value, d.startMin + STEP)
-  schedulePatch(line)
+  schedulePatch(line, { startTime: toIso(d.startMin), endTime: toIso(d.endMin) })
 }
 function rangeStyle(startMin, endMin) {
   const { min, max } = bounds.value
@@ -344,24 +440,33 @@ function personsFor(line) {
 function onSupplierTypeChange(line, value) {
   const d = drafts[line.id]
   d.supplierType = value
+  const changes = { supplierType: value }
   if (value === 'AGENCY') {
     d.personId = null
+    changes.personId = null
   } else {
     const first = personsFor(line)[0]
     d.personId = first?.id ?? null
     d.personLabel = first ? `${first.firstName} ${first.lastName}` : d.personLabel
+    changes.personId = d.personId
+    changes.personLabel = d.personLabel
   }
-  schedulePatch(line)
+  schedulePatch(line, changes)
 }
 function onPersonChange(line, personId) {
   const d = drafts[line.id]
   const p = persons.value.find((x) => x.id === personId)
   d.personId = personId || null
+  const changes = { personId: d.personId }
   if (p) {
     d.personLabel = `${p.firstName} ${p.lastName}`
-    if (p.hourlyRate != null) d.hourlyRate = p.hourlyRate
+    changes.personLabel = d.personLabel
+    if (p.hourlyRate != null) {
+      d.hourlyRate = p.hourlyRate
+      changes.hourlyRate = d.hourlyRate
+    }
   }
-  schedulePatch(line)
+  schedulePatch(line, changes)
 }
 
 // ── Actions carte / section ──────────────────────────────────────────────────
@@ -369,6 +474,9 @@ async function onGenerate() {
   generateError.value = ''
   try {
     await store.dispatch('staffing/generate', props.eventId)
+    // Succès mais potentiellement 0 ligne créée → arme le bandeau explicatif
+    // de l'état vide (BUG-258-01) ; sans effet si des cartes s'affichent.
+    hasGeneratedOnce.value = true
   } catch (e) {
     generateError.value = e?.response?.data?.message || t('epsGenerateError')
   }
@@ -382,6 +490,7 @@ async function onRemoveLine(line) {
 
 onMounted(async () => {
   store.dispatch('staffing/fetchStaffing', { eventId: props.eventId }).catch(() => {})
+  store.dispatch('spaces/fetchSpaces').catch(() => {})
   try {
     persons.value = await getHrPersons()
   } catch (_) {
@@ -404,6 +513,7 @@ onMounted(async () => {
 }
 .eps-empty-text { margin: 0 0 14px; color: var(--fb-muted, #6b7280); font-size: 0.875rem; }
 .eps-error { margin: 10px 0 0; color: var(--fb-danger, #dc2626); font-size: 0.75rem; }
+.eps-empty-alert { margin-top: 14px; max-width: 560px; text-align: left; font-size: 0.8125rem; }
 
 .eps-generate-btn {
   display: inline-flex;
@@ -529,7 +639,7 @@ onMounted(async () => {
 .ep-line-select:focus, .ep-line-input:focus {
   border-color: #ff3131; outline: none; box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.1);
 }
-.ep-line-rate { width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
+.ep-line-rate { width: 76px; text-align: center; font-variant-numeric: tabular-nums; }
 .ep-line-name { width: 150px; }
 .ep-line-slider { flex: 1 1 190px; min-width: 170px; }
 .ep-line-times {
@@ -583,6 +693,17 @@ onMounted(async () => {
   border-radius: var(--fb-radius-panel, 12px);
   background: var(--fb-surface, #ffffff);
 }
+.eps-settings-pill { margin-left: auto; }
+.eps-settings-sep { margin-left: 10px; }
+.eps-settings-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
+  background: transparent; color: var(--fb-muted, #6b7280); flex-shrink: 0;
+  cursor: pointer; font: inherit; transition: border-color 0.15s, color 0.15s;
+}
+.eps-settings-link:hover:not(:disabled) { border-color: #ff3131; color: #ff3131; }
+.eps-settings-link:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 900px) {
   .ep-menu-item-row { gap: 8px; }

@@ -10,10 +10,11 @@ import { PrismaService } from '../../core/database/prisma.service';
  * (défense en profondeur, cf. hr-settings.service.ts).
  */
 
-export const HR_DEPARTMENTS = ['F&B', 'Merchandising', 'Hospitality', 'Entertainment'] as const;
+// CFG-2 Étape 4 : HR_DEPARTMENTS (liste figée) retiré — HrRole.department valide désormais son
+// existence contre la table globale `Department` (filtrée `needsRh: true`, cf. normalizeRole()
+// ci-dessous), et stocke `code ?? id` plutôt que le libellé (même idiome que SpaceElement.type).
 export const HR_CONTRACT_TYPES = ['CDD', 'FREELANCE', 'CDI', 'AGENCY', 'OTHER'] as const;
 export const HR_RATE_TYPES = ['HOURLY', 'DAILY', 'MONTHLY'] as const;
-export const HR_FNB_CATEGORIES = ['BEVERAGE', 'FRONT_FOOD', 'KITCHEN_FOOD', 'MIXOLOGY'] as const;
 export const HR_PERSON_CONTRACTS = ['CDI', 'CDD'] as const;
 /** Contract types pour lesquels rateType + rate sont requis (spec §2.1). */
 export const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as const;
@@ -32,7 +33,7 @@ export class HrService {
       email: s.email,
       tel: s.tel,
       picture: s.picture,
-      sectors: s.sectors ?? [],
+      departments: s.departments ?? [],
       spaceIds: s.spaceIds ?? [],
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -71,6 +72,48 @@ export class HrService {
 
   // ── Suppliers ──────────────────────────────────────────────────────────────
 
+  // CFG-2 Étape 4 : `HrSupplier.departments` n'avait ZÉRO validation avant ce changement (ni DTO
+  // ni service) — le frontend restreignait la saisie via HR_SUPPLIER_DEPARTMENTS (liste figée,
+  // frontend uniquement), mais l'API acceptait n'importe quelle chaîne. Ajout d'une existence
+  // contre Department (filtré allowsSuppliers), canonicalisation vers `code ?? id` — même idiome
+  // que normalizeRole(). C'est une VALIDATION NOUVELLE (pas la préservation d'un comportement
+  // existant) : aucune ligne actuelle ne devrait la violer (audit CFG-2 Étape 0 : 0 valeur en
+  // base), mais à surveiller si un import/écriture directe a pu introduire des valeurs hors
+  // référentiel depuis.
+  private async normalizeSupplierDepartments(departments: string[] | undefined): Promise<string[] | undefined> {
+    if (departments === undefined) return undefined;
+    if (departments.length === 0) return [];
+    const rows = await this.prisma.department.findMany({
+      where: { allowsSuppliers: true, OR: departments.map((d) => ({ OR: [{ code: d }, { id: d }] })) },
+    });
+    const resolved: string[] = [];
+    for (const d of departments) {
+      const row = rows.find((r) => r.code === d || r.id === d);
+      if (!row) throw new BadRequestException(`department invalide pour un fournisseur : ${d}`);
+      resolved.push(row.code ?? row.id);
+    }
+    return resolved;
+  }
+
+  // CFG-2 Étape 4.5 (généralisée le 2026-07-31) : `fnbCategories`/`fnbCategory` (HrRole,
+  // HrSinkingRule) valident désormais leur existence contre le référentiel global Subtype —
+  // scopé au DÉPARTEMENT DU RÔLE (`departmentId`), pas figé sur `shop`. Un rôle Hospitality ne
+  // peut être tagué qu'avec les sous-types d'Hospitality (`lodges`/`salon`), un rôle F&B qu'avec
+  // ceux de `shop`, etc. — même idiome de canonicalisation `code ?? id` que `normalizeRole()`
+  // pour `department`. Retour utilisateur (2026-07-31) : le choix du département doit piloter
+  // quel sous-type on peut lier, pas rester câblé sur F&B pour tout le monde.
+  private async resolveFnbCategories(values: string[], departmentId: string): Promise<string[]> {
+    if (values.length === 0) return [];
+    const rows = await this.prisma.subtype.findMany({
+      where: { departmentId, OR: values.map((v) => ({ OR: [{ code: v }, { id: v }] })) },
+    });
+    return values.map((v) => {
+      const row = rows.find((r) => r.code === v || r.id === v);
+      if (!row) throw new BadRequestException(`fnbCategory invalide : ${v}`);
+      return row.code ?? row.id;
+    });
+  }
+
   async findAllSuppliers(tenantId: string) {
     const rows = await this.prisma.hrSupplier.findMany({
       where: { tenantId },
@@ -86,11 +129,12 @@ export class HrService {
       email?: string;
       tel?: string;
       picture?: string;
-      sectors?: string[];
+      departments?: string[];
       spaceIds?: string[];
     },
     tenantId: string,
   ) {
+    const departments = await this.normalizeSupplierDepartments(input.departments);
     try {
       const row = await this.prisma.hrSupplier.create({
         data: {
@@ -100,7 +144,7 @@ export class HrService {
           email: input.email ?? null,
           tel: input.tel ?? null,
           picture: input.picture ?? null,
-          sectors: input.sectors ?? [],
+          departments: departments ?? [],
           spaceIds: input.spaceIds ?? [],
         },
       });
@@ -116,6 +160,7 @@ export class HrService {
   async updateSupplier(id: string, input: any, tenantId: string) {
     const existing = await this.prisma.hrSupplier.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSupplier ${id} introuvable`);
+    const departments = await this.normalizeSupplierDepartments(input.departments);
     try {
       const row = await this.prisma.hrSupplier.update({
         where: { id },
@@ -125,7 +170,7 @@ export class HrService {
           ...(input.email !== undefined && { email: input.email }),
           ...(input.tel !== undefined && { tel: input.tel }),
           ...(input.picture !== undefined && { picture: input.picture }),
-          ...(input.sectors !== undefined && { sectors: input.sectors }),
+          ...(departments !== undefined && { departments }),
           ...(input.spaceIds !== undefined && { spaceIds: input.spaceIds }),
         },
       });
@@ -155,10 +200,18 @@ export class HrService {
    * Les champs masqués côté UI sont donc bien remis à null à la sauvegarde.
    */
   private async normalizeRole(input: any, tenantId: string, existing?: any) {
-    const department = input.department ?? existing?.department;
-    if (!HR_DEPARTMENTS.includes(department)) {
-      throw new BadRequestException(`department invalide : ${department}`);
+    const rawDepartment = input.department ?? existing?.department;
+    // CFG-2 Étape 4 : existence contre Department (global, filtré needsRh — un rôle RH n'a de
+    // sens que pour un département qui a du staffing), plutôt que la liste HR_DEPARTMENTS figée.
+    const departmentRow = await this.prisma.department.findFirst({
+      where: { needsRh: true, OR: [{ code: rawDepartment }, { id: rawDepartment }] },
+    });
+    if (!departmentRow) {
+      throw new BadRequestException(`department invalide : ${rawDepartment}`);
     }
+    // Canonicalise vers `code ?? id`, quelle que soit la forme envoyée par l'appelant (code ou
+    // id) — garantit que la valeur SAUVEGARDÉE est toujours stable, jamais le libellé.
+    const department = departmentRow.code ?? departmentRow.id;
     const name = (input.name ?? existing?.name ?? '').trim();
     if (!name) throw new BadRequestException('Le nom du rôle est requis.');
 
@@ -169,11 +222,17 @@ export class HrService {
       input.supplierIds !== undefined
         ? (input.supplierIds ?? [])
         : ((existing?.suppliers ?? []).map((x: any) => x.supplierId) as string[]);
-    const fnbCategories =
-      input.fnbCategories !== undefined ? (input.fnbCategories ?? []) : (existing?.fnbCategories ?? []);
+    const fnbCategories = await this.resolveFnbCategories(
+      input.fnbCategories !== undefined ? (input.fnbCategories ?? []) : (existing?.fnbCategories ?? []),
+      departmentRow.id,
+    );
     const algoKey = input.algoKey !== undefined ? (input.algoKey || null) : (existing?.algoKey ?? null);
 
-    if (department !== 'F&B') {
+    // 'shop' = code STABLE du département F&B (Department.code, jamais affecté par un
+    // renommage de Department.name — même raison que StorageType.code/SpaceElement.type).
+    // Comparé sur `departmentRow.code` (résolu ci-dessus), pas sur `department` brut : couvre
+    // aussi bien le cas où l'appelant a passé le code que l'id.
+    if (departmentRow.code !== 'shop') {
       contractType = null;
     } else if (!contractType || !HR_CONTRACT_TYPES.includes(contractType)) {
       throw new BadRequestException('contractType est requis pour un rôle F&B.');
@@ -198,19 +257,22 @@ export class HrService {
       }
       const found = await this.prisma.hrSupplier.findMany({
         where: { id: { in: supplierIds }, tenantId },
-        select: { id: true },
+        select: { id: true, name: true, departments: true },
       });
       if (found.length !== supplierIds.length) {
         throw new BadRequestException('Une ou plusieurs agences sélectionnées sont introuvables.');
       }
+      // BUG-266-02 : le frontend filtre déjà les agences proposées par département, mais rien ne
+      // l'imposait côté backend — un appel API direct pouvait lier une agence hors département.
+      const ineligible = found.find((s) => !(s.departments ?? []).includes(department));
+      if (ineligible) {
+        throw new BadRequestException(
+          `L'agence « ${ineligible.name} » ne couvre pas le département « ${department} ».`,
+        );
+      }
     } else {
       supplierIds = [];
     }
-
-    const badCat = (fnbCategories as string[]).find(
-      (c) => !(HR_FNB_CATEGORIES as readonly string[]).includes(c),
-    );
-    if (badCat) throw new BadRequestException(`fnbCategory invalide : ${badCat}`);
 
     return { department, name, contractType, rateType, rate, supplierIds, fnbCategories, algoKey };
   }
@@ -282,6 +344,225 @@ export class HrService {
     const existing = await this.prisma.hrRole.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrRole ${id} introuvable`);
     await this.prisma.hrRole.delete({ where: { id } }); // cascade jointures + persons
+    return { deleted: true };
+  }
+
+  // ── Sinking rules (STF-2 : dotation conditionnelle par rôle × sous-type FNB) ─
+
+  private mapSinkingRule(r: any) {
+    return {
+      id: r.id,
+      roleId: r.roleId,
+      fnbCategory: r.fnbCategory,
+      conditionAttribute: r.conditionAttribute,
+      conditionMinValue: r.conditionMinValue,
+      mandatoryQty: r.mandatoryQty,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  async findAllSinkingRules(tenantId: string, filter: { roleId?: string } = {}) {
+    const rows = await this.prisma.hrSinkingRule.findMany({
+      where: { tenantId, ...(filter.roleId && { roleId: filter.roleId }) },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { data: rows.map((r) => this.mapSinkingRule(r)) };
+  }
+
+  private async assertValidSinkingRule(input: any, tenantId: string, existing?: any) {
+    // CFG-2 (généralisé 2026-07-31) : le sous-type valide dépend du département du RÔLE visé par
+    // la règle, pas figé sur `shop` — même principe que fnbCategories sur HrRole.
+    const roleId = input.roleId ?? existing?.roleId;
+    const role = await this.prisma.hrRole.findFirst({ where: { id: roleId, tenantId } });
+    if (!role) throw new BadRequestException(`Rôle ${roleId} introuvable`);
+    const departmentRow = await this.prisma.department.findFirst({
+      where: { OR: [{ code: role.department }, { id: role.department }] },
+    });
+    if (!departmentRow) {
+      throw new BadRequestException(`department invalide pour le rôle ${roleId} : ${role.department}`);
+    }
+    const [fnbCategory] = await this.resolveFnbCategories(
+      [input.fnbCategory ?? existing?.fnbCategory],
+      departmentRow.id,
+    );
+    const conditionAttribute =
+      input.conditionAttribute !== undefined ? (input.conditionAttribute || null) : (existing?.conditionAttribute ?? null);
+    const conditionMinValue =
+      input.conditionMinValue !== undefined ? input.conditionMinValue : (existing?.conditionMinValue ?? null);
+    if (conditionAttribute && (conditionMinValue === null || conditionMinValue === undefined)) {
+      throw new BadRequestException('conditionMinValue est requis quand conditionAttribute est renseigné.');
+    }
+    const mandatoryQty = input.mandatoryQty !== undefined ? Number(input.mandatoryQty) : (existing?.mandatoryQty ?? 1);
+    if (!Number.isFinite(mandatoryQty) || mandatoryQty < 1) {
+      throw new BadRequestException('mandatoryQty doit être un entier ≥ 1.');
+    }
+    return { fnbCategory, conditionAttribute, conditionMinValue: conditionAttribute ? conditionMinValue : null, mandatoryQty };
+  }
+
+  async createSinkingRule(input: any, tenantId: string) {
+    const role = await this.prisma.hrRole.findFirst({ where: { id: input.roleId, tenantId } });
+    if (!role) throw new BadRequestException(`Rôle ${input.roleId} introuvable`);
+    const n = await this.assertValidSinkingRule(input, tenantId);
+    try {
+      const row = await this.prisma.hrSinkingRule.create({
+        data: {
+          tenantId,
+          roleId: input.roleId,
+          fnbCategory: n.fnbCategory,
+          conditionAttribute: n.conditionAttribute,
+          conditionMinValue: n.conditionMinValue,
+          mandatoryQty: n.mandatoryQty,
+        },
+      });
+      return this.mapSinkingRule(row);
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Une règle identique (même rôle, catégorie et condition) existe déjà.');
+      }
+      throw error;
+    }
+  }
+
+  async updateSinkingRule(id: string, input: any, tenantId: string) {
+    const existing = await this.prisma.hrSinkingRule.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException(`HrSinkingRule ${id} introuvable`);
+    const n = await this.assertValidSinkingRule(input, tenantId, existing);
+    try {
+      const row = await this.prisma.hrSinkingRule.update({
+        where: { id },
+        data: {
+          fnbCategory: n.fnbCategory,
+          conditionAttribute: n.conditionAttribute,
+          conditionMinValue: n.conditionMinValue,
+          mandatoryQty: n.mandatoryQty,
+        },
+      });
+      return this.mapSinkingRule(row);
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Une règle identique (même rôle, catégorie et condition) existe déjà.');
+      }
+      throw error;
+    }
+  }
+
+  async removeSinkingRule(id: string, tenantId: string) {
+    const existing = await this.prisma.hrSinkingRule.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException(`HrSinkingRule ${id} introuvable`);
+    await this.prisma.hrSinkingRule.delete({ where: { id } });
+    return { deleted: true };
+  }
+
+  // ── Role ↔ Menu Item ratios (11_RH_STAFFING.md §11.16) ──────────────────────
+
+  private mapRoleMenuItemRatio(r: any) {
+    return {
+      id: r.id,
+      spaceId: r.spaceId,
+      roleId: r.roleId,
+      ratioBasis: r.ratioBasis,
+      ratioValue: r.ratioValue,
+      unitQty: r.unitQty,
+      allMenuItems: r.allMenuItems,
+      menuItemIds: r.menuItemIds,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  async findAllRoleMenuItemRatios(tenantId: string, filter: { spaceId?: string } = {}) {
+    const rows = await this.prisma.hrRoleMenuItemRatio.findMany({
+      where: { tenantId, ...(filter.spaceId && { spaceId: filter.spaceId }) },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { data: rows.map((r) => this.mapRoleMenuItemRatio(r)) };
+  }
+
+  private async assertValidRoleMenuItemRatio(input: any, tenantId: string, existing?: any) {
+    const roleId = input.roleId ?? existing?.roleId;
+    const spaceId = input.spaceId ?? existing?.spaceId;
+    const role = await this.prisma.hrRole.findFirst({ where: { id: roleId, tenantId } });
+    if (!role) throw new BadRequestException(`Rôle ${roleId} introuvable`);
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
+    if (!space) throw new BadRequestException(`Espace ${spaceId} introuvable`);
+
+    const ratioBasis = input.ratioBasis ?? existing?.ratioBasis;
+    if (!['REVENUE', 'QUANTITY'].includes(ratioBasis)) {
+      throw new BadRequestException("ratioBasis doit être 'REVENUE' ou 'QUANTITY'.");
+    }
+    const ratioValue = input.ratioValue !== undefined ? Number(input.ratioValue) : existing?.ratioValue;
+    if (!Number.isFinite(ratioValue) || ratioValue <= 0) {
+      throw new BadRequestException('ratioValue doit être un nombre > 0.');
+    }
+    const unitQty = input.unitQty !== undefined ? Number(input.unitQty) : (existing?.unitQty ?? 1);
+    if (!Number.isFinite(unitQty) || unitQty < 1) {
+      throw new BadRequestException('unitQty doit être un entier ≥ 1.');
+    }
+    const allMenuItems = input.allMenuItems !== undefined ? !!input.allMenuItems : (existing?.allMenuItems ?? false);
+    const menuItemIds: string[] = allMenuItems
+      ? []
+      : (input.menuItemIds !== undefined ? input.menuItemIds : (existing?.menuItemIds ?? []));
+    if (!allMenuItems) {
+      if (!menuItemIds.length) {
+        throw new BadRequestException("menuItemIds est requis (non vide) quand allMenuItems est faux.");
+      }
+      // Les items doivent réellement être rattachés à cet espace (SpaceMenuItem) — même condition
+      // 0 stricte que SpaceMenusService.getSpaceMenuItems, pour ne pas laisser une association
+      // pointer vers un item retiré du menu de l'espace après coup.
+      const linked = await this.prisma.spaceMenuItem.findMany({
+        where: { spaceId, menuItemId: { in: menuItemIds } },
+        select: { menuItemId: true },
+      });
+      const linkedIds = new Set(linked.map((l) => l.menuItemId));
+      const missing = menuItemIds.filter((id) => !linkedIds.has(id));
+      if (missing.length) {
+        throw new BadRequestException(
+          `Menu Item(s) non rattaché(s) à cet espace : ${missing.join(', ')}`,
+        );
+      }
+    }
+    return { ratioBasis, ratioValue, unitQty, allMenuItems, menuItemIds };
+  }
+
+  async createRoleMenuItemRatio(input: any, tenantId: string) {
+    const n = await this.assertValidRoleMenuItemRatio(input, tenantId);
+    const row = await this.prisma.hrRoleMenuItemRatio.create({
+      data: {
+        tenantId,
+        spaceId: input.spaceId,
+        roleId: input.roleId,
+        ratioBasis: n.ratioBasis,
+        ratioValue: n.ratioValue,
+        unitQty: n.unitQty,
+        allMenuItems: n.allMenuItems,
+        menuItemIds: n.menuItemIds,
+      },
+    });
+    return this.mapRoleMenuItemRatio(row);
+  }
+
+  async updateRoleMenuItemRatio(id: string, input: any, tenantId: string) {
+    const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
+    const n = await this.assertValidRoleMenuItemRatio(input, tenantId, existing);
+    const row = await this.prisma.hrRoleMenuItemRatio.update({
+      where: { id },
+      data: {
+        ratioBasis: n.ratioBasis,
+        ratioValue: n.ratioValue,
+        unitQty: n.unitQty,
+        allMenuItems: n.allMenuItems,
+        menuItemIds: n.menuItemIds,
+      },
+    });
+    return this.mapRoleMenuItemRatio(row);
+  }
+
+  async removeRoleMenuItemRatio(id: string, tenantId: string) {
+    const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
+    await this.prisma.hrRoleMenuItemRatio.delete({ where: { id } });
     return { deleted: true };
   }
 
@@ -398,7 +679,7 @@ export class HrService {
           email: s.email ?? null,
           tel: s.phone ?? s.tel ?? null,
           picture: s.picture ?? null,
-          sectors: Array.isArray(s.sectors) ? s.sectors : [],
+          departments: Array.isArray(s.departments ?? s.sectors) ? (s.departments ?? s.sectors) : [],
           spaceIds: Array.isArray(s.spaces) ? s.spaces : [],
         },
       });
@@ -406,12 +687,18 @@ export class HrService {
       importedSuppliers++;
     }
 
+    // CFG-2 Étape 4 : `p.sector` est un libellé legacy libre (ex-HR_DEPARTMENTS) — résolu par nom
+    // (insensible à la casse) contre Department (filtré needsRh, mêmes départements que
+    // normalizeRole()), repli sur 'shop' (code stable du département F&B) si non reconnu, comme
+    // avant ce changement (repli déjà 'F&B').
+    const importDeptRows = positions.length ? await this.prisma.department.findMany({ where: { needsRh: true } }) : [];
     let importedRoles = 0;
     for (const p of positions) {
       const name = (p?.positionName ?? p?.name ?? '').trim();
       if (!name) continue;
       const dbSupplierId = p.supplierId ? legacyIdToDbId.get(String(p.supplierId)) : undefined;
-      const department = (HR_DEPARTMENTS as readonly string[]).includes(p.sector) ? p.sector : 'F&B';
+      const matchedDept = importDeptRows.find((d) => d.name.toLowerCase() === String(p.sector || '').toLowerCase());
+      const department = matchedDept ? (matchedDept.code ?? matchedDept.id) : 'shop';
       const rate = Number(p.ratePerHour ?? p.rate);
       const data = (roleName: string) => ({
         tenantId,

@@ -131,11 +131,28 @@
       <!-- Titre du bandeau (parité Analyse / Réarmement / Logistique). -->
       <div class="si-band-title">
         <h1 class="si-band-title__main">{{ t(isPreMode ? 'preInvPageTitle' : 'invPageTitle') }}</h1>
-        <!-- Vue réconciliation active → sous-titre « Réconciliation : {event} » (parité capture). -->
+        <!-- Vue réconciliation active → sous-titre « Réconciliation : {event} » (parité capture).
+             Inchangé : le document nomme DÉJÀ son propre event, empiler un second
+             nom ici recréerait la confusion qu'on corrige juste en dessous. -->
         <p v-if="activeReconciliation" class="si-band-title__sub">
           {{ t('invRecoSection') }} : {{ activeReconciliation.eventName || t('invRecoUnknownEvent') }}
         </p>
-        <p v-else-if="spaceLabel" class="si-band-title__sub">{{ spaceLabel }}</p>
+        <!-- Contexte évènement (lecture seule) : nom · date · pourquoi ce match ·
+             espace. L'ancrage est automatique et silencieux (docs modules/10
+             §12.4) — sans ce sous-titre, l'écran ne dit jamais quel match il
+             affiche, ni pourquoi ce n'est pas celui du deep-link. -->
+        <p v-else-if="contextEvent" class="si-band-title__sub">
+          <strong class="si-band-title__event">{{ contextEventName }}</strong>
+          <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
+          <span class="si-band-title__anchor"> · {{ contextAnchorLabel }}</span>
+          <span v-if="spaceLabel"> · {{ spaceLabel }}</span>
+          <span v-if="countsAreEventIndependent" class="si-band-title__warn">
+            · {{ t('invContextCountsIndependent') }}
+          </span>
+        </p>
+        <p v-else-if="spaceLabel" class="si-band-title__sub">
+          {{ spaceLabel }} · {{ t(isPreMode ? 'preInvNoUpcoming' : 'invContextNoPastEvent') }}
+        </p>
       </div>
 
       <div class="si-band-right justify-content-end d-flex align-center">
@@ -217,6 +234,19 @@
     >
       {{ t('invPostCarriedHint') }}
     </v-alert>
+    <!-- Attendus indisponibles : dire POURQUOI. Sans ce bandeau, 403, backend non
+         à jour et absence de comptage de référence produisent tous les trois le
+         même écran de tirets, indiagnosticable sans l'onglet Réseau.
+         `no-permission` reste muet (ne pas révéler l'existence de la donnée). -->
+    <v-alert
+      v-if="expectedUnavailableText"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="si-carried-alert"
+    >
+      {{ expectedUnavailableText }}
+    </v-alert>
     <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur. -->
     <div class="si-search-wrap">
       <AppSearchBar
@@ -265,7 +295,12 @@
               @click="sortMode = 'stock-asc'"
             >{{ t('invSortStockAsc') }}</button>
 
-            <template v-if="activeTab === 'shops'">
+            <!-- Ouvert/Fermé n'est proposé que si les deux camps existent : sur cet
+                 écran `isOpen` vaut « a des articles assignés » (backend :
+                 menuItemsCount > 0) et les cartes n'existent que pour des PdV avec
+                 articles — une chip qui ne peut que vider la liste se lit comme un
+                 filtre cassé. Sémantique à trancher : QUESTIONS_A_BERTRAND #44. -->
+            <template v-if="activeTab === 'shops' && showShopStatusPills">
               <span class="si-sort-sep" />
               <button
                 type="button"
@@ -294,7 +329,9 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
-          :expected-for="canSeeExpected ? expectedForField : null"
+          :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
+          :expected-total-for="canSeeExpected ? expectedTotalFor : null"
+          :expected-total-label-key="expectedTotalLabelKey"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -582,7 +619,9 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
-          :expected-for="canSeeExpected ? expectedForField : null"
+          :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
+          :expected-total-for="canSeeExpected ? expectedTotalFor : null"
+          :expected-total-label-key="expectedTotalLabelKey"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -602,7 +641,10 @@
         <h1>{{ t('invPrintInvTitle') }}</h1>
         <div class="si-print-sub">
           <strong>{{ spaceLabel }}</strong>
-          <span v-if="selectedEventOption"> · {{ selectedEventOption.label }}</span>
+          <!-- Event d'ANCRAGE et non `selectedEventOption` : eventOptions ne liste
+               que les events PASSÉS → en mode pre l'en-tête d'impression était muet. -->
+          <span v-if="contextEventName"> · {{ contextEventName }}</span>
+          <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
           <span v-if="printDate"> · {{ printDate }}</span>
         </div>
       </div>
@@ -675,10 +717,13 @@ import {
   deleteInventoryReconciliation,
   getPreEventInventory,
   getPreEventBaseline,
+  getPostEventBaseline,
   createPreEventReconciliation,
   getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey } from '@/utils/preEventExpected'
+import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
+import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
   reconciliationKey,
   buildPostEventReconciliationLines,
@@ -686,6 +731,10 @@ import {
 } from '@/utils/postEventReconciliation'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
+// Contexte évènement du bandeau (nom + date + règle d'ancrage).
+import { describeAnchorEvent } from '@/utils/inventoryEventContext'
+import { parseEventDate } from '@/utils/dateFr'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 
 const TOP_TABS = [
   { value: 'shops',   labelKey: 'invTabShops',   icon: 'mdi-store' },
@@ -703,6 +752,7 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'invToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'invToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'invToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'live', labelKey: 'invToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
   { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'invToolInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic',        labelKey: 'invToolLogistic',     icon: 'mdi-forklift' },
@@ -732,6 +782,8 @@ export default {
     const router = useRouter()
     const route = useRoute()
     const { t } = useI18n()
+    // Locale de l'app pour la date du bandeau (jamais 'fr-FR' en dur, BUG-240).
+    const { intlLocale } = useNumberFormat()
     // Inventaire = config de l'event ouvert dans Event Predict (?event=). Le
     // composable est PROPRIÉTAIRE UNIQUE : la vue n'appelle que loadContext/
     // resetContext et lit les refs.
@@ -748,6 +800,7 @@ export default {
     } = useInventoryData(selectedConfigId)
     return {
       t,
+      intlLocale,
       store,
       router,
       route,
@@ -776,6 +829,12 @@ export default {
       sortMode: 'name',
       // Index courant du carousel boutiques (mobile).
       selectedEventId: null,
+      // Event d'ANCRAGE de l'écran, résolu par resolveEventContext. DISTINCT de
+      // `selectedEventId`, qui est la clé de comptage : le drawer mobile peut la
+      // mettre à null (« Indépendant d'un évènement », InventoryFilterDrawer:28)
+      // sans que le match affiché par la page change. On ne garde que l'id :
+      // `events` peut arriver après le montage, le computed se répare seul.
+      contextEventId: null,
       search: '',
       countingShop: null,
       mobileCountingOpen: false,
@@ -801,10 +860,23 @@ export default {
       recoLoading: false,
       recoCreating: false,
       selectedReconciliationId: null,
-      // Pre-event Inventory : quantités attendues (null = pas de baseline OU
-      // permission absente OU mode post) — map `expectedKey(el,item)` → {packed, loose}.
+      // Pre-event Inventory : quantités attendues sous Packed/Loose (null = pas de
+      // baseline OU permission absente) — map `expectedKey(el,item)` → {packed, loose}.
       preExpected: null,
       preExpectedLoading: false,
+      // Post-event Inventory : indice de référence affiché à côté du TOTAL de
+      // chaque article — map `expectedKey(el,item)` → nombre d'unités SIGNÉ
+      // (négatif = incohérence de sources, jamais clampé, décision 2026-07-30).
+      postExpectedUnits: null,
+      // Pre-event Inventory : besoin prédit Event Predict (version par défaut du
+      // match), index {byItemId, byItemName} — affiché en regard du TOTAL.
+      predictedNeed: null,
+      predictedNeedMissing: false,
+      // Pourquoi il n'y a pas d'attendu, quand il n'y en a pas :
+      // null | 'no-permission' | 'forbidden' | 'not-deployed' | 'no-baseline'.
+      // Sans ça, 403 / 404 / baseline vide / bug produisent le MÊME écran muet de
+      // tirets — c'est ce qui a rendu le défaut d'origine indiagnosticable.
+      expectedUnavailable: null,
       loading: false,
       availableSpaces: [],
       spacesLoading: false,
@@ -857,6 +929,11 @@ export default {
         (c) => c?.element?.isOpen === false && this.statusFor(c) === this.countingStatusTab,
       ).length
     },
+    /** Les deux camps existent-ils ? Sinon la paire de pills est masquée (l'un des
+     *  deux ne pourrait que vider la liste, l'autre ne rien changer). */
+    showShopStatusPills() {
+      return this.openShopsCount > 0 && this.closedShopsCount > 0
+    },
     filteredSpaces() {
       const q = (this.spacesSearch || '').toLowerCase().trim()
       if (!q) return this.availableSpaces
@@ -881,6 +958,35 @@ export default {
     inventoryError() { return this.store.state.inventory?.error || null },
     spaceLabel() { return this.currentSpace?.name || this.route?.params?.spaceId || null },
     events() { return this.store.state.analyse?.events || [] },
+    // ── Contexte évènement du bandeau ────────────────────────────────────────
+    // L'écran s'ancre tout seul sur un match (règle owner « un match = un
+    // eventId, aucune bascule silencieuse », docs modules/10 §12.4) sans jamais
+    // dire lequel : un deep-link ?event=<futur> en mode post atterrit sur le
+    // dernier match passé, en silence. Ces computeds rendent l'ancrage visible.
+    /** Event d'ancrage résolu, objet complet (null tant que le store est vide). */
+    contextEvent() {
+      if (!this.contextEventId) return null
+      return (this.events || []).find((e) => String(e.id) === String(this.contextEventId)) || null
+    },
+    contextEventName() {
+      return describeAnchorEvent(this.contextEvent)?.name || null
+    },
+    contextEventDateLabel() {
+      // parseEventDate tolère ISO et DD/MM/YYYY ; le formatage suit la locale de
+      // l'app (formatDateMedium coderait 'fr-FR' en dur — écart fermé par BUG-240).
+      const d = parseEventDate(describeAnchorEvent(this.contextEvent)?.dateISO)
+      if (!d) return ''
+      return d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' })
+    },
+    /** Pourquoi CE match : « dernier match terminé » (post) / « prochain match » (pre). */
+    contextAnchorLabel() {
+      return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
+    },
+    /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
+     *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */
+    countsAreEventIndependent() {
+      return !!this.contextEventId && !this.selectedEventId
+    },
     pastEvents() {
       const now = Date.now()
       return (this.events || [])
@@ -927,12 +1033,33 @@ export default {
       }
       return false
     },
-    /** Quantités attendues : permission dédiée (gating serveur en miroir — sans
-     *  elle, l'endpoint baseline répond 403 et on n'émet même pas l'appel). */
+    /** Quantités attendues (les DEUX écrans) : permission dédiée, gating serveur
+     *  en miroir — sans elle, les endpoints baseline répondent 403 et on n'émet
+     *  même pas l'appel. */
     canSeeExpected() {
-      if (!this.isPreMode) return false
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryExpected') : false
+    },
+    /** Libellé de l'indice affiché à côté du Total : les deux modes ne montrent
+     *  PAS la même grandeur (besoin prédit avant match, stock restant après) —
+     *  les légender du même mot fabriquerait une fausse comparaison. */
+    expectedTotalLabelKey() {
+      return this.isPreMode ? 'invPredictedNeedHint' : 'invPostExpectedHint'
+    },
+    /** Message d'indisponibilité des attendus — `no-permission` reste MUET :
+     *  un utilisateur non habilité ne doit pas apprendre que la donnée existe. */
+    expectedUnavailableText() {
+      if (this.expectedUnavailable === 'no-permission') return ''
+      switch (this.expectedUnavailable) {
+        case 'forbidden': return this.t('invExpectedForbidden')
+        case 'not-deployed': return this.t('invExpectedNotDeployed')
+        case 'no-baseline':
+          return this.isPreMode ? this.t('invExpectedNoBaselinePre') : this.t('invExpectedNoBaselinePost')
+        default:
+          // Attendus OK mais aucun scénario de référence : le besoin prédit à côté
+          // du total reste vide tant qu'aucune version n'est marquée par défaut.
+          return this.predictedNeedMissing ? this.t('invPredictNoDefaultVersion') : ''
+      }
     },
     /** itemId → inventoryQuantityPackaged (référentiel affiché) — la vue réco
      *  pre-event convertit ses lignes packed/loose en unités avec cette map. */
@@ -1186,8 +1313,11 @@ export default {
           const matchItem = this.itemMatchesMenuFilters
           cards = cards.filter((c) => (c.consolidatedInventory || []).some(matchItem))
         }
-        // Pills bandeau : ouvert / fermé (isOpen !== false = ouvert).
-        if (this.shopStatusFilter === 'open') {
+        // Pills bandeau : ouvert / fermé (isOpen !== false = ouvert). Ignorées
+        // quand elles sont masquées, sinon un filtre invisible resterait actif.
+        if (!this.showShopStatusPills) {
+          // rien : la paire n'est pas proposée à l'utilisateur
+        } else if (this.shopStatusFilter === 'open') {
           cards = cards.filter((c) => c.element?.isOpen !== false)
         } else if (this.shopStatusFilter === 'closed') {
           cards = cards.filter((c) => c.element?.isOpen === false)
@@ -1210,28 +1340,19 @@ export default {
         // Merch : filtrage par statut (parité React storagesToCount/storagesCounted)
         cards = cards.filter((c) => this.storageStatusFor(c) === this.countingStatusTab)
       }
-      // Tri : cartes vides (0 item) toujours en bas ; au-dessus, l'ordre suit
-      // le tri choisi (nom / à compter d'abord / stock croissant).
-      const itemCount = (c) =>
-        (c.consolidatedInventory || c.storageInventory || c.merchInventory || []).length
-      const toCount = (c) => {
-        const items = c.consolidatedInventory || c.storageInventory || c.merchInventory || []
-        return items.filter((it) => !this.isItemCounted(c.element.id, it.id)).length
-      }
-      const totalUnits = (c) => {
-        const items = c.consolidatedInventory || c.storageInventory || c.merchInventory || []
-        return items.reduce((s, it) => s + (Number(it.expected ?? it.quantity ?? 0) || 0), 0)
+      // Tri : cartes vides (0 item) toujours en bas ; au-dessus, l'ordre suit le
+      // tri choisi (nom / à compter d'abord / stock croissant), départagé par nom.
+      // « Stock croissant » se base sur l'indice de référence de l'écran (besoin
+      // prédit avant match, stock restant après) et retombe sur le compté quand il
+      // n'y en a pas — l'ancienne clé lisait deux champs inexistants et laissait
+      // toutes les cartes à 0.
+      const accessors = {
+        expectedUnitsFor: (elementId, item) => this.expectedTotalFor(elementId, item),
+        countedUnitsFor: (elementId, item) => this.totalForItem(elementId, item),
+        isItemCounted: this.isItemCounted,
       }
       const mode = this.sortMode
-      cards = [...cards].sort((a, b) => {
-        // Vides (0 item) toujours après.
-        const ea = itemCount(a) === 0 ? 1 : 0
-        const eb = itemCount(b) === 0 ? 1 : 0
-        if (ea !== eb) return ea - eb
-        if (mode === 'to-count') return toCount(b) - toCount(a)
-        if (mode === 'stock-asc') return totalUnits(a) - totalUnits(b)
-        return a.element.name.localeCompare(b.element.name, 'fr', { sensitivity: 'base' })
-      })
+      cards = [...cards].sort((a, b) => compareInventoryCards(a, b, { mode, ...accessors }))
       return cards
     },
     inventoryStats() {
@@ -1487,11 +1608,13 @@ export default {
           this.store.dispatch('inventory/clearContext')
           this.selectedConfigId = null
           this.selectedEventId = null
+          this.contextEventId = null
           return
         }
 
         this.selectedConfigId = ctx.configId
         this.selectedEventId = ctx.event.id
+        this.contextEventId = ctx.event.id
         this.store.dispatch('inventory/loadMarketPrices')
         this.store.dispatch('inventory/loadPackagingTypes')
 
@@ -1508,9 +1631,11 @@ export default {
           }),
         ])
 
-        // Quantités attendues (mode pre + permission) : APRÈS loadContext — la
-        // résolution nom→item des mouvements a besoin du référentiel affiché.
+        // Attendus (les deux modes, permission requise) : APRÈS loadContext — la
+        // résolution nom→item a besoin du référentiel affiché. Le besoin prédit
+        // a la même dépendance (périmètre des PdV affichés).
         this.fetchPreExpected()
+        this.fetchPredictedNeed()
 
         this.mock = buildSpaceInventoryMock()
         if (this.demo) {
@@ -1782,7 +1907,13 @@ export default {
           this.selectedReconciliationId = doc.id
           return
         }
-        const created = await createPreEventReconciliation(spaceId, ev.id)
+        // Besoin prédit du scénario de référence → 2e colonne d'écart du document.
+        // Absent (pas de version par défaut) → colonnes prédit à « — », pas 0.
+        const created = await createPreEventReconciliation(
+          spaceId,
+          ev.id,
+          this.predictedUnitsBlobForReco(),
+        )
         this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
         this.selectedReconciliationId = created.id
       } catch (e) {
@@ -1793,35 +1924,66 @@ export default {
         this.recoCreating = false
       }
     },
-    /** Charge les quantités attendues (mode pre + permission uniquement). */
+    /** Charge les attendus de l'écran courant (permission requise dans les deux
+     *  modes). Pre : hints packed/loose. Post : indice total par article. */
     async fetchPreExpected() {
       this.preExpected = null
-      if (!this.canSeeExpected || !this.selectedEventId || isDemoMode()) return
+      this.postExpectedUnits = null
+      this.expectedUnavailable = null
+      if (!this.canSeeExpected) {
+        this.expectedUnavailable = 'no-permission'
+        return
+      }
+      if (!this.selectedEventId || isDemoMode()) return
       const spaceId = this.route.params.spaceId
       this.preExpectedLoading = true
       try {
-        const baseline = await getPreEventBaseline(spaceId, this.selectedEventId)
-        // Résolution nom→item des mouvements sans menuItemId : référentiel AFFICHÉ.
-        const itemIdByNormName = new Map()
-        const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
-        for (const entry of entries) {
-          const items = entry.consolidatedInventory || entry.storageInventory || entry.merchInventory || []
-          for (const it of items) {
-            const nk = normalizeStr(it?.name)
-            if (nk && it?.id && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, String(it.id))
-          }
+        const baseline = this.isPreMode
+          ? await getPreEventBaseline(spaceId, this.selectedEventId)
+          : await getPostEventBaseline(spaceId, this.selectedEventId)
+        if (!baseline?.baseline) {
+          this.expectedUnavailable = 'no-baseline'
+          return
         }
-        // `unitsPerItemId` (BUG-239) : le serveur peut avoir calculé l'attendu
-        // avec la taille de paquet de la Logistique — on le re-découpe dans celle
-        // du champ Packed affiché (total en unités inchangé).
-        this.preExpected = buildPreEventExpected(baseline, {
-          itemIdByNormName,
-          unitsPerItemId: this.unitsPerItemIdMap,
-        })
+        if (this.isPreMode) {
+          // Résolution nom→item des mouvements sans menuItemId : référentiel AFFICHÉ.
+          const itemIdByNormName = new Map()
+          const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
+          for (const entry of entries) {
+            const items = entry.consolidatedInventory || entry.storageInventory || entry.merchInventory || []
+            for (const it of items) {
+              const nk = normalizeStr(it?.name)
+              if (nk && it?.id && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, String(it.id))
+            }
+          }
+          // `unitsPerItemId` (BUG-239) : le serveur peut avoir calculé l'attendu
+          // avec la taille de paquet de la Logistique — on le re-découpe dans celle
+          // du champ Packed affiché (total en unités inchangé).
+          this.preExpected = buildPreEventExpected(baseline, {
+            itemIdByNormName,
+            unitsPerItemId: this.unitsPerItemIdMap,
+          })
+        } else {
+          // Post : le serveur a déjà keyé par elementId/itemId ET déjà déduit les
+          // ventes — pas de jointure par nom ici, pas de re-découpage (l'indice
+          // est un total en unités, pas une paire packed/loose).
+          const flat = {}
+          for (const [elementId, byItem] of Object.entries(baseline.expectedUnits || {})) {
+            for (const [itemId, units] of Object.entries(byItem || {})) {
+              const n = Number(units)
+              if (Number.isFinite(n)) flat[expectedKey(elementId, itemId)] = n
+            }
+          }
+          this.postExpectedUnits = flat
+        }
       } catch (e) {
-        // 403 (permission retirée côté serveur) ou réseau → pas de hints, comptage intact.
-        console.warn('[SpaceInventory] baseline pre-event KO (pas de hints):', e?.message)
+        // 403 permission retirée, 404 backend antérieur à la route, réseau : on
+        // NOMME la cause au lieu d'afficher des tirets muets.
+        const status = e?.response?.status
+        this.expectedUnavailable = status === 403 ? 'forbidden' : status === 404 ? 'not-deployed' : null
+        console.warn('[SpaceInventory] baseline attendus KO (pas de hints):', e?.message)
         this.preExpected = null
+        this.postExpectedUnits = null
       } finally {
         this.preExpectedLoading = false
       }
@@ -1831,6 +1993,51 @@ export default {
       const exp = this.preExpected?.[expectedKey(shopId, itemId)]
       if (!exp) return null
       return field === 'packed' ? exp.packed : exp.loose
+    },
+    /** Indice affiché à côté du TOTAL d'un article. Pre : besoin prédit Event
+     *  Predict. Post : stock qui doit rester. null = rien à afficher (« — »). */
+    expectedTotalFor(elementId, item) {
+      const itemId = item?.id
+      if (itemId == null) return null
+      if (this.isPreMode) return lookupPredictedNeed(this.predictedNeed, elementId, item)
+      const v = this.postExpectedUnits?.[expectedKey(elementId, itemId)]
+      return Number.isFinite(v) ? v : null
+    },
+    /** Besoin prédit remis à plat pour le document pre-event :
+     *  { elementId: { itemId: unités } }. null s'il n'y a pas de scénario de
+     *  référence — le serveur laisse alors les colonnes prédit à « — ». */
+    predictedUnitsBlobForReco() {
+      const byItemId = this.predictedNeed?.byItemId
+      if (!byItemId || !Object.keys(byItemId).length) return null
+      const out = {}
+      for (const [k, units] of Object.entries(byItemId)) {
+        const sep = k.indexOf('|')
+        if (sep <= 0) continue
+        const elementId = k.slice(0, sep)
+        const itemId = k.slice(sep + 1)
+        if (!itemId) continue
+        ;(out[elementId] ??= {})[itemId] = units
+      }
+      return Object.keys(out).length ? out : null
+    },
+    /** Besoin prédit du match (pre-event uniquement) — version Event Predict par
+     *  défaut. Silencieux en cas d'échec : on ne bloque jamais un comptage. */
+    async fetchPredictedNeed() {
+      this.predictedNeed = null
+      this.predictedNeedMissing = false
+      if (!this.isPreMode || !this.canSeeExpected || !this.selectedEventId || isDemoMode()) return
+      const elements = (this.realShops || []).map((c) => ({
+        id: c.element.id,
+        name: c.element.name,
+      }))
+      const { index, reason } = await loadPredictedNeed({
+        eventId: this.selectedEventId,
+        elements,
+        menuItems: this.store.state.analyse?.menuItems || [],
+        components: this.store.state.analyse?.components || [],
+      })
+      this.predictedNeed = index
+      this.predictedNeedMissing = reason === 'no-default-version'
     },
     /**
      * Événement à réconcilier = l'event de l'ÉCRAN, strictement (« un match =
@@ -1974,6 +2181,37 @@ export default {
         preEventUnitsByKey = null
       }
 
+      // ── Mouvements Logistic de la fenêtre du match ──────────────────────────
+      // Sans ce terme, un transfert entre deux PdV pendant le match se lit comme
+      // un manquant d'un côté et un surplus de l'autre. Best-effort : indisponible
+      // (permission, backend antérieur) → formule historique, marquée dans meta.
+      //
+      // ⚠️ Exigé : `preEventSource === 'pre-event'`. Sur le repli legacy
+      // (`previous-post-event`), le stock de départ vient du match PRÉCÉDENT alors
+      // que les mouvements sont bornés à CE match — additionner les deux
+      // reviendrait à ancrer les deux termes sur des matchs différents.
+      let movementUnitsByKey = null
+      try {
+        if (!isDemoMode() && this.canSeeExpected && preEventSource === 'pre-event') {
+          const base = await getPostEventBaseline(spaceId, recoEvent.id)
+          const blob = base?.movementUnits
+          if (blob && typeof blob === 'object') {
+            movementUnitsByKey = {}
+            for (const [elementId, byItem] of Object.entries(blob)) {
+              for (const [itemId, units] of Object.entries(byItem || {})) {
+                const n = Number(units)
+                if (Number.isFinite(n) && n !== 0) {
+                  movementUnitsByKey[reconciliationKey(elementId, itemId)] = n
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[SpaceInventory] mouvements de la fenêtre KO (réco sans ce terme):', e?.message)
+        movementUnitsByKey = null
+      }
+
       // ── Vendu pendant l'event ────────────────────────────────────────────────
       // Q35 Option 1 (décision owner 2026-07-27) : source primaire = ventes
       // EXPLOSÉES en consommation d'ingrédients par la cascade Logistic
@@ -2110,6 +2348,7 @@ export default {
         countedUnitsByKey,
         preEventUnitsByKey,
         soldUnitsByKey,
+        movementUnitsByKey,
         predictedUnitsByKey,
         predictableItemIds: catalogItemIds.size ? catalogItemIds : null,
         // Coûts menu items (map partagée du store analyse) → Miss € au coût.
@@ -2123,6 +2362,14 @@ export default {
       const meta = {
         preEventSource,
         salesSource,
+        // Les mouvements de la fenêtre sont-ils entrés dans `leftFromSales` ?
+        // Un document sans ce terme n'est pas faux, il est moins précis — encore
+        // faut-il pouvoir le savoir en le relisant six mois plus tard.
+        movementsSource: movementUnitsByKey
+          ? 'post-event-baseline'
+          : preEventSource === 'pre-event'
+            ? 'none'
+            : 'skipped-legacy-baseline',
         salesUnjoined:
           unjoinedShops.size || unjoinedItems.size
             ? {
@@ -2214,6 +2461,11 @@ export default {
         this.router.push({ name: tool.value, params: { spaceId } })
       } else if (tool.value === 'analyse') {
         this.router.push({ name: 'space-analyse', params: { spaceId } })
+      } else if (tool.value === 'live') {
+        // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=`, cf.
+        // router/index.js) : sans cette branche le `else` ci-dessous envoyait
+        // sur Analyse avec un toolbox inconnu.
+        this.router.push({ name: 'space-live', params: { spaceId } })
       } else if (tool.value === 'logistic') {
         this.router.push({ name: 'space-logistic', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else if (tool.value === 'restock') {
@@ -2628,6 +2880,9 @@ export default {
 .si-band-title { min-width: 0; margin-right: auto; }
 .si-band-title__main { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .si-band-title__sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.78); }
+.si-band-title__event { font-weight: 700; color: #fff; }
+.si-band-title__anchor { opacity: 0.82; }
+.si-band-title__warn { opacity: 0.95; font-weight: 600; }
 /* Search bar collé sous le bandeau, même largeur (colonne centre). */
 .si-carried-alert { margin: 10px 0 0; font-size: 13px; }
 .si-search-wrap {

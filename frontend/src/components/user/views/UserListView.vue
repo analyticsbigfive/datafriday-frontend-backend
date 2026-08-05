@@ -59,12 +59,22 @@
         {{ loadError }}
       </div>
 
+      <div v-if="bulkSelected.length" class="bulk-bar">
+        <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+        <div class="bulk-bar__actions">
+          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+        </div>
+      </div>
+
       <div class="ul-table-wrap">
         <v-data-table
+          v-model="bulkSelected"
+          show-select
           :headers="tableHeaders"
           :items="filteredUsers"
           item-value="id"
-          density="comfortable"
+          density="compact"
           :loading="loading"
           class="ul-table"
         >
@@ -132,7 +142,7 @@
               >
                 <Send :size="14" />
               </button>
-              <button class="ul-icon-btn" :title="t('userList.colActions')" @click.stop="openEditDrawer(item)">
+              <button class="ul-icon-btn ul-icon-btn--edit" :title="t('userList.colActions')" @click.stop="openEditDrawer(item)">
                 <Pencil :size="14" />
               </button>
               <button class="ul-icon-btn ul-icon-btn--danger" @click.stop="openDeleteDialog(item)">
@@ -164,6 +174,16 @@
       @confirm="confirmDelete"
     />
 
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
+      @confirm="confirmBulkDelete"
+    />
+
     <input ref="importInput" type="file" accept=".csv" style="display:none" @change="onImportFile" />
   </div>
 </template>
@@ -176,10 +196,11 @@ import { Search, Download, Upload, UserPlus, Pencil, Trash2, Users, Send, X, Che
 import { deleteUser, reinviteUser } from '@/api/endpoints/user.api';
 import UserEditDrawer from '../drawers/UserEditDrawer.vue';
 import UserDeleteDialog from '../dialogs/UserDeleteDialog.vue';
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
 
 export default {
   name: 'UserListView',
-  components: { Search, Download, Upload, UserPlus, Pencil, Trash2, Users, Send, X, ChevronDown, AlertTriangle, UserEditDrawer, UserDeleteDialog },
+  components: { Search, Download, Upload, UserPlus, Pencil, Trash2, Users, Send, X, ChevronDown, AlertTriangle, UserEditDrawer, UserDeleteDialog, BulkDeleteDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -201,6 +222,12 @@ export default {
       deleteTarget: null,
       reinvitingId: null,
       snackbar: { show: false, text: '', color: 'success' },
+      bulkSelected: [],
+      bulkOpen: false,
+      bulkLoading: false,
+      bulkError: '',
+      bulkProgress: 0,
+      bulkTotal: 0,
     };
   },
   computed: {
@@ -209,6 +236,9 @@ export default {
     },
     canManageUsers() {
       return this.$store.getters['auth/can']('org.users.manage');
+    },
+    currentUserId() {
+      return this.$store.getters['auth/userId'];
     },
     roles() {
       return this.$store.getters['roles/roles'] || [];
@@ -320,6 +350,43 @@ export default {
         this.deleteError = e?.response?.data?.message || e?.message || 'Échec de la suppression';
       } finally {
         this.deleteLoading = false;
+      }
+    },
+    openBulkDelete() {
+      this.bulkError = '';
+      this.bulkProgress = 0;
+      this.bulkTotal = 0;
+      this.bulkOpen = true;
+    },
+    async confirmBulkDelete() {
+      const ids = [...this.bulkSelected];
+      if (!ids.length) return;
+      this.bulkLoading = true;
+      this.bulkError = '';
+      this.bulkTotal = ids.length;
+      this.bulkProgress = 0;
+      const failed = [];
+      for (const id of ids) {
+        // Garde : on ne peut pas se supprimer soi-même → compté comme échec.
+        if (id === this.currentUserId) {
+          failed.push(id);
+          this.bulkProgress += 1;
+          continue;
+        }
+        try {
+          await deleteUser(id);
+          await this.$store.dispatch('users/removeUser', id);
+        } catch (e) {
+          failed.push(id);
+        }
+        this.bulkProgress += 1;
+      }
+      this.bulkLoading = false;
+      this.bulkSelected = failed;
+      if (failed.length) {
+        this.bulkError = `${failed.length} ${this.t('bulkItems')} ${this.t('bulkDeleteFailed')}`;
+      } else {
+        this.bulkOpen = false;
       }
     },
     onExport() {
@@ -448,24 +515,40 @@ export default {
   border-radius: 10px; font-size: var(--fs-base); color: #ff3131;
 }
 
+/* ── Bulk bar ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size:var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.ul--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.ul--dark .bulk-bar__clear { color:#94a3b8; }
+.ul--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
+
 /* ── Table ── */
 .ul-table-wrap {
   background: #fff; border-radius: 16px;
   border: 1px solid #e5e7eb; overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
-.ul-table :deep(thead tr th) {
-  background: #f9fafb !important;
-  font-size: var(--fs-xs)!important; font-weight: 700 !important;
-  text-transform: uppercase; letter-spacing: 0.05em;
-  color: #6b7280 !important; border-bottom: 1px solid #e5e7eb !important;
+.ul-table :deep(.v-data-table__th),
+.ul-table :deep(.v-data-table__td) {
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
-.ul-table :deep(tbody td) {
-  padding-top: 12px !important; padding-bottom: 12px !important;
-  border-bottom: 1px solid #f3f4f6 !important;
-  font-size: var(--fs-base); color: #374151;
+.ul-table :deep(.v-data-table__td) { vertical-align: middle; }
+.ul-table :deep(.v-data-table__th) {
+  font-size: var(--fs-xs)!important;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
+  background: #fafafa !important;
 }
-.ul-table :deep(tbody tr:last-child td) { border-bottom: none !important; }
 .ul-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 
 /* ── Cellule utilisateur ── */
@@ -497,14 +580,17 @@ export default {
 /* ── Actions ── */
 .ul-actions { display: flex; justify-content: flex-end; gap: 4px; }
 .ul-icon-btn {
-  width: 30px; height: 30px; border-radius: 8px;
+  width: 28px; height: 28px; border-radius: 8px;
   background: #f3f4f6; border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  color: #6b7280; transition: all 0.15s;
+  color: #6b7280; transition: background .15s, color .15s; flex-shrink: 0;
 }
 .ul-icon-btn:hover { background: #e5e7eb; color: #374151; }
 .ul-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.ul-icon-btn--danger:hover { background: rgba(255, 49, 49, 0.1); color: #ff3131; }
+.ul-icon-btn--edit { background: #eff6ff; color: #2563eb; }
+.ul-icon-btn--edit:hover { background: #dbeafe; color: #2563eb; }
+.ul-icon-btn--danger { background: #fef2f2; color: #ff3131; }
+.ul-icon-btn--danger:hover { background: #fee2e2; color: #ff3131; }
 
 /* ── Bouton générique ── */
 .ul-btn {
@@ -540,13 +626,15 @@ export default {
 .ul--dark .ul-searchbar { background: #1a2332; border-bottom-color: #374151; }
 .ul--dark .ul-searchbar__input { color: #f3f4f6; }
 .ul--dark .ul-filter-select { background: #1f2937; border-color: #374151; color: #e5e7eb; }
-.ul--dark .ul-table-wrap { background: #1a2332; border-color: #374151; }
-.ul--dark .ul-table :deep(thead tr th) { background: #1f2937 !important; color: #9ca3af !important; border-bottom-color: #374151 !important; }
-.ul--dark .ul-table :deep(tbody td) { color: #e5e7eb; border-bottom-color: #374151 !important; }
-.ul--dark .ul-table :deep(tbody tr:hover td) { background: #1f2937 !important; }
+.ul--dark .ul-table-wrap { background: #1e293b; border-color: rgba(255,255,255,.08); }
+.ul--dark .ul-table :deep(.v-data-table__th) { background: #1a2332 !important; }
+.ul--dark .ul-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.ul--dark .ul-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
 .ul--dark .ul-user-name { color: #f9fafb; }
-.ul--dark .ul-icon-btn { background: #374151; color: #d1d5db; }
+.ul--dark .ul-icon-btn { background: #1f2937; color: #cbd5e1; }
 .ul--dark .ul-icon-btn:hover { background: #4b5563; color: #f9fafb; }
+.ul--dark .ul-icon-btn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.ul--dark .ul-icon-btn--danger { background: rgba(255,49,49,.14); color: #fca5a5; }
 .ul--dark .ul-empty__icon { background: #1f2937; color: #6b7280; }
 .ul--dark .ul-empty__title { color: #f9fafb; }
 /* Badges statut : soft bg + texte foncé (calibrés fond clair) → voile + clair. */

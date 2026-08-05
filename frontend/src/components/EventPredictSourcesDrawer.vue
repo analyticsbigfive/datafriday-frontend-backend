@@ -41,28 +41,21 @@
               </span>
               <span class="eps-source-metrics">
                 <span class="eps-source-metric">
-                  <span>{{ t('epsdScore') }}</span>
-                  <strong>{{ se.score }}<small>/{{ se.maxPossibleScore }}</small></strong>
-                </span>
-                <span class="eps-source-metric">
                   <span>{{ t('epsdWeight') }}</span>
                   <strong>{{ weightLabel(se) }}</strong>
                 </span>
                 <span class="eps-source-metric">
-                  <span>{{ t('epsdScale') }}</span>
-                  <strong>{{ (se.scalingFactor ?? 1).toFixed(2) }}×</strong>
+                  <span>{{ t('epsdRevenue') }}</span>
+                  <strong>{{ formatCurrency(se.ca) }}</strong>
                 </span>
-              </span>
-              <span v-if="se.breakdown" class="eps-source-breakdown">
-                <span v-if="se.breakdown.eventType">{{ t('epsdType') }} {{ se.breakdown.eventType }}</span>
-                <span v-if="se.breakdown.category">{{ t('epsdCategory') }} {{ se.breakdown.category }}</span>
-                <span v-if="se.breakdown.subcategory">{{ t('epsdSubcategory') }} {{ se.breakdown.subcategory }}</span>
-                <span v-if="se.breakdown.visitingTeam">{{ t('epsdTeam') }} {{ se.breakdown.visitingTeam }}</span>
-                <span v-if="se.breakdown.performer">{{ t('epsdPerformer') }} {{ se.breakdown.performer }}</span>
-                <span v-if="se.breakdown.sponsor">{{ t('epsdSponsor') }} {{ se.breakdown.sponsor }}</span>
-                <span v-if="se.breakdown.attendance">{{ t('epsdAttendance') }} {{ se.breakdown.attendance }}</span>
-                <span v-if="se.breakdown.dayOfWeek">{{ t('epsdDay') }} {{ se.breakdown.dayOfWeek }}</span>
-                <span v-if="se.breakdown.showTime">{{ t('epsdTime') }} {{ se.breakdown.showTime }}</span>
+                <span class="eps-source-metric">
+                  <span>{{ t('epsdPerCap') }}</span>
+                  <strong>{{ perCapLabel(se) }}</strong>
+                </span>
+                <span class="eps-source-metric">
+                  <span>{{ t('epsdScanned') }}</span>
+                  <strong>{{ scannedLabel(se) }}</strong>
+                </span>
               </span>
             </span>
           </label>
@@ -95,13 +88,21 @@
                 <span class="eps-source-date">{{ formatDateShort(u.event.eventDate) }}</span>
               </span>
               <span class="eps-source-metrics">
-                <span v-if="u.maxPossibleScore" class="eps-source-metric">
-                  <span>{{ t('epsdScore') }}</span>
-                  <strong>{{ u.score }}<small>/{{ u.maxPossibleScore }}</small></strong>
-                </span>
                 <span v-if="checked.has(u.event.id)" class="eps-source-metric">
                   <span>{{ t('epsdWeight') }}</span>
                   <strong>{{ weightLabel(u) }}</strong>
+                </span>
+                <span class="eps-source-metric">
+                  <span>{{ t('epsdRevenue') }}</span>
+                  <strong>{{ formatCurrency(u.ca) }}</strong>
+                </span>
+                <span class="eps-source-metric">
+                  <span>{{ t('epsdPerCap') }}</span>
+                  <strong>{{ perCapLabel(u) }}</strong>
+                </span>
+                <span class="eps-source-metric">
+                  <span>{{ t('epsdScanned') }}</span>
+                  <strong>{{ scannedLabel(u) }}</strong>
                 </span>
               </span>
               <span class="eps-source-reason">{{ u.reason }}</span>
@@ -143,6 +144,11 @@ import { computed } from 'vue'
 import { useTheme } from 'vuetify'
 import EventDrawerShell from '@/components/events/drawers/EventDrawerShell.vue'
 import { useI18n } from '@/i18n/useI18n'
+import {
+  formatCurrency as fmtCurrency,
+  formatCurrencyDetailed as fmtCurrencyDetailed,
+  formatNumber as fmtNumber,
+} from '@/composables/useFormatters'
 import { formatDateShort as fmtDateShort } from '@/utils/dateFr'
 
 /**
@@ -164,7 +170,12 @@ export default {
   },
   props: {
     modelValue: { type: Boolean, default: false },
-    /** Top 10 scorés par l'algo (objets { event, score, maxPossibleScore, scalingFactor, breakdown }). */
+    /**
+     * Top 10 scorés par l'algo, enrichis côté parent (`drawerScoredEvents`) :
+     * { event, score, maxPossibleScore, ca, perCap, ticketsScanned }.
+     * `score` sert encore au calcul du poids affiché (§7) même s'il n'est plus
+     * montré : seuls poids / CA / per-cap / billets scannés sont affichés.
+     */
     scoredEvents: { type: Array, default: () => [] },
     /** Candidats non retenus : mêmes objets + `reason` (hors top 10, écarté, ad hoc…). */
     unselectedEvents: { type: Array, default: () => [] },
@@ -201,6 +212,23 @@ export default {
     },
     formatDateShort(v) {
       return fmtDateShort(v);
+    },
+    /**
+     * CA réel de l'évènement passé — KPI/total ⇒ sans décimale (charte).
+     * Pas de coercition `|| 0` : `formatCurrency` rend déjà « — » pour null
+     * (CA inconnu ≠ CA nul, cf. `withDrawerMetrics` côté parent).
+     */
+    formatCurrency(v) {
+      return fmtCurrency(v);
+    },
+    /** Per-cap = CA ÷ billets scannés ⇒ 2 décimales, comme les cards Summary. */
+    perCapLabel(se) {
+      if (se?.perCap == null) return '—';
+      return fmtCurrencyDetailed(Number(se.perCap));
+    },
+    scannedLabel(se) {
+      if (!se?.ticketsScanned) return '—';
+      return fmtNumber(se.ticketsScanned);
     },
     weightLabel(se) {
       if (!this.checked.has(se.event.id)) return this.t('epsdExcluded');
@@ -306,19 +334,6 @@ export default {
 }
 .eps-source-metric strong {
   color: var(--foreground, inherit);
-}
-.eps-source-breakdown {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.375rem;
-}
-.eps-source-breakdown > span {
-  padding: 0 0.375rem;
-  border-radius: 999px;
-  font-size: 0.625rem;
-  border: 1px solid var(--border, #e5e7eb);
-  color: var(--muted-foreground, #6b7280);
 }
 .eps-source-reason {
   display: block;

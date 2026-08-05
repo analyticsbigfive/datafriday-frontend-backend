@@ -2,7 +2,7 @@
   <!-- Settings HR (maquettes Bertrand) — vue façon « My Spaces » orientée RH.
        Rendue dans le chrome DashboardView (barre + rail), comme HrSuppliersView :
        header rouge sticky + recherche + grille de cartes. Pas de <v-app> propre. -->
-  <div id="hr-settings-page">
+  <div id="hr-settings-page" :class="{ 'hsl--dark': isDark }">
 
     <!-- ── Header ── -->
     <div class="hsl-header sticky-header">
@@ -49,14 +49,15 @@
           :staff-per-zone-manager="resolvedById[s.id]?.ratio ?? null"
           :staff-cost-total="costsBySpaceId[s.id]?.totalCost ?? null"
           :staff-cost-avg-event="costsBySpaceId[s.id]?.avgPerEvent ?? null"
+          :is-dark="isDark"
           @edit="onCardEdit"
         />
       </div>
     </div>
 
     <!-- Drawers -->
-    <HrValueFormDrawer v-model="goalDrawer.open" kind="goal" :spaces="spaces" @submit="onGoalSubmit" />
-    <HrValueFormDrawer v-model="staffDrawer.open" kind="staff" :spaces="spaces" @submit="onStaffSubmit" />
+    <HrValueFormDrawer v-model="goalDrawer.open" kind="goal" :spaces="spaces" :lines="goals" @submit="onGoalSubmit" />
+    <HrValueFormDrawer v-model="staffDrawer.open" kind="staff" :spaces="spaces" :lines="staffRatios" @submit="onStaffSubmit" />
     <HrSpaceEditDrawer v-model="editDrawer.open" :space="editDrawer.space" :initial="editDrawer.initial" @submit="onEditSubmit" />
 
     <v-snackbar v-model="snackbar.open" :color="snackbar.color" timeout="3500">{{ snackbar.text }}</v-snackbar>
@@ -66,18 +67,27 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useStore } from 'vuex'
+import { useTheme } from 'vuetify'
 import { Target, UserCog, Users, Search, X } from 'lucide-vue-next'
 import HrSpaceCard from '@/components/hr/HrSpaceCard.vue'
 import HrValueFormDrawer from '@/components/hr/HrValueFormDrawer.vue'
 import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
-import { getSpacesLight } from '@/api/endpoints/space.api'
 import { getHrStaffingCosts } from '@/api/endpoints/hrSettings.api'
-import { resolveGoalForSpace, resolveRatioForSpace, findMonoSpaceLine } from '@/utils/hrSettings'
+import { resolveGoalForSpace, resolveRatioForSpace } from '@/utils/hrSettings'
+import { useHrSpaceGoalRatio } from '@/composables/useHrSpaceGoalRatio'
 import { t } from '@/i18n'
 
 const store = useStore()
+const { saveSpaceGoalRatio } = useHrSpaceGoalRatio()
 
-const spaces = ref([])
+// Thème sombre (BUG-247-01) — classe racine hsl--dark + prop vers HrSpaceCard
+// (la carte avait déjà sa moitié sombre, la prop n'était pas branchée).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
+
+// Espaces : store partagé `spaces` (mêmes données que /spaces : image, spaceType,
+// city, maxCapacity, au lieu de /spaces/light qui ne renvoie que id+name).
+const spaces = computed(() => store.getters['spaces/spaces'] || [])
 const costsBySpaceId = ref({})
 const loading = ref(false)
 const searchQuery = ref('')
@@ -92,8 +102,10 @@ const staffRatios = computed(() => store.getters['hrSettings/staffRatios'])
 
 const filteredSpaces = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return spaces.value
-  return spaces.value.filter((s) => (s.name || '').toLowerCase().includes(q) || (s.city || '').toLowerCase().includes(q))
+  const list = q
+    ? spaces.value.filter((s) => (s.name || '').toLowerCase().includes(q) || (s.city || '').toLowerCase().includes(q))
+    : spaces.value
+  return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 })
 
 // Valeurs résolues par espace (règle §9.4 : spécifique > TOUS, dernière gagne).
@@ -117,7 +129,7 @@ function notify(text, color = 'error') {
 async function loadSpaces() {
   loading.value = true
   try {
-    spaces.value = await getSpacesLight()
+    await store.dispatch('spaces/fetchSpaces')
   } catch (_) {
     notify(t('hrSettingsLoadError'))
   } finally {
@@ -187,30 +199,11 @@ function onCardEdit(space) {
   editDrawer.open = true
 }
 
-async function upsertMono(kind, lines, spaceId, value) {
-  const mono = findMonoSpaceLine(lines, spaceId)
-  const valueKey = kind === 'goal' ? 'goalPerTpe' : 'staffPerZoneManager'
-  const createAction = kind === 'goal' ? 'createGoal' : 'createRatio'
-  const updateAction = kind === 'goal' ? 'updateGoal' : 'updateRatio'
-  const removeAction = kind === 'goal' ? 'removeGoal' : 'removeRatio'
-
-  if (value == null) {
-    if (mono) await store.dispatch(`hrSettings/${removeAction}`, mono.id)
-    return
-  }
-  if (mono) {
-    await store.dispatch(`hrSettings/${updateAction}`, { id: mono.id, [valueKey]: value })
-  } else {
-    await store.dispatch(`hrSettings/${createAction}`, { [valueKey]: value, allSpaces: false, spaceIds: [spaceId] })
-  }
-}
-
 async function onEditSubmit(payload) {
   const space = editDrawer.space
   if (!space) return
   try {
-    await upsertMono('goal', goals.value, space.id, payload.goalPerTpe)
-    await upsertMono('staff', staffRatios.value, space.id, payload.staffPerZoneManager)
+    await saveSpaceGoalRatio(space.id, payload)
     editDrawer.open = false
     notify(t('hrSettingsSaved'), 'success')
   } catch (_) {
@@ -303,9 +296,11 @@ async function onEditSubmit(payload) {
 .hsl-content { padding: 24px 28px; }
 .hrs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 20px;
 }
+@media (max-width: 1024px) { .hrs-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px)  { .hrs-grid { grid-template-columns: 1fr; } }
 
 .hsl-empty { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; text-align: center; }
 .hsl-empty__icon {
@@ -319,4 +314,17 @@ async function onEditSubmit(payload) {
   margin-bottom: 16px;
 }
 .hsl-empty__title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; margin: 0; }
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
+   Header rouge #ff3131 identique dans les deux thèmes (parité BUG-197). ── */
+#hr-settings-page.hsl--dark { background: #111827; }
+.hsl--dark .hsl-searchbar { background: #1e293b; border-bottom-color: rgba(255, 255, 255, .08); }
+.hsl--dark .hsl-searchbar__input { color: #e2e8f0; }
+.hsl--dark .hsl-searchbar__input::placeholder { color: #64748b; }
+.hsl--dark .hsl-searchbar__icon,
+.hsl--dark .hsl-searchbar__count,
+.hsl--dark .hsl-searchbar__clear { color: #64748b; }
+.hsl--dark .hsl-searchbar__clear:hover { color: #ff3131; }
+.hsl--dark .hsl-empty__icon { background: rgba(255, 255, 255, .06); }
+.hsl--dark .hsl-empty__title { color: #f9fafb; }
 </style>

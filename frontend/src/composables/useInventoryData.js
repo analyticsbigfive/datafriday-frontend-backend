@@ -33,6 +33,13 @@ export function buildConfigShopList(rows, floors) {
   const entries = []
   const byId = new Map()
   for (const r of rows || []) {
+    // BUG-275 : `rows` vient de `/spaces/:id/shops`, dont le `shopTypes` backend inclut
+    // délibérément `merchshop` (revenu/stock, cf. BUG-274) — mais merchshop a déjà son
+    // propre onglet dédié (`merchElements`/`merchWithInventory` plus bas, sourcé séparément
+    // depuis `floors`) : sans ce filtre, le même élément apparaissait deux fois (onglet
+    // Shops ET onglet Merch), avec une carte "aucun menu" fantôme dans Shops (merch n'a
+    // jamais de MenuAssignment, son stock passe par Article).
+    if (r?.type === 'merchshop') continue
     const shopId = String(r?.id ?? r?._id ?? r?.shopId ?? '')
     if (!shopId || byId.has(shopId)) continue
     const name = String(r?.name ?? r?.shopName ?? '').trim()
@@ -107,6 +114,8 @@ export function useInventoryData(selectedConfigId) {
   const menuItems = computed(() => store.state.analyse?.menuItems || [])
   const components = computed(() => store.state.analyse?.components || [])
   const marketPrices = computed(() => store.state.inventory?.marketPrices || [])
+  const storageTypes = computed(() => store.getters['storageTypes/storageTypes'] || [])
+  store.dispatch('storageTypes/fetchStorageTypes')
 
   const catalogById = computed(() => {
     const m = new Map()
@@ -411,7 +420,7 @@ export function useInventoryData(selectedConfigId) {
         // marketPrices : même renommage market-price que côté shops (clé de denrée
         // identique shop↔storage — indispensable au ledger Logistic keyé par nom).
         const storageInventory = buildStorageInventory(
-          types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value,
+          types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value, storageTypes.value,
         )
         return { element: el, storageInventory }
       })

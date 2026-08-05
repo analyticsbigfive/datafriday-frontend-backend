@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryService } from './inventory.service';
 import { LogisticsService } from '../logistics/logistics.service';
@@ -40,6 +41,21 @@ function makeCount(overrides = {}) {
     ...overrides,
   };
 }
+
+// ── Mock QueueService ─────────────────────────────────────────────────────────
+// LogisticsService n'enfile un job que dans `scheduleAggregation` (:2040), jamais
+// sur les chemins d'attendus exercés ici — un stub suffit.
+
+const mockQueueService = {
+  queueAggregationJob: jest.fn().mockResolvedValue(undefined),
+};
+
+// Job Scheduler BullMQ des runs d'auto-simulation QA (11_LIVE.md) — aucun chemin exercé
+// ici ne le touche, un stub suffit (même raison que mockQueueService ci-dessus).
+const mockSimulationQueue = {
+  upsertJobScheduler: jest.fn().mockResolvedValue(undefined),
+  removeJobScheduler: jest.fn().mockResolvedValue(true),
+};
 
 // ── Mock Prisma ───────────────────────────────────────────────────────────────
 
@@ -118,7 +134,11 @@ describe('InventoryService', () => {
         InventoryService,
         // LogisticsService RÉEL (normalizeLevel + resolveUnitsPerPackForItemKey) :
         // c'est précisément sa sémantique de casse de pack qu'on veut rejouer.
-        { provide: LogisticsService, useValue: new LogisticsService(mockPrisma as any) },
+        // QueueService stubé : aucun chemin exercé ici n'enfile de job.
+        {
+          provide: LogisticsService,
+          useValue: new LogisticsService(mockPrisma as any, mockQueueService as any, mockSimulationQueue as any, {} as any),
+        },
         { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();
@@ -589,6 +609,165 @@ describe('InventoryService', () => {
       expect(line.deltaPacked).toBe(0);
       expect(line.deltaLoose).toBe(-1);
       expect(reco.kind).toBe('pre-event');
+    });
+
+    it('garde-fou : sans opts, la requête mouvements est celle d\'avant (pas de borne haute, aucun motif exclu)', async () => {
+      wireEvents();
+      wireBaselineSnapshot({ 'shop-1': { 'item-x': { packedUnits: 1, looseUnits: 0 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+
+      await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+
+      const { where } = mockPrisma.stockMovement.findMany.mock.calls[0][0];
+      expect(where.createdAt).toEqual({ gt: new Date('2026-06-18T10:00:00Z') });
+      expect(where.reason).toBeUndefined();
+    });
+  });
+
+  // ── Post-event expected : ancre pre-event du MÊME match ─────────────────────
+  // attendu = comptage pre-event + mouvements de la fenêtre (hors SALE) − ventes.
+
+  describe('getPostEventBaseline (indice du comptage post-event)', () => {
+    const targetEvent = {
+      id: 'event-1',
+      name: 'Match A',
+      eventDate: new Date('2026-07-10T18:00:00Z'),
+      eventEndDate: new Date('2026-07-10T23:00:00Z'),
+    };
+
+    /** Ancre = snapshot kind='pre-event' de CET event, et lui seul. */
+    function wirePreEventAnchor(inventoryCounts: any) {
+      mockPrisma.inventorySnapshot.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.kind === 'pre-event' && where?.eventId === targetEvent.id) {
+          return Promise.resolve(
+            makeSnapshot({ eventId: targetEvent.id, kind: 'pre-event', inventoryCounts }),
+          );
+        }
+        return Promise.resolve(null);
+      });
+    }
+
+    function wireSales(lines: any[], unjoined: any = null) {
+      return jest
+        .spyOn((service as any).logistics, 'deriveEventConsumption')
+        .mockResolvedValue({ eventId: targetEvent.id, eventName: 'Match A', lines, unjoined });
+    }
+
+    beforeEach(() => {
+      mockPrisma.event.findFirst.mockResolvedValue(targetEvent);
+      mockPrisma.menuItem.findMany.mockResolvedValue([{ id: 'item-beer', name: 'Biere' }]);
+    });
+
+    it('attendu = pre-event + mouvements − ventes, et movementUnits isole la part mouvements', async () => {
+      wirePreEventAnchor({ 'shop-1': { 'item-beer': { packedUnits: 10, looseUnits: 0 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Biere', menuItemId: 'item-beer', packedDelta: 2, looseDelta: 0 },
+      ]);
+      wireSales([{ elementId: 'shop-1', itemKey: 'Biere', quantity: 5 }]);
+
+      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      // 10 (ancre) + 2 (livraison) = 12 en stock, − 5 vendues → 7 doivent rester.
+      expect(result.expectedUnits['shop-1']['item-beer']).toBe(7);
+      expect(result.movementUnits['shop-1']['item-beer']).toBe(2);
+      expect(result.anchorEvent).toMatchObject({ id: 'event-1' });
+    });
+
+    it('movementUnits est le net RÉEL du registre, pas le delta clampé de l\'attendu', async () => {
+      // Ancre 5. Mouvements : −10 (clampé à 0 par l'attendu) puis +8.
+      // Attendu = 8 (le clamp a mangé 5 unités qui n'existaient pas).
+      // Net réel du registre = −2. Dériver movementUnits par soustraction
+      // (8 − 5 = +3) injecterait le clamp dans la réconciliation.
+      wirePreEventAnchor({ 'shop-1': { 'item-beer': { packedUnits: 0, looseUnits: 5 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Biere', menuItemId: 'item-beer', packedDelta: 0, looseDelta: -10 },
+        { elementId: 'shop-1', itemKey: 'Biere', menuItemId: 'item-beer', packedDelta: 0, looseDelta: 8 },
+      ]);
+      wireSales([]);
+
+      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      expect(result.expectedUnits['shop-1']['item-beer']).toBe(8);
+      expect(result.movementUnits['shop-1']['item-beer']).toBe(-2);
+    });
+
+    it('ventes > stock : indice NÉGATIF, jamais clampé (signal d\'incohérence de sources)', async () => {
+      wirePreEventAnchor({ 'shop-1': { 'item-beer': { packedUnits: 10, looseUnits: 0 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+      wireSales([{ elementId: 'shop-1', itemKey: 'Biere', quantity: 18 }]);
+
+      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      expect(result.expectedUnits['shop-1']['item-beer']).toBe(-8);
+    });
+
+    it('mouvements SALE exclus du rejeu : les ventes ne sont déduites qu\'une fois', async () => {
+      wirePreEventAnchor({ 'shop-1': { 'item-beer': { packedUnits: 10, looseUnits: 0 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+      wireSales([]);
+
+      await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      const { where } = mockPrisma.stockMovement.findMany.mock.calls[0][0];
+      expect(where.reason).toEqual({ notIn: ['SALE'] });
+    });
+
+    it('fenêtre bornée comme les ventes : eventEndDate + 1 jour', async () => {
+      wirePreEventAnchor({ 'shop-1': { 'item-beer': { packedUnits: 1, looseUnits: 0 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+      wireSales([]);
+
+      await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      const { where } = mockPrisma.stockMovement.findMany.mock.calls[0][0];
+      expect(where.createdAt.lt).toEqual(new Date('2026-07-11T23:00:00Z'));
+    });
+
+    it('aucun comptage pre-event : baseline et expected null, pas des zéros', async () => {
+      mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(null);
+      const sales = wireSales([]);
+
+      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      expect(result.baseline).toBeNull();
+      expect(result.expected).toBeNull();
+      expect(result.expectedUnits).toBeNull();
+      // Sans ancre, on ne va même pas chercher les ventes.
+      expect(sales).not.toHaveBeenCalled();
+    });
+
+    it('snapshot NON kindé du même match : ignoré (pas de repli legacy, il pourrait être un post-event)', async () => {
+      mockPrisma.inventorySnapshot.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(
+          where?.kind === 'pre-event'
+            ? null
+            : makeSnapshot({ eventId: targetEvent.id, kind: null }),
+        ),
+      );
+      wireSales([]);
+
+      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      expect(result.expectedUnits).toBeNull();
+    });
+
+    it('vente non rattachable au référentiel : surfacée, pas avalée', async () => {
+      wirePreEventAnchor({ 'shop-1': { 'item-beer': { packedUnits: 4, looseUnits: 0 } } });
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+      wireSales([{ elementId: 'shop-1', itemKey: 'Produit Inconnu', quantity: 3 }]);
+
+      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      expect(result.expectedUnits['shop-1']['item-beer']).toBe(4);
+      expect(result.salesUnjoined.itemKeys).toEqual(['Produit Inconnu']);
+    });
+
+    it('event hors espace/tenant : 404', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getPostEventBaseline('space-1', 'event-autre', 'tenant-1'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

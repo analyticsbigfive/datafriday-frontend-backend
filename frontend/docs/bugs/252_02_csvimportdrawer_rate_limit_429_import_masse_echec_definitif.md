@@ -67,6 +67,22 @@ partout ailleurs dans l'app).
 - 300 events de test issus de l'import partiel documenté ici ont été supprimés à la demande de
   l'utilisateur avant ce fix (cf. session) — à reconfirmer avant un nouvel essai complet.
 
+### Addendum 2026-07-31 — confirmation que le retry n'élimine pas tous les échecs consécutifs
+
+Nouveau résultat d'import fourni par l'utilisateur : 10 lignes non importées, dont un bloc de 9
+lignes **consécutives** (503 à 511) en "Trop de requêtes, réessayez plus tard.", malgré le retry
+livré ci-dessus. Confirme ce que "Risque de régression" annonçait déjà de façon implicite : le
+retry est **par ligne**, pas coordonné entre les paquets de `IMPORT_CONCURRENCY = 5` lancés en
+parallèle. Quand un paquet de 5 est throttlé, ses 5 lignes retentent ensemble et peuvent retomber
+ensemble juste au moment où la fenêtre "medium" (300 req/60s) se réinitialise, la reconsommant
+aussitôt avant que les paquets suivants passent — un bloc de plusieurs lignes peut donc épuiser ses
+5 tentatives avant qu'une fenêtre propre ne s'ouvre pour lui. **Non corrigé dans cette session** :
+au même titre que la décision initiale ci-dessus, changer la concurrence ou ajouter un backoff
+partagé entre paquets modifierait le comportement de l'import (temps total, ordre des requêtes) et
+mérite une validation explicite plutôt qu'un fix silencieux — voir
+`docs/bugs/258_02_csvimportdrawer_doublon_ignore_compte_comme_erreur.md` pour le bug distinct
+(classification doublon/erreur) trouvé dans le même relevé et corrigé, lui, dans cette session.
+
 ## Références
 
 - [[246_02_csvimportdrawer_import_sequentiel_lent_sans_progression]] — introduit la concurrence

@@ -132,6 +132,26 @@ export async function repairMenuComponents() {
   return api.post('/menu-components/repair')
 }
 
+/**
+ * Remplacer intégralement les lignes d'ingrédients d'un composant.
+ * @param {string} id
+ * @param {Array<{ingredientId: string, quantity?: number, numberOfUnits?: number, unit?: string, unitCost?: number, cost?: number}>} ingredients
+ * @returns {Promise<Object>}
+ */
+export async function replaceComponentIngredients(id, ingredients) {
+  return api.put(`/menu-components/${id}/ingredients`, { ingredients })
+}
+
+/**
+ * Remplacer intégralement les sous-composants (children) d'un composant.
+ * @param {string} id
+ * @param {Array<{childId: string, quantity?: number, numberOfUnits?: number, unit?: string, cost?: number}>} children
+ * @returns {Promise<Object>}
+ */
+export async function replaceComponentChildren(id, children) {
+  return api.put(`/menu-components/${id}/children`, { children })
+}
+
 // ============================================
 // COMPONENT TAXONOMY (Component Type / Component Category)
 // Taxonomie dédiée, indépendante de Product Type/Category et Market Price Type/Category.

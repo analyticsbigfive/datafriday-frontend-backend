@@ -118,15 +118,19 @@
 </template>
 
 <script setup>
-import { ref, computed, inject } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
+import { useStore as useVuexStore } from 'vuex'
 import { ChevronLeft, ChevronRight, Check } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
-import { toolOf, normalizeType } from '../../constants/elementTaxonomy'
+import { toolOf, normalizeType, buildTools } from '../../constants/elementTaxonomy'
 
 const { t } = useI18n()
 const store = inject('builderStore')
+const vuexStore = useVuexStore()
+onMounted(() => vuexStore.dispatch('departments/fetchDepartments'))
+const tools = computed(() => buildTools(vuexStore.getters['departments/departments'] || []))
 
-const tool = computed(() => toolOf(store.state.activeTool))
+const tool = computed(() => toolOf(store.state.activeTool, tools.value))
 const search = ref('')
 const sortMode = ref('floor') // 'floor' | 'type'
 const floorFilter = ref('all') // 'all' | zoneId

@@ -14,12 +14,12 @@
           :class="['palette-item', selectedTool === tool.type ? 'palette-item--selected' : '']"
           @click="handleToolClick(tool)"
         >
-          <v-avatar :color="tool.vuetifyColor" size="47" rounded="lg" class="flex-shrink-0">
-            <component :is="tool.icon" :size="22" :color="tool.iconColor" />
+          <v-avatar :style="avatarStyle(tool.color)" size="47" rounded="lg" class="flex-shrink-0">
+            <v-icon :icon="tool.icon" size="22" :color="tool.color" />
           </v-avatar>
           <span class="flex-grow-1 fw-medium" style="font-size: var(--fs-md);">{{ tool.label }}</span>
           <button
-            v-if="tool.hasTypes"
+            v-if="subtypeOptions(tool.type).length"
             class="palette-expand-btn"
             @click.stop="toggleToolExpanded(tool)"
           >
@@ -35,7 +35,7 @@
             :key="option.value"
             :label="option.label"
             :model-value="isSubtypeSelected(tool.type, option.value)"
-            :color="tool.chipColor"
+            :color="tool.color"
             density="compact"
             hide-details
             @update:model-value="toggleSubtype(tool.type, option.value)"
@@ -47,13 +47,11 @@
 </template>
 
 <script setup>
-import { ref, computed, inject } from 'vue'
-import {
-  Store, Package, Scan, Crown, ShoppingBag,
-  ChevronDown, ChevronRight, Move, Sparkles, ChefHat,
-} from 'lucide-vue-next'
+import { ref, computed, inject, onMounted } from 'vue'
+import { useStore as useVuexStore } from 'vuex'
+import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
-import { TOOLS } from '../../constants/elementTaxonomy'
+import { toolOf, storageSubtypesFor, buildTools } from '../../constants/elementTaxonomy'
 
 defineProps({
   condensed: { type: Boolean, default: false },
@@ -61,22 +59,24 @@ defineProps({
 
 const { t } = useI18n()
 const store = inject('builderStore')
+const vuexStore = useVuexStore()
+
+onMounted(() => {
+  vuexStore.dispatch('departments/fetchDepartments')
+  vuexStore.dispatch('storageTypes/fetchStorageTypes')
+})
 
 const paletteOpen  = ref(true)
 const expandedType = ref(null)
 
-const tools = [
-  { type: 'shop',          label: 'F&B',           icon: Store,       vuetifyColor: 'green-lighten-5',     iconColor: '#4CAF50', chipColor: 'green',         hasTypes: true },
-  { type: 'hospitality',   label: 'Hospitality',   icon: Crown,       vuetifyColor: 'pink-lighten-5',      iconColor: '#E91E63', chipColor: 'pink',          hasTypes: true },
-  { type: 'merchshop',     label: 'Merch',         icon: ShoppingBag, vuetifyColor: 'grey-lighten-3',      iconColor: '#616161', chipColor: 'grey-darken-2', hasTypes: true },
-  { type: 'storage',       label: 'Storage',       icon: Package,     vuetifyColor: 'orange-lighten-5',    iconColor: '#FF9800', chipColor: 'orange',        hasTypes: true },
-  { type: 'entrance',      label: 'Ticketing',     icon: Scan,        vuetifyColor: 'red-lighten-5',       iconColor: '#F44336', chipColor: 'red',           hasTypes: true },
-  { type: 'entertainment', label: 'Entertainment', icon: Sparkles,    vuetifyColor: 'purple-lighten-5',    iconColor: '#9C27B0', chipColor: 'purple',        hasTypes: true },
-  { type: 'access',        label: 'Access',        icon: Move,        vuetifyColor: 'blue-grey-lighten-5', iconColor: '#607D8B', chipColor: 'blue-grey',     hasTypes: true },
-  { type: 'kitchen',       label: 'Kitchen',       icon: ChefHat,     vuetifyColor: 'amber-lighten-5',     iconColor: '#FFA000', chipColor: 'amber-darken-2', hasTypes: true },
-]
+const tools = computed(() => buildTools(vuexStore.getters['departments/departments'] || []))
 
 const selectedTool = computed(() => store.state.activeTool)
+
+function avatarStyle(color) {
+  const c = color || '#94a3b8'
+  return { background: `color-mix(in srgb, ${c} 15%, transparent)` }
+}
 
 function handleToolClick(tool) {
   store.setActiveTool(tool.type)
@@ -90,8 +90,11 @@ function toggleToolExpanded(tool) {
   expandedType.value = expandedType.value === tool.type ? null : tool.type
 }
 
+// Le tool "storage" a ses sous-types de CONDITION pilotés par le référentiel StorageType
+// (lien délibéré, cf. SubtypesSection.vue), pas par ses propres Subtype génériques.
 function subtypeOptions(type) {
-  return TOOLS.find((t) => t.type === type)?.subtypes || []
+  if (type === 'storage') return storageSubtypesFor(vuexStore.getters['storageTypes/storageTypes'] || [])
+  return toolOf(type, tools.value)?.subtypes || []
 }
 
 function isSubtypeSelected(type, value) {

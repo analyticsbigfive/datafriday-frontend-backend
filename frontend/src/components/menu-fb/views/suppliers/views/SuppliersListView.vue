@@ -158,12 +158,21 @@
 
       <!-- ── List view ── -->
       <template v-else>
+        <div v-if="bulkSelected.length" class="bulk-bar">
+          <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+          <div class="bulk-bar__actions">
+            <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+            <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+          </div>
+        </div>
         <div class="slv-table-wrap">
           <v-data-table
+            v-model="bulkSelected"
+            show-select
             :headers="tableHeaders"
             :items="filteredSuppliers"
             item-value="id"
-            density="comfortable"
+            density="compact"
             class="suppliers-table"
           >
             <template #item.name="{ item }">
@@ -198,8 +207,8 @@
             </template>
 
             <template #item.actions="{ item }">
-              <div class="d-flex justify-end" style="gap:6px">
-                <button class="slv-table-btn" @click.stop="onEditSupplier(item)">
+              <div class="slv-table-actions">
+                <button class="slv-table-btn slv-table-btn--edit" @click.stop="onEditSupplier(item)">
                   <Pencil :size="14" />
                 </button>
                 <button class="slv-table-btn slv-table-btn--del" @click.stop="onDeleteSupplier(item)">
@@ -227,6 +236,16 @@
       :is-dark="isDark"
       @deleted="loadSuppliers({ forceRefresh: true })"
     />
+
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
+      @confirm="confirmBulkDelete"
+    />
   </div>
 </template>
 
@@ -234,7 +253,9 @@
 import { AlertCircle, LayoutGrid, List, Mail, MapPin, PackageX, Pencil, Phone, Plus, Search, Trash2, Truck, Upload, User, X } from "lucide-vue-next";
 import SupplierFormDrawer from '../drawers/SupplierFormDrawer.vue';
 import SupplierDeleteDialog from '../dialogs/SupplierDeleteDialog.vue';
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
 import { useI18n } from '@/i18n/useI18n';
+import { deleteSupplier } from '@/api/endpoints/menu.api';
 import { getSupplierPhone, getSupplierPicture, getSupplierSiteNames } from '@/utils/supplierHelpers';
 
 const AVATAR_GRADIENTS = [
@@ -250,7 +271,7 @@ const AVATAR_GRADIENTS = [
 
 export default {
   name: "SuppliersListView",
-  components: { AlertCircle, LayoutGrid, List, Mail, MapPin, PackageX, Pencil, Phone, Plus, Search, Trash2, Truck, Upload, User, X, SupplierFormDrawer, SupplierDeleteDialog },
+  components: { AlertCircle, LayoutGrid, List, Mail, MapPin, PackageX, Pencil, Phone, Plus, Search, Trash2, Truck, Upload, User, X, SupplierFormDrawer, SupplierDeleteDialog, BulkDeleteDialog },
   setup() {
     const { t, locale } = useI18n();
     return { t, locale };
@@ -270,6 +291,13 @@ export default {
       deleteDialog: false,
       deleteSupplierId: null,
       deleteSupplierName: "",
+
+      bulkSelected: [],
+      bulkOpen: false,
+      bulkLoading: false,
+      bulkError: "",
+      bulkProgress: 0,
+      bulkTotal: 0,
 
       tableHeaders: [
         { title: "Nom", key: "name" },
@@ -351,6 +379,16 @@ export default {
       this.deleteSupplierId = supplier?.id || supplier?._id || null;
       this.deleteSupplierName = supplier?.name || "";
       this.deleteDialog = true;
+    },
+    openBulkDelete() { this.bulkError=''; this.bulkProgress=0; this.bulkTotal=0; this.bulkOpen=true; },
+    async confirmBulkDelete() {
+      const ids=[...this.bulkSelected]; if(!ids.length) return;
+      this.bulkLoading=true; this.bulkError=''; this.bulkTotal=ids.length; this.bulkProgress=0;
+      const failed=[];
+      for (const id of ids){ try{ await deleteSupplier(id); this.$store.dispatch('suppliers/removeSupplier', id); }catch(e){ failed.push(id); } this.bulkProgress+=1; }
+      this.bulkLoading=false; this.bulkSelected=failed;
+      if(failed.length) this.bulkError=`${failed.length} fournisseur(s) n'ont pas pu être supprimés.`;
+      else this.bulkOpen=false;
     },
   },
   mounted() {
@@ -727,6 +765,18 @@ export default {
   border-color: #e5e7eb;
 }
 
+/* ── Bulk bar ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size:var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.slv--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.slv--dark .bulk-bar__clear { color:#94a3b8; }
+.slv--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
+
 /* ── Table view ── */
 .slv-table-wrap {
   background: #fff;
@@ -739,32 +789,26 @@ export default {
   border-color: rgba(255,255,255,.08);
 }
 
+.suppliers-table :deep(.v-data-table__th),
 .suppliers-table :deep(.v-data-table__td) {
-  vertical-align: middle;
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-size: 13.5px;
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
+.suppliers-table :deep(.v-data-table__td) { vertical-align: middle; }
 .suppliers-table :deep(.v-data-table__th) {
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
-  font-weight: 700 !important;
-  font-size: 11px !important;
+  font-size: var(--fs-xs) !important;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .06em;
   color: #9ca3af !important;
   background: #fafafa !important;
 }
-.slv--dark .suppliers-table :deep(.v-data-table__th) {
-  background: rgba(255,255,255,.03) !important;
-  color: rgba(255,255,255,.45) !important;
-}
-.suppliers-table :deep(.v-data-table__tr:hover) {
-  background: #fafafa !important;
-}
-.slv--dark .suppliers-table :deep(.v-data-table__tr:hover) {
-  background: rgba(255,255,255,.03) !important;
-}
+.suppliers-table :deep(tbody tr:hover td) { background: #fafafa !important; }
+.slv--dark .suppliers-table :deep(.v-data-table__th) { background: #1a2332 !important; }
+.slv--dark .suppliers-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
 .suppliers-table :deep(.v-data-table-footer) {
   border-top: 1px solid #e5e7eb;
   background: #fafafa !important;
@@ -789,9 +833,10 @@ export default {
 .slv-table-avatar--img { background: #f3f4f6; overflow: hidden; }
 .slv-table-avatar--img img { width: 100%; height: 100%; object-fit: cover; }
 
+.slv-table-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .slv-table-btn {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: none;
   border-radius: 8px;
   background: #f3f4f6;
@@ -800,11 +845,17 @@ export default {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all .18s;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
 }
-.slv-table-btn:hover { background: #e5e7eb; color: #374151; }
-.slv-table-btn--del:hover { background: #fef2f2; color: #ff3131; }
+.slv-table-btn--edit { background: #eff6ff; color: #2563eb; }
+.slv-table-btn--edit:hover { background: #dbeafe; }
+.slv-table-btn--del { background: #fef2f2; color: #ff3131; }
+.slv-table-btn--del:hover { background: #fee2e2; }
 
 /* ── Dark mode text ── */
 .slv--dark .suppliers-table :deep(.v-data-table__td) { color: #e2e8f0; }
+.slv--dark .slv-table-btn { background: #1f2937; color: #cbd5e1; }
+.slv--dark .slv-table-btn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.slv--dark .slv-table-btn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
 </style>

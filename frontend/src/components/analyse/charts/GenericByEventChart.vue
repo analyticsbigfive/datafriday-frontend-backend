@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4">
+  <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'gbe--dark': isDark }">
     <div class="d-flex align-center justify-space-between mb-3 flex-wrap ga-3">
       <div>
         <div class="section-title">{{ config.title }}</div>
@@ -28,11 +28,22 @@
 <script setup>
 import { Bar } from 'vue-chartjs'
 import { computed, ref, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import '@/lib/chartjs'
-import { formatCurrency, formatNumber } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { itemLevelTotalsByEvent } from '@/utils/analyseAggregations'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+
+// Chart.js peint sur <canvas> : hors du CSS, donc insensible au thème. On dérive
+// grille + ticks de `isDark` (cf. EventTimelineChart). `chartOptions` étant un
+// computed, tout changement de thème le recalcule et vue-chartjs re-rend.
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
+// Valeurs claires inchangées : '#EEEEEE' (grille) et undefined (défaut Chart.js).
+const gridColor = computed(() => (isDark.value ? 'rgba(255,255,255,0.08)' : '#EEEEEE'))
+const tickColor = computed(() => (isDark.value ? '#94a3b8' : undefined))
 
 const props = defineProps({
   records: { type: Array, default: () => [] },
@@ -47,8 +58,10 @@ const METRICS = computed(() => [
   { key: 'cost',           label: t('anMetricCost'),         format: formatCurrency },
   { key: 'transactions',   label: t('anMetricTransactions'), format: formatNumber },
   { key: 'attendees',      label: t('anMetricAttendees'),    format: formatNumber },
-  { key: 'avgTransaction', label: t('anMetricAvgBasket'),    format: formatCurrency },
-  { key: 'perCap',         label: t('anMetricPerCap'),       format: formatCurrency },
+  // Panier moyen + per-cap : ratios par ticket/transaction → 2 décimales
+  // (parité avec les KPI Analyse, qui passent déjà `digits = 2`).
+  { key: 'avgTransaction', label: t('anMetricAvgBasket'),    format: formatCurrencyDetailed },
+  { key: 'perCap',         label: t('anMetricPerCap'),       format: formatCurrencyDetailed },
   { key: 'transferRate',   label: t('anMetricTransferRate'), format: (v) => `${v.toFixed(1)}%` },
 ])
 
@@ -75,9 +88,46 @@ const config = computed(() => {
   }
 })
 
+// Map eventId -> { name, date } depuis props.events — même repli que
+// EventRevenueByShopChart.eventMetaById : les records shop-level peuvent porter
+// eventName = eventId brut (BUG-123-01) ou aucun nom → jamais d'id brut à l'écran.
+const eventMetaById = computed(() => {
+  const m = new Map()
+  for (const ev of props.events || []) {
+    if (ev?.id == null && ev?.eventId == null) continue
+    m.set(String(ev.id ?? ev.eventId), {
+      name: ev.name || ev.eventName || '',
+      date: ev.date || ev.eventDate || '',
+    })
+  }
+  return m
+})
+
+// BUG-123-01 : un « nom » égal à l'id du record est un id brut, pas un libellé.
+function safeEventName(name, id) {
+  return name && String(name) !== String(id) ? name : ''
+}
+
+// BUG-298-01 : `props.records` porte le grain ARTICLE (event-timeline) quand il
+// est chargé — seule source d'où un coût peut sortir. Voir
+// `itemLevelTotalsByEvent` pour pourquoi les agrégats shop-level n'en ont pas.
+const itemTotalsByEvent = computed(() =>
+  itemLevelTotalsByEvent(props.records, props.costMap || {})
+)
+
 const eventRows = computed(() => {
   if (Array.isArray(props.eventAggregates) && props.eventAggregates.length) {
-    return props.eventAggregates
+    // BUG-298-01 : les agrégats viennent du getter store, bâti sur du shop-level
+    // → `cost` y est nul pour TOUS les events (barres plates alors que le KPI
+    // COÛT affiche un montant). On superpose le coût item-level quand il est
+    // disponible ; sinon on ne touche à rien (chargement asynchrone en cours).
+    // Seul `cost` est réécrit : `margin` n'est pas une métrique de ce graphe, et
+    // la dériver ici croiserait deux grains (CA shop-level / coût item-level).
+    const totals = itemTotalsByEvent.value
+    if (!totals.size) return props.eventAggregates
+    return props.eventAggregates.map((row) =>
+      totals.has(row.eventId) ? { ...row, cost: totals.get(row.eventId).cost } : row
+    )
   }
 
   const byEvent = new Map()
@@ -100,10 +150,11 @@ const eventRows = computed(() => {
   for (const record of props.records || []) {
     if (!record?.eventId) continue
     if (!byEvent.has(record.eventId)) {
+      const meta = eventMetaById.value.get(String(record.eventId))
       byEvent.set(record.eventId, {
         eventId: record.eventId,
-        eventName: record.eventName || record.eventId,
-        eventDate: record.eventDate || null,
+        eventName: safeEventName(record.eventName, record.eventId) || meta?.name || '',
+        eventDate: record.eventDate || meta?.date || null,
         attendees: 0,
         revenue: 0,
         cost: 0,
@@ -115,7 +166,7 @@ const eventRows = computed(() => {
     entry.revenue += record.revenue || 0
     entry.cost += (costMap[record.menuItemId] || 0) * quantity
     entry.transactions += record.transactionCount || 0
-    if (!entry.eventName && record.eventName) entry.eventName = record.eventName
+    if (!entry.eventName) entry.eventName = safeEventName(record.eventName, record.eventId)
     if (!entry.eventDate && record.eventDate) entry.eventDate = record.eventDate
   }
 
@@ -178,7 +229,10 @@ const chartData = computed(() => {
     return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha.toFixed(3)})`
   })
   return {
-    labels: sortedEvents.map((e) => e.eventName || e.name || e.eventId || ''),
+    // BUG-123-01 : plus de repli e.eventId — un id brut n'est jamais un libellé d'axe.
+    labels: sortedEvents.map(
+      (e) => safeEventName(e.eventName, e.eventId) || e.name || eventMetaById.value.get(String(e.eventId))?.name || ''
+    ),
     datasets: [
       {
         label: METRICS.value.find((m) => m.key === metric.value).label,
@@ -197,6 +251,9 @@ const chartOptions = computed(() => {
   return {
     responsive: true,
     maintainAspectRatio: false,
+    // BUG-284 : 1000 ms (défaut Chart.js) → 200 ms — chaque changement de filtre
+    // ré-anime tous les charts en concurrence avec les recalculs.
+    animation: { duration: 200 },
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -207,13 +264,13 @@ const chartOptions = computed(() => {
     },
     scales: {
       x: {
-        ticks: { maxRotation: 60, minRotation: 30, font: { size: 10 } },
+        ticks: { maxRotation: 60, minRotation: 30, font: { size: 10 }, color: tickColor.value },
         grid: { display: false },
       },
       y: {
         beginAtZero: true,
-        ticks: { callback: (v) => m.format(v) },
-        grid: { color: '#EEEEEE' },
+        ticks: { callback: (v) => m.format(v), color: tickColor.value },
+        grid: { color: gridColor.value },
       },
     },
   }
@@ -249,5 +306,24 @@ const chartOptions = computed(() => {
 .sort-toggle :deep(.v-btn--active) {
   background: #e9eaec;
   color: #1f2937;
+}
+
+/* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
+   en dur. Mode clair inchangé. Grille/ticks du canvas pilotés en JS. ── */
+.gbe--dark .section-title {
+  color: #f9fafb;
+}
+.gbe--dark .section-subtitle {
+  color: #94a3b8;
+}
+.gbe--dark .sort-toggle {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.gbe--dark .sort-toggle :deep(.v-btn) {
+  color: #94a3b8;
+}
+.gbe--dark .sort-toggle :deep(.v-btn--active) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f9fafb;
 }
 </style>

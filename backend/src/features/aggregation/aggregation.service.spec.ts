@@ -29,6 +29,10 @@ const mockPrisma: any = {
     deleteMany: jest.fn(),
     upsert: jest.fn(),
   },
+  spaceRevenueMinuteItemAgg: {
+    deleteMany: jest.fn(),
+    upsert: jest.fn(),
+  },
   salesLocation: { findMany: jest.fn() },
   locationSpaceMapping: { findFirst: jest.fn(), findMany: jest.fn() },
   locationShopMapping: { findMany: jest.fn(), count: jest.fn() },
@@ -270,6 +274,7 @@ describe('AggregationService', () => {
       mockPrisma.spaceProductRevenueDailyAgg.upsert.mockResolvedValue({});
       mockPrisma.$executeRaw.mockResolvedValue(0);
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.spaceRevenueMinuteItemAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.salesEvent.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
         _sum: { revenueHt: '150.00', transactionsCount: 3 },
@@ -284,6 +289,17 @@ describe('AggregationService', () => {
       // Service uses $executeRaw (bulk SQL INSERT…ON CONFLICT) instead of individual upsert calls
       expect(mockPrisma.$executeRaw).toHaveBeenCalled();
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
+    });
+
+    it('écrit aussi SpaceRevenueMinuteItemAgg (3 blocs $executeRaw par event)', async () => {
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      // 1 event → 3 $executeRaw (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg)
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
+      expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+      });
     });
 
     it('itemsCount = somme des quantités (fix #6)', async () => {
@@ -324,9 +340,9 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      // SQL GROUP BY handles the grouping — 1 event → exactly 2 $executeRaw calls
-      // (one for SpaceRevenueMinuteAgg, one for SpaceProductRevenueDailyAgg)
-      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(2);
+      // SQL GROUP BY handles the grouping — 1 event → exactly 3 $executeRaw calls
+      // (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg)
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
@@ -338,8 +354,8 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      // SQL GROUP BY handles per-minute grouping — still 2 $executeRaw calls per event
-      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(2);
+      // SQL GROUP BY handles per-minute grouping — still 3 $executeRaw calls per event
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
@@ -440,6 +456,67 @@ describe('AggregationService', () => {
         data: expect.objectContaining({ revenue: 0, transactionCount: 0 }),
       });
     });
+
+    // Trouvé le 2026-08-05 (retour utilisateur : "Avg Spend/Tx"/"Per Capita" vides
+    // dans la fiche event malgré Revenue/Transactions renseignés) — avgSpendPerTx/
+    // perCapita n'étaient jamais calculés par ce pipeline.
+    it('écrit avgSpendPerTx = revenue / transactionCount', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '200', transactionsCount: 40 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ avgSpendPerTx: 5 }),
+      });
+    });
+
+    it('avgSpendPerTx reste null sans transaction (pas de division par zéro)', async () => {
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: null, transactionsCount: null },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ avgSpendPerTx: null }),
+      });
+    });
+
+    it("perCapita reste null sans donnée de billetterie réelle (ex. event QA simulé)", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]); // ticketsScanned/ticketsSold absents
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '200', transactionsCount: 40 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ perCapita: null }),
+      });
+    });
+
+    it('perCapita = revenue / ticketsScanned quand une vraie donnée de billetterie existe', async () => {
+      mockPrisma.event.findMany.mockResolvedValue([{ ...makeEvent(EVENT_1), ticketsScanned: 50 }]);
+      mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
+        _sum: { revenueHt: '200', transactionsCount: 40 },
+      });
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.event.update).toHaveBeenCalledWith({
+        where: { id: EVENT_1 },
+        data: expect.objectContaining({ perCapita: 4 }),
+      });
+    });
   });
 
   // ─── executeSynchronize ──────────────────────────────────────────────────
@@ -468,16 +545,17 @@ describe('AggregationService', () => {
       });
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 5 });
       mockPrisma.spaceProductRevenueDailyAgg.deleteMany.mockResolvedValue({ count: 2 });
+      mockPrisma.spaceRevenueMinuteItemAgg.deleteMany.mockResolvedValue({ count: 0 });
     });
 
-    it('nettoie les 2 tables dans une transaction atomique (fix #9)', async () => {
+    it('nettoie les 3 tables dans une transaction atomique (fix #9)', async () => {
       const job = makeBullJob({ type: 'synchronize' });
       await service.executeSynchronize(job);
 
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       const txOps = mockPrisma.$transaction.mock.calls[0][0];
-      // Les 2 deleteMany doivent être dans la même transaction
-      expect(txOps).toHaveLength(2);
+      // Les 3 deleteMany doivent être dans la même transaction
+      expect(txOps).toHaveLength(3);
     });
 
     it('retourne un summary avec totalRevenue', async () => {

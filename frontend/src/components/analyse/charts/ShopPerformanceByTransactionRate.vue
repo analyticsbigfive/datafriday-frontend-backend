@@ -1,5 +1,5 @@
 <template>
-  <v-card flat rounded="lg" class="pa-5 mb-4 shop-perf-card">
+  <v-card flat rounded="lg" class="pa-5 mb-4 shop-perf-card" :class="{ 'shop-perf-card--dark': isDark }">
     <!-- Header -->
     <div class="d-flex align-center mb-3 flex-wrap ga-2">
       <v-icon color="#7C4DFF">mdi-pulse</v-icon>
@@ -81,7 +81,7 @@
               <div class="d-flex align-center ga-2">
                 <v-icon color="#7C4DFF" size="16">mdi-pulse</v-icon>
                 <span class="text-body-2">
-                  <span class="font-weight-bold" style="color: #4527A0">
+                  <span class="font-weight-bold spr-rate">
                     {{ (shop.transactionRate || 0).toFixed(2) }}
                   </span>
                   <span class="text-medium-emphasis ml-1">{{ t('anShopPerfTxnPerMin') }}</span>
@@ -93,7 +93,7 @@
               >
                 <v-icon color="#1976D2" size="14">mdi-clock-outline</v-icon>
                 <span class="text-caption">
-                  <span class="font-weight-bold" style="color: #0D47A1">
+                  <span class="font-weight-bold spr-first-hour">
                     {{ shop.first60MinTransactionRate.toFixed(2) }}
                   </span>
                   <span class="text-medium-emphasis ml-1">{{ t('anShopPerfFirstHour') }}</span>
@@ -126,7 +126,7 @@
                 :title="t('anShopPerfPeak') + ' (15 min)'"
               >
                 <span>{{ t('anShopPerfPeak') }}</span>
-                <span class="text-high-emphasis font-weight-bold" style="color: #C2185B">
+                <span class="text-high-emphasis font-weight-bold spr-peak">
                   {{ shop.peakTransactionRate.toFixed(2) }} txn/min
                 </span>
               </div>
@@ -157,9 +157,16 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
+import { buildShopPerfRows, visibleShopsForPerf } from '@/utils/analyseAggregations'
 
 const { t } = useI18n()
+
+// Dark mode autonome : suit le thème global Vuetify (cf. EventTimelineChart).
+const theme = useTheme()
+const isDark = computed(() => !!theme.global.current.value.dark)
 
 const PAGE_SIZE = 20
 
@@ -173,11 +180,9 @@ defineEmits(['close', 'shop-click'])
 
 const page = ref(1)
 
-const visibleShops = computed(() =>
-  [...props.shops]
-    .filter((s) => (s.transactionRate || 0) > 0 || (s.totalRevenue || 0) > 0)
-    .sort((a, b) => (b.totalRevenue || 0) - (a.totalRevenue || 0)),
-)
+// Filtre + tri partagés avec l'export : l'onglet du classeur doit lister les
+// mêmes PdV, dans le même ordre que les cartes affichées ici.
+const visibleShops = computed(() => visibleShopsForPerf(props.shops))
 
 const pageCount = computed(() =>
   Math.max(1, Math.ceil(visibleShops.value.length / PAGE_SIZE)),
@@ -200,10 +205,10 @@ function avgRev(shop) {
   return shop.eventCount > 0 ? shop.totalRevenue / shop.eventCount : 0
 }
 function formatNumber(v) {
-  return Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v || 0)
+  return Intl.NumberFormat(currentIntlLocale(), { maximumFractionDigits: 0 }).format(v || 0)
 }
 function formatInt(v) {
-  return Intl.NumberFormat('fr-FR').format(Math.round(v || 0))
+  return Intl.NumberFormat(currentIntlLocale()).format(Math.round(v || 0))
 }
 function isSelected(shop) {
   return (props.selectedShopIds || []).includes(shop.elementId)
@@ -212,20 +217,19 @@ function isSelected(shop) {
 async function exportExcel() {
   try {
     const XLSX = await import('xlsx')
-    const rows = visibleShops.value.map((s) => ({
-      [t('anShopPerfShopName')]: s.elementName || s.shopName,
-      [`${t('anShopPerfTotalRevenue')} (\u20ac)`]: Number((s.totalRevenue || 0).toFixed(2)),
-      [t('anMetricTransactions')]: Math.round(s.totalTransactions || 0),
-      'Txn/Min': Number((s.transactionRate || 0).toFixed(2)),
-      [`${t('anShopPerfFirstHour')} Txn/Min`]: s.first60MinTransactionRate
-        ? Number(s.first60MinTransactionRate.toFixed(2))
-        : null,
-      'Peak 15min Txn/Min': s.peakTransactionRate
-        ? Number(s.peakTransactionRate.toFixed(2))
-        : null,
-      [t('anEvents')]: s.eventCount,
-      [t('anShopPerfOperatingMinutes').replace(':', '').trim()]: Math.round(s.operatingMinutes || 0),
-    }))
+    // Colonnes construites par l'util PARTAG\u00c9 : l'onglet \u00ab Performance des shops \u00bb
+    // du classeur global sort le m\u00eame tableau. Une seule d\u00e9finition, donc pas de
+    // divergence entre les deux fichiers que la page sait produire.
+    const rows = buildShopPerfRows(visibleShops.value, {
+      shop: t('anShopPerfShopName'),
+      revenue: `${t('anShopPerfTotalRevenue')} (\u20ac)`,
+      transactions: t('anMetricTransactions'),
+      rate: t('anExportColRate'),
+      firstHour: `${t('anShopPerfFirstHour')} ${t('anExportColRate')}`,
+      peak: t('anExportColPeak'),
+      events: t('anEvents'),
+      minutes: t('anShopPerfOperatingMinutes').replace(':', '').trim(),
+    })
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Shop Performance')
@@ -310,5 +314,50 @@ async function exportExcel() {
 }
 .space-y-1 > * + * {
   margin-top: 2px;
+}
+/* Accents chiffrés (ex-styles inline du template — mêmes littéraux clairs,
+   sortis en classes pour permettre l'override sombre ci-dessous). */
+.spr-rate {
+  color: #4527A0;
+}
+.spr-first-hour {
+  color: #0D47A1;
+}
+.spr-peak {
+  color: #C2185B;
+}
+
+/* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
+   en dur. Mode clair inchangé. ── */
+.shop-perf-card--dark .section-title {
+  color: #f9fafb;
+}
+.shop-perf-card--dark .section-subtitle {
+  color: #94a3b8;
+}
+/* Bandeau pastel violet/lilas illisible sur fond sombre → même famille de teinte,
+   version sombre. L'overlay noir dégradé + texte blanc restent lisibles dessus. */
+.shop-perf-card--dark .shop-banner {
+  background: linear-gradient(135deg, #2E1A33 0%, #1f2937 100%);
+}
+/* Accents : bascule vers le membre clair de la même famille (violet/bleu/rose). */
+.shop-perf-card--dark .spr-rate {
+  color: #b39ddb;
+}
+.shop-perf-card--dark .spr-first-hour {
+  color: #90caf9;
+}
+.shop-perf-card--dark .spr-peak {
+  color: #f48fb1;
+}
+/* Pagination : même override défensif que MenuItemsByShopTable (BUG-278) —
+   boutons transparents, texte clair, pastille discrète sur la page active. */
+.shop-perf-card--dark :deep(.v-pagination .v-btn) {
+  background-color: transparent !important;
+  color: #d1d5db !important;
+}
+.shop-perf-card--dark :deep(.v-pagination__item--is-active .v-btn) {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  color: #f9fafb !important;
 }
 </style>

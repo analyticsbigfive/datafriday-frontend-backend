@@ -19,7 +19,7 @@
               <span v-if="shop?.type" class="sdv-badge sdv-badge--type">
                 <Tag :size="10" /> {{ shop.type }}
               </span>
-              <span v-for="subType in shop?.subTypes || []" :key="subType" class="sdv-badge">{{ subType }}</span>
+              <span v-for="subType in shop?.subtypes || []" :key="subType" class="sdv-badge">{{ subtypeLabel(subType) }}</span>
               <span v-if="spaceName" class="sdv-badge sdv-badge--space">
                 <Building :size="10" /> {{ spaceName }}
               </span>
@@ -230,10 +230,11 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { formatCurrency } from "@/composables/useFormatters";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import { getShopMenuItems, getShopAvailableMenuItems, assignMenuItemsToShop } from "@/api/endpoints/menu.api";
 import { ArrowLeft, Store, Tag, Building, Settings, UtensilsCrossed, Pencil, AlertCircle, Link, Link2, Package, Check, Minus } from 'lucide-vue-next';
 import ShopDetailEditDrawer from '../drawers/ShopDetailEditDrawer.vue';
+import { SHOP_SUBTYPE_PRESENTATION } from '@/constants/shopSubtypePresentation';
 
 export default {
   name: "ShopDetailView",
@@ -242,7 +243,7 @@ export default {
     const theme = useTheme();
     const { t } = useI18n();
     const isDark = computed(() => !!theme.global.current.value.dark);
-    return { t, isDark, formatCurrency };
+    return { t, isDark, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {
@@ -357,6 +358,10 @@ export default {
     },
   },
   methods: {
+    subtypeLabel(value) {
+      const labelKey = SHOP_SUBTYPE_PRESENTATION[value]?.labelKey;
+      return labelKey ? this.t(labelKey) : value;
+    },
     goBack() {
       if (window.history.length > 1) {
         this.$router.back();
@@ -460,7 +465,7 @@ export default {
         id: String(data?.shopId || data?.id || ""),
         name: String(data?.shopName || data?.name || "").trim() || this.t('spaceMenu.shopFallback'),
         type: String(data?.shopType || data?.type || "").trim(),
-        subTypes: Array.isArray(data?.shopSubTypes) ? data.shopSubTypes : [],
+        subtypes: Array.isArray(data?.shopSubTypes) ? data.shopSubTypes : [],
         notes: data?.notes || "",
         image: data?.image || "",
         attributes: data?.attributes || {},
@@ -493,7 +498,7 @@ export default {
             id: this.shopId,
             name: this.t('spaceMenu.shopFallback'),
             type: "",
-            subTypes: [],
+            subtypes: [],
             notes: "",
             image: "",
             attributes: {},

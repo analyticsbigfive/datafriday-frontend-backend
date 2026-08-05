@@ -24,6 +24,7 @@ describe('QueueService', () => {
   let notificationsQueue: ReturnType<typeof createMockQueue>;
   let exportsQueue: ReturnType<typeof createMockQueue>;
   let aggregationQueue: ReturnType<typeof createMockQueue>;
+  let simulationQueue: ReturnType<typeof createMockQueue>;
 
   beforeEach(async () => {
     dataSyncQueue = createMockQueue();
@@ -31,6 +32,7 @@ describe('QueueService', () => {
     notificationsQueue = createMockQueue();
     exportsQueue = createMockQueue();
     aggregationQueue = createMockQueue();
+    simulationQueue = createMockQueue();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -54,6 +56,10 @@ describe('QueueService', () => {
         {
           provide: getQueueToken(QUEUES.AGGREGATION),
           useValue: aggregationQueue,
+        },
+        {
+          provide: getQueueToken(QUEUES.SIMULATION),
+          useValue: simulationQueue,
         },
       ],
     }).compile();

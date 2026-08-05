@@ -7,15 +7,13 @@
     width="420"
     :title="t('eventsList.deleteTitle')"
     :subtitle="t('eventsList.deleteSubtitle')"
+    :error-message="error"
   >
     <template #icon>
       <Trash2 :size="18" color="white" />
     </template>
 
     <div :class="{ 'edd--dark': isDark }">
-      <div v-if="error" class="edd-error">
-        <AlertCircle :size="14" /> {{ error }}
-      </div>
       <p class="edd-text">
         {{ t('eventsList.deleteText') }} <strong>{{ eventName }}</strong> ?
       </p>
@@ -33,12 +31,12 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n';
-import { Trash2, AlertCircle } from 'lucide-vue-next';
+import { Trash2 } from 'lucide-vue-next';
 import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 
 export default {
   name: 'EventDeleteDialog',
-  components: { Trash2, AlertCircle, EventDrawerShell },
+  components: { Trash2, EventDrawerShell },
   setup() {
     const { t } = useI18n();
     return { t };
@@ -56,12 +54,6 @@ export default {
 
 <style scoped>
 .edd-text { font-size: var(--fs-md); color: #374151; line-height: 1.6; margin: 0; }
-.edd-error {
-  display: flex; align-items: center; gap: 8px;
-  background: #fef2f2; border: 1px solid #fecaca;
-  color: #991b1b; border-radius: 10px;
-  padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 14px;
-}
 .edd-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 18px; height: 38px;
@@ -80,7 +72,6 @@ export default {
 
 /* Dark mode */
 .edd--dark .edd-text { color: #d1d5db; }
-.edd--dark .edd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
 /* Bouton Cancel : slotté dans le footer d'EventDrawerShell (hors du wrapper .edd--dark) ;
    on le cible via .eds--dark, la racine dark du shell qui l'englobe réellement. */
 .eds--dark .edd-btn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }

@@ -63,16 +63,16 @@
           @drop.prevent="onDrop"
         >
           <FileSpreadsheet :size="52" class="mb-4" style="color: #9ca3af;" />
-          <div class="text-h6 font-weight-medium mb-1">Glissez un fichier CSV ici</div>
-          <div class="text-body-2 text-medium-emphasis mb-5">ou cliquez pour parcourir</div>
+          <div class="elv-dz-title mb-1">Glissez un fichier CSV ici</div>
+          <div class="elv-dz-sub text-medium-emphasis mb-5">ou cliquez pour parcourir</div>
           <v-btn variant="outlined" rounded="lg" size="small" class="text-none" @click.stop="$refs.fileInput.click()">
             <Upload :size="16" class="mr-2" />
             Choisir un fichier
           </v-btn>
         </div>
         <v-card variant="tonal" rounded="lg" class="mt-4 pa-4" elevation="0">
-          <div class="text-body-2 font-weight-medium mb-1">Format attendu</div>
-          <div class="text-caption text-medium-emphasis">Première ligne = en-têtes · Séparateur virgule · Encodage UTF-8</div>
+          <div class="elv-dz-format-title mb-1">Format attendu</div>
+          <div class="elv-dz-format-hint text-medium-emphasis">Première ligne = en-têtes · Séparateur virgule · Encodage UTF-8</div>
         </v-card>
       </div>
 
@@ -92,18 +92,14 @@
               <span class="text-body-2">{{ field.label }}</span>
               <v-chip v-if="field.required" size="x-small" color="error" variant="flat" class="ml-1">requis</v-chip>
             </div>
-            <v-select
-              v-model="mapping[field.key]"
-              :items="columnOptions"
-              item-title="title"
-              item-value="value"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              :menu-props="{ class: 'elv-select-overlay' }"
+            <select
+              class="form-select form-select-sm elv-map-select"
+              :value="mapping[field.key] ?? ''"
+              @change="mapping[field.key] = $event.target.value || null"
               style="flex: 1;"
-            />
+            >
+              <option v-for="opt in columnOptions" :key="`col-${opt.value ?? 'ignore'}`" :value="opt.value ?? ''">{{ opt.title }}</option>
+            </select>
           </div>
         </div>
       </div>
@@ -141,34 +137,33 @@
               <span class="elv-csv-chip__text">{{ val }}</span>
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
-            <v-select
-              :model-value="currentValueStep.valueMap[val]"
-              @update:model-value="onValueSelect(val, $event)"
-              :items="currentValueStep.items"
-              item-title="name"
-              item-value="id"
-              placeholder="Ignorer"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              clearable
-              :menu-props="{ class: 'elv-select-overlay' }"
-              class="elv-mapping-select"
+            <select
+              class="form-select form-select-sm elv-map-select elv-mapping-select"
+              style="flex: 1; min-width: 0;"
+              :value="currentValueStep.valueMap[val] ?? ''"
+              @change="onValueMapChange(val, $event)"
             >
-              <template #item="{ item, props }">
-                <v-list-item
-                  v-bind="props"
-                  :style="item.raw.id === CREATE_SENTINEL
-                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
-                    : {}"
-                >
-                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
-                    <Plus :size="14" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
+              <option value="">Ignorer</option>
+              <option
+                v-for="opt in currentValueStep.items"
+                :key="opt.id"
+                :value="opt.id"
+                :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
+              >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
+            </select>
+            <v-btn
+              v-if="currentValueStep.createKind === 'eventType' && !currentValueStep.valueMap[val]"
+              icon
+              size="small"
+              variant="text"
+              :loading="quickCreating[val]"
+              :disabled="quickCreating[val]"
+              title="Créer automatiquement ce type d'événement"
+              @click="quickCreateType(val)"
+            >
+              <Zap :size="16" />
+            </v-btn>
+            <span v-if="quickCreateErrors[val]" class="elv-quick-create-error">{{ quickCreateErrors[val] }}</span>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -210,35 +205,34 @@
               <span class="elv-csv-chip__text">{{ pair.configRaw }}</span>
             </div>
             <ArrowRight :size="14" class="elv-mapping-arrow" />
-            <v-select
-              :model-value="configValueMap[pair.key]"
-              @update:model-value="onConfigPairSelect(pair, $event)"
-              :items="configSelectItems(pair.spaceRaw)"
-              item-title="name"
-              item-value="id"
-              :placeholder="spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé'"
+            <select
+              class="form-select form-select-sm elv-map-select elv-mapping-select"
+              style="flex: 1; min-width: 0;"
+              :value="configValueMap[pair.key] ?? ''"
               :disabled="!spaceValueMap[pair.spaceRaw]"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              clearable
-              :menu-props="{ class: 'elv-select-overlay' }"
-              class="elv-mapping-select"
+              @change="onConfigMapChange(pair, $event)"
             >
-              <template #item="{ item, props }">
-                <v-list-item
-                  v-bind="props"
-                  :style="item.raw.id === CREATE_SENTINEL
-                    ? { color: '#ff3131', fontWeight: '700', borderTop: '1px solid #f3f4f6' }
-                    : {}"
-                >
-                  <template v-if="item.raw.id === CREATE_SENTINEL" #prepend>
-                    <Plus :size="14" />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
+              <option value="">{{ spaceValueMap[pair.spaceRaw] ? 'Ignorer' : 'Espace non mappé' }}</option>
+              <option
+                v-for="opt in configSelectItems(pair.spaceRaw)"
+                :key="opt.id"
+                :value="opt.id"
+                :class="{ 'elv-map-select__add': opt.id === CREATE_SENTINEL }"
+              >{{ opt.id === CREATE_SENTINEL ? '＋ ' + opt.name : opt.name }}</option>
+            </select>
+            <v-btn
+              v-if="spaceValueMap[pair.spaceRaw] && !configValueMap[pair.key]"
+              icon
+              size="small"
+              variant="text"
+              :loading="quickCreating[pair.key]"
+              :disabled="quickCreating[pair.key]"
+              title="Créer automatiquement cette configuration"
+              @click="quickCreateConfig(pair)"
+            >
+              <Zap :size="16" />
+            </v-btn>
+            <span v-if="quickCreateErrors[pair.key]" class="elv-quick-create-error">{{ quickCreateErrors[pair.key] }}</span>
           </div>
         </div>
         <div v-else class="elv-empty-state">
@@ -380,80 +374,74 @@
        Vuetify, INFÉRIEUR au 2200 forcé sur EventDrawerShell (BUG-148/BUG-241 documentés plus
        bas dans ce fichier) — il s'ouvrirait invisible, masqué sous le drawer. Même correctif
        que tous les `v-select` de ce composant. -->
-  <v-dialog v-model="createDialog.open" max-width="420" :persistent="createDialog.loading" class="elv-select-overlay">
-    <v-card rounded="lg">
-      <v-card-title class="d-flex align-center" style="gap: 8px;">
-        <Plus :size="18" />
-        {{ createDialogTitle }}
-      </v-card-title>
-      <v-card-text>
-        <v-alert v-if="createDialog.error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
-          {{ createDialog.error }}
-        </v-alert>
+  <v-dialog v-model="createDialog.open" max-width="440" :persistent="createDialog.loading" class="elv-select-overlay">
+    <div class="elv-cd" :class="{ 'elv-cd--dark': isDark }">
 
-        <div class="text-body-2 font-weight-medium mb-1">Nom</div>
-        <v-text-field
-          v-model="createDialog.name"
-          variant="outlined"
-          density="compact"
-          rounded="lg"
-          hide-details
-          autofocus
-          class="mb-4"
-          @keydown.enter="confirmCreateDialog"
-        />
+      <!-- Header rouge (charte) -->
+      <div class="elv-cd__header">
+        <div class="elv-cd__header-icon"><Plus :size="20" color="white" /></div>
+        <div class="elv-cd__header-title">{{ createDialogTitle }}</div>
+        <button type="button" class="elv-cd__close" aria-label="Fermer" :disabled="createDialog.loading" @click="createDialog.open = false">
+          <X :size="18" />
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="elv-cd__body">
+        <div v-if="createDialog.error" class="elv-cd__error">
+          <AlertCircle :size="14" style="flex-shrink:0" /> {{ createDialog.error }}
+        </div>
+
+        <div class="elv-cd__field">
+          <label class="elv-cd__label" for="elv-cd-name">Nom <span class="elv-cd__star">*</span></label>
+          <input
+            id="elv-cd-name"
+            v-model="createDialog.name"
+            type="text"
+            class="form-control form-control-sm elv-cd__input"
+            autofocus
+            @keydown.enter="confirmCreateDialog"
+          />
+        </div>
 
         <template v-if="createDialog.kind === 'eventCategory' || createDialog.kind === 'eventSubcategory'">
-          <div class="text-body-2 font-weight-medium mb-1">{{ createDialogParentLabel }}</div>
-          <v-alert v-if="createDialogParentOptions.length === 0" type="warning" variant="tonal" density="compact" rounded="lg">
-            {{ createDialogParentEmptyMessage }}
-          </v-alert>
-          <v-select
-            v-else
-            v-model="createDialog.parentId"
-            :items="createDialogParentOptions"
-            item-title="name"
-            item-value="id"
-            variant="outlined"
-            density="compact"
-            rounded="lg"
-            hide-details
-            :menu-props="{ class: 'elv-select-overlay' }"
-          />
-          <v-checkbox
-            v-if="createDialog.kind === 'eventCategory'"
-            v-model="createDialog.hasHomeTeam"
-            label="Équipe à domicile"
-            density="compact"
-            hide-details
-            class="mt-2"
-          />
+          <div class="elv-cd__field">
+            <label class="elv-cd__label" for="elv-cd-parent">{{ createDialogParentLabel }} <span class="elv-cd__star">*</span></label>
+            <div v-if="createDialogParentOptions.length === 0" class="elv-cd__warn">
+              {{ createDialogParentEmptyMessage }}
+            </div>
+            <select v-else id="elv-cd-parent" v-model="createDialog.parentId" class="form-select form-select-sm elv-cd__input">
+              <option :value="null" disabled>—</option>
+              <option v-for="opt in createDialogParentOptions" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+            </select>
+          </div>
+          <label v-if="createDialog.kind === 'eventCategory'" class="elv-cd__check">
+            <input type="checkbox" v-model="createDialog.hasHomeTeam" class="form-check-input" />
+            <span>Équipe à domicile</span>
+          </label>
         </template>
 
         <template v-else-if="createDialog.kind === 'configuration'">
-          <div class="text-body-2 font-weight-medium mb-1">Espace</div>
-          <div class="text-body-2 text-medium-emphasis">{{ createDialogConfigSpaceName }}</div>
+          <div class="elv-cd__field">
+            <label class="elv-cd__label">Espace</label>
+            <div class="elv-cd__static">{{ createDialogConfigSpaceName }}</div>
+          </div>
         </template>
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="outlined" rounded="lg" size="small" class="text-none" :disabled="createDialog.loading" @click="createDialog.open = false">
+      </div>
+
+      <!-- Footer -->
+      <div class="elv-cd__footer">
+        <button type="button" class="elv-cd__btn elv-cd__btn--cancel" :disabled="createDialog.loading" @click="createDialog.open = false">
           Annuler
-        </v-btn>
-        <v-btn
-          color="#ff3131"
-          variant="flat"
-          rounded="lg"
-          size="small"
-          class="text-white text-none"
-          :loading="createDialog.loading"
-          :disabled="!canConfirmCreateDialog"
-          @click="confirmCreateDialog"
-        >
+        </button>
+        <button type="button" class="elv-cd__btn elv-cd__btn--primary" :disabled="!canConfirmCreateDialog" @click="confirmCreateDialog">
+          <span v-if="createDialog.loading" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+          <Check v-else :size="15" class="me-1" />
           Créer
-        </v-btn>
-      </v-card-actions>
-    </v-card>
+        </button>
+      </div>
+
+    </div>
   </v-dialog>
 
   <!-- Espace : vrai wizard de création (spaceType + adresse), pas le dialog minimal ci-dessus —
@@ -466,7 +454,7 @@
 </template>
 
 <script>
-import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus } from 'lucide-vue-next';
+import { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, Zap, X, Check, AlertCircle } from 'lucide-vue-next';
 import { createEvent, createEventType, createEventCategory, createEventSubcategory } from '@/api/endpoints/event.api';
 import { createConfiguration } from '@/api/endpoints/builder-v2.api';
 import { parseCSV } from '@/utils/csv';
@@ -496,7 +484,7 @@ const CREATE_SENTINEL = '__create__';
 
 export default {
   name: 'CsvImportDrawer',
-  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, EventDrawerShell, SpaceCreateDrawer },
+  components: { Upload, FileSpreadsheet, CheckCircle2, ArrowRight, Tags, Plus, X, Check, AlertCircle, Zap, EventDrawerShell, SpaceCreateDrawer },
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
@@ -527,6 +515,8 @@ export default {
       taxonomyErrors: {},
       configsLoading: false,
       configsLoadError: '',
+      quickCreating: {},
+      quickCreateErrors: {},
       createDialog: this.defaultCreateDialog(),
       spaceCreateDrawer: { open: false, targetVal: null },
       eventFields: [
@@ -849,6 +839,7 @@ export default {
         }
       });
       this.taxonomyLoading = false;
+      this.autoMatchCurrentStep();
     },
 
     async loadConfigsForCurrentSpaces() {
@@ -872,6 +863,7 @@ export default {
         this.configsLoadError = failures[0];
       }
       this.configsLoading = false;
+      this.autoMatchCurrentStep();
     },
 
     _uniqueColValues(fieldKey) {
@@ -927,6 +919,107 @@ export default {
         return;
       }
       this.configValueMap[pair.key] = newValue;
+    },
+
+    // Même règle de normalisation que le matching des en-têtes CSV (step 2, `readFile`) : les
+    // valeurs de taxonomie doivent matcher selon la même tolérance (casse, espaces/tirets/underscores).
+    _normalizeStr(s) {
+      return String(s || '').toLowerCase().replace(/[\s_\-()|]/g, '');
+    },
+
+    // Pré-sélectionne, pour chaque valeur CSV non encore mappée, l'item existant dont le nom
+    // correspond exactement (une fois normalisé) — sans jamais écraser un choix déjà fait par
+    // l'utilisateur (y compris après un retour en arrière dans les étapes).
+    autoMatchValues(values, items, valueMap) {
+      for (const val of values) {
+        if (valueMap[val]) continue;
+        const match = items.find(
+          (it) => it.id !== CREATE_SENTINEL && this._normalizeStr(it.name) === this._normalizeStr(val),
+        );
+        if (match) valueMap[val] = match.id;
+      }
+    },
+
+    autoMatchConfigPairs() {
+      for (const pair of this.uniqueSpaceConfigPairs) {
+        if (this.configValueMap[pair.key]) continue;
+        const match = this.configSelectItems(pair.spaceRaw).find(
+          (it) => it.id !== CREATE_SENTINEL && this._normalizeStr(it.name) === this._normalizeStr(pair.configRaw),
+        );
+        if (match) this.configValueMap[pair.key] = match.id;
+      }
+    },
+
+    // Point d'entrée unique appelé à l'arrivée sur une étape de mapping de valeurs et après
+    // (re)chargement des données dont elle dépend (taxonomies, configurations) — couvre à la
+    // fois la navigation normale et les boutons "Réessayer" affichés en cas d'échec réseau.
+    autoMatchCurrentStep() {
+      if (this.step === 4) {
+        this.autoMatchConfigPairs();
+        return;
+      }
+      const cs = this.currentValueStep;
+      if (cs) this.autoMatchValues(cs.values, cs.items, cs.valueMap);
+    },
+
+    // Création en un clic, réservée aux cas sans info supplémentaire à demander à l'utilisateur :
+    // un type d'événement n'a pas de parent (contrairement à Catégorie/Sous-catégorie) et une
+    // configuration a déjà son espace parent connu via la paire (spaceValueMap). Espace/Catégorie/
+    // Sous-catégorie gardent le dialogue manuel — voir openCreateDialog.
+    async quickCreateType(val) {
+      if (this.quickCreating[val]) return;
+      this.quickCreating = { ...this.quickCreating, [val]: true };
+      this.quickCreateErrors = { ...this.quickCreateErrors, [val]: '' };
+      try {
+        const created = await createEventType({ name: val });
+        await this.$store.dispatch('eventTypes/addEventType', created);
+        this.typeValueMap[val] = created?.id || created?._id;
+      } catch (e) {
+        this.quickCreateErrors = {
+          ...this.quickCreateErrors,
+          [val]: e?.response?.data?.message || e?.message || 'Erreur inconnue',
+        };
+      } finally {
+        this.quickCreating = { ...this.quickCreating, [val]: false };
+      }
+    },
+
+    async quickCreateConfig(pair) {
+      const spaceId = this.spaceValueMap[pair.spaceRaw];
+      if (!spaceId || this.quickCreating[pair.key]) return;
+      this.quickCreating = { ...this.quickCreating, [pair.key]: true };
+      this.quickCreateErrors = { ...this.quickCreateErrors, [pair.key]: '' };
+      try {
+        const created = await createConfiguration(spaceId, { name: pair.configRaw });
+        this._spaceConfigsCache = {
+          ...this._spaceConfigsCache,
+          [spaceId]: [...(this._spaceConfigsCache[spaceId] || []), created],
+        };
+        this.configValueMap[pair.key] = created?.id || created?._id;
+      } catch (e) {
+        this.quickCreateErrors = {
+          ...this.quickCreateErrors,
+          [pair.key]: e?.response?.data?.message || e?.message || 'Erreur inconnue',
+        };
+      } finally {
+        this.quickCreating = { ...this.quickCreating, [pair.key]: false };
+      }
+    },
+
+    // Un <select> natif conserve l'option choisie par l'utilisateur même si le modèle
+    // ne change pas (contrairement au v-select contrôlé d'origine). Quand on choisit
+    // « + Ajouter » (ouvre un dialog sans committer), le DOM resterait bloqué sur la
+    // sentinelle : on resynchronise donc le <select> sur la valeur réelle du modèle
+    // après chaque changement (no-op visuel pour un vrai choix, retour arrière pour
+    // la sentinelle).
+    onValueMapChange(val, e) {
+      this.onValueSelect(val, e.target.value || null);
+      e.target.value = this.currentValueStep?.valueMap?.[val] ?? '';
+    },
+
+    onConfigMapChange(pair, e) {
+      this.onConfigPairSelect(pair, e.target.value || null);
+      e.target.value = this.configValueMap[pair.key] ?? '';
     },
 
     defaultCreateDialog() {
@@ -1033,6 +1126,7 @@ export default {
         await this.loadConfigsForCurrentSpaces();
       }
       this.step = nextStep;
+      this.autoMatchCurrentStep();
     },
 
     navigateBack() {
@@ -1062,6 +1156,8 @@ export default {
       this.taxonomyErrors = {};
       this.configsLoading = false;
       this.configsLoadError = '';
+      this.quickCreating = {};
+      this.quickCreateErrors = {};
       this.dropping = false;
       this.createDialog = this.defaultCreateDialog();
       this.spaceCreateDrawer = { open: false, targetVal: null };
@@ -1213,6 +1309,11 @@ export default {
       const payload = {
         name,
         eventDate,
+        // Pas de colonne CSV dédiée "date de début" — eventDate EST la date de début,
+        // même convention que les autres chemins de création (wizard, CreateEventDialog).
+        // Sans elle, la colonne "Date de début" de /events restait vide tant que
+        // l'événement n'avait pas été ouvert puis sauvegardé manuellement une fois.
+        eventStartDate: eventDate,
         eventEndDate,
         eventEndTime,
         // Texte brut envoyé tel quel — EventsService.resolveEventTeamFields résout-ou-crée
@@ -1292,8 +1393,11 @@ export default {
             continue;
           }
           if (existingKeys.has(built.dedupKey)) {
+            // Compté uniquement dans `skipped`, jamais dans `errors` : un doublon volontairement
+            // ignoré n'est pas un échec d'import (voir l'alerte dédiée "ligne(s) ignorée(s)" dans
+            // le template) — le mettre aussi dans `errors` le faisait apparaître en double, une
+            // fois comme "ignoré" et une fois comme "non importé" (BUG-258-02).
             skippedCount++;
-            errors.push({ row: rowNumber, message: `Ignoré : un événement "${built.name}" existe déjà à cette date` });
             this.importedCount++;
             continue;
           }
@@ -1422,6 +1526,7 @@ export default {
 .elv-mapping-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(var(--v-border-color, 0, 0, 0), var(--v-border-opacity, 0.12));
@@ -1431,6 +1536,59 @@ export default {
 .elv-mapping-row:hover { background: rgba(var(--v-border-color, 0, 0, 0), 0.04); }
 .elv-mapping-arrow { color: #9ca3af; flex-shrink: 0; }
 .elv-mapping-select { flex: 1; min-width: 0; }
+
+/* Select natif Bootstrap du mapping colonnes (étape 2) — aligné visuellement sur les champs
+   Vuetify du drawer (border-radius, focus rouge marque). */
+.elv-map-select { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-base); }
+.elv-map-select:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
+.elv-map-select__add { color: #ff3131; font-weight: 700; }
+
+/* Dropzone import — typographie sur tokens de charte (remplace text-h6/body-2/caption Vuetify) */
+.elv-dz-title { font-size: var(--fs-xl); font-weight: var(--fw-medium); }
+.elv-dz-sub { font-size: var(--fs-md); }
+.elv-dz-format-title { font-size: var(--fs-md); font-weight: var(--fw-medium); }
+.elv-dz-format-hint { font-size: var(--fs-sm); }
+
+/* ── Dialog de création inline stylé (header rouge charte, champs Bootstrap, boutons pilule) ── */
+.elv-cd { background: #fff; border-radius: 16px; overflow: hidden; }
+.elv-cd__header { display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: #ff3131; }
+.elv-cd__header-icon { width: 38px; height: 38px; border-radius: 11px; background: rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.elv-cd__header-title { flex: 1; min-width: 0; color: #fff; font-size: var(--fs-md); font-weight: 700; }
+.elv-cd__close { width: 30px; height: 30px; border: none; border-radius: 8px; background: rgba(255,255,255,.18); color: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .18s; flex-shrink: 0; }
+.elv-cd__close:hover:not(:disabled) { background: rgba(255,255,255,.3); }
+.elv-cd__close:disabled { opacity: .5; cursor: not-allowed; }
+.elv-cd__body { padding: 20px 18px; display: flex; flex-direction: column; gap: 16px; }
+.elv-cd__error { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px; font-size: var(--fs-base); }
+.elv-cd__field { display: flex; flex-direction: column; gap: 6px; }
+.elv-cd__label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
+.elv-cd__star { color: #ff3131; }
+.elv-cd__input { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-base); }
+.elv-cd__input:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
+.elv-cd__static { font-size: var(--fs-base); color: #6b7280; padding: 4px 0; }
+.elv-cd__warn { padding: 10px 12px; background: #fff7ed; border: 1px solid #fed7aa; color: #b45309; border-radius: 10px; font-size: var(--fs-sm); }
+.elv-cd__check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-base); color: #374151; cursor: pointer; }
+.elv-cd__check .form-check-input { margin: 0; cursor: pointer; }
+.elv-cd__check .form-check-input:checked { background-color: #ff3131; border-color: #ff3131; }
+.elv-cd__footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+.elv-cd__btn { display: inline-flex; align-items: center; padding: 8px 18px; border-radius: 100px; font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
+.elv-cd__btn:disabled { opacity: .5; cursor: not-allowed; }
+.elv-cd__btn--cancel { background: transparent; border: 1.5px solid #e5e7eb; color: #6b7280; }
+.elv-cd__btn--cancel:hover:not(:disabled) { background: #f3f4f6; color: #374151; }
+.elv-cd__btn--primary { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255,49,49,.3); }
+.elv-cd__btn--primary:hover:not(:disabled) { box-shadow: 0 6px 18px rgba(255,49,49,.4); transform: translateY(-1px); }
+
+/* Dark */
+.elv-cd--dark { background: #1f2937; }
+.elv-cd--dark .elv-cd__body { background: #1f2937; }
+.elv-cd--dark .elv-cd__label { color: #d1d5db; }
+.elv-cd--dark .elv-cd__input { background-color: #111827; border-color: rgba(255,255,255,.14); color: #e5e7eb; }
+.elv-cd--dark select.elv-cd__input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E"); }
+.elv-cd--dark .elv-cd__static { color: #94a3b8; }
+.elv-cd--dark .elv-cd__footer { background: #111827; border-top-color: rgba(255,255,255,.08); }
+.elv-cd--dark .elv-cd__btn--cancel { background: transparent; border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.elv-cd--dark .elv-cd__btn--cancel:hover:not(:disabled) { background: #374151; color: #fff; }
+.elv-cd--dark .elv-cd__check { color: #d1d5db; }
+.elv-quick-create-error { flex-basis: 100%; font-size: 12px; color: #ff3131; }
 
 /* État vide (aucune valeur à mapper pour cette colonne) : bloc centré cohérent avec la zone de
    dépôt de l'étape 1, plutôt qu'un simple bandeau d'alerte. */
@@ -1511,6 +1669,10 @@ export default {
   color: rgba(255, 255, 255, 0.6) !important;
 }
 
+.elv--dark .elv-map-select {
+  background-color: #1e293b; border-color: rgba(255,255,255,.14); color: #e5e7eb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
 .elv--dark .elv-mapping-card {
   background: #1f2937 !important;
   border-color: rgba(255, 255, 255, 0.08) !important;

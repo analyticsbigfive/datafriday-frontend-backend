@@ -32,7 +32,7 @@
             <div v-if="item.category" class="ms-item__sub">{{ item.category }}</div>
             <!-- `price` = TTC scopé espace calculé serveur (spacePrices[spaceId] sinon global) -->
             <div v-if="item.price != null" class="ms-item__price">
-              {{ Number(item.price).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) }}
+              {{ formatPrice(Number(item.price)) }}
             </div>
           </div>
           <span v-if="item.type" class="ms-item__badge">{{ item.type }}</span>
@@ -56,10 +56,12 @@
 <script setup>
 import { ref, computed, inject, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 import SectionCard from './SectionCard.vue'
 import { getShopAvailableMenuItems } from '@/api/endpoints/menu.api'
 
 const { t } = useI18n()
+const { formatPrice } = useNumberFormat()
 const store = inject('builderStore')
 const element = computed(() => store.selectedElement.value)
 const menuCount = computed(() => store.elementMenuCountForActiveConfig(element.value?.id))

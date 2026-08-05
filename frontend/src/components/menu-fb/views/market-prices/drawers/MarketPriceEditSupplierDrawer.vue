@@ -14,11 +14,6 @@
             <button class="mpesd__close-btn" :disabled="loading" @click="close"><X :size="18" /></button>
           </div>
 
-          <!-- Error -->
-          <div v-if="error" class="mpesd__error">
-            <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
-          </div>
-
           <!-- Content -->
           <div class="mpesd-content">
 
@@ -287,7 +282,7 @@
                   <option v-for="opt in localPackagingOptions" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
                 <span class="mpesd-sentence-text">{{ t('of') }}</span>
-                <input v-model.number="form.unitsPerPurchase" type="number" min="0" class="mpesd-inline-input" style="width: 70px;" @input="recomputePricePerUnit" />
+                <NumberField v-model="form.unitsPerPurchase" :decimals="2" :min="0" :empty-value="0" class="mpesd-inline-input" style="width: 70px;" @change="recomputePricePerUnit" />
                 <select v-model="form.unit" class="mpesd-inline-select" style="width: 80px;">
                   <option value="">—</option>
                   <option value="Kg">Kg</option>
@@ -295,7 +290,7 @@
                   <option value="Pc">Pc</option>
                 </select>
                 <span class="mpesd-sentence-text">{{ t('forTheAmountOf') }}</span>
-                <input v-model.number="form.price" type="number" min="0" class="mpesd-inline-input" style="width: 90px;" @input="recomputePricePerUnit" />
+                <NumberField v-model="form.price" :decimals="2" :min="0" pad grouping :empty-value="0" class="mpesd-inline-input" style="width: 90px;" @change="recomputePricePerUnit" />
                 <span class="mpesd-sentence-text">.</span>
               </div>
             </div>
@@ -312,7 +307,7 @@
                   <option v-for="opt in localPackagingOptions" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
                 <span class="mpesd-sentence-text">{{ t('of') }}</span>
-                <input v-model.number="form.packedUnits" type="number" min="0" step="0.01" class="mpesd-inline-input" style="width: 80px;" />
+                <NumberField v-model="form.packedUnits" :decimals="2" :min="0" :empty-value="0" class="mpesd-inline-input" style="width: 80px;" />
                 <span class="mpesd-sentence-text">{{ form.unit || '…' }} .</span>
               </div>
             </div>
@@ -331,13 +326,13 @@
                 <div class="col-6">
                   <div class="mpesd-field-row">
                     <label for="mpesd-packedUnits" class="mpesd-field-label">{{ t('packedUnits') }} ({{ form.unit || 'unit' }})</label>
-                    <input id="mpesd-packedUnits" v-model.number="form.packedUnits" type="number" min="0" class="form-control mpesd-input" />
+                    <NumberField id="mpesd-packedUnits" v-model="form.packedUnits" :decimals="2" :min="0" :empty-value="0" class="form-control mpesd-input" />
                   </div>
                 </div>
                 <div class="col-6">
                   <div class="mpesd-field-row">
                     <label for="mpesd-numberOfUnits" class="mpesd-field-label">{{ t('numberOfUnits') }}</label>
-                    <input id="mpesd-numberOfUnits" v-model.number="form.numberOfUnits" type="number" min="0" class="form-control mpesd-input" />
+                    <NumberField id="mpesd-numberOfUnits" v-model="form.numberOfUnits" :decimals="2" :min="0" :empty-value="0" class="form-control mpesd-input" />
                   </div>
                 </div>
               </div>
@@ -345,19 +340,19 @@
                 <div class="col-4">
                   <div class="mpesd-field-row">
                     <label for="mpesd-length" class="mpesd-field-label">{{ t('lengthCm') }}</label>
-                    <input id="mpesd-length" v-model.number="form.packingLength" type="number" min="0" class="form-control mpesd-input" />
+                    <NumberField id="mpesd-length" v-model="form.packingLength" :decimals="2" :min="0" :empty-value="0" class="form-control mpesd-input" />
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="mpesd-field-row">
                     <label for="mpesd-width" class="mpesd-field-label">{{ t('widthCm') }}</label>
-                    <input id="mpesd-width" v-model.number="form.packingWidth" type="number" min="0" class="form-control mpesd-input" />
+                    <NumberField id="mpesd-width" v-model="form.packingWidth" :decimals="2" :min="0" :empty-value="0" class="form-control mpesd-input" />
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="mpesd-field-row">
                     <label for="mpesd-height" class="mpesd-field-label">{{ t('heightCm') }}</label>
-                    <input id="mpesd-height" v-model.number="form.packingHeight" type="number" min="0" class="form-control mpesd-input" />
+                    <NumberField id="mpesd-height" v-model="form.packingHeight" :decimals="2" :min="0" :empty-value="0" class="form-control mpesd-input" />
                   </div>
                 </div>
               </div>
@@ -378,6 +373,11 @@
               </div>
             </div>
 
+          </div>
+
+          <!-- Error : BUG-273, hors zone scrollable, toujours visible juste au-dessus des boutons. -->
+          <div v-if="error" class="mpesd__error">
+            <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
           </div>
 
           <!-- Footer -->
@@ -403,10 +403,12 @@ import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
 import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
 import MarketPriceNewIndustrialDialog from '../dialogs/MarketPriceNewIndustrialDialog.vue';
 import MarketPriceNewPackagingDialog from '../dialogs/MarketPriceNewPackagingDialog.vue';
+import NumberField from '@/components/common/NumberField.vue';
+import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'MarketPriceEditSupplierDrawer',
-  components: { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog },
+  components: { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog, NumberField },
   props: {
     modelValue: { type: Boolean, default: false },
     item: { type: Object, default: null },
@@ -805,8 +807,9 @@ export default {
       this.form.pricePerUnit = upp > 0 ? price / upp : 0;
     },
     formatPrice(value) {
+      // Prix en euros — formatage locale-aware (fr → "12,50 €", en → "€12.50").
       if (value === null || value === undefined || value === '') return '-';
-      if (typeof value === 'number') return `$${value.toFixed(2)}`;
+      if (typeof value === 'number') return formatCurrencyDetailed(value);
       return String(value);
     },
     close() {
@@ -973,12 +976,13 @@ export default {
 .mpesd__close-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* === Error === */
+/* BUG-273 : barre d'erreur fixe, entre le contenu scrollable et le footer. */
 .mpesd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: 13px;
   color: #ff3131;
   flex-shrink: 0;
@@ -1039,6 +1043,7 @@ export default {
 }
 
 /* === Bootstrap inputs === */
+.mpesd-input.form-control.number-field__input { text-align: center; }
 .mpesd-input.form-control,
 .mpesd-select.form-select {
   border-radius: 11px;
@@ -1120,6 +1125,7 @@ export default {
 }
 
 /* === Inline inputs (sentence style) === */
+.mpesd-inline-input.number-field__input { text-align: center; }
 .mpesd-inline-input,
 .mpesd-inline-select {
   border: 1.5px solid #dbeafe;

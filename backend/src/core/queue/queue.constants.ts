@@ -6,6 +6,7 @@ export const QUEUES = {
   NOTIFICATIONS: 'notifications',
   EXPORTS: 'exports',
   AGGREGATION: 'aggregation',
+  SIMULATION: 'simulation-run',
 } as const;
 
 export type QueueName = typeof QUEUES[keyof typeof QUEUES];

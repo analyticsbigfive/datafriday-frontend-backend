@@ -13,11 +13,6 @@
         <button class="mped__close-btn" :disabled="loading" @click="close"><X :size="18" /></button>
       </div>
 
-      <!-- Error -->
-      <div v-if="error" class="mped__error">
-        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
-      </div>
-
       <!-- Content -->
       <div class="mped__content">
 
@@ -140,11 +135,16 @@
           <div class="mped-field-row">
             <label class="mped-field-label" for="mped-conversion">{{ t('purchaseUnitConversion') }}</label>
             <div class="mped-field-subtitle">{{ conversionSubtitle }}</div>
-            <input id="mped-conversion" v-model.number="form.purchaseUnitConversion" type="number" min="0" step="0.001" class="form-control mped-input" />
+            <NumberField id="mped-conversion" v-model="form.purchaseUnitConversion" :decimals="2" :min="0" :empty-value="0" class="form-control mped-input" />
           </div>
         </div>
 
 
+      </div>
+
+      <!-- Error : BUG-273, hors zone scrollable, toujours visible juste au-dessus des boutons. -->
+      <div v-if="error" class="mped__error">
+        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
       </div>
 
       <!-- Footer -->
@@ -167,13 +167,14 @@ import { AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus, Pe
 import { updateMarketPrice } from '@/api/endpoints/menu.api';
 import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
 import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
+import NumberField from '@/components/common/NumberField.vue';
 
 export default {
   name: 'MarketPriceEditDrawer',
   components: {
     AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus,
     Pencil, PlusCircle, Save, Scale, Shapes, Tag, X,
-    MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog,
+    MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, NumberField,
   },
   props: {
     modelValue: { type: Boolean, default: false },
@@ -628,12 +629,13 @@ export default {
 .mped__close-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* === Error === */
+/* BUG-273 : barre d'erreur fixe, entre le contenu scrollable et le footer. */
 .mped__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: 13px;
   color: #ff3131;
   flex-shrink: 0;
@@ -674,6 +676,7 @@ export default {
 }
 
 /* === Bootstrap inputs === */
+.mped-input.form-control.number-field__input { text-align: center; }
 .mped-input.form-control,
 .mped-select.form-select {
   border-radius: 11px;

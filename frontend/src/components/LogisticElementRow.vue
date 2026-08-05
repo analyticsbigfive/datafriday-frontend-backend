@@ -26,14 +26,14 @@
     </div>
 
     <div class="lg-row-actions">
-      <v-btn variant="outlined" size="small" class="lg-row-history" @click="$emit('open-history', element)">
+      <button type="button" class="lg-btn lg-btn--ghost lg-row-history" @click="$emit('open-history', element)">
         <v-icon size="15" class="mr-1">mdi-history</v-icon>
         {{ t('logiHistoryBtn') }}
-      </v-btn>
-      <v-btn color="primary" variant="flat" size="small" class="lg-row-open" @click="$emit('open', element)">
+      </button>
+      <button type="button" class="lg-btn lg-btn--primary lg-row-open" @click="$emit('open', element)">
         {{ t('logiManageStock') }}
         <v-icon size="15" class="ml-1">mdi-arrow-right</v-icon>
-      </v-btn>
+      </button>
     </div>
   </div>
 </template>
@@ -113,13 +113,30 @@ defineEmits(['open', 'open-history'])
 .lg-row-stat-num { font-weight: 800; font-size: 0.95rem; color: var(--fb-text, #212121); }
 .lg-row-stat-lbl { font-size: 0.7rem; color: var(--fb-muted, #6b7280); }
 .lg-row-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.lg-row-history,
-.lg-row-open {
+
+/* Boutons charte — rouge marque codé en dur (reste rouge en dark, contrairement à
+   color="primary" Vuetify qui vire au violet du thème sombre). */
+.lg-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
   border-radius: var(--fb-radius-control, 8px);
-  text-transform: none;
+  font-size: 0.8rem;
   font-weight: 700;
+  line-height: 1.4;
   white-space: nowrap;
+  cursor: pointer;
+  border: none;
+  transition: border-color .18s, color .18s, box-shadow .18s, background .18s;
 }
+.lg-btn--ghost {
+  background: transparent;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
+  color: var(--fb-muted, #374151);
+}
+.lg-btn--ghost:hover { border-color: #ff3131; color: #ff3131; }
+.lg-btn--primary { background: #ff3131; color: #fff; }
+.lg-btn--primary:hover { box-shadow: 0 4px 14px rgba(255, 49, 49, 0.35); }
 
 @media (max-width: 760px) {
   .lg-row { flex-wrap: wrap; gap: 10px 12px; }

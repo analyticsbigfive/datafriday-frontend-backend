@@ -12,17 +12,11 @@
             </div>
             <div class="hsd__header-titles">
               <div class="hsd__header-title">{{ mode === 'edit' ? t('hrSupplierEditTitle') : t('hrSupplierAddTitle') }}</div>
-              <div class="hsd__header-subtitle">{{ t('hrSuppliersSubtitle') }}</div>
+              <div class="hsd__header-subtitle">{{ mode === 'edit' ? t('hrSupplierFormEditSubtitle') : t('hrSupplierFormAddSubtitle') }}</div>
             </div>
             <button class="hsd__close-btn" :disabled="loading" :aria-label="t('hrCancel')" @click="close">
               <X :size="18" />
             </button>
-          </div>
-
-          <!-- ── Error ── -->
-          <div v-if="error" class="hsd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
           </div>
 
           <!-- ── Body ── -->
@@ -108,22 +102,30 @@
               </div>
             </div>
 
-            <!-- Secteurs -->
+            <!-- Départements -->
             <div class="hsd-section">
-              <div class="hsd-section__label">{{ t('hrColSectors') }}</div>
+              <div class="hsd-section__label">{{ t('hrColDepartments') }}</div>
               <div class="hsd-pill-grid">
                 <div
-                  v-for="sec in SECTORS"
-                  :key="sec"
+                  v-for="dep in DEPARTMENTS"
+                  :key="dep.value"
                   class="hsd-pill"
-                  :class="{ 'hsd-pill--active': form.sectors.includes(sec) }"
-                  @click="toggleSector(sec)"
+                  :class="{ 'hsd-pill--active': form.departments.includes(dep.value) }"
+                  @click="toggleDepartment(dep.value)"
                 >
                   <Check :size="12" class="hsd-pill__check" />
-                  {{ sec }}
+                  {{ dep.label }}
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- ── Error : rendue ici, hors zone scrollable, toujours visible juste au-dessus
+               des boutons — plutôt qu'en haut du corps (invisible une fois scrollé, cf.
+               même correctif sur FlatReferentialFormDrawer.vue). ── -->
+          <div v-if="error" class="hsd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            {{ error }}
           </div>
 
           <!-- ── Footer ── -->
@@ -144,12 +146,25 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { AlertCircle, Building2, Camera, Check, ImagePlus, Pencil, Save, X } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import * as hrApi from '@/utils/hrApi'
-import { HR_SECTORS as SECTORS, newId } from '../hrShared'
+import { newId } from '../hrShared'
+
+// CFG-2 Étape 4 : HR_SUPPLIER_DEPARTMENTS (liste figée) retiré — remplacé par le référentiel
+// global Department (store `departments`), filtré `allowsSuppliers` (mêmes 7 départements que
+// l'ancienne liste, cf. backfill-departments.ts). `form.departments` stocke `code ?? id` (valeur
+// stable), plus le libellé — le backend rejette désormais un libellé brut (CFG-2 Étape 4).
+const store = useStore()
+onMounted(() => store.dispatch('departments/fetchDepartments'))
+const DEPARTMENTS = computed(() =>
+  (store.getters['departments/departments'] || [])
+    .filter((d) => d.allowsSuppliers)
+    .map((d) => ({ value: d.code ?? d.id, label: d.name })),
+)
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -166,7 +181,7 @@ const loading = ref(false)
 const error = ref('')
 const fileInput = ref(null)
 const imagePreview = ref('')
-const form = reactive({ id: '', name: '', email: '', phone: '', contactName: '', picture: '', spaceIds: [], sectors: [] })
+const form = reactive({ id: '', name: '', email: '', phone: '', contactName: '', picture: '', spaceIds: [], departments: [] })
 
 function reset() {
   const s = props.initial
@@ -177,7 +192,7 @@ function reset() {
   form.contactName = s?.contactName || ''
   form.picture = s?.picture || ''
   form.spaceIds = [...(s?.spaceIds || [])]
-  form.sectors = [...(s?.sectors || [])]
+  form.departments = [...(s?.departments || [])]
   imagePreview.value = s?.picture || ''
   error.value = ''
   loading.value = false
@@ -219,10 +234,10 @@ function toggleSpace(id) {
 function toggleAllSpaces() {
   form.spaceIds = isAllSpacesChecked.value ? [] : props.spaces.map((s) => s.id)
 }
-function toggleSector(sec) {
-  const i = form.sectors.indexOf(sec)
-  if (i === -1) form.sectors.push(sec)
-  else form.sectors.splice(i, 1)
+function toggleDepartment(dep) {
+  const i = form.departments.indexOf(dep)
+  if (i === -1) form.departments.push(dep)
+  else form.departments.splice(i, 1)
 }
 
 function close() {
@@ -241,11 +256,13 @@ async function submit() {
       contactName: form.contactName,
       picture: form.picture,
       spaceIds: [...form.spaceIds],
-      sectors: [...form.sectors],
+      departments: [...form.departments],
     }
-    if (props.mode === 'edit') await hrApi.updateHRSupplier(payload)
-    else await hrApi.createHRSupplier(payload)
-    emit('saved')
+    // Le fournisseur créé/mis à jour est renvoyé avec l'événement (2026-08-01) : permet à un
+    // appelant qui ouvre ce tiroir en imbriqué (ex. HrRoleFormDrawer, création d'agence à la
+    // volée) de sélectionner automatiquement la nouvelle agence sans re-fetch.
+    const saved = props.mode === 'edit' ? await hrApi.updateHRSupplier(payload) : await hrApi.createHRSupplier(payload)
+    emit('saved', saved)
     close()
   } catch (e) {
     error.value = t('hrSaveError')
@@ -267,7 +284,7 @@ async function submit() {
   justify-content: flex-end;
 }
 .hsd-panel {
-  width: 520px;
+  width: 560px;
   max-width: 100%;
   height: 100%;
   background: #fff;
@@ -326,13 +343,14 @@ async function submit() {
 .hsd__close-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.3); }
 .hsd__close-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Error */
+/* Error : barre fixe entre le corps scrollable et le footer (bordure haute, pas basse,
+   pour se détacher du corps plutôt que du footer). */
 .hsd__error {
   display: flex;
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-bottom: 1px solid #fecaca;
+  border-top: 1px solid #fecaca;
   font-size: var(--fs-base);
   color: #ff3131;
   flex-shrink: 0;
@@ -341,6 +359,9 @@ async function submit() {
 /* Body */
 .hsd__body {
   flex: 1 1 0;
+  min-height: 0; /* sinon un enfant flex refuse de rétrécir sous la hauteur de son contenu
+    (min-height:auto par défaut) — le corps grandit indéfiniment et c'est le panel parent
+    (overflow:hidden) qui coupe net, au lieu du scroll interne prévu ici (BUG-263-02). */
   overflow-y: auto;
   padding: 22px 24px 24px;
   display: flex;

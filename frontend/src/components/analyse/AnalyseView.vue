@@ -19,6 +19,7 @@
           ref="filterPanelRef"
           :events="analysableEvents"
           :shops="shopNames"
+          :is-live="isLive"
           @update:toolbox="onToolboxChange"
         />
 
@@ -35,10 +36,33 @@
                   @toggle="drawer = !drawer"
                 />
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
-                <!-- Badge Live (module Live, greffe D) : visible sur la route space-live. -->
-                <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
+                <!-- Badge Live : basé sur la VRAIE détection (liveEventDetected, posé par
+                     applyLiveScope() depuis /live-status), pas juste la route — corrigé
+                     2026-08-05 (BUG-305-02) : affichait "● LIVE" même sans event dans la
+                     fenêtre de 30 min, alors que le titre retombait sur "Analyse" à côté —
+                     combinaison contradictoire, mal vue par l'utilisateur à raison. -->
+                <span v-if="liveEventDetected" class="av-live-badge" :title="t('anToolLive')">
                   <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
                 </span>
+                <!-- Voir/modifier l'event en cours (module Live, 2026-08-05) : ouvre le même
+                     drawer que /events, dates verrouillées, tous les autres champs éditables.
+                     Visible dès qu'un event est résolu pour AUJOURD'HUI (liveEventId, cf.
+                     findTodayEventId), PAS seulement pendant le pulse strict de 30 min
+                     (liveEventDetected, réservé au badge ● LIVE) — sinon le bouton disparaissait
+                     à la moindre pause de ventes alors que l'event est toujours en cours
+                     (retour utilisateur 2026-08-05). -->
+                <v-btn
+                  v-if="liveEventId"
+                  icon
+                  variant="text"
+                  size="small"
+                  :title="t('anLiveEditEvent')"
+                  :aria-label="t('anLiveEditEvent')"
+                  class="fs-icon-btn"
+                  @click="liveEventEditOpen = true"
+                >
+                  <v-icon size="18">mdi-pencil-outline</v-icon>
+                </v-btn>
                 <v-spacer />
                 <v-btn
                   icon
@@ -62,9 +86,83 @@
                 >
                   <v-icon size="18">mdi-share-variant-outline</v-icon>
                 </v-btn>
+                <!-- Export chiffré. Menu (et non clic direct) : deux formats.
+                     Icône `table-arrow-down` et non `mdi-download`, déjà porté par
+                     les exports d'un SEUL bloc (Perf PdV, table Articles) — deux
+                     sens différents pour une même icône sur un même écran.
+                     NE PAS reprendre `mdi-tray-arrow-down` : ce glyphe n'existe
+                     qu'à partir de @mdi/font 6, le projet est en 5.9.55 → bouton
+                     rond vide, sans erreur console.
+                     Désactivé pendant les chargements : un classeur produit sur une
+                     page à moitié enrichie est faux sans le dire. -->
+                <!-- Rapport J+1 : PDF récapitulatif d'UN event passé (réel vs
+                     prédictif). Icône `mdi-file-pdf-box` (présente en @mdi/font
+                     5.9.55, contrairement à `mdi-file-pdf-outline`, v6+).
+                     Visible UNIQUEMENT en mode Analyse (décision JLH 2026-08-04 :
+                     le rapport porte sur du réalisé, pas sur une projection).
+                     Désactivé hors mode mono-événement passé — le title reste
+                     lisible sur bouton désactivé grâce au span englobant.
+                     ET pas en Live (trouvé 2026-08-05) : `reportEvent` vérifie
+                     seulement `date <= now`, pas que l'event soit TERMINÉ — un
+                     event daté d'aujourd'hui passe ce test dès la 1re minute,
+                     activant un bouton « réalisé » sur un event encore en cours. -->
+                <span
+                  v-if="selectedToolbox === 'analyse' && !isLive"
+                  :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')"
+                >
+                  <v-btn
+                    icon
+                    variant="text"
+                    size="small"
+                    :loading="generatingReport"
+                    :disabled="!reportEvent || exportBusy"
+                    :aria-label="t('rj1Button')"
+                    class="fs-icon-btn"
+                    @click="onGenerateReportJ1"
+                  >
+                    <v-icon size="18">mdi-file-pdf-box</v-icon>
+                  </v-btn>
+                </span>
+                <v-menu location="bottom end">
+                  <template #activator="{ props: exportProps }">
+                    <v-btn
+                      v-bind="exportProps"
+                      icon
+                      variant="text"
+                      size="small"
+                      :loading="exporting"
+                      :disabled="exportBusy"
+                      :title="t('anExportMenu')"
+                      :aria-label="t('anExportMenu')"
+                      class="fs-icon-btn"
+                    >
+                      <v-icon size="18">mdi-table-arrow-down</v-icon>
+                    </v-btn>
+                  </template>
+                  <v-list density="compact">
+                    <v-list-item @click="onExportXlsx">
+                      <template #prepend>
+                        <v-icon size="18">mdi-file-excel-outline</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('anExportXlsx') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item @click="onExportCsv">
+                      <template #prepend>
+                        <v-icon size="18">mdi-file-delimited-outline</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('anExportCsv') }}</v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
               </div>
-              <!-- Ligne 2 : période + comparaison. -->
-              <div v-if="!loading" class="av-header__row2">
+              <!-- Ligne 2 : période + comparaison. Masquée en Live (trouvé
+                   2026-08-05) : le select de période est éditable en apparence
+                   mais applyLiveScope() force timeRange='all' à chaque tick (15s) —
+                   même trappe que Dates/Configuration/Événements dans FilterPanel.
+                   « Comparer à » s'auto-masque déjà quand timeRange==='all'
+                   (FilterSummary.vue:22), mais le select de période, lui, reste
+                   affiché et cliquable pour rien. -->
+              <div v-if="!loading && !isLive" class="av-header__row2">
                 <FilterSummary
                   :comparison-mode="filters.comparisonMode"
                   :comparison-empty="comparisonEmpty"
@@ -77,13 +175,17 @@
               </div>
             </div>
 
-            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge. -->
+            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge.
+                 Chip événements masqué en Live (trouvé 2026-08-05) : toujours
+                 "1 événement(s) sélectionné(s)" (l'event live, forcé par
+                 applyLiveScope), redondant avec le badge ● LIVE — et sa croix
+                 de fermeture ne fait rien de durable (re-forcé au tick suivant). -->
             <div
-              v-if="!loading && ((filters.selectedEventIds || []).length || activeFilterChips.length)"
+              v-if="!loading && ((!isLive && (filters.selectedEventIds || []).length) || activeFilterChips.length)"
               class="av-tags d-flex align-center flex-wrap ga-2"
             >
               <v-chip
-                v-if="(filters.selectedEventIds || []).length"
+                v-if="!isLive && (filters.selectedEventIds || []).length"
                 closable
                 size="small"
                 variant="tonal"
@@ -398,6 +500,7 @@
             :item-records="itemLevelRecords"
             :events="filteredEvents"
             :shop-rates="shopPerformance.shops.value"
+            :ensure-dataset="ensureAssistantDataset"
             @analyze="onAnalyzeQuery"
             @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
             @event-click="(v) => toggleArrayFilter('selectedEventIds', v)"
@@ -443,6 +546,21 @@
       {{ snackbarText }}
     </v-snackbar>
 
+    <!-- Document du Rapport J+1 : monté hors écran UNIQUEMENT pendant la
+         génération (useReportJ1), capturé par html2canvas puis démonté. -->
+    <ReportJ1Document v-if="reportJ1Data" :data="reportJ1Data" />
+
+    <!-- Édition de l'event live en cours (module Live, 2026-08-05) — même drawer
+         que /events, dates verrouillées (lock-date). -->
+    <EventFormDrawer
+      v-model="liveEventEditOpen"
+      mode="edit"
+      :initial-event="liveEventObject"
+      :is-dark="isDark"
+      lock-date
+      @submitted="liveShopDetailsPoll"
+    />
+
   </v-app>
 </template>
 
@@ -453,7 +571,8 @@ import { useDisplay, useTheme } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
-import { formatCurrency, formatNumber } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 import FilterPanel from './filters/FilterPanel.vue'
 import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
 import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
@@ -484,6 +603,11 @@ import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
 import { useAnalyseItemRecords } from '@/composables/useAnalyseItemRecords'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
+import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
+import { useAnalyseExport } from '@/composables/useAnalyseExport'
+import { useReportJ1 } from '@/composables/useReportJ1'
+import ReportJ1Document from './ReportJ1Document.vue'
+import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
@@ -501,6 +625,8 @@ import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
+// Format % localisé (« 47,0 % » fr / « 47.0% » en) — règle BUG-240.
+const { formatPercentLocale } = useNumberFormat()
 
 const route = useRoute()
 const router = useRouter()
@@ -539,6 +665,7 @@ const {
   activeFilterChips,
   analysableEvents,
   setFilterImmediate,
+  toggleArrayFilter,
   resetFilters,
 } = useFilters()
 
@@ -604,6 +731,7 @@ const {
   loadedEventIds: mainLoadedEventIds,
   fetchError: itemRecordsError,
   refresh: refreshItemRecords,
+  clearCache: clearItemRecordsCache,
 } = useAnalyseItemRecords(filteredEvents)
 
 // Contexte de réconciliation PARTAGÉ avec useAnalyseItemRecords : voir
@@ -661,6 +789,7 @@ const {
   basketRecords,
   loading: basketsLoading,
   refresh: refreshBaskets,
+  clearCache: clearBasketsCache,
 } = useTransactionBaskets(filteredEvents)
 
 // Réconciliation AVANT filtrage, exactement comme la timeline — et pour la même
@@ -839,6 +968,7 @@ const {
   loading: comparisonLoading,
   loadedEventIds: comparisonLoadedEventIds,
   fetchError: comparisonItemRecordsError,
+  clearCache: clearComparisonCache,
 } = useAnalyseItemRecords(comparisonEventsGated, { maxEvents: 100 })
 
 // État explicite « pas de données de comparaison » (au lieu du silence) : bornes
@@ -901,24 +1031,24 @@ watch(() => filters.value.timeRange, (tr) => {
 function itemTotals(records, events, idSet) {
   const costMap = store.state.analyse.menuItemCostMap || {}
   let revenue = 0, cost = 0, transactions = 0, attendees = 0
+  // Parité React (validEventCount) : moyennes par event divisées par les
+  // events AVEC CA (> 0) — un event sans ventes ne dilue pas la moyenne.
+  // BUG-284 : revByEvent rempli dans LA MÊME passe que les totaux (avant : 2ᵉ
+  // boucle complète sur records) — mêmes accumulations, même ordre, résultat
+  // identique au bit près, une passe au lieu de deux par appel (×3 appels).
+  const revByEvent = new Map()
   for (const r of records) {
     if (!idSet.has(r.eventId)) continue
     revenue += r.revenue || 0
     cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
     transactions += r.transactionCount || 0
+    revByEvent.set(r.eventId, (revByEvent.get(r.eventId) || 0) + (r.revenue || 0))
   }
   for (const e of events) {
     if (!idSet.has(e.id)) continue
     attendees += e.ticketsScanned ?? e.attendees ?? e.ticketsSold ?? 0
   }
   const eventCount = idSet.size
-  // Parité React (validEventCount) : moyennes par event divisées par les
-  // events AVEC CA (> 0) — un event sans ventes ne dilue pas la moyenne.
-  const revByEvent = new Map()
-  for (const r of records) {
-    if (!idSet.has(r.eventId)) continue
-    revByEvent.set(r.eventId, (revByEvent.get(r.eventId) || 0) + (r.revenue || 0))
-  }
   let validEventCount = 0
   for (const v of revByEvent.values()) if (v > 0) validEventCount++
   return {
@@ -1115,6 +1245,15 @@ watch(
   { immediate: true },
 )
 
+// Le fetch item-level vit hors store : sans ce relais, `filtersState` voit des
+// options articles vides pendant le chargement et affiche « Aucun article
+// disponible pour cette configuration. » alors que les donuts tournent encore.
+watch(
+  itemRecordsLoading,
+  (v) => store.dispatch('analyse/setSoldItemOptionsLoading', v),
+  { immediate: true },
+)
+
 // Purge les sélections de filtres obsolètes (article/PdV/type/zone) dès que les options
 // se stabilisent — typiquement après un changement de config (scope events recomposé).
 // Gardé par filtersState === 'ready' ; l'action ignore en plus toute dimension dont les
@@ -1179,12 +1318,14 @@ const headerKpis = computed(() => {
   return [
     { label: t('anHeaderKpiRevenue'), kind: 'revenue', value: formatCurrency(rev), color: '#10B981', variation: headerVariation('revenue') },
     { label: t('anHeaderKpiAvgPerEvent'), kind: 'avg-revenue', value: formatCurrency(m.displayAvgRevenue?.value ?? 0), color: '#F97316', variation: headerVariation('avgRevenuePerEvent') },
-    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrency(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true },
+    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrencyDetailed(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true },
     { label: t('anHeaderKpiTransactions'), kind: 'transactions', value: formatNumber(trans), color: '#3B82F6', variation: headerVariation('transactions') },
-    { label: t('anHeaderKpiBasket'), kind: 'avg-trans', value: formatCurrency(trans ? rev / trans : 0, 'EUR', 'fr-FR', 2), color: '#A855F7', variation: headerVariation('avgTransaction') },
+    // Locale-aware (règle BUG-240 « plus jamais de fr-FR en dur ») : ces trois
+    // valeurs suivaient le format français même en interface anglaise.
+    { label: t('anHeaderKpiBasket'), kind: 'avg-trans', value: formatCurrencyDetailed(trans ? rev / trans : 0), color: '#A855F7', variation: headerVariation('avgTransaction') },
     { label: t('anHeaderKpiAttendees'), kind: 'attendees', value: formatNumber(att), color: '#0EA5E9', variation: headerVariation('attendees') },
-    { label: t('anHeaderKpiTransformation'), kind: 'transformation', value: att ? `${((trans / att) * 100).toFixed(1).replace('.', ',')} %` : '—', color: '#14B8A6', variation: headerVariation('transferRate') },
-    { label: t('anHeaderKpiPerCap'), kind: 'percap', value: formatCurrency(m.displayPerCapita?.value ?? 0, 'EUR', 'fr-FR', 2), color: '#EC4899', variation: headerVariation('perCapita') },
+    { label: t('anHeaderKpiTransformation'), kind: 'transformation', value: att ? formatPercentLocale((trans / att) * 100, 1) : '—', color: '#14B8A6', variation: headerVariation('transferRate') },
+    { label: t('anHeaderKpiPerCap'), kind: 'percap', value: formatCurrencyDetailed(m.displayPerCapita?.value ?? 0), color: '#EC4899', variation: headerVariation('perCapita') },
   ]
 })
 
@@ -1194,6 +1335,8 @@ const showTransactionRateShops = ref(false)
 const shopPerformance = useShopPerformance({
   shopGranularData: filteredRecords,
   spaceId: computed(() => route.params.spaceId),
+  // BUG-287-01 : la plage horaire de la timeline fenêtre txn/min + agrégats.
+  timeRange: computed(() => filters.value?.selectedTimeRange || null),
 })
 
 // Ferme automatiquement le panneau si la sélection devient vide
@@ -1205,6 +1348,88 @@ watch(filteredEvents, (evs) => {
     // Recalcul des agregates quand la selection change
     shopPerformance.enrich(evs)
   }
+})
+
+// ---- Dataset partagé + export xlsx/csv ------------------------------------
+// Placé ICI et pas plus haut : le composable lit `metrics` et `shopPerformance`,
+// définis juste au-dessus. Il ne déclenche aucune requête — il agrège des records
+// déjà en mémoire, en tâche idle, une fois les trois chargements terminés.
+const exportBusy = computed(
+  () => chartsLoading.value || itemRecordsLoading.value || basketsLoading.value,
+)
+
+const { ensureDataset } = useAnalyseDataset({
+  spaceName,
+  filters,
+  activeFilterChips,
+  filteredEvents,
+  filteredRecords,
+  chartRecords,
+  articleRecords,
+  itemLevelRecords,
+  filteredBaskets,
+  filteredEventAggregates,
+  filteredTimelineData,
+  timelineHeaderLabel,
+  metrics,
+  itemSummary,
+  shopPerformance,
+  // `isPredictRecords` et non `isPredictMode` : même prédicat, mais déclaré plus
+  // haut dans le setup. `isPredictMode` ne l'est qu'après ce bloc.
+  isPredictMode: isPredictRecords,
+  busy: exportBusy,
+})
+
+// Construction à la demande du dataset au clic « Analyser » (assistant local),
+// pour que ses outils KPI lisent les mêmes chiffres que le bandeau. Garde busy :
+// pendant un chargement, figer un dataset sur des records partiels serait pire
+// que le repli getter de l'assistant.
+const ensureAssistantDataset = () => (exportBusy.value ? null : ensureDataset())
+
+const { exporting, onExportXlsx, onExportCsv } = useAnalyseExport({
+  ensureDataset,
+  spaceName,
+  isPredictMode: isPredictRecords,
+  // Réutilise le snackbar déjà monté pour la capture d'écran : un échec
+  // d'export doit se voir, pas finir dans la console (défaut des deux exports
+  // par bloc existants).
+  notify: (text, color = 'success') => {
+    snackbarText.value = text
+    snackbarColor.value = color
+    snackbar.value = true
+  },
+})
+
+// ---- Rapport J+1 (PDF pour UN event passé) --------------------------------
+// Actif uniquement en mode mono-événement (même définition que le calculateur)
+// ET si cet event est passé : un « rapport J+1 » d'un event futur n'a pas de
+// réel à raconter. En dehors de ce cas, bouton désactivé + tooltip explicite.
+const reportEvent = computed(() => {
+  const ids = filters.value.selectedEventIds || []
+  if (ids.length !== 1) return null
+  const ev = (filteredEvents.value || []).find((e) => e?.id === ids[0]) || null
+  if (!ev) return null
+  const d = parseEventDateLocal(ev.date ?? ev.eventDate)
+  if (!d || d.getTime() > Date.now()) return null
+  return ev
+})
+
+const {
+  generatingReport,
+  reportData: reportJ1Data,
+  onGenerateReportJ1,
+} = useReportJ1({
+  space,
+  reportEvent,
+  events,
+  metrics,
+  articleRecords,
+  busy: exportBusy,
+  notify: (text, color = 'success') => {
+    snackbarText.value = text
+    snackbarColor.value = color
+    snackbar.value = true
+  },
 })
 
 // Auto-declenchement de la timeline des qu'un (ou plusieurs) event(s) sont
@@ -1294,15 +1519,10 @@ function clearChip(key) {
   }
 }
 
-// Lot 2 — toggle d'un filtre tableau (clic sur camembert / segment)
-function toggleArrayFilter(key, value) {
-  if (value == null) return
-  const current = filters.value?.[key] || []
-  const next = current.includes(value)
-    ? current.filter((v) => v !== value)
-    : [...current, value]
-  setFilterImmediate(key, next)
-}
+// Lot 2 / BUG-284 — le toggle d'un filtre tableau (clic camembert / segment) vit
+// désormais dans useFilters (version coalescée 150 ms par clé) : un clic ne
+// déclenche plus la vague de recalculs qu'après accalmie, et des clics rapides
+// sur la même clé se cumulent sans écrasement.
 const previousToolbox = ref('analyse')
 // Predict reste inline dans AnalyseView (mode banner + futurs inclus).
 // Seul Event Predict ouvre l'overlay full-screen.
@@ -1311,12 +1531,18 @@ const selectedToolbox = computed(() => store.state.analyse.selectedToolbox)
 watch(selectedToolbox, () => { inlineChartVisible.value = false })
 
 // ── Bandeau : sélecteur de période (ligne 2) ──────────────────────────────
+// Presets statiques + saisons de l'espace courant (Rapport Saison), en queue de
+// liste sous la valeur `season:<id>` — résolue par le getter store `dateBounds`.
 const dateRangeItems = computed(() => {
   const presets = getDateRangePresets(selectedToolbox.value || 'analyse')
-  return presets.map((p) => ({
+  const items = presets.map((p) => ({
     title: (PRESET_I18N_KEYS[p.value] && t(PRESET_I18N_KEYS[p.value])) || p.labelFr,
     value: p.value,
   }))
+  const spaceId = route.params.spaceId
+  const seasons = spaceId ? store.getters['seasons/seasonsForSpace'](spaceId) : []
+  for (const s of seasons) items.push({ title: s.name, value: `season:${s.id}` })
+  return items
 })
 
 // ── Tags cliquables → éditeur de dimension dans la colonne droite ──────────
@@ -1357,10 +1583,28 @@ const activeFilterEditor = computed(() => {
   }
 })
 const isPredictMode = computed(() => selectedToolbox.value === 'predict')
+// Libellé « Nom — date » de l'évènement quand la sélection en contient EXACTEMENT
+// un, chaîne vide sinon. Recherche dans `analysableEvents` (et non `events`) avec
+// la même comparaison stricte d'id que le store (`new Set(selectedEventIds).has(e.id)`,
+// appliqué lui aussi sur analysableEvents) : le titre ne peut donc pas nommer un
+// évènement hors périmètre pendant que la page affiche des zéros. Date omise si
+// absente/illisible (formatDateShort renvoie '' dans ce cas).
+const singleSelectedEventLabel = computed(() => {
+  const ids = filters.value.selectedEventIds || []
+  if (ids.length !== 1) return ''
+  const ev = (analysableEvents.value || []).find((e) => e.id === ids[0])
+  const name = ev?.name || ev?.eventName || ''
+  if (!name) return ''
+  const date = formatDateShort(ev.date || ev.eventDate)
+  return date ? `${name} — ${date}` : name
+})
 // Titre du bandeau selon l'outil actif (Analyse / Prédire / Préd. Événement).
 const toolTitle = computed(() => {
   if (selectedToolbox.value === 'predict') return t('anToolPredict')
   if (selectedToolbox.value === 'event-predict') return t('anToolEventPredict')
+  // Un seul évènement sélectionné : son nom remplace « Analyse » (le mot n'apporte
+  // rien quand la page est déjà cadrée sur un évènement précis).
+  if (singleSelectedEventLabel.value) return singleSelectedEventLabel.value
   return t('analyseTitle')
 })
 const predictionsGenerating = computed(() => store.state.analyse.predictionsGenerating)
@@ -1573,12 +1817,50 @@ function onShowAverage() {
 //    re-dispatch plus fréquent est sûr.
 // keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
 const isLive = computed(() => route.name === 'space-live')
+// Relais vers le store (module Live, docs/modules/11_LIVE.md) : `optionsBaseRecords`
+// (Types de PDV/Zones/Points de vente) a besoin de savoir qu'on est en Live pour se
+// scoper au seul event live plutôt qu'à tout l'historique analysable de l'espace.
+// `watch` (pas juste un commit au montage) : suit route.name en continu, y compris
+// sous keepAlive où le composant ne démonte jamais entre Live et Analyse classique.
+watch(isLive, (v) => store.commit('analyse/SET_LIVE_ROUTE', v), { immediate: true })
 // Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
 const liveTab = ref('analyse')
+// Passe à true dès qu'applyLiveScope() a réellement modifié les filtres (donc
+// uniquement pour une instance jamais utilisée en Live, ex. l'Analyse classique, pas
+// de resetFilters() au démontage). Sans ce garde-fou, chaque démontage d'AnalyseView
+// (y compris une simple Analyse qui n'a jamais vu /live) déclenchait un reset
+// réactif inutile, travail superflu pile au moment du teardown, cf. onDeactivated/
+// onBeforeUnmount ci-dessous.
+const liveScopeApplied = ref(false)
 const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
+// Event live courant, dérivé du scope déjà posé par applyLiveScope() (pas de
+// nouvel appel réseau) — passé à LiveInventoryPanel pour l'init de stock
+// depuis l'Inventaire pré-événement (docs/modules/11_LIVE.md §15).
+const liveEventId = computed(() => (isLive.value ? (filters.value.selectedEventIds || [])[0] || '' : ''))
+const liveEventName = computed(() => {
+  if (!liveEventId.value) return ''
+  const ev = (store.state.analyse.events || []).find((e) => e.id === liveEventId.value)
+  return ev?.name || ev?.eventName || ''
+})
+// Objet event complet (module Live, 2026-08-05) — pour le drawer d'édition
+// (EventFormDrawer::initialEvent). Même liste que liveEventName ci-dessus.
+const liveEventObject = computed(() => (store.state.analyse.events || []).find((e) => e.id === liveEventId.value) || null)
+const liveEventEditOpen = ref(false)
+// Détection RÉELLE d'un event live (posée par applyLiveScope() depuis
+// /live-status), distincte de `isLive` (route seule). Corrigé 2026-08-05
+// (BUG-305-02) : le badge ● LIVE et le bouton d'édition ne doivent s'afficher
+// que si un event est VRAIMENT dans la fenêtre live, pas juste parce qu'on est
+// sur la route /live.
+const liveEventDetected = ref(false)
 const LIVE_POLL_MS = 15000
 let livePollTimer = null
-function livePoll() {
+async function livePoll() {
+  // Re-résout l'event live à CHAQUE tick, sans ça un scope figé au premier appel
+  // (ex. page ouverte avant la 1re vente, ou avant qu'un Event existe) ne se
+  // corrige jamais tout seul : la timeline/KPI continuent de tourner sur l'ancien
+  // scope pendant que de vraies transactions arrivent (cause racine confirmée
+  // 2026-08-03, auparavant applyLiveScope() ne tournait qu'au mount/activate).
+  await applyLiveScope()
   if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
   refreshItemRecords()
   // Les paniers ont leur PROPRE cache session (`_basketCache`, space.api.js) avec
@@ -1587,9 +1869,13 @@ function livePoll() {
   refreshBaskets()
   liveShopDetailsPoll()
 }
+// Module Live (docs/modules/11_LIVE.md §14) : snapshot dédié qui ne rafraîchit
+// QUE les ventes (shopGranularData/menuItemCostMap/summary), pas tout le
+// catalogue de l'espace — `loadSpace`/`fetchSpaceData` reste le chemin du
+// premier chargement (mount), pas des ticks live suivants.
 function liveShopDetailsPoll() {
   const spaceId = route.params.spaceId
-  if (spaceId) store.dispatch('analyse/loadSpace', spaceId)
+  if (spaceId) store.dispatch('analyse/refreshLiveShopSnapshot', { spaceId })
 }
 function startLivePolling() {
   stopLivePolling()
@@ -1602,16 +1888,42 @@ function stopLivePolling() {
 onActivated(() => {
   startLivePolling()
   // Le composant reste en mémoire (keepAlive) : revenir sur /live après être
-  // passé par un autre outil ne redéclenche pas onMounted — on resynchronise
+  // passé par un autre outil ne redéclenche pas onMounted, on resynchronise
   // quand même sur l'event réellement live à chaque retour sur l'écran.
+  // resetFilters() AVANT applyLiveScope() : neutralise tout filtre secondaire
+  // laissé par une session Analyse précédente (catégorie, recherche, plages de
+  // tickets...) qui pourrait sinon exclure silencieusement l'event live de
+  // filteredEvents malgré selectedEventIds, applyLiveScope() écrase ensuite les 3
+  // clés essentielles (config/timeRange/selectedEventIds) par-dessus ce reset.
+  if (isLive.value) resetFilters()
   applyLiveScope()
 })
-onDeactivated(stopLivePolling)
-onBeforeUnmount(stopLivePolling)
+// Redondant à dessein (comme pour stopLivePolling) : selon que /live vers /analyse
+// bascule une route keepAlive vers keepAlive (onDeactivated) ou détruit le wrapper
+// <keep-alive> lui-même (onBeforeUnmount, cf. DashboardView.vue), un seul des
+// deux hooks se déclenche réellement, jamais les deux, jamais aucun.
+// resetFilters() gardé par liveScopeApplied : sur une instance qui n'a jamais
+// scopé sur Live (Analyse classique), ce reset ne servirait à rien, évite le
+// recalcul réactif superflu pile au moment du démontage.
+function resetLiveFiltersIfNeeded() {
+  stopLivePolling()
+  if (liveScopeApplied.value) {
+    resetFilters()
+    liveScopeApplied.value = false
+  }
+  // Sinon `liveEventDetected` garderait sa dernière valeur (badge/bouton
+  // édition qui persisteraient hors de la route Live).
+  liveEventDetected.value = false
+}
+onDeactivated(resetLiveFiltersIfNeeded)
+onBeforeUnmount(resetLiveFiltersIfNeeded)
 
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
   startLivePolling()
+  // Saisons (Rapport Saison) : alimente les presets `season:<id>` des pickers
+  // de dates. Cache 15 min côté store, échec non bloquant (picker inchangé).
+  store.dispatch('seasons/fetchAll').catch(() => {})
   // Deep-link : ?toolbox=predict|analyse|event-predict sync l'état toolbox.
   // L'URL est la SOURCE DE VÉRITÉ au montage : sans ?toolbox=, on force le
   // retour à 'analyse'. Sans ce reset, un selectedToolbox résiduel du store
@@ -1630,7 +1942,24 @@ onMounted(() => {
 
 watch(
   () => route.params.spaceId,
-  (id) => { if (id) ensureAuthAndLoad(id) }
+  (id, prevId) => {
+    if (!id) return
+    // BUG-285 : changement d'espace SANS remontage de la vue (key = route.name) —
+    // les caches par eventId des composables gardaient les lignes de l'ancien
+    // espace, dont les ids ne seront plus jamais redemandés. On purge.
+    if (prevId && prevId !== id) {
+      clearItemRecordsCache()
+      clearComparisonCache()
+      clearBasketsCache()
+      // BUG-300-01 — reset immédiat du latch du différé « All Configurations »
+      // (le watcher `loading` le remet aussi à false, mais plus tard) : la
+      // cause racine du « Par zone » vide était la garde « déjà chargé » de
+      // requestDeferredAllConfigsContext, qui voyait le contexte de l'ANCIEN
+      // espace — purgé désormais par CLEAR_SPACE_KEYED_CACHES (store).
+      allConfigsCtxRequested = false
+    }
+    ensureAuthAndLoad(id)
+  }
 )
 
 // La vue n'est plus remontée sur un changement de query (DashboardView key =
@@ -1685,7 +2014,7 @@ async function ensureAuthAndLoad(spaceId) {
     console.warn('[AnalyseView] Unable to fetch Supabase session:', e?.message)
   }
   try {
-    await store.dispatch('analyse/loadSpace', spaceId)
+    await store.dispatch('analyse/loadSpace', { spaceId, isLive: isLive.value })
     // Prefetch market prices (catalogue global tenant, partagé Inventory/Logistic/
     // Restock) HORS chemin critique : la query coûte ~60s à froid. Le charger dès
     // l'entrée dans l'espace chauffe le cache (SWR) avant l'ouverture d'Inventory.
@@ -1699,6 +2028,9 @@ async function ensureAuthAndLoad(spaceId) {
         store.dispatch('analyse/updateFilter', { key: 'selectedConfigurationId', value: urlConfig })
       }
     }
+    // Même garde-fou qu'onActivated : neutralise les filtres secondaires résiduels
+    // d'une session Analyse avant de (re)scoper sur l'event live.
+    if (isLive.value) resetFilters()
     await applyLiveScope()
   } finally {
     // Navigation rapide entre spaces : ancienne requête ne doit pas masquer
@@ -1718,19 +2050,51 @@ async function applyLiveScope() {
   if (!isLive.value) return
   const spaceId = route.params.spaceId
   if (!spaceId) return
+  liveScopeApplied.value = true
   try {
     const res = await getSpaceLiveStatus(spaceId)
-    if (res?.isLive && res?.eventId) {
+    // `liveEventDetected` (badge ● LIVE, pulse) reste STRICT : vente réelle dans
+    // les 30 dernières minutes (getLiveStatus). Mais titre/bouton d'édition ne
+    // doivent pas disparaître à la moindre pause de ventes (>30 min sans vente =
+    // event toujours en cours, juste un creux) — trouvé le 2026-08-05 (retour
+    // utilisateur : "pourquoi Analyse alors que je suis sur Live", bouton
+    // d'édition introuvable). Repli : un event dont la fenêtre couvre AUJOURD'HUI
+    // pour cet espace (`findTodayEventId`, sur `state.events` déjà à jour, aucun
+    // appel réseau de plus) sert d'ancre stable pour le reste de l'écran.
+    liveEventDetected.value = !!(res?.isLive && res?.eventId)
+    const anchorEventId = res?.eventId || findTodayEventId()
+    if (anchorEventId) {
       setFilterImmediate('selectedConfigurationId', null)
       setFilterImmediate('timeRange', 'all')
-      setFilterImmediate('selectedEventIds', [res.eventId])
+      setFilterImmediate('selectedEventIds', [anchorEventId])
     } else {
       setFilterImmediate('selectedEventIds', [])
       setFilterImmediate('timeRange', 'today')
     }
   } catch (e) {
+    liveEventDetected.value = false
     console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
   }
+}
+
+/**
+ * Event de CET espace dont la fenêtre [eventStartDate, eventEndDate] (repli sur
+ * `date`/`eventDate` seul si pas de bornes) couvre AUJOURD'HUI — repli de
+ * `applyLiveScope()` quand aucune vente n'est tombée dans les 30 dernières
+ * minutes mais qu'un event est bien "celui du jour". `state.events` est déjà
+ * tenu à jour par le poll live (BUG-302-02) : lecture pure, pas de fetch.
+ */
+function findTodayEventId() {
+  const events = store.state.analyse.events || []
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999)
+  for (const e of events) {
+    const start = parseEventDateLocal(e.eventStartDate || e.date || e.eventDate)
+    if (!start) continue
+    const end = parseEventDateLocal(e.eventEndDate || e.date || e.eventDate) || start
+    if (start <= todayEnd && end >= today) return e.id
+  }
+  return null
 }
 </script>
 

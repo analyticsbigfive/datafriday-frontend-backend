@@ -67,13 +67,30 @@
         <AlertCircle :size="14" /> {{ error }}
       </div>
 
+      <!-- Barre d'action groupée (visible quand des lignes sont sélectionnées) -->
+      <div v-if="selected.length" class="elv-bulk-bar">
+        <span class="elv-bulk-bar__info">
+          {{ selected.length }} {{ locale === 'fr' ? 'sélectionné' : 'selected' }}{{ selected.length > 1 ? 's' : '' }}
+        </span>
+        <div class="elv-bulk-bar__actions">
+          <button class="elv-bulk-bar__clear" @click="selected = []">
+            {{ locale === 'fr' ? 'Désélectionner' : 'Clear' }}
+          </button>
+          <button class="elv-bulk-bar__del" @click="openBulkDelete">
+            <Trash2 :size="15" /> {{ locale === 'fr' ? 'Supprimer' : 'Delete' }}
+          </button>
+        </div>
+      </div>
+
       <!-- Table card -->
       <div class="elv-table-wrap">
         <v-data-table
+          v-model="selected"
           :headers="tableHeaders"
           :items="filteredEvents"
           :loading="loading ? '#ff3131' : false"
           item-value="id"
+          show-select
           :items-per-page="25"
           :items-per-page-options="[10, 25, 50, 100]"
           density="compact"
@@ -96,6 +113,9 @@
           </template>
           <template #item.ticketsScanned="{ item }">
             {{ item.ticketsScanned != null ? Number(item.ticketsScanned) : '—' }}
+          </template>
+          <template #item.configuration="{ item }">
+            {{ item.configuration || '—' }}
           </template>
           <template #item.actions="{ item }">
             <div class="elv-actions">
@@ -128,6 +148,53 @@
       @confirm="confirmDeleteEvent"
     />
 
+    <!-- Suppression multiple : dialog stylé maison — état confirmation puis progression X/N -->
+    <v-dialog v-model="bulkDeleteDialog" max-width="440" :persistent="bulkDeleteLoading">
+      <div class="elv-bd" :class="{ 'elv-bd--dark': isDark }">
+        <div class="elv-bd__header">
+          <div class="elv-bd__icon"><Trash2 :size="20" color="white" /></div>
+          <div class="elv-bd__title">{{ locale === 'fr' ? 'Supprimer des événements' : 'Delete events' }}</div>
+          <button v-if="!bulkDeleteLoading" type="button" class="elv-bd__close" aria-label="Fermer" @click="bulkDeleteDialog = false">
+            <X :size="18" />
+          </button>
+        </div>
+
+        <div class="elv-bd__body">
+          <div v-if="bulkDeleteError" class="elv-bd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" /> {{ bulkDeleteError }}
+          </div>
+
+          <template v-if="bulkDeleteLoading">
+            <div class="elv-bd__progress">
+              <div class="elv-bd__progress-bar" :style="{ width: bulkDeletePct + '%' }"></div>
+            </div>
+            <div class="elv-bd__progress-label">
+              {{ bulkDeleteProgress }}/{{ bulkDeleteTotal }}
+              {{ locale === 'fr' ? 'événements supprimés' : 'events deleted' }}
+            </div>
+          </template>
+          <p v-else class="elv-bd__text">
+            {{ locale === 'fr' ? 'Voulez-vous vraiment supprimer' : 'Delete' }}
+            <strong>{{ selected.length }} {{ locale === 'fr' ? 'événement' : 'event' }}{{ selected.length > 1 ? 's' : '' }}</strong> ?
+          </p>
+        </div>
+
+        <div class="elv-bd__footer">
+          <template v-if="!bulkDeleteLoading">
+            <button type="button" class="elv-bd__btn elv-bd__btn--cancel" @click="bulkDeleteDialog = false">
+              {{ locale === 'fr' ? 'Annuler' : 'Cancel' }}
+            </button>
+            <button type="button" class="elv-bd__btn elv-bd__btn--danger" :disabled="!selected.length" @click="confirmBulkDelete">
+              <Trash2 :size="14" /> {{ locale === 'fr' ? 'Supprimer' : 'Delete' }}
+            </button>
+          </template>
+          <button v-else type="button" class="elv-bd__btn elv-bd__btn--cancel" disabled>
+            {{ locale === 'fr' ? 'Suppression en cours…' : 'Deleting…' }}
+          </button>
+        </div>
+      </div>
+    </v-dialog>
+
     <CsvImportDrawer
       v-model="csvImportDrawer"
       :is-dark="isDark"
@@ -141,6 +208,7 @@ import { t as translate, getCurrentLocale } from "@/i18n/translations";
 import { Upload, Download, Plus, Trash2, Pencil, Search, Calendar, AlertCircle, X } from "lucide-vue-next";
 import { deleteEvent } from "@/api/endpoints/event.api";
 import { downloadCSV } from "@/utils/csv";
+import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import EventFormDrawer from "@/components/events/drawers/EventFormDrawer.vue";
 import EventDeleteDialog from "@/components/events/dialogs/EventDeleteDialog.vue";
 import CsvImportDrawer from "@/components/events/drawers/CsvImportDrawer.vue";
@@ -180,6 +248,16 @@ export default {
       deleteEventId: null,
       deleteEventName: "",
       csvImportDrawer: false,
+      // Noms de configuration résolus (configId → nom) pour la colonne « Configuration »
+      // (les events ne portent que configurationId ; le store spaceConfigurations est stateless).
+      configNameById: {},
+      // Suppression multiple (sélection dans la table)
+      selected: [],
+      bulkDeleteDialog: false,
+      bulkDeleteLoading: false,
+      bulkDeleteError: "",
+      bulkDeleteProgress: 0,
+      bulkDeleteTotal: 0,
     };
   },
 
@@ -267,6 +345,41 @@ export default {
         this.deleteEventLoading = false;
       }
     },
+    // Suppression multiple : supprime chaque event sélectionné en séquence (évite de saturer
+    // le rate-limiter), retire du store au fur et à mesure ; les échecs restent sélectionnés.
+    openBulkDelete() {
+      this.bulkDeleteError = '';
+      this.bulkDeleteProgress = 0;
+      this.bulkDeleteTotal = 0;
+      this.bulkDeleteDialog = true;
+    },
+    async confirmBulkDelete() {
+      const ids = [...this.selected];
+      if (!ids.length) return;
+      this.bulkDeleteLoading = true;
+      this.bulkDeleteError = '';
+      this.bulkDeleteTotal = ids.length;
+      this.bulkDeleteProgress = 0;
+      const failed = [];
+      for (const id of ids) {
+        try {
+          await deleteEvent(id);
+          this.$store.dispatch('events/removeEvent', id);
+        } catch (e) {
+          failed.push(id);
+        }
+        this.bulkDeleteProgress += 1;
+      }
+      this.bulkDeleteLoading = false;
+      this.selected = failed;
+      if (failed.length) {
+        this.bulkDeleteError = this.locale === 'fr'
+          ? `${failed.length} événement(s) n'ont pas pu être supprimés.`
+          : `${failed.length} event(s) could not be deleted.`;
+      } else {
+        this.bulkDeleteDialog = false;
+      }
+    },
     async loadEvents({ forceRefresh = false } = {}) {
       this.loading = true;
       this.error = "";
@@ -288,9 +401,7 @@ export default {
       return d.toLocaleDateString("fr-FR");
     },
     formatCurrency(value) {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return "€0,00";
-      return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      return formatCurrencyDetailed(value);
     },
     // Un event reste ré-importable tel quel : les en-têtes reprennent les libellés que
     // CsvImportDrawer.vue auto-détecte (aliases d'`eventFields`), et l'ordre des colonnes
@@ -317,6 +428,24 @@ export default {
         })
         .filter((s) => s && typeof s === 'object' && !Array.isArray(s));
     },
+    // Résout les noms de configuration des espaces référencés par les events (le store
+    // spaceConfigurations est stateless → fetch par espace, comme l'export CSV), pour la colonne.
+    async loadConfigNames() {
+      const spaceIds = Array.from(new Set((this.mappedEvents || []).map((r) => r.raw?.spaceId).filter(Boolean)));
+      if (!spaceIds.length) return;
+      const lists = await Promise.all(
+        spaceIds.map((sid) => this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId: sid }).catch(() => [])),
+      );
+      const map = {};
+      lists.forEach((list) => {
+        (list || []).forEach((c) => {
+          const id = c?.id || c?._id;
+          if (id) map[id] = c.name || c.configurationName || '';
+        });
+      });
+      this.configNameById = map;
+    },
+
     async exportToCSV() {
       const rows = this.filteredEvents || [];
 
@@ -380,12 +509,15 @@ export default {
     isDark() {
       return this.theme === 'dark' || this.theme === 'dataFridayDark';
     },
+    bulkDeletePct() {
+      return this.bulkDeleteTotal ? Math.round((this.bulkDeleteProgress / this.bulkDeleteTotal) * 100) : 0;
+    },
     tableHeaders() {
       return [
         { title: this.t('eventsList.colSpace'), key: 'spaceName' },
-        { title: this.t('eventsList.colDate'), key: 'eventStartDate' },
         { title: this.t('eventsList.colName'), key: 'name' },
         { title: this.t('eventsList.colStartDate'), key: 'eventStartDate' },
+        { title: 'Configuration', key: 'configuration', sortable: false },
         { title: this.t('eventsList.colCategory'), key: 'eventCategory' },
         { title: this.t('eventsList.colRevenue'), key: 'revenue', align: 'end' },
         { title: 'Tickets Scanned', key: 'ticketsScanned', align: 'end' },
@@ -420,7 +552,11 @@ export default {
         const spaceFromId = this.spacesById.get(e.spaceId);
         const spaceName = e.spaceName || spaceFromId?.name || e.space || e.location || "-";
         const eventDate = e.eventDate || e.date || e.startsAt || e.startDate;
-        const eventStartDate = e.eventStartDate || e.startDate || '';
+        // Repli sur eventDate : des événements créés avant que ce champ ne soit envoyé à la
+        // création (ex. import CSV, BUG-270) ont eventStartDate=null en base — sans ce repli,
+        // la colonne restait vide tant que l'événement n'était pas ouvert puis resauvegardé
+        // (EventFormDrawer, lui, fait déjà ce repli à l'édition).
+        const eventStartDate = e.eventStartDate || e.startDate || eventDate || '';
         const eventEndDate = e.eventEndDate || e.endDate || '';
         const eventEndTime = e.eventEndTime || '';
         const name = e.name || e.eventName || "-";
@@ -449,6 +585,7 @@ export default {
           revenue,
           transactionCount,
           ticketsScanned,
+          configuration: (e.configurationId && this.configNameById[e.configurationId]) || '',
           raw: e,
         };
       });
@@ -499,6 +636,7 @@ export default {
     this.loadTaxonomies();
     this.loadSpaces();
     await this.loadEvents();
+    this.loadConfigNames();
     // Deep-link : ?editEventId=<id> (ex. depuis l'alerte « évènements sans coup
     // d'envoi » de la Moyenne timeline, ou depuis TaxonomyDetailDrawer) → ouvre
     // directement la fiche event.
@@ -680,4 +818,60 @@ export default {
 .elv--dark .elv-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
 .elv--dark .elv-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
 .elv--dark .elv-table :deep(.v-data-table__td) { color: #e2e8f0; }
+
+/* ── Barre d'action groupée (suppression multiple) ── */
+.elv-bulk-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; margin-bottom: 12px;
+  background: #fff5f5; border: 1px solid #fecaca; border-radius: 12px;
+}
+.elv-bulk-bar__info { font-size: var(--fs-base); font-weight: 700; color: #ff3131; }
+.elv-bulk-bar__actions { display: flex; align-items: center; gap: 8px; }
+.elv-bulk-bar__clear {
+  background: none; border: none; color: #6b7280;
+  font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+  padding: 6px 10px; border-radius: 8px; transition: background .15s, color .15s;
+}
+.elv-bulk-bar__clear:hover { background: rgba(0,0,0,.05); color: #374151; }
+.elv-bulk-bar__del {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #ff3131; color: #fff; border: none; border-radius: 100px;
+  padding: 7px 16px; font-size: var(--fs-sm); font-weight: 700; cursor: pointer;
+  transition: box-shadow .18s, transform .18s;
+}
+.elv-bulk-bar__del:hover { box-shadow: 0 4px 14px rgba(255,49,49,.35); transform: translateY(-1px); }
+.elv--dark .elv-bulk-bar { background: rgba(255,49,49,.1); border-color: rgba(255,49,49,.3); }
+.elv--dark .elv-bulk-bar__clear { color: #94a3b8; }
+.elv--dark .elv-bulk-bar__clear:hover { background: rgba(255,255,255,.06); color: #e2e8f0; }
+
+/* ── Dialog stylé de suppression multiple (confirmation → progression) ── */
+.elv-bd { background: #fff; border-radius: 16px; overflow: hidden; }
+.elv-bd__header { display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: #ff3131; }
+.elv-bd__icon { width: 38px; height: 38px; border-radius: 11px; background: rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.elv-bd__title { flex: 1; min-width: 0; color: #fff; font-size: var(--fs-md); font-weight: 700; }
+.elv-bd__close { width: 30px; height: 30px; border: none; border-radius: 8px; background: rgba(255,255,255,.18); color: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .18s; flex-shrink: 0; }
+.elv-bd__close:hover { background: rgba(255,255,255,.3); }
+.elv-bd__body { padding: 20px 18px; display: flex; flex-direction: column; gap: 14px; }
+.elv-bd__error { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px; font-size: var(--fs-base); }
+.elv-bd__text { font-size: var(--fs-md); color: #374151; line-height: 1.6; margin: 0; }
+.elv-bd__progress { height: 10px; background: #f1f5f9; border-radius: 100px; overflow: hidden; }
+.elv-bd__progress-bar { height: 100%; background: #ff3131; border-radius: 100px; transition: width .2s ease; }
+.elv-bd__progress-label { font-size: var(--fs-sm); color: #6b7280; text-align: center; font-weight: 600; }
+.elv-bd__footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+.elv-bd__btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 100px; font-size: var(--fs-base); font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
+.elv-bd__btn:disabled { opacity: .6; cursor: default; }
+.elv-bd__btn--cancel { background: transparent; border: 1.5px solid #e5e7eb; color: #6b7280; }
+.elv-bd__btn--cancel:hover:not(:disabled) { background: #f3f4f6; color: #374151; }
+.elv-bd__btn--danger { background: #ff3131; color: #fff; box-shadow: 0 4px 12px rgba(255,49,49,.3); }
+.elv-bd__btn--danger:hover:not(:disabled) { box-shadow: 0 6px 18px rgba(255,49,49,.4); transform: translateY(-1px); }
+/* Dark */
+.elv-bd--dark { background: #1f2937; }
+.elv-bd--dark .elv-bd__body { background: #1f2937; }
+.elv-bd--dark .elv-bd__text { color: #d1d5db; }
+.elv-bd--dark .elv-bd__error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
+.elv-bd--dark .elv-bd__progress { background: rgba(255,255,255,.08); }
+.elv-bd--dark .elv-bd__progress-label { color: #94a3b8; }
+.elv-bd--dark .elv-bd__footer { background: #111827; border-top-color: rgba(255,255,255,.08); }
+.elv-bd--dark .elv-bd__btn--cancel { background: transparent; border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.elv-bd--dark .elv-bd__btn--cancel:hover:not(:disabled) { background: #374151; color: #fff; }
 </style>

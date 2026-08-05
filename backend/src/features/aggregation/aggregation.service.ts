@@ -255,6 +255,9 @@ export class AggregationService {
           await this.prisma.spaceRevenueMinuteAgg.deleteMany({
             where: { tenantId, spaceId, weezeventEventId: event.id },
           });
+          await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({
+            where: { tenantId, spaceId, weezeventEventId: event.id },
+          });
 
           // Filtres dynamiques (SQL fragments composables)
           const integrationClause = integrationId
@@ -296,7 +299,7 @@ export class AggregationService {
               lsm."spaceElementId",
               SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
               COUNT(ti."id")::int,
-              SUM(ti."quantity")::int,
+              SUM(ti."quantity")::float8,
               NOW(),
               NOW()
             FROM "WeezeventTransaction" t
@@ -335,7 +338,7 @@ export class AggregationService {
               ${eventDate}::date,
               ti."productId",
               SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
-              SUM(ti."quantity")::int,
+              SUM(ti."quantity")::float8,
               NOW(),
               NOW()
             FROM "WeezeventTransaction" t
@@ -354,6 +357,70 @@ export class AggregationService {
               "updatedAt" = NOW()
           `);
 
+          // SpaceRevenueMinuteItemAgg — sert getEventTimelineBatch (grain event × minute ×
+          // shop × article). Même FROM/JOIN que le bloc SpaceRevenueMinuteAgg ci-dessus
+          // (BUG-014 : spaceElementId via WeezeventLocationShopMapping en LEFT JOIN sur
+          // t."locationId", jamais via une jointure produit), avec ti."productId" et
+          // t."locationName" ajoutés au GROUP BY.
+          //
+          // revenueHt ne soustrait PAS ti."reduction" — volontairement différent des deux
+          // blocs ci-dessus. C'est la formule historique de getEventTimelineBatch
+          // (spaces.service.ts), qui ne l'a jamais soustraite ; la préserver ici évite de
+          // changer les chiffres déjà affichés sur Analyse/Inventory/Live le jour où ce
+          // endpoint bascule sur cette table. Ne pas "corriger" pour aligner sur BUG-015 sans
+          // validation métier explicite — cf. décision documentée dans le schema Prisma sur
+          // SpaceRevenueMinuteItemAgg.
+          //
+          // AND t.status = 'V' : contrairement aux deux blocs ci-dessus, getEventTimelineBatch
+          // filtre explicitement sur les transactions validées (spaces.service.ts) — sans ce
+          // filtre ici, cette table inclurait des transactions non validées absentes de son
+          // comportement actuel.
+          await this.prisma.$executeRaw(Prisma.sql`
+            INSERT INTO "SpaceRevenueMinuteItemAgg"
+              ("id","tenantId","spaceId","minute","timezone","weezeventEventId","weezeventLocationId","weezeventLocationName","weezeventMerchantId","spaceElementId","weezeventProductId","revenueHt","transactionsCount","itemsCount","createdAt","updatedAt")
+            SELECT
+              gen_random_uuid(),
+              ${tenantId},
+              ${spaceId},
+              date_trunc('minute', t."transactionDate"),
+              'Europe/Paris',
+              ${event.id},
+              t."locationId",
+              t."locationName",
+              t."merchantId",
+              lsm."spaceElementId",
+              ti."productId",
+              SUM(ti."unitPrice" * ti."quantity" / (1 + ti."vat" / 100)),
+              COUNT(DISTINCT t."id")::int,
+              SUM(ti."quantity")::float8,
+              NOW(),
+              NOW()
+            FROM "WeezeventTransaction" t
+            JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t."id"
+            LEFT JOIN "WeezeventLocationShopMapping" lsm
+              ON lsm."weezeventLocationId" = t."locationId" AND lsm."tenantId" = ${tenantId}
+            WHERE t."tenantId" = ${tenantId}
+              ${integrationClause}
+              AND t."transactionDate" >= ${eventDate}
+              AND t."transactionDate" < ${nextDay}
+              AND t."deletedAt" IS NULL
+              AND t."status" = 'V'
+            GROUP BY
+              date_trunc('minute', t."transactionDate"),
+              t."locationId",
+              t."locationName",
+              t."merchantId",
+              lsm."spaceElementId",
+              ti."productId"
+            ON CONFLICT ("tenantId","spaceId","minute","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId","weezeventProductId")
+            DO UPDATE SET
+              "weezeventLocationName" = EXCLUDED."weezeventLocationName",
+              "revenueHt" = EXCLUDED."revenueHt",
+              "transactionsCount" = EXCLUDED."transactionsCount",
+              "itemsCount" = EXCLUDED."itemsCount",
+              "updatedAt" = NOW()
+          `);
+
           // BUG-033 (corrigé) : Event.revenue/transactionCount n'étaient jamais écrits par le
           // pipeline — SpaceRevenueMinuteAgg était alimenté ci-dessus mais le rollup n'était jamais
           // remonté sur l'Event lui-même, laissant ces colonnes null/0 à vie. On réutilise le même
@@ -366,11 +433,23 @@ export class AggregationService {
           });
           const eventRevenue = Number(eventRollup._sum.revenueHt ?? 0);
           const eventTransactionCount = eventRollup._sum.transactionsCount ?? 0;
+          // Trouvé le 2026-08-05 (retour utilisateur : "Avg Spend/Tx" et "Per Capita"
+          // vides dans la fiche event malgré Revenue/Transactions renseignés) :
+          // avgSpendPerTx/perCapita n'étaient JAMAIS calculés par ce pipeline — seul
+          // un edit manuel du formulaire (events.service.ts) pouvait les poser.
+          // avgSpendPerTx = simple dérivé revenue/transactionCount (même source que
+          // ci-dessus). perCapita nécessite un dénominateur RÉEL (ticketsScanned/
+          // ticketsSold, posés par le sync attendees, cf. commentaire plus bas dans
+          // ce fichier) — reste `null` (pas 0) tant qu'aucune vraie donnée de
+          // billetterie n'existe (ex. events QA simulés, jamais scannés).
+          const attendees = event.ticketsScanned ?? event.ticketsSold ?? null;
           await this.prisma.event.update({
             where: { id: event.id },
             data: {
               revenue: eventRevenue,
               transactionCount: eventTransactionCount,
+              avgSpendPerTx: eventTransactionCount > 0 ? Math.round((eventRevenue / eventTransactionCount) * 100) / 100 : null,
+              perCapita: attendees && attendees > 0 ? Math.round((eventRevenue / attendees) * 100) / 100 : null,
               calculatedAt: new Date(),
             },
           });
@@ -500,6 +579,7 @@ export class AggregationService {
     await this.prisma.$transaction([
       this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: { tenantId, spaceId } }),
       this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } }),
+      this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: { tenantId, spaceId } }),
     ]);
     await job.updateProgress(5);
 

@@ -5,6 +5,7 @@ import CardHeader from "../ui/cardHeader.vue";
 import CardTitle from "../ui/cardTitle.vue";
 import { TrendingUp } from "lucide-vue-next";
 import * as eventApi from "../utils/eventApi";
+import { currentIntlLocale } from "@/composables/useNumberFormat";
 
 // Pour Recharts: en Vue tu n'auras pas Recharts directement.
 // Je laisse volontairement de côté l'import chart ici car tu as demandé "script".
@@ -290,7 +291,7 @@ export default {
     },
 
     formatNumber(value) {
-      if (!this.isMobile) return Number(value || 0).toLocaleString("fr-FR");
+      if (!this.isMobile) return Number(value || 0).toLocaleString(currentIntlLocale());
 
       const v = Number(value || 0);
       if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;

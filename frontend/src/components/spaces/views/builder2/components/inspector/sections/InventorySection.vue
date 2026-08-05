@@ -247,7 +247,7 @@ function removeManual(name) {
 }
 .inv-search:hover { background: #efeff1; }
 .inv-search:focus-within {
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
   border-color: #ff3131;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.12);
 }
@@ -295,7 +295,7 @@ function removeManual(name) {
 }
 .inv-card:hover {
   border-color: #e0e0e2;
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 }
 
@@ -338,7 +338,7 @@ function removeManual(name) {
   font-size: var(--fs-sm);
   font-weight: 500;
   color: #374151;
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   padding: 4px 8px;
@@ -366,7 +366,7 @@ function removeManual(name) {
   margin-top: 7px;
   padding: 5px 8px 5px 9px;
   border-left: 2px solid rgba(255, 49, 49, 0.45);
-  background: #fff;
+  background: rgb(var(--v-theme-surface));
   border-radius: 0 8px 8px 0;
 }
 .inv-used__label {
@@ -406,7 +406,7 @@ function removeManual(name) {
 }
 
 /* Ligne manuelle */
-.inv-card--custom { background: #fff; }
+.inv-card--custom { background: rgb(var(--v-theme-surface)); }
 .inv-card__remove {
   display: inline-flex;
   align-items: center;
@@ -441,7 +441,7 @@ function removeManual(name) {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .inv-add__input::placeholder { color: #9ca3af; }
-.inv-add__input:focus { background: #fff; border-color: #ff3131; }
+.inv-add__input:focus { background: rgb(var(--v-theme-surface)); border-color: #ff3131; }
 .inv-add__btn {
   display: inline-flex;
   align-items: center;
@@ -458,4 +458,21 @@ function removeManual(name) {
 }
 .inv-add__btn:hover:not(:disabled) { background: rgba(255, 49, 49, 0.18); }
 .inv-add__btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Dark mode : les gris clairs ci-dessus n'ont pas d'équivalent exact dans le
+   thème Vuetify — surcharges via la classe .dark posée sur <html>. */
+.dark .inv-search,
+.dark .inv-add__input { background: #111827; }
+.dark .inv-search:hover { background: #1a2332; }
+.dark .inv-search:focus-within { background: #1f2937; }
+.dark .inv-add__input:focus { background: #1f2937; }
+.dark .inv-card { background: #1a2332; }
+.dark .inv-card:hover { border-color: rgba(255, 255, 255, 0.14); background: #1f2937; }
+.dark .inv-card--custom { background: #1f2937; }
+.dark .inv-qty__input { color: #d1d5db; border-color: #374151; }
+.dark .inv-qty__input:focus { border-color: #ff3131; }
+.dark .inv-used__item { color: #d1d5db; }
+.dark .inv-used__thumb--empty { background: #374151; }
+.dark .inv-card__kind--component { background: rgba(99, 102, 241, 0.22); color: #a5b4fc; }
+.dark .inv-card__kind--packaging { background: rgba(217, 119, 6, 0.22); color: #fbbf24; }
 </style>

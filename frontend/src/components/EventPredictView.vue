@@ -180,7 +180,7 @@
               <div v-if="hasTicketsScannedData" class="ep-side-event-row">
                 <span class="ep-muted">{{ t('epTicketsScannedLabel') }}</span>
                 <span class="ep-side-event-row-val">
-                  {{ Number(selectedEvent.ticketsScanned).toLocaleString() }}
+                  {{ formatNumber(selectedEvent.ticketsScanned) }}
                 </span>
               </div>
             </div>
@@ -207,26 +207,25 @@
                 {{ t('epSaveHintEn') }}
               </p>
               <div class="ep-side-event-actions">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="ep-side-event-btn"
+                <button
+                  type="button"
+                  class="fb-btn fb-btn--secondary fb-btn--block"
                   :title="t('epResetTitle')"
                   @click="handleReset"
                 >
-                  <RotateCcw class="w-4 h-4 mr-1" />
+                  <RotateCcw />
                   {{ t('epReset') }}
-                </Button>
-                <Button
-                  size="sm"
-                  class="ep-side-event-btn"
+                </button>
+                <button
+                  type="button"
+                  class="fb-btn fb-btn--primary fb-btn--block"
                   :class="{ 'ep-save-dirty': hasUnsavedChanges }"
                   :title="t('epSaveAsTitle')"
                   @click="onSaveVersion"
                 >
-                  <Save class="w-4 h-4 mr-1" />
+                  <Save />
                   {{ t('epSaveAs') }}
-                </Button>
+                </button>
               </div>
             </div>
           </CardContent>
@@ -308,26 +307,26 @@
                 <div class="ep-side-version-stat-row">
                   <span class="ep-muted">{{ t('epRevenueHt') }}</span>
                   <span class="ep-side-version-stat-val">
-                    €{{ Math.round(Number(v.adjustedTotalRevenue ?? v.totalRevenue ?? 0)).toLocaleString("en-US") }}
+                    {{ formatCurrency(Number(v.adjustedTotalRevenue ?? v.totalRevenue ?? 0)) }}
                   </span>
                 </div>
                 <div class="ep-side-version-stat-row">
                   <span class="ep-muted">{{ t('epPerCap') }}</span>
                   <span class="ep-side-version-stat-val">
-                    €{{ Math.round(Number(v.adjustedPerCapita ?? v.perCapita ?? 0)).toLocaleString("en-US") }}
+                    {{ formatCurrencyDetailed(Number(v.adjustedPerCapita ?? v.perCapita ?? 0)) }}
                   </span>
                 </div>
               </div>
-              <Button
+              <button
                 v-if="currentEditingVersionId === v.id"
-                size="sm"
-                class="ep-side-update-btn"
+                type="button"
+                class="fb-btn fb-btn--primary fb-btn--block"
                 :class="{ 'ep-save-dirty': hasUnsavedChanges }"
                 :disabled="!hasUnsavedChanges"
                 @click.stop="onUpdateVersion(v.id)"
               >
                 {{ t('epUpdate') }}
-              </Button>
+              </button>
             </CardContent>
           </Card>
         </div>
@@ -420,7 +419,7 @@
                       <div class="ep-multi-list-date">{{ formatDateWithDay(ev.eventDate) }}</div>
                     </div>
                     <span v-if="ev.ticketsSold" class="ep-multi-list-badge">
-                      {{ Number(ev.ticketsSold).toLocaleString() }} {{ t('epTickets') }}
+                      {{ formatNumber(ev.ticketsSold) }} {{ t('epTickets') }}
                     </span>
                   </div>
                 </div>
@@ -614,7 +613,7 @@
                  + timeline (fetchs servis par restTimelineCache, zéro réseau). -->
             <EventPredictSourcesDrawer
               v-model="showSourcesDrawer"
-              :scored-events="scoredPastEvents"
+              :scored-events="drawerScoredEvents"
               :unselected-events="drawerUnselectedEvents"
               :selected-ids="Array.from(selectedPastEventIds)"
               :loading="timeline.timelineLoading"
@@ -826,6 +825,7 @@
                 :shop-menu-assignment="shopMenuAssignmentForSection"
                 :shop-menu-assignment-items="shopMenuAssignmentItemsForSection"
                 :shop-menu-membership="shopMenuMembership"
+                :shop-menu-unavailable="shopMenuUnavailable"
                 :unmapped-items-by-shop="unmappedItemsByShop"
                 :view-mode="viewMode"
                 :items-context="predictionItemsContext"
@@ -862,27 +862,15 @@
                   <span>{{ t('epRestockReadyText') }}</span>
                 </div>
                 <div class="ep-stockup-cta-actions">
-                  <!-- Inventaire AVANT réarmement : compter le restant sur place avant
-                       de générer la feuille de réarmement (gap = besoin − restant). -->
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    class="ep-stockup-cta-btn"
-                    :title="t('epOpenInventoryForEvent')"
-                    @click="goToInventory"
-                  >
-                    <v-icon size="16" class="mr-1">mdi-package-variant</v-icon>
-                    {{ t('epSpaceInventory') }}
-                  </Button>
-                  <Button
-                    size="sm"
-                    class="ep-stockup-cta-btn"
+                  <button
+                    type="button"
+                    class="fb-btn fb-btn--primary ep-stockup-cta-btn"
                     :title="t('epOpenRestockForEvent')"
                     @click="goToRestock"
                   >
-                    <v-icon size="16" class="mr-1">mdi-truck-delivery-outline</v-icon>
+                    <v-icon size="16">mdi-truck-delivery-outline</v-icon>
                     {{ t('epGoToRestock') }}
-                  </Button>
+                  </button>
                 </div>
               </div>
               <EventPredictStockUpSection
@@ -899,6 +887,8 @@
                 :view-mode="viewMode"
                 :menu-item-cost-map="effectiveMenuItemCostMap"
                 :items-context="predictionItemsContext"
+                :shop-menu-unavailable="shopMenuUnavailable"
+                :config-shops="configShopElements"
               />
             </TabsContent>
 
@@ -959,13 +949,13 @@
           <div class="ep-metric-card ep-metric-card-primary">
             <h3 class="ep-metric-label">{{ t('epTotalRevenueHt') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(totalPredictedRevenue).toLocaleString("en-US") }}
+              {{ formatCurrency(totalPredictedRevenue) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(totalAdjustedRevenue).toLocaleString("en-US") }}
+                {{ formatCurrency(totalAdjustedRevenue) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -975,13 +965,13 @@
           <div class="ep-metric-card ep-metric-card-neutral">
             <h3 class="ep-metric-label">{{ t('epMetricCost') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(totalPredictedCost).toLocaleString("en-US") }}
+              {{ formatCurrencyDetailed(totalPredictedCost) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(totalAdjustedCost).toLocaleString("en-US") }}
+                {{ formatCurrencyDetailed(totalAdjustedCost) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1005,13 +995,13 @@
           <div class="ep-metric-card ep-metric-card-success">
             <h3 class="ep-metric-label">{{ t('epPerCap').replace(':', '') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(perCapitaPredicted).toLocaleString("en-US") }}
+              {{ formatCurrencyDetailed(perCapitaPredicted) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(perCapitaAdjusted).toLocaleString("en-US") }}
+                {{ formatCurrencyDetailed(perCapitaAdjusted) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1021,13 +1011,13 @@
           <div class="ep-metric-card ep-metric-card-neutral">
             <h3 class="ep-metric-label">{{ t('epMetricBasket') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              €{{ Math.round(avgPerTransaction).toLocaleString("en-US") }}
+              {{ formatCurrencyDetailed(avgPerTransaction) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                €{{ Math.round(adjustedAvgPerTransaction).toLocaleString("en-US") }}
+                {{ formatCurrencyDetailed(adjustedAvgPerTransaction) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1178,7 +1168,6 @@ import {
   Settings,
 } from "lucide-vue-next";
 
-import Button from "../ui/button.vue";
 import Card from "../ui/card.vue";
 import CardHeader from "../ui/cardHeader.vue";
 import CardTitle from "../ui/cardTitle.vue";
@@ -1211,6 +1200,8 @@ import { resolveIngredientSupplierId } from "../utils/menuItemAvailability";
 import { runWithConcurrency } from "../utils/asyncPool";
 import { htFromTtc, menuItemPriceHt } from "../utils/price";
 import { useEventPredictVersions } from "../composables/useEventPredictVersions";
+import { currentIntlLocale } from "@/composables/useNumberFormat";
+import { formatNumber, formatCurrencyDetailed } from "@/composables/useFormatters";
 import { usePredictiveTimeline } from "../composables/usePredictiveTimeline";
 import {
   aggregateTimelinePerMinute,
@@ -1237,6 +1228,7 @@ import TabsContent from "../ui/tabsContent.vue";
 import { parseEventDate as parseDDMMYYYY } from "../utils/dateFr";
 import { isDemoMode } from "../utils/demoMode";
 import { mergeEffectiveMenuConfig } from "../utils/menuConfigSelection";
+import { resolveInventoryRouteName } from "../utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "../data/localDb";
 
 // PERF : les Edge Functions de mappings (shop-element / menu-item) sont lentes
@@ -1280,17 +1272,81 @@ const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'epToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'epToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'epToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'live', labelKey: 'epToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
   { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'epToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'epToolLogistic', icon: 'mdi-forklift', permission: 'front.fb.logistic' },
   { value: 'restock', labelKey: 'epToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
 ];
 
+/**
+ * « Évènement déjà en cours (live) » — sa fenêtre a démarré. Un évènement live a
+ * déjà été prédit : il ne doit plus être proposé comme CIBLE dans EventPredict
+ * (il reste utilisable comme base de scoring, cf. `pastEventOptions`).
+ *
+ * On teste la fenêtre localement au lieu d'appeler `GET /spaces/:id/live-status` :
+ * cet endpoint exige la permission `front.fb.live`, que peut ne pas avoir un
+ * utilisateur d'EventPredict (403), et le calendrier ne doit pas dépendre d'un
+ * aller-retour réseau. Même instant de départ que `SpacesService.getLiveStatus`
+ * (`eventStartDate`), sans sa requête ventes.
+ *
+ * Sans `eventStartDate`, impossible de savoir qu'un évènement du jour a commencé
+ * (`eventDate` est à minuit) : on le GARDE, sinon prédire le matin un match du
+ * soir deviendrait impossible. Volontairement conservateur — on ne masque jamais
+ * un évènement encore prédictible.
+ *
+ * NB : évalué au calcul du computed, pas à la seconde. Un évènement qui démarre
+ * pendant que la page est ouverte disparaît au prochain rechargement des events.
+ */
+function isEventUnderway(ev) {
+  if (!ev?.eventStartDate) return false;
+  const start = new Date(ev.eventStartDate);
+  return !Number.isNaN(start.getTime()) && start.getTime() <= Date.now();
+}
+
+/**
+ * Fusionne les lignes `/spaces/:id/shops` qui décrivent le MÊME point de vente.
+ *
+ * Depuis BUG-286-01 (backend `getSpaceShops`, `DISTINCT ON (se.id, ce."configId")`),
+ * la réponse NON filtrée par config renvoie une ligne PAR (élément, config) : un
+ * élément builder-v2 partagé entre plusieurs configs y figure autant de fois qu'il a
+ * d'adhésions. Quand l'event porte une `configurationId`, l'appelant a déjà filtré
+ * dessus et la fusion est un no-op (la PK `ConfigurationElement` garantit au plus une
+ * ligne par couple) ; quand il n'en porte PAS (event brouillon / non configuré), il
+ * FAUT collapser, sinon la liste porte des `:key` dupliqués et les compteurs doublent.
+ *
+ * Règle : OU logique sur `isOpen` (ouvert dans au moins une config = ouvert), MAX sur
+ * `menuItemsCount`. Surtout PAS « première ligne vue » ni « dernière vue » : ce serait
+ * l'ordre des lignes qui déciderait, et l'état Opened/Closed d'un point de vente
+ * changerait d'un rechargement à l'autre.
+ *
+ * Et c'est la MÊME règle pour `isOpenByShop` (clé = nom) et `configShopElements`
+ * (clé = id) : les deux alimentent le même écran — badge Opened/Closed côté enfant,
+ * `closedShopNormSet` (exclusion des PdV fermés du CA) côté parent. Deux règles
+ * divergentes afficheraient un PdV « Opened » dont le CA est pourtant exclu.
+ */
+function mergeShopRowsByKey(rows, keyOf) {
+  const out = new Map();
+  for (const r of rows) {
+    const key = keyOf(r);
+    if (!key) continue;
+    const open = r?.isOpen === true || Number(r?.menuItemsCount) > 0;
+    const count = Number(r?.menuItemsCount) || 0;
+    const prev = out.get(key);
+    if (!prev) {
+      out.set(key, { row: r, isOpen: open, menuItemsCount: count });
+      continue;
+    }
+    prev.isOpen = prev.isOpen || open;
+    prev.menuItemsCount = Math.max(prev.menuItemsCount, count);
+  }
+  return out;
+}
+
 export default {
   name: "EventPredictView",
   components: {
     AlgoTraceTerminal,
-    Button,
     Card,
     CardHeader,
     CardTitle,
@@ -1520,6 +1576,10 @@ export default {
       // Appartenance COMPLÈTE au Space Menu du shop (enabled+disabled) pour le
       // garde-fou d'ouverture. Map<normalizeStr(shopName), {ids:Set, names:Set}>.
       shopMenuMembership: null,
+      // Articles assignés au Space Menu du shop mais NON DISPONIBLES côté serveur
+      // (recette absente / ingrédient bloqué) — BUG-291-02 : quantité prévue
+      // forcée à 0 partout. Map<normalizeStr(shopName), {ids:Set, names:Set}>.
+      shopMenuUnavailable: null,
       // Cache par configId (évite re-fetch au changement d'event même config).
       _shopMenuAssignmentCache: null,
       // Cache local des shops NestJS par spaceId (stateless store, alimenté par fetchForSpace).
@@ -1603,6 +1663,8 @@ export default {
     futureEvents() {
       return this.events
         .filter((ev) => {
+          // Un évènement déjà live n'est plus une cible de prédiction (isEventUnderway).
+          if (isEventUnderway(ev)) return false;
           const d = parseDDMMYYYY(ev.eventDate);
           return d && d.getTime() >= this.today.getTime();
         })
@@ -1634,7 +1696,10 @@ export default {
             eventName: ev.eventName || ev.name || "Évènement",
             eventDate: ev.eventDate || "",
             showTime: ev.sessions?.[0]?.showTime || "",
-            isPast: d ? d.getTime() < todayTs : false,
+            // Un évènement déjà live compte comme PASSÉ : il sort de
+            // `futureEventOptions` (cibles sélectionnables) et reste dans
+            // `pastEventOptions` (bases de scoring). Cf. isEventUnderway.
+            isPast: isEventUnderway(ev) || (d ? d.getTime() < todayTs : false),
             label: `${ev.eventName || ev.name || ""} ${ev.eventDate || ""}`.trim(),
           };
         })
@@ -1844,6 +1909,11 @@ export default {
     selectedEvent() {
       return this.events.find((e) => e.id === this.selectedEventId) || null;
     },
+    /** Écran d'inventaire cohérent avec l'event sélectionné : pre pour un match
+     *  à venir (le cas courant ici), post pour un match passé. */
+    inventoryTargetRouteName() {
+      return resolveInventoryRouteName(this.selectedEvent);
+    },
     /** Liste plate des configurations du space (depuis le store analyse). */
     configurations() {
       return store.state.analyse?.configurations || [];
@@ -1923,12 +1993,15 @@ export default {
       const scoped = cfgId
         ? rows.filter((r) => (r?.configId ?? r?._raw?.configId) === cfgId)
         : rows;
+      // Fusion par NOM, règle OU (cf. mergeShopRowsByKey). L'ancien `out[name] = …`
+      // en dernier-écrit-gagne laissait l'ordre des lignes décider de l'état d'un PdV
+      // partagé entre configs — et pouvait contredire `closedShopNormSet`, qui dérive
+      // du même jeu de lignes via `configShopElements`.
+      const merged = mergeShopRowsByKey(scoped, (r) =>
+        String(r?.name || "").trim().toLowerCase(),
+      );
       const out = {};
-      for (const r of scoped) {
-        const name = String(r?.name || "").trim().toLowerCase();
-        if (!name) continue;
-        out[name] = r?.isOpen === true || Number(r?.menuItemsCount) > 0;
-      }
+      for (const [name, m] of merged) out[name] = m.isOpen;
       return out;
     },
     /**
@@ -1959,6 +2032,21 @@ export default {
      * bon `configId`, donc TOUS les shops de la config s'affichent. `[]` en mock /
      * sans données → MenusSection garde son fallback synthetic.
      */
+    // BUG-291-01 — miroirs réactifs du store `analyse`. Les copies locales
+    // (`this.menuItems` / `ingredients` / `components`) sont posées UNE FOIS dans
+    // `loadRealData`, avant que la vague 2b de `useSpaceData` (catalogues recette)
+    // n'ait répondu : sans ces miroirs + leurs watchers, elles restaient figées à
+    // l'état vague 2a pour toute la session (relevé 2026-08-04 : store à
+    // 100 ingrédients / 24 composants, composant à 0 / 0).
+    storeAnalyseMenuItems() {
+      return store.state.analyse?.menuItems || [];
+    },
+    storeAnalyseIngredients() {
+      return store.state.analyse?.ingredients || [];
+    },
+    storeAnalyseComponents() {
+      return store.state.analyse?.components || [];
+    },
     configShopElements() {
       const spaceId = this.space?.id;
       if (!spaceId || this.fromMock) return [];
@@ -1968,7 +2056,17 @@ export default {
       const scoped = cfgId
         ? rows.filter((r) => (r?.configId ?? r?._raw?.configId) === cfgId)
         : rows;
-      return scoped.map((r) => ({
+      // Fusion par ID d'élément, MÊME règle que `isOpenByShop` (cf.
+      // mergeShopRowsByKey). Sans `configurationId` d'event, `scoped` = toutes les
+      // lignes, et un élément v2 partagé y figure une fois PAR config : sans fusion,
+      // `:key="element.id"` serait dupliqué côté enfant et les compteurs
+      // ouverts/fermés doubleraient. `isOpen`/`menuItemsCount` viennent du RÉSULTAT
+      // de fusion, pas de `r` — c'est ce qui garde ce computed cohérent avec
+      // `isOpenByShop`.
+      const merged = mergeShopRowsByKey(scoped, (r) =>
+        r?.id != null ? String(r.id) : "",
+      );
+      return [...merged.values()].map(({ row: r, isOpen, menuItemsCount }) => ({
         id: r.id,
         name: r.name,
         type: r.type || "shop",
@@ -1979,8 +2077,8 @@ export default {
         locationId: r.locationId,
         locationName: r.locationName,
         floorLevel: r.floorLevel,
-        isOpen: r.isOpen,
-        menuItemsCount: r.menuItemsCount,
+        isOpen,
+        menuItemsCount,
       }));
     },
     /** Tenant courant (organisation) pour l'en-tête de la popup remap. */
@@ -2398,6 +2496,30 @@ export default {
         this.shopGranularData,
       ).slice(0, 10);
     },
+    /**
+     * CA réel (HT) par évènement passé, indexé une seule fois par eventId.
+     * `pastEventCA()` fait un scan complet de shopGranularData : l'appeler par
+     * ligne du drawer (10 top + N non retenus) rejouerait 20-40 scans à chaque
+     * tick de réactivité. Une Map construite une fois suffit.
+     */
+    caByPastEvent() {
+      const map = new Map();
+      for (const r of this.shopGranularData || []) {
+        if (!r?.eventId || r.isPredictive) continue;
+        const prev = map.get(r.eventId) || 0;
+        map.set(r.eventId, prev + Number(r.revenue ?? r.totalRevenue ?? 0));
+      }
+      return map;
+    },
+    /**
+     * Top 10 scorés enrichis pour le drawer : CA réel, per-cap et tickets
+     * scannés de chaque évènement passé (ce que l'utilisateur regarde pour
+     * décider de garder ou non une source). Computed séparé : `scoredPastEvents`
+     * alimente le scoring / la timeline, on ne le mute pas.
+     */
+    drawerScoredEvents() {
+      return this.scoredPastEvents.map((se) => this.withDrawerMetrics(se));
+    },
     selectedPastEventIds() {
       // start from all top-10 scored events, minus the user-excluded ones,
       // plus les events cochés à la main dans le drawer (hors top 10).
@@ -2419,7 +2541,7 @@ export default {
         const id = se?.event?.id;
         if (!id || seen.has(id)) return;
         seen.add(id);
-        out.push({ ...se, reason });
+        out.push({ ...this.withDrawerMetrics(se), reason });
       };
       for (const se of this.timeline.candidateEvents || []) {
         push(se, `Hors top 10 — score plus bas (${se.score}/${se.maxPossibleScore})`);
@@ -3095,6 +3217,36 @@ export default {
     },
   },
   watch: {
+    // ── BUG-291-01 : adoption des catalogues recette arrivés APRÈS le chargement ──
+    // Règle commune : on n'adopte que ce qui est STRICTEMENT plus riche. Un simple
+    // `if (list.length)` écraserait un payload API correct par un store plus pauvre
+    // au premier commit de la vague 2a.
+    storeAnalyseIngredients(list) {
+      if (Array.isArray(list) && list.length > (this.ingredients?.length || 0)) {
+        this.ingredients = list;
+      }
+    },
+    storeAnalyseComponents(list) {
+      if (Array.isArray(list) && list.length > (this.components?.length || 0)) {
+        this.components = list;
+      }
+    },
+    // `menuItems` ne se compare pas en NOMBRE d'articles (identique entre les deux
+    // vagues) mais en nombre de LIGNES DE RECETTE : la vague 2b réémet les mêmes
+    // articles avec leurs refs résolues. Sans ce critère, la garde `apiMisEnriched`
+    // de `loadRealData` (vraie dès qu'UN article a un composant, fût-il anonyme)
+    // gelait la version pauvre.
+    storeAnalyseMenuItems(list) {
+      if (!Array.isArray(list) || !list.length) return;
+      const recipeDepth = (arr) =>
+        (arr || []).reduce(
+          (n, mi) => n + (Array.isArray(mi?.components) ? mi.components.length : 0),
+          0,
+        );
+      if (recipeDepth(list) > recipeDepth(this.menuItems)) {
+        this.menuItems = list;
+      }
+    },
     // Reset des extras du snackbar à sa fermeture : le bouton Recharger et le
     // timeout long ne sont armés que pour le nudge post-Save ; sans ça ils
     // fuiraient sur le snackbar suivant (qui n'arme pas ces champs).
@@ -3263,6 +3415,8 @@ export default {
     }
   },
   methods: {
+    formatNumber,
+    formatCurrencyDetailed,
     scrollToAnchor(id) {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3804,6 +3958,7 @@ export default {
         this.shopMenuAssignment = null;
         this.shopMenuAssignmentItems = null;
         this.shopMenuMembership = null;
+        this.shopMenuUnavailable = null;
         // Rien à charger (mock / pas de config) → l'Adjusted ne doit pas
         // rester bloqué en skeleton : « chargé » avec assignation nulle.
         this._assignmentLoaded = true;
@@ -3815,6 +3970,7 @@ export default {
         this.shopMenuAssignment = cache[cfgId].ids;
         this.shopMenuAssignmentItems = cache[cfgId].items;
         this.shopMenuMembership = cache[cfgId].membership || null;
+        this.shopMenuUnavailable = cache[cfgId].unavailable || null;
         this._assignmentLoaded = true;
         return;
       }
@@ -3838,6 +3994,7 @@ export default {
         this.shopMenuAssignment = null;
         this.shopMenuAssignmentItems = null;
         this.shopMenuMembership = null;
+        this.shopMenuUnavailable = null;
         this._assignmentLoaded = true;
         return;
       }
@@ -3846,12 +4003,20 @@ export default {
         // Concurrence bornée (≤3) : sans plafond, cette boucle par shop tirait
         // /space-menu/shop/:id en parallèle EN PLUS de la boucle Analyse (config
         // context) → 429 Render. Pool + résultats collectés par index.
-        // Passe par le store `shopMenuItems` (single-flight + cache TTL keyé
-        // `shopId::configId`) PARTAGÉ avec Restock + Inventory → chaque (shop,
-        // config) n'est fetché qu'une fois, dédupliqué : effondre le burst
-        // /space-menu/shop qui provoquait des 429 (assignation vide → items
-        // grisés + comptage instable 6↔3). Cap 3 conservé pour borner la
-        // concurrence au premier remplissage du cache.
+        // BUG-291-02 : passe par le store `shopMenuAvailability`
+        // (`GET /space-menu/shop/:id/items`) et NON plus `shopMenuItems`
+        // (`GET /space-menu/shop/:id`). Deux raisons :
+        //  1. c'est le SEUL endpoint qui porte `available` — la disponibilité
+        //     calculée côté serveur (ingrédient inactif / sans fournisseur /
+        //     fournisseur ne livrant pas l'espace), celle qu'affiche le tiroir
+        //     Space Menu. La dériver côté front rejouerait la divergence qu'on
+        //     passe ce lot à supprimer ;
+        //  2. son payload est LÉGER (pas de recettes) là où /space-menu/shop/:id
+        //     renvoie tout l'arbre composants+ingrédients+coûts dont seul
+        //     l'Inventaire a besoin → moins de charge sur la boucle par shop qui
+        //     avait provoqué des 429 Render, pas plus.
+        // Le store `shopMenuItems` reste INCHANGÉ pour Restock/Inventory : les
+        // deux endpoints ne sont pas interchangeables. Cap 3 conservé.
         const results = new Array(rows.length);
         await runWithConcurrency(rows, 3, async (r) => {
           const idx = rows.indexOf(r);
@@ -3859,8 +4024,8 @@ export default {
           const name = r?.name ?? r?.shopName ?? "";
           if (!shopId) { results[idx] = { name, items: [] }; return; }
           try {
-            await store.dispatch("shopMenuItems/fetchForShop", { shopId, configId: cfgId });
-            const forShop = store.getters["shopMenuItems/forShop"];
+            await store.dispatch("shopMenuAvailability/fetchForShop", { shopId, configId: cfgId });
+            const forShop = store.getters["shopMenuAvailability/forShop"];
             const items = typeof forShop === "function" ? forShop(shopId, cfgId) || [] : [];
             results[idx] = { name, items };
           } catch (_) {
@@ -3876,6 +4041,9 @@ export default {
         // (shop fermé) DOIT rester distinguable d'un item Weezevent non mappé, donc
         // construit AVANT le filtre `enabled` et hors du `continue`.
         const membershipMap = new Map();
+        // Ids/noms NON DISPONIBLES par shop (BUG-291-02) — même forme que
+        // `membershipMap` pour permettre l'appariement id PUIS nom normalisé.
+        const unavailableMap = new Map();
         for (const { name, items: rawItems } of results) {
           const items = Array.isArray(rawItems) ? rawItems : [];
           const key = normalizeStr(name);
@@ -3887,28 +4055,97 @@ export default {
               ),
             });
           }
-          const enabled = items.filter((it) => it && it.enabled === true);
-          if (!enabled.length) continue;
+          // BUG-291-02 — un article marqué NON DISPONIBLE par le serveur (pas de
+          // recette, ingrédient inactif, fournisseur non résolu ou ne livrant pas
+          // l'espace) ne doit compter dans AUCUNE vente prédite, ni entrer dans le
+          // stock-up, ni dans le réarmement. Décision JLH 2026-08-04 : c'est
+          // `available` qui fait foi — PAS `unmapped`, qui signifie « vendu sur
+          // Weezevent mais non assigné », un tout autre sujet.
+          //
+          // Le filtre était appliqué AUX DEUX maps, ce qui sortait l'article du
+          // menu assigné → `getGroupedMenuItems` le reclassait en « non attaché »
+          // AVEC sa quantité intacte : il ressortait par une autre porte. On sépare
+          // donc les deux usages :
+          //  - `itemMap` (liste AFFICHÉE) garde les indisponibles, pour qu'ils
+          //    restent visibles dans « Sans ventes prévues » avec leur raison ;
+          //  - `idMap` (ids AUTO-SÉLECTIONNABLES, aussi lu par
+          //    `derivedMenuConfigFromRecords`) les exclut : jamais cochés d'office ;
+          //  - `unavailableMap` porte l'index d'indisponibilité pour le Stock-up,
+          //    qui ne reçoit que des ids et n'a aucun objet portant `available`.
+          //
+          // Correctif v2 (même jour, capture Cookie 1 A) : `available === false`
+          // fait foi SEUL, sans condition `enabled`. Un article à la fois
+          // désactivé ET improduisible passait entre les mailles du filtre
+          // `enabled === true` et ressortait en « Non attachés » avec ses 7
+          // ventes. Calculé AVANT les `continue` (comme `membershipMap`) : un
+          // shop sans item activé doit quand même enregistrer ses indisponibles.
+          // Strict `=== false` conservé (garde anti-backend-legacy — un backend
+          // qui n'enverrait pas le champ ne doit pas tout déclarer indisponible).
+          const unavailable = items.filter((it) => it && it.available === false);
+          if (key && unavailable.length) {
+            unavailableMap.set(key, {
+              ids: new Set(unavailable.map((it) => String(it.id))),
+              names: new Set(unavailable.map((it) => normalizeStr(it.name)).filter(Boolean)),
+            });
+          }
+          const assignedEnabled = items.filter((it) => it && it.enabled === true);
+          if (!assignedEnabled.length) continue;
           if (!key) continue;
-          idMap.set(key, new Set(enabled.map((it) => it.id)));
+          // `available !== false` (et non `=== true`) : un backend antérieur qui
+          // n'enverrait pas le champ ne doit pas vider tous les menus.
+          idMap.set(
+            key,
+            new Set(assignedEnabled.filter((it) => it.available !== false).map((it) => it.id)),
+          );
+          // Liste affichée = activés + assignés-désactivés-IMPRODUISIBLES (v2) :
+          // ces derniers doivent apparaître en « Sans ventes prévues » avec badge
+          // « indisponible » et raison, pas en « Non attachés » avec le flux
+          // réactiver. Un non-assigné improduisible reste, lui, hors liste.
+          const displayItems = items.filter(
+            (it) =>
+              it &&
+              (it.enabled === true ||
+                (it.assigned === true && it.available === false)),
+          );
           itemMap.set(
             key,
-            enabled.map((it) => ({
+            // `price` de /items est TTC ; `basePrice` reste lu en premier au cas où
+            // le backend l'expose — on ne substitue JAMAIS l'un à l'autre en silence
+            // (cela injecterait de la TVA dans le CA des items synthétiques).
+            displayItems.map((it) => ({
               id: it.id,
               name: it.name,
               basePrice: it.basePrice,
               category: it.productCategory?.name || it.category || "",
               picture: it.picture || null,
+              // Vérité SERVEUR de disponibilité, transportée jusqu'à la section
+              // Menus qui l'oppose à sa propre dérivation front (obsolète : elle
+              // applique encore « fournisseur sans sites = livre tous les espaces »).
+              // `missingIngredients` est APLATI EN NOMS : le backend renvoie des
+              // objets { kind, name, reason, … } et le template fait `.join(', ')`.
+              available: it.available,
+              hasRecipe: it.hasRecipe,
+              missingIngredients: Array.isArray(it.missingIngredients)
+                ? it.missingIngredients
+                    .map((m) => (typeof m === "string" ? m : m?.name))
+                    .filter(Boolean)
+                : [],
             })),
           );
         }
-        cache[cfgId] = { ids: idMap, items: itemMap, membership: membershipMap };
+        cache[cfgId] = {
+          ids: idMap,
+          items: itemMap,
+          membership: membershipMap,
+          unavailable: unavailableMap,
+        };
         this.shopMenuAssignment = idMap;
         this.shopMenuAssignmentItems = itemMap;
         this.shopMenuMembership = membershipMap;
+        this.shopMenuUnavailable = unavailableMap;
         // eslint-disable-next-line no-console
         console.log(
-          `[EVENT PREDICT] assignation NestJS chargée : ${idMap.size}/${rows.length} shops avec menu (clé=nom)`,
+          `[EVENT PREDICT] assignation NestJS chargée : ${idMap.size}/${rows.length} shops avec menu (clé=nom), ${unavailableMap.size} shop(s) avec article(s) indisponible(s)`,
         );
       } catch (e) {
         // eslint-disable-next-line no-console
@@ -3918,6 +4155,7 @@ export default {
         );
         this.shopMenuAssignment = null;
         this.shopMenuAssignmentItems = null;
+        this.shopMenuUnavailable = null;
       } finally {
         this._assignmentLoaded = true;
       }
@@ -4055,6 +4293,9 @@ export default {
         // Refresh : invalider cache shop + assignation → recompute réactif (sans reload).
         try {
           store.dispatch("shopMenuItems/invalidateForShop", d.shopId);
+          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
+          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
+          store.dispatch("shopMenuAvailability/invalidateForShop", d.shopId);
         } catch (_) {
           /* noop */
         }
@@ -4112,6 +4353,14 @@ export default {
         const rows = this._spaceShopsCache[spaceId] || [];
         const nextRows = rows.map((r) => {
           if (String(r?.id ?? r?._id ?? r?.shopId ?? "") !== shopId) return r;
+          // Ne bumper QUE la ligne de la config courante : la réponse /shops non
+          // filtrée porte une ligne par (élément, config) et un élément v2 est
+          // partagé entre configs — sans ce test, l'assignation faite ici gonflerait
+          // le compteur des AUTRES configs, et un PdV réellement fermé y passerait
+          // « Opened » au changement d'event. `cfgId` est non nul (garde plus haut) ;
+          // `rc == null` = ligne sans config (défensif) → on la bumpe.
+          const rc = r?.configId ?? r?._raw?.configId;
+          if (rc != null && rc !== cfgId) return r;
           const count = Math.max(
             0,
             Number(r?.menuItemsCount || 0) + (enabled ? 1 : -1),
@@ -4122,6 +4371,9 @@ export default {
         // Invalidation caches assignation (même refresh que applyRemap).
         try {
           store.dispatch("shopMenuItems/invalidateForShop", shopId);
+          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
+          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
+          store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
         } catch (_) {
           /* noop */
         }
@@ -4165,6 +4417,9 @@ export default {
         await assignMenuItemsToShop(spaceId, cfgId, shopId, changes);
         try {
           store.dispatch("shopMenuItems/invalidateForShop", shopId);
+          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
+          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
+          store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
         } catch (_) {
           /* noop */
         }
@@ -4257,17 +4512,27 @@ export default {
       if (date) query.date = date;
       this.$router.push({ name: "space-restock", params: { spaceId }, query });
     },
-    // Ouvre l'inventaire de l'espace avec l'event courant + SA config (scope PdV).
-    // La config vient de selectedEvent.configurationId (copie locale → reflète un
-    // changement live) ; l'inventaire la préfère à la config du store (?configuration=).
+    // Ouvre l'inventaire de l'event courant + SA config (scope PdV). La config
+    // vient de selectedEvent.configurationId (copie locale → reflète un changement
+    // live) ; l'inventaire la préfère à la config du store (?configuration=).
+    // Cible DYNAMIQUE : un match à venir part sur le pre-event inventory — le
+    // post-event rejette un ?event= futur et se ré-ancre en silence sur le dernier
+    // match passé (cf. utils/inventoryRouteTarget.js).
     goToInventory() {
       const spaceId = this.space?.id || this.$route?.params?.spaceId;
       if (!spaceId) return;
       const query = {};
       if (this.selectedEventId) query.event = this.selectedEventId;
-      const cfgId = this.selectedEvent?.configurationId || null;
+      // Repli sur le ?configuration= de l'URL — parité navigateToTool : un event
+      // sans configurationId envoyait l'inventaire sur « Aucun évènement sélectionné ».
+      const cfgId =
+        this.selectedEvent?.configurationId || this.$route?.query?.configuration || null;
       if (cfgId) query.configuration = cfgId;
-      this.$router.push({ name: "space-inventory", params: { spaceId }, query });
+      this.$router.push({
+        name: this.inventoryTargetRouteName,
+        params: { spaceId },
+        query,
+      });
     },
     /**
      * Persiste les records de prédiction calculés (+ ajustements % + menuConfig)
@@ -4428,6 +4693,12 @@ export default {
           this.$router.replace({ name: 'space-analyse', params: { spaceId }, query: nextQuery });
         } catch (_) { /* router not ready */ }
         this.$emit('close');
+      } else if (tool.value === 'live') {
+        // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=` d'Analyse,
+        // cf. router/index.js) : il faut router par nom, sinon on atterrit sur
+        // Analyse avec un toolbox inconnu.
+        this.$router.push({ name: 'space-live', params: { spaceId } });
+        this.$emit('close');
       } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic') {
         // Inventaire/Réarmement scopent sur la config de l'event. On la joint
         // EXPLICITEMENT (?configuration=) : la config courante d'EventPredict vit
@@ -4494,6 +4765,34 @@ export default {
         if (r.eventId !== eventId || r.isPredictive) return sum;
         return sum + Number(r.revenue ?? r.totalRevenue ?? 0);
       }, 0);
+    },
+    /**
+     * Ajoute à un évènement scoré les 3 métriques affichées dans le drawer de
+     * sélection des sources : CA réel, tickets scannés et per-cap (CA ÷ tickets).
+     * Le dénominateur suit la MÊME résolution que le scoring et la timeline
+     * (`ticketsScanned || ticketsSold`), sinon le per-cap du drawer ne
+     * réconcilierait pas avec celui des cards Summary.
+     *
+     * « Aucun record granulaire pour cet event » ≠ « CA de 0 € » : shopGranularData
+     * ne couvre que la période chargée par Analyse, un évènement plus ancien peut
+     * en être absent. On renvoie donc `null` (affiché « — ») plutôt que 0, sinon
+     * l'écran affirme « cet évènement n'a rien vendu » — l'inverse du vrai, sur
+     * l'écran même où l'utilisateur choisit ses sources. Idem `perCap` sans
+     * affluence connue.
+     */
+    withDrawerMetrics(se) {
+      const ev = se?.event || {};
+      const ca = this.caByPastEvent.has(ev.id)
+        ? this.caByPastEvent.get(ev.id)
+        : null;
+      const ticketsScanned =
+        Number(ev.ticketsScanned) || Number(ev.ticketsSold) || 0;
+      return {
+        ...se,
+        ca,
+        ticketsScanned,
+        perCap: ca != null && ticketsScanned > 0 ? ca / ticketsScanned : null,
+      };
     },
     onCalendarChange(date) {
       // Calendrier secondaire : sélection simple. `date` = Date unique.
@@ -5335,7 +5634,7 @@ export default {
     },
     formatCurrency(n) {
       const v = Number(n) || 0;
-      return new Intl.NumberFormat("fr-FR", {
+      return new Intl.NumberFormat(currentIntlLocale(), {
         style: "currency",
         currency: "EUR",
         minimumFractionDigits: 0,
@@ -6871,9 +7170,6 @@ export default {
   gap: 8px;
   padding-top: 4px;
 }
-.ep-side-event-btn {
-  flex: 1 1 0;
-}
 /* ===== Zone Version (sépare actions version vs infos évènement) ===== */
 .ep-side-version-zone {
   margin-top: 4px;
@@ -7080,9 +7376,6 @@ export default {
 }
 .ep-side-version-stat-val {
   font-weight: 500;
-}
-.ep-side-update-btn {
-  width: 100%;
 }
 /* ===== Empty state placeholder (cf. React :2166-2177) ===== */
 .ep-empty-state {
@@ -9014,17 +9307,14 @@ export default {
   width: 100%;
 }
 
-.ep-side-event-btn {
-  width: 100%;
+/* Colonne latérale étroite : les libellés ("Enregistrer sous") doivent pouvoir
+   passer à la ligne, alors que `.fb-btn` est en `nowrap` par défaut. Seule
+   dérogation locale au design system. */
+.ep-side-event-actions .fb-btn {
   min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-}
-
-.ep-side-event-actions :deep(button) {
-  width: 100%;
-  min-width: 0;
-  padding-inline: 10px !important;
+  height: auto;
+  min-height: var(--fb-btn-height, 36px);
+  padding: 6px 10px;
   white-space: normal;
 }
 
@@ -9034,10 +9324,11 @@ export default {
   border-radius: 999px;
 }
 
-.ep-side-event-actions :deep(button),
-.ep-side-update-btn,
-.ep-prediction-base-actions :deep(button) {
-  border-radius: var(--fb-radius-control, 8px) !important;
+/* Boutons de l'écran encore hors design system (`.ep-sources-btn`) : on leur
+   garde le rayon de contrôle. Les autres passent par `.fb-btn`, qui l'applique
+   déjà. */
+.ep-prediction-base-actions button {
+  border-radius: var(--fb-radius-control, 8px);
 }
 
 .ep-prediction-base-header {

@@ -20,10 +20,6 @@
 
           <!-- Body -->
           <div class="mptfd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-5">
-              {{ error }}
-            </v-alert>
-
             <div class="mptfd-field-label">{{ t('marketPriceTypeList.labelName') }} <span class="mptfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
@@ -36,6 +32,11 @@
               class="mptfd-field"
             />
           </div>
+
+          <!-- BUG-273 : erreur hors zone scrollable, toujours visible juste au-dessus des boutons. -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mptfd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- Footer -->
           <div class="mptfd-footer">
@@ -248,6 +249,13 @@ export default {
 .mptfd-field :deep(.v-field--focused) {
   border-color: #ff3131 !important;
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
+}
+
+/* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
+.mptfd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
 }
 
 /* ── Footer ── */

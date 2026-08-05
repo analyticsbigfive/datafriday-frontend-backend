@@ -1,9 +1,18 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
 import { Prisma, StockMovementReason } from '@prisma/client';
+import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
+import { QUEUES } from '../../core/queue/queue.constants';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
+import { StartSimulationRunDto } from './dto/simulation-run.dto';
+
+export interface SimulationTickJobData {
+  runId: string;
+}
 
 type ElementRef = { id: string; name: string; spaceId: string };
 
@@ -84,6 +93,14 @@ export class LogisticsService {
     // fermerait un cycle (même raison documentée dans
     // weezevent/services/webhook-event.handler.ts).
     private readonly queueService: QueueService,
+    // Queue dédiée, enregistrée localement dans LogisticsModule (pas dans le QueueModule
+    // global) — même pattern que AggregationModule pour AGGREGATION. Pilote le Job
+    // Scheduler BullMQ (upsertJobScheduler/removeJobScheduler) des runs d'auto-simulation.
+    @InjectQueue(QUEUES.SIMULATION) private readonly simulationQueue: Queue<SimulationTickJobData>,
+    // Source de vérité prix (shared/pricing) : simulateSale doit facturer le prix
+    // DataFriday de l'ESPACE courant (SpaceMenuItem.priceTtc → MenuItem.basePrice),
+    // pas le prix du produit Weezevent mappé (cf. §ci-dessous, simulateSale).
+    private readonly pricingService: MenuItemPricingService,
   ) {}
 
   // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
@@ -735,16 +752,21 @@ export class LogisticsService {
    * comportement front actuel (buildStorageInventory ne fait pas de filtre par
    * sous-type de storage côté Logistic — non reproduit ici, à vérifier en test réel).
    */
+  /** Fragment where : SpaceElement appartenant à CET espace (v1 floor/forecourt/externalMerch + v2 zone). */
+  private spaceElementScopeWhere(spaceId: string, tenantId: string) {
+    return {
+      OR: [
+        { floor: { config: { space: { id: spaceId, tenantId } } } },
+        { forecourt: { config: { space: { id: spaceId, tenantId } } } },
+        { externalMerch: { config: { space: { id: spaceId, tenantId } } } },
+        { zone: { space: { id: spaceId, tenantId } } },
+      ],
+    } as any;
+  }
+
   private async getSpaceElementsWithItems(spaceId: string, tenantId: string, configId?: string) {
     const rows = await this.prisma.spaceElement.findMany({
-      where: {
-        OR: [
-          { floor: { config: { space: { id: spaceId, tenantId } } } },
-          { forecourt: { config: { space: { id: spaceId, tenantId } } } },
-          { externalMerch: { config: { space: { id: spaceId, tenantId } } } },
-          { zone: { space: { id: spaceId, tenantId } } },
-        ],
-      } as any,
+      where: this.spaceElementScopeWhere(spaceId, tenantId),
       select: {
         id: true,
         name: true,
@@ -875,6 +897,62 @@ export class LogisticsService {
       if (loc) result.set(m.spaceElementId, loc.provider);
     }
     return result;
+  }
+
+  /**
+   * PDV simulables (≥1 menu item vendable, à prix réel, ET mappé à une intégration réelle)
+   * — miroir server-side de `LiveSaleSimulatorWidget.vue::menuItemsForShop`/`pickRandom`,
+   * pour le tick d'auto-simulation (`SimulationRunProcessor`). Filtre par `provider != null`
+   * en plus (contrairement au picker manuel front, qui laisse l'utilisateur choisir puis
+   * échouer proprement côté `simulateSale`) : un tick automatique ne doit pas accumuler
+   * des erreurs évitables sur des PDV jamais mappés.
+   *
+   * Écarte aussi les menu items dont le `SalesProduct` mappé n'a pas de `basePrice` réel
+   * (retour utilisateur 2026-08-03) : sur ce tenant, la majorité des produits synchronisés
+   * n'ont jamais eu de prix saisi côté Weezevent — un tirage purement aléatoire produisait
+   * presque toujours des ventes à 0€, noyant les rares tirages à prix réel. Uniquement pour
+   * l'auto-run ; le picker manuel du widget QA n'est pas concerné (utile pour tester la
+   * déduction de stock indépendamment du prix).
+   */
+  async getSimulableShops(spaceId: string, tenantId: string, configId?: string) {
+    const elements = await this.getSpaceElementsWithItems(spaceId, tenantId, configId);
+    const shops = elements
+      .filter((e) => e.type !== 'storage' && e.provider)
+      .map((e) => {
+        const ids = new Set<string>();
+        for (const item of e.items) for (const u of item.usedIn) ids.add(u.id);
+        return { id: e.id, name: e.name, menuItemIds: [...ids] };
+      });
+
+    const allMenuItemIds = [...new Set(shops.flatMap((s) => s.menuItemIds))];
+    if (!allMenuItemIds.length) return shops;
+
+    // Éligibilité "simulable" alignée sur simulateSale (même raison ci-dessous) : il
+    // faut un mapping Weezevent (simulateSale a besoin d'un salesProductId pour la
+    // ligne de vente), mais le PRIX qui détermine si l'item est simulable est
+    // désormais le prix catalogue DataFriday de l'ESPACE courant (SpaceMenuItem.priceTtc
+    // → MenuItem.basePrice), pas SalesProduct.basePrice — un menu item peut être mappé
+    // à un produit Weezevent au prix incomplet alors que son prix catalogue est sain.
+    const [mappings, menuItems, spaceMenuItems] = await Promise.all([
+      this.prisma.productMapping.findMany({
+        where: { tenantId, menuItemId: { in: allMenuItemIds } },
+        select: { menuItemId: true },
+      }),
+      this.prisma.menuItem.findMany({
+        where: { id: { in: allMenuItemIds }, tenantId, deletedAt: null },
+        select: { id: true, basePrice: true },
+      }),
+      this.prisma.spaceMenuItem.findMany({ where: { spaceId, menuItemId: { in: allMenuItemIds } } }),
+    ]);
+    const mappedMenuItemIds = new Set(mappings.map((m) => m.menuItemId));
+    const spaceOverrideById = new Map(spaceMenuItems.map((s) => [s.menuItemId, s]));
+    const pricedMenuItemIds = new Set(
+      menuItems
+        .filter((mi) => mappedMenuItemIds.has(mi.id) && Number(spaceOverrideById.get(mi.id)?.priceTtc ?? mi.basePrice) > 0)
+        .map((mi) => mi.id),
+    );
+
+    return shops.map((s) => ({ ...s, menuItemIds: s.menuItemIds.filter((id) => pricedMenuItemIds.has(id)) }));
   }
 
   /** Market prices candidats pour le dropdown du popup +/− (itemKey donné, sans le catalogue complet). */
@@ -1033,6 +1111,7 @@ export class LogisticsService {
           const level = levelByKey.get(`${el.id}::${item.name}`);
           return {
             itemKey: item.name,
+            unit: item.unit ?? null,
             packedUnits: level?.packedUnits ?? 0,
             looseUnits: level?.looseUnits ?? 0,
             unitsPerPack: level?.unitsPerPack ?? item.unitsPerPack ?? null,
@@ -1044,12 +1123,12 @@ export class LogisticsService {
 
     // Index inversé item → shops (11_LIVE.md §3.2) — n'existe nulle part ailleurs, seul vrai
     // travail neuf de ce chantier : les deux vues partagent la même donnée déjà assemblée ci-dessus.
-    const itemsByKey = new Map<string, { itemKey: string; shops: any[] }>();
+    const itemsByKey = new Map<string, { itemKey: string; unit: string | null; shops: any[] }>();
     for (const shop of shops) {
       for (const item of shop.items) {
         let entry = itemsByKey.get(item.itemKey);
         if (!entry) {
-          entry = { itemKey: item.itemKey, shops: [] };
+          entry = { itemKey: item.itemKey, unit: item.unit, shops: [] };
           itemsByKey.set(item.itemKey, entry);
         }
         entry.shops.push({
@@ -1758,7 +1837,9 @@ export class LogisticsService {
     const nameById = new Map(elements.map((e) => [e.id, e.name]));
 
     const esc = (v: unknown) => {
-      const s = String(v ?? '');
+      // Décimaux en virgule : un CSV ';' (convention fr) avec des nombres à
+      // point est lu comme du texte par Excel FR.
+      const s = typeof v === 'number' ? String(v).replace('.', ',') : String(v ?? '');
       return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const header = [
@@ -1803,6 +1884,7 @@ export class LogisticsService {
     userId?: string,
     realMode = false,
     ensureLiveEvent = false,
+    simulationRunId?: string,
   ) {
     if (!lines?.length) throw new BadRequestException('Aucune ligne \u00E0 simuler');
     const element = await this.getElementOrThrow(elementId, tenantId);
@@ -1833,11 +1915,27 @@ export class LogisticsService {
       : location.eventId;
 
     const menuItemIds = [...new Set(lines.map((l) => l.menuItemId))];
-    const [menuItems, productMappings] = await Promise.all([
-      this.prisma.menuItem.findMany({ where: { id: { in: menuItemIds }, tenantId, deletedAt: null }, select: { id: true, name: true } }),
+    // ProductMapping reste n\u00E9cessaire pour attribuer la vente \u00E0 un produit Weezevent
+    // (reporting/corr\u00E9lation), MAIS le PRIX factur\u00E9 vient d\u00E9sormais du catalogue
+    // DataFriday de l'ESPACE courant (SpaceMenuItem.priceTtc \u2192 MenuItem.basePrice),
+    // pas de SalesProduct.basePrice. Raison : un menu item peut \u00EAtre mapp\u00E9 \u00E0 PLUSIEURS
+    // produits Weezevent (sch\u00E9ma : @@unique([salesProductId]) seulement, aucune
+    // contrainte sur menuItemId) \u2014 un doublon de mapping vers un produit au prix
+    // incomplet (basePrice null) rendait la vente simul\u00E9e silencieusement gratuite,
+    // alors que le prix catalogue DataFriday, lui, est toujours la source unique et
+    // fiable (menu-item-pricing.service.ts). Le prix de vente r\u00E9el (webhook Weezevent)
+    // n'est PAS concern\u00E9 : il porte son propre prix, ind\u00E9pendant de cette r\u00E9solution.
+    const [menuItems, spaceMenuItems, productMappings, tenantDefaultVatRate] = await Promise.all([
+      this.prisma.menuItem.findMany({
+        where: { id: { in: menuItemIds }, tenantId, deletedAt: null },
+        select: { id: true, name: true, basePrice: true, vatRate: true },
+      }),
+      this.prisma.spaceMenuItem.findMany({ where: { spaceId, menuItemId: { in: menuItemIds } } }),
       this.prisma.productMapping.findMany({ where: { tenantId, menuItemId: { in: menuItemIds } } }),
+      this.pricingService.getTenantDefaultVatRate(tenantId),
     ]);
     const menuItemById = new Map(menuItems.map((m) => [m.id, m]));
+    const spaceOverrideById = new Map(spaceMenuItems.map((s) => [s.menuItemId, s]));
     const mappingByMenuItemId = new Map(productMappings.map((m) => [m.menuItemId, m]));
     const missing = menuItemIds.filter((id) => !mappingByMenuItemId.has(id));
     if (missing.length) {
@@ -1853,13 +1951,16 @@ export class LogisticsService {
       const menuItem = menuItemById.get(line.menuItemId);
       const mapping = mappingByMenuItemId.get(line.menuItemId)!;
       const product = productById.get(mapping.salesProductId);
+      const spaceOverride = spaceOverrideById.get(line.menuItemId);
+      const unitPrice = spaceOverride?.priceTtc ?? menuItem?.basePrice ?? new Prisma.Decimal(0);
+      const vat = spaceOverride?.vatRate ?? menuItem?.vatRate ?? tenantDefaultVatRate ?? 0;
       return {
         menuItemId: line.menuItemId,
         productId: mapping.salesProductId,
-        productName: product?.name ?? menuItem?.name ?? null,
+        productName: menuItem?.name ?? product?.name ?? null,
         quantity: line.quantity,
-        unitPrice: product?.basePrice ?? new Prisma.Decimal(0),
-        vat: product?.vatRate ?? new Prisma.Decimal(0),
+        unitPrice,
+        vat,
         rawData: { simulated: true },
       };
     });
@@ -1903,7 +2004,12 @@ export class LogisticsService {
         eventId: salesEventId,
         locationId: location.id,
         locationName: location.name,
-        metadata: { isSimulated: true, simulatedByUserId: userId ?? null, simulatedElementId: elementId },
+        metadata: {
+          isSimulated: true,
+          simulatedByUserId: userId ?? null,
+          simulatedElementId: elementId,
+          ...(simulationRunId ? { simulationRunId } : {}),
+        },
         rawData: { simulated: true },
         items: {
           create: itemsData.map(({ menuItemId, ...data }) => data),
@@ -1942,8 +2048,9 @@ export class LogisticsService {
    * ce rattachement explicite, une vente simulée ne s'affiche jamais sous "Aujourd'hui".
    * Idempotent : réutilise l'Event/SalesEvent du jour s'il en existe déjà un pour cet
    * espace (pas de duplication à chaque vente simulée le même jour). Tagué
-   * `metadata.isSimulated=true` côté SalesEvent et nommé `[Simulé] ...` côté Event, pour
-   * rester identifiable/purgeable (cf. purgeSimulatedSales).
+   * `metadata.isSimulated=true` côté SalesEvent et `isSimulated=true` + nom `[Simulé] ...`
+   * côté Event, pour rester identifiable/purgeable (cf. purgeSimulatedSales) et pour être
+   * exclu d'EventPredict / de l'écran Live (GET /events?excludeSimulated=true).
    */
   private async ensureTodaySalesEvent(
     tenantId: string,
@@ -1996,8 +2103,11 @@ export class LogisticsService {
         await this.prisma.event.update({ where: { id: existingEvent.id }, data: { weezeventEventId: salesEvent.id } });
       }
     } else {
+      // `isSimulated` UNIQUEMENT sur la branche de création : les branches de
+      // réutilisation ci-dessus (et le retour anticipé §1) peuvent pointer sur un
+      // VRAI event du jour — le flaguer le masquerait d'EventPredict/Live.
       await this.prisma.event.create({
-        data: { name: label, eventDate: now, spaceId, tenantId, weezeventEventId: salesEvent.id },
+        data: { name: label, eventDate: now, spaceId, tenantId, weezeventEventId: salesEvent.id, isSimulated: true },
       });
     }
 
@@ -2128,9 +2238,16 @@ export class LogisticsService {
       },
     });
 
-    // Ne nettoie QUE les SalesEvent que ce m\u00E9canisme a lui-m\u00EAme cr\u00E9\u00E9s (metadata.isSimulated),
-    // jamais un event r\u00E9el \u2014 et seulement si plus AUCUNE transaction (simul\u00E9e ou r\u00E9elle) ne
-    // le r\u00E9f\u00E9rence encore (peut \u00EAtre partag\u00E9 par d'autres PDV/tests du m\u00EAme jour).
+    const deletedEventCount = await this.cleanupOrphanedSimulatedSalesEvents(tenantId, candidateEventIds);
+    return { deletedCount: count, deletedEventCount };
+  }
+
+  /**
+   * Nettoie les SalesEvent cr\u00E9\u00E9s par `ensureTodaySalesEvent` (`metadata.isSimulated`) qui ne
+   * sont plus r\u00E9f\u00E9renc\u00E9s par AUCUNE transaction (simul\u00E9e ou r\u00E9elle) apr\u00E8s une purge \u2014 jamais
+   * un event r\u00E9el. Extrait de `purgeSimulatedSales` pour \u00EAtre partag\u00E9 avec `purgeSimulatedSalesByIds`.
+   */
+  private async cleanupOrphanedSimulatedSalesEvents(tenantId: string, candidateEventIds: string[]): Promise<number> {
     let deletedEventCount = 0;
     for (const salesEventId of candidateEventIds) {
       const salesEvent = await this.prisma.salesEvent.findUnique({
@@ -2155,7 +2272,137 @@ export class LogisticsService {
       await this.prisma.salesEvent.delete({ where: { id: salesEventId } });
       deletedEventCount++;
     }
+    return deletedEventCount;
+  }
 
+  /**
+   * Liste pagin\u00E9e (curseur) des ventes simul\u00E9es d'un espace, tous PDV confondus \u2014 QA
+   * (11_LIVE.md, LiveSimulationHistoryDialog.vue). M\u00EAme cha\u00EEne de jointure que
+   * `simulateSale`/`purgeSimulatedSales` (LocationShopMapping \u2192 SalesLocation), \u00E9largie \u00E0
+   * TOUS les PDV de l'espace au lieu d'un seul.
+   */
+  async listSimulatedSales(spaceId: string, tenantId: string, limit = 50, cursor?: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const elements = await this.prisma.spaceElement.findMany({
+      where: { ...this.spaceElementScopeWhere(spaceId, tenantId), type: { in: SHOP_TYPES } } as any,
+      select: { id: true, name: true },
+    });
+    if (!elements.length) return { items: [], nextCursor: null };
+    const nameById = new Map(elements.map((e) => [e.id, e.name]));
+
+    const mappings = await this.prisma.locationShopMapping.findMany({
+      where: { tenantId, spaceElementId: { in: elements.map((e) => e.id) } },
+      select: { salesLocationId: true },
+    });
+    if (!mappings.length) return { items: [], nextCursor: null };
+    const salesLocationIds = [...new Set(mappings.map((m) => m.salesLocationId))];
+    const locations = await this.prisma.salesLocation.findMany({
+      where: { tenantId, OR: [{ id: { in: salesLocationIds } }, { externalId: { in: salesLocationIds } }] },
+      select: { id: true },
+    });
+    if (!locations.length) return { items: [], nextCursor: null };
+    const locationIds = locations.map((l) => l.id);
+
+    const rows = await this.prisma.salesTransaction.findMany({
+      where: { tenantId, locationId: { in: locationIds }, metadata: { path: ['isSimulated'], equals: true } },
+      orderBy: { transactionDate: 'desc' },
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { items: true },
+    });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      items: page.map((t) => ({
+        id: t.id,
+        elementId: (t.metadata as any)?.simulatedElementId ?? null,
+        elementName: nameById.get((t.metadata as any)?.simulatedElementId) ?? null,
+        runId: (t.metadata as any)?.simulationRunId ?? null,
+        amount: t.amount,
+        transactionDate: t.transactionDate,
+        items: t.items.map((i) => ({ productId: i.productId, productName: i.productName, quantity: i.quantity })),
+      })),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
+  }
+
+  /**
+   * Purge s\u00E9lective par ids de transaction (QA, history dialog) \u2014 contrairement \u00E0
+   * `purgeSimulatedSales` (tout un PDV d'un coup), permet de ne retirer que les lignes
+   * coch\u00E9es. V\u00E9rifie que chaque id appartient bien \u00E0 un PDV de CET espace/tenant avant
+   * suppression \u2014 un id forg\u00E9 d'un autre espace/tenant ne peut rien purger.
+   */
+  async purgeSimulatedSalesByIds(spaceId: string, tenantId: string, transactionIds: string[]) {
+    await this.assertSpace(spaceId, tenantId);
+    if (!transactionIds?.length) return { deletedCount: 0, deletedEventCount: 0 };
+    const elements = await this.prisma.spaceElement.findMany({
+      where: { ...this.spaceElementScopeWhere(spaceId, tenantId), type: { in: SHOP_TYPES } } as any,
+      select: { id: true },
+    });
+    const elementIds = new Set(elements.map((e) => e.id));
+    const rows = await this.prisma.salesTransaction.findMany({
+      where: { id: { in: transactionIds }, tenantId, metadata: { path: ['isSimulated'], equals: true } },
+      select: { id: true, eventId: true, metadata: true },
+    });
+    const allowed = rows.filter((r) => elementIds.has((r.metadata as any)?.simulatedElementId));
+    if (!allowed.length) return { deletedCount: 0, deletedEventCount: 0 };
+    const candidateEventIds = [...new Set(allowed.map((r) => r.eventId).filter((id): id is string => !!id))];
+    const { count } = await this.prisma.salesTransaction.deleteMany({ where: { id: { in: allowed.map((r) => r.id) } } });
+    const deletedEventCount = await this.cleanupOrphanedSimulatedSalesEvents(tenantId, candidateEventIds);
     return { deletedCount: count, deletedEventCount };
+  }
+
+  // \u2500\u2500\u2500 Runs d'auto-simulation (QA, server-side, BullMQ Job Scheduler) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+  /** Idempotent : un run d\u00E9j\u00E0 actif pour cet espace est renvoy\u00E9 tel quel, pas de doublon. */
+  async startSimulationRun(spaceId: string, tenantId: string, userId: string, dto: StartSimulationRunDto) {
+    await this.assertSpace(spaceId, tenantId);
+    const existing = await this.prisma.simulationRun.findFirst({ where: { tenantId, spaceId, status: 'active' } });
+    if (existing) return existing;
+    const run = await this.prisma.simulationRun.create({
+      data: {
+        tenantId,
+        spaceId,
+        intervalMs: dto.intervalMs,
+        realMode: dto.realMode ?? true,
+        configId: dto.configId ?? null,
+        status: 'active',
+        startedByUserId: userId,
+      },
+    });
+    await this.simulationQueue.upsertJobScheduler(
+      run.id,
+      { every: dto.intervalMs },
+      { name: 'simulation-tick', data: { runId: run.id } },
+    );
+    return run;
+  }
+
+  async stopSimulationRun(spaceId: string, runId: string, tenantId: string, userId: string) {
+    await this.assertSpace(spaceId, tenantId);
+    const run = await this.prisma.simulationRun.findFirst({ where: { id: runId, tenantId, spaceId } });
+    if (!run) throw new NotFoundException(`Run ${runId} introuvable`);
+    if (run.status === 'active') {
+      await this.simulationQueue.removeJobScheduler(run.id).catch(() => {});
+      await this.prisma.simulationRun.update({
+        where: { id: run.id },
+        data: { status: 'stopped', stoppedAt: new Date(), stoppedByUserId: userId },
+      });
+    }
+    return this.prisma.simulationRun.findUnique({ where: { id: run.id } });
+  }
+
+  async getActiveSimulationRun(spaceId: string, tenantId: string) {
+    await this.assertSpace(spaceId, tenantId);
+    return this.prisma.simulationRun.findFirst({ where: { tenantId, spaceId, status: 'active' } });
+  }
+
+  async listSimulationRuns(spaceId: string, tenantId: string, limit = 20) {
+    await this.assertSpace(spaceId, tenantId);
+    return this.prisma.simulationRun.findMany({
+      where: { tenantId, spaceId },
+      orderBy: { startedAt: 'desc' },
+      take: limit,
+    });
   }
 }

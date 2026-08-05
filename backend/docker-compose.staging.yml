@@ -23,7 +23,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./prisma:/app/prisma
-    command: sh -c "npx prisma migrate deploy && node dist/main"
+    # Pas de "prisma migrate deploy" ici : migrations toujours manuelles (ADR-0002) —
+    # prisma/migrations/* est versionné depuis le 2026-08-02, ce ne serait plus un no-op.
+    command: sh -c "node dist/main"
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/v1/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s

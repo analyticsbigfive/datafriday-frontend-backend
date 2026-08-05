@@ -45,6 +45,11 @@ export { QUEUES } from './queue.constants';
       { name: QUEUES.NOTIFICATIONS },
       { name: QUEUES.EXPORTS },
       { name: QUEUES.AGGREGATION },
+      // Dual-registrée comme AGGREGATION : LogisticsModule l'enregistre aussi localement
+      // pour son propre processor (SimulationRunProcessor, runs d'auto-simulation QA
+      // 11_LIVE.md) — ici juste pour que QueueService (stats/observabilité génériques)
+      // puisse l'injecter comme les autres queues.
+      { name: QUEUES.SIMULATION },
     ),
     forwardRef(() => WeezeventModule),
     RedisModule.forRoot(),

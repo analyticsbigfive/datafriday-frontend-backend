@@ -32,7 +32,9 @@
       </v-btn>
     </template>
 
-    <div class="notif-menu-surface">
+    <!-- Surface téléportée (v-menu) → classe --dark sur sa propre racine
+         (BUG-247-01, même contrainte que NotificationPanel). -->
+    <div class="notif-menu-surface" :class="{ 'notif-menu-surface--dark': isDark }">
       <NotificationPanel :on-close="close" />
     </div>
   </v-menu>
@@ -40,12 +42,18 @@
 
 <script>
 import { Bell } from 'lucide-vue-next'
+import { useTheme } from 'vuetify'
 import NotificationPanel from '@/components/NotificationPanel.vue'
 
 export default {
   name: 'NotificationBell',
 
   components: { Bell, NotificationPanel },
+
+  setup() {
+    const { global } = useTheme()
+    return { theme: global }
+  },
 
   props: {
     ariaLabel: { type: String, default: 'Notifications' },
@@ -54,6 +62,9 @@ export default {
   data: () => ({ open: false }),
 
   computed: {
+    isDark() {
+      return this.theme.current.value.dark
+    },
     unreadCount() {
       return this.$store.getters['notifications/unreadCount'] || 0
     },
@@ -86,5 +97,12 @@ export default {
   border-radius: 14px;
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
   overflow: hidden;
+}
+
+/* Dark (BUG-247-01) — overrides uniquement, clair inchangé. */
+.notif-menu-surface--dark {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, .08);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 </style>

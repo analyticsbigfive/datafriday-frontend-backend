@@ -3,6 +3,8 @@
        largeur et le repli sont pilotés par la grille d'AnalyseView (pattern
        EventPredict .ep-metrics). -->
   <aside class="summary-panel" :class="{ 'summary-panel--dark': isDark }">
+    <!-- BUG-285 : voile squelette pendant le recalcul des filtres (clic segment). -->
+    <AnalyseSkeletonVeil :active="filtersRecomputing" />
     <div class="pa-4 sp-card">
       <!-- Sous-sections repliables (parité visuelle avec le menu de gauche :
            Affluence, Filtres avancés, etc.). Le chatbot est replié par défaut. -->
@@ -345,8 +347,11 @@ import {
 } from '@/utils/analyseAssistant'
 import { useI18n } from '@/i18n/useI18n'
 import store from '@/store'
+import { useFilters } from '@/composables/useFilters'
+import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
 
 const { t } = useI18n()
+const { filtersRecomputing } = useFilters()
 
 // Dark mode autonome : suit le thème global Vuetify.
 const theme = useTheme()
@@ -363,6 +368,10 @@ const props = defineProps({
   // Shops enrichis (useShopPerformance) — utilisés pour afficher le
   // transactionRate (txn/min) une fois calculé.
   shopRates: { type: Array, default: () => [] },
+  // Construit le dataset Analyse à la demande (useAnalyseDataset.ensureDataset,
+  // idempotent) pour que l'assistant lise les mêmes chiffres que le bandeau
+  // KPI sans attendre la construction en idle.
+  ensureDataset: { type: Function, default: null },
 })
 defineEmits(['update:modelValue', 'analyze', 'shop-click', 'event-click', 'item-click'])
 
@@ -420,6 +429,13 @@ async function runAnalyze(maybeText) {
   if (!text || !text.trim() || analyzing.value) return
   aiQuery.value = text
   analyzing.value = true
+  // Dataset prêt avant de répondre : sans lui, les outils KPI retombent sur le
+  // getter shop-level et divergent du bandeau. Best-effort, jamais bloquant.
+  try {
+    props.ensureDataset?.()
+  } catch (e) {
+    console.warn('[SummaryPanel] ensureDataset a échoué :', e)
+  }
   await nextTick()
   await new Promise((r) => setTimeout(r, 120))
   if (useSemantic.value) {
@@ -581,6 +597,8 @@ function shareWidth(value, max) {
    blanche (.sp-card) repose sur le gris d'AnalyseView (comme le FilterPanel). */
 .summary-panel {
   min-width: 0;
+  /* BUG-285 : ancre du voile squelette (AnalyseSkeletonVeil, position: absolute). */
+  position: relative;
 }
 .sp-card {
   /* Colonne de droite = panneau .ep-metrics d'EventPredict (border #e5e7eb, radius 16). */

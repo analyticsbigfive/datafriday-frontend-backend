@@ -7,6 +7,7 @@
     width="560"
     :title="mode === 'edit' ? t('eventsList.drawerEditTitle') : t('eventsList.drawerCreateTitle')"
     :subtitle="mode === 'edit' ? t('eventsList.drawerEditSubtitle') : t('eventsList.drawerCreateSubtitle')"
+    :error-message="formError"
   >
     <template #icon>
       <Calendar :size="20" color="white" />
@@ -16,11 +17,6 @@
          le CSS scoped de ce composant (`.efd--dark .efd-input` etc.) ne matche que les éléments
          du propre template de ce composant, pas l'intérieur de EventDrawerShell. -->
     <div :class="{ 'efd--dark': isDark }">
-
-      <!-- Error -->
-      <div v-if="formError" class="efd-error">
-        <AlertCircle :size="14" /> {{ formError }}
-      </div>
 
       <!-- ── Section: Informations générales ── -->
       <div class="efd-section-label">
@@ -88,6 +84,8 @@
             variant="outlined"
             density="comfortable"
             hide-details
+            :disabled="lockDate"
+            :title="lockDate ? t('eventsList.dateLockedLive') : undefined"
             class="efd-input"
           />
         </div>
@@ -99,6 +97,8 @@
             variant="outlined"
             density="comfortable"
             hide-details
+            :disabled="lockDate"
+            :title="lockDate ? t('eventsList.dateLockedLive') : undefined"
             class="efd-input"
           />
         </div>
@@ -427,19 +427,19 @@
       <div class="efd-fin-grid mb-4">
         <div class="efd-select-wrap">
           <label class="efd-select-label">Revenue (€)</label>
-          <v-text-field v-model.number="newEvent.revenue" type="number" min="0" step="0.01" variant="outlined" density="comfortable" hide-details placeholder="0.00" class="efd-input" />
+          <NumberField v-model="newEvent.revenue" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Transactions</label>
-          <v-text-field v-model.number="newEvent.transactionCount" type="number" min="0" variant="outlined" density="comfortable" hide-details placeholder="0" class="efd-input" />
+          <NumberField v-model="newEvent.transactionCount" :decimals="0" :step="1" :min="0" :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Avg Spend / Tx</label>
-          <v-text-field v-model.number="newEvent.avgSpendPerTx" type="number" min="0" step="0.01" variant="outlined" density="comfortable" hide-details placeholder="0.00" class="efd-input" />
+          <NumberField v-model="newEvent.avgSpendPerTx" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Per Capita</label>
-          <v-text-field v-model.number="newEvent.perCapita" type="number" min="0" step="0.01" variant="outlined" density="comfortable" hide-details placeholder="0.00" class="efd-input" />
+          <NumberField v-model="newEvent.perCapita" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
       </div>
     </div>
@@ -504,6 +504,7 @@
 import { t as translate, getCurrentLocale } from '@/i18n/translations';
 import { Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users } from 'lucide-vue-next';
 import EventDrawerShell from './EventDrawerShell.vue';
+import NumberField from '@/components/common/NumberField.vue';
 import { createEvent, updateEvent } from '@/api/endpoints/event.api';
 import { getTeams as restGetTeams, createTeam as restCreateTeam } from '@/api/endpoints/team.api';
 import EventTypeDialog from '../dialogs/EventTypeDialog.vue';
@@ -547,7 +548,7 @@ export default {
 
   components: {
     Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDollarSign, AlertCircle, Users,
-    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog, EventDrawerShell,
+    EventTypeDialog, EventCategoryDialog, EventSubcategoryDialog, EventDrawerShell, NumberField,
   },
 
   props: {
@@ -555,6 +556,16 @@ export default {
     mode: { type: String, default: 'create' },
     initialEvent: { type: Object, default: null },
     isDark: { type: Boolean, default: false },
+    // Pré-remplit newEvent.spaceId en mode création (LiveSaleSimulatorWidget.vue,
+    // 11_LIVE.md) — n'affecte QUE le mode create (initialEvent gouverne déjà le mode
+    // edit). Optionnel : les appelants existants (EventsListView.vue) ne le passent
+    // pas, comportement inchangé pour eux.
+    defaultSpaceId: { type: String, default: null },
+    // Édition depuis l'écran Live (module Live, docs/modules/11_LIVE.md) : les
+    // dates d'un event EN COURS sont sensibles (déplacer sa fenêtre pendant
+    // qu'il tourne casserait le calcul de "live" et l'historique déjà affiché)
+    // — tous les autres champs restent éditables.
+    lockDate: { type: Boolean, default: false },
   },
 
   emits: ['update:modelValue', 'submitted'],
@@ -703,6 +714,10 @@ export default {
       } else {
         await Promise.allSettled(taxonomyLoads);
         this.newEvent = EMPTY_EVENT();
+        // Pré-remplit l'espace si l'appelant le connaît déjà (widget QA Live) — laisse
+        // le watcher `newEvent.spaceId` existant (ci-dessous) charger ses configurations,
+        // pas de logique dupliquée.
+        if (this.defaultSpaceId) this.newEvent.spaceId = this.defaultSpaceId;
         this.formError = '';
       }
     },
@@ -1101,12 +1116,6 @@ export default {
 
 <style scoped>
 /* Error */
-.efd-error {
-  display: flex; align-items: center; gap: 8px;
-  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
-  border-radius: 12px; padding: 12px 16px; font-size: var(--fs-base); margin-bottom: 20px;
-}
-
 /* Warning (non bloquant, ex. BUG-146 : ticketsScanned > ticketsSold) */
 .efd-warning {
   display: flex; align-items: center; gap: 8px;

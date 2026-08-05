@@ -212,12 +212,13 @@ export class DuplicateElementDto {
 // ─── Sous-ressources d'élément ────────────────────────────────────────────────
 
 export class PutPerformanceDto {
-  @IsOptional() @IsNumber() revenue?: number;
-  @IsOptional() @IsNumber() numberOfPOS?: number;
-  @IsOptional() @IsNumber() numberOfTransactions?: number;
-  @IsOptional() @IsNumber() transactionsPerMinute?: number;
-  @IsOptional() @IsNumber() staffCost?: number;
-  @IsOptional() @IsNumber() revenuePerEmployee?: number;
+  @IsOptional() @IsNumber() @Min(0) revenue?: number;
+  // Colonne Prisma Int : @IsInt (un 2.5 passait la validation puis 500 côté Postgres)
+  @IsOptional() @IsInt() @Min(0) numberOfPOS?: number;
+  @IsOptional() @IsNumber() @Min(0) numberOfTransactions?: number;
+  @IsOptional() @IsNumber() @Min(0) transactionsPerMinute?: number;
+  @IsOptional() @IsNumber() @Min(0) staffCost?: number;
+  @IsOptional() @IsNumber() @Min(0) revenuePerEmployee?: number;
 }
 
 export class StaffRowDto {
@@ -231,7 +232,18 @@ export class StaffRowDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   hourlyRate?: number;
+
+  // Auto-remplissage Sinking RH (2026-07-30) : traçabilité du HrRole d'origine +
+  // provenance de la ligne ('AUTO' posée par une règle, 'MANUAL' tapée par l'utilisateur).
+  @IsOptional()
+  @IsString()
+  roleId?: string;
+
+  @IsOptional()
+  @IsIn(['AUTO', 'MANUAL'])
+  source?: string;
 }
 
 export class PutStaffDto {
@@ -239,6 +251,31 @@ export class PutStaffDto {
   @ValidateNested({ each: true })
   @Type(() => StaffRowDto)
   staff: StaffRowDto[];
+}
+
+// Saisie manuelle "vendu/prévu" par Menu Item, par élément (shop), par config (événement) —
+// 11_RH_STAFFING.md §11.16. Scopée par configId (jamais SpaceElement.attributes, cf. §11.14).
+export class MenuItemSalesInputRowDto {
+  @IsString()
+  @IsNotEmpty()
+  menuItemId: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quantity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  revenueHt?: number;
+}
+
+export class PutMenuItemSalesInputDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemSalesInputRowDto)
+  rows: MenuItemSalesInputRowDto[];
 }
 
 export class InventoryRowDto {
@@ -251,8 +288,8 @@ export class InventoryRowDto {
   quantity: number;
 
   @IsOptional() @IsString() unit?: string;
-  @IsOptional() @IsNumber() minStock?: number;
-  @IsOptional() @IsNumber() maxStock?: number;
+  @IsOptional() @IsNumber() @Min(0) minStock?: number;
+  @IsOptional() @IsNumber() @Min(0) maxStock?: number;
   @IsOptional() @IsBoolean() isCustom?: boolean;
   @IsOptional() @IsString() menuItemId?: string;
 }

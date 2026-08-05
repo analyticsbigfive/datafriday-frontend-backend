@@ -45,10 +45,6 @@
 
           <!-- Body -->
           <div class="ppd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-3">
-              {{ error }}
-            </v-alert>
-
             <div v-if="loading" class="ppd-empty">
               <v-progress-circular indeterminate color="#ff3131" size="32" width="3" />
             </div>
@@ -126,6 +122,11 @@
             </div>
           </div>
 
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ppd-error">
+            {{ error }}
+          </v-alert>
+
           <!-- Footer -->
           <div class="ppd-footer">
             <span class="ppd-footer__count">
@@ -159,7 +160,7 @@
 <script>
 import { Check, ChevronDown, ChevronRight, Package, Plus, Search, Truck, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
-import { formatCurrency } from '@/composables/useFormatters';
+import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'PackagingPickerDrawer',
@@ -171,7 +172,7 @@ export default {
   emits: ['update:modelValue', 'add'],
   setup() {
     const { t } = useI18n();
-    return { t, formatCurrency };
+    return { t, formatCurrency: formatCurrencyDetailed };
   },
   data() {
     return {
@@ -412,7 +413,7 @@ export default {
 
 /* ── Body ── */
 .ppd-body {
-  flex: 1 1 0; overflow-y: auto; padding: 16px 20px;
+  flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 16px 20px;
   scrollbar-width: thin; scrollbar-color: #e5e7eb transparent;
   background: #f9fafb;
 }
@@ -528,6 +529,13 @@ export default {
 .ppd-row__price-val { font-size: 13.5px; font-weight: 700; color: #ff3131; }
 
 .ppd-row__unit { font-size: 11.5px; color: #9ca3af; flex-shrink: 0; min-width: 50px; }
+
+/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
+.ppd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
+}
 
 /* ── Footer ── */
 .ppd-footer {

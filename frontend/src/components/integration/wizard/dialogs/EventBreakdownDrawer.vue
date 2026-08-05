@@ -2,7 +2,8 @@
   <Teleport to="body">
     <Transition name="ebd">
       <div v-if="modelValue" class="ebd-overlay" @click.self="close">
-        <div class="ebd-panel">
+        <!-- Classe --dark sur la racine PROPRE : contenu téléporté dans <body> (BUG-198/199, BUG-247-01). -->
+        <div class="ebd-panel" :class="{ 'ebd-panel--dark': isDark }">
 
           <!-- Header -->
           <div class="ebd-header">
@@ -153,6 +154,7 @@ import { X, TrendingUp, AlertTriangle, Euro, Receipt, Package, Store as StoreIco
 import { Line } from 'vue-chartjs'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler } from 'chart.js'
 import { useI18n } from '@/i18n/useI18n'
+import { useTheme } from 'vuetify'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler)
 
 export default {
@@ -160,7 +162,8 @@ export default {
   components: { X, TrendingUp, AlertTriangle, Euro, Receipt, Package, StoreIcon, Line },
   setup() {
     const { t } = useI18n()
-    return { t }
+    const { global } = useTheme()
+    return { t, theme: global }
   },
   props: {
     modelValue: { type: Boolean, default: false },
@@ -198,6 +201,7 @@ export default {
     }
   },
   computed: {
+    isDark() { return this.theme.current.value.dark },
     totalRevenue() { return (this.data?.shops || []).reduce((a, s) => a + s.revenueHt, 0) },
     totalTx()      { return (this.data?.shops || []).reduce((a, s) => a + s.transactionsCount, 0) },
     totalItems()   { return (this.data?.shops || []).reduce((a, s) => a + s.itemsCount, 0) },
@@ -506,4 +510,53 @@ export default {
 .ebd-enter-active .ebd-panel, .ebd-leave-active .ebd-panel { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
 .ebd-enter-from, .ebd-leave-to { opacity: 0; }
 .ebd-enter-from .ebd-panel, .ebd-leave-to .ebd-panel { transform: translateX(100%); }
+
+/* ── Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé. ── */
+.ebd-panel--dark {
+  background: #1e293b;
+  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.5);
+}
+
+/* KPI */
+.ebd-panel--dark .ebd-kpis { border-bottom-color: rgba(255, 255, 255, 0.08); }
+.ebd-panel--dark .ebd-kpi { border-right-color: rgba(255, 255, 255, 0.08); }
+.ebd-panel--dark .ebd-kpi__icon--green  { background: rgba(22, 163, 74, 0.18); color: #4ade80; }
+.ebd-panel--dark .ebd-kpi__icon--blue   { background: rgba(37, 99, 235, 0.18); color: #60a5fa; }
+.ebd-panel--dark .ebd-kpi__icon--orange { background: rgba(234, 88, 12, 0.18); color: #fb923c; }
+.ebd-panel--dark .ebd-kpi__icon--red    { background: rgba(255, 49, 49, 0.16); color: #ff3131; }
+.ebd-panel--dark .ebd-kpi__val { color: #f9fafb; }
+.ebd-panel--dark .ebd-kpi__label { color: #94a3b8; }
+
+/* Tabs */
+.ebd-panel--dark .ebd-tabs { border-bottom-color: rgba(255, 255, 255, 0.08); }
+.ebd-panel--dark .ebd-tab { color: #94a3b8; }
+.ebd-panel--dark .ebd-tab:hover { color: #e2e8f0; }
+.ebd-panel--dark .ebd-tab--active { color: #ff3131; }
+.ebd-panel--dark .ebd-tab__badge { background: rgba(255, 255, 255, 0.08); color: #94a3b8; }
+.ebd-panel--dark .ebd-tab--active .ebd-tab__badge { background: rgba(255, 49, 49, 0.16); color: #ff3131; }
+
+/* Body & table */
+.ebd-panel--dark .ebd-body { background: #0f172a; }
+.ebd-panel--dark .ebd-table {
+  background: #1e293b;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.ebd-panel--dark .ebd-table thead tr {
+  background: #0f172a;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.ebd-panel--dark .ebd-table th { color: #94a3b8; }
+.ebd-panel--dark .ebd-table tbody tr { border-bottom-color: rgba(255, 255, 255, 0.08); }
+.ebd-panel--dark .ebd-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+.ebd-panel--dark .ebd-table td { color: #e2e8f0; }
+.ebd-panel--dark .ebd-td--name { color: #f9fafb; }
+.ebd-panel--dark .ebd-td--amount { color: #f9fafb; }
+.ebd-panel--dark .ebd-td--num { color: #94a3b8; }
+
+/* States */
+.ebd-panel--dark .ebd-error {
+  background: rgba(255, 49, 49, 0.12);
+  border-color: rgba(255, 49, 49, 0.3);
+}
+.ebd-panel--dark .ebd-empty { color: #94a3b8; }
 </style>

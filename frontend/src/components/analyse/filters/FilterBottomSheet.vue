@@ -87,6 +87,7 @@ import { ref, computed } from 'vue'
 import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
+import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 const store = useStore()
 const { t } = useI18n()
@@ -119,6 +120,13 @@ const TIMERANGE_LABELS = computed(() => ({
   custom: t('anRangeCustom'),
 }))
 
+/** Libellé d'un preset saison (`season:<id>`) = nom de la saison, sinon null. */
+function seasonLabel(timeRange) {
+  if (!String(timeRange || '').startsWith('season:')) return null
+  const id = String(timeRange).slice('season:'.length)
+  return store.getters['seasons/seasonById'](id)?.name || null
+}
+
 function entriesForArray(key, items, formatter = (v) => v) {
   return (items || []).map((v) => ({
     key,
@@ -137,7 +145,7 @@ const groups = computed(() => {
   if (f.timeRange && f.timeRange !== 'all') {
     dateEntries.push({
       key: 'timeRange',
-      label: TIMERANGE_LABELS.value[f.timeRange] || f.timeRange,
+      label: TIMERANGE_LABELS.value[f.timeRange] || seasonLabel(f.timeRange) || f.timeRange,
       onClear: () => setFilter('timeRange', 'all'),
     })
   }
@@ -234,7 +242,7 @@ function setFilter(key, value) {
   store.dispatch('analyse/updateFilter', { key, value })
 }
 function formatNum(n) {
-  return new Intl.NumberFormat('fr-FR').format(n || 0)
+  return new Intl.NumberFormat(currentIntlLocale()).format(n || 0)
 }
 function formatDate(d) {
   try {

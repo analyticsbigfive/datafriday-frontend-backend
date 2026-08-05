@@ -1,6 +1,7 @@
 # BUG-225 — Analyse / Prédire : aucune configuration pré-sélectionnée (union « All » coûteuse) + contexte PdV dispatché deux fois
 
-- **Statut** : 🟢 Corrigé
+- **Statut** : 🟡 **Point 1 (pré-sélection) ANNULÉ le 2026-07-30** — point 2 (dédup contexte PdV)
+  toujours en place et valide. Voir « Annulation » en fin de fiche.
 - **Sévérité** : 🟠 Majeur (perf : le landing par défaut déclenche le fan-out le plus large du
   module — union de TOUTES les configurations — alors qu'une seule est regardée)
 - **Domaine** : Analyse & agrégation
@@ -32,6 +33,9 @@ défaut.
 Appliquée le 2026-07-20 sur `feat/postEventInventory`.
 
 ### 1. Pré-sélection : 1re configuration AYANT des events
+
+> ⚠️ **Ce point 1 n'est plus en vigueur** (annulé le 2026-07-30, cf. § Annulation en fin de fiche).
+> Ce qui suit décrit l'état du code entre le 2026-07-20 et le 2026-07-30.
 
 Fonction pure exportée `pickDefaultConfiguration(configurations, events)` : première config dont
 les events sont **réellement présents** dans le space chargé — intersection avec `config.eventIds`
@@ -102,6 +106,31 @@ se peuple sans attendre le repli différé de 3 s.
   dans la même session ne rejoue pas la pré-sélection (la sélection courante fait foi). Voulu.
 - **Non reproduit en navigateur** (pas de `pnpm dev` dans cette session) — à valider manuellement
   sur Analyse **et** `?toolbox=predict`, plus le retour depuis le Builder (fraîcheur des zones).
+
+## Annulation du point 1 — 2026-07-30
+
+Décision de l'utilisateur, sur constat en navigateur : « les widgets de la barre du haut affichent
+une première valeur qui semble prendre en compte toutes les configurations, puis se cale sur la
+configuration sélectionnée par défaut (**il ne devrait pas y avoir de config par défaut
+sélectionnée**) ». La règle « 1re config avec events », tranchée le 2026-07-20, est donc **retirée**.
+
+Ce qui a été supprimé de `src/store/modules/analyse.js` :
+
+- la fonction pure `pickDefaultConfiguration` (et ses 6 tests dans
+  `tests/unit/analyseStore.spec.js`) ;
+- le bloc de pré-sélection dans `useSpaceDataFetch` ;
+- le garde-fou associé : state `configAutoSelectedSpaceId` + mutation
+  `SET_CONFIG_AUTO_SELECTED_SPACE_ID`, devenus morts.
+
+`resolveConfigSelectionAfterLoad` **reste** : c'est elle qui purge un id de config hérité d'un autre
+espace. Le point 2 (dédup in-flight de `loadConfigShopContext`) reste lui aussi en place — il n'était
+pas seulement une conséquence de la pré-sélection : `loadSpace` dispatche toujours le contexte d'une
+config préservée, en parallèle du watcher d'`AnalyseView`.
+
+Conséquence perf réassumée : le chemin d'atterrissage redevient l'union « All Configurations », le
+fan-out le plus large du module. Elle reste **différée après le premier rendu** (watchers
+`enriching` / repli idle 3 s, `AnalyseView.vue`) — c'est cette partie de la correction du 2026-07-20
+qui rend l'annulation tenable côté perf.
 
 ## Références
 

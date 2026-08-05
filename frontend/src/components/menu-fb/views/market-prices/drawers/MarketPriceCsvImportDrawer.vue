@@ -104,19 +104,14 @@
               <span class="text-body-2">{{ field.label }}</span>
               <v-chip v-if="field.required" size="x-small" color="error" variant="flat" class="ml-1">{{ t('required') }}</v-chip>
             </div>
-            <v-select
-              :model-value="mapping[field.key]"
-              @update:model-value="setMapping(field.key, $event)"
-              :items="columnOptions"
-              item-title="title"
-              item-value="value"
-              variant="outlined"
-              density="compact"
-              rounded="lg"
-              hide-details
-              :menu-props="{ attach: 'body', offset: 4 }"
+            <select
+              class="form-select form-select-sm mpcid-map-select"
+              :value="mapping[field.key] ?? ''"
+              @change="setMapping(field.key, $event.target.value || null)"
               style="flex: 1;"
-            />
+            >
+              <option v-for="opt in columnOptions" :key="`col-${opt.value ?? 'ignore'}`" :value="opt.value ?? ''">{{ opt.title }}</option>
+            </select>
           </div>
         </div>
       </div>
@@ -140,13 +135,16 @@
 
       <!-- ── Step 3 : Résultats ── -->
       <div v-if="step === 3 && !resolving">
-        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-12">
-          <v-progress-circular indeterminate color="#ff3131" size="48" class="mb-4" />
-          <div class="text-body-2 text-medium-emphasis">
-            {{ sendingToServer ? t('sendingToServer') : `${t('importing')} ${importProgress}/${csvRows.length}` }}
+        <div v-if="importLoading" class="d-flex flex-column align-center justify-center py-8" style="gap:10px; width:100%;">
+          <div class="mpcid-progress">
+            <div class="mpcid-progress__bar" :style="{ width: importPct + '%' }"></div>
+          </div>
+          <div class="mpcid-progress__label">
+            {{ importPct }}% · {{ importDone }}/{{ importTotalRows }}
+            <span>{{ retrying ? t('retryingRows') : (totalToSend > 0 ? t('sendingProgress') : t('importing')) }}</span>
           </div>
         </div>
-        <template v-else-if="importResults">
+        <template v-if="importResults">
           <v-alert v-if="autoCreatedSummary" type="info" variant="tonal" rounded="lg" class="mb-4">
             {{ autoCreatedSummary }}
           </v-alert>
@@ -166,8 +164,18 @@
                 {{ t('row') }} {{ err.row }} : {{ err.message }}
               </li>
             </ul>
+            <button
+              v-if="!importLoading && failedItems.length > 0"
+              class="mpcid-btn mpcid-btn--primary mt-3"
+              @click="retryFailedRows"
+            >
+              {{ t('retryFailedRows') }} ({{ failedItems.length }})
+            </button>
           </v-alert>
-          <v-alert v-if="importResults.success === 0 && importResults.updated === 0 && importResults.skipped === 0 && importResults.errors.length === 0" type="info" variant="tonal" rounded="lg">
+          <v-alert
+            v-if="!importLoading && importResults.success === 0 && importResults.updated === 0 && importResults.skipped === 0 && importResults.errors.length === 0"
+            type="info" variant="tonal" rounded="lg"
+          >
             {{ t('noRows') }}
           </v-alert>
         </template>
@@ -211,6 +219,15 @@ import { importMarketPrices, createSupplier } from '@/api/endpoints/menu.api';
 import { createIndustrial } from '@/api/endpoints/industrial.api';
 import { createMarketPriceType, createMarketPriceCategory } from '@/api/endpoints/market.price.api';
 import { supabase } from '@/lib/supabase';
+import { runWithConcurrency } from '@/utils/asyncPool';
+
+// Un gros import (des centaines/milliers de lignes) envoyé en une seule requête dépasse le
+// timeout Axios de 60s (cf. src/api/client.js) bien avant que le backend n'ait fini de traiter
+// toutes les lignes séquentiellement — même pattern déjà résolu pour l'import CSV Events
+// (BUG-246-02) : lots de taille bornée envoyés en parallèle via runWithConcurrency plutôt qu'un
+// unique payload de taille proportionnelle au fichier.
+const IMPORT_BATCH_SIZE = 30;
+const IMPORT_CONCURRENCY = 4;
 
 // Seuil de similarité (0-1) au-delà duquel deux noms sont considérés comme une probable faute
 // de frappe plutôt que deux entités distinctes ("Metro Auxxerre" vs "Metro Auxerre" ≈ 0.92,
@@ -351,8 +368,17 @@ export default {
       mapping: {},
       importLoading: false,
       importProgress: 0,
-      sendingToServer: false,
       importResults: null,
+      // Progression réelle de l'envoi réseau (lignes envoyées / total), par lots — remplace
+      // l'ancien booléen `sendingToServer` qui ne donnait aucune indication de progression
+      // (cf. BUG-046, jamais complètement résolu pour cet écran).
+      sentCount: 0,
+      totalToSend: 0,
+      retrying: false,
+      // Lignes dont l'envoi a échoué (erreur backend par ligne ou lot entier en échec réseau/
+      // timeout) — payload + numéro de ligne CSV d'origine conservés pour permettre un nouvel
+      // essai ciblé sans ré-uploader tout le fichier.
+      failedItems: [],
       resolving: false,
       resolutionChoices: [],
       pendingAutoCreate: [],
@@ -456,7 +482,9 @@ export default {
           missingRequiredMapping: 'Map all required fields (unit, price, good type) before importing.',
           skippedDuplicates: 'duplicate(s) skipped (already imported).',
           updatedOk: 'price(s) updated (matched by Market Price ID).',
-          sendingToServer: 'Sending to server…',
+          sendingProgress: 'Sending…',
+          retryFailedRows: 'Retry failed rows',
+          retryingRows: 'Retrying…',
           unexpectedEmptyResponse: 'Rows were sent to the server, but the response could not be read (0 created/skipped/errors reported) — the backend may need to be restarted with the latest changes. Please check before retrying.',
           downloadPackedTemplate: 'Download template (grouped by item)',
         },
@@ -520,7 +548,9 @@ export default {
           missingRequiredMapping: 'Associez tous les champs obligatoires (unité, prix, type de produit) avant d\'importer.',
           skippedDuplicates: 'doublon(s) ignoré(s) (déjà importé(s)).',
           updatedOk: 'prix mis à jour (retrouvé par Market Price ID).',
-          sendingToServer: 'Envoi vers le serveur…',
+          sendingProgress: 'Envoi…',
+          retryFailedRows: 'Réessayer les lignes en échec',
+          retryingRows: 'Nouvel essai…',
           unexpectedEmptyResponse: "Des lignes ont été envoyées au serveur, mais la réponse n'a pas pu être interprétée (0 créé/ignoré/erreur signalé) — le backend doit peut-être être redémarré avec la dernière version. Vérifiez avant de réessayer.",
           downloadPackedTemplate: 'Télécharger le modèle (par article)',
         },
@@ -548,6 +578,16 @@ export default {
       if (c.categories?.length) parts.push(`${c.categories.length} ${fr ? 'catégorie(s)' : 'categor(y/ies)'}`);
       if (!parts.length) return '';
       return (fr ? 'Créé(s) automatiquement : ' : 'Automatically created: ') + parts.join(', ') + '.';
+    },
+    importTotalRows() {
+      return this.totalToSend > 0 ? this.totalToSend : this.csvRows.length;
+    },
+    importDone() {
+      return this.totalToSend > 0 ? this.sentCount : this.importProgress;
+    },
+    importPct() {
+      const t = this.importTotalRows;
+      return t ? Math.round((this.importDone / t) * 100) : 0;
     },
     columnOptions() {
       const ignore = this.locale === 'fr' ? '— Ignorer —' : '— Ignore —';
@@ -612,8 +652,11 @@ export default {
       this.mapping = {};
       this.importLoading = false;
       this.importProgress = 0;
-      this.sendingToServer = false;
       this.importResults = null;
+      this.sentCount = 0;
+      this.totalToSend = 0;
+      this.retrying = false;
+      this.failedItems = [];
       this.resolving = false;
       this.resolutionChoices = [];
       this.pendingAutoCreate = [];
@@ -1045,7 +1088,10 @@ export default {
     async doImport() {
       this.importLoading = true;
       this.importProgress = 0;
-      this.sendingToServer = false;
+      this.sentCount = 0;
+      this.totalToSend = 0;
+      this.retrying = false;
+      this.failedItems = [];
       this.step = 3;
       await this.ensureAuth();
       await this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes', { forceRefresh: true });
@@ -1059,6 +1105,10 @@ export default {
         sentCount: 0,
         autoCreated: { types: [], categories: [], suppliers: [], industrials: [] },
       };
+      // Assigné dès maintenant (pas seulement à la toute fin) : `sendPairsInBatches` mutera cet
+      // objet lot par lot, donnant une vraie progression live sur l'écran "Résultats" au lieu
+      // d'un seul affichage figé une fois tout terminé.
+      this.importResults = results;
 
       // Crée automatiquement les référentiels manquants (types/catégories/fournisseurs/
       // industriels) et applique les choix de l'écran de vérification, AVANT de résoudre
@@ -1273,13 +1323,60 @@ export default {
         }
       }
 
-      // Bulk import via /market-prices/import — le backend traite chaque ligne indépendamment
-      // (créée / doublon ignoré / erreur) et remonte un décompte précis, cf. bulkCreate().
+      // Bulk import via /market-prices/import, en lots concurrents bornés (cf. sendPairsInBatches)
+      // au lieu d'un unique payload de taille proportionnelle au fichier — évite le timeout Axios
+      // de 60s sur un gros fichier et donne une progression réelle au lieu d'un spinner figé.
       results.sentCount = validItems.length;
       if (validItems.length > 0) {
-        this.sendingToServer = true;
+        const pairs = validItems.map((item, i) => ({ item, row: validItemRows[i] }));
+        await this.sendPairsInBatches(pairs, results);
+      }
+
+      this.importLoading = false;
+      if (results.success > 0 || results.updated > 0) this.$emit('imported');
+    },
+
+    // Regroupe les paires {item, row} par identité (itemName+unit+price) avant de les répartir en
+    // lots de taille bornée : le backend ne peut jamais considérer deux lignes comme des doublons
+    // l'une de l'autre sans que ce triplet corresponde (le fournisseur ne fait qu'affiner ce match,
+    // cf. bulkCreate() `supplierMatchOr`) — regrouper ainsi garantit qu'un même triplet reste
+    // toujours traité dans la MÊME requête (donc séquentiellement côté backend), préservant le
+    // dédoublonnage même si les lots partent en parallèle.
+    buildBatches(pairs) {
+      const groups = new Map();
+      for (const pair of pairs) {
+        const { item } = pair;
+        const key = `${String(item.itemName || '').trim().toLowerCase()}|${String(item.unit || '').trim().toLowerCase()}|${String(item.price)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(pair);
+      }
+      const batches = [];
+      let current = [];
+      for (const group of groups.values()) {
+        if (current.length > 0 && current.length + group.length > IMPORT_BATCH_SIZE) {
+          batches.push(current);
+          current = [];
+        }
+        current.push(...group);
+        if (current.length >= IMPORT_BATCH_SIZE) {
+          batches.push(current);
+          current = [];
+        }
+      }
+      if (current.length > 0) batches.push(current);
+      return batches;
+    },
+
+    // Envoie `pairs` ({item, row}[]) par lots concurrents (IMPORT_CONCURRENCY lots en parallèle
+    // au plus), en mutant `results` en place au fur et à mesure — réutilisé à la fois par
+    // `doImport()` (envoi initial) et `retryFailedRows()` (nouvel essai ciblé).
+    async sendPairsInBatches(pairs, results) {
+      this.totalToSend = pairs.length;
+      this.sentCount = 0;
+      const batches = this.buildBatches(pairs);
+      await runWithConcurrency(batches, IMPORT_CONCURRENCY, async (batch) => {
         try {
-          const response = await importMarketPrices(validItems);
+          const response = await importMarketPrices(batch.map((p) => p.item));
           const createdCount = Array.isArray(response?.created) ? response.created.length : 0;
           // `updated` (upsert par Market Price ID, format packé uniquement) : absent des réponses
           // d'un backend pas encore à jour — `Array.isArray` protège contre `undefined`.
@@ -1290,29 +1387,49 @@ export default {
           results.updated += updatedCount;
           results.skipped += skipped;
           for (const err of backendErrors) {
-            const row = validItemRows[err.index] ?? '?';
-            results.errors.push({ row, message: err.message });
+            const pair = batch[err.index];
+            results.errors.push({ row: pair?.row ?? '?', message: err.message });
+            if (pair) this.failedItems.push(pair);
           }
-          // Des lignes ont été envoyées mais le décompte créé/mis à jour/ignoré/erreur retombe à
-          // zéro : la réponse serveur n'a pas la forme attendue (backend pas à jour, proxy qui
-          // réécrit la réponse, etc). Ne JAMAIS afficher "fichier vide" dans ce cas — on a bien
-          // envoyé des données, on ne sait juste pas ce qui s'est passé côté serveur.
+          // Ce lot a été envoyé mais le décompte créé/mis à jour/ignoré/erreur retombe à zéro : la
+          // réponse serveur n'a pas la forme attendue (backend pas à jour, proxy qui réécrit la
+          // réponse, etc). Ne JAMAIS laisser ces lignes disparaître silencieusement — on a bien
+          // envoyé des données, on ne sait juste pas ce qui s'est passé côté serveur pour ce lot.
           if (createdCount === 0 && updatedCount === 0 && skipped === 0 && backendErrors.length === 0) {
-            results.errors.push({ row: '?', message: this.t('unexpectedEmptyResponse') });
+            for (const pair of batch) {
+              results.errors.push({ row: pair.row, message: this.t('unexpectedEmptyResponse') });
+              this.failedItems.push(pair);
+            }
           }
         } catch (e) {
           const errMsg = e?.response?.data?.message || e?.message || 'Import failed';
-          // Échec réseau/serveur global (pas une erreur ligne par ligne) : impossible de savoir
-          // ce qui a réellement été committé côté serveur avant la coupure.
-          results.errors.push({ row: '?', message: errMsg });
+          // Échec réseau/serveur pour CE lot (timeout, 5xx...) — borné aux ~30 lignes qu'il
+          // contenait (numéros de ligne CSV réels déjà connus), pas tout le fichier : les lots déjà
+          // aboutis restent acquis, les lots restants continuent d'être tentés.
+          for (const pair of batch) {
+            results.errors.push({ row: pair.row, message: errMsg });
+            this.failedItems.push(pair);
+          }
         } finally {
-          this.sendingToServer = false;
+          this.sentCount += batch.length;
         }
-      }
+      });
+    },
 
-      this.importResults = results;
+    // Ré-envoie uniquement les lignes dont l'envoi a échoué (erreur backend par ligne ou lot en
+    // échec réseau/timeout), sans ré-uploader ni re-mapper tout le fichier.
+    async retryFailedRows() {
+      if (!this.failedItems.length || this.importLoading) return;
+      const pairsToRetry = this.failedItems;
+      this.failedItems = [];
+      const retriedRows = new Set(pairsToRetry.map((p) => p.row));
+      this.importResults.errors = this.importResults.errors.filter((err) => !retriedRows.has(err.row));
+
+      this.importLoading = true;
+      this.retrying = true;
+      await this.sendPairsInBatches(pairsToRetry, this.importResults);
+      this.retrying = false;
       this.importLoading = false;
-      if (results.success > 0 || results.updated > 0) this.$emit('imported');
     },
   },
 };
@@ -1531,4 +1648,19 @@ export default {
 .mpcid--dark :deep(.v-list-item-title) {
   color: #e5e7eb;
 }
+
+/* ── Mapping select (Bootstrap form-select) ── */
+.mpcid-map-select { border-radius: 10px; border: 1.5px solid #e5e7eb; font-size: var(--fs-base); }
+.mpcid-map-select:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.12); }
+.mpcid--dark .mpcid-map-select {
+  background-color: #1e293b; border-color: rgba(255,255,255,.14); color: #e5e7eb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* ── Unified import progress bar ── */
+.mpcid-progress { width: 280px; max-width: 100%; height: 10px; background: #f1f5f9; border-radius: 100px; overflow: hidden; }
+.mpcid-progress__bar { height: 100%; background: #ff3131; border-radius: 100px; transition: width .25s ease; }
+.mpcid-progress__label { font-size: var(--fs-sm); color: #6b7280; }
+.mpcid--dark .mpcid-progress { background: rgba(255,255,255,.08); }
+.mpcid--dark .mpcid-progress__label { color: #94a3b8; }
 </style>

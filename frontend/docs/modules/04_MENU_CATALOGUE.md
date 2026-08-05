@@ -115,7 +115,7 @@ un pack de chips). C'est la fiche produit du menu d'un espace.
 |---|---|
 | `readyForSale` (`"Yes"`/`"No"`/null) | **Yes** = l'article arrive déjà prêt/emballé de la cuisine centrale (chips, bouteille d'eau) → on le réarme *tel quel*. **No** = assemblé au point de vente (sandwich + serviette ajoutée sur place) → on **éclate** `components[]` pour le réarmement. C'est la fiche technique qui fait foi. |
 | `kitchenType` | Cuisine Centrale/Locale — saisi seulement quand `readyForSale = "Yes"` (existe aussi sur `MenuComponent`, même contrat). |
-| `comboItem` (`"Yes"`/`"No"`/null) | **Distinct de `readyForSale`.** Marque un article réutilisable *tel quel* comme ligne d'un item catégorie "Menu" composé. |
+| `comboItem` (`"Yes"`/`"No"`/null) | **Distinct de `readyForSale`.** Marque un article réutilisable *tel quel* comme ligne d'un item catégorie "Menu" composé. **Distinct aussi de `comboChildren`/`comboParents`** (relation `MenuItemCombo`, ajoutée BUG-257-02, voir plus bas) : `comboItem` est un simple flag scalaire sur l'article réutilisable, `MenuItemCombo` est la relation qui stocke réellement QUELS articles composent un combo donné. |
 | `numberOfPiecesRecipe` | Combien de pièces produit la recette. `totalCost` est le coût de **toute la fournée**, pas d'une pièce. |
 | `typeId`/`categoryId` | FK vers `ProductType`/`ProductCategory` (Food/Beverage/Combo puis sous-catégories) — 1 des 3 taxonomies parallèles du domaine (voir plus bas), ne pas confondre avec celle de MarketPrice ni de MenuComponent. |
 | `brandId`/`displayNameId` | FK vers `Brand`/`DisplayName` (référentiels plats, voir plus bas). |
@@ -148,6 +148,69 @@ générique) pour garder des FK propres vers 3 entités aux règles de coût dif
 - **Builder v1** (`PropertiesPanelView.vue`) lit la liste des menu items via `utils/api.js` (voir
   piège n°1 ci-dessus) pour les associer aux shops du plan.
 
+**Formatage des coûts — exception assumée à la « décision 0 décimale » (BUG-267-01)** :
+l'écran `/menu-fb/menu-items/edit/:id` (`MenuItemCreateView.vue`) affiche ses montants avec **2
+décimales**, via `formatCostCurrency` (`composables/useFormatters.js`), et **non** via le
+`formatCurrency` partagé qui arrondit à l'entier partout ailleurs (« Décision UI 2026-07-12 »).
+Raison : c'est l'écran de calcul du coût de revient, et les coûts unitaires d'ingrédients y sont
+structurellement < 1 € — à 0 décimale, la moitié d'une recette s'affiche « 0 € » et l'écran ne veut
+plus rien dire. **Ne pas « ré-uniformiser » cette page à `formatCurrency`** lors d'un passage de
+cohérence : l'écart est intentionnel. Le reste de l'app (analyse, inventaire, space-menus) reste à
+0 décimale. Voir aussi BUG-101, dont la section « Risque de régression » avait anticipé le cas.
+Candidat suivant pour ce helper : `ComponentCreateView.vue` et son `toLocaleString` local
+(BUG-060).
+
+### `MenuItemCombo` — composition combo (BUG-257-02)
+
+**Qu'est-ce que c'est** : auto-relation `MenuItem` ↔ `MenuItem` (table de jonction, calquée sur
+`ComponentComponent` — seule autre auto-relation à table de jonction du schéma) représentant la
+composition d'un article "Combo"/catégorie "Menu" par d'autres articles vendables (ex.
+"Burger + Frites" = "Burger" + "Frites", chacun un vrai `MenuItem`, avec une quantité). N'existait
+pas avant BUG-257-02 : un jeu de données historique important le nécessitait, et aucune relation
+ne permettait de le stocker.
+
+**Où vit le code** : modèle `schema.prisma` (`MenuItemCombo`, relations nommées
+`"ComboParentToChild"`/`"ComboChildToParent"` sur `MenuItem.comboChildren`/`comboParents`) ;
+`MenuItemsService.replaceComboItems()` (delete-then-create, même moule que
+`replaceComponents`/`replaceIngredients`/`replacePackagings`) ; route
+`PUT /menu-items/:id/combo-items` ; wrapper frontend `replaceMenuItemComboItems()`
+(`menu-item.api.js`, **body enveloppé** `{ comboItems }`, à ne pas confondre avec
+`replaceMenuItemIngredients()` du même fichier qui envoie le tableau brut).
+
+**Coût récursif** : `MenuItemsService.computeMenuItemComboCost()` (privée) recalcule toujours
+depuis les lignes `components`/`ingredients`/`packagings` de chaque item traversé (jamais depuis
+un `totalCost` déjà persisté — le relire ferait doubler la contribution combo à chaque recalcul
+successif, puisque c'est justement ce champ que le calcul réécrit), avec une garde anti-cycle a
+posteriori (pile de `parentId` traversés, `BadRequestException` explicite sur un cycle) — même
+principe que `MenuComponentsService.computeComponentUnitCost()`.
+
+**Limite assumée** : `refreshCosts()` global (route `/menu-items/refresh-costs`, et les 3 autres
+routes `PUT :id/xxx` existantes) ne recalcule PAS la contribution combo — seul un appel explicite à
+`replaceComboItems()`/`create()`/`update()` avec `comboItems` la met à jour. Même famille de limite
+que le bug déjà documenté sur `MenuComponent.unitCost` (voir section MenuComponent plus bas).
+
+### Import/Export CSV — reprise du format `Recipe` legacy (BUG-257-02)
+
+`MenuItemCsvImportDrawer.vue` gérait déjà un format `Recipe` packé (BUG-108, `parseRecipe()`) mais
+résolvait ses références par **ID brut** — inutilisable pour reprendre un fichier historique dont
+les ids viennent d'un système précédent. Étendu (pas recréé) pour résoudre par nom, même principe
+que Components (voir sa propre section plus bas) :
+- `Ingredient`/`Packaging` → fichier compagnon **Market Prices** optionnel.
+- `Component`/`Combo Item` (les deux labels du CSV se comportent de façon identique dans certains
+  cas — confirmé sur le fichier réel) → fichier compagnon **Components** optionnel en premier
+  recours, puis auto-référence à une autre ligne du même fichier CSV (résolue en 2 passes,
+  indépendamment de l'ordre des lignes) ou à un `MenuItem` déjà existant dans ce tenant, alimentant
+  `MenuItemCombo` en résultat final.
+- Colonnes ignorées à l'import (décision produit) : `Is this a Promotion`/`Discounted Product`/
+  `Promotion Type` — aucun champ MenuItem ne modélise un lien "cet article promo remise cet autre
+  article".
+- Import individuel (`withRecipe`, recette incluse dans le body — inchangé) et passe 2 (composition
+  combo) parallélisés par lots bornés (`IMPORT_CONCURRENCY = 5`) + retry sur 429 avec le vrai
+  `Retry-After`, même pattern que l'import CSV événements (BUG-252) — remplace une boucle
+  séquentielle jugée trop lente en test réel sur le chantier Components.
+
+Détail complet : [[257_02_menu_items_csv_import_recette_historique]].
+
 ---
 
 ## MenuComponent — la sous-recette (composant)
@@ -178,7 +241,7 @@ voir bug), `POST /menu-components/refresh-costs`, `GET /menu-components` (+`:id`
 
 | Champ | Sens |
 |---|---|
-| `numberOfUnitsRecipe` | Combien d'unités produit CETTE sous-recette (ex. une bassine de sauce fait 20 portions). |
+| `numberOfUnitsRecipe` | Combien d'unités produit CETTE sous-recette (ex. une bassine de sauce fait 20 portions). **`Float?`** depuis BUG-256-02 (était `Int?` — la reprise du CSV historique Components a révélé que 40% des rendements réels sont fractionnaires, ex. 0.750 kg ; le typage `Int` était une erreur de modélisation, le front affichait déjà ce champ en flottant). |
 | `unitCost` | **Censé être** le coût d'UNE unité produite. Voir le bug ci-dessous : ce n'est actuellement PAS le cas. |
 | `readyForSale`/`kitchenType` | Même contrat que sur `MenuItem`. |
 | `componentTypeId`/`componentCategoryId` | Taxonomie propre (voir section taxonomies). |
@@ -217,6 +280,53 @@ legacy mort `subComponents`) fait l'erreur inverse — une **multiplication**
 **Statut (2026-07-15)** : documenté, **non corrigé**. Si tu corriges : diviser par
 `numberOfUnitsRecipe || 1` dans `computeComponentUnitCost()`, et prévoir un backfill de tous les
 `MenuItem.totalCost` dépendant d'un composant concerné.
+
+### Import/Export CSV — recette incluse (BUG-256-02)
+
+Un seul format cible en import (contrairement à Market Prices, aucun format legacy à préserver
+côté Components) :
+`Component ID,Component Name,Category,Component Type,Unit,Number of Units per Recipe,Packaging Type,Number of units,Storage Type,Description,Recipe`.
+`Category` (valeur parente, ex. "Food") → `category` (texte) + `componentTypeId` (résolu/auto-créé)
+; `Component Type` (valeur enfant, ex. "Veg"/"Sauce") → `componentCategory` (texte) +
+`componentCategoryId` — inversion volontaire entre le nom des colonnes CSV et les champs internes,
+la hiérarchie Food→Veg/Sauce prime sur le libellé littéral de la colonne.
+
+**Format packé de `Recipe`** : segments séparés par `|`, sous-champs séparés par `>`. Un ingrédient
+a un slot vide en plus d'un sous-composant (`localId>Ingredient>>refId>quantity`, 5 parties, vs.
+`localId>Component>refId>quantity`, 4 parties) — même syntaxe que l'ancien format `Recipe` de
+MenuItem (`parseRecipe()`, remplacé depuis par un format multi-lignes, voir
+[[108_menu_items_csv_reimport_format_multi_lignes]]), réutilisée ici car elle convient à la
+reprise d'un fichier historique figé (pas à un cycle d'édition humaine répété, d'où l'absence
+volontaire d'un format multi-lignes équivalent côté Components pour l'instant).
+
+**Résolution des références legacy** — la colonne `Recipe` référence des ingrédients par
+d'anciens **Market Price ID** (pas des noms, pas des ids d'`Ingredient`) : le chantier Market
+Prices (BUG-254-02) ne conserve nulle part le mapping ancien-id → nouveau-id. Résolution : (a) si
+la référence correspond à un `Ingredient.id` réel du tenant → utilisée directement (round-trip
+après un export packé de cette base) ; (b) sinon, un **fichier compagnon Market Prices optionnel**
+(le CSV d'origine, uploadé en plus du CSV Components, parsé uniquement en mémoire côté navigateur)
+permet de résoudre ancien-id → `Item Name` → `Ingredient` par nom ; (c) sinon la ligne de recette
+est ignorée (le composant est quand même créé/mis à jour). Les sous-composants (`Component` dans
+`Recipe`) référencent toujours une **autre ligne du même CSV** via sa colonne `Component ID` —
+résolu en 2 passes (tous les composants créés/mis à jour d'abord, puis les sous-composants),
+indépendamment de l'ordre des lignes dans le fichier.
+
+**Upsert** : par `Component ID` s'il correspond à un cuid réel du tenant, sinon par nom (évite les
+doublons sur réimport d'un même fichier legacy, dont les ids ne matcheront jamais).
+`ComponentType`/`ComponentCategory` résolus par nom exact et auto-créés si absents — pas d'étape
+de résolution interactive façon Levenshtein (Market Prices en a une pour 4 champs de taxonomie ;
+2 champs ici, jugé disproportionné).
+
+**Export** : `componentListView.vue` a deux boutons qui coexistent — l'export plat existant
+(8 colonnes, inchangé) et un nouvel export packé (`onExportCsvPacked()`) qui encode
+`ingredients[]`/`children[]` avec les **vrais cuids** de cette base, permettant un cycle
+export → édition → réimport sans fichier compagnon.
+
+**Fichiers** : `ComponentCsvImportDrawer.vue` (nouveau, drawer d'import), `componentListView.vue`
+(export packé + bouton import), `menu.api.js` (`replaceComponentIngredients`/
+`replaceComponentChildren`, les routes `PUT /menu-components/:id/ingredients`\|`/children`
+existaient déjà côté backend mais sans wrapper client). Détail complet :
+[[256_02_components_csv_import_export_recette]].
 
 ---
 
@@ -284,6 +394,19 @@ scoping, tu réintroduis la fuite entre configurations.
   hors du state réactif pour dédupliquer les appels concurrents — un `if (state.fetching) return`
   naïf avait un bug de course (le getter pouvait être lu vide avant hydratation) ; ne pas revenir à
   ce pattern plus simple si tu retouches ce fichier.
+
+**Attachement en masse — plafond transactionnel à connaître (BUG-268-01)** : depuis l'ajout de la
+barre « Tout sélectionner » dans `ShopMenuItemsDrawer.vue` (onglet « Disponible » uniquement — les
+items non disponibles restent volontairement non sélectionnables), un `POST /space-menu` porte
+couramment 50+ paires shop×item au lieu de 1 à 3. Or `saveMenuConfiguration`
+(`space-menus.service.ts:1223`) fait un `upsert` **séquentiel** par item dans un
+`prisma.$transaction` **sans option `timeout`**, donc au défaut Prisma de 5 s. Ça passe largement
+en conditions normales (~10 ms par aller-retour), mais le plafond n'avait jamais été approché avant
+et un dépassement fait échouer **tout** l'attachement. Si ça se produit : upserts groupés
+(`createMany`/`updateMany`) ou `timeout` explicite sur la transaction. Corollaire côté front : le
+seed de sélection (`ShopMenuItemsDrawer.vue:268-270`) retient tous les items `enabled`, y compris
+devenus indisponibles — `toggleSelectAll` ne doit donc jamais réaffecter le tableau en bloc, sous
+peine de les détacher silencieusement.
 
 ### Le module backend `SpaceMenus` (routes réelles, `space-menus.controller.ts`)
 

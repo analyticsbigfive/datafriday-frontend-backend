@@ -37,8 +37,8 @@ export const MONTHLY_HOURS = 151.67; // Q6 : conversion Monthly → horaire
 export const PRODUCTIVITY_UNDERSTAFF_THRESHOLD = 2500; // > 2500 €/pers → SOUS_EFFECTIF
 export const PRODUCTIVITY_OVERSTAFF_THRESHOLD = 1000; // < 1000 €/pers → SUREFFECTIF
 export const DEFAULT_TX_PAR_SECONDE = 30; // capacité type : 30 | 60
-export const DEFAULT_OFFSET_OPEN_MINUTES = -60; // horaires suggérés : portes − 1 h
-export const DEFAULT_OFFSET_CLOSE_MINUTES = 60; // portes + 1 h
+export const DEFAULT_OFFSET_OPEN_MINUTES = -120; // horaires suggérés : ouverture des portes − 2 h
+export const DEFAULT_OFFSET_CLOSE_MINUTES = 120; // heure de fin + 2 h
 
 export const ALGO_KEYS = [
   'RESPONSABLE_ZONE',
@@ -69,11 +69,65 @@ export interface StaffingInput {
   nbDinettes: number;
   nbHotdogsPrevus: number;
   hasMixology: boolean;
+  /** Kitchen Food (CFG-1) — même recette front-food (chefDePartie/commis/epr) tant
+   *  qu'aucune formule dédiée n'a été tranchée par le métier (question ouverte,
+   *  cf. QUESTIONS_A_BERTRAND.md). */
+  hasKitchenFood: boolean;
 }
 
 export interface StaffingWarning {
   code: string;
   message: string;
+}
+
+/** Règle « Sinking RH » (STF-2) — miroir pur du modèle Prisma HrSinkingRule. */
+export interface SinkingRuleInput {
+  roleId: string;
+  fnbCategory: string;
+  conditionAttribute: string | null;
+  conditionMinValue: number | null;
+  mandatoryQty: number;
+}
+
+export interface SinkingRuleOutcome {
+  roleId: string;
+  qty: number;
+}
+
+/**
+ * Association Rôle ↔ Menu Item(s) — miroir pur du modèle Prisma HrRoleMenuItemRatio.
+ * `targetMenuItemIds` est déjà résolu par l'appelant (allMenuItems expansé en amont) — cette
+ * fonction reste pure, sans accès DB. Voir 11_RH_STAFFING.md §11.16.
+ */
+export interface MenuItemRatioInput {
+  roleId: string;
+  ratioBasis: 'REVENUE' | 'QUANTITY';
+  ratioValue: number;
+  unitQty: number;
+  targetMenuItemIds: string[];
+}
+
+/** Valeur "vendu/prévu" pour un Menu Item donné — miroir pur d'ElementMenuItemSalesInput. */
+export interface MenuItemSalesValue {
+  menuItemId: string;
+  quantity: number;
+  revenueHt: number;
+}
+
+/** Miroir pur du HrRole (uniquement les champs nécessaires au calcul). */
+export interface RoleTagInput {
+  id: string;
+  name: string;
+  fnbCategories: string[];
+  rateType: string | null;
+  rate: number | null;
+}
+
+export interface StaffSuggestion {
+  roleId: string;
+  roleName: string;
+  qty: number;
+  hourlyRate: number;
 }
 
 export interface StaffingResult {
@@ -179,8 +233,8 @@ export class StaffingCalculatorService {
     // 5. barman
     r.barman = input.hasMixology ? 1 : 0;
 
-    // 6. front food
-    if (input.hasFrontFood) {
+    // 6. front food (Kitchen Food OR-é en attendant une formule dédiée, cf. hasKitchenFood)
+    if (input.hasFrontFood || input.hasKitchenFood) {
       r.chefDePartie = 1;
       r.commis =
         (input.nbFriteuses || 0) +
@@ -216,6 +270,121 @@ export class StaffingCalculatorService {
     }
 
     return r;
+  }
+
+  /**
+   * Règles « Sinking RH » (STF-2) : quota minimal forcé d'un rôle si son tag FNB
+   * est détecté sur le PDV et que sa condition d'équipement (optionnelle) est
+   * remplie. Appliqué en SUPPLÉMENT du calcul par paliers, jamais à sa place —
+   * ne modifie pas `StaffingResult`, retourne les rôles/quantités à ajouter.
+   */
+  applySinkingRules(
+    fnbTags: Set<string>,
+    attrs: Record<string, any>,
+    rules: SinkingRuleInput[],
+  ): SinkingRuleOutcome[] {
+    const out: SinkingRuleOutcome[] = [];
+    for (const rule of rules) {
+      if (!fnbTags.has(rule.fnbCategory)) continue;
+      if (rule.conditionAttribute) {
+        const v = Number(attrs[rule.conditionAttribute]);
+        if (!Number.isFinite(v) || v < (rule.conditionMinValue ?? 0)) continue;
+      }
+      out.push({ roleId: rule.roleId, qty: rule.mandatoryQty });
+    }
+    return out;
+  }
+
+  /**
+   * Association Rôle ↔ Menu Item(s) (11_RH_STAFFING.md §11.16) : dimensionne un rôle selon le
+   * volume de vente (CA ou Quantités) d'un ou plusieurs Menu Items sur l'élément courant —
+   * qty = floor(valeur courante / ratioValue) * unitQty. Contrairement à `applySinkingRules` (qui
+   * prend le max entre plusieurs règles pour un même rôle), les résultats sont ICI SOMMÉS par
+   * rôle : chaque ratio est un driver de charge additif ("+2 pour les burgers" ET "+3 pour les
+   * frites" doivent s'ajouter, pas se plafonner l'un l'autre). Pure, sans accès DB —
+   * `targetMenuItemIds` doit déjà avoir résolu `allMenuItems` côté appelant.
+   */
+  applyMenuItemRatios(
+    ratios: MenuItemRatioInput[],
+    sales: MenuItemSalesValue[],
+  ): SinkingRuleOutcome[] {
+    const salesByItem = new Map(sales.map((s) => [s.menuItemId, s]));
+    const byRoleQty = new Map<string, number>();
+    for (const ratio of ratios) {
+      let sum = 0;
+      for (const menuItemId of ratio.targetMenuItemIds) {
+        const s = salesByItem.get(menuItemId);
+        if (!s) continue;
+        sum += ratio.ratioBasis === 'REVENUE' ? s.revenueHt : s.quantity;
+      }
+      const qty = Math.floor(sum / ratio.ratioValue) * ratio.unitQty;
+      if (qty > 0) {
+        byRoleQty.set(ratio.roleId, (byRoleQty.get(ratio.roleId) ?? 0) + qty);
+      }
+    }
+    return [...byRoleQty.entries()].map(([roleId, qty]) => ({ roleId, qty }));
+  }
+
+  /**
+   * Auto-remplissage du Staff dans le 3D Builder (2026-07-30, retour utilisateur) :
+   * un rôle dont le tag F&B (fnbCategories) matche un sous-type présent sur le PDV
+   * suffit à le rendre obligatoire (quantité 1 par défaut) — PAS besoin de créer une
+   * règle Sinking en plus. Une règle Sinking SANS condition ne fait qu'ajuster la
+   * quantité par défaut. Une règle Sinking AVEC condition (équipement) rend le rôle
+   * conditionnel POUR CETTE CATÉGORIE : il disparaît du défaut « tag seul » et
+   * n'apparaît que si la condition est remplie (ex. EPR uniquement si bain-marie).
+   * Résolution par (rôle × catégorie présente) ; si un rôle matche plusieurs
+   * catégories à la fois, on retient le maximum plutôt que d'additionner (un seul
+   * poste, pas un doublon parce que deux tags se recoupent).
+   */
+  computeStaffSuggestions(
+    fnbTags: Set<string>,
+    attrs: Record<string, any>,
+    roles: RoleTagInput[],
+    rules: SinkingRuleInput[],
+  ): StaffSuggestion[] {
+    const rulesByRole = new Map<string, SinkingRuleInput[]>();
+    for (const rule of rules) {
+      if (!fnbTags.has(rule.fnbCategory)) continue;
+      const list = rulesByRole.get(rule.roleId) ?? [];
+      list.push(rule);
+      rulesByRole.set(rule.roleId, list);
+    }
+
+    const byRoleQty = new Map<string, number>();
+    for (const role of roles) {
+      const matchedCategories = role.fnbCategories.filter((c) => fnbTags.has(c));
+      if (matchedCategories.length === 0) continue;
+      const roleRules = rulesByRole.get(role.id) ?? [];
+      let qty = 0;
+      for (const category of matchedCategories) {
+        const rulesForCategory = roleRules.filter((r) => r.fnbCategory === category);
+        const conditioned = rulesForCategory.filter((r) => r.conditionAttribute);
+        if (conditioned.length > 0) {
+          for (const rule of conditioned) {
+            const v = Number(attrs[rule.conditionAttribute!]);
+            if (Number.isFinite(v) && v >= (rule.conditionMinValue ?? 0)) {
+              qty = Math.max(qty, rule.mandatoryQty);
+            }
+          }
+        } else {
+          const unconditioned = rulesForCategory[0];
+          qty = Math.max(qty, unconditioned ? unconditioned.mandatoryQty : 1);
+        }
+      }
+      if (qty > 0) byRoleQty.set(role.id, qty);
+    }
+
+    const roleById = new Map(roles.map((r) => [r.id, r]));
+    return [...byRoleQty.entries()].map(([roleId, qty]) => {
+      const role = roleById.get(roleId)!;
+      return {
+        roleId,
+        roleName: role.name,
+        qty,
+        hourlyRate: this.hourlyRateFrom(role.rateType, role.rate) ?? 0,
+      };
+    });
   }
 
   /** rz par zone = CEIL(Σ staffFront / staffPerZoneManager). Effectifs entiers, toujours. */

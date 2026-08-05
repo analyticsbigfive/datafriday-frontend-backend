@@ -92,35 +92,27 @@
                     </v-chip>
                   </template>
 
+                  <!-- BUG-267-01 : pas de stepper −/+ ici — leur pas était codé en dur à 1, donc
+                       inutilisable sur des quantités au kg (0,04 → 1,04 en un clic). Saisie
+                       directe uniquement ; le clamp @change reste le garde-fou anti-négatif. -->
                   <template #item.quantity="{ item }">
                     <div class="mic-qty-stepper">
-                      <button
-                        class="mic-qty-btn"
-                        type="button"
-                        @click="item.quantity = Math.max(0, +((+item.quantity || 0) - 1).toFixed(3))"
-                      >−</button>
-                      <input
-                        v-model.number="item.quantity"
-                        type="number"
-                        min="0"
-                        step="0.001"
+                      <NumberField
+                        v-model="item.quantity"
+                        :decimals="2"
+                        :min="0"
+                        :empty-value="0"
                         class="mic-qty-input"
-                        @change="item.quantity = Math.max(0, +(+item.quantity || 0).toFixed(3))"
                       />
-                      <button
-                        class="mic-qty-btn"
-                        type="button"
-                        @click="item.quantity = +((+item.quantity || 0) + 1).toFixed(3)"
-                      >+</button>
                     </div>
                   </template>
 
                   <template #item.unitCost="{ item }">
-                    {{ formatCurrency(item.unitCost) }}
+                    {{ formatCurrencyDetailed(item.unitCost) }}
                   </template>
 
                   <template #item.totalCost="{ item }">
-                    <span class="font-weight-bold">{{ formatCurrency(item.quantity * item.unitCost) }}</span>
+                    <span class="font-weight-bold">{{ formatCurrencyDetailed(item.quantity * item.unitCost) }}</span>
                   </template>
 
                   <template #item.storage="{ item }">
@@ -146,16 +138,16 @@
               <div v-if="items.length > 0" class="mic-table-summary mt-3">
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__label">{{ t('menuItemCreate.totalCostLabel') }}</span>
-                  <span class="mic-table-summary__value">{{ formatCurrency(totalCost) }}</span>
+                  <span class="mic-table-summary__value">{{ formatCurrencyDetailed(totalCost) }}</span>
                 </div>
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__label">{{ t('menuItemCreate.pieceCountLabel') }}</span>
-                  <span class="mic-table-summary__value">{{ Number(form.numberOfPiecesRecipe || 1).toFixed(3) }}</span>
+                  <span class="mic-table-summary__value">{{ formatNumber(form.numberOfPiecesRecipe || 1) }}</span>
                 </div>
                 <div class="mic-table-summary__divider" />
                 <div class="mic-table-summary__row">
                   <span class="mic-table-summary__cost-label">{{ t('menuItemCreate.costPerPieceLabel') }}</span>
-                  <span class="mic-table-summary__cost-value">{{ formatCurrency(costPerPiece) }}</span>
+                  <span class="mic-table-summary__cost-value">{{ formatCurrencyDetailed(costPerPiece) }}</span>
                 </div>
               </div>
 
@@ -353,11 +345,11 @@
                       <option v-for="opt in packagingCategoryOptions" :key="opt" :value="opt">{{ opt }}</option>
                     </select>
                     <span class="mic-sentence-text">{{ t('menuItemCreate.of') }}</span>
-                    <input
-                      v-model.number="form.inventoryNumberOfUnits"
-                      type="number"
-                      min="0"
-                      step="0.001"
+                    <NumberField
+                      v-model="form.inventoryNumberOfUnits"
+                      :decimals="2"
+                      :min="0"
+                      :empty-value="0"
                       class="mic-inline-input"
                       style="width: 80px;"
                     />
@@ -381,12 +373,13 @@
               <!-- Number of Pieces (Recipe) -->
               <div class="mb-3">
                 <label for="mic-pieces" class="mic-field-label">{{ t('menuItemCreate.labelNumberOfPieces') }} <span class="mic-required-star">*</span></label>
-                <input
+                <NumberField
                   id="mic-pieces"
-                  v-model.number="form.numberOfPiecesRecipe"
-                  type="number"
-                  min="1"
-                  step="1"
+                  v-model="form.numberOfPiecesRecipe"
+                  :decimals="0"
+                  :step="1"
+                  :min="1"
+                  :empty-value="1"
                   class="form-control mic-input"
                 />
               </div>
@@ -400,24 +393,26 @@
               <div v-if="!isEditMode" class="mic-price-add-row mb-3">
                 <div class="mic-prefix-wrap mic-price-add-row__amount">
                   <span class="mic-prefix-symbol">€</span>
-                  <input
-                    v-model.number="newPriceAmount"
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <NumberField
+                    v-model="newPriceAmount"
+                    :decimals="2"
+                    :min="0"
+                    pad
+                    grouping
+                    :empty-value="0"
                     class="form-control mic-input mic-input--prefixed"
-                    placeholder="0.00 TTC"
+                    :placeholder="t('menuItemCreate.pricePlaceholder')"
                   />
                 </div>
                 <div class="mic-suffix-wrap mic-price-add-row__vat">
-                  <input
-                    v-model.number="newPriceVat"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
+                  <NumberField
+                    v-model="newPriceVat"
+                    :decimals="2"
+                    :step="0.1"
+                    :min="0"
+                    :max="100"
                     class="form-control mic-input mic-input--suffixed"
-                    placeholder="TVA %"
+                    :placeholder="t('menuItemCreate.vatPlaceholder')"
                   />
                   <span class="mic-suffix-symbol">%</span>
                 </div>
@@ -450,8 +445,7 @@
                 <div v-for="group in groupedSpaces" :key="group.key" class="mic-price-card mb-2">
                   <div class="mic-price-row">
                     <div class="mic-price-display mic-price-input">
-                      <span class="mic-price-display__prefix">€</span>
-                      <span class="mic-price-display__value">{{ Number(group.price || 0).toFixed(2) }}</span>
+                      <span class="mic-price-display__value">{{ formatCurrencyDetailed(group.price || 0) }}</span>
                     </div>
                     <div class="mic-space-names mic-space-names--clickable" @click="openGroupDrawer(group.spaceIds, group.price, group.vatRate)">
                       <span v-for="sid in group.spaceIds" :key="sid" class="mic-space-name-pill">
@@ -463,15 +457,15 @@
                   <div class="mic-price-summary">
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">HT</span>
-                      <span class="mic-price-value">{{ formatCurrency(getGroupHT(group.price, group.vatRate)) }}</span>
+                      <span class="mic-price-value">{{ formatCurrencyDetailed(getGroupHT(group.price, group.vatRate)) }}</span>
                     </div>
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">TVA{{ group.vatRate != null ? ` (${group.vatRate}%)` : '' }}</span>
-                      <span class="mic-price-value">{{ formatCurrency(group.price - getGroupHT(group.price, group.vatRate)) }}</span>
+                      <span class="mic-price-value">{{ formatCurrencyDetailed(group.price - getGroupHT(group.price, group.vatRate)) }}</span>
                     </div>
                     <div class="mic-price-row-info">
                       <span class="mic-price-label">Coût</span>
-                      <span class="mic-price-value">{{ formatCurrency(costPerPiece) }}</span>
+                      <span class="mic-price-value">{{ formatCurrencyDetailed(costPerPiece) }}</span>
                     </div>
                     <div class="mic-price-sep" />
                     <div class="mic-price-row-info">
@@ -499,9 +493,15 @@
               <div v-if="form.readyForSale === 'Yes'" class="mb-2">
                 <label class="field-label">{{ t('menuItemCreate.labelStorage') }}</label>
                 <div class="checkbox-grid">
-                  <v-checkbox v-model="form.storageTypes" value="Dry" :label="t('menuItemCreate.storageDry')" hide-details density="compact" />
-                  <v-checkbox v-model="form.storageTypes" value="Cold" :label="t('menuItemCreate.storageCold')" hide-details density="compact" />
-                  <v-checkbox v-model="form.storageTypes" value="Frozen" :label="t('menuItemCreate.storageFreezer')" hide-details density="compact" />
+                  <v-checkbox
+                    v-for="st in storageTypeOptions"
+                    :key="st.id"
+                    v-model="form.storageTypes"
+                    :value="st.name"
+                    :label="st.name"
+                    hide-details
+                    density="compact"
+                  />
                 </div>
               </div>
 
@@ -637,7 +637,8 @@ import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
 import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints/menu-item.api";
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
-import { formatCurrency } from "@/composables/useFormatters.js";
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from "@/composables/useFormatters.js";
+import NumberField from "@/components/common/NumberField.vue";
 import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
@@ -652,7 +653,7 @@ import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -757,6 +758,7 @@ export default {
       this.$store.dispatch('brandNames/fetchBrandNames'),
       this.$store.dispatch('displayNames/fetchDisplayNames'),
       this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true }),
+      this.$store.dispatch('storageTypes/fetchStorageTypes'),
     ]);
 
     if (this.isEditMode) {
@@ -765,6 +767,11 @@ export default {
     this.$nextTick(() => this.takeSnapshot());
   },
   computed: {
+    // CFG-2 : Storage Type est un référentiel CRUD-éditable (Configurations, store
+    // storageTypes) — remplace les 3 checkboxes Dry/Cold/Frozen figées.
+    storageTypeOptions() {
+      return this.$store.getters['storageTypes/storageTypes'] || []
+    },
     kitchenTypeOptions() {
       return [
         { title: this.t('menuItemCreate.kitchenCentral'), value: 'Central' },
@@ -1264,6 +1271,8 @@ export default {
       }
     },
     formatCurrency,
+    formatCurrencyDetailed,
+    formatNumber,
     getStorageColor(storage) {
       const colors = {
         Cold: "blue",
@@ -1799,48 +1808,28 @@ export default {
 }
 
 .mic-qty-stepper {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  overflow: hidden;
-  height: 30px;
-}
-
-.mic-qty-btn {
-  width: 26px;
-  height: 100%;
-  background: #f3f4f6;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  color: #374151;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.mic-qty-btn:hover {
-  background: #e5e7eb;
-  color: #ff3131;
+  align-items: stretch;
+  width: 100%;
 }
 
 .mic-qty-input {
-  width: 48px;
-  height: 100%;
-  border: none;
-  border-left: 1px solid #d1d5db;
-  border-right: 1px solid #d1d5db;
+  width: 100%;
+  height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
   text-align: center;
   font-size: 0.82rem;
   color: #111827;
   outline: none;
-  padding: 0 4px;
+  padding: 0 10px;
   background: white;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.mic-qty-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, .15);
 }
 
 .mic-qty-input::-webkit-outer-spin-button,
@@ -2030,6 +2019,7 @@ label {
 .mic--dark .mic-field-label { color: #cbd5e1; }
 
 /* ── Supplier-style inputs ── */
+.mic-input.form-control.number-field__input { text-align: center; }
 .mic-input.form-control {
   border-radius: 11px;
   border: 1.5px solid #e5e7eb;
@@ -2277,6 +2267,7 @@ label {
   margin-top: 12px;
 }
 
+.mic-inline-input.number-field__input { text-align: center; }
 .mic-inline-input,
 .mic-inline-select {
   border: 1.5px solid #dbeafe;
@@ -2536,16 +2527,12 @@ label {
   color: #e5e7eb;
 }
 
-/* Contrôle quantité (dans la table) : texte + fond + boutons en dark. */
+/* Contrôle quantité (dans la table) : texte + fond en dark. */
 .mic--dark .mic-qty-input {
   background: #1e293b;
-  border-left-color: rgba(255, 255, 255, .12);
-  border-right-color: rgba(255, 255, 255, .12);
+  border-color: rgba(255, 255, 255, .12);
   color: #f1f5f9;
 }
-.mic--dark .mic-qty-stepper { border-color: rgba(255, 255, 255, .12); }
-.mic--dark .mic-qty-btn { background: #263548; color: #cbd5e1; }
-.mic--dark .mic-qty-btn:hover { background: #2d3748; }
 
 .mic--dark .form-section-divider {
   color: #6b7280;

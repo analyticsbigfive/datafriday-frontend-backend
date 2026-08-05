@@ -37,6 +37,21 @@
           class="sr-toolbox-select wsl-toolbox"
           @update:model-value="onToolboxSelect"
         />
+        <!-- Historique des plans (RestockPlan) — masqué si le module backend
+             est absent (404 liste) ou en mode démo. -->
+        <RestockPlansPanel
+          v-if="plansAvailable"
+          :plans="plans"
+          :loading="plansLoading"
+          :active-plan-id="loadedPlanId"
+          :can-write="canWritePlans"
+          :error="plansError"
+          @load="loadPlan"
+          @rename="renamePlan"
+          @duplicate="duplicatePlanAction"
+          @delete="deletePlanAction"
+          @retry="refreshPlans"
+        />
         <v-card variant="outlined" class="sr-panel">
           <header class="sr-panel-head">
             <div>
@@ -48,6 +63,21 @@
               <template v-else>{{ selectedEventIds.length }} {{ selectedEventIds.length > 1 ? t('srSelectedPlural') : t('srSelectedSingular') }}</template>
             </v-chip>
           </header>
+
+          <!-- Lot 5 (JLH) — plusieurs évènements cochés = leurs besoins s'ADDITIONNENT
+               en un seul objectif. Rien ne le disait : on l'annonce, avec le raccourci
+               vers l'étape 1 où la répartition se règle (article par article, curseur %). -->
+          <div
+            v-if="objectiveSource === 'forecast' && selectedEventIds.length > 1"
+            class="sr-multi-event-hint"
+            role="status"
+          >
+            <v-icon size="14">mdi-information-outline</v-icon>
+            <span>{{ selectedEventIds.length }} {{ t('srMultiEventHint') }}</span>
+            <button v-if="currentStep !== 1" type="button" class="sr-multi-event-btn" @click="goToStep(1)">
+              {{ t('srItemsToStock') }}
+            </button>
+          </div>
 
           <div class="sr-objective-source">
             <!-- Switch Prévision/Ventes masqué (objectiveSource forcé 'forecast').
@@ -139,6 +169,31 @@
             </div>
 
             <div class="sr-header__right">
+              <!-- Sauvegarde EXPLICITE d'un plan nommé (jamais d'auto-save). -->
+              <v-btn
+                v-if="plansAvailable && !loadedPlanId"
+                variant="outlined"
+                size="small"
+                class="sr-hbtn"
+                :disabled="!canWritePlans || !restockGenerated"
+                :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
+                @click="openSavePlanDialog"
+              >
+                <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
+                {{ t('srSavePlan') }}
+              </v-btn>
+              <v-btn
+                v-else-if="plansAvailable && loadedPlanId"
+                variant="outlined"
+                size="small"
+                class="sr-hbtn"
+                :disabled="!canWritePlans || !planDirty"
+                :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
+                @click="updateLoadedPlan"
+              >
+                <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
+                {{ t('srUpdatePlan') }}
+              </v-btn>
               <v-btn
                 variant="outlined"
                 size="small"
@@ -164,6 +219,19 @@
             <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
           </p>
         </header>
+        <!-- Bandeau « plan chargé » : les 3 étapes affichent la PHOTO du plan,
+             pas le calcul vivant (ADR-0005). -->
+        <div v-if="loadedPlanId" class="sr-plan-banner" role="status">
+          <v-icon size="16" class="sr-plan-banner__icon">mdi-file-lock-outline</v-icon>
+          <span class="sr-plan-banner__text">
+            {{ t('srPlanLoadedBanner') }}
+            <strong>{{ loadedPlanMeta?.name || t('srPlanUnnamed') }}</strong>
+            <span v-if="planDirty" class="sr-plan-banner__dirty"> · {{ t('srPlanDirtyHint') }}</span>
+          </span>
+          <v-btn size="x-small" variant="text" class="sr-plan-banner__btn" @click="detachPlan()">
+            {{ t('srPlanDetachBtn') }}
+          </v-btn>
+        </div>
         <!-- Assistant pas-à-pas : indicateur d'étapes (cercles + connecteurs). -->
         <nav class="sr-wizard" :aria-label="t('srStepOf') + ' ' + currentStep + '/3'">
           <template v-for="(label, idx) in [t('srStep1'), t('srStep2'), t('srStep3')]" :key="idx">
@@ -245,7 +313,7 @@
           <template v-else>
           <div class="sr-settings-list">
             <div
-              v-for="item in filteredStockSettingsRows"
+              v-for="item in pagedStockSettingsRows"
               :key="item.itemKey"
               class="sr-setting-row"
               :style="isStockSelected(item.itemKey) ? '' : 'opacity:0.5'"
@@ -279,15 +347,6 @@
                     <em v-if="component.quantity">× {{ component.quantity }}{{ component.unit ? ` ${component.unit}` : '' }}</em>
                   </span>
                 </div>
-                <div class="sr-qty-block">
-                  <span class="sr-qty-base">
-                    {{ t('srPredictedLabel') }} {{ formatDisplayQuantity(item.totalQuantity, item.unit, item.itemKey) }}
-                  </span>
-                  <v-icon size="14" class="sr-qty-arrow">mdi-arrow-right</v-icon>
-                  <span class="sr-qty-target">
-                    {{ t('srTargetLabel') }} {{ formatDisplayQuantity(adjustedItemQuantity(item), item.unit, item.itemKey) }}
-                  </span>
-                </div>
               </div>
 
               <div class="sr-slider-wrap">
@@ -306,23 +365,72 @@
                 </div>
               </div>
 
-              <label class="sr-pack-toggle">
-                <input
-                  type="checkbox"
-                  :checked="isPackedMode(item.itemKey)"
-                  :disabled="!packagingForItem(item, adjustedItemQuantity(item))"
-                  @change="setPackedMode(item.itemKey, $event.target.checked)"
-                />
-                {{ t('srPacked') }}
-              </label>
+              <!-- Lot 4 (JLH) — les 4 valeurs sur UNE ligne, sous le nom et le
+                   curseur. Le bloc « prédit → ajusté » a disparu : il convertissait
+                   le besoin TOTAL en colis (« 12 pack ») juste à côté de l'achat
+                   réel (« 2 pack »), deux comptages contradictoires. Toute
+                   l'explication (règle du colis, vrac) vit dans l'infobulle. -->
+              <div v-if="previousInventoryLoading" class="sr-values sr-values-loading">
+                {{ t('srBreakdownLoading') }}
+              </div>
+              <div v-else-if="stockOutcomeByItem[item.itemKey]" class="sr-values">
+                <span class="sr-value">
+                  <span class="sr-value-label">{{ t('srBreakdownPredict') }}</span>
+                  <strong class="sr-value-num">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].predictedQuantity ?? item.totalQuantity, item.unit) }}</strong>
+                </span>
+                <span class="sr-value">
+                  <span class="sr-value-label">{{ t('srBreakdownRemaining') }}</span>
+                  <strong class="sr-value-num">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].remainingQuantity, item.unit) }}</strong>
+                </span>
+                <span class="sr-value">
+                  <!-- Manque RÉEL (gap), calculé par PdV puis sommé — jamais la
+                       cible brute : avec 252 en inventaire pour 45 de besoin,
+                       afficher 45 ici se lisait comme une contradiction. -->
+                  <span class="sr-value-label">{{ t('srBreakdownRequired') }}</span>
+                  <strong class="sr-value-num" :class="{ 'sr-value-ok': !(stockOutcomeByItem[item.itemKey].gap > 0) }">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].gap, item.unit) }}</strong>
+                </span>
+                <span class="sr-value sr-value-buy">
+                  <span class="sr-value-label">{{ t('srBreakdownToOrder') }}</span>
+                  <strong class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
+                </span>
+                <v-tooltip location="bottom" max-width="320">
+                  <template #activator="{ props: helpProps }">
+                    <v-icon
+                      v-bind="helpProps"
+                      size="14"
+                      class="sr-values-help"
+                      tabindex="0"
+                      :aria-label="t('srValuesHelpTitle')"
+                    >mdi-information-outline</v-icon>
+                  </template>
+                  <div class="sr-values-help-body">
+                    <p><strong>{{ t('srBreakdownPredict') }}</strong> — {{ t('srHelpPredict') }}</p>
+                    <p><strong>{{ t('srBreakdownRemaining') }}</strong> — {{ t('srHelpRemaining') }}</p>
+                    <p><strong>{{ t('srBreakdownRequired') }}</strong> — {{ t('srHelpRequired') }}</p>
+                    <p><strong>{{ t('srBreakdownToOrder') }}</strong> — {{ t('srHelpToOrder') }}</p>
+                    <p v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-values-help-detail">{{ buyInfoByItem[item.itemKey].sub }}</p>
+                  </div>
+                </v-tooltip>
+              </div>
+
             </div>
           </div>
           </template>
           </div>
           </v-expand-transition>
-          <!-- Assistant — pied d'étape 1 : générer le réarmement puis avancer. -->
-          <footer class="sr-wizard-nav">
-            <v-spacer />
+          <!-- Assistant — pied d'étape 1 : sticky à l'écran, pagination de la
+               liste au centre, génération à droite. -->
+          <footer class="sr-wizard-nav sr-wizard-nav-grid">
+            <span class="sr-wizard-nav-side" aria-hidden="true" />
+            <v-pagination
+              v-if="stockPageCount > 1"
+              v-model="stockPage"
+              :length="stockPageCount"
+              :total-visible="5"
+              density="compact"
+              class="sr-wizard-nav-pagination"
+            />
+            <span v-else class="sr-wizard-nav-side" aria-hidden="true" />
             <div class="sr-wizard-nav-end">
               <p v-if="!canGenerate" class="sr-wizard-nav-hint">
                 <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
@@ -381,22 +489,12 @@
             :clear-label="t('srClear') || 'Clear'"
           >
             <template #filters>
-              <div class="sr-segmented">
-                <button
-                  type="button"
-                  :class="{ active: restockViewMode === 'shop' }"
-                  @click="restockViewMode = 'shop'"
-                >
-                  {{ t('srByShop') }}
-                </button>
-                <button
-                  type="button"
-                  :class="{ active: restockViewMode === 'item' }"
-                  @click="restockViewMode = 'item'"
-                >
-                  {{ t('srByItem') }}
-                </button>
-              </div>
+              <!-- Bascule « Par shop / Par item » MASQUÉE (demande JLH 2026-08-04) :
+                   la vue « Par shop » est buggée (split « Non rattachés au menu —
+                   à remapper » qui bascule des PdV entiers en rouge, cf. la section
+                   plus bas). Le réarmement ne sert donc plus que la vue « Par item ».
+                   Le rendu « Par shop » est conservé mais inaccessible : réactiver =
+                   restaurer ce segmented + le défaut `restockViewMode`. -->
               <v-select
                 v-if="restockEventOptions.length > 1"
                 v-model="restockEventFilter"
@@ -438,12 +536,15 @@
             </div>
           </div>
 
+          <!-- Vue « Par shop » — INACCESSIBLE depuis l'UI (bascule masquée plus haut,
+               `restockViewMode` forcé à 'item'). Conservée telle quelle : le split
+               « non rattachés » qu'elle porte doit être corrigé avant réactivation. -->
           <div
             v-if="restockGenerated && restockRows.length && restockViewMode === 'shop'"
             class="sr-table-groups"
           >
             <section
-              v-for="group in restockGroupsByShopSplit"
+              v-for="group in pagedRestockGroups"
               :key="group.shopId"
               class="sr-table-group"
             >
@@ -458,6 +559,7 @@
                     <th>{{ t('srColTarget') }}</th>
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
+                    <th>{{ t('srColLooseLeft') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -469,11 +571,58 @@
                   >
                     <td :data-label="t('srColItem')">
                       <strong>{{ row.itemName }}</strong>
-                      <span><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                      <span v-if="(row.sourceBreakdown || []).length < 2"><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                      <ul v-else class="sr-source-breakdown">
+                        <li class="sr-source-breakdown-head"><span>{{ t('srUsedIn') }}</span></li>
+                        <li v-for="source in row.sourceBreakdown || []" :key="source.key">
+                          <span>{{ source.name }}</span>
+                          <span :title="t('srColTarget')">{{ formatLooseQuantity(source.quantity, row.unit) }}</span>
+                        </li>
+                      </ul>
                     </td>
-                    <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
+                    <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
-                    <td :data-label="t('srColToDeposit')" class="sr-strong">{{ formatRestockQuantity(row) }}</td>
+                    <td :data-label="t('srColToDeposit')" class="sr-strong">
+                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                           feuille de course se rejoue sur les coefficients figés. -->
+                      <span v-if="loadedPlanId" class="sr-deposit-edit">
+                        <NumberField
+                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
+                          :min="0"
+                          :decimals="2"
+                          :disabled="!canWritePlans"
+                          :aria-label="t('srColToDeposit')"
+                          class="sr-deposit-field"
+                          @update:model-value="setLineOverride(row.rowKey, $event)"
+                        />
+                        <v-icon
+                          v-if="row.edited"
+                          size="12"
+                          class="sr-deposit-edited"
+                          :title="t('srPlanLineEdited')"
+                        >mdi-pencil</v-icon>
+                      </span>
+                      <template v-else>{{ formatRestockQuantity(row) }}</template>
+                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                        <template #activator="{ props: depositProps }">
+                          <v-icon
+                            v-bind="depositProps"
+                            size="13"
+                            class="sr-deposit-help"
+                            tabindex="0"
+                            :aria-label="t('srDepositHelpTitle')"
+                          >mdi-information-outline</v-icon>
+                        </template>
+                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                      </v-tooltip>
+                    </td>
+                    <!-- BUG-296-01 — reste en vrac (le stock final prévu a été
+                         retiré au Lot 4 : doublon exact de cette colonne dès que
+                         le besoin dépasse l'inventaire). Tiret sur les plans
+                         sauvegardés avant le changement (champ absent). -->
+                    <td :data-label="t('srColLooseLeft')">
+                      {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
+                    </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
                         type="button"
@@ -509,6 +658,7 @@
                       <th>{{ t('srColTarget') }}</th>
                       <th>{{ t('srColRemaining') }}</th>
                       <th>{{ t('srColToDeposit') }}</th>
+                      <th>{{ t('srColLooseLeft') }}</th>
                       <th>{{ t('srColConfirmed') }}</th>
                     </tr>
                   </thead>
@@ -522,11 +672,55 @@
                       <td :data-label="t('srColItem')">
                         <strong>{{ row.itemName }}</strong>
                         <span class="sr-unmapped-badge">non mappé</span>
-                        <span><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                        <span v-if="(row.sourceBreakdown || []).length < 2"><template v-if="row.sources && row.sources.length">{{ t('srUsedIn') }} </template>{{ sourceSummary(row) }}</span>
+                        <ul v-else class="sr-source-breakdown">
+                          <li class="sr-source-breakdown-head"><span>{{ t('srUsedIn') }}</span></li>
+                          <li v-for="source in row.sourceBreakdown || []" :key="source.key">
+                            <span>{{ source.name }}</span>
+                            <span :title="t('srColTarget')">{{ formatLooseQuantity(source.quantity, row.unit) }}</span>
+                          </li>
+                        </ul>
                       </td>
-                      <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
+                      <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                       <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
-                      <td :data-label="t('srColToDeposit')" class="sr-strong">{{ formatRestockQuantity(row) }}</td>
+                      <td :data-label="t('srColToDeposit')" class="sr-strong">
+                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                           feuille de course se rejoue sur les coefficients figés. -->
+                      <span v-if="loadedPlanId" class="sr-deposit-edit">
+                        <NumberField
+                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
+                          :min="0"
+                          :decimals="2"
+                          :disabled="!canWritePlans"
+                          :aria-label="t('srColToDeposit')"
+                          class="sr-deposit-field"
+                          @update:model-value="setLineOverride(row.rowKey, $event)"
+                        />
+                        <v-icon
+                          v-if="row.edited"
+                          size="12"
+                          class="sr-deposit-edited"
+                          :title="t('srPlanLineEdited')"
+                        >mdi-pencil</v-icon>
+                      </span>
+                      <template v-else>{{ formatRestockQuantity(row) }}</template>
+                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                        <template #activator="{ props: depositProps }">
+                          <v-icon
+                            v-bind="depositProps"
+                            size="13"
+                            class="sr-deposit-help"
+                            tabindex="0"
+                            :aria-label="t('srDepositHelpTitle')"
+                          >mdi-information-outline</v-icon>
+                        </template>
+                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                      </v-tooltip>
+                    </td>
+                      <!-- BUG-296-01 — reste en vrac + stock final prévu. -->
+                      <td :data-label="t('srColLooseLeft')">
+                        {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
+                      </td>
                       <td :data-label="t('srColConfirmed')">
                         <button
                           type="button"
@@ -549,7 +743,7 @@
 
           <div v-else-if="restockGenerated && restockRows.length" class="sr-table-groups">
             <section
-              v-for="group in restockGroupsByItem"
+              v-for="group in pagedRestockGroups"
               :key="group.itemKey"
               class="sr-table-group"
             >
@@ -557,11 +751,25 @@
                 <div>
                   <h3>{{ group.itemName }}</h3>
                   <span
-                    v-if="groupSourceSummary(group)"
-                    style="display:block;font-size:0.72rem;color:#64748b;font-weight:500;margin-top:2px;"
+                    v-if="(group.sourceBreakdown || []).length < 2 && groupSourceSummary(group)"
+                    style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
                   >{{ t('srUsedIn') }} {{ groupSourceSummary(group) }}</span>
+                  <ul v-else-if="(group.sourceBreakdown || []).length >= 2" class="sr-source-breakdown">
+                    <li class="sr-source-breakdown-head"><span>{{ t('srUsedIn') }}</span></li>
+                    <li v-for="source in group.sourceBreakdown || []" :key="source.key">
+                      <span>{{ source.name }}</span>
+                      <span :title="t('srColTarget')">{{ formatLooseQuantity(source.quantity, source.unit) }}</span>
+                    </li>
+                  </ul>
                 </div>
-                <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
+                <div class="sr-group-head-end">
+                  <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
+                  <button
+                    type="button"
+                    class="sr-inline-btn"
+                    @click="setGroupRestocked(group, !isGroupRestocked(group))"
+                  >{{ isGroupRestocked(group) ? t('srUncheckAll') : t('srConfirmAll') }}</button>
+                </div>
               </header>
               <table class="sr-table sr-restock-table">
                 <thead>
@@ -570,6 +778,7 @@
                     <th>{{ t('srColTarget') }}</th>
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
+                    <th>{{ t('srColLooseLeft') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -583,9 +792,49 @@
                       <strong>{{ row.shopName }}</strong>
                       <span>{{ row.eventNames.join(', ') }}</span>
                     </td>
-                    <td :data-label="t('srColTarget')">{{ formatDisplayQuantity(row.targetQuantity, row.unit, row.itemKey) }}</td>
+                    <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
-                    <td :data-label="t('srColToDeposit')" class="sr-strong">{{ formatRestockQuantity(row) }}</td>
+                    <td :data-label="t('srColToDeposit')" class="sr-strong">
+                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                           feuille de course se rejoue sur les coefficients figés. -->
+                      <span v-if="loadedPlanId" class="sr-deposit-edit">
+                        <NumberField
+                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
+                          :min="0"
+                          :decimals="2"
+                          :disabled="!canWritePlans"
+                          :aria-label="t('srColToDeposit')"
+                          class="sr-deposit-field"
+                          @update:model-value="setLineOverride(row.rowKey, $event)"
+                        />
+                        <v-icon
+                          v-if="row.edited"
+                          size="12"
+                          class="sr-deposit-edited"
+                          :title="t('srPlanLineEdited')"
+                        >mdi-pencil</v-icon>
+                      </span>
+                      <template v-else>{{ formatRestockQuantity(row) }}</template>
+                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                        <template #activator="{ props: depositProps }">
+                          <v-icon
+                            v-bind="depositProps"
+                            size="13"
+                            class="sr-deposit-help"
+                            tabindex="0"
+                            :aria-label="t('srDepositHelpTitle')"
+                          >mdi-information-outline</v-icon>
+                        </template>
+                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                      </v-tooltip>
+                    </td>
+                    <!-- BUG-296-01 — reste en vrac (le stock final prévu a été
+                         retiré au Lot 4 : doublon exact de cette colonne dès que
+                         le besoin dépasse l'inventaire). Tiret sur les plans
+                         sauvegardés avant le changement (champ absent). -->
+                    <td :data-label="t('srColLooseLeft')">
+                      {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
+                    </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
                         type="button"
@@ -606,13 +855,22 @@
           </div>
           </div>
           </v-expand-transition>
-          <!-- Assistant — pied d'étape 2 : précédent + générer la feuille. -->
-          <footer class="sr-wizard-nav">
+          <!-- Assistant — pied d'étape 2 : sticky, précédent | pagination des
+               groupes | générer la feuille. -->
+          <footer class="sr-wizard-nav sr-wizard-nav-grid">
             <v-btn variant="text" @click="goToStep(1)">
               <v-icon size="16" class="mr-1">mdi-chevron-left</v-icon>
               {{ t('srPrevious') }}
             </v-btn>
-            <v-spacer />
+            <v-pagination
+              v-if="restockPageCount > 1"
+              v-model="restockPage"
+              :length="restockPageCount"
+              :total-visible="5"
+              density="compact"
+              class="sr-wizard-nav-pagination"
+            />
+            <span v-else class="sr-wizard-nav-side" aria-hidden="true" />
             <div class="sr-wizard-nav-end">
               <p v-if="!canGenerate" class="sr-wizard-nav-hint">
                 <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
@@ -695,14 +953,14 @@
           <v-expand-transition>
           <div v-show="!collapsed.shopping">
           <v-alert
-            v-if="shoppingGenerated && nettedShopping.unmatchedStorage.length"
+            v-if="shoppingGenerated && displayedUnmatchedStorage.length"
             type="warning"
             density="compact"
             variant="tonal"
             class="sr-storage-warn"
           >
             {{ t('srStorageUnmatchedWarn') }}
-            <strong>{{ nettedShopping.unmatchedStorage.map((e) => e.name || e.itemId).join(', ') }}</strong>
+            <strong>{{ displayedUnmatchedStorage.map((e) => e.name || e.itemId).join(', ') }}</strong>
           </v-alert>
           <div v-if="!shoppingGenerated" class="sr-empty">
             {{ t('srGenerateShoppingHint') }}
@@ -718,7 +976,7 @@
 
           <div v-else class="sr-supplier-list">
             <section
-              v-for="supplier in shoppingGroups"
+              v-for="supplier in pagedShoppingGroups"
               :id="`sr-supplier-${supplier.supplierId}`"
               :key="supplier.supplierId"
               class="sr-supplier-group"
@@ -759,7 +1017,7 @@
                       <strong>{{ item.itemName }}</strong>
                       <span
                         v-if="item.itemType !== 'MenuItem' && item.usedIn && item.usedIn.length"
-                        style="display:block;font-size:0.72rem;color:#64748b;font-weight:500;margin-top:2px;"
+                        style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
                       >{{ t('srUsedIn') }} {{ item.usedIn.slice(0, 4).join(', ') }}<template v-if="item.usedIn.length > 4"> +{{ item.usedIn.length - 4 }}</template></span>
                       <span class="sr-shop-diag">
                         {{ t('srDiagPredicted') }} {{ formatDiagQty(item.predicted, item.unit) }}
@@ -791,13 +1049,23 @@
           </div>
           </div>
           </v-expand-transition>
-          <!-- Assistant — pied d'étape 3 : précédent (export/impression dans l'en-tête). -->
-          <footer class="sr-wizard-nav">
+          <!-- Assistant — pied d'étape 3 : sticky, précédent | pagination des
+               fournisseurs (export/impression dans l'en-tête). -->
+          <footer class="sr-wizard-nav sr-wizard-nav-grid">
             <v-btn variant="text" @click="goToStep(2)">
               <v-icon size="16" class="mr-1">mdi-chevron-left</v-icon>
               {{ t('srPrevious') }}
             </v-btn>
-            <v-spacer />
+            <v-pagination
+              v-if="shoppingPageCount > 1"
+              v-model="shoppingPage"
+              :length="shoppingPageCount"
+              :total-visible="5"
+              density="compact"
+              class="sr-wizard-nav-pagination"
+            />
+            <span v-else class="sr-wizard-nav-side" aria-hidden="true" />
+            <span class="sr-wizard-nav-side" aria-hidden="true" />
           </footer>
         </v-card>
       </main>
@@ -993,6 +1261,54 @@
       </v-card>
     </v-bottom-sheet>
 
+    <!-- Nommage d'un nouveau plan (sauvegarde explicite). -->
+    <v-dialog v-model="planSaveDialog.show" max-width="440">
+      <v-card>
+        <v-card-title class="sr-plan-dialog-title">{{ t('srSavePlan') }}</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="planSaveDialog.name"
+            :label="t('srPlanName')"
+            :placeholder="t('srPlanNamePlaceholder')"
+            density="compact"
+            variant="outlined"
+            hide-details
+            autofocus
+            @keydown.enter.prevent="confirmSavePlan"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="planSaveDialog.show = false">{{ t('srPlanRenameCancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :disabled="!planSaveDialog.name.trim()" @click="confirmSavePlan">
+            {{ t('srSavePlan') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Conflit : mutation invalidante avec un plan chargé — 3 issues
+         (ADR-0005 : une photo n'est jamais recalculée en silence). -->
+    <v-dialog v-model="planGuardDialog.show" max-width="480" persistent>
+      <v-card>
+        <v-card-title class="sr-plan-dialog-title">{{ t('srPlanDetachTitle') }}</v-card-title>
+        <v-card-text>{{ t('srPlanDetachBody') }}</v-card-text>
+        <v-card-actions class="sr-plan-guard-actions">
+          <v-btn variant="text" @click="resolvePlanGuard('cancel')">{{ t('srPlanDetachCancel') }}</v-btn>
+          <v-spacer />
+          <v-btn variant="outlined" @click="resolvePlanGuard('discard')">{{ t('srPlanDetachContinue') }}</v-btn>
+          <v-btn
+            v-if="canWritePlans"
+            color="primary"
+            variant="flat"
+            @click="resolvePlanGuard('save')"
+          >
+            {{ t('srPlanDetachSave') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3500">
       {{ snackbarText }}
     </v-snackbar>
@@ -1019,13 +1335,21 @@ import {
   collectFbElements,
   collectStorageElements,
   computePackagingForQuantity,
+  computeRestockOutcome,
+  aggregateRestockOutcomesByItem,
+  coveredQuantityForPackaging,
+  roundForUnit,
+  ceilForUnit,
   deriveSelectedMenuItemsByShop,
   findStockReference,
 } from '@/utils/stockPlanning'
 // BOM (achats/production) : explosion des plats en ingrédients, indépendamment
-// de readyForSale. Recette lue via le détail /menu-items/:id (hydratation).
-import { normalizeRecipe, buildIngredientRequirements } from '@/utils/bomPlanning'
-import { getMenuItemById } from '@/api/endpoints/menu-item.api'
+// de readyForSale. Recettes lues via le BATCH POST /menu-items/recipes (un appel,
+// BUG-294-01 — le fan-out /menu-items/:id déclenchait le rate limit 429) ; le
+// détail /menu-items/:id ne sert plus qu'au repli borné si le batch échoue.
+import { normalizeRecipe, normalizeRecipeFromBatch, buildIngredientRequirements } from '@/utils/bomPlanning'
+import { hydrateSubComponents } from '@/utils/componentCatalog'
+import { getMenuItemById, getMenuItemRecipes } from '@/api/endpoints/menu-item.api'
 // Versions de prédiction (scénarios) — rapatriées depuis la BDD pour pré-remplir
 // le réarmement même sans pont localStorage (cf. recompute depuis la version active).
 import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
@@ -1047,7 +1371,7 @@ import { findBestMatch } from '@/utils/menuItemMatching'
 // Formule de restant compté partagée avec useShoppingList (Règle 3) — source unique.
 import { countedRemaining } from '@/utils/shoppingList'
 // Netting stock ↔ feuille de course (cascade de matching + pool consommable).
-import { consumeFromPool, preparePool } from '@/utils/stockNetting'
+import { consumeFromPool, preparePool, orderQuantitiesByItemKey } from '@/utils/stockNetting'
 // DB locale (localStorage) — persiste l'état réarmement sans backend.
 import * as localDb from '@/data/localDb'
 import {
@@ -1056,12 +1380,29 @@ import {
   isRestockApiDown,
   onRestockApiError,
 } from '@/api/endpoints/restock.api'
+// Plans de réappro nommés (RestockPlan, ADR-0005) : photo figée des 3 étapes,
+// rejouée depuis la photo — jamais depuis le catalogue vivant.
+import {
+  buildPlanSnapshot,
+  buildRecipeCoeffs,
+  applyPlanEdits,
+  recomputeShoppingFromOverrides,
+  estimateSnapshotBytes,
+} from '@/utils/restockPlanSnapshot'
+import { useRestockPlans } from '@/composables/useRestockPlans'
+import RestockPlansPanel from '@/components/restock/RestockPlansPanel.vue'
+import NumberField from '@/components/common/NumberField.vue'
 import { isDemoMode } from '@/utils/demoMode'
+
+// Garde-fou client AVANT le POST d'un plan — marge sous la garde backend
+// (restock-plans.service.ts : 1 000 000). Même métrique (JSON.stringify).
+const PLAN_MAX_BYTES = 900_000
 
 const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
+  { value: 'live', labelKey: 'srToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
   { value: 'space-pre-inventory', labelKey: 'invToolPreInventory', icon: 'mdi-clipboard-arrow-up-outline', permission: 'front.fb.spaceInventory' },
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift' },
@@ -1096,24 +1437,26 @@ function extractInventoryCounts(payload) {
   return looksLikeCounts ? payload : {}
 }
 
-function roundForUnit(value, unit) {
-  const q = Number(value) || 0
-  const u = String(unit || '').toLowerCase()
-  if (u === 'pcs' || u === 'pc' || u === 'piece' || u === 'pieces') {
-    return Math.ceil(q)
-  }
-  return Math.round(q * 10) / 10
-}
-
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceAppHeader },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceAppHeader, RestockPlansPanel, NumberField },
   setup() {
     const store = useStore()
     const route = useRoute()
     const router = useRouter()
     const { t } = useI18n()
-    return { store, route, router, t }
+    // Historique des plans (REST autoritaire, sans miroir localStorage).
+    // Refs exposées à plat pour l'auto-unwrap Options API ; `plansApi` porte
+    // les méthodes (refresh/load/create/…).
+    const plansApi = useRestockPlans()
+    return {
+      store, route, router, t,
+      plansApi,
+      plans: plansApi.plans,
+      plansLoading: plansApi.loading,
+      plansAvailable: plansApi.available,
+      plansError: plansApi.error,
+    }
   },
   data() {
     return {
@@ -1137,6 +1480,14 @@ export default {
       // exclus du réarmement. Peuplé par loadRestockShopAssignment (mêmes rows).
       closedShopNames: [],
       _restockClosedCache: null,
+      // BUG-291-02 — articles IMPOSSIBLES À PRODUIRE côté serveur (recette
+      // absente / ingrédient bloqué) : exclus du réarmement, eux et leurs
+      // ingrédients. Index PLAT `{ ids: [], names: [] }` au niveau ESPACE
+      // (correctif v2) : `available` est calculé par espace côté serveur, et la
+      // jointure par nom de shop de la v1 ratait en silence sur les configs
+      // synthétiques (`buildSyntheticConfig` peut poser un id brut en `name`).
+      unavailableStockItems: null,
+      _restockUnavailableCache: null,
       // Repli de la section « non rattachés » par shop (clé = shopId).
       restockUnmappedOpen: {},
       // Popup email fournisseur (colonne Aperçu) : contenu éditable + envoi/annulation.
@@ -1168,6 +1519,14 @@ export default {
       // par évènement, pour reproduire les quantités EventPredict.
       predictionMetaByEventId: {},
       stockSearch: '',
+      // Pagination des 3 étapes (contrôles centrés dans les pieds sticky) :
+      // étape 1 = articles, étape 2 = groupes (PDV ou article), étape 3 =
+      // fournisseurs.
+      stockPage: 1,
+      stockPageSize: 20,
+      restockPage: 1,
+      shoppingPage: 1,
+      groupPageSize: 10,
       restockSearch: '',
       shoppingSearch: '',
       mobileConfigSheet: false,
@@ -1180,7 +1539,9 @@ export default {
       previousInventoryEvent: null,
       restockGenerated: false,
       shoppingGenerated: false,
-      restockViewMode: 'shop',
+      // Vue « Par shop » masquée (JLH 2026-08-04) : seule 'item' est servie tant
+      // que le split « non rattachés au menu » n'est pas corrigé.
+      restockViewMode: 'item',
       // Filtre d'affichage de la feuille de réarmement : null = tous les events.
       // N'altère pas les quantités (agrégées sur tous les events sélectionnés) —
       // masque seulement les lignes qui ne concernent pas l'event choisi.
@@ -1194,6 +1555,13 @@ export default {
       // contenu mais réassigné en bloc pour déclencher la réactivité.
       recipeByMenuItemId: {},
       recipesLoading: false,
+      // BUG-292-01 — catalogue composants AVEC leur recette (`subComponents`).
+      // `store.analyse.components` vient de la LISTE /menu-components, qui ne la
+      // porte pas : sans cette hydratation, la feuille de course achèterait « de
+      // la sauce pickle » au lieu de son vinaigre et de son ail. Hydraté une fois,
+      // à l'entrée du mode ingrédients (cf. ensureRecipesLoaded).
+      hydratedComponents: [],
+      componentsHydrated: false,
       // Catalogue fournisseurs complet (/suppliers) pour nommer le fournisseur
       // d'un ingrédient (le store analyse n'en a qu'un sous-ensemble).
       bomSuppliers: [],
@@ -1205,6 +1573,20 @@ export default {
       collapsed: { stock: true, restock: true, shopping: true },
       restockedRows: {},
       restoringState: false,
+      // --- Plan chargé (RestockPlan, ADR-0005) ---
+      // Distinct de l'état de session : tant que loadedPlanId est posé, les
+      // 3 étapes affichent la PHOTO du plan (aiguillage stockSettingsRows /
+      // restockRows / shoppingGroups), jamais le calcul vivant.
+      loadedPlanId: null,
+      loadedPlan: null, // photo complète (GET /restock-plans/:id)
+      lineOverrides: {}, // rowKey → quantité « À déposer » corrigée
+      planDirty: false, // correction non enregistrée sur le plan chargé
+      // Guard : true pendant loadPlan — neutralise resetGeneratedOutputs et
+      // ensureStockItemDefaults (sinon les watchers détruisent le plan posé).
+      loadingPlan: false,
+      // Dialogue de sauvegarde (nommage) et dialogue de conflit (3 issues).
+      planSaveDialog: { show: false, name: '' },
+      planGuardDialog: { show: false, resolver: null },
       snackbar: false,
       snackbarText: '',
       snackbarColor: 'success',
@@ -1459,6 +1841,7 @@ export default {
           selectedMenuItems,
           quantityAdjustments: meta?.quantityAdjustments || undefined,
           closedShopNames: this.closedShopNames,
+          unavailableItems: this.unavailableStockItems,
         })
 
         rows.forEach((row) => {
@@ -1497,7 +1880,8 @@ export default {
         return String(a.itemName).localeCompare(String(b.itemName))
       })
     },
-    stockSettingsRows() {
+    /** Étape 1 — calcul VIVANT (catalogue + prédictions du moment). */
+    liveStockSettingsRows() {
       const grouped = new Map()
       this.stockRowsRaw.forEach((row) => {
         const existing = grouped.get(row.itemKey)
@@ -1534,6 +1918,25 @@ export default {
         }))
         .sort((a, b) => String(a.itemName).localeCompare(String(b.itemName)))
     },
+    /**
+     * Étape 1 affichée : PHOTO du plan chargé, sinon calcul vivant. Les lignes
+     * figées (stockLines) ne portent ni sources ni recipeComponents — l'étape 1
+     * d'un plan est volontairement gelée (relancer une génération passe par le
+     * dialogue de détachement, cf. guardPlanEdit).
+     */
+    stockSettingsRows() {
+      if (!this.loadedPlan) return this.liveStockSettingsRows
+      return (this.loadedPlan.stockLines || []).map((line) => ({
+        ...line,
+        itemId: null,
+        sourceId: null,
+        shopIds: new Set(),
+        shopCount: 0,
+        sources: [],
+        sourceNames: [],
+        recipeComponents: [],
+      }))
+    },
     filteredStockSettingsRows() {
       const q = (this.stockSearch || '').trim().toLowerCase()
       if (!q) return this.stockSettingsRows
@@ -1545,6 +1948,14 @@ export default {
         ].join(' ').toLowerCase()
         return searchable.includes(q)
       })
+    },
+    /** Pagination de la liste étape 1 (pied de carte, contrôles au centre). */
+    stockPageCount() {
+      return Math.max(1, Math.ceil(this.filteredStockSettingsRows.length / this.stockPageSize))
+    },
+    pagedStockSettingsRows() {
+      const start = (this.stockPage - 1) * this.stockPageSize
+      return this.filteredStockSettingsRows.slice(start, start + this.stockPageSize)
     },
     stockCompositionGroups() {
       const groups = new Map()
@@ -1592,15 +2003,29 @@ export default {
     stockSettingsSignature() {
       return this.stockSettingsRows.map((row) => row.itemKey).sort().join('|')
     },
-    restockRows() {
+    /**
+     * Étape 2 — calcul VIVANT (catalogue + comptages du moment), TOUTES lignes
+     * (BUG-296-01 : la ventilation étape 1 a besoin des lignes à dépôt nul et
+     * des articles exclus — le filtre d'affichage vit dans liveRestockRows).
+     */
+    liveRestockRowsAll() {
       return this.stockRowsRaw.map((row) => {
         const targetQuantity = this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey)
-        const packaging = this.packagingForItem(row, targetQuantity)
-        const remainingQuantity = this.remainingQuantityForRow(row, packaging)
-        const restockQuantity = Math.max(
-          0,
-          roundForUnit(targetQuantity - remainingQuantity, row.unit),
-        )
+        // Packaging de référence (taille de colis) pour décoder le comptage
+        // packed/loose — la taille ne dépend pas de la quantité passée.
+        const packagingRef = this.packagingForItem(row, targetQuantity)
+        const remainingQuantity = this.remainingQuantityForRow(row, packagingRef)
+        const rawGap = Math.max(0, targetQuantity - remainingQuantity)
+        // Le packedCount porte sur le MANQUE (ce qu'on dépose), pas sur la cible.
+        const packaging = this.packagingForItem(row, rawGap)
+        // Un article conditionné se réarme en colis ENTIERS : la quantité
+        // suggérée est la couverture des colis (0,7 kg en paquets de 0,5 kg →
+        // 2 paquets → 1 kg). Sans « Inventory Information », arrondi historique.
+        // Lot 4 — sans conditionnement, arrondi au SUPÉRIEUR : `roundForUnit`
+        // ramenait 0,64 kg de manque à 0,6 kg déposé, donc un manque non couvert.
+        const restockQuantity = packaging
+          ? coveredQuantityForPackaging(packaging)
+          : ceilForUnit(rawGap, row.unit)
         return {
           ...row,
           rowKey: `${row.shopId}|||${row.itemKey}`,
@@ -1608,8 +2033,94 @@ export default {
           remainingQuantity,
           restockQuantity,
           packaging,
+          // BUG-296-01 : gap / surplusLoose (reste en vrac) / finalStock
+          // (stock final prévu) portés par chaque ligne, formule unique.
+          ...computeRestockOutcome({ targetQuantity, remainingQuantity, restockQuantity }),
+          // BUG-288-01 : détail « utilisé dans » par menu item. Les parts portent
+          // sur le BESOIN (targetQuantity), pas sur « À déposer » — le restant du
+          // PDV n'est pas attribuable à un plat plutôt qu'à un autre.
+          sourceBreakdown: this.buildSourceBreakdown(row),
         }
-      }).filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
+      })
+    },
+    /** Étape 2 affichable : lignes à déposer, hors articles exclus. */
+    liveRestockRows() {
+      return this.liveRestockRowsAll.filter(
+        (row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey],
+      )
+    },
+    /**
+     * BUG-296-01, réduit au Lot 2 — agrégat grain ARTICLE pour l'étape 1.
+     * L'affichage n'en lit plus que predictedQuantity / remainingQuantity /
+     * targetQuantity (les autres champs restent calculés : étape 2 et snapshot
+     * de plan les consomment toujours).
+     * Plan chargé : valeurs FIGÉES des stockLines (absentes sur les plans
+     * sauvegardés avant le changement → bloc masqué) ; sinon agrégat vivant.
+     */
+    stockOutcomeByItem() {
+      if (this.loadedPlan) {
+        const byItem = {}
+        ;(this.loadedPlan.stockLines || []).forEach((line) => {
+          if (line && line.itemKey != null && line.gap !== undefined) byItem[line.itemKey] = line
+        })
+        return byItem
+      }
+      return aggregateRestockOutcomesByItem(this.liveRestockRowsAll)
+    },
+    /**
+     * Lot 2 — « À commander » par article (étape 1) : max(0, besoin net des
+     * shops − Storage), netting par IDs (BUG-299-01) sur un pool DÉDIÉ
+     * (`preparePool` clone les entrées — aucune interférence avec
+     * `nettedShopping`). Toujours au grain article, quel que soit
+     * `shoppingMode` : en produits finis (recherche étape 3 vide), identique au
+     * `buyQuantity` de la feuille de course ; en ingrédients, lecture
+     * « article » du même besoin (l'étape 3, elle, nette au grain ingrédient).
+     * `need` = coveredQuantity de l'agrégat (Σ restockQuantity, arrondie en
+     * colis par PDV) — même grandeur que `item.quantity` à l'étape 3.
+     * Tri par itemName = ordre de consommation de l'étape 3 : si deux articles
+     * matchent la même entrée Storage (consumeFromPool consomme tout), le cas
+     * limite tombe du même côté. Article décoché → absent de la map → « — ».
+     * Plan chargé → null (la photo ne porte pas de buyQuantity par article).
+     * Coût O(articles × entrées Storage), mémoïsé — le template ne fait que
+     * des lookups O(1), jamais de netting dans la boucle v-for.
+     */
+    /**
+     * Lot 3 — rang ACHAT prêt à afficher, pour la PAGE COURANTE seulement.
+     * Mémoïsé : le template lit 5 champs par ligne, et `buyInfo` résout un
+     * packaging (parcours des catalogues) — l'appeler depuis le template le
+     * referait à chaque lecture et à chaque re-render.
+     */
+    buyInfoByItem() {
+      const out = {}
+      for (const item of this.pagedStockSettingsRows) out[item.itemKey] = this.buyInfo(item)
+      return out
+    },
+    stockOrderByItem() {
+      if (this.loadedPlan) return null
+      const outcomes = this.stockOutcomeByItem
+      const items = this.liveStockSettingsRows
+        .filter((row) => !this.stockExcluded[row.itemKey])
+        .map((row) => ({
+          itemKey: row.itemKey,
+          itemId: row.itemId,
+          sourceId: row.sourceId,
+          itemName: row.itemName,
+          unit: row.unit,
+          need: outcomes[row.itemKey]?.coveredQuantity ?? 0,
+        }))
+        .sort((a, b) => String(a.itemName).localeCompare(String(b.itemName)))
+      const storagePool = preparePool(this.aggregateCountsForElements(this.storageElementIds))
+      return orderQuantitiesByItemKey(items, storagePool)
+    },
+    /**
+     * Étape 2 affichée : PHOTO du plan (avec corrections « À déposer »
+     * appliquées via les valeurs figées), sinon calcul vivant. Les ~10
+     * consommateurs aval (filtres, groupes, compteurs, exports, impression)
+     * passent tous par ici — aucun d'eux ne distingue figé/vivant.
+     */
+    restockRows() {
+      if (!this.loadedPlan) return this.liveRestockRows
+      return applyPlanEdits(this.loadedPlan.restockLines || [], this.lineOverrides)
     },
     /** Events réellement présents dans la feuille (id + label), pour le filtre. */
     restockEventOptions() {
@@ -1677,9 +2188,45 @@ export default {
         }
         groups.get(row.itemKey).rows.push(row)
       })
+      // Détail « utilisé dans » cumulé sur tous les PDV du groupe (BUG-288-01).
+      groups.forEach((group) => {
+        const byName = new Map()
+        group.rows.forEach((row) => {
+          ;(row.sourceBreakdown || []).forEach((source) => {
+            const previous = byName.get(source.key)
+            if (previous) previous.quantity += source.quantity
+            else byName.set(source.key, { ...source })
+          })
+        })
+        group.sourceBreakdown = Array.from(byName.values()).sort(
+          (a, b) => b.quantity - a.quantity,
+        )
+      })
       return Array.from(groups.values()).sort((a, b) =>
         String(a.itemName).localeCompare(String(b.itemName)),
       )
+    },
+    /** Pagination étape 2 : groupes de la vue active (PDV ou article). */
+    activeRestockGroups() {
+      return this.restockViewMode === 'shop'
+        ? this.restockGroupsByShopSplit
+        : this.restockGroupsByItem
+    },
+    restockPageCount() {
+      return Math.max(1, Math.ceil(this.activeRestockGroups.length / this.groupPageSize))
+    },
+    pagedRestockGroups() {
+      const start = (this.restockPage - 1) * this.groupPageSize
+      return this.activeRestockGroups.slice(start, start + this.groupPageSize)
+    },
+    /** Pagination étape 3 : sections fournisseur (l'aperçu latéral, l'export
+     *  CSV et l'impression restent sur la liste COMPLÈTE shoppingGroups). */
+    shoppingPageCount() {
+      return Math.max(1, Math.ceil(this.shoppingGroups.length / this.groupPageSize))
+    },
+    pagedShoppingGroups() {
+      const start = (this.shoppingPage - 1) * this.groupPageSize
+      return this.shoppingGroups.slice(start, start + this.groupPageSize)
     },
     shoppingSupplierGroups() {
       const supplierMap = new Map()
@@ -1698,8 +2245,9 @@ export default {
           '__unknown_supplier__'
         const supplier = this.suppliers.find((s) => s.id === supplierId)
         // Mode produits finis : un plat fini sans fournisseur n'est pas un
-        // « fournisseur non défini » → groupe « Produits finis » (clé partagée
-        // avec resolveIngredientSupplier).
+        // « fournisseur non défini » → groupe « Produits finis ». En mode
+        // ingrédients, resolveIngredientSupplier étiquette le même cas
+        // « Sans fournisseur (ingrédients manquants) » (srNoSupplierGroup).
         const supplierName = supplier?.name || this.t('srFinishedProductsGroup')
 
         if (!supplierMap.has(supplierId)) {
@@ -1794,6 +2342,7 @@ export default {
           selectedMenuItems,
           quantityAdjustments: meta?.quantityAdjustments || undefined,
           closedShopNames: this.closedShopNames,
+          unavailableItems: this.unavailableStockItems,
         })
         demand.forEach((d) => {
           const key = `${d.shopId}|||${d.menuItemId}`
@@ -1809,6 +2358,9 @@ export default {
       const groups = buildIngredientRequirements({
         demand: this.menuItemDemandRows,
         recipeByMenuItemId: this.recipeByMenuItemId,
+        // BUG-292-01 : sans ce catalogue hydraté, l'éclatement composant →
+        // ingrédients est inerte et la feuille de course s'arrête au composant.
+        components: this.hydratedComponents,
         resolveSupplier: (line) => this.resolveIngredientSupplier(line),
       })
       const q = (this.shoppingSearch || '').trim().toLowerCase()
@@ -1901,9 +2453,55 @@ export default {
       const unmatchedStorage = storagePool.filter((e) => !e.matched && e.qty > 0)
       return { groups, unmatchedStorage }
     },
-    /** Groupes affichés à l'étape 3 (feuille de course nette). */
-    shoppingGroups() {
+    /** Étape 3 — feuille de course nette VIVANTE. */
+    liveShoppingGroups() {
       return this.nettedShopping.groups
+    },
+    /**
+     * Étape 3 affichée : rejeu de la PHOTO (deltas de corrections × coefficients
+     * de recette figés, netting Storage et packaging rejoués sur les valeurs
+     * figées — jamais le catalogue vivant), sinon calcul vivant. La recherche
+     * est appliquée après coup en mode plan (le mode vivant la porte plus haut,
+     * dans shoppingSupplierGroups / shoppingIngredientGroups).
+     */
+    shoppingGroups() {
+      if (!this.loadedPlan) return this.liveShoppingGroups
+      const groups = recomputeShoppingFromOverrides(this.loadedPlan, this.lineOverrides)
+      const q = (this.shoppingSearch || '').trim().toLowerCase()
+      if (!q) return groups
+      return groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => {
+            const haystack = [group.supplierName, item.itemName, ...(item.shopNames || [])]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+            return haystack.includes(q)
+          }),
+        }))
+        .filter((group) => group.items.length > 0)
+    },
+    /**
+     * Storage non rattaché affiché à l'étape 3 : figé dans meta pour un plan
+     * chargé (une photo n'est jamais recalculée), vivant sinon.
+     */
+    displayedUnmatchedStorage() {
+      if (this.loadedPlan) return this.loadedPlan.meta?.unmatchedStorage || []
+      return this.nettedShopping.unmatchedStorage
+    },
+    /** Droit d'écriture sur les plans (BUG-19 : restockBoard seul = lecture). */
+    canWritePlans() {
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? !!can('front.fb.restock') : false
+    },
+    /** Métadonnées du plan chargé (bandeau) — nom depuis la liste si dispo. */
+    loadedPlanMeta() {
+      if (!this.loadedPlanId) return null
+      return (
+        (this.plans || []).find((p) => p.id === this.loadedPlanId) ||
+        { id: this.loadedPlanId, name: this.loadedPlan?.name || '' }
+      )
     },
     confirmedRestockCount() {
       return this.restockRows.filter((row) => this.isRestocked(row.rowKey)).length
@@ -1929,6 +2527,9 @@ export default {
         restockViewMode: this.restockViewMode,
         currentStep: this.currentStep,
         stockExcluded: this.stockExcluded,
+        // Envoyé dans les `extras` du PUT (restock.api.js) : un backend plus
+        // ancien en whitelist stricte retombe sur le noyau sans lui.
+        loadedPlanId: this.loadedPlanId,
       }
     },
     overviewMetrics() {
@@ -1962,6 +2563,15 @@ export default {
     },
   },
   watch: {
+    // Les 3 routes de l'espace sont keepAlive : au changement d'espace, le
+    // composant survit — sans ce watcher, un plan de l'espace X resterait
+    // affiché sur l'espace Y. On repart en mode vivant + liste de plans vierge.
+    'route.params.spaceId'(spaceId, previous) {
+      if (!spaceId || spaceId === previous) return
+      this.detachPlan({ silent: true })
+      this.plansApi.reset()
+      if (this.plansAvailable !== false) this.plansApi.refresh(spaceId)
+    },
     selectedEventIds: {
       deep: true,
       handler() {
@@ -1972,6 +2582,30 @@ export default {
     },
     stockSettingsSignature() {
       this.ensureStockItemDefaults()
+      this.stockPage = 1
+    },
+    stockSearch() {
+      this.stockPage = 1
+    },
+    // Les listes rétrécissent (recherche, filtres, régénération) → on reste
+    // sur une page valide.
+    stockPageCount(count) {
+      if (this.stockPage > count) this.stockPage = count
+    },
+    restockPageCount(count) {
+      if (this.restockPage > count) this.restockPage = count
+    },
+    shoppingPageCount(count) {
+      if (this.shoppingPage > count) this.shoppingPage = count
+    },
+    restockSearch() {
+      this.restockPage = 1
+    },
+    restockViewMode() {
+      this.restockPage = 1
+    },
+    restockEventFilter() {
+      this.restockPage = 1
     },
     restockEventOptions(options) {
       // L'event filtré a quitté la sélection (ou n'a plus de lignes) → retour à « tous ».
@@ -1982,6 +2616,10 @@ export default {
     objectiveSource() {
       this.resetGeneratedOutputs()
       this.loadReferenceSales()
+      // BUG-296-01 — le countsEventId dépend du mode (forecast/reference) :
+      // sans rechargement, la ventilation étape 1 garde l'inventaire de
+      // l'ancien ancrage.
+      this.loadPreviousInventory()
     },
     referenceEventId() {
       this.loadReferenceSales()
@@ -2010,6 +2648,10 @@ export default {
   async mounted() {
     // Active le Teleport une fois la cible du v-app-bar parent présente dans le DOM.
     this.$nextTick(() => { this.headerReady = true })
+    // Historique des plans (best-effort, jamais bloquant) : un 404 = module
+    // backend absent → panneau masqué (plansAvailable = false).
+    const mountSpaceId = this.route.params?.spaceId
+    if (mountSpaceId) this.plansApi.refresh(mountSpaceId)
     await this.loadAll()
     // Assistant : le panneau de l'étape active doit s'afficher déplié. L'URL
     // (?step=) prime sur l'étape restaurée (deep-link / refresh / partage).
@@ -2169,7 +2811,10 @@ export default {
       if (saved.stockAdjustments) this.stockAdjustments = { ...saved.stockAdjustments }
       if (saved.stockPackedModes) this.stockPackedModes = { ...saved.stockPackedModes }
       if (saved.stockExcluded) this.stockExcluded = { ...saved.stockExcluded }
-      if (saved.restockViewMode) this.restockViewMode = saved.restockViewMode
+      // Vue « Par shop » masquée : un état persisté `'shop'` (utilisateur qui
+      // l'avait sélectionnée avant) ne doit PAS la ressusciter — sans la bascule
+      // dans l'UI, il n'aurait aucun moyen d'en sortir.
+      if (saved.restockViewMode === 'item') this.restockViewMode = 'item'
       // 2) Sorties : après le flush des watchers (selectedEventIds → reset),
       // on restaure lignes confirmées + état généré, puis on lève le guard.
       this.$nextTick(() => {
@@ -2180,7 +2825,13 @@ export default {
         // 2026-07-06) — toujours démarrer à l'étape 1 (Stock). Seul un
         // deep-link explicite ?step= (géré au mounted) ouvre plus loin.
         // `saved.currentStep` reste persisté pour compat, mais ignoré ici.
-        this.$nextTick(() => { this.restoringState = false })
+        this.$nextTick(() => {
+          this.restoringState = false
+          // F5 avec un plan chargé : on le recharge (404 → effacé + snackbar,
+          // géré dans loadPlan). Après la levée du guard, sinon la restauration
+          // du plan serait elle-même re-persistée en boucle.
+          if (saved.loadedPlanId) this.loadPlan(saved.loadedPlanId)
+        })
       })
     },
     /**
@@ -2216,6 +2867,230 @@ export default {
           }
         })
       }, 500)
+    },
+    // ------------------------------------------------------------------
+    // Plans de réappro nommés (RestockPlan, ADR-0005)
+    // ------------------------------------------------------------------
+    /**
+     * Charge un plan : réapplique les ENTRÉES (rejouables), puis pose la PHOTO
+     * après le flush des watchers. `loadingPlan` neutralise
+     * resetGeneratedOutputs et ensureStockItemDefaults pendant toute la pose —
+     * sans ces gardes le plan se détruit lui-même (watchers selectedEventIds
+     * et stockSettingsSignature).
+     */
+    async loadPlan(planId) {
+      if (!planId || this.loadingPlan) return
+      this.loadingPlan = true
+      try {
+        let plan = null
+        try {
+          plan = await this.plansApi.load(planId)
+        } catch (err) {
+          this.showSnackbar(this.t('srSnackPlanLoadError'), 'error')
+          return
+        }
+        if (!plan) {
+          // Supprimé (autre onglet / autre tenant) → mode vivant, sans plan.
+          this.loadedPlanId = null
+          this.loadedPlan = null
+          this.lineOverrides = {}
+          this.planDirty = false
+          this.showSnackbar(this.t('srSnackPlanGone'), 'warning')
+          return
+        }
+        // 1) Entrées — rejouées telles quelles (elles restent utiles au
+        //    détachement : l'utilisateur retrouve sa sélection).
+        this.objectiveSource = plan.objectiveSource || 'forecast'
+        this.referenceEventId = plan.referenceEventId ?? null
+        this.selectedEventIds = Array.isArray(plan.selectedEventIds) ? [...plan.selectedEventIds] : []
+        this.selectedScenarioByEventId = { ...(plan.scenarioByEventId || {}) }
+        this.stockAdjustments = { ...(plan.stockAdjustments || {}) }
+        this.stockPackedModes = { ...(plan.stockPackedModes || {}) }
+        this.stockExcluded = { ...(plan.stockExcluded || {}) }
+        this.shoppingMode = plan.shoppingMode || 'finished'
+        await this.$nextTick()
+        // 2) Photo — posée après le flush des watchers d'entrées.
+        this.loadedPlan = plan
+        this.loadedPlanId = plan.id
+        this.lineOverrides = { ...(plan.lineOverrides || {}) }
+        this.restockedRows = { ...(plan.restockedRows || {}) }
+        this.restockGenerated = true
+        this.shoppingGenerated = true
+        this.planDirty = false
+        this.goToStep(2)
+        this.showSnackbar(this.t('srSnackPlanLoaded'), 'success')
+        await this.$nextTick()
+      } finally {
+        // Double nextTick (pattern restoringState) : la garde doit survivre au
+        // flush des watchers déclenchés par la pose de la photo.
+        this.$nextTick(() => { this.loadingPlan = false })
+      }
+    },
+    /** Détache le plan (le document stocké reste intact) → mode vivant. */
+    detachPlan({ silent = false } = {}) {
+      const hadPlan = !!this.loadedPlanId
+      this.loadedPlanId = null
+      this.loadedPlan = null
+      this.lineOverrides = {}
+      this.planDirty = false
+      if (hadPlan && !silent) this.showSnackbar(this.t('srSnackPlanDetached'), 'info')
+    },
+    /**
+     * Garde de mutation invalidante quand un plan est chargé (règle ADR-0005 :
+     * une photo n'est jamais recalculée en silence). Au niveau des CONTRÔLES
+     * (entrée des handlers, avant mutation), pas dans les watchers — un watcher
+     * se déclenche après la mutation, et un rollback le re-déclencherait.
+     * @returns {Promise<boolean>} true = continuer (plan détaché), false = annuler
+     */
+    guardPlanEdit() {
+      if (!this.loadedPlanId) return Promise.resolve(true)
+      return new Promise((resolve) => {
+        this.planGuardDialog = { show: true, resolver: resolve }
+      })
+    },
+    /** Issue du dialogue de conflit : 'save' | 'discard' | 'cancel'. */
+    async resolvePlanGuard(choice) {
+      const resolver = this.planGuardDialog.resolver
+      this.planGuardDialog = { show: false, resolver: null }
+      if (choice === 'cancel') {
+        if (resolver) resolver(false)
+        return
+      }
+      if (choice === 'save') {
+        const saved = await this.updateLoadedPlan()
+        if (!saved) {
+          if (resolver) resolver(false)
+          return
+        }
+      }
+      this.detachPlan({ silent: true })
+      if (resolver) resolver(true)
+    },
+    /** Payload complet depuis l'état VIVANT (photo au moment de la sauvegarde). */
+    buildPlanPayload() {
+      const components = this.hydratedComponents.length ? this.hydratedComponents : this.components
+      const restockRows = this.liveRestockRows
+      return buildPlanSnapshot({
+        stockRows: this.liveStockSettingsRows,
+        restockRows,
+        shoppingGroups: this.liveShoppingGroups,
+        recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: this.shoppingMode, components }),
+        unmatchedStorage: this.nettedShopping.unmatchedStorage,
+        inputs: {
+          objectiveSource: this.objectiveSource,
+          referenceEventId: this.referenceEventId,
+          selectedEventIds: this.selectedEventIds,
+          scenarioByEventId: this.selectedScenarioByEventId,
+          stockAdjustments: this.stockAdjustments,
+          stockPackedModes: this.stockPackedModes,
+          stockExcluded: this.stockExcluded,
+          restockedRows: this.restockedRows,
+          shoppingMode: this.shoppingMode,
+          snapshotAt: new Date().toISOString(),
+        },
+        events: this.selectedEvents,
+        // BUG-296-01 — ventilation étape 1 figée avec le plan.
+        stockOutcomes: this.stockOutcomeByItem,
+      })
+    },
+    /** CTA « Sauvegarder le plan » (aucun plan chargé) : ouvre le nommage. */
+    openSavePlanDialog() {
+      if (!this.canWritePlans) return
+      const eventName = this.selectedEvents.length ? this.eventLabel(this.selectedEvents[0]) : ''
+      this.planSaveDialog = { show: true, name: eventName }
+    },
+    /** Crée le plan nommé depuis l'état vivant (sauvegarde EXPLICITE). */
+    async confirmSavePlan() {
+      const name = (this.planSaveDialog.name || '').trim()
+      if (!name) return
+      const spaceId = this.route.params?.spaceId
+      const payload = { name, ...this.buildPlanPayload() }
+      if (estimateSnapshotBytes(payload) > PLAN_MAX_BYTES) {
+        this.showSnackbar(this.t('srSnackPlanTooLarge'), 'error')
+        return
+      }
+      this.planSaveDialog = { show: false, name: '' }
+      try {
+        const created = await this.plansApi.create(spaceId, payload)
+        // Le plan fraîchement créé devient le plan chargé (photo = état actuel).
+        if (created?.id) await this.loadPlan(created.id)
+        this.showSnackbar(this.t('srSnackPlanSaved'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
+    },
+    /**
+     * « Mettre à jour » un plan chargé : persiste corrections + confirmations.
+     * La photo elle-même ne bouge pas (document figé) — seuls lineOverrides et
+     * restockedRows sont réécrits.
+     * @returns {Promise<boolean>} succès
+     */
+    async updateLoadedPlan() {
+      if (!this.loadedPlanId) return false
+      try {
+        const updated = await this.plansApi.update(
+          this.loadedPlanId,
+          { lineOverrides: this.lineOverrides, restockedRows: this.restockedRows },
+          this.route.params?.spaceId,
+        )
+        if (updated) this.loadedPlan = { ...this.loadedPlan, lineOverrides: { ...this.lineOverrides } }
+        this.planDirty = false
+        this.showSnackbar(this.t('srSnackPlanUpdated'), 'success')
+        return true
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          this.detachPlan({ silent: true })
+          this.showSnackbar(this.t('srSnackPlanGone'), 'warning')
+        } else {
+          this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+        }
+        return false
+      }
+    },
+    /** Correction « À déposer » sur une ligne du plan chargé. */
+    setLineOverride(rowKey, value) {
+      if (!this.loadedPlanId) return
+      const next = { ...this.lineOverrides }
+      const n = Number(value)
+      if (value === null || value === '' || !Number.isFinite(n) || n < 0) delete next[rowKey]
+      else next[rowKey] = n
+      this.lineOverrides = next
+      this.planDirty = true
+    },
+    async renamePlan({ id, name }) {
+      try {
+        await this.plansApi.update(id, { name }, this.route.params?.spaceId)
+        if (this.loadedPlan?.id === id) this.loadedPlan = { ...this.loadedPlan, name }
+        this.showSnackbar(this.t('srSnackPlanRenamed'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
+    },
+    /**
+     * Lot 3 — retry explicite après un échec de chargement de la liste (réseau
+     * coupé / 5xx). Le composable ne retente jamais tout seul : sans ce bouton,
+     * l'échec restait définitif jusqu'au prochain changement d'espace.
+     */
+    refreshPlans() {
+      const spaceId = this.route.params?.spaceId
+      if (spaceId) this.plansApi.refresh(spaceId)
+    },
+    async duplicatePlanAction(planId) {
+      try {
+        await this.plansApi.duplicate(planId, this.route.params?.spaceId)
+        this.showSnackbar(this.t('srSnackPlanDuplicated'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
+    },
+    async deletePlanAction(planId) {
+      try {
+        await this.plansApi.remove(planId, this.route.params?.spaceId)
+        if (this.loadedPlanId === planId) this.detachPlan({ silent: true })
+        this.showSnackbar(this.t('srSnackPlanDeleted'), 'success')
+      } catch (err) {
+        this.showSnackbar(this.t('srSnackPlanSaveError'), 'error')
+      }
     },
     goBack() {
       const spaceId = this.route.params?.spaceId
@@ -2257,6 +3132,11 @@ export default {
           params: { spaceId },
           query: ev ? { event: ev } : {},
         })
+      } else if (tool.value === 'live') {
+        // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=`, cf.
+        // router/index.js) : sans cette branche le `else` ci-dessous envoyait
+        // sur Analyse avec un toolbox inconnu.
+        this.router.push({ name: 'space-live', params: { spaceId } })
       } else {
         this.router.push({
           name: 'space-analyse',
@@ -2444,13 +3324,16 @@ export default {
       const cfgId = cfg?.id || null
       if (!spaceId || !cfgId) {
         this.restockAssignmentByName = null
+        this.unavailableStockItems = null
         return
       }
       const cache = this._restockAssignmentCache || (this._restockAssignmentCache = {})
       const closedCache = this._restockClosedCache || (this._restockClosedCache = {})
+      const unavailCache = this._restockUnavailableCache || (this._restockUnavailableCache = {})
       if (cache[cfgId]) {
         this.restockAssignmentByName = cache[cfgId]
         this.closedShopNames = closedCache[cfgId] || []
+        this.unavailableStockItems = unavailCache[cfgId] || null
         return
       }
       const rows = ((await this.store.dispatch('spaceShops/fetchForSpace', { spaceId }).catch(() => [])) || []).filter(
@@ -2469,6 +3352,7 @@ export default {
       console.log(`[RESTOCK] PdV fermés exclus du réarmement (${closed.length}) : [${closed.join(', ')}]`)
       if (!rows.length) {
         this.restockAssignmentByName = null
+        this.unavailableStockItems = null
         return
       }
       try {
@@ -2481,19 +3365,47 @@ export default {
           const idx = rows.indexOf(r)
           const shopId = String(r?.id ?? r?._id ?? r?.shopId ?? '')
           const name = r?.name ?? r?.shopName ?? ''
-          if (!shopId) { results[idx] = { name, items: [] }; return }
+          if (!shopId) { results[idx] = { name, items: [], unavailable: [] }; return }
+          // BUG-291-02 — `shopMenuItems` (GET /space-menu/shop/:id) ne porte PAS
+          // `available` : la disponibilité serveur vient de l'endpoint LÉGER
+          // /items, via le store `shopMenuAvailability`. Même clé de cache
+          // (`shopId::configId`) et même TTL 15 min que ceux qu'EventPredict
+          // remplit → sur un parcours Predict → Réarmement, servi par le cache.
+          // Dans la MÊME boucle plafonnée à 3 : pas de nouveau parallélisme.
+          // Try INDÉPENDANT du fetch lourd (v2) : un échec de `shopMenuItems` ne
+          // doit pas emporter la disponibilité avec lui, ni l'inverse.
+          let unavailable = []
+          try {
+            await this.store.dispatch('shopMenuAvailability/fetchForShop', { shopId, configId: cfgId })
+            const availFor = this.store.getters['shopMenuAvailability/forShop']
+            const rowsAvail = typeof availFor === 'function' ? availFor(shopId, cfgId) || [] : []
+            // `available === false` STRICT : un backend antérieur qui n'enverrait
+            // pas le champ ne doit pas vider le réarmement.
+            unavailable = rowsAvail.filter((it) => it && it.available === false)
+          } catch (_) {
+            /* disponibilité indisponible → on n'exclut rien (comportement antérieur) */
+          }
           try {
             await this.store.dispatch('shopMenuItems/fetchForShop', { shopId, configId: cfgId })
             const forShop = this.store.getters['shopMenuItems/forShop']
             const items = typeof forShop === 'function' ? forShop(shopId, cfgId) || [] : []
-            results[idx] = { name, items }
+            results[idx] = { name, items, unavailable }
           } catch (_) {
-            results[idx] = { name, items: [] }
+            results[idx] = { name, items: [], unavailable }
           }
         })
         const map = new Map()
-        for (const { name, items: rawItems } of results) {
+        // Union PLATE au niveau espace (v2) : `available` est par espace — chaque
+        // shop renvoie le même verdict pour un article donné, et un index plat ne
+        // dépend plus d'aucune jointure par nom de shop (cf. `unavailableStockItems`).
+        const unavailIds = new Set()
+        const unavailNames = new Set()
+        for (const { name, items: rawItems, unavailable } of results) {
           const items = Array.isArray(rawItems) ? rawItems : []
+          for (const it of unavailable || []) {
+            unavailIds.add(String(it.id))
+            if (it.name) unavailNames.add(it.name)
+          }
           const enabled = items.filter((it) => it && it.enabled === true)
           if (!enabled.length) continue
           const key = normalizeStr(name)
@@ -2503,16 +3415,22 @@ export default {
             items: enabled.map((it) => ({ id: it.id, name: it.name, basePrice: it.basePrice })),
           })
         }
+        const unavailableStockItems = unavailIds.size
+          ? { ids: [...unavailIds], names: [...unavailNames] }
+          : null
         cache[cfgId] = map
+        unavailCache[cfgId] = unavailableStockItems
         this.restockAssignmentByName = map
+        this.unavailableStockItems = unavailableStockItems
         // eslint-disable-next-line no-console
         console.log(
-          `[RESTOCK] assignation NestJS chargée : ${map.size}/${rows.length} shops avec menu`,
+          `[RESTOCK] assignation NestJS chargée : ${map.size}/${rows.length} shops avec menu ; ${unavailIds.size} article(s) non produisible(s) exclus${unavailNames.size ? ` : [${[...unavailNames].join(', ')}]` : ''}`,
         )
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('[RESTOCK] chargement assignation échoué:', e?.message)
         this.restockAssignmentByName = null
+        this.unavailableStockItems = null
       }
     },
     refreshSelectedPredictions() {
@@ -2624,7 +3542,8 @@ export default {
      * agrège déjà par shop+item sur objectiveEvents). Chaque évènement garde son
      * scénario (version) propre dans selectedScenarioByEventId.
      */
-    selectEvent(id) {
+    async selectEvent(id) {
+      if (!(await this.guardPlanEdit())) return
       if (!id) { this.selectedEventIds = []; return }
       if (this.selectedEventIds.includes(id)) {
         this.selectedEventIds = this.selectedEventIds.filter((eid) => eid !== id)
@@ -2646,7 +3565,8 @@ export default {
       }
     },
     /** Changement de scénario (version) → relit les records → quantités MAJ. */
-    selectScenario(eventId, versionId) {
+    async selectScenario(eventId, versionId) {
+      if (!(await this.guardPlanEdit())) return
       this.selectedScenarioByEventId = { ...this.selectedScenarioByEventId, [eventId]: versionId }
       this.resetGeneratedOutputs()
       this.refreshSelectedPredictions()
@@ -2774,11 +3694,18 @@ export default {
       return formatDateMedium(event?.eventDate || event?.date)
     },
     resetGeneratedOutputs() {
+      // Garde loadPlan : poser selectedEventIds déclenche le watcher qui
+      // arrive ici et viderait restockedRows + drapeaux fraîchement restaurés
+      // → le plan chargé se détruirait lui-même.
+      if (this.loadingPlan) return
       this.restockGenerated = false
       this.shoppingGenerated = false
       this.restockedRows = {}
     },
     ensureStockItemDefaults() {
+      // Garde loadPlan : le watcher stockSettingsSignature ÉCRIT
+      // stockAdjustments/stockPackedModes et écraserait les valeurs du plan.
+      if (this.loadingPlan) return
       const adjustments = { ...this.stockAdjustments }
       const packedModes = { ...this.stockPackedModes }
       this.stockSettingsRows.forEach((row) => {
@@ -2830,13 +3757,15 @@ export default {
     isStockSelected(itemKey) {
       return !this.stockExcluded[itemKey]
     },
-    setStockSelected(itemKey, checked) {
+    async setStockSelected(itemKey, checked) {
+      if (!(await this.guardPlanEdit())) return
       const next = { ...this.stockExcluded }
       if (checked) delete next[itemKey]
       else next[itemKey] = true
       this.stockExcluded = next
     },
-    toggleAllStock(select) {
+    async toggleAllStock(select) {
+      if (!(await this.guardPlanEdit())) return
       if (select) {
         this.stockExcluded = {}
       } else {
@@ -2848,14 +3777,16 @@ export default {
     stockAdjustment(itemKey) {
       return Number(this.stockAdjustments[itemKey] ?? 100)
     },
-    setStockAdjustment(itemKey, value) {
+    async setStockAdjustment(itemKey, value) {
+      if (!(await this.guardPlanEdit())) return
       this.stockAdjustments = {
         ...this.stockAdjustments,
         [itemKey]: Number(value) || 0,
       }
       this.resetGeneratedOutputs()
     },
-    applyStockAdjustmentToAll(percent) {
+    async applyStockAdjustmentToAll(percent) {
+      if (!(await this.guardPlanEdit())) return
       const next = { ...this.stockAdjustments }
       this.stockSettingsRows.forEach((row) => {
         next[row.itemKey] = Number(percent) || 0
@@ -2866,21 +3797,17 @@ export default {
     resetStockAdjustments() {
       this.applyStockAdjustmentToAll(100)
     },
+    /**
+     * Affichage en colis PAR DÉFAUT dès que le conditionnement se résout — la
+     * case « Empaqueté » a été retirée (le calcul arrondit toujours en colis
+     * entiers depuis BUG-295-01, la case ne pilotait plus que le format).
+     * `false` explicite (plans sauvegardés avec la case décochée) respecté.
+     */
     isPackedMode(itemKey) {
-      return !!this.stockPackedModes[itemKey]
-    },
-    setPackedMode(itemKey, checked) {
-      this.stockPackedModes = {
-        ...this.stockPackedModes,
-        [itemKey]: !!checked,
-      }
-      this.resetGeneratedOutputs()
+      return this.stockPackedModes[itemKey] !== false
     },
     adjustedQuantity(quantity, unit, itemKey) {
       return roundForUnit((Number(quantity) || 0) * (this.stockAdjustment(itemKey) / 100), unit)
-    },
-    adjustedItemQuantity(item) {
-      return this.adjustedQuantity(item.totalQuantity, item.unit, item.itemKey)
     },
     packagingForItem(item, quantity) {
       return computePackagingForQuantity(
@@ -3086,6 +4013,8 @@ export default {
     },
     async generateRestockTable() {
       if (!this.canGenerate) return
+      // Régénérer = recalculer en vivant → invalide la photo du plan chargé.
+      if (!(await this.guardPlanEdit())) return
       await this.loadPreviousInventory()
       this.restockGenerated = true
       this.shoppingGenerated = false
@@ -3095,6 +4024,7 @@ export default {
     },
     async generateShoppingList() {
       if (!this.canGenerate) return
+      if (!(await this.guardPlanEdit())) return
       if (!this.restockGenerated) await this.generateRestockTable()
       this.shoppingGenerated = true
       // Mode ingrédients : hydrate les recettes (détail /menu-items/:id) avant
@@ -3106,6 +4036,9 @@ export default {
     },
     /** Bascule produits finis / ingrédients ; hydrate les recettes au besoin. */
     async setShoppingMode(mode) {
+      // La photo d'un plan ne contient les groupes que pour le mode sauvegardé :
+      // il n'existe AUCUNE donnée figée pour l'autre → mutation invalidante.
+      if (mode !== this.shoppingMode && !(await this.guardPlanEdit())) return
       this.shoppingMode = mode
       if (mode === 'ingredients' && this.shoppingGenerated) await this.ensureRecipesLoaded()
     },
@@ -3130,6 +4063,32 @@ export default {
           console.warn('[restock] getSuppliers échoué:', e?.message)
         }
       }
+      // BUG-292-01 — recette des COMPOSANTS. La liste /menu-components ne renvoie
+      // pas `subComponents` : on complète depuis le catalogue déjà en mémoire, puis
+      // par fetch détail borné pour ce qu'il reste. Échec toléré (le composant
+      // reste une ligne d'achat), mais la couverture est tracée : un éclatement
+      // inerte doit être lisible dans les logs, pas silencieux.
+      if (!this.componentsHydrated) {
+        this.componentsHydrated = true
+        try {
+          // Pas de `mergeSubComponentsFromCatalog` ici : il n'y a qu'UN catalogue
+          // (`store.analyse.components`), et le fusionner avec lui-même serait un
+          // no-op qui se lirait comme une étape utile. Ce catalogue est déjà hydraté
+          // quand il vient de `useSpaceData` (vague 2b → `SET_COMPONENTS`) — dans ce
+          // cas `hydrateSubComponents` ne déclenche aucun appel. Le fetch ne sert
+          // qu'au chemin legacy (`utils/api.js`, liste brute sans `subComponents`).
+          const { components: hydrated, hydrated: okCount, missing: koCount } =
+            await hydrateSubComponents(this.components, { ingredients: this.ingredients })
+          this.hydratedComponents = hydrated
+          console.log(
+            `[restock] 🧩 recettes composants — ${hydrated.filter((c) => c?.subComponents?.length).length}/${hydrated.length} avec subComponents ` +
+              `(détail : ${okCount} hydratés, ${koCount} sans recette)`,
+          )
+        } catch (e) {
+          console.warn('[restock] hydratation composants échouée:', e?.message)
+          this.hydratedComponents = this.components
+        }
+      }
       const ids = Array.from(
         new Set(this.menuItemDemandRows.map((d) => d.menuItemId).filter(Boolean)),
       )
@@ -3137,24 +4096,68 @@ export default {
       if (!missing.length) return
       this.recipesLoading = true
       try {
-        const results = await Promise.all(
-          missing.map((id) =>
-            getMenuItemById(id)
-              .then((res) => ({ id, detail: res?.data || res }))
-              .catch((e) => {
-                console.warn('[restock] recette détail échouée:', id, e?.message)
-                return { id, detail: null }
-              }),
-          ),
-        )
+        // BUG-294-01 — UN appel batch au lieu de N × GET /menu-items/:id : le
+        // fan-out (~40 requêtes simultanées) déclenchait le TenantThrottlerGuard
+        // (429) et chaque échec était caché comme « recette vide » → faux groupe
+        // « Sans fournisseur (ingrédients manquants) », jamais retenté.
+        // ⚠️ ids vide = TOUT le tenant côté backend — le guard !missing.length
+        // ci-dessus est indispensable.
+        const res = await getMenuItemRecipes(missing)
+        const payload = res?.data || res
+        const items = Array.isArray(payload?.items) ? payload.items : []
         const next = { ...this.recipeByMenuItemId }
-        results.forEach(({ id, detail }) => {
-          next[id] = detail ? normalizeRecipe(detail) : { numberOfPiecesRecipe: 1, lines: [] }
+        const returned = new Set()
+        items.forEach((dto) => {
+          if (!dto?.id) return
+          returned.add(dto.id)
+          next[dto.id] = normalizeRecipeFromBatch(dto)
         })
+        // Id demandé mais absent de la réponse = item supprimé / hors tenant :
+        // vraie absence de recette → cache vide LÉGITIME (produit fini), pas un
+        // échec réseau.
+        missing.forEach((id) => {
+          if (!returned.has(id)) next[id] = { numberOfPiecesRecipe: 1, lines: [] }
+        })
+        this.mergeBomSuppliers(payload?.suppliers)
         this.recipeByMenuItemId = next
+      } catch (e) {
+        // Batch KO (500, timeout…) : repli détail per-id BORNÉ. Anti-poison :
+        // aucun échec réseau n'est écrit comme « recette vide ».
+        console.warn('[restock] batch recettes échoué — repli per-id borné:', e?.message)
+        await this.loadRecipesFallback(missing)
       } finally {
         this.recipesLoading = false
       }
+    },
+    /** Fusionne les fournisseurs renvoyés par le batch dans bomSuppliers (dédupe par id). */
+    mergeBomSuppliers(suppliers) {
+      if (!Array.isArray(suppliers) || !suppliers.length) return
+      const known = new Set(this.bomSuppliers.map((s) => s?.id))
+      const added = suppliers.filter((s) => s?.id && !known.has(s.id))
+      if (added.length) this.bomSuppliers = [...this.bomSuppliers, ...added]
+    },
+    /**
+     * Repli si le batch échoue : détail /menu-items/:id avec concurrence bornée
+     * à 4 (sous le seuil du TenantThrottlerGuard). Un id en échec n'est PAS
+     * caché : absent de recipeByMenuItemId, il sera retenté au prochain
+     * « Générer » — c'est l'état « à retenter », pas une recette vide.
+     */
+    async loadRecipesFallback(ids) {
+      const next = { ...this.recipeByMenuItemId }
+      let failed = 0
+      await runWithConcurrency(ids, 4, async (id) => {
+        try {
+          const res = await getMenuItemById(id)
+          const detail = res?.data || res
+          if (detail) next[id] = normalizeRecipe(detail)
+          else failed += 1
+        } catch (e) {
+          failed += 1
+          console.warn('[restock] recette détail échouée:', id, e?.message)
+        }
+      })
+      this.recipeByMenuItemId = next
+      if (failed) this.showSnackbar(this.t('srSnackRecipesPartial'), 'warning')
     },
     /**
      * Résout le fournisseur d'une ligne d'ingrédient BOM par la chaîne réelle :
@@ -3165,13 +4168,14 @@ export default {
      * marketPrice niché si présent, sinon du catalogue suppliers.
      */
     resolveIngredientSupplier(line) {
-      // Plat fini sans recette (Coca, chips, bouteille d'eau…) : pas de matière à
-      // commander, pas de fournisseur → groupe dédié « Produits finis » (distinct
+      // Plat sans recette exploitable (vrai produit fini type Coca/chips, OU
+      // recette absente en base) : pas de matière à commander, pas de fournisseur
+      // → groupe dédié « Sans fournisseur (ingrédients manquants) » (distinct
       // d'un ingrédient au mapping fournisseur cassé, qui reste « non défini »).
       if (line.itemType === 'MenuItem') {
         return {
           supplierId: '__finished__',
-          supplierName: this.t('srFinishedProductsGroup'),
+          supplierName: this.t('srNoSupplierGroup'),
           supplierEmail: '',
           supplierPhone: '',
         }
@@ -3242,6 +4246,9 @@ export default {
         ...this.restockedRows,
         [rowKey]: !!checked,
       }
+      // Sur un plan chargé, les confirmations font partie du document
+      // (persistées par « Mettre à jour », avec lineOverrides).
+      if (this.loadedPlanId) this.planDirty = true
     },
     markAllVisibleRestocked(checked) {
       const next = { ...this.restockedRows }
@@ -3249,25 +4256,105 @@ export default {
         next[row.rowKey] = !!checked
       })
       this.restockedRows = next
+      if (this.loadedPlanId) this.planDirty = true
+    },
+    /** Toutes les lignes (boutiques) de la carte article sont-elles confirmées ? */
+    isGroupRestocked(group) {
+      return (group?.rows || []).length > 0 && group.rows.every((row) => this.isRestocked(row.rowKey))
+    },
+    /** Confirme / décoche d'un coup toutes les boutiques d'une carte article. */
+    setGroupRestocked(group, checked) {
+      const next = { ...this.restockedRows }
+      ;(group?.rows || []).forEach((row) => {
+        next[row.rowKey] = !!checked
+      })
+      this.restockedRows = next
+      if (this.loadedPlanId) this.planDirty = true
     },
     formatLooseQuantity(quantity, unit) {
       const n = roundForUnit(quantity, unit)
       return `${n.toLocaleString('fr-FR')} ${unit || ''}`.trim()
     },
-    formatDisplayQuantity(quantity, unit, itemKey) {
-      const pseudoItem = this.stockSettingsRows.find((row) => row.itemKey === itemKey) ||
-        this.stockRowsRaw.find((row) => row.itemKey === itemKey)
-      const packaging = pseudoItem ? this.packagingForItem(pseudoItem, quantity) : null
-      if (this.isPackedMode(itemKey) && packaging) {
-        return `${packaging.packedCount.toLocaleString('fr-FR')} ${packaging.packagingType} de ${packaging.packagingUnitNumber} ${packaging.packagingUnit}`
+    /** Lot 4 — affichage arrondi au SUPÉRIEUR (à déposer, reste en vrac). */
+    formatCeilQuantity(quantity, unit) {
+      const n = ceilForUnit(quantity, unit)
+      return `${n.toLocaleString('fr-FR')} ${unit || ''}`.trim()
+    },
+    /**
+     * Lot 3 — rang ACHAT de l'étape 1 : ce qu'on achète RÉELLEMENT, dans
+     * l'unité où le fournisseur vend, et le vrac que l'arrondi au colis laisse.
+     *
+     * Règle métier (JLH) : besoin de 3 pains, article vendu par sachet de 50 →
+     * on commande 1 sachet, il reste 47 en vrac. Les trois mesures du rang
+     * BESOIN disent « voilà ton vrai besoin », celle-ci dit « voilà ce que tu
+     * vas réellement acheter ». Un colis qui paraît faux vient d'une quantité
+     * par colis erronée sur la FICHE PRODUIT — jamais d'un ajustement ici.
+     *
+     * @returns {{main: string, sub: string, covered: boolean, unknown: boolean}}
+     */
+    buyInfo(item) {
+      const order = this.stockOrderByItem ? this.stockOrderByItem[item.itemKey] : undefined
+      // Plan chargé (photo sans quantité d'achat) ou article décoché.
+      if (order == null) {
+        return { main: '—', sub: '', covered: false, unknown: true }
       }
-      return this.formatLooseQuantity(quantity, unit)
+      if (!(order > 0)) {
+        return {
+          main: this.t('srBuyNothing'),
+          sub: this.t('srBuyNothingHint'),
+          covered: true,
+          unknown: false,
+        }
+      }
+      const packaging = this.packagingForItem(item, order)
+      if (!packaging) {
+        // Pas de conditionnement au catalogue : on commande en vrac et on le
+        // DIT, pour que le trou soit corrigé dans la fiche produit.
+        return {
+          main: this.formatLooseQuantity(order, item.unit),
+          sub: this.t('srBuyNoPackaging'),
+          covered: false,
+          unknown: false,
+        }
+      }
+      const covered = coveredQuantityForPackaging(packaging)
+      const loose = Math.max(0, roundForUnit(covered - order, item.unit))
+      const parts = [`= ${this.formatLooseQuantity(covered, item.unit)}`]
+      if (loose > 0) {
+        parts.push(`${this.formatLooseQuantity(loose, item.unit)} ${this.t('srBuyLooseAfter')}`)
+      }
+      return {
+        main: `${packaging.packedCount.toLocaleString('fr-FR')} ${packaging.packagingType} de ${packaging.packagingUnitNumber} ${packaging.packagingUnit}`,
+        sub: parts.join(' · '),
+        covered: false,
+        unknown: false,
+      }
+    },
+    /**
+     * Lot 5 (JLH) — explication du conditionnement, sur « À déposer » (le seul
+     * endroit où le colis a un sens : la Prévision, elle, reste en unités de
+     * recette). Null si la ligne n'a pas de conditionnement au catalogue.
+     */
+    depositHelp(row) {
+      const p = row && row.packaging
+      if (!p || !p.packedCount) return null
+      // `gap` n'est PAS figé dans le snapshot (freezeRestockLine) : on le dérive
+      // de la cible et du restant, tous deux figés — l'infobulle reste donc juste
+      // sur un plan chargé comme sur un calcul vivant.
+      const gap = Math.max(0, (Number(row.targetQuantity) || 0) - (Number(row.remainingQuantity) || 0))
+      return this.t('srDepositHelpBody')
+        .replace('{pack}', `${p.packagingType} ${this.t('srDepositHelpOf')} ${p.packagingUnitNumber} ${p.packagingUnit}`)
+        .replace('{need}', this.formatLooseQuantity(gap, row.unit))
+        .replace('{count}', p.packedCount.toLocaleString('fr-FR'))
+        .replace('{deposited}', this.formatCeilQuantity(row.restockQuantity, row.unit))
+        .replace('{loose}', this.formatCeilQuantity(row.surplusLoose, row.unit))
     },
     formatRestockQuantity(row) {
+      // Lot 4 — au supérieur : c'est une quantité qu'on dépose physiquement.
       if (this.isPackedMode(row.itemKey) && row.packaging) {
-        return `${row.packaging.packedCount.toLocaleString('fr-FR')} ${row.packaging.packagingType} (${this.formatLooseQuantity(row.restockQuantity, row.unit)})`
+        return `${row.packaging.packedCount.toLocaleString('fr-FR')} ${row.packaging.packagingType} (${this.formatCeilQuantity(row.restockQuantity, row.unit)})`
       }
-      return this.formatLooseQuantity(row.restockQuantity, row.unit)
+      return this.formatCeilQuantity(row.restockQuantity, row.unit)
     },
     formatShoppingQuantity(item) {
       if (this.isPackedMode(item.itemKey) && item.packaging) {
@@ -3290,6 +4377,25 @@ export default {
       if (!row.sources?.length) return row.eventNames.join(', ')
       const names = row.sources.map((source) => source.menuItemName)
       return Array.from(new Set(names)).slice(0, 3).join(', ')
+    },
+    /**
+     * BUG-288-01 — parts par menu item d'un article de stock partagé.
+     * Fusionne les `sources` par NOM de plat (un même plat peut apparaître via
+     * plusieurs lignes de recette) et applique le même ajustement % que
+     * `targetQuantity` : la somme des parts reconstitue la colonne BESOIN.
+     */
+    buildSourceBreakdown(row) {
+      if (!row?.sources?.length) return []
+      const byName = new Map()
+      row.sources.forEach((source) => {
+        const name = source.menuItemName || ''
+        if (!name) return
+        const quantity = this.adjustedQuantity(source.componentQuantity, row.unit, row.itemKey)
+        const previous = byName.get(name)
+        if (previous) previous.quantity += quantity
+        else byName.set(name, { key: name, name, quantity, unit: row.unit })
+      })
+      return Array.from(byName.values()).sort((a, b) => b.quantity - a.quantity)
     },
     // Plats (menu items) couverts par cet article de stock, agrégés sur toutes
     // les lignes du groupe « par article » → affiché dans l'en-tête du groupe.
@@ -3337,8 +4443,13 @@ export default {
       return Math.round((this.supplierUnitsTotal(group) / max) * 100)
     },
     scrollToSupplier(supplierId) {
-      const el = document.getElementById(`sr-supplier-${supplierId}`)
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Liste paginée : bascule d'abord sur la page qui porte ce fournisseur.
+      const index = this.shoppingGroups.findIndex((g) => g.supplierId === supplierId)
+      if (index >= 0) this.shoppingPage = Math.floor(index / this.groupPageSize) + 1
+      this.$nextTick(() => {
+        const el = document.getElementById(`sr-supplier-${supplierId}`)
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     },
     exportShoppingCsv() {
       if (!this.shoppingGroups.length) return
@@ -3907,6 +5018,43 @@ export default {
   gap: 12px;
 }
 
+/* Pieds d'assistant en grille 3 zones : navigation à gauche, pagination de la
+   liste au CENTRE, action à droite. Le collage à l'écran vient du sticky
+   global `.sr-wizard-nav` (plus bas), libéré par `overflow: clip` sur
+   `.sr-panel`. Sélecteur doublé : bat le display:flex de la règle de base. */
+.sr-wizard-nav.sr-wizard-nav-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.sr-wizard-nav-grid .sr-wizard-nav-side {
+  min-width: 0;
+}
+
+.sr-wizard-nav-grid .sr-wizard-nav-pagination {
+  justify-self: center;
+}
+
+.sr-wizard-nav-grid > :first-child {
+  justify-self: start;
+}
+
+.sr-wizard-nav-grid .sr-wizard-nav-end {
+  justify-self: end;
+}
+
+/* Boutons du pied d'assistant : les `v-btn` bruts héritent du style Vuetify
+   (MAJUSCULES + letter-spacing + radius 4px) — hors charte. On les aligne sur
+   les boutons de la page (`sr-inline-btn`, `sr-confirm-btn`, `sr-cta-btn`) :
+   casse normale, graisse 700, radius de contrôle. */
+.sr-wizard-nav :deep(.v-btn) {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 700;
+  border-radius: var(--fb-radius-control, 8px);
+}
+
 .sr-wizard-nav-hint {
   display: flex;
   align-items: center;
@@ -3934,7 +5082,9 @@ export default {
   border: 1px solid #d9e2ec;
   border-radius: 18px;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-  overflow: hidden;
+  /* clip (pas hidden) : même écrêtage au radius, mais SANS créer de scroll
+     container — le pied sticky des 3 étapes colle au bas du viewport. */
+  overflow: clip;
   margin-bottom: 16px;
 }
 
@@ -4335,9 +5485,11 @@ export default {
 
 .sr-setting-row {
   display: grid;
-  grid-template-columns: 26px minmax(160px, 1fr) minmax(190px, 280px) auto;
-  gap: 14px;
-  align-items: center;
+  /* Lot 4 — 2 rangs : [case | nom+compo | curseur], puis la ligne de valeurs
+     sur les colonnes 2-3 ; cf. override plus bas. */
+  grid-template-columns: 26px minmax(160px, 1fr) minmax(190px, 280px);
+  gap: 6px 14px;
+  align-items: start;
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -4381,27 +5533,139 @@ export default {
   justify-content: center;
 }
 
-.sr-qty-block {
+/* Lot 4 — les 4 valeurs sur UNE ligne, en rang 2 de la grille (sous le nom et
+   le curseur). Les deux rangs BESOIN/ACHAT du Lot 3 prenaient trop de hauteur ;
+   la sémantique est portée par l'infobulle. */
+.sr-values {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--sr-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--sr-subtle, #fafafa);
+}
+
+.sr-value {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.sr-value-buy {
+  margin-left: auto;
+}
+
+.sr-value-label {
+  font-size: 0.6875rem;
+  color: var(--sr-muted, #6b7280);
+}
+
+.sr-value-num {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--sr-text, #212121);
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-value-ok {
+  color: #16a34a;
+}
+
+.sr-value-dash {
+  color: var(--sr-faint, #9ca3af);
+  font-weight: 400;
+}
+
+/* Lot 5 — bandeau « plusieurs évènements cumulés » du panneau Événements. */
+.sr-multi-event-hint {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
   flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 16px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--sr-border, #e5e7eb);
+  border-left: 3px solid var(--sr-primary, #ff3131);
+  border-radius: 8px;
+  background: var(--sr-subtle, #fafafa);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--sr-muted, #6b7280);
 }
 
-.sr-qty-base {
+.sr-multi-event-btn {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--sr-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--sr-surface, #fff);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--sr-text, #212121);
+  cursor: pointer;
+}
+
+.sr-multi-event-btn:hover {
+  border-color: var(--sr-primary, #ff3131);
+  color: var(--sr-primary, #ff3131);
+}
+
+.sr-values-loading {
+  font-style: italic;
+  color: var(--sr-faint, #9ca3af);
+  font-size: 0.72rem;
+}
+
+.sr-values-help,
+.sr-deposit-help {
+  color: var(--sr-faint, #9ca3af);
+  cursor: help;
+}
+
+/* L'icône suit la valeur « À déposer » dans la cellule, sans la pousser. */
+.sr-deposit-help {
+  margin-left: 4px;
+  vertical-align: baseline;
+}
+
+.sr-values-help-body p {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.sr-values-help-body p:last-child {
+  margin-bottom: 0;
+}
+
+.sr-values-help-detail {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Colonne étroite : « À commander » repasse dans le flux au lieu d'être poussé
+   à droite, sinon il se retrouve seul sur sa ligne. */
+@media (max-width: 1400px) {
+  .sr-value-buy {
+    margin-left: 0;
+  }
+}
+
+.sr-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 0.72rem;
   color: #94a3b8;
-  font-size: 0.74rem;
 }
 
-.sr-qty-arrow {
-  color: #cbd5e1;
-}
-
-.sr-qty-target {
-  color: #ea580c;
-  font-weight: 750;
-  font-size: 0.82rem;
+.sr-breakdown-loading {
+  font-style: italic;
 }
 
 .sr-slider-label {
@@ -4436,14 +5700,6 @@ export default {
   font-weight: 750;
 }
 
-.sr-pack-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #475569;
-}
 
 .sr-segmented {
   align-self: flex-start;
@@ -4526,7 +5782,7 @@ export default {
 .sr-shop-diag {
   display: block;
   font-size: 0.7rem;
-  color: #94a3b8;
+  color: var(--sr-faint, #94a3b8);
   font-weight: 500;
   margin-top: 3px;
   line-height: 1.35;
@@ -4548,6 +5804,8 @@ export default {
 }
 .sr-supplier-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .sr-supplier-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Compteur boutiques + « Tout confirmer » par carte article (vue Par article). */
+.sr-group-head-end { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .sr-group-head span,
 .sr-supplier-head span {
@@ -4595,10 +5853,10 @@ export default {
   min-width: 94px;
   min-height: 30px;
   padding: 5px 9px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--fb-border-strong, #d1d5db);
   border-radius: 7px;
-  background: #fff;
-  color: #4b5563;
+  background: var(--sr-surface, #fff);
+  color: var(--sr-muted, #4b5563);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
@@ -4607,7 +5865,7 @@ export default {
 
 .sr-confirm-btn:hover {
   border-color: rgba(255, 49, 49, 0.45);
-  background: #fff5f5;
+  background: var(--sr-primary-soft, #fff5f5);
   color: #ff3131;
 }
 
@@ -4645,6 +5903,36 @@ export default {
   margin-top: 2px;
 }
 
+/* Détail « utilisé dans » par menu item d'un article partagé (BUG-288-01). */
+.sr-source-breakdown {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.sr-source-breakdown li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 280px;
+}
+
+/* Rendu identique dans la table (hérite de `.sr-table td span`) et dans l'en-tête
+   de groupe du mode « par article » (qui, lui, n'hérite de rien). */
+.sr-source-breakdown li span {
+  display: block;
+  margin-top: 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--sr-muted, #64748b);
+}
+
+.sr-source-breakdown li span:last-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
 .sr-strong {
   font-weight: 800;
   color: #0f172a;
@@ -4655,9 +5943,9 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #475569;
+  border: 1px solid var(--sr-border, #e2e8f0);
+  background: var(--sr-subtle, #f8fafc);
+  color: var(--sr-muted, #475569);
   font-weight: 700;
   font-size: 0.8rem;
   padding: 2px 8px;
@@ -4673,7 +5961,7 @@ export default {
 .sr-shops-detail {
   margin-top: 6px;
   font-size: 0.82rem;
-  color: #475569;
+  color: var(--sr-muted, #475569);
   line-height: 1.45;
 }
 
@@ -4708,13 +5996,10 @@ export default {
 
   .sr-setting-info,
   .sr-slider-wrap,
-  .sr-pack-toggle {
+  .sr-values {
     grid-column: 2;
   }
 
-  .sr-pack-toggle {
-    justify-content: flex-start;
-  }
 
   .sr-panel-head {
     flex-direction: column;
@@ -4874,7 +6159,10 @@ export default {
   gap: 18px;
   align-items: stretch;
   margin: 0 24px 24px;
-  /* Remplit .sr-content : chaque colonne borne sa propre hauteur + overflow. */
+  /* Remplit .sr-content : chaque colonne borne sa propre hauteur + overflow.
+     La ligne unique est bornée à la hauteur du conteneur (minmax(0,1fr)) sinon
+     max-height:100% des colonnes ne borne rien et le scroll interne ne marche pas. */
+  grid-template-rows: minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -4889,6 +6177,9 @@ export default {
 /* Colonne fournisseurs masquée quand vide : 2 colonnes. */
 .sr-body.sr-body--no-suppliers { grid-template-columns: 292px minmax(0, 1fr); }
 .sr-body.sr-body--no-aside.sr-body--no-suppliers { grid-template-columns: minmax(0, 1fr); }
+/* Panneau filtres replié (cas réel du WorkspacePanelToggle) : le centre
+   récupère la track de gauche au lieu de s'écraser dedans. */
+.sr-body.sr-body--no-aside { grid-template-columns: minmax(0, 1fr) 340px; }
 
 /* ── Colonne droite : aperçu fournisseurs (design « Résumé inventaire »). ── */
 .sr-suppliers { min-width: 0; }
@@ -5015,7 +6306,7 @@ export default {
 }
 
 .sr-panel {
-  overflow: hidden;
+  overflow: clip;
   margin-bottom: 16px;
 }
 
@@ -5179,8 +6470,12 @@ export default {
 }
 
 .sr-setting-row {
-  grid-template-columns: 24px minmax(260px, 1fr) minmax(220px, 260px) 78px;
-  gap: 12px;
+  /* Lot 4 — 2 rangs : [case | nom+compo | curseur] puis la ligne de valeurs
+     étalée sur les colonnes 2-3. La 4e piste de 78px du Lot 2 n'avait aucun
+     enfant : elle mangeait 78px + un gap à droite de chaque ligne. */
+  grid-template-columns: 24px minmax(260px, 1fr) minmax(220px, 260px);
+  gap: 6px 12px;
+  align-items: start;
   min-height: 68px;
   padding: 9px 12px;
   border-radius: 10px;
@@ -5192,8 +6487,7 @@ export default {
   box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05) !important;
 }
 
-.sr-include-toggle input,
-.sr-pack-toggle input {
+.sr-include-toggle input {
   accent-color: var(--sr-primary);
 }
 
@@ -5254,15 +6548,6 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-.sr-qty-block {
-  margin-top: 2px;
-}
-
-.sr-qty-base,
-.sr-qty-target {
-  font-size: 11px;
-}
-
 .sr-slider-label {
   color: var(--sr-muted, #6b7280);
   font-size: 10px;
@@ -5282,12 +6567,6 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
-.sr-pack-toggle {
-  justify-content: flex-end;
-  color: var(--sr-muted, #6b7280);
-  font-size: 11px;
-  font-weight: 600;
-}
 
 .sr-wizard-nav {
   position: sticky;
@@ -5343,6 +6622,30 @@ export default {
 }
 .sr-mobile-config-panel {
   margin-bottom: 0;
+}
+/* BUG-283 : la bottom-sheet est TÉLÉPORTÉE hors de `.space-restock-view` — les
+   tokens --sr-* n'y existent pas (fallbacks clairs ou déclarations invalides).
+   La v-card suit le thème Vuetify ; on ne force que le panneau interne. */
+.dark .sr-mobile-config-sheet .sr-panel {
+  background: #1f2937;
+  border-color: #374151 !important;
+}
+.dark .sr-mobile-config-sheet .sr-panel-head {
+  background: #1a2332;
+  border-bottom-color: #374151;
+}
+.dark .sr-mobile-config-sheet .sr-mobile-sheet-label {
+  color: #94a3b8;
+}
+.dark .sr-mobile-config-sheet .sr-mobile-tool {
+  background: #1f2937;
+  border-color: #374151;
+  color: #d1d5db;
+}
+.dark .sr-mobile-config-sheet .sr-mobile-tool-active {
+  background: rgba(255, 49, 49, 0.16);
+  color: #ff8a80;
+  border-color: rgba(255, 49, 49, 0.4);
 }
 
 .sr-skeleton-side,
@@ -5500,13 +6803,10 @@ export default {
 
   .sr-setting-info,
   .sr-slider-wrap,
-  .sr-pack-toggle {
+  .sr-values {
     grid-column: 2;
   }
 
-  .sr-pack-toggle {
-    justify-content: flex-start;
-  }
 
   .sr-panel-head-actions {
     align-items: stretch;
@@ -5587,7 +6887,7 @@ export default {
   }
 
   .sr-row-confirmed {
-    background: #f0fdf4;
+    background: var(--fb-success-soft, #f0fdf4);
   }
 }
 
@@ -5925,6 +7225,8 @@ export default {
     overflow: visible;
     min-height: 0;
     flex: none;
+    /* Colonnes empilées : pas de borne de ligne (scroll rendu à la page). */
+    grid-template-rows: none;
   }
   .sr-body > *,
   .sr-skeleton > * {
@@ -5947,10 +7249,112 @@ export default {
 .v-theme--dataFridayDark .space-restock-view .sr-wizard-nav-hint {
   color: #fcd34d;
 }
-.v-theme--dataFridayDark .space-restock-view .sr-qty-target {
-  color: #fdba74;
+/* BUG-296-01 puis Lot 3 — ventilation étape 1 : valeurs lisibles sur fond
+   sombre, verts/rouges éclaircis (parité méthode BUG-197). Les libellés et
+   fonds des rangs suivent les tokens --sr-* (redéfinis en dark via --fb-*) ;
+   seules les couleurs codées en dur sont reprises ici. */
+.v-theme--dataFridayDark .space-restock-view .sr-value-num {
+  color: #cbd5e1;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-value-ok {
+  color: #86efac;
 }
 .v-theme--dataFridayDark .space-restock-view .sr-collapse-icon {
   color: #94a3b8;
+}
+
+/* ===================== DARK MODE — étapes « Réarmement » et « Courses » ==
+   Les surfaces/bordures/textes des tableaux, groupes fournisseurs et boutons
+   passent déjà par les `--sr-*` ci-dessus. Ne restent ici que les valeurs sans
+   variable : les hovers gris ardoise du toggle « X PdV » et les teintes vertes
+   « confirmé » (vert 100/700), calibrées pour fond clair → version claire de la
+   même famille (parité méthode BUG-197). */
+.v-theme--dataFridayDark .space-restock-view .sr-shops-toggle:hover {
+  background: var(--fb-border, #374151);
+  border-color: var(--fb-border-strong, #4b5563);
+}
+.v-theme--dataFridayDark .space-restock-view .sr-confirm-btn.is-confirmed {
+  border-color: rgba(134, 239, 172, 0.4);
+  background: var(--fb-success-soft, rgba(22, 163, 74, 0.14));
+  color: #86efac;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-confirm-btn.is-confirmed:hover {
+  border-color: rgba(74, 222, 128, 0.55);
+  background: rgba(22, 163, 74, 0.24);
+  color: #bbf7d0;
+}
+
+/* Popup email fournisseur : contenu téléporté hors de `.space-restock-view`
+   (v-dialog) → les `var(--sr-*)` y retombent sur leurs littéraux clairs.
+   La v-card est thémée par Vuetify ; on ne rebascule ici que l'éditeur
+   WYSIWYG maison, via `html.dark` (resynchronisée à chaque changement de
+   thème, cf. DashboardView). Valeurs alignées sur la palette sombre `--fb-*`. */
+.dark .sr-wysiwyg {
+  border-color: #374151;
+}
+.dark .sr-wysiwyg-toolbar {
+  background: #172033;
+  border-bottom-color: #374151;
+}
+.dark .sr-wysiwyg-toolbar button {
+  color: #d1d5db;
+}
+.dark .sr-wysiwyg-toolbar button:hover {
+  background: #374151;
+}
+.dark .sr-wysiwyg-sep {
+  background: #374151;
+}
+.dark .sr-wysiwyg-editor {
+  color: #f9fafb;
+}
+.dark .sr-wysiwyg-editor:focus {
+  background: transparent;
+}
+
+/* --- Plans de réappro (RestockPlan, ADR-0005) --- */
+.sr-plan-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 8px 0 0;
+  border: 1px solid var(--fb-primary, #2563eb);
+  border-radius: 8px;
+  background: var(--fb-primary-soft, rgba(37, 99, 235, 0.08));
+  color: var(--fb-text, #111827);
+  font-size: 0.8125rem;
+}
+.sr-plan-banner__icon {
+  color: var(--fb-primary, #2563eb);
+  flex-shrink: 0;
+}
+.sr-plan-banner__text {
+  flex: 1;
+  min-width: 0;
+}
+.sr-plan-banner__dirty {
+  color: var(--fb-warning, #d97706);
+}
+.sr-plan-banner__btn {
+  flex-shrink: 0;
+}
+.sr-deposit-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sr-deposit-field {
+  max-width: 110px;
+}
+.sr-deposit-edited {
+  color: var(--fb-warning, #d97706);
+}
+.sr-plan-dialog-title {
+  font-size: 1rem;
+}
+.sr-plan-guard-actions {
+  flex-wrap: wrap;
+  gap: 4px;
 }
 </style>

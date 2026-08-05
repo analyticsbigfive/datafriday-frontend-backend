@@ -159,7 +159,7 @@ export class SpaceAggregationService {
         spaceElementId: string | null;
         revenueHt: Decimal;
         transactionsCount: bigint;
-        itemsCount: bigint;
+        itemsCount: number;
       }>
     >`
       SELECT 
@@ -169,18 +169,12 @@ export class SpaceAggregationService {
         t."merchantId" as "weezeventMerchantId",
         mem."spaceElementId" as "spaceElementId",
         SUM(
-          CASE 
-            WHEN p."vatRate" IS NOT NULL THEN 
-              ti."unitPrice" * ti.quantity / (1 + p."vatRate" / 100)
-            ELSE 
-              ti."unitPrice" * ti.quantity / 1.20
-          END
+          (ti."unitPrice" * ti.quantity - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
         ) as "revenueHt",
         COUNT(DISTINCT t.id) as "transactionsCount",
         SUM(ti.quantity) as "itemsCount"
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventProduct" p ON p.id = ti."productId"
       LEFT JOIN "WeezeventLocationShopMapping" mem 
         ON mem."weezeventLocationId" = t."merchantId" 
         AND mem."tenantId" = ${tenantId}
@@ -242,6 +236,15 @@ export class SpaceAggregationService {
       timezone,
     );
 
+    await this.aggregateProductsByMinute(
+      tenantId,
+      spaceId,
+      locationIds,
+      fromDate,
+      toDate,
+      timezone,
+    );
+
     await this.trackUnmappedData(tenantId, locationIds, fromDate, toDate);
 
     await this.incrementDashboardVersion(spaceId, tenantId);
@@ -249,6 +252,9 @@ export class SpaceAggregationService {
     return transactions.length;
   }
 
+  // HT dérivé de la TVA DE LA LIGNE DE VENTE (ti."vat", comme aggregation.service.ts),
+  // remise déduite. Avant : TVA lue sur le produit avec fallback 20 % codé en dur, en
+  // contradiction avec la politique "pas de défaut 20 %" de menu-item-pricing.service.ts.
   private async aggregateProducts(
     tenantId: string,
     spaceId: string,
@@ -262,24 +268,18 @@ export class SpaceAggregationService {
         day: Date;
         weezeventProductId: string;
         revenueHt: Decimal;
-        quantity: bigint;
+        quantity: number;
       }>
     >`
       SELECT 
         DATE(t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}) as day,
         ti."productId" as "weezeventProductId",
         SUM(
-          CASE 
-            WHEN p."vatRate" IS NOT NULL THEN 
-              ti."unitPrice" * ti.quantity / (1 + p."vatRate" / 100)
-            ELSE 
-              ti."unitPrice" * ti.quantity / 1.20
-          END
+          (ti."unitPrice" * ti.quantity - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
         ) as "revenueHt",
         SUM(ti.quantity) as quantity
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventProduct" p ON p.id = ti."productId"
       WHERE 
         t."tenantId" = ${tenantId}
         AND t."locationId" = ANY(${locationIds})
@@ -311,6 +311,110 @@ export class SpaceAggregationService {
         update: {
           revenueHt: agg.revenueHt,
           quantity: Number(agg.quantity),
+        },
+      });
+    }
+  }
+
+  // SpaceRevenueMinuteItemAgg — sert getEventTimelineBatch (grain event × minute × shop ×
+  // article). Contrairement au JOIN mem sur t."merchantId" utilisé plus haut dans
+  // aggregateForSpace (pour SpaceRevenueMinuteAgg), on joint ici WeezeventLocationShopMapping
+  // sur t."locationId" — le bon champ (même convention que aggregation.service.ts, BUG-014) —
+  // pour ne pas reproduire ce bug dans la nouvelle table.
+  //
+  // revenueHt ne soustrait PAS ti."reduction", contrairement à aggregateProducts ci-dessus :
+  // formule historique de getEventTimelineBatch (spaces.service.ts), à préserver pour ne pas
+  // changer les chiffres déjà affichés sur Analyse/Inventory/Live.
+  private async aggregateProductsByMinute(
+    tenantId: string,
+    spaceId: string,
+    locationIds: string[],
+    fromDate: Date,
+    toDate: Date,
+    timezone: string,
+  ): Promise<void> {
+    const itemAggregates = await this.prisma.$queryRaw<
+      Array<{
+        minute: Date;
+        weezeventEventId: string | null;
+        weezeventLocationId: string | null;
+        weezeventLocationName: string | null;
+        weezeventMerchantId: string | null;
+        spaceElementId: string | null;
+        weezeventProductId: string | null;
+        revenueHt: Decimal;
+        transactionsCount: bigint;
+        itemsCount: number;
+      }>
+    >`
+      SELECT
+        DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC') as minute,
+        t."eventId" as "weezeventEventId",
+        t."locationId" as "weezeventLocationId",
+        t."locationName" as "weezeventLocationName",
+        t."merchantId" as "weezeventMerchantId",
+        lsm."spaceElementId" as "spaceElementId",
+        ti."productId" as "weezeventProductId",
+        SUM(ti."unitPrice" * ti.quantity / (1 + ti."vat" / 100)) as "revenueHt",
+        COUNT(DISTINCT t.id) as "transactionsCount",
+        SUM(ti.quantity) as "itemsCount"
+      FROM "WeezeventTransaction" t
+      INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
+      LEFT JOIN "WeezeventLocationShopMapping" lsm
+        ON lsm."weezeventLocationId" = t."locationId"
+        AND lsm."tenantId" = ${tenantId}
+      WHERE
+        t."tenantId" = ${tenantId}
+        AND t."locationId" = ANY(${locationIds})
+        AND t."transactionDate" >= ${fromDate}
+        AND t."transactionDate" <= ${toDate}
+        AND t.status = 'V'
+        AND t."deletedAt" IS NULL
+      GROUP BY
+        minute,
+        t."eventId",
+        t."locationId",
+        t."locationName",
+        t."merchantId",
+        lsm."spaceElementId",
+        ti."productId"
+    `;
+
+    for (const agg of itemAggregates) {
+      await this.prisma.spaceRevenueMinuteItemAgg.upsert({
+        where: {
+          tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId_weezeventProductId:
+            {
+              tenantId,
+              spaceId,
+              minute: agg.minute,
+              weezeventEventId: agg.weezeventEventId,
+              weezeventLocationId: agg.weezeventLocationId,
+              weezeventMerchantId: agg.weezeventMerchantId,
+              spaceElementId: agg.spaceElementId,
+              weezeventProductId: agg.weezeventProductId,
+            },
+        },
+        create: {
+          tenantId,
+          spaceId,
+          minute: agg.minute,
+          timezone,
+          weezeventEventId: agg.weezeventEventId,
+          weezeventLocationId: agg.weezeventLocationId,
+          weezeventLocationName: agg.weezeventLocationName,
+          weezeventMerchantId: agg.weezeventMerchantId,
+          spaceElementId: agg.spaceElementId,
+          weezeventProductId: agg.weezeventProductId,
+          revenueHt: agg.revenueHt,
+          transactionsCount: Number(agg.transactionsCount),
+          itemsCount: Number(agg.itemsCount),
+        },
+        update: {
+          weezeventLocationName: agg.weezeventLocationName,
+          revenueHt: agg.revenueHt,
+          transactionsCount: Number(agg.transactionsCount),
+          itemsCount: Number(agg.itemsCount),
         },
       });
     }

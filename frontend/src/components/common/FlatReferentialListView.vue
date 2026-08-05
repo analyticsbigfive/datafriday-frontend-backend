@@ -52,7 +52,15 @@
         {{ loadError }}
       </v-alert>
 
-      <v-card rounded="xl" elevation="0" class="frlv-table-card">
+      <div v-if="bulkSelected.length" class="bulk-bar">
+        <span class="bulk-bar__info">{{ bulkSelected.length }} {{ t('bulkSelected') }}</span>
+        <div class="bulk-bar__actions">
+          <button type="button" class="bulk-bar__clear" @click="bulkSelected = []">{{ t('bulkDeselect') }}</button>
+          <button type="button" class="bulk-bar__del" @click="openBulkDelete"><Trash2 :size="15" /> {{ t('delete') }}</button>
+        </div>
+      </div>
+
+      <div class="frlv-table-wrap">
         <!-- BUG-171: pagination + recherche SERVEUR — remplace le v-data-table client-side qui
              téléchargeait la liste complète juste pour en afficher 10 lignes à la fois. -->
         <!-- v-data-table-SERVER : `items-length` n'est une prop QUE de ce composant.
@@ -60,10 +68,12 @@
              côté client sur `items.length` — soit la page serveur courante, d'où des
              pages 2+ inatteignables (BUG-246-01). -->
         <v-data-table-server
+          v-model="bulkSelected"
+          show-select
           :headers="tableHeaders"
           :items="serverRawItems"
           item-value="id"
-          density="comfortable"
+          density="compact"
           :items-length="serverTotal"
           :page="serverPage"
           :items-per-page="serverItemsPerPage"
@@ -75,17 +85,17 @@
           </template>
 
           <template #item.actions="{ item }">
-            <div class="d-flex justify-end" style="gap: 6px;">
-              <v-btn variant="text" density="compact" size="small" icon @click.stop="openEditDrawer(item)">
-                <Pencil :size="16" />
-              </v-btn>
-              <v-btn variant="text" density="compact" size="small" icon @click.stop="openDeleteDialog(item)">
-                <Trash2 :size="16" />
-              </v-btn>
+            <div class="frlv-actions">
+              <div class="frlv-abtn frlv-abtn--edit" @click.stop="openEditDrawer(item)">
+                <Pencil :size="15" />
+              </div>
+              <div class="frlv-abtn frlv-abtn--del" @click.stop="openDeleteDialog(item)">
+                <Trash2 :size="15" />
+              </div>
             </div>
           </template>
         </v-data-table-server>
-      </v-card>
+      </div>
     </div>
 
     <FlatReferentialFormDrawer
@@ -112,6 +122,16 @@
       :i18n-prefix="i18nPrefix"
       @confirm="confirmDelete"
     />
+
+    <BulkDeleteDialog
+      v-model="bulkOpen"
+      :title="t('bulkDeleteTitle')"
+      :message="`${t('bulkDeletePrefix')} ${bulkSelected.length} ${t('bulkItems')} ?`"
+      :progress="bulkProgress" :total="bulkTotal" :progress-label="t('bulkDeleted')"
+      :confirm-label="t('delete')" :cancel-label="t('cancel')" :deleting-label="t('bulkDeleting')"
+      :loading="bulkLoading" :error="bulkError" :is-dark="isDark"
+      @confirm="confirmBulkDelete"
+    />
   </div>
 </template>
 
@@ -122,6 +142,7 @@ import { useI18n } from '@/i18n/useI18n';
 import { Plus, Pencil, Trash2, Search } from 'lucide-vue-next';
 import FlatReferentialFormDrawer from './FlatReferentialFormDrawer.vue';
 import FlatReferentialDeleteDialog from './FlatReferentialDeleteDialog.vue';
+import BulkDeleteDialog from './BulkDeleteDialog.vue';
 
 // BUG-165: generic replacement for BrandNameListView / DisplayNameListView / IndustrialListView /
 // PackingTypeListView, which were byte-for-byte identical apart from CSS class prefix, header
@@ -139,7 +160,7 @@ import FlatReferentialDeleteDialog from './FlatReferentialDeleteDialog.vue';
 // prop itself is kept as a generic escape hatch (default `null`), just unused by all 4 today.
 export default {
   name: 'FlatReferentialListView',
-  components: { Plus, Pencil, Trash2, Search, FlatReferentialFormDrawer, FlatReferentialDeleteDialog },
+  components: { Plus, Pencil, Trash2, Search, FlatReferentialFormDrawer, FlatReferentialDeleteDialog, BulkDeleteDialog },
   props: {
     // i18n key prefix for this entity's screen, e.g. 'brandNameList'.
     i18nPrefix: { type: String, required: true },
@@ -208,6 +229,13 @@ export default {
       deleteLoading: false,
       deleteError: '',
       deleteTarget: null,
+
+      bulkSelected: [],
+      bulkOpen: false,
+      bulkLoading: false,
+      bulkError: '',
+      bulkProgress: 0,
+      bulkTotal: 0,
     };
   },
   computed: {
@@ -338,6 +366,43 @@ export default {
         this.deleteLoading = false;
       }
     },
+    openBulkDelete() {
+      this.bulkError = '';
+      this.bulkProgress = 0;
+      this.bulkTotal = 0;
+      this.bulkOpen = true;
+    },
+    // Boucle bulk : réplique la suppression unitaire (confirmDelete ci-dessus) par item —
+    // appel `deleteFn(id)` puis dispatch `removeAction` sur le store — puis le MÊME
+    // rafraîchissement (rechargement de la page serveur courante + grand total si besoin).
+    // `bulkSelected` (item-value="id") contient directement les ids.
+    async confirmBulkDelete() {
+      const ids = [...this.bulkSelected];
+      if (!ids.length) return;
+      this.bulkLoading = true;
+      this.bulkError = '';
+      this.bulkTotal = ids.length;
+      this.bulkProgress = 0;
+      const failed = [];
+      for (const id of ids) {
+        try {
+          await this.deleteFn(id);
+          await this.$store.dispatch(`${this.storeModule}/${this.removeAction}`, id);
+        } catch (e) {
+          failed.push(id);
+        }
+        this.bulkProgress += 1;
+      }
+      this.bulkLoading = false;
+      this.bulkSelected = failed;
+      this.loadServerPage();
+      if (this.searchCountMode === 'total') this.loadGrandTotal();
+      if (failed.length) {
+        this.bulkError = `${failed.length} ${this.t('bulkItems')} ${this.t('bulkDeleteFailed')}`;
+      } else {
+        this.bulkOpen = false;
+      }
+    },
   },
 };
 </script>
@@ -456,33 +521,70 @@ export default {
 .frlv-content {
   padding: 24px 28px;
 }
-.frlv-table-card {
+.frlv-table-wrap {
+  background: #fff;
+  border-radius: 16px;
   border: 1px solid #e5e7eb;
+  overflow: hidden;
 }
 
+/* ── Table (reference: EventsListView) ── */
+.frlv-table :deep(.v-data-table__th),
 .frlv-table :deep(.v-data-table__td) {
-  vertical-align: middle;
-  padding-top: 16px !important;
-  padding-bottom: 16px !important;
+  font-size: var(--fs-base);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
+.frlv-table :deep(.v-data-table__td) { vertical-align: middle; }
 .frlv-table :deep(.v-data-table__th) {
-  padding-top: 16px !important;
-  padding-bottom: 16px !important;
-  font-weight: 700 !important;
+  font-size: var(--fs-xs) !important;
+  font-weight: 600;
   text-transform: uppercase;
-  font-size: 0.75rem;
-  letter-spacing: 0.025em;
-  color: #374151 !important;
-  background: #f9fafb !important;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
+  background: #fafafa !important;
 }
+.frlv-table :deep(tbody tr:hover td) { background: #fafafa !important; }
+
+/* ── Table action buttons ── */
+.frlv-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.frlv-abtn {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: #f3f4f6; color: #6b7280;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
+}
+.frlv-abtn--edit { background: #eff6ff; color: #2563eb; }
+.frlv-abtn--edit:hover { background: #dbeafe; }
+.frlv-abtn--del { background: #fef2f2; color: #ff3131; }
+.frlv-abtn--del:hover { background: #fee2e2; }
+
+/* ── Bulk bar ── */
+.bulk-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; margin-bottom:12px; background:#fff5f5; border:1px solid #fecaca; border-radius:12px; }
+.bulk-bar__info { font-size:var(--fs-base); font-weight:700; color:#ff3131; }
+.bulk-bar__actions { display:flex; align-items:center; gap:8px; }
+.bulk-bar__clear { background:none; border:none; color:#6b7280; font-size:var(--fs-sm); font-weight:600; cursor:pointer; padding:6px 10px; border-radius:8px; }
+.bulk-bar__clear:hover { background:rgba(0,0,0,.05); color:#374151; }
+.bulk-bar__del { display:inline-flex; align-items:center; gap:6px; background:#ff3131; color:#fff; border:none; border-radius:100px; padding:7px 16px; font-size:var(--fs-sm); font-weight:700; cursor:pointer; }
+.bulk-bar__del:hover { box-shadow:0 4px 14px rgba(255,49,49,.35); transform:translateY(-1px); }
+.frlv--dark .bulk-bar { background:rgba(255,49,49,.1); border-color:rgba(255,49,49,.3); }
+.frlv--dark .bulk-bar__clear { color:#94a3b8; }
+.frlv--dark .bulk-bar__clear:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
 
 /* ── Dark mode ── */
 .frlv--dark.frlv-root { background: #111827; }
 .frlv--dark .frlv-searchbar { background: #1a2332; border-bottom-color: #374151; }
 .frlv--dark .frlv-searchbar__input { color: #f9fafb; }
 .frlv--dark .frlv-content { background: #111827; }
-.frlv--dark .frlv-table-card { border-color: #374151; background: #1a2332; }
+.frlv--dark .frlv-table-wrap { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
 .frlv--dark .frlv-table :deep(.v-data-table__th) { color: #9ca3af !important; background: #1a2332 !important; }
+.frlv--dark .frlv-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
 .frlv--dark .frlv-table :deep(.v-data-table__td) { color: #e2e8f0; }
 .frlv--dark .frlv-searchbar__count { color: #94a3b8; }
+.frlv--dark .frlv-abtn { background: #1f2937; color: #cbd5e1; }
+.frlv--dark .frlv-abtn--edit { background: rgba(37, 99, 235, .15); color: #93c5fd; }
+.frlv--dark .frlv-abtn--del { background: rgba(255, 49, 49, .14); color: #fca5a5; }
 </style>

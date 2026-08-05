@@ -74,7 +74,7 @@ export class TenantsService {
       }
     }
 
-    return this.prisma.tenant.create({
+    const tenant = await this.prisma.tenant.create({
       data: {
         ...dto,
         plan: dto.plan || TenantPlan.FREE,
@@ -82,6 +82,25 @@ export class TenantsService {
       },
       select: this.selectFields,
     });
+
+    // Les 3 sous-types historiques du tool "Storage" du Builder v2 (dry/cold/belowzero,
+    // elementTaxonomy.js) n'ont un libellé dans Configurations que via ces lignes `code`-portées
+    // (StorageTypesService) — sans elles, un nouveau tenant verrait un Builder Storage sans
+    // référentiel correspondant. Cf. scripts/backfill-storage-types.ts pour les tenants existants.
+    await this.prisma.storageType.createMany({
+      data: [
+        { name: 'Dry', code: 'dry', tenantId: tenant.id },
+        { name: 'Cold', code: 'cold', tenantId: tenant.id },
+        { name: 'Frozen', code: 'belowzero', tenantId: tenant.id },
+      ],
+      skipDuplicates: true,
+    });
+
+    // CFG-2 : Department/Subtype sont GLOBAUX (un seul jeu pour toute la plateforme, cf. doc du
+    // modèle Department) — pas de seed par tenant ici, un nouveau tenant lit directement le
+    // référentiel partagé déjà seedé (scripts/backfill-departments.ts).
+
+    return tenant;
   }
 
   /**

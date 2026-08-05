@@ -38,9 +38,9 @@
             :key="item.value"
             :title="t(item.title)"
             :value="item.value"
-            :disabled="!item.route"
+            :disabled="!item.route && !item.spaceRoute"
             color="#ff3131"
-            @click="goToFromMainNav(item.route)"
+            @click="goToFromMainNav(item)"
           >
             <template v-slot:prepend>
               <component :is="iconComponents[item.icon]" :size="18" color="#b2bec3" class="mr-3" />
@@ -312,7 +312,11 @@
 
     <v-main>
       <RouterView v-slot="{ Component, route }">
-        <keep-alive v-if="route.meta.keepAlive">
+        <!-- BUG-285 : :max — sans borne, chaque outil visité (33 routes keepAlive)
+             restait monté à vie avec ses charts et ses datasets. Au 7ᵉ outil, Vue
+             démonte proprement le moins récent (vue-chartjs détruit ses instances
+             au démontage) ; son état d'écran local est perdu, choix validé. -->
+        <keep-alive v-if="route.meta.keepAlive" :max="6">
           <component :is="Component" :key="route.name" />
         </keep-alive>
         <!-- :key=path (PAS fullPath) : la query (?event/?config/?toolbox) est
@@ -364,6 +368,15 @@ import {
   Shield,
   Phone,
   Search,
+  // Section « Outils » de la sidebar gauche (MAIN_NAVIGATION)
+  LineChart,
+  TrendingUp,
+  Zap,
+  Radio,
+  ClipboardList,
+  Package,
+  Forklift,
+  Truck,
 } from "lucide-vue-next";
 import { SETTINGS_NAVIGATION, MAIN_NAVIGATION } from '@/constants/navigation';
 
@@ -381,6 +394,15 @@ const SETTINGS_ICONS = {
   ShoppingBag,
   Ticket,
   Warehouse,
+  // Section « Outils » (MAIN_NAVIGATION)
+  LineChart,
+  TrendingUp,
+  Zap,
+  Radio,
+  ClipboardList,
+  Package,
+  Forklift,
+  Truck,
 };
 
 export default {
@@ -506,7 +528,13 @@ export default {
       return MAIN_NAVIGATION
         .map((section) => ({
           ...section,
-          items: section.items.filter((i) => !i.permission || this.can(i.permission)),
+          // `permission` peut être un TABLEAU de codes (OR) — cf. les outils
+          // Réarmement qui acceptent front.fb.restock OU front.fb.restockBoard.
+          items: section.items.filter(
+            (i) =>
+              !i.permission
+              || (Array.isArray(i.permission) ? i.permission.some((p) => this.can(p)) : this.can(i.permission)),
+          ),
         }))
         .filter((section) => section.items.length > 0);
     },
@@ -534,7 +562,16 @@ export default {
                 const permitted = this.can(group.permission);
                 return { ...group, _permitted: permitted, items: permitted ? this.editSpaceItems : [] };
               }
-              return { ...group, items: group.items.filter((i) => this.can(i.permission)) };
+              // `requiresSuperAdmin` : flag plateforme (isSuperAdmin), distinct de `permission`
+              // (RBAC par tenant) — ne PAS utiliser `can()` pour ça, un rôle ADMIN de tenant y
+              // aurait accès automatiquement (can() accorde tout aux roleSystemKey === 'ADMIN'),
+              // alors que isSuperAdmin est cross-tenant et n'a rien à voir avec ce rôle.
+              return {
+                ...group,
+                items: group.items.filter(
+                  (i) => this.can(i.permission) && (!i.requiresSuperAdmin || this.isSuperAdmin),
+                ),
+              };
             })
             // Groupe dynamique : reste visible dès que la permission est là (même
             // sans espace) pour pouvoir afficher un état vide. Groupes statiques :
@@ -692,7 +729,19 @@ export default {
     // Sidebar gauche : navigation. `route` falsy (analytics à venir) = no-op
     // (l'item est déjà rendu `:disabled`). Le watcher `$route` referme le drawer
     // en mobile via applyRouteSidebarMode.
-    goToFromMainNav(route) {
+    //
+    // `spaceRoute` = chemin scopé à un espace (`/spaces/:spaceId/...`, section
+    // Outils) : on substitue l'espace de la route courante. Hors d'une page
+    // d'espace il n'y a pas de spaceId — on envoie alors sur `/spaces` pour que
+    // l'utilisateur en choisisse un (même repli que MainNav.vue), plutôt que de
+    // pousser une URL avec un `:spaceId` littéral.
+    goToFromMainNav(item) {
+      if (item?.spaceRoute) {
+        const spaceId = this.$route?.params?.spaceId;
+        this.$router.push(spaceId ? item.spaceRoute.replace(':spaceId', spaceId) : '/spaces');
+        return;
+      }
+      const route = item?.route;
       if (!route) return;
       this.$router.push(route);
     },

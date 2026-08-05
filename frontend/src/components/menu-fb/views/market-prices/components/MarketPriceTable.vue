@@ -6,9 +6,12 @@
         :items="items"
         :loading="loading"
         item-value="id"
+        :model-value="selected"
+        show-select
         density="compact"
         class="market-table"
         :expanded="expanded"
+        @update:model-value="$emit('update:selected', $event)"
         :items-per-page="25"
         :items-per-page-options="[
           { value: 25, title: '25' },
@@ -127,6 +130,7 @@
 
 <script>
 import { ChevronDown, ChevronRight, ImageOff, Pencil, Plus, Trash2 } from 'lucide-vue-next';
+import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'MarketPriceTable',
@@ -163,8 +167,12 @@ export default {
       type: Array,
       required: true,
     },
+    selected: {
+      type: Array,
+      default: () => [],
+    },
   },
-  emits: ['update:expanded', 'toggle-expand', 'add-supplier', 'edit-item', 'delete-item', 'edit-supplier-row', 'delete-supplier-row'],
+  emits: ['update:expanded', 'update:selected', 'toggle-expand', 'add-supplier', 'edit-item', 'delete-item', 'edit-supplier-row', 'delete-supplier-row'],
   methods: {
     // Affiche la date « Added » au format dd/mm/yyyy hh:mm.
     formatAddedAt(value) {
@@ -183,9 +191,10 @@ export default {
       return raw?.supplierRows || [];
     },
     formatPrice(value) {
+      // Formatage locale-aware selon la langue de l'app (fr → "12,50 €", en → "€12.50").
       const n = Number(value);
-      if (!Number.isFinite(n)) return "€0.00";
-      return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      if (!Number.isFinite(n)) return formatCurrencyDetailed(0);
+      return formatCurrencyDetailed(n);
     },
     getGoodTypeColor(goodType) {
       const colors = {

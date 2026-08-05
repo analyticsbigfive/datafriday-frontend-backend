@@ -64,12 +64,12 @@
                   v-for="type in availableShopTypes"
                   :key="type.value"
                   class="sde-type-pill"
-                  :class="{ 'sde-type-pill--active': form.subTypes.includes(type.value) }"
+                  :class="{ 'sde-type-pill--active': form.subtypes.includes(type.value) }"
                 >
                   <input
                     type="checkbox"
                     :value="type.value"
-                    :checked="form.subTypes.includes(type.value)"
+                    :checked="form.subtypes.includes(type.value)"
                     class="visually-hidden"
                     @change="toggleShopType(type.value)"
                   />
@@ -156,12 +156,14 @@
 
 <script>
 import { useI18n } from "@/i18n/useI18n";
-import { Settings, X, Save, Image as ImageIcon, Camera, ImagePlus, Tags, AlertCircle, FileText, Utensils, Coffee, Beer, Package, Clock } from 'lucide-vue-next';
-import { updateSpaceElement } from '@/api/endpoints/space.api'
+import { Settings, X, Save, Image as ImageIcon, Camera, ImagePlus, Tags, AlertCircle, FileText, Utensils, Coffee, Beer, Package, Clock, Martini, Sandwich, ChefHat } from 'lucide-vue-next';
+import { patchElement } from '@/api/endpoints/builder-v2.api'
+import { buildTools, toolOf } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import { SHOP_SUBTYPE_PRESENTATION } from '@/constants/shopSubtypePresentation'
 
 export default {
   name: 'ShopDetailEditDrawer',
-  components: { Settings, X, Save, ImageIcon, Camera, ImagePlus, Tags, AlertCircle, FileText, Utensils, Coffee, Beer, Package, Clock },
+  components: { Settings, X, Save, ImageIcon, Camera, ImagePlus, Tags, AlertCircle, FileText, Utensils, Coffee, Beer, Package, Clock, Martini, Sandwich, ChefHat },
   setup() {
     const { t } = useI18n();
     return { t };
@@ -176,21 +178,27 @@ export default {
   beforeUnmount() {
     document.body.style.overflow = '';
   },
+  created() {
+    this.$store.dispatch('departments/fetchDepartments');
+  },
   data() {
     return {
       saving: false,
       saveError: '',
-      form: { image: '', subTypes: [], notes: '' },
-      // labelKey aligné sur SpaceMenuEditShopDrawer.vue (mêmes valeurs, cf. BUG-118).
-      availableShopTypes: [
-        { labelKey: 'food',                       value: 'Food',       iconComponent: 'Utensils' },
-        { labelKey: 'beverage',                   value: 'Beverages',  iconComponent: 'Coffee' },
-        { labelKey: 'spaceMenu.shopTypeBeer',      value: 'Beer',       iconComponent: 'Beer' },
-        { labelKey: 'spaceMenu.shopTypeGpPremium', value: 'GP Premium', iconComponent: 'Package' },
-        { labelKey: 'spaceMenu.shopTypeTemporary', value: 'Temporary', iconComponent: 'Clock' },
-        { labelKey: 'spaceMenu.shopTypeDrinkee',   value: 'Drinkee',   iconComponent: 'Coffee' },
-      ],
+      form: { image: '', subtypes: [], notes: '' },
     };
+  },
+  computed: {
+    // BUG-118 : les valeurs et leur ordre viennent du référentiel global Department/Subtype
+    // (source unique Builder v2, ex. `gppremium`) — plus une liste capitalisée locale
+    // (`GP Premium`) désynchronisée du vocabulaire réellement utilisé par le Builder et le RH.
+    availableShopTypes() {
+      const tools = buildTools(this.$store.getters['departments/departments'] || []);
+      return (toolOf('shop', tools)?.subtypes || []).map((st) => ({
+        value: st.value,
+        ...(SHOP_SUBTYPE_PRESENTATION[st.value] || { labelKey: st.label, iconComponent: 'Tags' }),
+      }));
+    },
   },
   watch: {
     modelValue(isOpen) {
@@ -199,7 +207,7 @@ export default {
         this.saveError = '';
         this.form = {
           image:    this.shop?.image || '',
-          subTypes: Array.isArray(this.shop?.subTypes) ? [...this.shop.subTypes] : [],
+          subtypes: Array.isArray(this.shop?.subtypes) ? [...this.shop.subtypes] : [],
           notes:    this.shop?.notes || '',
         };
       }
@@ -221,21 +229,24 @@ export default {
       reader.readAsDataURL(file);
     },
     toggleShopType(type) {
-      const idx = this.form.subTypes.indexOf(type);
-      if (idx >= 0) this.form.subTypes.splice(idx, 1);
-      else this.form.subTypes.push(type);
+      const idx = this.form.subtypes.indexOf(type);
+      if (idx >= 0) this.form.subtypes.splice(idx, 1);
+      else this.form.subtypes.push(type);
     },
     async save() {
       if (!this.shop?.id) return;
       this.saving = true;
       this.saveError = '';
       try {
-        const updated = await updateSpaceElement(this.shop.id, {
+        // BUG-118 : écrit désormais via l'endpoint Builder v2 (`subtypes`), la seule colonne
+        // lue par Analyse/staffing — l'ancien endpoint /configurations/elements/:id écrivait
+        // dans SpaceElement.shopTypes (colonne v1 héritée, jamais relue par ces écrans).
+        const updated = await patchElement(this.shop.id, {
           image:    this.form.image,
-          subTypes: this.form.subTypes,
+          subtypes: this.form.subtypes,
           notes:    this.form.notes,
         });
-        this.$emit('saved', { ...this.shop, ...(updated || {}), image: this.form.image, subTypes: [...this.form.subTypes], notes: this.form.notes });
+        this.$emit('saved', { ...this.shop, ...(updated || {}), image: this.form.image, subtypes: [...this.form.subtypes], notes: this.form.notes });
         this.$emit('update:modelValue', false);
       } catch (e) {
         // BUG-120 : émis même si le tiroir a déjà été fermé (backdrop-click/X non désactivés

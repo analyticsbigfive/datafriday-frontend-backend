@@ -20,10 +20,6 @@
 
           <!-- Body -->
           <div class="ptfd-body">
-            <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-5">
-              {{ error }}
-            </v-alert>
-
             <div class="ptfd-field-label">{{ t('productTypeList.labelName') }} <span class="ptfd-star">*</span></div>
             <v-text-field
               v-model="form.name"
@@ -36,6 +32,11 @@
               class="ptfd-field"
             />
           </div>
+
+          <!-- BUG-273 : erreur hors zone scrollable, toujours visible juste au-dessus des boutons. -->
+          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ptfd-error">
+            {{ error }}
+          </v-alert>
 
           <!-- Footer -->
           <div class="ptfd-footer">
@@ -251,6 +252,13 @@ export default {
   box-shadow: 0 0 0 3px rgba(255, 49, 49, .1) !important;
 }
 .ptfd-panel--dark .ptfd-field :deep(.v-field) { border-color: #374151 !important; }
+
+/* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
+.ptfd-error {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0 !important;
+}
 
 /* ── Footer ── */
 .ptfd-footer {

@@ -7,16 +7,13 @@
     width="480"
     :title="isEdit ? t('eventCategoryDialogEditTitle') : t('eventCategoryDialogTitle')"
     :subtitle="isEdit ? t('eventCategoryDialogEditSubtitle') : t('eventCategoryDialogSubtitle')"
+    :error-message="error"
   >
     <template #icon>
       <Shapes :size="20" color="white" />
     </template>
 
     <div :class="{ 'ecd--dark': isDark }">
-      <div v-if="error" class="ecd-error">
-        <AlertCircle :size="14" /> {{ error }}
-      </div>
-
       <v-form ref="form" v-model="formValid" validate-on="submit">
         <div class="ecd-section-label">
           <Shapes :size="12" />
@@ -99,14 +96,14 @@
 import { computed } from 'vue';
 import { useTheme } from 'vuetify';
 import { useI18n } from '@/i18n/useI18n';
-import { Shapes, AlertCircle, Save, Plus, Settings } from 'lucide-vue-next';
+import { Shapes, Save, Plus, Settings } from 'lucide-vue-next';
 import { createEventCategory, updateEventCategory } from '@/api/endpoints/event.api';
 import EventDrawerShell from '../drawers/EventDrawerShell.vue';
 import EventTypeDialog from './EventTypeDialog.vue';
 
 export default {
   name: 'EventCategoryDialog',
-  components: { Shapes, AlertCircle, Save, Plus, Settings, EventDrawerShell, EventTypeDialog },
+  components: { Shapes, Save, Plus, Settings, EventDrawerShell, EventTypeDialog },
 
   setup() {
     const { t } = useI18n();
@@ -243,13 +240,6 @@ export default {
 </script>
 
 <style scoped>
-.ecd-error {
-  display: flex; align-items: center; gap: 8px;
-  background: #fef2f2; border: 1px solid #fecaca;
-  color: #991b1b; border-radius: 10px;
-  padding: 10px 14px; font-size: var(--fs-base); margin-bottom: 16px;
-}
-
 /* v-select styling */
 .ecd-field-wrap { display: flex; flex-direction: column; gap: 6px; }
 .ecd-field-label { font-size: var(--fs-sm); font-weight: 600; color: #374151; }
@@ -305,7 +295,6 @@ export default {
 .ecd--dark .ecd-v-select :deep(.v-select__selection-text) { color: #f3f4f6; }
 .ecd--dark .ecd-v-select :deep(.v-field__input input::placeholder) { color: #94a3b8; }
 .ecd--dark .ecd-checkbox__input { color-scheme: dark; }
-.ecd--dark .ecd-error { background: rgba(255,49,49,.12); border-color: rgba(255,49,49,.3); color: #fca5a5; }
 /* Bouton Cancel : slotté dans le footer d'EventDrawerShell → ciblé via .eds--dark. */
 .eds--dark .ecd-btn--cancel { background: #1f2937; color: #e2e8f0; border-color: rgba(255,255,255,.14); }
 .eds--dark .ecd-btn--cancel:hover { background: #374151; }

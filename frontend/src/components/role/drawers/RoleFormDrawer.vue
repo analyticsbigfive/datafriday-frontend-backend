@@ -17,12 +17,6 @@
           <!-- Body -->
           <div class="rfd-body">
 
-            <!-- Erreur -->
-            <div v-if="error" class="rfd-error mb-4">
-              <AlertTriangle :size="14" />
-              {{ error }}
-            </div>
-
             <!-- Nom -->
             <div class="rfd-field-wrap mb-4">
               <label class="rfd-label">{{ t('roleList.labelName') }} <span class="rfd-required">*</span></label>
@@ -102,6 +96,12 @@
                 {{ form.permissionIds.length }} {{ t('roleList.permissionsSelected') }}
               </div>
             </template>
+          </div>
+
+          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus du footer -->
+          <div v-if="error" class="rfd-error rfd-error--fixed">
+            <AlertTriangle :size="14" />
+            {{ error }}
           </div>
 
           <!-- Footer -->
@@ -424,6 +424,12 @@ export default {
   border-radius: 10px;
   font-size: 0.8125rem;
   color: #ff3131;
+}
+
+/* Fixée entre le corps scrollable et le footer (hors du padding de .rfd-body). */
+.rfd-error--fixed {
+  flex-shrink: 0;
+  margin: 12px 20px;
 }
 
 .rfd-info-note {

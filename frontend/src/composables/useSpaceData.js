@@ -17,6 +17,7 @@ import { getSpace, getSpaceConfigurations, getSpaceShopDetails, getSpaceShopGran
 import { getEvents } from '@/api/endpoints/event.api'
 import { getAllMenuItems } from '@/api/endpoints/menu-item.api'
 import { normalizeMenuItem, menuItemsCoverage, resolveComponentRefs } from '@/utils/menuItemNormalize'
+import { mergeSubComponentsFromCatalog, hydrateSubComponents } from '@/utils/componentCatalog'
 import { getProductTypes, getProductCategories, getMenuComponents } from '@/api/endpoints/menu.api'
 import { getIngredients } from '@/api/endpoints/ingredient.api'
 import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
@@ -25,6 +26,31 @@ import { getProductMappings } from '@/api/endpoints/mapping.api'
 import { enrichGranularMenuDimensions } from '@/utils/analyseDimensions'
 
 const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
+
+/**
+ * Normalise le champ `revenue` (repli sur `revenueHt`, l'ancien champ seul renvoyé
+ * par la RPC avant migration) puis enrichit les dimensions (nature/subnature/type/
+ * catégorie) d'un lot de lignes granulaires. Partagé entre le bootstrap complet
+ * (`loadEnrichment`) et le snapshot live (`fetchLiveShopSnapshot`, §14 de
+ * `docs/modules/11_LIVE.md`) pour que les deux chemins ne divergent jamais.
+ */
+function normalizeAndEnrichGranular(rawGranularData, {
+  menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
+}) {
+  const revenueNormalizedData = rawGranularData.map((r) => (
+    r.revenue == null || (r.revenue === 0 && r.revenueHt != null)
+      ? { ...r, revenue: r.revenueHt ?? 0 }
+      : r
+  ))
+  return enrichGranularMenuDimensions(
+    revenueNormalizedData,
+    menuItems,
+    productTypes,
+    productCategories,
+    weezeventProducts,
+    weezeventProductMappings,
+  )
+}
 
 /**
  * Charge tous les MenuComponents en paginant sur `meta.total` — le backend plafonne
@@ -65,9 +91,13 @@ async function fetchAllMenuComponents() {
   return rows
 }
 
-export async function fetchSpaceData(spaceId, onEnrichment = null) {
+export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true } = {}) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
   console.log('[useSpaceData] 🟢 Fetching from API: /api/v1/spaces/' + spaceId)
+
+  // Posé par le repli du fetch configurations ci-dessous, remonté au store dans
+  // `_configurationsFetchFailed` (cf. resolveConfigSelectionAfterLoad).
+  let configurationsFetchFailed = false
 
   try {
     // ── Phase 1 : données critiques pour le premier rendu ──────────────────
@@ -75,7 +105,15 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
     const _t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
     const [space, configurations, details, eventsResponse] = await Promise.all([
       getSpace(spaceId).catch((e) => { console.error('[useSpaceData] ❌ getSpace failed:', e?.response?.status, e?.message); throw e }),
-      getSpaceConfigurations(spaceId).catch((e) => { console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message); return [] }),
+      // Repli `[]` conservé (le reste de la phase 1 doit pouvoir rendre), mais l'échec
+      // est SIGNALÉ : le store distingue « cet espace n'a aucune config » (liste vide,
+      // fetch OK → purge d'une sélection périmée) de « on ne sait pas » (fetch KO → on
+      // conserve la sélection utilisateur, cf. resolveConfigSelectionAfterLoad).
+      getSpaceConfigurations(spaceId).catch((e) => {
+        console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message)
+        configurationsFetchFailed = true
+        return []
+      }),
       // Phase 1: fast — returns shops + weezeventEvents + meta only (no granular join)
       getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
         console.warn('[useSpaceData] ⚠️ shopDetails unavailable:', e?.response?.status, e?.message, '— continuing without sales data')
@@ -85,7 +123,17 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       // Scopé par spaceId côté backend — avant ce fix, seule la 1re page (50 events)
       // tenant-wide était lue puis filtrée côté client : un tenant avec >50 events
       // au total pouvait perdre silencieusement les events de ce space.
-      getEvents({ spaceId, limit: 200 }).catch((e) => { console.warn('[useSpaceData] ⚠️ events failed:', e?.response?.status, e?.message); return null }),
+      //
+      // `excludeSimulated` — ce chargement alimente le store analyse, donc Analyse,
+      // l'écran Live ET EventPredict : les events créés par l'outil QA « simuler une
+      // vente » (Event.isSimulated) n'ont rien à faire sur Analyse/EventPredict (ne
+      // jamais fausser les vrais chiffres). Sur Live en revanche, voir son propre
+      // trafic de test défiler en direct EST le but du widget flask
+      // (LiveSaleSimulatorWidget) — l'appelant passe donc `excludeSimulated: false`
+      // spécifiquement en mode Live (cf. AnalyseView.vue::isLive). La liste Events
+      // (store/modules/events.js) ne passe déjà pas ce paramètre et les garde
+      // visibles pour permettre leur suppression manuelle.
+      getEvents({ spaceId, limit: 200, excludeSimulated }).catch((e) => { console.warn('[useSpaceData] ⚠️ events failed:', e?.response?.status, e?.message); return null }),
     ])
 
     // Phase 1 has no granular data (loaded later in background)
@@ -153,6 +201,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         summary: null,
         _fromMock: false,
         _weezeventSetupIncomplete: true,
+        _configurationsFetchFailed: configurationsFetchFailed,
       }
     }
 
@@ -206,24 +255,9 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         granularDetails?.shopGranularData ||
         granularDetails?.records ||
         (Array.isArray(granularDetails) ? granularDetails : [])
-      // Normalise revenue field: the SQL RPC historically returned 'revenueHt' only.
-      // The new migration adds 'revenue' as an alias, but we normalise defensively
-      // here so old cached/pre-migration responses still work correctly.
-      // Parenthèses explicites : la version sans parenthèses reposait sur la
-      // précédence && > || (comportement identique, lisibilité fragile).
-      const revenueNormalizedData = rawGranularData.map((r) => (
-        r.revenue == null || (r.revenue === 0 && r.revenueHt != null)
-          ? { ...r, revenue: r.revenueHt ?? 0 }
-          : r
-      ))
-      const granularData = enrichGranularMenuDimensions(
-        revenueNormalizedData,
-        menuItems,
-        productTypes,
-        productCategories,
-        weezeventProducts,
-        weezeventProductMappings,
-      )
+      const granularData = normalizeAndEnrichGranular(rawGranularData, {
+        menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
+      })
       // Tag each menu item with current spaceId if spaceIds is absent, puis
       // normalise (readyForSale 'Yes'/'No' + components unifiés incluant le
       // packaging) pour que le réarmement et l'inventaire aient une shape stable
@@ -297,95 +331,24 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
         : catalogComponents
       // shop-details ne porte PAS la recette (`subComponents`/`numberOfUnitsRecipe`) :
       // on l'enrichit depuis /menu-components (catalogComponents) par id puis nom.
-      // REQUIS à la décomposition composant→ingrédients (Restock, F6) : sans
-      // subComponents, un composant reste réarmé en 1 ligne. NB : Space Inventory
-      // ne décompose PLUS (décision 2026-07-18) — seul le restock éclate encore.
-      const cnorm = (s) => String(s ?? '').trim().toLowerCase()
-      const catBy = new Map()
-      for (const c of catalogComponents) {
-        if (c?.id != null && !catBy.has(`id:${c.id}`)) catBy.set(`id:${c.id}`, c)
-        const n = cnorm(c?.name)
-        if (n && !catBy.has(`nm:${n}`)) catBy.set(`nm:${n}`, c)
-      }
-      const components = baseComponents.map((c) => {
-        if (Array.isArray(c?.subComponents) && c.subComponents.length) return c
-        const hit = catBy.get(`id:${c?.id}`) || catBy.get(`nm:${cnorm(c?.name)}`)
-        return hit?.subComponents?.length
-          ? { ...c, subComponents: hit.subComponents, numberOfUnitsRecipe: c.numberOfUnitsRecipe ?? hit.numberOfUnitsRecipe }
-          : c
+      // À qui sert cette recette : à la FEUILLE DE COURSE, et à elle seule — c'est
+      // le seul écran qui a le droit d'éclater un composant en ingrédients (on
+      // n'achète pas de la sauce pickle, on achète son vinaigre). Stock-up,
+      // inventaires et réarmement s'arrêtent au composant : il arrive prêt de la
+      // cuisine centrale (BUG-292-01, décision Bertrand 2026-08-04).
+      // BUG-292-01 — cette hydratation vit désormais dans `utils/componentCatalog`,
+      // partagée avec la feuille de course (`SpaceRestockView`), qui lit le
+      // catalogue depuis le store `analyse` et n'avait donc jamais de recette :
+      // son éclatement composant→ingrédients était silencieusement inerte.
+      // Étape 1 (synchrone, gratuite) : compléter depuis le catalogue déjà chargé.
+      const mergedComponents = mergeSubComponentsFromCatalog(baseComponents, catalogComponents)
+      // Étape 2 (fetch détail borné, échec toléré) : la LISTE /menu-components ne
+      // renvoie pas `subComponents`, seul le détail /menu-components/:id les porte,
+      // sous `ingredients[]` + `children[]`. Sans eux, un composant reste réarmé en
+      // une ligne et la feuille de course l'achète tel quel.
+      const { components } = await hydrateSubComponents(mergedComponents, {
+        ingredients: catalogIngredients,
       })
-      // La LISTE /menu-components ne renvoie PAS `subComponents` (seul le détail
-      // /menu-components/:id les porte). On hydrate la recette par fetch détail pour
-      // les composants qui en manquent — REQUIS à la décomposition composant→ingrédients
-      // côté Restock (F6). Borné (runWithConcurrency) + toléré (échec = composant non éclaté).
-      const needDetail = components.filter((c) => c?.id && !(c?.subComponents?.length))
-      if (needDetail.length) {
-        try {
-          const { runWithConcurrency } = await import('@/utils/asyncPool')
-          const { getMenuComponent } = await import('@/api/endpoints/menu.api')
-          // Résolution des noms d'ingrédients : le détail `ingredients[]` peut ne
-          // porter que des refs (ingredientId) sans libellé → on résout via le
-          // catalogue ingredients déjà chargé (évite N fetchs getIngredient).
-          const ingById = new Map(
-            catalogIngredients.filter((x) => x?.id != null).map((x) => [String(x.id), x]),
-          )
-          const detailById = new Map()
-          await runWithConcurrency(needDetail, 5, async (c) => {
-            try {
-              const d = await getMenuComponent(c.id)
-              const full = d?.data ?? d
-              // Le détail expose `ingredients[]` + `children[]` (PAS `subComponents`,
-              // qui est la shape du builder front). On les fusionne en subComponents
-              // normalisés attendus par flattenComponentDef. `ing.ingredientId` EST le
-              // marketPriceId (cf. ComponentCreateView) ; `child.componentId` = ref def.
-              const ings = Array.isArray(full?.ingredients) ? full.ingredients : []
-              const children = Array.isArray(full?.children) ? full.children : []
-              const subs = [
-                ...ings.map((ing) => {
-                  const iid = ing?.ingredientId || ing?.ingredient_id || null
-                  const cat = iid != null ? ingById.get(String(iid)) : null
-                  return {
-                    itemType: 'Ingredient',
-                    id: iid,
-                    marketPriceId: iid,
-                    name:
-                      ing?.itemName || ing?.name ||
-                      cat?.name || cat?.itemName || cat?.marketPrice?.supplierItem || null,
-                    numberOfUnits: Number(ing?.quantity ?? ing?.numberOfUnits ?? 0) || 0,
-                    unit: ing?.unit || ing?.recipeUnit || cat?.unit || 'unit',
-                  }
-                }),
-                ...children.map((ch) => {
-                  const cid = ch?.componentId || ch?.id || null
-                  return {
-                    itemType: 'Component',
-                    id: cid,
-                    sourceId: cid,
-                    name: ch?.itemName || ch?.name || null,
-                    numberOfUnits: Number(ch?.numberOfUnits ?? 0) || 0,
-                    unit: ch?.unit || 'unit',
-                  }
-                }),
-              ].filter((s) => s.name)
-              if (subs.length) {
-                detailById.set(c.id, { subComponents: subs, numberOfUnitsRecipe: full?.numberOfUnitsRecipe })
-              }
-            } catch (_) { /* toléré : composant sans détail → non éclaté */ }
-          })
-          for (let i = 0; i < components.length; i++) {
-            const hit = detailById.get(components[i]?.id)
-            if (hit) {
-              components[i] = {
-                ...components[i],
-                subComponents: hit.subComponents,
-                numberOfUnitsRecipe: components[i].numberOfUnitsRecipe ?? hit.numberOfUnitsRecipe,
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[useSpaceData] ⚠️ hydratation subComponents (détail) échouée:', e?.message)
-        }
-      }
       console.log(
         `[useSpaceData] 🧩 components recette — base=${baseComponents.length}, catalog=${catalogComponents.length}, ` +
           `avec subComponents=${components.filter((c) => c?.subComponents?.length).length}`,
@@ -427,6 +390,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
       menuItemCostMap,
       summary: details?.summary || null,
       _fromMock: false,
+      _configurationsFetchFailed: configurationsFetchFailed,
     }
 
     if (onEnrichment) {
@@ -466,5 +430,69 @@ export async function fetchSpaceData(spaceId, onEnrichment = null) {
     }
     // Re-throw all other errors (no mock fallback)
     throw err
+  }
+}
+
+/**
+ * Snapshot LIVE (module Live, `docs/modules/11_LIVE.md` §14) : rafraîchit
+ * UNIQUEMENT ce qui change réellement pendant un event en cours — les ventes
+ * (`shopGranularData`, source de tous les KPI par shop / Revenue by shop /
+ * POS Performance) et `menuItemCostMap`/`summary` (marge) — sans rejouer le
+ * bootstrap catalogue complet de `fetchSpaceData` (menu items, ingrédients,
+ * packaging, produits/mappings Weezevent, pagination `/menu-components` +
+ * fan-out détail). Ce catalogue ne change pas en plein service ; le rafraîchir
+ * à chaque tick de 15 s ne faisait que gaspiller des requêtes DB.
+ *
+ * Les 5 catalogues nécessaires à l'enrichissement des lignes granulaires sont
+ * INJECTÉS par l'appelant (déjà en store depuis le bootstrap initial) — cette
+ * fonction ne dépend d'aucun store, comme le reste de ce fichier.
+ */
+export async function fetchLiveShopSnapshot(spaceId, {
+  menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
+} = {}) {
+  const [granularDetails, details, eventsResponse] = await Promise.all([
+    getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
+      console.warn('[useSpaceData] ⚠️ live shopGranular failed:', e?.response?.status, e?.message)
+      return {}
+    }),
+    getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
+      console.warn('[useSpaceData] ⚠️ live shopDetails failed:', e?.response?.status, e?.message)
+      return {}
+    }),
+    // BUG trouvé le 2026-08-05 : un event créé APRÈS le premier chargement de la
+    // page (ex. le run QA d'auto-simulation, ensureTodaySalesEvent) n'apparaissait
+    // jamais tant que la page restait ouverte — state.events n'était plus
+    // rafraîchi par ce chemin léger (§14), alors qu'applyLiveScope() résout bien
+    // l'eventId live à chaque tick. Sans lui dans state.events, filteredEvents
+    // (filtré par selectedEventIds) retombe à [] → écran vide malgré un vrai
+    // signal live. Requête volontairement légère (une seule liste, pas le
+    // catalogue) — excludeSimulated:false : ce chemin ne tourne QU'en mode Live
+    // (AnalyseView::isLive), où voir son propre trafic de test EST le but
+    // (LiveSaleSimulatorWidget), même règle que fetchSpaceData en mode live.
+    // `__failed` (pas juste `null`) : distingue « fetch KO, garder l'ancienne
+    // liste » de « fetch OK, l'espace n'a vraiment aucun event » — les deux
+    // donneraient sinon [] après normalizeList, et écraseraient à tort
+    // state.events sur une erreur réseau transitoire.
+    getEvents({ spaceId, limit: 200, excludeSimulated: false }).catch((e) => {
+      console.warn('[useSpaceData] ⚠️ live events failed:', e?.response?.status, e?.message)
+      return { __failed: true }
+    }),
+  ])
+  const rawGranularData =
+    granularDetails?.shopGranularData ||
+    granularDetails?.records ||
+    (Array.isArray(granularDetails) ? granularDetails : [])
+  const shopGranularData = normalizeAndEnrichGranular(rawGranularData, {
+    menuItems: menuItems || [],
+    productTypes: productTypes || [],
+    productCategories: productCategories || [],
+    weezeventProducts: weezeventProducts || [],
+    weezeventProductMappings: weezeventProductMappings || [],
+  })
+  return {
+    shopGranularData,
+    menuItemCostMap: details?.menuItemCostMap || details?.costMap || {},
+    summary: details?.summary || null,
+    events: eventsResponse?.__failed ? null : normalizeList(eventsResponse?.data ?? eventsResponse),
   }
 }

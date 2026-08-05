@@ -223,7 +223,7 @@
                   <div class="d-flex align-center" style="gap: 12px">
                     <div class="group-stat">
                       <div class="text-caption text-medium-emphasis">{{ t('menuItemLib.totalCost') }}</div>
-                      <div class="text-subtitle-2 font-weight-bold">{{ formatCurrency(groupTotals(item.items).totalCost) }}</div>
+                      <div class="text-subtitle-2 font-weight-bold">{{ formatCurrencyDetailed(groupTotals(item.items).totalCost) }}</div>
                     </div>
                     <v-divider vertical />
                     <div class="group-stat">
@@ -270,16 +270,16 @@
           </template>
 
           <template #item.price="{ item }">
-            {{ formatCurrency(item.price) }}
+            {{ formatCurrencyDetailed(item.price) }}
           </template>
 
           <template #item.priceHt="{ item }">
-            <span v-if="item.priceHt != null">{{ formatCurrency(item.priceHt) }}</span>
+            <span v-if="item.priceHt != null">{{ formatCurrencyDetailed(item.priceHt) }}</span>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
 
           <template #item.totalCost="{ item }">
-            {{ formatCurrency(item.totalCost) }}
+            {{ formatCurrencyDetailed(item.totalCost) }}
           </template>
 
           <template #item.margin="{ item }">
@@ -295,13 +295,13 @@
           </template>
 
           <template #item.actions="{ item }">
-            <div class="d-flex justify-end" style="gap: 8px">
-              <v-btn icon variant="tonal" size="small" @click="onEditItem(item)" class="action-btn">
-                <Pencil :size="18" />
-              </v-btn>
-              <v-btn icon variant="tonal" size="small" color="error" @click="onDeleteItem(item)" class="action-btn">
-                <Trash2 :size="18" />
-              </v-btn>
+            <div class="mil-tbl-actions">
+              <div class="mil-tbl-abtn mil-tbl-abtn--edit" @click="onEditItem(item)">
+                <Pencil :size="15" />
+              </div>
+              <div class="mil-tbl-abtn mil-tbl-abtn--del" @click="onDeleteItem(item)">
+                <Trash2 :size="15" />
+              </div>
             </div>
           </template>
         </component>
@@ -363,11 +363,11 @@
                 <div class="mb-3">
                   <div class="d-flex align-center justify-space-between mb-1">
                     <span class="text-caption text-medium-emphasis">{{ t('menuItemLib.colPrice') }}</span>
-                    <span class="text-subtitle-2 font-weight-bold">{{ formatCurrency(item.price) }}</span>
+                    <span class="text-subtitle-2 font-weight-bold">{{ formatCurrencyDetailed(item.price) }}</span>
                   </div>
                   <div class="d-flex align-center justify-space-between mb-1">
                     <span class="text-caption text-medium-emphasis">{{ t('menuItemLib.colTotalCost') }}</span>
-                    <span class="text-subtitle-2">{{ formatCurrency(item.totalCost) }}</span>
+                    <span class="text-subtitle-2">{{ formatCurrencyDetailed(item.totalCost) }}</span>
                   </div>
                   <v-divider class="my-2"></v-divider>
                   <div class="d-flex align-center justify-space-between">
@@ -431,18 +431,20 @@
       @confirm="confirmDelete"
     />
 
-    <!-- Bulk Delete Dialog -->
-    <MenuItemDeleteDialog
+    <!-- Bulk Delete Dialog (BulkDeleteDialog partagé : confirmation → progression X/N) -->
+    <BulkDeleteDialog
       v-model="bulkDeleteDialog"
       :is-dark="isDark"
       :title="t('menuItemLib.deleteSelectedTitle')"
-      :subtitle="t('menuItemLib.deleteSubtitle')"
       :message="`${t('menuItemLib.deleteSelectedMessagePrefix')} ${selectedItems.length} ${t('menuItemLib.itemsSelected')}`"
-      item-name=""
+      :progress="bulkProgress"
+      :total="bulkTotal"
+      :progress-label="t('bulkDeleted')"
+      :confirm-label="t('menuItemLib.deleteAllConfirm')"
+      :cancel-label="t('cancel')"
+      :deleting-label="t('bulkDeleting')"
       :loading="bulkDeleteLoading"
       :error="bulkDeleteError"
-      :cancel-label="t('cancel')"
-      :confirm-label="t('menuItemLib.deleteAllConfirm')"
       @confirm="confirmBulkDelete"
     />
 
@@ -466,10 +468,11 @@ import { useTheme } from "vuetify";
 // imports, la table serait absente à l'exécution.
 import { VDataTable, VDataTableServer } from "vuetify/components/VDataTable";
 import { useI18n } from "@/i18n/useI18n";
-import { formatCurrency } from "@/composables/useFormatters";
+import { formatCurrency, formatCurrencyDetailed } from "@/composables/useFormatters";
 import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
 import { getProductMappings, deleteProductMapping } from "@/api/endpoints/mapping.api";
 import MenuItemDeleteDialog from '../dialogs/MenuItemDeleteDialog.vue';
+import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
 import MenuItemCsvImportDrawer from '../drawers/MenuItemCsvImportDrawer.vue';
 import RecipeImportDrawer from '../drawers/RecipeImportDrawer.vue';
 import {
@@ -507,6 +510,7 @@ export default {
     UtensilsCrossed,
     X,
     MenuItemDeleteDialog,
+    BulkDeleteDialog,
     MenuItemCsvImportDrawer,
     RecipeImportDrawer,
   },
@@ -514,7 +518,7 @@ export default {
     const theme = useTheme();
     const { t } = useI18n();
     const isDark = computed(() => !!theme.global.current.value.dark);
-    return { t, isDark, formatCurrency };
+    return { t, isDark, formatCurrency, formatCurrencyDetailed };
   },
   data() {
     return {
@@ -548,6 +552,8 @@ export default {
       bulkDeleteDialog: false,
       bulkDeleteLoading: false,
       bulkDeleteError: "",
+      bulkProgress: 0,
+      bulkTotal: 0,
 
       importDrawer: false,
       exportLoading: false,
@@ -1080,6 +1086,8 @@ export default {
 
     onBulkDelete() {
       this.bulkDeleteError = "";
+      this.bulkProgress = 0;
+      this.bulkTotal = 0;
       this.bulkDeleteDialog = true;
     },
     async confirmBulkDelete() {
@@ -1088,6 +1096,8 @@ export default {
       this.bulkDeleteError = "";
       // La sélection contient des ids d'articles (une ligne = un article).
       const menuItemIds = [...new Set(this.selectedItems.map(id => String(id)))];
+      this.bulkTotal = menuItemIds.length;
+      this.bulkProgress = 0;
       const failed = [];
       let firstErrorMessage = "";
       for (const id of menuItemIds) {
@@ -1098,11 +1108,10 @@ export default {
           if (!firstErrorMessage) firstErrorMessage = e?.userMessage || e?.message || "";
           failed.push(id);
         }
+        this.bulkProgress += 1;
       }
       const deleted = menuItemIds.filter(id => !failed.includes(id));
 
-      // Fermer le dialogue et mettre à jour la sélection quoi qu'il arrive
-      this.bulkDeleteDialog = false;
       // Garder sélectionnés seulement les articles en échec.
       this.selectedItems = this.selectedItems.filter(sid => failed.includes(String(sid)));
       this.bulkDeleteLoading = false;
@@ -1115,9 +1124,13 @@ export default {
       }
 
       if (failed.length > 0) {
+        // Sur échec : on garde le dialog OUVERT pour afficher l'erreur (auparavant il se
+        // fermait toujours, masquant le message).
         this.bulkDeleteError = firstErrorMessage
           ? `${failed.length} article(s) n'ont pas pu être supprimés : ${firstErrorMessage}`
           : `${failed.length} article(s) n'ont pas pu être supprimés.`;
+      } else {
+        this.bulkDeleteDialog = false;
       }
     },
 
@@ -1369,6 +1382,14 @@ export default {
   border-bottom-color: #1e293b !important;
 }
 
+/* Table (référence EventsListView) — header + hover + boutons d'action */
+.mil--dark .menu-items-table :deep(thead),
+.mil--dark .menu-items-table :deep(.v-data-table__th) { background: #1a2332 !important; }
+.mil--dark .menu-items-table :deep(tbody tr:hover td) { background: #1a2332 !important; }
+.mil--dark .mil-tbl-abtn { background: #1f2937; color: #cbd5e1; }
+.mil--dark .mil-tbl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
+.mil--dark .mil-tbl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+
 .mil--dark .group-header-row {
   background: #1e293b !important;
   border-top-color: #374151 !important;
@@ -1487,44 +1508,45 @@ export default {
 }
 
 .menu-items-table :deep(thead) {
-  background: #f9fafb;
+  background: #fafafa;
 }
 
 .menu-items-table :deep(thead th),
 .menu-items-table :deep(thead th .v-data-table-header__content),
 .menu-items-table :deep(thead th span) {
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   text-transform: uppercase;
-  font-size: 0.68rem !important;
-  letter-spacing: 0.025em;
-  color: #374151 !important;
+  font-size: var(--fs-xs) !important;
+  letter-spacing: .06em;
+  color: #9ca3af !important;
   border-bottom: none !important;
   white-space: nowrap;
+}
+.menu-items-table :deep(.v-data-table__th) {
+  background: #fafafa !important;
 }
 
 .menu-items-table :deep(tbody tr) {
   transition: all 0.2s ease;
 }
 
-.menu-items-table :deep(tbody tr:hover) {
-  background: #f9fafb !important;
+.menu-items-table :deep(tbody tr:hover td) {
+  background: #fafafa !important;
   transition: background-color 0.2s ease;
 }
 
-.menu-items-table :deep(tbody td) {
-  padding-top: 6px !important;
-  padding-bottom: 6px !important;
-  font-size: 0.75rem !important;
-}
-
-.menu-items-table :deep(tbody td span),
-.menu-items-table :deep(tbody td div) {
-  font-size: 0.75rem !important;
+.menu-items-table :deep(.v-data-table__td) {
+  vertical-align: middle;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+  font-size: var(--fs-base) !important;
 }
 
 .menu-items-table :deep(tbody td .v-chip),
 .menu-items-table :deep(tbody td .v-chip__content) {
-  font-size: 0.68rem !important;
+  font-size: var(--fs-xs) !important;
 }
 
 .menu-items-table :deep(tbody tr[data-item-type="item"]) {
@@ -1569,14 +1591,18 @@ export default {
 }
 
 /* Action Buttons */
-.action-btn {
-  transition: all 0.2s ease;
+.mil-tbl-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.mil-tbl-abtn {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: #f3f4f6; color: #6b7280;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .15s, color .15s; flex-shrink: 0;
 }
-
-.action-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
+.mil-tbl-abtn--edit { background: #eff6ff; color: #2563eb; }
+.mil-tbl-abtn--edit:hover { background: #dbeafe; }
+.mil-tbl-abtn--del { background: #fef2f2; color: #ff3131; }
+.mil-tbl-abtn--del:hover { background: #fee2e2; }
 
 /* Animations */
 @keyframes fadeIn {

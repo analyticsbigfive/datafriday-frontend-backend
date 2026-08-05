@@ -1,4 +1,4 @@
-import { ref, computed, nextTick } from 'vue'
+import { ref, shallowRef, computed, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTimelineMode } from '@/composables/useTimelineMode'
 import { parseEventDate as parseEventDateLocal } from '@/utils/dateFr'
@@ -25,7 +25,11 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
   const { isTimelineActive, enterTimeline, exitTimeline } = useTimelineMode()
 
   const selectedEventForTimeline = ref(null)
-  const eventTimelineData = ref([])
+  // BUG-285 : shallowRef + gel — même traitement que le cache item-level (BUG-284) :
+  // ce tableau minute-level est volumineux et n'est JAMAIS muté en place (toutes les
+  // écritures ci-dessous réassignent .value en entier) ; la réactivité profonde ne
+  // faisait que payer un Proxy par ligne dans chaque agrégation aval.
+  const eventTimelineData = shallowRef([])
   const timelineEventsList = ref([])
   const timelineLoading = ref(false)
   const timelinePendingCount = ref(0)
@@ -190,7 +194,8 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
       const allRecords = preprocessTimelineRecords(flatRecords, {
         menuItemCostMap: store.state.analyse.menuItemCostMap || {},
       })
-      eventTimelineData.value = allRecords
+      for (const r of allRecords) Object.freeze(r)
+      eventTimelineData.value = Object.freeze(allRecords)
       if (allRecords.length === 0) {
         console.warn('[useAnalyseTimeline] aucune donnée disponible.')
       }

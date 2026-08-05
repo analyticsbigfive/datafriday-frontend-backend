@@ -179,12 +179,6 @@
         </div>
       </div>
 
-      <!-- Error -->
-      <div v-if="error" class="sms-infobar sms-infobar--error mt-3">
-        <AlertTriangle :size="14" style="flex-shrink: 0;" />
-        <span>{{ error }}</span>
-      </div>
-
       <!-- Blocking warning -->
       <div v-if="!loading && unmappedCount > 0" class="sms-infobar sms-infobar--warn mt-2">
         <AlertTriangle :size="14" style="flex-shrink: 0;" />
@@ -196,17 +190,26 @@
     </template>
 
     <!-- ── Footer (teleported) ── -->
+    <!-- BUG-273 : l'erreur principale est téléportée avec le bouton (même Teleport que le
+         footer) pour rester visible dans la zone fixe .iw-footer, au lieu d'être perdue dans
+         le corps scrollable .iw-body du wizard parent (IntegrationWizard.vue). -->
     <Teleport :to="footerTarget" :disabled="!footerTarget">
-      <div class="sms-footer-actions">
-        <button v-if="unmappedCount > 0" class="sms-btn sms-btn--ghost" @click="handleSkipUnmapped">
-          {{ t('smsSkipUnmapped') }}
-        </button>
-        <span v-else></span>
-        <button class="sms-btn sms-btn--primary" :disabled="mappedCount === 0 || hasPendingSaves" @click="handleSave">
-          <v-progress-circular v-if="hasPendingSaves" indeterminate size="14" width="2" color="white" />
-          <span v-else>{{ t('smsSave') }}</span>
-          <ChevronRight :size="16" />
-        </button>
+      <div class="sms-footer-teleport">
+        <div v-if="error" class="sms-infobar sms-infobar--error sms-footer-error">
+          <AlertTriangle :size="14" style="flex-shrink: 0;" />
+          <span>{{ error }}</span>
+        </div>
+        <div class="sms-footer-actions">
+          <button v-if="unmappedCount > 0" class="sms-btn sms-btn--ghost" @click="handleSkipUnmapped">
+            {{ t('smsSkipUnmapped') }}
+          </button>
+          <span v-else></span>
+          <button class="sms-btn sms-btn--primary" :disabled="mappedCount === 0 || hasPendingSaves" @click="handleSave">
+            <v-progress-circular v-if="hasPendingSaves" indeterminate size="14" width="2" color="white" />
+            <span v-else>{{ t('smsSave') }}</span>
+            <ChevronRight :size="16" />
+          </button>
+        </div>
       </div>
     </Teleport>
 
@@ -2269,6 +2272,10 @@ export default {
 
 /* ── Footer actions ── */
 .sms-footer-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* BUG-273 : conteneur du Teleport footer — colonne pour empiler l'erreur au-dessus du bouton,
+   dans la zone fixe du wizard (jamais dans le corps scrollable). */
+.sms-footer-teleport { display: flex; flex-direction: column; align-items: stretch; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.sms-footer-error { margin: 0; }
 
 /* ── Floor Assignment Dialog (sms-fd-*) ── */
 .sms-fd-card { display: flex; flex-direction: column; overflow: hidden; max-height: 90vh; }

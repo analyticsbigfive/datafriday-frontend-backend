@@ -1,5 +1,8 @@
 <template>
-  <div class="np-panel">
+  <!-- Classe --dark sur la racine PROPRE : le panneau vit dans un v-menu
+       téléporté hors du v-app, .v-theme--dataFridayDark n'y descend pas
+       (BUG-198/199). isDark vient de useTheme(), pas d'une prop. -->
+  <div class="np-panel" :class="{ 'np-panel--dark': isDark }">
     <div class="np-head">
       <Bell :size="18" class="np-head-bell" />
       <span class="np-title">Notifications</span>
@@ -60,9 +63,15 @@ import {
   UtensilsCrossed,
   Package,
 } from 'lucide-vue-next'
+import { useTheme } from 'vuetify'
 
 export default {
   name: 'NotificationPanel',
+
+  setup() {
+    const { global } = useTheme()
+    return { theme: global }
+  },
 
   components: {
     X,
@@ -84,6 +93,9 @@ export default {
   },
 
   computed: {
+    isDark() {
+      return this.theme.current.value.dark
+    },
     // Source de vérité = store Vuex (miroir localStorage). Plus de mock.
     notifications() {
       return this.$store.getters['notifications/items'] || []
@@ -351,4 +363,25 @@ export default {
   color: #9ca3af;
   margin-top: 2px;
 }
+
+/* ---- Dark (BUG-247-01) — palette slate, overrides uniquement, clair inchangé.
+   Chips de type conservés (teintes pastel lisibles sur leurs propres fonds). ---- */
+.np-panel--dark {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+.np-panel--dark .np-head-bell { color: #94a3b8; }
+.np-panel--dark .np-count-pill { background: rgba(255, 49, 49, .14); }
+.np-panel--dark .np-close { color: #94a3b8; }
+.np-panel--dark .np-close:hover { background: rgba(255, 255, 255, .08); color: #f9fafb; }
+.np-panel--dark .np-row:hover { background: rgba(255, 255, 255, .04); }
+.np-panel--dark .np-row--read .np-row-title { color: #94a3b8; }
+.np-panel--dark .np-row-time { color: #64748b; }
+.np-panel--dark .np-row-msg { color: #94a3b8; }
+.np-panel--dark .np-foot { border-top-color: rgba(255, 255, 255, .08); }
+.np-panel--dark .np-foot-btn { color: #94a3b8; }
+.np-panel--dark .np-foot-btn:hover { background: rgba(255, 255, 255, .06); color: #f9fafb; }
+.np-panel--dark .np-foot-btn--danger:hover { color: #ff3131; background: rgba(255, 49, 49, .12); }
+.np-panel--dark .np-empty-bell { color: #64748b; }
+.np-panel--dark .np-empty-sub { color: #64748b; }
 </style>

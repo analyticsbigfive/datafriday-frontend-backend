@@ -831,6 +831,12 @@ export class WeezeventController {
             });
         }
 
+        // HT direct par produit (basePrice/vatRate déjà résolus par les branches ci-dessus, quelle
+        // que soit la source), évite au front de refaire la détaxation à la main. `computePricing`
+        // renvoie `pricing.gross.ht: null` si aucun vatRate n'est résolu (pas de taux inventé).
+        const tenantVatRate = await this.pricing.getTenantDefaultVatRate(tenantId);
+        data = data.map((pr: any) => this.pricing.withPricing(pr, tenantVatRate, null));
+
         // onlySold : ne renvoie que les produits ayant un prix (= réellement vendus) → on retire le
         // bruit du catalogue jamais vendu. `total`/`total_pages` restent le décompte NON filtré :
         // le front boucle sur toutes les pages (il concatène les data filtrées) et déduit le nombre

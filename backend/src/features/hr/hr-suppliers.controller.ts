@@ -30,7 +30,7 @@ class CreateHrSupplierDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  sectors?: string[];
+  departments?: string[];
 
   @IsOptional()
   @IsArray()
