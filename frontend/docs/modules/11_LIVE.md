@@ -572,20 +572,37 @@ polling. Logique de construction de l'arbre extraite dans `utils/liveInventoryRo
   même philosophie que `getPreEventInventory`/`getPostEventBaseline`). Avant le passage du cron
   (portes pas encore ouvertes), tous les articles sont `uninitialized`, pas faussement `critical`.
 - Badge "N critiques" sur l'en-tête de chaque groupe (compte `critical` uniquement, pas `uninitialized`).
+- **Deux toggles indépendants et combinables, "Stock bas" (warning) et "Rupture" (critical)**
+  (`countGlobalByStatus`, `statusFilters` sur `buildLiveInventoryRows`) — retour utilisateur
+  same-day, en deux temps : (1) la recherche seule ne répond pas au besoin de « gestion des stocks
+  en urgence » (il faut connaître le nom d'un article à l'avance) et le tri par criticité ne sert à
+  rien tant qu'il faut déplier chaque shop pour le voir ; (2) un premier essai avait fusionné
+  `critical`+`warning` sous un seul bouton **mal étiqueté "Stock bas"** — cliquer dessus faisait
+  aussi apparaître les vraies ruptures (0%), l'utilisateur l'a lu comme un bug ("pourquoi je vois
+  aussi des ruptures dans stock bas"). Chaque bouton filtre sur un SEUL statut (couleur alignée sur
+  la jauge : orange pour warning, rouge pour critical), porte son propre badge de total sur TOUT
+  l'espace, et les deux se combinent (les deux actifs = équivalent de l'ancien comportement fusionné,
+  mais explicite). Un groupe sans aucun article du/des statut(s) sélectionné(s) disparaît entièrement.
+  Un filtre actif (recherche ET/OU statut) **force l'ouverture de tous les groupes affichés**
+  (`isOpen()`) — sans ce correctif, filtrer sans rien déplier ensuite ne montre toujours rien, même
+  trou d'UX que la recherche avant ce correctif. Message vide dédié ("Aucun article ne correspond à
+  ce filtre — tout est sous contrôle") plutôt que le message générique de recherche vide.
 
 **Fichiers** : `backend/src/features/inventory/inventory-live-init.cron.ts` (nouveau),
 `inventory.service.ts::resolveItemKeysByIds`/`autoInitLiveStockFromPreEventInventory` (nouveau),
 `inventory.module.ts` (provider ajouté) ; `logistics.service.ts::getLiveInventory` (`unit` ajouté) ;
-front `utils/liveInventoryRows.js` (nouveau), `components/analyse/panels/LiveInventoryPanel.vue`
-(bouton/dialog/composable retirés, recherche + badge critique ajoutés),
-`components/analyse/AnalyseView.vue` (props `event-id`/`event-name`/`@notify` retirés du binding
-`LiveInventoryPanel`, `onLiveInventoryNotify` supprimé). `composables/useLiveStockInit.js` et son
-test supprimés (dead code, plus aucun appelant). i18n : clés `anLiveInvInit*` retirées, `anLiveInvSearchPlaceholder`/`anLiveInvNoMatch` ajoutées.
+front `utils/liveInventoryRows.js` (nouveau, `buildLiveInventoryRows` + `countGlobalByStatus`),
+`components/analyse/panels/LiveInventoryPanel.vue` (bouton/dialog/composable retirés, recherche +
+toggle alertes + badge critique ajoutés), `components/analyse/AnalyseView.vue` (props
+`event-id`/`event-name`/`@notify` retirés du binding `LiveInventoryPanel`, `onLiveInventoryNotify`
+supprimé). `composables/useLiveStockInit.js` et son test supprimés (dead code, plus aucun appelant).
+i18n : clés `anLiveInvInit*` retirées, `anLiveInvSearchPlaceholder`/`anLiveInvNoMatch`/
+`anLiveInvAlertsToggle`/`anLiveInvNoAlerts` ajoutées.
 
 **Tests** : `inventory-live-init.spec.ts` (4, orchestration isolée — LogisticsService mocké),
 `inventory-live-init.cron.spec.ts` (5, fenêtre temporelle + idempotence + toggle),
 `logistics.service.spec.ts::getLiveInventory` (3, mis à jour pour `unit`),
-`liveInventoryRows.spec.js` (10, jauge/tri/filtre/statut uninitialized).
+`liveInventoryRows.spec.js` (19, jauge/tri/filtre/statut uninitialized/statusFilters séparés warning↔critical/countGlobalByStatus).
 
 ## 16. Panneau de filtres (gauche) — sections sans effet ou trompeuses en Live — ✅ corrigé 2026-08-05
 

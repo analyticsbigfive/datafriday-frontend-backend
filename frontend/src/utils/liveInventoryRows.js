@@ -12,7 +12,7 @@ export const GAUGE_CRITICAL_THRESHOLD = 20;
 
 // Ordre de tri par criticité — les vrais problèmes (critical/warning) remontent
 // en premier ; "uninitialized" (rien à signaler, juste pas encore compté) reste
-// après, "good" en dernier. Même logique côté badge (countCritical ci-dessous).
+// après, "good" en dernier. Même logique côté badge (countByStatus ci-dessous).
 const STATUS_RANK = { critical: 0, warning: 1, uninitialized: 2, good: 3 };
 
 /**
@@ -57,9 +57,19 @@ export function buildLiveInventoryChild(node, label, keySeed) {
   };
 }
 
-/** Nombre d'articles réellement critiques (hors "jamais initialisé", pas un vrai signal) dans un groupe. */
+/**
+ * Nombre d'articles d'un statut donné ('critical' = en rupture, <20% ;
+ * 'warning' = stock bas, 20-50%) dans un groupe. Les deux sont volontairement
+ * DISTINCTS — un article à 0% (rupture réelle) n'est pas "juste" un stock bas,
+ * les confondre sous un seul filtre/badge a induit l'utilisateur en erreur
+ * (retour 2026-08-05 : "pourquoi je vois aussi des ruptures dans stock bas").
+ */
+export function countByStatus(children, status) {
+  return children.reduce((n, c) => n + (c.gaugeStatus === status ? 1 : 0), 0);
+}
+/** @deprecated alias de countByStatus(children, 'critical'), conservé pour compat. */
 export function countCritical(children) {
-  return children.reduce((n, c) => n + (c.gaugeStatus === 'critical' ? 1 : 0), 0);
+  return countByStatus(children, 'critical');
 }
 
 function matchesSearch(label, search) {
@@ -69,15 +79,24 @@ function matchesSearch(label, search) {
 
 /**
  * Arbre Shop→items ou Item→shops à partir de la réponse brute, avec enfants
- * triés par criticité et filtrés par recherche texte (nom d'article ou de shop
- * selon la vue). Un groupe dont tous les enfants sont filtrés disparaît.
+ * triés par criticité, filtrés par recherche texte (nom d'article ou de shop
+ * selon la vue) et, via `statusFilters` (sous-ensemble de ['warning',
+ * 'critical']), réduits aux seuls statuts cochés — gestion des stocks en
+ * urgence : voir tout ce qui a besoin d'attention sans dépendre de connaître
+ * le nom exact d'un article (la recherche texte seule ne répond pas à ce
+ * besoin). "Stock bas" (warning) et "Rupture" (critical) sont deux filtres
+ * INDÉPENDANTS et combinables, jamais fusionnés sous un même bouton. Un
+ * groupe dont tous les enfants sont filtrés disparaît dès qu'un filtre est actif.
  */
-export function buildLiveInventoryRows(inv, view, search = '') {
+export function buildLiveInventoryRows(inv, view, search = '', statusFilters = []) {
   if (!inv) return [];
   const term = (search || '').trim();
+  const hasStatusFilter = Array.isArray(statusFilters) && statusFilters.length > 0;
+  const filterActive = !!term || hasStatusFilter;
 
   const sortAndFilter = (children) => {
-    const filtered = term ? children.filter((c) => matchesSearch(c.label, term)) : children;
+    let filtered = term ? children.filter((c) => matchesSearch(c.label, term)) : children;
+    if (hasStatusFilter) filtered = filtered.filter((c) => statusFilters.includes(c.gaugeStatus));
     return [...filtered].sort((a, b) => STATUS_RANK[a.gaugeStatus] - STATUS_RANK[b.gaugeStatus]);
   };
 
@@ -96,7 +115,21 @@ export function buildLiveInventoryRows(inv, view, search = '') {
     }));
   }
 
-  // En recherche, un groupe filtré à vide (aucun enfant ne matche) disparaît —
-  // sans recherche, tous les groupes restent visibles même à 0 enfant.
-  return term ? groups.filter((g) => g.children.length) : groups;
+  // Un filtre actif (recherche et/ou statut) masque les groupes vidés —
+  // sans filtre, tous les groupes restent visibles même à 0 enfant.
+  return filterActive ? groups.filter((g) => g.children.length) : groups;
+}
+
+/**
+ * Total d'articles d'un statut donné sur TOUT l'espace, indépendamment de la
+ * vue affichée (par shop / par item décrivent les mêmes paires shop×article) —
+ * calculé sur les shops bruts pour compter chaque paire une seule fois. Sert
+ * aux badges globaux de la toolbar (visibles sans rien déplier ni filtrer).
+ */
+export function countGlobalByStatus(inv, status) {
+  if (!inv) return 0;
+  return (inv.shops || []).reduce(
+    (n, s) => n + (s.items || []).filter((it) => buildLiveInventoryChild(it, '', '').gaugeStatus === status).length,
+    0,
+  );
 }

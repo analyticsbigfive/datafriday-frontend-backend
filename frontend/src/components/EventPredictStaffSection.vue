@@ -59,10 +59,6 @@
                   </div>
                   <div class="ep-shop-card-revenue">
                     <span class="ep-revenue-pill">
-                      <span class="ep-revenue-label">{{ t('epsRevenue') }}</span>
-                      <strong>{{ eur(el.predictedRevenue) }}</strong>
-                    </span>
-                    <span class="ep-revenue-pill">
                       <span class="ep-revenue-label">{{ t('epsPredicted') }}</span>
                       <strong>{{ eur(el.predictedCost) }}</strong>
                     </span>

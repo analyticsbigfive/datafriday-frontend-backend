@@ -35,6 +35,32 @@
           :placeholder="t('anLiveInvSearchPlaceholder')"
         >
       </div>
+      <!-- Gestion des stocks en urgence : voir directement ce qui a besoin d'attention
+           partout, sans connaître de nom d'article à l'avance (la recherche seule ne
+           répond pas à ce besoin) et sans déplier chaque shop un par un — cf. retour
+           utilisateur 2026-08-05. Stock bas (warning) et Rupture (critical) sont deux
+           boutons SÉPARÉS, combinables : les confondre sous un même bouton "Stock bas"
+           montrait aussi les articles à 0% et a induit l'utilisateur en erreur. -->
+      <button
+        class="lip-status-toggle lip-status-toggle--warning"
+        :class="{ 'lip-status-toggle--active': lowStockOnly }"
+        :disabled="!lowStockCount"
+        @click="lowStockOnly = !lowStockOnly"
+      >
+        <AlertTriangle :size="13" />
+        {{ t('anLiveInvLowStockToggle') }}
+        <span v-if="lowStockCount" class="lip-status-toggle__count">{{ lowStockCount }}</span>
+      </button>
+      <button
+        class="lip-status-toggle lip-status-toggle--critical"
+        :class="{ 'lip-status-toggle--active': outOfStockOnly }"
+        :disabled="!outOfStockCount"
+        @click="outOfStockOnly = !outOfStockOnly"
+      >
+        <AlertTriangle :size="13" />
+        {{ t('anLiveInvOutOfStockToggle') }}
+        <span v-if="outOfStockCount" class="lip-status-toggle__count">{{ outOfStockCount }}</span>
+      </button>
       <v-spacer />
       <span v-if="lastUpdatedLabel" class="lip-updated">{{ t('anLiveInvUpdated') }} {{ lastUpdatedLabel }}</span>
     </div>
@@ -51,7 +77,7 @@
     <!-- Vide -->
     <div v-else-if="!rows.length" class="lip-empty">
       <div class="lip-empty__icon"><Boxes :size="24" /></div>
-      <p class="lip-empty__text">{{ search ? t('anLiveInvNoMatch') : t('anLiveInvEmpty') }}</p>
+      <p class="lip-empty__text">{{ emptyMessage }}</p>
     </div>
 
     <!-- Arbre -->
@@ -122,7 +148,7 @@
 import { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
-import { buildLiveInventoryRows, countCritical } from '@/utils/liveInventoryRows';
+import { buildLiveInventoryRows, countByStatus, countGlobalByStatus } from '@/utils/liveInventoryRows';
 
 // Rafraîchissement live aligné sur le mode flux d'AnalyseView (11_LIVE.md §5).
 const LIVE_POLL_MS = 15000;
@@ -147,7 +173,9 @@ export default {
       error: '',
       view: 'shop', // 'shop' | 'item'
       search: '',
-      expanded: [], // clés dépliées
+      lowStockOnly: false, // filtre 'warning' (20-50%) — combinable avec outOfStockOnly
+      outOfStockOnly: false, // filtre 'critical' (<20%, rupture réelle) — combinable avec lowStockOnly
+      expanded: [], // clés dépliées manuellement (ignoré tant qu'un filtre est actif, cf. isOpen)
       lastUpdated: null,
       pollTimer: null,
       // Jeton de requête (même pattern que analyse.js::refreshLiveShopSnapshot,
@@ -157,9 +185,31 @@ export default {
     };
   },
   computed: {
+    statusFilters() {
+      const f = [];
+      if (this.lowStockOnly) f.push('warning');
+      if (this.outOfStockOnly) f.push('critical');
+      return f;
+    },
     rows() {
-      const groups = buildLiveInventoryRows(this.inv, this.view, this.search);
-      return groups.map((g) => ({ ...g, criticalCount: countCritical(g.children) }));
+      const groups = buildLiveInventoryRows(this.inv, this.view, this.search, this.statusFilters);
+      return groups.map((g) => ({ ...g, criticalCount: countByStatus(g.children, 'critical') }));
+    },
+    // Totaux sur TOUT l'espace, indépendants de la vue/recherche courante —
+    // visibles sans rien déplier ni filtrer (badges sur les boutons Stock bas/Rupture).
+    lowStockCount() {
+      return countGlobalByStatus(this.inv, 'warning');
+    },
+    outOfStockCount() {
+      return countGlobalByStatus(this.inv, 'critical');
+    },
+    filterActive() {
+      return !!this.search.trim() || this.statusFilters.length > 0;
+    },
+    emptyMessage() {
+      if (this.statusFilters.length) return this.t('anLiveInvNoAlerts');
+      if (this.search.trim()) return this.t('anLiveInvNoMatch');
+      return this.t('anLiveInvEmpty');
     },
     lastUpdatedLabel() {
       if (!this.lastUpdated) return '';
@@ -210,7 +260,10 @@ export default {
       if (i === -1) this.expanded.push(key);
       else this.expanded.splice(i, 1);
     },
-    isOpen(key) { return this.expanded.includes(key); },
+    // Un filtre actif (recherche et/ou alertes) force l'ouverture de tous les groupes
+    // affichés : le but de filtrer est de voir le résultat immédiatement, pas de devoir
+    // encore cliquer pour déplier (cf. retour utilisateur 2026-08-05).
+    isOpen(key) { return this.filterActive || this.expanded.includes(key); },
     formatNumber(v) {
       const n = Number(v);
       return Number.isFinite(n) ? n.toLocaleString('fr-FR') : '0';
@@ -291,6 +344,45 @@ export default {
   width: 100%;
 }
 .lip-search__input::placeholder { color: #9ca3af; }
+
+/* Toggles Stock bas / Rupture — gestion des stocks en urgence (retour utilisateur
+   2026-08-05). Deux boutons DISTINCTS, couleur alignée sur la jauge (warning =
+   orange, critical = rouge) : les fusionner sous un même bouton "Stock bas"
+   montrait aussi les ruptures réelles (0%) et a induit l'utilisateur en erreur. */
+.lip-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 100px;
+  background: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.lip-status-toggle--warning { border-color: #fde68a; color: #b8860b; }
+.lip-status-toggle--critical { border-color: #fecaca; color: #d03b3b; }
+.lip-status-toggle:disabled { color: #9ca3af; border-color: #e5e7eb; cursor: default; opacity: .7; }
+.lip-status-toggle--warning.lip-status-toggle--active { background: #fab219; border-color: #fab219; color: #fff; }
+.lip-status-toggle--critical.lip-status-toggle--active { background: #d03b3b; border-color: #d03b3b; color: #fff; }
+.lip-status-toggle__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 100px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.lip-status-toggle--warning .lip-status-toggle__count { background: rgba(250,178,25,.15); color: #b8860b; }
+.lip-status-toggle--critical .lip-status-toggle__count { background: rgba(208,59,59,.12); color: #d03b3b; }
+.lip-status-toggle--active .lip-status-toggle__count { background: rgba(255,255,255,.25); color: #fff; }
+.lip-status-toggle:disabled .lip-status-toggle__count { background: transparent; color: #9ca3af; }
 
 /* Empty / loading */
 .lip-empty {
@@ -449,6 +541,14 @@ export default {
 .lip--dark .lip-search { background: #0f172a; }
 .lip--dark .lip-search__input { color: #f1f5f9; }
 .lip--dark .lip-search__input::placeholder { color: #64748b; }
+.lip--dark .lip-status-toggle { background: #0f172a; }
+.lip--dark .lip-status-toggle--warning { border-color: rgba(250,178,25,.4); color: #fab219; }
+.lip--dark .lip-status-toggle--critical { border-color: rgba(208,59,59,.4); color: #f87171; }
+.lip--dark .lip-status-toggle:disabled { color: #64748b; border-color: rgba(255,255,255,.08); }
+.lip--dark .lip-status-toggle--warning.lip-status-toggle--active { background: #fab219; border-color: #fab219; color: #1e293b; }
+.lip--dark .lip-status-toggle--critical.lip-status-toggle--active { background: #d03b3b; border-color: #d03b3b; color: #fff; }
+.lip--dark .lip-status-toggle--warning .lip-status-toggle__count { background: rgba(250,178,25,.18); color: #fab219; }
+.lip--dark .lip-status-toggle--critical .lip-status-toggle__count { background: rgba(248,113,113,.18); color: #f87171; }
 .lip--dark .lip-empty__text { color: #94a3b8; }
 .lip--dark .lip-node__head { background: #0f172a; }
 .lip--dark .lip-node__head:hover { background: rgba(255,255,255,.05); }

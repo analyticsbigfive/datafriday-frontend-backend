@@ -598,19 +598,14 @@ export class StaffingService {
     });
 
     const elementIds = Array.from(new Set(lines.map((l) => l.elementId)));
-    const [[elements, perfs], predictedRevenueByElement] = await Promise.all([
-      this.prisma.$transaction([
-        this.prisma.spaceElement.findMany({
-          where: { id: { in: elementIds } },
-          select: { id: true, name: true, type: true },
-        }),
-        this.prisma.elementPerformance.findMany({
-          where: { configId: ctx.configId, elementId: { in: elementIds } },
-        }),
-      ]),
-      // Même source que le calcul (§`generate`) : CA prédictif par PDV pour affichage
-      // à côté du coût staff « Prédit », pas de nouvelle logique métier.
-      this.resolvePredictedRevenueByElement(eventId, tenantId),
+    const [elements, perfs] = await this.prisma.$transaction([
+      this.prisma.spaceElement.findMany({
+        where: { id: { in: elementIds } },
+        select: { id: true, name: true, type: true },
+      }),
+      this.prisma.elementPerformance.findMany({
+        where: { configId: ctx.configId, elementId: { in: elementIds } },
+      }),
     ]);
     const elementById = new Map(elements.map((e) => [e.id, e]));
     const perfByElement = new Map(perfs.map((p) => [p.elementId, p]));
@@ -624,9 +619,6 @@ export class StaffingService {
         elementType: elementById.get(l.elementId)?.type ?? null,
         peakTxParMin: perfByElement.get(l.elementId)?.transactionsPerMinute ?? 0,
         predictedCost: this.calculator.round2(perfByElement.get(l.elementId)?.staffCost ?? 0),
-        predictedRevenue: this.calculator.round2(
-          predictedRevenueByElement.get(l.elementId) ?? perfByElement.get(l.elementId)?.revenue ?? 0,
-        ),
         adjustedCost: 0,
         lines: [],
       };
