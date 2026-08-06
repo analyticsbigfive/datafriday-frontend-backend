@@ -17,9 +17,10 @@ import { Type, Transform } from 'class-transformer';
 import { KitchenType } from '@prisma/client';
 
 /**
- * Valide le blob spacePrices : { [spaceId]: { ttc >= 0, vatRate 0-100 } }
- * ou forme legacy { [spaceId]: number >= 0 }. Historiquement non validé,
+ * Valide le blob spacePrices : { [spaceId]: { ttc, vatRate 0-100 } }
+ * ou forme legacy { [spaceId]: number }. Historiquement non validé,
  * alors qu'il alimente directement SpaceMenuItem.priceTtc/vatRate.
+ * Les prix négatifs (remises/avoirs) sont autorisés — seule la finitude est exigée.
  */
 function IsSpacePricesRecord(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string) {
@@ -33,10 +34,10 @@ function IsSpacePricesRecord(validationOptions?: ValidationOptions) {
           if (value == null) return true;
           if (typeof value !== 'object' || Array.isArray(value)) return false;
           return Object.values(value as Record<string, unknown>).every((v) => {
-            if (typeof v === 'number') return Number.isFinite(v) && v >= 0;
+            if (typeof v === 'number') return Number.isFinite(v);
             if (v && typeof v === 'object') {
               const { ttc, vatRate } = v as { ttc?: unknown; vatRate?: unknown };
-              const ttcOk = typeof ttc === 'number' && Number.isFinite(ttc) && ttc >= 0;
+              const ttcOk = typeof ttc === 'number' && Number.isFinite(ttc);
               const vatOk =
                 vatRate == null ||
                 (typeof vatRate === 'number' && Number.isFinite(vatRate) && vatRate >= 0 && vatRate <= 100);
@@ -46,7 +47,7 @@ function IsSpacePricesRecord(validationOptions?: ValidationOptions) {
           });
         },
         defaultMessage: () =>
-          'spacePrices doit être { [spaceId]: { ttc: number >= 0, vatRate?: 0-100 } } ou { [spaceId]: number >= 0 }',
+          'spacePrices doit être { [spaceId]: { ttc: number, vatRate?: 0-100 } } ou { [spaceId]: number }',
       },
     });
   };
@@ -173,9 +174,9 @@ export class CreateMenuItemDto {
   @Transform(({ value }) => value || undefined)
   displayNameId?: string;
 
-  @ApiProperty({ description: 'Prix de vente de base (TTC brut)' })
+  // Prix négatif autorisé (remises/avoirs) — pas de @Min(0).
+  @ApiProperty({ description: 'Prix de vente de base (TTC brut, négatif autorisé)' })
   @IsNumber()
-  @Min(0)
   @Type(() => Number)
   basePrice: number;
 
