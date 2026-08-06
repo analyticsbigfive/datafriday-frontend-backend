@@ -874,12 +874,16 @@ const CSV_TARGET_FIELDS = [
 const normalizeCsvHeader = (h) =>
   String(h).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
-// Modèle téléchargeable : en-têtes canoniques + exemples (vente multi-lignes, refund)
+// Modèle téléchargeable : les 22 colonnes de CSV_TARGET_FIELDS (mêmes en-têtes
+// canoniques que le backend, cf. CSV_FIELDS dans digifood-csv-import.service.ts),
+// pas seulement le sous-ensemble minimal — exemples couvrant vente multi-lignes,
+// refund, et le chemin alternatif date séparée + total HT/TVA/TTC (sans price_pu/tax_rate).
 const CSV_TEMPLATE = [
-  'order_id,placed_at,location_name,shop_name,item_id,variation_id,item_name,variation,family,quantity,price_pu,tax_rate,external_reference,type',
-  'order_001,2026-07-01T12:00:00Z,Mon Site,Buvette Nord,it_1,var_1,Burger,,Food,2,4500,10.0,Burger,sale',
-  'order_001,2026-07-01T12:00:00Z,Mon Site,Buvette Nord,it_2,var_2,Boisson,50cl,Drink,2,1500,5.5,,sale',
-  'order_002,2026-07-01T14:30:00Z,Mon Site,Buvette Nord,it_3,var_2,Boisson,50cl,Drink,1,1500,5.5,,refund',
+  'order_id,placed_at,placed_at_date,placed_at_time,location_id,location_name,shop_id,shop_name,item_id,variation_id,item_name,variation,family,quantity,price_pu,total_ttc,total_ht,total_tva,tax_rate,external_reference,type,state',
+  'order_001,2026-07-01T12:00:00Z,,,loc_1,Mon Site,shop_1,Buvette Nord,it_1,var_1,Burger,,Food,2,4500,,,,10.0,Burger,sale,',
+  'order_001,2026-07-01T12:00:00Z,,,loc_1,Mon Site,shop_1,Buvette Nord,it_2,var_2,Boisson,50cl,Drink,2,1500,,,,5.5,,sale,',
+  'order_002,2026-07-01T14:30:00Z,,,loc_1,Mon Site,shop_1,Buvette Nord,it_3,var_2,Boisson,50cl,Drink,1,1500,,,,5.5,,refund,',
+  'order_003,,05/07/2026,16:45,loc_1,Mon Site,shop_1,Buvette Nord,it_4,var_4,Frites,,Food,3,,12.00,10.91,1.09,,,sale,',
 ].join('\n')
 
 function toDigifoodCard(instance) {
