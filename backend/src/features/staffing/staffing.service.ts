@@ -798,7 +798,9 @@ export class StaffingService {
     } else if (user && !this.spaceAccess.hasFullAccess(user)) {
       const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
       if (accessible !== 'ALL') {
-        spaceScope = { event: { OR: [{ spaceId: null }, { spaceId: { in: accessible } }] } };
+        // Un event sans spaceId est un artefact de démappage/import (pas un event
+        // « global ») — un utilisateur restreint ne voit que les coûts de ses espaces.
+        spaceScope = { event: { spaceId: { in: accessible } } };
       }
     }
     const lines = await this.prisma.eventStaffLine.findMany({

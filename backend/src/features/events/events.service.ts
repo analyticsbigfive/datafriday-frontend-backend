@@ -21,10 +21,19 @@ export class EventsService {
     private spaceAccess: SpaceAccessService,
   ) {}
 
-  /** Lève 403 si `user` n'a pas accès à l'espace de l'événement (null = événement global, pas de restriction). */
+  /**
+   * Lève 403 si `user` n'a pas accès à l'espace de l'événement. Contrairement aux menu
+   * items/fournisseurs (où l'absence d'espace = catalogue tenant-wide, un vrai choix
+   * métier), un événement sans spaceId est un artefact de démappage/import Weezevent —
+   * pas un événement « global » destiné à tous. Un utilisateur restreint n'y a donc PAS
+   * accès par défaut (seuls les comptes à accès complet peuvent le voir/le remapper).
+   */
   private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceId) return;
+    if (!user) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!spaceId) {
+      throw new ForbiddenException("Cet événement n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
+    }
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
     if (accessible === 'ALL' || accessible.includes(spaceId)) return;
     throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet événement.");
@@ -414,15 +423,17 @@ export class EventsService {
     page = Math.max(1, page);
     limit = Math.min(200, Math.max(1, limit));
     const skip = (page - 1) * limit;
-    // Sans spaceId explicite, un utilisateur restreint à certains espaces ne doit voir que
-    // les événements qui y sont rattachés (+ les événements globaux, sans espace).
+    // Sans spaceId explicite, un utilisateur restreint à certains espaces ne doit voir QUE
+    // les événements qui y sont rattachés — un event sans spaceId est un artefact de
+    // démappage/import Weezevent (spaceName peut rester un libellé figé trompeur), pas un
+    // événement « global » : il reste réservé aux comptes à accès complet (cf. assertSpaceAccess).
     let spaceScope: Prisma.EventWhereInput = {};
     if (spaceId) {
       spaceScope = { spaceId };
     } else if (user && !this.spaceAccess.hasFullAccess(user)) {
       const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
       if (accessible !== 'ALL') {
-        spaceScope = { OR: [{ spaceId: null }, { spaceId: { in: accessible } }] };
+        spaceScope = { spaceId: { in: accessible } };
       }
     }
     const where: Prisma.EventWhereInput = {

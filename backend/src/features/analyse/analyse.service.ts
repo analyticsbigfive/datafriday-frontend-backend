@@ -27,7 +27,9 @@ export class AnalyseService {
     } else if (user && !this.spaceAccess.hasFullAccess(user)) {
       const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
       if (accessible !== 'ALL') {
-        eventSpaceScope = { OR: [{ spaceId: null }, { spaceId: { in: accessible } }] };
+        // Un event sans spaceId est un artefact de démappage/import (pas un event
+        // « global ») — un utilisateur restreint ne doit compter que ceux de ses espaces.
+        eventSpaceScope = { spaceId: { in: accessible } };
         spaceScope = { id: { in: accessible } };
       }
     }
@@ -120,11 +122,11 @@ export class AnalyseService {
     } else if (user && !this.spaceAccess.hasFullAccess(user)) {
       const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
       if (accessible !== 'ALL') {
-        // Un utilisateur restreint ne doit voir que les KPIs des événements de ses
-        // espaces (+ les événements globaux, sans espace).
+        // Un event sans spaceId est un artefact de démappage/import (pas un event
+        // « global ») — un utilisateur restreint ne voit que les KPIs de ses espaces.
         spaceFilter = accessible.length
-          ? Prisma.sql`AND ("spaceId" IS NULL OR "spaceId" IN (${Prisma.join(accessible)}))`
-          : Prisma.sql`AND "spaceId" IS NULL`;
+          ? Prisma.sql`AND "spaceId" IN (${Prisma.join(accessible)})`
+          : Prisma.sql`AND false`;
       }
     }
     const rows = await this.prisma.$queryRaw<Array<{
