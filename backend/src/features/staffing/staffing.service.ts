@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import {
@@ -128,13 +128,23 @@ export class StaffingService {
     private spaceAccess: SpaceAccessService,
   ) {}
 
+  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
+  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceId) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet événement.");
+  }
+
   // ── Contexte événement ─────────────────────────────────────────────────────
 
-  private async getEventContext(eventId: string, tenantId: string): Promise<EventContext> {
+  private async getEventContext(eventId: string, tenantId: string, user?: SpaceScopedUser): Promise<EventContext> {
     const event = await this.prisma.event.findFirst({ where: { id: eventId } });
     if (!event || (event.tenantId && event.tenantId !== tenantId)) {
       throw new NotFoundException(`Événement ${eventId} introuvable`);
     }
+    await this.assertSpaceAccess(event.spaceId, user);
     if (!event.configurationId) {
       throw new BadRequestException("L'événement n'a pas de configuration associée.");
     }
@@ -337,8 +347,8 @@ export class StaffingService {
 
   // ── Génération (POST /events/:eventId/staffing/generate) ──────────────────
 
-  async generate(eventId: string, tenantId: string) {
-    const ctx = await this.getEventContext(eventId, tenantId);
+  async generate(eventId: string, tenantId: string, user?: SpaceScopedUser) {
+    const ctx = await this.getEventContext(eventId, tenantId, user);
     const settings = await this.resolveSettings(ctx.spaceId, tenantId);
     if (settings.goalTpe === null) {
       throw new BadRequestException('Aucun goal TPE configuré (Settings RH) pour cet espace.');
@@ -582,13 +592,13 @@ export class StaffingService {
       });
     }
 
-    return this.getStaffing(eventId, tenantId, globalWarnings);
+    return this.getStaffing(eventId, tenantId, globalWarnings, user);
   }
 
   // ── Lecture groupée (GET /events/:eventId/staffing) ───────────────────────
 
-  async getStaffing(eventId: string, tenantId: string, extraWarnings: StaffingWarning[] = []) {
-    const ctx = await this.getEventContext(eventId, tenantId);
+  async getStaffing(eventId: string, tenantId: string, extraWarnings: StaffingWarning[] = [], user?: SpaceScopedUser) {
+    const ctx = await this.getEventContext(eventId, tenantId, user);
     const settings = await this.resolveSettings(ctx.spaceId, tenantId);
     const warnings: StaffingWarning[] = [...extraWarnings];
 
@@ -697,9 +707,13 @@ export class StaffingService {
 
   // ── Mutations de lignes ────────────────────────────────────────────────────
 
-  async patchLine(id: string, input: any, tenantId: string) {
-    const line = await this.prisma.eventStaffLine.findFirst({ where: { id, tenantId } });
+  async patchLine(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
+    const line = await this.prisma.eventStaffLine.findFirst({
+      where: { id, tenantId },
+      include: { event: { select: { spaceId: true } } },
+    });
     if (!line) throw new NotFoundException(`Ligne de staff ${id} introuvable`);
+    await this.assertSpaceAccess(line.event?.spaceId, user);
     const startTime = input.startTime !== undefined ? new Date(input.startTime) : line.startTime;
     const endTime = input.endTime !== undefined ? new Date(input.endTime) : line.endTime;
     if (endTime <= startTime) {
@@ -723,8 +737,8 @@ export class StaffingService {
     return updated;
   }
 
-  async addLine(eventId: string, input: any, tenantId: string) {
-    const ctx = await this.getEventContext(eventId, tenantId);
+  async addLine(eventId: string, input: any, tenantId: string, user?: SpaceScopedUser) {
+    const ctx = await this.getEventContext(eventId, tenantId, user);
     const element = await this.prisma.spaceElement.findFirst({ where: { id: input.elementId } });
     if (!element) throw new BadRequestException(`PDV ${input.elementId} introuvable`);
     let hourlyRate = input.hourlyRate;
@@ -759,9 +773,13 @@ export class StaffingService {
     });
   }
 
-  async removeLine(id: string, tenantId: string) {
-    const line = await this.prisma.eventStaffLine.findFirst({ where: { id, tenantId } });
+  async removeLine(id: string, tenantId: string, user?: SpaceScopedUser) {
+    const line = await this.prisma.eventStaffLine.findFirst({
+      where: { id, tenantId },
+      include: { event: { select: { spaceId: true } } },
+    });
     if (!line) throw new NotFoundException(`Ligne de staff ${id} introuvable`);
+    await this.assertSpaceAccess(line.event?.spaceId, user);
     if (line.source !== 'MANUAL') {
       throw new BadRequestException(
         'Seules les lignes ajoutées manuellement peuvent être supprimées — décochez la ligne pour l’exclure du coût.',

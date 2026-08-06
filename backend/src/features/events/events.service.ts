@@ -22,7 +22,7 @@ export class EventsService {
   ) {}
 
   /** Lève 403 si `user` n'a pas accès à l'espace de l'événement (null = événement global, pas de restriction). */
-  private async assertSpaceWriteAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
     if (!user || !spaceId) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
@@ -446,18 +446,18 @@ export class EventsService {
     };
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {
     const event = await this.prisma.event.findFirst({
       where: { id, tenantId },
       include: this.includeRelations,
     });
     if (!event) throw new NotFoundException(`Event ${id} not found`);
+    await this.assertSpaceAccess(event.spaceId, user);
     return event;
   }
 
   async update(id: string, tenantId: string, dto: UpdateEventDto, user?: SpaceScopedUser) {
-    const existing = await this.findOne(id, tenantId);
-    await this.assertSpaceWriteAccess(existing.spaceId, user);
+    const existing = await this.findOne(id, tenantId, user);
     // BUG-021 : un changement de date invalide le lien auto/manuel existant (il a été
     // établi pour l'ancienne date) — repasse par relinkForTenantDate sur la nouvelle date
     // plutôt que de garder silencieusement une association qui ne correspond plus.
@@ -525,8 +525,7 @@ export class EventsService {
   }
 
   async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
-    const existing = await this.findOne(id, tenantId);
-    await this.assertSpaceWriteAccess(existing.spaceId, user);
+    await this.findOne(id, tenantId, user);
     return this.prisma.event.delete({ where: { id } });
   }
 
@@ -575,8 +574,8 @@ export class EventsService {
    * Résolution manuelle d'un appariement Event <-> WeezeventEvent laissé ambigu.
    * `weezeventEventId: null` délie explicitement un event déjà lié.
    */
-  async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null) {
-    await this.findOne(id, tenantId);
+  async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null, user?: SpaceScopedUser) {
+    await this.findOne(id, tenantId, user);
 
     if (weezeventEventId !== null) {
       const target = await this.prisma.salesEvent.findFirst({

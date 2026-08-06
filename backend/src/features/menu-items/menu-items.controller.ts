@@ -195,8 +195,9 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /menu-items/${id}/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
+    await this.menuItemsService.findOne(id, tenantId, user);
     await this.menuItemsService.refreshCosts(tenantId, { itemIds: [id] });
-    return this.menuItemsService.findOne(id, tenantId);
+    return this.menuItemsService.findOne(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -265,7 +266,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 404, description: 'Article non trouvé' })
   getRecipe(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id}/recipe - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.getRecipe(id, tenantId);
+    return this.menuItemsService.getRecipe(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -289,7 +290,7 @@ export class MenuItemsController {
     return this.menuItemsService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId, dto?.spaceId, {
       basePrice: dto?.basePrice,
       vatRate: dto?.vatRate,
-    });
+    }, user);
   }
 
   @Get(':id/price-history')
@@ -302,7 +303,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 404, description: 'Article non trouvé' })
   getPriceHistory(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id}/price-history - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.getPriceHistory(id, tenantId);
+    return this.menuItemsService.getPriceHistory(id, tenantId, user);
   }
 
   @Get(':id')
@@ -315,7 +316,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 404, description: 'Article non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.findOne(id, tenantId);
+    return this.menuItemsService.findOne(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -330,7 +331,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/components - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replaceComponents(id, dto.components, tenantId);
+    return this.menuItemsService.replaceComponents(id, dto.components, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -345,7 +346,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replaceIngredients(id, dto.ingredients, tenantId);
+    return this.menuItemsService.replaceIngredients(id, dto.ingredients, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -360,7 +361,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/packagings - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replacePackagings(id, dto.packagings, tenantId);
+    return this.menuItemsService.replacePackagings(id, dto.packagings, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -375,7 +376,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/combo-items - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replaceComboItems(id, dto.comboItems, tenantId);
+    return this.menuItemsService.replaceComboItems(id, dto.comboItems, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')

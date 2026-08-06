@@ -51,11 +51,12 @@ export class MenuItemsService {
 
   /**
    * Lève 403 si `user` n'a pas accès à au moins un des espaces auxquels l'article est
-   * rattaché. Un article sans espace (spaceIds vide, catalogue global) reste modifiable
-   * par quiconque a la permission fonctionnelle — seul le rattachement à un espace précis
-   * restreint l'écriture à ceux qui ont le droit sur CET espace (cf. SpaceAccessService).
+   * rattaché — que ce soit pour le LIRE (findOne et ses dérivés) ou pour le modifier. Un
+   * article sans espace (spaceIds vide, catalogue global) reste visible/modifiable par
+   * quiconque a la permission fonctionnelle — seul le rattachement à un espace précis
+   * restreint l'accès à ceux qui ont le droit sur CET espace (cf. SpaceAccessService).
    */
-  private async assertSpaceWriteAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
+  private async assertSpaceAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
     if (!user || !spaceIds?.length) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
@@ -637,7 +638,7 @@ export class MenuItemsService {
     }
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Fetching menu item ${id} for tenant ${tenantId}`);
     const [item, tenantVatRate] = await Promise.all([
       this.prisma.menuItem.findFirst({
@@ -650,7 +651,9 @@ export class MenuItemsService {
       this.logger.warn(`Menu item ${id} not found for tenant ${tenantId}`);
       throw new NotFoundException(`Menu item with ID ${id} not found`);
     }
-    return this.serializeItem(item, tenantVatRate);
+    const result = this.serializeItem(item, tenantVatRate);
+    await this.assertSpaceAccess(result.spaceIds, user);
+    return result;
   }
 
   // ── Recette / réarmement plats composés ──────────────────────────────────
@@ -662,6 +665,7 @@ export class MenuItemsService {
     components: { include: { component: true } },
     ingredients: { include: { ingredient: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } } },
     packagings: { include: { packaging: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } } },
+    spaceLinks: spaceLinksSelect,
   };
 
   /** Normalise vers 'Yes'/'No' (casse/oui-non/booléen). null/'' restent null. */
@@ -794,13 +798,14 @@ export class MenuItemsService {
     };
   }
 
-  async getRecipe(id: string, tenantId: string) {
+  async getRecipe(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Fetching recipe for menu item ${id} (tenant ${tenantId})`);
     const item = await this.prisma.menuItem.findFirst({
       where: { id, tenantId, deletedAt: null },
       include: this.recipeInclude,
     });
     if (!item) throw new NotFoundException(`Menu item with ID ${id} not found`);
+    await this.assertSpaceAccess(linksToSpaceIds((item as any).spaceLinks), user);
     const { components, supplierIds } = this.buildRecipeComponents(item);
     const suppliers = await this.loadSuppliers(supplierIds, tenantId);
     return { ...this.toRecipeDto(item, components), suppliers };
@@ -827,8 +832,7 @@ export class MenuItemsService {
 
   async update(id: string, dto: UpdateMenuItemDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating menu item ${id} for tenant ${tenantId}`);
-    const existing = await this.findOne(id, tenantId);
-    await this.assertSpaceWriteAccess(existing.spaceIds, user);
+    const existing = await this.findOne(id, tenantId, user);
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -1027,12 +1031,14 @@ export class MenuItemsService {
     weezeventProductId?: string,
     spaceId?: string,
     override?: { basePrice?: number | null; vatRate?: number | null },
+    user?: SpaceScopedUser,
   ) {
     const item = await this.prisma.menuItem.findFirst({
       where: { id: menuItemId, tenantId, deletedAt: null },
-      select: { id: true, basePrice: true, vatRate: true },
+      select: { id: true, basePrice: true, vatRate: true, spaceLinks: spaceLinksSelect },
     });
     if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
+    await this.assertSpaceAccess(linksToSpaceIds(item.spaceLinks), user);
 
     if (spaceId) {
       // L'upsert SpaceMenuItem associe l'item à l'espace si besoin → l'espace doit être au tenant.
@@ -1424,21 +1430,22 @@ export class MenuItemsService {
   }
 
   /** Historique des prix d'un menu item (du plus récent au plus ancien) — courbe d'évolution. */
-  async getPriceHistory(menuItemId: string, tenantId: string) {
+  async getPriceHistory(menuItemId: string, tenantId: string, user?: SpaceScopedUser) {
     const item = await this.prisma.menuItem.findFirst({
       where: { id: menuItemId, tenantId },
-      select: { id: true },
+      select: { id: true, spaceLinks: spaceLinksSelect },
     });
     if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
+    await this.assertSpaceAccess(linksToSpaceIds(item.spaceLinks), user);
     return this.prisma.menuItemPriceHistory.findMany({
       where: { menuItemId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async replaceComponents(menuItemId: string, components: CreateMenuItemDto['components'], tenantId: string) {
+  async replaceComponents(menuItemId: string, components: CreateMenuItemDto['components'], tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Replacing components for menu item ${menuItemId} (tenant ${tenantId})`);
-    await this.findOne(menuItemId, tenantId);
+    await this.findOne(menuItemId, tenantId, user);
     const lines = Array.isArray(components) ? components : [];
 
     try {
@@ -1467,9 +1474,9 @@ export class MenuItemsService {
     }
   }
 
-  async replaceIngredients(menuItemId: string, ingredients: CreateMenuItemDto['ingredients'], tenantId: string) {
+  async replaceIngredients(menuItemId: string, ingredients: CreateMenuItemDto['ingredients'], tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Replacing ingredients for menu item ${menuItemId} (tenant ${tenantId})`);
-    await this.findOne(menuItemId, tenantId);
+    await this.findOne(menuItemId, tenantId, user);
     const lines = Array.isArray(ingredients) ? ingredients : [];
 
     try {
@@ -1498,9 +1505,9 @@ export class MenuItemsService {
     }
   }
 
-  async replacePackagings(menuItemId: string, packagings: CreateMenuItemDto['packagings'], tenantId: string) {
+  async replacePackagings(menuItemId: string, packagings: CreateMenuItemDto['packagings'], tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Replacing packagings for menu item ${menuItemId} (tenant ${tenantId})`);
-    await this.findOne(menuItemId, tenantId);
+    await this.findOne(menuItemId, tenantId, user);
     const lines = Array.isArray(packagings) ? packagings : [];
 
     try {
@@ -1529,9 +1536,9 @@ export class MenuItemsService {
     }
   }
 
-  async replaceComboItems(menuItemId: string, comboItems: CreateMenuItemDto['comboItems'], tenantId: string) {
+  async replaceComboItems(menuItemId: string, comboItems: CreateMenuItemDto['comboItems'], tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Replacing combo items for menu item ${menuItemId} (tenant ${tenantId})`);
-    await this.findOne(menuItemId, tenantId);
+    await this.findOne(menuItemId, tenantId, user);
     const lines = Array.isArray(comboItems) ? comboItems : [];
 
     try {
@@ -1625,8 +1632,7 @@ export class MenuItemsService {
 
   async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Soft-deleting menu item ${id} for tenant ${tenantId}`);
-    const existing = await this.findOne(id, tenantId);
-    await this.assertSpaceWriteAccess(existing.spaceIds, user);
+    await this.findOne(id, tenantId, user);
     try {
       const result = await this.prisma.menuItem.update({ where: { id }, data: { deletedAt: new Date() } });
       // Invariant : un MenuItem soft-deleted ne doit JAMAIS rester référencé par un mapping

@@ -19,11 +19,12 @@ export class SuppliersService {
   ) {}
 
   /**
-   * Lève 403 si `user` n'a accès à aucun des espaces desservis par ce fournisseur (`sites`).
-   * Un fournisseur sans site déclaré (`sites` vide, desservant tout le tenant) reste
-   * modifiable par quiconque a la permission fonctionnelle.
+   * Lève 403 si `user` n'a accès à aucun des espaces desservis par ce fournisseur (`sites`) —
+   * que ce soit pour le LIRE (findOne) ou le modifier. Un fournisseur sans site déclaré
+   * (`sites` vide, desservant tout le tenant) reste visible/modifiable par quiconque a la
+   * permission fonctionnelle.
    */
-  private async assertSpaceWriteAccess(sites: string[] | undefined, user?: SpaceScopedUser) {
+  private async assertSpaceAccess(sites: string[] | undefined, user?: SpaceScopedUser) {
     if (!user || !sites?.length) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
@@ -106,7 +107,7 @@ export class SuppliersService {
     }
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Fetching supplier ${id} for tenant ${tenantId}`);
     const supplier = await this.prisma.supplier.findFirst({
       where: { id, tenantId },
@@ -117,14 +118,14 @@ export class SuppliersService {
       throw new NotFoundException(`Supplier with ID ${id} not found`);
     }
 
+    await this.assertSpaceAccess(supplier.sites, user);
     return supplier;
   }
 
   async update(id: string, updateSupplierDto: UpdateSupplierDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating supplier ${id} for tenant ${tenantId}`);
     // Verify existence
-    const existing = await this.findOne(id, tenantId);
-    await this.assertSpaceWriteAccess(existing.sites, user);
+    await this.findOne(id, tenantId, user);
 
     const updateData: any = {};
     if (updateSupplierDto.name !== undefined) updateData.name = updateSupplierDto.name;
@@ -159,8 +160,7 @@ export class SuppliersService {
   async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Deleting supplier ${id} for tenant ${tenantId}`);
     // Verify existence
-    const existing = await this.findOne(id, tenantId);
-    await this.assertSpaceWriteAccess(existing.sites, user);
+    await this.findOne(id, tenantId, user);
 
     try {
       const result = await this.prisma.supplier.delete({

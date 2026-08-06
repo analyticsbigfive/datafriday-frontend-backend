@@ -69,7 +69,7 @@ export class SuppliersController {
   @ApiResponse({ status: 404, description: 'Fournisseur non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
     this.logger.log(`GET /suppliers/${id} - User: ${user?.id}, Tenant: ${user?.tenantId}`);
-    return this.suppliersService.findOne(id, user.tenantId);
+    return this.suppliersService.findOne(id, user.tenantId, user);
   }
 
   @RequirePermissions('menu.fb.suppliers')

@@ -76,7 +76,7 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Détail de l’événement' })
   @ApiResponse({ status: 404, description: 'Événement non trouvé' })
   findOne(@Req() req, @Param('id') id: string) {
-    return this.eventsService.findOne(id, req.user.tenantId);
+    return this.eventsService.findOne(id, req.user.tenantId, req.user);
   }
 
   @RequirePermissions('menu.events.manage')
@@ -95,7 +95,7 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Lien mis à jour' })
   @ApiResponse({ status: 400, description: 'weezeventEventId ne correspond à aucun WeezeventEvent de ce tenant' })
   resolveWeezeventLink(@Req() req, @Param('id') id: string, @Body() dto: ResolveWeezeventLinkDto) {
-    return this.eventsService.resolveWeezeventLink(id, req.user.tenantId, dto.weezeventEventId);
+    return this.eventsService.resolveWeezeventLink(id, req.user.tenantId, dto.weezeventEventId, req.user);
   }
 
   @RequirePermissions('menu.events.manage')
