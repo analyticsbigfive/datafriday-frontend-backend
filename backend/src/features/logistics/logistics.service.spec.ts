@@ -5,6 +5,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 describe('LogisticsService — readyForSale display logic', () => {
   let service: any;
@@ -46,6 +47,7 @@ describe('LogisticsService — readyForSale display logic', () => {
           },
         },
         { provide: MenuItemPricingService, useValue: mockPricingService },
+        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
       ],
     }).compile();
     service = module.get<LogisticsService>(LogisticsService);

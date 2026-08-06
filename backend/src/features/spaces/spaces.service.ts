@@ -68,6 +68,22 @@ export class SpacesService {
     return ids === 'ALL' ? null : ids;
   }
 
+  /**
+   * Lève 403 si `user` n'a pas accès à cet espace — pour les endpoints qui identifient
+   * l'espace via un id de sous-ressource (configId, elementId…) et échappent donc au
+   * SpaceAccessGuard global (qui ne connaît que les params `spaceId`/`id` déclarés).
+   */
+  private async assertSpaceAccess(
+    spaceId: string | null | undefined,
+    user?: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>,
+  ) {
+    if (!user || !spaceId) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à cet espace.");
+  }
+
   /** Invalidate all space list caches for a tenant (public : réutilisé par BuilderV2Service) */
   async invalidateSpaceCache(tenantId: string, spaceId?: string) {
     const keys = [
@@ -2470,7 +2486,7 @@ export class SpacesService {
    * Get a single configuration by ID
    * Optimized: Uses JSON blob for fast display, normalized tables for queries
    */
-  async getConfiguration(configId: string, tenantId: string) {
+  async getConfiguration(configId: string, tenantId: string, user?: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>) {
     // Fast query - only get config with JSON data
     const config = await this.prisma.config.findFirst({
       where: {
@@ -2501,6 +2517,7 @@ export class SpacesService {
     if (!config) {
       throw new NotFoundException(`Configuration with ID ${configId} not found`);
     }
+    await this.assertSpaceAccess(config.spaceId, user);
 
     const jsonData = config.data as any;
     const rawJsonFloors: any[] = Array.isArray(jsonData?.floors) ? jsonData.floors : [];
@@ -2859,7 +2876,7 @@ export class SpacesService {
   /**
    * Update a SpaceElement (shop) — name, image, type, shopTypes
    */
-  async updateSpaceElement(elementId: string, tenantId: string, dto: { name?: string; image?: string; notes?: string; type?: string; shopTypes?: string[] }) {
+  async updateSpaceElement(elementId: string, tenantId: string, dto: { name?: string; image?: string; notes?: string; type?: string; shopTypes?: string[] }, user?: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>) {
     // Verify the element belongs to this tenant via its floor or forecourt → config → space
     const element = await this.prisma.spaceElement.findFirst({
       where: { id: elementId },
@@ -2879,6 +2896,7 @@ export class SpacesService {
     if (!space || space.tenantId !== tenantId) {
       throw new ForbiddenException(`SpaceElement ${elementId} does not belong to tenant`);
     }
+    await this.assertSpaceAccess(space.id, user);
 
     const image = dto.image !== undefined ? await this.storage.resolveImage(dto.image, 'space-elements') : undefined;
     const updated = await this.prisma.spaceElement.update({
@@ -3165,7 +3183,7 @@ export class SpacesService {
    * résolue par `resolveTargetConfig` — plus de config auto-générée « Weezevent Import »
    * tant qu'une config utilisateur existe.
    */
-  async quickCreateElement(spaceId: string, tenantId: string, dto: { name: string; type?: string }) {
+  async quickCreateElement(spaceId: string, tenantId: string, dto: { name: string; type?: string }, user?: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>) {
     // Lectures pré-vol INDÉPENDANTES → un seul aller-retour réseau (DB distante).
     const [space, config, prefetchedZone, count] = await Promise.all([
       this.prisma.space.findFirst({ where: { id: spaceId, tenantId } }),
@@ -3175,6 +3193,7 @@ export class SpacesService {
       this.prisma.spaceElement.count({ where: { zone: { spaceId, kind: 'FLOOR' as any, level: 0 } } }),
     ]);
     if (!space) throw new NotFoundException('Space not found or access denied');
+    await this.assertSpaceAccess(space.id, user);
 
     // v2 D'ABORD (bug étape 2 : bulk/quick-create invisibles dans builder2) : les
     // créations Data Integration atterrissent TOUJOURS en v2 — zone RDC créée au
