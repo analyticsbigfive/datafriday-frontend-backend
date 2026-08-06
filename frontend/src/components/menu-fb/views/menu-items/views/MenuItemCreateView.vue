@@ -389,14 +389,16 @@
                 <span>{{ t('menuItemCreate.sectionPricePerSpace') }}</span>
               </div>
 
-              <!-- Add price group row (création uniquement) -->
-              <div v-if="!isEditMode" class="mic-price-add-row mb-3">
+              <!-- Add price group row — visible en création ET en édition (BUG : la barre
+                   disparaissait au retour sur un Menu Item existant, `v-if="!isEditMode"`). -->
+              <div class="mic-price-add-row mb-3">
                 <div class="mic-prefix-wrap mic-price-add-row__amount">
                   <span class="mic-prefix-symbol">€</span>
+                  <!-- Pas de :min : les prix négatifs sont autorisés (remises/avoirs).
+                       NumberField n'accepte la saisie du signe « − » que si min est null/<0. -->
                   <NumberField
                     v-model="newPriceAmount"
                     :decimals="2"
-                    :min="0"
                     pad
                     grouping
                     :empty-value="0"
@@ -480,7 +482,7 @@
                   </div>
                 </div>
               </div>
-              <div v-else-if="!isEditMode" class="mic-price-empty mb-3">
+              <div v-else class="mic-price-empty mb-3">
                 Entrez un prix et sélectionnez un ou plusieurs spaces pour l'associer.
               </div>
 
@@ -864,7 +866,9 @@ export default {
       ];
     },
     effectiveBasePrice() {
-      const prices = Object.values(this.form.spacePrices).map(e => this.spTtc(e)).filter(p => p > 0);
+      // Prix négatifs autorisés (remises/avoirs) : on ne filtre que les entrées à 0/vides,
+      // pas les négatives, pour que le prix de base moyen les reflète.
+      const prices = Object.values(this.form.spacePrices).map(e => this.spTtc(e)).filter(p => p !== 0);
       if (prices.length) return prices.reduce((a, b) => a + b, 0) / prices.length;
       return Number(this.form.basePrice) || 0;
     },
@@ -943,7 +947,8 @@ export default {
     },
     addPriceGroup() {
       const price = Number(this.newPriceAmount);
-      if (!(price > 0) || !this.newPriceSpaces.length) return;
+      // Prix négatif autorisé (remise/avoir) : on exige juste un nombre non nul + des spaces.
+      if (!Number.isFinite(price) || price === 0 || !this.newPriceSpaces.length) return;
       const vatRate = this.newPriceVat != null && this.newPriceVat !== '' ? Number(this.newPriceVat) : null;
       const prices = { ...this.form.spacePrices };
       this.newPriceSpaces.forEach(spaceId => { prices[spaceId] = { ttc: price, vatRate }; });

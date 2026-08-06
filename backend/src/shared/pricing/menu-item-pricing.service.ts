@@ -61,7 +61,10 @@ export class MenuItemPricingService {
     let discountTtc = 0;
     if (discountType === 'percent') discountTtc = this.round2((basePrice * discountValue) / 100);
     else if (discountType === 'amount') discountTtc = this.round2(discountValue);
-    discountTtc = Math.min(Math.max(discountTtc, 0), grossTtc); // clamp 0..TTC
+    // Clamp 0..max(TTC,0) : borne haute `Math.max(grossTtc, 0)` pour supporter les prix
+    // NÉGATIFS (remises/avoirs) — sinon un prix négatif sans remise voyait sa remise clampée
+    // à `grossTtc` (négatif), ramenant le net à 0 au lieu de conserver le négatif.
+    discountTtc = Math.min(Math.max(discountTtc, 0), Math.max(grossTtc, 0));
 
     const netTtc = this.round2(grossTtc - discountTtc);
     const netHt = hasVat ? this.round2(netTtc / divisor) : null;
