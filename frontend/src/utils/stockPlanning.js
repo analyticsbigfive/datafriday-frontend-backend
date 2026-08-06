@@ -574,6 +574,63 @@ export function coveredQuantityForPackaging(packaging) {
 }
 
 /**
+ * Taille d'UN colis, dans l'unité de la ligne de stock. Dérivée de
+ * coveredQuantityForPackaging pour hériter de la conversion d'unité d'achat
+ * (purchaseUnitConversion) : lire packagingUnitNumber directement la perdrait.
+ * Renvoie null si le conditionnement ne se résout pas — l'appelant retombe
+ * alors sur un affichage en unités de recette.
+ */
+export function packSizeForPackaging(packaging) {
+  if (!packaging) return null
+  const perPack = coveredQuantityForPackaging({ ...packaging, packedCount: 1 })
+  return perPack > 0 ? perPack : null
+}
+
+/**
+ * Nombre de PAQUETS couvrant une quantité exprimée en unités de recette.
+ * « À déposer » est une action physique : on dépose des colis entiers, jamais
+ * 1,2 sac. L'epsilon absorbe le bruit flottant (1,5 / 0,5 = 2,9999…) qui ferait
+ * sinon monter d'un colis de trop.
+ * Renvoie null si le conditionnement ne se résout pas.
+ */
+export function packCountForQuantity(quantity, packaging) {
+  const packSize = packSizeForPackaging(packaging)
+  if (!packSize) return null
+  // Plancher 0 : sur une quantité nulle, Math.ceil(0 − epsilon) renvoie -0,
+  // qui s'afficherait « -0 paquet » dans la cellule.
+  return Math.max(0, Math.ceil((toNumber(quantity) / packSize) - 1e-9))
+}
+
+/**
+ * Symboles de mesure, invariables au pluriel (« 6 kg », jamais « 6 kgs »). Le
+ * catalogue mélange dans `packagingUnit` des symboles et des contenants nommés
+ * (« bouteille »), qui eux s'accordent.
+ */
+const MEASURE_SYMBOLS = /^(kg|g|mg|t|l|dl|cl|ml|cc|m|cm|mm|oz|lb|pcs?|u)$/i
+
+export function isMeasureSymbol(unit) {
+  const text = String(unit || '').trim()
+  if (!text) return true
+  return MEASURE_SYMBOLS.test(text)
+}
+
+/**
+ * Accord en nombre d'un libellé de conditionnement saisi au singulier dans le
+ * catalogue (« Carton » → « Cartons »). Le -s couvre le cas courant ; les
+ * libellés déjà au pluriel ou invariables (-s/-x/-z), les pluriels irréguliers
+ * du français (-al/-ail) et les symboles de mesure sont laissés tels quels
+ * plutôt que fabriquer un faux pluriel sur un mot venu de la fiche produit.
+ */
+export function pluralizePackLabel(label, count) {
+  const text = String(label || '').trim()
+  if (!text || Math.abs(toNumber(count)) < 2) return text
+  if (/[sxz]$/i.test(text)) return text
+  if (/(al|ail)$/i.test(text)) return text
+  if (isMeasureSymbol(text)) return text
+  return `${text}s`
+}
+
+/**
  * BUG-296-01 — décomposition d'une ligne de réarmement (grain shop × article).
  * `restockQuantity` est la quantité DÉJÀ arrondie en colis entiers (sortie de
  * coveredQuantityForPackaging) : aucun arrondi n'est refait ici.
