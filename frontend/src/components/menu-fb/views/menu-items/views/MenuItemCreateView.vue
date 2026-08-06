@@ -557,6 +557,15 @@
                 <button class="mic-footer-btn mic-footer-btn--ghost" @click="onCancel">
                   {{ hasUnsavedChanges ? t('menuItemCreate.cancel') : t('menuItemCreate.close') }}
                 </button>
+                <button
+                  v-if="isEditMode"
+                  class="mic-footer-btn mic-footer-btn--dup"
+                  :disabled="duplicating || saving"
+                  @click="onDuplicate"
+                >
+                  <Copy :size="15" />
+                  <span>{{ duplicating ? '…' : t('menuItemDuplicate') }}</span>
+                </button>
                 <button class="mic-footer-btn mic-footer-btn--save" @click="onCreate" :disabled="saving">
                   <Save :size="15" />
                   <span v-if="saving">...</span>
@@ -641,8 +650,9 @@ import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from "@/composables/useFormatters.js";
 import NumberField from "@/components/common/NumberField.vue";
-import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil } from "lucide-vue-next";
+import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
+import { duplicateMenuItemById } from "@/composables/useMenuItemDuplicate";
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
 import PackagingPickerDrawer from '../drawers/PackagingPickerDrawer.vue';
@@ -655,7 +665,7 @@ import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -668,6 +678,7 @@ export default {
       menuItemId: null,
       loading: false,
       saving: false,
+      duplicating: false,
       savedSnapshot: null,
       saveError: null,
       saveSuccess: null,
@@ -767,6 +778,18 @@ export default {
       await this.loadMenuItemData();
     }
     this.$nextTick(() => this.takeSnapshot());
+  },
+  watch: {
+    // La route /edit/:id réutilise ce même composant : après duplication on navigue vers
+    // /edit/<nouvelId> — sans ce watch, mounted() ne se rejoue pas et la fiche resterait
+    // sur l'ancien item. On recharge donc la fiche au changement d'id.
+    '$route.params.id'(newId) {
+      if (newId && newId !== this.menuItemId) {
+        this.isEditMode = true;
+        this.menuItemId = newId;
+        this.loadMenuItemData().then(() => this.$nextTick(() => this.takeSnapshot()));
+      }
+    },
   },
   computed: {
     // CFG-2 : Storage Type est un référentiel CRUD-éditable (Configurations, store
@@ -1157,6 +1180,36 @@ export default {
         this.saveError = e?.response?.data?.message || e?.message || this.t('menuItemCreate.errorGeneric');
       } finally {
         this.saving = false;
+      }
+    },
+    // Duplique la fiche courante (par id, données serveur). Les modifs non enregistrées ne
+    // sont pas incluses → on prévient d'abord. Redirige vers l'édition de la copie.
+    async onDuplicate() {
+      if (!this.menuItemId || this.duplicating || this.saving) return;
+      if (this.hasUnsavedChanges) {
+        const ok = await confirmDialog({
+          title: this.t('menuItemDuplicateUnsavedTitle'),
+          message: this.t('menuItemDuplicateUnsavedMessage'),
+          confirmText: this.t('menuItemDuplicateConfirm'),
+          cancelText: this.t('cancel'),
+        });
+        if (!ok) return;
+      }
+      this.duplicating = true;
+      this.saveError = null;
+      try {
+        const created = await duplicateMenuItemById(this.menuItemId, { suffix: this.t('menuItemCopySuffix') });
+        const newId = created?.id || created?._id || created?.data?.id;
+        await this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+        if (newId) {
+          this.$router.push({ path: `/menu-fb/menu-items/edit/${newId}` });
+        } else {
+          this.$router.push({ path: '/menu-fb/menu-items' });
+        }
+      } catch (e) {
+        this.saveError = e?.response?.data?.message || e?.message || this.t('menuItemDuplicateFailed');
+      } finally {
+        this.duplicating = false;
       }
     },
     onEditItem(item) {
@@ -1708,6 +1761,18 @@ export default {
   border-color: #9ca3af;
   color: #374151;
 }
+
+.mic-footer-btn--dup {
+  background: transparent;
+  border: 1.5px solid #d1d5db;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+.mic-footer-btn--dup:hover:not(:disabled) {
+  border-color: #ff3131;
+  color: #ff3131;
+}
+.mic-footer-btn--dup:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .mic-footer-btn--save {
   flex: 1;

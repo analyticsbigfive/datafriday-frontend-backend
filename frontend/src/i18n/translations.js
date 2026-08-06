@@ -5,6 +5,13 @@
 
 export const translations = {
   en: {
+    // Menu item duplication
+    menuItemDuplicate: 'Duplicate',
+    menuItemCopySuffix: ' (copy)',
+    menuItemDuplicateUnsavedTitle: 'Unsaved changes',
+    menuItemDuplicateUnsavedMessage: 'Unsaved changes will not be included in the copy. Continue?',
+    menuItemDuplicateConfirm: 'Duplicate',
+    menuItemDuplicateFailed: 'Duplication failed',
     // Login page (hero + form)
     loginTagline: "It's the weekend already!",
     loginHeroTitle: 'Take control of your',
@@ -4286,6 +4293,13 @@ export const translations = {
   },
 
   fr: {
+    // Menu item duplication
+    menuItemDuplicate: 'Dupliquer',
+    menuItemCopySuffix: ' (copie)',
+    menuItemDuplicateUnsavedTitle: 'Modifications non enregistrées',
+    menuItemDuplicateUnsavedMessage: 'Les modifications non enregistrées ne seront pas incluses dans la copie. Continuer ?',
+    menuItemDuplicateConfirm: 'Dupliquer',
+    menuItemDuplicateFailed: 'Échec de la duplication',
     // Login page (hero + form)
     loginTagline: 'vous êtes déjà en Weekend !',
     loginHeroTitle: 'Prenez le contrôle de votre',
