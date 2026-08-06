@@ -299,6 +299,14 @@
               <div class="mil-tbl-abtn mil-tbl-abtn--edit" @click="onEditItem(item)">
                 <Pencil :size="15" />
               </div>
+              <div
+                class="mil-tbl-abtn mil-tbl-abtn--dup"
+                :class="{ 'mil-tbl-abtn--busy': duplicatingId === (item.menuItemId || item.id) }"
+                :title="t('menuItemDuplicate')"
+                @click="onDuplicateItem(item)"
+              >
+                <Copy :size="15" />
+              </div>
               <div class="mil-tbl-abtn mil-tbl-abtn--del" @click="onDeleteItem(item)">
                 <Trash2 :size="15" />
               </div>
@@ -389,6 +397,16 @@
                     <Pencil :size="16" class="mr-2" />
                     {{ t('menuItemLib.edit') }}
                   </v-btn>
+                  <v-btn
+                    variant="tonal"
+                    icon
+                    rounded="lg"
+                    :loading="duplicatingId === (item.menuItemId || item.id)"
+                    :title="t('menuItemDuplicate')"
+                    @click="onDuplicateItem(item)"
+                  >
+                    <Copy :size="16" />
+                  </v-btn>
                   <v-btn variant="tonal" color="error" icon rounded="lg" @click="onDeleteItem(item)">
                     <Trash2 :size="16" />
                   </v-btn>
@@ -470,6 +488,7 @@ import { VDataTable, VDataTableServer } from "vuetify/components/VDataTable";
 import { useI18n } from "@/i18n/useI18n";
 import { formatCurrency, formatCurrencyDetailed } from "@/composables/useFormatters";
 import { refreshMenuItemsCosts, deleteMenuItem, getMenuItemsPage } from "@/api/endpoints/menu-item.api";
+import { duplicateMenuItemById } from "@/composables/useMenuItemDuplicate";
 import { getProductMappings, deleteProductMapping } from "@/api/endpoints/mapping.api";
 import MenuItemDeleteDialog from '../dialogs/MenuItemDeleteDialog.vue';
 import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
@@ -478,6 +497,7 @@ import RecipeImportDrawer from '../drawers/RecipeImportDrawer.vue';
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   Download,
   ImageOff,
   LayoutGrid,
@@ -497,6 +517,7 @@ export default {
   components: {
     ChevronDown,
     ChevronRight,
+    Copy,
     Download,
     ImageOff,
     LayoutGrid,
@@ -524,6 +545,7 @@ export default {
     return {
       viewMode: "table",
       refreshing: false,
+      duplicatingId: null,
       searchQuery: "",
       spaceFilter: "All Spaces",
       typeFilter: "All Types",
@@ -1029,6 +1051,20 @@ export default {
       if (!id) return;
       this.$router.push({ path: `/menu-fb/menu-items/edit/${id}` });
     },
+    // Duplication (approche frontend) : relit l'item complet et POST une copie « (copie) ».
+    async onDuplicateItem(item) {
+      const id = item?.menuItemId || item?.id;
+      if (!id || this.duplicatingId) return;
+      this.duplicatingId = id;
+      try {
+        await duplicateMenuItemById(id, { suffix: this.t('menuItemCopySuffix') });
+        await this.$store.dispatch('menuItems/fetchMenuItems', { forceRefresh: true });
+      } catch (e) {
+        alert(e?.response?.data?.message || e?.userMessage || e?.message || this.t('menuItemDuplicateFailed'));
+      } finally {
+        this.duplicatingId = null;
+      }
+    },
     onDeleteItem(item) {
       this.deleteTarget = item || null;
       this.deleteError = "";
@@ -1389,6 +1425,8 @@ export default {
 .mil--dark .mil-tbl-abtn { background: #1f2937; color: #cbd5e1; }
 .mil--dark .mil-tbl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
 .mil--dark .mil-tbl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
+.mil--dark .mil-tbl-abtn--dup { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.mil--dark .mil-tbl-abtn--dup:hover { background: rgba(255,255,255,.14); color: #e2e8f0; }
 
 .mil--dark .group-header-row {
   background: #1e293b !important;
@@ -1603,6 +1641,9 @@ export default {
 .mil-tbl-abtn--edit:hover { background: #dbeafe; }
 .mil-tbl-abtn--del { background: #fef2f2; color: #ff3131; }
 .mil-tbl-abtn--del:hover { background: #fee2e2; }
+.mil-tbl-abtn--dup { background: #f3f4f6; color: #6b7280; }
+.mil-tbl-abtn--dup:hover { background: #e5e7eb; color: #374151; }
+.mil-tbl-abtn--busy { opacity: .5; pointer-events: none; }
 
 /* Animations */
 @keyframes fadeIn {

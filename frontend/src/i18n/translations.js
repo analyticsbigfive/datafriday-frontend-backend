@@ -5,6 +5,13 @@
 
 export const translations = {
   en: {
+    // Menu item duplication
+    menuItemDuplicate: 'Duplicate',
+    menuItemCopySuffix: ' (copy)',
+    menuItemDuplicateUnsavedTitle: 'Unsaved changes',
+    menuItemDuplicateUnsavedMessage: 'Unsaved changes will not be included in the copy. Continue?',
+    menuItemDuplicateConfirm: 'Duplicate',
+    menuItemDuplicateFailed: 'Duplication failed',
     // Login page (hero + form)
     loginTagline: "It's the weekend already!",
     loginHeroTitle: 'Take control of your',
@@ -938,6 +945,12 @@ export const translations = {
     menuItemCreateCompSubtitle: 'Choose components from the Components Library to add to your menu item',
     menuItemCreateCompSearchPlaceholder: 'Search components...',
     menuItemCreateCompAddBtn: 'Add Selected',
+    menuItemCreateComboTitle: 'Select Combo Items',
+    menuItemCreateComboSubtitle: 'Choose menu items to include as combo items',
+    menuItemCreateComboSearchPlaceholder: 'Search menu items...',
+    menuItemCreateComboAddBtn: 'Add Selected',
+    menuItemCreateComboNoData: 'No menu items found',
+    menuItemCreateComboPillAll: 'All',
     menuItemCreatePkgTitle: 'Select Packaging',
     menuItemCreatePkgSubtitle: 'Choose packaging items from the Market Price List',
     menuItemCreatePkgSearchPlaceholder: 'Search packaging...',
@@ -4286,6 +4299,13 @@ export const translations = {
   },
 
   fr: {
+    // Menu item duplication
+    menuItemDuplicate: 'Dupliquer',
+    menuItemCopySuffix: ' (copie)',
+    menuItemDuplicateUnsavedTitle: 'Modifications non enregistrées',
+    menuItemDuplicateUnsavedMessage: 'Les modifications non enregistrées ne seront pas incluses dans la copie. Continuer ?',
+    menuItemDuplicateConfirm: 'Dupliquer',
+    menuItemDuplicateFailed: 'Échec de la duplication',
     // Login page (hero + form)
     loginTagline: 'vous êtes déjà en Weekend !',
     loginHeroTitle: 'Prenez le contrôle de votre',
@@ -5219,6 +5239,12 @@ export const translations = {
     menuItemCreateCompSubtitle: 'Choisissez des composants dans la bibliothèque de composants',
     menuItemCreateCompSearchPlaceholder: 'Rechercher des composants...',
     menuItemCreateCompAddBtn: 'Ajouter la sélection',
+    menuItemCreateComboTitle: 'Sélectionner des combos',
+    menuItemCreateComboSubtitle: 'Choisissez des menu items à inclure comme combos',
+    menuItemCreateComboSearchPlaceholder: 'Rechercher des menu items...',
+    menuItemCreateComboAddBtn: 'Ajouter la sélection',
+    menuItemCreateComboNoData: 'Aucun menu item trouvé',
+    menuItemCreateComboPillAll: 'Tous',
     menuItemCreatePkgTitle: 'Sélectionner les emballages',
     menuItemCreatePkgSubtitle: 'Choisissez des emballages dans la liste des prix du marché',
     menuItemCreatePkgSearchPlaceholder: 'Rechercher des emballages...',
