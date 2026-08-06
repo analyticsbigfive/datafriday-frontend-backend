@@ -16,12 +16,16 @@ export class MarketPricesService {
 
   /**
    * Lève 403 si `user` n'a accès à aucun des espaces desservis par le fournisseur du prix
-   * (`Supplier.sites`). Un prix sans fournisseur lié, ou dont le fournisseur ne déclare aucun
-   * site (portée tenant), reste visible/modifiable par quiconque a la permission fonctionnelle.
+   * (`Supplier.sites`). Un prix SANS fournisseur lié, ou dont le fournisseur ne déclare
+   * aucun site, ne dessert aucun espace accessible par construction : réservé aux comptes à
+   * accès complet (owner/super-admin/allSpacesAccess).
    */
   private async assertSpaceAccess(sites: string[] | undefined | null, user?: SpaceScopedUser) {
-    if (!user || !sites?.length) return;
+    if (!user) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!sites?.length) {
+      throw new ForbiddenException("Ce prix n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
+    }
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
     if (accessible === 'ALL') return;
     if (sites.some((sid) => accessible.includes(sid))) return;
@@ -29,17 +33,14 @@ export class MarketPricesService {
   }
 
   /** Filtre Prisma à ajouter au `where` d'une liste : restreint aux prix dont le fournisseur
-   * dessert un espace accessible (ou n'a pas de fournisseur / fournisseur sans site déclaré). */
+   * dessert un espace accessible. Un prix sans fournisseur, ou dont le fournisseur ne
+   * déclare aucun site, ne dessert aucun espace accessible par construction. */
   private async spaceScopeFilter(user?: SpaceScopedUser): Promise<any> {
     if (!user || this.spaceAccess.hasFullAccess(user)) return {};
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
     if (accessible === 'ALL') return {};
     return {
-      OR: [
-        { supplierId: null },
-        { supplierRel: { sites: { isEmpty: true } } },
-        { supplierRel: { sites: { hasSome: accessible } } },
-      ],
+      supplierRel: { sites: { hasSome: accessible } },
     };
   }
 

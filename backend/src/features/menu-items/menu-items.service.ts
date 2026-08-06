@@ -52,13 +52,16 @@ export class MenuItemsService {
   /**
    * Lève 403 si `user` n'a pas accès à au moins un des espaces auxquels l'article est
    * rattaché — que ce soit pour le LIRE (findOne et ses dérivés) ou pour le modifier. Un
-   * article sans espace (spaceIds vide, catalogue global) reste visible/modifiable par
-   * quiconque a la permission fonctionnelle — seul le rattachement à un espace précis
-   * restreint l'accès à ceux qui ont le droit sur CET espace (cf. SpaceAccessService).
+   * article SANS espace n'est rattaché à aucun espace accessible par construction : il
+   * n'est visible/modifiable que par les comptes à accès complet (owner/super-admin/
+   * allSpacesAccess) — pas de « catalogue global » implicite pour un utilisateur restreint.
    */
   private async assertSpaceAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceIds?.length) return;
+    if (!user) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!spaceIds?.length) {
+      throw new ForbiddenException("Cet article n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
+    }
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
     if (accessible === 'ALL') return;
     const allowed = spaceIds.some((sid) => accessible.includes(sid));
@@ -606,10 +609,9 @@ export class MenuItemsService {
         if (spaceId) {
           where.spaceLinks = { some: { spaceId } };
         } else if (accessibleSpaceIds !== 'ALL') {
-          where.OR = [
-            { spaceLinks: { none: {} } },
-            { spaceLinks: { some: { spaceId: { in: accessibleSpaceIds } } } },
-          ];
+          // Un article sans espace n'est pas un « catalogue global » : il reste invisible
+          // à un utilisateur restreint, comme un article d'un espace non accessible.
+          where.spaceLinks = { some: { spaceId: { in: accessibleSpaceIds } } };
         }
         if (search) where.name = { contains: search, mode: 'insensitive' };
         if (typeId) where.typeId = typeId;

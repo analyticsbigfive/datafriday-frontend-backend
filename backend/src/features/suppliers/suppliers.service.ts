@@ -20,13 +20,16 @@ export class SuppliersService {
 
   /**
    * Lève 403 si `user` n'a accès à aucun des espaces desservis par ce fournisseur (`sites`) —
-   * que ce soit pour le LIRE (findOne) ou le modifier. Un fournisseur sans site déclaré
-   * (`sites` vide, desservant tout le tenant) reste visible/modifiable par quiconque a la
-   * permission fonctionnelle.
+   * que ce soit pour le LIRE (findOne) ou le modifier. Un fournisseur SANS site déclaré ne
+   * dessert aucun espace accessible par construction : il n'est visible/modifiable que par
+   * les comptes à accès complet (owner/super-admin/allSpacesAccess).
    */
   private async assertSpaceAccess(sites: string[] | undefined, user?: SpaceScopedUser) {
-    if (!user || !sites?.length) return;
+    if (!user) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!sites?.length) {
+      throw new ForbiddenException("Ce fournisseur ne dessert aucun espace — réservé aux comptes à accès complet.");
+    }
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
     if (accessible === 'ALL') return;
     const allowed = sites.some((sid) => accessible.includes(sid));
@@ -78,13 +81,13 @@ export class SuppliersService {
     try {
       const skip = (page - 1) * limit;
       // Un utilisateur restreint à certains espaces ne doit voir que les fournisseurs qui y
-      // sont déclarés (+ les fournisseurs sans site déclaré, desservant tout le tenant) —
-      // jamais la liste entière du tenant, y compris les espaces auxquels il n'a pas droit.
+      // sont déclarés — un fournisseur sans site déclaré ne dessert aucun espace accessible
+      // par construction, jamais « tout le tenant » pour un compte restreint.
       const where: any = { tenantId };
       if (user && !this.spaceAccess.hasFullAccess(user)) {
         const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
         if (accessible !== 'ALL') {
-          where.OR = [{ sites: { isEmpty: true } }, { sites: { hasSome: accessible } }];
+          where.sites = { hasSome: accessible };
         }
       }
       const [suppliers, total] = await this.prisma.$transaction([

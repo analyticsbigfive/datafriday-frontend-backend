@@ -27,10 +27,17 @@ export const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as cons
 export class HrService {
   constructor(private prisma: PrismaService, private spaceAccess: SpaceAccessService) {}
 
-  /** Lève 403 si `user` n'a accès à aucun des espaces listés (tableau vide = portée tenant, pas de restriction). */
+  /**
+   * Lève 403 si `user` n'a accès à aucun des espaces listés. Une ressource SANS espace
+   * déclaré ne dessert aucun espace accessible par construction : réservée aux comptes à
+   * accès complet (owner/super-admin/allSpacesAccess), jamais « portée tenant » implicite.
+   */
   private async assertSpaceWriteAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceIds?.length) return;
+    if (!user) return;
     if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!spaceIds?.length) {
+      throw new ForbiddenException("Cette ressource ne dessert aucun espace — réservée aux comptes à accès complet.");
+    }
     const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
     if (accessible === 'ALL') return;
     const allowed = spaceIds.some((sid) => accessible.includes(sid));
@@ -132,12 +139,13 @@ export class HrService {
 
   async findAllSuppliers(tenantId: string, user?: SpaceScopedUser) {
     // Un utilisateur restreint à certains espaces ne doit voir que les fournisseurs RH qui y
-    // sont déclarés (+ ceux sans espace déclaré, desservant tout le tenant).
+    // sont déclarés — un fournisseur sans espace déclaré ne dessert aucun espace accessible
+    // par construction, jamais « tout le tenant » pour un compte restreint.
     const where: any = { tenantId };
     if (user && !this.spaceAccess.hasFullAccess(user)) {
       const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
       if (accessible !== 'ALL') {
-        where.OR = [{ spaceIds: { isEmpty: true } }, { spaceIds: { hasSome: accessible } }];
+        where.spaceIds = { hasSome: accessible };
       }
     }
     const rows = await this.prisma.hrSupplier.findMany({
