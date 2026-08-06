@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 /**
  * RH staffing — fournisseurs (agences), rôles métier (« positions ») et
@@ -21,7 +25,19 @@ export const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as cons
 
 @Injectable()
 export class HrService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private spaceAccess: SpaceAccessService) {}
+
+  /** Lève 403 si `user` n'a accès à aucun des espaces listés (tableau vide = portée tenant, pas de restriction). */
+  private async assertSpaceWriteAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceIds?.length) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL') return;
+    const allowed = spaceIds.some((sid) => accessible.includes(sid));
+    if (!allowed) {
+      throw new ForbiddenException("Vous n'avez pas accès à l'espace de cette ressource.");
+    }
+  }
 
   // ── Mapping ────────────────────────────────────────────────────────────────
 
@@ -114,9 +130,18 @@ export class HrService {
     });
   }
 
-  async findAllSuppliers(tenantId: string) {
+  async findAllSuppliers(tenantId: string, user?: SpaceScopedUser) {
+    // Un utilisateur restreint à certains espaces ne doit voir que les fournisseurs RH qui y
+    // sont déclarés (+ ceux sans espace déclaré, desservant tout le tenant).
+    const where: any = { tenantId };
+    if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') {
+        where.OR = [{ spaceIds: { isEmpty: true } }, { spaceIds: { hasSome: accessible } }];
+      }
+    }
     const rows = await this.prisma.hrSupplier.findMany({
-      where: { tenantId },
+      where,
       orderBy: { name: 'asc' },
     });
     return { data: rows.map((s) => this.mapSupplier(s)) };
@@ -157,9 +182,10 @@ export class HrService {
     }
   }
 
-  async updateSupplier(id: string, input: any, tenantId: string) {
+  async updateSupplier(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrSupplier.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSupplier ${id} introuvable`);
+    await this.assertSpaceWriteAccess(existing.spaceIds, user);
     const departments = await this.normalizeSupplierDepartments(input.departments);
     try {
       const row = await this.prisma.hrSupplier.update({
@@ -183,9 +209,10 @@ export class HrService {
     }
   }
 
-  async removeSupplier(id: string, tenantId: string) {
+  async removeSupplier(id: string, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrSupplier.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSupplier ${id} introuvable`);
+    await this.assertSpaceWriteAccess(existing.spaceIds, user);
     await this.prisma.hrSupplier.delete({ where: { id } }); // cascade jointures
     return { deleted: true };
   }
@@ -471,9 +498,16 @@ export class HrService {
     };
   }
 
-  async findAllRoleMenuItemRatios(tenantId: string, filter: { spaceId?: string } = {}) {
+  async findAllRoleMenuItemRatios(tenantId: string, filter: { spaceId?: string } = {}, user?: SpaceScopedUser) {
+    const where: any = { tenantId };
+    if (filter.spaceId) {
+      where.spaceId = filter.spaceId;
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') where.spaceId = { in: accessible };
+    }
     const rows = await this.prisma.hrRoleMenuItemRatio.findMany({
-      where: { tenantId, ...(filter.spaceId && { spaceId: filter.spaceId }) },
+      where,
       orderBy: { createdAt: 'asc' },
     });
     return { data: rows.map((r) => this.mapRoleMenuItemRatio(r)) };
@@ -542,9 +576,10 @@ export class HrService {
     return this.mapRoleMenuItemRatio(row);
   }
 
-  async updateRoleMenuItemRatio(id: string, input: any, tenantId: string) {
+  async updateRoleMenuItemRatio(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
+    await this.assertSpaceWriteAccess([existing.spaceId], user);
     const n = await this.assertValidRoleMenuItemRatio(input, tenantId, existing);
     const row = await this.prisma.hrRoleMenuItemRatio.update({
       where: { id },
@@ -559,9 +594,10 @@ export class HrService {
     return this.mapRoleMenuItemRatio(row);
   }
 
-  async removeRoleMenuItemRatio(id: string, tenantId: string) {
+  async removeRoleMenuItemRatio(id: string, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
+    await this.assertSpaceWriteAccess([existing.spaceId], user);
     await this.prisma.hrRoleMenuItemRatio.delete({ where: { id } });
     return { deleted: true };
   }

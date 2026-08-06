@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -7,6 +7,10 @@ import { linksToSpaceIds, linksToSpacePrices, spaceLinksSelect } from '../../sha
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 // Mapping des valeurs diet frontend → enum Diet Prisma
 function mapDiet(diet: string[]): string[] {
@@ -38,10 +42,28 @@ export class MenuItemsService {
     private redis: RedisService,
     private pricing: MenuItemPricingService,
     private storage: SupabaseStorageService,
+    private spaceAccess: SpaceAccessService,
   ) {}
 
   private cacheKey(tenantId: string, suffix = 'list') {
     return `menu-items:${tenantId}:${suffix}`;
+  }
+
+  /**
+   * Lève 403 si `user` n'a pas accès à au moins un des espaces auxquels l'article est
+   * rattaché. Un article sans espace (spaceIds vide, catalogue global) reste modifiable
+   * par quiconque a la permission fonctionnelle — seul le rattachement à un espace précis
+   * restreint l'écriture à ceux qui ont le droit sur CET espace (cf. SpaceAccessService).
+   */
+  private async assertSpaceWriteAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceIds?.length) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL') return;
+    const allowed = spaceIds.some((sid) => accessible.includes(sid));
+    if (!allowed) {
+      throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet article.");
+    }
   }
 
   private async invalidateCache(tenantId: string) {
@@ -549,16 +571,30 @@ export class MenuItemsService {
     limit = 100,
     spaceId?: string,
     filters?: { search?: string; typeId?: string; categoryId?: string; readyForSale?: string },
+    user?: SpaceScopedUser,
   ) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const { search, typeId, categoryId, readyForSale } = filters || {};
+
+    // Sans spaceId explicite (ex. sélecteur front resté sur "Tous les espaces"), un
+    // utilisateur restreint à certains espaces ne doit voir que les articles qui y sont
+    // rattachés (+ les articles globaux, non rattachés à aucun espace) — jamais le
+    // catalogue entier du tenant, y compris les espaces auxquels il n'a pas droit.
+    const accessibleSpaceIds: 'ALL' | string[] =
+      !spaceId && user ? await this.spaceAccess.getAccessibleSpaceIds(user) : 'ALL';
+    const scopeKey = spaceId
+      ? spaceId
+      : accessibleSpaceIds === 'ALL'
+        ? 'all'
+        : `restricted:${[...accessibleSpaceIds].sort().join(',')}`;
+
     this.logger.log(
       `Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'}, search=${search ?? ''}, typeId=${typeId ?? ''}, categoryId=${categoryId ?? ''}, readyForSale=${readyForSale ?? ''})`,
     );
     try {
       const cacheKey = this.cacheKey(
         tenantId,
-        `list:${page}:${safeLimit}:${spaceId ?? 'all'}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${readyForSale ?? ''}`,
+        `list:${page}:${safeLimit}:${scopeKey}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${readyForSale ?? ''}`,
       );
       return this.redis.getOrSet(cacheKey, async () => {
         const skip = (page - 1) * safeLimit;
@@ -566,7 +602,14 @@ export class MenuItemsService {
         // le catalogue tenant quand seul un espace nous intéresse (cf. /space-menus qui
         // paginait sur l'intégralité des menu items avant de filtrer côté client).
         const where: any = { tenantId, deletedAt: null };
-        if (spaceId) where.spaceLinks = { some: { spaceId } };
+        if (spaceId) {
+          where.spaceLinks = { some: { spaceId } };
+        } else if (accessibleSpaceIds !== 'ALL') {
+          where.OR = [
+            { spaceLinks: { none: {} } },
+            { spaceLinks: { some: { spaceId: { in: accessibleSpaceIds } } } },
+          ];
+        }
         if (search) where.name = { contains: search, mode: 'insensitive' };
         if (typeId) where.typeId = typeId;
         if (categoryId) where.categoryId = categoryId;
@@ -782,9 +825,10 @@ export class MenuItemsService {
     return { items: built, suppliers };
   }
 
-  async update(id: string, dto: UpdateMenuItemDto, tenantId: string) {
+  async update(id: string, dto: UpdateMenuItemDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating menu item ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    const existing = await this.findOne(id, tenantId);
+    await this.assertSpaceWriteAccess(existing.spaceIds, user);
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -1579,9 +1623,10 @@ export class MenuItemsService {
     return totalCost;
   }
 
-  async remove(id: string, tenantId: string) {
+  async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Soft-deleting menu item ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    const existing = await this.findOne(id, tenantId);
+    await this.assertSpaceWriteAccess(existing.spaceIds, user);
     try {
       const result = await this.prisma.menuItem.update({ where: { id }, data: { deletedAt: new Date() } });
       // Invariant : un MenuItem soft-deleted ne doit JAMAIS rester référencé par un mapping

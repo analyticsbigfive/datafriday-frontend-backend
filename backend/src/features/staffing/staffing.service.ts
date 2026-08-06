@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 import {
   StaffingCalculatorService,
   StaffingWarning,
@@ -10,6 +11,9 @@ import {
   DEFAULT_OFFSET_CLOSE_MINUTES,
 } from './staffing-calculator.service';
 import { detectFnbTags } from './fnb-tags.util';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 /** JSON.parse tolérant : renvoie `fallback` en cas d'échec plutôt que de throw. */
 function safeJsonParse<T>(str: string, fallback: T): T {
@@ -121,6 +125,7 @@ export class StaffingService {
   constructor(
     private prisma: PrismaService,
     private calculator: StaffingCalculatorService,
+    private spaceAccess: SpaceAccessService,
   ) {}
 
   // ── Contexte événement ─────────────────────────────────────────────────────
@@ -768,12 +773,21 @@ export class StaffingService {
 
   // ── Agrégat coûts par espace (GET /hr-settings/costs, cartes HrSettingsView) ──
 
-  async costsBySpace(tenantId: string, spaceId?: string) {
+  async costsBySpace(tenantId: string, spaceId?: string, user?: SpaceScopedUser) {
+    let spaceScope: any = {};
+    if (spaceId) {
+      spaceScope = { event: { spaceId } };
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') {
+        spaceScope = { event: { OR: [{ spaceId: null }, { spaceId: { in: accessible } }] } };
+      }
+    }
     const lines = await this.prisma.eventStaffLine.findMany({
       where: {
         tenantId,
         enabled: true,
-        ...(spaceId && { event: { spaceId } }),
+        ...spaceScope,
       },
       select: {
         hourlyRate: true,

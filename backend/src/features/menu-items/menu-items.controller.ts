@@ -173,7 +173,7 @@ export class MenuItemsController {
       typeId,
       categoryId,
       readyForSale,
-    });
+    }, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -385,7 +385,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 200, description: 'Article mis à jour' })
   update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`PATCH /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.update(id, dto, tenantId);
+    return this.menuItemsService.update(id, dto, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -395,7 +395,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 200, description: 'Article supprimé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.remove(id, tenantId);
+    return this.menuItemsService.remove(id, tenantId, user);
   }
 }
 

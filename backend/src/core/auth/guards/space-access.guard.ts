@@ -10,13 +10,19 @@ import { SPACE_ID_PARAM_KEY } from '../decorators/space-id-param.decorator';
 import { SpaceAccessService } from '../space-access.service';
 
 /**
- * Defense-in-depth : sur toute route portant un id d'espace dans ses params
- * (`:spaceId` par défaut, ou le nom déclaré via `@SpaceIdParam(...)`), refuse l'accès
- * si l'utilisateur n'a pas le périmètre requis (cf. SpaceAccessService).
+ * Defense-in-depth : sur toute requête portant un id d'espace précis — en route param
+ * (`:spaceId` par défaut, ou le nom déclaré via `@SpaceIdParam(...)`), en query string
+ * (`?spaceId=`) ou dans le body (`{ spaceId }`) — refuse l'accès si l'utilisateur n'a
+ * pas le périmètre requis (cf. SpaceAccessService). Les trois sources sont vérifiées
+ * (params puis query puis body) car de nombreux endpoints de filtrage/agrégation
+ * (`GET /analyse/dashboard?spaceId=`, `GET /events?spaceId=`, mutations avec
+ * `{ spaceId }` en body, etc.) identifient l'espace hors de l'URL — un simple contrôle
+ * sur `:spaceId` les laissait passer sans aucune vérification.
  *
- * - Routes sans param d'espace → laissées passer (le filtrage des LISTES est fait
- *   séparément dans les services).
- * - Utilisateurs à accès complet (ADMIN / super-admin / `spaces.viewAll`) → aucun coût DB.
+ * - Aucune des trois sources ne porte de spaceId → laissé passer (le filtrage par
+ *   défaut des LISTES quand aucun espace n'est demandé est fait séparément dans les
+ *   services, via `SpaceAccessService.getAccessibleSpaceIds`).
+ * - Utilisateurs à accès complet (ADMIN owner / super-admin / `allSpacesAccess`) → aucun coût DB.
  *
  * Enregistré globalement APRÈS JwtDatabaseGuard (request.user peuplé).
  */
@@ -44,8 +50,9 @@ export class SpaceAccessGuard implements CanActivate {
         context.getClass(),
       ]) ?? 'spaceId';
 
-    const spaceId = request.params?.[paramName];
-    if (!spaceId) return true; // route non rattachée à un espace précis
+    const spaceId =
+      request.params?.[paramName] ?? request.query?.[paramName] ?? request.body?.[paramName];
+    if (!spaceId || typeof spaceId !== 'string') return true; // requête non rattachée à un espace précis
 
     // Court-circuit sans DB pour les accès complets.
     if (this.spaceAccess.hasFullAccess(user)) return true;

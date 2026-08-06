@@ -39,7 +39,7 @@ export class AnalyseController {
   })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getDashboard(@Req() req, @Query('spaceId') spaceId?: string) {
-    return this.analyseService.getDashboard(req.user.tenantId, spaceId || undefined);
+    return this.analyseService.getDashboard(req.user.tenantId, spaceId || undefined, req.user);
   }
 
   @Get('kpis/menu')
@@ -95,7 +95,7 @@ export class AnalyseController {
   })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getEventKpis(@Req() req, @Query('spaceId') spaceId?: string) {
-    return this.analyseService.getEventKpis(req.user.tenantId, spaceId || undefined);
+    return this.analyseService.getEventKpis(req.user.tenantId, spaceId || undefined, req.user);
   }
 
   @Get('timeline/:eventId')

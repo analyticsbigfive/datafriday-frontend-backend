@@ -58,6 +58,7 @@ export class EventsController {
       +limit || 50,
       spaceId,
       excludeSimulated === 'true' || excludeSimulated === '1',
+      req.user,
     );
   }
 
@@ -84,7 +85,7 @@ export class EventsController {
   @ApiParam({ name: 'id', description: 'ID de l’événement' })
   @ApiResponse({ status: 200, description: 'Événement mis à jour' })
   update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventDto) {
-    return this.eventsService.update(id, req.user.tenantId, dto);
+    return this.eventsService.update(id, req.user.tenantId, dto, req.user);
   }
 
   @RequirePermissions('menu.events.manage')
@@ -103,7 +104,7 @@ export class EventsController {
   @ApiParam({ name: 'id', description: 'ID de l’événement' })
   @ApiResponse({ status: 200, description: 'Événement supprimé' })
   remove(@Req() req, @Param('id') id: string) {
-    return this.eventsService.remove(id, req.user.tenantId);
+    return this.eventsService.remove(id, req.user.tenantId, req.user);
   }
 }
 

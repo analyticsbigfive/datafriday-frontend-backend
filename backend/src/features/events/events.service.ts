@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -6,6 +6,10 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 @Injectable()
 export class EventsService {
@@ -14,7 +18,17 @@ export class EventsService {
   constructor(
     private prisma: PrismaService,
     private readonly weezeventLinkService: EventWeezeventLinkService,
+    private spaceAccess: SpaceAccessService,
   ) {}
+
+  /** Lève 403 si `user` n'a pas accès à l'espace de l'événement (null = événement global, pas de restriction). */
+  private async assertSpaceWriteAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceId) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet événement.");
+  }
 
   private readonly includeRelations = {
     eventType: true,
@@ -396,13 +410,24 @@ export class EventsService {
    * (EventPredict, écran Live — tous deux servis par le chargement d'espace du front) le
    * passent explicitement.
    */
-  async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string, excludeSimulated = false) {
+  async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string, excludeSimulated = false, user?: SpaceScopedUser) {
     page = Math.max(1, page);
     limit = Math.min(200, Math.max(1, limit));
     const skip = (page - 1) * limit;
+    // Sans spaceId explicite, un utilisateur restreint à certains espaces ne doit voir que
+    // les événements qui y sont rattachés (+ les événements globaux, sans espace).
+    let spaceScope: Prisma.EventWhereInput = {};
+    if (spaceId) {
+      spaceScope = { spaceId };
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') {
+        spaceScope = { OR: [{ spaceId: null }, { spaceId: { in: accessible } }] };
+      }
+    }
     const where: Prisma.EventWhereInput = {
       tenantId,
-      ...(spaceId ? { spaceId } : {}),
+      ...spaceScope,
       ...(excludeSimulated ? { isSimulated: false } : {}),
     };
     const [events, total] = await Promise.all([
@@ -430,8 +455,9 @@ export class EventsService {
     return event;
   }
 
-  async update(id: string, tenantId: string, dto: UpdateEventDto) {
+  async update(id: string, tenantId: string, dto: UpdateEventDto, user?: SpaceScopedUser) {
     const existing = await this.findOne(id, tenantId);
+    await this.assertSpaceWriteAccess(existing.spaceId, user);
     // BUG-021 : un changement de date invalide le lien auto/manuel existant (il a été
     // établi pour l'ancienne date) — repasse par relinkForTenantDate sur la nouvelle date
     // plutôt que de garder silencieusement une association qui ne correspond plus.
@@ -498,8 +524,9 @@ export class EventsService {
     return updated;
   }
 
-  async remove(id: string, tenantId: string) {
-    await this.findOne(id, tenantId);
+  async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
+    const existing = await this.findOne(id, tenantId);
+    await this.assertSpaceWriteAccess(existing.spaceId, user);
     return this.prisma.event.delete({ where: { id } });
   }
 

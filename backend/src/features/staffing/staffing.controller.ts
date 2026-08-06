@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, IsBoolean, IsDateString } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { StaffingService } from './staffing.service';
 
@@ -109,7 +110,7 @@ export class StaffingCostsController {
   @Get()
   @ApiOperation({ summary: 'Σ EventStaffLine enabled × durée × taux, groupé par espace' })
   @ApiQuery({ name: 'spaceId', required: false })
-  costs(@CurrentTenant() tenantId: string, @Query('spaceId') spaceId?: string) {
-    return this.service.costsBySpace(tenantId, spaceId);
+  costs(@CurrentTenant() tenantId: string, @Query('spaceId') spaceId?: string, @CurrentUser() user?: any) {
+    return this.service.costsBySpace(tenantId, spaceId, user);
   }
 }
