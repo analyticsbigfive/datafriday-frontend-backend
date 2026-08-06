@@ -18,29 +18,28 @@
                 />
                 <div>
                   <p class="brand-name">Data Friday</p>
-                  <p class="brand-tagline">vous êtes déjà en Weekend !</p>
+                  <p class="brand-tagline">{{ t('loginTagline') }}</p>
                 </div>
               </div>
               <h1 class="parallax-title">
-                Prenez le contrôle de votre
-                <span class="highlight">Arena</span>
+                {{ t('loginHeroTitle') }}
+                <span class="highlight">{{ t('loginHeroTitleHighlight') }}</span>
               </h1>
               <p class="parallax-subtitle">
-                La plateforme tout-en-un pour optimiser vos revenus, gérer vos
-                événements et transformer vos données en décisions stratégiques.
+                {{ t('loginHeroSubtitle') }}
               </p>
               <div class="trust-badges">
                 <div class="badge-item">
                   <span class="badge-dot"></span>
-                  <span>Analyse temps réel</span>
+                  <span>{{ t('loginBadgeRealtime') }}</span>
                 </div>
                 <div class="badge-item">
                   <span class="badge-dot"></span>
-                  <span>Multi-espaces</span>
+                  <span>{{ t('loginBadgeMultispace') }}</span>
                 </div>
                 <div class="badge-item">
                   <span class="badge-dot"></span>
-                  <span>IA prédictive</span>
+                  <span>{{ t('loginBadgeAiPredictive') }}</span>
                 </div>
               </div>
             </div>
@@ -55,21 +54,21 @@
               <img :src="require('@/assets/datafriday.png')" alt="Logo" style="width:36px;height:36px;object-fit:contain;" />
               <div>
                 <p style="color:white;font-size:16px;font-weight:700;margin:0;">Data Friday</p>
-                <p style="color:#ff3131;font-size:12px;margin:0;">vous êtes déjà en Weekend !</p>
+                <p style="color:#ff3131;font-size:12px;margin:0;">{{ t('loginTagline') }}</p>
               </div>
             </div>
 
             <div style="margin-bottom: 36px;">
-              <h2 class="form-title">Content de vous revoir</h2>
-              <p class="form-subtitle">Entrez vos identifiants pour accéder à votre espace</p>
+              <h2 class="form-title">{{ t('loginWelcomeBack') }}</h2>
+              <p class="form-subtitle">{{ t('loginSubtitle') }}</p>
             </div>
 
             <form @submit.prevent="handleSubmit">
               <v-text-field
                 v-model="email"
-                label="Adresse e-mail"
+                :label="t('loginEmailLabel')"
                 type="email"
-                placeholder="vous@exemple.com"
+                :placeholder="t('loginEmailPlaceholder')"
                 variant="outlined"
                 color="#ff3131"
                 bg-color="rgba(30,41,59,0.7)"
@@ -81,7 +80,7 @@
 
               <v-text-field
                 v-model="password"
-                label="Mot de passe"
+                :label="t('loginPasswordLabel')"
                 :type="showPassword ? 'text' : 'password'"
                 placeholder="••••••••"
                 variant="outlined"
@@ -103,13 +102,13 @@
                   v-model="rememberMe"
                   color="#ff3131"
                   base-color="#64748b"
-                  label="Se souvenir de moi"
+                  :label="t('loginRememberMe')"
                   density="compact"
                   hide-details
                   class="remember-check"
                 />
                 <router-link to="/forgot-password" class="link-accent">
-                  Mot de passe oublié ?
+                  {{ t('loginForgotPassword') }}
                 </router-link>
               </div>
 
@@ -123,13 +122,13 @@
                 :loading="loading"
                 elevation="0"
               >
-                Se connecter
+                {{ t('loginSignIn') }}
                 <ArrowRight :size="18" class="ml-2" />
               </v-btn>
 
               <div class="divider-or">
                 <span class="divider-line"></span>
-                <span class="divider-text">OU</span>
+                <span class="divider-text">{{ t('loginOr') }}</span>
                 <span class="divider-line"></span>
               </div>
 
@@ -148,16 +147,16 @@
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                Continuer avec Google
+                {{ t('loginContinueGoogle') }}
               </v-btn>
 
               <p class="text-center" style="color:#64748b;font-size:14px;margin:0 0 16px 0;">
-                Nouveau sur DataFriday ?
-                <router-link to="/signup" class="link-accent font-bold ml-1">Créer un compte</router-link>
+                {{ t('loginNewToDataFriday') }}
+                <router-link to="/signup" class="link-accent font-bold ml-1">{{ t('loginCreateAccount') }}</router-link>
               </p>
 
               <p class="text-center" style="color:#334155;font-size:12px;margin:0;">
-                © 2025 DataFriday. Tous droits réservés.
+                {{ t('loginCopyright') }}
               </p>
             </form>
           </div>
@@ -168,8 +167,8 @@
     <v-alert
       v-if="submitted && authError"
       class="custom_alert alert_error"
-      :text="authError || 'Une erreur est survenue lors de la connexion. Veuillez réessayer.'"
-      title="Erreur de connexion"
+      :text="authError || t('loginErrorGeneric')"
+      :title="t('loginErrorTitle')"
       type="error"
       closable
     />
@@ -179,11 +178,17 @@
 <script>
 import { mapActions, mapGetters } from "vuex";
 import { Eye, EyeOff, ArrowRight } from "lucide-vue-next";
+import { useI18n } from "@/i18n/useI18n";
 
 export default {
   name: "LoginView",
 
   components: { Eye, EyeOff, ArrowRight },
+
+  setup() {
+    const { t } = useI18n();
+    return { t };
+  },
 
   data() {
     return {
@@ -210,10 +215,10 @@ export default {
 
     validateForm() {
       this.errors = {};
-      if (!this.email) this.errors.email = "L'adresse e-mail est requise";
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email)) this.errors.email = "Adresse e-mail invalide";
-      if (!this.password) this.errors.password = "Le mot de passe est requis";
-      else if (this.password.length < 6) this.errors.password = "Minimum 6 caractères";
+      if (!this.email) this.errors.email = this.t('loginErrEmailRequired');
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email)) this.errors.email = this.t('loginErrEmailInvalid');
+      if (!this.password) this.errors.password = this.t('loginErrPasswordRequired');
+      else if (this.password.length < 6) this.errors.password = this.t('loginErrPasswordMin');
       return Object.keys(this.errors).length === 0;
     },
 
