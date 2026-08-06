@@ -145,7 +145,11 @@
               <button class="ul-icon-btn ul-icon-btn--edit" :title="t('userList.colActions')" @click.stop="openEditDrawer(item)">
                 <Pencil :size="14" />
               </button>
-              <button class="ul-icon-btn ul-icon-btn--danger" @click.stop="openDeleteDialog(item)">
+              <button
+                v-if="!item.isOwner"
+                class="ul-icon-btn ul-icon-btn--danger"
+                @click.stop="openDeleteDialog(item)"
+              >
                 <Trash2 :size="14" />
               </button>
             </div>
@@ -367,8 +371,10 @@ export default {
       this.bulkProgress = 0;
       const failed = [];
       for (const id of ids) {
-        // Garde : on ne peut pas se supprimer soi-même → compté comme échec.
-        if (id === this.currentUserId) {
+        // Garde : on ne peut pas se supprimer soi-même, ni supprimer le owner de
+        // l'organisation → compté comme échec (même garde que le backend, cf. users.service.ts).
+        const isOwnerTarget = this.users.find((u) => (u.id || u._id) === id)?.isOwner;
+        if (id === this.currentUserId || isOwnerTarget) {
           failed.push(id);
           this.bulkProgress += 1;
           continue;
