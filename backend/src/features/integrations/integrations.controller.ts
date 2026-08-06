@@ -159,7 +159,7 @@ export class IntegrationsController {
         @Param('organizationId') organizationId: string,
         @CurrentUser() user: any,
     ) {
-        return this.weezeventService.listInstances(this.resolveTenantId(user, organizationId));
+        return this.weezeventService.listInstances(this.resolveTenantId(user, organizationId), user);
     }
 
     @RequirePermissions('menu.integration.fb')

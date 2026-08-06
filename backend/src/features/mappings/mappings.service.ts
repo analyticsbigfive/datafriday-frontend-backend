@@ -1,10 +1,11 @@
 ;
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
@@ -13,6 +14,9 @@ import {
   BulkLocationShopMappingDto,
   BulkProductMappingDto,
 } from './dto/mapping.dto';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 @Injectable()
 export class MappingsService {
@@ -25,7 +29,17 @@ export class MappingsService {
     private prisma: PrismaService,
     private spacesService: SpacesService,
     private pricing: MenuItemPricingService,
+    private spaceAccess: SpaceAccessService,
   ) {}
+
+  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
+  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceId) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à l'espace de ce mapping.");
+  }
 
   // Compat contrat front : les modèles Prisma renommés portent salesLocationId /
   // salesProductId ; l'API continue de servir les clés historiques weezevent*
@@ -42,18 +56,25 @@ export class MappingsService {
 
   // ─── Location → Space ───────────────────────────────────
 
-  async getLocationSpaceMappings(tenantId: string, page = 1, limit = 100) {
+  async getLocationSpaceMappings(tenantId: string, page = 1, limit = 100, user?: SpaceScopedUser) {
     this.logger.log(`Fetching location-space mappings for tenant ${tenantId} (page=${page}, limit=${limit})`);
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const skip = (Math.max(page, 1) - 1) * safeLimit;
+    // Une location déjà mappée à un espace non accessible ne doit apparaître nulle part —
+    // ni son mapping, ni (côté front) la carte d'intégration qui en dérive le nom d'espace.
+    const where: any = { tenantId };
+    if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') where.spaceId = { in: accessible };
+    }
     const [data, total] = await Promise.all([
       this.prisma.locationSpaceMapping.findMany({
-        where: { tenantId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: safeLimit,
       }),
-      this.prisma.locationSpaceMapping.count({ where: { tenantId } }),
+      this.prisma.locationSpaceMapping.count({ where }),
     ]);
 
     // Enrich with space name via batch fetch
@@ -76,12 +97,13 @@ export class MappingsService {
     };
   }
 
-  async getLocationSpaceMapping(tenantId: string, weezeventLocationId: string) {
+  async getLocationSpaceMapping(tenantId: string, weezeventLocationId: string, user?: SpaceScopedUser) {
     const mapping = await this.prisma.locationSpaceMapping.findUnique({
       where: {
         tenantId_salesLocationId: { tenantId, salesLocationId: weezeventLocationId },
       },
     });
+    if (mapping) await this.assertSpaceAccess(mapping.spaceId, user);
     return mapping ? this.withLegacyLocationKey(mapping) : mapping;
   }
 
@@ -155,6 +177,7 @@ export class MappingsService {
     spaceId?: string,
     page = 1,
     limit = 1000,
+    user?: SpaceScopedUser,
   ) {
     this.logger.log(
       `Fetching location-shop mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'}, space=${spaceId ?? 'all'})`,
@@ -163,16 +186,27 @@ export class MappingsService {
     const where: any = { tenantId };
     if (weezeventLocationId) where.salesLocationId = weezeventLocationId;
 
+    // spaceId explicite : déjà vérifié par SpaceAccessGuard (query param `spaceId`). Sans lui,
+    // un utilisateur restreint ne doit voir que les shops de SES espaces accessibles — jamais
+    // ceux de tout le tenant.
+    let targetSpaceIds: string[] | undefined;
     if (spaceId) {
+      targetSpaceIds = [spaceId];
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') targetSpaceIds = accessible;
+    }
+
+    if (targetSpaceIds) {
       // Use spaceId directly to avoid a deep 4-level JOIN chain (forecourt → config → space → tenantId).
       // tenantId scoping is enforced on the mapping itself via `where.tenantId = tenantId` above.
       const elements = await this.prisma.spaceElement.findMany({
         where: {
           OR: [
-            { floor: { config: { spaceId } } },
-            { forecourt: { config: { spaceId } } },
-            { externalMerch: { config: { spaceId } } },
-            { zone: { spaceId } }, // Builder v2
+            { floor: { config: { spaceId: { in: targetSpaceIds } } } },
+            { forecourt: { config: { spaceId: { in: targetSpaceIds } } } },
+            { externalMerch: { config: { spaceId: { in: targetSpaceIds } } } },
+            { zone: { spaceId: { in: targetSpaceIds } } }, // Builder v2
           ],
         },
         select: { id: true },

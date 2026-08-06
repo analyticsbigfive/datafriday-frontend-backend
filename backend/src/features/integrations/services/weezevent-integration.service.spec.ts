@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { WeezeventIntegrationService } from './weezevent-integration.service';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/encryption/encryption.service';
+import { SpaceAccessService } from '../../../core/auth/space-access.service';
 
 describe('WeezeventIntegrationService', () => {
     let service: WeezeventIntegrationService;
@@ -33,6 +34,7 @@ describe('WeezeventIntegrationService', () => {
                 WeezeventIntegrationService,
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: EncryptionService, useValue: mockEncryptionService },
+                { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
             ],
         }).compile();
 
