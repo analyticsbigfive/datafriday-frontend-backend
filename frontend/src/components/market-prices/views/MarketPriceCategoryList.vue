@@ -353,12 +353,7 @@ export default {
           };
           return;
         }
-        const msg = String(data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global market price category')) {
-          this.deleteError = this.t('marketPriceCategoryList.deleteBlockedUsed');
-        } else {
-          this.deleteError = data?.message || e?.message || this.t('marketPriceCategoryList.deleteError');
-        }
+        this.deleteError = data?.message || e?.message || this.t('marketPriceCategoryList.deleteError');
       } finally {
         this.deleteLoading = false;
       }

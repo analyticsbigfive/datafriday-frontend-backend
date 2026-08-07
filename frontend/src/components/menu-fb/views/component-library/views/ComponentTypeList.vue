@@ -355,8 +355,15 @@ export default {
         }
         // Pré-vérification : le type a des catégories liées (suppression en
         // cascade côté backend, on préfère avertir plutôt que supprimer en silence).
+        // Lien vers la liste (déjà chargée dans deleteTarget.categoryList) pour que
+        // l'utilisateur voie ce qui bloque avant d'aller les supprimer une à une.
         if (this.deleteTarget?.categoryList?.length > 0) {
+          const count = this.deleteTarget.categoryList.length;
           this.deleteError = this.t('componentTypeList.deleteBlockedCategories');
+          this.deleteActionLink = {
+            label: `${this.t('componentTypeList.viewLinkedCategories')} (${count})`,
+            onClick: () => { const target = this.deleteTarget; this.closeDeleteDialog(); this.openCategoriesDialog(target); },
+          };
           return;
         }
         await deleteComponentType(id);
@@ -374,8 +381,15 @@ export default {
           return;
         }
         const msg = String(data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global component type') || msg.includes('categor')) {
+        if (msg.includes('categor')) {
           this.deleteError = this.t('componentTypeList.deleteBlockedCategories');
+          if (this.deleteTarget?.categoryList?.length > 0) {
+            const count = this.deleteTarget.categoryList.length;
+            this.deleteActionLink = {
+              label: `${this.t('componentTypeList.viewLinkedCategories')} (${count})`,
+              onClick: () => { const target = this.deleteTarget; this.closeDeleteDialog(); this.openCategoriesDialog(target); },
+            };
+          }
         } else {
           this.deleteError = data?.message || e?.message || this.t('componentTypeList.deleteError');
         }

@@ -340,9 +340,15 @@ export default {
           this.deleteError = this.t('marketPriceTypeList.missingId');
           return;
         }
-        // Pré-vérification : le type a des catégories liées
+        // Pré-vérification : le type a des catégories liées. On propose un lien vers la liste
+        // (déjà chargée dans deleteTarget.categoryList) pour que l'utilisateur voie ce qui bloque.
         if (this.deleteTarget?.categoryList?.length > 0) {
+          const count = this.deleteTarget.categoryList.length;
           this.deleteError = this.t('marketPriceTypeList.deleteBlockedCategories');
+          this.deleteActionLink = {
+            label: `${this.t('marketPriceTypeList.viewLinkedCategories')} (${count})`,
+            onClick: () => { const target = this.deleteTarget; this.closeDeleteDialog(); this.openCategoriesDialog(target); },
+          };
           return;
         }
         await deleteMarketPriceType(id);
@@ -360,8 +366,15 @@ export default {
           return;
         }
         const msg = String(data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global market price type') || msg.includes('categor')) {
+        if (msg.includes('categor')) {
           this.deleteError = this.t('marketPriceTypeList.deleteBlockedCategories');
+          if (this.deleteTarget?.categoryList?.length > 0) {
+            const count = this.deleteTarget.categoryList.length;
+            this.deleteActionLink = {
+              label: `${this.t('marketPriceTypeList.viewLinkedCategories')} (${count})`,
+              onClick: () => { const target = this.deleteTarget; this.closeDeleteDialog(); this.openCategoriesDialog(target); },
+            };
+          }
         } else {
           this.deleteError = data?.message || e?.message || this.t('marketPriceTypeList.deleteError');
         }

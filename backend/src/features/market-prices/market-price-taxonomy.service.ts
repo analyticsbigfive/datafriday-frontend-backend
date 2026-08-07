@@ -141,13 +141,13 @@ export class MarketPriceTaxonomyService {
     if (!type) {
       throw new NotFoundException(`Market price type with ID ${id} not found`);
     }
-    if (type.tenantId === null) {
-      throw new BadRequestException(`Cannot delete global market price type`);
-    }
     // BUG-82: MarketPriceCategory.type is onDelete: Cascade — without this guard,
     // deleting a MarketPriceType silently cascade-deleted its MarketPriceCategory
     // children. Same blocking pattern as BUG-75 (EventType/EventCategory), extended
     // to also block if any MarketPrice row still references this type directly.
+    // Ces comptages ne filtrent pas par tenantId : pour un type global (tenantId null, partagé par
+    // tous les tenants), c'est l'usage réel, tous tenants confondus, qui doit bloquer la suppression —
+    // pas le simple fait d'être global. Un type système sans aucune dépendance est supprimable.
     const categoryCount = await this.prisma.marketPriceCategory.count({ where: { typeId: id } });
     if (categoryCount > 0) {
       throw new ConflictException(
@@ -317,11 +317,10 @@ export class MarketPriceTaxonomyService {
     if (!category) {
       throw new NotFoundException(`Market price category with ID ${id} not found`);
     }
-    if (category.tenantId === null) {
-      throw new BadRequestException(`Cannot delete global market price category`);
-    }
     // BUG-82: block deletion while MarketPrice rows still reference this category,
     // same guard family as deleteType above.
+    // Comptage non filtré par tenantId : pour une catégorie globale, c'est l'usage réel tous
+    // tenants confondus qui doit bloquer la suppression — pas le simple fait d'être globale.
     const marketPriceCount = await this.prisma.marketPrice.count({
       where: { marketPriceCategoryId: id },
     });

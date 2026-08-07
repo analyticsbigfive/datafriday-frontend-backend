@@ -1887,14 +1887,13 @@ export class MenuItemsService {
       throw new NotFoundException(`Product type with ID ${id} not found`);
     }
 
-    if (productType.tenantId === null) {
-      throw new BadRequestException(`Cannot delete global product type`);
-    }
-
     // BUG-79 : ProductCategory.type est onDelete: Cascade et MenuItem.typeId n'a pas d'onDelete
     // explicite (SET NULL par défaut) — sans cette garde, supprimer un ProductType cascade-supprime
     // silencieusement ses ProductCategory enfants et met NULL sur MenuItem.typeId. Même pattern que
     // deleteEventType (BUG-75, events.service.ts:297-309).
+    // Ces comptages ne filtrent pas par tenantId : pour un type global (tenantId null, partagé par
+    // tous les tenants), c'est l'usage réel, tous tenants confondus, qui doit bloquer la suppression —
+    // pas le simple fait d'être global. Un type système sans aucune dépendance est supprimable.
     const categoryCount = await this.prisma.productCategory.count({ where: { typeId: id } });
     if (categoryCount > 0) {
       throw new ConflictException(
@@ -2050,13 +2049,11 @@ export class MenuItemsService {
       throw new NotFoundException(`Product category with ID ${id} not found`);
     }
 
-    if (productCategory.tenantId === null) {
-      throw new BadRequestException(`Cannot delete global product category`);
-    }
-
     // BUG-79 : MenuItem.categoryId n'a pas d'onDelete explicite (SET NULL par défaut) — sans cette
     // garde, supprimer une ProductCategory encore utilisée met silencieusement NULL sur
     // MenuItem.categoryId. Même pattern que deleteEventCategory (BUG-75).
+    // Comptage non filtré par tenantId : pour une catégorie globale, c'est l'usage réel tous
+    // tenants confondus qui doit bloquer la suppression — pas le simple fait d'être globale.
     const menuItemCount = await this.prisma.menuItem.count({ where: { categoryId: id } });
     if (menuItemCount > 0) {
       throw new ConflictException({
