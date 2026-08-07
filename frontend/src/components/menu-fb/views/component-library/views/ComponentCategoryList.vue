@@ -363,12 +363,7 @@ export default {
           };
           return;
         }
-        const msg = String(data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global component category')) {
-          this.deleteError = this.t('componentCategoryList.deleteBlockedUsed');
-        } else {
-          this.deleteError = data?.message || e?.message || this.t('componentCategoryList.deleteError');
-        }
+        this.deleteError = data?.message || e?.message || this.t('componentCategoryList.deleteError');
       } finally {
         this.deleteLoading = false;
       }

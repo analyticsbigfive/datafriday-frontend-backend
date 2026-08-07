@@ -24,9 +24,12 @@
         <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="mb-4">
           {{ error }}
           <div v-if="actionLink" class="pdd-card__action-link">
-            <router-link :to="actionLink.to" @click="$emit('update:modelValue', false)">
+            <router-link v-if="actionLink.to" :to="actionLink.to" @click="$emit('update:modelValue', false)">
               {{ actionLink.label }}
             </router-link>
+            <a v-else href="#" @click.prevent="actionLink.onClick && actionLink.onClick()">
+              {{ actionLink.label }}
+            </a>
           </div>
         </v-alert>
         <p class="pdd-card__msg">
@@ -63,10 +66,11 @@ export default {
     itemName: { type: String, default: '' },
     loading: { type: Boolean, default: false },
     error: { type: String, default: '' },
-    // { label: string, to: RouteLocation } — rendu comme lien cliquable sous le message d'erreur
-    // quand la suppression est bloquée par des lignes dépendantes (ex. "Voir les N menu items
-    // concernés" → /menu-items?type=<name> déjà filtré). Évite d'obliger l'utilisateur à chercher
-    // à la main la bonne ligne parmi potentiellement des milliers.
+    // { label: string, to?: RouteLocation, onClick?: () => void } — rendu comme lien cliquable
+    // sous le message d'erreur quand la suppression est bloquée par des lignes dépendantes
+    // (ex. "Voir les N menu items concernés" → /menu-items?type=<name> déjà filtré, ou l'ouverture
+    // locale d'un tiroir listant les catégories bloquantes). `to` prime sur `onClick` si les deux
+    // sont fournis. Évite d'obliger l'utilisateur à chercher à la main la bonne ligne.
     actionLink: { type: Object, default: null },
     isDark: { type: Boolean, default: false },
     title: { type: String, default: 'Supprimer' },

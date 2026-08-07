@@ -360,12 +360,7 @@ export default {
           };
           return;
         }
-        const msg = String(data?.message || e?.message || '').toLowerCase();
-        if (msg.includes('cannot delete global product category')) {
-          this.deleteError = this.t('productCategoryList.deleteBlockedUsed');
-        } else {
-          this.deleteError = e?.response?.data?.message || e?.message || this.t('productCategoryList.deleteError');
-        }
+        this.deleteError = data?.message || e?.message || this.t('productCategoryList.deleteError');
       } finally {
         this.deleteLoading = false;
       }

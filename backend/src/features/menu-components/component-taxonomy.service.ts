@@ -115,13 +115,13 @@ export class ComponentTaxonomyService {
     if (!type) {
       throw new NotFoundException(`Component type with ID ${id} not found`);
     }
-    if (type.tenantId === null) {
-      throw new BadRequestException(`Cannot delete global component type`);
-    }
     // BUG-81 : ComponentCategory.type est onDelete: Cascade et MenuComponent.componentTypeId est
     // onDelete: SetNull — sans cette garde, supprimer un ComponentType cascade-supprime
     // silencieusement ses ComponentCategory enfants et met NULL sur MenuComponent.componentTypeId.
     // Même pattern que deleteEventType (BUG-75).
+    // Ces comptages ne filtrent pas par tenantId : pour un type global (tenantId null, partagé par
+    // tous les tenants), c'est l'usage réel, tous tenants confondus, qui doit bloquer la suppression —
+    // pas le simple fait d'être global. Un type système sans aucune dépendance est supprimable.
     const categoryCount = await this.prisma.componentCategory.count({ where: { typeId: id } });
     if (categoryCount > 0) {
       throw new ConflictException(
@@ -278,12 +278,11 @@ export class ComponentTaxonomyService {
     if (!category) {
       throw new NotFoundException(`Component category with ID ${id} not found`);
     }
-    if (category.tenantId === null) {
-      throw new BadRequestException(`Cannot delete global component category`);
-    }
     // BUG-81 : MenuComponent.componentCategoryId est onDelete: SetNull — sans cette garde,
     // supprimer une ComponentCategory encore utilisée met silencieusement NULL sur
     // MenuComponent.componentCategoryId. Même pattern que deleteEventCategory (BUG-75).
+    // Comptage non filtré par tenantId : pour une catégorie globale, c'est l'usage réel tous
+    // tenants confondus qui doit bloquer la suppression — pas le simple fait d'être globale.
     const componentCount = await this.prisma.menuComponent.count({ where: { componentCategoryId: id } });
     if (componentCount > 0) {
       throw new ConflictException({
