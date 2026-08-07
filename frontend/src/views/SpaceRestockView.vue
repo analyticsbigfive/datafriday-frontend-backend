@@ -559,7 +559,6 @@
                     <th>{{ t('srColTarget') }}</th>
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
-                    <th>{{ t('srColLooseLeft') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -583,45 +582,48 @@
                     <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
                     <td :data-label="t('srColToDeposit')" class="sr-strong">
-                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                      <!-- Ligne 1 : quantité et infobulle côte à côte (le
+                           conditionnement détaillé passe en ligne 2). Sur un plan
+                           chargé la quantité est corrigeable (décision 5) — la
                            feuille de course se rejoue sur les coefficients figés. -->
-                      <span v-if="loadedPlanId" class="sr-deposit-edit">
-                        <NumberField
-                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
-                          :min="0"
-                          :decimals="2"
-                          :disabled="!canWritePlans"
-                          :aria-label="t('srColToDeposit')"
-                          class="sr-deposit-field"
-                          @update:model-value="setLineOverride(row.rowKey, $event)"
-                        />
-                        <v-icon
-                          v-if="row.edited"
-                          size="12"
-                          class="sr-deposit-edited"
-                          :title="t('srPlanLineEdited')"
-                        >mdi-pencil</v-icon>
-                      </span>
-                      <template v-else>{{ formatRestockQuantity(row) }}</template>
-                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
-                        <template #activator="{ props: depositProps }">
+                      <span class="sr-deposit-main">
+                        <span v-if="loadedPlanId" class="sr-deposit-edit">
+                          <!-- Saisie en PAQUETS dès que le conditionnement se
+                               résout (on ne dépose pas 1,2 sac) ; l'override reste
+                               stocké en unités pour tout l'aval. -->
+                          <NumberField
+                            :model-value="depositFieldValue(row)"
+                            :min="0"
+                            :decimals="depositPackSize(row) ? 0 : 2"
+                            :step="depositPackSize(row) ? 1 : null"
+                            :disabled="!canWritePlans"
+                            :aria-label="depositPackSize(row) ? t('srDepositPackAria') : t('srColToDeposit')"
+                            class="sr-deposit-field"
+                            @update:model-value="setLineOverridePacks(row, $event)"
+                          />
+                          <span v-if="depositPackSize(row)">{{ depositPackLabel(row) }}</span>
                           <v-icon
-                            v-bind="depositProps"
-                            size="13"
-                            class="sr-deposit-help"
-                            tabindex="0"
-                            :aria-label="t('srDepositHelpTitle')"
-                          >mdi-information-outline</v-icon>
-                        </template>
-                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
-                      </v-tooltip>
-                    </td>
-                    <!-- BUG-296-01 — reste en vrac (le stock final prévu a été
-                         retiré au Lot 4 : doublon exact de cette colonne dès que
-                         le besoin dépasse l'inventaire). Tiret sur les plans
-                         sauvegardés avant le changement (champ absent). -->
-                    <td :data-label="t('srColLooseLeft')">
-                      {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
+                            v-if="row.edited"
+                            size="12"
+                            class="sr-deposit-edited"
+                            :title="t('srPlanLineEdited')"
+                          >mdi-pencil</v-icon>
+                        </span>
+                        <template v-else>{{ formatRestockQuantity(row) }}</template>
+                        <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                          <template #activator="{ props: depositProps }">
+                            <v-icon
+                              v-bind="depositProps"
+                              size="13"
+                              class="sr-deposit-help"
+                              tabindex="0"
+                              :aria-label="t('srDepositHelpTitle')"
+                            >mdi-information-outline</v-icon>
+                          </template>
+                          <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                        </v-tooltip>
+                      </span>
+                      <span v-if="depositPackCount(row) != null" class="sr-deposit-sub">{{ depositPackDetail(row) }}</span>
                     </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
@@ -658,7 +660,6 @@
                       <th>{{ t('srColTarget') }}</th>
                       <th>{{ t('srColRemaining') }}</th>
                       <th>{{ t('srColToDeposit') }}</th>
-                      <th>{{ t('srColLooseLeft') }}</th>
                       <th>{{ t('srColConfirmed') }}</th>
                     </tr>
                   </thead>
@@ -684,43 +685,49 @@
                       <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                       <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
                       <td :data-label="t('srColToDeposit')" class="sr-strong">
-                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                      <!-- Ligne 1 : quantité et infobulle côte à côte (le
+                           conditionnement détaillé passe en ligne 2). Sur un plan
+                           chargé la quantité est corrigeable (décision 5) — la
                            feuille de course se rejoue sur les coefficients figés. -->
-                      <span v-if="loadedPlanId" class="sr-deposit-edit">
-                        <NumberField
-                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
-                          :min="0"
-                          :decimals="2"
-                          :disabled="!canWritePlans"
-                          :aria-label="t('srColToDeposit')"
-                          class="sr-deposit-field"
-                          @update:model-value="setLineOverride(row.rowKey, $event)"
-                        />
-                        <v-icon
-                          v-if="row.edited"
-                          size="12"
-                          class="sr-deposit-edited"
-                          :title="t('srPlanLineEdited')"
-                        >mdi-pencil</v-icon>
-                      </span>
-                      <template v-else>{{ formatRestockQuantity(row) }}</template>
-                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
-                        <template #activator="{ props: depositProps }">
+                      <span class="sr-deposit-main">
+                        <span v-if="loadedPlanId" class="sr-deposit-edit">
+                          <!-- Saisie en PAQUETS dès que le conditionnement se
+                               résout (on ne dépose pas 1,2 sac) ; l'override reste
+                               stocké en unités pour tout l'aval. -->
+                          <NumberField
+                            :model-value="depositFieldValue(row)"
+                            :min="0"
+                            :decimals="depositPackSize(row) ? 0 : 2"
+                            :step="depositPackSize(row) ? 1 : null"
+                            :disabled="!canWritePlans"
+                            :aria-label="depositPackSize(row) ? t('srDepositPackAria') : t('srColToDeposit')"
+                            class="sr-deposit-field"
+                            @update:model-value="setLineOverridePacks(row, $event)"
+                          />
+                          <span v-if="depositPackSize(row)">{{ depositPackLabel(row) }}</span>
                           <v-icon
-                            v-bind="depositProps"
-                            size="13"
-                            class="sr-deposit-help"
-                            tabindex="0"
-                            :aria-label="t('srDepositHelpTitle')"
-                          >mdi-information-outline</v-icon>
-                        </template>
-                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
-                      </v-tooltip>
+                            v-if="row.edited"
+                            size="12"
+                            class="sr-deposit-edited"
+                            :title="t('srPlanLineEdited')"
+                          >mdi-pencil</v-icon>
+                        </span>
+                        <template v-else>{{ formatRestockQuantity(row) }}</template>
+                        <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                          <template #activator="{ props: depositProps }">
+                            <v-icon
+                              v-bind="depositProps"
+                              size="13"
+                              class="sr-deposit-help"
+                              tabindex="0"
+                              :aria-label="t('srDepositHelpTitle')"
+                            >mdi-information-outline</v-icon>
+                          </template>
+                          <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                        </v-tooltip>
+                      </span>
+                      <span v-if="depositPackCount(row) != null" class="sr-deposit-sub">{{ depositPackDetail(row) }}</span>
                     </td>
-                      <!-- BUG-296-01 — reste en vrac + stock final prévu. -->
-                      <td :data-label="t('srColLooseLeft')">
-                        {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
-                      </td>
                       <td :data-label="t('srColConfirmed')">
                         <button
                           type="button"
@@ -778,7 +785,6 @@
                     <th>{{ t('srColTarget') }}</th>
                     <th>{{ t('srColRemaining') }}</th>
                     <th>{{ t('srColToDeposit') }}</th>
-                    <th>{{ t('srColLooseLeft') }}</th>
                     <th>{{ t('srColConfirmed') }}</th>
                   </tr>
                 </thead>
@@ -795,45 +801,48 @@
                     <td :data-label="t('srColTarget')">{{ formatLooseQuantity(row.targetQuantity, row.unit) }}</td>
                     <td :data-label="t('srColRemaining')">{{ formatLooseQuantity(row.remainingQuantity, row.unit) }}</td>
                     <td :data-label="t('srColToDeposit')" class="sr-strong">
-                      <!-- Plan chargé : quantité corrigeable (décision 5) — la
+                      <!-- Ligne 1 : quantité et infobulle côte à côte (le
+                           conditionnement détaillé passe en ligne 2). Sur un plan
+                           chargé la quantité est corrigeable (décision 5) — la
                            feuille de course se rejoue sur les coefficients figés. -->
-                      <span v-if="loadedPlanId" class="sr-deposit-edit">
-                        <NumberField
-                          :model-value="lineOverrides[row.rowKey] ?? row.restockQuantity"
-                          :min="0"
-                          :decimals="2"
-                          :disabled="!canWritePlans"
-                          :aria-label="t('srColToDeposit')"
-                          class="sr-deposit-field"
-                          @update:model-value="setLineOverride(row.rowKey, $event)"
-                        />
-                        <v-icon
-                          v-if="row.edited"
-                          size="12"
-                          class="sr-deposit-edited"
-                          :title="t('srPlanLineEdited')"
-                        >mdi-pencil</v-icon>
-                      </span>
-                      <template v-else>{{ formatRestockQuantity(row) }}</template>
-                      <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
-                        <template #activator="{ props: depositProps }">
+                      <span class="sr-deposit-main">
+                        <span v-if="loadedPlanId" class="sr-deposit-edit">
+                          <!-- Saisie en PAQUETS dès que le conditionnement se
+                               résout (on ne dépose pas 1,2 sac) ; l'override reste
+                               stocké en unités pour tout l'aval. -->
+                          <NumberField
+                            :model-value="depositFieldValue(row)"
+                            :min="0"
+                            :decimals="depositPackSize(row) ? 0 : 2"
+                            :step="depositPackSize(row) ? 1 : null"
+                            :disabled="!canWritePlans"
+                            :aria-label="depositPackSize(row) ? t('srDepositPackAria') : t('srColToDeposit')"
+                            class="sr-deposit-field"
+                            @update:model-value="setLineOverridePacks(row, $event)"
+                          />
+                          <span v-if="depositPackSize(row)">{{ depositPackLabel(row) }}</span>
                           <v-icon
-                            v-bind="depositProps"
-                            size="13"
-                            class="sr-deposit-help"
-                            tabindex="0"
-                            :aria-label="t('srDepositHelpTitle')"
-                          >mdi-information-outline</v-icon>
-                        </template>
-                        <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
-                      </v-tooltip>
-                    </td>
-                    <!-- BUG-296-01 — reste en vrac (le stock final prévu a été
-                         retiré au Lot 4 : doublon exact de cette colonne dès que
-                         le besoin dépasse l'inventaire). Tiret sur les plans
-                         sauvegardés avant le changement (champ absent). -->
-                    <td :data-label="t('srColLooseLeft')">
-                      {{ row.surplusLoose == null ? '—' : formatCeilQuantity(row.surplusLoose, row.unit) }}
+                            v-if="row.edited"
+                            size="12"
+                            class="sr-deposit-edited"
+                            :title="t('srPlanLineEdited')"
+                          >mdi-pencil</v-icon>
+                        </span>
+                        <template v-else>{{ formatRestockQuantity(row) }}</template>
+                        <v-tooltip v-if="depositHelp(row)" location="bottom" max-width="300">
+                          <template #activator="{ props: depositProps }">
+                            <v-icon
+                              v-bind="depositProps"
+                              size="13"
+                              class="sr-deposit-help"
+                              tabindex="0"
+                              :aria-label="t('srDepositHelpTitle')"
+                            >mdi-information-outline</v-icon>
+                          </template>
+                          <div class="sr-values-help-body">{{ depositHelp(row) }}</div>
+                        </v-tooltip>
+                      </span>
+                      <span v-if="depositPackCount(row) != null" class="sr-deposit-sub">{{ depositPackDetail(row) }}</span>
                     </td>
                     <td :data-label="t('srColConfirmed')">
                       <button
@@ -1338,6 +1347,9 @@ import {
   computeRestockOutcome,
   aggregateRestockOutcomesByItem,
   coveredQuantityForPackaging,
+  packSizeForPackaging,
+  packCountForQuantity,
+  pluralizePackLabel,
   roundForUnit,
   ceilForUnit,
   deriveSelectedMenuItemsByShop,
@@ -3047,7 +3059,7 @@ export default {
         return false
       }
     },
-    /** Correction « À déposer » sur une ligne du plan chargé. */
+    /** Correction « À déposer » sur une ligne du plan chargé, en UNITÉS. */
     setLineOverride(rowKey, value) {
       if (!this.loadedPlanId) return
       const next = { ...this.lineOverrides }
@@ -3056,6 +3068,30 @@ export default {
       else next[rowKey] = n
       this.lineOverrides = next
       this.planDirty = true
+    },
+    /**
+     * Valeur du champ « À déposer » d'un plan chargé : en PAQUETS quand le
+     * conditionnement se résout, en unités sinon. L'override est stocké en
+     * unités (tout l'aval y travaille) — la conversion vit ici seule.
+     */
+    depositFieldValue(row) {
+      const stored = this.lineOverrides[row.rowKey] ?? row.restockQuantity
+      if (!this.depositPackSize(row)) return stored
+      return packCountForQuantity(stored, row.packaging)
+    },
+    /** Saisie en paquets → override stocké en unités (n × taille du colis). */
+    setLineOverridePacks(row, value) {
+      const packSize = this.depositPackSize(row)
+      if (!packSize) {
+        this.setLineOverride(row.rowKey, value)
+        return
+      }
+      const packs = Number(value)
+      if (value === null || value === '' || !Number.isFinite(packs) || packs < 0) {
+        this.setLineOverride(row.rowKey, null)
+        return
+      }
+      this.setLineOverride(row.rowKey, Math.round(packs) * packSize)
     },
     async renamePlan({ id, name }) {
       try {
@@ -4324,7 +4360,7 @@ export default {
         parts.push(`${this.formatLooseQuantity(loose, item.unit)} ${this.t('srBuyLooseAfter')}`)
       }
       return {
-        main: `${packaging.packedCount.toLocaleString('fr-FR')} ${packaging.packagingType} de ${packaging.packagingUnitNumber} ${packaging.packagingUnit}`,
+        main: this.formatPackedQuantity(packaging, item.unit),
         sub: parts.join(' · '),
         covered: false,
         unknown: false,
@@ -4343,22 +4379,103 @@ export default {
       // sur un plan chargé comme sur un calcul vivant.
       const gap = Math.max(0, (Number(row.targetQuantity) || 0) - (Number(row.remainingQuantity) || 0))
       return this.t('srDepositHelpBody')
-        .replace('{pack}', `${p.packagingType} ${this.t('srDepositHelpOf')} ${p.packagingUnitNumber} ${p.packagingUnit}`)
+        // Accordé comme la cellule : « Carton de 6 bouteilles » au singulier
+        // (on décrit UN colis), « 3 Cartons » accordé sur le compte.
+        .replace('{pack}', `${this.depositPackLabelSingular(row)} ${this.t('srDepositHelpOf')} ${this.depositPackSizeLabel(row)}`)
         .replace('{need}', this.formatLooseQuantity(gap, row.unit))
-        .replace('{count}', p.packedCount.toLocaleString('fr-FR'))
+        .replace(
+          '{count}',
+          `${p.packedCount.toLocaleString('fr-FR')} ${pluralizePackLabel(this.depositPackLabelSingular(row), p.packedCount)}`,
+        )
         .replace('{deposited}', this.formatCeilQuantity(row.restockQuantity, row.unit))
         .replace('{loose}', this.formatCeilQuantity(row.surplusLoose, row.unit))
     },
+    /**
+     * Taille d'un colis en unités de recette, pour convertir paquets ⇄ unités.
+     * `coveredQuantityForPackaging` porte déjà la conversion d'unité d'achat
+     * (purchaseUnitConversion) : on la dérive d'un colis plutôt que de relire
+     * packagingUnitNumber, sinon la conversion est perdue. Null si le
+     * conditionnement ne se résout pas → l'affichage reste en unités.
+     */
+    depositPackSize(row) {
+      if (!row || !row.packaging || !this.isPackedMode(row.itemKey)) return null
+      return packSizeForPackaging(row.packaging)
+    },
+    /**
+     * « À déposer » exprimé en NOMBRE DE PAQUETS (demande JLH) — c'est l'unité
+     * de l'action physique : on ne dépose pas 1,2 sac. Le calcul, lui, reste en
+     * unités de recette partout en aval (netting, feuille de course).
+     */
+    depositPackCount(row) {
+      if (!this.depositPackSize(row)) return null
+      return packCountForQuantity(row.restockQuantity, row.packaging)
+    },
+    /** Type de colis, accordé sur le nombre déposé (« 3 Cartons », « 1 Sac »). */
+    depositPackLabel(row) {
+      return pluralizePackLabel(this.depositPackLabelSingular(row), this.depositPackCount(row))
+    },
+    /** Type de colis au singulier — « Carton de 6 bouteilles » reste au singulier. */
+    depositPackLabelSingular(row) {
+      const packaging = row && row.packaging
+      return (packaging && packaging.packagingType) || this.t('srDepositPackSuffix')
+    },
+    /**
+     * Conditionnement complet sous le nombre de colis : « Carton de 6 bouteilles
+     * · 1,5 kg ». Sans la taille du colis, « 3 Carton » ne dit pas ce qu'on
+     * charge dans le camion — et c'est justement la valeur que la fiche produit
+     * doit corriger quand le compte paraît faux.
+     */
+    depositPackDetail(row) {
+      const units = this.formatRestockUnits(row)
+      const size = this.depositPackSizeLabel(row)
+      if (!size) return units
+      // « Carton de 6 bouteilles » : le type reste au singulier (c'est UN colis
+      // qu'on décrit), seule l'unité de la taille s'accorde.
+      return `${this.depositPackLabelSingular(row)} ${this.t('srDepositHelpOf')} ${size} · ${units}`
+    },
+    /**
+     * Taille d'un colis telle qu'elle est écrite sur la fiche produit
+     * (« 6 bouteilles », « 0,5 kg »). Chaîne vide si le catalogue ne la porte
+     * pas — l'appelant retombe alors sur les seules unités de recette.
+     */
+    depositPackSizeLabel(row) {
+      const packaging = row && row.packaging
+      if (!packaging || !packaging.packagingUnitNumber) return ''
+      const quantity = Number(packaging.packagingUnitNumber)
+      const number = quantity.toLocaleString('fr-FR')
+      // Un symbole de mesure (kg, L) est invariable ; un contenant nommé
+      // (bouteille, boîte) s'accorde — pluralizePackLabel arbitre.
+      const unit = pluralizePackLabel(packaging.packagingUnit || row.unit || '', quantity)
+      return `${number} ${unit}`.trim()
+    },
     formatRestockQuantity(row) {
       // Lot 4 — au supérieur : c'est une quantité qu'on dépose physiquement.
-      if (this.isPackedMode(row.itemKey) && row.packaging) {
-        return `${row.packaging.packedCount.toLocaleString('fr-FR')} ${row.packaging.packagingType} (${this.formatCeilQuantity(row.restockQuantity, row.unit)})`
+      const packCount = this.depositPackCount(row)
+      if (packCount != null) {
+        return `${packCount.toLocaleString('fr-FR')} ${this.depositPackLabel(row)}`
       }
       return this.formatCeilQuantity(row.restockQuantity, row.unit)
     },
+    /** Rappel en unités de recette, en secondaire sous le nombre de paquets. */
+    formatRestockUnits(row) {
+      return this.formatCeilQuantity(row.restockQuantity, row.unit)
+    },
+    /**
+     * « 3 Cartons de 6 bouteilles » — même accord que « À déposer ». Ne teste
+     * PAS isPackedMode : les appelants arbitrent (buyInfo affiche les colis dès
+     * que le conditionnement se résout).
+     */
+    formatPackedQuantity(packaging, unit) {
+      if (!packaging) return ''
+      const count = Number(packaging.packedCount || 0)
+      const type = pluralizePackLabel(packaging.packagingType || this.t('srDepositPackSuffix'), count)
+      const size = this.depositPackSizeLabel({ packaging, unit })
+      const label = `${count.toLocaleString('fr-FR')} ${type}`
+      return size ? `${label} ${this.t('srDepositHelpOf')} ${size}` : label
+    },
     formatShoppingQuantity(item) {
       if (this.isPackedMode(item.itemKey) && item.packaging) {
-        return `${item.packaging.packedCount.toLocaleString('fr-FR')} ${item.packaging.packagingType} de ${item.packaging.packagingUnitNumber} ${item.packaging.packagingUnit}`
+        return this.formatPackedQuantity(item.packaging, item.unit)
       }
       return this.formatLooseQuantity(item.quantity, item.unit)
     },
@@ -4414,6 +4531,11 @@ export default {
         this.t('srCsvTarget'),
         this.t('srCsvRemaining'),
         this.t('srCsvToDeposit'),
+        // Le terrain dépose des paquets : la colonne unités reste (le calcul
+        // aval y travaille), les deux colonnes colis s'ajoutent à côté.
+        this.t('srCsvPackCount'),
+        this.t('srCsvPackType'),
+        this.t('srCsvPackSize'),
         this.t('srCsvUnit'),
         this.t('srCsvConfirmed'),
         this.t('srCsvEvents'),
@@ -4424,6 +4546,11 @@ export default {
         row.targetQuantity,
         row.remainingQuantity,
         row.restockQuantity,
+        this.depositPackCount(row) ?? '',
+        this.depositPackCount(row) == null ? '' : this.depositPackLabel(row),
+        // Taille d'un colis (« 6 bouteilles ») : sans elle, « 3 Carton » n'est
+        // pas exploitable en dehors de l'écran.
+        this.depositPackSizeLabel(row),
         row.unit,
         this.isRestocked(row.rowKey) ? this.t('srCsvYes') : this.t('srCsvNo'),
         (row.eventNames || []).join(' | '),
@@ -5627,10 +5754,10 @@ export default {
   cursor: help;
 }
 
-/* L'icône suit la valeur « À déposer » dans la cellule, sans la pousser. */
+/* L'icône suit la valeur « À déposer » sur la même ligne : l'espacement vient
+   du gap de .sr-deposit-main, pas d'une marge (qui se cumulerait). */
 .sr-deposit-help {
-  margin-left: 4px;
-  vertical-align: baseline;
+  flex: none;
 }
 
 .sr-values-help-body p {
@@ -7346,6 +7473,21 @@ export default {
 }
 .sr-deposit-field {
   max-width: 110px;
+}
+/* Ligne 1 : quantité, unité de colis et infobulle alignées sur la même
+   ligne de base — l'icône ne doit jamais passer sous le conditionnement. */
+.sr-deposit-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* Ligne 2 : conditionnement détaillé + rappel en unités de recette. */
+.sr-deposit-sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--sr-muted, #64748b);
 }
 .sr-deposit-edited {
   color: var(--fb-warning, #d97706);

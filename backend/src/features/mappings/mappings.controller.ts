@@ -80,7 +80,7 @@ export class MappingsController {
     @Query('limit') limit = 100,
   ) {
     this.logger.log(`GET /mappings/location-space - Tenant: ${user.tenantId}`);
-    return this.mappingsService.getLocationSpaceMappings(user.tenantId, +page, +limit);
+    return this.mappingsService.getLocationSpaceMappings(user.tenantId, +page, +limit, user);
   }
 
   @Get('location-space/:locationId')
@@ -94,7 +94,7 @@ export class MappingsController {
     @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.getLocationSpaceMapping(user.tenantId, locationId);
+    return this.mappingsService.getLocationSpaceMapping(user.tenantId, locationId, user);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -149,6 +149,7 @@ export class MappingsController {
       spaceId,
       +page,
       +limit,
+      user,
     );
   }
 

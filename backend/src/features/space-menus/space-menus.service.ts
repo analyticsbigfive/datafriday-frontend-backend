@@ -1,8 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { linksToSpacePrices, spaceLinksSelect } from '../../shared/pricing/space-links.util';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 /** Raison structurée d'indisponibilité d'un menu item (par ingrédient/packaging). */
 type MissingReason = {
@@ -21,7 +25,17 @@ export class SpaceMenusService {
     private prisma: PrismaService,
     private redis: RedisService,
     private pricing: MenuItemPricingService,
+    private spaceAccess: SpaceAccessService,
   ) {}
+
+  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
+  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceId) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à l'espace de ce shop.");
+  }
 
   /**
    * Invalidations croisées après une écriture d'assignation menu : sans elles, le front
@@ -106,7 +120,7 @@ export class SpaceMenusService {
    * Returns shop info + all menu items with their ingredients, components, and packagings
    * `configId` : scope des assignations (cf. resolveShopConfigId pour le repli).
    */
-  async getShopMenu(shopId: string, tenantId: string, configId?: string) {
+  async getShopMenu(shopId: string, tenantId: string, configId?: string, user?: SpaceScopedUser) {
     this.logger.debug(`Getting shop menu for shopId=${shopId} tenantId=${tenantId} configId=${configId ?? '(auto)'}`);
 
     // Get the shop (SpaceElement) with its menu assignments
@@ -287,6 +301,7 @@ export class SpaceMenusService {
     // exposait les prix custom de TOUS les espaces ayant un SpaceMenuItem pour l'item, pas
     // seulement celui du shop.
     const spaceId = this.resolveShopSpaceId(shopAny);
+    await this.assertSpaceAccess(spaceId, user);
 
     // Transform the data to a cleaner format
     const menuItems = scopedAssignments.map((assignment: any) => {
@@ -626,6 +641,7 @@ export class SpaceMenusService {
     tenantId: string,
     configId?: string,
     enabledOnly = false,
+    user?: SpaceScopedUser,
   ) {
     this.logger.debug(
       `Getting available menu items for shopId=${shopId} tenantId=${tenantId} configId=${configId ?? '(auto)'} enabledOnly=${enabledOnly}`,
@@ -655,6 +671,7 @@ export class SpaceMenusService {
 
     const shopAny = shop as any;
     const spaceId = this.resolveShopSpaceId(shopAny);
+    await this.assertSpaceAccess(spaceId, user);
 
     // Scoping par configuration : ne considérer que les assignations de la config effective
     // (élément v2 partagé = une ligne par config ; sans filtre, l'état coché de la config A
@@ -701,7 +718,7 @@ export class SpaceMenusService {
    * Une ligne par référence, avec les menu items qui l'utilisent (« Used in »), jamais
    * répétée quand plusieurs produits partagent le même ingrédient.
    */
-  async getShopInventory(shopId: string, tenantId: string, configId?: string) {
+  async getShopInventory(shopId: string, tenantId: string, configId?: string, user?: SpaceScopedUser) {
     this.logger.debug(
       `Getting shop inventory for shopId=${shopId} tenantId=${tenantId} configId=${configId ?? '(auto)'}`,
     );
@@ -728,6 +745,7 @@ export class SpaceMenusService {
 
     const shopAny = shop as any;
     const spaceId = this.resolveShopSpaceId(shopAny);
+    await this.assertSpaceAccess(spaceId, user);
     const effectiveConfigId = this.resolveShopConfigId(shopAny, configId);
     const enabledIds: string[] = [
       ...new Set<string>(
@@ -798,7 +816,7 @@ export class SpaceMenusService {
    * lignes F&B, 'merch' forcé pour les articles — le front filtre selon les sous-types
    * du storage (prototype : non typé = dry ; merch visible si sous-type merch/material).
    */
-  async getStorageInventory(shopIds: string[], tenantId: string, configId?: string) {
+  async getStorageInventory(shopIds: string[], tenantId: string, configId?: string, user?: SpaceScopedUser) {
     const ids = [...new Set(shopIds.map((s) => s.trim()).filter(Boolean))];
     this.logger.debug(
       `Getting storage inventory for ${ids.length} shops tenantId=${tenantId} configId=${configId ?? '(auto)'}`,
@@ -831,8 +849,19 @@ export class SpaceMenusService {
     if (shops.length === 0) return empty;
 
     // Ids hors tenant silencieusement ignorés (findMany filtré) — pas de 404 : une
-    // sélection storage peut référencer un shop supprimé depuis.
-    const shopInfos = (shops as any[]).map((shop) => {
+    // sélection storage peut référencer un shop supprimé depuis. Même traitement pour un
+    // shop d'un espace non accessible à `user` : exclu silencieusement plutôt qu'un 403
+    // qui ferait échouer l'agrégat entier pour les autres shops légitimes de la sélection.
+    const accessibleSpaces =
+      user && !this.spaceAccess.hasFullAccess(user) ? await this.spaceAccess.getAccessibleSpaceIds(user) : 'ALL';
+    const authorizedShops = (shops as any[]).filter((shop) => {
+      if (accessibleSpaces === 'ALL') return true;
+      const spaceId = this.resolveShopSpaceId(shop);
+      return !spaceId || accessibleSpaces.includes(spaceId);
+    });
+    if (authorizedShops.length === 0) return empty;
+
+    const shopInfos = authorizedShops.map((shop) => {
       const spaceId = this.resolveShopSpaceId(shop);
       const effectiveConfigId = this.resolveShopConfigId(shop, configId);
       const enabledIds = [

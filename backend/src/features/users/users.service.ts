@@ -216,6 +216,9 @@ export class UsersService {
           // Rôle RBAC dynamique : exposé en objet `{ id, name, systemKey }` par
           // sanitizeUser (colonne "Role" de la liste users côté front).
           roleRef: { select: { id: true, name: true, systemKey: true } },
+          // isOwner DE CE TENANT (pas des autres organisations de l'utilisateur) — permet au
+          // front de désactiver la suppression/rétrogradation du owner (cf. sanitizeUser).
+          userTenants: { where: { tenantId }, select: { isOwner: true } },
           _count: {
             select: {
               pinnedSpaces: true,
@@ -913,7 +916,13 @@ export class UsersService {
    */
   private sanitizeUser(user: any) {
     // Remove any sensitive fields if present
-    const { roleRef, ...sanitized } = user;
+    const { roleRef, userTenants, ...sanitized } = user;
+
+    // isOwner DE CE TENANT, quand `userTenants` a été demandé (findAll) — le front s'en sert
+    // pour désactiver la suppression/rétrogradation du owner (cf. UserListView.vue).
+    if (Array.isArray(userTenants)) {
+      sanitized.isOwner = userTenants[0]?.isOwner ?? false;
+    }
 
     // Quand la relation `roleRef` a été DEMANDÉE (findAll/findOne incluent `roleRef`,
     // même si la valeur est null car `roleId` est null), on expose le rôle sous la

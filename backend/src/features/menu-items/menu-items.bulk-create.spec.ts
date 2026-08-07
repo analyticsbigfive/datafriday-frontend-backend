@@ -15,11 +15,12 @@ describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
   const mockRedis = { deletePattern: jest.fn().mockResolvedValue(undefined) } as any;
   const mockPricing = {} as any;
   const mockStorage = { resolveImage: jest.fn((value) => Promise.resolve(value ?? null)) } as any;
+  const mockSpaceAccess = {} as any;
 
   let service: MenuItemsService;
 
   beforeEach(() => {
-    service = new MenuItemsService(mockPrisma, mockRedis, mockPricing, mockStorage);
+    service = new MenuItemsService(mockPrisma, mockRedis, mockPricing, mockStorage, mockSpaceAccess);
     jest.clearAllMocks();
     mockStorage.resolveImage.mockImplementation((value: any) => Promise.resolve(value ?? null));
     mockPrisma.menuItem.createMany.mockResolvedValue({ count: 0 });

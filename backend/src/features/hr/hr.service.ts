@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 /**
  * RH staffing — fournisseurs (agences), rôles métier (« positions ») et
@@ -21,7 +25,26 @@ export const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as cons
 
 @Injectable()
 export class HrService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private spaceAccess: SpaceAccessService) {}
+
+  /**
+   * Lève 403 si `user` n'a accès à aucun des espaces listés. Une ressource SANS espace
+   * déclaré ne dessert aucun espace accessible par construction : réservée aux comptes à
+   * accès complet (owner/super-admin/allSpacesAccess), jamais « portée tenant » implicite.
+   */
+  private async assertSpaceWriteAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
+    if (!user) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!spaceIds?.length) {
+      throw new ForbiddenException("Cette ressource ne dessert aucun espace — réservée aux comptes à accès complet.");
+    }
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL') return;
+    const allowed = spaceIds.some((sid) => accessible.includes(sid));
+    if (!allowed) {
+      throw new ForbiddenException("Vous n'avez pas accès à l'espace de cette ressource.");
+    }
+  }
 
   // ── Mapping ────────────────────────────────────────────────────────────────
 
@@ -40,7 +63,14 @@ export class HrService {
     };
   }
 
-  private mapRole(r: any) {
+  /**
+   * `accessibleSupplierIds` : quand fourni (utilisateur restreint), les agences non
+   * accessibles sont retirées de `supplierIds` — sans ça, la liste des agences associées à
+   * un rôle (et donc leur staff) fuitait pour des agences ne desservant pas l'espace de
+   * l'utilisateur (cf. HrSuppliersService : sans site déclaré = accessible à personne).
+   */
+  private mapRole(r: any, accessibleSupplierIds?: 'ALL' | Set<string>) {
+    const allSupplierIds = (r.suppliers ?? []).map((x: any) => x.supplierId);
     return {
       id: r.id,
       department: r.department,
@@ -50,10 +80,42 @@ export class HrService {
       rate: r.rate,
       fnbCategories: r.fnbCategories ?? [],
       algoKey: r.algoKey,
-      supplierIds: (r.suppliers ?? []).map((x: any) => x.supplierId),
+      supplierIds:
+        !accessibleSupplierIds || accessibleSupplierIds === 'ALL'
+          ? allSupplierIds
+          : allSupplierIds.filter((id: string) => (accessibleSupplierIds as Set<string>).has(id)),
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };
+  }
+
+  /** Ids des HrSupplier desservant un espace accessible à `user` (cf. mapRole). */
+  private async accessibleSupplierIds(tenantId: string, user?: SpaceScopedUser): Promise<'ALL' | Set<string>> {
+    if (!user || this.spaceAccess.hasFullAccess(user)) return 'ALL';
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL') return 'ALL';
+    const rows = await this.prisma.hrSupplier.findMany({
+      where: { tenantId, spaceIds: { hasSome: accessible } },
+      select: { id: true },
+    });
+    return new Set(rows.map((r) => r.id));
+  }
+
+  /**
+   * Lève 403 pour un rôle AGENCE dont plus aucun fournisseur n'est accessible à `user`
+   * (cf. findAllRoles) — protège aussi update/remove en accès direct par id, pas seulement
+   * la liste. Un rôle interne (non AGENCE) n'a pas cette restriction.
+   */
+  private assertRoleVisible(
+    role: { contractType: string | null; suppliers?: { supplierId: string }[] },
+    accessibleSupplierIds: 'ALL' | Set<string>,
+  ) {
+    if (accessibleSupplierIds === 'ALL' || role.contractType !== 'AGENCY') return;
+    const supplierIds = (role.suppliers ?? []).map((s) => s.supplierId);
+    const hasAccessible = supplierIds.some((id) => accessibleSupplierIds.has(id));
+    if (!hasAccessible) {
+      throw new ForbiddenException("Ce rôle n'a aucune agence accessible — réservé aux comptes à accès complet.");
+    }
   }
 
   private mapPerson(p: any) {
@@ -114,9 +176,19 @@ export class HrService {
     });
   }
 
-  async findAllSuppliers(tenantId: string) {
+  async findAllSuppliers(tenantId: string, user?: SpaceScopedUser) {
+    // Un utilisateur restreint à certains espaces ne doit voir que les fournisseurs RH qui y
+    // sont déclarés — un fournisseur sans espace déclaré ne dessert aucun espace accessible
+    // par construction, jamais « tout le tenant » pour un compte restreint.
+    const where: any = { tenantId };
+    if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') {
+        where.spaceIds = { hasSome: accessible };
+      }
+    }
     const rows = await this.prisma.hrSupplier.findMany({
-      where: { tenantId },
+      where,
       orderBy: { name: 'asc' },
     });
     return { data: rows.map((s) => this.mapSupplier(s)) };
@@ -157,9 +229,10 @@ export class HrService {
     }
   }
 
-  async updateSupplier(id: string, input: any, tenantId: string) {
+  async updateSupplier(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrSupplier.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSupplier ${id} introuvable`);
+    await this.assertSpaceWriteAccess(existing.spaceIds, user);
     const departments = await this.normalizeSupplierDepartments(input.departments);
     try {
       const row = await this.prisma.hrSupplier.update({
@@ -183,9 +256,10 @@ export class HrService {
     }
   }
 
-  async removeSupplier(id: string, tenantId: string) {
+  async removeSupplier(id: string, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrSupplier.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSupplier ${id} introuvable`);
+    await this.assertSpaceWriteAccess(existing.spaceIds, user);
     await this.prisma.hrSupplier.delete({ where: { id } }); // cascade jointures
     return { deleted: true };
   }
@@ -277,16 +351,27 @@ export class HrService {
     return { department, name, contractType, rateType, rate, supplierIds, fnbCategories, algoKey };
   }
 
-  async findAllRoles(tenantId: string) {
+  async findAllRoles(tenantId: string, user?: SpaceScopedUser) {
     const rows = await this.prisma.hrRole.findMany({
       where: { tenantId },
       orderBy: { name: 'asc' },
       include: { suppliers: { select: { supplierId: true } } },
     });
-    return { data: rows.map((r) => this.mapRole(r)) };
+    const accessibleSupplierIds = await this.accessibleSupplierIds(tenantId, user);
+    const mapped = rows.map((r) => this.mapRole(r, accessibleSupplierIds));
+    // Un rôle interne (CDI/CDD/FREELANCE/OTHER, sans fournisseur requis) reste un
+    // référentiel tenant-wide visible par tous. Un rôle AGENCE dont plus aucun fournisseur
+    // n'est accessible est en revanche masqué pour un utilisateur restreint — sinon il
+    // resterait listé avec une liste de fournisseurs vide, comme si aucune agence n'était
+    // configurée alors qu'il y en a, simplement hors de son périmètre.
+    const visible =
+      accessibleSupplierIds === 'ALL'
+        ? mapped
+        : mapped.filter((r) => r.contractType !== 'AGENCY' || r.supplierIds.length > 0);
+    return { data: visible };
   }
 
-  async createRole(input: any, tenantId: string) {
+  async createRole(input: any, tenantId: string, user?: SpaceScopedUser) {
     const n = await this.normalizeRole(input, tenantId);
     try {
       const row = await this.prisma.hrRole.create({
@@ -303,7 +388,7 @@ export class HrService {
         },
         include: { suppliers: { select: { supplierId: true } } },
       });
-      return this.mapRole(row);
+      return this.mapRole(row, await this.accessibleSupplierIds(tenantId, user));
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new BadRequestException(`Un rôle RH nommé « ${n.name} » existe déjà.`);
@@ -312,12 +397,14 @@ export class HrService {
     }
   }
 
-  async updateRole(id: string, input: any, tenantId: string) {
+  async updateRole(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrRole.findFirst({
       where: { id, tenantId },
       include: { suppliers: { select: { supplierId: true } } },
     });
     if (!existing) throw new NotFoundException(`HrRole ${id} introuvable`);
+    const accessibleSupplierIds = await this.accessibleSupplierIds(tenantId, user);
+    this.assertRoleVisible(existing, accessibleSupplierIds);
     const n = await this.normalizeRole(input, tenantId, existing);
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -337,12 +424,16 @@ export class HrService {
         include: { suppliers: { select: { supplierId: true } } },
       });
     });
-    return this.mapRole(row);
+    return this.mapRole(row, accessibleSupplierIds);
   }
 
-  async removeRole(id: string, tenantId: string) {
-    const existing = await this.prisma.hrRole.findFirst({ where: { id, tenantId } });
+  async removeRole(id: string, tenantId: string, user?: SpaceScopedUser) {
+    const existing = await this.prisma.hrRole.findFirst({
+      where: { id, tenantId },
+      include: { suppliers: { select: { supplierId: true } } },
+    });
     if (!existing) throw new NotFoundException(`HrRole ${id} introuvable`);
+    this.assertRoleVisible(existing, await this.accessibleSupplierIds(tenantId, user));
     await this.prisma.hrRole.delete({ where: { id } }); // cascade jointures + persons
     return { deleted: true };
   }
@@ -471,9 +562,16 @@ export class HrService {
     };
   }
 
-  async findAllRoleMenuItemRatios(tenantId: string, filter: { spaceId?: string } = {}) {
+  async findAllRoleMenuItemRatios(tenantId: string, filter: { spaceId?: string } = {}, user?: SpaceScopedUser) {
+    const where: any = { tenantId };
+    if (filter.spaceId) {
+      where.spaceId = filter.spaceId;
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') where.spaceId = { in: accessible };
+    }
     const rows = await this.prisma.hrRoleMenuItemRatio.findMany({
-      where: { tenantId, ...(filter.spaceId && { spaceId: filter.spaceId }) },
+      where,
       orderBy: { createdAt: 'asc' },
     });
     return { data: rows.map((r) => this.mapRoleMenuItemRatio(r)) };
@@ -542,9 +640,10 @@ export class HrService {
     return this.mapRoleMenuItemRatio(row);
   }
 
-  async updateRoleMenuItemRatio(id: string, input: any, tenantId: string) {
+  async updateRoleMenuItemRatio(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
+    await this.assertSpaceWriteAccess([existing.spaceId], user);
     const n = await this.assertValidRoleMenuItemRatio(input, tenantId, existing);
     const row = await this.prisma.hrRoleMenuItemRatio.update({
       where: { id },
@@ -559,9 +658,10 @@ export class HrService {
     return this.mapRoleMenuItemRatio(row);
   }
 
-  async removeRoleMenuItemRatio(id: string, tenantId: string) {
+  async removeRoleMenuItemRatio(id: string, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
+    await this.assertSpaceWriteAccess([existing.spaceId], user);
     await this.prisma.hrRoleMenuItemRatio.delete({ where: { id } });
     return { deleted: true };
   }

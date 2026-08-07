@@ -59,6 +59,32 @@ export async function requireSuperAdmin(to, from, next) {
 }
 
 /**
+ * Guard pour les routes réservées au owner du tenant (ex. gestion des rôles). Distinct de
+ * `can()` : un rôle ADMIN de tenant a `org.roles.manage` par défaut mais n'est pas forcément
+ * le owner — cf. roles.service.ts::assertIsOwner côté backend, seule protection réelle contre
+ * PermissionsGuard qui laisse passer tout ADMIN sans vérifier ses permissions réelles.
+ */
+export async function requireOwner(to, from, next) {
+  if (!store.getters['auth/isInitialized']) {
+    await store.dispatch('auth/initialize')
+  }
+
+  if (!store.getters['auth/isAuthenticated']) {
+    return next({ path: '/login', query: { redirect: to.fullPath } })
+  }
+
+  if (!store.getters['auth/hasOrganization']) {
+    return next('/onboarding')
+  }
+
+  if (!store.getters['auth/isOwner']) {
+    return next('/spaces')
+  }
+
+  next()
+}
+
+/**
  * Guard de la page d'onboarding (« Créer votre organisation »).
  *
  * Seul un utilisateur AUTHENTIFIÉ SANS organisation doit la voir (création du

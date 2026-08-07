@@ -98,7 +98,7 @@ export class MarketPricesController {
     @Query('limit') limit?: string,
   ) {
     this.logger.log(`GET /market-prices - User: ${user?.id}, Tenant: ${tenantId}, page=${page}, limit=${limit}`);
-    return this.marketPricesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined);
+    return this.marketPricesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, user);
   }
 
   @Get('with-packagings')
@@ -158,7 +158,7 @@ export class MarketPricesController {
       limit: limit ? +limit : undefined,
       search,
       category,
-    });
+    }, user);
   }
 
   @Get('with-ingredients')
@@ -188,7 +188,7 @@ export class MarketPricesController {
       search,
       category,
       goodType,
-    });
+    }, user);
   }
 
   @Get(':id')
@@ -198,7 +198,7 @@ export class MarketPricesController {
   @ApiResponse({ status: 404, description: 'Prix non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /market-prices/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.findOne(id, tenantId);
+    return this.marketPricesService.findOne(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.marketPrices')
@@ -209,7 +209,7 @@ export class MarketPricesController {
   @ApiResponse({ status: 404, description: 'Prix non trouvé' })
   update(@Param('id') id: string, @Body() dto: UpdateMarketPriceDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`PATCH /market-prices/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.update(id, dto, tenantId);
+    return this.marketPricesService.update(id, dto, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.marketPrices')
@@ -220,7 +220,7 @@ export class MarketPricesController {
   @ApiResponse({ status: 404, description: 'Prix non trouvé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /market-prices/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.remove(id, tenantId);
+    return this.marketPricesService.remove(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.marketPrices')
@@ -230,6 +230,6 @@ export class MarketPricesController {
   @ApiResponse({ status: 200, description: 'Prix supprimés' })
   removeByItemName(@Param('itemName') itemName: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /market-prices/item/${itemName} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.removeByItemName(decodeURIComponent(itemName), tenantId);
+    return this.marketPricesService.removeByItemName(decodeURIComponent(itemName), tenantId, user);
   }
 }

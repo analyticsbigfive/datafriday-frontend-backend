@@ -1,18 +1,39 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 @Injectable()
 export class AnalyseService {
   private readonly logger = new Logger(AnalyseService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private spaceAccess: SpaceAccessService) {}
 
-  async getDashboard(tenantId: string, spaceId?: string) {
+  async getDashboard(tenantId: string, spaceId?: string, user?: SpaceScopedUser) {
     this.logger.log(`Getting dashboard for tenant ${tenantId}${spaceId ? ` space ${spaceId}` : ''}`);
 
-    // NB : seuls les events sont scopables par space (Event.spaceId). Menu items,
-    // composants, ingrédients et fournisseurs sont des référentiels tenant-level.
+    // NB : seuls les events (et le compteur d'espaces) sont scopables par space
+    // (Event.spaceId). Menu items, composants, ingrédients et fournisseurs sont des
+    // référentiels tenant-level (cf. leurs propres endpoints de liste pour le filtrage
+    // par espace accessible — un menu item/fournisseur peut être rattaché à 0..N espaces).
+    let eventSpaceScope: Prisma.EventWhereInput = {};
+    let spaceScope: Prisma.SpaceWhereInput = {};
+    if (spaceId) {
+      eventSpaceScope = { spaceId };
+      spaceScope = { id: spaceId };
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') {
+        // Un event sans spaceId est un artefact de démappage/import (pas un event
+        // « global ») — un utilisateur restreint ne doit compter que ceux de ses espaces.
+        eventSpaceScope = { spaceId: { in: accessible } };
+        spaceScope = { id: { in: accessible } };
+      }
+    }
+
     const [
       menuItemCount,
       componentCount,
@@ -25,8 +46,8 @@ export class AnalyseService {
       this.prisma.menuComponent.count({ where: { tenantId, deletedAt: null } }),
       this.prisma.ingredient.count({ where: { tenantId, deletedAt: null } }),
       this.prisma.supplier.count({ where: { tenantId } }),
-      this.prisma.event.count({ where: { tenantId, ...(spaceId ? { spaceId } : {}) } }),
-      this.prisma.space.count({ where: { tenantId } }),
+      this.prisma.event.count({ where: { tenantId, ...eventSpaceScope } }),
+      this.prisma.space.count({ where: { tenantId, ...spaceScope } }),
     ]);
 
     return {
@@ -89,13 +110,25 @@ export class AnalyseService {
     };
   }
 
-  async getEventKpis(tenantId: string, spaceId?: string) {
+  async getEventKpis(tenantId: string, spaceId?: string, user?: SpaceScopedUser) {
     this.logger.log(`Getting event KPIs for tenant ${tenantId}${spaceId ? ` space ${spaceId}` : ''}`);
 
     // Agrégation en une requête SQL au lieu d'un findMany tenant entier + reduce JS.
     // Parité : revenue NULL → 0 (COALESCE), upcoming = eventDate strictement future,
     // completed = status success/completed.
-    const spaceFilter = spaceId ? Prisma.sql`AND "spaceId" = ${spaceId}` : Prisma.sql``;
+    let spaceFilter = Prisma.sql``;
+    if (spaceId) {
+      spaceFilter = Prisma.sql`AND "spaceId" = ${spaceId}`;
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') {
+        // Un event sans spaceId est un artefact de démappage/import (pas un event
+        // « global ») — un utilisateur restreint ne voit que les KPIs de ses espaces.
+        spaceFilter = accessible.length
+          ? Prisma.sql`AND "spaceId" IN (${Prisma.join(accessible)})`
+          : Prisma.sql`AND false`;
+      }
+    }
     const rows = await this.prisma.$queryRaw<Array<{
       totalEvents: number;
       totalRevenue: number | null;

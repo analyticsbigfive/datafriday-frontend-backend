@@ -19,6 +19,7 @@ import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { PermissionsGuard } from '../../core/auth/guards/permissions.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 
 @ApiTags('Roles')
 @ApiBearerAuth('supabase-jwt')
@@ -67,8 +68,9 @@ export class RolesController {
   })
   @ApiResponse({ status: 201, description: 'Rôle créé' })
   @ApiResponse({ status: 409, description: 'Nom déjà utilisé dans ce tenant' })
-  async create(@CurrentTenant() tenantId: string, @Body() dto: CreateRoleDto) {
-    return this.rolesService.create(tenantId, dto);
+  @ApiResponse({ status: 403, description: 'Réservé au owner de l\'organisation' })
+  async create(@CurrentTenant() tenantId: string, @Body() dto: CreateRoleDto, @CurrentUser() user: any) {
+    return this.rolesService.create(tenantId, dto, !!user?.isOwner);
   }
 
   /**
@@ -84,13 +86,15 @@ export class RolesController {
   @ApiParam({ name: 'id', description: 'ID du rôle' })
   @ApiResponse({ status: 200, description: 'Rôle mis à jour' })
   @ApiResponse({ status: 400, description: 'Modification non autorisée pour un rôle système' })
+  @ApiResponse({ status: 403, description: 'Réservé au owner de l\'organisation' })
   @ApiResponse({ status: 404, description: 'Rôle non trouvé' })
   async update(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: UpdateRoleDto,
+    @CurrentUser() user: any,
   ) {
-    return this.rolesService.update(id, tenantId, dto);
+    return this.rolesService.update(id, tenantId, dto, !!user?.isOwner);
   }
 
   /**
@@ -108,8 +112,9 @@ export class RolesController {
   @ApiResponse({ status: 200, description: 'Rôle supprimé' })
   @ApiResponse({ status: 400, description: 'Rôle système (non supprimable)' })
   @ApiResponse({ status: 404, description: 'Rôle non trouvé' })
+  @ApiResponse({ status: 403, description: 'Réservé au owner de l\'organisation' })
   @ApiResponse({ status: 409, description: 'Rôle assigné à des utilisateurs' })
-  async remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.rolesService.remove(id, tenantId);
+  async remove(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.rolesService.remove(id, tenantId, !!user?.isOwner);
   }
 }

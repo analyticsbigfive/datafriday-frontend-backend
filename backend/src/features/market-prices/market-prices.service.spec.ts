@@ -18,7 +18,7 @@ describe('MarketPricesService.deduplicate', () => {
   let service: MarketPricesService;
 
   beforeEach(() => {
-    service = new MarketPricesService(mockPrisma, mockStorage);
+    service = new MarketPricesService(mockPrisma, mockStorage, { hasFullAccess: () => true, getAccessibleSpaceIds: async () => "ALL" } as any);
     jest.clearAllMocks();
     mockPrisma.marketPrice.deleteMany.mockResolvedValue({ count: 0 });
   });
@@ -161,7 +161,7 @@ describe('MarketPricesService.bulkCreate — upsert by id', () => {
   let service: MarketPricesService;
 
   beforeEach(() => {
-    service = new MarketPricesService(mockPrisma, mockStorage);
+    service = new MarketPricesService(mockPrisma, mockStorage, { hasFullAccess: () => true, getAccessibleSpaceIds: async () => "ALL" } as any);
     jest.clearAllMocks();
     mockStorage.resolveImage.mockResolvedValue(undefined);
   });

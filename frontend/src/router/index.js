@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import store from '@/store'
-import { requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard, requireSuperAdmin } from './guards'
+import { requireOrganization, guestOnly, spaceEntryGuard, onboardingGuard, requireSuperAdmin, requireOwner } from './guards'
 
 // Views — PERF: imports LAZY (`() => import(...)`) au lieu de statiques. En
 // statique, ces ~31 vues étaient inlinées dans le chunk eager `app.js` (953KB),
@@ -431,6 +431,10 @@ const routes = [
         path: '/roles',
         name: 'roles',
         component: RoleListView,
+        // requireOwner : la gestion des rôles est verrouillée au owner côté backend
+        // (roles.service.ts) — `permission` seule ne suffit pas, un ADMIN de tenant
+        // a `org.roles.manage` par défaut sans être owner.
+        beforeEnter: requireOwner,
         meta: { title: 'Liste des rôles', permission: 'org.roles.manage' }
       },
       {

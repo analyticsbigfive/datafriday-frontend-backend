@@ -1,14 +1,42 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 @Injectable()
 export class SuppliersService {
   private readonly logger = new Logger(SuppliersService.name);
 
-  constructor(private prisma: PrismaService, private storage: SupabaseStorageService) {}
+  constructor(
+    private prisma: PrismaService,
+    private storage: SupabaseStorageService,
+    private spaceAccess: SpaceAccessService,
+  ) {}
+
+  /**
+   * Lève 403 si `user` n'a accès à aucun des espaces desservis par ce fournisseur (`sites`) —
+   * que ce soit pour le LIRE (findOne) ou le modifier. Un fournisseur SANS site déclaré ne
+   * dessert aucun espace accessible par construction : il n'est visible/modifiable que par
+   * les comptes à accès complet (owner/super-admin/allSpacesAccess).
+   */
+  private async assertSpaceAccess(sites: string[] | undefined, user?: SpaceScopedUser) {
+    if (!user) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!sites?.length) {
+      throw new ForbiddenException("Ce fournisseur ne dessert aucun espace — réservé aux comptes à accès complet.");
+    }
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL') return;
+    const allowed = sites.some((sid) => accessible.includes(sid));
+    if (!allowed) {
+      throw new ForbiddenException("Vous n'avez pas accès à l'espace de ce fournisseur.");
+    }
+  }
 
   async create(createSupplierDto: CreateSupplierDto, tenantId: string) {
     this.logger.log(`Creating supplier "${createSupplierDto.name}" for tenant ${tenantId}`);
@@ -48,18 +76,28 @@ export class SuppliersService {
     }
   }
 
-  async findAll(tenantId: string, page = 1, limit = 100) {
+  async findAll(tenantId: string, page = 1, limit = 100, user?: SpaceScopedUser) {
     this.logger.log(`Fetching suppliers for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
       const skip = (page - 1) * limit;
+      // Un utilisateur restreint à certains espaces ne doit voir que les fournisseurs qui y
+      // sont déclarés — un fournisseur sans site déclaré ne dessert aucun espace accessible
+      // par construction, jamais « tout le tenant » pour un compte restreint.
+      const where: any = { tenantId };
+      if (user && !this.spaceAccess.hasFullAccess(user)) {
+        const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+        if (accessible !== 'ALL') {
+          where.sites = { hasSome: accessible };
+        }
+      }
       const [suppliers, total] = await this.prisma.$transaction([
         this.prisma.supplier.findMany({
-          where: { tenantId },
+          where,
           orderBy: { name: 'asc' },
           skip,
           take: limit,
         }),
-        this.prisma.supplier.count({ where: { tenantId } }),
+        this.prisma.supplier.count({ where }),
       ]);
       this.logger.log(`Found ${suppliers.length} suppliers (total: ${total})`);
       return {
@@ -72,7 +110,7 @@ export class SuppliersService {
     }
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Fetching supplier ${id} for tenant ${tenantId}`);
     const supplier = await this.prisma.supplier.findFirst({
       where: { id, tenantId },
@@ -83,13 +121,14 @@ export class SuppliersService {
       throw new NotFoundException(`Supplier with ID ${id} not found`);
     }
 
+    await this.assertSpaceAccess(supplier.sites, user);
     return supplier;
   }
 
-  async update(id: string, updateSupplierDto: UpdateSupplierDto, tenantId: string) {
+  async update(id: string, updateSupplierDto: UpdateSupplierDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating supplier ${id} for tenant ${tenantId}`);
     // Verify existence
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, user);
 
     const updateData: any = {};
     if (updateSupplierDto.name !== undefined) updateData.name = updateSupplierDto.name;
@@ -121,10 +160,10 @@ export class SuppliersService {
     }
   }
 
-  async remove(id: string, tenantId: string) {
+  async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Deleting supplier ${id} for tenant ${tenantId}`);
     // Verify existence
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, user);
 
     try {
       const result = await this.prisma.supplier.delete({

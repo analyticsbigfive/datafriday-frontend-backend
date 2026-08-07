@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagg
 import { IsString, IsNotEmpty, IsIn, IsNumber, Min, IsInt, IsBoolean, IsOptional, IsArray } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { HrService } from './hr.service';
 
@@ -56,8 +57,8 @@ export class HrRoleMenuItemRatiosController {
 
   @Get()
   @ApiOperation({ summary: "Lister les associations Rôle↔MenuItem du tenant (filtrable par espace)" })
-  findAll(@Query('spaceId') spaceId: string | undefined, @CurrentTenant() tenantId: string) {
-    return this.service.findAllRoleMenuItemRatios(tenantId, { spaceId });
+  findAll(@Query('spaceId') spaceId: string | undefined, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.findAllRoleMenuItemRatios(tenantId, { spaceId }, user);
   }
 
   @Post()
@@ -68,13 +69,13 @@ export class HrRoleMenuItemRatiosController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une association Rôle↔MenuItem' })
-  update(@Param('id') id: string, @Body() dto: UpdateHrRoleMenuItemRatioDto, @CurrentTenant() tenantId: string) {
-    return this.service.updateRoleMenuItemRatio(id, dto, tenantId);
+  update(@Param('id') id: string, @Body() dto: UpdateHrRoleMenuItemRatioDto, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.updateRoleMenuItemRatio(id, dto, tenantId, user);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une association Rôle↔MenuItem' })
-  remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.service.removeRoleMenuItemRatio(id, tenantId);
+  remove(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.removeRoleMenuItemRatio(id, tenantId, user);
   }
 }

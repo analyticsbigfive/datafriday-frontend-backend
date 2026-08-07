@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagg
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, IsIn } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
   HrService,
@@ -70,25 +71,25 @@ export class HrRolesController {
 
   @Get()
   @ApiOperation({ summary: 'Lister les rôles RH du tenant' })
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.service.findAllRoles(tenantId);
+  findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.findAllRoles(tenantId, user);
   }
 
   @Post()
   @ApiOperation({ summary: 'Créer un rôle RH (validation conditionnelle F&B / AGENCY)' })
-  create(@Body() dto: CreateHrRoleDto, @CurrentTenant() tenantId: string) {
-    return this.service.createRole(dto, tenantId);
+  create(@Body() dto: CreateHrRoleDto, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.createRole(dto, tenantId, user);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un rôle RH' })
-  update(@Param('id') id: string, @Body() dto: UpdateHrRoleDto, @CurrentTenant() tenantId: string) {
-    return this.service.updateRole(id, dto, tenantId);
+  update(@Param('id') id: string, @Body() dto: UpdateHrRoleDto, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.updateRole(id, dto, tenantId, user);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un rôle RH' })
-  remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.service.removeRole(id, tenantId);
+  remove(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.removeRole(id, tenantId, user);
   }
 }
