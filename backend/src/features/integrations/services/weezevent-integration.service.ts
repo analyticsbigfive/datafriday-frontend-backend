@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/encryption/encryption.service';
+import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { WeezeventConfigDto } from '../dto/weezevent-config.dto';
 import {
     CreateWeezeventInstanceDto,
     UpdateWeezeventInstanceDto,
 } from '../dto/weezevent-instance.dto';
 import { UpdateWeezeventWebhookDto } from '../dto/weezevent-webhook-config.dto';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 type PublicInstance = {
     id: string;
@@ -43,6 +47,7 @@ export class WeezeventIntegrationService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly encryptionService: EncryptionService,
+        private readonly spaceAccess: SpaceAccessService,
     ) { }
 
     private toPublicInstance(row: InstanceRow): PublicInstance {
@@ -57,25 +62,56 @@ export class WeezeventIntegrationService {
         };
     }
 
+    /**
+     * Ids des Integration mappées à un espace accessible à `user`. Une instance non encore
+     * mappée (ou mappée à un espace hors du périmètre de l'utilisateur) n'est pas un
+     * « connecteur global » — elle reste réservée aux comptes à accès complet, comme le
+     * reste des ressources sans espace accessible (cf. SpaceAccessService).
+     *
+     * ⚠️ `LocationSpaceMapping.salesLocationId` (alias historique "weezeventLocationId") vaut
+     * ICI directement l'id de l'Integration — l'étape 1 du wizard mappe l'INSTANCE Weezevent
+     * elle-même à un espace, pas une sous-`SalesLocation` (cf. front DataIntegrationView.
+     * getSpaceForIntegration : `mapping.weezeventLocationId === integration.id`). Vérifié en
+     * base : sur les mappings existants, `salesLocationId` correspond à un `Integration.id`,
+     * jamais à un `SalesLocation.id` — ne PAS joindre via SalesLocation ici (autre concept,
+     * utilisé par le mapping location→shop).
+     */
+    private async accessibleIntegrationIds(tenantId: string, user?: SpaceScopedUser): Promise<'ALL' | Set<string>> {
+        if (!user || this.spaceAccess.hasFullAccess(user)) return 'ALL';
+        const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+        if (accessible === 'ALL') return 'ALL';
+        const mappings = await this.prisma.locationSpaceMapping.findMany({
+            where: { tenantId, spaceId: { in: accessible } },
+            select: { salesLocationId: true },
+        });
+        return new Set(mappings.map((m) => m.salesLocationId));
+    }
+
     // ==================== Multi-instance API ====================
 
-    async listInstances(tenantId: string): Promise<PublicInstance[]> {
+    async listInstances(tenantId: string, user?: SpaceScopedUser): Promise<PublicInstance[]> {
         await this.assertTenant(tenantId);
         const rows = await this.prisma.integration.findMany({
             where: { tenantId, provider: 'WEEZEVENT' },
             orderBy: { createdAt: 'asc' },
             select: INSTANCE_SELECT,
         });
-        return rows.map((row) => this.toPublicInstance(row));
+        const accessibleIds = await this.accessibleIntegrationIds(tenantId, user);
+        const visible = accessibleIds === 'ALL' ? rows : rows.filter((r) => accessibleIds.has(r.id));
+        return visible.map((row) => this.toPublicInstance(row));
     }
 
-    async getInstance(tenantId: string, instanceId: string): Promise<PublicInstance> {
+    async getInstance(tenantId: string, instanceId: string, user?: SpaceScopedUser): Promise<PublicInstance> {
         const row = await this.prisma.integration.findFirst({
             where: { id: instanceId, tenantId, provider: 'WEEZEVENT' },
             select: INSTANCE_SELECT,
         });
         if (!row) {
             throw new NotFoundException(`Weezevent instance ${instanceId} not found`);
+        }
+        const accessibleIds = await this.accessibleIntegrationIds(tenantId, user);
+        if (accessibleIds !== 'ALL' && !accessibleIds.has(row.id)) {
+            throw new ForbiddenException("Vous n'avez pas accès à l'espace de cette intégration.");
         }
         return this.toPublicInstance(row);
     }

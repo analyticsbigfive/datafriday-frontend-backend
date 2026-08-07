@@ -57,6 +57,7 @@ export class SuppliersController {
       user.tenantId,
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 100,
+      user,
     );
   }
 
@@ -68,7 +69,7 @@ export class SuppliersController {
   @ApiResponse({ status: 404, description: 'Fournisseur non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
     this.logger.log(`GET /suppliers/${id} - User: ${user?.id}, Tenant: ${user?.tenantId}`);
-    return this.suppliersService.findOne(id, user.tenantId);
+    return this.suppliersService.findOne(id, user.tenantId, user);
   }
 
   @RequirePermissions('menu.fb.suppliers')
@@ -83,7 +84,7 @@ export class SuppliersController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`PATCH /suppliers/${id} - User: ${user?.id}, Tenant: ${user?.tenantId}`);
-    return this.suppliersService.update(id, updateSupplierDto, user.tenantId);
+    return this.suppliersService.update(id, updateSupplierDto, user.tenantId, user);
   }
 
   @RequirePermissions('menu.fb.suppliers')
@@ -94,6 +95,6 @@ export class SuppliersController {
   @ApiResponse({ status: 404, description: 'Fournisseur non trouvé' })
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     this.logger.log(`DELETE /suppliers/${id} - User: ${user?.id}, Tenant: ${user?.tenantId}`);
-    return this.suppliersService.remove(id, user.tenantId);
+    return this.suppliersService.remove(id, user.tenantId, user);
   }
 }

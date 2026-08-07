@@ -137,7 +137,10 @@ describe('InventoryService', () => {
         // QueueService stubé : aucun chemin exercé ici n'enfile de job.
         {
           provide: LogisticsService,
-          useValue: new LogisticsService(mockPrisma as any, mockQueueService as any, mockSimulationQueue as any, {} as any),
+          useValue: new LogisticsService(mockPrisma as any, mockQueueService as any, mockSimulationQueue as any, {} as any, {
+            hasFullAccess: () => true,
+            getAccessibleSpaceIds: async () => 'ALL',
+          } as any),
         },
         { provide: PrismaService, useValue: mockPrisma },
       ],

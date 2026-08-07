@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, IsBoolean, IsDateString } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { StaffingService } from './staffing.service';
 
@@ -61,8 +62,8 @@ export class StaffingController {
 
   @Get('events/:eventId/staffing')
   @ApiOperation({ summary: "Lignes de staff de l'événement groupées par PDV + totaux (§5)" })
-  getStaffing(@Param('eventId') eventId: string, @CurrentTenant() tenantId: string) {
-    return this.service.getStaffing(eventId, tenantId);
+  getStaffing(@Param('eventId') eventId: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.getStaffing(eventId, tenantId, undefined, user);
   }
 
   @Post('events/:eventId/staffing/generate')
@@ -70,8 +71,8 @@ export class StaffingController {
     summary: "(Re)génère les lignes ALGO de l'événement",
     description: 'Les lignes MANUAL ou modifiées par l’utilisateur ne sont jamais écrasées.',
   })
-  generate(@Param('eventId') eventId: string, @CurrentTenant() tenantId: string) {
-    return this.service.generate(eventId, tenantId);
+  generate(@Param('eventId') eventId: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.generate(eventId, tenantId, user);
   }
 
   @Post('events/:eventId/staffing/lines')
@@ -80,20 +81,21 @@ export class StaffingController {
     @Param('eventId') eventId: string,
     @Body() dto: CreateStaffLineDto,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
   ) {
-    return this.service.addLine(eventId, dto, tenantId);
+    return this.service.addLine(eventId, dto, tenantId, user);
   }
 
   @Patch('staffing/lines/:id')
   @ApiOperation({ summary: 'Modifier une ligne (enabled / fournisseur / personne / horaires / taux)' })
-  patchLine(@Param('id') id: string, @Body() dto: PatchStaffLineDto, @CurrentTenant() tenantId: string) {
-    return this.service.patchLine(id, dto, tenantId);
+  patchLine(@Param('id') id: string, @Body() dto: PatchStaffLineDto, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.patchLine(id, dto, tenantId, user);
   }
 
   @Delete('staffing/lines/:id')
   @ApiOperation({ summary: 'Supprimer une ligne (lignes MANUAL uniquement)' })
-  removeLine(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.service.removeLine(id, tenantId);
+  removeLine(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.removeLine(id, tenantId, user);
   }
 }
 
@@ -109,7 +111,7 @@ export class StaffingCostsController {
   @Get()
   @ApiOperation({ summary: 'Σ EventStaffLine enabled × durée × taux, groupé par espace' })
   @ApiQuery({ name: 'spaceId', required: false })
-  costs(@CurrentTenant() tenantId: string, @Query('spaceId') spaceId?: string) {
-    return this.service.costsBySpace(tenantId, spaceId);
+  costs(@CurrentTenant() tenantId: string, @Query('spaceId') spaceId?: string, @CurrentUser() user?: any) {
+    return this.service.costsBySpace(tenantId, spaceId, user);
   }
 }

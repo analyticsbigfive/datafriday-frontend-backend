@@ -3,6 +3,7 @@ import { MappingsService } from './mappings.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
@@ -36,6 +37,7 @@ describe('MappingsService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SpacesService, useValue: mockSpacesService },
         { provide: MenuItemPricingService, useValue: mockPricingService },
+        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
       ],
     }).compile();
 

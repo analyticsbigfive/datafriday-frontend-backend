@@ -12,6 +12,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -19,6 +20,10 @@ import { SpacesService } from '../spaces/spaces.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { StaffingCalculatorService } from '../staffing/staffing-calculator.service';
 import { detectFnbTags } from '../staffing/fnb-tags.util';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 import {
   CreateZoneDto, UpdateZoneDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto,
@@ -45,43 +50,57 @@ export class BuilderV2Service {
     private readonly spacesService: SpacesService,
     private readonly storage: SupabaseStorageService,
     private readonly staffingCalculator: StaffingCalculatorService,
+    private readonly spaceAccess: SpaceAccessService,
   ) {}
 
   // ─── Garde-fous tenant (par jointure) ──────────────────────────────────────
 
-  private async getSpaceOrThrow(spaceId: string, tenantId: string) {
+  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
+  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceId) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à cet espace.");
+  }
+
+  private async getSpaceOrThrow(spaceId: string, tenantId: string, user?: SpaceScopedUser) {
     const space = await this.prisma.space.findFirst({
       where: { id: spaceId, tenantId },
       select: { id: true, name: true, maxCapacity: true, tenantId: true },
     });
     if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+    await this.assertSpaceAccess(space.id, user);
     return space;
   }
 
-  private async getZoneOrThrow(zoneId: string, tenantId: string) {
+  private async getZoneOrThrow(zoneId: string, tenantId: string, user?: SpaceScopedUser) {
     const zone = await this.prisma.zone.findFirst({
       where: { id: zoneId, space: { tenantId } },
       include: { space: { select: { id: true } } },
     });
     if (!zone) throw new NotFoundException(`Zone ${zoneId} not found`);
+    await this.assertSpaceAccess(zone.spaceId, user);
     return zone;
   }
 
-  private async getElementOrThrow(elementId: string, tenantId: string) {
+  private async getElementOrThrow(elementId: string, tenantId: string, user?: SpaceScopedUser) {
     const element = await this.prisma.spaceElement.findFirst({
       where: { id: elementId, zone: { space: { tenantId } } },
       include: { zone: { select: { id: true, spaceId: true } } },
     });
     if (!element) throw new NotFoundException(`Element ${elementId} not found`);
+    await this.assertSpaceAccess(element.zone?.spaceId, user);
     return element;
   }
 
-  private async getConfigOrThrow(configId: string, tenantId: string) {
+  private async getConfigOrThrow(configId: string, tenantId: string, user?: SpaceScopedUser) {
     const config = await this.prisma.config.findFirst({
       where: { id: configId, space: { tenantId } },
       select: { id: true, name: true, spaceId: true, isSystem: true, capacity: true },
     });
     if (!config) throw new NotFoundException(`Configuration ${configId} not found`);
+    await this.assertSpaceAccess(config.spaceId, user);
     return config;
   }
 
@@ -382,8 +401,8 @@ export class BuilderV2Service {
     return zone;
   }
 
-  async updateZone(zoneId: string, tenantId: string, dto: UpdateZoneDto) {
-    const zone = await this.getZoneOrThrow(zoneId, tenantId);
+  async updateZone(zoneId: string, tenantId: string, dto: UpdateZoneDto, user?: SpaceScopedUser) {
+    const zone = await this.getZoneOrThrow(zoneId, tenantId, user);
     const updated = await this.prisma.zone.update({
       where: { id: zoneId },
       data: {
@@ -416,12 +435,13 @@ export class BuilderV2Service {
    * prochain niveau libre + tous ses éléments (avec leurs adhésions) en une transaction.
    * Les mappings Weezevent ne sont JAMAIS copiés.
    */
-  async duplicateZone(zoneId: string, tenantId: string) {
+  async duplicateZone(zoneId: string, tenantId: string, user?: SpaceScopedUser) {
     const source = await this.prisma.zone.findFirst({
       where: { id: zoneId, space: { tenantId } },
       include: { elements: { include: { configurationElements: true } } },
     });
     if (!source) throw new NotFoundException(`Zone ${zoneId} not found`);
+    await this.assertSpaceAccess(source.spaceId, user);
     if (source.kind !== 'FLOOR') {
       throw new ConflictException('Seuls les étages peuvent être dupliqués (parvis/externe sont uniques)');
     }
@@ -544,8 +564,8 @@ export class BuilderV2Service {
     `;
   }
 
-  async deleteZone(zoneId: string, tenantId: string, force = false) {
-    const zone = await this.getZoneOrThrow(zoneId, tenantId);
+  async deleteZone(zoneId: string, tenantId: string, force = false, user?: SpaceScopedUser) {
+    const zone = await this.getZoneOrThrow(zoneId, tenantId, user);
 
     const elements = await this.prisma.spaceElement.findMany({
       where: { zoneId },
@@ -593,8 +613,8 @@ export class BuilderV2Service {
 
   // ─── Éléments ───────────────────────────────────────────────────────────────
 
-  async createElement(zoneId: string, tenantId: string, dto: CreateElementDto) {
-    const zone = await this.getZoneOrThrow(zoneId, tenantId);
+  async createElement(zoneId: string, tenantId: string, dto: CreateElementDto, user?: SpaceScopedUser) {
+    const zone = await this.getZoneOrThrow(zoneId, tenantId, user);
 
     // Les adhésions initiales doivent viser des configs du MÊME espace. Tolérant aux
     // ids périmés (config supprimée depuis un autre onglet / le builder v1) : on filtre
@@ -656,7 +676,19 @@ export class BuilderV2Service {
    * PATCH partiel avec verrou optimiste PAR ÉLÉMENT : If-Match: <version> → 409 si la
    * version a changé (rayon du conflit = un élément, contre toute la config en v1).
    */
-  async patchElement(elementId: string, tenantId: string, dto: UpdateElementDto, expectedVersion?: number) {
+  async patchElement(elementId: string, tenantId: string, dto: UpdateElementDto, expectedVersion?: number, user?: SpaceScopedUser) {
+    // Coût espace payé UNIQUEMENT pour un utilisateur restreint (accès complet/appel
+    // interne sans user → aucun round-trip supplémentaire) : préserve le chemin chaud
+    // décrit ci-dessous pour le cas courant, sans laisser un utilisateur restreint
+    // modifier un élément d'un espace auquel il n'a pas droit.
+    if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const owner = await this.prisma.spaceElement.findFirst({
+        where: { id: elementId, zone: { space: { tenantId } } },
+        select: { zone: { select: { spaceId: true } } },
+      });
+      if (!owner) throw new NotFoundException(`Element ${elementId} not found`);
+      await this.assertSpaceAccess(owner.zone?.spaceId, user);
+    }
     // Regex-only cost when `image` isn't a fresh base64 upload — keeps this hot
     // autosave path fast; only a real re-upload pays the Storage round-trip.
     const image = dto.image !== undefined ? await this.storage.resolveImage(dto.image, 'space-elements') : undefined;
@@ -720,13 +752,21 @@ export class BuilderV2Service {
   }
 
   /** Fin de drag multi-éléments : une transaction, pas de verrou (dernier geste gagne). */
-  async patchElementsBatch(tenantId: string, dto: BatchElementsDto) {
+  async patchElementsBatch(tenantId: string, dto: BatchElementsDto, user?: SpaceScopedUser) {
     const ids = dto.items.map((i) => i.id);
     const owned = await this.prisma.spaceElement.findMany({
       where: { id: { in: ids }, zone: { space: { tenantId } } },
       select: { id: true, zone: { select: { spaceId: true } } },
     });
-    const ownedIds = new Set(owned.map((o) => o.id));
+    // Même idiome que le filtre tenant ci-dessus : un élément d'un espace non accessible
+    // à `user` est silencieusement exclu du batch plutôt que de faire échouer tout le drag.
+    const accessible =
+      user && !this.spaceAccess.hasFullAccess(user) ? await this.spaceAccess.getAccessibleSpaceIds(user) : 'ALL';
+    const ownedIds = new Set(
+      owned
+        .filter((o) => accessible === 'ALL' || !o.zone?.spaceId || accessible.includes(o.zone.spaceId))
+        .map((o) => o.id),
+    );
 
     await this.prisma.$transaction(
       dto.items
@@ -752,12 +792,13 @@ export class BuilderV2Service {
   }
 
   /** Duplication SERVEUR : copie l'élément + ses adhésions + perf/staff/inventaire — PAS les mappings. */
-  async duplicateElement(elementId: string, tenantId: string, dto: DuplicateElementDto) {
+  async duplicateElement(elementId: string, tenantId: string, dto: DuplicateElementDto, user?: SpaceScopedUser) {
     const source = await this.prisma.spaceElement.findFirst({
       where: { id: elementId, zone: { space: { tenantId } } },
       include: { ...this.elementInclude, zone: { select: { spaceId: true } }, configurationElements: true },
     });
     if (!source) throw new NotFoundException(`Element ${elementId} not found`);
+    await this.assertSpaceAccess(source.zone?.spaceId, user);
 
     const copy = await this.prisma.spaceElement.create({
       data: {
@@ -834,8 +875,8 @@ export class BuilderV2Service {
     return { element: this.serializeElement(copy), configIds };
   }
 
-  async deleteElement(elementId: string, tenantId: string, force: boolean) {
-    const element = await this.getElementOrThrow(elementId, tenantId);
+  async deleteElement(elementId: string, tenantId: string, force: boolean, user?: SpaceScopedUser) {
+    const element = await this.getElementOrThrow(elementId, tenantId, user);
 
     const [mapping, distinctMenuItems] = await Promise.all([
       this.prisma.locationShopMapping.findFirst({
@@ -888,8 +929,8 @@ export class BuilderV2Service {
     return membership?.configId ?? null;
   }
 
-  async putPerformance(elementId: string, tenantId: string, dto: PutPerformanceDto, configId?: string) {
-    const element = await this.getElementOrThrow(elementId, tenantId);
+  async putPerformance(elementId: string, tenantId: string, dto: PutPerformanceDto, configId?: string, user?: SpaceScopedUser) {
+    const element = await this.getElementOrThrow(elementId, tenantId, user);
     const targetConfigId = await this.resolveElementConfigId(elementId, configId);
     const data = {
       revenue: dto.revenue ?? 0,
@@ -915,8 +956,8 @@ export class BuilderV2Service {
     return performance;
   }
 
-  async putStaff(elementId: string, tenantId: string, dto: PutStaffDto, configId?: string) {
-    const element = await this.getElementOrThrow(elementId, tenantId);
+  async putStaff(elementId: string, tenantId: string, dto: PutStaffDto, configId?: string, user?: SpaceScopedUser) {
+    const element = await this.getElementOrThrow(elementId, tenantId, user);
     const targetConfigId = await this.resolveElementConfigId(elementId, configId);
     await this.prisma.$transaction([
       this.prisma.elementStaff.deleteMany({ where: { elementId, configId: targetConfigId } }),
@@ -940,14 +981,14 @@ export class BuilderV2Service {
    * Saisie manuelle "vendu/prévu" par Menu Item pour ce shop, scopée par config (événement) —
    * 11_RH_STAFFING.md §11.16. Même patron delete+recreate que putStaff().
    */
-  async getMenuItemSalesInput(elementId: string, tenantId: string, configId?: string) {
-    await this.getElementOrThrow(elementId, tenantId);
+  async getMenuItemSalesInput(elementId: string, tenantId: string, configId?: string, user?: SpaceScopedUser) {
+    await this.getElementOrThrow(elementId, tenantId, user);
     const targetConfigId = await this.resolveElementConfigId(elementId, configId);
     return this.prisma.elementMenuItemSalesInput.findMany({ where: { elementId, configId: targetConfigId } });
   }
 
-  async putMenuItemSalesInput(elementId: string, tenantId: string, dto: PutMenuItemSalesInputDto, configId?: string) {
-    const element = await this.getElementOrThrow(elementId, tenantId);
+  async putMenuItemSalesInput(elementId: string, tenantId: string, dto: PutMenuItemSalesInputDto, configId?: string, user?: SpaceScopedUser) {
+    const element = await this.getElementOrThrow(elementId, tenantId, user);
     const targetConfigId = await this.resolveElementConfigId(elementId, configId);
     await this.prisma.$transaction([
       this.prisma.elementMenuItemSalesInput.deleteMany({ where: { elementId, configId: targetConfigId } }),
@@ -1008,8 +1049,8 @@ export class BuilderV2Service {
    * pratique ici : aucun champ du Builder ne renseigne encore les attributs (nbFriteuses…) sur
    * SpaceElement.attributes — limite assumée, cf. BUG-260-02.
    */
-  async getStaffSuggestions(elementId: string, tenantId: string, configId?: string) {
-    const element = await this.getElementOrThrow(elementId, tenantId);
+  async getStaffSuggestions(elementId: string, tenantId: string, configId?: string, user?: SpaceScopedUser) {
+    const element = await this.getElementOrThrow(elementId, tenantId, user);
     // CFG-2 (généralisé 2026-07-31) : plus limité à STAFFING_ELEMENT_TYPES (shop + legacy
     // fnb_*) — tout département `needsRh=true` peut avoir des rôles auto-suggérés sur ses
     // propres éléments. Les rôles considérés sont scopés au MÊME département que l'élément :
@@ -1068,8 +1109,8 @@ export class BuilderV2Service {
     return this.prisma.department.findFirst({ where: { OR: [{ code: key }, { id: key }] } });
   }
 
-  async putInventory(elementId: string, tenantId: string, dto: PutInventoryDto, configId?: string) {
-    const element = await this.getElementOrThrow(elementId, tenantId);
+  async putInventory(elementId: string, tenantId: string, dto: PutInventoryDto, configId?: string, user?: SpaceScopedUser) {
+    const element = await this.getElementOrThrow(elementId, tenantId, user);
     const targetConfigId = await this.resolveElementConfigId(elementId, configId);
     await this.prisma.$transaction([
       this.prisma.elementInventory.deleteMany({ where: { elementId, configId: targetConfigId } }),
@@ -1092,10 +1133,10 @@ export class BuilderV2Service {
 
   // ─── Adhésions élément ↔ configuration ─────────────────────────────────────
 
-  async addMembership(configId: string, elementId: string, tenantId: string) {
+  async addMembership(configId: string, elementId: string, tenantId: string, user?: SpaceScopedUser) {
     const [config, element] = await Promise.all([
-      this.getConfigOrThrow(configId, tenantId),
-      this.getElementOrThrow(elementId, tenantId),
+      this.getConfigOrThrow(configId, tenantId, user),
+      this.getElementOrThrow(elementId, tenantId, user),
     ]);
     if (config.spaceId !== element.zone!.spaceId) {
       throw new BadRequestException('Élément et configuration n\'appartiennent pas au même espace');
@@ -1110,9 +1151,9 @@ export class BuilderV2Service {
     return { ok: true };
   }
 
-  async removeMembership(configId: string, elementId: string, tenantId: string) {
-    const config = await this.getConfigOrThrow(configId, tenantId);
-    await this.getElementOrThrow(elementId, tenantId);
+  async removeMembership(configId: string, elementId: string, tenantId: string, user?: SpaceScopedUser) {
+    const config = await this.getConfigOrThrow(configId, tenantId, user);
+    await this.getElementOrThrow(elementId, tenantId, user);
 
     // Invariant : un élément vit dans ≥ 1 configuration (doc §3.2) — sinon il serait
     // invisible partout. La dernière adhésion se retire en supprimant l'élément.
@@ -1134,12 +1175,12 @@ export class BuilderV2Service {
 
   // ─── Configurations ─────────────────────────────────────────────────────────
 
-  async createConfiguration(spaceId: string, tenantId: string, dto: CreateConfigurationDto) {
-    await this.getSpaceOrThrow(spaceId, tenantId);
+  async createConfiguration(spaceId: string, tenantId: string, dto: CreateConfigurationDto, user?: SpaceScopedUser) {
+    await this.getSpaceOrThrow(spaceId, tenantId, user);
 
     let sourceCapacity = 0;
     if (dto.cloneFromConfigId) {
-      const source = await this.getConfigOrThrow(dto.cloneFromConfigId, tenantId);
+      const source = await this.getConfigOrThrow(dto.cloneFromConfigId, tenantId, user);
       if (source.spaceId !== spaceId) {
         throw new BadRequestException('cloneFromConfigId appartient à un autre espace');
       }
@@ -1170,8 +1211,8 @@ export class BuilderV2Service {
   }
 
   /** Sémantique stricte : 404 si absente (plus jamais l'upsert-surprise de la v1). */
-  async renameConfiguration(configId: string, tenantId: string, name: string) {
-    const config = await this.getConfigOrThrow(configId, tenantId);
+  async renameConfiguration(configId: string, tenantId: string, name: string, user?: SpaceScopedUser) {
+    const config = await this.getConfigOrThrow(configId, tenantId, user);
     const updated = await this.prisma.config.update({
       where: { id: configId },
       data: { name },
@@ -1185,8 +1226,9 @@ export class BuilderV2Service {
     configId: string,
     tenantId: string,
     opts: { orphanPolicy?: 'reassign' | 'delete'; reassignToConfigId?: string },
+    user?: SpaceScopedUser,
   ) {
-    const config = await this.getConfigOrThrow(configId, tenantId);
+    const config = await this.getConfigOrThrow(configId, tenantId, user);
 
     const [memberships, otherUserConfigs] = await Promise.all([
       this.prisma.configurationElement.findMany({

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -6,6 +6,10 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 @Injectable()
 export class EventsService {
@@ -14,7 +18,26 @@ export class EventsService {
   constructor(
     private prisma: PrismaService,
     private readonly weezeventLinkService: EventWeezeventLinkService,
+    private spaceAccess: SpaceAccessService,
   ) {}
+
+  /**
+   * Lève 403 si `user` n'a pas accès à l'espace de l'événement. Contrairement aux menu
+   * items/fournisseurs (où l'absence d'espace = catalogue tenant-wide, un vrai choix
+   * métier), un événement sans spaceId est un artefact de démappage/import Weezevent —
+   * pas un événement « global » destiné à tous. Un utilisateur restreint n'y a donc PAS
+   * accès par défaut (seuls les comptes à accès complet peuvent le voir/le remapper).
+   */
+  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+    if (!user) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!spaceId) {
+      throw new ForbiddenException("Cet événement n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
+    }
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet événement.");
+  }
 
   private readonly includeRelations = {
     eventType: true,
@@ -396,13 +419,26 @@ export class EventsService {
    * (EventPredict, écran Live — tous deux servis par le chargement d'espace du front) le
    * passent explicitement.
    */
-  async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string, excludeSimulated = false) {
+  async findAll(tenantId: string, page = 1, limit = 50, spaceId?: string, excludeSimulated = false, user?: SpaceScopedUser) {
     page = Math.max(1, page);
     limit = Math.min(200, Math.max(1, limit));
     const skip = (page - 1) * limit;
+    // Sans spaceId explicite, un utilisateur restreint à certains espaces ne doit voir QUE
+    // les événements qui y sont rattachés — un event sans spaceId est un artefact de
+    // démappage/import Weezevent (spaceName peut rester un libellé figé trompeur), pas un
+    // événement « global » : il reste réservé aux comptes à accès complet (cf. assertSpaceAccess).
+    let spaceScope: Prisma.EventWhereInput = {};
+    if (spaceId) {
+      spaceScope = { spaceId };
+    } else if (user && !this.spaceAccess.hasFullAccess(user)) {
+      const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+      if (accessible !== 'ALL') {
+        spaceScope = { spaceId: { in: accessible } };
+      }
+    }
     const where: Prisma.EventWhereInput = {
       tenantId,
-      ...(spaceId ? { spaceId } : {}),
+      ...spaceScope,
       ...(excludeSimulated ? { isSimulated: false } : {}),
     };
     const [events, total] = await Promise.all([
@@ -421,17 +457,18 @@ export class EventsService {
     };
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {
     const event = await this.prisma.event.findFirst({
       where: { id, tenantId },
       include: this.includeRelations,
     });
     if (!event) throw new NotFoundException(`Event ${id} not found`);
+    await this.assertSpaceAccess(event.spaceId, user);
     return event;
   }
 
-  async update(id: string, tenantId: string, dto: UpdateEventDto) {
-    const existing = await this.findOne(id, tenantId);
+  async update(id: string, tenantId: string, dto: UpdateEventDto, user?: SpaceScopedUser) {
+    const existing = await this.findOne(id, tenantId, user);
     // BUG-021 : un changement de date invalide le lien auto/manuel existant (il a été
     // établi pour l'ancienne date) — repasse par relinkForTenantDate sur la nouvelle date
     // plutôt que de garder silencieusement une association qui ne correspond plus.
@@ -498,8 +535,8 @@ export class EventsService {
     return updated;
   }
 
-  async remove(id: string, tenantId: string) {
-    await this.findOne(id, tenantId);
+  async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
+    await this.findOne(id, tenantId, user);
     return this.prisma.event.delete({ where: { id } });
   }
 
@@ -548,8 +585,8 @@ export class EventsService {
    * Résolution manuelle d'un appariement Event <-> WeezeventEvent laissé ambigu.
    * `weezeventEventId: null` délie explicitement un event déjà lié.
    */
-  async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null) {
-    await this.findOne(id, tenantId);
+  async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null, user?: SpaceScopedUser) {
+    await this.findOne(id, tenantId, user);
 
     if (weezeventEventId !== null) {
       const target = await this.prisma.salesEvent.findFirst({

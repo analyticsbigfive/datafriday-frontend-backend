@@ -208,7 +208,7 @@ export class SpaceMenusController {
     @Query('configId') configId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getShopMenu(shopId, user.tenantId, configId || undefined);
+    return this.spaceMenusService.getShopMenu(shopId, user.tenantId, configId || undefined, user);
   }
 
   @Get('shop/:shopId/items')
@@ -295,6 +295,7 @@ export class SpaceMenusController {
       user.tenantId,
       configId || undefined,
       enabledOnly === 'true' || enabledOnly === '1',
+      user,
     );
   }
 
@@ -359,7 +360,7 @@ export class SpaceMenusController {
     @Query('configId') configId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getShopInventory(shopId, user.tenantId, configId || undefined);
+    return this.spaceMenusService.getShopInventory(shopId, user.tenantId, configId || undefined, user);
   }
 
   @Get('storage-inventory')
@@ -443,6 +444,7 @@ export class SpaceMenusController {
       (shopIds || '').split(','),
       user.tenantId,
       configId || undefined,
+      user,
     );
   }
 

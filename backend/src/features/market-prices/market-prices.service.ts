@@ -1,14 +1,48 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateMarketPriceDto } from './dto/create-market-price.dto';
 import { UpdateMarketPriceDto } from './dto/update-market-price.dto';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 @Injectable()
 export class MarketPricesService {
   private readonly logger = new Logger(MarketPricesService.name);
 
-  constructor(private prisma: PrismaService, private storage: SupabaseStorageService) {}
+  constructor(private prisma: PrismaService, private storage: SupabaseStorageService, private spaceAccess: SpaceAccessService) {}
+
+  /**
+   * Lève 403 si `user` n'a accès à aucun des espaces desservis par le fournisseur du prix
+   * (`Supplier.sites`). Un prix SANS fournisseur lié, ou dont le fournisseur ne déclare
+   * aucun site, ne dessert aucun espace accessible par construction : réservé aux comptes à
+   * accès complet (owner/super-admin/allSpacesAccess).
+   */
+  private async assertSpaceAccess(sites: string[] | undefined | null, user?: SpaceScopedUser) {
+    if (!user) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    if (!sites?.length) {
+      throw new ForbiddenException("Ce prix n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
+    }
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL') return;
+    if (sites.some((sid) => accessible.includes(sid))) return;
+    throw new ForbiddenException("Vous n'avez pas accès à l'espace du fournisseur de ce prix.");
+  }
+
+  /** Filtre Prisma à ajouter au `where` d'une liste : restreint aux prix dont le fournisseur
+   * dessert un espace accessible. Un prix sans fournisseur, ou dont le fournisseur ne
+   * déclare aucun site, ne dessert aucun espace accessible par construction. */
+  private async spaceScopeFilter(user?: SpaceScopedUser): Promise<any> {
+    if (!user || this.spaceAccess.hasFullAccess(user)) return {};
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL') return {};
+    return {
+      supplierRel: { sites: { hasSome: accessible } },
+    };
+  }
 
   /**
    * Convertit les champs Decimal (sérialisés en string par Prisma) en number,
@@ -90,19 +124,20 @@ export class MarketPricesService {
     }
   }
 
-  async findAll(tenantId: string, page = 1, limit = 200) {
+  async findAll(tenantId: string, page = 1, limit = 200, user?: SpaceScopedUser) {
     this.logger.log(`Fetching market prices for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
       const skip = (page - 1) * limit;
+      const where: any = { tenantId, ...(await this.spaceScopeFilter(user)) };
       const [prices, total] = await Promise.all([
         this.prisma.marketPrice.findMany({
-          where: { tenantId },
+          where,
           orderBy: { itemName: 'asc' },
           include: { supplierRel: true },
           skip,
           take: limit,
         }),
-        this.prisma.marketPrice.count({ where: { tenantId } }),
+        this.prisma.marketPrice.count({ where }),
       ]);
       this.logger.log(`Found ${prices.length}/${total} market prices`);
       return {
@@ -124,6 +159,7 @@ export class MarketPricesService {
       category?: string;
       goodType?: string;
     } = {},
+    user?: SpaceScopedUser,
   ) {
     const { page = 1, limit = 100, search, category, goodType } = options;
     this.logger.log(
@@ -136,14 +172,19 @@ export class MarketPricesService {
 
       // Build where clause - always filter by tenantId for security
       const where: any = { tenantId };
+      const andClauses: any[] = [];
+      const scopeFilter = await this.spaceScopeFilter(user);
+      if (Object.keys(scopeFilter).length) andClauses.push(scopeFilter);
 
       // Search filter
       if (search && search.trim()) {
-        where.OR = [
-          { itemName: { contains: search.trim(), mode: 'insensitive' } },
-          { category: { contains: search.trim(), mode: 'insensitive' } },
-          { supplier: { contains: search.trim(), mode: 'insensitive' } },
-        ];
+        andClauses.push({
+          OR: [
+            { itemName: { contains: search.trim(), mode: 'insensitive' } },
+            { category: { contains: search.trim(), mode: 'insensitive' } },
+            { supplier: { contains: search.trim(), mode: 'insensitive' } },
+          ],
+        });
       }
 
       // Category filter
@@ -155,6 +196,8 @@ export class MarketPricesService {
       if (goodType) {
         where.goodType = goodType;
       }
+
+      if (andClauses.length) where.AND = andClauses;
 
       const [data, total] = await Promise.all([
         this.prisma.marketPrice.findMany({
@@ -193,6 +236,7 @@ export class MarketPricesService {
       search?: string;
       category?: string;
     } = {},
+    user?: SpaceScopedUser,
   ) {
     const { page = 1, limit = 100, search, category } = options;
     this.logger.log(
@@ -204,18 +248,25 @@ export class MarketPricesService {
       const skip = (page - 1) * limit;
 
       const where: any = { tenantId, goodType: 'Packaging' };
+      const andClauses: any[] = [];
+      const scopeFilter = await this.spaceScopeFilter(user);
+      if (Object.keys(scopeFilter).length) andClauses.push(scopeFilter);
 
       if (search && search.trim()) {
-        where.OR = [
-          { itemName: { contains: search.trim(), mode: 'insensitive' } },
-          { category: { contains: search.trim(), mode: 'insensitive' } },
-          { supplier: { contains: search.trim(), mode: 'insensitive' } },
-        ];
+        andClauses.push({
+          OR: [
+            { itemName: { contains: search.trim(), mode: 'insensitive' } },
+            { category: { contains: search.trim(), mode: 'insensitive' } },
+            { supplier: { contains: search.trim(), mode: 'insensitive' } },
+          ],
+        });
       }
 
       if (category && category.trim()) {
         where.category = { contains: category.trim(), mode: 'insensitive' };
       }
+
+      if (andClauses.length) where.AND = andClauses;
 
       const [data, total] = await Promise.all([
         this.prisma.marketPrice.findMany({
@@ -246,7 +297,7 @@ export class MarketPricesService {
     }
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Fetching market price ${id} for tenant ${tenantId}`);
     const price = await this.prisma.marketPrice.findFirst({
       where: { id, tenantId },
@@ -257,6 +308,7 @@ export class MarketPricesService {
       this.logger.warn(`Market price ${id} not found for tenant ${tenantId}`);
       throw new NotFoundException(`Market price with ID ${id} not found`);
     }
+    await this.assertSpaceAccess(price.supplierRel?.sites, user);
 
     return this.serialize(price);
   }
@@ -295,9 +347,9 @@ export class MarketPricesService {
     return updateData;
   }
 
-  async update(id: string, dto: UpdateMarketPriceDto, tenantId: string) {
+  async update(id: string, dto: UpdateMarketPriceDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating market price ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, user);
 
     const updateData = await this.buildMarketPriceUpdateData(dto);
 
@@ -327,9 +379,9 @@ export class MarketPricesService {
     }
   }
 
-  async remove(id: string, tenantId: string) {
+  async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Deleting market price ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, user);
 
     try {
       const result = await this.prisma.marketPrice.delete({ where: { id } });
@@ -344,12 +396,14 @@ export class MarketPricesService {
     }
   }
 
-  async removeByItemName(itemName: string, tenantId: string) {
+  async removeByItemName(itemName: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Deleting all market prices with itemName "${itemName}" for tenant ${tenantId}`);
     try {
-      const result = await this.prisma.marketPrice.deleteMany({
-        where: { itemName, tenantId },
-      });
+      // Un utilisateur restreint ne supprime que les lignes de ses espaces accessibles
+      // (+ celles sans fournisseur/fournisseur sans site déclaré) — jamais celles d'un
+      // fournisseur desservant un espace auquel il n'a pas droit.
+      const where: any = { itemName, tenantId, ...(await this.spaceScopeFilter(user)) };
+      const result = await this.prisma.marketPrice.deleteMany({ where });
       this.logger.log(`Deleted ${result.count} market prices for itemName "${itemName}"`);
       return result;
     } catch (error) {

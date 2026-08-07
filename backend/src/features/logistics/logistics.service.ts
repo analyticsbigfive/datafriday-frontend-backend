@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Prisma, StockMovementReason } from '@prisma/client';
 import { Queue } from 'bullmq';
@@ -7,12 +7,16 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
 import { StartSimulationRunDto } from './dto/simulation-run.dto';
 
 export interface SimulationTickJobData {
   runId: string;
 }
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 type ElementRef = { id: string; name: string; spaceId: string };
 
@@ -101,7 +105,17 @@ export class LogisticsService {
     // DataFriday de l'ESPACE courant (SpaceMenuItem.priceTtc → MenuItem.basePrice),
     // pas le prix du produit Weezevent mappé (cf. §ci-dessous, simulateSale).
     private readonly pricingService: MenuItemPricingService,
+    private readonly spaceAccess: SpaceAccessService,
   ) {}
+
+  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
+  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
+    if (!user || !spaceId) return;
+    if (this.spaceAccess.hasFullAccess(user)) return;
+    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
+    throw new ForbiddenException("Vous n'avez pas accès à cet espace.");
+  }
 
   // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
 
@@ -117,7 +131,7 @@ export class LogisticsService {
     } as any;
   }
 
-  private async getElementOrThrow(elementId: string, tenantId: string): Promise<ElementRef> {
+  private async getElementOrThrow(elementId: string, tenantId: string, user?: SpaceScopedUser): Promise<ElementRef> {
     const el = await this.prisma.spaceElement.findFirst({
       where: { id: elementId, ...this.tenantElementWhere(tenantId) },
       select: {
@@ -138,6 +152,7 @@ export class LogisticsService {
       anyEl.zone?.spaceId ??
       null;
     if (!spaceId) throw new NotFoundException(`Element ${elementId} has no space`);
+    await this.assertSpaceAccess(spaceId, user);
     return { id: anyEl.id, name: anyEl.name, spaceId };
   }
 
@@ -157,12 +172,13 @@ export class LogisticsService {
     return rows.map((r) => r.id);
   }
 
-  private async assertSpace(spaceId: string, tenantId: string) {
+  private async assertSpace(spaceId: string, tenantId: string, user?: SpaceScopedUser) {
     const space = await this.prisma.space.findFirst({
       where: { id: spaceId, tenantId },
       select: { id: true },
     });
     if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+    await this.assertSpaceAccess(spaceId, user);
   }
 
   // ─── Casse de pack / normalisation ───────────────────────────────────────────
@@ -1151,8 +1167,8 @@ export class LogisticsService {
 
   // ─── GET /logistics/element/:elementId/history ───────────────────────────────
 
-  async getHistory(elementId: string, tenantId: string, limit = 50, cursor?: string) {
-    const element = await this.getElementOrThrow(elementId, tenantId);
+  async getHistory(elementId: string, tenantId: string, limit = 50, cursor?: string, user?: SpaceScopedUser) {
+    const element = await this.getElementOrThrow(elementId, tenantId, user);
     const take = Math.min(Math.max(limit, 1), 200);
 
     const [movements, raw] = await Promise.all([
@@ -1816,15 +1832,16 @@ export class LogisticsService {
     }));
   }
 
-  async getReconciliation(id: string, tenantId: string) {
+  async getReconciliation(id: string, tenantId: string, user?: SpaceScopedUser) {
     const reco = await this.prisma.stockReconciliation.findFirst({ where: { id, tenantId } });
     if (!reco) throw new NotFoundException(`Reconciliation ${id} not found`);
+    await this.assertSpaceAccess(reco.spaceId, user);
     return reco;
   }
 
   /** CSV des écarts d'une réconciliation (séparateur ';' — Excel FR). */
-  async exportReconciliationCsv(id: string, tenantId: string) {
-    const reco = await this.getReconciliation(id, tenantId);
+  async exportReconciliationCsv(id: string, tenantId: string, user?: SpaceScopedUser) {
+    const reco = await this.getReconciliation(id, tenantId, user);
     const lines = (Array.isArray(reco.lines) ? reco.lines : []) as any[];
 
     const elementIds = [...new Set(lines.map((l) => l.elementId).filter(Boolean))];

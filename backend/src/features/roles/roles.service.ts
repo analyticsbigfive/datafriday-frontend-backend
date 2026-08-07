@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
 import { CreateRoleDto } from './dto/create-role.dto';
@@ -37,7 +37,9 @@ export class RolesService {
     return this.serialize(await this.findOneOrFail(id, tenantId));
   }
 
-  async create(tenantId: string, dto: CreateRoleDto) {
+  async create(tenantId: string, dto: CreateRoleDto, isOwner: boolean) {
+    this.assertIsOwner(isOwner);
+
     const existing = await this.prisma.role.findFirst({
       where: { tenantId, name: dto.name },
     });
@@ -65,7 +67,9 @@ export class RolesService {
     return this.serialize(role);
   }
 
-  async update(id: string, tenantId: string, dto: UpdateRoleDto) {
+  async update(id: string, tenantId: string, dto: UpdateRoleDto, isOwner: boolean) {
+    this.assertIsOwner(isOwner);
+
     const role = await this.findOneOrFail(id, tenantId);
 
     if (role.isSystem && dto.name && dto.name !== role.name) {
@@ -107,7 +111,9 @@ export class RolesService {
     return this.serialize(updated);
   }
 
-  async remove(id: string, tenantId: string) {
+  async remove(id: string, tenantId: string, isOwner: boolean) {
+    this.assertIsOwner(isOwner);
+
     const role = await this.findOneOrFail(id, tenantId);
 
     if (role.isSystem) {
@@ -130,6 +136,19 @@ export class RolesService {
     this.logger.log(`Role "${role.name}" deleted from tenant ${tenantId}`);
 
     return { success: true, message: 'Role deleted successfully' };
+  }
+
+  /**
+   * Verrou strict : seul le owner du tenant peut créer/éditer/supprimer un rôle (donc
+   * changer les permissions de n'importe qui). ⚠️ Ne PAS se fier à `@RequirePermissions`
+   * seul pour ça : `PermissionsGuard` laisse passer sans aucune vérification tout
+   * utilisateur dont le rôle a `systemKey === ADMIN`, quel que soit le contenu réel de
+   * `role.permissions` — ce contrôle explicite est la seule protection réelle.
+   */
+  private assertIsOwner(isOwner: boolean) {
+    if (!isOwner) {
+      throw new ForbiddenException("Seul le owner de l'organisation peut gérer les rôles.");
+    }
   }
 
   private async findOneOrFail(id: string, tenantId: string): Promise<RoleWithPermissions> {

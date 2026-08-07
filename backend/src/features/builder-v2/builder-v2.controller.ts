@@ -18,6 +18,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorator';
 
 @ApiTags('Builder v2')
@@ -69,8 +70,9 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: UpdateZoneDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.updateZone(id, tenantId, dto);
+    return this.service.updateZone(id, tenantId, dto, user);
   }
 
   @Delete('zones/:id')
@@ -81,16 +83,17 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Query() query: DeleteZoneQueryDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.deleteZone(id, tenantId, query.force === 'true');
+    return this.service.deleteZone(id, tenantId, query.force === 'true', user);
   }
 
   @Post('zones/:id/duplicate')
   @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Dupliquer un étage (zone + éléments + adhésions, PAS les mappings)' })
-  async duplicateZone(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.service.duplicateZone(id, tenantId);
+  async duplicateZone(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
+    return this.service.duplicateZone(id, tenantId, user);
   }
 
   // ─── Éléments ───────────────────────────────────────────────────────────────
@@ -103,16 +106,17 @@ export class BuilderV2Controller {
     @Param('zoneId') zoneId: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: CreateElementDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.createElement(zoneId, tenantId, dto);
+    return this.service.createElement(zoneId, tenantId, dto, user);
   }
 
   // ⚠️ Déclarée AVANT elements/:id (sinon « batch » serait pris pour un id).
   @Patch('elements/batch')
   @RequirePermissions('space.edit')
   @ApiOperation({ summary: 'Patch géométrique de plusieurs éléments en une transaction' })
-  async patchElementsBatch(@CurrentTenant() tenantId: string, @Body() dto: BatchElementsDto) {
-    return this.service.patchElementsBatch(tenantId, dto);
+  async patchElementsBatch(@CurrentTenant() tenantId: string, @Body() dto: BatchElementsDto, @CurrentUser() user: any) {
+    return this.service.patchElementsBatch(tenantId, dto, user);
   }
 
   @Patch('elements/:id')
@@ -123,6 +127,7 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: UpdateElementDto,
+    @CurrentUser() user: any,
     @Headers('if-match') ifMatch?: string,
   ) {
     const expectedVersion = ifMatch !== undefined && ifMatch !== '' ? Number(ifMatch) : undefined;
@@ -131,6 +136,7 @@ export class BuilderV2Controller {
       tenantId,
       dto,
       Number.isNaN(expectedVersion as number) ? undefined : expectedVersion,
+      user,
     );
   }
 
@@ -142,8 +148,9 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: DuplicateElementDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.duplicateElement(id, tenantId, dto);
+    return this.service.duplicateElement(id, tenantId, dto, user);
   }
 
   @Delete('elements/:id')
@@ -154,8 +161,9 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Query() query: DeleteElementQueryDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.deleteElement(id, tenantId, query.force === 'true');
+    return this.service.deleteElement(id, tenantId, query.force === 'true', user);
   }
 
   @Put('elements/:id/performance')
@@ -165,9 +173,10 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: PutPerformanceDto,
+    @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putPerformance(id, tenantId, dto, configId || undefined);
+    return this.service.putPerformance(id, tenantId, dto, configId || undefined, user);
   }
 
   @Put('elements/:id/staff')
@@ -177,9 +186,10 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: PutStaffDto,
+    @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putStaff(id, tenantId, dto, configId || undefined);
+    return this.service.putStaff(id, tenantId, dto, configId || undefined, user);
   }
 
   @Get('elements/:id/staff-suggestions')
@@ -193,9 +203,10 @@ export class BuilderV2Controller {
   async getStaffSuggestions(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.getStaffSuggestions(id, tenantId, configId || undefined);
+    return this.service.getStaffSuggestions(id, tenantId, configId || undefined, user);
   }
 
   @Get('elements/:id/menu-item-sales-input')
@@ -206,9 +217,10 @@ export class BuilderV2Controller {
   async getMenuItemSalesInput(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.getMenuItemSalesInput(id, tenantId, configId || undefined);
+    return this.service.getMenuItemSalesInput(id, tenantId, configId || undefined, user);
   }
 
   @Put('elements/:id/menu-item-sales-input')
@@ -218,9 +230,10 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: PutMenuItemSalesInputDto,
+    @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putMenuItemSalesInput(id, tenantId, dto, configId || undefined);
+    return this.service.putMenuItemSalesInput(id, tenantId, dto, configId || undefined, user);
   }
 
   @Put('elements/:id/inventory')
@@ -230,9 +243,10 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: PutInventoryDto,
+    @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putInventory(id, tenantId, dto, configId || undefined);
+    return this.service.putInventory(id, tenantId, dto, configId || undefined, user);
   }
 
   // ─── Adhésions élément ↔ configuration ─────────────────────────────────────
@@ -245,8 +259,9 @@ export class BuilderV2Controller {
     @Param('configId') configId: string,
     @Param('elementId') elementId: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
   ) {
-    return this.service.addMembership(configId, elementId, tenantId);
+    return this.service.addMembership(configId, elementId, tenantId, user);
   }
 
   @Delete('configurations/:configId/elements/:elementId')
@@ -256,8 +271,9 @@ export class BuilderV2Controller {
     @Param('configId') configId: string,
     @Param('elementId') elementId: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
   ) {
-    return this.service.removeMembership(configId, elementId, tenantId);
+    return this.service.removeMembership(configId, elementId, tenantId, user);
   }
 
   // ─── Configurations ─────────────────────────────────────────────────────────
@@ -270,8 +286,9 @@ export class BuilderV2Controller {
     @Param('spaceId') spaceId: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: CreateConfigurationDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.createConfiguration(spaceId, tenantId, dto);
+    return this.service.createConfiguration(spaceId, tenantId, dto, user);
   }
 
   @Patch('configurations/:id')
@@ -281,8 +298,9 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: RenameConfigurationDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.renameConfiguration(id, tenantId, dto.name);
+    return this.service.renameConfiguration(id, tenantId, dto.name, user);
   }
 
   @Delete('configurations/:id')
@@ -296,10 +314,11 @@ export class BuilderV2Controller {
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
     @Query() query: DeleteConfigurationQueryDto,
+    @CurrentUser() user: any,
   ) {
     return this.service.deleteConfiguration(id, tenantId, {
       orphanPolicy: query.orphanPolicy,
       reassignToConfigId: query.reassignToConfigId,
-    });
+    }, user);
   }
 }

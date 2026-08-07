@@ -473,7 +473,7 @@ export default {
   },
 
   computed: {
-    ...mapGetters("auth", ["currentUser", "currentTenant", "can", "isSuperAdmin"]),
+    ...mapGetters("auth", ["currentUser", "currentTenant", "can", "isSuperAdmin", "isOwner"]),
     user() {
       return this.currentUser;
     },
@@ -566,10 +566,16 @@ export default {
               // (RBAC par tenant) — ne PAS utiliser `can()` pour ça, un rôle ADMIN de tenant y
               // aurait accès automatiquement (can() accorde tout aux roleSystemKey === 'ADMIN'),
               // alors que isSuperAdmin est cross-tenant et n'a rien à voir avec ce rôle.
+              // `requiresOwner` : même logique pour la gestion des rôles, verrouillée au owner
+              // côté backend (roles.service.ts) — un ADMIN de tenant a `org.roles.manage` par
+              // défaut, donc `can()` seul ne suffit pas à cacher ce lien pour un non-owner.
               return {
                 ...group,
                 items: group.items.filter(
-                  (i) => this.can(i.permission) && (!i.requiresSuperAdmin || this.isSuperAdmin),
+                  (i) =>
+                    this.can(i.permission)
+                    && (!i.requiresSuperAdmin || this.isSuperAdmin)
+                    && (!i.requiresOwner || this.isOwner),
                 ),
               };
             })

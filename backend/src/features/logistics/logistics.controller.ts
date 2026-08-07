@@ -97,6 +97,7 @@ export class LogisticsController {
       user.tenantId,
       Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined,
       cursor || undefined,
+      user,
     );
   }
 
@@ -126,7 +127,7 @@ export class LogisticsController {
   @ApiOperation({ summary: "Détail d'une réconciliation (lignes d'écart)" })
   @ApiParam({ name: 'id', description: 'ID de la réconciliation' })
   async getReconciliation(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.service.getReconciliation(id, user.tenantId);
+    return this.service.getReconciliation(id, user.tenantId, user);
   }
 
   @Get('reconciliations/:id/export')
@@ -138,7 +139,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
     @Res() reply: FastifyReply,
   ) {
-    const { reco, csv } = await this.service.exportReconciliationCsv(id, user.tenantId);
+    const { reco, csv } = await this.service.exportReconciliationCsv(id, user.tenantId, user);
     const day = reco.createdAt.toISOString().slice(0, 10);
     const slug = (reco.eventName ?? 'inventaire').replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase();
     reply

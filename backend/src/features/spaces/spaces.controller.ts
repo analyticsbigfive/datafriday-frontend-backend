@@ -982,7 +982,7 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Body() body: QuickCreateElementDto,
   ) {
-    return this.spacesService.quickCreateElement(spaceId, user.tenantId, body);
+    return this.spacesService.quickCreateElement(spaceId, user.tenantId, body, user);
   }
 
   /**
@@ -1173,8 +1173,9 @@ export class ConfigurationsController {
   async getConfiguration(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
   ) {
-    return this.spacesService.getConfiguration(id, tenantId);
+    return this.spacesService.getConfiguration(id, tenantId, user);
   }
 
   /**
@@ -1211,8 +1212,9 @@ export class ConfigurationsController {
     @Param('elementId') elementId: string,
     @CurrentTenant() tenantId: string,
     @Body() dto: UpdateSpaceElementDto,
+    @CurrentUser() user: any,
   ) {
-    return this.spacesService.updateSpaceElement(elementId, tenantId, dto);
+    return this.spacesService.updateSpaceElement(elementId, tenantId, dto, user);
   }
 
   /**
@@ -1250,7 +1252,8 @@ export class ConfigurationsController {
     @CurrentTenant() tenantId: string,
     @Param('id') spaceId: string,
     @Body() body: { name: string; type?: string },
+    @CurrentUser() user: any,
   ) {
-    return this.spacesService.quickCreateElement(spaceId, tenantId, body);
+    return this.spacesService.quickCreateElement(spaceId, tenantId, body, user);
   }
 }
