@@ -1571,44 +1571,6 @@ export default {
       }
     },
 
-    // Finds-or-creates a ProductType by name, returns its id
-    async ensureType(name) {
-      if (!name) return ''
-      const types = this.$store.getters['productTypes/productTypes'] || []
-      const norm = name.toLowerCase().trim()
-      const existing = types.find(t => t.name.toLowerCase().trim() === norm)
-      if (existing) return existing.id
-      try {
-        const res = await createProductType({ name })
-        const created = res?.data || res
-        const id = created?.id || created
-        await this.$store.dispatch('productTypes/fetchProductTypes')
-        return id
-      } catch (err) {
-        console.warn('[ensureType] failed to create type:', name, err)
-        return ''
-      }
-    },
-
-    // Finds-or-creates a ProductCategory by name + typeId, returns its id
-    async ensureCategory(name, typeId) {
-      if (!name || !typeId) return ''
-      const cats = this.$store.getters['productCategories/productCategories'] || []
-      const norm = name.toLowerCase().trim()
-      const existing = cats.find(c => c.name.toLowerCase().trim() === norm && c.typeId === typeId)
-      if (existing) return existing.id
-      try {
-        const res = await createProductCategory({ name, typeId })
-        const created = res?.data || res
-        const id = created?.id || created
-        await this.$store.dispatch('productCategories/fetchProductCategories')
-        return id
-      } catch (err) {
-        console.warn('[ensureCategory] failed to create category:', name, err)
-        return ''
-      }
-    },
-
     async openQuickCreate(product) {
       this.quickCreateProduct = product
       this.quickCreateError = null
@@ -1637,9 +1599,8 @@ export default {
         // Products created during transaction sync have empty classification fields
         // (nature, subnature, productType, categoryId). In that case we call the
         // Weezevent products API to get the full data, then persist it in the DB.
-        let freshNature = product.nature
-        let freshSubnature = product.subnature
-        let freshProductType = product.productType
+        // Note : nature/subnature ne sont plus utilisées pour pré-remplir ou créer un Type/Category —
+        // l'utilisateur choisit ou crée le Type/Category lui-même, au moment qu'il souhaite.
         let freshBasePrice = product.basePrice
 
         const needsRefresh = (!product.productType && !product.nature) || product.basePrice == null || Number(product.basePrice) === 0
@@ -1647,9 +1608,9 @@ export default {
           try {
             // spaceId : le prix dérivé reste celui de l'espace courant (jamais un autre espace).
             const fresh = await refreshWeezeventProduct(product.id, this.spaceId)
-            freshNature = fresh?.nature ?? null
-            freshSubnature = fresh?.subnature ?? null
-            freshProductType = fresh?.productType ?? null
+            const freshNature = fresh?.nature ?? null
+            const freshSubnature = fresh?.subnature ?? null
+            const freshProductType = fresh?.productType ?? null
             freshBasePrice = fresh?.basePrice != null ? Number(fresh.basePrice) : freshBasePrice
             // Update the local products list so the table reflects the fresh data
             const idx = this.products.findIndex(p => p.id === product.id)
@@ -1669,27 +1630,6 @@ export default {
             }
           } catch (err) {
             console.warn('[openQuickCreate] refresh from API failed, using cached values:', err?.message)
-          }
-        }
-
-        // Auto-match type from Weezevent `nature` (CUP/DRINK/FOOD/MERCH/OTHER).
-        // Weezevent `type` (STANDARD/MENU/PACK/…) is a commerce type, not a food classification — not usable here.
-        let prefilledTypeId = ''
-        let prefilledCategoryId = ''
-
-        if (freshNature) {
-          prefilledTypeId = await this.ensureType(freshNature)
-        }
-
-        if (freshSubnature && prefilledTypeId) {
-          prefilledCategoryId = await this.ensureCategory(freshSubnature, prefilledTypeId)
-        }
-
-        if (prefilledTypeId || prefilledCategoryId) {
-          this.quickCreateForm = {
-            ...this.quickCreateForm,
-            typeId: prefilledTypeId,
-            categoryId: prefilledCategoryId,
           }
         }
       } finally {
@@ -1907,15 +1847,24 @@ export default {
       return { toCreate, reuseMappings }
     },
 
-    /** bulkCreateAndMap, phase 3 : s'assure que tous les types/catégories requis par `toCreate` existent. */
+    /**
+     * bulkCreateAndMap, phase 3 : associe les types/catégories déjà existants aux produits à créer,
+     * par correspondance de nom avec `nature`/`subnature` Weezevent. Aucune création en base ici :
+     * un produit sans Type/Category correspondant est créé sans classification, à assigner
+     * manuellement par l'utilisateur plus tard.
+     */
     async bulkEnsureTypesAndCategories(toCreate) {
       const typeMap = new Map()   // nature → typeId
       const catMap = new Map()    // `${nature}::${subnature}` → categoryId
 
+      const types = this.$store.getters['productTypes/productTypes'] || []
+      const cats = this.$store.getters['productCategories/productCategories'] || []
+      const norm = (s) => String(s || '').toLowerCase().trim()
+
       const uniqueNatures = [...new Set(toCreate.map(p => p.nature).filter(Boolean))]
       for (const nature of uniqueNatures) {
-        const id = await this.ensureType(nature)
-        typeMap.set(nature, id)
+        const id = types.find(t => norm(t.name) === norm(nature))?.id || ''
+        if (id) typeMap.set(nature, id)
       }
 
       const uniquePairs = [...new Set(
@@ -1927,8 +1876,8 @@ export default {
         const [nature, subnature] = pair.split('::')
         const typeId = typeMap.get(nature)
         if (typeId) {
-          const id = await this.ensureCategory(subnature, typeId)
-          catMap.set(pair, id)
+          const id = cats.find(c => norm(c.name) === norm(subnature) && c.typeId === typeId)?.id || ''
+          if (id) catMap.set(pair, id)
         }
       }
 
