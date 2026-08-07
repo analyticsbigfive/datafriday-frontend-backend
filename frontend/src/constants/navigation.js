@@ -122,7 +122,10 @@ export const SETTINGS_NAVIGATION = [
         title: 'navAccess',
         items: [
           { title: 'navUsers', route: '/users', permission: 'org.users.view' },
-          { title: 'navRoles', route: '/roles', permission: 'org.roles.manage' },
+          // requiresOwner : la gestion des rôles est verrouillée au owner côté backend
+          // (roles.service.ts) — un rôle ADMIN de tenant a `org.roles.manage` par défaut,
+          // donc `permission` seule ne suffit pas à cacher ce lien pour un admin non-owner.
+          { title: 'navRoles', route: '/roles', permission: 'org.roles.manage', requiresOwner: true },
           // { title: 'navPermissions', route: '/permissions', permission: 'org.permissions.manage' },
         ],
       },
