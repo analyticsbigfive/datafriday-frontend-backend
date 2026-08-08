@@ -346,7 +346,7 @@ export default {
       } catch (e) {
         const data = e?.response?.data;
         if (data?.blockedBy === 'marketPrices' && data?.filterField && data?.filterValue) {
-          this.deleteError = data.message || this.t('marketPriceCategoryList.deleteError');
+          this.deleteError = this.t('marketPriceCategoryList.deleteBlockedItems');
           this.deleteActionLink = {
             label: `${this.t('marketPriceCategoryList.viewLinkedItems')} (${data.count ?? '?'})`,
             to: { path: '/menu-fb/market-prices', query: { [data.filterField]: data.filterValue } },

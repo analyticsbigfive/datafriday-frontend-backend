@@ -373,7 +373,7 @@ export default {
         // des milliers de Menu Items.
         const data = e?.response?.data;
         if (data?.blockedBy === 'menuItems' && data?.filterField && data?.filterValue) {
-          this.deleteError = data.message || this.t('productTypeList.deleteError');
+          this.deleteError = this.t('productTypeList.deleteBlockedItems');
           this.deleteActionLink = {
             label: `${this.t('productTypeList.viewLinkedItems')} (${data.count ?? '?'})`,
             to: { path: '/menu-fb/menu-items', query: { [data.filterField]: data.filterValue } },
