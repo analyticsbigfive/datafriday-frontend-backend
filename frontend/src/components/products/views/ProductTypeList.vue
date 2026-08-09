@@ -390,6 +390,16 @@ export default {
               onClick: () => { const target = this.deleteTarget; this.closeDeleteDialog(); this.openCategoriesDialog(target); },
             };
           }
+        } else if (e?.response?.status === 409 && this.deleteTarget?.name) {
+          // Fallback backend ancien (sans payload structuré) : le pré-check a déjà géré le cas
+          // "catégories" ; un 409 non-catégorie = blocage par des menu items → lien reconstruit
+          // depuis le nom du type.
+          const n = String(data?.message || '').match(/\d+/)?.[0];
+          this.deleteError = this.t('productTypeList.deleteBlockedItems');
+          this.deleteActionLink = {
+            label: n ? `${this.t('productTypeList.viewLinkedItems')} (${n})` : this.t('productTypeList.viewLinkedItems'),
+            to: { path: '/menu-fb/menu-items', query: { type: this.deleteTarget.name } },
+          };
         } else {
           this.deleteError = data?.message || e?.message || this.t('productTypeList.deleteError');
         }

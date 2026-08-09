@@ -375,6 +375,16 @@ export default {
               onClick: () => { const target = this.deleteTarget; this.closeDeleteDialog(); this.openCategoriesDialog(target); },
             };
           }
+        } else if (e?.response?.status === 409 && this.deleteTarget?.name) {
+          // Fallback backend ancien (sans payload structuré) : le pré-check a déjà géré le cas
+          // "catégories" ; un 409 non-catégorie = blocage par des prix marché → lien reconstruit
+          // depuis le nom du type.
+          const n = String(data?.message || '').match(/\d+/)?.[0];
+          this.deleteError = this.t('marketPriceTypeList.deleteBlockedItems');
+          this.deleteActionLink = {
+            label: n ? `${this.t('marketPriceTypeList.viewLinkedItems')} (${n})` : this.t('marketPriceTypeList.viewLinkedItems'),
+            to: { path: '/menu-fb/market-prices', query: { type: this.deleteTarget.name } },
+          };
         } else {
           this.deleteError = data?.message || e?.message || this.t('marketPriceTypeList.deleteError');
         }

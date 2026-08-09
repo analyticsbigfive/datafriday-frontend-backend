@@ -356,7 +356,18 @@ export default {
           this.deleteError = this.t('productCategoryList.deleteBlockedItems');
           this.deleteActionLink = {
             label: `${this.t('productCategoryList.viewLinkedItems')} (${data.count ?? '?'})`,
-            to: { path: '/menu-fb/menu-items', query: { [data.filterField]: data.filterValue } },
+            to: { path: '/menu-fb/menu-items', query: { categoryId: this.deleteTarget?.id, category: this.deleteTarget?.name } },
+          };
+          return;
+        }
+        // Fallback backend ancien (sans payload structuré) : une catégorie ne peut être bloquée que
+        // par des menu items → on reconstruit le lien depuis le nom de la catégorie supprimée.
+        if (e?.response?.status === 409 && this.deleteTarget?.name) {
+          const n = String(data?.message || '').match(/\d+/)?.[0];
+          this.deleteError = this.t('productCategoryList.deleteBlockedItems');
+          this.deleteActionLink = {
+            label: n ? `${this.t('productCategoryList.viewLinkedItems')} (${n})` : this.t('productCategoryList.viewLinkedItems'),
+            to: { path: '/menu-fb/menu-items', query: { categoryId: this.deleteTarget.id, category: this.deleteTarget.name } },
           };
           return;
         }
