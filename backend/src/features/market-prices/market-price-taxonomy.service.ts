@@ -154,7 +154,7 @@ export class MarketPriceTaxonomyService {
         `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
       );
     }
-    const marketPriceCount = await this.prisma.marketPrice.count({ where: { marketPriceTypeId: id } });
+    const marketPriceCount = await this.prisma.marketPrice.count({ where: { marketPriceTypeId: id, deletedAt: null } });
     if (marketPriceCount > 0) {
       // Payload structuré pour que le front propose un lien direct vers /market-prices filtré sur
       // ce type, plutôt que de laisser l'utilisateur chercher la bonne ligne à la main.
@@ -322,7 +322,7 @@ export class MarketPriceTaxonomyService {
     // Comptage non filtré par tenantId : pour une catégorie globale, c'est l'usage réel tous
     // tenants confondus qui doit bloquer la suppression — pas le simple fait d'être globale.
     const marketPriceCount = await this.prisma.marketPrice.count({
-      where: { marketPriceCategoryId: id },
+      where: { marketPriceCategoryId: id, deletedAt: null },
     });
     if (marketPriceCount > 0) {
       throw new ConflictException({
