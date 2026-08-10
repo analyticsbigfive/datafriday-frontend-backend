@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { parse } from 'csv-parse';
+import * as chardet from 'chardet';
+import * as iconv from 'iconv-lite';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { DigifoodIngestionService } from './digifood-ingestion.service';
 import {
@@ -319,7 +321,16 @@ export class DigifoodCsvImportService {
         rejectedRows: Array<{ line: number; reason: string }>;
     }> {
         if (!fileBuffer?.length) throw new BadRequestException('Fichier CSV vide');
-        const firstLine = fileBuffer.subarray(0, 8192).toString('utf8').split(/\r?\n/)[0] ?? '';
+
+        // Détection d'encodage : les exports Digifood/Excel côté France sont parfois en
+        // Windows-1252 plutôt qu'UTF-8. Un décodage UTF-8 forcé transforme alors le "€"
+        // (octet seul 0x80, invalide en UTF-8) et les lettres accentuées en "�", ce qui
+        // casse ensuite le parsing des montants (parseAmount) → lignes rejetées à tort.
+        const detected = chardet.detect(fileBuffer);
+        const encoding = detected && iconv.encodingExists(detected) ? detected : 'UTF-8';
+        const content = iconv.decode(fileBuffer, encoding);
+
+        const firstLine = content.slice(0, 8192).split(/\r?\n/)[0] ?? '';
         const counts: Array<[string, number]> = [
             ['\t', (firstLine.match(/\t/g) ?? []).length],
             [';', (firstLine.match(/;/g) ?? []).length],
@@ -331,7 +342,7 @@ export class DigifoodCsvImportService {
 
         const records: Array<Record<string, string>> = await new Promise((resolve, reject) => {
             parse(
-                fileBuffer,
+                content,
                 { columns: true, bom: true, trim: true, delimiter, skip_empty_lines: true, relax_column_count: true },
                 (err, out) => (err ? reject(new BadRequestException(`CSV illisible : ${err.message}`)) : resolve(out as Array<Record<string, string>>)),
             );
