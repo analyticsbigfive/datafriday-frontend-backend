@@ -55,7 +55,7 @@
           <select v-model="selectedType" class="mpl-filter-select">
             <option v-for="opt in typeOptions" :key="opt" :value="opt">{{ opt }}</option>
           </select>
-          <select v-model="selectedCategory" class="mpl-filter-select">
+          <select :value="selectedCategory" @change="onSelectedCategoryChange($event.target.value)" class="mpl-filter-select">
             <option v-for="opt in categoryOptions" :key="opt" :value="opt">{{ opt }}</option>
           </select>
           <select v-model="selectedSupplier" class="mpl-filter-select">
@@ -185,6 +185,9 @@ export default {
       searchQuery: "",
       selectedType: "All Types",
       selectedCategory: "All Categories",
+      // categoryId exacte épinglée par un lien de taxonomie (prime sur le filtre par nom, et
+      // indépendante du type du prix marché). Effacée dès que l'utilisateur change le dropdown.
+      pinnedCategoryId: null,
       selectedSupplier: "All Suppliers",
 
       marketPricesLoading: true,
@@ -258,6 +261,7 @@ export default {
     // filtrée, plutôt que de chercher la bonne ligne à la main.
     if (this.$route.query.type) this.selectedType = String(this.$route.query.type);
     if (this.$route.query.category) this.selectedCategory = String(this.$route.query.category);
+    if (this.$route.query.categoryId) this.pinnedCategoryId = String(this.$route.query.categoryId);
     await this.loadMarketPrices();
     this.openFromQuery();
     window.addEventListener('theme-changed', this.handleThemeChange);
@@ -271,6 +275,15 @@ export default {
         super(callback);
       }
     };
+  },
+  // Deep-link filtre (?type=&category=) : la vue est keep-alive → mounted() ne se rejoue pas.
+  // On ré-applique donc le filtre à chaque activation, sinon un lien vers la liste filtrée
+  // (ex. suppression bloquée d'une catégorie par des prix marché) n'a aucun effet une fois la
+  // vue déjà montée (même classe de bug que BUG-154/122).
+  activated() {
+    if (this.$route.query.type) this.selectedType = String(this.$route.query.type);
+    if (this.$route.query.category) this.selectedCategory = String(this.$route.query.category);
+    if (this.$route.query.categoryId) this.pinnedCategoryId = String(this.$route.query.categoryId);
   },
   beforeUnmount() {
     window.removeEventListener('theme-changed', this.handleThemeChange);
@@ -465,7 +478,9 @@ export default {
       if (this.selectedType && this.selectedType !== "All Types") {
         list = list.filter((i) => i.type === this.selectedType);
       }
-      if (this.selectedCategory && this.selectedCategory !== "All Categories") {
+      if (this.pinnedCategoryId) {
+        list = list.filter((i) => String(i.marketPriceCategoryId || '') === this.pinnedCategoryId);
+      } else if (this.selectedCategory && this.selectedCategory !== "All Categories") {
         list = list.filter((i) => i.category === this.selectedCategory);
       }
       if (this.selectedSupplier && this.selectedSupplier !== "All Suppliers") {
@@ -499,7 +514,13 @@ export default {
       this.debouncedSearchQuery = '';
       this.selectedType = 'All Types';
       this.selectedCategory = 'All Categories';
+      this.pinnedCategoryId = null;
       this.selectedSupplier = 'All Suppliers';
+    },
+    // Choix manuel dans le dropdown catégorie → on abandonne l'épinglage du lien de taxonomie.
+    onSelectedCategoryChange(val) {
+      this.pinnedCategoryId = null;
+      this.selectedCategory = val;
     },
     async ensureAuthToken() {
       try {

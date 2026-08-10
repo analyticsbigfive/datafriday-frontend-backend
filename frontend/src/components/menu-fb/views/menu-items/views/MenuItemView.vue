@@ -83,7 +83,8 @@
           />
 
           <v-select
-            v-model="categoryFilter"
+            :model-value="categoryFilter"
+            @update:model-value="onCategoryFilterInput"
             :items="categoryOptions"
             item-title="title"
             item-value="value"
@@ -121,9 +122,9 @@
           {{ typeFilter }}
           <button class="mil-chip__x" @click="typeFilter = 'All Types'"><X :size="10" /></button>
         </span>
-        <span v-if="categoryFilter !== 'All Categories'" class="mil-chip mil-chip--orange">
+        <span v-if="categoryFilter !== 'All Categories' || pinnedCategoryId" class="mil-chip mil-chip--orange">
           {{ categoryFilter }}
-          <button class="mil-chip__x" @click="categoryFilter = 'All Categories'"><X :size="10" /></button>
+          <button class="mil-chip__x" @click="pinnedCategoryId = null; categoryFilter = 'All Categories'"><X :size="10" /></button>
         </span>
         <span v-if="readyFilter !== 'All'" class="mil-chip mil-chip--green">
           {{ readyFilter }}
@@ -550,6 +551,10 @@ export default {
       spaceFilter: "All Spaces",
       typeFilter: "All Types",
       categoryFilter: "All Categories",
+      // Filtre catégorie « épinglé » par un lien de taxonomie : la categoryId EXACTE (non ambiguë,
+      // et indépendante du type de l'article). Prime sur le filtre par nom tant qu'elle est posée ;
+      // effacée dès que l'utilisateur change le dropdown catégorie (onCategoryFilterInput).
+      pinnedCategoryId: null,
       readyFilter: "All",
 
       // Regroupement par type+catégorie (avec totaux) : ACTIVÉ PAR DÉFAUT — design validé
@@ -592,11 +597,19 @@ export default {
     // main parmi potentiellement des milliers.
     if (this.$route.query.type) this.typeFilter = String(this.$route.query.type);
     if (this.$route.query.category) this.categoryFilter = String(this.$route.query.category);
+    if (this.$route.query.categoryId) this.pinnedCategoryId = String(this.$route.query.categoryId);
     this.ensureDataLoaded();
   },
   activated() {
     this.$store.dispatch('productTypes/fetchProductTypes', {});
     this.$store.dispatch('productCategories/fetchProductCategories', {});
+    // Deep-link filtre (?type=&category=) : la vue est keep-alive → mounted() ne se rejoue pas.
+    // On ré-applique donc le filtre à chaque activation, sinon un lien vers la liste filtrée
+    // (ex. suppression bloquée d'une catégorie) n'a aucun effet une fois la vue déjà montée
+    // (même classe de bug que BUG-154/122).
+    if (this.$route.query.type) this.typeFilter = String(this.$route.query.type);
+    if (this.$route.query.category) this.categoryFilter = String(this.$route.query.category);
+    if (this.$route.query.categoryId) this.pinnedCategoryId = String(this.$route.query.categoryId);
     this.ensureDataLoaded();
   },
   watch: {
@@ -728,7 +741,9 @@ export default {
         const matchesSpace = this.spaceFilter === "All Spaces"
           || (Array.isArray(i?.spaceIds) && i.spaceIds.some((sid) => String(sid) === this.spaceFilter));
         const matchesType = this.typeFilter === "All Types" || String(i?.type || "") === this.typeFilter;
-        const matchesCategory = this.categoryFilter === "All Categories" || String(i?.category || "") === this.categoryFilter;
+        const matchesCategory = this.pinnedCategoryId
+          ? String(i?.categoryId || "") === this.pinnedCategoryId
+          : (this.categoryFilter === "All Categories" || String(i?.category || "") === this.categoryFilter);
         const matchesReady = this.readyFilter === "All" || String(i?.readyForSale || "") === this.readyFilter;
         return matchesSearch && matchesSpace && matchesType && matchesCategory && matchesReady;
       });
@@ -740,7 +755,14 @@ export default {
       this.spaceFilter = "All Spaces";
       this.typeFilter = "All Types";
       this.categoryFilter = "All Categories";
+      this.pinnedCategoryId = null;
       this.readyFilter = "All";
+    },
+    // Choix manuel dans le dropdown catégorie → on abandonne l'épinglage du lien de taxonomie
+    // (@update:model-value ne se déclenche que sur interaction utilisateur, pas sur set programmatique).
+    onCategoryFilterInput(val) {
+      this.pinnedCategoryId = null;
+      this.categoryFilter = val;
     },
     // Charge soit le catalogue complet (vue grille / tableau regroupé), soit la page
     // serveur courante (vue tableau à plat) — à appeler à chaque fois que l'écran doit
@@ -763,7 +785,14 @@ export default {
     },
     resolveCategoryId(name) {
       if (!name || name === 'All Categories') return null;
-      const found = (this.productCategories || []).find((c) => String(c?.name || c?.category || '') === name);
+      // Les noms de catégorie ne sont uniques QUE par type (@@unique[tenantId, typeId, name]).
+      // On scoppe donc par le type sélectionné pour ne pas résoudre vers la catégorie d'un AUTRE
+      // type portant le même nom (→ mauvais categoryId → liste vide).
+      const typeId = this.resolveTypeId(this.typeFilter);
+      const cats = this.productCategories || [];
+      const found = typeId
+        ? cats.find((c) => String(c?.name || c?.category || '') === name && String(c?.typeId || c?.type?.id || '') === String(typeId))
+        : cats.find((c) => String(c?.name || c?.category || '') === name);
       return found?.id || null;
     },
     async loadServerPage() {
@@ -775,7 +804,7 @@ export default {
           spaceId: this.spaceFilter !== 'All Spaces' ? this.spaceFilter : null,
           search: this.searchQuery,
           typeId: this.resolveTypeId(this.typeFilter),
-          categoryId: this.resolveCategoryId(this.categoryFilter),
+          categoryId: this.pinnedCategoryId || this.resolveCategoryId(this.categoryFilter),
           readyForSale: this.readyFilter !== 'All' ? this.readyFilter : null,
         });
         this.serverRawItems = res.data;
@@ -834,6 +863,7 @@ export default {
         menuItemId,
         name: item?.name || "-",
         category: item?.productCategory?.name || "-",
+        categoryId: item?.categoryId || item?.productCategory?.id || null,
         type: item?.productType?.name || "-",
         picture: item?.picture || item?.image || null,
         readyForSale: item?.readyForSale === "Yes" ? "Yes" : "No",
