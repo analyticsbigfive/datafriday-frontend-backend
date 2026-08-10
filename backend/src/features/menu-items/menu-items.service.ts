@@ -160,6 +160,33 @@ export class MenuItemsService {
   }
 
   /**
+   * Message P2002 lisible : `target` liste les colonnes de la contrainte unique violée
+   * (ex. ["menuItemId", "ingredientId"] pour un ingrédient sélectionné deux fois dans la recette).
+   */
+  private describeMenuItemUniqueConstraintError(error: any): string {
+    const rawTarget = error?.meta?.target;
+    const target: string[] = Array.isArray(rawTarget)
+      ? rawTarget
+      : typeof rawTarget === 'string'
+        ? rawTarget.split(/[,_]/).map((s: string) => s.trim())
+        : [];
+
+    if (target.includes('ingredientId')) {
+      return `Cet ingrédient est déjà présent dans la recette, il ne peut pas être ajouté deux fois.`;
+    }
+    if (target.includes('componentId')) {
+      return `Ce composant est déjà présent dans la recette, il ne peut pas être ajouté deux fois.`;
+    }
+    if (target.includes('packagingId')) {
+      return `Ce packaging est déjà présent dans la recette, il ne peut pas être ajouté deux fois.`;
+    }
+    if (target.includes('childId')) {
+      return `Cet article est déjà présent dans le combo, il ne peut pas être ajouté deux fois.`;
+    }
+    return `A menu item with this name already exists`;
+  }
+
+  /**
    * Synchronise les lignes SpaceMenuItem d'un article depuis le contrat API historique.
    * Sémantique de REMPLACEMENT, comme les anciens champs :
    *  - `spaceIds` fourni → la liste est l'état complet désiré : les associations absentes
@@ -413,10 +440,11 @@ export class MenuItemsService {
         spacePrices: (dto as any).spacePrices,
       });
 
-      if (comboItemsLines) {
-        await this.refreshComboCost(tenantId, item.id);
-      } else if (componentsLines || ingredientsLines || packagingsLines) {
+      if (componentsLines || ingredientsLines || packagingsLines) {
         await this.refreshCosts(tenantId, { itemIds: [item.id] });
+      }
+      if (comboItemsLines && comboItemsLines.length > 0) {
+        await this.refreshComboCost(tenantId, item.id);
       }
 
       await this.invalidateCache(tenantId);
@@ -433,7 +461,7 @@ export class MenuItemsService {
         );
       }
       if (error.code === 'P2002') {
-        throw new BadRequestException(`A menu item with this name already exists`);
+        throw new BadRequestException(this.describeMenuItemUniqueConstraintError(error));
       }
       throw error;
     }
@@ -920,10 +948,11 @@ export class MenuItemsService {
         spacePrices: (dto as any).spacePrices,
       });
 
-      if (comboItemsLines) {
-        await this.refreshComboCost(tenantId, id);
-      } else if (componentsLines || ingredientsLines || packagingsLines) {
+      if (componentsLines || ingredientsLines || packagingsLines) {
         await this.refreshCosts(tenantId, { itemIds: [id] });
+      }
+      if (comboItemsLines && comboItemsLines.length > 0) {
+        await this.refreshComboCost(tenantId, id);
       }
 
       await this.invalidateCache(tenantId);
@@ -935,6 +964,9 @@ export class MenuItemsService {
       }
       if (error.code === 'P2025') {
         throw new NotFoundException(`Menu item with ID ${id} not found`);
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(this.describeMenuItemUniqueConstraintError(error));
       }
       throw error;
     }
@@ -1472,6 +1504,9 @@ export class MenuItemsService {
       if (error.code === 'P2003') {
         throw new BadRequestException(`Invalid componentId in the provided list`);
       }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(this.describeMenuItemUniqueConstraintError(error));
+      }
       throw error;
     }
   }
@@ -1503,6 +1538,9 @@ export class MenuItemsService {
       if (error.code === 'P2003') {
         throw new BadRequestException(`Invalid ingredientId in the provided list`);
       }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(this.describeMenuItemUniqueConstraintError(error));
+      }
       throw error;
     }
   }
@@ -1533,6 +1571,9 @@ export class MenuItemsService {
       this.logger.error(`Failed to replace packagings for menu item ${menuItemId}: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
         throw new BadRequestException(`Invalid packagingId in the provided list`);
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(this.describeMenuItemUniqueConstraintError(error));
       }
       throw error;
     }
@@ -1566,6 +1607,9 @@ export class MenuItemsService {
       this.logger.error(`Failed to replace combo items for menu item ${menuItemId}: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
         throw new BadRequestException(`Invalid childId in the provided list`);
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(this.describeMenuItemUniqueConstraintError(error));
       }
       throw error;
     }
