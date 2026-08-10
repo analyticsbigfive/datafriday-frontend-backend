@@ -100,11 +100,7 @@ export default {
       return this.location?.name || this.location?.label || this.t('intgOverviewFallbackName')
     },
     steps() {
-      // Digifood : pas d'étape « Événements » (webhooks temps réel, pas de sync API)
-      const defs = this.location?.type === 'digifood'
-        ? STEP_DEFINITIONS.filter((d) => d.key !== 'events')
-        : STEP_DEFINITIONS
-      return defs.map((def, i) => ({
+      return STEP_DEFINITIONS.map((def, i) => ({
         ...def,
         label: this.t(def.labelKey),
         description: this.t(def.descriptionKey),

@@ -144,6 +144,7 @@ export class DigifoodCsvImportService {
     /**
      * @param dryRun défaut TRUE (même philosophie que backfill-weezevent-prices) :
      *               rapport complet sans AUCUNE écriture ; dryRun=false exécute.
+     * @param fileName nom du fichier uploadé, gardé uniquement pour l'historique (DigifoodCsvImportRun).
      */
     async importCsv(
         tenantId: string,
@@ -151,6 +152,29 @@ export class DigifoodCsvImportService {
         fileBuffer: Buffer,
         dryRun: boolean,
         providedMapping?: CsvColumnMapping | null,
+        fileName?: string | null,
+    ): Promise<CsvImportReport> {
+        const startedAt = new Date();
+        try {
+            return await this.doImportCsv(tenantId, integrationId, fileBuffer, dryRun, providedMapping, fileName, startedAt);
+        } catch (error) {
+            // Les aperçus (dryRun=true) ne sont jamais tracés — seuls les imports réels le sont
+            // (voir DigifoodCsvImportRun). Ne doit jamais masquer l'erreur d'origine.
+            if (!dryRun) {
+                await this.recordFailedImportRun(tenantId, integrationId, fileName, startedAt, error);
+            }
+            throw error;
+        }
+    }
+
+    private async doImportCsv(
+        tenantId: string,
+        integrationId: string,
+        fileBuffer: Buffer,
+        dryRun: boolean,
+        providedMapping: CsvColumnMapping | null | undefined,
+        fileName: string | null | undefined,
+        startedAt: Date,
     ): Promise<CsvImportReport> {
         const mapping = await this.resolveMapping(tenantId, providedMapping);
         const { rows, rejectedRows } = await this.parseRows(fileBuffer, mapping);
@@ -249,7 +273,91 @@ export class DigifoodCsvImportService {
             );
         }
 
+        await this.recordImportRun(tenantId, integrationId, fileName, startedAt, report);
         return report;
+    }
+
+    /** Trace un import RÉEL terminé (jamais les aperçus) — alimente l'historique affiché au front.
+     *  Échec d'écriture volontairement avalé : l'import lui-même a réussi, ne pas le faire échouer
+     *  pour un souci d'audit secondaire. */
+    private async recordImportRun(
+        tenantId: string,
+        integrationId: string,
+        fileName: string | null | undefined,
+        startedAt: Date,
+        report: CsvImportReport,
+    ): Promise<void> {
+        await this.prisma.digifoodCsvImportRun.create({
+            data: {
+                tenantId,
+                integrationId,
+                fileName: fileName ?? null,
+                status: 'COMPLETED',
+                ordersDetected: report.ordersDetected,
+                ordersCreated: report.ordersCreated,
+                ordersUpdated: report.ordersUpdated,
+                ordersSkipped: report.ordersSkipped,
+                productsCreated: report.productsCreated,
+                locationsCreated: report.locationsCreated,
+                rejectedCount: report.rejectedRows.length,
+                periodStart: report.periodStart ? new Date(report.periodStart) : null,
+                periodEnd: report.periodEnd ? new Date(report.periodEnd) : null,
+                startedAt,
+                completedAt: new Date(),
+            },
+        }).catch((err) => {
+            this.logger.error(`Échec écriture historique import CSV Digifood tenant ${tenantId} : ${err instanceof Error ? err.message : String(err)}`);
+        });
+    }
+
+    /** Trace un import RÉEL en échec (ex. CSV illisible/vide) — même logique d'avalement d'erreur
+     *  d'écriture que recordImportRun, pour ne jamais masquer l'erreur d'origine à l'appelant. */
+    private async recordFailedImportRun(
+        tenantId: string,
+        integrationId: string,
+        fileName: string | null | undefined,
+        startedAt: Date,
+        error: unknown,
+    ): Promise<void> {
+        await this.prisma.digifoodCsvImportRun.create({
+            data: {
+                tenantId,
+                integrationId,
+                fileName: fileName ?? null,
+                status: 'FAILED',
+                errorMessage: error instanceof Error ? error.message : String(error),
+                startedAt,
+                completedAt: new Date(),
+            },
+        }).catch((err) => {
+            this.logger.error(`Échec écriture historique import CSV Digifood (échec) tenant ${tenantId} : ${err instanceof Error ? err.message : String(err)}`);
+        });
+    }
+
+    /** Historique des imports RÉELS (dryRun=false) pour une intégration — dernières 20 exécutions. */
+    async getImportHistory(tenantId: string, integrationId: string) {
+        return this.prisma.digifoodCsvImportRun.findMany({
+            where: { tenantId, integrationId },
+            orderBy: { startedAt: 'desc' },
+            take: 20,
+            select: {
+                id: true,
+                fileName: true,
+                status: true,
+                ordersDetected: true,
+                ordersCreated: true,
+                ordersUpdated: true,
+                ordersSkipped: true,
+                productsCreated: true,
+                locationsCreated: true,
+                rejectedCount: true,
+                periodStart: true,
+                periodEnd: true,
+                errorMessage: true,
+                startedAt: true,
+                completedAt: true,
+            },
+        });
     }
 
     /**
