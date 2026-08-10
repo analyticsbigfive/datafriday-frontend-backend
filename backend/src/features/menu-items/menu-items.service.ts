@@ -1900,7 +1900,9 @@ export class MenuItemsService {
         `Impossible de supprimer ce type : ${categoryCount} catégorie(s) en dépendent encore. Supprimez-les d'abord.`,
       );
     }
-    const menuItemCount = await this.prisma.menuItem.count({ where: { typeId: id } });
+    // deletedAt: null — les menu items sont SOFT-deleted (remove() pose deletedAt) ; sans ce
+    // filtre, des articles déjà supprimés bloquaient encore la suppression du type.
+    const menuItemCount = await this.prisma.menuItem.count({ where: { typeId: id, deletedAt: null } });
     if (menuItemCount > 0) {
       // Payload structuré (au-delà du `message`) pour que le front puisse proposer un lien direct
       // vers la liste des Menu Items déjà filtrée sur ce type, plutôt que de laisser l'utilisateur
@@ -2054,7 +2056,9 @@ export class MenuItemsService {
     // MenuItem.categoryId. Même pattern que deleteEventCategory (BUG-75).
     // Comptage non filtré par tenantId : pour une catégorie globale, c'est l'usage réel tous
     // tenants confondus qui doit bloquer la suppression — pas le simple fait d'être globale.
-    const menuItemCount = await this.prisma.menuItem.count({ where: { categoryId: id } });
+    // deletedAt: null — menu items SOFT-deleted : ne pas compter les articles déjà supprimés,
+    // sinon la catégorie reste bloquée alors que plus aucun article actif ne l'utilise.
+    const menuItemCount = await this.prisma.menuItem.count({ where: { categoryId: id, deletedAt: null } });
     if (menuItemCount > 0) {
       throw new ConflictException({
         message: `Impossible de supprimer cette catégorie : ${menuItemCount} article(s) de menu en dépendent encore. Réassignez-les d'abord.`,

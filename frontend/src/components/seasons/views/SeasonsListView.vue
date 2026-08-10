@@ -158,16 +158,29 @@ onMounted(() => {
 </script>
 
 <style scoped>
-#seasons-page { min-height: 100%; }
+/* Page chrome aligné sur les autres vues Settings (fond + flex column + scroll interne)
+   pour que le bandeau rouge soit sticky et pleine largeur. */
+#seasons-page {
+  min-height: 100%;
+  height: 100%;
+  background: #f4f5f7;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.ssn--dark#seasons-page { background: #0f172a; }
 
+/* Bandeau rouge : même style que .hsl-header / .ptl-header (pleine largeur, sticky, sans
+   arrondi ni marge) — plus le card arrondi flottant d'avant. */
 .ssn-header {
   background: #ff3131;
-  border-radius: 18px;
-  padding: 18px 22px;
-  margin-bottom: 18px;
-  box-shadow: 0 8px 24px rgba(255, 49, 49, 0.28);
+  box-shadow: 0 4px 20px rgba(255, 49, 49, 0.25);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-shrink: 0;
 }
-.ssn-header__inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.ssn-header__inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 18px 28px; }
 .ssn-header__left { display: flex; align-items: center; gap: 14px; }
 .ssn-header__icon {
   width: 44px;
@@ -195,7 +208,7 @@ onMounted(() => {
 }
 .ssn-add-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); }
 
-.ssn-content { padding-bottom: 32px; }
+.ssn-content { padding: 24px 28px 32px; flex: 1; }
 
 .ssn-empty { text-align: center; padding: 56px 16px; }
 .ssn-empty__title { font-size: var(--fs-md); font-weight: var(--fw-semibold); color: #6b7280; margin: 12px 0 4px; }
