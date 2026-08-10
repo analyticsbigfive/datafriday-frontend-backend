@@ -469,7 +469,23 @@ export class IntegrationsController {
         // Défaut TRUE — seul dryRun=false explicite exécute (même philosophie que
         // backfill-weezevent-prices).
         const effectiveDryRun = dryRun !== 'false';
-        return this.digifoodCsvImport.importCsv(tenantId, instanceId, buffer, effectiveDryRun, mapping);
+        return this.digifoodCsvImport.importCsv(tenantId, instanceId, buffer, effectiveDryRun, mapping, file.filename);
+    }
+
+    @Get('digifood/instances/:instanceId/import-csv/history')
+    @ApiOperation({ summary: "Historique des imports CSV Digifood réels (aperçus exclus)" })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiParam({ name: 'instanceId', description: "ID de l'instance Digifood" })
+    @ApiResponse({ status: 200, description: 'Liste des imports (20 derniers), plus récent en premier' })
+    async getDigifoodCsvImportHistory(
+        @Param('organizationId') organizationId: string,
+        @Param('instanceId') instanceId: string,
+        @CurrentUser() user: any,
+    ) {
+        const tenantId = this.resolveTenantId(user, organizationId);
+        await this.digifoodService.getInstance(tenantId, instanceId);
+        const data = await this.digifoodCsvImport.getImportHistory(tenantId, instanceId);
+        return { data };
     }
 
     /**

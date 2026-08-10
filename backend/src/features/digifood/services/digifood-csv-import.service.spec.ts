@@ -26,6 +26,10 @@ function makePrismaMock() {
         salesTransaction: { findMany: jest.fn().mockResolvedValue([{ externalId: 'order_1' }]) },
         salesProduct: { findMany: jest.fn().mockResolvedValue([{ externalId: 'var_b1' }]) },
         salesLocation: { findMany: jest.fn().mockResolvedValue([]) },
+        digifoodCsvImportRun: {
+            create: jest.fn().mockResolvedValue({}),
+            findMany: jest.fn().mockResolvedValue([]),
+        },
     };
 }
 
@@ -206,6 +210,56 @@ describe('DigifoodCsvImportService', () => {
                     }),
                 }),
             );
+        });
+    });
+
+    describe('historique des imports (DigifoodCsvImportRun)', () => {
+        it('dry-run (aperçu) : aucune ligne d\'historique écrite', async () => {
+            await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), true, null, 'export.csv');
+            expect(prisma.digifoodCsvImportRun.create).not.toHaveBeenCalled();
+        });
+
+        it('import réel : trace un run COMPLETED avec les compteurs du rapport et le nom du fichier', async () => {
+            const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), false, null, 'export.csv');
+
+            expect(prisma.digifoodCsvImportRun.create).toHaveBeenCalledTimes(1);
+            const [{ data }] = prisma.digifoodCsvImportRun.create.mock.calls[0];
+            expect(data).toMatchObject({
+                tenantId: TENANT,
+                integrationId: INTEGRATION,
+                fileName: 'export.csv',
+                status: 'COMPLETED',
+                ordersDetected: report.ordersDetected,
+                ordersCreated: report.ordersCreated,
+                ordersUpdated: report.ordersUpdated,
+                rejectedCount: report.rejectedRows.length,
+            });
+        });
+
+        it('import réel en échec (CSV vide) : trace un run FAILED sans masquer l\'erreur d\'origine', async () => {
+            await expect(
+                service.importCsv(TENANT, INTEGRATION, Buffer.from(''), false),
+            ).rejects.toThrow(BadRequestException);
+
+            expect(prisma.digifoodCsvImportRun.create).toHaveBeenCalledTimes(1);
+            const [{ data }] = prisma.digifoodCsvImportRun.create.mock.calls[0];
+            expect(data).toMatchObject({ tenantId: TENANT, integrationId: INTEGRATION, status: 'FAILED' });
+            expect(data.errorMessage).toMatch(/vide/);
+        });
+
+        it('getImportHistory : délègue à digifoodCsvImportRun.findMany, triée par startedAt desc, 20 dernières', async () => {
+            prisma.digifoodCsvImportRun.findMany.mockResolvedValue([{ id: 'run_1', status: 'COMPLETED' }]);
+
+            const history = await service.getImportHistory(TENANT, INTEGRATION);
+
+            expect(prisma.digifoodCsvImportRun.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { tenantId: TENANT, integrationId: INTEGRATION },
+                    orderBy: { startedAt: 'desc' },
+                    take: 20,
+                }),
+            );
+            expect(history).toEqual([{ id: 'run_1', status: 'COMPLETED' }]);
         });
     });
 });
