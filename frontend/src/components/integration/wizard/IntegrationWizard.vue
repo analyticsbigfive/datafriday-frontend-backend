@@ -222,7 +222,7 @@ export default {
     // Reprise où l'utilisateur s'était arrêté : location.completedSteps (calculé par
     // DataIntegrationView.vue à l'ouverture) donne le nombre d'étapes déjà faites —
     // on saute directement à la première étape incomplète plutôt que de tout rejouer.
-    const lastStepForLocation = this.location?.type === 'digifood' ? 3 : 4
+    const lastStepForLocation = 4
     const completed = Math.min(this.location?.completedSteps ?? 0, lastStepForLocation)
     return {
       currentStep: Math.min(completed + 1, lastStepForLocation),
@@ -237,24 +237,20 @@ export default {
     }
   },
   computed: {
-    // Digifood = webhooks temps réel : pas d'étape « Événements » (sync API Weezevent).
-    // Le wizard s'arrête au mapping (Espace → PDV → Menu), le flux de données est continu.
-    isDigifood() {
-      return this.location?.type === 'digifood'
-    },
     lastStep() {
-      return this.isDigifood ? 3 : 4
+      return 4
     },
+    // Digifood organise aussi des événements datés (groupés par jour comme Weezevent) —
+    // seule différence : pas de billetterie à resynchroniser, l'utilisateur crée/associe
+    // lui-même l'Event (StepProcessTimeline gère déjà ce chemin manuel indépendamment
+    // du provider, voir CreateEventDialog/MapEventToExistingDialog).
     stepItems() {
-      const steps = [
+      return [
         { title: this.t('intgWizardStepSpace'), value: 1 },
         { title: this.t('intgWizardStepLocations'), value: 2 },
         { title: this.t('intgWizardStepMenu'), value: 3 },
+        { title: this.t('intgWizardStepEvents'), value: 4 },
       ]
-      if (!this.isDigifood) {
-        steps.push({ title: this.t('intgWizardStepEvents'), value: 4 })
-      }
-      return steps
     },
     completedSteps() {
       return this.completedStepsList.length

@@ -1774,9 +1774,14 @@ export default {
     /** bulkCreateAndMap, phase 1 : resynchronise le catalogue Weezevent puis recharge les produits locaux. */
     async bulkResyncCatalog(integrationId) {
       this.bulkCreatePhase = 'sync'
-      // Cela appelle GET /pay/v1/organizations/{org_id}/products en pages de 100
-      // et met à jour nature/subnature/productType/categoryId en DB pour tous les produits
-      await syncWeezeventData('products', { integrationId })
+      // Digifood n'a pas de pull API à resynchroniser : son catalogue arrive en continu par
+      // webhook (pas d'organizationId Weezevent non plus) — appeler /weezevent/sync lèverait
+      // "Weezevent organization ID not configured for integration ...".
+      if (this.location?.type !== 'digifood') {
+        // Cela appelle GET /pay/v1/organizations/{org_id}/products en pages de 100
+        // et met à jour nature/subnature/productType/categoryId en DB pour tous les produits
+        await syncWeezeventData('products', { integrationId })
+      }
 
       // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom)
       const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold)

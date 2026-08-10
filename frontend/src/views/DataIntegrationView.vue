@@ -123,6 +123,43 @@
                   <v-icon size="15" class="mr-2">mdi-file-delimited-outline</v-icon>
                   {{ t('diDigifoodImportCsv') }}
                 </button>
+
+                <!-- Historique des imports CSV réels (les aperçus ne sont pas tracés) -->
+                <template v-if="csvHistoryMap[integration.id] && csvHistoryMap[integration.id].length">
+                  <p class="card-section-label" style="margin-top: 20px; margin-bottom:8px;">{{ t('diCsvImportHistory') }}</p>
+                  <div class="sync-history">
+                    <div
+                      v-for="run in csvHistoryMap[integration.id].slice(0, 5)"
+                      :key="run.id"
+                      class="sync-history-item"
+                    >
+                      <span
+                        class="sync-status-dot"
+                        :class="{
+                          'sync-status-dot--success': run.status === 'COMPLETED',
+                          'sync-status-dot--error': run.status === 'FAILED',
+                        }"
+                      />
+                      <span class="sync-history-range">
+                        {{ run.fileName || t('diCsvImportUnnamedFile') }}
+                      </span>
+                      <span class="sync-history-count" :class="{ 'sync-history-count--warn': run.rejectedCount > 0 }">
+                        {{ run.status === 'COMPLETED' ? (formatNumber(run.ordersCreated + run.ordersUpdated) + ' ' + t('diItemsUnit')) : '' }}
+                      </span>
+                      <span class="sync-history-date">
+                        {{ formatDate(run.startedAt) }}
+                      </span>
+                      <v-tooltip activator="parent" location="top">
+                        <template v-if="run.status === 'FAILED'">
+                          {{ run.errorMessage || t('diCsvImportFailedFallback') }}
+                        </template>
+                        <template v-else>
+                          {{ run.ordersCreated }} {{ t('diDigifoodOrdersCreated') }} · {{ run.ordersUpdated }} {{ t('diDigifoodOrdersUpdated') }} · {{ run.rejectedCount }} {{ t('diDigifoodRejectedRows') }}
+                        </template>
+                      </v-tooltip>
+                    </div>
+                  </div>
+                </template>
               </template>
 
               <!-- ── Weezevent : sync API par fenêtre de dates ── -->
@@ -822,6 +859,7 @@ import {
   deleteDigifoodInstance,
   testDigifoodInstance,
   importDigifoodCsv,
+  listDigifoodCsvImportHistory,
 } from '@/api/endpoints/aggregation.api'
 
 // Champs communs aux deux providers ; toCard/toDigifoodCard n'ajoutent que leurs
@@ -962,6 +1000,8 @@ export default {
       csvFile: null,
       csvReport: null,
       csvImporting: false,
+      // Historique des imports CSV réels (dryRun=false) par intégration
+      csvHistoryMap: {},
       csvError: '',
       csvColumns: [],
       csvMapping: {},
@@ -1045,7 +1085,7 @@ export default {
     // autre route. La reception Digifood n'est pas incluse : c'est une vérification
     // active côté serveur (testDigifoodInstance), pas une simple lecture.
     this.loadMappings()
-    this.fetchIntegrationsList().then(() => this.loadAllSyncJobs())
+    this.fetchIntegrationsList().then(() => Promise.all([this.loadAllSyncJobs(), this.loadAllCsvHistory()]))
   },
 
   beforeUnmount() {
@@ -1367,6 +1407,7 @@ export default {
         if (!dryRun) {
           // L'import réel alimente PDV/produits → recharge les mappings du wizard
           this.loadMappings().catch(() => {})
+          this.loadCsvHistoryFor(this.csvIntegration.id).catch(() => {})
         }
       } catch (err) {
         console.error('[Digifood] CSV import failed:', err)
@@ -1659,6 +1700,28 @@ export default {
       }
     },
 
+    async loadAllCsvHistory() {
+      // Symétrique de loadAllSyncJobs() : les imports CSV n'existent que pour Digifood.
+      const digifood = this.integrations.filter(intg => intg.type === 'digifood')
+      const results = await Promise.allSettled(
+        digifood.map(intg => listDigifoodCsvImportHistory(this.tenantId, intg.id))
+      )
+      const map = {}
+      digifood.forEach((intg, i) => {
+        map[intg.id] = results[i].status === 'fulfilled' ? (results[i].value?.data ?? []) : []
+      })
+      this.csvHistoryMap = map
+    },
+
+    async loadCsvHistoryFor(integrationId) {
+      try {
+        const result = await listDigifoodCsvImportHistory(this.tenantId, integrationId)
+        this.csvHistoryMap = { ...this.csvHistoryMap, [integrationId]: result?.data ?? [] }
+      } catch {
+        // non-bloquant
+      }
+    },
+
     // Un job "actif" (ni terminé, ni échoué, ni annulé) bloque isIntegrationSyncing() et
     // affiche le bouton "annuler" (conserve l'historique) plutôt que "supprimer" (le retire).
     isJobActive(job) {
@@ -1875,8 +1938,8 @@ export default {
           this.$store.dispatch('spaces/fetchSpaces').catch(() => {}),
           this.fetchIntegrationsList(),
         ])
-        // Charger l'historique des jobs pour chaque intégration
-        await this.loadAllSyncJobs()
+        // Charger l'historique des jobs/imports pour chaque intégration
+        await Promise.all([this.loadAllSyncJobs(), this.loadAllCsvHistory()])
       } finally {
         this.loading = false
       }
@@ -2237,6 +2300,9 @@ export default {
   font-size: 11px;
   min-width: 70px;
   text-align: right;
+}
+.sync-history-count--warn {
+  color: #d97706;
 }
 .sync-history-date {
   font-size: 11px;

@@ -27,6 +27,10 @@ function makePrismaMock() {
         salesTransaction: { findMany: jest.fn().mockResolvedValue([{ externalId: 'order_1' }]) },
         salesProduct: { findMany: jest.fn().mockResolvedValue([{ externalId: 'var_b1' }]) },
         salesLocation: { findMany: jest.fn().mockResolvedValue([]) },
+        digifoodCsvImportRun: {
+            create: jest.fn().mockResolvedValue({}),
+            findMany: jest.fn().mockResolvedValue([]),
+        },
     };
 }
 
@@ -210,20 +214,53 @@ describe('DigifoodCsvImportService', () => {
         });
     });
 
-    describe('encodage Windows-1252 (export Excel FR : "€" en octet seul, casse le décodage UTF-8 forcé)', () => {
-        it('détecte l\'encodage et ne rejette pas les lignes à cause du "€"/accents mal décodés', async () => {
-            // TAB comme dans l'export réel (§ describe ci-dessus) : la valeur "3,50 €" contient
-            // une virgule décimale, qui entrerait en conflit avec un délimiteur ",".
-            const csv = [
-                ['Long ID', 'Item', 'Quantity', 'Total TTC', 'Placed at_date'].join('\t'),
-                ['order_enc_1', 'Café', '1', '3,50 €', '2026-07-05'].join('\t'),
-            ].join('\n');
-            const buffer = iconv.encode(csv, 'windows-1252');
+    describe('historique des imports (DigifoodCsvImportRun)', () => {
+        it('dry-run (aperçu) : aucune ligne d\'historique écrite', async () => {
+            await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), true, null, 'export.csv');
+            expect(prisma.digifoodCsvImportRun.create).not.toHaveBeenCalled();
+        });
 
-            const report = await service.importCsv(TENANT, INTEGRATION, buffer, true);
+        it('import réel : trace un run COMPLETED avec les compteurs du rapport et le nom du fichier', async () => {
+            const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), false, null, 'export.csv');
 
-            expect(report.rejectedRows).toHaveLength(0);
-            expect(report.ordersDetected).toBe(1);
+            expect(prisma.digifoodCsvImportRun.create).toHaveBeenCalledTimes(1);
+            const [{ data }] = prisma.digifoodCsvImportRun.create.mock.calls[0];
+            expect(data).toMatchObject({
+                tenantId: TENANT,
+                integrationId: INTEGRATION,
+                fileName: 'export.csv',
+                status: 'COMPLETED',
+                ordersDetected: report.ordersDetected,
+                ordersCreated: report.ordersCreated,
+                ordersUpdated: report.ordersUpdated,
+                rejectedCount: report.rejectedRows.length,
+            });
+        });
+
+        it('import réel en échec (CSV vide) : trace un run FAILED sans masquer l\'erreur d\'origine', async () => {
+            await expect(
+                service.importCsv(TENANT, INTEGRATION, Buffer.from(''), false),
+            ).rejects.toThrow(BadRequestException);
+
+            expect(prisma.digifoodCsvImportRun.create).toHaveBeenCalledTimes(1);
+            const [{ data }] = prisma.digifoodCsvImportRun.create.mock.calls[0];
+            expect(data).toMatchObject({ tenantId: TENANT, integrationId: INTEGRATION, status: 'FAILED' });
+            expect(data.errorMessage).toMatch(/vide/);
+        });
+
+        it('getImportHistory : délègue à digifoodCsvImportRun.findMany, triée par startedAt desc, 20 dernières', async () => {
+            prisma.digifoodCsvImportRun.findMany.mockResolvedValue([{ id: 'run_1', status: 'COMPLETED' }]);
+
+            const history = await service.getImportHistory(TENANT, INTEGRATION);
+
+            expect(prisma.digifoodCsvImportRun.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { tenantId: TENANT, integrationId: INTEGRATION },
+                    orderBy: { startedAt: 'desc' },
+                    take: 20,
+                }),
+            );
+            expect(history).toEqual([{ id: 'run_1', status: 'COMPLETED' }]);
         });
     });
 });

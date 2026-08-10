@@ -23,7 +23,7 @@
         <div class="ws-stat-card__value">{{ summary.products }}</div>
         <div class="ws-stat-card__label">{{ t('intgSuccessProducts') }}</div>
       </div>
-      <div v-if="!isDigifood" class="ws-stat-card">
+      <div class="ws-stat-card">
         <div class="ws-stat-card__value">{{ summary.events }}</div>
         <div class="ws-stat-card__label">{{ t('intgSuccessEvents') }}</div>
       </div>
@@ -86,11 +86,6 @@ export default {
   computed: {
     locationName() {
       return this.location?.name || this.location?.label || this.t('intgSuccessFallbackName')
-    },
-    // Digifood n'a pas d'étape « Événements » (webhooks temps réel, pas de sync API) :
-    // la tuile resterait figée à 0 et se lirait comme un échec plutôt qu'un non-applicable.
-    isDigifood() {
-      return this.location?.type === 'digifood'
     },
   },
 }

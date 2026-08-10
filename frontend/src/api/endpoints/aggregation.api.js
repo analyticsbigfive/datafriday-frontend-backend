@@ -518,3 +518,16 @@ export async function importDigifoodCsv(organizationId, instanceId, file, dryRun
     throw error
   }
 }
+
+// Historique des imports CSV RÉELS (dryRun=false) — les aperçus ne sont pas tracés côté back.
+export async function listDigifoodCsvImportHistory(organizationId, instanceId) {
+  try {
+    const response = await api.get(
+      `/organizations/${organizationId}/integrations/digifood/instances/${instanceId}/import-csv/history`,
+    )
+    return response.data
+  } catch (error) {
+    console.error('[AGGREGATION API] Error listing digifood CSV import history:', error)
+    throw error
+  }
+}
