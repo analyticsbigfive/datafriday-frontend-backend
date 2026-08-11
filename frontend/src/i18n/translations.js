@@ -2348,7 +2348,14 @@ export const translations = {
     epsUnitCostTitle: 'Unit cost',
     epsItem: 'item',
     epsItems: 'items',
-    epsFrom: 'from',
+    // Ligne « source » d'un élément stockable : « for 11115 × BURGER SEUL
+    // predicted → 22230 Pc needed ». Trois fragments car t() n'interpole pas.
+    epsSourceFor: 'for',
+    epsSourcePredicted: 'predicted',
+    epsSourceNeeded: 'needed',
+    epsShopBreakdownLabel: 'Per-shop split:',
+    epsShopPillTitle: 'Quantity to plan for this shop',
+    epsTotalQtyTitle: 'Total needed across all shops',
     epsPackagingOf: 'of',
     epsNoShopType: 'No Shop Type',
     // BUG-291-01 — nature d'un élément stockable (badge de ligne). `Component`
@@ -2393,7 +2400,8 @@ export const translations = {
     epEstimationModeBanner: 'Manual estimation — no historical data. Enter expected quantities per point of sale; "Reset" exits this mode.',
     epmManualQtyInputAria: 'Manual quantity (units)',
     epmShopEstimationQty: 'Quantity per item (estimation)',
-    epmItemEstimationQty: 'Quantity per point of sale (estimation)',
+    // BUG-316-01 : le slider article porte le TOTAL, réparti sur les PDV cochés.
+    epmItemEstimationQty: 'Total quantity, split across points of sale (estimation)',
     epmEstimationScaleMax: 'Slider scale (max)',
     epmResetTo0: 'Reset to 0',
     epmSelectAllItems: 'Select All Menu Items',
@@ -2780,6 +2788,10 @@ export const translations = {
     epmUnmappedBadge: 'unmapped',
     epmUnmappedItemViewHint: 'Sales are predicted on these unattached items — worth including in the revenue adjustment',
     epmUnmappedTitle: 'Sold but missing from the assigned menu — attach it',
+    // BUG-315-01 : entrée qui ne matche plus le chip-filtre actif après un clic
+    // mais reste affichée jusqu'au changement de filtre.
+    epmChipTreatedBadge: 'handled',
+    epmChipTreatedTitle: 'No longer matches the active filter — it will leave the list when the filter changes',
     epraActions: 'Actions',
     epraAddToMenu: 'Add to menu',
     epraAssignAllShops: 'Add item to all Space Menus shops',
@@ -6719,7 +6731,14 @@ export const translations = {
     epsUnitCostTitle: 'Coût unitaire',
     epsItem: 'article',
     epsItems: 'articles',
-    epsFrom: 'depuis',
+    // Ligne « source » d'un élément stockable : « pour 11115 × BURGER SEUL
+    // prévus → 22230 Pc nécessaires ». Trois fragments car t() n'interpole pas.
+    epsSourceFor: 'pour',
+    epsSourcePredicted: 'prévus',
+    epsSourceNeeded: 'nécessaires',
+    epsShopBreakdownLabel: 'Répartition par PDV :',
+    epsShopPillTitle: 'Quantité à prévoir pour ce point de vente',
+    epsTotalQtyTitle: 'Besoin total, tous points de vente confondus',
     epsPackagingOf: 'de',
     epsNoShopType: 'Aucun type de point de vente',
     // BUG-291-01 — nature d'un élément stockable (badge de ligne). « Composant »
@@ -6764,7 +6783,8 @@ export const translations = {
     epEstimationModeBanner: 'Estimation manuelle — aucune donnée historique. Saisissez les quantités attendues par point de vente ; « Réinitialiser » quitte ce mode.',
     epmManualQtyInputAria: 'Quantité manuelle (unités)',
     epmShopEstimationQty: 'Quantité par article (estimation)',
-    epmItemEstimationQty: 'Quantité par point de vente (estimation)',
+    // BUG-316-01 : le slider article porte le TOTAL, réparti sur les PDV cochés.
+    epmItemEstimationQty: 'Quantité totale, répartie sur les PDV (estimation)',
     epmEstimationScaleMax: 'Échelle des curseurs (max)',
     epmResetTo0: 'Remettre à 0',
     epmSelectAllItems: 'Tout sélectionner',
@@ -7151,6 +7171,10 @@ export const translations = {
     epmUnmappedBadge: 'non mappé',
     epmUnmappedItemViewHint: 'Des ventes sont prévues sur ces articles non rattachés — à intégrer à l\'ajustement du CA',
     epmUnmappedTitle: 'Vendu mais absent du menu assigné — à rattacher',
+    // BUG-315-01 : entrée qui ne matche plus le chip-filtre actif après un clic
+    // mais reste affichée jusqu'au changement de filtre.
+    epmChipTreatedBadge: 'traité',
+    epmChipTreatedTitle: 'Ne correspond plus au filtre actif — sortira de la liste au changement de filtre',
     epraActions: 'Actions',
     epraAddToMenu: 'Ajouter au menu',
     epraAssignAllShops: 'Ajouter l\'article à tous les PDV (Space Menus)',

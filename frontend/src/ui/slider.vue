@@ -205,7 +205,13 @@ export default {
     },
 
     clampAll() {
-      const vals = this.effectiveValues.map(v => this.clamp(v));
+      const current = this.effectiveValues;
+      const vals = current.map(v => this.clamp(v));
+      // BUG-316-01 : no-op si le clamp ne change rien. Le watcher min/max
+      // émettait un update:value NON SOLLICITÉ sur chaque slider à chaque
+      // changement de plage (ex. champ « échelle max » du mode estimation),
+      // écrasant silencieusement les saisies par PDV.
+      if (vals.every((v, i) => v === Number(current[i]))) return;
       this.setValues(vals);
     },
 
