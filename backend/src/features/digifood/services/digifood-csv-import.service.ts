@@ -131,6 +131,9 @@ export interface CsvImportReport {
 }
 
 const BATCH_SIZE = 500;
+// Concurrence bornée pour l'ingestion réelle — même convention que WeezeventInsertWorkerService
+// (PARALLEL_CHUNKS = 5) : borne la charge sur le pool de connexions partagé (pgbouncer).
+const PARALLEL_ORDERS = 5;
 
 @Injectable()
 export class DigifoodCsvImportService {
@@ -141,46 +144,151 @@ export class DigifoodCsvImportService {
         private readonly ingestion: DigifoodIngestionService,
     ) { }
 
-    /**
-     * @param dryRun défaut TRUE (même philosophie que backfill-weezevent-prices) :
-     *               rapport complet sans AUCUNE écriture ; dryRun=false exécute.
-     * @param fileName nom du fichier uploadé, gardé uniquement pour l'historique (DigifoodCsvImportRun).
-     */
+    /** Aperçu (dry-run) : rapport complet sans AUCUNE écriture. Synchrone — rapide, pas de job. */
     async importCsv(
         tenantId: string,
         integrationId: string,
         fileBuffer: Buffer,
-        dryRun: boolean,
         providedMapping?: CsvColumnMapping | null,
-        fileName?: string | null,
     ): Promise<CsvImportReport> {
-        const startedAt = new Date();
-        try {
-            return await this.doImportCsv(tenantId, integrationId, fileBuffer, dryRun, providedMapping, fileName, startedAt);
-        } catch (error) {
-            // Les aperçus (dryRun=true) ne sont jamais tracés — seuls les imports réels le sont
-            // (voir DigifoodCsvImportRun). Ne doit jamais masquer l'erreur d'origine.
-            if (!dryRun) {
-                await this.recordFailedImportRun(tenantId, integrationId, fileName, startedAt, error);
-            }
-            throw error;
-        }
+        const prep = await this.prepareImport(tenantId, integrationId, fileBuffer, providedMapping);
+        const report: CsvImportReport = {
+            dryRun: true,
+            ordersDetected: prep.ordersDetected,
+            ordersCreated: prep.orders.filter((o) => !prep.existingOrderIds.has(o.id)).length,
+            ordersUpdated: prep.orders.filter((o) => prep.existingOrderIds.has(o.id)).length,
+            ordersSkipped: 0,
+            periodStart: prep.periodStart,
+            periodEnd: prep.periodEnd,
+            productsCreated: prep.productsCreated,
+            locationsCreated: prep.locationsCreated,
+            rejectedRows: prep.rejectedRows,
+        };
+        this.logger.log(
+            `Import CSV Digifood (DRY-RUN) tenant ${tenantId} : ${report.ordersDetected} orders détectés, ${report.ordersCreated} nouveaux, ${report.rejectedRows.length} lignes rejetées`,
+        );
+        return report;
     }
 
-    private async doImportCsv(
+    /**
+     * Démarre un import RÉEL en tâche de fond — même pattern que POST /weezevent/sync/start
+     * (WeezeventCollectWorkerService/InsertWorkerService) : le parsing (rapide) se fait tout de
+     * suite pour connaître ordersDetected, le run est créé en base (status PROCESSING) et son id
+     * renvoyé IMMÉDIATEMENT ; l'ingestion elle-même tourne en fire-and-forget (pas de `await`),
+     * suivie par polling via getImportJobStatus(). Corrige le bug où un gros import dépassait le
+     * timeout HTTP du front : celui-ci affichait une erreur réseau alors que l'ingestion, elle,
+     * continuait silencieusement côté serveur jusqu'à son terme.
+     */
+    async startRealImport(
         tenantId: string,
         integrationId: string,
         fileBuffer: Buffer,
-        dryRun: boolean,
+        providedMapping?: CsvColumnMapping | null,
+        fileName?: string | null,
+    ): Promise<{ jobId: string; ordersDetected: number }> {
+        const startedAt = new Date();
+        const prep = await this.prepareImport(tenantId, integrationId, fileBuffer, providedMapping);
+
+        const run = await this.prisma.digifoodCsvImportRun.create({
+            data: {
+                tenantId,
+                integrationId,
+                fileName: fileName ?? null,
+                status: 'PROCESSING',
+                ordersDetected: prep.ordersDetected,
+                productsCreated: prep.productsCreated,
+                locationsCreated: prep.locationsCreated,
+                rejectedCount: prep.rejectedRows.length,
+                periodStart: prep.periodStart ? new Date(prep.periodStart) : null,
+                periodEnd: prep.periodEnd ? new Date(prep.periodEnd) : null,
+                startedAt,
+            },
+        });
+
+        this.runImportJob(run.id, tenantId, integrationId, prep.orders).catch((error) => {
+            this.logger.error(`[startRealImport] job ${run.id} crash : ${error instanceof Error ? error.message : String(error)}`);
+            this.prisma.digifoodCsvImportRun.update({
+                where: { id: run.id },
+                data: { status: 'FAILED', errorMessage: error instanceof Error ? error.message : String(error), completedAt: new Date() },
+            }).catch(() => undefined);
+        });
+
+        return { jobId: run.id, ordersDetected: prep.ordersDetected };
+    }
+
+    /**
+     * Traite les commandes d'un import RÉEL en tâche de fond, en tenant DigifoodCsvImportRun à
+     * jour au fil de l'eau (mêmes cache/concurrence bornée que l'ancien chemin synchrone — voir
+     * DigifoodIngestionCache et PARALLEL_ORDERS) : la progression écrite tous les BATCH_SIZE
+     * commandes est ce que lit getImportJobStatus() côté polling front.
+     */
+    private async runImportJob(
+        jobId: string,
+        tenantId: string,
+        integrationId: string,
+        orders: NormalizedOrder[],
+    ): Promise<void> {
+        const cache = this.ingestion.createCache();
+        let ordersCreated = 0;
+        let ordersUpdated = 0;
+        let ordersSkipped = 0;
+
+        for (let i = 0; i < orders.length; i += BATCH_SIZE) {
+            const batch = orders.slice(i, i + BATCH_SIZE);
+            for (let j = 0; j < batch.length; j += PARALLEL_ORDERS) {
+                const chunk = batch.slice(j, j + PARALLEL_ORDERS);
+                await Promise.all(chunk.map(async (order) => {
+                    try {
+                        const result = await this.ingestion.ingestOrder(tenantId, integrationId, order, 'csv', cache);
+                        if (result.skippedDuplicateRefund) ordersSkipped += 1;
+                        else if (result.created) ordersCreated += 1;
+                        else ordersUpdated += 1;
+                    } catch (error) {
+                        ordersSkipped += 1;
+                        this.logger.warn(`[runImportJob] order ${order.id} échoué (job ${jobId}) : ${error instanceof Error ? error.message : String(error)}`);
+                    }
+                }));
+            }
+            await this.prisma.digifoodCsvImportRun.update({
+                where: { id: jobId },
+                data: { ordersCreated, ordersUpdated, ordersSkipped },
+            }).catch((err) => {
+                this.logger.error(`[runImportJob] échec mise à jour progression job ${jobId} : ${err instanceof Error ? err.message : String(err)}`);
+            });
+            this.logger.log(
+                `Import CSV Digifood tenant ${tenantId} (job ${jobId}) : ${Math.min(i + BATCH_SIZE, orders.length)}/${orders.length} orders traités`,
+            );
+        }
+
+        await this.prisma.digifoodCsvImportRun.update({
+            where: { id: jobId },
+            data: { status: 'COMPLETED', completedAt: new Date() },
+        });
+    }
+
+    /**
+     * Parsing + normalisation + pré-scan de l'existant, partagés par l'aperçu (importCsv) et le
+     * démarrage d'import réel (startRealImport). Persiste le mapping fourni (même en aperçu : un
+     * choix de mapping est une config, pas une écriture métier).
+     */
+    private async prepareImport(
+        tenantId: string,
+        integrationId: string,
+        fileBuffer: Buffer,
         providedMapping: CsvColumnMapping | null | undefined,
-        fileName: string | null | undefined,
-        startedAt: Date,
-    ): Promise<CsvImportReport> {
+    ): Promise<{
+        orders: NormalizedOrder[];
+        rejectedRows: Array<{ line: number; reason: string }>;
+        ordersDetected: number;
+        productsCreated: number;
+        locationsCreated: number;
+        periodStart: string | null;
+        periodEnd: string | null;
+        existingOrderIds: Set<string>;
+    }> {
         const mapping = await this.resolveMapping(tenantId, providedMapping);
         const { rows, rejectedRows } = await this.parseRows(fileBuffer, mapping);
 
-        // Mapping explicitement choisi par l'utilisateur → persisté pour les prochains
-        // imports (même en dry-run : le choix de mapping est une config, pas une écriture métier).
         if (providedMapping && Object.keys(providedMapping).length > 0) {
             await this.persistMapping(tenantId, providedMapping);
         }
@@ -205,7 +313,7 @@ export class DigifoodCsvImportService {
             }
         }
 
-        // Pré-scan de l'existant (sert au rapport, en dry-run comme en réel)
+        // Pré-scan de l'existant (sert au rapport, aperçu comme import réel)
         const [existingOrderIds, existingProductKeys, existingShopIds] = await Promise.all([
             this.existingSet(
                 this.prisma.salesTransaction,
@@ -228,113 +336,64 @@ export class DigifoodCsvImportService {
         ]);
 
         const orderDates = orders.map((o) => o.placedAt.getTime()).filter((t) => Number.isFinite(t));
-        const report: CsvImportReport = {
-            dryRun,
+
+        return {
+            orders,
+            rejectedRows,
             ordersDetected: groups.size,
-            ordersCreated: 0,
-            ordersUpdated: 0,
-            ordersSkipped: 0,
-            periodStart: orderDates.length ? new Date(Math.min(...orderDates)).toISOString() : null,
-            periodEnd: orderDates.length ? new Date(Math.max(...orderDates)).toISOString() : null,
             productsCreated: [...new Set(orders.flatMap((o) => o.items.map((i) => i.productKey)))]
                 .filter((k) => !existingProductKeys.has(k)).length,
             locationsCreated: [...new Set(orders.map((o) => o.shop?.id).filter(Boolean) as string[])]
                 .filter((id) => !existingShopIds.has(id)).length,
-            rejectedRows,
+            periodStart: orderDates.length ? new Date(Math.min(...orderDates)).toISOString() : null,
+            periodEnd: orderDates.length ? new Date(Math.max(...orderDates)).toISOString() : null,
+            existingOrderIds,
         };
-
-        if (dryRun) {
-            report.ordersCreated = orders.filter((o) => !existingOrderIds.has(o.id)).length;
-            report.ordersUpdated = orders.filter((o) => existingOrderIds.has(o.id)).length;
-            this.logger.log(
-                `Import CSV Digifood (DRY-RUN) tenant ${tenantId} : ${report.ordersDetected} orders détectés, ${report.ordersCreated} nouveaux, ${report.rejectedRows.length} lignes rejetées`,
-            );
-            return report;
-        }
-
-        // Exécution réelle — par lots (gros fichiers), même chemin que le webhook
-        for (let i = 0; i < orders.length; i += BATCH_SIZE) {
-            for (const order of orders.slice(i, i + BATCH_SIZE)) {
-                try {
-                    const result = await this.ingestion.ingestOrder(tenantId, integrationId, order, 'csv');
-                    if (result.skippedDuplicateRefund) report.ordersSkipped += 1;
-                    else if (result.created) report.ordersCreated += 1;
-                    else report.ordersUpdated += 1;
-                } catch (error) {
-                    report.ordersSkipped += 1;
-                    report.rejectedRows.push({
-                        line: groups.get(order.id)?.[0]?.line ?? 0,
-                        reason: `order ${order.id}: ingestion échouée — ${error instanceof Error ? error.message : String(error)}`,
-                    });
-                }
-            }
-            this.logger.log(
-                `Import CSV Digifood tenant ${tenantId} : ${Math.min(i + BATCH_SIZE, orders.length)}/${orders.length} orders traités`,
-            );
-        }
-
-        await this.recordImportRun(tenantId, integrationId, fileName, startedAt, report);
-        return report;
     }
 
-    /** Trace un import RÉEL terminé (jamais les aperçus) — alimente l'historique affiché au front.
-     *  Échec d'écriture volontairement avalé : l'import lui-même a réussi, ne pas le faire échouer
-     *  pour un souci d'audit secondaire. */
-    private async recordImportRun(
-        tenantId: string,
-        integrationId: string,
-        fileName: string | null | undefined,
-        startedAt: Date,
-        report: CsvImportReport,
-    ): Promise<void> {
-        await this.prisma.digifoodCsvImportRun.create({
-            data: {
-                tenantId,
-                integrationId,
-                fileName: fileName ?? null,
-                status: 'COMPLETED',
-                ordersDetected: report.ordersDetected,
-                ordersCreated: report.ordersCreated,
-                ordersUpdated: report.ordersUpdated,
-                ordersSkipped: report.ordersSkipped,
-                productsCreated: report.productsCreated,
-                locationsCreated: report.locationsCreated,
-                rejectedCount: report.rejectedRows.length,
-                periodStart: report.periodStart ? new Date(report.periodStart) : null,
-                periodEnd: report.periodEnd ? new Date(report.periodEnd) : null,
-                startedAt,
-                completedAt: new Date(),
+    /**
+     * État d'un job d'import réel — même contrat que GET /weezevent/sync/status/:jobId (polling
+     * front, 3s), y compris l'absence d'`integrationId` en paramètre : tenantId seul suffit à
+     * l'autorisation (le job appartient déjà à une intégration précise, pas besoin de la refaire
+     * préciser par l'appelant) — nécessaire pour que le widget flottant, qui après un refresh de
+     * page ne connaît plus que le jobId (localStorage), puisse quand même le suivre. `progress` en
+     * % est calculé à la lecture, jamais stocké (mêmes conventions que WeezeventController.getSyncJobStatus).
+     */
+    async getImportJobStatus(tenantId: string, jobId: string) {
+        const job = await this.prisma.digifoodCsvImportRun.findFirst({
+            where: { id: jobId, tenantId },
+            select: {
+                id: true, fileName: true, status: true,
+                ordersDetected: true, ordersCreated: true, ordersUpdated: true, ordersSkipped: true,
+                productsCreated: true, locationsCreated: true, rejectedCount: true,
+                periodStart: true, periodEnd: true, errorMessage: true, startedAt: true, completedAt: true,
             },
-        }).catch((err) => {
-            this.logger.error(`Échec écriture historique import CSV Digifood tenant ${tenantId} : ${err instanceof Error ? err.message : String(err)}`);
         });
+        if (!job) return null;
+        const processed = job.ordersCreated + job.ordersUpdated + job.ordersSkipped;
+        const progress = job.ordersDetected > 0 ? Math.round((processed / job.ordersDetected) * 100) : 0;
+        return {
+            jobId: job.id,
+            status: job.status,
+            fileName: job.fileName,
+            ordersDetected: job.ordersDetected,
+            ordersCreated: job.ordersCreated,
+            ordersUpdated: job.ordersUpdated,
+            ordersSkipped: job.ordersSkipped,
+            processed,
+            progress,
+            productsCreated: job.productsCreated,
+            locationsCreated: job.locationsCreated,
+            rejectedCount: job.rejectedCount,
+            periodStart: job.periodStart,
+            periodEnd: job.periodEnd,
+            errorMessage: job.errorMessage,
+            startedAt: job.startedAt,
+            completedAt: job.completedAt,
+        };
     }
 
-    /** Trace un import RÉEL en échec (ex. CSV illisible/vide) — même logique d'avalement d'erreur
-     *  d'écriture que recordImportRun, pour ne jamais masquer l'erreur d'origine à l'appelant. */
-    private async recordFailedImportRun(
-        tenantId: string,
-        integrationId: string,
-        fileName: string | null | undefined,
-        startedAt: Date,
-        error: unknown,
-    ): Promise<void> {
-        await this.prisma.digifoodCsvImportRun.create({
-            data: {
-                tenantId,
-                integrationId,
-                fileName: fileName ?? null,
-                status: 'FAILED',
-                errorMessage: error instanceof Error ? error.message : String(error),
-                startedAt,
-                completedAt: new Date(),
-            },
-        }).catch((err) => {
-            this.logger.error(`Échec écriture historique import CSV Digifood (échec) tenant ${tenantId} : ${err instanceof Error ? err.message : String(err)}`);
-        });
-    }
-
-    /** Historique des imports RÉELS (dryRun=false) pour une intégration — dernières 20 exécutions. */
+    /** Historique des imports RÉELS pour une intégration — dernières 20 exécutions (tous statuts). */
     async getImportHistory(tenantId: string, integrationId: string) {
         return this.prisma.digifoodCsvImportRun.findMany({
             where: { tenantId, integrationId },
