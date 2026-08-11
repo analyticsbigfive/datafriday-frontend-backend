@@ -18,6 +18,7 @@ import {
   isEstimationEligible,
   uniformValue,
   applyFanoutQuantity,
+  splitQuantityAcrossKeys,
   estimationSliderMax,
 } from '@/utils/estimationMode'
 import EventPredictMenusSection from '@/components/EventPredictMenusSection.vue'
@@ -140,6 +141,33 @@ describe('applyFanoutQuantity', () => {
   })
 })
 
+// ---- BUG-316-01 : le slider article répartit un TOTAL (plus de duplication ×N) ----
+
+describe('splitQuantityAcrossKeys', () => {
+  it('équiréparti au plus juste, somme strictement égale au total, sans muter la source', () => {
+    const current = { 'shop-9-mi-9': 7 }
+    const next = splitQuantityAcrossKeys(current, ['a', 'b', 'c', 'd'], 129)
+    expect(next).toEqual({ 'shop-9-mi-9': 7, a: 33, b: 32, c: 32, d: 32 })
+    expect(Object.values({ a: next.a, b: next.b, c: next.c, d: next.d }).reduce((s, v) => s + v, 0)).toBe(129)
+    expect(current).toEqual({ 'shop-9-mi-9': 7 })
+  })
+
+  it('le reste va aux premières clés (ordre d\'entrée)', () => {
+    expect(splitQuantityAcrossKeys({}, ['a', 'b', 'c'], 5)).toEqual({ a: 2, b: 2, c: 1 })
+  })
+
+  it('total 0, négatif ou invalide → 0 partout ; liste vide → objet inchangé', () => {
+    expect(splitQuantityAcrossKeys({}, ['a', 'b'], 0)).toEqual({ a: 0, b: 0 })
+    expect(splitQuantityAcrossKeys({}, ['a'], -12)).toEqual({ a: 0 })
+    expect(splitQuantityAcrossKeys({}, ['a'], 'abc')).toEqual({ a: 0 })
+    expect(splitQuantityAcrossKeys({ x: 4 }, [], 50)).toEqual({ x: 4 })
+  })
+
+  it('valeur d\'input string arrondie comme applyFanoutQuantity', () => {
+    expect(splitQuantityAcrossKeys({}, ['a', 'b'], '41.6')).toEqual({ a: 21, b: 21 })
+  })
+})
+
 describe('estimationSliderMax', () => {
   it('échelle choisie, étendue par la valeur courante, défaut 1000', () => {
     expect(estimationSliderMax(1000, 0)).toBe(1000)
@@ -206,7 +234,9 @@ describe('EventPredictMenusSection — fan-out absolu (mode estimation)', () => 
     expect(ctx.estimationScaleMax).toBe(1000)
   })
 
-  it('handleItemEstimationQty : pose la quantité sur tous les PDV cochés de l\'article', () => {
+  // BUG-316-01 : le slider article porte le TOTAL, réparti sur les PDV cochés
+  // (25 saisis donnaient auparavant 25 × 2 shops = 50 au Stock up).
+  it('handleItemEstimationQty : répartit le TOTAL sur les PDV cochés de l\'article', () => {
     const emitted = []
     const ctx = {
       fbElements: [{ id: 'shop-1' }, { id: 'shop-2' }, { id: 'shop-3' }],
@@ -217,7 +247,32 @@ describe('EventPredictMenusSection — fan-out absolu (mode estimation)', () => 
     }
     menus.handleItemEstimationQty.call(ctx, 'mi-1', 25)
     expect(emitted).toEqual([
-      ['update:manualQuantities', { 'shop-1-mi-1': 25, 'shop-2-mi-1': 25 }],
+      ['update:manualQuantities', { 'shop-1-mi-1': 13, 'shop-2-mi-1': 12 }],
     ])
+  })
+
+  it('getItemEstimationQty : SOMME des PDV cochés (total affiché), jamais « Mixed »', () => {
+    const ctx = {
+      fbElements: [{ id: 'shop-1' }, { id: 'shop-2' }],
+      selectedMenuItems: { 'shop-1': ['mi-1'], 'shop-2': ['mi-1'] },
+      manualQuantities: { 'shop-1-mi-1': 13, 'shop-2-mi-1': 12 },
+      getSelectedElementsForMenuItem: menus.getSelectedElementsForMenuItem,
+      getItemEstimationValues: menus.getItemEstimationValues,
+    }
+    expect(menus.getItemEstimationQty.call(ctx, 'mi-1')).toBe(25)
+    expect(menus.isItemEstimationMixed.call(ctx, 'mi-1')).toBe(false)
+  })
+
+  it('itemEstimationSliderMax : le plafond couvre le TOTAL courant', () => {
+    const ctx = {
+      estimationScaleMax: 1000,
+      fbElements: [{ id: 'shop-1' }, { id: 'shop-2' }],
+      selectedMenuItems: { 'shop-1': ['mi-1'], 'shop-2': ['mi-1'] },
+      manualQuantities: { 'shop-1-mi-1': 800, 'shop-2-mi-1': 700 },
+      getSelectedElementsForMenuItem: menus.getSelectedElementsForMenuItem,
+      getItemEstimationValues: menus.getItemEstimationValues,
+      getItemEstimationQty: menus.getItemEstimationQty,
+    }
+    expect(menus.itemEstimationSliderMax.call(ctx, 'mi-1')).toBe(1500)
   })
 })

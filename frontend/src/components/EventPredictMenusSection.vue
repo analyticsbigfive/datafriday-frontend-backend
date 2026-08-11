@@ -697,10 +697,15 @@
           v-if="groupedItemViewEntries.length === 0"
           class="text-center py-8 text-muted-foreground"
         ><p>{{ t('epmNoMenuItems') }}</p></div>
-        <div v-else class="space-y-3">
-          <template
+        <!-- BUG-315-01 : transition-group — tout déplacement/retrait restant
+             (bascule « Non rattachés », recomposition au changement de chip)
+             est animé au lieu de disparaître sèchement. Wrapper div par entrée
+             car transition-group exige UN nœud keyé par item. -->
+        <transition-group v-else tag="div" name="ep-item-list" class="space-y-3">
+          <div
             v-for="entry in groupedItemViewEntries"
             :key="entry.menuItemId"
+            class="ep-item-entry"
           >
           <div
             v-if="entry._isFirstUnmapped"
@@ -716,6 +721,7 @@
           <Card
             v-if="entry._mapGroup !== 'unmapped' || unmappedItemViewOpen"
             class="overflow-hidden"
+            :class="{ 'ep-card-treated': entry._chipTreated }"
           >
             <Collapsible
               :open="expandedElements.has(entry.menuItemId)"
@@ -754,6 +760,13 @@
                           class="ep-map-badge ep-map-badge--unmapped"
                           :title="t('epmUnmappedTitle')"
                         >{{ t('epmUnmappedBadge') }}</span>
+                        <!-- BUG-315-01 : l'entrée ne matche plus le chip actif
+                             mais reste affichée jusqu'au changement de filtre. -->
+                        <span
+                          v-if="entry._chipTreated"
+                          class="ep-map-badge ep-map-badge--treated"
+                          :title="t('epmChipTreatedTitle')"
+                        >✓ {{ t('epmChipTreatedBadge') }}</span>
                         <div class="ep-item-summary-numbers">
                           <span class="ep-quantity-pill">
                             <span>{{ t('epmPred') }}</span>
@@ -1011,8 +1024,8 @@
               </CollapsibleContent>
             </Collapsible>
           </Card>
-          </template>
-        </div>
+          </div>
+        </transition-group>
       </TabsContent>
     </Tabs>
   </div>
@@ -1029,7 +1042,7 @@ import {
   lookupPredictedQuantity,
 } from '@/utils/predictedQuantityIndex'
 import { menuItemPriceHt } from '@/utils/price'
-import { uniformValue, applyFanoutQuantity, estimationSliderMax } from '@/utils/estimationMode'
+import { uniformValue, applyFanoutQuantity, splitQuantityAcrossKeys, estimationSliderMax } from '@/utils/estimationMode'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import Card from '../ui/card.vue'
 import CardHeader from '../ui/cardHeader.vue'
@@ -1208,6 +1221,17 @@ export default {
       // null | 'noSales' (article sans prévision) | 'unmapped' (hors Space
       // Menu). Non persisté, réinitialisé au changement d'onglet statut/vue.
       globalChipFilter: null,
+      // BUG-315-01 — « session » d'un chip en vue article : ids des entrées qui
+      // matchaient à l'ACTIVATION du chip. Une entrée traitée (qui ne matche
+      // plus après un clic) reste affichée, marquée « traité », tant que le
+      // chip n'est pas désactivé/réactivé — sinon elle disparaît sous la
+      // souris (cocher rattache, décocher détache : le clic change justement
+      // ce que le filtre teste).
+      chipSessionIds: new Set(),
+      // Repli « ghost » : dernière entrée connue par id. Nécessaire car un item
+      // présent UNIQUEMENT via son assignation sort de groupByMenuItemArray
+      // après le détachement write-through (cas !mi / !shops.length).
+      chipSessionEntries: {},
       // Déplié par défaut : des ventes sont prédites sur ces articles, on veut
       // que ce soit visible sans action (vue Item globale — le pendant par
       // shop est remplacé par l'onglet 'unmapped', cf. shopTab).
@@ -1739,16 +1763,36 @@ export default {
           const ms = entry.shops.some((s) => s.element.name.toLowerCase().includes(q))
           if (!mi && !ms) continue
         }
-        // Chip-filtre global (mêmes catégories qu'en vue PDV, à l'échelle entrée).
-        if (this.globalChipFilter && !this.entryMatchesChip(entry, this.globalChipFilter)) continue
+        // Chip-filtre global (mêmes catégories qu'en vue PDV, à l'échelle
+        // entrée). BUG-315-01 : une entrée de la session du chip reste listée
+        // même si elle ne matche plus — le clic change justement ce que le
+        // filtre teste, la faire disparaître sous la souris déroutait. Elle
+        // est alors marquée « traité » et ne sort qu'au changement de chip.
+        const matchesChip =
+          !this.globalChipFilter || this.entryMatchesChip(entry, this.globalChipFilter)
+        if (!matchesChip && !this.chipSessionIds.has(entry.menuItemId)) continue
         const hasSel = entry.shops.some((s) => s.selected)
-        out.push({ ...entry, hasSelection: hasSel })
+        out.push({ ...entry, hasSelection: hasSel, _chipTreated: !matchesChip })
       }
-      out.sort((a, b) => {
-        if (a.hasSelection && !b.hasSelection) return -1
-        if (!a.hasSelection && b.hasSelection) return 1
-        return a.menuItem.name.localeCompare(b.menuItem.name)
-      })
+      // BUG-315-01 (ghost) : un item présent uniquement via son assignation
+      // sort de groupByMenuItemArray après le détachement write-through — on
+      // le rend depuis sa dernière entrée connue pour qu'il reste re-cochable.
+      if (this.globalChipFilter && this.chipSessionIds.size) {
+        const present = new Set(out.map((e) => e.menuItemId))
+        for (const id of this.chipSessionIds) {
+          if (present.has(id)) continue
+          const ghost = this.chipSessionEntries[id]
+          if (!ghost) continue
+          if (this.groupByMenuItemArray.some((e) => e.menuItemId === id)) continue
+          const cat = this.resolveItemCategoryLabel(ghost.menuItem)
+          if (activeTab !== 'All' && cat !== activeTab) continue
+          if (q && !ghost.menuItem.name.toLowerCase().includes(q)) continue
+          out.push({ ...ghost, hasSelection: false, _chipTreated: true })
+        }
+      }
+      // BUG-315-01 : tri alphabétique STABLE — le critère « cochés d'abord »
+      // téléportait la carte à chaque coche (perçu comme une disparition).
+      out.sort((a, b) => a.menuItem.name.localeCompare(b.menuItem.name))
       return out
     },
   },
@@ -1780,9 +1824,11 @@ export default {
     // (onglet Ouverts/Fermés, vue PDV/article) : on le relâche au changement.
     shopStatusTab() {
       this.globalChipFilter = null
+      this.resetChipSession()
     },
     viewMode() {
       this.globalChipFilter = null
+      this.resetChipSession()
     },
   },
   methods: {
@@ -2258,23 +2304,28 @@ export default {
         (element) => Number(this.manualQuantities[`${element.id}-${menuItemId}`]) || 0,
       )
     },
+    // BUG-316-01 : le slider article représente le TOTAL de l'article (somme
+    // des PDV cochés), réparti à l'écriture — plus la même valeur dupliquée
+    // sur chaque PDV (129 saisis donnaient 129 × N shops dans le Stock up).
     getItemEstimationQty(menuItemId) {
-      return uniformValue(this.getItemEstimationValues(menuItemId)) ?? 0
+      return this.getItemEstimationValues(menuItemId).reduce((s, v) => s + v, 0)
     },
-    isItemEstimationMixed(menuItemId) {
-      return uniformValue(this.getItemEstimationValues(menuItemId)) === null
-        && this.getItemEstimationValues(menuItemId).length > 1
+    // BUG-316-01 : un total n'est jamais « mixte » — conservé à false pour ne
+    // pas toucher le template partagé (:803), plus aucun affichage « Mixed ».
+    isItemEstimationMixed() {
+      return false
     },
     itemEstimationSliderMax(menuItemId) {
-      const values = this.getItemEstimationValues(menuItemId)
-      const current = values.length ? Math.max(...values) : 0
-      return estimationSliderMax(this.estimationScaleMax, current)
+      // BUG-316-01 : le plafond couvre le TOTAL courant, pas la valeur par PDV.
+      return estimationSliderMax(this.estimationScaleMax, this.getItemEstimationQty(menuItemId))
     },
     handleItemEstimationQty(menuItemId, units) {
       const selectedElements = this.getSelectedElementsForMenuItem(menuItemId)
       if (!selectedElements.length) return
       const keys = selectedElements.map((element) => `${element.id}-${menuItemId}`)
-      this.$emit('update:manualQuantities', applyFanoutQuantity(this.manualQuantities, keys, units))
+      // BUG-316-01 : répartition du total (équiréparti au plus juste), plus de
+      // duplication ×N.
+      this.$emit('update:manualQuantities', splitQuantityAcrossKeys(this.manualQuantities, keys, units))
     },
     // ----- Availability (cf. React :467-589) -----
     isMenuItemAvailableInSpace(mi) {
@@ -2792,11 +2843,30 @@ export default {
     toggleGlobalChip(kind) {
       const next = this.globalChipFilter === kind ? null : kind
       this.globalChipFilter = next
-      if (!next || this.viewMode !== 'shop') return
+      // BUG-315-01 : toute (dés)activation ouvre une nouvelle session — c'est
+      // le SEUL moment où les entrées traitées sortent de la vue article.
+      this.resetChipSession()
+      if (!next) return
+      if (this.viewMode === 'item') {
+        const ids = new Set()
+        const entries = {}
+        for (const entry of this.groupByMenuItemArray) {
+          if (!this.entryMatchesChip(entry, next)) continue
+          ids.add(entry.menuItemId)
+          entries[entry.menuItemId] = entry
+        }
+        this.chipSessionIds = ids
+        this.chipSessionEntries = entries
+        return
+      }
       for (const el of this.fbElements) {
         const c = this.chipCountsByElement.get(el.id) || {}
         if ((c[kind] || 0) > 0) this.setShopTab(el.id, kind)
       }
+    },
+    resetChipSession() {
+      this.chipSessionIds = new Set()
+      this.chipSessionEntries = {}
     },
     /** Une entrée de la vue article matche-t-elle le chip-filtre donné ?
      *  Même critère dynamique que les compteurs : « sans vente prévue » =
@@ -2948,6 +3018,37 @@ export default {
   margin-left: 0;
   color: var(--muted-foreground, #64748b);
   background: color-mix(in srgb, var(--muted-foreground, #64748b) 12%, transparent);
+}
+/* BUG-315-01 : entrée « traitée » sous un chip actif (ne matche plus le filtre
+   mais reste affichée jusqu'au changement de chip). Vert succès : action faite. */
+.ep-map-badge--treated {
+  color: var(--fb-success, #0e7a5f);
+  background: color-mix(in srgb, var(--fb-success, #0e7a5f) 12%, transparent);
+}
+.dark .ep-map-badge--treated {
+  color: #3dbd97;
+  background: color-mix(in srgb, #3dbd97 16%, transparent);
+}
+.ep-card-treated {
+  opacity: 0.6;
+}
+/* BUG-315-01 : wrapper d'entrée de la vue article (transition-group exige un
+   nœud keyé par item). Vide quand la carte « Non rattachés » est repliée. */
+.ep-item-entry:empty {
+  display: none;
+}
+/* BUG-315-01 : déplacements/retraits animés au lieu d'une disparition sèche. */
+.ep-item-list-move {
+  transition: transform 0.2s ease;
+}
+.ep-item-list-enter-active,
+.ep-item-list-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.ep-item-list-enter-from,
+.ep-item-list-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 /* Cible d'un alias « historique emprunté » (maquettes 08/2026) : vert succès —
    la ligne a récupéré des prévisions, ce n'est pas une alerte. */
