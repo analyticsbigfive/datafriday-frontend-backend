@@ -866,6 +866,7 @@
                 @history-alias-request="openHistoryAliasDrawer"
                 @assign-shop-item="handleAssignShopItem"
                 @assign-shop-items="handleAssignShopItems"
+                @assign-item-all-shops="handleAssignItemAllShops"
                 @assign-blocked="handleAssignBlocked"
               />
               <!-- Lien Configuration → Inventaire de l'espace : après avoir réglé la
@@ -1223,7 +1224,7 @@ import { findBestMatch } from "../utils/menuItemMatching";
 import { getShopMenus } from "../api/endpoints/space-menu.api";
 import { getTeams as restGetTeams } from "../api/endpoints/team.api";
 import { getAllMenuItems as restGetAllMenuItems } from "../api/endpoints/menu-item.api";
-import { assignMenuItemsToShop } from "../api/endpoints/menu.api";
+import { assignMenuItemsToShop, saveSpaceMenuConfiguration } from "../api/endpoints/menu.api";
 import { resolveIngredientSupplierId } from "../utils/menuItemAvailability";
 import { runWithConcurrency } from "../utils/asyncPool";
 import { htFromTtc, menuItemPriceHt } from "../utils/price";
@@ -4671,6 +4672,87 @@ export default {
       } catch (e) {
         this.snackbarColor = "error";
         this.snackbarText = "Échec de l'assignation groupée : " + (e?.message || "erreur");
+        this.snackbar = true;
+      }
+    },
+    /**
+     * Kebab ARTICLE (vue Par article) : ajoute l'article à TOUS les shops F&B
+     * de la config en UN SEUL POST /space-menu (le payload est multi-shops et
+     * le backend merge en delta partiel par couple shop/item — même contrat
+     * que `handleAssignShopItems`, généralisé à N shops). Les shops où
+     * l'article est déjà activé sont exclus du payload (compteur exact dans le
+     * snackbar) ; un doublon résiduel serait de toute façon idempotent.
+     */
+    async handleAssignItemAllShops({ menuItemId, itemName }) {
+      const spaceId = this.space?.id;
+      const cfgId = this.selectedEvent?.configurationId || null;
+      const rows = (this._spaceShopsCache[spaceId] || []).filter(
+        (r) => (r?.configId ?? r?._raw?.configId) === cfgId,
+      );
+      if (!spaceId || !cfgId || !rows.length || !menuItemId) {
+        this.snackbarColor = "error";
+        this.snackbarText = this.t("epAssignAllError");
+        this.snackbar = true;
+        return;
+      }
+      // Déjà activés = `shopMenuAssignment` (Map nom normalisé → Set d'ids
+      // ENABLED). Un item assigné mais DÉSACTIVÉ n'y figure pas → il est bien
+      // ré-activé par le bulk (même sens que « Réactiver au menu »).
+      const enabledByShop = this.shopMenuAssignment instanceof Map ? this.shopMenuAssignment : null;
+      const targets = rows.filter((r) => {
+        const shopId = String(r?.id ?? r?._id ?? r?.shopId ?? "");
+        if (!shopId) return false;
+        const ids = enabledByShop?.get(normalizeStr(r?.name ?? r?.shopName ?? ""));
+        if (!ids) return true; // assignation inconnue → on inclut (idempotent)
+        return !(ids.has(menuItemId) || ids.has(String(menuItemId)));
+      });
+      if (!targets.length) {
+        this.snackbarColor = "info";
+        this.snackbarText = this.t("epAssignAllNone").replace("{item}", itemName || "");
+        this.snackbar = true;
+        return;
+      }
+      try {
+        const menuItems = {};
+        for (const r of targets) {
+          menuItems[String(r.id ?? r._id ?? r.shopId)] = { [menuItemId]: true };
+        }
+        await saveSpaceMenuConfiguration({ spaceId, configId: cfgId, menuItems });
+        // Même séquence d'invalidation que `handleAssignShopItems`, par shop ciblé.
+        try {
+          for (const r of targets) {
+            const shopId = String(r.id ?? r._id ?? r.shopId);
+            store.dispatch("shopMenuItems/invalidateForShop", shopId);
+            store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
+          }
+        } catch (_) {
+          /* noop */
+        }
+        if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
+        await this.loadShopMenuAssignment();
+        // Sélection explicite : répercuter l'assignation sur chaque élément de
+        // config correspondant (pont par nom normalisé, comme l'assignation).
+        const targetNames = new Set(
+          targets.map((r) => normalizeStr(r?.name ?? r?.shopName ?? "")).filter(Boolean),
+        );
+        this.configElementNormNameById.forEach((normName, elementId) => {
+          if (targetNames.has(normName)) {
+            this.eventMenuConfig = applyAssignToExplicit(
+              this.eventMenuConfig,
+              elementId,
+              menuItemId,
+              true,
+            );
+          }
+        });
+        this.snackbarColor = "success";
+        this.snackbarText = this.t("epAssignAllSuccess")
+          .replace("{item}", itemName || "")
+          .replace("{count}", String(targets.length));
+        this.snackbar = true;
+      } catch (e) {
+        this.snackbarColor = "error";
+        this.snackbarText = this.t("epAssignAllError") + " : " + (e?.message || "");
         this.snackbar = true;
       }
     },
