@@ -16,8 +16,22 @@
       </button>
     </template>
     <v-list density="compact" class="epra-list" min-width="180">
+      <!-- Variante « header d'article » (vue Par article) : une seule action
+           métier — ajouter l'article à TOUS les PDV proposés dans Space Menus.
+           Les actions par PDV (Remapper/Ajouter/Réactiver/Historique) n'ont pas
+           de sens à ce niveau. -->
       <v-list-item
-        v-if="!historyOnly && kind === 'remap'"
+        v-if="variant === 'item-header'"
+        class="epra-item"
+        :disabled="assignAllDisabled"
+        :title="assignAllDisabled ? t('epraAssignAllDone') : undefined"
+        @click.stop="$emit('assign-all')"
+      >
+        <template #prepend><v-icon size="16">mdi-playlist-plus</v-icon></template>
+        <v-list-item-title>{{ t('epraAssignAllShops') }}</v-list-item-title>
+      </v-list-item>
+      <v-list-item
+        v-if="variant === 'row' && !historyOnly && kind === 'remap'"
         class="epra-item"
         @click.stop="$emit('remap')"
       >
@@ -25,7 +39,7 @@
         <v-list-item-title>{{ t('epraRemap') }}</v-list-item-title>
       </v-list-item>
       <v-list-item
-        v-else-if="!historyOnly"
+        v-else-if="variant === 'row' && !historyOnly"
         class="epra-item"
         @click.stop="$emit('add')"
       >
@@ -39,7 +53,7 @@
       <!-- Alias « historique emprunté » (maquettes 08/2026) : proposer de
            reprendre l'historique d'un autre article — lignes orphelines. -->
       <v-list-item
-        v-if="allowHistory"
+        v-if="variant === 'row' && allowHistory"
         class="epra-item epra-item--history"
         @click.stop="$emit('use-history')"
       >
@@ -60,6 +74,9 @@ export default {
     return { t }
   },
   props: {
+    // 'row' (ligne PDV, comportement historique) | 'item-header' (header
+    // d'article en vue Par article : action bulk « tous les PDV » + Space Menus).
+    variant: { type: String, default: 'row' },
     // 'remap' (hors catalogue) | 'add' (dispo, hors menu) | 'reactivate' (dans menu, désactivé)
     kind: { type: String, default: 'add' },
     // Propose « Utiliser l'historique d'un autre article » (alias espace).
@@ -67,8 +84,10 @@ export default {
     // Lignes « sans ventes prévues » (déjà au menu, activées) : seules les
     // actions historique + Space Menus ont un sens — masque Remapper/Ajouter.
     historyOnly: { type: Boolean, default: false },
+    // item-header : grise l'action bulk quand l'article est déjà proposé partout.
+    assignAllDisabled: { type: Boolean, default: false },
   },
-  emits: ['remap', 'add', 'open-space-menus', 'use-history'],
+  emits: ['remap', 'add', 'open-space-menus', 'use-history', 'assign-all'],
 }
 </script>
 
