@@ -2666,7 +2666,9 @@ export default {
       const adj = this.quantityAdjustments || {};
       const pm = this.weezeventProductPriceMap || {};
       const cm = this.weezeventProductCostMap || {};
-      const cmm = this.menuItemCostMap || {};
+      // Store-merged (et non le snapshot local `this.menuItemCostMap`, figé au
+      // loadAll et jamais rafraîchi — hazard documenté sur effectiveMenuItemCostMap).
+      const cmm = this.effectiveMenuItemCostMap || {};
       const closedSet = this.closedShopNormSet;
       const r0 = this.selectedTimeRange || {};
       const start = r0.start || null;
@@ -2900,7 +2902,8 @@ export default {
       const cfg = this.effectiveMenuConfig || {};
       const miById = new Map((this.menuItems || []).map((m) => [String(m.id), m]));
       const priceMap = this.weezeventProductPriceMap || {};
-      const costMap = this.menuItemCostMap || {};
+      // Store-merged (parité timelineRevenueTotals) — le snapshot local est figé.
+      const costMap = this.effectiveMenuItemCostMap || {};
       const predictedKeys = this.predictedItemKeySet;
       const out = [];
       const adjMap = this.quantityAdjustments || {};
@@ -2937,7 +2940,14 @@ export default {
           if (!price && name && priceMap[name.toLowerCase()] != null) {
             price = Number(priceMap[name.toLowerCase()]) || 0; // map = HT
           }
-          const unitCost = Number(costMap[menuItemId]) || 0;
+          // Coût : map par menuItemId, puis repli CATALOGUE `totalCost` — même
+          // convention que StockUp.miUnitCost et weezeventProductCostMap. Sans
+          // ce repli, le coût des lignes manuelles restait à 0 en mode
+          // estimation (marge ajustée affichée 100 %, fiche 311_02).
+          let unitCost = Number(costMap[menuItemId]) || 0;
+          if (!unitCost && mi && mi.totalCost != null) {
+            unitCost = Number(mi.totalCost) || 0;
+          }
           out.push({
             shopId,
             menuItemId,
@@ -2979,7 +2989,7 @@ export default {
       const t = this.timelineRevenueTotals;
       if (t.predicted > 0) return t.predictedCost;
       // Fallback : pipeline de scoring (events futurs sans timeline directe).
-      const map = this.menuItemCostMap || {};
+      const map = this.effectiveMenuItemCostMap || {};
       return this.windowedPredictedRecords.reduce(
         (s, r) => s + (map[r.menuItemId] || 0) * (r.quantity || 0),
         0,
@@ -2987,7 +2997,7 @@ export default {
     },
     totalAdjustedCost() {
       const t = this.timelineRevenueTotals;
-      const map = this.menuItemCostMap || {};
+      const map = this.effectiveMenuItemCostMap || {};
       const base = t.predicted > 0
         ? t.adjustedCost
         : this.windowedAdjustedRecords.reduce(
