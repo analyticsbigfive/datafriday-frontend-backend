@@ -32,14 +32,30 @@
     <p class="text-center">{{ t('epItemsLoading') }}</p>
   </div>
 
-  <!-- Empty state : mapping manquant OU prédiction pas encore calculée →
-       message spécifique orientant vers config / mapping / recalcul. -->
+  <!-- Empty state : mapping manquant → message orientant vers config / mapping. -->
   <div
-    v-else-if="itemsContext === 'no-mapping' || itemsContext === 'not-calculated'"
+    v-else-if="itemsContext === 'no-mapping'"
     class="ep-menus-empty flex flex-col items-center justify-center py-12 text-muted-foreground"
   >
     <v-icon size="48" class="opacity-50 mb-4">mdi-alert-circle-outline</v-icon>
     <p class="text-center">{{ t('epNoItemsPrediction') }}</p>
+  </div>
+
+  <!-- Empty state : prédiction pas encore calculée. Event futur SANS historique
+       comparable → propose « Démarrez une estimation » (Estimation 0, fiche
+       311_01) : la grille se rendra depuis le Space Menu, prédictions à 0. -->
+  <div
+    v-else-if="itemsContext === 'not-calculated'"
+    class="ep-menus-empty flex flex-col items-center justify-center py-12 text-muted-foreground"
+  >
+    <v-icon size="48" class="opacity-50 mb-4">mdi-alert-circle-outline</v-icon>
+    <p class="text-center" :class="{ 'mb-4': canStartEstimation }">
+      {{ canStartEstimation ? t('epStartEstimationHint') : t('epNoItemsPrediction') }}
+    </p>
+    <Button v-if="canStartEstimation" size="sm" @click="$emit('start-estimation')">
+      <v-icon size="16" class="mr-1">mdi-pencil-ruler</v-icon>
+      {{ t('epStartEstimation') }}
+    </Button>
   </div>
 
   <!-- Empty state PRIORITAIRE config : aucun point de vente assigné. On n'invente
@@ -87,6 +103,17 @@
       class="ep-menus-assign-warning"
     >
       {{ t('epmAssignmentMissing') }}
+    </v-alert>
+    <!-- Estimation 0 (fiche 311_01) : bandeau du mode — la grille vient du
+         Space Menu, prédictions à 0, tout se saisit à la main. -->
+    <v-alert
+      v-if="estimationActive"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="ep-menus-assign-warning"
+    >
+      {{ t('epEstimationModeBanner') }}
     </v-alert>
     <!-- ============================================================
          SHOP VIEW
@@ -415,13 +442,21 @@
                                           <Slider
                                             :value="[getManualQuantity(element.id, item.id)]"
                                             :min="0"
-                                            :max="manualQtyMax"
+                                            :max="manualSliderMax(element.id, item.id)"
                                             :step="1"
                                             :disabled="!isShopOpen(element.id)"
                                             class="flex-1"
                                             @update:value="(values) => handleManualQuantity(element.id, item.id, values[0])"
                                           />
-                                          <span class="text-xs text-muted-foreground w-12 text-right">{{ getManualQuantity(element.id, item.id) }}</span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            class="ep-manual-qty-input"
+                                            :disabled="!isShopOpen(element.id)"
+                                            :aria-label="t('epmManualQtyInputAria')"
+                                            :value="getManualQuantity(element.id, item.id)"
+                                            @change="(e) => handleManualQuantity(element.id, item.id, e.target.value)"
+                                          />
                                           <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                           <span
                                             v-if="getAdjustedQuantity(element.id, item.id) !== getManualQuantity(element.id, item.id)"
@@ -747,12 +782,19 @@
                                 <Slider
                                   :value="[getManualQuantity(shop.element.id, entry.menuItemId)]"
                                   :min="0"
-                                  :max="manualQtyMax"
+                                  :max="manualSliderMax(shop.element.id, entry.menuItemId)"
                                   :step="1"
                                   class="flex-1"
                                   @update:value="(values) => handleManualQuantity(shop.element.id, entry.menuItemId, values[0])"
                                 />
-                                <span class="text-xs text-muted-foreground w-12 text-right">{{ getManualQuantity(shop.element.id, entry.menuItemId) }}</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  class="ep-manual-qty-input"
+                                  :aria-label="t('epmManualQtyInputAria')"
+                                  :value="getManualQuantity(shop.element.id, entry.menuItemId)"
+                                  @change="(e) => handleManualQuantity(shop.element.id, entry.menuItemId, e.target.value)"
+                                />
                                 <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                 <Button
                                   variant="ghost"
@@ -956,6 +998,13 @@ export default {
      *  Sans elle, `classifyItemType` retombe sur les champs bruts de l'item. */
     productTypes: { type: Array, default: () => [] },
     productCategories: { type: Array, default: () => [] },
+    /** Estimation 0 (fiche 311_01) : mode actif — la grille se rend depuis le
+     *  Space Menu, prédictions à 0, saisie via manualQuantities. Défaut false
+     *  → comportement historique strictement inchangé. */
+    estimationActive: { type: Boolean, default: false },
+    /** True = event futur sans historique, éligible mais mode pas encore
+     *  démarré → l'empty state 'not-calculated' propose le bouton. */
+    canStartEstimation: { type: Boolean, default: false },
   },
   emits: [
     'update:selectedMenuItems',
@@ -966,6 +1015,7 @@ export default {
     'assign-shop-item',
     'assign-shop-items',
     'assign-blocked',
+    'start-estimation',
   ],
   setup() {
     const { t } = useI18n()
@@ -1803,6 +1853,12 @@ export default {
     getManualQuantity(elementId, menuItemId) {
       return this.manualQuantities[`${elementId}-${menuItemId}`] ?? 0
     },
+    /** Plafond dynamique du slider manuel : une valeur tapée dans l'input
+     *  number au-delà de manualQtyMax (500) ne doit pas casser le curseur
+     *  (volumes stade, Estimation 0 — fiche 311_01). */
+    manualSliderMax(elementId, menuItemId) {
+      return Math.max(this.manualQtyMax, this.getManualQuantity(elementId, menuItemId))
+    },
     /**
      * Ligne « jamais vendu ici » simulable : prédiction 0, item DANS le menu du
      * PDV (pas hors-menu/désactivé) et PDV OUVERT pour ce match. Un PDV fermé ne
@@ -2396,7 +2452,10 @@ export default {
     },
     // ----- Onglet actif (3 catégories) par shop -----
     getShopTab(elementId) {
-      return this.shopTab[elementId] || 'sales'
+      // Estimation 0 : sans historique, l'onglet « ventes » est vide (badge 0)
+      // → défaut sur 'noSales' où vivent les lignes simulables à saisie
+      // manuelle. Hors mode estimation, défaut historique inchangé.
+      return this.shopTab[elementId] || (this.estimationActive ? 'noSales' : 'sales')
     },
     setShopTab(elementId, tab) {
       this.shopTab = { ...this.shopTab, [elementId]: tab }
@@ -2437,6 +2496,19 @@ export default {
    Couleurs via tokens du thème (pas de palette importée). */
 .ep-menus-assign-warning {
   margin-bottom: 0.75rem;
+}
+/* Saisie directe de la quantité manuelle (Estimation 0, fiche 311_01) —
+   remplace l'ancien span lecture seule à côté du slider. Taille de police
+   héritée de la ligne (charte fermée : pas de nouveau font-size). */
+.ep-manual-qty-input {
+  width: 64px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: inherit;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: transparent;
 }
 /* Ligne « non rattaché » : badge + kebab d'actions sur UNE ligne, alignés,
    hauteur uniforme (remplace la rangée de boutons texte qui débordait). */
