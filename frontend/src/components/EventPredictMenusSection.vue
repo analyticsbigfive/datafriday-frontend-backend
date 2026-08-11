@@ -824,6 +824,19 @@
                       </div>
                     </div>
                   </div>
+                  <!-- Kebab niveau ARTICLE (demande maquette 08/2026) : ajouter
+                       l'article à TOUS les PDV proposés dans Space Menus en un
+                       clic. Masqué pour un item hors catalogue (le backend
+                       ignorerait silencieusement l'id) ou si aucune assignation
+                       Space Menus n'est active sur la config. Les kebabs par
+                       PDV plus bas restent inchangés. -->
+                  <EventPredictRowActions
+                    v-if="assignmentFeatureActive() && spaceCatalogIdSet.has(String(entry.menuItemId))"
+                    variant="item-header"
+                    :assign-all-disabled="isItemAssignedEverywhere(entry.menuItemId)"
+                    @assign-all="$emit('assign-item-all-shops', { menuItemId: entry.menuItemId, itemName: entry.menuItem.name })"
+                    @open-space-menus="goToSpaceMenus"
+                  />
                   <button
                     type="button"
                     class="ep-item-chevron-btn"
@@ -1169,6 +1182,7 @@ export default {
     'history-alias-request',
     'assign-shop-item',
     'assign-shop-items',
+    'assign-item-all-shops',
     'assign-blocked',
     'start-estimation',
   ],
@@ -2364,6 +2378,17 @@ export default {
     },
     unmappedItemViewCount() {
       return this.filteredMenuItemsForItemView.filter((e) => e._mapGroup === 'unmapped').length
+    },
+    // Kebab article : vrai si l'article est déjà proposé sur TOUS les shops F&B
+    // de la config. `assignedIdsForElement` rend null tant que l'assignation du
+    // shop n'est pas chargée → on ne grise PAS dans le doute (l'action bulk est
+    // idempotente côté backend, delta partiel par couple shop/item).
+    isItemAssignedEverywhere(menuItemId) {
+      if (!this.fbElements.length) return false
+      return this.fbElements.every((el) => {
+        const ids = this.assignedIdsForElement(el)
+        return ids !== null && (ids.has(menuItemId) || ids.has(String(menuItemId)))
+      })
     },
     toggleUnmappedItemView() {
       this.unmappedItemViewOpen = !this.unmappedItemViewOpen
