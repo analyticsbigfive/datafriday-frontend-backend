@@ -570,6 +570,7 @@ dette technique non promue en fiche individuelle (a11y, i18n, duplication, code 
 | [255](255_hr_supplier_departments_rejete_backend_render_obsolete.md) | Création HR Supplier → 400 « property departments should not exist » : code correct (DTO+Prisma ont `departments`), mais backend **Render obsolète** (ex-`sectors`) + migration HR à appliquer — à redéployer/migrer (ops) | ⚪ Diagnostiqué | 🟠 | RH / Déploiement |
 | [258](258_composants_cache_ttl_supprime_reste_local.md) | Composants supprimés « restés localement » : cache TTL 15 min du store `menuComponents` servait la liste périmée après suppression → TTL retiré (refetch toujours frais) | 🟢 Corrigé | 🟡 | Menu & recettes / Cache |
 | [259](259_events_cat_subcat_item_value_id_non_normalise_bulk.md) | Events Catégorie/Sous-catégorie : `item-value="id"` non fiable (getters non normalisés, items en `_id`) → sélection groupée inopérante ; `id` normalisé | 🟢 Corrigé | 🟡 | Événements |
+| [311-03](311_03_events_colonne_configuration_pas_maj_apres_creation.md) | EventsListView : la colonne « Configuration » d'un event nouvellement créé reste vide (`loadConfigNames` n'était appelé qu'au mounted) → re-résolution des configs après save/import | 🟢 Corrigé | 🟡 | Événements |
 
 **190-bis bugs au total.** 190 ajouté le 2026-07-20 sur `feat/analyse` (numéroté 170 à l'origine sur
 cette branche ; renuméroté **190** au merge dans `develop` — 170 y était déjà pris par
