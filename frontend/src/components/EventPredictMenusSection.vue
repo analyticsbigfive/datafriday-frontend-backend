@@ -105,7 +105,8 @@
       {{ t('epmAssignmentMissing') }}
     </v-alert>
     <!-- Estimation 0 (fiche 311_01) : bandeau du mode — la grille vient du
-         Space Menu, prédictions à 0, tout se saisit à la main. -->
+         Space Menu, prédictions à 0, tout se saisit à la main. Fiche 311_02 :
+         champ « échelle max » des sliders fan-out absolus (0 → N unités). -->
     <v-alert
       v-if="estimationActive"
       type="info"
@@ -113,7 +114,20 @@
       density="compact"
       class="ep-menus-assign-warning"
     >
-      {{ t('epEstimationModeBanner') }}
+      <div class="ep-estimation-banner-row">
+        <span>{{ t('epEstimationModeBanner') }}</span>
+        <label class="ep-estimation-scale" @click.stop>
+          <span>{{ t('epmEstimationScaleMax') }}</span>
+          <input
+            type="number"
+            min="10"
+            step="10"
+            :value="estimationScaleMax"
+            :aria-label="t('epmEstimationScaleMax')"
+            @change="onEstimationScaleMax($event.target.value)"
+          />
+        </label>
+      </div>
     </v-alert>
     <!-- ============================================================
          SHOP VIEW
@@ -203,7 +217,11 @@
                                 </span>
                               </div>
                             </div>
-                            <!-- Shop adjustment slider (1:1 React :1316-1355) -->
+                            <!-- Shop adjustment slider (1:1 React :1316-1355).
+                                 Mode estimation (fiche 311_02) : la base prédite
+                                 est 0 partout → % inopérant. Le slider devient
+                                 ABSOLU (unités, 0 → échelle max) et écrit
+                                 manualQuantities pour les items cochés. -->
                             <div
                               class="ep-shop-adjustment"
                               @click.stop
@@ -212,10 +230,24 @@
                               <div class="ep-shop-adjustment-row">
                                 <div class="ep-shop-slider-wrap">
                                   <div class="ep-shop-slider-head">
-                                    <Label class="ep-shop-slider-label">{{ t('epmShopAdjustment') }}</Label>
-                                    <span class="ep-shop-slider-value">{{ getShopAdjustmentValue(element.id) }}%</span>
+                                    <Label class="ep-shop-slider-label">{{ estimationActive ? t('epmShopEstimationQty') : t('epmShopAdjustment') }}</Label>
+                                    <span class="ep-shop-slider-value">
+                                      <template v-if="estimationActive">{{ isShopEstimationMixed(element.id) ? t('epmMixed') : `${getShopEstimationQty(element.id)} u` }}</template>
+                                      <template v-else>{{ getShopAdjustmentValue(element.id) }}%</template>
+                                    </span>
                                   </div>
                                   <Slider
+                                    v-if="estimationActive"
+                                    :value="[getShopEstimationQty(element.id)]"
+                                    :min="0"
+                                    :max="shopEstimationSliderMax(element.id)"
+                                    :step="1"
+                                    :disabled="!isShopOpen(element.id)"
+                                    class-name="ep-shop-slider"
+                                    @update:value="(values) => handleShopEstimationQty(element.id, values[0])"
+                                  />
+                                  <Slider
+                                    v-else
                                     :value="[getShopAdjustmentValue(element.id)]"
                                     :min="0"
                                     :max="500"
@@ -230,8 +262,8 @@
                                   size="sm"
                                   class="ep-shop-reset-btn"
                                   :disabled="!isShopOpen(element.id)"
-                                  :title="t('epmResetTo100')"
-                                  @click.stop="resetShopAdjustment(element.id)"
+                                  :title="estimationActive ? t('epmResetTo0') : t('epmResetTo100')"
+                                  @click.stop="estimationActive ? handleShopEstimationQty(element.id, 0) : resetShopAdjustment(element.id)"
                                 ><v-icon size="16">mdi-restore</v-icon></Button>
                               </div>
                             </div>
@@ -654,7 +686,9 @@
                           {{ entry.shops.filter((s) => s.selected).length }} / {{ entry.shops.length }} {{ t('epmShopsSuffix') }}
                         </span>
                       </div>
-                      <!-- Item adjustment slider -->
+                      <!-- Item adjustment slider. Mode estimation (fiche 311_02) :
+                           slider ABSOLU (unités) — pose la même quantité sur tous
+                           les PDV cochés de l'article. -->
                       <div
                         class="mt-3 pt-3 border-t border-border"
                         @click.stop
@@ -663,12 +697,24 @@
                         <div class="flex items-center gap-3">
                           <div class="flex-1">
                             <div class="flex items-center justify-between mb-1">
-                              <Label class="text-xs text-muted-foreground">{{ t('epmItemAdjustment') }}</Label>
+                              <Label class="text-xs text-muted-foreground">{{ estimationActive ? t('epmItemEstimationQty') : t('epmItemAdjustment') }}</Label>
                               <span class="text-xs font-medium">
-                                {{ isItemAdjustmentMixed(entry.menuItemId) ? t('epmMixed') : `${getItemAdjustmentValue(entry.menuItemId)}%` }}
+                                <template v-if="estimationActive">{{ isItemEstimationMixed(entry.menuItemId) ? t('epmMixed') : `${getItemEstimationQty(entry.menuItemId)} u` }}</template>
+                                <template v-else>{{ isItemAdjustmentMixed(entry.menuItemId) ? t('epmMixed') : `${getItemAdjustmentValue(entry.menuItemId)}%` }}</template>
                               </span>
                             </div>
                             <Slider
+                              v-if="estimationActive"
+                              :value="[getItemEstimationQty(entry.menuItemId)]"
+                              :min="0"
+                              :max="itemEstimationSliderMax(entry.menuItemId)"
+                              :step="1"
+                              :disabled="!entry.hasSelection"
+                              class-name="w-full"
+                              @update:value="(values) => handleItemEstimationQty(entry.menuItemId, values[0])"
+                            />
+                            <Slider
+                              v-else
                               :value="[getItemAdjustmentValue(entry.menuItemId)]"
                               :min="0"
                               :max="500"
@@ -683,8 +729,8 @@
                             size="sm"
                             class="flex-shrink-0 h-8 w-8 p-0"
                             :disabled="!entry.hasSelection"
-                            :title="t('epmResetTo100')"
-                            @click.stop="resetItemAdjustment(entry.menuItemId)"
+                            :title="estimationActive ? t('epmResetTo0') : t('epmResetTo100')"
+                            @click.stop="estimationActive ? handleItemEstimationQty(entry.menuItemId, 0) : resetItemAdjustment(entry.menuItemId)"
                           ><v-icon size="16">mdi-restore</v-icon></Button>
                         </div>
                       </div>
@@ -867,6 +913,7 @@ import {
   lookupPredictedQuantity,
 } from '@/utils/predictedQuantityIndex'
 import { menuItemPriceHt } from '@/utils/price'
+import { uniformValue, applyFanoutQuantity, estimationSliderMax } from '@/utils/estimationMode'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import Card from '../ui/card.vue'
 import CardHeader from '../ui/cardHeader.vue'
@@ -1041,6 +1088,10 @@ export default {
       unmappedItemViewOpen: true,
       // Plafond du slider de quantité absolue (items à prédiction 0).
       manualQtyMax: 500,
+      // Échelle max des sliders fan-out ABSOLUS du mode estimation (fiche
+      // 311_02) — éditable via le champ du bandeau. UI seulement, pas persisté
+      // (les quantités posées le sont, elles, via le brouillon du parent).
+      estimationScaleMax: 1000,
       // Tick pour invalider les computed quand on mute expandedElements/shopSearchQuery
       _uiTick: 0,
     }
@@ -1585,6 +1636,18 @@ export default {
       if (item == null) return null
       if (item.unitCost != null) return Number(item.unitCost)
       if (item.totalCost != null) return Number(item.totalCost)
+      // Ligne SLIM (assignation Space Menu = {id,name,basePrice,…} SANS champ de
+      // coût) : résolution catalogue par id puis nom — même démarche que
+      // htUnitPrice. Sans ça, coût + marge disparaissaient de toutes les lignes
+      // assignées, seul chemin en mode estimation (fiche 311_02).
+      if (!item._synthetic) {
+        const full =
+          this.menuItemsById.get(item.id) ||
+          (this.menuItems || []).find((m) => normalizeStr(m?.name) === normalizeStr(item?.name))
+        if (full && full.totalCost != null && Number(full.totalCost) > 0) {
+          return Number(full.totalCost)
+        }
+      }
       // Fallback : coût par menuItemId (shop-details / store analyse). On exige
       // > 0 — une entrée à 0 = coût inconnu, pas un produit gratuit (sinon marge
       // affichée à 100% à tort).
@@ -1963,6 +2026,59 @@ export default {
     },
     resetItemAdjustment(menuItemId) {
       this.handleItemAdjustment(menuItemId, 100)
+    },
+    // ----- Sliders fan-out ABSOLUS du mode estimation (fiche 311_02) -----
+    // Base prédite = 0 partout en Estimation 0 → un % ne produit rien. Les
+    // sliders shop/article écrivent ici des UNITÉS dans manualQuantities, sur
+    // les mêmes ensembles de couples que leurs pendants % (items cochés).
+    onEstimationScaleMax(value) {
+      const n = Math.round(Number(value) || 0)
+      this.estimationScaleMax = n >= 10 ? n : 1000
+    },
+    getShopEstimationValues(elementId) {
+      const selected = this.selectedMenuItems[elementId] || []
+      return selected.map((miId) => Number(this.manualQuantities[`${elementId}-${miId}`]) || 0)
+    },
+    getShopEstimationQty(elementId) {
+      return uniformValue(this.getShopEstimationValues(elementId)) ?? 0
+    },
+    isShopEstimationMixed(elementId) {
+      return uniformValue(this.getShopEstimationValues(elementId)) === null
+        && this.getShopEstimationValues(elementId).length > 1
+    },
+    shopEstimationSliderMax(elementId) {
+      const values = this.getShopEstimationValues(elementId)
+      const current = values.length ? Math.max(...values) : 0
+      return estimationSliderMax(this.estimationScaleMax, current)
+    },
+    handleShopEstimationQty(elementId, units) {
+      const selected = this.selectedMenuItems[elementId] || []
+      if (!selected.length) return
+      const keys = selected.map((miId) => `${elementId}-${miId}`)
+      this.$emit('update:manualQuantities', applyFanoutQuantity(this.manualQuantities, keys, units))
+    },
+    getItemEstimationValues(menuItemId) {
+      return this.getSelectedElementsForMenuItem(menuItemId).map(
+        (element) => Number(this.manualQuantities[`${element.id}-${menuItemId}`]) || 0,
+      )
+    },
+    getItemEstimationQty(menuItemId) {
+      return uniformValue(this.getItemEstimationValues(menuItemId)) ?? 0
+    },
+    isItemEstimationMixed(menuItemId) {
+      return uniformValue(this.getItemEstimationValues(menuItemId)) === null
+        && this.getItemEstimationValues(menuItemId).length > 1
+    },
+    itemEstimationSliderMax(menuItemId) {
+      const values = this.getItemEstimationValues(menuItemId)
+      const current = values.length ? Math.max(...values) : 0
+      return estimationSliderMax(this.estimationScaleMax, current)
+    },
+    handleItemEstimationQty(menuItemId, units) {
+      const selectedElements = this.getSelectedElementsForMenuItem(menuItemId)
+      if (!selectedElements.length) return
+      const keys = selectedElements.map((element) => `${element.id}-${menuItemId}`)
+      this.$emit('update:manualQuantities', applyFanoutQuantity(this.manualQuantities, keys, units))
     },
     // ----- Availability (cf. React :467-589) -----
     isMenuItemAvailableInSpace(mi) {
@@ -2496,6 +2612,33 @@ export default {
    Couleurs via tokens du thème (pas de palette importée). */
 .ep-menus-assign-warning {
   margin-bottom: 0.75rem;
+}
+/* Bandeau estimation (fiche 311_02) : message + champ « échelle max » des
+   sliders absolus sur une même ligne, repli propre en étroit. Le champ reprend
+   le style de .ep-manual-qty-input (charte fermée : pas de nouveau font-size). */
+.ep-estimation-banner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ep-estimation-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.ep-estimation-scale input {
+  width: 72px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: inherit;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: transparent;
 }
 /* Saisie directe de la quantité manuelle (Estimation 0, fiche 311_01) —
    remplace l'ancien span lecture seule à côté du slider. Taille de police

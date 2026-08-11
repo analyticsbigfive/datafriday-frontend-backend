@@ -199,6 +199,27 @@ export function getPredictedQuantityForElement(records, element, menuItemId) {
   }, 0)
 }
 
+/**
+ * Vrai quand la quantité de ce couple (PDV, item) provient EXCLUSIVEMENT de
+ * lignes manuelles (`isManual: true` — Estimation 0, fiche 311_02). Ces lignes
+ * sortent de `manualQuantityRecords` / `withManualRecords` DÉJÀ mises à
+ * l'échelle par le slider % : ré-appliquer `quantityAdjustments` dessus les
+ * compterait DEUX fois (150 % → 225 %). Un couple mixte manuel + prédit
+ * n'existe pas (`manualQuantityRecords` saute les clés couvertes par la
+ * prédiction) ; s'il apparaissait, on retombe sur le comportement historique
+ * (% appliqué) — le prédit fait foi.
+ */
+export function isManualOnlyForElement(records, element, menuItemId) {
+  let seen = false
+  for (const record of records || []) {
+    if (getRecordMenuItemId(record) !== menuItemId) continue
+    if (!shopRecordMatchesElement(record, element)) continue
+    if (record.isManual !== true) return false
+    seen = true
+  }
+  return seen
+}
+
 export function deriveSelectedMenuItemsByShop(configuration, records) {
   const out = {}
   collectFbElements(configuration).forEach((element) => {
@@ -323,7 +344,11 @@ export function buildStockRequirements({
         shop,
         menuItemId,
       )
-      const adjustment = toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
+      // Lignes manuelles (records isManual) = DÉJÀ ajustées à la construction →
+      // % neutralisé ici, sinon double application (fiche 311_02).
+      const adjustment = isManualOnlyForElement(predictedRecords, shop, menuItemId)
+        ? 100
+        : toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
       // Parité EventPredictStockUpSection.getAdjustedQuantity() : sans prédiction,
       // la quantité MANUELLE (unités absolues) sert de base, mise à l'échelle par
       // le même slider % shop — pas un simple override du résultat final.
@@ -445,7 +470,10 @@ export function buildMenuItemDemand({
         return
       }
       const predictedQuantity = getPredictedQuantityForElement(predictedRecords, shop, menuItemId)
-      const adjustment = toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
+      // Parité buildStockRequirements : lignes manuelles déjà ajustées → % neutralisé.
+      const adjustment = isManualOnlyForElement(predictedRecords, shop, menuItemId)
+        ? 100
+        : toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
       const adjustedQuantity = Math.round((predictedQuantity * adjustment) / 100)
       if (!adjustedQuantity) return
 
