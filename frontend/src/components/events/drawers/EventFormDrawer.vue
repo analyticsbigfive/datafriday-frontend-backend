@@ -21,7 +21,7 @@
       <!-- ── Section: Informations générales ── -->
       <div class="efd-section-label">
         <Building2 :size="12" />
-        <span>Informations générales</span>
+        <span>{{ t('eventsList.sectionGeneral') }}</span>
       </div>
 
       <div class="efd-select-wrap mb-4">
@@ -59,7 +59,7 @@
           :items="configurationsForSpace"
           item-title="name"
           item-value="id"
-          placeholder="Sélectionner une configuration"
+          :placeholder="t('eventsList.configPlaceholder')"
           variant="outlined"
           density="comfortable"
           hide-details
@@ -72,7 +72,7 @@
       <!-- ── Section: Dates & horaires ── -->
       <div class="efd-section-label">
         <Calendar :size="12" />
-        <span>Dates & horaires</span>
+        <span>{{ t('eventsList.sectionDates') }}</span>
       </div>
 
       <div class="efd-row mb-4">
@@ -84,6 +84,7 @@
             variant="outlined"
             density="comfortable"
             hide-details
+            :max="newEvent.eventEndDate || undefined"
             :disabled="lockDate"
             :title="lockDate ? t('eventsList.dateLockedLive') : undefined"
             class="efd-input"
@@ -97,6 +98,7 @@
             variant="outlined"
             density="comfortable"
             hide-details
+            :min="newEvent.eventStartDate || undefined"
             :disabled="lockDate"
             :title="lockDate ? t('eventsList.dateLockedLive') : undefined"
             class="efd-input"
@@ -124,7 +126,7 @@
             variant="outlined"
             density="comfortable"
             hide-details
-            placeholder="Ex: confirmed…"
+            :placeholder="t('eventsList.statusPlaceholder')"
             class="efd-input"
           />
         </div>
@@ -133,7 +135,7 @@
       <!-- ── Section: Taxonomy ── -->
       <div class="efd-section-label">
         <Tag :size="12" />
-        <span>Taxonomie</span>
+        <span>{{ t('eventsList.sectionTaxonomy') }}</span>
       </div>
 
       <div class="efd-select-wrap mb-4">
@@ -237,7 +239,7 @@
           :items="teamsWithCreate"
           item-title="name"
           item-value="id"
-          placeholder="Rechercher / sélectionner l'équipe à domicile"
+          :placeholder="t('eventsList.homeTeamPlaceholder')"
           variant="outlined"
           density="comfortable"
           hide-details
@@ -271,7 +273,7 @@
           :items="teamsWithCreate"
           item-title="name"
           item-value="id"
-          placeholder="Rechercher / sélectionner l'équipe visiteuse"
+          :placeholder="t('eventsList.visitingTeamPlaceholder')"
           variant="outlined"
           density="comfortable"
           hide-details
@@ -300,7 +302,7 @@
       <!-- ── Section: Séances ── -->
       <div class="efd-section-label">
         <List :size="12" />
-        <span>Séances</span>
+        <span>{{ t('eventsList.sectionSessions') }}</span>
       </div>
 
       <div class="efd-select-wrap mb-4">
@@ -338,7 +340,7 @@
       <!-- ── Section: Billetterie ── -->
       <div class="efd-section-label">
         <Ticket :size="12" />
-        <span>Billetterie</span>
+        <span>{{ t('eventsList.sectionTicketing') }}</span>
       </div>
 
       <div class="efd-row mb-4">
@@ -421,7 +423,7 @@
       <!-- ── Section: Données financières ── -->
       <div class="efd-section-label">
         <CircleDollarSign :size="12" />
-        <span>Données financières</span>
+        <span>{{ t('eventsList.sectionFinancials') }}</span>
       </div>
 
       <div class="efd-fin-grid mb-4">
@@ -877,7 +879,7 @@ export default {
       ];
       for (const c of requiredChecks) {
         if (!c.value) {
-          this.formError = `Le champ "${c.label}" est obligatoire.`;
+          this.formError = `${this.t('eventsList.errorRequiredPrefix')} « ${c.label} » ${this.t('eventsList.errorRequiredSuffix')}`;
           return;
         }
       }
@@ -893,10 +895,17 @@ export default {
         if (v !== null && v !== '' && v !== undefined) {
           const n = Number(v);
           if (!Number.isFinite(n) || !Number.isInteger(n)) {
-            this.formError = `"${f.label}" doit être un nombre entier valide.`;
+            this.formError = `« ${f.label} » ${this.t('eventsList.errorInteger')}`;
             return;
           }
         }
+      }
+
+      // Contrainte de dates : Start date ≤ End date (chaînes ISO YYYY-MM-DD → comparaison directe).
+      if (this.newEvent.eventStartDate && this.newEvent.eventEndDate
+        && this.newEvent.eventStartDate > this.newEvent.eventEndDate) {
+        this.formError = this.t('eventsList.errorEndBeforeStart');
+        return;
       }
 
       const numFields = [
