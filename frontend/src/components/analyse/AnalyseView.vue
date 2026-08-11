@@ -1626,12 +1626,11 @@ function onToolboxChange(v) {
   if (v === 'event-predict' && current !== 'event-predict') {
     previousToolbox.value = current
   }
-  // Analyse possède déjà skeleton initial. Au retour vers cette vue, contenu
-  // reste monté : aucun second loader plein écran nécessaire.
-  if (v !== 'analyse') showTransitionLoader(toolboxLabel(v))
-  requestAnimationFrame(() => {
-    setTimeout(() => store.commit('analyse/SET_TOOLBOX', v), 0)
-  })
+  // Bascule synchrone : le différé rAF+setTimeout et l'overlay de transition
+  // provoquaient un flicker (voile 2 s aveugle + frame vide entre les vues).
+  // Le contenu Analyse reste monté (v-show) et Event Predict gère son propre
+  // skeleton — aucun voile intermédiaire nécessaire.
+  store.commit('analyse/SET_TOOLBOX', v)
   // Sync toolbox to URL query so the Predict mode has its own shareable URL
   // (`/spaces/<id>?toolbox=predict`). Browser back/forward navigates between
   // Analyse and Predict like real pages.
@@ -1646,24 +1645,7 @@ function onToolboxChange(v) {
   } catch (_) { /* router not ready */ }
 }
 function closePredictOverlay() {
-  requestAnimationFrame(() => {
-    setTimeout(
-      () => store.commit('analyse/SET_TOOLBOX', previousToolbox.value || 'analyse'),
-      0,
-    )
-  })
-}
-
-function toolboxLabel(v) {
-  if (v === 'event-predict') return t('anLoadingEventPredict')
-  if (v === 'predict') return t('anLoadingPredict')
-  return t('anLoadingAnalyse')
-}
-
-function showTransitionLoader(label) {
-  window.dispatchEvent(new CustomEvent('datafriday:route-loader', {
-    detail: { label },
-  }))
+  store.commit('analyse/SET_TOOLBOX', previousToolbox.value || 'analyse')
 }
 // Couleur d'accent par KPI (réutilise les hex de headerKpis / KPI_CARDS) →
 // fond teinté de la zone graph inline.
@@ -1727,7 +1709,6 @@ function onChartBarClick(eventId) {
     if (!spaceId) {
       // Fallback : pas de spaceId résolu → on retombe sur l'overlay legacy.
       store.commit('analyse/SET_PENDING_PREDICT_EVENT_ID', ev.id)
-      showTransitionLoader(t('anLoadingEventPredict'))
       store.commit('analyse/SET_TOOLBOX', 'event-predict')
       return
     }
@@ -1738,7 +1719,8 @@ function onChartBarClick(eventId) {
     } catch (_) { /* noop */ }
     const query = { event: ev.id }
     if (defaultVersionId) query.version = defaultVersionId
-    showTransitionLoader(t('anLoadingEventPredict'))
+    // Navigation de route réelle : RouteTransitionLoader (watcher $route) gère
+    // l'overlay — le dispatch manuel doublonnait.
     router.push({ path: `/spaces/${spaceId}/predict`, query })
     return
   }

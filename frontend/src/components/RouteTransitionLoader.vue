@@ -77,9 +77,6 @@ export default {
       }
     },
   },
-  mounted() {
-    window.addEventListener('datafriday:route-loader', this.onExternalShow)
-  },
   methods: {
     labelFor(path) {
       const p = String(path || '')
@@ -121,13 +118,9 @@ export default {
         this.visible = false
       }, 2000)
     },
-    onExternalShow(event) {
-      this.show(event?.detail?.label || this.label)
-    },
   },
   beforeUnmount() {
     if (this._hideTimer) clearTimeout(this._hideTimer)
-    window.removeEventListener('datafriday:route-loader', this.onExternalShow)
   },
 }
 </script>

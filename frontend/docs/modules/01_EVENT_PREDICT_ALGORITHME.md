@@ -584,6 +584,23 @@ ajustés sidebar → `buildPredictedRecords()` (`isManual: true`) → snapshot v
 Réappro. Anti-double-comptage le jour où l'event gagne des comparables : `estimationEligible`
 retombe à faux et `manualQuantityRecords` saute déjà les clés couvertes par la prédiction.
 
+**Sliders fan-out ABSOLUS (fiche 311-02, 2026-08-11)** : en mode estimation, les sliders shop et
+article ne sont PAS les sliders % (une base 0 × % rend toujours 0) — ils basculent en **unités
+absolues** (0 → échelle max, champ « Échelle des curseurs (max) » dans le bandeau, défaut 1000,
+plancher 10) et écrivent `manualQuantities` sur les mêmes ensembles de couples que leurs pendants %
+(items/PDV cochés uniquement, parité stricte ; affichage « N u » ou « Mixed » ; reset = 0). Utils
+purs : `uniformValue` / `applyFanoutQuantity` / `estimationSliderMax` (`estimationMode.js`). Hors
+mode estimation, sliders % strictement inchangés.
+
+**Coûts en mode estimation (fiche 311-02)** : la timeline vide éteint `weezeventProductCostMap`
+(consommé uniquement par `timelineRevenueTotals`) — le coût passe alors par : `itemUnitCost`
+(lignes, avec résolution catalogue id→nom, repli `totalCost`) et `manualQuantityRecords` (sidebar,
+`effectiveMenuItemCostMap` + repli catalogue `mi.totalCost`). ⚠️ Le coût affiché est `totalCost`
+(coût du batch de recette) — le canonique batch vs `costPerPiece` est la question #53
+QUESTIONS_A_BERTRAND. Sémantique records : **une ligne `isManual: true` porte sa quantité FINALE**
+(déjà mise à l'échelle) — `buildStockRequirements`/`buildMenuItemDemand` neutralisent le % dessus
+(`isManualOnlyForElement`), `withManualRecords` (Restock) pré-ajuste à l'injection.
+
 **Nuance sur le tableau `manualQuantities` plus haut** : la mention « jamais envoyée par le
 frontend » est périmée — `versionToPayload` (`useEventPredictVersions.js:145-149`) inclut
 `manualQuantities` dans le POST/PATCH (vérifié 2026-08-11), c'est ce qui rend le ré-armement
@@ -637,6 +654,9 @@ confirmé zéro `$emit('update:viewMode', ...)`), `manual-info`, `remap-request`
   - Item (`derivedItemAdjustments`, lignes 1301-1314) : même logique à travers les shops, **avec**
     un indicateur explicite `isItemAdjustmentMixed` (lignes 1881-1884) affichant le texte "Mixed" si
     les valeurs divergent — asymétrie UX entre les deux niveaux, vérifiée réelle.
+  - ⚠️ En **mode estimation** (fiche 311-02), les niveaux shop et item basculent en sliders
+    d'UNITÉS ABSOLUES qui écrivent `manualQuantities` (pas `quantityAdjustments`) — voir la
+    section « Estimation 0 » plus bas.
 - **Deux calculs de revenu prédit indépendants** coexistent : `shopRevenues` (lignes 1262-1286,
   quantité × prix HT unitaire résolu via `htUnitPrice`) alimente les pastilles d'en-tête de carte
   shop (`getPredictedRevenue`, lignes 1973-1978) ; `timelineRevenueIndex`/`getPredictedItemRevenue`
