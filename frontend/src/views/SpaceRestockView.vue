@@ -3294,20 +3294,27 @@ export default {
     },
     /**
      * Injecte les quantités MANUELLES d'une version (items prédit=0, absents du
-     * recompute) en records bruts. buildStockRequirements applique ensuite les %
-     * (aucun pour ces items → 100% → la quantité manuelle passe telle quelle).
+     * recompute) en records DÉJÀ AJUSTÉS par le % de la version — même
+     * sémantique que `manualQuantityRecords` (EventPredictView) : une ligne
+     * `isManual: true` porte sa quantité finale, et buildStockRequirements /
+     * buildMenuItemDemand neutralisent le % dessus (fiche 311_02 — l'ancien
+     * commentaire « aucun % pour ces items → 100% » était faux : le slider
+     * fan-out shop écrit bien des % sur les couples manuels).
      */
     withManualRecords(records, version) {
       const mq = version?.manualQuantities || {}
       const cfg = version?.menuConfig || {}
       if (!Object.keys(mq).length || !Object.keys(cfg).length) return records
+      const adjMap = version?.quantityAdjustments || {}
       const present = new Set(
         records.map((r) => `${r.shopId || r.shop}|${r.menuItemId || r.mappedMenuItemId}`),
       )
       const out = records.slice()
       for (const shopId of Object.keys(cfg)) {
         for (const menuItemId of (cfg[shopId] || [])) {
-          const qty = Number(mq[`${shopId}-${menuItemId}`]) || 0
+          const rawQty = Number(mq[`${shopId}-${menuItemId}`]) || 0
+          const adjPct = Number(adjMap[`${shopId}-${menuItemId}`] ?? 100)
+          const qty = Math.round((rawQty * adjPct) / 100)
           if (qty <= 0) continue
           if (present.has(`${shopId}|${menuItemId}`)) continue
           const mi = this.menuItems.find((m) => String(m.id) === String(menuItemId))

@@ -71,3 +71,53 @@ export function isEstimationEligible({
     Number(configShopCount) > 0
   )
 }
+
+// ---- Sliders fan-out ABSOLUS (mode estimation, fiche 311_02) ----
+// En mode Estimation 0 la base prédite est 0 partout : un slider % (base × %)
+// ne peut rien produire. Les sliders shop/article deviennent donc des sliders
+// de QUANTITÉ ABSOLUE qui écrivent directement `manualQuantities`.
+
+/**
+ * Valeur commune d'un ensemble de valeurs numériques (affichage d'un slider
+ * fan-out) : LA valeur si toutes identiques, sinon null (« Mixed »).
+ *
+ * @param {Array<number|string>} values
+ * @returns {number|null}
+ */
+export function uniformValue(values) {
+  const set = new Set((values || []).map((v) => Number(v) || 0))
+  return set.size === 1 ? [...set][0] : null
+}
+
+/**
+ * Fan-out d'une quantité manuelle absolue : pose `units` (entier ≥ 0, arrondi)
+ * sur chaque clé `${elementId}-${menuItemId}` fournie. Retourne un NOUVEL
+ * objet (les props Vue ne se mutent pas).
+ *
+ * @param {Object<string, number>} current  manualQuantities courant
+ * @param {string[]} pairKeys               clés `${elementId}-${menuItemId}`
+ * @param {number|string} units             quantité à poser (valeur d'input possible)
+ * @returns {Object<string, number>}
+ */
+export function applyFanoutQuantity(current, pairKeys, units) {
+  const u = Math.max(0, Math.round(Number(units) || 0))
+  const next = { ...(current || {}) }
+  for (const k of pairKeys || []) next[k] = u
+  return next
+}
+
+/**
+ * Plafond effectif d'un slider absolu : l'échelle choisie par l'utilisateur
+ * (champ « échelle max », défaut 1000), étendue par la valeur courante — une
+ * valeur déjà posée au-delà de l'échelle ne doit pas casser le curseur
+ * (parité `manualSliderMax`, fiche 311_01).
+ *
+ * @param {number|string} scaleMax     échelle choisie (champ number)
+ * @param {number|string} currentValue plus grande valeur courante du fan-out
+ * @param {number} [fallback=1000]     échelle par défaut / saisie invalide
+ * @returns {number}
+ */
+export function estimationSliderMax(scaleMax, currentValue, fallback = 1000) {
+  const scale = Number(scaleMax) > 0 ? Number(scaleMax) : fallback
+  return Math.max(scale, Number(currentValue) || 0)
+}
