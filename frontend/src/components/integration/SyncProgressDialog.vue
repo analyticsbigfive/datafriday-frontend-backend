@@ -33,91 +33,141 @@
         </div>
         <div class="spd-header__text">
           <div class="spd-header__title">
-            <template v-if="jobId && jobData.status === 'COMPLETED'">{{ t('intgSyncProgTitleDone') }}</template>
-            <template v-else>{{ t('intgSyncProgTitle') }}</template>
+            <template v-if="jobId && jobData.status === 'COMPLETED'">
+              {{ provider === 'digifood' ? t('intgCsvImportTitleDone') : t('intgSyncProgTitleDone') }}
+            </template>
+            <template v-else>
+              {{ provider === 'digifood' ? t('intgCsvImportTitle') : t('intgSyncProgTitle') }}
+            </template>
           </div>
           <div class="spd-header__sub">
             {{ integrationName }}
-            <template v-if="jobId && jobData.fromDate && jobData.toDate">
+            <template v-if="jobId && provider !== 'digifood' && jobData.fromDate && jobData.toDate">
               <span class="mx-1 opacity-60">•</span>
               <span>{{ t('intgSyncProgFrom') }} {{ formatDateShort(jobData.fromDate) }} {{ t('intgSyncProgTo') }} {{ formatDateShort(jobData.toDate) }}</span>
-              <template v-if="jobData.status === 'COMPLETED' && jobData.completedAt && jobData.startedAt">
-                <span class="mx-1 opacity-60">•</span>
-                <span>{{ t('intgSyncProgDuration') }} {{ formatDuration(jobData.startedAt, jobData.completedAt) }}</span>
-              </template>
+            </template>
+            <template v-else-if="jobId && provider === 'digifood' && jobData.fileName">
+              <span class="mx-1 opacity-60">•</span>
+              <span>{{ jobData.fileName }}</span>
+            </template>
+            <template v-if="jobId && jobData.status === 'COMPLETED' && jobData.completedAt && jobData.startedAt">
+              <span class="mx-1 opacity-60">•</span>
+              <span>{{ t('intgSyncProgDuration') }} {{ formatDuration(jobData.startedAt, jobData.completedAt) }}</span>
             </template>
           </div>
         </div>
       </div>
 
       <v-card-text class="px-6 py-4">
-        <!-- ======= MODE JOB (bissection asynchrone) ======= -->
+        <!-- ======= MODE JOB (bissection Weezevent OU import CSV Digifood, async) ======= -->
         <template v-if="jobId">
-          <!-- Phase 1 : Collecte (masquée quand terminé) -->
-          <div v-if="jobData.status !== 'COMPLETED'" class="spd-phase mb-4">
-            <div class="spd-phase__header">
-              <span class="spd-phase__label">
-                <v-icon size="15" class="mr-1" :color="jobData.collectDone ? '#166534' : '#ff3131'">mdi-download-outline</v-icon>
-                {{ t('intgSyncProgPhase1Label') }}
-              </span>
-              <span class="spd-phase__count">
-                {{ jobData.totalCollected.toLocaleString('fr-FR') }} {{ t('intgSyncProgTransactions') }}
-                <template v-if="jobData.totalChunks > 0">
-                  ({{ jobData.processedChunks }}/{{ jobData.totalChunks }} {{ t('intgSyncProgSegments') }})
-                </template>
-              </span>
+          <template v-if="provider === 'digifood'">
+            <!-- Import CSV : une seule passe, pas de phase collecte/insertion séparée -->
+            <div v-if="jobData.status !== 'COMPLETED'" class="spd-phase mb-4">
+              <div class="spd-phase__header">
+                <span class="spd-phase__label">
+                  <v-icon size="15" class="mr-1" color="#ff3131">mdi-file-delimited-outline</v-icon>
+                  {{ t('intgCsvImportProgressLabel') }}
+                </span>
+                <span class="spd-phase__count">
+                  {{ (jobData.ordersCreated + jobData.ordersUpdated + jobData.ordersSkipped).toLocaleString('fr-FR') }} / {{ jobData.ordersDetected.toLocaleString('fr-FR') }}
+                </span>
+              </div>
+              <v-progress-linear
+                :model-value="jobProgressPct"
+                color="#ff3131"
+                height="6"
+                rounded
+                :indeterminate="jobData.ordersDetected === 0"
+              />
             </div>
-            <v-progress-linear
-              :model-value="jobCollectPct"
-              :color="jobData.collectDone ? 'success' : '#ff3131'"
-              height="6"
-              rounded
-              :indeterminate="!jobData.collectDone && jobData.totalChunks === 0"
-            />
-          </div>
 
-          <!-- Phase 2 : Insertion (masquée quand terminé) -->
-          <div v-if="jobData.status !== 'COMPLETED'" class="spd-phase mb-4">
-            <div class="spd-phase__header">
-              <span class="spd-phase__label">
-                <v-icon size="15" class="mr-1" :color="jobData.status === 'COMPLETED' ? '#166534' : '#6b7280'">mdi-database-import-outline</v-icon>
-                {{ t('intgSyncProgPhase2Label') }}
-              </span>
-              <span class="spd-phase__count">
-                {{ jobData.totalInserted.toLocaleString('fr-FR') }} / {{ jobData.totalCollected.toLocaleString('fr-FR') }}
-              </span>
-            </div>
-            <v-progress-linear
-              :model-value="jobInsertPct"
-              :color="jobData.status === 'COMPLETED' ? 'success' : 'secondary'"
-              height="6"
-              rounded
-              :indeterminate="jobData.totalInserted === 0 && jobData.status !== 'COMPLETED'"
-            />
-          </div>
-
-          <!-- Résumé final COMPLETED -->
-          <template v-if="jobData.status === 'COMPLETED'">
-            <div class="spd-stat-row mb-2">
-              <div class="spd-stat-card spd-stat-card--red">
-                <div class="spd-stat-card__value">{{ jobData.totalCollected.toLocaleString('fr-FR') }}</div>
-                <div class="spd-stat-card__label">{{ t('intgSyncProgStatCollected') }}</div>
+            <!-- Résumé final COMPLETED -->
+            <template v-if="jobData.status === 'COMPLETED'">
+              <div class="spd-stat-row mb-2">
+                <div class="spd-stat-card spd-stat-card--red">
+                  <div class="spd-stat-card__value">{{ jobData.ordersCreated.toLocaleString('fr-FR') }}</div>
+                  <div class="spd-stat-card__label">{{ t('diDigifoodOrdersCreated') }}</div>
+                </div>
+                <div class="spd-stat-card spd-stat-card--grey">
+                  <div class="spd-stat-card__value">{{ jobData.ordersUpdated.toLocaleString('fr-FR') }}</div>
+                  <div class="spd-stat-card__label">{{ t('diDigifoodOrdersUpdated') }}</div>
+                </div>
+                <div class="spd-stat-card" :class="jobData.ordersSkipped > 0 ? 'spd-stat-card--warn' : 'spd-stat-card--grey'">
+                  <div class="spd-stat-card__value">{{ jobData.ordersSkipped.toLocaleString('fr-FR') }}</div>
+                  <div class="spd-stat-card__label">{{ t('intgCsvImportStatSkipped') }}</div>
+                </div>
               </div>
-              <div class="spd-stat-card spd-stat-card--green">
-                <div class="spd-stat-card__value">{{ jobData.totalInserted.toLocaleString('fr-FR') }}</div>
-                <div class="spd-stat-card__label">{{ t('intgSyncProgStatNew') }}</div>
-              </div>
-              <div class="spd-stat-card spd-stat-card--grey">
-                <div class="spd-stat-card__value">{{ (jobData.totalCollected - jobData.totalInserted).toLocaleString('fr-FR') }}</div>
-                <div class="spd-stat-card__label">{{ t('intgSyncProgStatDuplicates') }}</div>
-              </div>
-            </div>
+            </template>
           </template>
 
-          <!-- Résumé final FAILED -->
+          <template v-else>
+            <!-- Phase 1 : Collecte (masquée quand terminé) -->
+            <div v-if="jobData.status !== 'COMPLETED'" class="spd-phase mb-4">
+              <div class="spd-phase__header">
+                <span class="spd-phase__label">
+                  <v-icon size="15" class="mr-1" :color="jobData.collectDone ? '#166534' : '#ff3131'">mdi-download-outline</v-icon>
+                  {{ t('intgSyncProgPhase1Label') }}
+                </span>
+                <span class="spd-phase__count">
+                  {{ jobData.totalCollected.toLocaleString('fr-FR') }} {{ t('intgSyncProgTransactions') }}
+                  <template v-if="jobData.totalChunks > 0">
+                    ({{ jobData.processedChunks }}/{{ jobData.totalChunks }} {{ t('intgSyncProgSegments') }})
+                  </template>
+                </span>
+              </div>
+              <v-progress-linear
+                :model-value="jobCollectPct"
+                :color="jobData.collectDone ? 'success' : '#ff3131'"
+                height="6"
+                rounded
+                :indeterminate="!jobData.collectDone && jobData.totalChunks === 0"
+              />
+            </div>
+
+            <!-- Phase 2 : Insertion (masquée quand terminé) -->
+            <div v-if="jobData.status !== 'COMPLETED'" class="spd-phase mb-4">
+              <div class="spd-phase__header">
+                <span class="spd-phase__label">
+                  <v-icon size="15" class="mr-1" :color="jobData.status === 'COMPLETED' ? '#166534' : '#6b7280'">mdi-database-import-outline</v-icon>
+                  {{ t('intgSyncProgPhase2Label') }}
+                </span>
+                <span class="spd-phase__count">
+                  {{ jobData.totalInserted.toLocaleString('fr-FR') }} / {{ jobData.totalCollected.toLocaleString('fr-FR') }}
+                </span>
+              </div>
+              <v-progress-linear
+                :model-value="jobInsertPct"
+                :color="jobData.status === 'COMPLETED' ? 'success' : 'secondary'"
+                height="6"
+                rounded
+                :indeterminate="jobData.totalInserted === 0 && jobData.status !== 'COMPLETED'"
+              />
+            </div>
+
+            <!-- Résumé final COMPLETED -->
+            <template v-if="jobData.status === 'COMPLETED'">
+              <div class="spd-stat-row mb-2">
+                <div class="spd-stat-card spd-stat-card--red">
+                  <div class="spd-stat-card__value">{{ jobData.totalCollected.toLocaleString('fr-FR') }}</div>
+                  <div class="spd-stat-card__label">{{ t('intgSyncProgStatCollected') }}</div>
+                </div>
+                <div class="spd-stat-card spd-stat-card--green">
+                  <div class="spd-stat-card__value">{{ jobData.totalInserted.toLocaleString('fr-FR') }}</div>
+                  <div class="spd-stat-card__label">{{ t('intgSyncProgStatNew') }}</div>
+                </div>
+                <div class="spd-stat-card spd-stat-card--grey">
+                  <div class="spd-stat-card__value">{{ (jobData.totalCollected - jobData.totalInserted).toLocaleString('fr-FR') }}</div>
+                  <div class="spd-stat-card__label">{{ t('intgSyncProgStatDuplicates') }}</div>
+                </div>
+              </div>
+            </template>
+          </template>
+
+          <!-- Résumé final FAILED — commun aux deux providers -->
           <div v-if="jobData.status === 'FAILED'" class="spd-alert spd-alert--error mb-3">
             <v-icon size="16" color="#ff3131">mdi-alert-circle-outline</v-icon>
-            <span>{{ jobData.errorMessage || t('intgSyncProgSyncFailed') }}</span>
+            <span>{{ jobData.errorMessage || (provider === 'digifood' ? t('intgCsvImportFailed') : t('intgSyncProgSyncFailed')) }}</span>
           </div>
         </template>
 
@@ -259,14 +309,14 @@
             @click="minimizeJob"
           >
             <v-icon size="15" class="me-1">mdi-arrow-collapse-down</v-icon>
-            {{ t('intgSyncProgCloseBackground') }}
+            {{ provider === 'digifood' ? t('intgCsvImportCloseBackground') : t('intgSyncProgCloseBackground') }}
           </button>
           <template v-if="jobData.status === 'COMPLETED' || jobData.status === 'FAILED'">
             <button class="iw-btn iw-btn--cancel" @click="$emit('done')">
               {{ t('intgSyncProgClose') }}
             </button>
             <button
-              v-if="jobData.status === 'COMPLETED'"
+              v-if="jobData.status === 'COMPLETED' && provider !== 'digifood'"
               class="iw-btn iw-btn--primary"
               @click="$emit('retry')"
             >
@@ -318,8 +368,17 @@ export default {
     lastTransactionDate: { type: String, default: null },
     results: { type: Object, default: null },
     hasMore: { type: Boolean, default: false },
-    /** Job mode — lorsque défini, bascule en mode polling bissection */
+    /** Job mode — lorsque défini, bascule en mode polling (bissection Weezevent OU import
+     *  CSV Digifood selon `provider`, même mécanique : fire-and-forget côté back + poll ici). */
     jobId: { type: String, default: null },
+    /** 'weezevent' (défaut, comportement historique inchangé) | 'digifood'. */
+    provider: { type: String, default: 'weezevent' },
+    /** Digifood uniquement : (jobId) => Promise<jobStatus> — évite d'importer l'API Weezevent
+     *  en dur ici pour un provider qui n'en a pas besoin. */
+    jobStatusFetcher: { type: Function, default: null },
+    /** Clé localStorage utilisée par minimizeJob() ; lue au chargement par le widget flottant
+     *  correspondant pour reprendre le suivi après un refresh de page. */
+    jobStorageKey: { type: String, default: 'weezevent_active_job_id' },
   },
   emits: ['cancel', 'done', 'retry', 'job-minimized'],
   data() {
@@ -357,6 +416,13 @@ export default {
     jobInsertPct() {
       if (this.jobData.totalCollected === 0) return 0
       return Math.min(100, Math.round((this.jobData.totalInserted / this.jobData.totalCollected) * 100))
+    },
+    // Digifood (import CSV, une seule passe) — plafonné à 99% tant que le job n'est pas COMPLETED,
+    // même logique que jobCollectPct/jobInsertPct (évite un faux 100% avant l'update final).
+    jobProgressPct() {
+      if (this.jobData.status === 'COMPLETED') return 100
+      if (this.jobData.ordersDetected === 0) return 0
+      return Math.min(99, Math.round(((this.jobData.ordersCreated + this.jobData.ordersUpdated + this.jobData.ordersSkipped) / this.jobData.ordersDetected) * 100))
     },
   },
   watch: {
@@ -412,25 +478,35 @@ export default {
     freshJobData() {
       return {
         status: 'PENDING',
+        errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        // Weezevent (bissection, 2 phases)
         totalCollected: 0,
         totalInserted: 0,
         totalChunks: 0,
         processedChunks: 0,
         collectDone: false,
-        errorMessage: null,
-        startedAt: null,
-        completedAt: null,
         fromDate: null,
         toDate: null,
+        // Digifood (import CSV, une seule passe)
+        fileName: null,
+        ordersDetected: 0,
+        ordersCreated: 0,
+        ordersUpdated: 0,
+        ordersSkipped: 0,
       }
     },
     async _startJobPoll(jobId) {
-      const { getWeezeventJobStatus } = await import('@/api/endpoints/aggregation.api.js')
-      // Timeout d'INACTIVITÉ plutôt que de durée totale : tant que totalCollected/
-      // totalInserted/processedChunks progressent, on continue d'attendre — un gros tenant
-      // (ex. Auxerre) peut légitimement prendre plus de 10 min. On n'abandonne que si plus
-      // aucun progrès n'est constaté pendant MAX_STALL_MS d'affilée (job vraiment bloqué :
-      // worker orphelin…). Aligné sur SyncJobFloatingWidget.vue / StepProcessTimeline.vue.
+      // Weezevent (défaut) : fonction historique importée en dur. Digifood : fournie par le
+      // parent via jobStatusFetcher (signature différente — organizationId/instanceId/jobId).
+      const fetchStatus = this.provider === 'digifood' && this.jobStatusFetcher
+        ? this.jobStatusFetcher
+        : (await import('@/api/endpoints/aggregation.api.js')).getWeezeventJobStatus
+      // Timeout d'INACTIVITÉ plutôt que de durée totale : tant que les compteurs progressent,
+      // on continue d'attendre — un gros tenant (ex. Auxerre) peut légitimement prendre plus de
+      // 10 min. On n'abandonne que si plus aucun progrès n'est constaté pendant MAX_STALL_MS
+      // d'affilée (job vraiment bloqué). Aligné sur SyncJobFloatingWidget.vue.
       const MAX_STALL_MS = 10 * 60 * 1000
       let lastProgressAt = Date.now()
       let lastProgressSignature = null
@@ -441,24 +517,31 @@ export default {
           return
         }
         try {
-          const data = await getWeezeventJobStatus(jobId)
-          const signature = `${data.totalCollected ?? 0}|${data.totalInserted ?? 0}|${data.processedChunks ?? 0}`
+          const data = await fetchStatus(jobId)
+          const signature = this.provider === 'digifood'
+            ? `${data.ordersCreated ?? 0}|${data.ordersUpdated ?? 0}|${data.ordersSkipped ?? 0}`
+            : `${data.totalCollected ?? 0}|${data.totalInserted ?? 0}|${data.processedChunks ?? 0}`
           if (signature !== lastProgressSignature) {
             lastProgressSignature = signature
             lastProgressAt = Date.now()
           }
           this.jobData = {
             status: data.status,
+            errorMessage: data.errorMessage ?? null,
+            startedAt: data.startedAt ?? null,
+            completedAt: data.completedAt ?? null,
             totalCollected: data.totalCollected ?? 0,
             totalInserted: data.totalInserted ?? 0,
             totalChunks: data.totalChunks ?? 0,
             processedChunks: data.processedChunks ?? 0,
             collectDone: data.collectDone ?? false,
-            errorMessage: data.errorMessage ?? null,
-            startedAt: data.startedAt ?? null,
-            completedAt: data.completedAt ?? null,
             fromDate: data.fromDate ?? null,
             toDate: data.toDate ?? null,
+            fileName: data.fileName ?? null,
+            ordersDetected: data.ordersDetected ?? 0,
+            ordersCreated: data.ordersCreated ?? 0,
+            ordersUpdated: data.ordersUpdated ?? 0,
+            ordersSkipped: data.ordersSkipped ?? 0,
           }
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
             this._stopJobPoll()
@@ -480,7 +563,7 @@ export default {
     },
     minimizeJob() {
       if (this.jobId) {
-        localStorage.setItem('weezevent_active_job_id', this.jobId)
+        localStorage.setItem(this.jobStorageKey, this.jobId)
       }
       // Le widget flottant reprend le polling à partir d'ici — sans ça, les deux
       // tourneraient en parallèle sur le même job.

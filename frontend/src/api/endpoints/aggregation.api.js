@@ -491,12 +491,11 @@ export async function testDigifoodInstance(organizationId, instanceId) {
 }
 
 /**
- * Import CSV d'historique Digifood. dryRun=true (défaut) = rapport SANS écriture ;
- * dryRun=false exécute. Multipart champ `file` + champ `mapping` optionnel
- * (JSON { champ_normalisé: 'Colonne CSV' }, persisté côté back pour les prochains
- * imports). Timeout long (gros fichiers).
+ * Aperçu (dry-run) d'un import CSV Digifood : rapport complet SANS écriture, réponse
+ * synchrone. Multipart champ `file` + champ `mapping` optionnel (JSON { champ_normalisé:
+ * 'Colonne CSV' }, persisté côté back pour les prochains imports même en aperçu).
  */
-export async function importDigifoodCsv(organizationId, instanceId, file, dryRun = true, mapping = null) {
+export async function previewDigifoodCsv(organizationId, instanceId, file, mapping = null) {
   try {
     const form = new FormData()
     // ⚠️ les champs texte AVANT le fichier : @fastify/multipart n'expose que les
@@ -507,14 +506,60 @@ export async function importDigifoodCsv(organizationId, instanceId, file, dryRun
       `/organizations/${organizationId}/integrations/digifood/instances/${instanceId}/import-csv`,
       form,
       {
-        params: { dryRun: dryRun ? 'true' : 'false' },
+        params: { dryRun: 'true' },
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000,
+        timeout: 120000,
       },
     )
     return response.data
   } catch (error) {
-    console.error('[AGGREGATION API] Error importing digifood CSV:', error)
+    console.error('[AGGREGATION API] Error previewing digifood CSV:', error)
+    throw error
+  }
+}
+
+/**
+ * Démarre un import CSV Digifood RÉEL en tâche de fond (même pattern que
+ * startWeezeventSyncJob) : répond vite avec { jobId, status, ordersDetected } — le
+ * traitement continue côté serveur indépendamment de cette requête. Suivre la
+ * progression avec getDigifoodCsvImportJobStatus(jobId) (polling), voir
+ * SyncProgressDialog. Corrige l'ancien comportement (requête unique bloquée jusqu'à la
+ * fin) qui déclenchait un faux timeout front sur un gros fichier pendant que
+ * l'ingestion continuait silencieusement côté serveur.
+ */
+export async function startDigifoodCsvImportJob(organizationId, instanceId, file, mapping = null) {
+  try {
+    const form = new FormData()
+    if (mapping && Object.keys(mapping).length) form.append('mapping', JSON.stringify(mapping))
+    form.append('file', file)
+    const response = await api.post(
+      `/organizations/${organizationId}/integrations/digifood/instances/${instanceId}/import-csv`,
+      form,
+      {
+        params: { dryRun: 'false' },
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
+      },
+    )
+    return response.data
+  } catch (error) {
+    console.error('[AGGREGATION API] Error starting digifood CSV import job:', error)
+    throw error
+  }
+}
+
+/**
+ * État d'un job d'import CSV Digifood réel — route PLATE (tenantId résolu depuis le JWT
+ * seul, comme getWeezeventJobStatus(jobId)) : nécessaire pour que le widget flottant
+ * (App.vue, persistant même après un refresh complet) puisse suivre un job en ne
+ * connaissant que son jobId, sans avoir à re-mémoriser organizationId/instanceId.
+ */
+export async function getDigifoodCsvImportJobStatus(jobId) {
+  try {
+    const response = await api.get(`/digifood/import-csv/status/${jobId}`)
+    return response.data
+  } catch (error) {
+    console.error('[AGGREGATION API] Error getting digifood CSV import job status:', error)
     throw error
   }
 }

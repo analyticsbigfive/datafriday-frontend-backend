@@ -645,6 +645,20 @@
       @job-minimized="onJobMinimized"
     />
 
+    <!-- Import CSV Digifood réel : job asynchrone (même mécanique que le dialog ci-dessus,
+         voir SyncProgressDialog.vue props provider/jobStatusFetcher/jobStorageKey). -->
+    <SyncProgressDialog
+      :open="csvJobProgressOpen"
+      :integration-name="csvJobIntegration?.name || ''"
+      provider="digifood"
+      :job-id="csvJobId"
+      :job-status-fetcher="getDigifoodCsvImportJobStatus"
+      job-storage-key="digifood_csv_import_active_job_id"
+      @cancel="closeCsvJobProgress"
+      @done="onCsvJobProgressDone"
+      @job-minimized="onCsvJobMinimized"
+    />
+
     <!-- Remove integration confirmation dialog -->
     <v-dialog v-model="removeDialogOpen" max-width="480" persistent>
       <v-card rounded="lg">
@@ -858,7 +872,9 @@ import {
   updateDigifoodInstance,
   deleteDigifoodInstance,
   testDigifoodInstance,
-  importDigifoodCsv,
+  previewDigifoodCsv,
+  startDigifoodCsvImportJob,
+  getDigifoodCsvImportJobStatus,
   listDigifoodCsvImportHistory,
 } from '@/api/endpoints/aggregation.api'
 
@@ -1002,6 +1018,10 @@ export default {
       csvImporting: false,
       // Historique des imports CSV réels (dryRun=false) par intégration
       csvHistoryMap: {},
+      // Import réel : job asynchrone suivi par un SyncProgressDialog dédié (voir plus haut)
+      csvJobId: null,
+      csvJobProgressOpen: false,
+      csvJobIntegration: null,
       csvError: '',
       csvColumns: [],
       csvMapping: {},
@@ -1098,6 +1118,10 @@ export default {
     t(key) {
       return translate(key, this.locale)
     },
+
+    // Référencée telle quelle dans le template (:job-status-fetcher) par le SyncProgressDialog
+    // de l'import CSV — même signature (jobId) => Promise que getWeezeventJobStatus.
+    getDigifoodCsvImportJobStatus,
 
     handleLocaleChange(event) {
       this.locale = event.detail.locale
@@ -1396,24 +1420,64 @@ export default {
       URL.revokeObjectURL(url)
     },
 
-    /** dryRun=true : aperçu sans écriture ; false : import réel (après aperçu). */
+    /** dryRun=true : aperçu sans écriture (synchrone, reste dans ce dialog).
+     *  dryRun=false : démarre l'import réel en job (voir startCsvImportJob) — ne bloque plus
+     *  cette requête jusqu'à la fin, corrige le faux timeout front sur un gros fichier pendant
+     *  que l'ingestion continuait silencieusement côté serveur. */
     async runCsvImport(dryRun) {
       const file = this.csvFileSelected
       if (!file || !this.csvIntegration) return
+      if (!dryRun) return this.startCsvImportJob(file)
       this.csvImporting = true
       this.csvError = ''
       try {
-        this.csvReport = await importDigifoodCsv(this.tenantId, this.csvIntegration.id, file, dryRun, this.csvMapping)
-        if (!dryRun) {
-          // L'import réel alimente PDV/produits → recharge les mappings du wizard
-          this.loadMappings().catch(() => {})
-          this.loadCsvHistoryFor(this.csvIntegration.id).catch(() => {})
-        }
+        this.csvReport = await previewDigifoodCsv(this.tenantId, this.csvIntegration.id, file, this.csvMapping)
       } catch (err) {
-        console.error('[Digifood] CSV import failed:', err)
+        console.error('[Digifood] CSV preview failed:', err)
         this.csvError = err?.response?.data?.message || this.t('diSaveFailed')
       } finally {
         this.csvImporting = false
+      }
+    },
+
+    /** Import réel : même pattern que handleSyncJob (Weezevent) — démarre un job en tâche de
+     *  fond et bascule sur le dialog de progression dédié au lieu d'attendre la fin ici. */
+    async startCsvImportJob(file) {
+      this.csvImporting = true
+      this.csvError = ''
+      try {
+        const integration = this.csvIntegration
+        const result = await startDigifoodCsvImportJob(this.tenantId, integration.id, file, this.csvMapping)
+        this.csvImporting = false
+        this.closeCsvDialog()
+        this.csvJobIntegration = integration
+        this.csvJobId = result.jobId
+        this.csvJobProgressOpen = true
+      } catch (err) {
+        console.error('[Digifood] CSV import job failed to start:', err)
+        this.csvError = err?.response?.data?.message || this.t('diSaveFailed')
+        this.csvImporting = false
+      }
+    },
+
+    closeCsvJobProgress() {
+      this.csvJobProgressOpen = false
+      this.csvJobId = null
+    },
+
+    onCsvJobMinimized(jobId) {
+      if (jobId) {
+        window.dispatchEvent(new CustomEvent('digifood-csv-import-job-minimized', { detail: { jobId } }))
+      }
+    },
+
+    onCsvJobProgressDone() {
+      this.csvJobProgressOpen = false
+      this.csvJobId = null
+      // L'import réel alimente PDV/produits → recharge les mappings du wizard + l'historique
+      this.loadMappings().catch(() => {})
+      if (this.csvJobIntegration) {
+        this.loadCsvHistoryFor(this.csvJobIntegration.id).catch(() => {})
       }
     },
 
