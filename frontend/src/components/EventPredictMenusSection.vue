@@ -161,6 +161,35 @@
             <Badge variant="secondary" class="ml-1">{{ closedShopsCount }}</Badge>
           </TabsTrigger>
         </TabsList>
+        <!-- Chips-filtres orphelins (maquettes 08/2026) : compteurs globaux,
+             chip actif → ne garde que les cartes concernées + bascule leur
+             bucket interne sur la catégorie filtrée. -->
+        <div class="ep-chip-filters flex-shrink-0">
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--nopred"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'noSales' }"
+            :aria-pressed="globalChipFilter === 'noSales' ? 'true' : 'false'"
+            :title="t('epmChipNoForecastHint')"
+            @click="toggleGlobalChip('noSales')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipNoForecast') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.noSales }}</Badge>
+          </button>
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--outmenu"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'unmapped' }"
+            :aria-pressed="globalChipFilter === 'unmapped' ? 'true' : 'false'"
+            :title="t('epmChipOutsideMenuHint')"
+            @click="toggleGlobalChip('unmapped')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipOutsideMenu') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.unmapped }}</Badge>
+          </button>
+        </div>
       </div>
 
       <TabsContent :value="shopStatusTab" class="mt-4 space-y-6 ep-shop-tab-content">
@@ -404,6 +433,13 @@
                                           class="ep-cost-alert-badge"
                                           :title="t('epmCostAbovePriceTitle')"
                                         ><v-icon size="12">mdi-alert</v-icon> {{ t('epmCostAbovePriceBadge') }}</span>
+                                        <!-- Cible d'un alias : ses prévisions
+                                             viennent de l'historique de la source. -->
+                                        <span
+                                          v-if="aliasSourceByTarget.has(String(item.id))"
+                                          class="ep-map-badge ep-map-badge--history"
+                                          :title="t('epmHistoryTitle') + ' ' + aliasSourceByTarget.get(String(item.id))"
+                                        >{{ t('epmHistoryBadge') }}</span>
                                       </p>
                                       <span v-if="item._bucket === 'unmapped'" class="ep-unmapped-actions">
                                         <span
@@ -414,9 +450,11 @@
                                         >{{ rowAddKind(element, item.id, item.name) === 'reactivate' ? t('epmDisabledBadge') : t('epmOutsideMenuBadge') }}</span>
                                         <EventPredictRowActions
                                           :kind="rowAddKind(element, item.id, item.name)"
+                                          allow-history
                                           @remap="$emit('remap-request', { shopName: element.name, elementId: element.id, soldItem: { id: item.id, name: item.name } })"
                                           @add="emitAddToMenu(element, item)"
                                           @open-space-menus="goToSpaceMenus"
+                                          @use-history="$emit('history-alias-request', { shopName: element.name, elementId: element.id, item: { id: item.id, name: item.name } })"
                                         />
                                       </span>
                                       <template v-else-if="item._ghost">
@@ -447,6 +485,21 @@
                                         class="ep-map-badge ep-map-badge--remapped"
                                         :title="t('epmRemappedTitle')"
                                       >{{ t('epmRemappedBadge') }}</span>
+                                      <!-- Ligne « sans ventes prévues » (prédit 0,
+                                           ni fantôme ni indisponible) : kebab
+                                           historique seul — reprendre l'historique
+                                           d'un ancien article (maquettes 08/2026). -->
+                                      <span
+                                        v-else-if="item._bucket === 'noSales'"
+                                        class="ep-unmapped-actions"
+                                      >
+                                        <EventPredictRowActions
+                                          allow-history
+                                          history-only
+                                          @open-space-menus="goToSpaceMenus"
+                                          @use-history="$emit('history-alias-request', { shopName: element.name, elementId: element.id, item: { id: item.id, name: item.name } })"
+                                        />
+                                      </span>
                                       </div>
                                       <p v-if="item.category" class="text-xs text-muted-foreground">{{ item.category }}</p>
                                       <!-- Qty controls — visibles pour les articles du
@@ -609,6 +662,34 @@
             <v-icon size="18">mdi-chevron-right</v-icon>
           </button>
         </div>
+        <!-- Mêmes chips-filtres qu'en vue PDV : ici ils filtrent les entrées
+             article (sans prévision / hors Space Menu). -->
+        <div class="ep-chip-filters flex-shrink-0">
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--nopred"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'noSales' }"
+            :aria-pressed="globalChipFilter === 'noSales' ? 'true' : 'false'"
+            :title="t('epmChipNoForecastHint')"
+            @click="toggleGlobalChip('noSales')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipNoForecast') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.noSales }}</Badge>
+          </button>
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--outmenu"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'unmapped' }"
+            :aria-pressed="globalChipFilter === 'unmapped' ? 'true' : 'false'"
+            :title="t('epmChipOutsideMenuHint')"
+            @click="toggleGlobalChip('unmapped')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipOutsideMenu') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.unmapped }}</Badge>
+          </button>
+        </div>
       </div>
 
       <TabsContent :value="itemTypeTab" class="mt-4 space-y-6 ep-item-tab-content">
@@ -660,7 +741,14 @@
                         @keydown.enter.prevent="toggleElementExpanded(entry.menuItemId)"
                         @keydown.space.prevent="toggleElementExpanded(entry.menuItemId)"
                       >
-                        <CardTitle class="ep-item-card-title truncate">{{ entry.menuItem.name }}</CardTitle>
+                        <CardTitle class="ep-item-card-title truncate">
+                          {{ entry.menuItem.name }}
+                          <span
+                            v-if="aliasSourceByTarget.has(String(entry.menuItemId))"
+                            class="ep-map-badge ep-map-badge--history"
+                            :title="t('epmHistoryTitle') + ' ' + aliasSourceByTarget.get(String(entry.menuItemId))"
+                          >{{ t('epmHistoryBadge') }}</span>
+                        </CardTitle>
                         <span
                           v-if="entry._mapGroup === 'unmapped'"
                           class="ep-map-badge ep-map-badge--unmapped"
@@ -797,9 +885,24 @@
                                   >{{ rowAddKind(shop.element, entry.menuItemId, entry.menuItem.name) === 'reactivate' ? t('epmDisabledBadge') : t('epmOutsideMenuBadge') }}</span>
                                   <EventPredictRowActions
                                     :kind="rowAddKind(shop.element, entry.menuItemId, entry.menuItem.name)"
+                                    allow-history
                                     @remap="$emit('remap-request', { shopName: shop.element.name, elementId: shop.element.id, soldItem: { id: entry.menuItemId, name: entry.menuItem.name } })"
                                     @add="emitAddToMenu(shop.element, { id: entry.menuItemId, name: entry.menuItem.name })"
                                     @open-space-menus="goToSpaceMenus"
+                                    @use-history="$emit('history-alias-request', { shopName: shop.element.name, elementId: shop.element.id, item: { id: entry.menuItemId, name: entry.menuItem.name } })"
+                                  />
+                                </span>
+                                <!-- Pendant vue article du kebab « sans ventes
+                                     prévues » : assigné, prédit 0 → historique seul. -->
+                                <span
+                                  v-else-if="shop.assignmentLoaded && shop.assigned && (shop.predictedQty || 0) === 0"
+                                  class="ep-unmapped-actions"
+                                >
+                                  <EventPredictRowActions
+                                    allow-history
+                                    history-only
+                                    @open-space-menus="goToSpaceMenus"
+                                    @use-history="$emit('history-alias-request', { shopName: shop.element.name, elementId: shop.element.id, item: { id: entry.menuItemId, name: entry.menuItem.name } })"
                                   />
                                 </span>
                               </p>
@@ -937,6 +1040,7 @@ import Tooltip from '../ui/tooltip.vue'
 import TooltipContent from '../ui/tooltipContent.vue'
 import TooltipTrigger from '../ui/tooltipTrigger.vue'
 import EventPredictRowActions from './EventPredictRowActions.vue'
+import { aliasSourceByTargetId } from '@/utils/historyAliases'
 
 // Onglets UI = 'Food' | 'Beverage' | 'Combo'. Le vocabulaire RÉEL en base est
 // FR+EN, casse mixte (ProductType : Nourriture/Boissons/Alcools/Food/Beverage/
@@ -1052,6 +1156,9 @@ export default {
     /** True = event futur sans historique, éligible mais mode pas encore
      *  démarré → l'empty state 'not-calculated' propose le bouton. */
     canStartEstimation: { type: Boolean, default: false },
+    /** Alias « historique emprunté » de l'espace (lignes MenuItemHistoryAlias)
+     *  — badge sur les lignes cibles (maquettes 08/2026). */
+    historyAliases: { type: Array, default: () => [] },
   },
   emits: [
     'update:selectedMenuItems',
@@ -1059,6 +1166,7 @@ export default {
     'update:manualQuantities',
     'manual-info',
     'remap-request',
+    'history-alias-request',
     'assign-shop-item',
     'assign-shop-items',
     'assign-blocked',
@@ -1082,6 +1190,10 @@ export default {
       shopSearchQuery: {},
       // Onglet actif des 3 catégories PAR SHOP. elementId -> 'sales' | 'unmapped' | 'noSales'.
       shopTab: {},
+      // Chip-filtre global de la toolbar (maquettes 08/2026) :
+      // null | 'noSales' (article sans prévision) | 'unmapped' (hors Space
+      // Menu). Non persisté, réinitialisé au changement d'onglet statut/vue.
+      globalChipFilter: null,
       // Déplié par défaut : des ventes sont prédites sur ces articles, on veut
       // que ce soit visible sans action (vue Item globale — le pendant par
       // shop est remplacé par l'onglet 'unmapped', cf. shopTab).
@@ -1443,7 +1555,14 @@ export default {
             if (!matchShop && !matchItem) return false
           }
           const open = this.isShopOpen(el.id)
-          return this.shopStatusTab === 'open' ? open : !open
+          if (!(this.shopStatusTab === 'open' ? open : !open)) return false
+          // Chip-filtre global : ne garder que les cartes ayant ≥1 ligne
+          // restant à traiter du type.
+          if (this.globalChipFilter) {
+            const c = this.chipCountsByElement.get(el.id) || {}
+            if (!((c[this.globalChipFilter] || 0) > 0)) return false
+          }
+          return true
         })
         if (filtered.length) out.push([type, filtered])
       }
@@ -1456,6 +1575,59 @@ export default {
     /** True quand l'open/closed est sourcé depuis la config (API /shops). */
     hasOpenData() {
       return this.isOpenByShop && Object.keys(this.isOpenByShop).length > 0
+    },
+    /** Cible d'alias → nom de la source (badge « historique emprunté »). */
+    aliasSourceByTarget() {
+      return aliasSourceByTargetId(this.historyAliases)
+    },
+    /**
+     * Compteurs des chips-filtres par PDV, mémoïsés en UNE passe (chips globaux
+     * + filtrage des cartes — appeler getGroupedMenuItems à chaque fois serait
+     * quadratique sur les grosses configs). DYNAMIQUES : une ligne « sans vente
+     * prévue » sort du compteur dès qu'une quantité ajustée > 0 la couvre
+     * (quantité manuelle posée) — le compteur mesure le RESTE À TRAITER, pas la
+     * taille du bucket (qui, lui, ne bouge pas).
+     */
+    chipCountsByElement() {
+      const map = new Map()
+      for (const el of this.fbElements) {
+        let noSales = 0
+        let unmapped = 0
+        for (const it of this.getGroupedMenuItems(el)) {
+          if (it._bucket === 'unmapped') unmapped += 1
+          else if (
+            it._bucket === 'noSales' &&
+            this.getAdjustedQuantity(el.id, it.id) === 0
+          ) noSales += 1
+        }
+        map.set(el.id, { noSales, unmapped })
+      }
+      return map
+    },
+    /**
+     * Compteurs globaux des chips-filtres. Vue PDV : somme du reste à traiter
+     * des cartes de l'onglet statut courant. Vue article : entrées hors menu
+     * (_mapGroup 'unmapped') / entrées sans AUCUNE quantité ajustée (prédite ou
+     * manuelle) sur aucun PDV, exclusif du premier.
+     */
+    globalChipCounts() {
+      let noSales = 0
+      let unmapped = 0
+      if (this.viewMode === 'item') {
+        for (const entry of this.groupByMenuItemArray) {
+          if (entry._mapGroup === 'unmapped') unmapped += 1
+          else if (entry.shops.every((s) => (s.adjustedQty || 0) === 0)) noSales += 1
+        }
+        return { noSales, unmapped }
+      }
+      for (const el of this.fbElements) {
+        const open = this.isShopOpen(el.id)
+        if (this.shopStatusTab === 'open' ? !open : open) continue
+        const c = this.chipCountsByElement.get(el.id) || {}
+        noSales += c.noSales || 0
+        unmapped += c.unmapped || 0
+      }
+      return { noSales, unmapped }
     },
     openShopsCount() {
       return this.fbElements.filter((el) => this.isShopOpen(el.id)).length
@@ -1553,6 +1725,8 @@ export default {
           const ms = entry.shops.some((s) => s.element.name.toLowerCase().includes(q))
           if (!mi && !ms) continue
         }
+        // Chip-filtre global (mêmes catégories qu'en vue PDV, à l'échelle entrée).
+        if (this.globalChipFilter && !this.entryMatchesChip(entry, this.globalChipFilter)) continue
         const hasSel = entry.shops.some((s) => s.selected)
         out.push({ ...entry, hasSelection: hasSel })
       }
@@ -1587,6 +1761,14 @@ export default {
       handler() {
         this.$nextTick(() => this.autoSelectIfEmpty())
       },
+    },
+    // Le chip-filtre global n'a de sens que dans le contexte où il a été posé
+    // (onglet Ouverts/Fermés, vue PDV/article) : on le relâche au changement.
+    shopStatusTab() {
+      this.globalChipFilter = null
+    },
+    viewMode() {
+      this.globalChipFilter = null
     },
   },
   methods: {
@@ -2576,6 +2758,31 @@ export default {
     setShopTab(elementId, tab) {
       this.shopTab = { ...this.shopTab, [elementId]: tab }
     },
+    /**
+     * Toggle d'un chip-filtre global (un seul actif à la fois). À l'activation
+     * en vue PDV, bascule le bucket interne des cartes retenues sur la
+     * catégorie filtrée (impératif ici, jamais dans un computed) — la
+     * désactivation ne restaure rien (l'utilisateur garde la main).
+     */
+    toggleGlobalChip(kind) {
+      const next = this.globalChipFilter === kind ? null : kind
+      this.globalChipFilter = next
+      if (!next || this.viewMode !== 'shop') return
+      for (const el of this.fbElements) {
+        const c = this.chipCountsByElement.get(el.id) || {}
+        if ((c[kind] || 0) > 0) this.setShopTab(el.id, kind)
+      }
+    },
+    /** Une entrée de la vue article matche-t-elle le chip-filtre donné ?
+     *  Même critère dynamique que les compteurs : « sans vente prévue » =
+     *  aucune quantité AJUSTÉE (prédite ou manuelle) sur aucun PDV. */
+    entryMatchesChip(entry, kind) {
+      if (kind === 'unmapped') return entry._mapGroup === 'unmapped'
+      return (
+        entry._mapGroup !== 'unmapped' &&
+        entry.shops.every((s) => (s.adjustedQty || 0) === 0)
+      )
+    },
     // Recherche texte par shop (remplace les chips catégorie dans l'en-tête —
     // elles rallongeaient l'en-tête de l'accordéon même replié). Filtre par
     // nom d'article uniquement (pas de notion de catégorie ici).
@@ -2717,6 +2924,16 @@ export default {
   color: var(--muted-foreground, #64748b);
   background: color-mix(in srgb, var(--muted-foreground, #64748b) 12%, transparent);
 }
+/* Cible d'un alias « historique emprunté » (maquettes 08/2026) : vert succès —
+   la ligne a récupéré des prévisions, ce n'est pas une alerte. */
+.ep-map-badge--history {
+  color: var(--fb-success, #0e7a5f);
+  background: color-mix(in srgb, var(--fb-success, #0e7a5f) 12%, transparent);
+}
+.dark .ep-map-badge--history {
+  color: #3dbd97;
+  background: color-mix(in srgb, #3dbd97 16%, transparent);
+}
 .ep-nohist-row {
   display: flex;
   align-items: center;
@@ -2818,9 +3035,10 @@ export default {
   border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 9999px;
   padding: 0 14px;
-  flex: 1 1 320px;
-  min-width: 260px;
-  max-width: 520px;
+  /* Barre resserrée (maquettes 08/2026) : 520 → 340 px, place aux chips. */
+  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 340px;
 }
 .ep-toolbar-search-icon {
   color: var(--fb-faint, #9ca3af);
@@ -2837,6 +3055,54 @@ export default {
 }
 .ep-toolbar-search-input::placeholder {
   color: var(--fb-muted, #6b7280);
+}
+/* Chips-filtres « reste à traiter » de la toolbar (maquettes 08/2026).
+   Même langage visuel que la recherche et les tabs pilule voisines : hauteur
+   38px, fond --fb-subtle, bordure --fb-border, radius 9999px. Actif = accent
+   produit (--fb-primary-soft / #ff3131), comme .ep-remap-btn et le badge
+   remappé — le point coloré porte seul la sémantique (orange = sans vente
+   prévue, rouge = non attaché). */
+.ep-chip-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ep-chip-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  background: var(--fb-subtle, #fafafa);
+  color: var(--fb-muted, #6b7280);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+.ep-chip-filter:hover {
+  color: var(--fb-text, #111827);
+  border-color: var(--fb-border, #d1d5db);
+}
+.ep-chip-filter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ep-chip-filter--nopred .ep-chip-filter-dot {
+  background: #c2410c;
+}
+.ep-chip-filter--outmenu .ep-chip-filter-dot {
+  background: var(--destructive, #b91c1c);
+}
+.ep-chip-filter--on {
+  border-color: rgba(255, 49, 49, 0.35);
+  background: var(--fb-primary-soft, #fff5f5);
+  color: #ff3131;
 }
 .ep-toolbar-tabs {
   height: 38px;

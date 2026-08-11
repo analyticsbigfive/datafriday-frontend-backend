@@ -33,6 +33,7 @@ import spaceConfigurations from './modules/spaceConfigurations'
 import spaceShops from './modules/spaceShops'
 import shopMenuItems from './modules/shopMenuItems'
 import shopMenuAvailability from './modules/shopMenuAvailability'
+import historyAliases from './modules/historyAliases'
 import notifications from './modules/notifications'
 import hrSettings from './modules/hrSettings'
 import staffing from './modules/staffing'
@@ -82,6 +83,7 @@ export default createStore({
     spaceShops,
     shopMenuItems,
     shopMenuAvailability,
+    historyAliases,
     notifications,
     hrSettings,
     staffing,

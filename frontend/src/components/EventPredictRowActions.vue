@@ -17,7 +17,7 @@
     </template>
     <v-list density="compact" class="epra-list" min-width="180">
       <v-list-item
-        v-if="kind === 'remap'"
+        v-if="!historyOnly && kind === 'remap'"
         class="epra-item"
         @click.stop="$emit('remap')"
       >
@@ -25,7 +25,7 @@
         <v-list-item-title>{{ t('epraRemap') }}</v-list-item-title>
       </v-list-item>
       <v-list-item
-        v-else
+        v-else-if="!historyOnly"
         class="epra-item"
         @click.stop="$emit('add')"
       >
@@ -35,6 +35,16 @@
       <v-list-item class="epra-item" @click.stop="$emit('open-space-menus')">
         <template #prepend><v-icon size="16">mdi-open-in-new</v-icon></template>
         <v-list-item-title>Space Menus</v-list-item-title>
+      </v-list-item>
+      <!-- Alias « historique emprunté » (maquettes 08/2026) : proposer de
+           reprendre l'historique d'un autre article — lignes orphelines. -->
+      <v-list-item
+        v-if="allowHistory"
+        class="epra-item epra-item--history"
+        @click.stop="$emit('use-history')"
+      >
+        <template #prepend><v-icon size="16">mdi-history</v-icon></template>
+        <v-list-item-title>{{ t('epraUseHistory') }}</v-list-item-title>
       </v-list-item>
     </v-list>
   </v-menu>
@@ -52,8 +62,13 @@ export default {
   props: {
     // 'remap' (hors catalogue) | 'add' (dispo, hors menu) | 'reactivate' (dans menu, désactivé)
     kind: { type: String, default: 'add' },
+    // Propose « Utiliser l'historique d'un autre article » (alias espace).
+    allowHistory: { type: Boolean, default: false },
+    // Lignes « sans ventes prévues » (déjà au menu, activées) : seules les
+    // actions historique + Space Menus ont un sens — masque Remapper/Ajouter.
+    historyOnly: { type: Boolean, default: false },
   },
-  emits: ['remap', 'add', 'open-space-menus'],
+  emits: ['remap', 'add', 'open-space-menus', 'use-history'],
 }
 </script>
 
@@ -88,5 +103,9 @@ export default {
 .epra-item {
   font-size: 13px;
   min-height: 36px;
+}
+.epra-item--history {
+  color: var(--fb-success, #0e7a5f);
+  font-weight: 600;
 }
 </style>

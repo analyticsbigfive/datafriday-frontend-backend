@@ -1524,8 +1524,8 @@ export default {
       // Scénario (version EventPredict) choisi par évènement : eventId → versionId.
       selectedScenarioByEventId: {},
       // Versions rapatriées depuis la BDD (réactif) : eventId → version[]. Prime
-      // sur le miroir localStorage. manualQuantities (front-only) fusionné depuis
-      // le local par id (le backend ne stocke pas cette colonne).
+      // sur le miroir localStorage. manualQuantities : colonne BDD prioritaire,
+      // miroir local en repli (versions antérieures à la migration 20260625).
       bddVersionsByEventId: {},
       // Méta des records lus depuis localStorage (ajustements % + menuConfig)
       // par évènement, pour reproduire les quantités EventPredict.
@@ -3257,8 +3257,11 @@ export default {
         name: d.name,
         menuConfig: d.menuConfig || {},
         quantityAdjustments: d.quantityAdjustments || {},
-        // manualQuantities non stocké en BDD → préservé depuis le miroir local par id.
-        manualQuantities: (localById.get(d.id) || {}).manualQuantities || {},
+        // manualQuantities : colonne BDD (EventPredictVersion, migration
+        // 20260625000000) prioritaire — cross-device ; miroir localStorage en
+        // repli pour les versions sauvées avant la migration.
+        manualQuantities:
+          d.manualQuantities || (localById.get(d.id) || {}).manualQuantities || {},
         selectedPredictionEventIds: d.selectedPredictionEventIds || [],
         // Quantités prédites par item (shop+menuItemId) persistées en BDD par
         // EventPredict. Source cross-device : lue par refreshSelectedPredictions

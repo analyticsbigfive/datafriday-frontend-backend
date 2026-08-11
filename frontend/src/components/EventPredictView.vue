@@ -620,6 +620,21 @@
               @apply="applySourcesSelection"
             />
 
+            <!-- Drawer « Utiliser l'historique d'un autre article » (maquettes
+                 08/2026) : crée un alias MenuItemHistoryAlias (portée espace) —
+                 la timeline se réécrit par computeds, aucun refetch réseau. -->
+            <EventPredictHistoryAliasDrawer
+              v-model="historyAliasDrawer.open"
+              :context-label="historyAliasContextLabel"
+              :target-item="historyAliasDrawer.item"
+              :catalog-items="menuItems"
+              :source-candidates="historyAliasSourceCandidates"
+              :aliases="spaceHistoryAliases"
+              :loading="historyAliasDrawer.saving"
+              @apply="applyHistoryAlias"
+              @remove-alias="removeHistoryAlias"
+            />
+
             <!-- SECTION 3 — skeleton du graphe pendant le calcul de la timeline
                  (initial ET recalcul partiel « Sauvegarder & Recalculer »). -->
             <div
@@ -759,24 +774,32 @@
                 </TabsTrigger>
               </TabsList>
 
+              <!-- Toggle compact : icônes seules (barre resserrée), libellés
+                   conservés en tooltip + aria-label. -->
               <div
                 v-if="predictSectionTab === 'configuration' || predictSectionTab === 'stockup'"
                 class="ep-view-mode-wrap"
+                :title="t('epDisplayMode')"
               >
-                <span class="ep-view-mode-label">{{ t('epDisplayMode') }}</span>
                 <Tabs
                   :value="viewMode"
                   class-name="ep-view-mode-tabs"
                   @update:value="setViewMode"
                 >
                   <TabsList class-name="grid w-full grid-cols-2">
-                    <TabsTrigger value="shop">
-                      <v-icon size="14" class="mr-1">mdi-store-outline</v-icon>
-                      {{ t('epViewModeShop') }}
+                    <TabsTrigger
+                      value="shop"
+                      :title="t('epViewModeShop')"
+                      :aria-label="t('epViewModeShop')"
+                    >
+                      <v-icon size="14">mdi-store-outline</v-icon>
                     </TabsTrigger>
-                    <TabsTrigger value="item">
-                      <v-icon size="14" class="mr-1">mdi-tag-outline</v-icon>
-                      {{ t('epViewModeItem') }}
+                    <TabsTrigger
+                      value="item"
+                      :title="t('epViewModeItem')"
+                      :aria-label="t('epViewModeItem')"
+                    >
+                      <v-icon size="14">mdi-tag-outline</v-icon>
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
@@ -838,7 +861,9 @@
                 @update:quantity-adjustments="onAdjustmentsChange"
                 @update:manual-quantities="onManualQuantitiesChange"
                 @manual-info="showManualInfo"
+                :history-aliases="spaceHistoryAliases"
                 @remap-request="openRemapDialog"
+                @history-alias-request="openHistoryAliasDrawer"
                 @assign-shop-item="handleAssignShopItem"
                 @assign-shop-items="handleAssignShopItems"
                 @assign-blocked="handleAssignBlocked"
@@ -1218,6 +1243,8 @@ import EventPredictStockUpSection from "./EventPredictStockUpSection.vue";
 import EventTimelineChart from "./analyse/charts/EventTimelineChart.vue";
 import EventDetailsEditor from "./EventDetailsEditor.vue";
 import EventPredictSourcesDrawer from "./EventPredictSourcesDrawer.vue";
+import EventPredictHistoryAliasDrawer from "./EventPredictHistoryAliasDrawer.vue";
+import { applyHistoryAliases } from "../utils/historyAliases";
 import WorkspaceToolSelect from "@/components/WorkspaceToolSelect.vue";
 import WorkspacePanelToggle from "@/components/WorkspacePanelToggle.vue";
 import WorkspaceUserMenu from "@/components/WorkspaceUserMenu.vue";
@@ -1230,7 +1257,7 @@ import TabsTrigger from "../ui/tabsTrigger.vue";
 import TabsContent from "../ui/tabsContent.vue";
 import { parseEventDate as parseDDMMYYYY } from "../utils/dateFr";
 import { isDemoMode } from "../utils/demoMode";
-import { mergeEffectiveMenuConfig } from "../utils/menuConfigSelection";
+import { mergeEffectiveMenuConfig, applyAssignToExplicit } from "../utils/menuConfigSelection";
 import { resolveItemsContext, isEstimationEligible } from "../utils/estimationMode";
 import { resolveInventoryRouteName } from "../utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "../data/localDb";
@@ -1377,6 +1404,7 @@ export default {
     WorkspacePanelToggle,
     WorkspaceUserMenu,
     EventPredictSourcesDrawer,
+    EventPredictHistoryAliasDrawer,
     WorkspaceToolSelect,
     WorkspaceSpaceSwitcher,
     Tabs,
@@ -1439,7 +1467,14 @@ export default {
       navExpanded: false,
       // (debugMode a migré dans setup() : il pilote le coût des traces du
       // composable, pas seulement l'affichage.)
-      loading: true,
+      // Store chaud (events + configurations déjà en cache) → pas de skeleton
+      // plein écran au remontage : le composant est détruit/recréé à chaque
+      // bascule toolbox (v-if côté AnalyseView) et re-latcher `loading` à
+      // chaud provoquait un flash skeleton sur des données déjà présentes.
+      loading: !(
+        (store.state.analyse?.events?.length || 0) > 0 &&
+        (store.state.analyse?.configurations?.length || 0) > 0
+      ),
       // Datasets lourds (granular REST, mappings Edge) en cours de chargement
       // en arrière-plan (finishHeavyLoad) → indicateur discret sous le header.
       heavyLoading: false,
@@ -1609,6 +1644,14 @@ export default {
         targetId: null,
         candidates: [], // [{ id, name, basePrice }]
         supplierWarn: "",
+      },
+      // Drawer « Utiliser l'historique d'un autre article » (alias espace).
+      historyAliasDrawer: {
+        open: false,
+        saving: false,
+        shopName: "",
+        elementId: "",
+        item: null, // { id, name } — ligne cliquée = cible pré-remplie
       },
       // Dialog Vuetify universel (remplace window.prompt / window.confirm)
       dlg: {
@@ -1855,10 +1898,76 @@ export default {
      * menu item) + Stock up. Event futur → timeline prédictive ; event passé →
      * timeline réelle. Permet d'ajuster les ventes quel que soit l'event.
      */
-    activeTimelineData() {
+    rawActiveTimelineData() {
       return this.isPastSelectedEvent
         ? (this.pastTimelineData || [])
         : (this.timeline?.predictedTimelineData || []);
+    },
+    activeTimelineData() {
+      // Alias « historique emprunté » : réécriture AU POINT UNIQUE — tout
+      // l'aval (index de quantités, buckets, stock-up, buildPredictedRecords)
+      // voit l'article CIBLE sans autre modification. La page Analyse ne lit
+      // jamais cette donnée : contrainte « Analyse non modifiée » garantie.
+      // Sans alias, retour de la MÊME référence (stabilité des watchers).
+      return applyHistoryAliases(
+        this.rawActiveTimelineData,
+        this.spaceHistoryAliases,
+        this.menuItemNameById,
+      );
+    },
+    /** Alias « historique emprunté » de l'espace (store réactif). */
+    spaceHistoryAliases() {
+      const sid = this.space?.id;
+      return sid ? store.getters["historyAliases/forSpace"](sid) : [];
+    },
+    /** id catalogue → nom, pour renommer les records réécrits par alias. */
+    menuItemNameById() {
+      const map = new Map();
+      for (const mi of this.menuItems || []) {
+        if (mi && mi.id != null && mi.name) map.set(String(mi.id), mi.name);
+      }
+      return map;
+    },
+    /**
+     * Sources candidates du drawer alias : items DISTINCTS de la timeline
+     * BRUTE (avant réécriture — sinon une source déjà mappée disparaîtrait de
+     * la liste et l'alias deviendrait inéditable), avec volume et prix moyen.
+     */
+    historyAliasSourceCandidates() {
+      const byKey = new Map();
+      for (const r of this.rawActiveTimelineData || []) {
+        const name = r.itemName || r.menuItemName;
+        if (!name) continue;
+        const key = String(name).toLowerCase();
+        const cur = byKey.get(key) || {
+          sourceMenuItemId: null,
+          name,
+          totalQuantity: 0,
+          _revenue: 0,
+        };
+        // L'id timeline n'est une clé source utile que s'il est CATALOGUE
+        // (mappedMenuItemId) — `menuItemId` peut porter l'id produit Weezevent.
+        if (!cur.sourceMenuItemId && r.mappedMenuItemId) {
+          cur.sourceMenuItemId = String(r.mappedMenuItemId);
+        }
+        cur.totalQuantity += Number(r.totalQuantity) || 0;
+        cur._revenue += Number(r.totalRevenue) || 0;
+        byKey.set(key, cur);
+      }
+      return Array.from(byKey.values())
+        .map((c) => ({
+          ...c,
+          avgPrice: c.totalQuantity > 0 ? c._revenue / c.totalQuantity : null,
+        }))
+        .sort((a, b) => b.totalQuantity - a.totalQuantity);
+    },
+    historyAliasContextLabel() {
+      const parts = [
+        this.space?.name,
+        this.selectedEventConfiguration?.name,
+        this.historyAliasDrawer.shopName,
+      ].filter(Boolean);
+      return parts.join(" · ");
     },
     /**
      * Event passé à EventDetailsEditor. EventPredict prédit désormais un event
@@ -3492,7 +3601,13 @@ export default {
       this.scheduleDraftSave();
     },
     async loadAll() {
-      this.loading = true;
+      // Même garde que l'init : ne latcher le skeleton plein écran que si le
+      // store est froid ; à chaud les sous-spinners (timeline, heavyLoading)
+      // suffisent et le contenu reste affiché pendant le refresh.
+      this.loading = !(
+        (store.state.analyse?.events?.length || 0) > 0 &&
+        (store.state.analyse?.configurations?.length || 0) > 0
+      );
       try {
         const demo = isDemoMode();
 
@@ -3500,6 +3615,18 @@ export default {
         // seul burst) au lieu de la cascade série loadSpace → spaceShops →
         // Promise.all → granular → mappings. Chacune ne dépend que de space.id ;
         // on n'attend chaque promesse que juste avant son consommateur.
+
+        // Alias « historique emprunté » de l'espace : fire-and-forget dans le
+        // burst — la liste arrive réactivement (store) et réécrit
+        // activeTimelineData dès réception. Échec silencieux = zéro alias.
+        if (this.space?.id) {
+          store
+            .dispatch("historyAliases/fetchForSpace", { spaceId: this.space.id })
+            .catch((e) => {
+              // eslint-disable-next-line no-console
+              console.warn("[EVENT PREDICT] history aliases fetch failed:", e?.message);
+            });
+        }
 
         // loadSpace (conditionnel) — alimente store.configurations/events, requis
         // par buildShopMappings + les lectures store plus bas. Awaité juste avant
@@ -4251,6 +4378,58 @@ export default {
       this.remapDlg.targetId = id;
       this.checkRemapSupplier(id);
     },
+    /** Ouvre le drawer « Utiliser l'historique d'un autre article ». */
+    openHistoryAliasDrawer(payload) {
+      const { shopName, elementId, item } = payload || {};
+      this.historyAliasDrawer = {
+        open: true,
+        saving: false,
+        shopName: shopName || "",
+        elementId: elementId || "",
+        item: item ? { id: item.id, name: item.name } : null,
+      };
+    },
+    /** « Mapper & recalculer » : crée l'alias — la réécriture d'activeTimelineData
+     *  et tout l'aval (buckets, CA ajusté, stock-up) recalculent par computeds,
+     *  sans aucun refetch réseau de timeline. */
+    async applyHistoryAlias({ sourceMenuItemId, sourceName, targetMenuItemId }) {
+      const spaceId = this.space?.id;
+      if (!spaceId || !sourceName || !targetMenuItemId) return;
+      this.historyAliasDrawer.saving = true;
+      try {
+        await store.dispatch("historyAliases/createAlias", {
+          spaceId,
+          sourceMenuItemId: sourceMenuItemId || undefined,
+          sourceName,
+          targetMenuItemId,
+        });
+        this.historyAliasDrawer.open = false;
+        this.snackbarColor = "success";
+        this.snackbarText = `Historique de « ${sourceName} » repris par « ${
+          this.menuItemNameById.get(String(targetMenuItemId)) || targetMenuItemId
+        } » — prévisions recalculées.`;
+        this.snackbar = true;
+      } catch (e) {
+        this.snackbarColor = "error";
+        this.snackbarText =
+          "Échec de la création de l'alias : " + (e?.response?.data?.message || e?.message || "erreur");
+        this.snackbar = true;
+      } finally {
+        this.historyAliasDrawer.saving = false;
+      }
+    },
+    /** Supprime un alias depuis le drawer — retour arrière immédiat (computeds). */
+    async removeHistoryAlias({ id }) {
+      const spaceId = this.space?.id;
+      if (!spaceId || !id) return;
+      try {
+        await store.dispatch("historyAliases/removeAlias", { spaceId, id });
+      } catch (e) {
+        this.snackbarColor = "error";
+        this.snackbarText = "Échec de la suppression de l'alias : " + (e?.message || "erreur");
+        this.snackbar = true;
+      }
+    },
     /** Ouvre la popup de remapping pour un élément vendu non rattaché. Les
      *  candidats = menu items DU SHOP (roster getShopMenus), pas le catalogue. */
     async openRemapDialog(payload) {
@@ -4380,7 +4559,7 @@ export default {
       this.snackbarText = `${label} n'est pas dans le menu de « ${shopName} ». Rattachez-le d'abord (bouton Remapper).`;
       this.snackbar = true;
     },
-    async handleAssignShopItem({ shopName, menuItemId, enabled }) {
+    async handleAssignShopItem({ elementId, shopName, menuItemId, enabled }) {
       const spaceId = this.space?.id;
       const cfgId = this.selectedEvent?.configurationId || null;
       const row = this.resolveShopRow(shopName);
@@ -4428,6 +4607,18 @@ export default {
         }
         if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
         await this.loadShopMenuAssignment();
+        // Auto-sélection : si l'utilisateur a déjà une sélection explicite sur
+        // ce PDV, la clé explicite masque la sélection dérivée du refetch —
+        // on y répercute donc l'assignation pour que l'article réactivé
+        // ressorte coché (et qu'un retrait ressorte décoché).
+        if (elementId) {
+          this.eventMenuConfig = applyAssignToExplicit(
+            this.eventMenuConfig,
+            elementId,
+            menuItemId,
+            enabled === true,
+          );
+        }
         this.snackbarColor = "success";
         this.snackbarText = enabled
           ? `Article activé dans le menu de « ${shopName} » (Space Menus mis à jour).`
@@ -4635,6 +4826,10 @@ export default {
           itemName: m.itemName || null,
           totalQuantity: m.totalQuantity,
           totalRevenue: m.totalRevenue,
+          // Sémantique 311-02 : une ligne manuelle porte sa quantité FINALE
+          // (déjà ajustée). Sans ce flag, le chemin Réappro « predictedRecords
+          // BDD » ré-appliquait quantityAdjustments (double application du %).
+          isManual: true,
         });
       }
       return Array.from(agg.values());
@@ -6651,14 +6846,6 @@ export default {
   align-items: center;
   gap: 8px;
 }
-.ep-view-mode-label {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted-foreground, #6b7280);
-  white-space: nowrap;
-}
 @media (max-width: 700px) {
   .ep-view-mode-wrap {
     width: 100%;
@@ -6671,8 +6858,9 @@ export default {
 }
 :deep(.ep-predict-section-trigger) {
   flex: 0 0 auto;
-  min-width: 190px;
-  padding-inline: 18px;
+  /* Barre resserrée (maquettes 08/2026) : 190/18 → 120/12. */
+  min-width: 120px;
+  padding-inline: 12px;
   font-size: 0.9375rem;
   font-weight: 650;
 }
