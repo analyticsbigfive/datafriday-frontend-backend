@@ -38,6 +38,7 @@ import notifications from './modules/notifications'
 import hrSettings from './modules/hrSettings'
 import staffing from './modules/staffing'
 import seasons from './modules/seasons'
+import storageInventory from './modules/storageInventory'
 
 export default createStore({
   state: {
@@ -88,5 +89,6 @@ export default createStore({
     hrSettings,
     staffing,
     seasons,
+    storageInventory,
   }
 })
