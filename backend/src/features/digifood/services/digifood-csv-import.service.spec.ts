@@ -225,6 +225,23 @@ describe('DigifoodCsvImportService', () => {
         });
     });
 
+    describe('encodage Windows-1252 (export Excel FR : "€" en octet seul, casse le décodage UTF-8 forcé)', () => {
+        it('détecte l\'encodage et ne rejette pas les lignes à cause du "€"/accents mal décodés', async () => {
+            // TAB comme dans l'export réel (§ describe ci-dessus) : la valeur "3,50 €" contient
+            // une virgule décimale, qui entrerait en conflit avec un délimiteur ",".
+            const csv = [
+                ['Long ID', 'Item', 'Quantity', 'Total TTC', 'Placed at_date'].join('\t'),
+                ['order_enc_1', 'Café', '1', '3,50 €', '2026-07-05'].join('\t'),
+            ].join('\n');
+            const buffer = iconv.encode(csv, 'windows-1252');
+
+            const report = await service.importCsv(TENANT, INTEGRATION, buffer);
+
+            expect(report.rejectedRows).toHaveLength(0);
+            expect(report.ordersDetected).toBe(1);
+        });
+    });
+
     describe('startRealImport — job asynchrone (fire-and-forget, comme WeezeventSyncJob)', () => {
         it('crée le run en PROCESSING et répond IMMÉDIATEMENT (avant la fin de l\'ingestion)', async () => {
             const { jobId, ordersDetected } = await service.startRealImport(
