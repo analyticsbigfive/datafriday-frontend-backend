@@ -544,6 +544,53 @@ donnée réseau de ce fichier passe soit par des imports nommés d'`api/endpoint
 
 ---
 
+## Estimation 0 — event futur SANS historique comparable (fiche 311-01, 2026-08-11)
+
+**Qu'est-ce que c'est** : quand aucun event passé ne franchit les gates ET que le pool de repli est
+vide (`usePredictiveTimeline.js:860`, `insufficientData = true`, `predictedTimelineData = []`),
+l'ancien comportement rendait la grille PDV × articles inaccessible (`predictionItemsContext =
+'not-calculated'` → empty state `epNoItemsPrediction` dans les deux sections). Le mode
+« Estimation 0 » propose alors un bouton **« Démarrez une estimation »** dans cet empty state :
+la grille se rend depuis le **Space Menu de la configuration** (`configShopElements` +
+`shopMenuAssignmentItems`, sources indépendantes des ventes), prédictions à 0, et tout se saisit
+via le canal `manualQuantities` existant.
+
+**Où vit la logique** : `src/utils/estimationMode.js` (pur, testé par
+`tests/unit/estimationMode.spec.js`) — `resolveItemsContext(...)` (l'ancien computed
+`predictionItemsContext` transcrit tel quel, plus la règle : la branche `'not-calculated'` devient
+`'ready'` quand le mode est actif ; `'loading'`/`'no-config'`/`'no-mapping'` gardent priorité) et
+`isEstimationEligible(...)` (event futur + timeline vide + `_assignmentLoaded` + assignation non
+vide + ≥1 shop de config — le gate `assignmentLoaded` évite le flash « catalogue complet » avant le
+chargement de l'assignation).
+
+**États dans `EventPredictView.vue`** : data `estimationMode` (bouton), computed `estimationActive`
+= éligible ET (`estimationMode` OU une valeur de `manualQuantities` > 0). La 2ᵉ condition est le
+**ré-armement cross-device** : le JSON d'`EventPredictVersion` ne porte pas de flag, mais
+`applyVersion()` restaure `manualQuantities` → le mode se ré-arme seul. Persistance locale : clé
+additive `estimationMode` dans le brouillon `analyse:event-predict-draft:{eventId}` (restaurée
+AVANT l'early-return `!draft.quantityAdjustments` — un brouillon peut porter le mode sans aucune
+quantité). Sorties du mode : `performReset()` et le watcher `selectedEventId`.
+
+**Côté `EventPredictMenusSection.vue`** : props `estimationActive`/`canStartEstimation` (défaut
+`false` → comportement historique strictement inchangé hors mode), émission `start-estimation`,
+bandeau info `epEstimationModeBanner`, onglet par shop par défaut `'noSales'` en mode estimation
+(c'est là que vivent les lignes simulables ; l'onglet « ventes » a un badge 0), et saisie directe :
+`<input type="number">` à côté du slider manuel avec plafond dynamique `manualSliderMax` =
+`max(manualQtyMax=500, valeur saisie)` — les volumes stade (14 000 scannés) dépassent largement
+l'ancien plafond fixe du slider.
+
+**Aval inchangé, réutilisé tel quel** : `manualQuantities` → `manualQuantityRecords` → totaux
+ajustés sidebar → `buildPredictedRecords()` (`isManual: true`) → snapshot version → backend →
+Réappro. Anti-double-comptage le jour où l'event gagne des comparables : `estimationEligible`
+retombe à faux et `manualQuantityRecords` saute déjà les clés couvertes par la prédiction.
+
+**Nuance sur le tableau `manualQuantities` plus haut** : la mention « jamais envoyée par le
+frontend » est périmée — `versionToPayload` (`useEventPredictVersions.js:145-149`) inclut
+`manualQuantities` dans le POST/PATCH (vérifié 2026-08-11), c'est ce qui rend le ré-armement
+cross-device possible.
+
+---
+
 ## `EventPredictMenusSection.vue` — "Configuration settings"
 
 **Qu'est-ce que c'est** : la section qui pilote **quels menu items sont vendus dans quel shop pour

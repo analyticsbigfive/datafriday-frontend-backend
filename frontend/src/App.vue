@@ -14,6 +14,17 @@
            survivre à la navigation inter-routes. Il s'auto-active via localStorage et
            écoute l'événement `weezevent-job-minimized`. -->
       <SyncJobFloatingWidget />
+      <!-- Même widget, réutilisé pour l'import CSV Digifood (voir SyncJobFloatingWidget.vue,
+           props provider/jobStatusFetcher/storageKey/minimizedEventName) — décalé verticalement
+           pour ne pas se superposer si un sync Weezevent ET un import Digifood tournent en même
+           temps. -->
+      <SyncJobFloatingWidget
+        provider="digifood"
+        :job-status-fetcher="getDigifoodCsvImportJobStatus"
+        storage-key="digifood_csv_import_active_job_id"
+        minimized-event-name="digifood-csv-import-job-minimized"
+        :offset-bottom="200"
+      />
     </v-main>
   </v-app>
 </template>
@@ -25,6 +36,7 @@ import RouteTransitionLoader from '@/components/RouteTransitionLoader.vue'
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog.vue'
 import DemoModeBanner from '@/components/DemoModeBanner.vue'
 import SyncJobFloatingWidget from '@/components/SyncJobFloatingWidget.vue'
+import { getDigifoodCsvImportJobStatus } from '@/api/endpoints/aggregation.api.js'
 
 export default {
   name: 'App',
@@ -33,6 +45,10 @@ export default {
   data: () => ({
     //
   }),
+
+  methods: {
+    getDigifoodCsvImportJobStatus,
+  },
 
   mounted() {
     // Notifications : hydrate le miroir localStorage UNE fois au boot, puis

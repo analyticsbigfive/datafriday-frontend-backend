@@ -831,6 +831,9 @@
                 :items-context="predictionItemsContext"
                 :product-types="productTypes"
                 :product-categories="productCategories"
+                :estimation-active="estimationActive"
+                :can-start-estimation="canStartEstimation"
+                @start-estimation="startEstimation"
                 @update:selected-menu-items="onMenuConfigChange"
                 @update:quantity-adjustments="onAdjustmentsChange"
                 @update:manual-quantities="onManualQuantitiesChange"
@@ -1228,6 +1231,7 @@ import TabsContent from "../ui/tabsContent.vue";
 import { parseEventDate as parseDDMMYYYY } from "../utils/dateFr";
 import { isDemoMode } from "../utils/demoMode";
 import { mergeEffectiveMenuConfig } from "../utils/menuConfigSelection";
+import { resolveItemsContext, isEstimationEligible } from "../utils/estimationMode";
 import { resolveInventoryRouteName } from "../utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "../data/localDb";
 
@@ -1490,6 +1494,13 @@ export default {
       // Clé: `${elementId}-${menuItemId}` → unités. Persisté comme
       // quantityAdjustments (draft + version). N'altère PAS les prédictions.
       manualQuantities: {},
+      // Estimation 0 (fiche 311_01) : event futur SANS historique comparable.
+      // true = l'utilisateur a cliqué « Démarrez une estimation » → la grille
+      // PDV × articles se rend depuis le Space Menu, prédictions à 0, saisie
+      // via manualQuantities. Persisté dans le brouillon localStorage (pas en
+      // version — le ré-armement cross-device passe par manualQuantities,
+      // cf. estimationActive).
+      estimationMode: false,
       // Configuration menu liftée du composant `EventPredictMenusSection`
       // (cf. React EventPredictView eventMenuConfig :132). Map<elementId,
       // string[]> représentant les menu items sélectionnés par shop.
@@ -2267,24 +2278,51 @@ export default {
      * Consommé par les 2 sections via `:items-context`.
      */
     predictionItemsContext() {
-      if (
-        this.loading ||
-        this.heavyLoading ||
-        this.timeline?.timelineLoading ||
-        (this.isPastSelectedEvent && this.pastTimelineLoading)
-      ) {
-        return "loading";
-      }
-      if (!this.configHasShops || !this.selectedEventConfiguration) {
-        return "no-config";
-      }
-      if (this.menuAssignmentMissing) {
-        return "no-mapping";
-      }
-      if (!this.isPastSelectedEvent && !(this.activeTimelineData || []).length) {
-        return "not-calculated";
-      }
-      return "ready";
+      // Logique extraite dans utils/estimationMode.js (testable en Jest) —
+      // seule la branche 'not-calculated' change : elle devient 'ready' quand
+      // le mode Estimation 0 est actif (fiche 311_01).
+      return resolveItemsContext({
+        loading:
+          this.loading ||
+          this.heavyLoading ||
+          this.timeline?.timelineLoading ||
+          (this.isPastSelectedEvent && this.pastTimelineLoading),
+        hasConfigShops: !!(this.configHasShops && this.selectedEventConfiguration),
+        assignmentMissing: this.menuAssignmentMissing,
+        isPastEvent: this.isPastSelectedEvent,
+        timelineEmpty: !(this.activeTimelineData || []).length,
+        estimationActive: this.estimationActive,
+      });
+    },
+    /**
+     * Estimation 0 (fiche 311_01) — éligibilité : event futur, timeline prédite
+     * vide, assignation Space Menu chargée et non vide, ≥1 shop réel de config.
+     */
+    estimationEligible() {
+      return isEstimationEligible({
+        isPastEvent: this.isPastSelectedEvent,
+        timelineEmpty: !(this.activeTimelineData || []).length,
+        assignmentLoaded: this._assignmentLoaded,
+        assignmentMissing: this.menuAssignmentMissing,
+        configShopCount: (this.configShopElements || []).length,
+      });
+    },
+    /**
+     * Mode estimation EFFECTIF : flag explicite (bouton) OU quantités manuelles
+     * déjà saisies (version rechargée sur un autre appareil — le JSON de version
+     * ne porte pas de flag, manualQuantities suffit à ré-armer). S'éteint seul
+     * si une timeline apparaît un jour (estimationEligible retombe à faux) —
+     * manualQuantityRecords ignore déjà les clés couvertes par la prédiction,
+     * donc pas de double comptage.
+     */
+    estimationActive() {
+      if (!this.estimationEligible) return false;
+      if (this.estimationMode) return true;
+      const mq = this.manualQuantities || {};
+      return Object.values(mq).some((v) => Number(v) > 0);
+    },
+    canStartEstimation() {
+      return this.estimationEligible && !this.estimationActive;
     },
     /**
      * Assignation sérialisée `Object<elementId, string[]>` pour MenusSection :
@@ -3286,6 +3324,7 @@ export default {
       this._versionPickIds = null;
       this.quantityAdjustments = {};
       this.manualQuantities = {};
+      this.estimationMode = false;
       this.eventMenuConfig = {};
       this.versionsApi.currentEditingVersionId.value = null;
       this.clearVersionBaseline();
@@ -4914,6 +4953,12 @@ export default {
       this._versionDirtyTick++;
       this.scheduleDraftSave();
     },
+    /** Estimation 0 (fiche 311_01) : entrée dans le mode via le bouton
+     *  « Démarrez une estimation » de MenusSection. Persisté en brouillon. */
+    startEstimation() {
+      this.estimationMode = true;
+      this.scheduleDraftSave();
+    },
     /**
      * Champs de l'event qui pilotent réellement l'algo de prédiction (audit de
      * `usePredictiveTimeline`/scoring) — donc ceux dont l'édition doit changer
@@ -5781,6 +5826,9 @@ export default {
         localStorage.setItem(key, JSON.stringify({
           quantityAdjustments: this.quantityAdjustments || {},
           manualQuantities: this.manualQuantities || {},
+          // Estimation 0 (fiche 311_01) : clé additive, brouillons antérieurs
+          // sans elle restent valides (ré-armement via manualQuantities).
+          estimationMode: !!this.estimationMode,
           selectedPredictionEventIds: Array.from(this.selectedPastEventIds || []),
           selectedTimeRange: this.selectedTimeRange || null,
           // Override des champs event qui pilotent l'algo (attendance, profil) :
@@ -5809,6 +5857,10 @@ export default {
       let draft = null;
       try { draft = JSON.parse(localStorage.getItem(key) || 'null'); } catch (_) { draft = null; }
       if (!draft) return false;
+      // Estimation 0 : restaurer le flag AVANT l'early-return
+      // `!draft.quantityAdjustments` — un brouillon peut porter le mode sans
+      // aucune quantité saisie encore.
+      if (draft.estimationMode) this.estimationMode = true;
       // Réapplique l'override event (attendance + profil) avant tout : ces
       // champs pilotent le scoring/scaling → ils doivent être en place AVANT le
       // recompute. Restauré même sans ajustements de quantité.
@@ -6155,6 +6207,8 @@ export default {
         this.manualIncludedPastEventIds = new Set();
         this.eventMenuConfig = {};
       }
+      // Estimation 0 : « Réinitialiser » est LA sortie explicite du mode.
+      this.estimationMode = false;
       this.versionsApi.currentEditingVersionId.value = null;
       this._versionPickIds = null;
       this.clearVersionBaseline();
