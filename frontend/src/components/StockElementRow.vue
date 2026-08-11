@@ -9,17 +9,23 @@
       <!-- « Utilisé dans » : quel(s) plat(s) consomment cet élément, et pour quelle part. -->
       <div v-if="sources.length" class="sel-sources">
         <p v-for="(source, sIdx) in sources" :key="sIdx" class="sel-source">
-          {{ t('epsFrom') }} {{ Math.round(source.menuItemQuantity) }}
-          {{ source.menuItemName }} :
+          {{ t('epsSourceFor') }} {{ Math.round(source.menuItemQuantity) }} ×
+          {{ source.menuItemName }} {{ t('epsSourcePredicted') }} →
           {{ formatQty(source.componentQuantity) }}
-          {{ source.unit }}
+          {{ source.unit }} {{ t('epsSourceNeeded') }}
         </p>
       </div>
 
       <!-- Répartition par point de vente : masquée en vue PDV (on y est déjà). -->
       <div v-if="shops.length" class="sel-shops">
-        <span v-for="s in shops" :key="s.shopId" class="sel-shop">
-          {{ s.shopName }}: {{ formatQty(s.quantity) }}
+        <span class="sel-shops-label">{{ t('epsShopBreakdownLabel') }}</span>
+        <span
+          v-for="s in shops"
+          :key="s.shopId"
+          class="sel-shop"
+          :title="t('epsShopPillTitle')"
+        >
+          {{ s.shopName }}: {{ formatQty(s.quantity) }} {{ unit }}
         </span>
       </div>
     </div>
@@ -34,7 +40,7 @@
           ≈ {{ formatQty(packaging.looseQty) }} {{ packaging.packagingUnit }}
         </span>
       </template>
-      <Badge v-else variant="secondary" class="sel-qty">
+      <Badge v-else variant="secondary" class="sel-qty" :title="t('epsTotalQtyTitle')">
         {{ formatQty(totalQuantity) }} {{ unit }}
       </Badge>
       <span v-if="lineCost > 0" class="sel-cost" :title="costTitle">
@@ -173,8 +179,13 @@ export default {
 .sel-shops {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
   margin-top: 5px;
+}
+.sel-shops-label {
+  font-size: 11px;
+  color: var(--fb-text-muted, #6b7280);
 }
 .sel-shop {
   font-size: 11px;
