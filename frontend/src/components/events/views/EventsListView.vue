@@ -136,7 +136,7 @@
       :mode="addEventMode"
       :initial-event="editingEvent"
       :is-dark="isDark"
-      @submitted="loadEvents({ forceRefresh: true })"
+      @submitted="onEventSaved"
     />
 
     <EventDeleteDialog
@@ -198,7 +198,7 @@
     <CsvImportDrawer
       v-model="csvImportDrawer"
       :is-dark="isDark"
-      @imported="loadEvents({ forceRefresh: true })"
+      @imported="onEventSaved"
     />
   </div>
 </template>
@@ -444,6 +444,14 @@ export default {
         });
       });
       this.configNameById = map;
+    },
+
+    // Après création/édition/import d'un event : rafraîchir la liste PUIS re-résoudre les noms de
+    // config (sinon la colonne « Configuration » d'un nouvel event reste vide — la map n'était
+    // construite qu'au mounted).
+    async onEventSaved() {
+      await this.loadEvents({ forceRefresh: true });
+      this.loadConfigNames();
     },
 
     async exportToCSV() {
