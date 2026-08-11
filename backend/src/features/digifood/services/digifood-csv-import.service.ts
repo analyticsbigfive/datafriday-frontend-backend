@@ -131,9 +131,11 @@ export interface CsvImportReport {
 }
 
 const BATCH_SIZE = 500;
-// Concurrence bornée pour l'ingestion réelle — même convention que WeezeventInsertWorkerService
-// (PARALLEL_CHUNKS = 5) : borne la charge sur le pool de connexions partagé (pgbouncer).
-const PARALLEL_ORDERS = 5;
+// Concurrence bornée pour l'ingestion réelle — borne la charge sur le pool de connexions
+// partagé (pgbouncer, connection_limit=20 pour tout le backend). 20 sature potentiellement
+// tout le pool pendant l'import (au détriment des autres requêtes en cours) ; à surveiller
+// si des timeouts/erreurs de connexion apparaissent ailleurs pendant un gros import.
+const PARALLEL_ORDERS = 10;
 
 @Injectable()
 export class DigifoodCsvImportService {
