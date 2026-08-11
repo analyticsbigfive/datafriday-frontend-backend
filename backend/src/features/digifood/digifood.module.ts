@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DigifoodWebhookController } from './digifood-webhook.controller';
+import { DigifoodController } from './digifood.controller';
 import { DigifoodSignatureService } from './services/digifood-signature.service';
 import { DigifoodWebhookHandler } from './services/digifood-webhook.handler';
 import { DigifoodIngestionService } from './services/digifood-ingestion.service';
@@ -13,7 +14,7 @@ import { DigifoodCsvImportService } from './services/digifood-csv-import.service
  */
 // PrismaModule et EncryptionModule sont @Global() : pas d'imports nécessaires.
 @Module({
-    controllers: [DigifoodWebhookController],
+    controllers: [DigifoodWebhookController, DigifoodController],
     providers: [
         DigifoodSignatureService,
         DigifoodWebhookHandler,
