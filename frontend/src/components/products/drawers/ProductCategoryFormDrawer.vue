@@ -18,6 +18,12 @@
             </button>
           </div>
 
+          <!-- Barre d'erreur : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="error" class="pcfd-error">
+            <span>{{ error }}</span>
+            <button class="pcfd-error__close" :aria-label="t('productCategoryList.cancel')" @click="error = ''"><X :size="14" /></button>
+          </div>
+
           <!-- Body -->
           <div class="pcfd-body">
             <div class="pcfd-field-label">{{ t('productCategoryList.labelType') }} <span class="pcfd-star">*</span></div>
@@ -55,11 +61,6 @@
               class="pcfd-field"
             />
           </div>
-
-          <!-- BUG-273 : erreur hors zone scrollable, toujours visible juste au-dessus des boutons. -->
-          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="pcfd-error">
-            {{ error }}
-          </v-alert>
 
           <!-- Footer -->
           <div class="pcfd-footer">
@@ -366,9 +367,33 @@ export default {
 /* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
 .pcfd-error {
   flex-shrink: 0;
-  margin: 0;
-  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #ff3131;
+  font-size: 0.8125rem;
+  line-height: 1.35;
 }
+.pcfd-panel--dark .pcfd-error { background: rgba(255, 49, 49, .12); border-bottom-color: rgba(255, 49, 49, .3); color: #f87171; }
+.pcfd-error__close {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .7;
+  transition: opacity .15s, background .15s;
+}
+.pcfd-error__close:hover { opacity: 1; background: rgba(255, 49, 49, .14); }
 
 /* ── Footer ── */
 .pcfd-footer {

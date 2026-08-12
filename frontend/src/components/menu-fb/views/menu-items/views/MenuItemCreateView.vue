@@ -159,6 +159,17 @@
             <div class="right-section-header">
               <h2 class="text-subtitle-2 font-weight-bold mic-title mb-0">{{ t('menuItemCreate.detailsTitle') }}</h2>
             </div>
+
+            <!-- Alerts : dans le formulaire, juste sous le header « Détails du menu item ». -->
+            <div v-if="saveError || saveSuccess" class="mic-alerts">
+              <v-alert v-if="saveError" type="error" variant="tonal" density="compact" closable @click:close="saveError = null">
+                {{ saveError }}
+              </v-alert>
+              <v-alert v-if="saveSuccess" type="success" variant="tonal" density="compact" closable @click:close="saveSuccess = null">
+                {{ saveSuccess }}
+              </v-alert>
+            </div>
+
             <div class="right-section-scroll">
 
               <!-- Picture Upload -->
@@ -547,12 +558,6 @@
 
             </div>
             <div class="right-section-footer">
-              <v-alert v-if="saveError" type="error" variant="tonal" density="compact" closable class="mb-2" @click:close="saveError = null">
-                {{ saveError }}
-              </v-alert>
-              <v-alert v-if="saveSuccess" type="success" variant="tonal" density="compact" closable class="mb-2" @click:close="saveSuccess = null">
-                {{ saveSuccess }}
-              </v-alert>
               <div class="mic-footer-actions">
                 <button class="mic-footer-btn mic-footer-btn--ghost" @click="onCancel">
                   {{ hasUnsavedChanges ? t('menuItemCreate.cancel') : t('menuItemCreate.close') }}
@@ -1540,7 +1545,17 @@ export default {
         this.items = updated;
         this.editingItemIndex = null;
       } else {
-        this.items = [...this.items, ...newItems];
+        // Empêche d'ajouter deux fois le même ingrédient (identité : ingredientId, sinon marketPriceId).
+        const keyOf = (it) => String(it.ingredientId || it.marketPriceId || '');
+        const seen = new Set(this.items.filter((i) => i.type === 'Ingredient').map(keyOf));
+        const toAdd = [];
+        for (const it of (newItems || [])) {
+          const k = keyOf(it);
+          if (k && seen.has(k)) continue;
+          if (k) seen.add(k);
+          toAdd.push(it);
+        }
+        if (toAdd.length) this.items = [...this.items, ...toAdd];
       }
     },
     onComponentsAdded(newItems) {
@@ -1560,7 +1575,17 @@ export default {
         this.items = updated;
         this.editingItemIndex = null;
       } else {
-        this.items = [...this.items, ...newItems];
+        // Empêche d'ajouter deux fois le même packaging (identité : packagingId, sinon marketPriceId).
+        const keyOf = (it) => String(it.packagingId || it.marketPriceId || '');
+        const seen = new Set(this.items.filter((i) => i.type === 'Packaging').map(keyOf));
+        const toAdd = [];
+        for (const it of (newItems || [])) {
+          const k = keyOf(it);
+          if (k && seen.has(k)) continue;
+          if (k) seen.add(k);
+          toAdd.push(it);
+        }
+        if (toAdd.length) this.items = [...this.items, ...toAdd];
       }
     },
     onComboItemsAdded(newItems) {
@@ -1642,6 +1667,15 @@ export default {
   padding: 0 24px;
   height: 64px;
   gap: 16px;
+}
+
+/* Barre d'alertes sous le header (hors zone scrollable). */
+.mic-alerts {
+  flex-shrink: 0;
+  padding: 10px 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .mic-header__left {

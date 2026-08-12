@@ -13,6 +13,11 @@
         <button class="mpcd__close-btn" @click="close"><X :size="18" /></button>
       </div>
 
+      <!-- Error : juste sous le header, hors zone scrollable, toujours visible. -->
+      <div v-if="error" class="mpcd__error">
+        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
+      </div>
+
       <!-- Content -->
       <div class="mpcd__content">
 
@@ -476,11 +481,6 @@
             </div><!-- /mpcd-step2-wrap -->
           </v-form>
         </template>
-      </div>
-
-      <!-- Error : BUG-273, hors zone scrollable, toujours visible juste au-dessus des boutons. -->
-      <div v-if="error" class="mpcd__error">
-        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
       </div>
 
       <!-- Footer -->
@@ -1222,7 +1222,7 @@ export default {
 /* BUG-273 : barre d'erreur fixe, entre le contenu scrollable et le footer. */
 .mpcd__error {
   display: flex; align-items: center; padding: 10px 24px;
-  background: #fef2f2; border-top: 1px solid #fecaca;
+  background: #fef2f2; border-bottom: 1px solid #fecaca;
   font-size: 13px; color: #ff3131; flex-shrink: 0;
 }
 

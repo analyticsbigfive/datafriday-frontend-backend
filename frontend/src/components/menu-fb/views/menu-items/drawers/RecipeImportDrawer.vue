@@ -15,6 +15,9 @@
             <v-btn icon variant="text" density="compact" @click="close"><X :size="18" /></v-btn>
           </div>
 
+          <!-- Erreur : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="parseError" class="rid-error">{{ parseError }}</div>
+
           <div class="rid-body pa-6">
             <div v-if="loading" class="text-body-2 text-medium-emphasis">{{ t('menuItemCreate.recipeImportLoading') }}</div>
 
@@ -66,9 +69,6 @@
               </div>
             </template>
           </div>
-
-          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
-          <div v-if="parseError" class="rid-error text-error text-body-2">{{ parseError }}</div>
 
           <!-- Footer -->
           <div class="rid-footer pa-4">
@@ -278,7 +278,7 @@ export default {
 .rid-header { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid #eee; }
 .rid--dark .rid-header { border-color: rgba(255,255,255,.08); }
 .rid-body { flex: 1; overflow-y: auto; }
-.rid-error { flex-shrink: 0; padding: 10px 24px 0; }
+.rid-error { flex-shrink: 0; display: flex; align-items: center; padding: 9px 24px; background: #fef2f2; border-bottom: 1px solid #fecaca; color: #ff3131; font-size: 0.8125rem; line-height: 1.35; }
 .rid-footer { display: flex; align-items: center; border-top: 1px solid #eee; }
 .rid--dark .rid-footer { border-color: rgba(255,255,255,.08); }
 .rid-dropzone { border: 2px dashed #d0d0d0; border-radius: 12px; cursor: pointer; transition: border-color .15s; }
