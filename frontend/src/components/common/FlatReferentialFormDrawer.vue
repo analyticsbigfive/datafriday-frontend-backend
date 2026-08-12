@@ -16,6 +16,12 @@
             <button class="frfd-close-btn" @click="close"><X :size="16" /></button>
           </div>
 
+          <!-- Barre d'erreur : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="error" class="frfd-error">
+            <span>{{ error }}</span>
+            <button class="frfd-error__close" :aria-label="t(`${i18nPrefix}.cancel`)" @click="error = ''"><X :size="14" /></button>
+          </div>
+
           <!-- ── Body ── -->
           <div class="frfd-body">
             <div class="frfd-field-label">{{ t(`${i18nPrefix}.labelName`) }} <span class="frfd-star">*</span></div>
@@ -28,13 +34,6 @@
               :placeholder="t(`${i18nPrefix}.namePlaceholder`)"
             />
           </div>
-
-          <!-- BUG-273 : erreur rendue ici, hors zone scrollable, toujours visible juste
-               au-dessus des boutons — plutôt qu'en haut du corps (invisible une fois
-               scrollé, cf. même correctif sur EventDrawerShell.vue). -->
-          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="frfd-error">
-            {{ error }}
-          </v-alert>
 
           <!-- ── Footer ── -->
           <div class="frfd-footer">
@@ -260,9 +259,33 @@ export default {
 /* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
 .frfd-error {
   flex-shrink: 0;
-  margin: 0;
-  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #ff3131;
+  font-size: 0.8125rem;
+  line-height: 1.35;
 }
+.frfd-panel--dark .frfd-error { background: rgba(255, 49, 49, .12); border-bottom-color: rgba(255, 49, 49, .3); color: #f87171; }
+.frfd-error__close {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .7;
+  transition: opacity .15s, background .15s;
+}
+.frfd-error__close:hover { opacity: 1; background: rgba(255, 49, 49, .14); }
 
 /* ── Footer ── */
 .frfd-footer {

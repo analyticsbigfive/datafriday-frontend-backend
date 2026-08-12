@@ -18,6 +18,12 @@
             </button>
           </div>
 
+          <!-- Barre d'erreur : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="error" class="ptfd-error">
+            <span>{{ error }}</span>
+            <button class="ptfd-error__close" :aria-label="t('productTypeList.cancel')" @click="error = ''"><X :size="14" /></button>
+          </div>
+
           <!-- Body -->
           <div class="ptfd-body">
             <div class="ptfd-field-label">{{ t('productTypeList.labelName') }} <span class="ptfd-star">*</span></div>
@@ -28,15 +34,9 @@
               rounded="lg"
               hide-details="auto"
               :placeholder="t('productTypeList.namePlaceholder')"
-              prepend-inner-icon="mdi-tag-outline"
               class="ptfd-field"
             />
           </div>
-
-          <!-- BUG-273 : erreur hors zone scrollable, toujours visible juste au-dessus des boutons. -->
-          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ptfd-error">
-            {{ error }}
-          </v-alert>
 
           <!-- Footer -->
           <div class="ptfd-footer">
@@ -256,9 +256,33 @@ export default {
 /* BUG-273 : barre d'erreur fixe, entre le corps scrollable et le footer. */
 .ptfd-error {
   flex-shrink: 0;
-  margin: 0;
-  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #ff3131;
+  font-size: 0.8125rem;
+  line-height: 1.35;
 }
+.ptfd-panel--dark .ptfd-error { background: rgba(255, 49, 49, .12); border-bottom-color: rgba(255, 49, 49, .3); color: #f87171; }
+.ptfd-error__close {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .7;
+  transition: opacity .15s, background .15s;
+}
+.ptfd-error__close:hover { opacity: 1; background: rgba(255, 49, 49, .14); }
 
 /* ── Footer ── */
 .ptfd-footer {
