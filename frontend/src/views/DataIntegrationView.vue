@@ -700,135 +700,164 @@
       </v-card>
     </v-dialog>
 
-    <!-- Import CSV Digifood : dry-run (aperçu) puis import réel -->
-    <v-dialog v-model="csvDialogOpen" max-width="560" persistent>
-      <v-card rounded="lg">
-        <v-card-title class="text-subtitle-1 font-weight-bold pt-5 px-5">
-          {{ t('diDigifoodImportCsvTitle') }} — {{ csvIntegration?.name }}
-        </v-card-title>
-        <v-card-text class="px-5 pb-2">
-          <p class="text-body-2 text-medium-emphasis mb-4">{{ t('diDigifoodImportCsvHint') }}</p>
+    <!-- Import CSV Digifood : drawer (dry-run aperçu puis import réel) -->
+    <Teleport to="body">
+      <Transition name="dfimp">
+        <div v-if="csvDialogOpen" class="dfimp-overlay" @mousedown.self="csvImporting || closeCsvDialog()">
+          <div class="dfimp-panel" :class="{ 'dfimp--dark': isDark }">
 
-          <div class="d-flex align-center justify-space-between mb-2">
-            <span class="text-caption text-medium-emphasis">{{ t('diDigifoodTemplateHint') }}</span>
-            <button type="button" class="df-copy-btn" @click="downloadCsvTemplate">
-              <v-icon size="13">mdi-download-outline</v-icon>
-              {{ t('diDigifoodDownloadTemplate') }}
-            </button>
-          </div>
-
-          <v-file-input
-            v-model="csvFile"
-            accept=".csv,.tsv,text/csv,text/tab-separated-values"
-            density="compact"
-            variant="outlined"
-            prepend-icon="mdi-file-delimited-outline"
-            label="orders.csv"
-            :disabled="csvImporting"
-            hide-details
-            class="mb-4"
-          />
-
-          <!-- ── Correspondance des colonnes (dès que l'en-tête du fichier est lue) ── -->
-          <template v-if="csvColumns.length">
-            <div class="df-mapping-head">
-              <span class="df-report-title" style="margin-bottom:0">
-                <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
-                {{ t('diDigifoodMappingTitle') }}
-              </span>
-              <span class="text-caption text-medium-emphasis">{{ t('diDigifoodMappingHint') }}</span>
-            </div>
-            <div class="df-mapping-grid">
-              <div v-for="field in csvTargetFields" :key="field.key" class="df-mapping-row">
-                <label class="df-mapping-label" :class="{ 'df-mapping-label--req': field.required }">
-                  {{ field.label }}<span v-if="field.required"> *</span>
-                </label>
-                <v-select
-                  :model-value="csvMapping[field.key] || null"
-                  :items="csvColumns"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  :placeholder="t('diDigifoodMappingIgnore')"
-                  clearable
-                  :disabled="csvImporting"
-                  @update:model-value="v => setCsvMapping(field.key, v)"
-                />
+            <!-- Header -->
+            <div class="dfimp-header">
+              <div class="dfimp-header__icon"><FileSpreadsheet :size="20" color="#fff" /></div>
+              <div class="dfimp-header__text">
+                <div class="dfimp-header__title">{{ t('diDigifoodImportCsvTitle') }}</div>
+                <div class="dfimp-header__sub">{{ csvIntegration?.name }}</div>
               </div>
+              <button class="dfimp-header__close" :aria-label="t('close')" :disabled="csvImporting" @click="closeCsvDialog"><X :size="16" /></button>
             </div>
-            <p v-if="!csvMappingOk" class="df-mapping-warn">
-              <v-icon size="13" color="warning" class="mr-1">mdi-alert-outline</v-icon>
-              {{ t('diDigifoodMappingRequired') }}
-            </p>
-          </template>
 
-          <div v-if="csvError" class="cd-banner cd-banner--error mb-3">
-            <span>{{ csvError }}</span>
-            <button type="button" class="cd-banner__close" :aria-label="t('close')" @click="csvError = ''"><X :size="12" /></button>
-          </div>
+            <!-- Barre d'erreur sous le header -->
+            <div v-if="csvError" class="dfimp-error">
+              <span>{{ csvError }}</span>
+              <button type="button" class="dfimp-error__close" :aria-label="t('close')" @click="csvError = ''"><X :size="14" /></button>
+            </div>
 
-          <!-- 0 commande détectée alors que des lignes existent → mapping probablement faux -->
-          <div v-if="csvReport && csvReport.ordersDetected === 0 && csvReport.rejectedRows.length" class="cd-banner cd-banner--error mb-3">
-            <span>{{ t('diDigifoodMappingBadHint') }}</span>
-          </div>
-          <!-- 0 commande et rien à rejeter → fichier vide (en-tête seul) plutôt qu'un mapping erroné -->
-          <div v-else-if="csvReport && csvReport.ordersDetected === 0" class="cd-banner cd-banner--error mb-3">
-            <span>{{ t('diDigifoodEmptyCsvHint') }}</span>
-          </div>
+            <!-- Body -->
+            <div class="dfimp-body">
+              <p class="dfimp-hint">{{ t('diDigifoodImportCsvHint') }}</p>
 
-          <!-- Rapport (dry-run ou réel) -->
-          <template v-if="csvReport">
-            <div class="df-report-title">
-              <v-icon size="15" :color="csvReport.dryRun ? 'warning' : 'success'" class="mr-1">
-                {{ csvReport.dryRun ? 'mdi-eye-outline' : 'mdi-check-circle-outline' }}
-              </v-icon>
-              {{ csvReport.dryRun ? t('diDigifoodDryRunReport') : t('diDigifoodImportDone') }}
-            </div>
-            <!-- Période interprétée : contrôle visuel anti-inversion jour/mois -->
-            <div v-if="csvReport.periodStart" class="df-period">
-              <v-icon size="13" class="mr-1">mdi-calendar-range-outline</v-icon>
-              {{ t('diDigifoodPeriodDetected') }} :
-              <strong class="ml-1">{{ formatDateTime(csvReport.periodStart) }} → {{ formatDateTime(csvReport.periodEnd) }}</strong>
-            </div>
-            <div class="df-report-grid">
-              <div class="df-report-item"><strong>{{ csvReport.ordersDetected }}</strong><span>{{ t('diDigifoodOrdersDetected') }}</span></div>
-              <div class="df-report-item"><strong>{{ csvReport.ordersCreated }}</strong><span>{{ t('diDigifoodOrdersCreated') }}</span></div>
-              <div class="df-report-item"><strong>{{ csvReport.ordersUpdated }}</strong><span>{{ t('diDigifoodOrdersUpdated') }}</span></div>
-              <div class="df-report-item"><strong>{{ csvReport.productsCreated }}</strong><span>{{ t('diDigifoodProductsCreated') }}</span></div>
-              <div class="df-report-item"><strong>{{ csvReport.locationsCreated }}</strong><span>{{ t('diDigifoodLocationsCreated') }}</span></div>
-              <div class="df-report-item" :class="{ 'df-report-item--warn': csvReport.rejectedRows.length }">
-                <strong>{{ csvReport.rejectedRows.length }}</strong><span>{{ t('diDigifoodRejectedRows') }}</span>
+              <div class="dfimp-template-row">
+                <span class="dfimp-muted">{{ t('diDigifoodTemplateHint') }}</span>
+                <button type="button" class="df-copy-btn" @click="downloadCsvTemplate">
+                  <v-icon size="13">mdi-download-outline</v-icon>
+                  {{ t('diDigifoodDownloadTemplate') }}
+                </button>
               </div>
-            </div>
-            <div v-if="csvReport.rejectedRows.length" class="df-rejected">
-              <div v-for="r in csvReport.rejectedRows.slice(0, 8)" :key="r.line" class="df-rejected-row">
-                {{ t('diRejectedRowLine') }} {{ r.line }} — {{ r.reason }}
+
+              <!-- Fichier : cadre dropzone (comme events/CsvImportDrawer) -->
+              <input ref="csvFileInput" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" style="display:none" @change="onCsvFilePicked" />
+              <div
+                class="dfimp-dropzone"
+                :class="{ 'dfimp-dropzone--hover': csvDropping, 'dfimp-dropzone--filled': csvFileReady }"
+                @click="csvImporting || $refs.csvFileInput.click()"
+                @dragover.prevent="csvDropping = true"
+                @dragleave.prevent="csvDropping = false"
+                @drop.prevent="onCsvDrop"
+              >
+                <template v-if="csvFileReady">
+                  <FileSpreadsheet :size="34" style="color:#ff3131" class="mb-2" />
+                  <div class="dfimp-dz-file">{{ csvFileSelected && csvFileSelected.name }}</div>
+                  <button type="button" class="dfimp-dz-btn" :disabled="csvImporting" @click.stop="$refs.csvFileInput.click()">
+                    <Upload :size="14" class="mr-1" /> {{ t('menuItemImportChooseFile') }}
+                  </button>
+                </template>
+                <template v-else>
+                  <FileSpreadsheet :size="46" class="mb-3" style="color:#9ca3af" />
+                  <div class="dfimp-dz-title">{{ t('menuItemImportDropzone') }}</div>
+                  <div class="dfimp-dz-sub">{{ t('menuItemImportDropzoneOr') }}</div>
+                  <button type="button" class="dfimp-dz-btn" :disabled="csvImporting" @click.stop="$refs.csvFileInput.click()">
+                    <Upload :size="15" class="mr-1" /> {{ t('menuItemImportChooseFile') }}
+                  </button>
+                </template>
               </div>
-              <div v-if="csvReport.rejectedRows.length > 8" class="df-rejected-row text-medium-emphasis">
-                … +{{ csvReport.rejectedRows.length - 8 }}
+
+              <!-- ── Correspondance des colonnes (dès que l'en-tête du fichier est lue) ── -->
+              <template v-if="csvColumns.length">
+                <div class="df-mapping-head">
+                  <span class="df-report-title" style="margin-bottom:0">
+                    <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
+                    {{ t('diDigifoodMappingTitle') }}
+                  </span>
+                  <span class="dfimp-muted">{{ t('diDigifoodMappingHint') }}</span>
+                </div>
+                <div class="df-mapping-grid">
+                  <div v-for="field in csvTargetFields" :key="field.key" class="df-mapping-row">
+                    <label class="df-mapping-label" :class="{ 'df-mapping-label--req': field.required }">
+                      {{ field.label }}<span v-if="field.required"> *</span>
+                    </label>
+                    <select
+                      class="form-select form-select-sm dfimp-select"
+                      :value="csvMapping[field.key] || ''"
+                      :disabled="csvImporting"
+                      @change="setCsvMapping(field.key, $event.target.value || null)"
+                    >
+                      <option value="">{{ t('diDigifoodMappingIgnore') }}</option>
+                      <option v-for="col in csvColumns" :key="col" :value="col">{{ col }}</option>
+                    </select>
+                  </div>
+                </div>
+                <p v-if="!csvMappingOk" class="df-mapping-warn">
+                  <v-icon size="13" color="warning" class="mr-1">mdi-alert-outline</v-icon>
+                  {{ t('diDigifoodMappingRequired') }}
+                </p>
+              </template>
+
+              <!-- 0 commande détectée alors que des lignes existent → mapping probablement faux -->
+              <div v-if="csvReport && csvReport.ordersDetected === 0 && csvReport.rejectedRows.length" class="cd-banner cd-banner--error mb-3">
+                <span>{{ t('diDigifoodMappingBadHint') }}</span>
               </div>
+              <!-- 0 commande et rien à rejeter → fichier vide (en-tête seul) plutôt qu'un mapping erroné -->
+              <div v-else-if="csvReport && csvReport.ordersDetected === 0" class="cd-banner cd-banner--error mb-3">
+                <span>{{ t('diDigifoodEmptyCsvHint') }}</span>
+              </div>
+
+              <!-- Rapport (dry-run ou réel) -->
+              <template v-if="csvReport">
+                <div class="df-report-title">
+                  <v-icon size="15" :color="csvReport.dryRun ? 'warning' : 'success'" class="mr-1">
+                    {{ csvReport.dryRun ? 'mdi-eye-outline' : 'mdi-check-circle-outline' }}
+                  </v-icon>
+                  {{ csvReport.dryRun ? t('diDigifoodDryRunReport') : t('diDigifoodImportDone') }}
+                </div>
+                <!-- Période interprétée : contrôle visuel anti-inversion jour/mois -->
+                <div v-if="csvReport.periodStart" class="df-period">
+                  <v-icon size="13" class="mr-1">mdi-calendar-range-outline</v-icon>
+                  {{ t('diDigifoodPeriodDetected') }} :
+                  <strong class="ml-1">{{ formatDateTime(csvReport.periodStart) }} → {{ formatDateTime(csvReport.periodEnd) }}</strong>
+                </div>
+                <div class="df-report-grid">
+                  <div class="df-report-item"><strong>{{ csvReport.ordersDetected }}</strong><span>{{ t('diDigifoodOrdersDetected') }}</span></div>
+                  <div class="df-report-item"><strong>{{ csvReport.ordersCreated }}</strong><span>{{ t('diDigifoodOrdersCreated') }}</span></div>
+                  <div class="df-report-item"><strong>{{ csvReport.ordersUpdated }}</strong><span>{{ t('diDigifoodOrdersUpdated') }}</span></div>
+                  <div class="df-report-item"><strong>{{ csvReport.productsCreated }}</strong><span>{{ t('diDigifoodProductsCreated') }}</span></div>
+                  <div class="df-report-item"><strong>{{ csvReport.locationsCreated }}</strong><span>{{ t('diDigifoodLocationsCreated') }}</span></div>
+                  <div class="df-report-item" :class="{ 'df-report-item--warn': csvReport.rejectedRows.length }">
+                    <strong>{{ csvReport.rejectedRows.length }}</strong><span>{{ t('diDigifoodRejectedRows') }}</span>
+                  </div>
+                </div>
+                <div v-if="csvReport.rejectedRows.length" class="df-rejected">
+                  <div v-for="r in csvReport.rejectedRows.slice(0, 8)" :key="r.line" class="df-rejected-row">
+                    {{ t('diRejectedRowLine') }} {{ r.line }} — {{ r.reason }}
+                  </div>
+                  <div v-if="csvReport.rejectedRows.length > 8" class="df-rejected-row text-medium-emphasis">
+                    … +{{ csvReport.rejectedRows.length - 8 }}
+                  </div>
+                </div>
+              </template>
             </div>
-          </template>
-        </v-card-text>
-        <v-card-actions class="px-5 pb-5 pt-3 gap-2">
-          <v-spacer />
-          <v-btn variant="text" :disabled="csvImporting" @click="closeCsvDialog">
-            {{ csvReport && !csvReport.dryRun ? t('close') : t('cancel') }}
-          </v-btn>
-          <!-- Phase 1 : aperçu dry-run ; phase 2 : import réel (interdit si 0 commande) -->
-          <v-btn
-            v-if="!csvReport || csvReport.dryRun"
-            color="#ff3131"
-            variant="flat"
-            :loading="csvImporting"
-            :disabled="!csvFileReady || !csvMappingOk || (csvReport && csvReport.dryRun && csvReport.ordersDetected === 0)"
-            @click="csvReport && csvReport.dryRun ? runCsvImport(false) : runCsvImport(true)"
-          >
-            {{ csvReport && csvReport.dryRun ? t('diDigifoodConfirmImport') : t('diDigifoodDryRunReport') }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+
+            <!-- Footer -->
+            <div class="dfimp-footer">
+              <button type="button" class="dfimp-btn dfimp-btn--ghost" :disabled="csvImporting" @click="closeCsvDialog">
+                {{ csvReport && !csvReport.dryRun ? t('close') : t('cancel') }}
+              </button>
+              <!-- Phase 1 : aperçu dry-run ; phase 2 : import réel (interdit si 0 commande) -->
+              <button
+                v-if="!csvReport || csvReport.dryRun"
+                type="button"
+                class="dfimp-btn dfimp-btn--primary"
+                :disabled="csvImporting || !csvFileReady || !csvMappingOk || (csvReport && csvReport.dryRun && csvReport.ordersDetected === 0)"
+                @click="csvReport && csvReport.dryRun ? runCsvImport(false) : runCsvImport(true)"
+              >
+                <v-progress-circular v-if="csvImporting" indeterminate size="15" width="2" color="white" class="mr-2" />
+                {{ csvReport && csvReport.dryRun ? t('diDigifoodConfirmImport') : t('diDigifoodDryRunReport') }}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Integration Wizard (fullscreen dialog) -->
     <IntegrationWizard
@@ -852,7 +881,7 @@ import { toIntlLocale } from '@/composables/useNumberFormat'
 import { getLocationSpaceMappings } from '@/api/endpoints/mapping.api'
 import IntegrationWizard from '@/components/integration/wizard/IntegrationWizard.vue'
 import SyncProgressDialog from '@/components/integration/SyncProgressDialog.vue'
-import { X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings } from 'lucide-vue-next'
+import { X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings, FileSpreadsheet, Upload } from 'lucide-vue-next'
 import {
   syncWeezeventData,
   getWeezeventSyncStatus,
@@ -953,7 +982,7 @@ function toDigifoodCard(instance) {
 export default {
   name: 'DataIntegrationView',
 
-  components: { IntegrationWizard, SyncProgressDialog, X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings },
+  components: { IntegrationWizard, SyncProgressDialog, X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings, FileSpreadsheet, Upload },
 
   data() {
     return {
@@ -1014,6 +1043,7 @@ export default {
       csvDialogOpen: false,
       csvIntegration: null,
       csvFile: null,
+      csvDropping: false,
       csvReport: null,
       csvImporting: false,
       // Historique des imports CSV réels (dryRun=false) par intégration
@@ -1402,6 +1432,16 @@ export default {
     },
 
     /** Changer une correspondance invalide l'aperçu précédent (il faut re-prévisualiser). */
+    onCsvFilePicked(e) {
+      const files = e?.target?.files
+      this.csvFile = files && files.length ? files[0] : null
+    },
+    onCsvDrop(e) {
+      this.csvDropping = false
+      if (this.csvImporting) return
+      const files = e?.dataTransfer?.files
+      this.csvFile = files && files.length ? files[0] : null
+    },
     setCsvMapping(fieldKey, column) {
       const next = { ...this.csvMapping }
       if (column) next[fieldKey] = column
@@ -3175,4 +3215,208 @@ export default {
   color: #92400e;
   margin: 0 0 10px;
 }
+
+/* ── Drawer import CSV Digifood (charte, comme les autres drawers d'import) ── */
+.dfimp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  backdrop-filter: blur(2px);
+}
+.dfimp-panel {
+  width: 520px;
+  max-width: 100%;
+  height: 100%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.14);
+}
+.dfimp-panel.dfimp--dark { background: #111827; color: #f3f4f6; }
+
+/* Header */
+.dfimp-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  background: #ff3131;
+  box-shadow: 0 2px 12px rgba(255, 49, 49, 0.2);
+}
+.dfimp-header__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dfimp-header__text { flex: 1; min-width: 0; }
+.dfimp-header__title { font-size: 16px; font-weight: 700; color: #fff; }
+.dfimp-header__sub { font-size: 12.5px; color: rgba(255, 255, 255, 0.75); margin-top: 2px; }
+.dfimp-header__close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.dfimp-header__close:hover { background: rgba(255, 255, 255, 0.28); }
+
+/* Barre d'erreur sous le header */
+.dfimp-error {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #ff3131;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+.dfimp-error__close {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+}
+.dfimp-error__close:hover { opacity: 1; background: rgba(255, 49, 49, 0.14); }
+
+/* Body */
+.dfimp-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+.dfimp-hint { font-size: 13px; color: #6b7280; margin-bottom: 14px; }
+.dfimp--dark .dfimp-hint { color: #9ca3af; }
+.dfimp-template-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.dfimp-muted { font-size: 12px; color: #6b7280; }
+.dfimp--dark .dfimp-muted { color: #9ca3af; }
+.dfimp-field { margin-bottom: 16px; }
+.dfimp-field .df-mapping-label { display: block; margin-bottom: 6px; }
+
+/* Select Bootstrap : style charte (comme events/CsvImportDrawer) */
+.dfimp-select {
+  border-radius: 10px;
+  border: 1.5px solid #e5e7eb;
+  font-size: 13px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.dfimp-select:focus {
+  border-color: #ff3131;
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.12);
+}
+.dfimp--dark .dfimp-select {
+  background-color: #1e293b;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e5e7eb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* Cadre dropzone (fichier) — même esprit que events/CsvImportDrawer */
+.dfimp-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  background: #fafafa;
+  padding: 28px 16px;
+  min-height: 180px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 16px;
+}
+.dfimp-dropzone:hover,
+.dfimp-dropzone--hover { border-color: #ff3131; background: #fff5f5; }
+.dfimp-dropzone--filled { border-style: solid; border-color: #fecaca; background: #fef2f2; }
+.dfimp-dz-title { font-size: 14px; font-weight: 600; color: #374151; }
+.dfimp-dz-sub { font-size: 12.5px; color: #9ca3af; margin: 2px 0 14px; }
+.dfimp-dz-file { font-size: 13.5px; font-weight: 600; color: #ff3131; word-break: break-all; max-width: 100%; margin-bottom: 10px; }
+.dfimp-dz-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dfimp-dz-btn:hover:not(:disabled) { border-color: #ff3131; color: #ff3131; }
+.dfimp-dz-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.dfimp--dark .dfimp-dropzone { background: #1a2332; border-color: #374151; }
+.dfimp--dark .dfimp-dropzone:hover,
+.dfimp--dark .dfimp-dropzone--hover { border-color: #ff3131; background: rgba(255, 49, 49, 0.08); }
+.dfimp--dark .dfimp-dropzone--filled { background: rgba(255, 49, 49, 0.10); border-color: rgba(255, 49, 49, 0.35); }
+.dfimp--dark .dfimp-dz-title { color: #e5e7eb; }
+.dfimp--dark .dfimp-dz-btn { background: #1f2937; border-color: #374151; color: #d1d5db; }
+
+/* Footer */
+.dfimp-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
+}
+.dfimp--dark .dfimp-footer { background: #1a2332; border-top-color: #374151; }
+.dfimp-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 50px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.dfimp-btn--ghost { background: #f3f4f6; color: #374151; }
+.dfimp-btn--ghost:hover:not(:disabled) { background: #e5e7eb; }
+.dfimp-btn--primary { background: #ff3131; color: #fff; }
+.dfimp-btn--primary:hover:not(:disabled) { box-shadow: 0 4px 12px rgba(255, 49, 49, 0.35); }
+.dfimp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.dfimp--dark .dfimp-btn--ghost { background: #374151; color: #d1d5db; }
+.dfimp--dark .dfimp-btn--ghost:hover:not(:disabled) { background: #4b5563; }
+
+/* Transition */
+.dfimp-enter-active,
+.dfimp-leave-active { transition: opacity 0.25s ease; }
+.dfimp-enter-active .dfimp-panel,
+.dfimp-leave-active .dfimp-panel { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.dfimp-enter-from,
+.dfimp-leave-to { opacity: 0; }
+.dfimp-enter-from .dfimp-panel,
+.dfimp-leave-to .dfimp-panel { transform: translateX(100%); }
 </style>
