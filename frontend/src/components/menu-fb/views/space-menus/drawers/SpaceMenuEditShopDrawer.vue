@@ -18,6 +18,11 @@
             </button>
           </div>
 
+          <!-- Save error -->
+          <div v-if="saveError" class="smed-error">
+            <AlertCircle :size="14" /> {{ saveError }}
+          </div>
+
           <!-- Body -->
           <div class="smed-body">
             <template v-if="form">
@@ -100,11 +105,6 @@
                   <AlertCircle :size="24" style="color:#9ca3af" />
                   <p>{{ t("spaceMenu.noConfigurationSelected") }}</p>
                 </div>
-              </div>
-
-              <!-- Save error -->
-              <div v-if="saveError" class="smed-error">
-                <AlertCircle :size="14" /> {{ saveError }}
               </div>
 
             </template>
@@ -380,8 +380,8 @@ export default {
 
 /* ── Error ── */
 .smed-error {
-  display: flex; align-items: center; gap: 8px;
-  padding: 12px 20px; background: #fef2f2; color: #ff3131; font-size: 12.5px;
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 10px 20px; background: #fef2f2; border-bottom: 1px solid #fecaca; color: #ff3131; font-size: 12.5px;
 }
 
 /* ── Footer ── */

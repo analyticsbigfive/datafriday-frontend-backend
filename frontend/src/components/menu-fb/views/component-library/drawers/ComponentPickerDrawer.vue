@@ -14,6 +14,9 @@
             <button class="cld-drawer__close" @click="close"><X :size="16" /></button>
           </div>
 
+          <!-- Error : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="error" class="ccd-error">{{ error }}</div>
+
           <!-- ── Toolbar (recherche + pills), natif comme IngredientPickerDrawer ── -->
           <div class="ccd-toolbar">
             <div class="ccd-search">
@@ -104,11 +107,6 @@
               </table>
             </div>
           </div>
-
-          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
-          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ccd-error">
-            {{ error }}
-          </v-alert>
 
           <!-- ── Footer ── -->
           <div class="cld-drawer__footer">
@@ -452,8 +450,14 @@ export default {
 /* Barre d'erreur fixe, entre le corps scrollable et le footer. */
 .ccd-error {
   flex-shrink: 0;
-  margin: 0;
-  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #ff3131;
+  font-size: 0.8125rem;
+  line-height: 1.35;
 }
 
 /* ── Footer ── */

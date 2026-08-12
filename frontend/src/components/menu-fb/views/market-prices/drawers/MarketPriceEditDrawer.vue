@@ -13,6 +13,11 @@
         <button class="mped__close-btn" :disabled="loading" @click="close"><X :size="18" /></button>
       </div>
 
+      <!-- Error : juste sous le header, hors zone scrollable, toujours visible. -->
+      <div v-if="error" class="mped__error">
+        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
+      </div>
+
       <!-- Content -->
       <div class="mped__content">
 
@@ -140,11 +145,6 @@
         </div>
 
 
-      </div>
-
-      <!-- Error : BUG-273, hors zone scrollable, toujours visible juste au-dessus des boutons. -->
-      <div v-if="error" class="mped__error">
-        <AlertCircle :size="14" class="me-2" style="flex-shrink:0" />{{ error }}
       </div>
 
       <!-- Footer -->
@@ -635,7 +635,7 @@ export default {
   align-items: center;
   padding: 10px 24px;
   background: #fef2f2;
-  border-top: 1px solid #fecaca;
+  border-bottom: 1px solid #fecaca;
   font-size: 13px;
   color: #ff3131;
   flex-shrink: 0;

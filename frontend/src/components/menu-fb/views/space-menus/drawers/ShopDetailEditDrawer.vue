@@ -18,6 +18,11 @@
             </button>
           </div>
 
+          <!-- Error -->
+          <div v-if="saveError" class="sde-error">
+            <AlertCircle :size="14" /> {{ saveError }}
+          </div>
+
           <!-- Body -->
           <div class="sde-body">
 
@@ -119,11 +124,6 @@
                 ></textarea>
                 <label for="sde-notes" class="sde-textarea__label">{{ t('spaceMenu.internalNotes') }}</label>
               </div>
-            </div>
-
-            <!-- Error -->
-            <div v-if="saveError" class="sde-error">
-              <AlertCircle :size="14" /> {{ saveError }}
             </div>
 
           </div>
@@ -353,7 +353,7 @@ export default {
 .sde-textarea:not(:placeholder-shown) + .sde-textarea__label { color: #ff3131; font-size: 9.5px; top: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 
 /* ── Error ── */
-.sde-error { display: flex; align-items: center; gap: 8px; padding: 12px 20px; background: #fef2f2; color: #ff3131; font-size: 12.5px; }
+.sde-error { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #fef2f2; border-bottom: 1px solid #fecaca; color: #ff3131; font-size: 12.5px; }
 
 /* ── Footer ── */
 .sde-footer { flex-shrink: 0; display: flex; gap: 8px; padding: 16px 20px; border-top: 1px solid #e5e7eb; background: #fff; box-shadow: 0 -4px 16px rgba(0,0,0,.06); }
