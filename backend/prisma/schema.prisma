@@ -3194,6 +3194,34 @@ model EventPredictVersion {
   @@index([tenantId, eventId])
 }
 
+// ==================== MENU ITEM HISTORY ALIASES ====================
+
+// Alias « historique emprunté » (Event Predict, maquettes 08/2026) : un nouvel
+// article (target) reprend l'historique de ventes d'un ancien (source) pour
+// obtenir des prévisions. Résolution 100 % FRONTEND (activeTimelineData
+// d'EventPredictView) : la page Analyse ne lit JAMAIS cette table — aucune
+// jointure côté analyse.service/spaces.service (contrainte métier).
+// `sourceName` = nom brut de l'item timeline (les items historiques peuvent
+// être synthétiques, sans id catalogue) ; `sourceMenuItemId` optionnel quand
+// il existe. Unicité (tenant, space, sourceName) : un historique source ne
+// nourrit qu'une seule cible (upsert = re-mapper). Sans FK, comme
+// EventPredictVersion / RestockState (zone KV de ce schéma).
+model MenuItemHistoryAlias {
+  id               String   @id @default(cuid())
+  tenantId         String
+  spaceId          String
+  sourceMenuItemId String?
+  sourceName       String
+  targetMenuItemId String
+  createdBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, sourceName])
+  @@index([tenantId, spaceId])
+  @@index([targetMenuItemId])
+}
+
 // ==================== RESTOCK STATE ====================
 
 // Unique restock session state per (tenantId, spaceId) — upsert idempotent.

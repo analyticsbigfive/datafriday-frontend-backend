@@ -544,6 +544,70 @@ donnée réseau de ce fichier passe soit par des imports nommés d'`api/endpoint
 
 ---
 
+## Estimation 0 — event futur SANS historique comparable (fiche 311-01, 2026-08-11)
+
+**Qu'est-ce que c'est** : quand aucun event passé ne franchit les gates ET que le pool de repli est
+vide (`usePredictiveTimeline.js:860`, `insufficientData = true`, `predictedTimelineData = []`),
+l'ancien comportement rendait la grille PDV × articles inaccessible (`predictionItemsContext =
+'not-calculated'` → empty state `epNoItemsPrediction` dans les deux sections). Le mode
+« Estimation 0 » propose alors un bouton **« Démarrez une estimation »** dans cet empty state :
+la grille se rend depuis le **Space Menu de la configuration** (`configShopElements` +
+`shopMenuAssignmentItems`, sources indépendantes des ventes), prédictions à 0, et tout se saisit
+via le canal `manualQuantities` existant.
+
+**Où vit la logique** : `src/utils/estimationMode.js` (pur, testé par
+`tests/unit/estimationMode.spec.js`) — `resolveItemsContext(...)` (l'ancien computed
+`predictionItemsContext` transcrit tel quel, plus la règle : la branche `'not-calculated'` devient
+`'ready'` quand le mode est actif ; `'loading'`/`'no-config'`/`'no-mapping'` gardent priorité) et
+`isEstimationEligible(...)` (event futur + timeline vide + `_assignmentLoaded` + assignation non
+vide + ≥1 shop de config — le gate `assignmentLoaded` évite le flash « catalogue complet » avant le
+chargement de l'assignation).
+
+**États dans `EventPredictView.vue`** : data `estimationMode` (bouton), computed `estimationActive`
+= éligible ET (`estimationMode` OU une valeur de `manualQuantities` > 0). La 2ᵉ condition est le
+**ré-armement cross-device** : le JSON d'`EventPredictVersion` ne porte pas de flag, mais
+`applyVersion()` restaure `manualQuantities` → le mode se ré-arme seul. Persistance locale : clé
+additive `estimationMode` dans le brouillon `analyse:event-predict-draft:{eventId}` (restaurée
+AVANT l'early-return `!draft.quantityAdjustments` — un brouillon peut porter le mode sans aucune
+quantité). Sorties du mode : `performReset()` et le watcher `selectedEventId`.
+
+**Côté `EventPredictMenusSection.vue`** : props `estimationActive`/`canStartEstimation` (défaut
+`false` → comportement historique strictement inchangé hors mode), émission `start-estimation`,
+bandeau info `epEstimationModeBanner`, onglet par shop par défaut `'noSales'` en mode estimation
+(c'est là que vivent les lignes simulables ; l'onglet « ventes » a un badge 0), et saisie directe :
+`<input type="number">` à côté du slider manuel avec plafond dynamique `manualSliderMax` =
+`max(manualQtyMax=500, valeur saisie)` — les volumes stade (14 000 scannés) dépassent largement
+l'ancien plafond fixe du slider.
+
+**Aval inchangé, réutilisé tel quel** : `manualQuantities` → `manualQuantityRecords` → totaux
+ajustés sidebar → `buildPredictedRecords()` (`isManual: true`) → snapshot version → backend →
+Réappro. Anti-double-comptage le jour où l'event gagne des comparables : `estimationEligible`
+retombe à faux et `manualQuantityRecords` saute déjà les clés couvertes par la prédiction.
+
+**Sliders fan-out ABSOLUS (fiche 311-02, 2026-08-11)** : en mode estimation, les sliders shop et
+article ne sont PAS les sliders % (une base 0 × % rend toujours 0) — ils basculent en **unités
+absolues** (0 → échelle max, champ « Échelle des curseurs (max) » dans le bandeau, défaut 1000,
+plancher 10) et écrivent `manualQuantities` sur les mêmes ensembles de couples que leurs pendants %
+(items/PDV cochés uniquement, parité stricte ; affichage « N u » ou « Mixed » ; reset = 0). Utils
+purs : `uniformValue` / `applyFanoutQuantity` / `estimationSliderMax` (`estimationMode.js`). Hors
+mode estimation, sliders % strictement inchangés.
+
+**Coûts en mode estimation (fiche 311-02)** : la timeline vide éteint `weezeventProductCostMap`
+(consommé uniquement par `timelineRevenueTotals`) — le coût passe alors par : `itemUnitCost`
+(lignes, avec résolution catalogue id→nom, repli `totalCost`) et `manualQuantityRecords` (sidebar,
+`effectiveMenuItemCostMap` + repli catalogue `mi.totalCost`). ⚠️ Le coût affiché est `totalCost`
+(coût du batch de recette) — le canonique batch vs `costPerPiece` est la question #53
+QUESTIONS_A_BERTRAND. Sémantique records : **une ligne `isManual: true` porte sa quantité FINALE**
+(déjà mise à l'échelle) — `buildStockRequirements`/`buildMenuItemDemand` neutralisent le % dessus
+(`isManualOnlyForElement`), `withManualRecords` (Restock) pré-ajuste à l'injection.
+
+**Nuance sur le tableau `manualQuantities` plus haut** : la mention « jamais envoyée par le
+frontend » est périmée — `versionToPayload` (`useEventPredictVersions.js:145-149`) inclut
+`manualQuantities` dans le POST/PATCH (vérifié 2026-08-11), c'est ce qui rend le ré-armement
+cross-device possible.
+
+---
+
 ## `EventPredictMenusSection.vue` — "Configuration settings"
 
 **Qu'est-ce que c'est** : la section qui pilote **quels menu items sont vendus dans quel shop pour
@@ -590,6 +654,9 @@ confirmé zéro `$emit('update:viewMode', ...)`), `manual-info`, `remap-request`
   - Item (`derivedItemAdjustments`, lignes 1301-1314) : même logique à travers les shops, **avec**
     un indicateur explicite `isItemAdjustmentMixed` (lignes 1881-1884) affichant le texte "Mixed" si
     les valeurs divergent — asymétrie UX entre les deux niveaux, vérifiée réelle.
+  - ⚠️ En **mode estimation** (fiche 311-02), les niveaux shop et item basculent en sliders
+    d'UNITÉS ABSOLUES qui écrivent `manualQuantities` (pas `quantityAdjustments`) — voir la
+    section « Estimation 0 » plus bas.
 - **Deux calculs de revenu prédit indépendants** coexistent : `shopRevenues` (lignes 1262-1286,
   quantité × prix HT unitaire résolu via `htUnitPrice`) alimente les pastilles d'en-tête de carte
   shop (`getPredictedRevenue`, lignes 1973-1978) ; `timelineRevenueIndex`/`getPredictedItemRevenue`

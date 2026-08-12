@@ -280,7 +280,36 @@
             </div>
           </header>
 
+          <!-- fiche 314-01 — étape 1 en 2 onglets : « PDV à stocker » (existant)
+               / « Espaces de stockage » (réappro des réserves depuis le stock
+               tampon saisi dans le 3D Builder). Segmented control maison
+               (pattern .sr-inline-btn), pas de v-tabs. -->
+          <div class="sr-stock-tabs" role="tablist">
+            <button
+              type="button"
+              class="sr-inline-btn sr-stock-tab"
+              :class="{ 'sr-stock-tab-active': stockTab === 'shops' }"
+              role="tab"
+              :aria-selected="stockTab === 'shops' ? 'true' : 'false'"
+              @click="stockTab = 'shops'"
+            >{{ t('srTabShopsToStock') }}</button>
+            <button
+              type="button"
+              class="sr-inline-btn sr-stock-tab"
+              :class="{ 'sr-stock-tab-active': stockTab === 'storage' }"
+              role="tab"
+              :aria-selected="stockTab === 'storage' ? 'true' : 'false'"
+              @click="stockTab = 'storage'"
+            >
+              {{ t('srTabStorageSpaces') }}
+              <v-chip v-if="storageAlertCount" size="x-small" variant="tonal" color="error" class="ml-1">
+                {{ storageAlertCount }}
+              </v-chip>
+            </button>
+          </div>
+
           <AppSearchBar
+            v-if="stockTab === 'shops'"
             v-model="stockSearch"
             dense
             :placeholder="t('srFilterItems')"
@@ -300,7 +329,7 @@
             </template>
           </AppSearchBar>
 
-          <v-expand-transition>
+          <v-expand-transition v-if="stockTab === 'shops'">
           <div v-show="!collapsed.stock">
           <div v-if="!selectedEvents.length" class="sr-empty">
             {{ t('srSelectEventsEmpty') }}
@@ -331,6 +360,25 @@
                 <div class="sr-setting-meta">
                   <span class="sr-setting-shops">
                     {{ item.shopCount }} {{ item.shopCount > 1 ? t('srShopPlural') : t('srShopSingular') }}
+                  </span>
+                  <!-- fiche 314-01 — Item Supplier Name : fournisseur résolu par
+                       la MÊME cascade que la feuille de course ; crayon = édition
+                       du Market Price sans quitter l'écran (permission requise). -->
+                  <span
+                    v-if="(supplierInfoByItem[item.itemKey] || {}).supplierName"
+                    class="sr-setting-supplier"
+                    :title="t('srSupplierLabel')"
+                  >
+                    <v-icon size="12">mdi-truck-outline</v-icon>
+                    {{ supplierInfoByItem[item.itemKey].supplierName }}
+                    <button
+                      v-if="canEditMarketPrices && supplierInfoByItem[item.itemKey].marketPriceRow"
+                      type="button"
+                      class="sr-supplier-edit-btn"
+                      :title="t('srSupplierEdit')"
+                      :aria-label="t('srSupplierEdit')"
+                      @click.stop="openSupplierEdit(supplierInfoByItem[item.itemKey].marketPriceRow)"
+                    ><v-icon size="13">mdi-pencil-outline</v-icon></button>
                   </span>
                 </div>
                 <div v-if="item.recipeComponents.length" class="sr-recipe-inline">
@@ -418,12 +466,120 @@
           </template>
           </div>
           </v-expand-transition>
+
+          <!-- fiche 314-01 — onglet ESPACES DE STOCKAGE : par réserve (élément
+               Storage du Builder), lignes = stock tampon (section Inventaire du
+               3D Builder, lecture seule ici) vs restant compté ; nécessaire =
+               max(0, tampon − restant), ajustable jusqu'à 5× le tampon. -->
+          <v-expand-transition v-else>
+          <div v-show="!collapsed.stock">
+          <div v-if="!selectedEvents.length" class="sr-empty">
+            {{ t('srSelectEventsEmpty') }}
+          </div>
+          <div v-else-if="storageInventoryLoading" class="sr-empty">
+            {{ t('srBreakdownLoading') }}
+          </div>
+          <div v-else-if="storageRestockGroups.length === 0" class="sr-empty">
+            {{ t('srStorageEmpty') }}
+          </div>
+          <template v-else>
+            <div
+              v-for="group in storageRestockGroups"
+              :key="group.elementId"
+              class="sr-storage-group"
+            >
+              <h3 class="sr-storage-group-title">
+                <v-icon size="16">mdi-warehouse</v-icon>
+                {{ group.elementName }}
+                <v-chip size="x-small" variant="tonal" color="grey">
+                  {{ group.rows.length }} {{ group.rows.length > 1 ? t('srItemPlural') : t('srItemSingular') }}
+                </v-chip>
+              </h3>
+              <div v-if="!group.rows.length" class="sr-empty">{{ t('srStorageNoBuffer') }}</div>
+              <div
+                v-for="row in group.rows"
+                :key="row.key"
+                class="sr-setting-row sr-storage-row"
+              >
+                <div class="sr-setting-info">
+                  <strong>{{ row.name }}</strong>
+                  <div v-if="row.nearMin || row.nearMax" class="sr-storage-alerts">
+                    <!-- Priorité visuelle au stock min (rupture) sur le max (capacité). -->
+                    <span v-if="row.nearMin" class="sr-storage-alert sr-storage-alert--min">
+                      <v-icon size="13">mdi-alert</v-icon> {{ t('srStorageNearMin') }}
+                    </span>
+                    <span v-else class="sr-storage-alert sr-storage-alert--max">
+                      <v-icon size="13">mdi-alert-outline</v-icon> {{ t('srStorageNearMax') }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="sr-slider-wrap">
+                  <label class="sr-slider-label">{{ t('srStorageAdjustLabel') }}</label>
+                  <div class="sr-slider-row">
+                    <input
+                      type="range"
+                      min="0"
+                      :max="row.sliderMax"
+                      step="1"
+                      :value="row.required"
+                      class="sr-slider"
+                      @input="setStorageAdjustment(row.key, $event.target.value)"
+                    />
+                    <span class="sr-slider-value">{{ formatLooseQuantity(row.required, row.unit) }}</span>
+                    <button
+                      v-if="row.adjusted"
+                      type="button"
+                      class="sr-inline-btn"
+                      @click="clearStorageAdjustment(row.key)"
+                    >{{ t('srReset') }}</button>
+                  </div>
+                </div>
+
+                <div class="sr-values">
+                  <span class="sr-value">
+                    <span class="sr-value-label">{{ t('srStorageBuffer') }}</span>
+                    <strong class="sr-value-num">{{ formatLooseQuantity(row.buffer, row.unit) }}</strong>
+                  </span>
+                  <span class="sr-value">
+                    <span class="sr-value-label">{{ t('srStorageRemaining') }}</span>
+                    <strong class="sr-value-num">{{ formatLooseQuantity(row.remaining, row.unit) }}</strong>
+                  </span>
+                  <span class="sr-value">
+                    <span class="sr-value-label">{{ t('srStorageRequired') }}</span>
+                    <strong class="sr-value-num" :class="{ 'sr-value-ok': !(row.required > 0) }">{{ formatLooseQuantity(row.required, row.unit) }}</strong>
+                  </span>
+                  <span class="sr-value sr-value-buy">
+                    <span class="sr-value-label">{{ t('srStorageToOrder') }}</span>
+                    <strong class="sr-value-num" :class="{ 'sr-value-ok': (storageBuyInfoByKey[row.key] || {}).covered }">{{ (storageBuyInfoByKey[row.key] || {}).main }}</strong>
+                  </span>
+                  <v-tooltip v-if="(storageBuyInfoByKey[row.key] || {}).sub" location="bottom" max-width="320">
+                    <template #activator="{ props: helpProps }">
+                      <v-icon
+                        v-bind="helpProps"
+                        size="14"
+                        class="sr-values-help"
+                        tabindex="0"
+                        :aria-label="t('srValuesHelpTitle')"
+                      >mdi-information-outline</v-icon>
+                    </template>
+                    <div class="sr-values-help-body">
+                      <p>{{ storageBuyInfoByKey[row.key].sub }}</p>
+                    </div>
+                  </v-tooltip>
+                </div>
+              </div>
+            </div>
+          </template>
+          </div>
+          </v-expand-transition>
+
           <!-- Assistant — pied d'étape 1 : sticky à l'écran, pagination de la
                liste au centre, génération à droite. -->
           <footer class="sr-wizard-nav sr-wizard-nav-grid">
             <span class="sr-wizard-nav-side" aria-hidden="true" />
             <v-pagination
-              v-if="stockPageCount > 1"
+              v-if="stockTab === 'shops' && stockPageCount > 1"
               v-model="stockPage"
               :length="stockPageCount"
               :total-visible="5"
@@ -1321,6 +1477,20 @@
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3500">
       {{ snackbarText }}
     </v-snackbar>
+
+    <!-- fiche 314-01 — édition du Market Price (fournisseur/prix) depuis l'étape 1,
+         MÊME drawer que l'écran Market Prices (item = row = la ligne MarketPrice
+         brute du store inventory). Au save : invalidation + rechargement du
+         catalogue prix, le nom fournisseur affiché suit. -->
+    <MarketPriceEditSupplierDrawer
+      v-model="supplierEditDialog"
+      :item="supplierEditRow"
+      :row="supplierEditRow"
+      :suppliers="bomSuppliers.length ? bomSuppliers : suppliers"
+      :good-type-options="drawerGoodTypeOptions"
+      :product-categories="drawerProductCategories"
+      @saved="onSupplierSaved"
+    />
       </div>
   </div>
     </v-main>
@@ -1402,6 +1572,12 @@ import {
   estimateSnapshotBytes,
 } from '@/utils/restockPlanSnapshot'
 import { useRestockPlans } from '@/composables/useRestockPlans'
+import { useStorageInventory } from '@/composables/useStorageInventory'
+// Taxonomie builder2 (module de constantes pur) : 'Storage'/'storage_x'/code
+// département → 'storage'. Le blob de config v1 porte des types déjà en
+// minuscules ; les éléments v2 non — normaliser AVANT de filtrer.
+import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import MarketPriceEditSupplierDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceEditSupplierDrawer.vue'
 import RestockPlansPanel from '@/components/restock/RestockPlansPanel.vue'
 import NumberField from '@/components/common/NumberField.vue'
 import { isDemoMode } from '@/utils/demoMode'
@@ -1451,7 +1627,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceAppHeader, RestockPlansPanel, NumberField },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1461,6 +1637,8 @@ export default {
     // Refs exposées à plat pour l'auto-unwrap Options API ; `plansApi` porte
     // les méthodes (refresh/load/create/…).
     const plansApi = useRestockPlans()
+    // fiche 314-01 — stock tampon des espaces de stockage (builder state projeté).
+    const storageInvApi = useStorageInventory()
     return {
       store, route, router, t,
       plansApi,
@@ -1468,6 +1646,8 @@ export default {
       plansLoading: plansApi.loading,
       plansAvailable: plansApi.available,
       plansError: plansApi.error,
+      loadStorageInventory: storageInvApi.loadStorageInventory,
+      storageInventoryFor: storageInvApi.storageInventoryFor,
     }
   },
   data() {
@@ -1524,8 +1704,8 @@ export default {
       // Scénario (version EventPredict) choisi par évènement : eventId → versionId.
       selectedScenarioByEventId: {},
       // Versions rapatriées depuis la BDD (réactif) : eventId → version[]. Prime
-      // sur le miroir localStorage. manualQuantities (front-only) fusionné depuis
-      // le local par id (le backend ne stocke pas cette colonne).
+      // sur le miroir localStorage. manualQuantities : colonne BDD prioritaire,
+      // miroir local en repli (versions antérieures à la migration 20260625).
       bddVersionsByEventId: {},
       // Méta des records lus depuis localStorage (ajustements % + menuConfig)
       // par évènement, pour reproduire les quantités EventPredict.
@@ -1545,6 +1725,15 @@ export default {
       stockAdjustments: {},
       stockPackedModes: {},
       stockExcluded: {}, // itemKeys décochés → exclus de la génération du réarmement
+      // fiche 314-01 — étape 1 : onglet actif ('shops' | 'storage') et overrides
+      // ABSOLUS (unités) du nécessaire par ligne storage. Clé =
+      // `storage:${elementId}:${normalizeStr(name)}` ; absent = défaut
+      // max(0, tampon − restant). Persisté dans RestockState (extras).
+      stockTab: 'shops',
+      storageAdjustments: {},
+      // fiche 314-01 — drawer d'édition Market Price (Item Supplier Name).
+      supplierEditDialog: false,
+      supplierEditRow: null,
       _restockPutTimer: null, // debounce du PUT /restock-state (non réactif)
       predictionRecordsByEventId: {},
       previousInventoryCounts: {},
@@ -1786,6 +1975,250 @@ export default {
         })
       })
       return Array.from(ids)
+    },
+    // ── fiche 314-01 — onglet « Espaces de stockage » ────────────────────────
+    /** Id d'espace pour le builder state (id résolu, repli slug d'URL). */
+    storageSpaceId() {
+      return String(this.currentSpace?.id || this.route.params?.spaceId || '')
+    },
+    /** Projection builder state (store storageInventory) : tous les éléments. */
+    storageBuilderElements() {
+      return this.store.getters['storageInventory/forSpace'](this.storageSpaceId)
+    },
+    storageInventoryLoading() {
+      return this.store.getters['storageInventory/isFetching'](this.storageSpaceId)
+    },
+    /**
+     * Groupes de l'onglet Espaces de stockage : un groupe par élément Storage
+     * des configs objectif (même source que le pool de netting), lignes = stock
+     * tampon saisi dans la section Inventaire du 3D Builder (lecture seule ici,
+     * le PUT inventaire est full-replace côté Builder).
+     *  - tampon   = row.quantity (Builder)
+     *  - restant  = comptages agrégés de l'élément (aggregateCountsForElements,
+     *               identité id puis nom — même cascade que le netting)
+     *  - nécessaire (défaut) = max(0, tampon − restant BRUT) ; override slider
+     *    absolu (storageAdjustments), plafonné à 5× le tampon (spec PDF).
+     * Seuils Builder : minStock/maxStock → alertes à 10 % près (B3, front only).
+     */
+    /** Ids (String) des configs objectif résolues. */
+    resolvedObjectiveConfigIds() {
+      const ids = new Set()
+      this.resolvedObjectiveConfigs.forEach(({ configuration }) => {
+        if (configuration?.id != null) ids.add(String(configuration.id))
+      })
+      return ids
+    },
+    /**
+     * Éléments Storage affichés : UNION de deux découvertes —
+     *  1. blob de config (collectStorageElements, `type === 'storage'` strict,
+     *     chemin v1 historique du pool de netting) ;
+     *  2. builder state (type NORMALISÉ 'storage' + adhésion à une config
+     *     objectif ; adhésions inconnues = inclus). Le blob v2 porte des types
+     *     'Storage'/code département que le chemin 1 rate — cause du faux
+     *     « aucun espace de stockage » constaté sur Auxerre (2 storages réels).
+     * Si le filtre d'adhésion élimine TOUT (id de config v1 ≠ id builder), on
+     * retombe sur tous les storages de l'espace plutôt que sur un écran vide.
+     */
+    storageDisplayElements() {
+      const out = new Map() // elId → { id, name }
+      this.resolvedObjectiveConfigs.forEach(({ configuration }) => {
+        collectStorageElements(configuration).forEach((el) => {
+          if (el?.id != null) out.set(String(el.id), { id: String(el.id), name: el.name || '' })
+        })
+      })
+      const cfgIds = this.resolvedObjectiveConfigIds
+      const builderStorages = this.storageBuilderElements.filter(
+        (e) => normalizeType(e.type) === 'storage',
+      )
+      const members = builderStorages.filter(
+        (e) => e.configIds == null || e.configIds.some((id) => cfgIds.has(id)),
+      )
+      ;(members.length ? members : builderStorages).forEach((e) => {
+        if (!out.has(e.id)) out.set(e.id, { id: e.id, name: e.name })
+      })
+      return Array.from(out.values())
+    },
+    storageRestockGroups() {
+      const groups = []
+      const elementsById = new Map(this.storageBuilderElements.map((e) => [e.id, e]))
+      const cfgIds = Array.from(this.resolvedObjectiveConfigIds)
+      // Lignes d'inventaire Builder pour cet élément : configs objectif d'abord,
+      // puis clé '' (non scopé), puis — tolérance id de config v1 ≠ id builder —
+      // l'unique config porteuse si UNE SEULE a des lignes.
+      const pickInventoryRows = (byConfig) => {
+        for (const id of cfgIds) {
+          if ((byConfig[id] || []).length) return byConfig[id]
+        }
+        if ((byConfig[''] || []).length) return byConfig['']
+        const keys = Object.keys(byConfig).filter((k) => (byConfig[k] || []).length)
+        return keys.length === 1 ? byConfig[keys[0]] : []
+      }
+      this.storageDisplayElements.forEach((el) => {
+          const elId = el.id
+          const builderEl = elementsById.get(elId)
+          const invRows = pickInventoryRows(builderEl?.inventoryByConfig || {})
+          // Comptages de CET élément, identité résolue (itemId/sourceId/nom).
+          const counted = this.aggregateCountsForElements([elId])
+          const rows = invRows
+            .filter((r) => {
+              if (!r || !r.name) return false
+              const buffer = Number(r.quantity) || 0
+              // Ligne utile = tampon saisi, OU seuils posés (alertes), OU stock
+              // compté présent — le reste est du bruit de catalogue.
+              return buffer > 0 || r.minStock != null || r.maxStock != null
+            })
+            .map((r) => {
+              const buffer = Number(r.quantity) || 0
+              const wantId = r.menuItemId != null ? String(r.menuItemId) : null
+              const wantName = normalizeStr(r.name)
+              const remaining = counted
+                .filter(
+                  (c) =>
+                    (wantId && (c.itemId === wantId || c.sourceId === wantId)) ||
+                    (wantName && normalizeStr(c.name) === wantName),
+                )
+                .reduce((sum, c) => sum + c.qty, 0)
+              const defaultRequired = Math.max(0, buffer - remaining)
+              const key = `storage:${elId}:${wantName}`
+              const overrideRaw = this.storageAdjustments[key]
+              const hasOverride = overrideRaw != null && overrideRaw !== ''
+              const required = hasOverride
+                ? Math.max(0, Number(overrideRaw) || 0)
+                : defaultRequired
+              const minStock = r.minStock != null ? Number(r.minStock) : null
+              const maxStock = r.maxStock != null ? Number(r.maxStock) : null
+              return {
+                key,
+                elementId: elId,
+                name: r.name,
+                unit: r.unit || '',
+                menuItemId: wantId,
+                buffer,
+                remaining,
+                defaultRequired,
+                required,
+                adjusted: hasOverride,
+                // Plafond 5× tampon (spec) — jamais sous la valeur courante ni 1.
+                sliderMax: Math.max(Math.ceil(5 * buffer), required, 1),
+                nearMax: maxStock > 0 && remaining >= 0.9 * maxStock,
+                nearMin: minStock != null && remaining <= 1.1 * minStock,
+              }
+            })
+          groups.push({
+            elementId: elId,
+            elementName: builderEl?.name || el?.name || '',
+            rows,
+          })
+      })
+      // Tous les groupes sont rendus, même sans ligne : un storage sans tampon
+      // affiche son message dédié (srStorageNoBuffer) plutôt que de disparaître.
+      return groups
+    },
+    /** Compteur d'alertes seuils (badge de l'onglet). */
+    storageAlertCount() {
+      let n = 0
+      this.storageRestockGroups.forEach((g) =>
+        g.rows.forEach((r) => {
+          if (r.nearMin || r.nearMax) n += 1
+        }),
+      )
+      return n
+    },
+    /** Rang « À commander » mémoïsé par ligne storage (pattern buyInfoByItem). */
+    storageBuyInfoByKey() {
+      const out = {}
+      this.storageRestockGroups.forEach((group) =>
+        group.rows.forEach((row) => {
+          out[row.key] = this.storageBuyInfo(row)
+        }),
+      )
+      return out
+    },
+    /**
+     * Lignes de RÉAPPRO STORAGE prêtes pour la feuille de course : une par
+     * ligne avec nécessaire > 0, fournisseur résolu par la même cascade que le
+     * mode ingrédients (resolveIngredientSupplier). Consommé par nettedShopping.
+     */
+    storageRefillLines() {
+      const lines = []
+      this.storageRestockGroups.forEach((group) => {
+        group.rows.forEach((row) => {
+          if (!(row.required > 0)) return
+          const ref = findStockReference(
+            { itemId: row.menuItemId || undefined, itemName: row.name },
+            this.ingredients,
+            this.components,
+            this.menuItems,
+          )
+          const isMenuItem = !!ref && this.menuItems.some((m) => m.id === ref.id)
+          const supplier = this.resolveIngredientSupplier({
+            itemType: isMenuItem ? 'MenuItem' : 'Ingredient',
+            supplierId: ref?.supplierId || ref?.supplier?.id || null,
+            marketPriceId: ref?.marketPriceId || ref?.marketPrice?.id || null,
+            sourceId: ref?.sourceId != null ? ref.sourceId : ref?.id || null,
+            key: ref?.id || null,
+          })
+          lines.push({
+            itemKey: row.key,
+            itemName: row.name,
+            unit: row.unit || ref?.unit || '',
+            itemId: row.menuItemId || (ref?.id != null ? String(ref.id) : null),
+            sourceId: ref?.sourceId != null ? String(ref.sourceId) : null,
+            storageRefill: row.required,
+            fromStorage: true,
+            storageName: group.elementName,
+            supplier,
+          })
+        })
+      })
+      return lines
+    },
+    // ── fiche 314-01 — Item Supplier Name (onglet PDV à stocker) ─────────────
+    /** Options Good Type/Category du drawer (mêmes stores que Market Prices —
+     *  fetch déclenché à l'ouverture, cf. openSupplierEdit + le drawer). */
+    drawerGoodTypeOptions() {
+      return (this.store.getters['marketPriceTypes/marketPriceTypes'] || [])
+        .map((t) => t?.name)
+        .filter(Boolean)
+    },
+    drawerProductCategories() {
+      return this.store.getters['productCategories/productCategories'] || []
+    },
+    /** Droit d'édition des Market Prices (même clé que la route dédiée). */
+    canEditMarketPrices() {
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? !!can('menu.fb.marketPrices') : false
+    },
+    /**
+     * Fournisseur affiché par ligne de la page courante (pattern buyInfoByItem,
+     * mémoïsé). Même cascade que la feuille de course : findStockReference puis
+     * marketPriceId → marketPrices. `marketPriceRow` = ligne brute du store
+     * inventory, passée telle quelle au drawer d'édition.
+     */
+    supplierInfoByItem() {
+      const out = {}
+      for (const item of this.pagedStockSettingsRows) {
+        const ref = findStockReference(item, this.ingredients, this.components, this.menuItems)
+        if (!ref) continue
+        let marketPriceId = ref.marketPriceId || ref.marketPrice?.id || null
+        let supplierId = ref.supplierId || ref.supplier?.id || null
+        const mp = marketPriceId
+          ? this.marketPrices.find((m) => m.id === marketPriceId) || null
+          : null
+        if (!supplierId && mp) supplierId = mp.supplierId || mp.supplier?.id || mp.supplier
+        const supplier =
+          (this.bomSuppliers.find((s) => s.id === supplierId) ||
+            this.suppliers.find((s) => s.id === supplierId)) ??
+          null
+        const supplierName =
+          supplier?.name || mp?.supplierRel?.name || mp?.supplier?.name || null
+        if (!supplierName && !mp) continue
+        out[item.itemKey] = {
+          supplierName: supplierName || this.t('srSupplierUndefined'),
+          marketPriceRow: mp,
+        }
+      }
+      return out
     },
     /** 1er évènement sélectionné (contexte nav ?event= / comptages) — la
      *  sélection elle-même est multiple (selectedEventIds). */
@@ -2463,6 +2896,72 @@ export default {
         .filter((group) => group.items.length > 0)
 
       const unmatchedStorage = storagePool.filter((e) => !e.matched && e.qty > 0)
+
+      // fiche 314-01 — réapprovisionnement des ESPACES DE STOCKAGE : demande
+      // ADDITIVE, injectée APRÈS consumeFromPool (jamais avant : le pool
+      // netterait sa propre demande de refill → double comptage). Le nécessaire
+      // se calcule sur le restant BRUT (spec PDF) : le stock storage « prêté »
+      // aux PDV par le netting ci-dessus n'est PAS racheté automatiquement —
+      // l'alternative (refill sur le restant post-consommation du pool) est la
+      // question no 54 de QUESTIONS_A_BERTRAND.
+      const refills = this.storageRefillLines
+      if (refills.length) {
+        const bySupplier = new Map(groups.map((g) => [g.supplierId, g]))
+        refills.forEach((line) => {
+          const sup = line.supplier || {}
+          let group = bySupplier.get(sup.supplierId)
+          if (!group) {
+            group = {
+              supplierId: sup.supplierId,
+              supplierName: sup.supplierName,
+              supplierEmail: sup.supplierEmail || '',
+              supplierPhone: sup.supplierPhone || '',
+              items: [],
+            }
+            bySupplier.set(sup.supplierId, group)
+            groups.push(group)
+          }
+          // Upsert : si l'article est déjà acheté (besoin PDV), on AJOUTE le
+          // refill à sa quantité ; sinon nouvelle ligne marquée fromStorage.
+          const existing = group.items.find(
+            (it) =>
+              (line.itemId &&
+                (String(it.itemId) === String(line.itemId) ||
+                  String(it.sourceId) === String(line.itemId))) ||
+              normalizeStr(it.itemName) === normalizeStr(line.itemName),
+          )
+          if (existing) {
+            existing.quantity += line.storageRefill
+            existing.buyQuantity = existing.quantity
+            existing.storageRefill = (existing.storageRefill || 0) + line.storageRefill
+            existing.fromStorage = true
+            existing.packaging = this.packagingForItem(existing, existing.quantity)
+          } else {
+            const item = {
+              itemKey: line.itemKey,
+              itemName: line.itemName,
+              unit: line.unit,
+              itemId: line.itemId,
+              sourceId: line.sourceId,
+              quantity: line.storageRefill,
+              buyQuantity: line.storageRefill,
+              restockNeed: line.storageRefill,
+              predicted: line.storageRefill,
+              shopOnHand: 0,
+              storageOnHand: 0,
+              storageRefill: line.storageRefill,
+              fromStorage: true,
+              shopNames: line.storageName ? [line.storageName] : [],
+              packaging: null,
+            }
+            item.packaging = this.packagingForItem(item, item.quantity)
+            group.items.push(item)
+          }
+        })
+        // Groupes ajoutés en fin de liste : on re-trie comme les groupes amont.
+        groups.sort((a, b) => String(a.supplierName).localeCompare(String(b.supplierName)))
+      }
+
       return { groups, unmatchedStorage }
     },
     /** Étape 3 — feuille de course nette VIVANTE. */
@@ -2542,6 +3041,9 @@ export default {
         // Envoyé dans les `extras` du PUT (restock.api.js) : un backend plus
         // ancien en whitelist stricte retombe sur le noyau sans lui.
         loadedPlanId: this.loadedPlanId,
+        // fiche 314-01 — overrides absolus de l'onglet Espaces de stockage
+        // (extras aussi : blob jsonb opaque, aucun changement backend).
+        storageAdjustments: this.storageAdjustments,
       }
     },
     overviewMetrics() {
@@ -2695,6 +3197,11 @@ export default {
         }
         this.store.dispatch('inventory/loadMarketPrices')
         this.store.dispatch('inventory/loadPackagingTypes')
+        // fiche 314-01 — stock tampon des espaces de stockage (builder state,
+        // TTL 15 min). Après loadSpace : l'id résolu prime sur le slug d'URL.
+        this.loadStorageInventory(this.currentSpace?.id || spaceId)
+        // fiche 314-01 — noms fournisseurs dès l'étape 1 (chips + drawer).
+        this.ensureBomSuppliers()
 
         // #7 — si on arrive depuis l'inventaire/predict avec ?event=<id> et que
         // c'est un event passé, on le prend comme référence d'objectif.
@@ -2823,6 +3330,7 @@ export default {
       if (saved.stockAdjustments) this.stockAdjustments = { ...saved.stockAdjustments }
       if (saved.stockPackedModes) this.stockPackedModes = { ...saved.stockPackedModes }
       if (saved.stockExcluded) this.stockExcluded = { ...saved.stockExcluded }
+      if (saved.storageAdjustments) this.storageAdjustments = { ...saved.storageAdjustments }
       // Vue « Par shop » masquée : un état persisté `'shop'` (utilisateur qui
       // l'avait sélectionnée avant) ne doit PAS la ressusciter — sans la bascule
       // dans l'UI, il n'aurait aucun moyen d'en sortir.
@@ -3257,8 +3765,11 @@ export default {
         name: d.name,
         menuConfig: d.menuConfig || {},
         quantityAdjustments: d.quantityAdjustments || {},
-        // manualQuantities non stocké en BDD → préservé depuis le miroir local par id.
-        manualQuantities: (localById.get(d.id) || {}).manualQuantities || {},
+        // manualQuantities : colonne BDD (EventPredictVersion, migration
+        // 20260625000000) prioritaire — cross-device ; miroir localStorage en
+        // repli pour les versions sauvées avant la migration.
+        manualQuantities:
+          d.manualQuantities || (localById.get(d.id) || {}).manualQuantities || {},
         selectedPredictionEventIds: d.selectedPredictionEventIds || [],
         // Quantités prédites par item (shop+menuItemId) persistées en BDD par
         // EventPredict. Source cross-device : lue par refreshSelectedPredictions
@@ -3294,20 +3805,27 @@ export default {
     },
     /**
      * Injecte les quantités MANUELLES d'une version (items prédit=0, absents du
-     * recompute) en records bruts. buildStockRequirements applique ensuite les %
-     * (aucun pour ces items → 100% → la quantité manuelle passe telle quelle).
+     * recompute) en records DÉJÀ AJUSTÉS par le % de la version — même
+     * sémantique que `manualQuantityRecords` (EventPredictView) : une ligne
+     * `isManual: true` porte sa quantité finale, et buildStockRequirements /
+     * buildMenuItemDemand neutralisent le % dessus (fiche 311_02 — l'ancien
+     * commentaire « aucun % pour ces items → 100% » était faux : le slider
+     * fan-out shop écrit bien des % sur les couples manuels).
      */
     withManualRecords(records, version) {
       const mq = version?.manualQuantities || {}
       const cfg = version?.menuConfig || {}
       if (!Object.keys(mq).length || !Object.keys(cfg).length) return records
+      const adjMap = version?.quantityAdjustments || {}
       const present = new Set(
         records.map((r) => `${r.shopId || r.shop}|${r.menuItemId || r.mappedMenuItemId}`),
       )
       const out = records.slice()
       for (const shopId of Object.keys(cfg)) {
         for (const menuItemId of (cfg[shopId] || [])) {
-          const qty = Number(mq[`${shopId}-${menuItemId}`]) || 0
+          const rawQty = Number(mq[`${shopId}-${menuItemId}`]) || 0
+          const adjPct = Number(adjMap[`${shopId}-${menuItemId}`] ?? 100)
+          const qty = Math.round((rawQty * adjPct) / 100)
           if (qty <= 0) continue
           if (present.has(`${shopId}|${menuItemId}`)) continue
           const mi = this.menuItems.find((m) => String(m.id) === String(menuItemId))
@@ -3833,6 +4351,98 @@ export default {
     resetStockAdjustments() {
       this.applyStockAdjustmentToAll(100)
     },
+    // ── fiche 314-01 — onglet Espaces de stockage ────────────────────────────
+    /** Override ABSOLU (unités) du nécessaire d'une ligne storage. */
+    async setStorageAdjustment(key, value) {
+      if (!(await this.guardPlanEdit())) return
+      this.storageAdjustments = {
+        ...this.storageAdjustments,
+        [key]: Math.max(0, Number(value) || 0),
+      }
+      this.resetGeneratedOutputs()
+    },
+    /** Retour au défaut max(0, tampon − restant) pour une ligne storage. */
+    async clearStorageAdjustment(key) {
+      if (!(await this.guardPlanEdit())) return
+      const next = { ...this.storageAdjustments }
+      delete next[key]
+      this.storageAdjustments = next
+      this.resetGeneratedOutputs()
+    },
+    /** « À commander » d'une ligne storage — même rendu que buyInfo (étape 1). */
+    storageBuyInfo(row) {
+      if (!(row.required > 0)) {
+        return {
+          main: this.t('srBuyNothing'),
+          sub: this.t('srBuyNothingHint'),
+          covered: true,
+          unknown: false,
+        }
+      }
+      const packaging = this.packagingForItem(
+        { itemId: row.menuItemId || undefined, itemName: row.name, unit: row.unit },
+        row.required,
+      )
+      if (!packaging) {
+        return {
+          main: this.formatLooseQuantity(row.required, row.unit),
+          sub: this.t('srBuyNoPackaging'),
+          covered: false,
+          unknown: false,
+        }
+      }
+      const covered = coveredQuantityForPackaging(packaging)
+      const loose = Math.max(0, roundForUnit(covered - row.required, row.unit))
+      const parts = [`= ${this.formatLooseQuantity(covered, row.unit)}`]
+      if (loose > 0) {
+        parts.push(`${this.formatLooseQuantity(loose, row.unit)} ${this.t('srBuyLooseAfter')}`)
+      }
+      return {
+        main: this.formatPackedQuantity(packaging, row.unit),
+        sub: parts.join(' · '),
+        covered: false,
+        unknown: false,
+      }
+    },
+    /**
+     * Catalogue /suppliers complet (id → nom/contact). Extrait
+     * d'ensureRecipesLoaded : l'étape 1 en a besoin AVANT la feuille de course
+     * (chips fournisseur + drawer d'édition — sans lui, le select du drawer
+     * affiche l'id brut du fournisseur).
+     */
+    async ensureBomSuppliers() {
+      if (this.bomSuppliers.length) return
+      try {
+        const res = await getSuppliers()
+        this.bomSuppliers = Array.isArray(res) ? res : res?.data || []
+      } catch (e) {
+        console.warn('[restock] getSuppliers échoué:', e?.message)
+      }
+    },
+    // ── fiche 314-01 — édition Market Price depuis l'étape 1 ─────────────────
+    async openSupplierEdit(marketPriceRow) {
+      if (!this.canEditMarketPrices || !marketPriceRow) return
+      // Le drawer mappe supplierId → nom via la liste passée en prop : la
+      // garantir chargée avant l'ouverture (sinon l'id brut s'affiche).
+      await this.ensureBomSuppliers()
+      // Options Good Type/Category : le drawer COPIE les props à l'ouverture
+      // (localGoodTypeOptions) → charger AVANT d'ouvrir, pas après. Cache TTL :
+      // coût nul dès la 2e ouverture.
+      await Promise.allSettled([
+        this.store.dispatch('marketPriceTypes/fetchMarketPriceTypes'),
+        this.store.dispatch('productCategories/fetchProductCategories'),
+      ])
+      this.supplierEditRow = marketPriceRow
+      this.supplierEditDialog = true
+    },
+    async onSupplierSaved() {
+      this.supplierEditDialog = false
+      this.supplierEditRow = null
+      // Le nom fournisseur affiché (et les groupes de l'étape 3) suivent le
+      // catalogue prix : invalidation + rechargement forcé.
+      this.store.dispatch('inventory/invalidateMarketPrices')
+      await this.store.dispatch('inventory/loadMarketPrices')
+    },
     /**
      * Affichage en colis PAR DÉFAUT dès que le conditionnement se résout — la
      * case « Empaqueté » a été retirée (le calcul arrondit toujours en colis
@@ -4091,14 +4701,7 @@ export default {
       } catch (e) {
         console.warn('[restock] loadMarketPrices échoué:', e?.message)
       }
-      if (!this.bomSuppliers.length) {
-        try {
-          const res = await getSuppliers()
-          this.bomSuppliers = Array.isArray(res) ? res : res?.data || []
-        } catch (e) {
-          console.warn('[restock] getSuppliers échoué:', e?.message)
-        }
-      }
+      await this.ensureBomSuppliers()
       // BUG-292-01 — recette des COMPOSANTS. La liste /menu-components ne renvoie
       // pas `subComponents` : on complète depuis le catalogue déjà en mémoire, puis
       // par fetch détail borné pour ce qu'il reste. Échec toléré (le composant
@@ -5315,6 +5918,81 @@ export default {
 .sr-inline-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* fiche 314-01 — onglets étape 1 (PDV à stocker / Espaces de stockage). */
+.sr-stock-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px 0;
+}
+.sr-stock-tab-active {
+  background: var(--sr-primary);
+  border-color: var(--sr-primary);
+  color: #fff;
+}
+.sr-stock-tab-active:hover:not(:disabled) {
+  background: var(--sr-primary);
+  border-color: var(--sr-primary);
+}
+
+/* fiche 314-01 — groupes par espace de stockage. */
+.sr-storage-group {
+  padding: 8px 16px 4px;
+}
+.sr-storage-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #334155;
+  margin: 6px 0 4px;
+}
+.sr-storage-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+.sr-storage-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.sr-storage-alert--min {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+.sr-storage-alert--max {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+/* fiche 314-01 — Item Supplier Name (étape 1, onglet PDV). */
+.sr-setting-supplier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #64748b;
+  font-size: 0.74rem;
+}
+.sr-supplier-edit-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 1px;
+  cursor: pointer;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+}
+.sr-supplier-edit-btn:hover {
+  color: var(--sr-primary);
 }
 
 .sr-search {
@@ -7108,6 +7786,24 @@ export default {
 .sr-inline-btn:hover {
   border-color: rgba(255, 49, 49, 0.3);
   background: var(--sr-primary-soft);
+  color: var(--sr-primary);
+}
+/* fiche 314-01 — déclinaison contrat : onglet actif + libellés storage/supplier.
+   Après les règles .sr-inline-btn du contrat (même spécificité, l'ordre tranche). */
+.sr-stock-tab-active,
+.sr-stock-tab-active:hover {
+  border-color: var(--sr-primary);
+  background: var(--sr-primary);
+  color: #fff;
+}
+.sr-storage-group-title {
+  color: var(--sr-text);
+}
+.sr-setting-supplier,
+.sr-supplier-edit-btn {
+  color: var(--sr-muted);
+}
+.sr-supplier-edit-btn:hover {
   color: var(--sr-primary);
 }
 .sr-table {

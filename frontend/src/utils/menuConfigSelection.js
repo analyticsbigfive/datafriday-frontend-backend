@@ -21,3 +21,26 @@ export function mergeEffectiveMenuConfig(explicit, derived) {
   });
   return out;
 }
+
+// Répercute une assignation Space Menu (ajout/réactivation ou retrait d'un
+// article) dans la sélection EXPLICITE. Nécessaire car la règle ci-dessus fait
+// gagner la clé explicite : si l'utilisateur a déjà touché les cases d'un PDV,
+// la sélection dérivée du refetch Space Menus ne peut plus y réinjecter un
+// article réactivé — il resterait décoché (hors CA ajusté, hors stock-up).
+// Ne fait RIEN si la clé shop est absente d'`explicit` : le fallback dérivé
+// fait alors le travail, on ne fige pas une sélection que l'utilisateur n'a
+// jamais exprimée. Retourne un nouvel objet (ou l'entrée inchangée).
+export function applyAssignToExplicit(explicit, shopId, menuItemId, enabled) {
+  const ex = explicit || {};
+  if (!shopId || !menuItemId) return ex;
+  if (!Object.prototype.hasOwnProperty.call(ex, shopId)) return ex;
+  const arr = Array.isArray(ex[shopId]) ? ex[shopId] : [];
+  const has = arr.includes(menuItemId);
+  if (enabled === true && !has) {
+    return { ...ex, [shopId]: [...arr, menuItemId] };
+  }
+  if (enabled !== true && has) {
+    return { ...ex, [shopId]: arr.filter((id) => id !== menuItemId) };
+  }
+  return ex;
+}

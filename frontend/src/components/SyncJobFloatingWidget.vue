@@ -5,6 +5,7 @@
     rounded="xl"
     elevation="6"
     width="300"
+    :style="{ bottom: offsetBottom + 'px' }"
   >
     <v-card-text class="pa-4">
       <div class="d-flex align-center justify-space-between mb-3">
@@ -18,7 +19,7 @@
           />
           <v-icon v-else-if="jobData.status === 'COMPLETED'" color="success" size="20">mdi-check-circle</v-icon>
           <v-icon v-else color="error" size="20">mdi-alert-circle</v-icon>
-          <span class="text-body-2 font-weight-medium">{{ t('intgSyncProgTitle') }}</span>
+          <span class="text-body-2 font-weight-medium">{{ provider === 'digifood' ? t('intgCsvImportTitle') : t('intgSyncProgTitle') }}</span>
         </div>
         <v-btn
           icon
@@ -31,44 +32,72 @@
         </v-btn>
       </div>
 
-      <!-- Collecte -->
-      <div class="mb-2">
-        <div class="d-flex justify-space-between mb-1">
-          <span class="text-caption text-medium-emphasis">{{ t('sfwCollecting') }}</span>
-          <span class="text-caption text-medium-emphasis">{{ formatNumber(jobData.totalCollected) }}</span>
+      <template v-if="provider === 'digifood'">
+        <div class="mb-3">
+          <div class="d-flex justify-space-between mb-1">
+            <span class="text-caption text-medium-emphasis">{{ t('intgCsvImportProgressLabel') }}</span>
+            <span class="text-caption text-medium-emphasis">{{ formatNumber(jobData.ordersCreated + jobData.ordersUpdated + jobData.ordersSkipped) }} / {{ formatNumber(jobData.ordersDetected) }}</span>
+          </div>
+          <v-progress-linear
+            :model-value="progressPct"
+            :color="jobData.status === 'COMPLETED' ? 'success' : 'primary'"
+            height="4"
+            rounded
+            :indeterminate="jobData.ordersDetected === 0"
+          />
         </div>
-        <v-progress-linear
-          :model-value="collectPct"
-          :color="jobData.collectDone ? 'success' : 'primary'"
-          height="4"
-          rounded
-          :indeterminate="!jobData.collectDone && jobData.totalChunks === 0"
-        />
-      </div>
 
-      <!-- Insertion -->
-      <div class="mb-3">
-        <div class="d-flex justify-space-between mb-1">
-          <span class="text-caption text-medium-emphasis">{{ t('sfwInserting') }}</span>
-          <span class="text-caption text-medium-emphasis">{{ formatNumber(jobData.totalInserted) }} / {{ formatNumber(jobData.totalCollected) }}</span>
+        <div v-if="jobData.status === 'COMPLETED'" class="text-caption text-success">
+          {{ t('sfwDoneCount').replace('{n}', formatNumber(jobData.ordersCreated + jobData.ordersUpdated)) }}
         </div>
-        <v-progress-linear
-          :model-value="insertPct"
-          :color="jobData.status === 'COMPLETED' ? 'success' : 'secondary'"
-          height="4"
-          rounded
-        />
-      </div>
+        <div v-else-if="jobData.status === 'FAILED'" class="text-caption text-error">
+          {{ jobData.errorMessage || t('intgCsvImportFailed') }}
+        </div>
+        <div v-else class="text-caption text-medium-emphasis">
+          {{ t('sfwInProgress').replace('{n}', progressPct) }}
+        </div>
+      </template>
 
-      <div v-if="jobData.status === 'COMPLETED'" class="text-caption text-success">
-        {{ t('sfwDoneCount').replace('{n}', formatNumber(jobData.totalInserted)) }}
-      </div>
-      <div v-else-if="jobData.status === 'FAILED'" class="text-caption text-error">
-        {{ jobData.errorMessage || t('intgSyncProgSyncFailed') }}
-      </div>
-      <div v-else class="text-caption text-medium-emphasis">
-        {{ t('sfwInProgress').replace('{n}', combinedPct) }}
-      </div>
+      <template v-else>
+        <!-- Collecte -->
+        <div class="mb-2">
+          <div class="d-flex justify-space-between mb-1">
+            <span class="text-caption text-medium-emphasis">{{ t('sfwCollecting') }}</span>
+            <span class="text-caption text-medium-emphasis">{{ formatNumber(jobData.totalCollected) }}</span>
+          </div>
+          <v-progress-linear
+            :model-value="collectPct"
+            :color="jobData.collectDone ? 'success' : 'primary'"
+            height="4"
+            rounded
+            :indeterminate="!jobData.collectDone && jobData.totalChunks === 0"
+          />
+        </div>
+
+        <!-- Insertion -->
+        <div class="mb-3">
+          <div class="d-flex justify-space-between mb-1">
+            <span class="text-caption text-medium-emphasis">{{ t('sfwInserting') }}</span>
+            <span class="text-caption text-medium-emphasis">{{ formatNumber(jobData.totalInserted) }} / {{ formatNumber(jobData.totalCollected) }}</span>
+          </div>
+          <v-progress-linear
+            :model-value="insertPct"
+            :color="jobData.status === 'COMPLETED' ? 'success' : 'secondary'"
+            height="4"
+            rounded
+          />
+        </div>
+
+        <div v-if="jobData.status === 'COMPLETED'" class="text-caption text-success">
+          {{ t('sfwDoneCount').replace('{n}', formatNumber(jobData.totalInserted)) }}
+        </div>
+        <div v-else-if="jobData.status === 'FAILED'" class="text-caption text-error">
+          {{ jobData.errorMessage || t('intgSyncProgSyncFailed') }}
+        </div>
+        <div v-else class="text-caption text-medium-emphasis">
+          {{ t('sfwInProgress').replace('{n}', combinedPct) }}
+        </div>
+      </template>
     </v-card-text>
   </v-card>
 </template>
@@ -78,12 +107,26 @@ import { getWeezeventJobStatus } from '@/api/endpoints/aggregation.api.js'
 import { useI18n } from '@/i18n/useI18n'
 import { formatNumber } from '@/composables/useFormatters'
 
-const STORAGE_KEY = 'weezevent_active_job_id'
 const POLL_INTERVAL = 5000
 const HIDE_AFTER_DONE_MS = 10000
 
 export default {
   name: 'SyncJobFloatingWidget',
+  props: {
+    /** 'weezevent' (défaut, comportement historique inchangé) | 'digifood'. */
+    provider: { type: String, default: 'weezevent' },
+    /** Digifood uniquement : (jobId) => Promise<jobStatus> — évite d'importer l'API Weezevent
+     *  en dur pour un provider qui n'en a pas besoin. */
+    jobStatusFetcher: { type: Function, default: null },
+    /** Clé localStorage — doit correspondre à celle utilisée par le dialog qui minimise. */
+    storageKey: { type: String, default: 'weezevent_active_job_id' },
+    /** Event global écouté pour s'activer — doit correspondre à celui émis par le parent
+     *  du dialog qui minimise (voir DataIntegrationView.onJobMinimized). */
+    minimizedEventName: { type: String, default: 'weezevent-job-minimized' },
+    /** Décalage vertical (px) — permet d'empiler plusieurs widgets (un par provider) sans
+     *  qu'ils se superposent si deux jobs tournent en même temps. */
+    offsetBottom: { type: Number, default: 24 },
+  },
   setup() {
     const { t } = useI18n()
     return { t, formatNumber }
@@ -110,38 +153,50 @@ export default {
     combinedPct() {
       return Math.round((this.collectPct + this.insertPct) / 2)
     },
+    // Digifood (import CSV, une seule passe)
+    progressPct() {
+      if (this.jobData.status === 'COMPLETED') return 100
+      if (this.jobData.ordersDetected === 0) return 0
+      return Math.min(99, Math.round(((this.jobData.ordersCreated + this.jobData.ordersUpdated + this.jobData.ordersSkipped) / this.jobData.ordersDetected) * 100))
+    },
   },
   mounted() {
-    const savedId = localStorage.getItem(STORAGE_KEY)
+    const savedId = localStorage.getItem(this.storageKey)
     if (savedId) {
       this.jobId = savedId
       this.visible = true
       this._startPoll()
     }
-    // Le widget vit dans App.vue (persistant inter-routes) : la vue qui démarre un sync
+    // Le widget vit dans App.vue (persistant inter-routes) : la vue qui démarre un job
     // ne peut plus l'atteindre par ref, elle relaie via CustomEvent — même convention
     // que locale-changed/theme-changed.
     this._onJobMinimized = (event) => {
       const jobId = event.detail?.jobId
       if (jobId) this.activate(jobId)
     }
-    window.addEventListener('weezevent-job-minimized', this._onJobMinimized)
+    window.addEventListener(this.minimizedEventName, this._onJobMinimized)
   },
   beforeUnmount() {
     this._stopPoll()
     if (this._hideTimer) clearTimeout(this._hideTimer)
-    window.removeEventListener('weezevent-job-minimized', this._onJobMinimized)
+    window.removeEventListener(this.minimizedEventName, this._onJobMinimized)
   },
   methods: {
     freshJobData() {
       return {
         status: 'PENDING',
+        errorMessage: null,
+        // Weezevent (bissection, 2 phases)
         totalCollected: 0,
         totalInserted: 0,
         totalChunks: 0,
         processedChunks: 0,
         collectDone: false,
-        errorMessage: null,
+        // Digifood (import CSV, une seule passe)
+        ordersDetected: 0,
+        ordersCreated: 0,
+        ordersUpdated: 0,
+        ordersSkipped: 0,
       }
     },
     /**
@@ -153,22 +208,26 @@ export default {
       this.jobId = jobId
       this.jobData = this.freshJobData()
       this.visible = true
-      localStorage.setItem(STORAGE_KEY, jobId)
+      localStorage.setItem(this.storageKey, jobId)
       this._startPoll()
     },
     dismiss() {
       this._stopPoll()
       if (this._hideTimer) clearTimeout(this._hideTimer)
       this.visible = false
-      localStorage.removeItem(STORAGE_KEY)
+      localStorage.removeItem(this.storageKey)
     },
     _startPoll() {
-      // Timeout d'INACTIVITÉ plutôt que de durée totale : tant que totalCollected/
-      // totalInserted/processedChunks progressent, on continue d'attendre — un gros tenant
-      // (ex. Auxerre) peut légitimement prendre plus de 10 min. On n'abandonne que si plus
-      // aucun progrès n'est constaté pendant MAX_STALL_MS d'affilée (job vraiment bloqué :
-      // worker orphelin, insert-worker planté…). Aligné sur SyncProgressDialog.vue /
-      // StepProcessTimeline.vue.
+      // Weezevent (défaut) : fonction historique importée en dur. Digifood : fournie par le
+      // parent via jobStatusFetcher (signature différente — organizationId/instanceId/jobId).
+      const fetchStatus = this.provider === 'digifood' && this.jobStatusFetcher
+        ? this.jobStatusFetcher
+        : getWeezeventJobStatus
+      // Timeout d'INACTIVITÉ plutôt que de durée totale : tant que les compteurs progressent,
+      // on continue d'attendre — un gros tenant (ex. Auxerre) peut légitimement prendre plus de
+      // 10 min. On n'abandonne que si plus aucun progrès n'est constaté pendant MAX_STALL_MS
+      // d'affilée (job vraiment bloqué : worker orphelin, insert-worker planté…). Aligné sur
+      // SyncProgressDialog.vue.
       const MAX_STALL_MS = 10 * 60 * 1000
       let lastProgressAt = Date.now()
       let lastProgressSignature = null
@@ -177,29 +236,35 @@ export default {
         if (Date.now() - lastProgressAt >= MAX_STALL_MS) {
           this.jobData = { ...this.jobData, status: 'FAILED', errorMessage: this.jobData.errorMessage || this.t('intgSyncProgTimeout') }
           this._stopPoll()
-          localStorage.removeItem(STORAGE_KEY)
+          localStorage.removeItem(this.storageKey)
           this._hideTimer = setTimeout(() => { this.visible = false }, HIDE_AFTER_DONE_MS)
           return
         }
         try {
-          const data = await getWeezeventJobStatus(this.jobId)
-          const signature = `${data.totalCollected ?? 0}|${data.totalInserted ?? 0}|${data.processedChunks ?? 0}`
+          const data = await fetchStatus(this.jobId)
+          const signature = this.provider === 'digifood'
+            ? `${data.ordersCreated ?? 0}|${data.ordersUpdated ?? 0}|${data.ordersSkipped ?? 0}`
+            : `${data.totalCollected ?? 0}|${data.totalInserted ?? 0}|${data.processedChunks ?? 0}`
           if (signature !== lastProgressSignature) {
             lastProgressSignature = signature
             lastProgressAt = Date.now()
           }
           this.jobData = {
             status: data.status,
+            errorMessage: data.errorMessage ?? null,
             totalCollected: data.totalCollected ?? 0,
             totalInserted: data.totalInserted ?? 0,
             totalChunks: data.totalChunks ?? 0,
             processedChunks: data.processedChunks ?? 0,
             collectDone: data.collectDone ?? false,
-            errorMessage: data.errorMessage ?? null,
+            ordersDetected: data.ordersDetected ?? 0,
+            ordersCreated: data.ordersCreated ?? 0,
+            ordersUpdated: data.ordersUpdated ?? 0,
+            ordersSkipped: data.ordersSkipped ?? 0,
           }
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
             this._stopPoll()
-            localStorage.removeItem(STORAGE_KEY)
+            localStorage.removeItem(this.storageKey)
             this._hideTimer = setTimeout(() => {
               this.visible = false
             }, HIDE_AFTER_DONE_MS)

@@ -32,14 +32,30 @@
     <p class="text-center">{{ t('epItemsLoading') }}</p>
   </div>
 
-  <!-- Empty state : mapping manquant OU prédiction pas encore calculée →
-       message spécifique orientant vers config / mapping / recalcul. -->
+  <!-- Empty state : mapping manquant → message orientant vers config / mapping. -->
   <div
-    v-else-if="itemsContext === 'no-mapping' || itemsContext === 'not-calculated'"
+    v-else-if="itemsContext === 'no-mapping'"
     class="ep-menus-empty flex flex-col items-center justify-center py-12 text-muted-foreground"
   >
     <v-icon size="48" class="opacity-50 mb-4">mdi-alert-circle-outline</v-icon>
     <p class="text-center">{{ t('epNoItemsPrediction') }}</p>
+  </div>
+
+  <!-- Empty state : prédiction pas encore calculée. Event futur SANS historique
+       comparable → propose « Démarrez une estimation » (Estimation 0, fiche
+       311_01) : la grille se rendra depuis le Space Menu, prédictions à 0. -->
+  <div
+    v-else-if="itemsContext === 'not-calculated'"
+    class="ep-menus-empty flex flex-col items-center justify-center py-12 text-muted-foreground"
+  >
+    <v-icon size="48" class="opacity-50 mb-4">mdi-alert-circle-outline</v-icon>
+    <p class="text-center" :class="{ 'mb-4': canStartEstimation }">
+      {{ canStartEstimation ? t('epStartEstimationHint') : t('epNoItemsPrediction') }}
+    </p>
+    <Button v-if="canStartEstimation" size="sm" @click="$emit('start-estimation')">
+      <v-icon size="16" class="mr-1">mdi-pencil-ruler</v-icon>
+      {{ t('epStartEstimation') }}
+    </Button>
   </div>
 
   <!-- Empty state PRIORITAIRE config : aucun point de vente assigné. On n'invente
@@ -88,6 +104,31 @@
     >
       {{ t('epmAssignmentMissing') }}
     </v-alert>
+    <!-- Estimation 0 (fiche 311_01) : bandeau du mode — la grille vient du
+         Space Menu, prédictions à 0, tout se saisit à la main. Fiche 311_02 :
+         champ « échelle max » des sliders fan-out absolus (0 → N unités). -->
+    <v-alert
+      v-if="estimationActive"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="ep-menus-assign-warning"
+    >
+      <div class="ep-estimation-banner-row">
+        <span>{{ t('epEstimationModeBanner') }}</span>
+        <label class="ep-estimation-scale" @click.stop>
+          <span>{{ t('epmEstimationScaleMax') }}</span>
+          <input
+            type="number"
+            min="10"
+            step="10"
+            :value="estimationScaleMax"
+            :aria-label="t('epmEstimationScaleMax')"
+            @change="onEstimationScaleMax($event.target.value)"
+          />
+        </label>
+      </div>
+    </v-alert>
     <!-- ============================================================
          SHOP VIEW
          ============================================================ -->
@@ -120,6 +161,35 @@
             <Badge variant="secondary" class="ml-1">{{ closedShopsCount }}</Badge>
           </TabsTrigger>
         </TabsList>
+        <!-- Chips-filtres orphelins (maquettes 08/2026) : compteurs globaux,
+             chip actif → ne garde que les cartes concernées + bascule leur
+             bucket interne sur la catégorie filtrée. -->
+        <div class="ep-chip-filters flex-shrink-0">
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--nopred"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'noSales' }"
+            :aria-pressed="globalChipFilter === 'noSales' ? 'true' : 'false'"
+            :title="t('epmChipNoForecastHint')"
+            @click="toggleGlobalChip('noSales')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipNoForecast') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.noSales }}</Badge>
+          </button>
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--outmenu"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'unmapped' }"
+            :aria-pressed="globalChipFilter === 'unmapped' ? 'true' : 'false'"
+            :title="t('epmChipOutsideMenuHint')"
+            @click="toggleGlobalChip('unmapped')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipOutsideMenu') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.unmapped }}</Badge>
+          </button>
+        </div>
       </div>
 
       <TabsContent :value="shopStatusTab" class="mt-4 space-y-6 ep-shop-tab-content">
@@ -176,7 +246,11 @@
                                 </span>
                               </div>
                             </div>
-                            <!-- Shop adjustment slider (1:1 React :1316-1355) -->
+                            <!-- Shop adjustment slider (1:1 React :1316-1355).
+                                 Mode estimation (fiche 311_02) : la base prédite
+                                 est 0 partout → % inopérant. Le slider devient
+                                 ABSOLU (unités, 0 → échelle max) et écrit
+                                 manualQuantities pour les items cochés. -->
                             <div
                               class="ep-shop-adjustment"
                               @click.stop
@@ -185,10 +259,24 @@
                               <div class="ep-shop-adjustment-row">
                                 <div class="ep-shop-slider-wrap">
                                   <div class="ep-shop-slider-head">
-                                    <Label class="ep-shop-slider-label">{{ t('epmShopAdjustment') }}</Label>
-                                    <span class="ep-shop-slider-value">{{ getShopAdjustmentValue(element.id) }}%</span>
+                                    <Label class="ep-shop-slider-label">{{ estimationActive ? t('epmShopEstimationQty') : t('epmShopAdjustment') }}</Label>
+                                    <span class="ep-shop-slider-value">
+                                      <template v-if="estimationActive">{{ isShopEstimationMixed(element.id) ? t('epmMixed') : `${getShopEstimationQty(element.id)} u` }}</template>
+                                      <template v-else>{{ getShopAdjustmentValue(element.id) }}%</template>
+                                    </span>
                                   </div>
                                   <Slider
+                                    v-if="estimationActive"
+                                    :value="[getShopEstimationQty(element.id)]"
+                                    :min="0"
+                                    :max="shopEstimationSliderMax(element.id)"
+                                    :step="1"
+                                    :disabled="!isShopOpen(element.id)"
+                                    class-name="ep-shop-slider"
+                                    @update:value="(values) => handleShopEstimationQty(element.id, values[0])"
+                                  />
+                                  <Slider
+                                    v-else
                                     :value="[getShopAdjustmentValue(element.id)]"
                                     :min="0"
                                     :max="500"
@@ -203,8 +291,8 @@
                                   size="sm"
                                   class="ep-shop-reset-btn"
                                   :disabled="!isShopOpen(element.id)"
-                                  :title="t('epmResetTo100')"
-                                  @click.stop="resetShopAdjustment(element.id)"
+                                  :title="estimationActive ? t('epmResetTo0') : t('epmResetTo100')"
+                                  @click.stop="estimationActive ? handleShopEstimationQty(element.id, 0) : resetShopAdjustment(element.id)"
                                 ><v-icon size="16">mdi-restore</v-icon></Button>
                               </div>
                             </div>
@@ -345,6 +433,13 @@
                                           class="ep-cost-alert-badge"
                                           :title="t('epmCostAbovePriceTitle')"
                                         ><v-icon size="12">mdi-alert</v-icon> {{ t('epmCostAbovePriceBadge') }}</span>
+                                        <!-- Cible d'un alias : ses prévisions
+                                             viennent de l'historique de la source. -->
+                                        <span
+                                          v-if="aliasSourceByTarget.has(String(item.id))"
+                                          class="ep-map-badge ep-map-badge--history"
+                                          :title="t('epmHistoryTitle') + ' ' + aliasSourceByTarget.get(String(item.id))"
+                                        >{{ t('epmHistoryBadge') }}</span>
                                       </p>
                                       <span v-if="item._bucket === 'unmapped'" class="ep-unmapped-actions">
                                         <span
@@ -355,9 +450,11 @@
                                         >{{ rowAddKind(element, item.id, item.name) === 'reactivate' ? t('epmDisabledBadge') : t('epmOutsideMenuBadge') }}</span>
                                         <EventPredictRowActions
                                           :kind="rowAddKind(element, item.id, item.name)"
+                                          allow-history
                                           @remap="$emit('remap-request', { shopName: element.name, elementId: element.id, soldItem: { id: item.id, name: item.name } })"
                                           @add="emitAddToMenu(element, item)"
                                           @open-space-menus="goToSpaceMenus"
+                                          @use-history="$emit('history-alias-request', { shopName: element.name, elementId: element.id, item: { id: item.id, name: item.name } })"
                                         />
                                       </span>
                                       <template v-else-if="item._ghost">
@@ -388,6 +485,21 @@
                                         class="ep-map-badge ep-map-badge--remapped"
                                         :title="t('epmRemappedTitle')"
                                       >{{ t('epmRemappedBadge') }}</span>
+                                      <!-- Ligne « sans ventes prévues » (prédit 0,
+                                           ni fantôme ni indisponible) : kebab
+                                           historique seul — reprendre l'historique
+                                           d'un ancien article (maquettes 08/2026). -->
+                                      <span
+                                        v-else-if="item._bucket === 'noSales'"
+                                        class="ep-unmapped-actions"
+                                      >
+                                        <EventPredictRowActions
+                                          allow-history
+                                          history-only
+                                          @open-space-menus="goToSpaceMenus"
+                                          @use-history="$emit('history-alias-request', { shopName: element.name, elementId: element.id, item: { id: item.id, name: item.name } })"
+                                        />
+                                      </span>
                                       </div>
                                       <p v-if="item.category" class="text-xs text-muted-foreground">{{ item.category }}</p>
                                       <!-- Qty controls — visibles pour les articles du
@@ -415,13 +527,21 @@
                                           <Slider
                                             :value="[getManualQuantity(element.id, item.id)]"
                                             :min="0"
-                                            :max="manualQtyMax"
+                                            :max="manualSliderMax(element.id, item.id)"
                                             :step="1"
                                             :disabled="!isShopOpen(element.id)"
                                             class="flex-1"
                                             @update:value="(values) => handleManualQuantity(element.id, item.id, values[0])"
                                           />
-                                          <span class="text-xs text-muted-foreground w-12 text-right">{{ getManualQuantity(element.id, item.id) }}</span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            class="ep-manual-qty-input"
+                                            :disabled="!isShopOpen(element.id)"
+                                            :aria-label="t('epmManualQtyInputAria')"
+                                            :value="getManualQuantity(element.id, item.id)"
+                                            @change="(e) => handleManualQuantity(element.id, item.id, e.target.value)"
+                                          />
                                           <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                           <span
                                             v-if="getAdjustedQuantity(element.id, item.id) !== getManualQuantity(element.id, item.id)"
@@ -542,6 +662,34 @@
             <v-icon size="18">mdi-chevron-right</v-icon>
           </button>
         </div>
+        <!-- Mêmes chips-filtres qu'en vue PDV : ici ils filtrent les entrées
+             article (sans prévision / hors Space Menu). -->
+        <div class="ep-chip-filters flex-shrink-0">
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--nopred"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'noSales' }"
+            :aria-pressed="globalChipFilter === 'noSales' ? 'true' : 'false'"
+            :title="t('epmChipNoForecastHint')"
+            @click="toggleGlobalChip('noSales')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipNoForecast') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.noSales }}</Badge>
+          </button>
+          <button
+            type="button"
+            class="ep-chip-filter ep-chip-filter--outmenu"
+            :class="{ 'ep-chip-filter--on': globalChipFilter === 'unmapped' }"
+            :aria-pressed="globalChipFilter === 'unmapped' ? 'true' : 'false'"
+            :title="t('epmChipOutsideMenuHint')"
+            @click="toggleGlobalChip('unmapped')"
+          >
+            <span class="ep-chip-filter-dot"></span>
+            {{ t('epmChipOutsideMenu') }}
+            <Badge variant="secondary" class="ml-1">{{ globalChipCounts.unmapped }}</Badge>
+          </button>
+        </div>
       </div>
 
       <TabsContent :value="itemTypeTab" class="mt-4 space-y-6 ep-item-tab-content">
@@ -593,7 +741,14 @@
                         @keydown.enter.prevent="toggleElementExpanded(entry.menuItemId)"
                         @keydown.space.prevent="toggleElementExpanded(entry.menuItemId)"
                       >
-                        <CardTitle class="ep-item-card-title truncate">{{ entry.menuItem.name }}</CardTitle>
+                        <CardTitle class="ep-item-card-title truncate">
+                          {{ entry.menuItem.name }}
+                          <span
+                            v-if="aliasSourceByTarget.has(String(entry.menuItemId))"
+                            class="ep-map-badge ep-map-badge--history"
+                            :title="t('epmHistoryTitle') + ' ' + aliasSourceByTarget.get(String(entry.menuItemId))"
+                          >{{ t('epmHistoryBadge') }}</span>
+                        </CardTitle>
                         <span
                           v-if="entry._mapGroup === 'unmapped'"
                           class="ep-map-badge ep-map-badge--unmapped"
@@ -619,7 +774,9 @@
                           {{ entry.shops.filter((s) => s.selected).length }} / {{ entry.shops.length }} {{ t('epmShopsSuffix') }}
                         </span>
                       </div>
-                      <!-- Item adjustment slider -->
+                      <!-- Item adjustment slider. Mode estimation (fiche 311_02) :
+                           slider ABSOLU (unités) — pose la même quantité sur tous
+                           les PDV cochés de l'article. -->
                       <div
                         class="mt-3 pt-3 border-t border-border"
                         @click.stop
@@ -628,12 +785,24 @@
                         <div class="flex items-center gap-3">
                           <div class="flex-1">
                             <div class="flex items-center justify-between mb-1">
-                              <Label class="text-xs text-muted-foreground">{{ t('epmItemAdjustment') }}</Label>
+                              <Label class="text-xs text-muted-foreground">{{ estimationActive ? t('epmItemEstimationQty') : t('epmItemAdjustment') }}</Label>
                               <span class="text-xs font-medium">
-                                {{ isItemAdjustmentMixed(entry.menuItemId) ? t('epmMixed') : `${getItemAdjustmentValue(entry.menuItemId)}%` }}
+                                <template v-if="estimationActive">{{ isItemEstimationMixed(entry.menuItemId) ? t('epmMixed') : `${getItemEstimationQty(entry.menuItemId)} u` }}</template>
+                                <template v-else>{{ isItemAdjustmentMixed(entry.menuItemId) ? t('epmMixed') : `${getItemAdjustmentValue(entry.menuItemId)}%` }}</template>
                               </span>
                             </div>
                             <Slider
+                              v-if="estimationActive"
+                              :value="[getItemEstimationQty(entry.menuItemId)]"
+                              :min="0"
+                              :max="itemEstimationSliderMax(entry.menuItemId)"
+                              :step="1"
+                              :disabled="!entry.hasSelection"
+                              class-name="w-full"
+                              @update:value="(values) => handleItemEstimationQty(entry.menuItemId, values[0])"
+                            />
+                            <Slider
+                              v-else
                               :value="[getItemAdjustmentValue(entry.menuItemId)]"
                               :min="0"
                               :max="500"
@@ -648,13 +817,26 @@
                             size="sm"
                             class="flex-shrink-0 h-8 w-8 p-0"
                             :disabled="!entry.hasSelection"
-                            :title="t('epmResetTo100')"
-                            @click.stop="resetItemAdjustment(entry.menuItemId)"
+                            :title="estimationActive ? t('epmResetTo0') : t('epmResetTo100')"
+                            @click.stop="estimationActive ? handleItemEstimationQty(entry.menuItemId, 0) : resetItemAdjustment(entry.menuItemId)"
                           ><v-icon size="16">mdi-restore</v-icon></Button>
                         </div>
                       </div>
                     </div>
                   </div>
+                  <!-- Kebab niveau ARTICLE (demande maquette 08/2026) : ajouter
+                       l'article à TOUS les PDV proposés dans Space Menus en un
+                       clic. Masqué pour un item hors catalogue (le backend
+                       ignorerait silencieusement l'id) ou si aucune assignation
+                       Space Menus n'est active sur la config. Les kebabs par
+                       PDV plus bas restent inchangés. -->
+                  <EventPredictRowActions
+                    v-if="assignmentFeatureActive() && spaceCatalogIdSet.has(String(entry.menuItemId))"
+                    variant="item-header"
+                    :assign-all-disabled="isItemAssignedEverywhere(entry.menuItemId)"
+                    @assign-all="$emit('assign-item-all-shops', { menuItemId: entry.menuItemId, itemName: entry.menuItem.name })"
+                    @open-space-menus="goToSpaceMenus"
+                  />
                   <button
                     type="button"
                     class="ep-item-chevron-btn"
@@ -716,9 +898,24 @@
                                   >{{ rowAddKind(shop.element, entry.menuItemId, entry.menuItem.name) === 'reactivate' ? t('epmDisabledBadge') : t('epmOutsideMenuBadge') }}</span>
                                   <EventPredictRowActions
                                     :kind="rowAddKind(shop.element, entry.menuItemId, entry.menuItem.name)"
+                                    allow-history
                                     @remap="$emit('remap-request', { shopName: shop.element.name, elementId: shop.element.id, soldItem: { id: entry.menuItemId, name: entry.menuItem.name } })"
                                     @add="emitAddToMenu(shop.element, { id: entry.menuItemId, name: entry.menuItem.name })"
                                     @open-space-menus="goToSpaceMenus"
+                                    @use-history="$emit('history-alias-request', { shopName: shop.element.name, elementId: shop.element.id, item: { id: entry.menuItemId, name: entry.menuItem.name } })"
+                                  />
+                                </span>
+                                <!-- Pendant vue article du kebab « sans ventes
+                                     prévues » : assigné, prédit 0 → historique seul. -->
+                                <span
+                                  v-else-if="shop.assignmentLoaded && shop.assigned && (shop.predictedQty || 0) === 0"
+                                  class="ep-unmapped-actions"
+                                >
+                                  <EventPredictRowActions
+                                    allow-history
+                                    history-only
+                                    @open-space-menus="goToSpaceMenus"
+                                    @use-history="$emit('history-alias-request', { shopName: shop.element.name, elementId: shop.element.id, item: { id: entry.menuItemId, name: entry.menuItem.name } })"
                                   />
                                 </span>
                               </p>
@@ -747,12 +944,19 @@
                                 <Slider
                                   :value="[getManualQuantity(shop.element.id, entry.menuItemId)]"
                                   :min="0"
-                                  :max="manualQtyMax"
+                                  :max="manualSliderMax(shop.element.id, entry.menuItemId)"
                                   :step="1"
                                   class="flex-1"
                                   @update:value="(values) => handleManualQuantity(shop.element.id, entry.menuItemId, values[0])"
                                 />
-                                <span class="text-xs text-muted-foreground w-12 text-right">{{ getManualQuantity(shop.element.id, entry.menuItemId) }}</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  class="ep-manual-qty-input"
+                                  :aria-label="t('epmManualQtyInputAria')"
+                                  :value="getManualQuantity(shop.element.id, entry.menuItemId)"
+                                  @change="(e) => handleManualQuantity(shop.element.id, entry.menuItemId, e.target.value)"
+                                />
                                 <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                 <Button
                                   variant="ghost"
@@ -825,6 +1029,7 @@ import {
   lookupPredictedQuantity,
 } from '@/utils/predictedQuantityIndex'
 import { menuItemPriceHt } from '@/utils/price'
+import { uniformValue, applyFanoutQuantity, estimationSliderMax } from '@/utils/estimationMode'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import Card from '../ui/card.vue'
 import CardHeader from '../ui/cardHeader.vue'
@@ -848,6 +1053,7 @@ import Tooltip from '../ui/tooltip.vue'
 import TooltipContent from '../ui/tooltipContent.vue'
 import TooltipTrigger from '../ui/tooltipTrigger.vue'
 import EventPredictRowActions from './EventPredictRowActions.vue'
+import { aliasSourceByTargetId } from '@/utils/historyAliases'
 
 // Onglets UI = 'Food' | 'Beverage' | 'Combo'. Le vocabulaire RÉEL en base est
 // FR+EN, casse mixte (ProductType : Nourriture/Boissons/Alcools/Food/Beverage/
@@ -956,6 +1162,16 @@ export default {
      *  Sans elle, `classifyItemType` retombe sur les champs bruts de l'item. */
     productTypes: { type: Array, default: () => [] },
     productCategories: { type: Array, default: () => [] },
+    /** Estimation 0 (fiche 311_01) : mode actif — la grille se rend depuis le
+     *  Space Menu, prédictions à 0, saisie via manualQuantities. Défaut false
+     *  → comportement historique strictement inchangé. */
+    estimationActive: { type: Boolean, default: false },
+    /** True = event futur sans historique, éligible mais mode pas encore
+     *  démarré → l'empty state 'not-calculated' propose le bouton. */
+    canStartEstimation: { type: Boolean, default: false },
+    /** Alias « historique emprunté » de l'espace (lignes MenuItemHistoryAlias)
+     *  — badge sur les lignes cibles (maquettes 08/2026). */
+    historyAliases: { type: Array, default: () => [] },
   },
   emits: [
     'update:selectedMenuItems',
@@ -963,9 +1179,12 @@ export default {
     'update:manualQuantities',
     'manual-info',
     'remap-request',
+    'history-alias-request',
     'assign-shop-item',
     'assign-shop-items',
+    'assign-item-all-shops',
     'assign-blocked',
+    'start-estimation',
   ],
   setup() {
     const { t } = useI18n()
@@ -985,12 +1204,20 @@ export default {
       shopSearchQuery: {},
       // Onglet actif des 3 catégories PAR SHOP. elementId -> 'sales' | 'unmapped' | 'noSales'.
       shopTab: {},
+      // Chip-filtre global de la toolbar (maquettes 08/2026) :
+      // null | 'noSales' (article sans prévision) | 'unmapped' (hors Space
+      // Menu). Non persisté, réinitialisé au changement d'onglet statut/vue.
+      globalChipFilter: null,
       // Déplié par défaut : des ventes sont prédites sur ces articles, on veut
       // que ce soit visible sans action (vue Item globale — le pendant par
       // shop est remplacé par l'onglet 'unmapped', cf. shopTab).
       unmappedItemViewOpen: true,
       // Plafond du slider de quantité absolue (items à prédiction 0).
       manualQtyMax: 500,
+      // Échelle max des sliders fan-out ABSOLUS du mode estimation (fiche
+      // 311_02) — éditable via le champ du bandeau. UI seulement, pas persisté
+      // (les quantités posées le sont, elles, via le brouillon du parent).
+      estimationScaleMax: 1000,
       // Tick pour invalider les computed quand on mute expandedElements/shopSearchQuery
       _uiTick: 0,
     }
@@ -1342,7 +1569,14 @@ export default {
             if (!matchShop && !matchItem) return false
           }
           const open = this.isShopOpen(el.id)
-          return this.shopStatusTab === 'open' ? open : !open
+          if (!(this.shopStatusTab === 'open' ? open : !open)) return false
+          // Chip-filtre global : ne garder que les cartes ayant ≥1 ligne
+          // restant à traiter du type.
+          if (this.globalChipFilter) {
+            const c = this.chipCountsByElement.get(el.id) || {}
+            if (!((c[this.globalChipFilter] || 0) > 0)) return false
+          }
+          return true
         })
         if (filtered.length) out.push([type, filtered])
       }
@@ -1355,6 +1589,59 @@ export default {
     /** True quand l'open/closed est sourcé depuis la config (API /shops). */
     hasOpenData() {
       return this.isOpenByShop && Object.keys(this.isOpenByShop).length > 0
+    },
+    /** Cible d'alias → nom de la source (badge « historique emprunté »). */
+    aliasSourceByTarget() {
+      return aliasSourceByTargetId(this.historyAliases)
+    },
+    /**
+     * Compteurs des chips-filtres par PDV, mémoïsés en UNE passe (chips globaux
+     * + filtrage des cartes — appeler getGroupedMenuItems à chaque fois serait
+     * quadratique sur les grosses configs). DYNAMIQUES : une ligne « sans vente
+     * prévue » sort du compteur dès qu'une quantité ajustée > 0 la couvre
+     * (quantité manuelle posée) — le compteur mesure le RESTE À TRAITER, pas la
+     * taille du bucket (qui, lui, ne bouge pas).
+     */
+    chipCountsByElement() {
+      const map = new Map()
+      for (const el of this.fbElements) {
+        let noSales = 0
+        let unmapped = 0
+        for (const it of this.getGroupedMenuItems(el)) {
+          if (it._bucket === 'unmapped') unmapped += 1
+          else if (
+            it._bucket === 'noSales' &&
+            this.getAdjustedQuantity(el.id, it.id) === 0
+          ) noSales += 1
+        }
+        map.set(el.id, { noSales, unmapped })
+      }
+      return map
+    },
+    /**
+     * Compteurs globaux des chips-filtres. Vue PDV : somme du reste à traiter
+     * des cartes de l'onglet statut courant. Vue article : entrées hors menu
+     * (_mapGroup 'unmapped') / entrées sans AUCUNE quantité ajustée (prédite ou
+     * manuelle) sur aucun PDV, exclusif du premier.
+     */
+    globalChipCounts() {
+      let noSales = 0
+      let unmapped = 0
+      if (this.viewMode === 'item') {
+        for (const entry of this.groupByMenuItemArray) {
+          if (entry._mapGroup === 'unmapped') unmapped += 1
+          else if (entry.shops.every((s) => (s.adjustedQty || 0) === 0)) noSales += 1
+        }
+        return { noSales, unmapped }
+      }
+      for (const el of this.fbElements) {
+        const open = this.isShopOpen(el.id)
+        if (this.shopStatusTab === 'open' ? !open : open) continue
+        const c = this.chipCountsByElement.get(el.id) || {}
+        noSales += c.noSales || 0
+        unmapped += c.unmapped || 0
+      }
+      return { noSales, unmapped }
     },
     openShopsCount() {
       return this.fbElements.filter((el) => this.isShopOpen(el.id)).length
@@ -1452,6 +1739,8 @@ export default {
           const ms = entry.shops.some((s) => s.element.name.toLowerCase().includes(q))
           if (!mi && !ms) continue
         }
+        // Chip-filtre global (mêmes catégories qu'en vue PDV, à l'échelle entrée).
+        if (this.globalChipFilter && !this.entryMatchesChip(entry, this.globalChipFilter)) continue
         const hasSel = entry.shops.some((s) => s.selected)
         out.push({ ...entry, hasSelection: hasSel })
       }
@@ -1486,6 +1775,14 @@ export default {
       handler() {
         this.$nextTick(() => this.autoSelectIfEmpty())
       },
+    },
+    // Le chip-filtre global n'a de sens que dans le contexte où il a été posé
+    // (onglet Ouverts/Fermés, vue PDV/article) : on le relâche au changement.
+    shopStatusTab() {
+      this.globalChipFilter = null
+    },
+    viewMode() {
+      this.globalChipFilter = null
     },
   },
   methods: {
@@ -1535,6 +1832,18 @@ export default {
       if (item == null) return null
       if (item.unitCost != null) return Number(item.unitCost)
       if (item.totalCost != null) return Number(item.totalCost)
+      // Ligne SLIM (assignation Space Menu = {id,name,basePrice,…} SANS champ de
+      // coût) : résolution catalogue par id puis nom — même démarche que
+      // htUnitPrice. Sans ça, coût + marge disparaissaient de toutes les lignes
+      // assignées, seul chemin en mode estimation (fiche 311_02).
+      if (!item._synthetic) {
+        const full =
+          this.menuItemsById.get(item.id) ||
+          (this.menuItems || []).find((m) => normalizeStr(m?.name) === normalizeStr(item?.name))
+        if (full && full.totalCost != null && Number(full.totalCost) > 0) {
+          return Number(full.totalCost)
+        }
+      }
       // Fallback : coût par menuItemId (shop-details / store analyse). On exige
       // > 0 — une entrée à 0 = coût inconnu, pas un produit gratuit (sinon marge
       // affichée à 100% à tort).
@@ -1803,6 +2112,12 @@ export default {
     getManualQuantity(elementId, menuItemId) {
       return this.manualQuantities[`${elementId}-${menuItemId}`] ?? 0
     },
+    /** Plafond dynamique du slider manuel : une valeur tapée dans l'input
+     *  number au-delà de manualQtyMax (500) ne doit pas casser le curseur
+     *  (volumes stade, Estimation 0 — fiche 311_01). */
+    manualSliderMax(elementId, menuItemId) {
+      return Math.max(this.manualQtyMax, this.getManualQuantity(elementId, menuItemId))
+    },
     /**
      * Ligne « jamais vendu ici » simulable : prédiction 0, item DANS le menu du
      * PDV (pas hors-menu/désactivé) et PDV OUVERT pour ce match. Un PDV fermé ne
@@ -1908,6 +2223,59 @@ export default {
     resetItemAdjustment(menuItemId) {
       this.handleItemAdjustment(menuItemId, 100)
     },
+    // ----- Sliders fan-out ABSOLUS du mode estimation (fiche 311_02) -----
+    // Base prédite = 0 partout en Estimation 0 → un % ne produit rien. Les
+    // sliders shop/article écrivent ici des UNITÉS dans manualQuantities, sur
+    // les mêmes ensembles de couples que leurs pendants % (items cochés).
+    onEstimationScaleMax(value) {
+      const n = Math.round(Number(value) || 0)
+      this.estimationScaleMax = n >= 10 ? n : 1000
+    },
+    getShopEstimationValues(elementId) {
+      const selected = this.selectedMenuItems[elementId] || []
+      return selected.map((miId) => Number(this.manualQuantities[`${elementId}-${miId}`]) || 0)
+    },
+    getShopEstimationQty(elementId) {
+      return uniformValue(this.getShopEstimationValues(elementId)) ?? 0
+    },
+    isShopEstimationMixed(elementId) {
+      return uniformValue(this.getShopEstimationValues(elementId)) === null
+        && this.getShopEstimationValues(elementId).length > 1
+    },
+    shopEstimationSliderMax(elementId) {
+      const values = this.getShopEstimationValues(elementId)
+      const current = values.length ? Math.max(...values) : 0
+      return estimationSliderMax(this.estimationScaleMax, current)
+    },
+    handleShopEstimationQty(elementId, units) {
+      const selected = this.selectedMenuItems[elementId] || []
+      if (!selected.length) return
+      const keys = selected.map((miId) => `${elementId}-${miId}`)
+      this.$emit('update:manualQuantities', applyFanoutQuantity(this.manualQuantities, keys, units))
+    },
+    getItemEstimationValues(menuItemId) {
+      return this.getSelectedElementsForMenuItem(menuItemId).map(
+        (element) => Number(this.manualQuantities[`${element.id}-${menuItemId}`]) || 0,
+      )
+    },
+    getItemEstimationQty(menuItemId) {
+      return uniformValue(this.getItemEstimationValues(menuItemId)) ?? 0
+    },
+    isItemEstimationMixed(menuItemId) {
+      return uniformValue(this.getItemEstimationValues(menuItemId)) === null
+        && this.getItemEstimationValues(menuItemId).length > 1
+    },
+    itemEstimationSliderMax(menuItemId) {
+      const values = this.getItemEstimationValues(menuItemId)
+      const current = values.length ? Math.max(...values) : 0
+      return estimationSliderMax(this.estimationScaleMax, current)
+    },
+    handleItemEstimationQty(menuItemId, units) {
+      const selectedElements = this.getSelectedElementsForMenuItem(menuItemId)
+      if (!selectedElements.length) return
+      const keys = selectedElements.map((element) => `${element.id}-${menuItemId}`)
+      this.$emit('update:manualQuantities', applyFanoutQuantity(this.manualQuantities, keys, units))
+    },
     // ----- Availability (cf. React :467-589) -----
     isMenuItemAvailableInSpace(mi) {
       if (Array.isArray(mi.spaceIds) && mi.spaceIds.length > 0) {
@@ -2010,6 +2378,17 @@ export default {
     },
     unmappedItemViewCount() {
       return this.filteredMenuItemsForItemView.filter((e) => e._mapGroup === 'unmapped').length
+    },
+    // Kebab article : vrai si l'article est déjà proposé sur TOUS les shops F&B
+    // de la config. `assignedIdsForElement` rend null tant que l'assignation du
+    // shop n'est pas chargée → on ne grise PAS dans le doute (l'action bulk est
+    // idempotente côté backend, delta partiel par couple shop/item).
+    isItemAssignedEverywhere(menuItemId) {
+      if (!this.fbElements.length) return false
+      return this.fbElements.every((el) => {
+        const ids = this.assignedIdsForElement(el)
+        return ids !== null && (ids.has(menuItemId) || ids.has(String(menuItemId)))
+      })
     },
     toggleUnmappedItemView() {
       this.unmappedItemViewOpen = !this.unmappedItemViewOpen
@@ -2396,10 +2775,38 @@ export default {
     },
     // ----- Onglet actif (3 catégories) par shop -----
     getShopTab(elementId) {
-      return this.shopTab[elementId] || 'sales'
+      // Estimation 0 : sans historique, l'onglet « ventes » est vide (badge 0)
+      // → défaut sur 'noSales' où vivent les lignes simulables à saisie
+      // manuelle. Hors mode estimation, défaut historique inchangé.
+      return this.shopTab[elementId] || (this.estimationActive ? 'noSales' : 'sales')
     },
     setShopTab(elementId, tab) {
       this.shopTab = { ...this.shopTab, [elementId]: tab }
+    },
+    /**
+     * Toggle d'un chip-filtre global (un seul actif à la fois). À l'activation
+     * en vue PDV, bascule le bucket interne des cartes retenues sur la
+     * catégorie filtrée (impératif ici, jamais dans un computed) — la
+     * désactivation ne restaure rien (l'utilisateur garde la main).
+     */
+    toggleGlobalChip(kind) {
+      const next = this.globalChipFilter === kind ? null : kind
+      this.globalChipFilter = next
+      if (!next || this.viewMode !== 'shop') return
+      for (const el of this.fbElements) {
+        const c = this.chipCountsByElement.get(el.id) || {}
+        if ((c[kind] || 0) > 0) this.setShopTab(el.id, kind)
+      }
+    },
+    /** Une entrée de la vue article matche-t-elle le chip-filtre donné ?
+     *  Même critère dynamique que les compteurs : « sans vente prévue » =
+     *  aucune quantité AJUSTÉE (prédite ou manuelle) sur aucun PDV. */
+    entryMatchesChip(entry, kind) {
+      if (kind === 'unmapped') return entry._mapGroup === 'unmapped'
+      return (
+        entry._mapGroup !== 'unmapped' &&
+        entry.shops.every((s) => (s.adjustedQty || 0) === 0)
+      )
     },
     // Recherche texte par shop (remplace les chips catégorie dans l'en-tête —
     // elles rallongeaient l'en-tête de l'accordéon même replié). Filtre par
@@ -2437,6 +2844,46 @@ export default {
    Couleurs via tokens du thème (pas de palette importée). */
 .ep-menus-assign-warning {
   margin-bottom: 0.75rem;
+}
+/* Bandeau estimation (fiche 311_02) : message + champ « échelle max » des
+   sliders absolus sur une même ligne, repli propre en étroit. Le champ reprend
+   le style de .ep-manual-qty-input (charte fermée : pas de nouveau font-size). */
+.ep-estimation-banner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ep-estimation-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.ep-estimation-scale input {
+  width: 72px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: inherit;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: transparent;
+}
+/* Saisie directe de la quantité manuelle (Estimation 0, fiche 311_01) —
+   remplace l'ancien span lecture seule à côté du slider. Taille de police
+   héritée de la ligne (charte fermée : pas de nouveau font-size). */
+.ep-manual-qty-input {
+  width: 64px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: inherit;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: transparent;
 }
 /* Ligne « non rattaché » : badge + kebab d'actions sur UNE ligne, alignés,
    hauteur uniforme (remplace la rangée de boutons texte qui débordait). */
@@ -2501,6 +2948,16 @@ export default {
   margin-left: 0;
   color: var(--muted-foreground, #64748b);
   background: color-mix(in srgb, var(--muted-foreground, #64748b) 12%, transparent);
+}
+/* Cible d'un alias « historique emprunté » (maquettes 08/2026) : vert succès —
+   la ligne a récupéré des prévisions, ce n'est pas une alerte. */
+.ep-map-badge--history {
+  color: var(--fb-success, #0e7a5f);
+  background: color-mix(in srgb, var(--fb-success, #0e7a5f) 12%, transparent);
+}
+.dark .ep-map-badge--history {
+  color: #3dbd97;
+  background: color-mix(in srgb, #3dbd97 16%, transparent);
 }
 .ep-nohist-row {
   display: flex;
@@ -2603,9 +3060,10 @@ export default {
   border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 9999px;
   padding: 0 14px;
-  flex: 1 1 320px;
-  min-width: 260px;
-  max-width: 520px;
+  /* Barre resserrée (maquettes 08/2026) : 520 → 340 px, place aux chips. */
+  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 340px;
 }
 .ep-toolbar-search-icon {
   color: var(--fb-faint, #9ca3af);
@@ -2622,6 +3080,54 @@ export default {
 }
 .ep-toolbar-search-input::placeholder {
   color: var(--fb-muted, #6b7280);
+}
+/* Chips-filtres « reste à traiter » de la toolbar (maquettes 08/2026).
+   Même langage visuel que la recherche et les tabs pilule voisines : hauteur
+   38px, fond --fb-subtle, bordure --fb-border, radius 9999px. Actif = accent
+   produit (--fb-primary-soft / #ff3131), comme .ep-remap-btn et le badge
+   remappé — le point coloré porte seul la sémantique (orange = sans vente
+   prévue, rouge = non attaché). */
+.ep-chip-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ep-chip-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  background: var(--fb-subtle, #fafafa);
+  color: var(--fb-muted, #6b7280);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+.ep-chip-filter:hover {
+  color: var(--fb-text, #111827);
+  border-color: var(--fb-border, #d1d5db);
+}
+.ep-chip-filter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ep-chip-filter--nopred .ep-chip-filter-dot {
+  background: #c2410c;
+}
+.ep-chip-filter--outmenu .ep-chip-filter-dot {
+  background: var(--destructive, #b91c1c);
+}
+.ep-chip-filter--on {
+  border-color: rgba(255, 49, 49, 0.35);
+  background: var(--fb-primary-soft, #fff5f5);
+  color: #ff3131;
 }
 .ep-toolbar-tabs {
   height: 38px;

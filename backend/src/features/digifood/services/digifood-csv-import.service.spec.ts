@@ -28,16 +28,31 @@ function makePrismaMock() {
         salesProduct: { findMany: jest.fn().mockResolvedValue([{ externalId: 'var_b1' }]) },
         salesLocation: { findMany: jest.fn().mockResolvedValue([]) },
         digifoodCsvImportRun: {
-            create: jest.fn().mockResolvedValue({}),
+            create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'job_generated', ...data })),
+            update: jest.fn().mockResolvedValue({}),
             findMany: jest.fn().mockResolvedValue([]),
+            findFirst: jest.fn().mockResolvedValue(null),
         },
     };
+}
+
+/** Le traitement réel tourne en fire-and-forget (voir startRealImport) : on attend que le
+ *  dernier update() du job porte un statut terminal avant d'inspecter les mocks. */
+async function waitForJobCompletion(prisma: ReturnType<typeof makePrismaMock>, maxTries = 50): Promise<void> {
+    for (let i = 0; i < maxTries; i++) {
+        const done = prisma.digifoodCsvImportRun.update.mock.calls.some(
+            ([arg]: any) => arg?.data?.status === 'COMPLETED' || arg?.data?.status === 'FAILED',
+        );
+        if (done) return;
+        await new Promise((resolve) => setImmediate(resolve));
+    }
+    throw new Error('job did not reach a terminal status in time');
 }
 
 describe('DigifoodCsvImportService', () => {
     let service: DigifoodCsvImportService;
     let prisma: ReturnType<typeof makePrismaMock>;
-    let ingestion: { ingestOrder: jest.Mock };
+    let ingestion: { ingestOrder: jest.Mock; createCache: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrismaMock();
@@ -46,6 +61,7 @@ describe('DigifoodCsvImportService', () => {
                 transactionId: 'tx-1', created: true, skippedDuplicateRefund: false,
                 itemsCount: 1, productsUpserted: 1, autoMapped: 0,
             }),
+            createCache: jest.fn().mockReturnValue({ sites: new Map(), shops: new Map(), products: new Map() }),
         };
         const module = await Test.createTestingModule({
             providers: [
@@ -57,59 +73,44 @@ describe('DigifoodCsvImportService', () => {
         service = module.get(DigifoodCsvImportService);
     });
 
-    it('dry-run (défaut) : rapport complet SANS aucune écriture', async () => {
-        const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), true);
+    describe('importCsv (aperçu, toujours synchrone, sans écriture)', () => {
+        it('rapport complet SANS aucune écriture', async () => {
+            const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV));
 
-        expect(report).toMatchObject({
-            dryRun: true,
-            ordersDetected: 2, // order_1 + order_2 (lignes invalides rejetées)
-            ordersCreated: 1,  // order_2 (order_1 existe déjà)
-            ordersUpdated: 1,  // order_1
-            productsCreated: 1, // var_d1 (var_b1 existe)
-            locationsCreated: 1, // shop_1
+            expect(report).toMatchObject({
+                dryRun: true,
+                ordersDetected: 2, // order_1 + order_2 (lignes invalides rejetées)
+                ordersCreated: 1,  // order_2 (order_1 existe déjà)
+                ordersUpdated: 1,  // order_1
+                productsCreated: 1, // var_d1 (var_b1 existe)
+                locationsCreated: 1, // shop_1
+            });
+            expect(report.rejectedRows).toHaveLength(2);
+            expect(report.rejectedRows[0].reason).toMatch(/order_id manquant/);
+            expect(report.rejectedRows[1].reason).toMatch(/quantity invalide/);
+            expect(ingestion.ingestOrder).not.toHaveBeenCalled();
+            expect(prisma.digifoodCsvImportRun.create).not.toHaveBeenCalled();
         });
-        expect(report.rejectedRows).toHaveLength(2);
-        expect(report.rejectedRows[0].reason).toMatch(/order_id manquant/);
-        expect(report.rejectedRows[1].reason).toMatch(/quantity invalide/);
-        expect(ingestion.ingestOrder).not.toHaveBeenCalled();
-    });
 
-    it('dryRun=false : passe chaque order par ingestOrder (source csv), refund signé négatif', async () => {
-        const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), false);
+        it('supporte le délimiteur ; et le mapping de colonnes CsvMapping du tenant', async () => {
+            prisma.csvMapping.findFirst.mockResolvedValue({
+                mapping: { order_id: 'commande', item_name: 'produit', quantity: 'qte', price_pu: 'prix_centimes' },
+            });
+            const csv = [
+                'commande;produit;qte;prix_centimes;placed_at',
+                'cmd_9;Crêpe;3;450;2026-07-02T10:00:00Z',
+            ].join('\n');
 
-        expect(ingestion.ingestOrder).toHaveBeenCalledTimes(2);
-        const [, , order1] = ingestion.ingestOrder.mock.calls[0];
-        expect(order1).toMatchObject({ id: 'order_1', type: 'sale', total: 75 });
-        expect(order1.items).toHaveLength(2);
-        expect(order1.items[1]).toMatchObject({ productKey: 'var_d1', quantity: 2, unitPrice: 15 });
-
-        const [, , order2] = ingestion.ingestOrder.mock.calls[1];
-        expect(order2).toMatchObject({ id: 'order_2', type: 'refund', total: -45 });
-        expect(order2.items[0].quantity).toBe(-1);
-        expect(ingestion.ingestOrder.mock.calls.every((c) => c[3] === 'csv')).toBe(true);
-
-        expect(report.ordersCreated).toBe(2);
-        expect(report.dryRun).toBe(false);
-    });
-
-    it('supporte le délimiteur ; et le mapping de colonnes CsvMapping du tenant', async () => {
-        prisma.csvMapping.findFirst.mockResolvedValue({
-            mapping: { order_id: 'commande', item_name: 'produit', quantity: 'qte', price_pu: 'prix_centimes' },
+            const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(csv));
+            expect(report.ordersDetected).toBe(1);
+            expect(report.rejectedRows).toHaveLength(0);
         });
-        const csv = [
-            'commande;produit;qte;prix_centimes;placed_at',
-            'cmd_9;Crêpe;3;450;2026-07-02T10:00:00Z',
-        ].join('\n');
 
-        const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(csv), true);
-        expect(report.ordersDetected).toBe(1);
-        expect(report.rejectedRows).toHaveLength(0);
-    });
-
-    it('rejette un fichier vide', async () => {
-        await expect(service.importCsv(TENANT, INTEGRATION, Buffer.from(''), true)).rejects.toThrow(
-            BadRequestException,
-        );
+        it('rejette un fichier vide', async () => {
+            await expect(service.importCsv(TENANT, INTEGRATION, Buffer.from(''))).rejects.toThrow(
+                BadRequestException,
+            );
+        });
     });
 
     describe('format export réel Digifood (TSV, Total TTC €, date+heure séparées)', () => {
@@ -159,14 +160,26 @@ describe('DigifoodCsvImportService', () => {
             }),
         ].join('\n');
 
-        it('auto-détecte TAB + les en-têtes réels via les synonymes (aucun mapping fourni)', async () => {
+        it('aperçu : auto-détecte TAB + les en-têtes réels via les synonymes (aucun mapping fourni)', async () => {
             prisma.salesTransaction.findMany.mockResolvedValue([]);
             prisma.salesProduct.findMany.mockResolvedValue([]);
-            const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(TSV), false);
+            const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(TSV));
 
             expect(report.ordersDetected).toBe(4); // la ligne Cancelled est rejetée
             expect(report.rejectedRows).toHaveLength(1);
             expect(report.rejectedRows[0].reason).toMatch(/Cancelled/);
+            // Période détectée = bornes des dates interprétées (contrôle visuel de l'aperçu)
+            expect(report.periodStart).toContain('2026-07-05');
+            expect(report.periodEnd).toContain('2026-07-05');
+        });
+
+        it('import réel : ingestOrder reçoit des NormalizedOrder correctement construits (dates, TVA dérivée, refund signé)', async () => {
+            prisma.salesTransaction.findMany.mockResolvedValue([]);
+            prisma.salesProduct.findMany.mockResolvedValue([]);
+            await service.startRealImport(TENANT, INTEGRATION, Buffer.from(TSV));
+            await waitForJobCompletion(prisma);
+
+            expect(ingestion.ingestOrder).toHaveBeenCalledTimes(4); // la ligne Cancelled est rejetée en amont
 
             const [, , sale] = ingestion.ingestOrder.mock.calls[0];
             // Total TTC 90,00 € pour 2 → prix unitaire 45 € ; date+heure composées
@@ -193,13 +206,11 @@ describe('DigifoodCsvImportService', () => {
             expect(dashDate.placedAt.getDate()).toBe(5);
             expect(dashDate.placedAt.getHours()).toBe(16);
 
-            // Période détectée = bornes des dates interprétées (contrôle visuel dry-run)
-            expect(report.periodStart).toContain('2026-07-05');
-            expect(report.periodEnd).toContain('2026-07-05');
+            expect(ingestion.ingestOrder.mock.calls.every((c: any[]) => c[3] === 'csv')).toBe(true);
         });
 
-        it('persiste le mapping fourni par le front (CsvMapping du tenant)', async () => {
-            await service.importCsv(TENANT, INTEGRATION, Buffer.from(TSV), true, {
+        it('persiste le mapping fourni par le front (CsvMapping du tenant), même en aperçu', async () => {
+            await service.importCsv(TENANT, INTEGRATION, Buffer.from(TSV), {
                 order_id: 'Long ID',
                 item_name: 'Item',
             });
@@ -214,41 +225,87 @@ describe('DigifoodCsvImportService', () => {
         });
     });
 
-    describe('historique des imports (DigifoodCsvImportRun)', () => {
-        it('dry-run (aperçu) : aucune ligne d\'historique écrite', async () => {
-            await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), true, null, 'export.csv');
-            expect(prisma.digifoodCsvImportRun.create).not.toHaveBeenCalled();
+    describe('encodage Windows-1252 (export Excel FR : "€" en octet seul, casse le décodage UTF-8 forcé)', () => {
+        it('détecte l\'encodage et ne rejette pas les lignes à cause du "€"/accents mal décodés', async () => {
+            // TAB comme dans l'export réel (§ describe ci-dessus) : la valeur "3,50 €" contient
+            // une virgule décimale, qui entrerait en conflit avec un délimiteur ",".
+            const csv = [
+                ['Long ID', 'Item', 'Quantity', 'Total TTC', 'Placed at_date'].join('\t'),
+                ['order_enc_1', 'Café', '1', '3,50 €', '2026-07-05'].join('\t'),
+            ].join('\n');
+            const buffer = iconv.encode(csv, 'windows-1252');
+
+            const report = await service.importCsv(TENANT, INTEGRATION, buffer);
+
+            expect(report.rejectedRows).toHaveLength(0);
+            expect(report.ordersDetected).toBe(1);
         });
+    });
 
-        it('import réel : trace un run COMPLETED avec les compteurs du rapport et le nom du fichier', async () => {
-            const report = await service.importCsv(TENANT, INTEGRATION, Buffer.from(CSV), false, null, 'export.csv');
+    describe('startRealImport — job asynchrone (fire-and-forget, comme WeezeventSyncJob)', () => {
+        it('crée le run en PROCESSING et répond IMMÉDIATEMENT (avant la fin de l\'ingestion)', async () => {
+            const { jobId, ordersDetected } = await service.startRealImport(
+                TENANT, INTEGRATION, Buffer.from(CSV), null, 'export.csv',
+            );
 
+            expect(jobId).toBeTruthy();
+            expect(ordersDetected).toBe(2);
             expect(prisma.digifoodCsvImportRun.create).toHaveBeenCalledTimes(1);
             const [{ data }] = prisma.digifoodCsvImportRun.create.mock.calls[0];
             expect(data).toMatchObject({
                 tenantId: TENANT,
                 integrationId: INTEGRATION,
                 fileName: 'export.csv',
-                status: 'COMPLETED',
-                ordersDetected: report.ordersDetected,
-                ordersCreated: report.ordersCreated,
-                ordersUpdated: report.ordersUpdated,
-                rejectedCount: report.rejectedRows.length,
+                status: 'PROCESSING',
+                ordersDetected: 2,
             });
         });
 
-        it('import réel en échec (CSV vide) : trace un run FAILED sans masquer l\'erreur d\'origine', async () => {
-            await expect(
-                service.importCsv(TENANT, INTEGRATION, Buffer.from(''), false),
-            ).rejects.toThrow(BadRequestException);
+        it('termine le job en COMPLETED avec les compteurs réels (issus d\'ingestOrder, pas de l\'estimation d\'aperçu)', async () => {
+            const { jobId } = await service.startRealImport(TENANT, INTEGRATION, Buffer.from(CSV), null, 'export.csv');
 
-            expect(prisma.digifoodCsvImportRun.create).toHaveBeenCalledTimes(1);
-            const [{ data }] = prisma.digifoodCsvImportRun.create.mock.calls[0];
-            expect(data).toMatchObject({ tenantId: TENANT, integrationId: INTEGRATION, status: 'FAILED' });
-            expect(data.errorMessage).toMatch(/vide/);
+            await waitForJobCompletion(prisma);
+
+            expect(ingestion.ingestOrder).toHaveBeenCalledTimes(2);
+            const updateCalls = prisma.digifoodCsvImportRun.update.mock.calls.map(([arg]: any) => arg);
+            // Au moins une écriture de progression avec les compteurs finaux (ingestOrder mocké → toujours created:true)
+            expect(updateCalls.some((c) => c.where.id === jobId && c.data.ordersCreated === 2 && c.data.ordersUpdated === 0)).toBe(true);
+            // La dernière écriture marque le job terminé
+            expect(updateCalls[updateCalls.length - 1]).toMatchObject({ where: { id: jobId }, data: { status: 'COMPLETED' } });
         });
 
-        it('getImportHistory : délègue à digifoodCsvImportRun.findMany, triée par startedAt desc, 20 dernières', async () => {
+        it('rejette immédiatement un CSV vide SANS créer de run (échec de parsing, avant tout job)', async () => {
+            await expect(
+                service.startRealImport(TENANT, INTEGRATION, Buffer.from('')),
+            ).rejects.toThrow(BadRequestException);
+            expect(prisma.digifoodCsvImportRun.create).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('getImportJobStatus (polling front)', () => {
+        it('calcule processed/progress à partir des compteurs bruts du run', async () => {
+            prisma.digifoodCsvImportRun.findFirst.mockResolvedValue({
+                id: 'job_1', fileName: 'f.csv', status: 'PROCESSING',
+                ordersDetected: 10, ordersCreated: 3, ordersUpdated: 2, ordersSkipped: 1,
+                productsCreated: 0, locationsCreated: 0, rejectedCount: 0,
+                periodStart: null, periodEnd: null, errorMessage: null,
+                startedAt: new Date(), completedAt: null,
+            });
+
+            const status = await service.getImportJobStatus(TENANT, 'job_1');
+
+            expect(status).toMatchObject({ jobId: 'job_1', status: 'PROCESSING', processed: 6, progress: 60 });
+        });
+
+        it('renvoie null si le job est introuvable (ou appartient à un autre tenant)', async () => {
+            prisma.digifoodCsvImportRun.findFirst.mockResolvedValue(null);
+            const status = await service.getImportJobStatus(TENANT, 'nope');
+            expect(status).toBeNull();
+        });
+    });
+
+    describe('getImportHistory', () => {
+        it('délègue à digifoodCsvImportRun.findMany, triée par startedAt desc, 20 dernières', async () => {
             prisma.digifoodCsvImportRun.findMany.mockResolvedValue([{ id: 'run_1', status: 'COMPLETED' }]);
 
             const history = await service.getImportHistory(TENANT, INTEGRATION);

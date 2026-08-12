@@ -430,12 +430,18 @@ export class IntegrationsController {
 
     @RequirePermissions('menu.integration.fb')
     @Post('digifood/instances/:instanceId/import-csv')
-    @ApiOperation({ summary: "Importer un CSV d'historique Digifood", description: 'Multipart (champ file). dryRun=true par DÉFAUT : rapport sans écriture ; passer ?dryRun=false pour exécuter. Idempotent (upsert par order_id).' })
+    @ApiOperation({
+        summary: "Importer un CSV d'historique Digifood",
+        description: 'Multipart (champ file). dryRun=true par DÉFAUT : rapport complet SANS écriture, réponse synchrone. '
+            + 'dryRun=false : démarre un import réel en tâche de fond (même pattern que POST /weezevent/sync/start) — '
+            + 'répond immédiatement avec un jobId à suivre via GET .../import-csv/status/:jobId (polling), au lieu '
+            + "d'attendre la fin (évite un timeout HTTP sur un gros fichier). Idempotent (upsert par order_id).",
+    })
     @ApiConsumes('multipart/form-data')
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
     @ApiParam({ name: 'instanceId', description: "ID de l'instance Digifood" })
     @ApiQuery({ name: 'dryRun', required: false, description: 'true (défaut) = rapport sans écriture' })
-    @ApiResponse({ status: 200, description: "Rapport d'import { ordersCreated, ordersUpdated, ordersSkipped, productsCreated, locationsCreated, rejectedRows }" })
+    @ApiResponse({ status: 200, description: "dryRun=true : rapport d'aperçu { ordersCreated, ordersUpdated, ordersSkipped, productsCreated, locationsCreated, rejectedRows }. dryRun=false : { jobId, status, ordersDetected }." })
     async importDigifoodCsv(
         @Param('organizationId') organizationId: string,
         @Param('instanceId') instanceId: string,
@@ -469,8 +475,20 @@ export class IntegrationsController {
         // Défaut TRUE — seul dryRun=false explicite exécute (même philosophie que
         // backfill-weezevent-prices).
         const effectiveDryRun = dryRun !== 'false';
-        return this.digifoodCsvImport.importCsv(tenantId, instanceId, buffer, effectiveDryRun, mapping, file.filename);
+        if (effectiveDryRun) {
+            return this.digifoodCsvImport.importCsv(tenantId, instanceId, buffer, mapping);
+        }
+        const { jobId, ordersDetected } = await this.digifoodCsvImport.startRealImport(
+            tenantId, instanceId, buffer, mapping, file.filename,
+        );
+        return { jobId, status: 'PROCESSING', ordersDetected };
     }
+
+    // Le suivi du job (GET .../import-csv/status/:jobId) vit sur une route PLATE,
+    // DigifoodController (@Controller('digifood')) — voir son commentaire d'en-tête : le widget
+    // flottant, qui après un refresh de page ne connaît plus que le jobId (localStorage), doit
+    // pouvoir le suivre sans avoir à re-mémoriser organizationId/instanceId. Même route ici
+    // aurait dupliqué inutilement ce que fait déjà GET /weezevent/sync/status/:jobId.
 
     @Get('digifood/instances/:instanceId/import-csv/history')
     @ApiOperation({ summary: "Historique des imports CSV Digifood réels (aperçus exclus)" })

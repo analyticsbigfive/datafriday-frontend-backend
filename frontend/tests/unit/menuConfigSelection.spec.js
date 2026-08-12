@@ -1,7 +1,7 @@
 // Bug shop 5A (cf. docs/PLAN_EVENTPREDICT_SPACE_MENU_SELECTION.md) : un [] explicite
 // (tout décoché) ne doit JAMAIS retomber sur derived (attachés Space Menu) — sinon
 // "tout décoché" redevient coché, en LIVE (pas besoin de reload).
-import { mergeEffectiveMenuConfig } from '@/utils/menuConfigSelection';
+import { mergeEffectiveMenuConfig, applyAssignToExplicit } from '@/utils/menuConfigSelection';
 
 describe('mergeEffectiveMenuConfig — clé explicite vide ne fallback pas', () => {
   it('shop avec [] explicite (tout décoché) → reste [], PAS de fallback derived', () => {
@@ -46,5 +46,57 @@ describe('mergeEffectiveMenuConfig — clé explicite vide ne fallback pas', () 
   it('explicit/derived null ou undefined → ne crash pas, retourne {}', () => {
     expect(mergeEffectiveMenuConfig(null, null)).toEqual({});
     expect(mergeEffectiveMenuConfig(undefined, undefined)).toEqual({});
+  });
+});
+
+// Auto-sélection à la réactivation (maquettes 08/2026) : la clé explicite
+// masque la sélection dérivée du refetch Space Menus → il faut y répercuter
+// l'assignation, sinon un article réactivé via le kebab reste décoché.
+describe('applyAssignToExplicit — répercussion d\'une assignation dans la sélection explicite', () => {
+  it('clé shop présente + enabled → article ajouté à la sélection', () => {
+    const explicit = { '5A': ['Burger'] };
+    expect(applyAssignToExplicit(explicit, '5A', 'Frites', true)).toEqual({
+      '5A': ['Burger', 'Frites'],
+    });
+  });
+
+  it('clé shop présente + disabled → article retiré de la sélection', () => {
+    const explicit = { '5A': ['Burger', 'Frites'] };
+    expect(applyAssignToExplicit(explicit, '5A', 'Frites', false)).toEqual({
+      '5A': ['Burger'],
+    });
+  });
+
+  it('clé shop ABSENTE → explicit inchangé (même référence) : le dérivé fait le travail', () => {
+    const explicit = { '5A': ['Burger'] };
+    expect(applyAssignToExplicit(explicit, '6B', 'Frites', true)).toBe(explicit);
+  });
+
+  it('article déjà présent + enabled → aucun doublon, même référence', () => {
+    const explicit = { '5A': ['Frites'] };
+    expect(applyAssignToExplicit(explicit, '5A', 'Frites', true)).toBe(explicit);
+  });
+
+  it('article absent + disabled → rien à retirer, même référence', () => {
+    const explicit = { '5A': ['Burger'] };
+    expect(applyAssignToExplicit(explicit, '5A', 'Frites', false)).toBe(explicit);
+  });
+
+  it('clé explicite [] (tout décoché) + réactivation → article recoché', () => {
+    const explicit = { '5A': [] };
+    expect(applyAssignToExplicit(explicit, '5A', 'Frites', true)).toEqual({ '5A': ['Frites'] });
+  });
+
+  it('ne mute pas l\'objet d\'entrée', () => {
+    const explicit = { '5A': ['Burger'] };
+    applyAssignToExplicit(explicit, '5A', 'Frites', true);
+    expect(explicit).toEqual({ '5A': ['Burger'] });
+  });
+
+  it('entrées invalides (null, ids manquants) → pas de crash, entrée rendue', () => {
+    expect(applyAssignToExplicit(null, '5A', 'Frites', true)).toEqual({});
+    const explicit = { '5A': [] };
+    expect(applyAssignToExplicit(explicit, null, 'Frites', true)).toBe(explicit);
+    expect(applyAssignToExplicit(explicit, '5A', null, true)).toBe(explicit);
   });
 });

@@ -6,7 +6,7 @@
  * BASE, mise à l'échelle par le même slider % que la prédiction, pas un simple
  * override du résultat final).
  */
-import { buildStockRequirements } from '@/utils/stockPlanning'
+import { buildStockRequirements, buildMenuItemDemand } from '@/utils/stockPlanning'
 
 const menuItems = [
   { id: 'mi-cookie', name: 'Cookie', readyForSale: 'Yes' },
@@ -65,5 +65,52 @@ describe('buildStockRequirements — manualQuantities (items à prédiction 0)',
       manualQuantities: { 'shop-1-mi-cookie': 999 },
     })
     expect(rows[0].totalQuantity).toBe(10)
+  })
+})
+
+// ---- Fiche 311_02 : records `isManual` = DÉJÀ ajustés par le % à la
+// construction (manualQuantityRecords / withManualRecords) → le ré-appliquer
+// ici doublait l'ajustement (150 % → 225 %).
+
+describe('buildStockRequirements — records isManual (déjà ajustés)', () => {
+  it('neutralise le % sur une ligne isManual (pas de double application)', () => {
+    const rows = buildStockRequirements({
+      configuration,
+      menuItems,
+      // 60 = 40 × 150 % appliqué à la construction du record.
+      predictedRecords: [
+        { shopId: 'shop-1', menuItemId: 'mi-cookie', totalQuantity: 60, isManual: true },
+      ],
+      selectedMenuItems,
+      quantityAdjustments: { 'shop-1-mi-cookie': 150 },
+    })
+    expect(rows[0].totalQuantity).toBe(60) // et non 90 (60 × 150 %)
+  })
+
+  it('applique toujours le % sur une ligne NON manuelle (comportement inchangé)', () => {
+    const rows = buildStockRequirements({
+      configuration,
+      menuItems,
+      predictedRecords: [{ shopId: 'shop-1', menuItemId: 'mi-cookie', quantity: 40 }],
+      selectedMenuItems,
+      quantityAdjustments: { 'shop-1-mi-cookie': 150 },
+    })
+    expect(rows[0].totalQuantity).toBe(60)
+  })
+})
+
+describe('buildMenuItemDemand — records isManual (parité)', () => {
+  it('neutralise le % sur une ligne isManual', () => {
+    const rows = buildMenuItemDemand({
+      configuration,
+      menuItems,
+      predictedRecords: [
+        { shopId: 'shop-1', menuItemId: 'mi-cookie', totalQuantity: 60, isManual: true },
+      ],
+      selectedMenuItems,
+      quantityAdjustments: { 'shop-1-mi-cookie': 150 },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].quantity).toBe(60)
   })
 })

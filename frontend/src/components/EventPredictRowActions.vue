@@ -16,8 +16,22 @@
       </button>
     </template>
     <v-list density="compact" class="epra-list" min-width="180">
+      <!-- Variante « header d'article » (vue Par article) : une seule action
+           métier — ajouter l'article à TOUS les PDV proposés dans Space Menus.
+           Les actions par PDV (Remapper/Ajouter/Réactiver/Historique) n'ont pas
+           de sens à ce niveau. -->
       <v-list-item
-        v-if="kind === 'remap'"
+        v-if="variant === 'item-header'"
+        class="epra-item"
+        :disabled="assignAllDisabled"
+        :title="assignAllDisabled ? t('epraAssignAllDone') : undefined"
+        @click.stop="$emit('assign-all')"
+      >
+        <template #prepend><v-icon size="16">mdi-playlist-plus</v-icon></template>
+        <v-list-item-title>{{ t('epraAssignAllShops') }}</v-list-item-title>
+      </v-list-item>
+      <v-list-item
+        v-if="variant === 'row' && !historyOnly && kind === 'remap'"
         class="epra-item"
         @click.stop="$emit('remap')"
       >
@@ -25,7 +39,7 @@
         <v-list-item-title>{{ t('epraRemap') }}</v-list-item-title>
       </v-list-item>
       <v-list-item
-        v-else
+        v-else-if="variant === 'row' && !historyOnly"
         class="epra-item"
         @click.stop="$emit('add')"
       >
@@ -35,6 +49,16 @@
       <v-list-item class="epra-item" @click.stop="$emit('open-space-menus')">
         <template #prepend><v-icon size="16">mdi-open-in-new</v-icon></template>
         <v-list-item-title>Space Menus</v-list-item-title>
+      </v-list-item>
+      <!-- Alias « historique emprunté » (maquettes 08/2026) : proposer de
+           reprendre l'historique d'un autre article — lignes orphelines. -->
+      <v-list-item
+        v-if="variant === 'row' && allowHistory"
+        class="epra-item epra-item--history"
+        @click.stop="$emit('use-history')"
+      >
+        <template #prepend><v-icon size="16">mdi-history</v-icon></template>
+        <v-list-item-title>{{ t('epraUseHistory') }}</v-list-item-title>
       </v-list-item>
     </v-list>
   </v-menu>
@@ -50,10 +74,20 @@ export default {
     return { t }
   },
   props: {
+    // 'row' (ligne PDV, comportement historique) | 'item-header' (header
+    // d'article en vue Par article : action bulk « tous les PDV » + Space Menus).
+    variant: { type: String, default: 'row' },
     // 'remap' (hors catalogue) | 'add' (dispo, hors menu) | 'reactivate' (dans menu, désactivé)
     kind: { type: String, default: 'add' },
+    // Propose « Utiliser l'historique d'un autre article » (alias espace).
+    allowHistory: { type: Boolean, default: false },
+    // Lignes « sans ventes prévues » (déjà au menu, activées) : seules les
+    // actions historique + Space Menus ont un sens — masque Remapper/Ajouter.
+    historyOnly: { type: Boolean, default: false },
+    // item-header : grise l'action bulk quand l'article est déjà proposé partout.
+    assignAllDisabled: { type: Boolean, default: false },
   },
-  emits: ['remap', 'add', 'open-space-menus'],
+  emits: ['remap', 'add', 'open-space-menus', 'use-history', 'assign-all'],
 }
 </script>
 
@@ -88,5 +122,9 @@ export default {
 .epra-item {
   font-size: 13px;
   min-height: 36px;
+}
+.epra-item--history {
+  color: var(--fb-success, #0e7a5f);
+  font-weight: 600;
 }
 </style>

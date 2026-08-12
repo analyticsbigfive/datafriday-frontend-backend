@@ -33,10 +33,12 @@ import spaceConfigurations from './modules/spaceConfigurations'
 import spaceShops from './modules/spaceShops'
 import shopMenuItems from './modules/shopMenuItems'
 import shopMenuAvailability from './modules/shopMenuAvailability'
+import historyAliases from './modules/historyAliases'
 import notifications from './modules/notifications'
 import hrSettings from './modules/hrSettings'
 import staffing from './modules/staffing'
 import seasons from './modules/seasons'
+import storageInventory from './modules/storageInventory'
 
 export default createStore({
   state: {
@@ -82,9 +84,11 @@ export default createStore({
     spaceShops,
     shopMenuItems,
     shopMenuAvailability,
+    historyAliases,
     notifications,
     hrSettings,
     staffing,
     seasons,
+    storageInventory,
   }
 })

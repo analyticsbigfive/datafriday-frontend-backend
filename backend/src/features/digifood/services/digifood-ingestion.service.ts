@@ -15,6 +15,22 @@ export interface IngestResult {
 }
 
 /**
+ * Cache mémoire, scopé à UN SEUL import CSV (créé par createCache(), jamais partagé entre
+ * deux imports ni avec le webhook). Un CSV réel réutilise le même site/PDV/produit sur des
+ * milliers de lignes ; sans ce cache, ingestOrder ré-upserte ces mêmes référentiels à chaque
+ * commande (des dizaines de milliers d'allers-retours DB inutiles sur un gros fichier).
+ * Effet de bord assumé : seule la PREMIÈRE occurrence d'un site/PDV/produit écrit son nom en
+ * base pendant l'import (les suivantes réutilisent l'id caché sans réécrire) — sans
+ * conséquence en pratique, un même export CSV porte un nom stable pour une même entité.
+ * Le webhook (appelé sans cache) garde son comportement inchangé : toujours vérifié en DB.
+ */
+export interface DigifoodIngestionCache {
+    sites: Map<string, string>;
+    shops: Map<string, string>;
+    products: Map<string, string>;
+}
+
+/**
  * Ingestion Digifood → source commune de ventes (PLAN_INTEGRATION_DIGIFOOD §5).
  * Point d'entrée unique `ingestOrder` utilisé par le webhook ET l'import CSV.
  * Tout est upsert-idempotent (retries Digifood 24 h, réimports CSV).
@@ -27,11 +43,17 @@ export class DigifoodIngestionService {
 
     constructor(private readonly prisma: PrismaService) { }
 
+    /** Un cache par import CSV — jamais réutilisé d'un import à l'autre (voir DigifoodIngestionCache). */
+    createCache(): DigifoodIngestionCache {
+        return { sites: new Map(), shops: new Map(), products: new Map() };
+    }
+
     async ingestOrder(
         tenantId: string,
         integrationId: string,
         order: NormalizedOrder,
         source: DigifoodIngestSource,
+        cache?: DigifoodIngestionCache,
     ): Promise<IngestResult> {
         // ── Garde anti-double-comptage v24/v26 (§5.1) ────────────────────────────
         if (order.type === 'refund' && (await this.isDuplicateRefund(tenantId, integrationId, order))) {
@@ -49,9 +71,9 @@ export class DigifoodIngestionService {
         }
 
         // ── Référentiels à la volée (§5.2) : site → PDV → produits ──────────────
-        const salesEvent = await this.upsertSiteAsEvent(tenantId, integrationId, order);
-        const salesLocation = await this.upsertShopAsLocation(tenantId, integrationId, order);
-        const { productIdByKey, autoMapped } = await this.upsertProducts(tenantId, integrationId, order);
+        const salesEvent = await this.upsertSiteAsEvent(tenantId, integrationId, order, cache);
+        const salesLocation = await this.upsertShopAsLocation(tenantId, integrationId, order, cache);
+        const { productIdByKey, autoMapped } = await this.upsertProducts(tenantId, integrationId, order, cache);
 
         // ── Transaction + items en UNE seule $transaction (§5.5) ────────────────
         const externalId = order.id;
@@ -197,9 +219,12 @@ export class DigifoodIngestionService {
         tenantId: string,
         integrationId: string,
         order: NormalizedOrder,
+        cache?: DigifoodIngestionCache,
     ): Promise<{ id: string } | null> {
         if (!order.location) return null;
-        return this.prisma.salesEvent.upsert({
+        const cached = cache?.sites.get(order.location.id);
+        if (cached) return { id: cached };
+        const result = await this.prisma.salesEvent.upsert({
             where: {
                 tenantId_integrationId_externalId: {
                     tenantId,
@@ -220,6 +245,8 @@ export class DigifoodIngestionService {
             update: { name: order.location.name, syncedAt: new Date() },
             select: { id: true },
         });
+        cache?.sites.set(order.location.id, result.id);
+        return result;
     }
 
     /** §5.2.2 — le PDV Digifood (`shop`) est projeté en SalesLocation (mappée Space + SpaceElement au wizard). */
@@ -227,9 +254,12 @@ export class DigifoodIngestionService {
         tenantId: string,
         integrationId: string,
         order: NormalizedOrder,
+        cache?: DigifoodIngestionCache,
     ): Promise<{ id: string } | null> {
         if (!order.shop) return null;
-        return this.prisma.salesLocation.upsert({
+        const cached = cache?.shops.get(order.shop.id);
+        if (cached) return { id: cached };
+        const result = await this.prisma.salesLocation.upsert({
             where: {
                 tenantId_integrationId_externalId: {
                     tenantId,
@@ -254,6 +284,8 @@ export class DigifoodIngestionService {
             update: { name: order.shop.name, syncedAt: new Date() },
             select: { id: true },
         });
+        cache?.shops.set(order.shop.id, result.id);
+        return result;
     }
 
     /**
@@ -266,6 +298,7 @@ export class DigifoodIngestionService {
         tenantId: string,
         integrationId: string,
         order: NormalizedOrder,
+        cache?: DigifoodIngestionCache,
     ): Promise<{ productIdByKey: Map<string, string>; autoMapped: number }> {
         const productIdByKey = new Map<string, string>();
         let autoMapped = 0;
@@ -278,6 +311,12 @@ export class DigifoodIngestionService {
         }
 
         for (const [key, item] of byKey) {
+            const cachedId = cache?.products.get(key);
+            if (cachedId) {
+                // Déjà upserté (+ auto-map déjà tenté) plus tôt dans cet import → aucun aller-retour DB.
+                productIdByKey.set(key, cachedId);
+                continue;
+            }
             const displayName = item.variation && item.variation !== item.name
                 ? `${item.name} — ${item.variation}`
                 : item.name;
@@ -325,6 +364,7 @@ export class DigifoodIngestionService {
                 select: { id: true },
             });
             productIdByKey.set(key, product.id);
+            cache?.products.set(key, product.id);
 
             if (item.externalReference) {
                 autoMapped += (await this.tryAutoMapProduct(tenantId, product.id, item.externalReference))

@@ -49,6 +49,7 @@ import { StorageTypesModule } from './features/storage-types/storage-types.modul
 import { DepartmentsModule } from './features/departments/departments.module';
 import { RestockStateModule } from './features/restock-state/restock-state.module';
 import { RestockPlansModule } from './features/restock-plans/restock-plans.module';
+import { HistoryAliasesModule } from './features/history-aliases/history-aliases.module';
 import { HrSettingsModule } from './features/hr-settings/hr-settings.module';
 import { SeasonsModule } from './features/seasons/seasons.module';
 import { HrModule } from './features/hr/hr.module';
@@ -181,6 +182,10 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     // ⚠ Requiert la table RestockPlan : appliquer prisma/sql/2026-08-04_restockplan.sql
     // AVANT de déployer (ADR-0002/0005) — sinon 500 P2021 au premier appel.
     RestockPlansModule,
+    // ⚠ Requiert la table MenuItemHistoryAlias : appliquer la migration
+    // 20260811090000_add_menu_item_history_alias AVANT de déployer (ADR-0002)
+    // — sinon 500 P2021 au premier appel.
+    HistoryAliasesModule,
     HrSettingsModule,
     SeasonsModule,
     HrModule,
