@@ -20,6 +20,13 @@
             </button>
           </div>
 
+          <!-- Barre d'erreur : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="error" class="hsd__error">
+            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
+            <span>{{ error }}</span>
+            <button class="hsd__error-close" :aria-label="t('hrCancel')" @click="error = ''"><X :size="14" /></button>
+          </div>
+
           <!-- Body -->
           <div class="hsd__body">
             <div class="hsd-section">
@@ -82,11 +89,6 @@
                 </div>
               </div>
             </div>
-          </div>
-
-          <div v-if="error" class="hsd__error">
-            <AlertCircle :size="14" style="flex-shrink:0" class="me-2" />
-            {{ error }}
           </div>
 
           <!-- Footer -->
@@ -252,13 +254,30 @@ function submit() {
 .hsd__error {
   display: flex;
   align-items: center;
-  padding: 10px 24px;
+  padding: 8px 24px;
   background: #fef2f2;
-  border-top: 1px solid #fecaca;
-  font-size: var(--fs-base);
+  border-bottom: 1px solid #fecaca;
+  font-size: var(--fs-sm);
   color: #ff3131;
   flex-shrink: 0;
 }
+.hsd__error-close {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .7;
+  transition: opacity .15s, background .15s;
+}
+.hsd__error-close:hover { opacity: 1; background: rgba(255, 49, 49, .14); }
 
 .hsd__body {
   flex: 1 1 0;

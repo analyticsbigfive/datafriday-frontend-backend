@@ -18,6 +18,12 @@
             </button>
           </div>
 
+          <!-- Barre d'erreur : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="error" class="ctfd-error">
+            <span>{{ error }}</span>
+            <button class="ctfd-error__close" :aria-label="t('componentTypeList.cancel')" @click="error = ''"><X :size="14" /></button>
+          </div>
+
           <!-- Body -->
           <div class="ctfd-body">
             <div class="ctfd-field-label">{{ t('componentTypeList.labelName') }} <span class="ctfd-star">*</span></div>
@@ -28,15 +34,9 @@
               rounded="lg"
               hide-details="auto"
               :placeholder="t('componentTypeList.namePlaceholder')"
-              prepend-inner-icon="mdi-tag-outline"
               class="ctfd-field"
             />
           </div>
-
-          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
-          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ctfd-error">
-            {{ error }}
-          </v-alert>
 
           <!-- Footer -->
           <div class="ctfd-footer">
@@ -256,12 +256,36 @@ export default {
 .ctfd-panel--dark .ctfd-field :deep(.v-field__input) { color: #f3f4f6 !important; }
 .ctfd-star { color: #ff3131; }
 
-/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
+/* Barre d'erreur : juste sous le header, hauteur d'une ligne. */
 .ctfd-error {
   flex-shrink: 0;
-  margin: 0;
-  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #ff3131;
+  font-size: 0.8125rem;
+  line-height: 1.35;
 }
+.ctfd-panel--dark .ctfd-error { background: rgba(255, 49, 49, .12); border-bottom-color: rgba(255, 49, 49, .3); color: #f87171; }
+.ctfd-error__close {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .7;
+  transition: opacity .15s, background .15s;
+}
+.ctfd-error__close:hover { opacity: 1; background: rgba(255, 49, 49, .14); }
 
 /* ── Footer ── */
 .ctfd-footer {
