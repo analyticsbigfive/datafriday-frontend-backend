@@ -14,6 +14,9 @@
             <button class="ipd-header__close" @click="close"><X :size="16" /></button>
           </div>
 
+          <!-- Error : juste sous le header, hors zone scrollable, toujours visible. -->
+          <div v-if="error" class="ipd-error">{{ error }}</div>
+
           <!-- ── Toolbar ── -->
           <div class="ipd-toolbar">
             <!-- Search -->
@@ -150,11 +153,6 @@
               </div>
             </div>
           </div>
-
-          <!-- Erreur : hors zone scrollable, toujours visible juste au-dessus des boutons -->
-          <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="ipd-error">
-            {{ error }}
-          </v-alert>
 
           <!-- ── Footer ── -->
           <div class="ipd-footer">
@@ -604,8 +602,14 @@ export default {
 /* Barre d'erreur fixe, entre le corps scrollable et le footer. */
 .ipd-error {
   flex-shrink: 0;
-  margin: 0;
-  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #ff3131;
+  font-size: 0.8125rem;
+  line-height: 1.35;
 }
 
 /* ── Footer ── */
