@@ -23,7 +23,7 @@
           density="compact"
           variant="outlined"
           hide-details
-          :menu-props="{ zIndex: 2500 }"
+          :menu-props="{ class: 'epha-select-overlay' }"
           :placeholder="t('ephaSourcePlaceholder')"
         />
         <p v-if="suggested && source && suggested === source" class="epha-suggest">
@@ -43,7 +43,7 @@
           density="compact"
           variant="outlined"
           hide-details
-          :menu-props="{ zIndex: 2500 }"
+          :menu-props="{ class: 'epha-select-overlay' }"
           :placeholder="t('ephaTargetPlaceholder')"
         />
       </div>
@@ -52,12 +52,20 @@
       <div class="epha-field">
         <label class="epha-label">{{ t('ephaExistingTitle') }}</label>
         <div v-if="aliases.length" class="epha-alias-list">
+          <!-- Réunion 13/08 : clic sur un alias mémorisé → pré-remplit le
+               formulaire pour le modifier (le save upsert par sourceName
+               écrase l'existant). -->
           <div v-for="a in aliases" :key="a.id" class="epha-alias-row">
-            <span class="epha-alias-names">
+            <button
+              type="button"
+              class="epha-alias-names"
+              :title="t('ephaEditAlias')"
+              @click="editAlias(a)"
+            >
               {{ a.sourceName }}
               <span class="epha-alias-arrow">→</span>
               {{ targetName(a.targetMenuItemId) }}
-            </span>
+            </button>
             <button
               type="button"
               class="epha-alias-del"
@@ -181,6 +189,24 @@ export default {
       const mi = this.catalogItems.find((m) => String(m.id) === String(id))
       return mi ? mi.name : id
     },
+    /**
+     * Clic sur un alias existant : recharge source + cible dans le formulaire.
+     * La source est retrouvée dans les candidats timeline par nom (fallback :
+     * objet minimal reconstruit depuis l'alias, suffisant pour apply()).
+     */
+    editAlias(a) {
+      const byName = this.sourceCandidates.find(
+        (c) => String(c.name).toLowerCase() === String(a.sourceName).toLowerCase(),
+      )
+      this.source = byName || {
+        sourceMenuItemId: a.sourceMenuItemId || null,
+        name: a.sourceName,
+        avgPrice: null,
+        totalQuantity: 0,
+      }
+      this.targetId = a.targetMenuItemId
+      this.suggested = null
+    },
     apply() {
       if (!this.canApply) return
       this.$emit('apply', {
@@ -192,6 +218,19 @@ export default {
   },
 }
 </script>
+
+<style>
+/* Menus des deux autocompletes, PAR CLASSE et non par le prop zIndex : `useStack`
+   de Vuetify n'honore le prop que si la pile globale d'overlays est vide — un
+   overlay encore enregistré (kebab v-menu, tooltip) et le menu retombe à
+   `lastZIndex + 10` (~2010), SOUS le drawer forcé à 2200 (EventDrawerShell).
+   Symptôme : chevron inversé, menu « vide », aucune erreur — même bug que
+   BUG-241 (CsvImportDrawer), même correctif : classe posée sur le `.v-overlay`
+   externe via menu-props + z-index !important, insensible à la pile. */
+.epha-select-overlay {
+  z-index: 2300 !important;
+}
+</style>
 
 <style scoped>
 .epha-scroll {
@@ -236,6 +275,19 @@ export default {
   flex: 1;
   min-width: 0;
   color: var(--fb-text, #111827);
+  /* Bouton (édition au clic) déguisé en texte : reset + affordance hover. */
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.epha-alias-names:hover,
+.epha-alias-names:focus-visible {
+  text-decoration: underline;
+  outline: none;
 }
 .epha-alias-arrow {
   color: var(--fb-faint, #9ca3af);

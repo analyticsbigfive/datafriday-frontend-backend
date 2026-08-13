@@ -3,12 +3,12 @@
     <v-navigation-drawer
       v-if="modelValue"
       :model-value="modelValue"
-      location="right"
+      :location="side"
       temporary
       :persistent="persistent"
       :width="width"
       class="eds-drawer"
-      :class="{ 'eds--dark': isDark }"
+      :class="{ 'eds--dark': isDark, 'eds--left': side === 'left' }"
       @update:model-value="$emit('update:modelValue', $event)"
     >
       <header class="eds-header">
@@ -71,6 +71,9 @@ defineProps({
   // corps du formulaire scrollé) — le consommateur passe son `formError`/`error` local ici
   // au lieu de le rendre lui-même en haut du slot par défaut.
   errorMessage: { type: String, default: '' },
+  // Réunion 13/08 (tiroir « Extend ») : côté d'ancrage. 'left' laisse la colonne
+  // de métriques (droite) visible pendant les ajustements dans le tiroir.
+  side: { type: String, default: 'right' },
 })
 
 defineEmits(['update:modelValue'])
@@ -84,6 +87,15 @@ defineEmits(['update:modelValue'])
   height: 100dvh !important;
   max-height: 100dvh !important;
   z-index: 2200 !important;
+}
+
+.eds-drawer.eds--left {
+  inset: 0 auto 0 0 !important;
+  /* Réunion 13/08 : plus large que les drawers de formulaire (560px) — il
+     remplace une liste dense (tabs + recherche + lignes PDV) qui occupait toute
+     la colonne centrale. Le `calc(100vw - 380px)` garantit que la colonne de
+     métriques (rail droit 340px) reste visible pendant les ajustements. */
+  width: min(760px, calc(100vw - 380px)) !important;
 }
 
 .eds-drawer:not(.v-navigation-drawer--active) {
@@ -223,6 +235,13 @@ defineEmits(['update:modelValue'])
 
 @media (max-width: 640px) {
   .eds-drawer {
+    width: 100vw !important;
+  }
+
+  /* La variante gauche réserve 380px au rail de métriques : sur mobile ce rail
+     passe sous le contenu, et `calc(100vw - 380px)` donnerait un tiroir
+     illisible (voire négatif). */
+  .eds-drawer.eds--left {
     width: 100vw !important;
   }
 

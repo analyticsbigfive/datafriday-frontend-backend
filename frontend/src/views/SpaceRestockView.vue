@@ -501,21 +501,38 @@
                 :key="row.key"
                 class="sr-setting-row sr-storage-row"
               >
-                <div class="sr-setting-info">
-                  <strong>{{ row.name }}</strong>
-                  <div v-if="row.nearMin || row.nearMax" class="sr-storage-alerts">
-                    <!-- Priorité visuelle au stock min (rupture) sur le max (capacité). -->
-                    <span v-if="row.nearMin" class="sr-storage-alert sr-storage-alert--min">
-                      <v-icon size="13">mdi-alert</v-icon> {{ t('srStorageNearMin') }}
-                    </span>
-                    <span v-else class="sr-storage-alert sr-storage-alert--max">
+                <!-- Chantier 317 — 3 zones : identité, réglage, achat. Le bandeau
+                     `.sr-values` (hérité des lignes PDV) est remplacé par des chips
+                     dans la zone 1 : il étalait 4 valeurs sur toute la largeur alors
+                     qu'une réserve n'en porte que 2 à lire (tampon, restant).
+                     Les chips vivent HORS de `.sr-setting-info` : la règle
+                     `.sr-setting-info span` (0,1,1) y écrasait la couleur des badges
+                     d'alerte, gris sur fond rose depuis l'origine. -->
+                <div class="sr-storage-id">
+                  <strong class="sr-storage-name">{{ row.name }}</strong>
+                  <div class="sr-storage-chips">
+                    <!-- Retour JLH 13/08 : le badge « Ré-approvisionnement à
+                         considérer en priorité » (nearMin) est retiré — avec un
+                         minStock à 0, `remaining <= 1.1 × min` était vrai sur
+                         toutes les lignes à restant nul : du bruit, pas un
+                         signal. Seule l'alerte de capacité (nearMax) reste. -->
+                    <span v-if="row.nearMax" class="sr-storage-alert sr-storage-alert--max">
                       <v-icon size="13">mdi-alert-outline</v-icon> {{ t('srStorageNearMax') }}
                     </span>
+                    <span class="sr-storage-chip">
+                      {{ t('srStorageBuffer') }}
+                      <strong>{{ formatLooseQuantity(row.buffer, row.unit) }}</strong>
+                    </span>
+                    <span class="sr-storage-chip">
+                      {{ t('srStorageRemaining') }}
+                      <strong>{{ formatLooseQuantity(row.remaining, row.unit) }}</strong>
+                    </span>
+                    <span v-if="storagePackFormat(row)" class="sr-storage-chip-pack">{{ storagePackFormat(row) }}</span>
                   </div>
                 </div>
 
                 <div class="sr-slider-wrap">
-                  <label class="sr-slider-label">{{ t('srStorageAdjustLabel') }}</label>
+                  <label class="sr-slider-label">{{ t('srStorageRequired') }}</label>
                   <div class="sr-slider-row">
                     <input
                       type="range"
@@ -524,9 +541,12 @@
                       step="1"
                       :value="row.required"
                       class="sr-slider"
+                      :aria-label="t('srStorageAdjustLabel')"
                       @input="setStorageAdjustment(row.key, $event.target.value)"
                     />
-                    <span class="sr-slider-value">{{ formatLooseQuantity(row.required, row.unit) }}</span>
+                    <span class="sr-slider-value" :class="{ 'sr-value-ok': !(row.required > 0) }">
+                      {{ formatLooseQuantity(row.required, row.unit) }}
+                    </span>
                     <button
                       v-if="row.adjusted"
                       type="button"
@@ -536,37 +556,28 @@
                   </div>
                 </div>
 
-                <div class="sr-values">
-                  <span class="sr-value">
-                    <span class="sr-value-label">{{ t('srStorageBuffer') }}</span>
-                    <strong class="sr-value-num">{{ formatLooseQuantity(row.buffer, row.unit) }}</strong>
+                <div class="sr-storage-buy">
+                  <span class="sr-storage-buy-label">
+                    {{ t('srStorageToOrder') }}
+                    <v-tooltip v-if="(storageBuyInfoByKey[row.key] || {}).sub" location="bottom" max-width="320">
+                      <template #activator="{ props: helpProps }">
+                        <v-icon
+                          v-bind="helpProps"
+                          size="13"
+                          class="sr-values-help"
+                          tabindex="0"
+                          :aria-label="t('srValuesHelpTitle')"
+                        >mdi-information-outline</v-icon>
+                      </template>
+                      <div class="sr-values-help-body">
+                        <p>{{ storageBuyInfoByKey[row.key].sub }}</p>
+                      </div>
+                    </v-tooltip>
                   </span>
-                  <span class="sr-value">
-                    <span class="sr-value-label">{{ t('srStorageRemaining') }}</span>
-                    <strong class="sr-value-num">{{ formatLooseQuantity(row.remaining, row.unit) }}</strong>
-                  </span>
-                  <span class="sr-value">
-                    <span class="sr-value-label">{{ t('srStorageRequired') }}</span>
-                    <strong class="sr-value-num" :class="{ 'sr-value-ok': !(row.required > 0) }">{{ formatLooseQuantity(row.required, row.unit) }}</strong>
-                  </span>
-                  <span class="sr-value sr-value-buy">
-                    <span class="sr-value-label">{{ t('srStorageToOrder') }}</span>
-                    <strong class="sr-value-num" :class="{ 'sr-value-ok': (storageBuyInfoByKey[row.key] || {}).covered }">{{ (storageBuyInfoByKey[row.key] || {}).main }}</strong>
-                  </span>
-                  <v-tooltip v-if="(storageBuyInfoByKey[row.key] || {}).sub" location="bottom" max-width="320">
-                    <template #activator="{ props: helpProps }">
-                      <v-icon
-                        v-bind="helpProps"
-                        size="14"
-                        class="sr-values-help"
-                        tabindex="0"
-                        :aria-label="t('srValuesHelpTitle')"
-                      >mdi-information-outline</v-icon>
-                    </template>
-                    <div class="sr-values-help-body">
-                      <p>{{ storageBuyInfoByKey[row.key].sub }}</p>
-                    </div>
-                  </v-tooltip>
+                  <strong
+                    class="sr-storage-buy-value"
+                    :class="{ 'sr-value-ok': (storageBuyInfoByKey[row.key] || {}).covered }"
+                  >{{ (storageBuyInfoByKey[row.key] || {}).main }}</strong>
                 </div>
               </div>
             </div>
@@ -2101,7 +2112,6 @@ export default {
                 // Plafond 5× tampon (spec) — jamais sous la valeur courante ni 1.
                 sliderMax: Math.max(Math.ceil(5 * buffer), required, 1),
                 nearMax: maxStock > 0 && remaining >= 0.9 * maxStock,
-                nearMin: minStock != null && remaining <= 1.1 * minStock,
               }
             })
           groups.push({
@@ -2114,12 +2124,13 @@ export default {
       // affiche son message dédié (srStorageNoBuffer) plutôt que de disparaître.
       return groups
     },
-    /** Compteur d'alertes seuils (badge de l'onglet). */
+    /** Compteur d'alertes seuils (badge de l'onglet) — capacité seule, le
+     *  badge nearMin ayant été retiré des lignes (retour JLH 13/08). */
     storageAlertCount() {
       let n = 0
       this.storageRestockGroups.forEach((g) =>
         g.rows.forEach((r) => {
-          if (r.nearMin || r.nearMax) n += 1
+          if (r.nearMax) n += 1
         }),
       )
       return n
@@ -2130,6 +2141,35 @@ export default {
       this.storageRestockGroups.forEach((group) =>
         group.rows.forEach((row) => {
           out[row.key] = this.storageBuyInfo(row)
+        }),
+      )
+      return out
+    },
+    /**
+     * Conditionnement « Information inventaire » mémoïsé par ligne storage —
+     * résolu UNE fois par ligne (la résolution balaye les catalogues), puis
+     * consommé par storagePackedEquivalent pour chaque cellule affichée.
+     * Quantité 1 : seule la taille du colis compte ici, pas packedCount.
+     *
+     * Les Market Prices sont ajoutés au balayage POUR CES LIGNES SEULEMENT :
+     * une réserve saisie dans le Builder est une ligne libre (`isCustom`, pas de
+     * menuItemId) dont le nom ne correspond à aucune recette — « Coca-Cola
+     * Original - CAN 33CL » n'existe que côté catalogue d'achat, qui porte
+     * justement le conditionnement (inventoryPackaging + packedUnits). Les
+     * lignes PDV gardent la résolution recette, inchangée.
+     */
+    storagePackagingByKey() {
+      const out = {}
+      this.storageRestockGroups.forEach((group) =>
+        group.rows.forEach((row) => {
+          out[row.key] = computePackagingForQuantity(
+            { itemId: row.menuItemId || undefined, itemName: row.name, unit: row.unit },
+            1,
+            this.ingredients,
+            this.components,
+            this.menuItems,
+            this.marketPrices,
+          )
         }),
       )
       return out
@@ -4379,9 +4419,16 @@ export default {
           unknown: false,
         }
       }
-      const packaging = this.packagingForItem(
+      // Même résolution que storagePackagingByKey (Market Prices inclus) : sans
+      // ça « À commander » restait en unités brutes sur les réserves libres,
+      // alors que la ligne juste au-dessus affichait déjà ses colis.
+      const packaging = computePackagingForQuantity(
         { itemId: row.menuItemId || undefined, itemName: row.name, unit: row.unit },
         row.required,
+        this.ingredients,
+        this.components,
+        this.menuItems,
+        this.marketPrices,
       )
       if (!packaging) {
         return {
@@ -4403,6 +4450,29 @@ export default {
         covered: false,
         unknown: false,
       }
+    },
+    /**
+     * Format du colis d'une ligne storage : « 1 pack = 24 Pc ». Rappelé UNE
+     * fois par ligne (chantier 317) — l'ancienne conversion par valeur répétait
+     * « (41,7 packs de 24 Pc) » sur le curseur, le tampon et le nécessaire, et
+     * se faisait tronquer dès que le bouton Reset apparaissait. La conversion
+     * complète reste sur « À commander » (storageBuyInfo), seule quantité
+     * réellement achetée.
+     * Chaîne vide si le conditionnement ne se résout pas — la ligne garde alors
+     * ses unités brutes, sans chip vide.
+     */
+    storagePackFormat(row) {
+      const packaging = this.storagePackagingByKey[row.key]
+      if (!packSizeForPackaging(packaging)) return ''
+      const type = pluralizePackLabel(
+        packaging.packagingType || this.t('srDepositPackSuffix'),
+        1,
+      )
+      const size = this.depositPackSizeLabel({ packaging, unit: row.unit })
+      if (!size) return ''
+      return this.t('srStoragePackFormat')
+        .replace('{pack}', type)
+        .replace('{size}', size)
     },
     /**
      * Catalogue /suppliers complet (id → nom/contact). Extrait
@@ -5937,8 +6007,16 @@ export default {
 }
 
 /* fiche 314-01 — groupes par espace de stockage. */
+/* Chantier 317 — le groupe ne posait qu'un padding : les lignes se touchaient,
+   alors que les lignes PDV héritent d'un gap de `.sr-settings-list`. Padding
+   horizontal aligné sur cette même liste (12px, et non 16px). */
 .sr-storage-group {
-  padding: 8px 16px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 4px;
+  /* Même logique @container que .sr-settings-list. */
+  container-type: inline-size;
 }
 .sr-storage-group-title {
   display: flex;
@@ -5949,12 +6027,6 @@ export default {
   color: #334155;
   margin: 6px 0 4px;
 }
-.sr-storage-alerts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 3px;
-}
 .sr-storage-alert {
   display: inline-flex;
   align-items: center;
@@ -5963,10 +6035,6 @@ export default {
   padding: 2px 7px;
   font-size: 0.72rem;
   font-weight: 700;
-}
-.sr-storage-alert--min {
-  background: #fef2f2;
-  color: #b91c1c;
 }
 .sr-storage-alert--max {
   background: #fff7ed;
@@ -6286,6 +6354,11 @@ export default {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
+  /* Les lignes réagissent à la largeur de CE conteneur (@container plus bas),
+     pas à celle du viewport : la colonne centrale est comprimée par les deux
+     rails latéraux — à 1210px de fenêtre elle ne fait que ~460px, largeur
+     qu'aucun breakpoint viewport ne sait voir. */
+  container-type: inline-size;
 }
 
 .sr-setting-row {
@@ -6300,6 +6373,9 @@ export default {
   border-radius: 8px;
   background: #fff;
 }
+
+/* La grille des lignes storage vit dans la section d'override (chantier 317) :
+   ici, tout ce qui concerne `.sr-setting-row` est écrasé plus bas. */
 
 .sr-setting-info {
   min-width: 0;
@@ -6377,6 +6453,18 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 
+/* Équivalent « Information inventaire » (« (250 Packs de 4 pc) ») en
+   secondaire à côté du nombre brut — ne doit pas concurrencer la valeur. */
+.sr-pack-equiv {
+  color: var(--sr-muted, #6b7280);
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* La largeur du slider storage est réglée dans la section d'override
+   (chantier 317) — `.sr-slider-value` y est redéfini à 38px. */
+
 .sr-value-ok {
   color: #16a34a;
 }
@@ -6434,7 +6522,8 @@ export default {
 
 /* L'icône suit la valeur « À déposer » sur la même ligne : l'espacement vient
    du gap de .sr-deposit-main, pas d'une marge (qui se cumulerait). */
-.sr-deposit-help {
+.sr-deposit-help,
+.sr-values-help {
   flex: none;
 }
 
@@ -6455,6 +6544,11 @@ export default {
 /* Colonne étroite : « À commander » repasse dans le flux au lieu d'être poussé
    à droite, sinon il se retrouve seul sur sa ligne. */
 @media (max-width: 1400px) {
+  /* Lignes PDV uniquement — les lignes storage portent leur achat dans une
+     colonne de grille propre (`.sr-storage-buy`), pas dans `.sr-values`.
+     Le repli des lignes storage vit dans les blocs @container (fin de
+     section) : lui raisonnait en viewport et ratait la vraie contrainte,
+     la largeur de la colonne centrale. */
   .sr-value-buy {
     margin-left: 0;
   }
@@ -6794,17 +6888,9 @@ export default {
     width: 100%;
   }
 
-  .sr-setting-row {
-    grid-template-columns: 24px minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .sr-setting-info,
-  .sr-slider-wrap,
-  .sr-values {
-    grid-column: 2;
-  }
-
+  /* Les règles de grille des lignes (PDV et storage) sont dans le second
+     `@media (max-width: 760px)` plus bas : elles y étaient dupliquées à
+     l'identique, et c'est la copie tardive qui gagnait. */
 
   .sr-panel-head {
     flex-direction: column;
@@ -7292,6 +7378,101 @@ export default {
   box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05) !important;
 }
 
+/* ---------------------------------------------------------------------------
+   Chantier 317 — lignes « Espaces de stockage » en 3 zones : identité (nom +
+   chips), réglage (curseur), achat (encart). Écrit ICI, dans la section
+   d'override, et non dans le bloc de base : là-bas `.sr-setting-row` est déjà
+   mort (colonnes, gap, padding, radius et fond sont tous redéfinis juste
+   au-dessus), donc une règle de layout ajoutée là-bas ne s'appliquerait jamais.
+   Sélecteur à 2 classes → bat le `.sr-setting-row` d'override sans !important.
+   --------------------------------------------------------------------------- */
+.sr-setting-row.sr-storage-row {
+  /* 3e piste en `max-content` et non en largeur fixe : « 823 cartons de 1 000
+     Pc » déborde 148px et se ferait rogner. C'est la zone 1 (nom + chips) qui
+     absorbe, elle sait s'ellipser. */
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 260px) minmax(132px, max-content);
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.sr-storage-id {
+  min-width: 0;
+}
+
+.sr-storage-name {
+  display: block;
+  overflow: hidden;
+  color: var(--sr-text, #111827);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-storage-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 5px;
+}
+
+.sr-storage-chip {
+  color: var(--sr-muted, #6b7280);
+  font-size: 11px;
+}
+
+.sr-storage-chip strong {
+  color: var(--sr-text, #111827);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-storage-chip-pack {
+  color: var(--sr-faint, #9ca3af);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Encart d'achat : la seule valeur qu'on agit sur cette ligne. Aplat, pas
+   d'ombre (charte graphique). */
+.sr-storage-buy {
+  border-radius: 8px;
+  background: var(--sr-primary-soft, #fff5f5);
+  padding: 6px 10px;
+  text-align: right;
+}
+
+.sr-storage-buy-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--sr-muted, #6b7280);
+  font-size: 10px;
+}
+
+.sr-storage-buy-value {
+  display: block;
+  color: var(--sr-primary, #ff3131);
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sr-storage-buy-value.sr-value-ok {
+  color: #16a34a;
+}
+
+/* Le curseur storage porte une quantité (« 1 000 »), pas un pourcentage : la
+   largeur fixe de 38px des lignes PDV le tronquerait. */
+.sr-storage-row .sr-slider-value {
+  width: auto;
+  min-width: 44px;
+}
+
 .sr-include-toggle input {
   accent-color: var(--sr-primary);
 }
@@ -7612,6 +7793,27 @@ export default {
     grid-column: 2;
   }
 
+  /* Variante storage (sans colonne checkbox) : une seule colonne pleine largeur,
+     les 3 zones du chantier 317 empilées. */
+  .sr-setting-row.sr-storage-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-id,
+  .sr-setting-row.sr-storage-row .sr-slider-wrap,
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    grid-column: 1;
+    justify-self: stretch;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    text-align: left;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy-label {
+    justify-content: flex-start;
+  }
 
   .sr-panel-head-actions {
     align-items: stretch;
@@ -7693,6 +7895,68 @@ export default {
 
   .sr-row-confirmed {
     background: var(--fb-success-soft, #f0fdf4);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Container queries (retour JLH 13/08) — les lignes de l'étape 1 réagissent à
+   la largeur de LEUR COLONNE (`.sr-settings-list` / `.sr-storage-group`,
+   `container-type: inline-size`), pas à celle de la fenêtre : les deux rails
+   latéraux compriment la colonne centrale à ~460px dès 1210px de viewport, où
+   aucun @media ne s'applique. Placés APRÈS les @media pour gagner à
+   spécificité égale ; sur un navigateur sans support, ces blocs sont ignorés
+   et les @media 760px ci-dessus restent le repli.
+   --------------------------------------------------------------------------- */
+
+/* Storage, conteneur intermédiaire : l'encart d'achat passe en rang 2 aligné
+   à droite (reprend l'ancien @media 1400px, en juste). */
+@container (max-width: 699px) {
+  .sr-setting-row.sr-storage-row {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+/* Storage, conteneur étroit : les 3 zones s'empilent. */
+@container (max-width: 459px) {
+  .sr-setting-row.sr-storage-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-id,
+  .sr-setting-row.sr-storage-row .sr-slider-wrap,
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    grid-column: 1;
+    justify-self: stretch;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    text-align: left;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy-label {
+    justify-content: flex-start;
+  }
+}
+
+/* PDV, conteneur étroit : la grille [case | nom | curseur] exige ~528px au
+   minimum (24 + 260 + 220 + gaps) — en dessous, la valeur du curseur sortait
+   de la carte. Empilement identique au @media 760px. */
+@container (max-width: 559px) {
+  .sr-setting-row:not(.sr-storage-row) {
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .sr-setting-row:not(.sr-storage-row) .sr-setting-info,
+  .sr-setting-row:not(.sr-storage-row) .sr-slider-wrap,
+  .sr-setting-row:not(.sr-storage-row) .sr-values {
+    grid-column: 2;
   }
 }
 
@@ -8079,8 +8343,39 @@ export default {
 .v-theme--dataFridayDark .space-restock-view .sr-value-num {
   color: #cbd5e1;
 }
+.v-theme--dataFridayDark .space-restock-view .sr-pack-equiv {
+  color: #94a3b8;
+}
 .v-theme--dataFridayDark .space-restock-view .sr-value-ok {
   color: #86efac;
+}
+/* Chantier 317 — les 3 zones des lignes storage. Le nom et les valeurs codent
+   leur couleur en dur côté clair, comme le reste du fichier. */
+.v-theme--dataFridayDark .space-restock-view .sr-storage-name,
+.v-theme--dataFridayDark .space-restock-view .sr-storage-chip strong {
+  color: #e2e8f0;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-chip {
+  color: #94a3b8;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-chip-pack,
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy-label {
+  color: #64748b;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy {
+  background: rgba(255, 49, 49, 0.14);
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy-value {
+  color: #ff8080;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy-value.sr-value-ok {
+  color: #86efac;
+}
+/* Les badges d'alerte n'avaient aucune règle sombre : fond pastel clair et
+   texte foncé restaient tels quels sur fond nuit. */
+.v-theme--dataFridayDark .space-restock-view .sr-storage-alert--max {
+  background: rgba(249, 115, 22, 0.16);
+  color: #fdba74;
 }
 .v-theme--dataFridayDark .space-restock-view .sr-collapse-icon {
   color: #94a3b8;

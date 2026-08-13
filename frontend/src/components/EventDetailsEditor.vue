@@ -20,9 +20,9 @@
             {{ editedEvent.ticketsScanned == null ? "—" : Number(editedEvent.ticketsScanned).toLocaleString("fr-FR") }}
             {{ t('edeScanned') }}
           </span>
-          <span class="ede-summary-pill">
+          <span class="ede-summary-pill ede-summary-pill--config">
             <Tags class="w-3.5 h-3.5" />
-            {{ configurationName || t('edeConfigUndefined') }}
+            <span class="ede-summary-pill-label">{{ configurationName || t('edeConfigUndefined') }}</span>
           </span>
         </div>
       </div>
@@ -970,6 +970,21 @@ export default {
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 1;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.ede-summary-pill svg {
+  flex-shrink: 0;
+}
+/* Pill du nom de configuration : seule autorisée à rétrécir — le nom
+   s'ellipse au lieu de wrapper (même contrat que .ede-summary-title). */
+.ede-summary-pill--config {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.ede-summary-pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ede-dirty-pill {
   flex-shrink: 0;
