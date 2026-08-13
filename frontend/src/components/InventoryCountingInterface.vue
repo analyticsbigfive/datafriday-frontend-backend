@@ -237,6 +237,10 @@
         </div>
 
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
+          <v-btn v-if="canTransfer" variant="text" size="small" @click="emit('transfer', shop.element, item)">
+            <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
+            {{ t('invCountTransfer') }}
+          </v-btn>
           <v-btn color="success" variant="tonal" size="small" @click="markCounted(item.id, true)">
             <v-icon size="15" class="mr-1">mdi-check</v-icon>
             {{ t('invCountMarkCounted') }}
@@ -282,9 +286,12 @@ const props = defineProps({
   // réarmement sauvegardé — null/vide = pas de badge (pas de plan, RBAC non
   // couvert, mode post).
   expectedSectionUnits: { type: Array, default: null },
+  // Transfert Logistic depuis le comptage — le parent monte le drawer et fait
+  // l'appel API ; false (démo, module absent) = bouton masqué, rendu inchangé.
+  canTransfer: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop'])
+const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop', 'transfer'])
 
 // Images produit en échec de chargement → fallback icône (parité React).
 const failedImages = ref({})

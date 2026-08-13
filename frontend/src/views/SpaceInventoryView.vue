@@ -333,10 +333,12 @@
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
           :expected-section-units="expectedSectionUnitsFor(countingShop)"
+          :can-transfer="!demo"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
           @mark-counted="markCounted"
+          @transfer="openTransfer"
         />
 
         <!-- List view -->
@@ -624,12 +626,33 @@
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
           :expected-section-units="expectedSectionUnitsFor(countingShop)"
+          :can-transfer="!demo"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
           @mark-counted="markCounted"
+          @transfer="openTransfer"
         />
       </v-dialog>
+
+      <!-- Transfert Logistic depuis le comptage — drawer réutilisé tel quel
+           (présentationnel), mode remove forcé : un transfert s'émet en
+           Suppression (BUG-259-02), le receveur confirme côté Logistic. -->
+      <LogisticMovementDialog
+        v-model="movementDialog"
+        mode="remove"
+        :item="movementItem"
+        :units-per-pack="movementUnitsPerPack"
+        :element="movementElement"
+        :shops="movementShops"
+        :storages="movementStorages"
+        :current-stock="movementCurrentStock"
+        :market-prices="movementMarketPrices"
+        :market-prices-loading="movementMarketPricesLoading"
+        :saving="movementSaving"
+        :error="movementError"
+        @submit="submitTransfer"
+      />
     </div>
 
     <!-- Toast : tous les articles d'un PDV / stockage comptés -->
@@ -698,6 +721,7 @@ import { confirmDialog } from '@/composables/useConfirmDialog'
 import { isDemoMode, enableDemoMode, disableDemoMode } from '@/utils/demoMode'
 import InventoryAggregateView from '@/components/InventoryAggregateView.vue'
 import InventoryCountingInterface from '@/components/InventoryCountingInterface.vue'
+import LogisticMovementDialog from '@/components/LogisticMovementDialog.vue'
 import InventoryShopCard from '@/components/InventoryShopCard.vue'
 import InventoryStorageCard from '@/components/InventoryStorageCard.vue'
 import InventoryStorageAggregateView from '@/components/InventoryStorageAggregateView.vue'
@@ -768,6 +792,7 @@ export default {
   components: {
     InventoryAggregateView,
     InventoryCountingInterface,
+    LogisticMovementDialog,
     InventoryShopCard,
     InventoryStorageCard,
     InventoryStorageAggregateView,
@@ -825,6 +850,18 @@ export default {
       // Toast affiché quand tous les articles d'un PDV / stockage sont comptés.
       snackbar: false,
       snackbarText: '',
+      // Transfert Logistic depuis le comptage — drawer LogisticMovementDialog
+      // (présentationnel, mode remove forcé : un transfert s'émet en Suppression
+      // depuis BUG-259-02) ; la vue réplique openMovement/submitMovement de
+      // SpaceLogisticView. Le stock Logistic n'est chargé qu'au premier clic.
+      movementDialog: false,
+      movementElement: null,
+      movementItem: null,
+      movementMarketPrices: [],
+      movementMarketPricesLoading: false,
+      movementSaving: false,
+      movementError: null,
+      logisticsStockLoaded: false,
       demoSheet: false,
       countingStatusTab: 'to-count',
       // Filtre ouvert/fermé du bandeau (onglet Boutiques) : 'all' | 'open' | 'closed'.
@@ -1082,6 +1119,32 @@ export default {
           // du total reste vide tant qu'aucune version n'est marquée par défaut.
           return this.predictedNeedMissing ? this.t('invPredictNoDefaultVersion') : ''
       }
+    },
+    /** Candidats du drawer transfert, enrichis du stock Logistic de la denrée en
+     *  cours — miroir de shopElements/storageElementsList de SpaceLogisticView.
+     *  PDV : uniquement ceux qui suivent déjà la denrée (sinon le stock envoyé
+     *  devient invisible côté receveur). Storage : pas de filtre. */
+    movementShops() {
+      const itemName = this.movementItem?.name
+      return (this.store.getters['logistics/shopElements'] || [])
+        .filter((e) => !itemName || (e.items || []).some((it) => it.name === itemName))
+        .map((e) => this.movementCandidate(e, itemName))
+    },
+    movementStorages() {
+      const itemName = this.movementItem?.name
+      return (this.store.getters['logistics/storageElements'] || [])
+        .map((e) => this.movementCandidate(e, itemName))
+    },
+    /** Stock Logistic de la denrée sur l'élément courant — plafond des suppressions. */
+    movementCurrentStock() {
+      if (!this.movementElement || !this.movementItem) return { packed: 0, loose: 0 }
+      const exp = this.store.getters['logistics/expectedFor'](this.movementElement.id, this.movementItem.name)
+      return exp ? { packed: exp.packed, loose: exp.loose } : { packed: 0, loose: 0 }
+    },
+    movementUnitsPerPack() {
+      if (!this.movementElement || !this.movementItem) return null
+      const level = this.store.getters['logistics/levelFor'](this.movementElement.id, this.movementItem.name)
+      return level?.unitsPerPack || this.movementItem.unitsPerPack || null
     },
     /** itemId → inventoryQuantityPackaged (référentiel affiché) — la vue réco
      *  pre-event convertit ses lignes packed/loose en unités avec cette map. */
@@ -2099,6 +2162,80 @@ export default {
         // Module restock-plans absent (404) ou erreur réseau : badge absent.
         // eslint-disable-next-line no-console
         console.warn('[INVENTORY] expected plan load failed:', err?.message)
+      }
+    },
+    /** Candidat au transfert enrichi du stock Logistic actuel de la denrée. */
+    movementCandidate(el, itemName) {
+      const exp = itemName ? this.store.getters['logistics/expectedFor'](el.id, itemName) : null
+      return { id: el.id, name: el.name, packed: exp?.packed || 0, loose: exp?.loose || 0 }
+    },
+    /** Ouvre le drawer transfert sur (élément, article de comptage). Charge le
+     *  stock Logistic au premier appel (candidats + plafond), puis les market
+     *  prices scopés à la denrée — deux lectures, aucune écriture avant submit. */
+    async openTransfer(element, item) {
+      const spaceId = this.route.params.spaceId
+      this.movementElement = { id: element.id, name: element.name }
+      // Adapter minimal tout de suite (le drawer s'ouvre avant le fetch) ; les
+      // champs Logistic (kind/packagingType/marketPriceId) sont complétés après.
+      this.movementItem = {
+        name: item.name,
+        unit: item.unit || null,
+        kind: null,
+        packagingType: item.inventoryPackaging || null,
+        marketPriceId: null,
+        unitsPerPack: Number(item.inventoryQuantityPackaged) || null,
+      }
+      this.movementError = null
+      this.movementMarketPrices = []
+      this.movementMarketPricesLoading = true
+      this.movementDialog = true
+      try {
+        if (!this.logisticsStockLoaded) {
+          await this.store.dispatch('logistics/loadStock', { spaceId })
+          this.logisticsStockLoaded = true
+        }
+        // L'item de comptage ne porte ni kind/packagingType/marketPriceId — on
+        // les résout dans le référentiel Logistic (itemByKey, jointure par nom :
+        // StockMovement.itemKey est un NOM libre, piège n°1 du domaine Stock).
+        const ref = this.store.getters['logistics/itemByKey'](item.name)
+        this.movementItem = {
+          name: item.name,
+          unit: item.unit || ref?.unit || null,
+          kind: ref?.kind || null,
+          packagingType: ref?.packagingType || item.inventoryPackaging || null,
+          marketPriceId: ref?.marketPriceId || null,
+          unitsPerPack: ref?.unitsPerPack || Number(item.inventoryQuantityPackaged) || null,
+        }
+        this.movementMarketPrices = await this.store.dispatch('logistics/loadMarketPricesForItem', {
+          spaceId,
+          itemKey: item.name,
+        })
+      } catch (e) {
+        console.warn('[SpaceInventory] ouverture transfert KO:', e?.message)
+      } finally {
+        this.movementMarketPricesLoading = false
+      }
+    },
+    async submitTransfer(payload) {
+      const spaceId = this.route.params.spaceId
+      if (!spaceId || !this.movementElement || !this.movementItem) return
+      this.movementSaving = true
+      this.movementError = null
+      try {
+        await this.store.dispatch('logistics/createMovement', {
+          spaceId,
+          elementId: this.movementElement.id,
+          itemKey: this.movementItem.name,
+          ...payload,
+        })
+        this.movementDialog = false
+        this.snackbarText = this.t('logiMovementSaved')
+        this.snackbar = true
+      } catch (e) {
+        this.movementError =
+          e?.response?.data?.message || e?.userMessage || this.t('logiMovementError')
+      } finally {
+        this.movementSaving = false
       }
     },
     /** Segments « Attendu » d'une section : [{unit, total}] ou null.
