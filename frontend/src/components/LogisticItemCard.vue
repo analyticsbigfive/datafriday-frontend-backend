@@ -65,6 +65,39 @@
       </div>
     </div>
 
+    <!-- BUG-259-02 : transferts émis vers cet élément pour cette denrée, en attente
+         de confirmation. Cliquer ouvre le drawer de confirmation (quantités éditables). -->
+    <div v-if="pendingTransfers.length" class="lg-pending-transfers">
+      <div class="lg-pending-title">{{ t('logiPendingTransfersTitle') }}</div>
+      <button
+        v-for="pt in pendingTransfers"
+        :key="pt.movementId"
+        type="button"
+        class="lg-pending-row"
+        @click="$emit('open-transfer', pt)"
+      >
+        <span class="lg-pending-info">
+          {{ t('logiPendingTransferFrom') }} : {{ pt.sourceElementName }}
+          <strong class="ml-1">{{ pendingTransferQtyLabel(pt) }}</strong>
+        </span>
+        <v-icon size="18" color="success">mdi-arrow-right-circle</v-icon>
+      </button>
+    </div>
+
+    <!-- BUG-259-02 (retour Ulrich, 2026-08-13) : transferts émis PAR cet élément,
+         encore en attente de confirmation côté destinataire, trace visible côté
+         source, informative uniquement (seul le destinataire confirme). -->
+    <div v-if="outgoingPendingTransfers.length" class="lg-outgoing-transfers">
+      <div class="lg-outgoing-title">{{ t('logiOutgoingTransfersTitle') }}</div>
+      <div v-for="ot in outgoingPendingTransfers" :key="ot.movementId" class="lg-outgoing-row">
+        <v-icon size="16" color="warning">mdi-clock-outline</v-icon>
+        <span class="lg-outgoing-info">
+          {{ t('logiOutgoingTransferTo') }} : {{ ot.destinationElementName }}
+          <strong class="ml-1">{{ pendingTransferQtyLabel(ot) }}</strong>
+        </span>
+      </div>
+    </div>
+
     <div class="lg-item-actions">
       <v-btn class="lg-btn-add" variant="flat" size="small" @click="$emit('add', item)">
         <v-icon size="16" class="mr-1">mdi-plus</v-icon>
@@ -83,6 +116,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 const { t, locale } = useI18n()
 
@@ -98,9 +132,16 @@ const props = defineProps({
   status: { type: String, default: 'ok' },
   /** Photo résolue par le parent (repli Market Price) ; prioritaire sur item.picture. */
   picture: { type: String, default: '' },
+  /** BUG-259-02 : transferts entrants en attente pour cette denrée sur cet élément —
+   *  [{movementId, sourceElementName, declaredPacked, declaredLoose, createdAt}]. */
+  pendingTransfers: { type: Array, default: () => [] },
+  /** BUG-259-02 : transferts sortants émis par cet élément, encore en attente de
+   *  confirmation côté destinataire : [{movementId, destinationElementName,
+   *  declaredPacked, declaredLoose, createdAt}]. */
+  outgoingPendingTransfers: { type: Array, default: () => [] },
 })
 
-defineEmits(['add', 'remove'])
+defineEmits(['add', 'remove', 'open-transfer'])
 
 const imgFailed = ref(false)
 
@@ -147,6 +188,12 @@ function formatTotal(packed, loose) {
   if (!upp) return '—'
   const total = (Number(packed) || 0) * upp + (Number(loose) || 0)
   return formatUnits(total)
+}
+
+/** BUG-259-02 : quantité + unité d'un transfert en attente (ex. "3 Sacs (0.5 Kg)"),
+ *  même denrée que la carte donc mêmes item/unitsPerPack déjà en props. */
+function pendingTransferQtyLabel(pt) {
+  return compactQtyLabel(pt.declaredPacked, pt.declaredLoose, props.item, props.unitsPerPack, t, locale.value, formatUnits)
 }
 </script>
 
@@ -266,4 +313,61 @@ function formatTotal(packed, loose) {
   background: var(--fb-danger-soft, #fef2f2) !important;
   color: var(--fb-danger, #dc2626) !important;
 }
+
+.lg-pending-transfers {
+  border-top: 1px dashed var(--fb-border, #e5e7eb);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lg-pending-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--fb-faint, #9ca3af);
+}
+.lg-pending-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  background: var(--fb-subtle, #fafafa);
+  border-radius: var(--fb-radius-control, 8px);
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.78rem;
+  color: var(--fb-text, #212121);
+}
+.lg-pending-row:hover { background: var(--fb-success-soft, #f0fdf4); }
+.lg-pending-info { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lg-outgoing-transfers {
+  border-top: 1px dashed var(--fb-border, #e5e7eb);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lg-outgoing-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--fb-faint, #9ca3af);
+}
+.lg-outgoing-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--fb-radius-control, 8px);
+  padding: 6px 10px;
+  background: var(--fb-warning-soft, #fffbeb);
+  font-size: 0.78rem;
+  color: var(--fb-text, #212121);
+}
+.lg-outgoing-info { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

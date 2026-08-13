@@ -107,6 +107,33 @@ export function applyFanoutQuantity(current, pairKeys, units) {
 }
 
 /**
+ * Répartition d'un TOTAL sur un ensemble de couples (BUG-316-01) : le slider
+ * « par article » représente désormais le total de l'article, réparti
+ * équitablement sur les PDV cochés — et non plus la même valeur dupliquée sur
+ * chacun (129 saisis donnaient 129 × N shops dans le Stock up).
+ * Équiréparti au plus juste : base = floor(total/n), les `total % n` premières
+ * clés (ordre d'entrée) reçoivent +1 — la somme vaut STRICTEMENT le total.
+ * Retourne un NOUVEL objet (les props Vue ne se mutent pas).
+ *
+ * @param {Object<string, number>} current  manualQuantities courant
+ * @param {string[]} pairKeys               clés `${elementId}-${menuItemId}`
+ * @param {number|string} total             quantité TOTALE à répartir
+ * @returns {Object<string, number>}
+ */
+export function splitQuantityAcrossKeys(current, pairKeys, total) {
+  const keys = pairKeys || []
+  const next = { ...(current || {}) }
+  if (!keys.length) return next
+  const t = Math.max(0, Math.round(Number(total) || 0))
+  const base = Math.floor(t / keys.length)
+  const remainder = t % keys.length
+  keys.forEach((k, i) => {
+    next[k] = base + (i < remainder ? 1 : 0)
+  })
+  return next
+}
+
+/**
  * Plafond effectif d'un slider absolu : l'échelle choisie par l'utilisateur
  * (champ « échelle max », défaut 1000), étendue par la valeur courante — une
  * valeur déjà posée au-delà de l'échelle ne doit pas casser le curseur

@@ -139,6 +139,31 @@
                 </button>
               </div>
             </div>
+
+            <!-- BUG-259-02 : section "Pertes" (transferts confirmés avec écart), séparée
+                 de Réconciliation, qui modélise un écart de comptage, pas de transfert. -->
+            <div v-if="canReconcile" class="lg-panel">
+              <div class="lg-panel-title">
+                <TrendingDown :size="15" class="me-1" />
+                {{ t('logiLossesTitle') }}
+              </div>
+              <div v-if="!lossesSummary.count" class="lg-panel-empty">
+                {{ t('logiLossesEmpty') }}
+              </div>
+              <template v-else>
+                <div class="lg-losses-summary">
+                  {{ lossesSummary.count }} {{ t('logiLossesCount') }}
+                </div>
+                <div class="lg-losses-actions">
+                  <v-btn size="small" variant="text" class="lg-losses-view-btn" @click="lossesDrawer = true">
+                    {{ t('logiLossesViewAll') }}
+                  </v-btn>
+                  <button type="button" class="lg-bs-icon-btn btn btn-sm" :title="t('logiLossesDownloadAll')" @click="downloadAllLosses">
+                    <Download :size="16" />
+                  </button>
+                </div>
+              </template>
+            </div>
           </aside>
 
           <section class="lg-main">
@@ -318,8 +343,11 @@
                   :predicted-need="predictedNeedFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
+                  :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
+                  :outgoing-pending-transfers="outgoingPendingTransfersFor(drillElement.element.id, item.name)"
                   @add="openMovement(drillElement.element, item, 'add')"
                   @remove="openMovement(drillElement.element, item, 'remove')"
+                  @open-transfer="openTransferConfirm($event, drillElement.element, item, unitsPerPackFor(drillElement.element.id, item))"
                 />
               </div>
             </template>
@@ -349,6 +377,26 @@
           :saving="movementSaving"
           :error="movementError"
           @submit="submitMovement"
+        />
+
+        <!-- BUG-259-02 : confirmation d'un transfert en attente -->
+        <LogisticTransferConfirmDrawer
+          v-model="transferConfirmDialog"
+          :transfer="transferConfirmTransfer"
+          :element-name="transferConfirmElement?.name"
+          :item="transferConfirmItem"
+          :units-per-pack="transferConfirmUnitsPerPack"
+          :saving="transferConfirmSaving"
+          :error="transferConfirmError"
+          @submit="submitTransferConfirm"
+        />
+
+        <!-- BUG-259-02 : liste complète des pertes de transfert -->
+        <LogisticLossesDrawer
+          v-model="lossesDrawer"
+          :space-id="currentSpaceId"
+          :space-name="spaceLabel"
+          @toast="onLossesToast"
         />
 
         <!-- Historique d'un PDV/storage -->
@@ -408,13 +456,15 @@ import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import LogisticElementRow from '@/components/LogisticElementRow.vue'
 import LogisticItemCard from '@/components/LogisticItemCard.vue'
 import LogisticMovementDialog from '@/components/LogisticMovementDialog.vue'
+import LogisticTransferConfirmDrawer from '@/components/LogisticTransferConfirmDrawer.vue'
+import LogisticLossesDrawer from '@/components/LogisticLossesDrawer.vue'
 import LogisticHistoryDrawer from '@/components/LogisticHistoryDrawer.vue'
 import LogisticAggregateView from '@/components/LogisticAggregateView.vue'
 import LogisticSimulateSaleDialog from '@/components/LogisticSimulateSaleDialog.vue'
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
-import { downloadReconciliationCsv } from '@/api/endpoints/logistics.api'
+import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/logistics.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
-import { ClipboardList, GitCompare, Download } from 'lucide-vue-next'
+import { ClipboardList, GitCompare, Download, TrendingDown } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 
@@ -471,11 +521,14 @@ export default {
     LogisticElementRow,
     LogisticItemCard,
     LogisticMovementDialog,
+    LogisticTransferConfirmDrawer,
+    LogisticLossesDrawer,
     LogisticHistoryDrawer,
     LogisticAggregateView,
     ClipboardList,
     GitCompare,
     Download,
+    TrendingDown,
     WorkspacePanelToggle,
     LogisticSimulateSaleDialog,
   },
@@ -521,6 +574,16 @@ export default {
       // Historique
       historyDrawer: false,
       historyElement: null,
+      // BUG-259-02 : confirmation d'un transfert en attente
+      transferConfirmDialog: false,
+      transferConfirmTransfer: null,
+      transferConfirmElement: null,
+      transferConfirmItem: null,
+      transferConfirmUnitsPerPack: null,
+      transferConfirmSaving: false,
+      transferConfirmError: null,
+      // BUG-259-02 : section "Pertes" (drawer liste complète)
+      lossesDrawer: false,
       // QA : simuler une vente Weezevent
       simulateDialog: false,
       simulateSaving: false,
@@ -570,6 +633,7 @@ export default {
     stockLoading() { return !!this.store.state.logistics?.loading },
     resetting() { return !!this.store.state.logistics?.resetting },
     reconciliations() { return this.store.state.logistics?.reconciliations || [] },
+    lossesSummary() { return this.store.state.logistics?.lossesSummary || { count: 0, totalLostPacked: 0, totalLostLoose: 0 } },
     anchorLabel() {
       const at = this.store.state.logistics?.anchor?.at
       return at ? this.formatDate(at) : null
@@ -685,6 +749,13 @@ export default {
     },
     activeTab() {
       this.closeDrill()
+    },
+    /** BUG-259-02 : transferts en attente chargés à l'entrée dans le drill-in d'un élément. */
+    'drillElement.element.id': {
+      immediate: false,
+      handler(elementId) {
+        if (elementId) this.store.dispatch('logistics/loadPendingTransfers', { elementId })
+      },
     },
   },
   activated() {
@@ -818,7 +889,10 @@ export default {
           this.loadLatestInventory(spaceId),
           this.loadMarketPriceImages(),
         ]
-        if (this.canReconcile) tasks.push(this.store.dispatch('logistics/loadReconciliations', { spaceId }))
+        if (this.canReconcile) {
+          tasks.push(this.store.dispatch('logistics/loadReconciliations', { spaceId }))
+          tasks.push(this.store.dispatch('logistics/loadLossesSummary', { spaceId }))
+        }
         await Promise.all(tasks)
         // Après loadStock : le périmètre des éléments vient du stock chargé.
         this.fetchPredictedNeed(eventId)
@@ -893,7 +967,10 @@ export default {
       const configId = this.selectedConfigId
       this.store.dispatch('logistics/loadStock', { spaceId, configId })
       this.loadLatestInventory(spaceId)
-      if (this.canReconcile) this.store.dispatch('logistics/loadReconciliations', { spaceId })
+      if (this.canReconcile) {
+        this.store.dispatch('logistics/loadReconciliations', { spaceId })
+        this.store.dispatch('logistics/loadLossesSummary', { spaceId })
+      }
     },
     /** Stock attendu affiché (level − ventes, casse de pack) — 0/0 si non suivi. */
     expectedDisplay(elementId, item) {
@@ -911,6 +988,42 @@ export default {
       // Niveau réel (dernier mouvement) prioritaire, sinon la valeur du référentiel
       // (résolue côté serveur depuis le market price lié à la denrée).
       return level?.unitsPerPack || item.unitsPerPack || null
+    },
+    /** BUG-259-02 : transferts entrants en attente pour cette denrée sur cet élément. */
+    pendingTransfersFor(elementId, itemName) {
+      return this.store.getters['logistics/pendingTransfersFor'](elementId, itemName)
+    },
+    /** BUG-259-02 : transferts émis par cet élément, encore en attente côté destinataire. */
+    outgoingPendingTransfersFor(elementId, itemName) {
+      return this.store.getters['logistics/outgoingPendingTransfersFor'](elementId, itemName)
+    },
+    openTransferConfirm(transfer, element, item, unitsPerPack) {
+      this.transferConfirmTransfer = transfer
+      this.transferConfirmElement = { id: element.id, name: element.name }
+      this.transferConfirmItem = item || null
+      this.transferConfirmUnitsPerPack = unitsPerPack ?? null
+      this.transferConfirmError = null
+      this.transferConfirmDialog = true
+    },
+    async submitTransferConfirm({ movementId, packed, loose }) {
+      if (!this.transferConfirmElement) return
+      this.transferConfirmSaving = true
+      this.transferConfirmError = null
+      try {
+        await this.store.dispatch('logistics/confirmTransfer', {
+          movementId,
+          elementId: this.transferConfirmElement.id,
+          packed,
+          loose,
+        })
+        this.transferConfirmDialog = false
+        this.toast(this.t('logiTransferConfirmed'), 'success')
+      } catch (e) {
+        this.transferConfirmError =
+          e?.response?.data?.message || e?.userMessage || this.t('logiTransferConfirmError')
+      } finally {
+        this.transferConfirmSaving = false
+      }
     },
     /** Comptage du dernier inventaire pour ce (shop, item) — null si absent. */
     countedFor(elementId, item) {
@@ -1086,6 +1199,14 @@ export default {
       this.snackbarText = text
       this.snackbarColor = color
       this.snackbar = true
+    },
+    onLossesToast({ message, color }) {
+      this.toast(message, color)
+    },
+    async downloadAllLosses() {
+      const spaceId = this.currentSpaceId
+      if (!spaceId) return
+      await downloadLossesCsv(spaceId, `pertes-transfert-${spaceId}.csv`)
     },
     goBack() {
       const spaceId = this.route?.params?.spaceId
@@ -1505,6 +1626,10 @@ export default {
 .lg-reco-row:last-child { border-bottom: 0; }
 .lg-reco-name { font-size: 0.82rem; font-weight: 600; }
 .lg-reco-date { font-size: 0.72rem; color: var(--lg-muted); }
+
+.lg-losses-summary { font-size: 0.82rem; font-weight: 600; padding: 4px 0; }
+.lg-losses-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.lg-losses-view-btn { text-transform: none; padding: 0 8px; }
 
 .lg-main { min-width: 0; height: 100%; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .lg-center { display: flex; justify-content: center; padding: 48px 0; }

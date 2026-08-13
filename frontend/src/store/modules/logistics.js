@@ -10,9 +10,14 @@
 import {
   getLogisticsStock,
   createStockMovement,
+  confirmTransfer as confirmTransferApi,
+  getPendingTransfers,
   getElementHistory,
   resetLogisticsInventory,
   getReconciliations,
+  getLossesSummary,
+  getLosses,
+  archiveLosses as archiveLossesApi,
   getMarketPricesForItem,
   simulateSale,
   purgeSimulatedSales,
@@ -57,6 +62,17 @@ const state = () => ({
   consumption: {}, // { `${elementId}::${itemKey}`: quantity (unités loose vendues) }
   anchor: null, // { at, reconciliationId } | null
   reconciliations: [],
+  // BUG-259-02 : transferts PENDING par élément, dans les deux sens :
+  // { [elementId]: { incoming: [...], outgoing: [...] } }. incoming = émis vers cet
+  // élément (à confirmer ici) ; outgoing = émis par cet élément, encore en attente
+  // côté destinataire (garde une trace visible côté source jusqu'à validation).
+  pendingTransfers: {},
+  // BUG-259-02 : section "Pertes" (distincte de Réconciliation), résumé (count +
+  // quantités) et liste paginée (cursor), actives par défaut.
+  lossesSummary: { count: 0, totalLostPacked: 0, totalLostLoose: 0 },
+  losses: [],
+  lossesNextCursor: null,
+  lossesLoading: false,
   // QA — run d'auto-simulation serveur actif pour l'espace courant (11_LIVE.md,
   // LiveSaleSimulatorWidget.vue), s'il y en a un. Survit au reload — cf. loadActiveSimulationRun.
   activeRun: null,
@@ -72,6 +88,35 @@ const getters = {
   storageElements: (state) => state.elements.filter((e) => e.type === 'storage'),
   levelFor: (state) => (elementId, itemKey) => state.levels[keyOf(elementId, itemKey)] || null,
   consumedFor: (state) => (elementId, itemKey) => state.consumption[keyOf(elementId, itemKey)] || 0,
+  /** BUG-259-02 : transferts entrants (à confirmer ici) pour un élément, filtrés par denrée. */
+  pendingTransfersFor: (state) => (elementId, itemKey) => {
+    const all = state.pendingTransfers[elementId]?.incoming || []
+    if (!itemKey) return all
+    const key = String(itemKey).trim().toLowerCase()
+    return all.filter((t) => String(t.itemKey ?? '').trim().toLowerCase() === key)
+  },
+  /** BUG-259-02 : transferts sortants (émis par cet élément, en attente ailleurs), filtrés par denrée. */
+  outgoingPendingTransfersFor: (state) => (elementId, itemKey) => {
+    const all = state.pendingTransfers[elementId]?.outgoing || []
+    if (!itemKey) return all
+    const key = String(itemKey).trim().toLowerCase()
+    return all.filter((t) => String(t.itemKey ?? '').trim().toLowerCase() === key)
+  },
+  /**
+   * Item du référentiel (unit/packagingType/unitsPerPack) résolu par nom, pour
+   * les écrans qui n'ont que l'itemKey (Pertes) et pas l'objet item complet
+   * (contrairement à LogisticItemCard, qui le reçoit déjà en prop). Le référentiel
+   * est le même pour tous les éléments : on s'arrête au premier match.
+   */
+  itemByKey: (state) => (itemKey) => {
+    const key = String(itemKey ?? '').trim().toLowerCase()
+    if (!key) return null
+    for (const el of state.elements) {
+      const found = (el.items || []).find((it) => String(it.name ?? '').trim().toLowerCase() === key)
+      if (found) return found
+    }
+    return null
+  },
   /** Stock attendu affiché (packed/loose) après ventes + casse de pack. */
   expectedFor: (state, getters) => (elementId, itemKey) => {
     const level = getters.levelFor(elementId, itemKey)
@@ -114,6 +159,30 @@ const mutations = {
   },
   SET_RECONCILIATIONS(state, v) { state.reconciliations = Array.isArray(v) ? v : [] },
   SET_ACTIVE_RUN(state, v) { state.activeRun = v || null },
+  SET_PENDING_TRANSFERS(state, { elementId, incoming, outgoing }) {
+    state.pendingTransfers = {
+      ...state.pendingTransfers,
+      [elementId]: { incoming: Array.isArray(incoming) ? incoming : [], outgoing: Array.isArray(outgoing) ? outgoing : [] },
+    }
+  },
+  REMOVE_PENDING_TRANSFER(state, { elementId, movementId }) {
+    const current = state.pendingTransfers[elementId] || { incoming: [], outgoing: [] }
+    state.pendingTransfers = {
+      ...state.pendingTransfers,
+      [elementId]: {
+        incoming: current.incoming.filter((t) => t.movementId !== movementId),
+        outgoing: current.outgoing.filter((t) => t.movementId !== movementId),
+      },
+    }
+  },
+  SET_LOSSES_SUMMARY(state, v) {
+    state.lossesSummary = v || { count: 0, totalLostPacked: 0, totalLostLoose: 0 }
+  },
+  SET_LOSSES(state, { losses, nextCursor, append }) {
+    state.losses = append ? [...state.losses, ...(losses || [])] : (losses || [])
+    state.lossesNextCursor = nextCursor || null
+  },
+  SET_LOSSES_LOADING(state, v) { state.lossesLoading = !!v },
   CLEAR(state) {
     state.spaceId = null
     state.space = null
@@ -125,6 +194,11 @@ const mutations = {
     state.anchor = null
     state.reconciliations = []
     state.activeRun = null
+    state.pendingTransfers = {}
+    state.lossesSummary = { count: 0, totalLostPacked: 0, totalLostLoose: 0 }
+    state.losses = []
+    state.lossesNextCursor = null
+    state.lossesLoading = false
     state.error = null
     state.loading = false
     state.saving = false
@@ -189,6 +263,46 @@ const actions = {
     return getElementHistory(elementId, { limit, cursor })
   },
 
+  /** BUG-259-02 : transferts en attente de confirmation ciblant cet élément. */
+  async loadPendingTransfers({ commit }, { elementId }) {
+    try {
+      const data = await getPendingTransfers(elementId)
+      commit('SET_PENDING_TRANSFERS', { elementId, incoming: data?.incoming, outgoing: data?.outgoing })
+    } catch (e) {
+      console.error('[logistics] 🚚❌ loadPendingTransfers ÉCHEC —', e?.response?.status, e?.message)
+      commit('SET_PENDING_TRANSFERS', { elementId, incoming: [], outgoing: [] })
+    }
+  },
+
+  /**
+   * BUG-259-02 : confirme un transfert (quantités déclarées par défaut, ou
+   * modifiées). Retire le transfert de la liste en attente et recharge le stock
+   * de l'espace (niveaux source + contrepartie ont changé) et les réconciliations
+   * (une perte a pu être journalisée en cas d'écart).
+   */
+  async confirmTransfer({ commit, dispatch, state }, { movementId, elementId, packed, loose }) {
+    commit('SET_SAVING', true)
+    try {
+      const payload = {}
+      if (packed != null) payload.packed = packed
+      if (loose != null) payload.loose = loose
+      const res = await confirmTransferApi(movementId, payload)
+      commit('REMOVE_PENDING_TRANSFER', { elementId, movementId })
+      if (state.spaceId) {
+        await Promise.all([
+          dispatch('loadStock', { spaceId: state.spaceId }),
+          dispatch('loadLossesSummary', { spaceId: state.spaceId }),
+        ])
+      }
+      return res
+    } catch (e) {
+      console.error('[logistics] ✅❌ confirmTransfer ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
+      throw e
+    } finally {
+      commit('SET_SAVING', false)
+    }
+  },
+
   /**
    * Inventory Reset : le référentiel + comptages sont mappés côté vue en lignes
    * { elementId, itemKey, countedPacked, countedLoose, unitsPerPack? }.
@@ -225,6 +339,43 @@ const actions = {
       }
       commit('SET_RECONCILIATIONS', [])
     }
+  },
+
+  /** BUG-259-02 : résumé "Pertes" (count + quantités), section distincte de Réconciliation. */
+  async loadLossesSummary({ commit }, { spaceId }) {
+    try {
+      const data = await getLossesSummary(spaceId)
+      commit('SET_LOSSES_SUMMARY', data)
+    } catch (e) {
+      if (e?.response?.status !== 403) {
+        console.error('[logistics] 💸❌ loadLossesSummary ÉCHEC —', e?.response?.status, e?.message)
+      }
+      commit('SET_LOSSES_SUMMARY', { count: 0, totalLostPacked: 0, totalLostLoose: 0 })
+    }
+  },
+
+  /** BUG-259-02 : première page (ou page suivante si `cursor`) de la liste des pertes. */
+  async loadLosses({ commit }, { spaceId, cursor, includeArchived } = {}) {
+    commit('SET_LOSSES_LOADING', true)
+    try {
+      const data = await getLosses(spaceId, { cursor, includeArchived })
+      commit('SET_LOSSES', { losses: data?.losses, nextCursor: data?.nextCursor, append: !!cursor })
+    } catch (e) {
+      console.error('[logistics] 💸❌ loadLosses ÉCHEC —', e?.response?.status, e?.message)
+      if (!cursor) commit('SET_LOSSES', { losses: [], nextCursor: null, append: false })
+    } finally {
+      commit('SET_LOSSES_LOADING', false)
+    }
+  },
+
+  /** BUG-259-02 : archive ("vide") les pertes actives, puis recharge résumé + liste. */
+  async archiveLosses({ commit, dispatch }, { spaceId }) {
+    const res = await archiveLossesApi(spaceId)
+    await Promise.all([
+      dispatch('loadLossesSummary', { spaceId }),
+      dispatch('loadLosses', { spaceId }),
+    ])
+    return res
   },
 
   /** Market prices candidats pour le popup +/− d'une denrée (scopé, pas le catalogue complet). */

@@ -44,6 +44,31 @@ export async function createStockMovement(movement) {
 }
 
 /**
+ * BUG-259-02 : confirme un transfert PENDING — crédite la contrepartie (quantités
+ * déclarées par défaut, ou modifiées) et clôt la ligne source. Un écart entre
+ * déclaré et confirmé est journalisé comme perte (section Réconciliation).
+ * POST /logistics/movements/:id/confirm
+ * @param {string} movementId ID du StockMovement source (PENDING)
+ * @param {{packed?: number, loose?: number}} payload quantités confirmées (omis = déclarées)
+ * @returns {Promise<{sourceMovementId, counterpartyLevel, missingPacked, missingLoose, reconciliationId}>}
+ */
+export async function confirmTransfer(movementId, payload = {}) {
+  return api.post(`/logistics/movements/${movementId}/confirm`, payload)
+}
+
+/**
+ * BUG-259-02 : transferts PENDING impliquant cet élément, dans les deux sens.
+ * GET /logistics/element/:elementId/pending-transfers
+ * @returns {Promise<{
+ *   incoming: Array<{movementId, itemKey, sourceElementId, sourceElementName, declaredPacked, declaredLoose, createdAt}>,
+ *   outgoing: Array<{movementId, itemKey, destinationElementId, destinationElementName, declaredPacked, declaredLoose, createdAt}>,
+ * }>} incoming = émis vers cet élément (à confirmer ici) ; outgoing = émis par cet élément (en attente ailleurs).
+ */
+export async function getPendingTransfers(elementId) {
+  return api.get(`/logistics/element/${elementId}/pending-transfers`)
+}
+
+/**
  * Historique d'un PDV/storage : mouvements paginés + ventes agrégées par event.
  * GET /logistics/element/:elementId/history
  */
@@ -79,6 +104,52 @@ export async function getReconciliations(spaceId) {
  */
 export async function downloadReconciliationCsv(id, filename = 'reconciliation.csv') {
   const csv = await api.get(`/logistics/reconciliations/${id}/export`, { responseType: 'blob' })
+  const blob = csv instanceof Blob ? csv : new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * BUG-259-02 : résumé "Pertes", nombre + quantités perdues (actives par défaut).
+ * GET /logistics/:spaceId/losses/summary?includeArchived=
+ */
+export async function getLossesSummary(spaceId, includeArchived = false) {
+  return api.get(`/logistics/${spaceId}/losses/summary`, { params: includeArchived ? { includeArchived: 'true' } : {} })
+}
+
+/**
+ * BUG-259-02 : liste paginée (cursor) des pertes de transfert.
+ * GET /logistics/:spaceId/losses
+ */
+export async function getLosses(spaceId, { limit, cursor, includeArchived } = {}) {
+  const params = {}
+  if (limit) params.limit = limit
+  if (cursor) params.cursor = cursor
+  if (includeArchived) params.includeArchived = 'true'
+  return api.get(`/logistics/${spaceId}/losses`, { params })
+}
+
+/**
+ * BUG-259-02 : archive ("vide") toutes les pertes actives d'un espace, jamais
+ * supprimées, seulement masquées de la liste par défaut.
+ * POST /logistics/:spaceId/losses/archive
+ */
+export async function archiveLosses(spaceId) {
+  return api.post(`/logistics/${spaceId}/losses/archive`)
+}
+
+/**
+ * BUG-259-02 : export CSV de toutes les pertes (actives + archivées).
+ * GET /logistics/:spaceId/losses/export
+ */
+export async function downloadLossesCsv(spaceId, filename = 'pertes-transfert.csv') {
+  const csv = await api.get(`/logistics/${spaceId}/losses/export`, { responseType: 'blob' })
   const blob = csv instanceof Blob ? csv : new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

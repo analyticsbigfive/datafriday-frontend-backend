@@ -8,6 +8,26 @@
         {{ t('epsGenerate') }}
       </button>
       <p v-if="generateError" class="eps-error">{{ generateError }}</p>
+      <!-- BUG-316-01 : un goal TPE absent bloque la génération (400 backend)
+           alors que la pill réglages RH n'était rendue que lorsqu'il existait
+           déjà des lignes — l'état vide n'offrait aucun accès aux Settings RH.
+           Même pill + même drawer que la toolbar (le drawer est déjà rendu à
+           la racine, hors du v-else). -->
+      <div v-if="settings" class="eps-empty-settings">
+        <span class="ep-revenue-pill eps-settings-pill">
+          <span class="ep-revenue-label">{{ t('epsGoalTpe') }}</span>
+          <strong>{{ settings.goalTpe != null ? eur(settings.goalTpe) : '—' }}</strong>
+          <span class="ep-revenue-label eps-settings-sep">{{ t('epsStaffPerZone') }}</span>
+          <strong>{{ settings.staffPerZoneManager ?? '—' }}</strong>
+        </span>
+        <button
+          type="button" class="eps-settings-link" :title="t('epsEditSettings')"
+          :disabled="!settings?.spaceId" @click="openSettingsDrawer"
+        >
+          <v-icon size="15">mdi-cog-outline</v-icon>
+        </button>
+      </div>
+      <p v-if="settingsError" class="eps-error">{{ settingsError }}</p>
       <!-- Génération résolue mais 0 ligne créée : sans ce bandeau, le clic est
            indiscernable d'un no-op (BUG-258-01). Les warnings backend expliquent la cause. -->
       <v-alert
@@ -512,6 +532,15 @@ onMounted(async () => {
   background: var(--fb-subtle, #fafafa);
 }
 .eps-empty-text { margin: 0 0 14px; color: var(--fb-muted, #6b7280); font-size: 0.875rem; }
+/* BUG-316-01 : accès Settings RH depuis l'état vide (goal TPE bloquant). */
+.eps-empty-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+.eps-empty-settings .eps-settings-pill { margin-left: 0; }
 .eps-error { margin: 10px 0 0; color: var(--fb-danger, #dc2626); font-size: 0.75rem; }
 .eps-empty-alert { margin-top: 14px; max-width: 560px; text-align: left; font-size: 0.8125rem; }
 

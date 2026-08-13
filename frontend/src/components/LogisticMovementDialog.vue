@@ -268,13 +268,15 @@ export default {
       return this.item?.unit || this.t('logiLooseShort')
     },
     reasonOptions() {
-      // Ajout : Delivery (défaut) / Transfert d'un PDV / d'un Storage / Autre.
+      // BUG-259-02 : un transfert s'émet désormais uniquement en Suppression
+      // ("Transfert vers un PDV/Storage") — la contrepartie ne reçoit plus de
+      // crédit immédiat via un ajout manuel, elle confirme le transfert reçu
+      // (section "Transferts en attente de confirmation" sur sa fiche denrée).
+      // Ajout : Delivery (défaut) / Autre.
       // Suppression : Transfert vers un PDV / vers un Storage / DLC / Autre.
       const opts = this.isAdd
         ? [
             { title: this.t('logiReasonDelivery'), value: 'DELIVERY' },
-            { title: this.t('logiReasonFromShop'), value: 'TRANSFER_SHOP' },
-            { title: this.t('logiReasonFromStorage'), value: 'TRANSFER_STORAGE' },
             { title: this.t('logiReasonOther'), value: 'OTHER' },
           ]
         : [
