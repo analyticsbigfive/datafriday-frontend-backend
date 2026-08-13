@@ -15,6 +15,9 @@ import {
   getElementHistory,
   resetLogisticsInventory,
   getReconciliations,
+  getLossesSummary,
+  getLosses,
+  archiveLosses as archiveLossesApi,
   getMarketPricesForItem,
   simulateSale,
   purgeSimulatedSales,
@@ -63,6 +66,12 @@ const state = () => ({
   // { [elementId]: Array<{movementId, itemKey, sourceElementId, sourceElementName,
   //   declaredPacked, declaredLoose, createdAt}> }
   pendingTransfers: {},
+  // BUG-259-02 : section "Pertes" (distincte de Réconciliation), résumé (count +
+  // quantités) et liste paginée (cursor), actives par défaut.
+  lossesSummary: { count: 0, totalLostPacked: 0, totalLostLoose: 0 },
+  losses: [],
+  lossesNextCursor: null,
+  lossesLoading: false,
   // QA — run d'auto-simulation serveur actif pour l'espace courant (11_LIVE.md,
   // LiveSaleSimulatorWidget.vue), s'il y en a un. Survit au reload — cf. loadActiveSimulationRun.
   activeRun: null,
@@ -137,6 +146,14 @@ const mutations = {
       [elementId]: current.filter((t) => t.movementId !== movementId),
     }
   },
+  SET_LOSSES_SUMMARY(state, v) {
+    state.lossesSummary = v || { count: 0, totalLostPacked: 0, totalLostLoose: 0 }
+  },
+  SET_LOSSES(state, { losses, nextCursor, append }) {
+    state.losses = append ? [...state.losses, ...(losses || [])] : (losses || [])
+    state.lossesNextCursor = nextCursor || null
+  },
+  SET_LOSSES_LOADING(state, v) { state.lossesLoading = !!v },
   CLEAR(state) {
     state.spaceId = null
     state.space = null
@@ -149,6 +166,10 @@ const mutations = {
     state.reconciliations = []
     state.activeRun = null
     state.pendingTransfers = {}
+    state.lossesSummary = { count: 0, totalLostPacked: 0, totalLostLoose: 0 }
+    state.losses = []
+    state.lossesNextCursor = null
+    state.lossesLoading = false
     state.error = null
     state.loading = false
     state.saving = false
@@ -241,7 +262,7 @@ const actions = {
       if (state.spaceId) {
         await Promise.all([
           dispatch('loadStock', { spaceId: state.spaceId }),
-          dispatch('loadReconciliations', { spaceId: state.spaceId }),
+          dispatch('loadLossesSummary', { spaceId: state.spaceId }),
         ])
       }
       return res
@@ -289,6 +310,43 @@ const actions = {
       }
       commit('SET_RECONCILIATIONS', [])
     }
+  },
+
+  /** BUG-259-02 : résumé "Pertes" (count + quantités), section distincte de Réconciliation. */
+  async loadLossesSummary({ commit }, { spaceId }) {
+    try {
+      const data = await getLossesSummary(spaceId)
+      commit('SET_LOSSES_SUMMARY', data)
+    } catch (e) {
+      if (e?.response?.status !== 403) {
+        console.error('[logistics] 💸❌ loadLossesSummary ÉCHEC —', e?.response?.status, e?.message)
+      }
+      commit('SET_LOSSES_SUMMARY', { count: 0, totalLostPacked: 0, totalLostLoose: 0 })
+    }
+  },
+
+  /** BUG-259-02 : première page (ou page suivante si `cursor`) de la liste des pertes. */
+  async loadLosses({ commit }, { spaceId, cursor, includeArchived } = {}) {
+    commit('SET_LOSSES_LOADING', true)
+    try {
+      const data = await getLosses(spaceId, { cursor, includeArchived })
+      commit('SET_LOSSES', { losses: data?.losses, nextCursor: data?.nextCursor, append: !!cursor })
+    } catch (e) {
+      console.error('[logistics] 💸❌ loadLosses ÉCHEC —', e?.response?.status, e?.message)
+      if (!cursor) commit('SET_LOSSES', { losses: [], nextCursor: null, append: false })
+    } finally {
+      commit('SET_LOSSES_LOADING', false)
+    }
+  },
+
+  /** BUG-259-02 : archive ("vide") les pertes actives, puis recharge résumé + liste. */
+  async archiveLosses({ commit, dispatch }, { spaceId }) {
+    const res = await archiveLossesApi(spaceId)
+    await Promise.all([
+      dispatch('loadLossesSummary', { spaceId }),
+      dispatch('loadLosses', { spaceId }),
+    ])
+    return res
   },
 
   /** Market prices candidats pour le popup +/− d'une denrée (scopé, pas le catalogue complet). */
