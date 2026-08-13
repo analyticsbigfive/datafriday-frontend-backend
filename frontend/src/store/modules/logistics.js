@@ -10,6 +10,8 @@
 import {
   getLogisticsStock,
   createStockMovement,
+  confirmTransfer as confirmTransferApi,
+  getPendingTransfers,
   getElementHistory,
   resetLogisticsInventory,
   getReconciliations,
@@ -57,6 +59,10 @@ const state = () => ({
   consumption: {}, // { `${elementId}::${itemKey}`: quantity (unités loose vendues) }
   anchor: null, // { at, reconciliationId } | null
   reconciliations: [],
+  // BUG-259-02 : transferts en attente de confirmation, par élément destinataire —
+  // { [elementId]: Array<{movementId, itemKey, sourceElementId, sourceElementName,
+  //   declaredPacked, declaredLoose, createdAt}> }
+  pendingTransfers: {},
   // QA — run d'auto-simulation serveur actif pour l'espace courant (11_LIVE.md,
   // LiveSaleSimulatorWidget.vue), s'il y en a un. Survit au reload — cf. loadActiveSimulationRun.
   activeRun: null,
@@ -72,6 +78,13 @@ const getters = {
   storageElements: (state) => state.elements.filter((e) => e.type === 'storage'),
   levelFor: (state) => (elementId, itemKey) => state.levels[keyOf(elementId, itemKey)] || null,
   consumedFor: (state) => (elementId, itemKey) => state.consumption[keyOf(elementId, itemKey)] || 0,
+  /** BUG-259-02 : transferts en attente pour un élément, filtrés par denrée (itemKey). */
+  pendingTransfersFor: (state) => (elementId, itemKey) => {
+    const all = state.pendingTransfers[elementId] || []
+    if (!itemKey) return all
+    const key = String(itemKey).trim().toLowerCase()
+    return all.filter((t) => String(t.itemKey ?? '').trim().toLowerCase() === key)
+  },
   /** Stock attendu affiché (packed/loose) après ventes + casse de pack. */
   expectedFor: (state, getters) => (elementId, itemKey) => {
     const level = getters.levelFor(elementId, itemKey)
@@ -114,6 +127,16 @@ const mutations = {
   },
   SET_RECONCILIATIONS(state, v) { state.reconciliations = Array.isArray(v) ? v : [] },
   SET_ACTIVE_RUN(state, v) { state.activeRun = v || null },
+  SET_PENDING_TRANSFERS(state, { elementId, transfers }) {
+    state.pendingTransfers = { ...state.pendingTransfers, [elementId]: Array.isArray(transfers) ? transfers : [] }
+  },
+  REMOVE_PENDING_TRANSFER(state, { elementId, movementId }) {
+    const current = state.pendingTransfers[elementId] || []
+    state.pendingTransfers = {
+      ...state.pendingTransfers,
+      [elementId]: current.filter((t) => t.movementId !== movementId),
+    }
+  },
   CLEAR(state) {
     state.spaceId = null
     state.space = null
@@ -125,6 +148,7 @@ const mutations = {
     state.anchor = null
     state.reconciliations = []
     state.activeRun = null
+    state.pendingTransfers = {}
     state.error = null
     state.loading = false
     state.saving = false
@@ -187,6 +211,46 @@ const actions = {
   /** Historique d'un élément (non mis en cache : drawer ponctuel). */
   async loadHistory(_ctx, { elementId, limit, cursor }) {
     return getElementHistory(elementId, { limit, cursor })
+  },
+
+  /** BUG-259-02 : transferts en attente de confirmation ciblant cet élément. */
+  async loadPendingTransfers({ commit }, { elementId }) {
+    try {
+      const transfers = await getPendingTransfers(elementId)
+      commit('SET_PENDING_TRANSFERS', { elementId, transfers: Array.isArray(transfers) ? transfers : [] })
+    } catch (e) {
+      console.error('[logistics] 🚚❌ loadPendingTransfers ÉCHEC —', e?.response?.status, e?.message)
+      commit('SET_PENDING_TRANSFERS', { elementId, transfers: [] })
+    }
+  },
+
+  /**
+   * BUG-259-02 : confirme un transfert (quantités déclarées par défaut, ou
+   * modifiées). Retire le transfert de la liste en attente et recharge le stock
+   * de l'espace (niveaux source + contrepartie ont changé) et les réconciliations
+   * (une perte a pu être journalisée en cas d'écart).
+   */
+  async confirmTransfer({ commit, dispatch, state }, { movementId, elementId, packed, loose }) {
+    commit('SET_SAVING', true)
+    try {
+      const payload = {}
+      if (packed != null) payload.packed = packed
+      if (loose != null) payload.loose = loose
+      const res = await confirmTransferApi(movementId, payload)
+      commit('REMOVE_PENDING_TRANSFER', { elementId, movementId })
+      if (state.spaceId) {
+        await Promise.all([
+          dispatch('loadStock', { spaceId: state.spaceId }),
+          dispatch('loadReconciliations', { spaceId: state.spaceId }),
+        ])
+      }
+      return res
+    } catch (e) {
+      console.error('[logistics] ✅❌ confirmTransfer ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
+      throw e
+    } finally {
+      commit('SET_SAVING', false)
+    }
   },
 
   /**

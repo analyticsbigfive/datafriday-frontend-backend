@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Prisma, StockMovementReason } from '@prisma/client';
+import { Prisma, StockMovementReason, StockTransferStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -307,6 +307,13 @@ export class LogisticsService {
     if (dto.reason === 'EXPIRY' && dto.direction !== 'remove') {
       throw new BadRequestException('EXPIRY est réservé aux suppressions');
     }
+    // BUG-259-02 : un transfert s'émet désormais uniquement depuis la source qui le
+    // déclare en le retirant ("Transfert vers un PDV/Storage", mode Supprimer) — la
+    // contrepartie ne reçoit plus de crédit immédiat, elle confirme via
+    // POST /logistics/movements/:id/confirm (cf. confirmTransfer).
+    if (isTransfer && dto.direction !== 'remove') {
+      throw new BadRequestException("Un transfert s'émet en suppression (contrepartie créditée à la confirmation)");
+    }
     if (isTransfer && !dto.counterpartyElementId) {
       throw new BadRequestException('counterpartyElementId requis pour un transfert');
     }
@@ -394,30 +401,156 @@ export class LogisticsService {
           packedDelta,
           looseDelta,
           counterpartyElementId: counterparty?.id ?? null,
+          // BUG-259-02 : la source d'un transfert débite immédiatement (comme avant)
+          // mais reste PENDING — la contrepartie n'est ni créée ni créditée ici, elle
+          // le sera à la confirmation (confirmTransfer), avec les quantités
+          // éventuellement corrigées par le destinataire.
+          status: counterparty ? StockTransferStatus.PENDING : null,
         },
       });
       const level = await this.applyLevelDelta(
         tx, tenantId, element, dto.itemKey, packedDelta, looseDelta, unitsPerPack, dto.marketPriceId ?? null, true,
       );
-      let counterpartyLevel: any = null;
-      if (counterparty) {
-        // Double écriture : le miroir porte le delta opposé (la source d'un ajout
-        // est décrémentée, la destination d'une suppression est incrémentée).
-        await tx.stockMovement.create({
+      return { movement, level, counterpartyLevel: null as any };
+    });
+  }
+
+  // ─── Confirmation d'un transfert (BUG-259-02) ─────────────────────────────────
+
+  /**
+   * Confirme un transfert émis (PENDING) : crédite la contrepartie des quantités
+   * confirmées (par défaut celles déclarées à l'émission, ou modifiées par le
+   * destinataire) et clôt la ligne source. Si les quantités confirmées sont
+   * inférieures aux quantités déclarées, l'écart est journalisé comme une perte
+   * dans une StockReconciliation (kind='transfer-loss'), remontée dans la section
+   * Réconciliation de la Logistique aux côtés des archives de reset.
+   */
+  async confirmTransfer(movementId: string, dto: { packed?: number; loose?: number }, tenantId: string, userId?: string) {
+    const source = await this.prisma.stockMovement.findFirst({
+      where: { id: movementId, tenantId },
+    });
+    if (!source) throw new NotFoundException(`Mouvement ${movementId} not found`);
+    if (source.reason !== 'TRANSFER_SHOP' && source.reason !== 'TRANSFER_STORAGE') {
+      throw new BadRequestException(`Le mouvement ${movementId} n'est pas un transfert`);
+    }
+    if (source.status !== StockTransferStatus.PENDING) {
+      throw new BadRequestException(`Transfert ${movementId} déjà confirmé ou invalide`);
+    }
+    if (!source.counterpartyElementId) {
+      throw new BadRequestException(`Transfert ${movementId} sans contrepartie`);
+    }
+
+    const counterparty = await this.getElementOrThrow(source.counterpartyElementId, tenantId);
+    const declaredPacked = Math.abs(source.packedDelta);
+    const declaredLoose = Math.abs(source.looseDelta);
+    const confirmedPacked = dto.packed != null ? Math.max(0, dto.packed) : declaredPacked;
+    const confirmedLoose = dto.loose != null ? Math.max(0, dto.loose) : declaredLoose;
+    if (confirmedPacked > declaredPacked || confirmedLoose > declaredLoose) {
+      throw new BadRequestException('Les quantités confirmées ne peuvent pas dépasser les quantités déclarées');
+    }
+
+    let unitsPerPack: number | null = null;
+    if (source.marketPriceId) {
+      const mp = await this.prisma.marketPrice.findFirst({
+        where: { id: source.marketPriceId, tenantId, deletedAt: null },
+        select: { packedUnits: true },
+      });
+      unitsPerPack = mp?.packedUnits ?? null;
+    } else {
+      unitsPerPack = await this.resolveUnitsPerPackForItemKey(source.itemKey, tenantId);
+    }
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const missingPacked = declaredPacked - confirmedPacked;
+    const missingLoose = round2(declaredLoose - confirmedLoose);
+    const hasLoss = missingPacked > 0 || missingLoose > 0;
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.stockMovement.create({
+        data: {
+          tenantId,
+          spaceId: source.spaceId,
+          elementId: counterparty.id,
+          itemKey: source.itemKey,
+          menuItemId: source.menuItemId,
+          marketPriceId: source.marketPriceId,
+          packedDelta: confirmedPacked,
+          looseDelta: confirmedLoose,
+          reason: source.reason,
+          counterpartyElementId: source.elementId,
+          transferGroupId: source.transferGroupId,
+          status: StockTransferStatus.CONFIRMED,
+          createdBy: userId ?? null,
+        },
+      });
+      const counterpartyLevel = await this.applyLevelDelta(
+        tx, tenantId, counterparty, source.itemKey, confirmedPacked, confirmedLoose, unitsPerPack, source.marketPriceId, true,
+      );
+      await tx.stockMovement.update({
+        where: { id: source.id },
+        data: { status: StockTransferStatus.CONFIRMED, confirmedAt: new Date(), confirmedBy: userId ?? null },
+      });
+
+      let reconciliationId: string | null = null;
+      if (hasLoss) {
+        const fromElement = await this.getElementOrThrow(source.elementId, tenantId);
+        const deltaUnits = unitsPerPack
+          ? round2(-missingPacked * unitsPerPack - missingLoose)
+          : null;
+        const reco = await tx.stockReconciliation.create({
           data: {
-            ...base,
-            elementId: counterparty.id,
-            packedDelta: -packedDelta,
-            looseDelta: -looseDelta,
-            counterpartyElementId: element.id,
+            tenantId,
+            spaceId: source.spaceId,
+            eventName: `Transfert ${source.itemKey} : ${fromElement.name} → ${counterparty.name}`,
+            kind: 'transfer-loss',
+            createdBy: userId ?? null,
+            lines: [
+              {
+                elementId: counterparty.id,
+                elementFromId: source.elementId,
+                elementToId: counterparty.id,
+                itemKey: source.itemKey,
+                unitsPerPack,
+                expectedPacked: declaredPacked,
+                expectedLoose: declaredLoose,
+                countedPacked: confirmedPacked,
+                countedLoose: confirmedLoose,
+                deltaPacked: -missingPacked,
+                deltaLoose: -missingLoose,
+                deltaUnits,
+              },
+            ] as any,
           },
         });
-        counterpartyLevel = await this.applyLevelDelta(
-          tx, tenantId, counterparty, dto.itemKey, -packedDelta, -looseDelta, unitsPerPack, dto.marketPriceId ?? null, true,
-        );
+        reconciliationId = reco.id;
       }
-      return { movement, level, counterpartyLevel };
+
+      return { sourceMovementId: source.id, counterpartyLevel, missingPacked, missingLoose, reconciliationId };
     });
+  }
+
+  /** Transferts émis vers `elementId` et en attente de confirmation (BUG-259-02). */
+  async getPendingTransfersForElement(elementId: string, tenantId: string) {
+    const rows = await this.prisma.stockMovement.findMany({
+      where: { tenantId, counterpartyElementId: elementId, status: StockTransferStatus.PENDING },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!rows.length) return [];
+    const sourceIds = [...new Set(rows.map((r) => r.elementId))];
+    const sources = await this.prisma.spaceElement.findMany({
+      where: { id: { in: sourceIds } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(sources.map((s) => [s.id, s.name]));
+    return rows.map((r) => ({
+      movementId: r.id,
+      itemKey: r.itemKey,
+      sourceElementId: r.elementId,
+      sourceElementName: nameById.get(r.elementId) ?? r.elementId,
+      declaredPacked: Math.abs(r.packedDelta),
+      declaredLoose: Math.abs(r.looseDelta),
+      createdAt: r.createdAt,
+    }));
   }
 
   // ─── Référentiel des items par élément (PDV + Storage) ───────────────────────
@@ -691,12 +824,16 @@ export class LogisticsService {
   }
 
   /**
-   * Lignes de stock contribuées par UN Component, recette dépliée si
-   * readyForSale=No (ingrédients + sous-composants, `ComponentComponent` étant un
-   * vrai graphe par id — cycle-guard par Set visité, pas seulement la profondeur).
-   * Cache par `${id}:${depth}` (même schéma que itemRefsForMenuItem/perUnitForComponent) —
-   * `visited` ne sert qu'à couper les cycles, le résultat pour un (id, depth) donné est
-   * déterministe indépendamment du chemin d'appel.
+   * Ligne de stock représentant UN Component. Depuis la décision Q13
+   * (QUESTIONS_A_BERTRAND.md, 2026-08-04 : "on ne décompose plus un composant, ni
+   * au stock-up, ni à l'inventaire, ni au réarmement") un Component n'est plus
+   * jamais exploré au-delà de lui-même — il est tracké/transféré tel quel, comme
+   * l'Inventaire (`inventoryUtils.js`) et le Réarmement (`stockPlanning.js`) le font
+   * déjà. BUG-260-02 (2026-08-13) : l'ancienne garde `readyForSale==='Yes'` ne se
+   * déclenchait jamais en pratique (0 des 81 Component en base n'ont ce flag à
+   * 'Yes' — il n'a de sens que pour un MenuItem, pas pour un sous-composant qui
+   * n'est par construction jamais vendu directement) et explosait donc
+   * systématiquement le composant en ses ingrédients bruts.
    */
   private componentRefsForComponent(comp: any, ctx: RecipeCtx, depth = 0, visited: Set<string> = new Set()): ItemRef[] {
     const name = comp?.name?.trim();
@@ -704,38 +841,12 @@ export class LogisticsService {
     const cacheKey = `${comp.id}:${depth}`;
     const cached = ctx.componentRefsCache.get(cacheKey);
     if (cached) return cached;
-    const asLeaf = (): ItemRef[] => [{
+    const leaf: ItemRef[] = [{
       key: name, id: comp.id, kind: 'component', unit: comp.unit ?? null, marketPriceId: null,
       unitsPerPack: comp.packedUnits ?? null, packagingType: comp.inventoryPackaging ?? null, picture: null,
     }];
-    if (this.normYesNo(comp.readyForSale) === 'Yes' || depth >= 4 || visited.has(comp.id)) {
-      const leaf = asLeaf();
-      ctx.componentRefsCache.set(cacheKey, leaf);
-      return leaf;
-    }
-
-    const nextVisited = new Set(visited);
-    nextVisited.add(comp.id);
-    const refs: ItemRef[] = [];
-    for (const line of comp.ingredients ?? []) {
-      const ing = line.ingredient;
-      const ingName = ing?.name?.trim();
-      if (!ingName) continue;
-      const mp = ing.marketPrice ?? ctx.mpByName.get(ingName.toLowerCase());
-      refs.push({
-        key: ingName, id: mp?.id ?? ing.id, kind: 'ingredient', unit: ing.recipeUnit ?? null,
-        marketPriceId: mp?.id ?? null, unitsPerPack: mp?.packedUnits ?? null, packagingType: mp?.inventoryPackaging ?? null, picture: null,
-      });
-    }
-    for (const line of comp.children ?? []) {
-      const childId = line.child?.id;
-      if (!childId) continue;
-      const fullChild = ctx.componentById.get(childId) ?? line.child;
-      refs.push(...this.componentRefsForComponent(fullChild, ctx, depth + 1, nextVisited));
-    }
-    const result = refs.length ? refs : asLeaf();
-    ctx.componentRefsCache.set(cacheKey, result);
-    return result;
+    ctx.componentRefsCache.set(cacheKey, leaf);
+    return leaf;
   }
 
   /** Agrège les refs de plusieurs menu items en items de référentiel (1re valeur non nulle gagne). */
@@ -1391,40 +1502,21 @@ export class LogisticsService {
       componentFrontier = rows.map((c) => c.id);
     }
 
-    // Component (readyForSale=No) : même dépliage récursif que itemRefsForMenuItem
-    // côté Path A, mais gardé indépendant (closure séparée, cache séparé) — la
-    // consommation ventes ne doit jamais dépendre du chemin référentiel.
+    // BUG-260-02 (2026-08-13) : un Component compte pour 1 unité de lui-même,
+    // jamais décomposé en ingrédients/sous-composants — même alignement que
+    // componentRefsForComponent (Path A) sur la décision Q13 (QUESTIONS_A_BERTRAND.md,
+    // 2026-08-04 : "on ne décompose plus un composant"). L'ancienne garde
+    // readyForSale==='Yes' ne se déclenchait jamais en pratique (0 Component avec ce
+    // flag en base) et explosait donc systématiquement en ingrédients bruts, en
+    // désaccord avec le référentiel Path A une fois celui-ci corrigé.
     const componentPerUnitCache = new Map<string, Map<string, number>>();
-    const perUnitForComponent = (comp: any, depth = 0, visited: Set<string> = new Set()): Map<string, number> => {
-      const cacheKey = `${comp.id}:${depth}`;
-      const cached = componentPerUnitCache.get(cacheKey);
+    const perUnitForComponent = (comp: any): Map<string, number> => {
+      const cached = componentPerUnitCache.get(comp.id);
       if (cached) return cached;
       const result = new Map<string, number>();
-      const add = (key: string | null | undefined, qty: number) => {
-        const k = key?.trim();
-        if (!k || !Number.isFinite(qty) || qty <= 0) return;
-        result.set(k, (result.get(k) ?? 0) + qty);
-      };
-      if (this.normYesNo(comp.readyForSale) === 'Yes' || depth >= 4 || visited.has(comp.id)) {
-        add(comp.name, 1);
-      } else {
-        const nextVisited = new Set(visited);
-        nextVisited.add(comp.id);
-        const pieces = Number(comp.numberOfUnitsRecipe) > 0 ? Number(comp.numberOfUnitsRecipe) : 1;
-        for (const line of comp.ingredients ?? []) {
-          const ing = line.ingredient;
-          add(ing?.marketPrice?.itemName || ing?.name, Number(line.quantity ?? 0) / pieces);
-        }
-        for (const line of comp.children ?? []) {
-          const childId = line.child?.id;
-          if (!childId) continue;
-          const fullChild = componentById.get(childId) ?? line.child;
-          const qty = Number(line.quantity ?? 0) / pieces;
-          for (const [k, q] of perUnitForComponent(fullChild, depth + 1, nextVisited)) add(k, q * qty);
-        }
-        if (!result.size) add(comp.name, 1);
-      }
-      componentPerUnitCache.set(cacheKey, result);
+      const name = comp?.name?.trim();
+      if (name) result.set(name, 1);
+      componentPerUnitCache.set(comp.id, result);
       return result;
     };
 
@@ -1815,10 +1907,11 @@ export class LogisticsService {
   async listReconciliations(spaceId: string, tenantId: string) {
     await this.assertSpace(spaceId, tenantId);
     const rows = await this.prisma.stockReconciliation.findMany({
-      // kind:null : la vue Logistic ne liste que les archives de reset — les
+      // kind:null (archives de reset) + kind:'transfer-loss' (BUG-259-02, pertes de
+      // transfert confirmées avec écart) : la vue Logistic liste les deux. Les
       // documents 'post-event' ont leur propre liste côté Post-event Inventory
       // (GET /inventory/:spaceId/reconciliations).
-      where: { tenantId, spaceId, kind: null },
+      where: { tenantId, spaceId, kind: { in: [null, 'transfer-loss'] } },
       orderBy: { createdAt: 'desc' },
       select: { id: true, eventId: true, eventName: true, createdAt: true, createdBy: true, lines: true },
     });
