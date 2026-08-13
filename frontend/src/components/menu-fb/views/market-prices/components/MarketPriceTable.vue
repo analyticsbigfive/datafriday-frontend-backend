@@ -98,6 +98,7 @@
                       >
                         <td class="market-expanded__td">{{ row.supplierName || "-" }}</td>
                         <td class="market-expanded__td">{{ row.supplierItemName || "-" }}</td>
+                        <td class="market-expanded__td">{{ row.storageType || "-" }}</td>
                         <td class="market-expanded__td">{{ row.unit || "-" }}</td>
                         <td class="market-expanded__td">{{ row.unitsPerPurchase ?? "-" }}</td>
                         <td class="market-expanded__td">{{ formatPrice(row.price) }}</td>

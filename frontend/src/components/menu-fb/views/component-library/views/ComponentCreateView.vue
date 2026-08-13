@@ -85,7 +85,7 @@
                     <div class="cc-row-name">
                       <span class="cc-row-name__dot" :style="{ background: (item?.raw?.itemType || item?.itemType) === 'Ingredient' ? '#10b981' : '#3b82f6' }"></span>
                       <div>
-                        <div class="cc-row-name__text">{{ item?.raw?.supplierItemName || item?.supplierItemName || item?.raw?.itemName || item?.itemName || "-" }}</div>
+                        <div class="cc-row-name__text" :title="item?.raw?.supplierItemName || item?.supplierItemName || item?.raw?.itemName || item?.itemName || '-'">{{ item?.raw?.supplierItemName || item?.supplierItemName || item?.raw?.itemName || item?.itemName || "-" }}</div>
                         <div v-if="(item?.raw?.supplierItemName || item?.supplierItemName) && (item?.raw?.itemName || item?.itemName)" class="cc-row-name__sub">
                           {{ item?.raw?.itemName || item?.itemName }}
                         </div>
@@ -161,7 +161,7 @@
                 </div>
 
                 <!-- Section: Général -->
-                <div class="ccf-section-label">Général</div>
+                <div class="ccf-section-label">{{ t('compCreateSectionGeneral') }}</div>
 
                 <div class="ccf-field-wrap mb-3">
                   <label class="ccf-field-label">{{ t('compCreateFieldName') }} <span class="ccf-required">*</span></label>
@@ -213,7 +213,7 @@
                 </div>
 
                 <!-- Section: Configuration -->
-                <div class="ccf-section-label mt-1">Configuration</div>
+                <div class="ccf-section-label mt-1">{{ t('compCreateSectionConfiguration') }}</div>
 
                 <div class="ccf-field-wrap mb-3">
                   <label class="ccf-field-label">{{ t('compCreateFieldUnit') }} <span class="ccf-required">*</span></label>
@@ -315,7 +315,7 @@
                 </div>
 
                 <!-- Section: Extra -->
-                <div class="ccf-section-label mt-1">Extra</div>
+                <div class="ccf-section-label mt-1">{{ t('compCreateSectionExtra') }}</div>
 
                 <div class="ccf-field-wrap mb-3">
                   <label class="ccf-field-label">{{ t('compCreateFieldAllergens') }}</label>
@@ -350,6 +350,7 @@
               <!-- Erreurs : hors zone scrollable, toujours visibles juste au-dessus des boutons -->
               <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="cc-form-error">{{ error }}</v-alert>
               <v-alert v-if="loadingError" type="error" variant="tonal" density="compact" rounded="lg" class="cc-form-error">{{ loadingError }}</v-alert>
+              <v-alert v-if="saveSuccess" type="success" variant="tonal" density="compact" rounded="lg" closable class="cc-form-error" @click:close="saveSuccess = null">{{ saveSuccess }}</v-alert>
 
               <!-- Sticky footer -->
               <div class="cc-form-footer">
@@ -362,7 +363,7 @@
                   :disabled="saving || !formValid"
                   @click="onSave"
                 >
-                  <Save :size="15" /> {{ saving ? 'Sauvegarde…' : (isEditMode ? t('compCreateSaveEdit') : t('compCreateSaveCreate')) }}
+                  <Save :size="15" /> {{ saving ? t('compCreateSaving') : (isEditMode ? t('compCreateSaveEdit') : t('compCreateSaveCreate')) }}
                 </button>
               </div>
 
@@ -449,6 +450,7 @@ export default {
       saving: false,
       formValid: false,
       error: "",
+      saveSuccess: null,
 
       ingredientDrawer: false,
 
@@ -886,6 +888,7 @@ export default {
 
       this.saving = true;
       this.error = "";
+      this.saveSuccess = null;
       try {
         const ingredientsPayload = Array.isArray(this.form.ingredients)
           ? this.form.ingredients
@@ -930,7 +933,8 @@ export default {
 
         await updateMenuComponent(this.componentId, payload);
         this.$store.dispatch('menuComponents/invalidate');
-        this.$router.push({ path: "/components" });
+        // Édition : on reste sur la page et on affiche l'alerte de succès (pas de retour arrière).
+        this.saveSuccess = this.t('compCreateSaved');
       } catch (e) {
         this.error = e?.userMessage || e?.message || "Failed to update component";
       } finally {
@@ -1175,7 +1179,7 @@ export default {
 .cc-stat__value--green { color: #059669; }
 
 /* Table wrap */
-.cc-table-wrap { flex: 1; overflow-y: auto; min-height: 0; }
+.cc-table-wrap { flex: 1; overflow: auto; min-height: 0; }
 
 /* Empty state */
 .cc-empty {
@@ -1221,8 +1225,8 @@ export default {
 /* Row name */
 .cc-row-name { display: flex; align-items: flex-start; gap: 9px; }
 .cc-row-name__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
-.cc-row-name__text { font-weight: 600; font-size: 0.8125rem; color: #111827; }
-.cc-row-name__sub  { font-size: 0.75rem; color: #9ca3af; margin-top: 1px; }
+.cc-row-name__text { font-weight: 600; font-size: 0.8125rem; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.cc-row-name__sub  { font-size: 0.75rem; color: #9ca3af; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 
 /* Badges */
 .ccv-badge {
