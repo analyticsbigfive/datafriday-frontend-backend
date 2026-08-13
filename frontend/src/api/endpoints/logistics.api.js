@@ -57,10 +57,12 @@ export async function confirmTransfer(movementId, payload = {}) {
 }
 
 /**
- * BUG-259-02 : transferts émis vers cet élément, en attente de confirmation.
+ * BUG-259-02 : transferts PENDING impliquant cet élément, dans les deux sens.
  * GET /logistics/element/:elementId/pending-transfers
- * @returns {Promise<Array<{movementId, itemKey, sourceElementId, sourceElementName,
- *   declaredPacked, declaredLoose, createdAt}>>}
+ * @returns {Promise<{
+ *   incoming: Array<{movementId, itemKey, sourceElementId, sourceElementName, declaredPacked, declaredLoose, createdAt}>,
+ *   outgoing: Array<{movementId, itemKey, destinationElementId, destinationElementName, declaredPacked, declaredLoose, createdAt}>,
+ * }>} incoming = émis vers cet élément (à confirmer ici) ; outgoing = émis par cet élément (en attente ailleurs).
  */
 export async function getPendingTransfers(elementId) {
   return api.get(`/logistics/element/${elementId}/pending-transfers`)

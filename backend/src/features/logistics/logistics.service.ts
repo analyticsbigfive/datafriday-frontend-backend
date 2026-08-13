@@ -518,27 +518,55 @@ export class LogisticsService {
   }
 
   /** Transferts émis vers `elementId` et en attente de confirmation (BUG-259-02). */
+  /**
+   * Transferts PENDING impliquant `elementId`, dans les deux sens : `incoming`
+   * (émis par un autre élément, en attente que CET élément confirme, cf.
+   * confirmTransfer) et `outgoing` (émis par CET élément, en attente que la
+   * contrepartie confirme). `outgoing` répond à la demande d'Ulrich (2026-08-13) :
+   * la source doit garder une trace visible d'un transfert tant qu'il n'est pas
+   * validé côté destinataire, pas seulement dans Historique.
+   */
   async getPendingTransfersForElement(elementId: string, tenantId: string) {
-    const rows = await this.prisma.stockMovement.findMany({
-      where: { tenantId, counterpartyElementId: elementId, status: StockTransferStatus.PENDING },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!rows.length) return [];
-    const sourceIds = [...new Set(rows.map((r) => r.elementId))];
-    const sources = await this.prisma.spaceElement.findMany({
-      where: { id: { in: sourceIds } },
-      select: { id: true, name: true },
-    });
-    const nameById = new Map(sources.map((s) => [s.id, s.name]));
-    return rows.map((r) => ({
-      movementId: r.id,
-      itemKey: r.itemKey,
-      sourceElementId: r.elementId,
-      sourceElementName: nameById.get(r.elementId) ?? r.elementId,
-      declaredPacked: Math.abs(r.packedDelta),
-      declaredLoose: Math.abs(r.looseDelta),
-      createdAt: r.createdAt,
-    }));
+    const [incomingRows, outgoingRows] = await Promise.all([
+      this.prisma.stockMovement.findMany({
+        where: { tenantId, counterpartyElementId: elementId, status: StockTransferStatus.PENDING },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.stockMovement.findMany({
+        where: { tenantId, elementId, status: StockTransferStatus.PENDING },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    if (!incomingRows.length && !outgoingRows.length) return { incoming: [], outgoing: [] };
+
+    const counterpartyIds = [
+      ...new Set([...incomingRows.map((r) => r.elementId), ...outgoingRows.map((r) => r.counterpartyElementId)]),
+    ].filter((id): id is string => !!id);
+    const counterparts = counterpartyIds.length
+      ? await this.prisma.spaceElement.findMany({ where: { id: { in: counterpartyIds } }, select: { id: true, name: true } })
+      : [];
+    const nameById = new Map(counterparts.map((c) => [c.id, c.name]));
+
+    return {
+      incoming: incomingRows.map((r) => ({
+        movementId: r.id,
+        itemKey: r.itemKey,
+        sourceElementId: r.elementId,
+        sourceElementName: nameById.get(r.elementId) ?? r.elementId,
+        declaredPacked: Math.abs(r.packedDelta),
+        declaredLoose: Math.abs(r.looseDelta),
+        createdAt: r.createdAt,
+      })),
+      outgoing: outgoingRows.map((r) => ({
+        movementId: r.id,
+        itemKey: r.itemKey,
+        destinationElementId: r.counterpartyElementId,
+        destinationElementName: r.counterpartyElementId ? (nameById.get(r.counterpartyElementId) ?? r.counterpartyElementId) : null,
+        declaredPacked: Math.abs(r.packedDelta),
+        declaredLoose: Math.abs(r.looseDelta),
+        createdAt: r.createdAt,
+      })),
+    };
   }
 
   // ─── Pertes de transfert (BUG-259-02) ─────────────────────────────────────────
