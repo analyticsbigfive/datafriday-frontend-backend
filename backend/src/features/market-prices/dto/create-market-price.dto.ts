@@ -71,6 +71,11 @@ export class CreateMarketPriceDto {
   @IsOptional()
   supplierItem?: string;
 
+  @ApiProperty({ required: false, description: 'Type de stockage (référentiel StorageType : Dry/Cold/Frozen)' })
+  @IsString()
+  @IsOptional()
+  storageType?: string;
+
   @ApiProperty({ required: false, description: 'Unité recette' })
   @IsString()
   @IsOptional()

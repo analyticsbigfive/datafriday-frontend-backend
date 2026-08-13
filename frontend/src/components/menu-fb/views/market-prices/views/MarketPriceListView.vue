@@ -239,6 +239,7 @@ export default {
       supplierHeaders: [
         { title: "Supplier", key: "supplierName" },
         { title: "Supplier Item", key: "supplierItemName" },
+        { title: "Storage", key: "storageType" },
         { title: "Unit", key: "unit" },
         { title: "Units/Purchase", key: "unitsPerPurchase" },
         { title: "Price", key: "price" },
@@ -358,6 +359,7 @@ export default {
           supplierId,
           supplierName,
           supplierItemName: r?.supplierItem || '',
+          storageType: r?.storageType || '',
           unit: r?.unit || '',
           unitsPerPurchase: r?.unitsPerPurchase ?? null,
           price: r?.price ?? null,

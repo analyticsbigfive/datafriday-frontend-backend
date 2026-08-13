@@ -326,7 +326,7 @@ export default {
         quantity:         1,
         unitCost:         Number(r.costPerRecipeUnit || 0),
         totalCost:        Number(r.costPerRecipeUnit || 0),
-        storage:          'Dry',
+        storage:          r.storageType || 'Dry',
         marketPriceId:    r.marketPriceId,
         ingredientId:     r.ingredientId,
         supplierName:     r.supplierName,
@@ -379,6 +379,7 @@ export default {
         costPerRecipeUnit,
         supplier_id:             marketPrice?.supplierRel?.id ?? marketPrice?.supplier_id ?? marketPrice?.supplierId ?? null,
         createdAt:               marketPrice?.createdAt || null,
+        storageType:             String(marketPrice?.storageType ?? '').trim(),
         // BUG-092 : soft-toggle porté par l'Ingredient (docs/modules/04_MENU_CATALOGUE.md), pas
         // par le MarketPrice — défaut true si absent.
         active:                  ingredient?.active,
