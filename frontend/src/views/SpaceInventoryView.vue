@@ -332,10 +332,13 @@
           :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
+          :expected-section-units="expectedSectionUnitsFor(countingShop)"
+          :can-transfer="!demo"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
           @mark-counted="markCounted"
+          @transfer="openTransfer"
         />
 
         <!-- List view -->
@@ -622,12 +625,34 @@
           :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
+          :expected-section-units="expectedSectionUnitsFor(countingShop)"
+          :can-transfer="!demo"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
           @mark-counted="markCounted"
+          @transfer="openTransfer"
         />
       </v-dialog>
+
+      <!-- Transfert Logistic depuis le comptage — drawer réutilisé tel quel
+           (présentationnel), mode remove forcé : un transfert s'émet en
+           Suppression (BUG-259-02), le receveur confirme côté Logistic. -->
+      <LogisticMovementDialog
+        v-model="movementDialog"
+        mode="remove"
+        :item="movementItem"
+        :units-per-pack="movementUnitsPerPack"
+        :element="movementElement"
+        :shops="movementShops"
+        :storages="movementStorages"
+        :current-stock="movementCurrentStock"
+        :market-prices="movementMarketPrices"
+        :market-prices-loading="movementMarketPricesLoading"
+        :saving="movementSaving"
+        :error="movementError"
+        @submit="submitTransfer"
+      />
     </div>
 
     <!-- Toast : tous les articles d'un PDV / stockage comptés -->
@@ -696,6 +721,7 @@ import { confirmDialog } from '@/composables/useConfirmDialog'
 import { isDemoMode, enableDemoMode, disableDemoMode } from '@/utils/demoMode'
 import InventoryAggregateView from '@/components/InventoryAggregateView.vue'
 import InventoryCountingInterface from '@/components/InventoryCountingInterface.vue'
+import LogisticMovementDialog from '@/components/LogisticMovementDialog.vue'
 import InventoryShopCard from '@/components/InventoryShopCard.vue'
 import InventoryStorageCard from '@/components/InventoryStorageCard.vue'
 import InventoryStorageAggregateView from '@/components/InventoryStorageAggregateView.vue'
@@ -721,7 +747,9 @@ import {
   createPreEventReconciliation,
   getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
-import { buildPreEventExpected, expectedKey } from '@/utils/preEventExpected'
+import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
+import { aggregateExpectedUnitsByElement } from '@/utils/restockPlanSnapshot'
+import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -732,7 +760,7 @@ import {
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 // Contexte évènement du bandeau (nom + date + règle d'ancrage).
-import { describeAnchorEvent } from '@/utils/inventoryEventContext'
+import { describeAnchorEvent, matchLabel } from '@/utils/inventoryEventContext'
 import { parseEventDate } from '@/utils/dateFr'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 
@@ -764,6 +792,7 @@ export default {
   components: {
     InventoryAggregateView,
     InventoryCountingInterface,
+    LogisticMovementDialog,
     InventoryShopCard,
     InventoryStorageCard,
     InventoryStorageAggregateView,
@@ -821,6 +850,18 @@ export default {
       // Toast affiché quand tous les articles d'un PDV / stockage sont comptés.
       snackbar: false,
       snackbarText: '',
+      // Transfert Logistic depuis le comptage — drawer LogisticMovementDialog
+      // (présentationnel, mode remove forcé : un transfert s'émet en Suppression
+      // depuis BUG-259-02) ; la vue réplique openMovement/submitMovement de
+      // SpaceLogisticView. Le stock Logistic n'est chargé qu'au premier clic.
+      movementDialog: false,
+      movementElement: null,
+      movementItem: null,
+      movementMarketPrices: [],
+      movementMarketPricesLoading: false,
+      movementSaving: false,
+      movementError: null,
+      logisticsStockLoaded: false,
       demoSheet: false,
       countingStatusTab: 'to-count',
       // Filtre ouvert/fermé du bandeau (onglet Boutiques) : 'all' | 'open' | 'closed'.
@@ -872,6 +913,9 @@ export default {
       // match), index {byItemId, byItemName} — affiché en regard du TOTAL.
       predictedNeed: null,
       predictedNeedMissing: false,
+      // Lignes (shop × article) du plan de réarmement sauvegardé couvrant
+      // l'événement ancré — badge « Attendu » par section (pré-event, RBAC).
+      expectedPlanRows: null,
       // Pourquoi il n'y a pas d'attendu, quand il n'y en a pas :
       // null | 'no-permission' | 'forbidden' | 'not-deployed' | 'no-baseline'.
       // Sans ça, 403 / 404 / baseline vide / bug produisent le MÊME écran muet de
@@ -978,9 +1022,14 @@ export default {
       if (!d) return ''
       return d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' })
     },
-    /** Pourquoi CE match : « dernier match terminé » (post) / « prochain match » (pre). */
+    /** Pourquoi CE match (retours JLH 13/08) : les deux modes nomment leur
+     *  match d'ancrage, composé des équipes quand elles sont connues —
+     *  pre : « Prochain Évènement : {match} » (match à venir),
+     *  post : « Post Inventaire de l'évènement : {match} » (dernier terminé). */
     contextAnchorLabel() {
+      const match = matchLabel(this.contextEvent)
       return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
+        .replace('{match}', match)
     },
     /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
      *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */
@@ -1046,6 +1095,16 @@ export default {
     expectedTotalLabelKey() {
       return this.isPreMode ? 'invPredictedNeedHint' : 'invPostExpectedHint'
     },
+    /**
+     * Unités attendues par élément depuis le plan de réarmement sauvegardé —
+     * logique pure dans aggregateExpectedUnitsByElement (restockPlanSnapshot,
+     * testée unitairement), unité vide repliée sur le libellé du comptage.
+     */
+    expectedUnitsByElement() {
+      return aggregateExpectedUnitsByElement(this.expectedPlanRows, {
+        fallbackUnit: this.t('invCountUnitFallback'),
+      })
+    },
     /** Message d'indisponibilité des attendus — `no-permission` reste MUET :
      *  un utilisateur non habilité ne doit pas apprendre que la donnée existe. */
     expectedUnavailableText() {
@@ -1060,6 +1119,32 @@ export default {
           // du total reste vide tant qu'aucune version n'est marquée par défaut.
           return this.predictedNeedMissing ? this.t('invPredictNoDefaultVersion') : ''
       }
+    },
+    /** Candidats du drawer transfert, enrichis du stock Logistic de la denrée en
+     *  cours — miroir de shopElements/storageElementsList de SpaceLogisticView.
+     *  PDV : uniquement ceux qui suivent déjà la denrée (sinon le stock envoyé
+     *  devient invisible côté receveur). Storage : pas de filtre. */
+    movementShops() {
+      const itemName = this.movementItem?.name
+      return (this.store.getters['logistics/shopElements'] || [])
+        .filter((e) => !itemName || (e.items || []).some((it) => it.name === itemName))
+        .map((e) => this.movementCandidate(e, itemName))
+    },
+    movementStorages() {
+      const itemName = this.movementItem?.name
+      return (this.store.getters['logistics/storageElements'] || [])
+        .map((e) => this.movementCandidate(e, itemName))
+    },
+    /** Stock Logistic de la denrée sur l'élément courant — plafond des suppressions. */
+    movementCurrentStock() {
+      if (!this.movementElement || !this.movementItem) return { packed: 0, loose: 0 }
+      const exp = this.store.getters['logistics/expectedFor'](this.movementElement.id, this.movementItem.name)
+      return exp ? { packed: exp.packed, loose: exp.loose } : { packed: 0, loose: 0 }
+    },
+    movementUnitsPerPack() {
+      if (!this.movementElement || !this.movementItem) return null
+      const level = this.store.getters['logistics/levelFor'](this.movementElement.id, this.movementItem.name)
+      return level?.unitsPerPack || this.movementItem.unitsPerPack || null
     },
     /** itemId → inventoryQuantityPackaged (référentiel affiché) — la vue réco
      *  pre-event convertit ses lignes packed/loose en unités avec cette map. */
@@ -1636,6 +1721,7 @@ export default {
         // a la même dépendance (périmètre des PdV affichés).
         this.fetchPreExpected()
         this.fetchPredictedNeed()
+        this.fetchExpectedPlan()
 
         this.mock = buildSpaceInventoryMock()
         if (this.demo) {
@@ -1821,22 +1907,30 @@ export default {
       }
     },
 
+    /**
+     * Normalise une valeur de comptage avant le store. Négatif interdit
+     * (backend @Min(0)) ; les COLIS sont forcés à l'entier — le backend les
+     * valide @IsInt, et un « 2,5 » colis tapé au clavier partait tel quel en
+     * API pour revenir en 400 silencieux. Le vrac reste décimal (Float en
+     * base), arrondi à 2 décimales à l'émission par le composant de comptage.
+     */
+    normalizeCountValue(field, rawValue) {
+      if (field === 'storageLocation') return rawValue
+      const num = Math.max(0, Number(rawValue) || 0)
+      return field === 'packedUnits' ? Math.round(num) : num
+    },
     onCountInput(shopId, itemId, field, evt) {
-      const isText = field === 'storageLocation'
-      // packed/loose ne peuvent pas être négatifs (validation backend @Min(0)).
-      const value = isText ? evt.target.value : Math.max(0, Number(evt.target.value) || 0)
+      const value = this.normalizeCountValue(field, evt.target.value)
       const patch = { [field]: value }
       // Quand l'utilisateur saisit une valeur >0 sans avoir cliqué "compté",
       // on conserve l'état isCounted tel quel (parité React).
       this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
     },
     onCountValue(shopId, itemId, field, rawValue) {
-      const isText = field === 'storageLocation'
-      const value = isText ? rawValue : Math.max(0, Number(rawValue) || 0)
       this.store.dispatch('inventory/upsertCount', {
         shopId,
         itemId,
-        patch: { [field]: value },
+        patch: { [field]: this.normalizeCountValue(field, rawValue) },
       })
     },
     markCounted(shopId, itemId, counted) {
@@ -2038,6 +2132,123 @@ export default {
       })
       this.predictedNeed = index
       this.predictedNeedMissing = reason === 'no-default-version'
+    },
+    /**
+     * Unités ATTENDUES par section (retour JLH 13/08) : lignes du plan de
+     * réarmement SAUVEGARDÉ le plus récent couvrant l'événement ancré — pas la
+     * prédiction Event Predict (usePredictedNeed, grain article), le Stockup.
+     * Backend sans lookup par événement : la liste de métadonnées porte
+     * `selectedEventIds`, on filtre côté client puis on charge la photo.
+     * Fire-and-forget, jamais bloquant ; échec ou absence de plan → pas de
+     * badge, silencieusement.
+     */
+    async fetchExpectedPlan() {
+      this.expectedPlanRows = null
+      if (!this.isPreMode || !this.canSeeExpected || !this.contextEventId || isDemoMode()) return
+      const spaceId = this.route?.params?.spaceId
+      const eventId = String(this.contextEventId)
+      if (!spaceId) return
+      try {
+        const metas = await listRestockPlans(spaceId)
+        const hit = (Array.isArray(metas) ? metas : []).find((p) =>
+          (p?.selectedEventIds || []).map(String).includes(eventId),
+        )
+        if (!hit) return
+        const plan = await getRestockPlan(hit.id)
+        // Garde anti-course : l'event ancré a pu changer pendant le fetch.
+        if (String(this.contextEventId) !== eventId) return
+        this.expectedPlanRows = Array.isArray(plan?.restockLines) ? plan.restockLines : null
+      } catch (err) {
+        // Module restock-plans absent (404) ou erreur réseau : badge absent.
+        // eslint-disable-next-line no-console
+        console.warn('[INVENTORY] expected plan load failed:', err?.message)
+      }
+    },
+    /** Candidat au transfert enrichi du stock Logistic actuel de la denrée. */
+    movementCandidate(el, itemName) {
+      const exp = itemName ? this.store.getters['logistics/expectedFor'](el.id, itemName) : null
+      return { id: el.id, name: el.name, packed: exp?.packed || 0, loose: exp?.loose || 0 }
+    },
+    /** Ouvre le drawer transfert sur (élément, article de comptage). Charge le
+     *  stock Logistic au premier appel (candidats + plafond), puis les market
+     *  prices scopés à la denrée — deux lectures, aucune écriture avant submit. */
+    async openTransfer(element, item) {
+      const spaceId = this.route.params.spaceId
+      this.movementElement = { id: element.id, name: element.name }
+      // Adapter minimal tout de suite (le drawer s'ouvre avant le fetch) ; les
+      // champs Logistic (kind/packagingType/marketPriceId) sont complétés après.
+      this.movementItem = {
+        name: item.name,
+        unit: item.unit || null,
+        kind: null,
+        packagingType: item.inventoryPackaging || null,
+        marketPriceId: null,
+        unitsPerPack: Number(item.inventoryQuantityPackaged) || null,
+      }
+      this.movementError = null
+      this.movementMarketPrices = []
+      this.movementMarketPricesLoading = true
+      this.movementDialog = true
+      try {
+        if (!this.logisticsStockLoaded) {
+          await this.store.dispatch('logistics/loadStock', { spaceId })
+          this.logisticsStockLoaded = true
+        }
+        // L'item de comptage ne porte ni kind/packagingType/marketPriceId — on
+        // les résout dans le référentiel Logistic (itemByKey, jointure par nom :
+        // StockMovement.itemKey est un NOM libre, piège n°1 du domaine Stock).
+        const ref = this.store.getters['logistics/itemByKey'](item.name)
+        this.movementItem = {
+          name: item.name,
+          unit: item.unit || ref?.unit || null,
+          kind: ref?.kind || null,
+          packagingType: ref?.packagingType || item.inventoryPackaging || null,
+          marketPriceId: ref?.marketPriceId || null,
+          unitsPerPack: ref?.unitsPerPack || Number(item.inventoryQuantityPackaged) || null,
+        }
+        this.movementMarketPrices = await this.store.dispatch('logistics/loadMarketPricesForItem', {
+          spaceId,
+          itemKey: item.name,
+        })
+      } catch (e) {
+        console.warn('[SpaceInventory] ouverture transfert KO:', e?.message)
+      } finally {
+        this.movementMarketPricesLoading = false
+      }
+    },
+    async submitTransfer(payload) {
+      const spaceId = this.route.params.spaceId
+      if (!spaceId || !this.movementElement || !this.movementItem) return
+      this.movementSaving = true
+      this.movementError = null
+      try {
+        await this.store.dispatch('logistics/createMovement', {
+          spaceId,
+          elementId: this.movementElement.id,
+          itemKey: this.movementItem.name,
+          ...payload,
+        })
+        this.movementDialog = false
+        this.snackbarText = this.t('logiMovementSaved')
+        this.snackbar = true
+      } catch (e) {
+        this.movementError =
+          e?.response?.data?.message || e?.userMessage || this.t('logiMovementError')
+      } finally {
+        this.movementSaving = false
+      }
+    },
+    /** Segments « Attendu » d'une section : [{unit, total}] ou null.
+     *  Pre : agrégat du Stockup sauvegardé. Post : somme de l'indice serveur
+     *  (ventes déduites = pre-event + Logistic) sur les articles de la section. */
+    expectedSectionUnitsFor(entry) {
+      if (!this.isPreMode) {
+        return aggregateExpectedUnitsFromIndex(this.postExpectedUnits, entry, {
+          fallbackUnit: this.t('invCountUnitFallback'),
+        })
+      }
+      const agg = this.expectedUnitsByElement[String(entry?.element?.id)]
+      return agg && agg.length ? agg : null
     },
     /**
      * Événement à réconcilier = l'event de l'ÉCRAN, strictement (« un match =

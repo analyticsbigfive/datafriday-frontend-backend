@@ -65,6 +65,21 @@
         <v-icon size="20">mdi-chevron-right</v-icon>
       </v-btn>
 
+      <!-- Unités ATTENDUES de la section (pré-event, RBAC
+           front.fb.preInventoryExpected) : somme des cibles du plan de
+           réarmement sauvegardé pour l'événement, un segment par unité
+           (« Attendu : 1 250 Pc · 12 Kg »). Prop absente/vide → rien. -->
+      <v-chip
+        v-if="expectedSectionUnits && expectedSectionUnits.length"
+        color="primary"
+        variant="tonal"
+        size="small"
+        class="si-counting-expected"
+      >
+        {{ t('preInvExpectedBadge') }} :
+        {{ expectedSectionUnits.map((s) => `${formatUnits(s.total)} ${s.unit}`).join(' · ') }}
+      </v-chip>
+
       <v-chip color="success" variant="tonal" size="small" class="si-counting-progress">
         {{ counted }} / {{ total }}
       </v-chip>
@@ -150,14 +165,15 @@
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs">
           <div class="si-count-field">
             <v-text-field
-              :model-value="getCount(shop.element.id, item.id).packedUnits"
+              :model-value="fieldDisplay(shop.element.id, item.id, 'packedUnits')"
               type="text"
               inputmode="numeric"
               :label="packedUnitsLabel(item)"
               density="compact"
               variant="outlined"
               hide-details
-              @update:model-value="$emit('change-value', shop.element.id, item.id, 'packedUnits', parseLocaleNumber($event))"
+              @update:model-value="onFieldInput(shop.element.id, item.id, 'packedUnits', $event)"
+              @blur="onFieldBlur(shop.element.id, item.id, 'packedUnits')"
             >
               <template #prepend-inner>
                 <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">mdi-minus</v-icon>
@@ -178,14 +194,15 @@
           </div>
           <div class="si-count-field">
             <v-text-field
-              :model-value="getCount(shop.element.id, item.id).looseUnits"
+              :model-value="fieldDisplay(shop.element.id, item.id, 'looseUnits')"
               type="text"
               inputmode="decimal"
               :label="t('invCountLooseUnits')"
               density="compact"
               variant="outlined"
               hide-details
-              @update:model-value="$emit('change-value', shop.element.id, item.id, 'looseUnits', parseLocaleNumber($event))"
+              @update:model-value="onFieldInput(shop.element.id, item.id, 'looseUnits', $event)"
+              @blur="onFieldBlur(shop.element.id, item.id, 'looseUnits')"
             >
               <template #prepend-inner>
                 <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">mdi-minus</v-icon>
@@ -220,6 +237,10 @@
         </div>
 
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
+          <v-btn v-if="canTransfer" variant="text" size="small" @click="emit('transfer', shop.element, item)">
+            <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
+            {{ t('invCountTransfer') }}
+          </v-btn>
           <v-btn color="success" variant="tonal" size="small" @click="markCounted(item.id, true)">
             <v-icon size="15" class="mr-1">mdi-check</v-icon>
             {{ t('invCountMarkCounted') }}
@@ -235,10 +256,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, reactive, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
-import { clampNumber, parseLocaleNumber, stepBy } from '@/utils/number'
+import { clampNumber, parseLocaleNumber, roundTo, stepBy } from '@/utils/number'
 
 const { t } = useI18n()
 
@@ -261,9 +282,16 @@ const props = defineProps({
   expectedTotalFor: { type: Function, default: null },
   // Les deux modes n'affichent pas la même grandeur — le libellé vient du parent.
   expectedTotalLabelKey: { type: String, default: 'invPredictedNeedHint' },
+  // Unités attendues de la SECTION ([{unit, total}]) depuis le plan de
+  // réarmement sauvegardé — null/vide = pas de badge (pas de plan, RBAC non
+  // couvert, mode post).
+  expectedSectionUnits: { type: Array, default: null },
+  // Transfert Logistic depuis le comptage — le parent monte le drawer et fait
+  // l'appel API ; false (démo, module absent) = bouton masqué, rendu inchangé.
+  canTransfer: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop'])
+const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop', 'transfer'])
 
 // Images produit en échec de chargement → fallback icône (parité React).
 const failedImages = ref({})
@@ -356,9 +384,50 @@ function uncountedFor(s) {
   return Math.max(0, totalItems - countedFor(s))
 }
 
+// ── Saisie des quantités ────────────────────────────────────────────────────
+// Les champs sont contrôlés : le parent stocke le NOMBRE parsé et le réinjecte
+// par :model-value. Sans tampon, taper « 0,2 » faisait réécrire le DOM en
+// « 0.2 » dès la frappe (virgule volée, caret déplacé) et vider le champ
+// réaffichait « 0 » instantanément — vécu comme « le champ refuse les
+// décimales ». Le brouillon garde la chaîne tapée telle quelle pendant
+// l'édition ; le blur le purge et le champ se reformate depuis le store.
+const editDrafts = reactive(new Map())
+const draftKey = (shopId, itemId, field) => `${shopId}|${itemId}|${field}`
+
+function fieldDisplay(shopId, itemId, field) {
+  const draft = editDrafts.get(draftKey(shopId, itemId, field))
+  if (draft !== undefined) return draft
+  const stored = props.getCount(shopId, itemId)?.[field]
+  const num = Number(stored)
+  return Number.isFinite(num) ? formatUnits(num) : ''
+}
+
+function onFieldInput(shopId, itemId, field, raw) {
+  editDrafts.set(draftKey(shopId, itemId, field), raw)
+  let parsed = parseLocaleNumber(raw)
+  // Vrac décimal : 2 chiffres après la virgule (demande JLH 13/08) — l'arrondi
+  // se fait à l'émission, le brouillon affiché garde la frappe exacte.
+  if (parsed != null && field === 'looseUnits') parsed = roundTo(parsed, 2)
+  emit('change-value', shopId, itemId, field, parsed)
+}
+
+function onFieldBlur(shopId, itemId, field) {
+  editDrafts.delete(draftKey(shopId, itemId, field))
+}
+
+// Changement de boutique → aucun brouillon ne doit survivre à la navigation.
+watch(
+  () => props.shop?.element?.id,
+  () => {
+    editDrafts.clear()
+  },
+)
+
 // Steppers +/- : lit la valeur courante via getCount (peut contenir "2,5"),
-// ±1 arrondi à 2 décimales, clamp ≥ 0, ré-émet.
+// ±1 arrondi à 2 décimales, clamp ≥ 0, ré-émet. Purge le brouillon du champ,
+// sinon l'affichage resterait figé sur la frappe précédente.
 function stepValue(shopId, itemId, field, delta) {
+  editDrafts.delete(draftKey(shopId, itemId, field))
   const cur = parseLocaleNumber(props.getCount(shopId, itemId)?.[field]) ?? 0
   const next = clampNumber(stepBy(cur, delta, 2), 0)
   emit('change-value', shopId, itemId, field, String(next))

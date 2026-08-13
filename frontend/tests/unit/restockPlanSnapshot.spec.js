@@ -544,3 +544,51 @@ describe('estimateSnapshotBytes', () => {
     expect(bytes).toBeLessThan(1_000_000)
   })
 })
+
+// Badge « Attendu » du Pre-event Inventory (retour JLH 13/08) : somme des
+// cibles par élément × unité depuis les lignes figées d'un plan sauvegardé.
+describe('aggregateExpectedUnitsByElement', () => {
+  const { aggregateExpectedUnitsByElement } = require('@/utils/restockPlanSnapshot')
+
+  it('somme targetQuantity par élément et par unité', () => {
+    const rows = [
+      { shopId: 'el-1', unit: 'Pc', targetQuantity: 1000 },
+      { shopId: 'el-1', unit: 'Pc', targetQuantity: 250 },
+      { shopId: 'el-1', unit: 'Kg', targetQuantity: 12 },
+      { shopId: 'el-2', unit: 'L', targetQuantity: 40 },
+    ]
+    expect(aggregateExpectedUnitsByElement(rows)).toEqual({
+      'el-1': [
+        { unit: 'Pc', total: 1250 },
+        { unit: 'Kg', total: 12 },
+      ],
+      'el-2': [{ unit: 'L', total: 40 }],
+    })
+  })
+
+  it('ignore les lignes sans élément ou sans cible positive', () => {
+    const rows = [
+      { shopId: '', unit: 'Pc', targetQuantity: 10 },
+      { unit: 'Pc', targetQuantity: 10 },
+      { shopId: 'el-1', unit: 'Pc', targetQuantity: 0 },
+      { shopId: 'el-1', unit: 'Pc', targetQuantity: -5 },
+      { shopId: 'el-1', unit: 'Pc', targetQuantity: 'abc' },
+    ]
+    expect(aggregateExpectedUnitsByElement(rows)).toEqual({})
+  })
+
+  it("replie l'unité vide sur fallbackUnit", () => {
+    const rows = [
+      { shopId: 'el-1', unit: '', targetQuantity: 3 },
+      { shopId: 'el-1', unit: '  ', targetQuantity: 2 },
+    ]
+    expect(aggregateExpectedUnitsByElement(rows, { fallbackUnit: 'pc' })).toEqual({
+      'el-1': [{ unit: 'pc', total: 5 }],
+    })
+  })
+
+  it('entrée nulle ou vide → objet vide', () => {
+    expect(aggregateExpectedUnitsByElement(null)).toEqual({})
+    expect(aggregateExpectedUnitsByElement([])).toEqual({})
+  })
+})

@@ -208,10 +208,11 @@
             :key="element.id"
             class="ep-shop-card"
           >
-                  <Collapsible
-                    :open="isShopExpanded(element.id)"
-                    @update:open="(open) => setShopExpanded(element.id, open)"
-                  >
+                    <!-- Réunion 13/08 : l'expansion inline (Collapsible) devient
+                         un tiroir latéral GAUCHE — la colonne centrale était trop
+                         étroite et les métriques (colonne droite) restent
+                         visibles pendant les ajustements. Même état
+                         expandedShopId, mêmes handlers. -->
                     <CardHeader class="ep-shop-card-header transition-colors">
                       <div class="ep-shop-card-grid">
                         <div class="ep-shop-card-main">
@@ -300,19 +301,32 @@
                         </div>
                         <button
                           type="button"
-                          class="ep-shop-chevron-btn"
+                          class="ep-shop-detail-btn"
                           :aria-expanded="isShopExpanded(element.id)"
                           :aria-label="isShopExpanded(element.id) ? t('epmCollapseShop') : t('epmExpandShop')"
+                          :title="isShopExpanded(element.id) ? t('epmCollapseShop') : t('epmExpandShop')"
                           @click.stop="toggleShopExpanded(element.id)"
                         >
-                          <v-icon size="20">
-                            {{ isShopExpanded(element.id) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}
-                          </v-icon>
+                          <!-- Le contenu s'ouvre désormais dans un tiroir latéral
+                               gauche : icône « panneau latéral », plus un chevron
+                               d'accordéon (qui promettait une expansion inline). -->
+                          <v-icon size="20">mdi-dock-left</v-icon>
                         </button>
                       </div>
                     </CardHeader>
-                    <CollapsibleContent>
-                      <div class="border-t">
+                    <EventDrawerShell
+                      :model-value="isShopExpanded(element.id)"
+                      :title="element.name"
+                      :subtitle="`${t('epmGross')} ${formatCurrency(getPredictedRevenue(element.id))} · ${t('epmAdjusted')} ${formatCurrency(getAdjustedRevenue(element.id))}`"
+                      side="left"
+                      flush
+                      :is-dark="isDark"
+                      @update:model-value="(v) => setShopExpanded(element.id, v)"
+                    >
+                      <template #icon>
+                        <v-icon color="white" size="20">mdi-storefront-outline</v-icon>
+                      </template>
+                      <div>
                         <div class="ep-shop-items-list">
                           <div class="p-3 space-y-2">
                             <p
@@ -602,8 +616,7 @@
                           </div>
                         </div>
                       </div>
-                    </CollapsibleContent>
-                  </Collapsible>
+                    </EventDrawerShell>
           </Card>
         </div>
       </TabsContent>
@@ -723,10 +736,8 @@
             class="overflow-hidden"
             :class="{ 'ep-card-treated': entry._chipTreated }"
           >
-            <Collapsible
-              :open="expandedElements.has(entry.menuItemId)"
-              @update:open="(open) => setElementExpanded(entry.menuItemId, open)"
-            >
+              <!-- Réunion 13/08 : expansion inline → tiroir gauche (comme la
+                   vue par shop). setElementExpanded est passé mono-cible. -->
               <CardHeader class="hover:bg-muted/40 transition-colors p-4">
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-center gap-3 flex-1 min-w-0">
@@ -839,31 +850,48 @@
                   </div>
                   <!-- Kebab niveau ARTICLE (demande maquette 08/2026) : ajouter
                        l'article à TOUS les PDV proposés dans Space Menus en un
-                       clic. Masqué pour un item hors catalogue (le backend
-                       ignorerait silencieusement l'id) ou si aucune assignation
-                       Space Menus n'est active sur la config. Les kebabs par
-                       PDV plus bas restent inchangés. -->
+                       clic, et alias historique (scopé espace → mappe l'article
+                       pour tous les PDV d'un coup). Masqué pour un item hors
+                       catalogue (targetMenuItemId invalide, le backend
+                       ignorerait silencieusement l'id) ; l'action bulk seule
+                       est masquée si aucune assignation Space Menus n'est
+                       active sur la config. Les kebabs par PDV plus bas
+                       restent inchangés. -->
                   <EventPredictRowActions
-                    v-if="assignmentFeatureActive() && spaceCatalogIdSet.has(String(entry.menuItemId))"
+                    v-if="spaceCatalogIdSet.has(String(entry.menuItemId))"
                     variant="item-header"
+                    :allow-assign-all="assignmentFeatureActive()"
                     :assign-all-disabled="isItemAssignedEverywhere(entry.menuItemId)"
+                    allow-history
                     @assign-all="$emit('assign-item-all-shops', { menuItemId: entry.menuItemId, itemName: entry.menuItem.name })"
+                    @use-history="$emit('history-alias-request', { item: { id: entry.menuItemId, name: entry.menuItem.name } })"
                     @open-space-menus="goToSpaceMenus"
                   />
                   <button
                     type="button"
-                    class="ep-item-chevron-btn"
+                    class="ep-item-detail-btn"
                     :aria-expanded="expandedElements.has(entry.menuItemId)"
                     :aria-label="expandedElements.has(entry.menuItemId) ? t('epmCollapseItem') : t('epmExpandItem')"
+                    :title="expandedElements.has(entry.menuItemId) ? t('epmCollapseItem') : t('epmExpandItem')"
                     @click.stop="toggleElementExpanded(entry.menuItemId)"
                   >
-                    <v-icon size="20">
-                      {{ expandedElements.has(entry.menuItemId) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}
-                    </v-icon>
+                    <!-- Idem vue par PDV : tiroir latéral gauche, pas d'accordéon. -->
+                    <v-icon size="20">mdi-dock-left</v-icon>
                   </button>
                 </div>
               </CardHeader>
-              <CollapsibleContent>
+              <EventDrawerShell
+                :model-value="expandedElements.has(entry.menuItemId)"
+                :title="entry.menuItem.name"
+                :subtitle="entry.menuItem.category || ''"
+                side="left"
+                flush
+                :is-dark="isDark"
+                @update:model-value="(v) => setElementExpanded(entry.menuItemId, v)"
+              >
+                <template #icon>
+                  <v-icon color="white" size="20">mdi-tag-outline</v-icon>
+                </template>
                 <CardContent class="pt-0">
                   <div class="ep-shop-items-list">
                     <div class="space-y-2">
@@ -1021,8 +1049,7 @@
                     </div>
                   </div>
                 </CardContent>
-              </CollapsibleContent>
-            </Collapsible>
+              </EventDrawerShell>
           </Card>
           </div>
         </transition-group>
@@ -1048,9 +1075,6 @@ import Card from '../ui/card.vue'
 import CardHeader from '../ui/cardHeader.vue'
 import CardTitle from '../ui/cardTitle.vue'
 import CardContent from '../ui/cardContent.vue'
-import Collapsible from '../ui/collapsible.vue'
-import CollapsibleTrigger from '../ui/collapsibleTrigger.vue'
-import CollapsibleContent from '../ui/collapsibleContent.vue'
 import Tabs from '../ui/tabs.vue'
 import TabsList from '../ui/tabsList.vue'
 import TabsTrigger from '../ui/tabsTrigger.vue'
@@ -1066,6 +1090,7 @@ import Tooltip from '../ui/tooltip.vue'
 import TooltipContent from '../ui/tooltipContent.vue'
 import TooltipTrigger from '../ui/tooltipTrigger.vue'
 import EventPredictRowActions from './EventPredictRowActions.vue'
+import EventDrawerShell from '@/components/events/drawers/EventDrawerShell.vue'
 import { aliasSourceByTargetId } from '@/utils/historyAliases'
 
 // Onglets UI = 'Food' | 'Beverage' | 'Combo'. Le vocabulaire RÉEL en base est
@@ -1103,7 +1128,7 @@ export default {
   name: 'EventPredictMenusSection',
   components: {
     Card, CardHeader, CardTitle, CardContent,
-    Collapsible, CollapsibleTrigger, CollapsibleContent,
+    EventDrawerShell,
     Tabs, TabsList, TabsTrigger, TabsContent,
     Slider, Checkbox, Input, Badge, Button, Label,
     TooltipProvider, Tooltip, TooltipContent, TooltipTrigger,
@@ -1247,6 +1272,12 @@ export default {
     }
   },
   computed: {
+    // Tiroir « Extend » (réunion 13/08) : EventDrawerShell attend is-dark. Via
+    // le global $vuetify (pas d'import ESM 'vuetify' — Jest ne le transforme
+    // pas et les suites qui montent ce composant échoueraient en SyntaxError).
+    isDark() {
+      return !!this.$vuetify?.theme?.global?.current?.dark
+    },
     // ----- F&B elements (cf. React :122-162) -----
     fbElements() {
       if (this.configuration) {
@@ -2799,12 +2830,10 @@ export default {
       return it ? it.isAvailable : false
     },
     // ----- Expansion -----
-    // PDV/groupes repliés par défaut ; dépliés à la demande via toggle.
+    // Réunion 13/08 : l'expansion vit dans un tiroir latéral → une seule
+    // cible ouverte à la fois (ex-multi-open quand c'était inline).
     setElementExpanded(id, open) {
-      const next = new Set(this.expandedElements)
-      if (open) next.add(id)
-      else next.delete(id)
-      this.expandedElements = next
+      this.expandedElements = open ? new Set([id]) : new Set()
     },
     toggleElementExpanded(id) {
       this.setElementExpanded(id, !this.expandedElements.has(id))
@@ -3422,9 +3451,9 @@ export default {
   outline: none;
 }
 .ep-shop-card-summary:focus-visible,
-.ep-shop-chevron-btn:focus-visible,
+.ep-shop-detail-btn:focus-visible,
 .ep-item-summary-row:focus-visible,
-.ep-item-chevron-btn:focus-visible {
+.ep-item-detail-btn:focus-visible {
   box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.24);
 }
 .ep-shop-card-title {
@@ -3566,7 +3595,7 @@ export default {
   background: #eef2ff !important;
   color: var(--df-primary, var(--primary, #3b82f6));
 }
-.ep-shop-chevron-btn {
+.ep-shop-detail-btn {
   margin-top: 42px;
   display: inline-flex;
   align-items: center;
@@ -3580,7 +3609,7 @@ export default {
   cursor: pointer;
   flex-shrink: 0;
 }
-.ep-shop-chevron-btn:hover {
+.ep-shop-detail-btn:hover {
   background: #eef2ff;
   color: var(--df-primary, var(--primary, #3b82f6));
 }
@@ -3594,7 +3623,7 @@ export default {
   cursor: pointer;
   outline: none;
 }
-.ep-item-chevron-btn {
+.ep-item-detail-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3607,7 +3636,7 @@ export default {
   cursor: pointer;
   flex-shrink: 0;
 }
-.ep-item-chevron-btn:hover {
+.ep-item-detail-btn:hover {
   background: #eef2ff;
   color: var(--df-primary, var(--primary, #3b82f6));
 }
@@ -3627,7 +3656,7 @@ export default {
   .ep-shop-card-title {
     font-size: 1rem;
   }
-  .ep-shop-chevron-btn {
+  .ep-shop-detail-btn {
     margin-top: 34px;
   }
   .ep-item-summary-row {
@@ -3699,9 +3728,9 @@ export default {
   background: var(--fb-subtle, #FAFAFA);
 }
 .ep-shop-card-summary:focus-visible,
-.ep-shop-chevron-btn:focus-visible,
+.ep-shop-detail-btn:focus-visible,
 .ep-item-summary-row:focus-visible,
-.ep-item-chevron-btn:focus-visible {
+.ep-item-detail-btn:focus-visible {
   box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.18);
 }
 .ep-shop-card-title,
@@ -3756,13 +3785,13 @@ export default {
   background: var(--fb-surface, #FFFFFF);
 }
 .ep-shop-reset-btn,
-.ep-shop-chevron-btn,
-.ep-item-chevron-btn {
+.ep-shop-detail-btn,
+.ep-item-detail-btn {
   border-radius: var(--fb-radius-control, 8px) !important;
 }
 .ep-shop-reset-btn:hover,
-.ep-shop-chevron-btn:hover,
-.ep-item-chevron-btn:hover {
+.ep-shop-detail-btn:hover,
+.ep-item-detail-btn:hover {
   background: var(--fb-primary-soft, #FFF5F5) !important;
   color: #ff3131;
 }
@@ -3822,15 +3851,15 @@ export default {
 }
 
 .ep-shop-reset-btn,
-.ep-shop-chevron-btn,
-.ep-item-chevron-btn {
+.ep-shop-detail-btn,
+.ep-item-detail-btn {
   border-radius: 999px !important;
   transition: background .2s, color .2s, transform .15s;
 }
 
 .ep-shop-reset-btn:active,
-.ep-shop-chevron-btn:active,
-.ep-item-chevron-btn:active {
+.ep-shop-detail-btn:active,
+.ep-item-detail-btn:active {
   transform: scale(.96);
 }
 

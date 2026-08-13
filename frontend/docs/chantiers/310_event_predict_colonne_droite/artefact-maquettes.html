@@ -1,0 +1,302 @@
+<title>Maquettes — Event Predict · Colonne de droite</title>
+<style>
+  :root{
+    --bg:#f2f4f5; --surface:#ffffff; --surface-2:#f7f8f9; --ink:#1c2733; --ink-2:#5a6773; --ink-3:#8a95a0;
+    --line:#dee3e7; --line-2:#ccd3d9;
+    --primary:#175cd3; --primary-soft:#e7effc;
+    --green:#0e7a5f; --green-soft:#e2f0eb;
+    --orange:#c2410c; --orange-soft:#fbe9e0;
+    --red:#b42318; --red-soft:#fbe9e7;
+    --brand:#ff3131; --brand-ink:#ffffff;
+    --chip:#eceff1;
+    --shadow:0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.05);
+    --tip-bg:#1c2733; --tip-ink:#f2f4f5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#12181e; --surface:#1a222a; --surface-2:#202a33; --ink:#e7ecf0; --ink-2:#a7b2bc; --ink-3:#78838d;
+      --line:#2a343d; --line-2:#38444e;
+      --primary:#6ea8fe; --primary-soft:#1b2c45;
+      --green:#3dbd97; --green-soft:#16302a;
+      --orange:#f0996a; --orange-soft:#3a2519;
+      --red:#f08d84; --red-soft:#3a1e1b;
+      --brand:#ff5a5a; --brand-ink:#1a0d0d;
+      --chip:#26313a;
+      --shadow:0 1px 3px rgba(0,0,0,.4);
+      --tip-bg:#e7ecf0; --tip-ink:#12181e;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#12181e; --surface:#1a222a; --surface-2:#202a33; --ink:#e7ecf0; --ink-2:#a7b2bc; --ink-3:#78838d;
+    --line:#2a343d; --line-2:#38444e;
+    --primary:#6ea8fe; --primary-soft:#1b2c45;
+    --green:#3dbd97; --green-soft:#16302a;
+    --orange:#f0996a; --orange-soft:#3a2519;
+    --red:#f08d84; --red-soft:#3a1e1b;
+    --brand:#ff5a5a; --brand-ink:#1a0d0d;
+    --chip:#26313a;
+    --shadow:0 1px 3px rgba(0,0,0,.4);
+    --tip-bg:#e7ecf0; --tip-ink:#12181e;
+  }
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif}
+  main{max-width:980px; margin:0 auto; padding:40px 20px 90px}
+  h1{font-size:1.6rem; margin:0 0 6px; text-wrap:balance}
+  .lede{color:var(--ink-2); margin:0 0 10px; max-width:68ch}
+  .eyebrow{font-size:.7rem; letter-spacing:.14em; text-transform:uppercase; color:var(--green); font-weight:700; margin:0 0 8px}
+  section{margin-top:44px}
+  section>h2{font-size:1.15rem; margin:0 0 4px}
+  .note{color:var(--ink-2); font-size:.86rem; margin:0 0 14px; max-width:72ch}
+  .note b{color:var(--ink)}
+  .frame{background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:18px; overflow-x:auto}
+  .tag-old{background:var(--chip); color:var(--ink-3); border-radius:4px; padding:1px 7px; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em}
+  .tag-new{background:var(--green); color:#fff; border-radius:4px; padding:1px 7px; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em}
+  .decisions{margin:0 0 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:6px; font-size:.9rem; color:var(--ink-2)}
+  .decisions li::before{content:"✓"; color:var(--green); font-weight:700; margin-right:8px}
+
+  /* ============ AVANT : pills wrap ============ */
+  .old-anchors{display:flex; flex-wrap:wrap; gap:6px 12px; max-width:340px; background:var(--surface-2); border:1px solid var(--line); border-radius:16px; padding:8px}
+  .old-anchors span{border-radius:9999px; padding:7px 18px; font-size:.85rem; font-weight:600; color:var(--ink-2); background:var(--surface); box-shadow:var(--shadow)}
+  .old-anchors span:first-child{background:var(--brand); color:var(--brand-ink)}
+
+  /* ============ APRÈS : Résumé + icônes tooltipées ============ */
+  .new-nav{display:flex; align-items:center; gap:8px; max-width:340px; background:var(--surface-2); border:1px solid var(--line); border-radius:16px; padding:8px}
+  .new-nav .resume{border:0; border-radius:9999px; background:var(--brand); color:var(--brand-ink); font:inherit; font-size:.9rem; font-weight:700; padding:9px 22px; cursor:pointer; flex:none}
+  .new-nav .icons{display:flex; gap:4px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:4px; margin-left:auto}
+  .icon-nav{position:relative; display:flex; align-items:center; justify-content:center; width:38px; height:38px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--ink-2); cursor:pointer}
+  .icon-nav:hover, .icon-nav:focus-visible{background:var(--surface-2); color:var(--ink); border-color:var(--line-2); outline:none}
+  .icon-nav svg{width:19px; height:19px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}
+  .icon-nav.sources{color:var(--brand)}
+  .icon-nav .tip{position:absolute; bottom:calc(100% + 9px); left:50%; transform:translateX(-50%); background:var(--tip-bg); color:var(--tip-ink);
+    font-size:.72rem; font-weight:600; line-height:1.35; padding:7px 10px; border-radius:8px; white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .12s; z-index:5}
+  .icon-nav .tip small{display:block; font-weight:400; opacity:.75}
+  .icon-nav .tip::after{content:""; position:absolute; top:100%; left:50%; transform:translateX(-50%); border:5px solid transparent; border-top-color:var(--tip-bg)}
+  .icon-nav:hover .tip, .icon-nav:focus-visible .tip{opacity:1}
+  .resume{position:relative}
+  .resume .tip{position:absolute; bottom:calc(100% + 9px); left:50%; transform:translateX(-50%); background:var(--tip-bg); color:var(--tip-ink);
+    font-size:.72rem; font-weight:600; line-height:1.35; padding:7px 10px; border-radius:8px; white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .12s; z-index:5}
+  .resume .tip::after{content:""; position:absolute; top:100%; left:50%; transform:translateX(-50%); border:5px solid transparent; border-top-color:var(--tip-bg)}
+  .resume:hover .tip{opacity:1}
+  .navstage{padding-top:64px}
+
+  /* comportements */
+  table.spec{border-collapse:collapse; width:100%; font-size:.85rem}
+  table.spec th{text-align:left; font-size:.72rem; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3); font-weight:700; padding:8px 12px; border-bottom:1px solid var(--line)}
+  table.spec td{padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  table.spec tr:last-child td{border-bottom:0}
+  table.spec code{background:var(--chip); border-radius:4px; padding:1px 6px; font-size:.78rem}
+  .ic{display:inline-flex; width:26px; height:26px; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:7px; color:var(--ink-2); vertical-align:middle}
+  .ic svg{width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+  .ic.brand{color:var(--brand)}
+
+  /* ============ colonne droite complète ============ */
+  .col-right{width:340px; max-width:100%; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:14px}
+  .col-right .head .kicker{font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); font-weight:700}
+  .col-right .head h3{margin:2px 0 0; font-size:1.05rem}
+  .col-right .head p{margin:2px 0 0; font-size:.78rem; color:var(--ink-3)}
+
+  .synth{border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  .synth table{border-collapse:collapse; width:100%; font-size:.8rem}
+  .synth th{font-size:.65rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); font-weight:700; text-align:right; padding:7px 10px; background:var(--surface-2); border-bottom:1px solid var(--line)}
+  .synth th:first-child{text-align:left}
+  .synth td{padding:8px 10px; text-align:right; font-variant-numeric:tabular-nums; font-weight:600}
+  .synth td:first-child{text-align:left; font-weight:700; font-size:.78rem; color:var(--ink-2)}
+  .synth tr.adj td{color:var(--red); border-top:1px solid var(--line)}
+  .synth tr.adj td:first-child{color:var(--ink-2)}
+
+  .kpis{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px}
+  .kpi{position:relative; border:1px solid var(--line); border-radius:12px; padding:11px 12px 10px 15px; background:var(--surface); min-height:96px}
+  .kpi::before{content:""; position:absolute; left:0; top:10px; bottom:10px; width:4px; border-radius:4px; background:var(--ink-3)}
+  .kpi.primary::before{background:var(--primary)} .kpi.success::before{background:var(--green)}
+  .kpi.warning::before{background:var(--orange)} .kpi.neutral::before{background:#0284c7}
+  .kpi .lbl{font-size:.72rem; font-weight:700; color:var(--ink-2)}
+  .kpi .val{font-size:1.15rem; font-weight:800; margin-top:2px; font-variant-numeric:tabular-nums}
+  .kpi .adj{margin-top:7px; padding-top:6px; border-top:1px dashed var(--line); font-size:.68rem; color:var(--ink-3)}
+  .kpi .adj b{display:block; font-size:.85rem; color:var(--red); font-variant-numeric:tabular-nums}
+  .kpi.is-new{border-color:var(--green)}
+  .kpi .newdot{position:absolute; top:8px; right:9px}
+  .skel{display:inline-block; width:64px; height:14px; border-radius:5px; background:linear-gradient(90deg, var(--chip), var(--surface-2), var(--chip)); background-size:200% 100%; animation:sh 1.2s infinite}
+  @keyframes sh{from{background-position:200% 0}to{background-position:-200% 0}}
+  @media (prefers-reduced-motion: reduce){ .skel{animation:none} }
+
+  .legendline{display:flex; gap:16px; flex-wrap:wrap; font-size:.78rem; color:var(--ink-2); margin-top:12px}
+  .legendline span b{color:var(--ink)}
+  .two-col{display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start}
+  .two-col>div{flex:1 1 320px; min-width:0}
+  .cap{font-size:.75rem; color:var(--ink-3); margin:8px 0 0}
+</style>
+
+<main>
+  <p class="eyebrow">Chantier 310 · Event Predict</p>
+  <h1>Colonne de droite — maquettes</h1>
+  <p class="lede">Réorganisation de la colonne de droite : navigation compacte (Résumé + icônes tooltipées),
+     tableau de synthèse Prédictif / Ajusté sous le résumé, et décomposition du coût en
+     <b>Coût Staff</b> + <b>Coût Matières</b>.</p>
+  <ul class="decisions">
+    <li>« Résumé » : remonte en haut <b>et</b> ouvre l'éditeur d'événement.</li>
+    <li>Icônes Configuration / Réappro / Staff : activent l'onglet correspondant <b>puis</b> scrollent (aujourd'hui les ancres scrollent sans changer d'onglet — bug corrigé au passage).</li>
+    <li>Tableau synthèse : Coût = <b>Matières + Staff</b>, Marge recalculée sur le coût global (elle baissera vs aujourd'hui — assumé).</li>
+    <li>Carte « CA total (HT) » → <b>Coût Staff</b> · carte « Coût » → <b>Coût Matières</b>. Le CA vit dans le tableau.</li>
+    <li>Bandeau rouge (chips « scannés / configuration ») : <b>hors lot</b>, fix séparé.</li>
+  </ul>
+
+  <!-- ================= 1. NAVIGATION ================= -->
+  <section>
+    <h2>1 · Barre de navigation <span class="tag-old">avant</span> → <span class="tag-new">après</span></h2>
+    <p class="note">Avant : 5 pills texte qui wrappent sur 2 lignes dans les 340&nbsp;px de la colonne, sans état actif réel
+       (le 1ᵉʳ est rouge en dur). Après : la pill <b>Résumé</b> + 5 icônes. Chaque icône porte un tooltip
+       « ce qui va se passer au clic ». <b>Survolez les icônes ci-dessous.</b></p>
+    <div class="frame two-col">
+      <div>
+        <p class="cap" style="margin:0 0 8px"><span class="tag-old">avant</span></p>
+        <div class="old-anchors">
+          <span>Résumé</span><span>Configuration</span><span>Timeline</span><span>Réappro</span><span>Staff</span>
+        </div>
+      </div>
+      <div class="navstage">
+        <p class="cap" style="margin:0 0 8px"><span class="tag-new">après</span></p>
+        <div class="new-nav">
+          <button type="button" class="resume">Résumé
+            <span class="tip">Event : modifier les réglages de l'événement<small>Remonte en haut + ouvre l'éditeur</small></span>
+          </button>
+          <div class="icons">
+            <button type="button" class="icon-nav sources" aria-label="Sources">
+              <svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.4"/><circle cx="6" cy="19" r="2.4"/><circle cx="18" cy="9" r="2.4"/><path d="M6 7.5v9M6 12c6 0 6-.5 12-.5"/></svg>
+              <span class="tip">Sources : modifier les sources de la prédiction<small>Ouvre le drawer Sources</small></span>
+            </button>
+            <button type="button" class="icon-nav" aria-label="Timeline">
+              <svg viewBox="0 0 24 24"><path d="M3.5 19.5h17"/><path d="M4 16l4.2-5 3.4 3 4-6 4.4 4.5"/></svg>
+              <span class="tip">Timeline<small>Scrolle vers la chronologie</small></span>
+            </button>
+            <button type="button" class="icon-nav" aria-label="Configuration">
+              <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--surface)"/><circle cx="15" cy="12" r="2" fill="var(--surface)"/><circle cx="7.5" cy="17" r="2" fill="var(--surface)"/></svg>
+              <span class="tip">Configuration : ajuster les ventes prédites<small>Active l'onglet + scrolle</small></span>
+            </button>
+            <button type="button" class="icon-nav" aria-label="Réappro">
+              <svg viewBox="0 0 24 24"><path d="M12 3.2 20 7v10l-8 3.8L4 17V7z"/><path d="M4 7l8 3.8L20 7M12 10.8v10"/></svg>
+              <span class="tip">Réappro : vérifier la feuille de réappro<small>Active l'onglet + scrolle</small></span>
+            </button>
+            <button type="button" class="icon-nav" aria-label="Staff">
+              <svg viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9.5" r="2.3"/><path d="M15.5 13.6c2.6.2 4.3 1.8 4.9 4.4"/></svg>
+              <span class="tip">Staff : organiser l'équipe<small>Active l'onglet + scrolle</small></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:16px">Comportements (le clic fait <b>onglet + scroll</b>, pas seulement scroll) :</p>
+    <div class="frame" style="padding:0">
+      <table class="spec">
+        <tr><th style="width:52px"></th><th>Élément</th><th>Clic</th><th>Tooltip (FR)</th></tr>
+        <tr><td><span class="ic brand" style="border-color:var(--brand); background:var(--brand); color:var(--brand-ink); width:auto; padding:0 8px; font-size:.7rem; font-weight:700">Résumé</span></td>
+            <td>Pill Résumé</td><td>Scroll top + ouvre l'éditeur d'événement (même action que le crayon du bandeau)</td><td>« Event : modifier les réglages de l'événement »</td></tr>
+        <tr><td><span class="ic brand"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.4"/><circle cx="6" cy="19" r="2.4"/><circle cx="18" cy="9" r="2.4"/><path d="M6 7.5v9M6 12c6 0 6-.5 12-.5"/></svg></span></td>
+            <td>Sources</td><td>Ouvre <code>EventPredictSourcesDrawer</code> (existant, <code>mdi-source-branch</code>)</td><td>« Sources : modifier les sources de la prédiction »</td></tr>
+        <tr><td><span class="ic"><svg viewBox="0 0 24 24"><path d="M3.5 19.5h17"/><path d="M4 16l4.2-5 3.4 3 4-6 4.4 4.5"/></svg></span></td>
+            <td>Timeline</td><td>Scroll vers <code>#ep-anchor-timeline</code> (<code>mdi-chart-line</code>)</td><td>« Timeline »</td></tr>
+        <tr><td><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--surface)"/><circle cx="15" cy="12" r="2" fill="var(--surface)"/><circle cx="7.5" cy="17" r="2" fill="var(--surface)"/></svg></span></td>
+            <td>Configuration</td><td><code>predictSectionTab = 'configuration'</code> + scroll (<code>mdi-tune-variant</code>)</td><td>« Configuration : ajuster les ventes prédites »</td></tr>
+        <tr><td><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3.2 20 7v10l-8 3.8L4 17V7z"/><path d="M4 7l8 3.8L20 7M12 10.8v10"/></svg></span></td>
+            <td>Réappro</td><td><code>predictSectionTab = 'stockup'</code> + scroll (<code>mdi-package-variant-closed</code>)</td><td>« Réappro : vérifier la feuille de réappro »</td></tr>
+        <tr><td><span class="ic"><svg viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9.5" r="2.3"/><path d="M15.5 13.6c2.6.2 4.3 1.8 4.9 4.4"/></svg></span></td>
+            <td>Staff</td><td><code>predictSectionTab = 'staff'</code> + scroll (<code>mdi-account-group-outline</code>)</td><td>« Staff : organiser l'équipe »</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 2. COLONNE COMPLÈTE ================= -->
+  <section>
+    <h2>2 · Colonne de droite <span class="tag-new">après</span></h2>
+    <p class="note">Sous le bloc RÉSUMÉ : <b>tableau de synthèse</b> 2 lignes (Prédictif / Ajusté).
+       Coût = Matières + Staff ; Marge = (CA − Coût global) / CA. Puis les cartes détail :
+       les deux premières deviennent <b>Coût Staff</b> et <b>Coût Matières</b>, le reste est inchangé.
+       Valeurs d'exemple : staff prédit 1 850 € / ajusté 2 140 €.</p>
+    <div class="frame" style="display:flex; justify-content:center; background:var(--bg)">
+      <div class="col-right">
+        <div class="new-nav" style="max-width:none; border-radius:12px">
+          <button type="button" class="resume" style="padding:8px 18px; font-size:.85rem">Résumé</button>
+          <div class="icons">
+            <button type="button" class="icon-nav sources" style="width:32px;height:32px" aria-label="Sources"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.4"/><circle cx="6" cy="19" r="2.4"/><circle cx="18" cy="9" r="2.4"/><path d="M6 7.5v9M6 12c6 0 6-.5 12-.5"/></svg></button>
+            <button type="button" class="icon-nav" style="width:32px;height:32px" aria-label="Timeline"><svg viewBox="0 0 24 24"><path d="M3.5 19.5h17"/><path d="M4 16l4.2-5 3.4 3 4-6 4.4 4.5"/></svg></button>
+            <button type="button" class="icon-nav" style="width:32px;height:32px" aria-label="Configuration"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--surface)"/><circle cx="15" cy="12" r="2" fill="var(--surface)"/><circle cx="7.5" cy="17" r="2" fill="var(--surface)"/></svg></button>
+            <button type="button" class="icon-nav" style="width:32px;height:32px" aria-label="Réappro"><svg viewBox="0 0 24 24"><path d="M12 3.2 20 7v10l-8 3.8L4 17V7z"/><path d="M4 7l8 3.8L20 7M12 10.8v10"/></svg></button>
+            <button type="button" class="icon-nav" style="width:32px;height:32px" aria-label="Staff"><svg viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9.5" r="2.3"/><path d="M15.5 13.6c2.6.2 4.3 1.8 4.9 4.4"/></svg></button>
+          </div>
+        </div>
+
+        <div class="head">
+          <span class="kicker">Résumé</span>
+          <h3>Auxerre Ipswitch</h3>
+          <p>14/08/2026 · 13:45</p>
+        </div>
+
+        <div class="synth">
+          <table>
+            <tr><th></th><th>CA total (HT)</th><th>Coût</th><th>Marge</th></tr>
+            <tr><td>Prédictif</td><td>9 733 €</td><td>5 479,94 €</td><td>43,70 %</td></tr>
+            <tr class="adj"><td>Ajusté</td><td>39 692 €</td><td>42 677,90 €</td><td>−7,52 %</td></tr>
+          </table>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi neutral is-new">
+            <span class="newdot tag-new">new</span>
+            <div class="lbl">Coût Staff</div>
+            <div class="val">1 850,00 €</div>
+            <div class="adj">Ajusté <b>2 140,00 €</b></div>
+          </div>
+          <div class="kpi neutral">
+            <div class="lbl">Coût Matières</div>
+            <div class="val">3 629,94 €</div>
+            <div class="adj">Ajusté <b>40 537,90 €</b></div>
+          </div>
+          <div class="kpi success">
+            <div class="lbl">Marge</div>
+            <div class="val">43,70 %</div>
+            <div class="adj">Ajusté <b>−7,52 %</b></div>
+          </div>
+          <div class="kpi success">
+            <div class="lbl">Per cap</div>
+            <div class="val">0,81 €</div>
+            <div class="adj">Ajusté <b>3,31 €</b></div>
+          </div>
+          <div class="kpi neutral">
+            <div class="lbl">Panier</div>
+            <div class="val">2,94 €</div>
+            <div class="adj">Ajusté <b>0,00 €</b></div>
+          </div>
+          <div class="kpi warning">
+            <div class="lbl">Transformation</div>
+            <div class="val">27,57 %</div>
+            <div class="adj">Ajusté <b>0,00 %</b></div>
+          </div>
+        </div>
+        <div class="legendline">
+          <span>Staff pas encore chargé → <span class="skel"></span> sur Coût Staff, Coût et Marge du tableau.</span>
+        </div>
+      </div>
+    </div>
+    <p class="cap">La marge affichée passe de 62,71 % (matières seules) à 43,70 % (coût global) sur cet exemple — attendu, à communiquer à l'équipe.</p>
+  </section>
+
+  <!-- ================= 3. DONNÉES ================= -->
+  <section>
+    <h2>3 · D'où viennent les chiffres</h2>
+    <p class="note">Aucune nouvelle API. Le coût staff existe déjà côté backend (<code>GET /events/:id/staffing</code>) —
+       il n'est chargé aujourd'hui qu'à l'ouverture de l'onglet Staff ; il sera chargé au chargement de l'événement.</p>
+    <div class="frame" style="padding:0">
+      <table class="spec">
+        <tr><th>Métrique</th><th>Source</th><th>Statut</th></tr>
+        <tr><td><b>CA total (HT)</b> (tableau)</td><td><code>totalPredictedRevenue</code> / <code>totalAdjustedRevenue</code></td><td>existant, déplacé carte → tableau</td></tr>
+        <tr><td><b>Coût Matières</b> (carte)</td><td><code>totalPredictedCost</code> / <code>totalAdjustedCost</code> (coût unitaire × quantités)</td><td>existant, renommé (ex-« Coût »)</td></tr>
+        <tr><td><b>Coût Staff</b> (carte)</td><td>store <code>staffing/totals</code> → <code>predictedCost</code> / <code>adjustedCost</code></td><td><span class="tag-new">new</span> fetch hoisté au chargement de l'événement (cache 15 min)</td></tr>
+        <tr><td><b>Coût</b> (tableau)</td><td>Matières + Staff</td><td><span class="tag-new">new</span> computed</td></tr>
+        <tr><td><b>Marge</b> (tableau + carte)</td><td>(CA − Coût global) / CA</td><td><span class="tag-new">redéfinie</span> — incluait seulement les matières</td></tr>
+        <tr><td>Per cap · Panier · Transformation</td><td>computeds existants</td><td>inchangés</td></tr>
+      </table>
+    </div>
+    <p class="note" style="margin-top:14px"><b>Dégradé :</b> staffing indisponible (API en erreur ou aucun staff planifié) → Coût Staff = 0 €,
+       le tableau retombe sur la marge matières ; pas de blocage de la colonne.</p>
+  </section>
+</main>
