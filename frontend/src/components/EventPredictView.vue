@@ -437,7 +437,6 @@
           <!-- EventDetailsEditor : éditeur de métadonnées event (cf. React
                :2196-2205 future events et :2298-2306 past events). -->
           <EventDetailsEditor
-            ref="eventEditor"
             :event="predictEditorEvent"
             :configurations="configurations"
             :event-types="eventTypes"
@@ -953,18 +952,9 @@
              Chaque icône de section ACTIVE l'onglet (predictSectionTab) puis
              scrolle — l'ancienne nav en pills scrollait vers 3 ancres vides
              empilées sans changer d'onglet (sections en v-if non montées). -->
+        <!-- Réunion 13/08 : pill « Résumé » supprimée (redondante — le crayon
+             du bandeau ouvre déjà l'éditeur) ; seules les 5 icônes restent. -->
         <nav class="ep-metrics-anchors" :aria-label="t('epSectionsAria')">
-          <v-tooltip location="bottom" max-width="240">
-            <template #activator="{ props: tipProps }">
-              <button
-                v-bind="tipProps"
-                type="button"
-                class="ep-anchor-resume"
-                @click="goToSummaryAndEdit"
-              >{{ t('epSummary') }}</button>
-            </template>
-            {{ t('epNavResumeTip') }}
-          </v-tooltip>
           <div class="ep-anchor-icons">
             <v-tooltip location="bottom" max-width="240">
               <template #activator="{ props: tipProps }">
@@ -3777,11 +3767,6 @@ export default {
     goToSection(tab) {
       this.predictSectionTab = tab;
       this.$nextTick(() => this.scrollToAnchor('ep-anchor-configuration'));
-    },
-    /** Pill Résumé : remonte en haut + ouvre l'éditeur d'événement (= crayon). */
-    goToSummaryAndEdit() {
-      this.scrollToAnchor('ep-anchor-summary');
-      this.$refs.eventEditor?.openDrawer?.();
     },
     /**
      * L'ancre timeline n'existe que dans la branche event futur ; pour un
@@ -8177,25 +8162,11 @@ export default {
   border-bottom: 1px solid var(--fb-border, #e2e8f0);
   margin-bottom: 10px;
 }
-.ep-anchor-resume {
-  border: 0;
-  border-radius: 999px;
-  background: #ff3131;
-  color: #fff;
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 700;
-  padding: 8px 18px;
-  cursor: pointer;
-  flex: none;
-}
-.ep-anchor-resume:hover {
-  filter: brightness(0.94);
-}
 .ep-anchor-icons {
   display: flex;
   gap: 3px;
-  margin-left: auto;
+  flex: 1;
+  justify-content: space-evenly;
   background: var(--fb-subtle, #fafafa);
   border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 11px;
