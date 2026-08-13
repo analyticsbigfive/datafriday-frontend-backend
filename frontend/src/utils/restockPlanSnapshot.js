@@ -405,3 +405,30 @@ export function estimateSnapshotBytes(payload) {
     return 0
   }
 }
+
+/**
+ * Unités ATTENDUES par élément depuis les lignes `restockLines` d'un plan
+ * sauvegardé : { elementId: [{ unit, total }] }. Somme des `targetQuantity`
+ * (cible de stock après réarmement — ce que l'inventaire pré-event devrait
+ * retrouver ; décision JLH 13/08, pas `restockQuantity`). Un élément peut
+ * mélanger Pc/Kg/L → un segment par unité ; unité vide regroupée sous
+ * `fallbackUnit`. Consommé par le badge « Attendu » du Pre-event Inventory.
+ */
+export function aggregateExpectedUnitsByElement(restockLines, { fallbackUnit = 'pc' } = {}) {
+  if (!Array.isArray(restockLines) || !restockLines.length) return {}
+  const byElement = {}
+  for (const r of restockLines) {
+    const elId = r?.shopId != null ? String(r.shopId) : ''
+    if (!elId) continue
+    const qty = Number(r.targetQuantity) || 0
+    if (!(qty > 0)) continue
+    const unit = String(r.unit || fallbackUnit).trim() || fallbackUnit
+    const units = (byElement[elId] = byElement[elId] || {})
+    units[unit] = (units[unit] || 0) + qty
+  }
+  const out = {}
+  for (const [elId, units] of Object.entries(byElement)) {
+    out[elId] = Object.entries(units).map(([unit, total]) => ({ unit, total }))
+  }
+  return out
+}

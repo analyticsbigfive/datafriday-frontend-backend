@@ -65,6 +65,21 @@
         <v-icon size="20">mdi-chevron-right</v-icon>
       </v-btn>
 
+      <!-- Unités ATTENDUES de la section (pré-event, RBAC
+           front.fb.preInventoryExpected) : somme des cibles du plan de
+           réarmement sauvegardé pour l'événement, un segment par unité
+           (« Attendu : 1 250 Pc · 12 Kg »). Prop absente/vide → rien. -->
+      <v-chip
+        v-if="expectedSectionUnits && expectedSectionUnits.length"
+        color="primary"
+        variant="tonal"
+        size="small"
+        class="si-counting-expected"
+      >
+        {{ t('preInvExpectedBadge') }} :
+        {{ expectedSectionUnits.map((s) => `${formatUnits(s.total)} ${s.unit}`).join(' · ') }}
+      </v-chip>
+
       <v-chip color="success" variant="tonal" size="small" class="si-counting-progress">
         {{ counted }} / {{ total }}
       </v-chip>
@@ -263,6 +278,10 @@ const props = defineProps({
   expectedTotalFor: { type: Function, default: null },
   // Les deux modes n'affichent pas la même grandeur — le libellé vient du parent.
   expectedTotalLabelKey: { type: String, default: 'invPredictedNeedHint' },
+  // Unités attendues de la SECTION ([{unit, total}]) depuis le plan de
+  // réarmement sauvegardé — null/vide = pas de badge (pas de plan, RBAC non
+  // couvert, mode post).
+  expectedSectionUnits: { type: Array, default: null },
 })
 
 const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop'])

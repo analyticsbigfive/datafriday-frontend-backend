@@ -332,6 +332,7 @@
           :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
+          :expected-section-units="expectedSectionUnitsFor(countingShop.element.id)"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -622,6 +623,7 @@
           :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
+          :expected-section-units="expectedSectionUnitsFor(countingShop.element.id)"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -721,6 +723,8 @@ import {
   createPreEventReconciliation,
   getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
+import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
+import { aggregateExpectedUnitsByElement } from '@/utils/restockPlanSnapshot'
 import { buildPreEventExpected, expectedKey } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
@@ -872,6 +876,9 @@ export default {
       // match), index {byItemId, byItemName} — affiché en regard du TOTAL.
       predictedNeed: null,
       predictedNeedMissing: false,
+      // Lignes (shop × article) du plan de réarmement sauvegardé couvrant
+      // l'événement ancré — badge « Attendu » par section (pré-event, RBAC).
+      expectedPlanRows: null,
       // Pourquoi il n'y a pas d'attendu, quand il n'y en a pas :
       // null | 'no-permission' | 'forbidden' | 'not-deployed' | 'no-baseline'.
       // Sans ça, 403 / 404 / baseline vide / bug produisent le MÊME écran muet de
@@ -1049,6 +1056,16 @@ export default {
      *  les légender du même mot fabriquerait une fausse comparaison. */
     expectedTotalLabelKey() {
       return this.isPreMode ? 'invPredictedNeedHint' : 'invPostExpectedHint'
+    },
+    /**
+     * Unités attendues par élément depuis le plan de réarmement sauvegardé —
+     * logique pure dans aggregateExpectedUnitsByElement (restockPlanSnapshot,
+     * testée unitairement), unité vide repliée sur le libellé du comptage.
+     */
+    expectedUnitsByElement() {
+      return aggregateExpectedUnitsByElement(this.expectedPlanRows, {
+        fallbackUnit: this.t('invCountUnitFallback'),
+      })
     },
     /** Message d'indisponibilité des attendus — `no-permission` reste MUET :
      *  un utilisateur non habilité ne doit pas apprendre que la donnée existe. */
@@ -1640,6 +1657,7 @@ export default {
         // a la même dépendance (périmètre des PdV affichés).
         this.fetchPreExpected()
         this.fetchPredictedNeed()
+        this.fetchExpectedPlan()
 
         this.mock = buildSpaceInventoryMock()
         if (this.demo) {
@@ -2050,6 +2068,42 @@ export default {
       })
       this.predictedNeed = index
       this.predictedNeedMissing = reason === 'no-default-version'
+    },
+    /**
+     * Unités ATTENDUES par section (retour JLH 13/08) : lignes du plan de
+     * réarmement SAUVEGARDÉ le plus récent couvrant l'événement ancré — pas la
+     * prédiction Event Predict (usePredictedNeed, grain article), le Stockup.
+     * Backend sans lookup par événement : la liste de métadonnées porte
+     * `selectedEventIds`, on filtre côté client puis on charge la photo.
+     * Fire-and-forget, jamais bloquant ; échec ou absence de plan → pas de
+     * badge, silencieusement.
+     */
+    async fetchExpectedPlan() {
+      this.expectedPlanRows = null
+      if (!this.isPreMode || !this.canSeeExpected || !this.contextEventId || isDemoMode()) return
+      const spaceId = this.route?.params?.spaceId
+      const eventId = String(this.contextEventId)
+      if (!spaceId) return
+      try {
+        const metas = await listRestockPlans(spaceId)
+        const hit = (Array.isArray(metas) ? metas : []).find((p) =>
+          (p?.selectedEventIds || []).map(String).includes(eventId),
+        )
+        if (!hit) return
+        const plan = await getRestockPlan(hit.id)
+        // Garde anti-course : l'event ancré a pu changer pendant le fetch.
+        if (String(this.contextEventId) !== eventId) return
+        this.expectedPlanRows = Array.isArray(plan?.restockLines) ? plan.restockLines : null
+      } catch (err) {
+        // Module restock-plans absent (404) ou erreur réseau : badge absent.
+        // eslint-disable-next-line no-console
+        console.warn('[INVENTORY] expected plan load failed:', err?.message)
+      }
+    },
+    /** Segments « Attendu » d'une section : [{unit, total}] ou null. */
+    expectedSectionUnitsFor(elementId) {
+      const agg = this.expectedUnitsByElement[String(elementId)]
+      return agg && agg.length ? agg : null
     },
     /**
      * Événement à réconcilier = l'event de l'ÉCRAN, strictement (« un match =

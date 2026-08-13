@@ -2036,6 +2036,7 @@ export const translations = {
     // « un match = un eventId » (docs/modules/10_POST_EVENT_INVENTORY.md §12.4).
     invContextAnchorLast: 'Last finished match',
     preInvContextAnchorNext: 'Next event: {match}',
+    preInvExpectedBadge: 'Expected',
     invContextNoPastEvent: 'No finished match for this space',
     invContextCountsIndependent: 'counts not linked to this match',
     invChangeSpace: 'Change space',
@@ -6453,6 +6454,7 @@ export const translations = {
     // Contexte évènement du bandeau — cf. bloc EN.
     invContextAnchorLast: 'Dernier match terminé',
     preInvContextAnchorNext: 'Prochain Évènement : {match}',
+    preInvExpectedBadge: 'Attendu',
     invContextNoPastEvent: 'Aucun match terminé sur cet espace',
     invContextCountsIndependent: 'comptages non rattachés à ce match',
     invChangeSpace: "Changer d'espace",
