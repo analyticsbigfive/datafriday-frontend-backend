@@ -358,6 +358,15 @@
               <input id="mpcd-supplierItem" v-model="form.supplierItem" type="text" class="form-control mpcd-input" />
             </div>
 
+            <!-- Storage Type (défini au niveau du prix fournisseur) -->
+            <div class="mpcd-field-row mb-3">
+              <label class="mpcd-field-label" for="mpcd-storageType">{{ t('storageType') }}</label>
+              <select id="mpcd-storageType" v-model="form.storageType" class="form-select mpcd-input">
+                <option value="">—</option>
+                <option v-for="opt in storageTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+            </div>
+
             <!-- Industrial -->
             <div class="mpcd-field-row mb-3">
               <label class="mpcd-field-label">{{ t('industrial') }}</label>
@@ -577,6 +586,7 @@ export default {
           selectSupplier: 'Select supplier',
           supplierItem: 'Supplier Item',
           supplierItemPlaceholder: "Supplier's item name or code",
+          storageType: 'Storage Type',
           industrial: 'Industrial',
           unit: 'Unit',
           unitsPerPurchase: 'Units Per Purchase',
@@ -647,6 +657,7 @@ export default {
           selectSupplier: 'Sélectionner un fournisseur',
           supplierItem: 'Article fournisseur',
           supplierItemPlaceholder: "Nom ou code de l'article du fournisseur",
+          storageType: 'Type de stockage',
           industrial: 'Industriel',
           unit: 'Unité',
           unitsPerPurchase: 'Unités par achat',
@@ -730,6 +741,11 @@ export default {
     };
   },
   computed: {
+    storageTypeOptions() {
+      return (this.$store.getters['storageTypes/storageTypes'] || [])
+        .map((s) => String(s?.name ?? '').trim())
+        .filter(Boolean);
+    },
     localOpen: {
       get() { return this.modelValue; },
       set(val) { this.$emit('update:modelValue', val); },
@@ -814,6 +830,7 @@ export default {
   },
   mounted() {
     window.addEventListener('locale-changed', this.handleLocaleChange);
+    this.$store.dispatch('storageTypes/fetchStorageTypes');
   },
   beforeUnmount() {
     window.removeEventListener('locale-changed', this.handleLocaleChange);
@@ -848,6 +865,7 @@ export default {
         packingLength: 0,
         purchasePackaging: '',
         inventoryPackaging: '',
+        storageType: '',
       };
     },
     reset(initialData) {
@@ -1126,6 +1144,15 @@ export default {
           supplierItem: this.form.supplierItem,
           industrialId: this.form.industrialId || null,
           recipeUnit: this.form.recipeUnit,
+          // BUG (2026-08-13, retour Ulrich) : absent de ce payload, une nouvelle ligne
+          // fournisseur ("+ Add Supplier") était créée avec purchaseUnitConversion=null
+          // en base, donc le Recipe Unit Cost retombait sur le prix non converti (facteur
+          // 1 par repli, cf. computeRecipeCosts côté backend et computedRecipeUnitCost
+          // côté front) tant que l'article parent n'était pas rouvert et resauvegardé
+          // (seul MarketPriceEditDrawer.vue patche ce champ, en masse, sur toutes les
+          // lignes du groupe). this.form.purchaseUnitConversion est déjà hérité du groupe
+          // dans reset() : il ne manquait que son envoi ici.
+          purchaseUnitConversion: Number(this.form.purchaseUnitConversion) || 1,
           purchasePackaging: this.form.purchasePackaging || '',
           inventoryPackaging: this.form.inventoryPackaging || '',
           unitsPerPurchase: Number(this.form.unitsPerPurchase) || 0,
@@ -1137,6 +1164,7 @@ export default {
           packingLength: Number(this.form.packingLength) || 0,
           purchasePackaging: this.form.purchasePackaging || '',
           inventoryPackaging: this.form.inventoryPackaging || '',
+          storageType: this.form.storageType || '',
         };
 
         await createMarketPrice(payload);

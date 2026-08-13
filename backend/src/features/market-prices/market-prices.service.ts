@@ -93,6 +93,7 @@ export class MarketPricesService {
           supplier: dto.supplier,
           supplierId: dto.supplierId,
           supplierItem: dto.supplierItem,
+          storageType: dto.storageType,
           recipeUnit: dto.recipeUnit,
           purchaseUnitConversion: dto.purchaseUnitConversion,
           pricePerUnit: dto.pricePerUnit,
@@ -333,6 +334,7 @@ export class MarketPricesService {
     if (dto.supplier !== undefined) updateData.supplier = dto.supplier;
     if (dto.supplierId !== undefined) updateData.supplierId = dto.supplierId;
     if (dto.supplierItem !== undefined) updateData.supplierItem = dto.supplierItem;
+    if (dto.storageType !== undefined) updateData.storageType = dto.storageType;
     if (dto.recipeUnit !== undefined) updateData.recipeUnit = dto.recipeUnit;
     if (dto.purchaseUnitConversion !== undefined) updateData.purchaseUnitConversion = dto.purchaseUnitConversion;
     if (dto.pricePerUnit !== undefined) updateData.pricePerUnit = dto.pricePerUnit;
@@ -525,6 +527,7 @@ export class MarketPricesService {
             supplier: dto.supplier,
             supplierId: dto.supplierId,
             supplierItem: dto.supplierItem,
+            storageType: dto.storageType,
             recipeUnit: dto.recipeUnit,
             purchaseUnitConversion: dto.purchaseUnitConversion,
             pricePerUnit: dto.pricePerUnit,
