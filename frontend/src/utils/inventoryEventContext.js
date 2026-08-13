@@ -34,6 +34,23 @@ export function describeAnchorEvent(event) {
 }
 
 /**
+ * Libellé « match » d'un évènement : « Auxerre vs Angers » quand les deux
+ * équipes sont connues, sinon le nom de l'évènement. Sert au bandeau du
+ * Pre-event Inventory (« Prochain Évènement : {match} », retour JLH 13/08) —
+ * aucun formateur « X vs Y » n'existait dans l'app.
+ *
+ * @param {object|null} event
+ * @returns {string} chaîne vide si l'évènement est nul et sans nom
+ */
+export function matchLabel(event) {
+  if (!event || typeof event !== 'object') return ''
+  const home = event.homeTeamName ? String(event.homeTeamName).trim() : ''
+  const away = event.visitingTeamName ? String(event.visitingTeamName).trim() : ''
+  if (home && away) return `${home} vs ${away}`
+  return describeAnchorEvent(event)?.name || ''
+}
+
+/**
  * Évènement d'ancrage d'un écran d'inventaire.
  *   - mode PRE  : prochain évènement FUTUR strict (aucun repli sur le passé —
  *     sans match à venir, l'écran reste vide).

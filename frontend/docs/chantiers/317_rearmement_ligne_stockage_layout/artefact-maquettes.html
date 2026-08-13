@@ -1,0 +1,344 @@
+<title>Réarmement — lignes « Espaces de stockage » : maquettes</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --subtle: #fafafa;
+    --ink: #111827;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --line: #e5e7eb;
+    --primary: #ff3131;
+    --primary-soft: #fff5f5;
+    --green: #16a34a;
+    --alert-min-bg: #fef2f2;
+    --alert-min-ink: #b91c1c;
+    --alert-max-bg: #fff7ed;
+    --alert-max-ink: #c2410c;
+    --old: #94a3b8;
+    --new: #0f766e;
+    --new-bg: #ccfbf1;
+    --shadow: 0 1px 3px rgba(15, 23, 42, .05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1120;
+      --surface: #111827;
+      --subtle: #0f172a;
+      --ink: #e5e7eb;
+      --muted: #94a3b8;
+      --faint: #64748b;
+      --line: rgba(255, 255, 255, .09);
+      --primary: #ff5c5c;
+      --primary-soft: rgba(255, 49, 49, .14);
+      --green: #86efac;
+      --alert-min-bg: rgba(239, 68, 68, .16);
+      --alert-min-ink: #fca5a5;
+      --alert-max-bg: rgba(249, 115, 22, .16);
+      --alert-max-ink: #fdba74;
+      --old: #64748b;
+      --new: #5eead4;
+      --new-bg: rgba(20, 184, 166, .18);
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1120;
+    --surface: #111827;
+    --subtle: #0f172a;
+    --ink: #e5e7eb;
+    --muted: #94a3b8;
+    --faint: #64748b;
+    --line: rgba(255, 255, 255, .09);
+    --primary: #ff5c5c;
+    --primary-soft: rgba(255, 49, 49, .14);
+    --green: #86efac;
+    --alert-min-bg: rgba(239, 68, 68, .16);
+    --alert-min-ink: #fca5a5;
+    --alert-max-bg: rgba(249, 115, 22, .16);
+    --alert-max-ink: #fdba74;
+    --old: #64748b;
+    --new: #5eead4;
+    --new-bg: rgba(20, 184, 166, .18);
+    --shadow: none;
+  }
+
+  body {
+    margin: 0;
+    padding: 32px 24px 64px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  main { max-width: 1120px; margin: 0 auto; }
+  .eyebrow { margin: 0 0 4px; color: var(--primary); font-size: .78rem; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  h1 { margin: 0 0 10px; font-size: 1.6rem; font-weight: 800; }
+  .lede { margin: 0 0 18px; max-width: 74ch; color: var(--muted); }
+  .decisions { margin: 0 0 34px; padding: 0; list-style: none; }
+  .decisions li { margin-bottom: 6px; padding-left: 22px; position: relative; }
+  .decisions li::before { content: "✓"; position: absolute; left: 0; color: var(--new); font-weight: 800; }
+  h2 { margin: 34px 0 14px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 1.12rem; font-weight: 800; }
+  .tag-old, .tag-new { border-radius: 999px; padding: 2px 9px; font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .3px; vertical-align: 2px; }
+  .tag-old { background: var(--line); color: var(--old); }
+  .tag-new { background: var(--new-bg); color: var(--new); }
+  .frame { margin-bottom: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--subtle); }
+  .cap { margin: 6px 0 0; color: var(--muted); font-size: .8rem; }
+  .rail { margin: 0 auto; }
+  .w1447 { width: 100%; }
+  .w1100 { max-width: 760px; }
+  .w620 { max-width: 420px; }
+
+  .row { padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+  .row + .row { margin-top: 6px; }
+  .name { color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.25; }
+  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 5px; }
+  .chip { color: var(--muted); font-size: 11px; }
+  .chip b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .chip-pack { color: var(--faint); font-size: 11px; }
+  .alert { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 2px 7px; font-size: .72rem; font-weight: 700; }
+  .alert--min { background: var(--alert-min-bg); color: var(--alert-min-ink); }
+  .alert--max { background: var(--alert-max-bg); color: var(--alert-max-ink); }
+  .slabel { color: var(--muted); font-size: 10px; font-weight: 650; }
+  .srow { display: flex; align-items: center; gap: 8px; }
+  .track { position: relative; height: 4px; border-radius: 999px; background: var(--line); flex: 1; }
+  .track i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--primary); }
+  .track b { position: absolute; top: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--primary); }
+  .svalue { color: var(--ink); font-size: 11px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .reset { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 11px; font-weight: 650; padding: 3px 8px; }
+  .buy { border-radius: 8px; background: var(--primary-soft); padding: 6px 10px; text-align: right; white-space: nowrap; }
+  .buy .lab { display: block; color: var(--muted); font-size: 10px; }
+  .buy .val { display: block; color: var(--primary); font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .buy .val.ok { color: var(--green); }
+
+  .old-grid { display: grid; grid-template-columns: 1fr 280px; gap: 6px 12px; }
+  .old-values { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; grid-column: 1 / -1; margin-top: 2px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--subtle); }
+  .new-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 260px) 148px; align-items: center; gap: 10px 14px; }
+  .new-grid--1400 { grid-template-columns: minmax(0, 1fr) minmax(180px, 240px); }
+  .new-grid--1400 .buy { grid-column: 1 / -1; justify-self: end; }
+  .new-grid--760 { grid-template-columns: minmax(0, 1fr); }
+  .new-grid--760 .buy { text-align: left; }
+  .clip { overflow: hidden; max-width: 96px; white-space: nowrap; }
+
+  table.spec { width: 100%; margin-top: 6px; border-collapse: collapse; background: var(--surface); }
+  table.spec th, table.spec td { padding: 8px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; font-size: .82rem; }
+  table.spec th { background: var(--subtle); color: var(--muted); font-weight: 700; }
+  code { border-radius: 4px; background: var(--subtle); padding: 1px 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
+</style>
+
+<main>
+  <p class="eyebrow">Chantier 317 · Réarmement</p>
+  <h1>Lignes « Espaces de stockage » — maquettes</h1>
+  <p class="lede">
+    L'onglet réserve emprunte le gabarit de ligne des PDV, conçu pour une case à cocher, des
+    métadonnées fournisseur et un curseur en pourcentage. Une ligne de réserve n'a rien de tout ça :
+    le nom occupe 664 px pour 200 px de texte, le curseur est écrasé sur 183 px, et l'équivalent
+    conditionnement est répété trois fois — tronqué dès que « Reset » apparaît.
+  </p>
+  <ul class="decisions">
+    <li>Trois zones : identité + chips, réglage, résultat. Une carte par ligne, comme au PDV.</li>
+    <li>Conditionnement rappelé une seule fois par ligne, conversion complète sur « À commander ».</li>
+    <li>Les quatre règles CSS mortes de la zone sont corrigées dans le même chantier.</li>
+  </ul>
+
+  <!-- ================= 1. LIGNE DE RÉSERVE ================= -->
+  <h2>1 · Ligne de réserve <span class="tag-old">avant</span> → <span class="tag-new">après</span></h2>
+
+  <div class="frame">
+    <div class="rail w1447">
+      <div class="row">
+        <div class="old-grid">
+          <div>
+            <div class="name">Coca-Cola Original - CAN 33CL</div>
+            <div class="chips"><span class="alert alert--min">⚠ Ré-approvisionnement à considérer en priorité</span></div>
+          </div>
+          <div>
+            <div class="slabel">Ajuster le besoin</div>
+            <div class="srow">
+              <span class="track" style="max-width:183px"><i style="width:20%"></i><b style="left:18%"></b></span>
+              <span class="svalue">3 169</span>
+              <span class="chip-pack clip">(132 packs de 2</span>
+              <span class="reset">Reset</span>
+            </div>
+          </div>
+          <div class="old-values">
+            <span class="chip">Stock tampon <b>1 000</b> <span class="chip-pack">(41,7 packs de 24 Pc)</span></span>
+            <span class="chip">Restant en inventaire <b>0</b></span>
+            <span class="chip">Nécessaire <b>3 169</b> <span class="chip-pack">(132 packs de 24 Pc)</span></span>
+            <span class="chip" style="margin-left:auto">À commander <b>132 packs de 24 Pc</b></span>
+          </div>
+        </div>
+      </div>
+      <p class="cap">
+        Avant — le badge d'alerte rend en gris (règle <code>.sr-setting-alert--min</code> écrasée par
+        <code>.sr-setting-info span</code>), l'équivalent colis apparaît 3 fois et se coupe sur le
+        curseur, « À commander » se perd en bout de bandeau.
+      </p>
+    </div>
+  </div>
+
+  <div class="frame">
+    <div class="rail w1447">
+      <div class="row">
+        <div class="new-grid">
+          <div>
+            <div class="name">Coca-Cola Original - CAN 33CL</div>
+            <div class="chips">
+              <span class="alert alert--min">⚠ Priorité</span>
+              <span class="chip">Stock tampon <b>1 000</b></span>
+              <span class="chip">Restant <b>0</b></span>
+              <span class="chip-pack">1 pack = 24 Pc</span>
+            </div>
+          </div>
+          <div>
+            <div class="slabel">Nécessaire</div>
+            <div class="srow">
+              <span class="track"><i style="width:20%"></i><b style="left:18%"></b></span>
+              <span class="svalue">1 000</span>
+            </div>
+          </div>
+          <div class="buy"><span class="lab">À commander</span><span class="val">42 packs</span><span class="lab">de 24 Pc</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="new-grid">
+          <div>
+            <div class="name">Coca-Cola Sans Sucre - CAN 33CL</div>
+            <div class="chips">
+              <span class="chip">Stock tampon <b>200</b></span>
+              <span class="chip">Restant <b>0</b></span>
+              <span class="chip-pack">1 pack = 24 Pc</span>
+            </div>
+          </div>
+          <div>
+            <div class="slabel">Nécessaire</div>
+            <div class="srow">
+              <span class="track"><i style="width:20%"></i><b style="left:18%"></b></span>
+              <span class="svalue">200</span>
+              <span class="reset">Reset</span>
+            </div>
+          </div>
+          <div class="buy"><span class="lab">À commander</span><span class="val">9 packs</span><span class="lab">de 24 Pc</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="new-grid">
+          <div>
+            <div class="name">Coca-Cola Cherry - CAN 33CL</div>
+            <div class="chips">
+              <span class="chip">Stock tampon <b>0</b></span>
+              <span class="chip">Restant <b>0</b></span>
+              <span class="chip-pack">1 pack = 24 Pc</span>
+            </div>
+          </div>
+          <div>
+            <div class="slabel">Nécessaire</div>
+            <div class="srow">
+              <span class="track"><i style="width:0"></i><b style="left:0"></b></span>
+              <span class="svalue">0</span>
+            </div>
+          </div>
+          <div class="buy"><span class="lab">À commander</span><span class="val ok">Rien à commander</span></div>
+        </div>
+      </div>
+      <p class="cap">
+        Après — le curseur récupère la largeur perdue, l'achat devient la valeur saillante, et les
+        lignes d'un même groupe sont séparées par une gouttière de 6 px.
+      </p>
+    </div>
+  </div>
+
+  <!-- ================= 2. RESPONSIVE ================= -->
+  <h2>2 · Repli responsive <span class="tag-new">après</span></h2>
+
+  <div class="frame">
+    <div class="rail w1100">
+      <div class="row">
+        <div class="new-grid new-grid--1400">
+          <div>
+            <div class="name">Coca-Cola Original - CAN 33CL</div>
+            <div class="chips">
+              <span class="alert alert--max">⚠ Capacité</span>
+              <span class="chip">Stock tampon <b>1 000</b></span>
+              <span class="chip">Restant <b>0</b></span>
+              <span class="chip-pack">1 pack = 24 Pc</span>
+            </div>
+          </div>
+          <div>
+            <div class="slabel">Nécessaire</div>
+            <div class="srow">
+              <span class="track"><i style="width:20%"></i><b style="left:18%"></b></span>
+              <span class="svalue">1 000</span>
+            </div>
+          </div>
+          <div class="buy"><span class="lab">À commander</span><span class="val">42 packs de 24 Pc</span></div>
+        </div>
+      </div>
+      <p class="cap">≤ 1400 px — l'encart d'achat passe en rang 2, aligné à droite.</p>
+    </div>
+  </div>
+
+  <div class="frame">
+    <div class="rail w620">
+      <div class="row">
+        <div class="new-grid new-grid--760">
+          <div>
+            <div class="name">Coca-Cola Original - CAN 33CL</div>
+            <div class="chips">
+              <span class="chip">Stock tampon <b>1 000</b></span>
+              <span class="chip">Restant <b>0</b></span>
+              <span class="chip-pack">1 pack = 24 Pc</span>
+            </div>
+          </div>
+          <div>
+            <div class="slabel">Nécessaire</div>
+            <div class="srow">
+              <span class="track"><i style="width:20%"></i><b style="left:18%"></b></span>
+              <span class="svalue">1 000</span>
+            </div>
+          </div>
+          <div class="buy"><span class="lab">À commander</span><span class="val">42 packs de 24 Pc</span></div>
+        </div>
+      </div>
+      <p class="cap">≤ 760 px — colonne unique, les trois zones empilées.</p>
+    </div>
+  </div>
+
+  <!-- ================= 3. CASCADE ================= -->
+  <h2>3 · Correctifs de cascade</h2>
+
+  <table class="spec">
+    <tr><th>Règle</th><th>Ce qui l'écrase</th><th>Correctif</th></tr>
+    <tr>
+      <td><code>.sr-storage-alert--min</code> <code>:6032</code><br><code>--max</code> <code>:6036</code></td>
+      <td><code>.sr-setting-info span</code> <code>:7240</code> (0,1,1) — impose <code>--sr-muted</code> et 12 px</td>
+      <td>Les chips sortent de <code>.sr-setting-info</code> (item 1) : la règle redevient gagnante sans <code>!important</code></td>
+    </tr>
+    <tr>
+      <td><code>.sr-storage-group</code> <code>:6005</code></td>
+      <td>Rien — la règle ne pose qu'un padding</td>
+      <td><code>display:flex; flex-direction:column; gap:6px</code>, padding horizontal aligné sur <code>.sr-settings-list</code></td>
+    </tr>
+    <tr>
+      <td><code>.sr-value-buy { margin-left:auto }</code> <code>:6441</code></td>
+      <td><code>@media (max-width:1400px)</code> <code>:6550</code> remet <code>margin-left:0</code></td>
+      <td>Sans objet côté storage (zone 3 = colonne de grille). Règle conservée, commentée comme spécifique PDV</td>
+    </tr>
+    <tr>
+      <td><code>@media (max-width:760px)</code> <code>:6889-6909</code></td>
+      <td>Copie identique en <code>:7706-7726</code>, gagnante par position</td>
+      <td>Supprimer la première copie</td>
+    </tr>
+    <tr>
+      <td><code>.sr-values-help</code> <code>:6521</code></td>
+      <td>Aucun <code>flex:none</code>, contrairement à <code>.sr-deposit-help</code> <code>:6529</code></td>
+      <td>Ajouter <code>flex:none</code> — l'icône d'infobulle ne doit pas se comprimer</td>
+    </tr>
+    <tr>
+      <td>Thème sombre</td>
+      <td>Aucune règle pour <code>.sr-storage-alert*</code>, <code>.sr-values</code>, <code>.sr-slider-*</code></td>
+      <td>Tokens sombres pour <code>.sr-storage-chips</code> et <code>.sr-storage-buy</code></td>
+    </tr>
+  </table>
+</main>
