@@ -44,6 +44,29 @@ export async function createStockMovement(movement) {
 }
 
 /**
+ * BUG-259-02 : confirme un transfert PENDING — crédite la contrepartie (quantités
+ * déclarées par défaut, ou modifiées) et clôt la ligne source. Un écart entre
+ * déclaré et confirmé est journalisé comme perte (section Réconciliation).
+ * POST /logistics/movements/:id/confirm
+ * @param {string} movementId ID du StockMovement source (PENDING)
+ * @param {{packed?: number, loose?: number}} payload quantités confirmées (omis = déclarées)
+ * @returns {Promise<{sourceMovementId, counterpartyLevel, missingPacked, missingLoose, reconciliationId}>}
+ */
+export async function confirmTransfer(movementId, payload = {}) {
+  return api.post(`/logistics/movements/${movementId}/confirm`, payload)
+}
+
+/**
+ * BUG-259-02 : transferts émis vers cet élément, en attente de confirmation.
+ * GET /logistics/element/:elementId/pending-transfers
+ * @returns {Promise<Array<{movementId, itemKey, sourceElementId, sourceElementName,
+ *   declaredPacked, declaredLoose, createdAt}>>}
+ */
+export async function getPendingTransfers(elementId) {
+  return api.get(`/logistics/element/${elementId}/pending-transfers`)
+}
+
+/**
  * Historique d'un PDV/storage : mouvements paginés + ventes agrégées par event.
  * GET /logistics/element/:elementId/history
  */

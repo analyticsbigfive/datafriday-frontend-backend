@@ -3072,31 +3072,47 @@ enum StockMovementReason {
   OTHER // raison libre (note)
 }
 
+// BUG-259-02 (2026-08-13) : statut d'un transfert (TRANSFER_SHOP/TRANSFER_STORAGE
+// uniquement — null pour toute autre raison). PENDING = émis côté source, en
+// attente de confirmation par la contrepartie ; CONFIRMED = confirmé (avec ou
+// sans écart de quantité).
+enum StockTransferStatus {
+  PENDING
+  CONFIRMED
+}
+
 // Ledger append-only des mouvements de stock. Deltas SIGNÉS (positif = entrée,
-// négatif = sortie). Un transfert crée 2 lignes (source négative, cible positive)
-// liées par transferGroupId. Source de vérité de l'historique Logistic.
+// négatif = sortie). BUG-259-02 : un transfert ne crée plus qu'UNE ligne à
+// l'émission (source négative, status=PENDING) ; la ligne miroir (cible positive,
+// status=CONFIRMED) n'est créée qu'à la confirmation par la contrepartie
+// (`confirmTransfer`), les deux liées par transferGroupId. Source de vérité de
+// l'historique Logistic.
 model StockMovement {
-  id                    String              @id @default(cuid())
+  id                    String               @id @default(cuid())
   tenantId              String
   spaceId               String
   elementId             String // PDV ou storage (SpaceElement)
   itemKey               String // même référence que l'inventaire dérivé (nom)
   menuItemId            String?
   marketPriceId         String?
-  packedDelta           Int                 @default(0)
-  looseDelta            Float               @default(0)
+  packedDelta           Int                  @default(0)
+  looseDelta            Float                @default(0)
   reason                StockMovementReason
   counterpartyElementId String? // PDV/storage source ou destination (TRANSFER_*)
   transferGroupId       String?
+  status                StockTransferStatus? // TRANSFER_* uniquement, cf. StockTransferStatus
+  confirmedAt           DateTime? // date de confirmation (transferts)
+  confirmedBy           String? // userId ayant confirmé (transferts)
   expiryDate            DateTime? // EXPIRY
   note                  String? // OTHER (ou commentaire libre)
   eventId               String? // SALE / INVENTORY_RESET
   createdBy             String?
-  createdAt             DateTime            @default(now())
+  createdAt             DateTime             @default(now())
 
   @@index([tenantId, elementId, createdAt])
   @@index([tenantId, spaceId, createdAt])
   @@index([tenantId, spaceId, eventId])
+  @@index([tenantId, counterpartyElementId, status])
 }
 
 // État courant matérialisé du stock attendu par élément × item (packed/loose).

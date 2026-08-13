@@ -318,8 +318,10 @@
                   :predicted-need="predictedNeedFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
+                  :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
                   @add="openMovement(drillElement.element, item, 'add')"
                   @remove="openMovement(drillElement.element, item, 'remove')"
+                  @open-transfer="openTransferConfirm($event, drillElement.element)"
                 />
               </div>
             </template>
@@ -349,6 +351,16 @@
           :saving="movementSaving"
           :error="movementError"
           @submit="submitMovement"
+        />
+
+        <!-- BUG-259-02 : confirmation d'un transfert en attente -->
+        <LogisticTransferConfirmDrawer
+          v-model="transferConfirmDialog"
+          :transfer="transferConfirmTransfer"
+          :element-name="transferConfirmElement?.name"
+          :saving="transferConfirmSaving"
+          :error="transferConfirmError"
+          @submit="submitTransferConfirm"
         />
 
         <!-- Historique d'un PDV/storage -->
@@ -408,6 +420,7 @@ import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import LogisticElementRow from '@/components/LogisticElementRow.vue'
 import LogisticItemCard from '@/components/LogisticItemCard.vue'
 import LogisticMovementDialog from '@/components/LogisticMovementDialog.vue'
+import LogisticTransferConfirmDrawer from '@/components/LogisticTransferConfirmDrawer.vue'
 import LogisticHistoryDrawer from '@/components/LogisticHistoryDrawer.vue'
 import LogisticAggregateView from '@/components/LogisticAggregateView.vue'
 import LogisticSimulateSaleDialog from '@/components/LogisticSimulateSaleDialog.vue'
@@ -471,6 +484,7 @@ export default {
     LogisticElementRow,
     LogisticItemCard,
     LogisticMovementDialog,
+    LogisticTransferConfirmDrawer,
     LogisticHistoryDrawer,
     LogisticAggregateView,
     ClipboardList,
@@ -521,6 +535,12 @@ export default {
       // Historique
       historyDrawer: false,
       historyElement: null,
+      // BUG-259-02 : confirmation d'un transfert en attente
+      transferConfirmDialog: false,
+      transferConfirmTransfer: null,
+      transferConfirmElement: null,
+      transferConfirmSaving: false,
+      transferConfirmError: null,
       // QA : simuler une vente Weezevent
       simulateDialog: false,
       simulateSaving: false,
@@ -685,6 +705,13 @@ export default {
     },
     activeTab() {
       this.closeDrill()
+    },
+    /** BUG-259-02 : transferts en attente chargés à l'entrée dans le drill-in d'un élément. */
+    'drillElement.element.id': {
+      immediate: false,
+      handler(elementId) {
+        if (elementId) this.store.dispatch('logistics/loadPendingTransfers', { elementId })
+      },
     },
   },
   activated() {
@@ -911,6 +938,36 @@ export default {
       // Niveau réel (dernier mouvement) prioritaire, sinon la valeur du référentiel
       // (résolue côté serveur depuis le market price lié à la denrée).
       return level?.unitsPerPack || item.unitsPerPack || null
+    },
+    /** BUG-259-02 : transferts entrants en attente pour cette denrée sur cet élément. */
+    pendingTransfersFor(elementId, itemName) {
+      return this.store.getters['logistics/pendingTransfersFor'](elementId, itemName)
+    },
+    openTransferConfirm(transfer, element) {
+      this.transferConfirmTransfer = transfer
+      this.transferConfirmElement = { id: element.id, name: element.name }
+      this.transferConfirmError = null
+      this.transferConfirmDialog = true
+    },
+    async submitTransferConfirm({ movementId, packed, loose }) {
+      if (!this.transferConfirmElement) return
+      this.transferConfirmSaving = true
+      this.transferConfirmError = null
+      try {
+        await this.store.dispatch('logistics/confirmTransfer', {
+          movementId,
+          elementId: this.transferConfirmElement.id,
+          packed,
+          loose,
+        })
+        this.transferConfirmDialog = false
+        this.toast(this.t('logiTransferConfirmed'), 'success')
+      } catch (e) {
+        this.transferConfirmError =
+          e?.response?.data?.message || e?.userMessage || this.t('logiTransferConfirmError')
+      } finally {
+        this.transferConfirmSaving = false
+      }
     },
     /** Comptage du dernier inventaire pour ce (shop, item) — null si absent. */
     countedFor(elementId, item) {
