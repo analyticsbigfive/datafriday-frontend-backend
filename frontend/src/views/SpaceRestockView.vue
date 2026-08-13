@@ -6006,8 +6006,14 @@ export default {
 }
 
 /* fiche 314-01 — groupes par espace de stockage. */
+/* Chantier 317 — le groupe ne posait qu'un padding : les lignes se touchaient,
+   alors que les lignes PDV héritent d'un gap de `.sr-settings-list`. Padding
+   horizontal aligné sur cette même liste (12px, et non 16px). */
 .sr-storage-group {
-  padding: 8px 16px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 4px;
 }
 .sr-storage-group-title {
   display: flex;
@@ -6512,7 +6518,8 @@ export default {
 
 /* L'icône suit la valeur « À déposer » sur la même ligne : l'espacement vient
    du gap de .sr-deposit-main, pas d'une marge (qui se cumulerait). */
-.sr-deposit-help {
+.sr-deposit-help,
+.sr-values-help {
   flex: none;
 }
 
@@ -6885,27 +6892,9 @@ export default {
     width: 100%;
   }
 
-  .sr-setting-row {
-    grid-template-columns: 24px minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .sr-setting-info,
-  .sr-slider-wrap,
-  .sr-values {
-    grid-column: 2;
-  }
-
-  /* Variante storage (sans colonne checkbox) : une seule colonne pleine largeur. */
-  .sr-setting-row.sr-storage-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sr-setting-row.sr-storage-row .sr-setting-info,
-  .sr-setting-row.sr-storage-row .sr-slider-wrap,
-  .sr-setting-row.sr-storage-row .sr-values {
-    grid-column: 1;
-  }
+  /* Les règles de grille des lignes (PDV et storage) sont dans le second
+     `@media (max-width: 760px)` plus bas : elles y étaient dupliquées à
+     l'identique, et c'est la copie tardive qui gagnait. */
 
   .sr-panel-head {
     flex-direction: column;
@@ -8301,6 +8290,38 @@ export default {
 }
 .v-theme--dataFridayDark .space-restock-view .sr-value-ok {
   color: #86efac;
+}
+/* Chantier 317 — les 3 zones des lignes storage. Le nom et les valeurs codent
+   leur couleur en dur côté clair, comme le reste du fichier. */
+.v-theme--dataFridayDark .space-restock-view .sr-storage-name,
+.v-theme--dataFridayDark .space-restock-view .sr-storage-chip strong {
+  color: #e2e8f0;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-chip {
+  color: #94a3b8;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-chip-pack,
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy-label {
+  color: #64748b;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy {
+  background: rgba(255, 49, 49, 0.14);
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy-value {
+  color: #ff8080;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-buy-value.sr-value-ok {
+  color: #86efac;
+}
+/* Les badges d'alerte n'avaient aucune règle sombre : fond pastel clair et
+   texte foncé restaient tels quels sur fond nuit. */
+.v-theme--dataFridayDark .space-restock-view .sr-storage-alert--min {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-storage-alert--max {
+  background: rgba(249, 115, 22, 0.16);
+  color: #fdba74;
 }
 .v-theme--dataFridayDark .space-restock-view .sr-collapse-icon {
   color: #94a3b8;
