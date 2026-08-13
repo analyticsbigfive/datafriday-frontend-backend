@@ -1911,7 +1911,13 @@ export class LogisticsService {
       // transfert confirmées avec écart) : la vue Logistic liste les deux. Les
       // documents 'post-event' ont leur propre liste côté Post-event Inventory
       // (GET /inventory/:spaceId/reconciliations).
-      where: { tenantId, spaceId, kind: { in: [null, 'transfer-loss'] } },
+      // ⚠️ `kind: { in: [null, 'transfer-loss'] }` est invalide côté Prisma : le
+      // tableau d'un filtre `in` sur un champ string n'accepte pas `null` en élément
+      // (seule la propriété `in` elle-même peut être `null`, cf. StringNullableFilter
+      // généré) — compile (build SWC, pas de typecheck) mais lève une
+      // PrismaClientValidationError à l'exécution (500, découvert en test le
+      // 2026-08-13). `OR` est la forme correcte pour combiner null et une valeur.
+      where: { tenantId, spaceId, OR: [{ kind: null }, { kind: 'transfer-loss' }] },
       orderBy: { createdAt: 'desc' },
       select: { id: true, eventId: true, eventName: true, createdAt: true, createdBy: true, lines: true },
     });
