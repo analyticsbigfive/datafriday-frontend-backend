@@ -114,6 +114,52 @@ export async function downloadReconciliationCsv(id, filename = 'reconciliation.c
 }
 
 /**
+ * BUG-259-02 : résumé "Pertes", nombre + quantités perdues (actives par défaut).
+ * GET /logistics/:spaceId/losses/summary?includeArchived=
+ */
+export async function getLossesSummary(spaceId, includeArchived = false) {
+  return api.get(`/logistics/${spaceId}/losses/summary`, { params: includeArchived ? { includeArchived: 'true' } : {} })
+}
+
+/**
+ * BUG-259-02 : liste paginée (cursor) des pertes de transfert.
+ * GET /logistics/:spaceId/losses
+ */
+export async function getLosses(spaceId, { limit, cursor, includeArchived } = {}) {
+  const params = {}
+  if (limit) params.limit = limit
+  if (cursor) params.cursor = cursor
+  if (includeArchived) params.includeArchived = 'true'
+  return api.get(`/logistics/${spaceId}/losses`, { params })
+}
+
+/**
+ * BUG-259-02 : archive ("vide") toutes les pertes actives d'un espace, jamais
+ * supprimées, seulement masquées de la liste par défaut.
+ * POST /logistics/:spaceId/losses/archive
+ */
+export async function archiveLosses(spaceId) {
+  return api.post(`/logistics/${spaceId}/losses/archive`)
+}
+
+/**
+ * BUG-259-02 : export CSV de toutes les pertes (actives + archivées).
+ * GET /logistics/:spaceId/losses/export
+ */
+export async function downloadLossesCsv(spaceId, filename = 'pertes-transfert.csv') {
+  const csv = await api.get(`/logistics/${spaceId}/losses/export`, { responseType: 'blob' })
+  const blob = csv instanceof Blob ? csv : new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+/**
  * QA — simule une vente Weezevent (crée transaction+items synthétiques marqués
  * isSimulated, consommés par getStock exactement comme une vraie vente). Le PDV
  * et chaque menu item doivent déjà être mappés à Weezevent. Permission
