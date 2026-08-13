@@ -6014,6 +6014,8 @@ export default {
   flex-direction: column;
   gap: 6px;
   padding: 8px 12px 4px;
+  /* Même logique @container que .sr-settings-list. */
+  container-type: inline-size;
 }
 .sr-storage-group-title {
   display: flex;
@@ -6355,6 +6357,11 @@ export default {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
+  /* Les lignes réagissent à la largeur de CE conteneur (@container plus bas),
+     pas à celle du viewport : la colonne centrale est comprimée par les deux
+     rails latéraux — à 1210px de fenêtre elle ne fait que ~460px, largeur
+     qu'aucun breakpoint viewport ne sait voir. */
+  container-type: inline-size;
 }
 
 .sr-setting-row {
@@ -6541,20 +6548,12 @@ export default {
    à droite, sinon il se retrouve seul sur sa ligne. */
 @media (max-width: 1400px) {
   /* Lignes PDV uniquement — les lignes storage portent leur achat dans une
-     colonne de grille propre (`.sr-storage-buy`), pas dans `.sr-values`. */
+     colonne de grille propre (`.sr-storage-buy`), pas dans `.sr-values`.
+     Le repli des lignes storage vit dans les blocs @container (fin de
+     section) : lui raisonnait en viewport et ratait la vraie contrainte,
+     la largeur de la colonne centrale. */
   .sr-value-buy {
     margin-left: 0;
-  }
-
-  /* Chantier 317 — sous 1400px, l'encart d'achat passe en rang 2, aligné à
-     droite : trois colonnes deviennent trop serrées pour le curseur. */
-  .sr-setting-row.sr-storage-row {
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
-  }
-
-  .sr-setting-row.sr-storage-row .sr-storage-buy {
-    grid-column: 1 / -1;
-    justify-self: end;
   }
 }
 
@@ -7899,6 +7898,68 @@ export default {
 
   .sr-row-confirmed {
     background: var(--fb-success-soft, #f0fdf4);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Container queries (retour JLH 13/08) — les lignes de l'étape 1 réagissent à
+   la largeur de LEUR COLONNE (`.sr-settings-list` / `.sr-storage-group`,
+   `container-type: inline-size`), pas à celle de la fenêtre : les deux rails
+   latéraux compriment la colonne centrale à ~460px dès 1210px de viewport, où
+   aucun @media ne s'applique. Placés APRÈS les @media pour gagner à
+   spécificité égale ; sur un navigateur sans support, ces blocs sont ignorés
+   et les @media 760px ci-dessus restent le repli.
+   --------------------------------------------------------------------------- */
+
+/* Storage, conteneur intermédiaire : l'encart d'achat passe en rang 2 aligné
+   à droite (reprend l'ancien @media 1400px, en juste). */
+@container (max-width: 699px) {
+  .sr-setting-row.sr-storage-row {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+/* Storage, conteneur étroit : les 3 zones s'empilent. */
+@container (max-width: 459px) {
+  .sr-setting-row.sr-storage-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-id,
+  .sr-setting-row.sr-storage-row .sr-slider-wrap,
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    grid-column: 1;
+    justify-self: stretch;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy {
+    text-align: left;
+  }
+
+  .sr-setting-row.sr-storage-row .sr-storage-buy-label {
+    justify-content: flex-start;
+  }
+}
+
+/* PDV, conteneur étroit : la grille [case | nom | curseur] exige ~528px au
+   minimum (24 + 260 + 220 + gaps) — en dessous, la valeur du curseur sortait
+   de la carte. Empilement identique au @media 760px. */
+@container (max-width: 559px) {
+  .sr-setting-row:not(.sr-storage-row) {
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .sr-setting-row:not(.sr-storage-row) .sr-setting-info,
+  .sr-setting-row:not(.sr-storage-row) .sr-slider-wrap,
+  .sr-setting-row:not(.sr-storage-row) .sr-values {
+    grid-column: 2;
   }
 }
 
