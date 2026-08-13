@@ -2930,6 +2930,11 @@ export default {
             itemKey,
             qty: 0,
             rev: 0,
+            // Transactions (tickets) de la timeline — présentes sur les lignes
+            // d'un event PASSÉ (`loadPastTimeline`), absentes du prédictif : les
+            // consommateurs retombent alors sur la quantité, comme le faisaient
+            // déjà les computeds transactions basés sur les records.
+            tx: 0,
             wpid: r.weezeventProductId || null,
             nameLower,
             shopNorm: normalizeStr(r.shopName || r.elementName) || null,
@@ -2938,12 +2943,18 @@ export default {
         }
         a.qty += Number(r.totalQuantity || r.quantity || 0);
         a.rev += Number(r.totalRevenue || r.revenue || 0);
+        a.tx += Number(r.transactionCount || 0);
         if (!a.wpid && r.weezeventProductId) a.wpid = r.weezeventProductId;
       }
       let predicted = 0;
       let adjusted = 0;
       let predictedCost = 0;
       let adjustedCost = 0;
+      // Transactions : même gate et même slider % que le CA. Panier et
+      // Transformation en dérivent — sans ça ils restaient sur les records du
+      // scoring, muets aux ajustements dès que les ids ne correspondaient pas.
+      let predictedTx = 0;
+      let adjustedTx = 0;
       for (const a of agg.values()) {
         // Shop FERMÉ (connu) → exclu du CA (brut ET ajusté) : on ne vend pas sur
         // un PDV fermé (ex. Auxerre 1B/3ABC). On n'exclut QUE les shops
@@ -2985,8 +2996,13 @@ export default {
         const pct = isSel ? Number(adj[`${a.shopId}-${a.itemKey}`] ?? 100) : 0;
         adjusted += pRev * (pct / 100);
         adjustedCost += pCost * (pct / 100);
+        // Tickets si la timeline les porte (events passés), sinon la quantité —
+        // même repli que `r.transactionCount || r.quantity` côté records.
+        const tx = a.tx > 0 ? a.tx : a.qty;
+        predictedTx += tx;
+        adjustedTx += tx * (pct / 100);
       }
-      return { predicted, adjusted, predictedCost, adjustedCost };
+      return { predicted, adjusted, predictedCost, adjustedCost, predictedTx, adjustedTx };
     },
     totalPredictedRevenue() {
       const t = this.timelineRevenueTotals;
@@ -3019,8 +3035,8 @@ export default {
       // comme son docblock le prévoyait déjà.
       const sk = this.selectedKeySet;
       const elNorm = this.configElementNormNameById;
+      const adj = this.quantityAdjustments || {};
       return this.reconciledRecords.map((r) => {
-        const key = `${r.elementId}-${r.menuItemId}`;
         const mid = r.reconciledMenuItemId || r.menuItemId;
         const shopNorm =
           r.shopKey ||
@@ -3034,7 +3050,18 @@ export default {
           (shopNorm && sk.has(`${shopNorm}|${mid}`)) ||
           (nameLower && sk.has(`${r.elementId}|${nameLower}`)) ||
           (shopNorm && nameLower && sk.has(`${shopNorm}|${nameLower}`));
-        const pct = sel ? Number(this.quantityAdjustments[key] ?? 100) : 0;
+        // Le slider écrit sous `${elementId}-${menuItemId}` (ids de la config).
+        // Un record dont les ids viennent de la timeline ne matchait aucune de
+        // ces clés : pct restait à 100 et l'ajustement n'avait aucun effet. On
+        // essaie les mêmes alias que la gate, première clé connue gagnante.
+        const pctKey = [
+          `${r.elementId}-${r.menuItemId}`,
+          `${r.elementId}-${mid}`,
+          shopNorm ? `${shopNorm}-${mid}` : null,
+          nameLower ? `${r.elementId}-${nameLower}` : null,
+          shopNorm && nameLower ? `${shopNorm}-${nameLower}` : null,
+        ].find((k) => k && adj[k] != null);
+        const pct = sel ? Number(pctKey != null ? adj[pctKey] : 100) : 0;
         const factor = pct / 100;
         return {
           ...r,
@@ -3314,36 +3341,37 @@ export default {
       return this.totalAdjustedRevenue / att;
     },
     transformationRate() {
-      // Approximation : transactions / attendees * 100 (sur records prédits bruts)
+      // Approximation : transactions / attendees * 100.
       const att = this.selectedEvent?.ticketsScanned || this.selectedEvent?.ticketsSold || 0;
-      const transactions = (this.windowedPredictedRecords || []).reduce(
-        (s, r) => s + (r.transactionCount || r.quantity || 0),
-        0,
-      );
       if (!att) return 0;
-      return (transactions / att) * 100;
+      return (this.totalPredictedTransactions / att) * 100;
     },
     /** Transformation rate après ajustements (cf. React eventMetrics.adjustedTransformationRate). */
     adjustedTransformationRate() {
       const att = this.selectedEvent?.ticketsScanned || this.selectedEvent?.ticketsSold || 0;
-      const transactions = (this.windowedAdjustedRecords || []).reduce(
-        (s, r) => s + (r.transactionCount || r.adjustedQuantity || 0),
-        0,
-      );
       if (!att) return 0;
-      return (transactions / att) * 100;
+      return (this.totalAdjustedTransactions / att) * 100;
     },
     /**
      * Total des transactions prédites (brut). Utilisé pour Avg/Transaction
      * (cf. React eventMetrics.avgPerTransaction).
+     *
+     * Source = `timelineRevenueTotals`, comme le CA et le coût : les records du
+     * scoring ne servent plus que de repli (event futur sans timeline). Sans
+     * ça, Panier et Transformation étaient les 2 seuls KPI à lire une source
+     * différente du reste de la colonne — d'où leur incohérence.
      */
     totalPredictedTransactions() {
+      const t = this.timelineRevenueTotals;
+      if (t.predicted > 0) return t.predictedTx;
       return (this.windowedPredictedRecords || []).reduce(
         (s, r) => s + (r.transactionCount || r.quantity || 0),
         0,
       );
     },
     totalAdjustedTransactions() {
+      const t = this.timelineRevenueTotals;
+      if (t.predicted > 0) return t.adjustedTx;
       return (this.windowedAdjustedRecords || []).reduce(
         (s, r) => s + (r.transactionCount || r.adjustedQuantity || 0),
         0,
