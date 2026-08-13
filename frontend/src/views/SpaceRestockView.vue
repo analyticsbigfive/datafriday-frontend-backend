@@ -511,11 +511,12 @@
                 <div class="sr-storage-id">
                   <strong class="sr-storage-name">{{ row.name }}</strong>
                   <div class="sr-storage-chips">
-                    <!-- Priorité visuelle au stock min (rupture) sur le max (capacité). -->
-                    <span v-if="row.nearMin" class="sr-storage-alert sr-storage-alert--min">
-                      <v-icon size="13">mdi-alert</v-icon> {{ t('srStorageNearMin') }}
-                    </span>
-                    <span v-else-if="row.nearMax" class="sr-storage-alert sr-storage-alert--max">
+                    <!-- Retour JLH 13/08 : le badge « Ré-approvisionnement à
+                         considérer en priorité » (nearMin) est retiré — avec un
+                         minStock à 0, `remaining <= 1.1 × min` était vrai sur
+                         toutes les lignes à restant nul : du bruit, pas un
+                         signal. Seule l'alerte de capacité (nearMax) reste. -->
+                    <span v-if="row.nearMax" class="sr-storage-alert sr-storage-alert--max">
                       <v-icon size="13">mdi-alert-outline</v-icon> {{ t('srStorageNearMax') }}
                     </span>
                     <span class="sr-storage-chip">
@@ -2111,7 +2112,6 @@ export default {
                 // Plafond 5× tampon (spec) — jamais sous la valeur courante ni 1.
                 sliderMax: Math.max(Math.ceil(5 * buffer), required, 1),
                 nearMax: maxStock > 0 && remaining >= 0.9 * maxStock,
-                nearMin: minStock != null && remaining <= 1.1 * minStock,
               }
             })
           groups.push({
@@ -2124,12 +2124,13 @@ export default {
       // affiche son message dédié (srStorageNoBuffer) plutôt que de disparaître.
       return groups
     },
-    /** Compteur d'alertes seuils (badge de l'onglet). */
+    /** Compteur d'alertes seuils (badge de l'onglet) — capacité seule, le
+     *  badge nearMin ayant été retiré des lignes (retour JLH 13/08). */
     storageAlertCount() {
       let n = 0
       this.storageRestockGroups.forEach((g) =>
         g.rows.forEach((r) => {
-          if (r.nearMin || r.nearMax) n += 1
+          if (r.nearMax) n += 1
         }),
       )
       return n
@@ -6035,10 +6036,6 @@ export default {
   font-size: 0.72rem;
   font-weight: 700;
 }
-.sr-storage-alert--min {
-  background: #fef2f2;
-  color: #b91c1c;
-}
 .sr-storage-alert--max {
   background: #fff7ed;
   color: #c2410c;
@@ -8376,10 +8373,6 @@ export default {
 }
 /* Les badges d'alerte n'avaient aucune règle sombre : fond pastel clair et
    texte foncé restaient tels quels sur fond nuit. */
-.v-theme--dataFridayDark .space-restock-view .sr-storage-alert--min {
-  background: rgba(239, 68, 68, 0.16);
-  color: #fca5a5;
-}
 .v-theme--dataFridayDark .space-restock-view .sr-storage-alert--max {
   background: rgba(249, 115, 22, 0.16);
   color: #fdba74;
