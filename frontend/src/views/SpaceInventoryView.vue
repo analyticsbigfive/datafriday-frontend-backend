@@ -732,7 +732,7 @@ import {
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 // Contexte évènement du bandeau (nom + date + règle d'ancrage).
-import { describeAnchorEvent } from '@/utils/inventoryEventContext'
+import { describeAnchorEvent, matchLabel } from '@/utils/inventoryEventContext'
 import { parseEventDate } from '@/utils/dateFr'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 
@@ -978,9 +978,13 @@ export default {
       if (!d) return ''
       return d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' })
     },
-    /** Pourquoi CE match : « dernier match terminé » (post) / « prochain match » (pre). */
+    /** Pourquoi CE match : « dernier match terminé » (post) / « Prochain
+     *  Évènement : {match} » (pre, retour JLH 13/08 — le nom du match à venir
+     *  s'affiche, composé des équipes quand elles sont connues). */
     contextAnchorLabel() {
-      return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
+      if (!this.isPreMode) return this.t('invContextAnchorLast')
+      const match = matchLabel(this.contextEvent)
+      return this.t('preInvContextAnchorNext').replace('{match}', match)
     },
     /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
      *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */

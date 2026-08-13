@@ -2035,7 +2035,7 @@ export const translations = {
     // Contexte évènement du bandeau — rend visible l'ancrage automatique
     // « un match = un eventId » (docs/modules/10_POST_EVENT_INVENTORY.md §12.4).
     invContextAnchorLast: 'Last finished match',
-    preInvContextAnchorNext: 'Next match',
+    preInvContextAnchorNext: 'Next event: {match}',
     invContextNoPastEvent: 'No finished match for this space',
     invContextCountsIndependent: 'counts not linked to this match',
     invChangeSpace: 'Change space',
@@ -6452,7 +6452,7 @@ export const translations = {
     invPageTitle: 'Inventaire post-événement',
     // Contexte évènement du bandeau — cf. bloc EN.
     invContextAnchorLast: 'Dernier match terminé',
-    preInvContextAnchorNext: 'Prochain match',
+    preInvContextAnchorNext: 'Prochain Évènement : {match}',
     invContextNoPastEvent: 'Aucun match terminé sur cet espace',
     invContextCountsIndependent: 'comptages non rattachés à ce match',
     invChangeSpace: "Changer d'espace",
