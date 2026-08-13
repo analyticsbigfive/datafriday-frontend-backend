@@ -169,6 +169,67 @@ export class LogisticsController {
       .send(csv);
   }
 
+  // ─── Pertes de transfert (BUG-259-02) ───────────────────────────────────────
+
+  @Get(':spaceId/losses/summary')
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: 'BUG-259-02 : résumé "Pertes", nombre + quantités perdues (actives par défaut)' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiQuery({ name: 'includeArchived', required: false })
+  async getLossesSummary(
+    @Param('spaceId') spaceId: string,
+    @CurrentUser() user: any,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
+    return this.service.getLossesSummary(spaceId, user.tenantId, includeArchived === 'true');
+  }
+
+  @Get(':spaceId/losses')
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: 'BUG-259-02 : liste paginée (cursor) des pertes de transfert' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'includeArchived', required: false })
+  async getLosses(
+    @Param('spaceId') spaceId: string,
+    @CurrentUser() user: any,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
+    const parsedLimit = Number(limit);
+    return this.service.getLosses(
+      spaceId,
+      user.tenantId,
+      Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined,
+      cursor || undefined,
+      includeArchived === 'true',
+    );
+  }
+
+  @Get(':spaceId/losses/export')
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: 'BUG-259-02 : export CSV de toutes les pertes de transfert (actives + archivées)' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async exportLosses(@Param('spaceId') spaceId: string, @CurrentUser() user: any, @Res() reply: FastifyReply) {
+    const csv = await this.service.exportLossesCsv(spaceId, user.tenantId);
+    const day = new Date().toISOString().slice(0, 10);
+    reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="pertes-transfert-${day}.csv"`)
+      .send(csv);
+  }
+
+  @Post(':spaceId/losses/archive')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('front.fb.logisticReconcile')
+  @ApiOperation({ summary: 'BUG-259-02 : archive ("vide") toutes les pertes actives, jamais supprimées' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async archiveLosses(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
+    return this.service.archiveLosses(spaceId, user.tenantId, user.id);
+  }
+
   @Post(':spaceId/simulate-sale')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermissions('front.fb.logisticReconcile')

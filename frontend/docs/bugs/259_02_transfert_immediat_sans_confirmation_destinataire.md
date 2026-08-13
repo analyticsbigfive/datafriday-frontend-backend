@@ -2,7 +2,7 @@
 
 <!-- AA = 02 (Ulrich) -->
 
-- **Statut** : 🟡 Corrigé non testé (code écrit sur `fix/logistique-transferts-composants`, migration Prisma **appliquée** le 2026-08-13 via `pnpm db:deploy` — colonne/index vérifiés en base ; pas de `pnpm dev`/build lancé dans cette session, reste à valider manuellement en navigateur)
+- **Statut** : 🟡 Corrigé non testé (transfert + confirmation + section "Pertes" dédiée, code écrit sur `fix/logistique-transferts-composants`, migrations Prisma appliquées le 2026-08-13 ; pas de `pnpm dev`/build lancé dans cette session, reste à valider manuellement en navigateur après le déploiement de la section Pertes)
 - **Sévérité** : 🟠 Majeur (fiabilité des stocks entre PDV/storage, aucune traçabilité des écarts de transfert)
 - **Domaine** : Stock (Logistique)
 - **Repo(s) concerné(s)** : les deux (`frontend/`, `backend/` — même repo `datafriday-frontend-backend`)
@@ -122,6 +122,38 @@ ce repo utilise SWC, sans typecheck, donc l'erreur Prisma n'apparaît qu'à l'ex
 `OR: [{ kind: null }, { kind: 'transfer-loss' }]`. Déployé sur les 3 branches le 2026-08-13 — reste
 à revérifier en ligne que la perte s'affiche désormais dans le panneau Réconciliation.
 
+## Évolution 2026-08-13 (suite) — section "Pertes" dédiée
+
+Retour d'Ulrich après premier test en ligne : "Pertes" ne doit **pas** vivre sous Réconciliation
+(concepts différents — Réconciliation = écart de comptage, Pertes = écart de transfert). Décisions
+prises avec Ulrich (3 questions posées) : (1) périmètre 100% transferts pour l'instant, pas conçu
+pour absorber DLC/casse dès maintenant ; (2) pas de valorisation € pour l'instant, quantités
+uniquement ; (3) **table dédiée** plutôt que de continuer à réutiliser `StockReconciliation`.
+
+Implémenté :
+- Nouveau modèle `StockTransferLoss` (migration
+  `20260813150000_add_stocktransferloss`, appliquée) : champs explicites
+  `sourceElementId`/`destinationElementId`/`declared*`/`received*`/`lost*`, plus `archivedAt`/
+  `archivedBy` — "vider" = archiver, jamais supprimer (piste d'audit conservée, toujours exportable).
+- `confirmTransfer` écrit désormais dans `StockTransferLoss` au lieu de `StockReconciliation` ;
+  `listReconciliations` revient à `kind: null` uniquement (le mélange introduit puis le bug 500
+  qu'il a causé sont tous les deux annulés par ce même changement).
+- Backend : `GET /logistics/:spaceId/losses/summary` (count + quantités, actives par défaut),
+  `GET /logistics/:spaceId/losses` (liste paginée cursor, comme `getHistory`),
+  `GET /logistics/:spaceId/losses/export` (CSV de tout, actif + archivé),
+  `POST /logistics/:spaceId/losses/archive` (archive tout ce qui est actif). Gatés par
+  `front.fb.logisticReconcile`, comme Réconciliation, pas encore confirmé par Ulrich si c'est le
+  bon niveau d'accès (une perte implique 2 PDV, source ET destination).
+- Frontend : nouveau panneau "Pertes" dans l'aside Logistique (sibling de Réconciliation, résumé +
+  bouton "Voir tout" + bouton télécharger), nouveau drawer `LogisticLossesDrawer.vue` (liste
+  paginée, bouton "Vider" avec confirmation inline, téléchargement).
+
+**Non tranché / à surveiller** : la ligne de test `StockReconciliation` créée avant ce pivot
+(id `cmsrkaf4p0017k88wngk9ywzc`, kind='transfer-loss') est désormais orpheline, plus lue nulle
+part — laissée telle quelle (donnée de test, pas de valeur à préserver). Portée de la permission
+`front.fb.logisticReconcile` sur les pertes à reconfirmer avec Ulrich (visibilité PDV source/
+destination vs espace entier).
+
 ## Risque de régression / à surveiller
 
 - Le retrait des raisons `TRANSFER_SHOP`/`TRANSFER_STORAGE` du mode Ajout ne doit **pas** casser le
@@ -129,9 +161,6 @@ ce repo utilise SWC, sans typecheck, donc l'erreur Prisma n'apparaît qu'à l'ex
 - L'historique existant (transferts déjà réalisés en immédiat, `transferGroupId` déjà posés) doit
   rester lisible tel quel dans `Historique` — pas de migration/backfill à faire sur les
   `StockMovement` déjà créés, seul le comportement des **nouveaux** transferts change.
-- Vérifier l'articulation avec `StockReconciliation.kind` existant (`null` = reset logistique,
-  `'post-event'` = document Post-event) : une 3ᵉ nature de ligne ("perte de transfert") doit être
-  distinguable des deux autres dans `lines`/`meta`.
 
 ## Références
 

@@ -3165,6 +3165,36 @@ model StockReconciliation {
   @@index([tenantId, spaceId, createdAt])
 }
 
+// BUG-259-02 (2026-08-13) : perte constatée à la confirmation d'un transfert
+// (quantité confirmée < quantité déclarée à l'émission). Table dédiée, distincte
+// de StockReconciliation (qui modélise un écart de COMPTAGE, pas un écart de
+// TRANSFERT ; champs explicites source/destination plutôt qu'un `lines` Json
+// générique). `archivedAt` = "vidée" par un utilisateur : jamais supprimée (piste
+// d'audit), seulement masquée de la liste active par défaut.
+model StockTransferLoss {
+  id                   String    @id @default(cuid())
+  tenantId             String
+  spaceId              String
+  itemKey              String
+  sourceElementId      String
+  destinationElementId String
+  unitsPerPack         Float?
+  declaredPacked       Int       @default(0)
+  declaredLoose        Float     @default(0)
+  receivedPacked       Int       @default(0)
+  receivedLoose        Float     @default(0)
+  lostPacked           Int       @default(0)
+  lostLoose            Float     @default(0)
+  transferMovementId   String? // StockMovement source (transferGroupId) d'origine
+  archivedAt           DateTime?
+  archivedBy           String?
+  createdBy            String?
+  createdAt            DateTime  @default(now())
+
+  @@index([tenantId, spaceId, createdAt])
+  @@index([tenantId, spaceId, archivedAt])
+}
+
 // ==================== KV STORE ====================
 
 // Generic key-value store (Event Predict versions, etc.)
