@@ -108,10 +108,19 @@ Remplacer le débit/crédit immédiat par un flux en deux temps :
     `pendingTransfers` par élément.
 
 **Non fait / à valider manuellement** : `pnpm dev` non lancé (règle CLAUDE.md), aucun test
-end-to-end en navigateur. À tester avant merge : émission d'un transfert (débit immédiat de A, rien
-côté B), apparition dans "Transferts en attente" de B, confirmation sans écart (crédite B, pas de
-ligne Réconciliation), confirmation avec écart (crédite B du montant réduit, ligne "Pertes" visible
-dans Réconciliation avec export CSV cohérent).
+end-to-end en navigateur avant déploiement. À tester avant merge : émission d'un transfert (débit
+immédiat de A, rien côté B), apparition dans "Transferts en attente" de B, confirmation sans écart
+(crédite B, pas de ligne Réconciliation), confirmation avec écart (crédite B du montant réduit,
+ligne "Pertes" visible dans Réconciliation avec export CSV cohérent).
+
+**Test en ligne du 2026-08-13 (Ulrich, staging/production)** : émission + confirmation exacte OK,
+crédits corrects. Confirmation avec écart : la perte était bien créée en base (`StockReconciliation`
+kind='transfer-loss', vérifié directement), mais **`GET /logistics/:spaceId/reconciliations`
+renvoyait 500** — `kind: { in: [null, 'transfer-loss'] } }` est un filtre Prisma invalide (un tableau
+`in` sur un champ string n'accepte pas `null` en élément ; compile sans erreur car le build Nest de
+ce repo utilise SWC, sans typecheck, donc l'erreur Prisma n'apparaît qu'à l'exécution). Corrigé en
+`OR: [{ kind: null }, { kind: 'transfer-loss' }]`. Déployé sur les 3 branches le 2026-08-13 — reste
+à revérifier en ligne que la perte s'affiche désormais dans le panneau Réconciliation.
 
 ## Risque de régression / à surveiller
 
