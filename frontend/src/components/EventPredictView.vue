@@ -3020,11 +3020,30 @@ export default {
       // sélection : coché → prédit × slider % (défaut 100) ; décoché → 0. La case
       // est l'unique gate (défaut = attachés). Remplace l'ancien défaut mapStatus
       // unmapped→0 (le prédit/CA brut, lui, garde tous les records).
-      const cfg = this.effectiveMenuConfig || {};
+      //
+      // BUG réunion 13/08 (Panier/Transformation ajustés à 0) : la gate testait
+      // l'inclusion STRICTE d'ids `cfg[elementId].includes(mid)` — ids
+      // cross-config / synthétiques jamais matchés → pct 0 partout →
+      // totalAdjustedTransactions 0. On passe par `selectedKeySet` (2 alias
+      // shop × 2 alias item), la même gate tolérante que timelineRevenueTotals,
+      // comme son docblock le prévoyait déjà.
+      const sk = this.selectedKeySet;
+      const elNorm = this.configElementNormNameById;
       return this.reconciledRecords.map((r) => {
         const key = `${r.elementId}-${r.menuItemId}`;
         const mid = r.reconciledMenuItemId || r.menuItemId;
-        const sel = Array.isArray(cfg[r.elementId]) && cfg[r.elementId].includes(mid);
+        const shopNorm =
+          r.shopKey ||
+          elNorm.get(r.elementId) ||
+          normalizeStr(r.shopName) ||
+          normalizeStr(r.elementName) ||
+          null;
+        const nameLower = r.menuItemName ? String(r.menuItemName).toLowerCase() : null;
+        const sel =
+          sk.has(`${r.elementId}|${mid}`) ||
+          (shopNorm && sk.has(`${shopNorm}|${mid}`)) ||
+          (nameLower && sk.has(`${r.elementId}|${nameLower}`)) ||
+          (shopNorm && nameLower && sk.has(`${shopNorm}|${nameLower}`));
         const pct = sel ? Number(this.quantityAdjustments[key] ?? 100) : 0;
         const factor = pct / 100;
         return {
