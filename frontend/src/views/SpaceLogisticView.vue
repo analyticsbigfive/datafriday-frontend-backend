@@ -346,7 +346,7 @@
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
                   @add="openMovement(drillElement.element, item, 'add')"
                   @remove="openMovement(drillElement.element, item, 'remove')"
-                  @open-transfer="openTransferConfirm($event, drillElement.element)"
+                  @open-transfer="openTransferConfirm($event, drillElement.element, item, unitsPerPackFor(drillElement.element.id, item))"
                 />
               </div>
             </template>
@@ -383,6 +383,8 @@
           v-model="transferConfirmDialog"
           :transfer="transferConfirmTransfer"
           :element-name="transferConfirmElement?.name"
+          :item="transferConfirmItem"
+          :units-per-pack="transferConfirmUnitsPerPack"
           :saving="transferConfirmSaving"
           :error="transferConfirmError"
           @submit="submitTransferConfirm"
@@ -575,6 +577,8 @@ export default {
       transferConfirmDialog: false,
       transferConfirmTransfer: null,
       transferConfirmElement: null,
+      transferConfirmItem: null,
+      transferConfirmUnitsPerPack: null,
       transferConfirmSaving: false,
       transferConfirmError: null,
       // BUG-259-02 : section "Pertes" (drawer liste complète)
@@ -988,9 +992,11 @@ export default {
     pendingTransfersFor(elementId, itemName) {
       return this.store.getters['logistics/pendingTransfersFor'](elementId, itemName)
     },
-    openTransferConfirm(transfer, element) {
+    openTransferConfirm(transfer, element, item, unitsPerPack) {
       this.transferConfirmTransfer = transfer
       this.transferConfirmElement = { id: element.id, name: element.name }
+      this.transferConfirmItem = item || null
+      this.transferConfirmUnitsPerPack = unitsPerPack ?? null
       this.transferConfirmError = null
       this.transferConfirmDialog = true
     },

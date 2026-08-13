@@ -53,9 +53,9 @@
               {{ t('logiLossesFrom') }} {{ loss.sourceElementName }} · {{ t('logiLossesTo') }} {{ loss.destinationElementName }}
             </v-list-item-subtitle>
             <div class="lgl-row-qty">
-              <span>{{ t('logiLossesDeclared') }} : {{ loss.declaredPacked }}<template v-if="loss.declaredLoose"> + {{ formatUnits(loss.declaredLoose) }}</template></span>
-              <span>{{ t('logiLossesReceived') }} : {{ loss.receivedPacked }}<template v-if="loss.receivedLoose"> + {{ formatUnits(loss.receivedLoose) }}</template></span>
-              <span class="lgl-row-lost">{{ t('logiLossesLost') }} : {{ loss.lostPacked }}<template v-if="loss.lostLoose"> + {{ formatUnits(loss.lostLoose) }}</template></span>
+              <span>{{ t('logiLossesDeclared') }} : {{ qtyLabel(loss, loss.declaredPacked, loss.declaredLoose) }}</span>
+              <span>{{ t('logiLossesReceived') }} : {{ qtyLabel(loss, loss.receivedPacked, loss.receivedLoose) }}</span>
+              <span class="lgl-row-lost">{{ t('logiLossesLost') }} : {{ qtyLabel(loss, loss.lostPacked, loss.lostLoose) }}</span>
             </div>
             <div class="lgl-row-date">{{ formatDate(loss.createdAt) }}</div>
           </v-list-item>
@@ -76,6 +76,7 @@ import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { downloadLossesCsv } from '@/api/endpoints/logistics.api'
+import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 export default {
   name: 'LogisticLossesDrawer',
@@ -87,8 +88,8 @@ export default {
   emits: ['update:modelValue', 'toast'],
   setup() {
     const store = useStore()
-    const { t } = useI18n()
-    return { store, t, formatUnits }
+    const { t, locale } = useI18n()
+    return { store, t, locale, formatUnits }
   },
   data() {
     return {
@@ -113,6 +114,14 @@ export default {
       const date = new Date(d)
       if (Number.isNaN(date.getTime())) return ''
       return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
+    },
+    /** BUG-259-02 : quantité + unité (ex. "3 Sacs (0.5 Kg) + 1,2 Kg vrac"). L'item du
+     *  référentiel est résolu par itemKey (pas transmis en prop, contrairement à
+     *  LogisticItemCard qui l'a déjà) ; unitsPerPack vient de la perte elle-même
+     *  (figé au moment du transfert, plus fiable que le référentiel actuel). */
+    qtyLabel(loss, packed, loose) {
+      const item = this.store.getters['logistics/itemByKey'](loss.itemKey)
+      return compactQtyLabel(packed, loose, item, loss.unitsPerPack, this.t, this.locale, formatUnits)
     },
     loadMore() {
       if (!this.spaceId || !this.nextCursor) return

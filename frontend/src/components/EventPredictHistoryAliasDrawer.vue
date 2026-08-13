@@ -23,6 +23,7 @@
           density="compact"
           variant="outlined"
           hide-details
+          :menu-props="{ zIndex: 2500 }"
           :placeholder="t('ephaSourcePlaceholder')"
         />
         <p v-if="suggested && source && suggested === source" class="epha-suggest">
@@ -42,6 +43,7 @@
           density="compact"
           variant="outlined"
           hide-details
+          :menu-props="{ zIndex: 2500 }"
           :placeholder="t('ephaTargetPlaceholder')"
         />
       </div>
