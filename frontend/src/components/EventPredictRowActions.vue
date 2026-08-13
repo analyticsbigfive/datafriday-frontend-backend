@@ -16,12 +16,13 @@
       </button>
     </template>
     <v-list density="compact" class="epra-list" min-width="180">
-      <!-- Variante « header d'article » (vue Par article) : une seule action
-           métier — ajouter l'article à TOUS les PDV proposés dans Space Menus.
-           Les actions par PDV (Remapper/Ajouter/Réactiver/Historique) n'ont pas
-           de sens à ce niveau. -->
+      <!-- Variante « header d'article » (vue Par article) : actions métier au
+           niveau article — ajouter l'article à TOUS les PDV proposés dans Space
+           Menus (si l'assignation est active), et l'alias historique (scopé
+           espace, donc valable pour tous les PDV d'un coup). Remapper/Ajouter/
+           Réactiver restent par PDV. -->
       <v-list-item
-        v-if="variant === 'item-header'"
+        v-if="variant === 'item-header' && allowAssignAll"
         class="epra-item"
         :disabled="assignAllDisabled"
         :title="assignAllDisabled ? t('epraAssignAllDone') : undefined"
@@ -51,9 +52,10 @@
         <v-list-item-title>Space Menus</v-list-item-title>
       </v-list-item>
       <!-- Alias « historique emprunté » (maquettes 08/2026) : proposer de
-           reprendre l'historique d'un autre article — lignes orphelines. -->
+           reprendre l'historique d'un autre article — lignes orphelines (row)
+           et header d'article (alias scopé espace → tous les PDV). -->
       <v-list-item
-        v-if="variant === 'row' && allowHistory"
+        v-if="allowHistory"
         class="epra-item epra-item--history"
         @click.stop="$emit('use-history')"
       >
@@ -86,6 +88,9 @@ export default {
     historyOnly: { type: Boolean, default: false },
     // item-header : grise l'action bulk quand l'article est déjà proposé partout.
     assignAllDisabled: { type: Boolean, default: false },
+    // item-header : masque l'action bulk (ex. assignation Space Menus inactive
+    // sur la config) tout en laissant le kebab pour Historique + Space Menus.
+    allowAssignAll: { type: Boolean, default: true },
   },
   emits: ['remap', 'add', 'open-space-menus', 'use-history', 'assign-all'],
 }

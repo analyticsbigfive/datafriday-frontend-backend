@@ -839,15 +839,21 @@
                   </div>
                   <!-- Kebab niveau ARTICLE (demande maquette 08/2026) : ajouter
                        l'article à TOUS les PDV proposés dans Space Menus en un
-                       clic. Masqué pour un item hors catalogue (le backend
-                       ignorerait silencieusement l'id) ou si aucune assignation
-                       Space Menus n'est active sur la config. Les kebabs par
-                       PDV plus bas restent inchangés. -->
+                       clic, et alias historique (scopé espace → mappe l'article
+                       pour tous les PDV d'un coup). Masqué pour un item hors
+                       catalogue (targetMenuItemId invalide, le backend
+                       ignorerait silencieusement l'id) ; l'action bulk seule
+                       est masquée si aucune assignation Space Menus n'est
+                       active sur la config. Les kebabs par PDV plus bas
+                       restent inchangés. -->
                   <EventPredictRowActions
-                    v-if="assignmentFeatureActive() && spaceCatalogIdSet.has(String(entry.menuItemId))"
+                    v-if="spaceCatalogIdSet.has(String(entry.menuItemId))"
                     variant="item-header"
+                    :allow-assign-all="assignmentFeatureActive()"
                     :assign-all-disabled="isItemAssignedEverywhere(entry.menuItemId)"
+                    allow-history
                     @assign-all="$emit('assign-item-all-shops', { menuItemId: entry.menuItemId, itemName: entry.menuItem.name })"
+                    @use-history="$emit('history-alias-request', { item: { id: entry.menuItemId, name: entry.menuItem.name } })"
                     @open-space-menus="goToSpaceMenus"
                   />
                   <button
