@@ -66,7 +66,7 @@
     </div>
 
     <!-- BUG-259-02 : transferts émis vers cet élément pour cette denrée, en attente
-         de confirmation — cliquer ouvre le drawer de confirmation (quantités éditables). -->
+         de confirmation. Cliquer ouvre le drawer de confirmation (quantités éditables). -->
     <div v-if="pendingTransfers.length" class="lg-pending-transfers">
       <div class="lg-pending-title">{{ t('logiPendingTransfersTitle') }}</div>
       <button
@@ -78,7 +78,7 @@
       >
         <span class="lg-pending-info">
           {{ t('logiPendingTransferFrom') }} : {{ pt.sourceElementName }}
-          <strong class="ml-1">{{ pt.declaredPacked }}<span v-if="pt.declaredLoose"> + {{ formatUnits(pt.declaredLoose) }}</span></strong>
+          <strong class="ml-1">{{ pendingTransferQtyLabel(pt) }}</strong>
         </span>
         <v-icon size="18" color="success">mdi-arrow-right-circle</v-icon>
       </button>
@@ -102,6 +102,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 const { t, locale } = useI18n()
 
@@ -169,6 +170,12 @@ function formatTotal(packed, loose) {
   if (!upp) return '—'
   const total = (Number(packed) || 0) * upp + (Number(loose) || 0)
   return formatUnits(total)
+}
+
+/** BUG-259-02 : quantité + unité d'un transfert en attente (ex. "3 Sacs (0.5 Kg)"),
+ *  même denrée que la carte donc mêmes item/unitsPerPack déjà en props. */
+function pendingTransferQtyLabel(pt) {
+  return compactQtyLabel(pt.declaredPacked, pt.declaredLoose, props.item, props.unitsPerPack, t, locale.value, formatUnits)
 }
 </script>
 

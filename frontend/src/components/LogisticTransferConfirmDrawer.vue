@@ -25,7 +25,7 @@
 
             <div class="lgtc-field-row">
               <div class="lgtc-field">
-                <div class="lgtc-label">{{ t('logiPacked') }}</div>
+                <div class="lgtc-label">{{ packedFieldLabel }}</div>
                 <v-text-field
                   v-model.number="form.packed"
                   type="number"
@@ -37,10 +37,10 @@
                   rounded="lg"
                   hide-details
                 />
-                <div class="lgtc-declared">{{ t('logiDeclaredQty') }} : {{ transfer?.declaredPacked ?? 0 }}</div>
+                <div class="lgtc-declared">{{ t('logiDeclaredQty') }} : {{ transfer?.declaredPacked ?? 0 }}<span v-if="unitsPerPack"> ({{ unitsPerPack }} {{ item?.unit }})</span></div>
               </div>
               <div class="lgtc-field">
-                <div class="lgtc-label">{{ t('logiLoose') }}</div>
+                <div class="lgtc-label">{{ looseFieldLabel }}</div>
                 <v-text-field
                   v-model.number="form.loose"
                   type="number"
@@ -52,7 +52,7 @@
                   rounded="lg"
                   hide-details
                 />
-                <div class="lgtc-declared">{{ t('logiDeclaredQty') }} : {{ transfer?.declaredLoose ?? 0 }}</div>
+                <div class="lgtc-declared">{{ t('logiDeclaredQty') }} : {{ formatUnits(transfer?.declaredLoose ?? 0) }}<span v-if="item?.unit"> {{ item.unit }}</span></div>
               </div>
             </div>
 
@@ -89,6 +89,8 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import { formatUnits } from '@/composables/useFormatters'
+import { packedLabel, looseUnitLabel } from '@/composables/useLogisticUnitLabels'
 
 export default {
   name: 'LogisticTransferConfirmDrawer',
@@ -96,13 +98,17 @@ export default {
     modelValue: { type: Boolean, default: false },
     transfer: { type: Object, default: null },
     elementName: { type: String, default: '' },
+    /** Denrée du référentiel (unit/packagingType), pour afficher "3 Sacs de 0.5 Kg"
+     *  plutôt que le mot générique "Packed", même logique que LogisticItemCard. */
+    item: { type: Object, default: null },
+    unitsPerPack: { type: [Number, String], default: null },
     saving: { type: Boolean, default: false },
     error: { type: String, default: null },
   },
   emits: ['update:modelValue', 'submit'],
   setup() {
-    const { t } = useI18n()
-    return { t }
+    const { t, locale } = useI18n()
+    return { t, locale, formatUnits }
   },
   data() {
     return {
@@ -110,6 +116,12 @@ export default {
     }
   },
   computed: {
+    packedFieldLabel() {
+      return packedLabel(this.item, this.unitsPerPack, this.t, this.locale)
+    },
+    looseFieldLabel() {
+      return looseUnitLabel(this.item, this.t)
+    },
     hasShortfall() {
       const declaredPacked = Number(this.transfer?.declaredPacked) || 0
       const declaredLoose = Number(this.transfer?.declaredLoose) || 0
