@@ -84,6 +84,20 @@
       </button>
     </div>
 
+    <!-- BUG-259-02 (retour Ulrich, 2026-08-13) : transferts émis PAR cet élément,
+         encore en attente de confirmation côté destinataire, trace visible côté
+         source, informative uniquement (seul le destinataire confirme). -->
+    <div v-if="outgoingPendingTransfers.length" class="lg-outgoing-transfers">
+      <div class="lg-outgoing-title">{{ t('logiOutgoingTransfersTitle') }}</div>
+      <div v-for="ot in outgoingPendingTransfers" :key="ot.movementId" class="lg-outgoing-row">
+        <v-icon size="16" color="warning">mdi-clock-outline</v-icon>
+        <span class="lg-outgoing-info">
+          {{ t('logiOutgoingTransferTo') }} : {{ ot.destinationElementName }}
+          <strong class="ml-1">{{ pendingTransferQtyLabel(ot) }}</strong>
+        </span>
+      </div>
+    </div>
+
     <div class="lg-item-actions">
       <v-btn class="lg-btn-add" variant="flat" size="small" @click="$emit('add', item)">
         <v-icon size="16" class="mr-1">mdi-plus</v-icon>
@@ -121,6 +135,10 @@ const props = defineProps({
   /** BUG-259-02 : transferts entrants en attente pour cette denrée sur cet élément —
    *  [{movementId, sourceElementName, declaredPacked, declaredLoose, createdAt}]. */
   pendingTransfers: { type: Array, default: () => [] },
+  /** BUG-259-02 : transferts sortants émis par cet élément, encore en attente de
+   *  confirmation côté destinataire : [{movementId, destinationElementName,
+   *  declaredPacked, declaredLoose, createdAt}]. */
+  outgoingPendingTransfers: { type: Array, default: () => [] },
 })
 
 defineEmits(['add', 'remove', 'open-transfer'])
@@ -326,4 +344,30 @@ function pendingTransferQtyLabel(pt) {
 }
 .lg-pending-row:hover { background: var(--fb-success-soft, #f0fdf4); }
 .lg-pending-info { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lg-outgoing-transfers {
+  border-top: 1px dashed var(--fb-border, #e5e7eb);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lg-outgoing-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--fb-faint, #9ca3af);
+}
+.lg-outgoing-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--fb-radius-control, 8px);
+  padding: 6px 10px;
+  background: var(--fb-warning-soft, #fffbeb);
+  font-size: 0.78rem;
+  color: var(--fb-text, #212121);
+}
+.lg-outgoing-info { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

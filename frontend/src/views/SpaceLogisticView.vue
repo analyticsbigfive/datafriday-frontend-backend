@@ -344,6 +344,7 @@
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
+                  :outgoing-pending-transfers="outgoingPendingTransfersFor(drillElement.element.id, item.name)"
                   @add="openMovement(drillElement.element, item, 'add')"
                   @remove="openMovement(drillElement.element, item, 'remove')"
                   @open-transfer="openTransferConfirm($event, drillElement.element, item, unitsPerPackFor(drillElement.element.id, item))"
@@ -991,6 +992,10 @@ export default {
     /** BUG-259-02 : transferts entrants en attente pour cette denrée sur cet élément. */
     pendingTransfersFor(elementId, itemName) {
       return this.store.getters['logistics/pendingTransfersFor'](elementId, itemName)
+    },
+    /** BUG-259-02 : transferts émis par cet élément, encore en attente côté destinataire. */
+    outgoingPendingTransfersFor(elementId, itemName) {
+      return this.store.getters['logistics/outgoingPendingTransfersFor'](elementId, itemName)
     },
     openTransferConfirm(transfer, element, item, unitsPerPack) {
       this.transferConfirmTransfer = transfer

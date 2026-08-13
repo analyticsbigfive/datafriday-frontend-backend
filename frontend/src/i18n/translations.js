@@ -2216,6 +2216,8 @@ export const translations = {
     // BUG-259-02 : transfert avec confirmation par le destinataire
     logiPendingTransfersTitle: 'Pending transfers to confirm',
     logiPendingTransferFrom: 'From',
+    logiOutgoingTransfersTitle: 'Sent, awaiting confirmation',
+    logiOutgoingTransferTo: 'To',
     logiConfirmTransferTitle: 'Confirm transfer',
     logiConfirmTransferHint: 'Adjust the quantities if you received less than declared. The difference will be logged as a loss.',
     logiDeclaredQty: 'Declared',
@@ -6625,6 +6627,8 @@ export const translations = {
     // BUG-259-02 : transfert avec confirmation par le destinataire
     logiPendingTransfersTitle: 'Transferts en attente de confirmation',
     logiPendingTransferFrom: 'Provenance',
+    logiOutgoingTransfersTitle: 'Envoyés, en attente de confirmation',
+    logiOutgoingTransferTo: 'Destination',
     logiConfirmTransferTitle: 'Confirmer le transfert',
     logiConfirmTransferHint: 'Modifiez les quantités si vous avez reçu moins que déclaré. L’écart sera journalisé comme une perte.',
     logiDeclaredQty: 'Déclaré',
