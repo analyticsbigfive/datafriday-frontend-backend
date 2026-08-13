@@ -23,7 +23,7 @@
           density="compact"
           variant="outlined"
           hide-details
-          :menu-props="{ zIndex: 2500 }"
+          :menu-props="{ class: 'epha-select-overlay' }"
           :placeholder="t('ephaSourcePlaceholder')"
         />
         <p v-if="suggested && source && suggested === source" class="epha-suggest">
@@ -43,7 +43,7 @@
           density="compact"
           variant="outlined"
           hide-details
-          :menu-props="{ zIndex: 2500 }"
+          :menu-props="{ class: 'epha-select-overlay' }"
           :placeholder="t('ephaTargetPlaceholder')"
         />
       </div>
@@ -218,6 +218,19 @@ export default {
   },
 }
 </script>
+
+<style>
+/* Menus des deux autocompletes, PAR CLASSE et non par le prop zIndex : `useStack`
+   de Vuetify n'honore le prop que si la pile globale d'overlays est vide — un
+   overlay encore enregistré (kebab v-menu, tooltip) et le menu retombe à
+   `lastZIndex + 10` (~2010), SOUS le drawer forcé à 2200 (EventDrawerShell).
+   Symptôme : chevron inversé, menu « vide », aucune erreur — même bug que
+   BUG-241 (CsvImportDrawer), même correctif : classe posée sur le `.v-overlay`
+   externe via menu-props + z-index !important, insensible à la pile. */
+.epha-select-overlay {
+  z-index: 2300 !important;
+}
+</style>
 
 <style scoped>
 .epha-scroll {
