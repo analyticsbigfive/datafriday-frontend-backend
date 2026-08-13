@@ -62,9 +62,10 @@ const state = () => ({
   consumption: {}, // { `${elementId}::${itemKey}`: quantity (unités loose vendues) }
   anchor: null, // { at, reconciliationId } | null
   reconciliations: [],
-  // BUG-259-02 : transferts en attente de confirmation, par élément destinataire —
-  // { [elementId]: Array<{movementId, itemKey, sourceElementId, sourceElementName,
-  //   declaredPacked, declaredLoose, createdAt}> }
+  // BUG-259-02 : transferts PENDING par élément, dans les deux sens :
+  // { [elementId]: { incoming: [...], outgoing: [...] } }. incoming = émis vers cet
+  // élément (à confirmer ici) ; outgoing = émis par cet élément, encore en attente
+  // côté destinataire (garde une trace visible côté source jusqu'à validation).
   pendingTransfers: {},
   // BUG-259-02 : section "Pertes" (distincte de Réconciliation), résumé (count +
   // quantités) et liste paginée (cursor), actives par défaut.
@@ -87,9 +88,16 @@ const getters = {
   storageElements: (state) => state.elements.filter((e) => e.type === 'storage'),
   levelFor: (state) => (elementId, itemKey) => state.levels[keyOf(elementId, itemKey)] || null,
   consumedFor: (state) => (elementId, itemKey) => state.consumption[keyOf(elementId, itemKey)] || 0,
-  /** BUG-259-02 : transferts en attente pour un élément, filtrés par denrée (itemKey). */
+  /** BUG-259-02 : transferts entrants (à confirmer ici) pour un élément, filtrés par denrée. */
   pendingTransfersFor: (state) => (elementId, itemKey) => {
-    const all = state.pendingTransfers[elementId] || []
+    const all = state.pendingTransfers[elementId]?.incoming || []
+    if (!itemKey) return all
+    const key = String(itemKey).trim().toLowerCase()
+    return all.filter((t) => String(t.itemKey ?? '').trim().toLowerCase() === key)
+  },
+  /** BUG-259-02 : transferts sortants (émis par cet élément, en attente ailleurs), filtrés par denrée. */
+  outgoingPendingTransfersFor: (state) => (elementId, itemKey) => {
+    const all = state.pendingTransfers[elementId]?.outgoing || []
     if (!itemKey) return all
     const key = String(itemKey).trim().toLowerCase()
     return all.filter((t) => String(t.itemKey ?? '').trim().toLowerCase() === key)
@@ -151,14 +159,20 @@ const mutations = {
   },
   SET_RECONCILIATIONS(state, v) { state.reconciliations = Array.isArray(v) ? v : [] },
   SET_ACTIVE_RUN(state, v) { state.activeRun = v || null },
-  SET_PENDING_TRANSFERS(state, { elementId, transfers }) {
-    state.pendingTransfers = { ...state.pendingTransfers, [elementId]: Array.isArray(transfers) ? transfers : [] }
-  },
-  REMOVE_PENDING_TRANSFER(state, { elementId, movementId }) {
-    const current = state.pendingTransfers[elementId] || []
+  SET_PENDING_TRANSFERS(state, { elementId, incoming, outgoing }) {
     state.pendingTransfers = {
       ...state.pendingTransfers,
-      [elementId]: current.filter((t) => t.movementId !== movementId),
+      [elementId]: { incoming: Array.isArray(incoming) ? incoming : [], outgoing: Array.isArray(outgoing) ? outgoing : [] },
+    }
+  },
+  REMOVE_PENDING_TRANSFER(state, { elementId, movementId }) {
+    const current = state.pendingTransfers[elementId] || { incoming: [], outgoing: [] }
+    state.pendingTransfers = {
+      ...state.pendingTransfers,
+      [elementId]: {
+        incoming: current.incoming.filter((t) => t.movementId !== movementId),
+        outgoing: current.outgoing.filter((t) => t.movementId !== movementId),
+      },
     }
   },
   SET_LOSSES_SUMMARY(state, v) {
@@ -252,11 +266,11 @@ const actions = {
   /** BUG-259-02 : transferts en attente de confirmation ciblant cet élément. */
   async loadPendingTransfers({ commit }, { elementId }) {
     try {
-      const transfers = await getPendingTransfers(elementId)
-      commit('SET_PENDING_TRANSFERS', { elementId, transfers: Array.isArray(transfers) ? transfers : [] })
+      const data = await getPendingTransfers(elementId)
+      commit('SET_PENDING_TRANSFERS', { elementId, incoming: data?.incoming, outgoing: data?.outgoing })
     } catch (e) {
       console.error('[logistics] 🚚❌ loadPendingTransfers ÉCHEC —', e?.response?.status, e?.message)
-      commit('SET_PENDING_TRANSFERS', { elementId, transfers: [] })
+      commit('SET_PENDING_TRANSFERS', { elementId, incoming: [], outgoing: [] })
     }
   },
 

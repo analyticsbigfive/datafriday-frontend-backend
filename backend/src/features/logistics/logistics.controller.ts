@@ -93,8 +93,12 @@ export class LogisticsController {
   }
 
   @Get('element/:elementId/pending-transfers')
-  @ApiOperation({ summary: 'BUG-259-02 : transferts émis vers cet élément, en attente de confirmation.' })
-  @ApiParam({ name: 'elementId', description: 'ID du SpaceElement destinataire' })
+  @ApiOperation({
+    summary:
+      'BUG-259-02 : transferts PENDING impliquant cet élément, renvoie { incoming, outgoing } : incoming = ' +
+      'émis vers cet élément (à confirmer ici), outgoing = émis par cet élément (en attente ailleurs).',
+  })
+  @ApiParam({ name: 'elementId', description: 'ID du SpaceElement' })
   async getPendingTransfers(@Param('elementId') elementId: string, @CurrentUser() user: any) {
     return this.service.getPendingTransfersForElement(elementId, user.tenantId);
   }
