@@ -1050,49 +1050,49 @@
         <!-- Tableau de synthèse (chantier 310) : Prédictif / Ajusté ×
              CA · Coût · Marge. Coût = Matières + Staff (staffing/totals),
              Marge = (CA − coût global) / CA — décision produit 08/2026. -->
+        <!-- Retouche 13/08 : une ligne PAR MÉTRIQUE au lieu d'un tableau
+             4 colonnes. Les 3 colonnes de montants ne tenaient pas dans le
+             rail (360px) : la colonne Marge sortait de la carte et l'
+             `overflow: hidden` la tronquait. Empilé, plus rien à faire tenir
+             côte à côte, et le bloc parle le même langage que les cartes KPI
+             (label muted, valeur prédite, « Ajusté » en rouge dessous). -->
         <div class="ep-synth">
-          <table>
-            <thead>
-              <tr>
-                <th></th>
-                <th>{{ t('epTotalRevenueHt') }}</th>
-                <th>{{ t('epMetricCost') }}</th>
-                <th>{{ t('epMetricMargin') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{{ t('epSynthPredicted') }}</td>
-                <td>
-                  <template v-if="predictedReady">{{ formatCurrency(totalPredictedRevenue) }}</template>
-                  <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
-                </td>
-                <td>
-                  <template v-if="predictedReady && staffingReady">{{ formatCurrencyDetailed(totalPredictedCostGlobal) }}</template>
-                  <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
-                </td>
-                <td>
-                  <template v-if="predictedReady && staffingReady">{{ predictedMargin.toFixed(2) }}%</template>
-                  <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
-                </td>
-              </tr>
-              <tr class="ep-synth-adjusted">
-                <td>{{ t('epmAdjusted') }}</td>
-                <td>
-                  <template v-if="adjustedReady">{{ formatCurrency(totalAdjustedRevenue) }}</template>
-                  <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
-                </td>
-                <td>
-                  <template v-if="adjustedReady && staffingReady">{{ formatCurrencyDetailed(totalAdjustedCostGlobal) }}</template>
-                  <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
-                </td>
-                <td>
-                  <template v-if="adjustedReady && staffingReady">{{ adjustedMargin.toFixed(2) }}%</template>
-                  <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="ep-synth-row">
+            <span class="ep-synth-label">{{ t('epTotalRevenueHt') }}</span>
+            <span class="ep-synth-value" :title="t('epSynthPredicted')">
+              <template v-if="predictedReady">{{ formatCurrency(totalPredictedRevenue) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
+            </span>
+            <span class="ep-synth-adj-label">{{ t('epmAdjusted') }}</span>
+            <span class="ep-synth-adj-value">
+              <template v-if="adjustedReady">{{ formatCurrency(totalAdjustedRevenue) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
+            </span>
+          </div>
+          <div class="ep-synth-row">
+            <span class="ep-synth-label">{{ t('epMetricCost') }}</span>
+            <span class="ep-synth-value" :title="t('epSynthPredicted')">
+              <template v-if="predictedReady && staffingReady">{{ formatCurrencyDetailed(totalPredictedCostGlobal) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
+            </span>
+            <span class="ep-synth-adj-label">{{ t('epmAdjusted') }}</span>
+            <span class="ep-synth-adj-value">
+              <template v-if="adjustedReady && staffingReady">{{ formatCurrencyDetailed(totalAdjustedCostGlobal) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
+            </span>
+          </div>
+          <div class="ep-synth-row">
+            <span class="ep-synth-label">{{ t('epMetricMargin') }}</span>
+            <span class="ep-synth-value" :title="t('epSynthPredicted')">
+              <template v-if="predictedReady && staffingReady">{{ predictedMargin.toFixed(2) }}%</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
+            </span>
+            <span class="ep-synth-adj-label">{{ t('epmAdjusted') }}</span>
+            <span class="ep-synth-adj-value">
+              <template v-if="adjustedReady && staffingReady">{{ adjustedMargin.toFixed(2) }}%</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
+            </span>
+          </div>
         </div>
         <div class="ep-metrics-grid">
           <!-- Coût Staff (chantier 310) — remplace la carte CA total, le CA
@@ -8234,7 +8234,9 @@ export default {
   position: relative;
   overflow: hidden;
   margin-bottom: 12px;
-  padding: 4px 2px;
+  /* Les lignes portent leur propre padding (dont le retrait à gauche qui
+     dégage le liseré). */
+  padding: 2px 0;
 }
 .ep-synth::before {
   content: "";
@@ -8243,44 +8245,48 @@ export default {
   width: 3px;
   background: #4f46e5;
 }
-.ep-synth table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 0.82rem;
+/* Une ligne par métrique : libellé + valeur prédite, « Ajusté » dessous. Le
+   libellé est le seul élément élastique (il s'ellipse), les montants gardent
+   `nowrap` — c'est ce qui garantit qu'aucun chiffre n'est tronqué, quelle que
+   soit la largeur du rail. */
+.ep-synth-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 9px 12px 9px 14px;
 }
-.ep-synth th {
-  font-size: 0.72rem;
-  font-weight: 750;
-  color: var(--fb-muted, #64748b);
-  text-align: right;
-  padding: 8px 10px 4px;
-}
-.ep-synth th:first-child {
-  text-align: left;
-  padding-left: 14px;
-}
-.ep-synth td {
-  padding: 4px 10px 8px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  font-size: 0.86rem;
-  color: var(--fb-text, #0f172a);
-}
-.ep-synth td:first-child {
-  text-align: left;
-  font-weight: 750;
-  font-size: 0.72rem;
-  color: var(--fb-muted, #64748b);
-  padding-left: 14px;
-}
-.ep-synth .ep-synth-adjusted td {
-  color: #4338ca;
+.ep-synth-row + .ep-synth-row {
   border-top: 1px solid var(--fb-border, #e2e8f0);
-  padding-top: 8px;
 }
-.ep-synth .ep-synth-adjusted td:first-child {
+.ep-synth-label {
+  font-size: 0.75rem;
+  font-weight: 750;
   color: var(--fb-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-synth-value {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--fb-text, #0f172a);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ep-synth-adj-label {
+  font-size: 0.7rem;
+  color: var(--fb-muted, #64748b);
+}
+.ep-synth-adj-value {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #4338ca;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .ep-metric-card {
   background: var(--fb-surface, #ffffff);
@@ -9357,16 +9363,17 @@ export default {
   background: var(--ep-surface);
   border-color: var(--ep-border);
 }
-.ep-synth th,
-.ep-synth td:first-child,
-.ep-synth .ep-synth-adjusted td:first-child {
+.ep-synth-label,
+.ep-synth-adj-label {
   color: var(--ep-muted);
 }
-.ep-synth td {
+.ep-synth-value {
   color: var(--ep-text);
 }
-.ep-synth .ep-synth-adjusted td {
+.ep-synth-adj-value {
   color: var(--ep-primary);
+}
+.ep-synth-row + .ep-synth-row {
   border-color: var(--ep-border);
 }
 
