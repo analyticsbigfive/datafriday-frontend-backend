@@ -526,7 +526,10 @@
                       class="sr-slider"
                       @input="setStorageAdjustment(row.key, $event.target.value)"
                     />
-                    <span class="sr-slider-value">{{ formatLooseQuantity(row.required, row.unit) }}</span>
+                    <span class="sr-slider-value">
+                      {{ formatLooseQuantity(row.required, row.unit) }}
+                      <span v-if="storagePackedEquivalent(row, row.required)" class="sr-pack-equiv">({{ storagePackedEquivalent(row, row.required) }})</span>
+                    </span>
                     <button
                       v-if="row.adjusted"
                       type="button"
@@ -540,14 +543,17 @@
                   <span class="sr-value">
                     <span class="sr-value-label">{{ t('srStorageBuffer') }}</span>
                     <strong class="sr-value-num">{{ formatLooseQuantity(row.buffer, row.unit) }}</strong>
+                    <span v-if="storagePackedEquivalent(row, row.buffer)" class="sr-pack-equiv">({{ storagePackedEquivalent(row, row.buffer) }})</span>
                   </span>
                   <span class="sr-value">
                     <span class="sr-value-label">{{ t('srStorageRemaining') }}</span>
                     <strong class="sr-value-num">{{ formatLooseQuantity(row.remaining, row.unit) }}</strong>
+                    <span v-if="storagePackedEquivalent(row, row.remaining)" class="sr-pack-equiv">({{ storagePackedEquivalent(row, row.remaining) }})</span>
                   </span>
                   <span class="sr-value">
                     <span class="sr-value-label">{{ t('srStorageRequired') }}</span>
                     <strong class="sr-value-num" :class="{ 'sr-value-ok': !(row.required > 0) }">{{ formatLooseQuantity(row.required, row.unit) }}</strong>
+                    <span v-if="storagePackedEquivalent(row, row.required)" class="sr-pack-equiv">({{ storagePackedEquivalent(row, row.required) }})</span>
                   </span>
                   <span class="sr-value sr-value-buy">
                     <span class="sr-value-label">{{ t('srStorageToOrder') }}</span>
@@ -2130,6 +2136,35 @@ export default {
       this.storageRestockGroups.forEach((group) =>
         group.rows.forEach((row) => {
           out[row.key] = this.storageBuyInfo(row)
+        }),
+      )
+      return out
+    },
+    /**
+     * Conditionnement « Information inventaire » mémoïsé par ligne storage —
+     * résolu UNE fois par ligne (la résolution balaye les catalogues), puis
+     * consommé par storagePackedEquivalent pour chaque cellule affichée.
+     * Quantité 1 : seule la taille du colis compte ici, pas packedCount.
+     *
+     * Les Market Prices sont ajoutés au balayage POUR CES LIGNES SEULEMENT :
+     * une réserve saisie dans le Builder est une ligne libre (`isCustom`, pas de
+     * menuItemId) dont le nom ne correspond à aucune recette — « Coca-Cola
+     * Original - CAN 33CL » n'existe que côté catalogue d'achat, qui porte
+     * justement le conditionnement (inventoryPackaging + packedUnits). Les
+     * lignes PDV gardent la résolution recette, inchangée.
+     */
+    storagePackagingByKey() {
+      const out = {}
+      this.storageRestockGroups.forEach((group) =>
+        group.rows.forEach((row) => {
+          out[row.key] = computePackagingForQuantity(
+            { itemId: row.menuItemId || undefined, itemName: row.name, unit: row.unit },
+            1,
+            this.ingredients,
+            this.components,
+            this.menuItems,
+            this.marketPrices,
+          )
         }),
       )
       return out
@@ -4379,9 +4414,16 @@ export default {
           unknown: false,
         }
       }
-      const packaging = this.packagingForItem(
+      // Même résolution que storagePackagingByKey (Market Prices inclus) : sans
+      // ça « À commander » restait en unités brutes sur les réserves libres,
+      // alors que la ligne juste au-dessus affichait déjà ses colis.
+      const packaging = computePackagingForQuantity(
         { itemId: row.menuItemId || undefined, itemName: row.name, unit: row.unit },
         row.required,
+        this.ingredients,
+        this.components,
+        this.menuItems,
+        this.marketPrices,
       )
       if (!packaging) {
         return {
@@ -4403,6 +4445,29 @@ export default {
         covered: false,
         unknown: false,
       }
+    },
+    /**
+     * Équivalent « Information inventaire » d'une quantité storage :
+     * « 250 Packs de 4 pc ». Valeur EXACTE (1 décimale si non entière) —
+     * contrairement à « À commander » (storageBuyInfo) qui arrondit au colis
+     * SUPÉRIEUR : tampon/restant/nécessaire décrivent un état, pas un achat.
+     * Chaîne vide si le conditionnement ne se résout pas — l'appelant garde
+     * alors le nombre brut seul.
+     */
+    storagePackedEquivalent(row, quantity) {
+      const qty = Number(quantity) || 0
+      if (!(qty > 0)) return ''
+      const packaging = this.storagePackagingByKey[row.key]
+      const packSize = packSizeForPackaging(packaging)
+      if (!packSize) return ''
+      const count = Math.round((qty / packSize) * 10) / 10
+      const type = pluralizePackLabel(
+        packaging.packagingType || this.t('srDepositPackSuffix'),
+        count,
+      )
+      const size = this.depositPackSizeLabel({ packaging, unit: row.unit })
+      const label = `${count.toLocaleString('fr-FR')} ${type}`
+      return size ? `${label} ${this.t('srDepositHelpOf')} ${size}` : label
     },
     /**
      * Catalogue /suppliers complet (id → nom/contact). Extrait
@@ -6301,6 +6366,17 @@ export default {
   background: #fff;
 }
 
+/* Lignes storage : PAS de checkbox, donc pas de colonne 26px — sans cette
+   règle, l'auto-placement met le nom dans la colonne de la case (26px) et il
+   s'affiche un caractère par ligne. */
+.sr-setting-row.sr-storage-row {
+  grid-template-columns: minmax(160px, 1fr) minmax(190px, 280px);
+}
+
+.sr-setting-row.sr-storage-row .sr-values {
+  grid-column: 1 / -1;
+}
+
 .sr-setting-info {
   min-width: 0;
   display: flex;
@@ -6375,6 +6451,22 @@ export default {
   font-weight: 700;
   color: var(--sr-text, #212121);
   font-variant-numeric: tabular-nums;
+}
+
+/* Équivalent « Information inventaire » (« (250 Packs de 4 pc) ») en
+   secondaire à côté du nombre brut — ne doit pas concurrencer la valeur. */
+.sr-pack-equiv {
+  color: var(--sr-muted, #6b7280);
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* La valeur du slider storage porte aussi l'équivalent conditionnement :
+   la largeur fixe (44px) prévue pour un nombre seul ne suffit plus. */
+.sr-storage-row .sr-slider-value {
+  width: auto;
+  min-width: 44px;
 }
 
 .sr-value-ok {
@@ -6805,6 +6897,16 @@ export default {
     grid-column: 2;
   }
 
+  /* Variante storage (sans colonne checkbox) : une seule colonne pleine largeur. */
+  .sr-setting-row.sr-storage-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sr-setting-row.sr-storage-row .sr-setting-info,
+  .sr-setting-row.sr-storage-row .sr-slider-wrap,
+  .sr-setting-row.sr-storage-row .sr-values {
+    grid-column: 1;
+  }
 
   .sr-panel-head {
     flex-direction: column;
@@ -7612,6 +7714,16 @@ export default {
     grid-column: 2;
   }
 
+  /* Variante storage (sans colonne checkbox) : une seule colonne pleine largeur. */
+  .sr-setting-row.sr-storage-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sr-setting-row.sr-storage-row .sr-setting-info,
+  .sr-setting-row.sr-storage-row .sr-slider-wrap,
+  .sr-setting-row.sr-storage-row .sr-values {
+    grid-column: 1;
+  }
 
   .sr-panel-head-actions {
     align-items: stretch;
@@ -8078,6 +8190,9 @@ export default {
    seules les couleurs codées en dur sont reprises ici. */
 .v-theme--dataFridayDark .space-restock-view .sr-value-num {
   color: #cbd5e1;
+}
+.v-theme--dataFridayDark .space-restock-view .sr-pack-equiv {
+  color: #94a3b8;
 }
 .v-theme--dataFridayDark .space-restock-view .sr-value-ok {
   color: #86efac;
