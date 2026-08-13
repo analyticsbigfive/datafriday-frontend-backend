@@ -1821,22 +1821,30 @@ export default {
       }
     },
 
+    /**
+     * Normalise une valeur de comptage avant le store. Négatif interdit
+     * (backend @Min(0)) ; les COLIS sont forcés à l'entier — le backend les
+     * valide @IsInt, et un « 2,5 » colis tapé au clavier partait tel quel en
+     * API pour revenir en 400 silencieux. Le vrac reste décimal (Float en
+     * base), arrondi à 2 décimales à l'émission par le composant de comptage.
+     */
+    normalizeCountValue(field, rawValue) {
+      if (field === 'storageLocation') return rawValue
+      const num = Math.max(0, Number(rawValue) || 0)
+      return field === 'packedUnits' ? Math.round(num) : num
+    },
     onCountInput(shopId, itemId, field, evt) {
-      const isText = field === 'storageLocation'
-      // packed/loose ne peuvent pas être négatifs (validation backend @Min(0)).
-      const value = isText ? evt.target.value : Math.max(0, Number(evt.target.value) || 0)
+      const value = this.normalizeCountValue(field, evt.target.value)
       const patch = { [field]: value }
       // Quand l'utilisateur saisit une valeur >0 sans avoir cliqué "compté",
       // on conserve l'état isCounted tel quel (parité React).
       this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
     },
     onCountValue(shopId, itemId, field, rawValue) {
-      const isText = field === 'storageLocation'
-      const value = isText ? rawValue : Math.max(0, Number(rawValue) || 0)
       this.store.dispatch('inventory/upsertCount', {
         shopId,
         itemId,
-        patch: { [field]: value },
+        patch: { [field]: this.normalizeCountValue(field, rawValue) },
       })
     },
     markCounted(shopId, itemId, counted) {
