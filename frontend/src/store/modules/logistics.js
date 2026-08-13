@@ -94,6 +94,21 @@ const getters = {
     const key = String(itemKey).trim().toLowerCase()
     return all.filter((t) => String(t.itemKey ?? '').trim().toLowerCase() === key)
   },
+  /**
+   * Item du référentiel (unit/packagingType/unitsPerPack) résolu par nom, pour
+   * les écrans qui n'ont que l'itemKey (Pertes) et pas l'objet item complet
+   * (contrairement à LogisticItemCard, qui le reçoit déjà en prop). Le référentiel
+   * est le même pour tous les éléments : on s'arrête au premier match.
+   */
+  itemByKey: (state) => (itemKey) => {
+    const key = String(itemKey ?? '').trim().toLowerCase()
+    if (!key) return null
+    for (const el of state.elements) {
+      const found = (el.items || []).find((it) => String(it.name ?? '').trim().toLowerCase() === key)
+      if (found) return found
+    }
+    return null
+  },
   /** Stock attendu affiché (packed/loose) après ventes + casse de pack. */
   expectedFor: (state, getters) => (elementId, itemKey) => {
     const level = getters.levelFor(elementId, itemKey)
