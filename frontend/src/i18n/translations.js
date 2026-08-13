@@ -2034,7 +2034,7 @@ export const translations = {
     invPageTitle: 'Post-event Inventory',
     // Contexte évènement du bandeau — rend visible l'ancrage automatique
     // « un match = un eventId » (docs/modules/10_POST_EVENT_INVENTORY.md §12.4).
-    invContextAnchorLast: 'Last finished match',
+    invContextAnchorLast: 'Post-event inventory of: {match}',
     preInvContextAnchorNext: 'Next event: {match}',
     preInvExpectedBadge: 'Expected',
     invContextNoPastEvent: 'No finished match for this space',
@@ -2194,8 +2194,6 @@ export const translations = {
     logiAvailable: 'Available',
     logiReason: 'Reason',
     logiReasonDelivery: 'Delivery',
-    logiReasonFromShop: 'Transfer from a shop',
-    logiReasonFromStorage: 'Transfer from a storage',
     logiReasonToShop: 'Transfer to a shop',
     logiReasonToStorage: 'Transfer to a storage',
     logiReasonExpiry: 'Expiry date (best before)',
@@ -6452,7 +6450,7 @@ export const translations = {
     invAllCountedToast: 'tous les articles sont comptés ✓',
     invPageTitle: 'Inventaire post-événement',
     // Contexte évènement du bandeau — cf. bloc EN.
-    invContextAnchorLast: 'Dernier match terminé',
+    invContextAnchorLast: 'Post Inventaire de l\'évènement : {match}',
     preInvContextAnchorNext: 'Prochain Évènement : {match}',
     preInvExpectedBadge: 'Attendu',
     invContextNoPastEvent: 'Aucun match terminé sur cet espace',
@@ -6613,8 +6611,6 @@ export const translations = {
     logiAvailable: 'Disponible',
     logiReason: 'Raison',
     logiReasonDelivery: 'Livraison',
-    logiReasonFromShop: "Transfert d'un PDV",
-    logiReasonFromStorage: "Transfert d'un Storage",
     logiReasonToShop: 'Transfert vers un PDV',
     logiReasonToStorage: 'Transfert vers un Storage',
     logiReasonExpiry: 'Date Limite de Consommation',

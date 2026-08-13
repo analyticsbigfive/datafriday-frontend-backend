@@ -332,7 +332,7 @@
           :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :expected-section-units="expectedSectionUnitsFor(countingShop.element.id)"
+          :expected-section-units="expectedSectionUnitsFor(countingShop)"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -623,7 +623,7 @@
           :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :expected-section-units="expectedSectionUnitsFor(countingShop.element.id)"
+          :expected-section-units="expectedSectionUnitsFor(countingShop)"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -725,7 +725,7 @@ import {
 } from '@/api/endpoints/inventory.api'
 import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 import { aggregateExpectedUnitsByElement } from '@/utils/restockPlanSnapshot'
-import { buildPreEventExpected, expectedKey } from '@/utils/preEventExpected'
+import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -985,13 +985,14 @@ export default {
       if (!d) return ''
       return d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' })
     },
-    /** Pourquoi CE match : « dernier match terminé » (post) / « Prochain
-     *  Évènement : {match} » (pre, retour JLH 13/08 — le nom du match à venir
-     *  s'affiche, composé des équipes quand elles sont connues). */
+    /** Pourquoi CE match (retours JLH 13/08) : les deux modes nomment leur
+     *  match d'ancrage, composé des équipes quand elles sont connues —
+     *  pre : « Prochain Évènement : {match} » (match à venir),
+     *  post : « Post Inventaire de l'évènement : {match} » (dernier terminé). */
     contextAnchorLabel() {
-      if (!this.isPreMode) return this.t('invContextAnchorLast')
       const match = matchLabel(this.contextEvent)
-      return this.t('preInvContextAnchorNext').replace('{match}', match)
+      return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
+        .replace('{match}', match)
     },
     /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
      *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */
@@ -2100,9 +2101,16 @@ export default {
         console.warn('[INVENTORY] expected plan load failed:', err?.message)
       }
     },
-    /** Segments « Attendu » d'une section : [{unit, total}] ou null. */
-    expectedSectionUnitsFor(elementId) {
-      const agg = this.expectedUnitsByElement[String(elementId)]
+    /** Segments « Attendu » d'une section : [{unit, total}] ou null.
+     *  Pre : agrégat du Stockup sauvegardé. Post : somme de l'indice serveur
+     *  (ventes déduites = pre-event + Logistic) sur les articles de la section. */
+    expectedSectionUnitsFor(entry) {
+      if (!this.isPreMode) {
+        return aggregateExpectedUnitsFromIndex(this.postExpectedUnits, entry, {
+          fallbackUnit: this.t('invCountUnitFallback'),
+        })
+      }
+      const agg = this.expectedUnitsByElement[String(entry?.element?.id)]
       return agg && agg.length ? agg : null
     },
     /**
