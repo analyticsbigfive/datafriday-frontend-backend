@@ -45,14 +45,17 @@
                   class="inv-qty__input"
                   type="number"
                   min="0"
-                  :value="quantityFor(line.name)"
-                  @change="(e) => setQuantity(line.name, e.target.value)"
+                  :step="packInfoFor(line.name) ? '0.01' : '1'"
+                  :value="displayValue(line.name, quantityFor(line.name))"
+                  @change="(e) => setQuantity(line.name, toRaw(line.name, e.target.value))"
                 />
-                <span v-if="line.unit" class="inv-qty__unit">{{ line.unit }}</span>
+                <span v-if="qtyUnitLabel(line.name)" class="inv-qty__unit">{{ qtyUnitLabel(line.name) }}</span>
               </div>
             </div>
 
-            <!-- Jauge : quantity vs maxStock (capacité), alerte sous minStock -->
+            <!-- Jauge : quantity vs maxStock (capacité), alerte sous minStock. Min/Max
+                 saisis en "information d'inventaire" (packs) quand un Market Price connu
+                 fixe le conditionnement, sinon repli sur l'unité de recette brute. -->
             <div class="inv-bounds">
               <label class="inv-bounds__field">
                 <span>Min</span>
@@ -60,8 +63,9 @@
                   class="inv-bounds__input"
                   type="number"
                   min="0"
-                  :value="boundsFor(line.name).min ?? ''"
-                  @change="(e) => setBound(line.name, 'minStock', e.target.value)"
+                  :step="packInfoFor(line.name) ? '0.01' : '1'"
+                  :value="displayValue(line.name, boundsFor(line.name).min ?? '')"
+                  @change="(e) => setBound(line.name, 'minStock', toRaw(line.name, e.target.value))"
                 />
               </label>
               <label class="inv-bounds__field">
@@ -70,8 +74,9 @@
                   class="inv-bounds__input"
                   type="number"
                   min="0"
-                  :value="boundsFor(line.name).max ?? ''"
-                  @change="(e) => setBound(line.name, 'maxStock', e.target.value)"
+                  :step="packInfoFor(line.name) ? '0.01' : '1'"
+                  :value="displayValue(line.name, boundsFor(line.name).max ?? '')"
+                  @change="(e) => setBound(line.name, 'maxStock', toRaw(line.name, e.target.value))"
                 />
               </label>
               <div v-if="gaugeFor(line.name)" class="inv-gauge" :title="gaugeTitle(line.name)">
@@ -81,6 +86,9 @@
                   :style="{ width: gaugeFor(line.name).pct + '%' }"
                 />
               </div>
+            </div>
+            <div v-if="packInfoFor(line.name)" class="inv-pack-hint">
+              {{ packHintLabel(line.name) }}
             </div>
 
             <!-- Used in / Sold in : shop → menu items (vide pour les articles merch) -->
@@ -129,9 +137,11 @@
                   class="inv-qty__input"
                   type="number"
                   min="0"
-                  :value="row.quantity"
-                  @change="(e) => setQuantity(row.name, e.target.value)"
+                  :step="packInfoFor(row.name) ? '0.01' : '1'"
+                  :value="displayValue(row.name, row.quantity)"
+                  @change="(e) => setQuantity(row.name, toRaw(row.name, e.target.value))"
                 />
+                <span v-if="qtyUnitLabel(row.name)" class="inv-qty__unit">{{ qtyUnitLabel(row.name) }}</span>
               </div>
               <button class="inv-card__remove" :title="t('b2Remove')" @click="removeManual(row.name)">
                 <v-icon icon="mdi-close" size="13" />
@@ -144,8 +154,9 @@
                   class="inv-bounds__input"
                   type="number"
                   min="0"
-                  :value="boundsFor(row.name).min ?? ''"
-                  @change="(e) => setBound(row.name, 'minStock', e.target.value)"
+                  :step="packInfoFor(row.name) ? '0.01' : '1'"
+                  :value="displayValue(row.name, boundsFor(row.name).min ?? '')"
+                  @change="(e) => setBound(row.name, 'minStock', toRaw(row.name, e.target.value))"
                 />
               </label>
               <label class="inv-bounds__field">
@@ -154,8 +165,9 @@
                   class="inv-bounds__input"
                   type="number"
                   min="0"
-                  :value="boundsFor(row.name).max ?? ''"
-                  @change="(e) => setBound(row.name, 'maxStock', e.target.value)"
+                  :step="packInfoFor(row.name) ? '0.01' : '1'"
+                  :value="displayValue(row.name, boundsFor(row.name).max ?? '')"
+                  @change="(e) => setBound(row.name, 'maxStock', toRaw(row.name, e.target.value))"
                 />
               </label>
               <div v-if="gaugeFor(row.name)" class="inv-gauge" :title="gaugeTitle(row.name)">
@@ -164,6 +176,9 @@
                   :class="{ 'inv-gauge__fill--low': gaugeFor(row.name).low }"
                   :style="{ width: gaugeFor(row.name).pct + '%' }"
                 />
+              </div>
+              <div v-if="packInfoFor(row.name)" class="inv-pack-hint">
+                {{ packHintLabel(row.name) }}
               </div>
             </div>
           </div>
@@ -188,17 +203,19 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watch } from 'vue'
+import { ref, computed, inject, watch, onMounted } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
 import { putElementInventory } from '@/api/endpoints/builder-v2.api'
 import { getStorageInventory } from '@/api/endpoints/menu.api'
+import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { normalizeType } from '../../../constants/elementTaxonomy'
+import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
 
 const FB_STORAGE_TYPES = ['dry', 'cold', 'belowzero']
 const STOCKABLE_TYPES = new Set(['shop', 'merchshop'])
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const store = inject('builderStore')
 const element = computed(() => store.selectedElement.value)
 const configKey = computed(() => store.state.activeConfigId || '')
@@ -282,6 +299,71 @@ function boundsFor(name) {
   const r = rowByName.value.get(name)
   return { min: r?.minStock ?? null, max: r?.maxStock ?? null }
 }
+
+// Retour Ulrich (2026-08-13) : quantité/Min/Max étaient saisies en unité de recette
+// BRUTE (ex. "1000 Pc"), sans rapport avec le conditionnement réel de l'article
+// (ex. cartons de 24). Résolu ici en "information d'inventaire" (packs) via le
+// même champ MarketPrice.packedUnits que Logistique, chargé une fois, par nom
+// (plusieurs Market Price peuvent partager un nom ; on prend la première ligne
+// avec un packedUnits renseigné, même repli que resolveUnitsPerPackForItemKey côté
+// backend). Repli silencieux sur l'unité brute si aucun Market Price ne matche.
+const marketPrices = ref([])
+onMounted(async () => {
+  try {
+    const list = await getMarketPrices()
+    marketPrices.value = Array.isArray(list) ? list : (list?.data || list?.marketPrices || [])
+  } catch (err) {
+    marketPrices.value = []
+  }
+})
+const packInfoByName = computed(() => {
+  const map = new Map()
+  for (const mp of marketPrices.value) {
+    const key = String(mp?.itemName ?? '').trim().toLowerCase()
+    if (!key || !mp?.packedUnits) continue
+    if (!map.has(key)) map.set(key, { unitsPerPack: mp.packedUnits, packagingType: mp.inventoryPackaging ?? null })
+  }
+  return map
+})
+function packInfoFor(name) {
+  const key = String(name ?? '').trim().toLowerCase()
+  return packInfoByName.value.get(key) || null
+}
+/** Valeur affichée dans le champ : packs si connu, sinon la valeur brute inchangée. */
+function displayValue(name, raw) {
+  if (raw === '' || raw == null) return raw
+  const info = packInfoFor(name)
+  if (!info?.unitsPerPack) return raw
+  return Math.round((Number(raw) / info.unitsPerPack) * 100) / 100
+}
+/** Valeur brute à persister depuis la saisie (inverse de displayValue). */
+function toRaw(name, displayVal) {
+  const trimmed = String(displayVal).trim()
+  if (trimmed === '') return ''
+  const info = packInfoFor(name)
+  if (!info?.unitsPerPack) return trimmed
+  return Math.round(Number(trimmed) * info.unitsPerPack * 100) / 100
+}
+/** Chip courte à côté du champ Quantité (ex. "Cartons" au lieu de "Pc"). */
+function qtyUnitLabel(name) {
+  const info = packInfoFor(name)
+  if (!info) {
+    const line = typeMatched.value.find((l) => l.name === name)
+    return line?.unit || null
+  }
+  const type = translatePackagingType(info.packagingType, locale.value)
+  return type ? pluralize(type) : t('b2InventoryPacksWord')
+}
+/** Ligne d'aide sous Min/Max (ex. "Cartons de 24 Pc"). */
+function packHintLabel(name) {
+  const info = packInfoFor(name)
+  if (!info) return ''
+  const line = typeMatched.value.find((l) => l.name === name) || manualRows.value.find((r) => r.name === name)
+  const type = translatePackagingType(info.packagingType, locale.value)
+  const word = type ? pluralize(type) : t('b2InventoryPacksWord')
+  return `${word} ${t('logiPackagingOf')} ${info.unitsPerPack} ${line?.unit || ''}`.trim()
+}
+
 // Jauge honnête : remplissage = quantity / maxStock (capacité saisie), rouge sous minStock.
 function gaugeFor(name) {
   const { min, max } = boundsFor(name)
@@ -567,6 +649,12 @@ function removeManual(name) {
   transition: width 0.2s ease, background 0.2s ease;
 }
 .inv-gauge__fill--low { background: #ff3131; }
+
+.inv-pack-hint {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: #9ca3af;
+}
 
 /* Used in / Sold in : shop → menu items */
 .inv-used {

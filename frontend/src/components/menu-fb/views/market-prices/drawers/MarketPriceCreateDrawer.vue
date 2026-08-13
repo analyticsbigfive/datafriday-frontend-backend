@@ -1126,6 +1126,15 @@ export default {
           supplierItem: this.form.supplierItem,
           industrialId: this.form.industrialId || null,
           recipeUnit: this.form.recipeUnit,
+          // BUG (2026-08-13, retour Ulrich) : absent de ce payload, une nouvelle ligne
+          // fournisseur ("+ Add Supplier") était créée avec purchaseUnitConversion=null
+          // en base, donc le Recipe Unit Cost retombait sur le prix non converti (facteur
+          // 1 par repli, cf. computeRecipeCosts côté backend et computedRecipeUnitCost
+          // côté front) tant que l'article parent n'était pas rouvert et resauvegardé
+          // (seul MarketPriceEditDrawer.vue patche ce champ, en masse, sur toutes les
+          // lignes du groupe). this.form.purchaseUnitConversion est déjà hérité du groupe
+          // dans reset() : il ne manquait que son envoi ici.
+          purchaseUnitConversion: Number(this.form.purchaseUnitConversion) || 1,
           purchasePackaging: this.form.purchasePackaging || '',
           inventoryPackaging: this.form.inventoryPackaging || '',
           unitsPerPurchase: Number(this.form.unitsPerPurchase) || 0,

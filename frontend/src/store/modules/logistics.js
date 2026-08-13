@@ -240,7 +240,7 @@ const actions = {
    * contrepartie éventuelle) qu'on merge — pas de reload complet. Re-throw pour
    * que le dialog affiche l'erreur et reste ouvert.
    */
-  async createMovement({ commit }, movement) {
+  async createMovement({ commit, dispatch }, movement) {
     commit('SET_SAVING', true)
     try {
       const res = await createStockMovement(movement)
@@ -249,6 +249,13 @@ const actions = {
       _stockSeq += 1
       commit('UPSERT_LEVEL', res?.level)
       commit('UPSERT_LEVEL', res?.counterpartyLevel)
+      // BUG-259-02 : un transfert émis doit apparaître dans "Envoyés, en attente de
+      // confirmation" côté source sans avoir à recharger la page : recharge les
+      // transferts en attente de l'élément source juste après l'émission.
+      const isTransfer = movement.reason === 'TRANSFER_SHOP' || movement.reason === 'TRANSFER_STORAGE'
+      if (isTransfer && movement.elementId) {
+        dispatch('loadPendingTransfers', { elementId: movement.elementId })
+      }
       return res
     } catch (e) {
       console.error('[logistics] 📤❌ createMovement ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
