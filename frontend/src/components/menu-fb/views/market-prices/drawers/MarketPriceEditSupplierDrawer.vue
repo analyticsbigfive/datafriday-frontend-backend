@@ -28,6 +28,15 @@
               <input id="mpesd-supplierItem" v-model="form.supplierItem" type="text" class="form-control mpesd-input" />
             </div>
 
+            <!-- Storage Type (défini au niveau du prix fournisseur) -->
+            <div class="mpesd-field-row" style="margin-bottom: 14px;">
+              <label for="mpesd-storageType" class="mpesd-field-label">{{ t('storageType') }}</label>
+              <select id="mpesd-storageType" v-model="form.storageType" class="form-select mpesd-input">
+                <option value="">—</option>
+                <option v-for="opt in storageTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+            </div>
+
             <!-- Item Name (read-only) -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
               <label for="mpesd-itemName" class="mpesd-field-label">{{ t('itemName') }} <span class="mpesd-required">*</span></label>
@@ -452,6 +461,7 @@ export default {
         unit: '',
         recipeUnit: '',
         inventoryPackaging: '',
+        storageType: '',
         unitsPerPurchase: 0,
         price: 0,
         pricePerUnit: 0,
@@ -466,6 +476,7 @@ export default {
           editSupplierItem: 'Edit Supplier Item',
           editSupplierSubtitle: 'Update supplier, pricing and packaging',
           supplierItemName: 'Supplier Item Name',
+          storageType: 'Storage Type',
           itemName: 'Item Name',
           supplier: 'Supplier',
           addSupplier: 'Add a supplier',
@@ -520,6 +531,7 @@ export default {
           editSupplierItem: "Modifier l'article fournisseur",
           editSupplierSubtitle: 'Mettre à jour fournisseur, prix et emballage',
           supplierItemName: "Nom de l'article fournisseur",
+          storageType: 'Type de stockage',
           itemName: "Nom de l'article",
           supplier: 'Fournisseur',
           addSupplier: 'Ajouter un fournisseur',
@@ -574,6 +586,11 @@ export default {
     };
   },
   computed: {
+    storageTypeOptions() {
+      return (this.$store.getters['storageTypes/storageTypes'] || [])
+        .map((s) => String(s?.name ?? '').trim())
+        .filter(Boolean);
+    },
     localOpen: {
       get() { return this.modelValue; },
       set(val) { this.$emit('update:modelValue', val); },
@@ -648,6 +665,7 @@ export default {
           recipeUnit: this.item?.recipeUnit || this.row?.recipeUnit || '',
           purchasePackaging: this.row?.purchasePackaging || '',
           inventoryPackaging: this.row?.inventoryPackaging || '',
+          storageType: this.row?.storageType || '',
           unitsPerPurchase: Number(this.row?.unitsPerPurchase) || 0,
           price: Number(this.row?.price) || 0,
           pricePerUnit: Number(this.row?.pricePerUnit) || 0,
@@ -671,6 +689,7 @@ export default {
   },
   mounted() {
     window.addEventListener('locale-changed', this.handleLocaleChange);
+    this.$store.dispatch('storageTypes/fetchStorageTypes');
   },
   beforeUnmount() {
     window.removeEventListener('locale-changed', this.handleLocaleChange);
@@ -850,6 +869,7 @@ export default {
           recipeUnit: this.form.recipeUnit || '',
           purchasePackaging: this.form.purchasePackaging || '',
           inventoryPackaging: this.form.inventoryPackaging || '',
+          storageType: this.form.storageType || '',
           unitsPerPurchase: Number(this.form.unitsPerPurchase) || 0,
           price: Number(this.form.price) || 0,
           pricePerUnit: Number(this.form.pricePerUnit) || 0,

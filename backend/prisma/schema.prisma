@@ -1165,6 +1165,7 @@ model MarketPrice {
   packingLength          Float?
   purchasePackaging      String? // Emballage d'achat ("Item is purchased in", ex: Box)
   inventoryPackaging     String? // Emballage de stockage ("Item is stored in", ex: Bag)
+  storageType            String? // Type de stockage (référentiel StorageType : Dry/Cold/Frozen) défini au niveau du prix fournisseur (supplier item)
   // Taxonomie dynamique propre à Market Price (séparée de Menu Item).
   // `goodType` (texte libre, ex-enum) reste le discriminateur fonctionnel qui
   // pilote l'auto-création Ingredient/Packaging quand il vaut littéralement

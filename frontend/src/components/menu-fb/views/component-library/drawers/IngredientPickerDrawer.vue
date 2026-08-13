@@ -323,7 +323,7 @@ export default {
         quantity:         1,
         unitCost:         Number(r.costPerRecipeUnit || 0),
         cost:             Number(r.costPerRecipeUnit || 0),
-        storageType:      this.getStorageTypeForCategory(r.category),
+        storageType:      r.storageType || this.getStorageTypeForCategory(r.category),
         supplier_id:      r.supplier_id,
         supplierName:     r.supplierName,
         supplierItemName: r.supplierItemName,
@@ -376,6 +376,7 @@ export default {
         costPerRecipeUnit,
         supplier_id:             marketPrice?.supplierRel?.id ?? marketPrice?.supplier_id ?? marketPrice?.supplierId ?? null,
         createdAt:               marketPrice?.createdAt || null,
+        storageType:             String(marketPrice?.storageType ?? '').trim(),
       };
     },
     getStorageTypeForCategory(cat) {
