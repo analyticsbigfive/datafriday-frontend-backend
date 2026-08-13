@@ -92,6 +92,23 @@ export class CreateMovementDto {
   menuItemId?: string;
 }
 
+/** BUG-259-02 : confirmation d'un transfert PENDING. Omis = quantités déclarées à l'émission. */
+export class ConfirmTransferDto {
+  @ApiPropertyOptional({ description: 'Packs réellement reçus (défaut : quantité déclarée à l’émission)' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  packed?: number;
+
+  @ApiPropertyOptional({ description: 'Vrac réellement reçu (défaut : quantité déclarée à l’émission)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  loose?: number;
+}
+
 export class ResetLineDto {
   @ApiProperty({ description: 'ID du PDV ou storage (SpaceElement)' })
   @IsString()

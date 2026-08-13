@@ -18,7 +18,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { LogisticsService } from './logistics.service';
-import { CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
+import { ConfirmTransferDto, CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
 import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-run.dto';
 
 @ApiTags('Logistics')
@@ -76,6 +76,27 @@ export class LogisticsController {
       `POST /logistics/movements element=${dto.elementId} item="${dto.itemKey}" ${dto.direction} reason=${dto.reason}`,
     );
     return this.service.createMovement(dto, user.tenantId, user.id);
+  }
+
+  @Post('movements/:id/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "BUG-259-02 : confirme un transfert PENDING — crédite la contrepartie des quantités confirmées " +
+      "(déclarées par défaut, ou modifiées) et clôt la ligne source. Un écart entre déclaré et confirmé " +
+      'est journalisé comme perte dans une StockReconciliation (kind=transfer-loss).',
+  })
+  @ApiParam({ name: 'id', description: 'ID du StockMovement source (PENDING)' })
+  async confirmTransfer(@Param('id') id: string, @Body() dto: ConfirmTransferDto, @CurrentUser() user: any) {
+    this.logger.log(`POST /logistics/movements/${id}/confirm`);
+    return this.service.confirmTransfer(id, dto, user.tenantId, user.id);
+  }
+
+  @Get('element/:elementId/pending-transfers')
+  @ApiOperation({ summary: 'BUG-259-02 : transferts émis vers cet élément, en attente de confirmation.' })
+  @ApiParam({ name: 'elementId', description: 'ID du SpaceElement destinataire' })
+  async getPendingTransfers(@Param('elementId') elementId: string, @CurrentUser() user: any) {
+    return this.service.getPendingTransfersForElement(elementId, user.tenantId);
   }
 
   @Get('element/:elementId/history')
