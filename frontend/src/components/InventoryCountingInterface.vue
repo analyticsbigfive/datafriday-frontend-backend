@@ -117,7 +117,7 @@
     </div>
 
     <div v-else class="si-counting-grid">
-      <v-card
+      <div
         v-for="item in shop.consolidatedInventory"
         :key="item.id"
         class="si-count-item"
@@ -125,7 +125,6 @@
           'si-count-item-done': isItemCounted(shop.element.id, item.id),
           'si-count-item-collapsed': mobile && !isExpanded(item.id),
         }"
-        variant="outlined"
       >
         <div
           class="si-count-row"
@@ -153,10 +152,10 @@
               </div>
             </div>
           </div>
-          <v-chip v-if="isItemCounted(shop.element.id, item.id)" color="success" size="x-small" variant="tonal">
-            <v-icon size="14" class="mr-1">mdi-check-circle</v-icon>
+          <span v-if="isItemCounted(shop.element.id, item.id)" class="si-count-badge">
+            <v-icon size="13" class="mr-1">mdi-check-circle</v-icon>
             {{ t('invCountCounted') }}
-          </v-chip>
+          </span>
           <v-icon v-if="mobile" size="20" class="si-count-chevron">
             {{ isExpanded(item.id) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}
           </v-icon>
@@ -164,24 +163,23 @@
 
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs">
           <div class="si-count-field">
-            <v-text-field
-              :model-value="fieldDisplay(shop.element.id, item.id, 'packedUnits')"
-              type="text"
-              inputmode="numeric"
-              :label="packedUnitsLabel(item)"
-              density="compact"
-              variant="outlined"
-              hide-details
-              @update:model-value="onFieldInput(shop.element.id, item.id, 'packedUnits', $event)"
-              @blur="onFieldBlur(shop.element.id, item.id, 'packedUnits')"
-            >
-              <template #prepend-inner>
-                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">mdi-minus</v-icon>
-              </template>
-              <template #append-inner>
-                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">mdi-plus</v-icon>
-              </template>
-            </v-text-field>
+            <label class="si-count-label">{{ packedUnitsLabel(item) }}</label>
+            <div class="si-count-stepper">
+              <button type="button" class="si-step" aria-label="-" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">
+                <v-icon size="16">mdi-minus</v-icon>
+              </button>
+              <input
+                class="form-control si-count-input"
+                type="text"
+                inputmode="numeric"
+                :value="fieldDisplay(shop.element.id, item.id, 'packedUnits')"
+                @input="onFieldInput(shop.element.id, item.id, 'packedUnits', $event.target.value)"
+                @blur="onFieldBlur(shop.element.id, item.id, 'packedUnits')"
+              />
+              <button type="button" class="si-step" aria-label="+" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">
+                <v-icon size="16">mdi-plus</v-icon>
+              </button>
+            </div>
             <!-- Pre-event Inventory : quantité ATTENDUE (post-event précédent +
                  mouvements Logistic) — rendue UNIQUEMENT si le parent fournit
                  expectedFor (permission front.fb.preInventoryExpected). -->
@@ -193,24 +191,23 @@
             </div>
           </div>
           <div class="si-count-field">
-            <v-text-field
-              :model-value="fieldDisplay(shop.element.id, item.id, 'looseUnits')"
-              type="text"
-              inputmode="decimal"
-              :label="t('invCountLooseUnits')"
-              density="compact"
-              variant="outlined"
-              hide-details
-              @update:model-value="onFieldInput(shop.element.id, item.id, 'looseUnits', $event)"
-              @blur="onFieldBlur(shop.element.id, item.id, 'looseUnits')"
-            >
-              <template #prepend-inner>
-                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">mdi-minus</v-icon>
-              </template>
-              <template #append-inner>
-                <v-icon size="16" class="si-step-btn" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">mdi-plus</v-icon>
-              </template>
-            </v-text-field>
+            <label class="si-count-label">{{ t('invCountLooseUnits') }}</label>
+            <div class="si-count-stepper">
+              <button type="button" class="si-step" aria-label="-" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">
+                <v-icon size="16">mdi-minus</v-icon>
+              </button>
+              <input
+                class="form-control si-count-input"
+                type="text"
+                inputmode="decimal"
+                :value="fieldDisplay(shop.element.id, item.id, 'looseUnits')"
+                @input="onFieldInput(shop.element.id, item.id, 'looseUnits', $event.target.value)"
+                @blur="onFieldBlur(shop.element.id, item.id, 'looseUnits')"
+              />
+              <button type="button" class="si-step" aria-label="+" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">
+                <v-icon size="16">mdi-plus</v-icon>
+              </button>
+            </div>
             <div
               v-if="expectedFor && expectedFor(shop.element.id, item.id, 'loose') != null"
               class="si-expected-hint"
@@ -237,20 +234,20 @@
         </div>
 
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
-          <v-btn v-if="canTransfer" variant="text" size="small" @click="emit('transfer', shop.element, item)">
+          <button v-if="canTransfer" type="button" class="si-act si-act--ghost" @click="emit('transfer', shop.element, item)">
             <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
             {{ t('invCountTransfer') }}
-          </v-btn>
-          <v-btn color="success" variant="tonal" size="small" @click="markCounted(item.id, true)">
-            <v-icon size="15" class="mr-1">mdi-check</v-icon>
-            {{ t('invCountMarkCounted') }}
-          </v-btn>
-          <v-btn variant="text" size="small" @click="markCounted(item.id, false)">
+          </button>
+          <button type="button" class="si-act si-act--reset" @click="markCounted(item.id, false)">
             <v-icon size="15" class="mr-1">mdi-refresh</v-icon>
             {{ t('invCountReset') }}
-          </v-btn>
+          </button>
+          <button type="button" class="si-act si-act--success" @click="markCounted(item.id, true)">
+            <v-icon size="15" class="mr-1">mdi-check</v-icon>
+            {{ t('invCountMarkCounted') }}
+          </button>
         </div>
-      </v-card>
+      </div>
     </div>
   </div>
 </template>
@@ -516,12 +513,25 @@ function stepValue(shopId, itemId, field, delta) {
   gap: 16px;
 }
 .si-count-item {
-  border-color: #EEEEEE !important;
-  border-radius: 8px;
+  background: var(--fb-surface, #ffffff);
+  border: 1px solid var(--fb-border, #E5E7EB);
+  border-radius: 14px;
   padding: 16px;
   display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
-.si-count-item-done { background: #f0fdf4; border-color: #86efac !important; }
+.si-count-item:hover {
+  box-shadow: 0 10px 28px rgba(16, 24, 40, 0.10);
+  transform: translateY(-2px);
+  border-color: #e2e5ea;
+}
+.si-count-item-done {
+  background: #fff6f6;
+  border-color: #fad4d4;
+  box-shadow: 0 1px 2px rgba(255, 49, 49, 0.05);
+}
+.si-count-item-done:hover { box-shadow: 0 10px 28px rgba(255, 49, 49, 0.12); }
 .si-count-row {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
 }
@@ -540,6 +550,17 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-count-name { font-weight: 600; color: var(--fb-text, #212121); }
 .si-count-usedin { font-size: 0.72rem; color: var(--fb-muted, #6B7280); margin-top: 2px; font-weight: 500; }
+.si-count-badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px;
+  border-radius: 100px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .si-count-inputs {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -548,7 +569,53 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-count-inputs :deep(.v-field) { min-height: 40px; }
 /* Hint « Attendu : N » sous un champ (Pre-event Inventory, permission requise). */
-.si-count-field { display: flex; flex-direction: column; gap: 3px; }
+.si-count-field { display: flex; flex-direction: column; gap: 4px; }
+.si-count-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--fb-muted, #6B7280);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Stepper Bootstrap : input encadré par les boutons − / + (remplace le v-text-field) */
+.si-count-stepper {
+  display: flex;
+  align-items: stretch;
+  border: 1.5px solid var(--fb-border, #E5E7EB);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--fb-surface, #ffffff);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.si-count-stepper:focus-within {
+  border-color: #ff3131;
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.12);
+}
+.si-step {
+  flex-shrink: 0;
+  width: 38px;
+  border: none;
+  background: var(--fb-subtle, #F7F8FA);
+  color: var(--fb-muted, #6B7280);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.si-step:hover { background: #ffe9e9; color: #ff3131; }
+.si-step:active { background: #ffd6d6; }
+.si-count-input.form-control {
+  border: none;
+  border-radius: 0;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--fb-text, #111827);
+  background: transparent;
+  box-shadow: none !important;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  padding: 8px 6px;
+}
+.si-count-input.form-control:focus { border: none; box-shadow: none !important; }
 .si-expected-hint {
   font-size: 0.72rem;
   color: #B45309;
@@ -587,11 +654,41 @@ function stepValue(shopId, itemId, field, delta) {
 .si-expected-total--negative { color: #DC2626; }
 .si-count-actions {
   display: flex; gap: 8px;
+  align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  padding-top: 6px;
-  border-top: 1px dashed var(--fb-border, #EEEEEE);
+  padding-top: 10px;
+  border-top: 1px solid var(--fb-border, #EEEEEE);
 }
+/* Boutons d'action de la carte (remplacent les v-btn) */
+.si-act {
+  display: inline-flex; align-items: center;
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.si-act--ghost {
+  background: transparent;
+  border-color: var(--fb-border, #E5E7EB);
+  color: var(--fb-muted, #4B5563);
+}
+.si-act--ghost:hover { border-color: #cbd0d8; background: var(--fb-subtle, #F7F8FA); color: var(--fb-text, #111827); }
+.si-act--reset {
+  background: transparent;
+  color: var(--fb-muted, #6B7280);
+}
+.si-act--reset:hover { background: var(--fb-subtle, #F7F8FA); color: var(--fb-text, #111827); }
+.si-act--success {
+  background: #ff3131;
+  border-color: #ff3131;
+  color: #fff;
+}
+.si-act--success:hover { background: #e02424; border-color: #e02424; box-shadow: 0 4px 12px rgba(255, 49, 49, 0.28); }
 
 /* État vide */
 .si-count-empty {
@@ -717,9 +814,9 @@ function stepValue(shopId, itemId, field, delta) {
 .si-counting-mobile .si-count-actions {
   padding: 6px 14px 14px;
 }
-/* État compté : liseré gauche vert, lisible même replié et identique partout. */
+/* État compté : liseré gauche rouge (charte datafriday), lisible même replié. */
 .si-counting-mobile .si-count-item-done {
-  border-left: 3px solid #22c55e !important;
+  border-left: 3px solid #ff3131 !important;
 }
 
 .si-counting {
@@ -746,8 +843,8 @@ function stepValue(shopId, itemId, field, delta) {
   border-color: rgba(255, 49, 49, 0.26) !important;
 }
 .si-count-item-done {
-  border-color: rgba(22, 163, 74, 0.36) !important;
-  background: var(--fb-success-soft, #F0FDF4);
+  border-color: rgba(255, 49, 49, 0.28) !important;
+  background: #fff6f6;
 }
 .si-counting-mobile .si-counting-head {
   background: var(--fb-surface, #FFFFFF);
