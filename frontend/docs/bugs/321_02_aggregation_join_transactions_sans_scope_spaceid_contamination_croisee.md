@@ -1,4 +1,4 @@
-# BUG-321-02 — L'agrégation par event ne restreint jamais les transactions aux locations de l'espace traité : risque de contamination croisée entre espaces partageant une intégration
+e# BUG-321-02 — L'agrégation par event ne restreint jamais les transactions aux locations de l'espace traité : risque de contamination croisée entre espaces partageant une intégration
 
 - **Statut** : ⚪ Diagnostiqué (root cause connue, fix à faire)
 - **Sévérité** : 🟠 Majeur

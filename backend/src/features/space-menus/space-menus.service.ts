@@ -457,10 +457,18 @@ export class SpaceMenusService {
     // reste appliquée en plus : un item activé mais désassocié de l'espace ne réapparaît pas.
     if (onlyMenuItemIds && onlyMenuItemIds.length === 0) return [];
 
-    // Tout le référentiel nécessaire en 6 requêtes parallèles indexées (tenant-scopées),
+    // Tout le référentiel nécessaire en 7 requêtes parallèles indexées (tenant-scopées),
     // puis résolution en mémoire — pas de N+1, pas de recette imbriquée dans le payload.
-    const [menuItems, ingredients, packagings, components, marketPrices, suppliers, tenantVatRate] =
-      await Promise.all([
+    const [
+      menuItems,
+      ingredients,
+      packagings,
+      components,
+      marketPrices,
+      suppliers,
+      tenantVatRate,
+      comboSourceMenuItems,
+    ] = await Promise.all([
         this.prisma.menuItem.findMany({
           where: {
             tenantId,
@@ -484,6 +492,7 @@ export class SpaceMenusService {
             ingredients: { select: { ingredientId: true } },
             packagings: { select: { packagingId: true } },
             components: { select: { componentId: true } },
+            comboChildren: { select: { childId: true } },
           },
           orderBy: { name: 'asc' },
         }),
@@ -514,6 +523,21 @@ export class SpaceMenusService {
           select: { id: true, name: true, sites: true },
         }),
         this.pricing.getTenantDefaultVatRate(tenantId),
+        // Catalogue tenant complet (pas scopé espace) requis pour résoudre récursivement un
+        // article combo qui référence un enfant absent de `menuItems` ci-dessus (enfant non
+        // lui-même associé à cet espace) — même besoin que ingredients/packagings/components,
+        // déjà chargés tenant-wide plus haut pour la même raison.
+        this.prisma.menuItem.findMany({
+          where: { tenantId },
+          select: {
+            id: true,
+            deletedAt: true,
+            ingredients: { select: { ingredientId: true } },
+            packagings: { select: { packagingId: true } },
+            components: { select: { componentId: true } },
+            comboChildren: { select: { childId: true } },
+          },
+        }),
       ]);
 
     const ingredientById = new Map(ingredients.map((i) => [i.id, i]));
@@ -521,6 +545,7 @@ export class SpaceMenusService {
     const componentById = new Map(components.map((c) => [c.id, c]));
     const marketPriceById = new Map(marketPrices.map((mp) => [mp.id, mp]));
     const supplierById = new Map(suppliers.map((s) => [s.id, s]));
+    const comboSourceById = new Map(comboSourceMenuItems.map((m) => [m.id, m]));
 
     const supplierServesSpace = (supplierId: string): boolean => {
       const supplier = supplierById.get(supplierId);
@@ -582,6 +607,43 @@ export class SpaceMenusService {
       return issues;
     };
 
+    // Blocages d'un article combo (récursif via MenuItemCombo — un combo peut, en théorie,
+    // référencer un autre combo), mémoïsé — même principe que collectComponentIssues. Un enfant
+    // absent/soft-delete ne bloque pas le parent (parité avec collectComponentIssues) : ce n'est
+    // pas une raison structurée exposable (kind 'ingredient'/'packaging' uniquement), et un combo
+    // cassé remonte de toute façon "no recipe" ailleurs si besoin de durcir plus tard.
+    const menuItemComboIssuesCache = new Map<string, MissingReason[]>();
+    const collectMenuItemComboIssues = (menuItemId: string, stack: Set<string>): MissingReason[] => {
+      const cached = menuItemComboIssuesCache.get(menuItemId);
+      if (cached) return cached;
+      if (stack.has(menuItemId)) return []; // garde anti-cycle
+      stack.add(menuItemId);
+
+      const child = comboSourceById.get(menuItemId);
+      const issues: MissingReason[] = [];
+      if (!child || child.deletedAt) {
+        stack.delete(menuItemId);
+        return issues;
+      }
+      for (const link of child.ingredients) {
+        const issue = checkSupplyItem(ingredientById.get(link.ingredientId), 'ingredient');
+        if (issue) issues.push(issue);
+      }
+      for (const link of child.packagings) {
+        const issue = checkSupplyItem(packagingById.get(link.packagingId), 'packaging');
+        if (issue) issues.push(issue);
+      }
+      for (const link of child.components) {
+        issues.push(...collectComponentIssues(link.componentId, new Set()));
+      }
+      for (const link of child.comboChildren) {
+        issues.push(...collectMenuItemComboIssues(link.childId, stack));
+      }
+      stack.delete(menuItemId);
+      menuItemComboIssuesCache.set(menuItemId, issues);
+      return issues;
+    };
+
     return menuItems.map((mi) => {
       const dedup = new Map<string, MissingReason>();
       const push = (issue: MissingReason | null) => {
@@ -593,9 +655,15 @@ export class SpaceMenusService {
       for (const link of mi.components) {
         for (const issue of collectComponentIssues(link.componentId, new Set())) push(issue);
       }
+      for (const link of mi.comboChildren) {
+        for (const issue of collectMenuItemComboIssues(link.childId, new Set())) push(issue);
+      }
 
       const hasRecipe =
-        mi.ingredients.length > 0 || mi.packagings.length > 0 || mi.components.length > 0;
+        mi.ingredients.length > 0 ||
+        mi.packagings.length > 0 ||
+        mi.components.length > 0 ||
+        mi.comboChildren.length > 0;
       const missingIngredients = [...dedup.values()];
       const available = hasRecipe && missingIngredients.length === 0;
 

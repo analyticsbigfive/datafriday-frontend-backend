@@ -16,7 +16,12 @@ export class IngredientsService {
   }
 
   private async invalidateCache(tenantId: string) {
-    await this.redis.deletePattern(`datafriday:ingredients:${tenantId}:*`);
+    // `deletePattern` préfixe déjà avec `datafriday:` en interne (RedisService.buildKey) — le
+    // remettre ici double-préfixait le pattern (`datafriday:datafriday:...`), qui ne matchait
+    // donc jamais aucune clé réelle : le cache liste n'était en réalité jamais invalidé après
+    // create/update/delete. Même bug que menu-components.service.ts, trouvé le 2026-08-14 en
+    // creusant pourquoi la liste de composants ne se rafraîchissait pas après suppression.
+    await this.redis.deletePattern(`ingredients:${tenantId}:*`);
   }
 
   // `MarketPrice.image` peut contenir du base64 (cf. DTOs) — jamais affiché depuis
@@ -110,7 +115,14 @@ export class IngredientsService {
     this.logger.log(`Fetching ingredient ${id} for tenant ${tenantId}`);
     const ingredient = await this.prisma.ingredient.findFirst({
       where: { id, tenantId, deletedAt: null },
-      include: { marketPrice: true, componentIngredients: true, menuItemIngredients: true },
+      // supplierRel : `MarketPrice.supplier` (string dénormalisée) est parfois vide alors que
+      // `supplierId` pointe vers un Supplier valide (données historiques désynchronisées) — le
+      // relation `supplierRel.name` sert de source de vérité de secours côté front.
+      include: {
+        marketPrice: { include: { supplierRel: true } },
+        componentIngredients: true,
+        menuItemIngredients: true,
+      },
     });
     if (!ingredient) {
       this.logger.warn(`Ingredient ${id} not found for tenant ${tenantId}`);

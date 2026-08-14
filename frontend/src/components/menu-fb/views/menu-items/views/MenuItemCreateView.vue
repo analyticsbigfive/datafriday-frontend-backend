@@ -591,7 +591,7 @@
     <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
 
     <!-- Combo Item Picker Drawer -->
-    <ComboItemPickerDrawer v-model="comboItemDrawer" :is-dark="isDark" :exclude-id="menuItemId" @add="onComboItemsAdded" />
+    <ComboItemPickerDrawer v-model="comboItemDrawer" :is-dark="isDark" :exclude-id="menuItemId" :space-ids="form.spaces" @add="onComboItemsAdded" />
 
     <!-- Packaging Picker Drawer -->
     <PackagingPickerDrawer v-model="packagingDrawer" :is-dark="isDark" @add="onPackagingAdded" />

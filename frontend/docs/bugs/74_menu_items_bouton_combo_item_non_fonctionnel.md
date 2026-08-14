@@ -1,6 +1,6 @@
 # BUG-074 — Bouton "Ajouter un article combo" non fonctionnel dans MenuItemCreateView.vue
 
-- **Statut** : ⚪ Diagnostiqué (root cause connue, fix à faire)
+- **Statut** : 🟢 Corrigé (picker implémenté depuis, suite du diagnostic dans BUG-322-02)
 - **Sévérité** : 🟠 Majeur
 - **Domaine** : Menu & recettes
 - **Repo(s) concerné(s)** : `datafriday-web`
@@ -28,18 +28,19 @@ picker pour sélectionner ces articles combo n'a jamais été implémenté côt�
 
 ## Correction
 
-Le `console.log` de la méthode a été retiré. Le bouton reste affiché tel quel (retrait complet
-non fait ici, contrairement à BUG-068) car `comboItem` est un vrai champ métier actif — masquer le
-bouton sans consulter le produit reviendrait à décider seul qu'une fonctionnalité prévue est
-abandonnée. **Fix fonctionnel (picker de sélection d'articles combo) non fait** : nécessite de
-définir l'UX attendue (sélection dans quel référentiel ? quelle relation stockée ?) avant
-implémentation.
+Le `console.log` de la méthode a été retiré à l'époque. Depuis, un vrai picker
+(`ComboItemPickerDrawer.vue`) a été implémenté et câblé sur ce bouton — le no-op documenté ici n'est
+plus d'actualité.
+
+**Mise à jour 2026-08-14** : le picker s'ouvrait bien mais affichait toujours "No menu items
+found" (liste jamais peuplée) et ne filtrait pas par espace — bug distinct, diagnostiqué et corrigé
+dans [BUG-322-02](322_02_combo_item_picker_liste_toujours_vide.md).
 
 ## Risque de régression / à surveiller
 
-Aucun currently — le bouton reste un no-op visible. À trancher côté produit avant d'implémenter le
-picker : voir `docs/QUESTIONS_A_BERTRAND.md` si la question n'y est pas déjà.
+Voir BUG-322-02 pour le risque de régression du picker lui-même.
 
 ## Références
 
 - `docs/modules/04_MENU_CATALOGUE.md` (champ `comboItem`).
+- `docs/bugs/322_02_combo_item_picker_liste_toujours_vide.md` — suite de ce diagnostic.
