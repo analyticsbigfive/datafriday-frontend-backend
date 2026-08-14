@@ -115,7 +115,14 @@ export class IngredientsService {
     this.logger.log(`Fetching ingredient ${id} for tenant ${tenantId}`);
     const ingredient = await this.prisma.ingredient.findFirst({
       where: { id, tenantId, deletedAt: null },
-      include: { marketPrice: true, componentIngredients: true, menuItemIngredients: true },
+      // supplierRel : `MarketPrice.supplier` (string dénormalisée) est parfois vide alors que
+      // `supplierId` pointe vers un Supplier valide (données historiques désynchronisées) — le
+      // relation `supplierRel.name` sert de source de vérité de secours côté front.
+      include: {
+        marketPrice: { include: { supplierRel: true } },
+        componentIngredients: true,
+        menuItemIngredients: true,
+      },
     });
     if (!ingredient) {
       this.logger.warn(`Ingredient ${id} not found for tenant ${tenantId}`);

@@ -1,8 +1,9 @@
 
 <template>
   <div id="component-library-page" :class="{ 'cl--dark': isDark }">
+    <div class="cl-inner">
     <!-- ── Header ── -->
-    <div class="cl-header cl-header--sticky">
+    <div class="cl-header">
       <div class="cl-header__inner">
         <div class="cl-header__left">
           <div class="cl-header__icon">
@@ -33,7 +34,7 @@
     </div>
 
     <!-- ── Search bar ── -->
-    <div class="cl-searchbar cl-searchbar--sticky">
+    <div class="cl-searchbar">
       <div class="cl-searchbar__inner">
         <Search :size="17" class="cl-searchbar__icon" />
         <input v-model="searchQuery" class="cl-searchbar__input" type="search" :placeholder="t('compListSearchPlaceholder')" />
@@ -131,7 +132,6 @@
         >
           <template #item.name="{ item }">
             <div class="cl-row-name">
-              <span class="cl-row-name__dot"></span>
               <span class="cl-row-name__text">{{ (item?.raw ? item.raw.name : item.name) || '-' }}</span>
             </div>
           </template>
@@ -187,6 +187,7 @@
         </v-data-table>
         </div>
       </template>
+    </div>
     </div>
 
     <ComponentDeleteDialog
@@ -263,7 +264,6 @@
           >
             <template #item.itemName="{ item }">
               <div class="cl-row-name">
-                <span class="cl-row-name__dot" :style="{ background: item.itemType === 'Ingredient' ? '#10b981' : '#3b82f6' }"></span>
                 <span class="cl-row-name__text">{{ item.itemName || '-' }}</span>
               </div>
             </template>
@@ -829,14 +829,28 @@ export default {
 <style scoped>
 #component-library-page {
   background: rgb(var(--v-theme-background));
-  min-height: 100%;
+}
+
+/* Zone fixe (sous l'éventuelle app-bar globale, cf. var(--v-layout-top) posée par Vuetify) :
+   header + searchbar prennent leur hauteur naturelle, .cl-content se charge seul du scroll —
+   remplace l'ancien position:sticky par élément (cassait le header sticky du tableau, cf.
+   BUG-327-02 : .v-table__wrapper a son propre overflow:auto, qui devenait le contexte de
+   positionnement sticky à la place de la page). */
+.cl-inner {
+  position: fixed;
+  top: var(--v-layout-top, 64px);
+  left: var(--v-layout-left, 0px);
+  right: 0;
+  bottom: var(--v-layout-bottom, 0px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgb(var(--v-theme-background));
 }
 
 /* ── Gradient Header ── */
-.cl-header--sticky { position: sticky; top: 0; z-index: 100; flex-shrink: 0; }
-.cl-searchbar--sticky { position: sticky; top: 81px; z-index: 99; flex-shrink: 0; }
-
 .cl-header {
+  flex-shrink: 0;
   background: #ff3131;
   box-shadow: 0 4px 20px rgba(255, 49, 49, 0.25);
 }
@@ -939,6 +953,7 @@ export default {
 
 /* ── Search bar ── */
 .cl-searchbar {
+  flex-shrink: 0;
   background: #fff;
   border-bottom: 1px solid #e5e7eb;
 }
@@ -1004,7 +1019,14 @@ export default {
 /* Contenu : mêmes 28px horizontaux que le header/searchbar sticky au-dessus (référence
    MarketPriceListView.vue) — un padding différent ici créait un décalage gauche/droite visible
    entre le bandeau et le tableau. */
-.cl-content { padding: 24px 28px; }
+.cl-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
 
 /* Empty State */
 .empty-state {
@@ -1035,12 +1057,23 @@ export default {
 }
 
 .table-card {
+  flex: 1 1 auto;
+  min-height: 0;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
-  overflow: hidden;
+  /* overflow-y:auto (pas hidden) : c'est ce conteneur, borné par le flex ci-dessus, qui devient
+     le vrai contexte de scroll + de positionnement du thead sticky (voir .cl-table th plus bas) —
+     tout en gardant le même effet de clipping des coins arrondis qu'un overflow:hidden. */
+  overflow-y: auto;
   animation: fadeIn 0.3s ease-out;
 }
+
+/* Neutralise le conteneur de scroll interne de Vuetify (.v-table__wrapper a overflow:auto par
+   défaut, même sans hauteur bornée) : sans ça, il devient le contexte de positionnement du
+   `sticky` ci-dessous à la place de .cl-content (le vrai conteneur qui scrolle) — cause du
+   rendu cassé en tentative précédente (BUG-327-02). */
+.cl-table :deep(.v-table__wrapper) { overflow: visible !important; }
 
 .cl-table :deep(.v-data-table__th),
 .cl-table :deep(.v-data-table__td) {
@@ -1058,6 +1091,11 @@ export default {
   letter-spacing: .06em;
   color: #9ca3af !important;
   background: #fafafa !important;
+  /* Sticky par rapport à .cl-content (seul conteneur qui scrolle désormais) : top:0 suffit,
+     header/searchbar ne sont plus dans le flux scrollable (voir .cl-inner). */
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 .cl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 
@@ -1066,13 +1104,6 @@ export default {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.cl-row-name__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ff3131, #b91c1c);
-  flex-shrink: 0;
 }
 .cl-row-name__text {
   font-weight: 600;

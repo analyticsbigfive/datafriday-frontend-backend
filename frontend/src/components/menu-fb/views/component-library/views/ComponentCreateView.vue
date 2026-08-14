@@ -1,65 +1,49 @@
 <template>
-  <v-app id="component-create-page" :class="{ 'cc--dark': isDark }">
-    <v-container fluid class="pa-0" style="height: 100%; overflow: hidden; display: flex; flex-direction: column;">
-      <!-- ── Gradient Header ── -->
+  <div id="component-create-page" :class="{ 'cc--dark': isDark }">
+    <div class="cc-inner">
+      <!-- Header -->
       <div class="cc-header">
-        <div class="cc-header__icon">
-          <Boxes :size="22" color="white" />
+        <div class="cc-header__left">
+          <div class="cc-header__icon">
+            <Boxes :size="22" color="white" />
+          </div>
+          <div>
+            <h1 class="cc-header__title">{{ isEditMode ? t('compCreateTitleEdit') : t('compCreateTitleCreate') }}</h1>
+            <p class="cc-header__subtitle">{{ isEditMode ? t('compCreateSubtitleEdit') : t('compCreateSubtitleCreate') }}</p>
+          </div>
         </div>
-        <div class="cc-header__text">
-          <h1 class="cc-header__title">{{ isEditMode ? t('compCreateTitleEdit') : t('compCreateTitleCreate') }}</h1>
-          <p class="cc-header__sub">
-            {{ isEditMode ? t('compCreateSubtitleEdit') : t('compCreateSubtitleCreate') }}
-          </p>
-        </div>
-        <div class="cc-header__actions">
-          <button class="cc-back-btn" @click="onCancel">
-            <ChevronDown :size="15" style="transform:rotate(90deg)" /> {{ t('compCreateBack') }}
+        <div class="cc-header__right">
+          <div class="cc-item-count" v-if="totalItems > 0">
+            <span class="cc-item-count__num">{{ totalItems }}</span>
+            <span class="cc-item-count__label">{{ t('compCreateStatTotalItems') }}</span>
+          </div>
+          <button class="cc-cancel-btn" @click="onCancel">
+            <X :size="15" /> {{ t('compCreateCancel') }}
           </button>
         </div>
       </div>
 
-      <v-container fluid class="cc-content">
-        <v-row dense class="cc-row">
+      <!-- Main Content -->
+      <div class="cc-content-section">
+        <v-row no-gutters align="stretch" style="height: 100%; overflow: hidden;">
 
-          <!-- ── Left: Sub-items ── -->
-          <v-col cols="12" md="8" class="cc-left-col">
-            <div class="cc-left-card">
-
-              <!-- Card header -->
-              <div class="cc-card-head">
-                <div>
-                  <div class="cc-card-title">{{ t('compCreateSubItemsTitle') }}</div>
-                  <div class="cc-card-sub">{{ isEditMode ? t('compCreateSubItemsSubtitleEdit') : t('compCreateSubItemsSubtitleCreate') }}</div>
-                </div>
-                <div class="cc-add-btns">
-                  <button class="cc-add-btn cc-add-btn--primary" type="button" @click="onAddIngredient">
+          <!-- Left Section: Sub-Components & Ingredients -->
+          <v-col cols="12" md="8" class="cc-left-section">
+            <div class="pa-4">
+              <div class="cc-left-header">
+                <h2 class="cc-left-title">{{ t('compCreateSubItemsTitle') }}</h2>
+                <div class="cc-left-actions">
+                  <button class="cc-add-btn cc-add-btn--outline" type="button" @click="onAddIngredient">
                     <Plus :size="14" /> {{ t('compCreateAddIngredient') }}
                   </button>
-                  <button class="cc-add-btn cc-add-btn--outline" type="button" @click="onAddSubComponent">
+                  <button class="cc-add-btn cc-add-btn--dark" type="button" @click="onAddSubComponent">
                     <Plus :size="14" /> {{ t('compCreateAddComponent') }}
                   </button>
                 </div>
               </div>
 
-              <!-- Stats -->
-              <div class="cc-stats">
-                <div class="cc-stat">
-                  <span class="cc-stat__label">{{ t('compCreateStatTotalItems') }}</span>
-                  <span class="cc-stat__value">{{ totalItems }}</span>
-                </div>
-                <div class="cc-stat">
-                  <span class="cc-stat__label">{{ t('compCreateStatSubItemsCost') }}</span>
-                  <span class="cc-stat__value cc-stat__value--blue">{{ formatCurrency(subItemsCost) }}</span>
-                </div>
-                <div class="cc-stat">
-                  <span class="cc-stat__label">{{ t('compCreateStatFinalUnitCost') }}</span>
-                  <span class="cc-stat__value cc-stat__value--green">{{ formatCurrency(finalUnitCost) }}</span>
-                </div>
-              </div>
-
-              <!-- Table or empty -->
-              <div class="cc-table-wrap">
+              <!-- Table -->
+              <v-card rounded="xl" elevation="0" class="cc-table-card">
                 <div v-if="totalItems === 0" class="cc-empty">
                   <div class="cc-empty__icon">
                     <Package :size="36" color="#9ca3af" />
@@ -72,8 +56,10 @@
                   :headers="subItemsHeaders"
                   :items="subItemsTableItems"
                   item-value="rowKey"
-                  density="comfortable"
+                  density="compact"
                   class="cc-table"
+                  hide-default-footer
+                  :items-per-page="-1"
                 >
                   <template #item.type="{ item }">
                     <span class="ccv-badge" :class="(item?.raw?.itemType || item?.itemType) === 'Ingredient' ? 'ccv-badge--ingredient' : 'ccv-badge--component'">
@@ -83,7 +69,6 @@
 
                   <template #item.itemName="{ item }">
                     <div class="cc-row-name">
-                      <span class="cc-row-name__dot" :style="{ background: (item?.raw?.itemType || item?.itemType) === 'Ingredient' ? '#10b981' : '#3b82f6' }"></span>
                       <div>
                         <div class="cc-row-name__text" :title="item?.raw?.supplierItemName || item?.supplierItemName || item?.raw?.itemName || item?.itemName || '-'">{{ item?.raw?.supplierItemName || item?.supplierItemName || item?.raw?.itemName || item?.itemName || "-" }}</div>
                         <div v-if="(item?.raw?.supplierItemName || item?.supplierItemName) && (item?.raw?.itemName || item?.itemName)" class="cc-row-name__sub">
@@ -122,8 +107,30 @@
                     <span class="ccv-badge ccv-badge--storage">{{ item?.raw?.storageType || item?.storageType || "Dry" }}</span>
                   </template>
 
-                  <template #item.supplierName="{ item }">
-                    <span class="cc-muted">{{ item?.raw?.supplierName || item?.supplierName || "-" }}</span>
+                  <template #item.suppliers="{ item }">
+                    <div class="cc-suppliers">
+                      <template v-if="((item?.raw || item)?.suppliers || []).length">
+                        <span
+                          v-for="name in ((item?.raw || item)?.suppliers || []).slice(0, 2)"
+                          :key="name"
+                          class="ccv-badge ccv-badge--supplier"
+                          :title="name"
+                        >{{ name }}</span>
+                        <v-menu v-if="((item?.raw || item)?.suppliers || []).length > 2" location="bottom" :close-on-content-click="false">
+                          <template #activator="{ props }">
+                            <span v-bind="props" class="ccv-badge ccv-badge--supplier-more">
+                              +{{ ((item?.raw || item)?.suppliers || []).length - 2 }}
+                            </span>
+                          </template>
+                          <div class="cc-suppliers-popover">
+                            <div v-for="name in ((item?.raw || item)?.suppliers || []).slice(2)" :key="name" class="cc-suppliers-popover__item">
+                              {{ name }}
+                            </div>
+                          </div>
+                        </v-menu>
+                      </template>
+                      <span v-else class="cc-muted">-</span>
+                    </div>
                   </template>
 
                   <template #item.addedAt="{ item }">
@@ -136,25 +143,45 @@
                     </button>
                   </template>
                 </v-data-table>
+              </v-card>
+
+              <!-- Summary below table -->
+              <div v-if="totalItems > 0" class="cc-table-summary mt-3">
+                <div class="cc-table-summary__row">
+                  <span class="cc-table-summary__label">{{ t('compCreateStatSubItemsCost') }}</span>
+                  <span class="cc-table-summary__value">{{ formatCurrency(subItemsCost) }}</span>
+                </div>
+                <div class="cc-table-summary__row">
+                  <span class="cc-table-summary__label">{{ t('compCreateFieldUnitsPerRecipe') }}</span>
+                  <span class="cc-table-summary__value">{{ formatUnits(form.numberOfUnitsRecipe || 1) }}</span>
+                </div>
+                <div class="cc-table-summary__divider" />
+                <div class="cc-table-summary__row">
+                  <span class="cc-table-summary__cost-label">{{ t('compCreateStatFinalUnitCost') }}</span>
+                  <span class="cc-table-summary__cost-value">{{ formatCurrency(finalUnitCost) }}</span>
+                </div>
               </div>
 
             </div>
           </v-col>
 
-          <!-- ── Right: Form ── -->
-          <v-col cols="12" md="4">
-            <div class="cc-right-panel">
+          <!-- Right Section: Component Details -->
+          <v-col cols="12" md="4" class="cc-right-section" style="height: 100%;">
+            <div class="cc-right-section-header">
+              <h2 class="text-subtitle-2 font-weight-bold cc-title mb-0">{{ t('compCreateDetailsTitle') }}</h2>
+            </div>
 
-              <!-- Sticky header -->
-              <div class="cc-form-head">
-                <div>
-                  <div class="cc-form-title">{{ t('compCreateDetailsTitle') }}</div>
-                  <div class="cc-form-sub">{{ t('compCreateDetailsSubtitle') }}</div>
-                </div>
-              </div>
+            <!-- Alertes : juste sous le header, hors zone scrollable. -->
+            <div v-if="error || loadingError || saveSuccess" class="cc-alerts">
+              <v-alert v-if="error" type="error" variant="tonal" density="compact" closable @click:close="error = ''">{{ error }}</v-alert>
+              <v-alert v-if="loadingError" type="error" variant="tonal" density="compact" closable @click:close="loadingError = ''">{{ loadingError }}</v-alert>
+              <v-alert v-if="saveSuccess" type="success" variant="tonal" density="compact" closable @click:close="saveSuccess = null">{{ saveSuccess }}</v-alert>
+            </div>
+
+            <div class="cc-right-section-scroll">
 
               <!-- Scrollable body -->
-              <v-form v-model="formValid" class="cc-form-body">
+              <v-form v-model="formValid">
 
                 <div v-if="loadingComponent" class="d-flex justify-center align-center py-8">
                   <v-progress-circular indeterminate color="#ff3131" size="32" />
@@ -346,42 +373,33 @@
                 </div>
 
               </v-form>
-
-              <!-- Erreurs : hors zone scrollable, toujours visibles juste au-dessus des boutons -->
-              <v-alert v-if="error" type="error" variant="tonal" density="compact" rounded="lg" class="cc-form-error">{{ error }}</v-alert>
-              <v-alert v-if="loadingError" type="error" variant="tonal" density="compact" rounded="lg" class="cc-form-error">{{ loadingError }}</v-alert>
-              <v-alert v-if="saveSuccess" type="success" variant="tonal" density="compact" rounded="lg" closable class="cc-form-error" @click:close="saveSuccess = null">{{ saveSuccess }}</v-alert>
-
-              <!-- Sticky footer -->
-              <div class="cc-form-footer">
-                <button class="cc-pill-btn cc-pill-btn--outline" type="button" @click="onCancel">
+            </div>
+            <div class="cc-right-section-footer">
+              <div class="cc-footer-actions">
+                <button class="cc-footer-btn cc-footer-btn--ghost" @click="onCancel">
                   {{ t('compCreateCancel') }}
                 </button>
                 <button
                   v-if="isEditMode"
-                  class="cc-pill-btn cc-pill-btn--outline"
-                  type="button"
+                  class="cc-footer-btn cc-footer-btn--dup"
                   :disabled="duplicating || saving"
                   @click="onDuplicate"
                 >
-                  <Copy :size="15" /> {{ duplicating ? '…' : t('compDuplicate') }}
+                  <Copy :size="15" />
+                  <span>{{ duplicating ? '…' : t('compDuplicate') }}</span>
                 </button>
-                <button
-                  class="cc-pill-btn cc-pill-btn--primary"
-                  type="button"
-                  :disabled="saving || !formValid"
-                  @click="onSave"
-                >
-                  <Save :size="15" /> {{ saving ? t('compCreateSaving') : (isEditMode ? t('compCreateSaveEdit') : t('compCreateSaveCreate')) }}
+                <button class="cc-footer-btn cc-footer-btn--save" :disabled="saving || !formValid" @click="onSave">
+                  <Save :size="15" />
+                  <span v-if="saving">...</span>
+                  <span v-else>{{ isEditMode ? t('compCreateSaveEdit') : t('compCreateSaveCreate') }}</span>
                 </button>
               </div>
-
             </div>
           </v-col>
 
         </v-row>
-      </v-container>
-    </v-container>
+      </div>
+    </div>
 
     <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
     <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
@@ -409,13 +427,13 @@
         </div>
       </div>
     </v-dialog>
-  </v-app>
+  </div>
 </template>
 
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
-import { Boxes, ChevronDown, Copy, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
+import { Boxes, Copy, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { createMenuComponent, getMenuComponent, updateMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
@@ -432,7 +450,6 @@ export default {
   name: "ComponentCreateView",
   components: {
     Boxes,
-    ChevronDown,
     Copy,
     Plus,
     Save,
@@ -574,7 +591,7 @@ export default {
         { title: 'Unit',       key: 'unit',          sortable: false, width: 70 },
         { title: 'Cost (€)',   key: 'cost',          sortable: false, width: 90 },
         { title: 'Storage',    key: 'storage',       sortable: false, width: 90 },
-        { title: 'Supplier',   key: 'supplierName',  sortable: false, width: 100 },
+        { title: 'Supplier',   key: 'suppliers',     sortable: false, width: 140 },
         { title: 'Added',      key: 'addedAt',       sortable: false, width: 90 },
         { title: '',           key: 'actions',       sortable: false, width: 50 },
       ];
@@ -583,6 +600,10 @@ export default {
       const ingredients = Array.isArray(this.form.ingredients) ? this.form.ingredients : [];
       const children = Array.isArray(this.form.children) ? this.form.children : [];
 
+      // `suppliers` unifie l'affichage colonne Supplier pour les 2 types de ligne : un
+      // ingrédient n'a qu'un seul fournisseur (tableau à 1 élément), un sous-composant peut en
+      // agréger plusieurs (ses propres ingrédients) — le template tronque et affiche le reste
+      // dans un popup au lieu de tout lister en ligne.
       const ingRows = ingredients.map((i) => ({
         ...i,
         rowKey: `ing-${i?.marketPriceId || i?.itemName || Math.random().toString(36).slice(2)}`,
@@ -590,7 +611,7 @@ export default {
         numberOfUnits: Number(i?.quantity ?? i?.numberOfUnits ?? 0) || 0,
         unit: i?.unit ?? i?.recipeUnit,
         cost: Number(i?.cost ?? i?.totalCost ?? 0) || 0,
-        supplierName: i?.supplierName || "-",
+        suppliers: i?.supplierName && i.supplierName !== '-' ? [i.supplierName] : [],
         addedAt: i?.addedAt || new Date().toISOString(),
       }));
 
@@ -600,7 +621,7 @@ export default {
         itemType: "Component",
         numberOfUnits: Number(c?.quantity ?? c?.numberOfUnits ?? 1) || 1,
         cost: Number(c?.totalCost ?? c?.cost ?? c?.unitCost ?? 0) || 0,
-        supplierName: c?.supplierName || "-",
+        suppliers: Array.isArray(c?.suppliers) ? c.suppliers : [],
         addedAt: c?.addedAt || new Date().toISOString(),
       }));
 
@@ -850,6 +871,10 @@ export default {
                   unitCost: Number(ing.unitCost || ing.costPerRecipeUnit || 0),
                   cost: Number(ing.cost || ing.totalCost || (ing.quantity * ing.unitCost) || 0),
                   storageType: ing.storage || ing.storageType || this.getStorageTypeForCategory(ingredientDetails.category) || "-",
+                  supplierId: marketPrice.supplierId || ing.supplierId || "",
+                  // supplierRel.name (relation) avant supplier (string dénormalisée, parfois
+                  // vide même quand supplierId est renseigné — données historiques).
+                  supplierName: marketPrice.supplierRel?.name || marketPrice.supplier || ing.supplierName || "-",
                 };
               } catch (error) {
                 console.error(`Error fetching ingredient details for ${ingredientId}:`, error);
@@ -864,6 +889,8 @@ export default {
                   unitCost: Number(ing.unitCost || ing.costPerRecipeUnit || 0),
                   cost: Number(ing.cost || ing.totalCost || (ing.quantity * ing.unitCost) || 0),
                   storageType: ing.storage || ing.storageType || "-",
+                  supplierId: ing.supplierId || "",
+                  supplierName: ing.supplierName || "-",
                 };
               }
             } else {
@@ -878,6 +905,8 @@ export default {
                 unitCost: Number(ing.unitCost || ing.costPerRecipeUnit || 0),
                 cost: Number(ing.cost || ing.totalCost || 0),
                 storageType: ing.storage || ing.storageType || "-",
+                supplierId: ing.supplierId || "",
+                supplierName: ing.supplierName || "-",
               };
             }
           });
@@ -885,18 +914,48 @@ export default {
           this.form.ingredients = await Promise.all(ingredientPromises);
         }
 
-        // Charger les children (sub-components)
+        // Charger les children (sub-components). `component.children` est le tableau brut
+        // ComponentComponent (Prisma) — { childId, quantity, unit, cost, child: {...MenuComponent} },
+        // PAS un objet déjà aplati : lire `child.childId`/`child.child.*`, pas `child.componentId`/
+        // `child.itemName` (qui n'existent pas sur cette forme, résolvaient toujours en fallback "-").
         if (Array.isArray(component.children)) {
-          this.form.children = component.children.map(child => ({
-            componentId: child.componentId || child.id,
-            itemName: child.itemName || child.name || "-",
-            category: child.category || "-",
-            numberOfUnits: Number(child.numberOfUnits || 0),
-            unit: child.unit || "-",
-            unitCost: Number(child.unitCost || 0),
-            totalCost: Number(child.totalCost || child.cost || 0),
-            storageType: child.storage || child.storageType || "-",
-          }));
+          const childPromises = component.children.map(async (child) => {
+            const nested = child?.child || {};
+            const childId = child?.childId || nested?.id || child?.id;
+            const base = {
+              childId,
+              componentId: childId,
+              itemName: nested?.name || child?.itemName || child?.name || "-",
+              category: nested?.category || child?.category || "-",
+              numberOfUnits: Number(child?.quantity ?? child?.numberOfUnits ?? 0),
+              unit: child?.unit || nested?.unit || "-",
+              unitCost: Number(nested?.unitCost ?? child?.unitCost ?? 0),
+              totalCost: Number(child?.cost ?? child?.totalCost ?? 0),
+              storageType: nested?.storageType || child?.storage || child?.storageType || "-",
+            };
+            // Fournisseurs du sous-composant : dérivés de ses PROPRES ingrédients directs (pas
+            // récursif au-delà — un sous-composant peut lui-même avoir des sous-composants, non
+            // parcourus ici pour éviter un fan-out d'appels réseau non borné). Un sous-composant
+            // agrège potentiellement plusieurs fournisseurs (contrairement à un ingrédient qui
+            // n'en a qu'un) → tableau dédupliqué, affiché avec troncature + popup côté template.
+            if (!childId) return { ...base, suppliers: [] };
+            try {
+              const detail = await getMenuComponent(childId);
+              const childIngredients = Array.isArray(detail?.ingredients) ? detail.ingredients : [];
+              const suppliers = [...new Set(
+                childIngredients
+                  .map((ci) => String(
+                    ci?.ingredient?.marketPrice?.supplierRel?.name || ci?.ingredient?.marketPrice?.supplier || ''
+                  ).trim())
+                  .filter(Boolean)
+              )];
+              return { ...base, suppliers };
+            } catch (e) {
+              console.error(`Error fetching sub-component suppliers for ${childId}:`, e);
+              return { ...base, suppliers: [] };
+            }
+          });
+          this.form.children = await Promise.all(childPromises);
         }
 
       } catch (error) {
@@ -1066,23 +1125,37 @@ export default {
 
 <style scoped>
 #component-create-page {
-  background: rgb(var(--v-theme-background));
-  height: 100vh;
+  background: #f6f7fb;
+}
+
+.cc-inner {
+  position: fixed;
+  top: var(--v-layout-top, 64px);
+  left: var(--v-layout-left, 0px);
+  right: 0;
+  bottom: var(--v-layout-bottom, 0px);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  background: #f6f7fb;
 }
 
 /* ── Gradient Header ── */
 .cc-header {
+  flex-shrink: 0;
+  background: #ff3131;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 64px;
+  gap: 16px;
+}
+
+.cc-header__left {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px 28px;
-  background: #ff3131;
-  box-shadow: 0 4px 20px rgba(255, 49, 49, 0.25);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  flex-shrink: 0;
 }
 
 .cc-header__icon {
@@ -1096,123 +1169,197 @@ export default {
   flex-shrink: 0;
 }
 
-.cc-header__text { flex: 1; }
-
 .cc-header__title {
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 700;
-  color: #fff;
+  color: #ffffff;
   margin: 0;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
-.cc-header__sub {
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.72);
-  margin: 3px 0 0;
+.cc-header__subtitle {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.75);
+  margin: 0;
+  line-height: 1.3;
 }
 
-.cc-header__actions {
+.cc-header__right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
-.cc-back-btn {
+.cc-item-count {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  padding: 4px 12px;
+}
+
+.cc-item-count__num {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.cc-item-count__label {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.cc-cancel-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 7px 16px;
-  border-radius: 100px;
-  border: 1.5px solid rgba(255, 255, 255, 0.6);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.875rem;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 20px;
+  color: #ffffff;
+  font-size: 0.82rem;
   font-weight: 600;
+  padding: 6px 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, border-color 0.2s;
+  white-space: nowrap;
 }
 
-.cc-back-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: #fff;
+.cc-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.7);
 }
 
 /* ── Layout ── */
-/* Mêmes 28px horizontaux que .cc-header au-dessus (référence MarketPriceListView.vue) — un
-   padding différent créait un décalage gauche/droite visible entre le bandeau et le contenu. */
-.cc-content { padding: 20px 28px; }
-.cc-row { align-items: flex-start; }
-.cc-left-col { height: calc(100vh - 90px); display: flex; flex-direction: column; }
-
-/* ── Left card ── */
-.cc-left-card {
-  height: 100%;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 18px;
+.cc-content-section {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
-.cc-card-head {
+.cc-left-section {
+  background: #f6f7fb;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+  height: 100%;
+  max-height: 100%;
+}
+
+/* ── Left panel header ── */
+.cc-left-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px 22px 14px;
-  border-bottom: 1px solid #f3f4f6;
-  flex-shrink: 0;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cc-left-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.cc-left-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   flex-wrap: wrap;
 }
-.cc-card-title { font-size: 1rem; font-weight: 700; color: #111827; }
-.cc-card-sub   { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
 
 /* Add buttons */
-.cc-add-btns { display: flex; gap: 7px; flex-shrink: 0; }
 .cc-add-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 7px 14px;
-  border-radius: 50px;
-  font-size: 0.875rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
   font-weight: 600;
+  padding: 5px 13px;
   cursor: pointer;
-  transition: all .15s;
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
   white-space: nowrap;
+  line-height: 1;
 }
-.cc-add-btn--primary {
-  background: #ff3131;
-  color: #fff;
-  border: none;
-}
-.cc-add-btn--primary:hover { box-shadow: 0 4px 12px rgba(255, 49, 49,.35); transform: translateY(-1px); }
-.cc-add-btn--outline { background: #fff; color: #374151; border: 1.5px solid #e5e7eb; }
-.cc-add-btn--outline:hover { background: #f9fafb; border-color: #d1d5db; }
 
-/* Stats strip */
-.cc-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-bottom: 1px solid #f3f4f6;
-  flex-shrink: 0;
+.cc-add-btn--outline {
+  background: #ffffff;
+  border: 1.5px solid #d1d5db;
+  color: #374151;
 }
-.cc-stat {
+
+.cc-add-btn--outline:hover {
+  border-color: #ff3131;
+  color: #ff3131;
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.08);
+}
+
+.cc-add-btn--dark {
+  background: #111827;
+  border: 1.5px solid #111827;
+  color: #ffffff;
+}
+
+.cc-add-btn--dark:hover {
+  background: #1f2937;
+  border-color: #1f2937;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Table card */
+.cc-table-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+}
+
+/* Summary below table */
+.cc-table-summary {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #ff3131;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.cc-table-summary__row {
   display: flex;
-  flex-direction: column;
-  padding: 14px 22px;
-  border-right: 1px solid #f3f4f6;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
 }
-.cc-stat:last-child { border-right: none; }
-.cc-stat__label { font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-.cc-stat__value { font-size: 1.25rem; font-weight: 700; color: #111827; margin-top: 4px; }
-.cc-stat__value--blue  { color: #2563eb; }
-.cc-stat__value--green { color: #059669; }
 
-/* Table wrap */
-.cc-table-wrap { flex: 1; overflow: auto; min-height: 0; }
+.cc-table-summary__label {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.cc-table-summary__value {
+  font-size: 0.8rem;
+  color: #374151;
+}
+
+.cc-table-summary__divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 8px 0;
+}
+
+.cc-table-summary__cost-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.cc-table-summary__cost-value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #111827;
+}
 
 /* Empty state */
 .cc-empty {
@@ -1257,7 +1404,6 @@ export default {
 
 /* Row name */
 .cc-row-name { display: flex; align-items: flex-start; gap: 9px; }
-.cc-row-name__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
 .cc-row-name__text { font-weight: 600; font-size: 0.8125rem; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 .cc-row-name__sub  { font-size: 0.75rem; color: #9ca3af; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 
@@ -1275,6 +1421,33 @@ export default {
 .ccv-badge--component  { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
 .ccv-badge--storage    { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
 .ccv-badge--unit       { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+.ccv-badge--supplier   { background: #ecfeff; color: #0e7490; border: 1px solid #a5f3fc; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.ccv-badge--supplier-more {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+}
+.ccv-badge--supplier-more:hover { background: #e5e7eb; }
+
+/* Colonne Supplier : badges + popover pour le surplus (>2 fournisseurs) */
+.cc-suppliers { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.cc-suppliers-popover {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  min-width: 160px;
+  max-width: 260px;
+}
+.cc-suppliers-popover__item {
+  font-size: 0.8125rem;
+  color: #374151;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.cc-suppliers-popover__item:hover { background: #f3f4f6; }
 
 /* Cost & muted */
 .cc-cost  { font-weight: 700; font-size: 0.8125rem; color: #059669; }
@@ -1309,57 +1482,113 @@ export default {
 .cc-del-btn:hover { background: #fee2e2; box-shadow: 0 2px 8px rgba(255,49,49,.2); }
 
 /* ── Right panel ── */
-.cc-right-panel {
-  position: sticky;
-  top: 0;
-  height: calc(100vh - 90px);
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 18px;
+.cc-right-section {
+  background: white;
+  height: 100%;
+  max-height: 100%;
+  overflow-y: hidden;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
-/* Sticky header */
-.cc-form-head {
+.cc-right-section-header {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px 16px;
-  border-bottom: 1px solid #f3f4f6;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  background: white;
 }
-.cc-form-title { font-size: 1rem; font-weight: 700; color: #111827; }
-.cc-form-sub   { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
+
+.cc-title {
+  color: #111827;
+}
+
+/* Barre d'alertes sous le header (hors zone scrollable). */
+.cc-alerts {
+  flex-shrink: 0;
+  padding: 10px 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 /* Scrollable body */
-.cc-form-body {
-  flex: 1;
+.cc-right-section-scroll {
+  flex: 1 1 0;
   overflow-y: auto;
+  padding: 14px 16px;
   min-height: 0;
-  padding: 18px 22px;
 }
-
-/* Barre d'erreur fixe, entre le corps scrollable et le footer. */
-.cc-form-error {
-  flex-shrink: 0;
-  margin: 0 22px 10px;
-}
-.cc-form-error + .cc-form-error { margin-top: -4px; }
 
 /* Sticky footer */
-.cc-form-footer {
+.cc-right-section-footer {
   flex-shrink: 0;
-  display: flex;
-  gap: 10px;
-  padding: 14px 22px;
-  border-top: 1px solid #f3f4f6;
-  background: #fff;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, .05);
+  padding: 10px 16px 12px;
+  background: white;
+  border-top: 1px solid #e5e7eb;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
 }
-.cc-form-footer .cc-pill-btn--outline { flex: 0 0 auto; }
-.cc-form-footer .cc-pill-btn--primary { flex: 1 1 auto; }
+
+.cc-footer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cc-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: background 0.18s, box-shadow 0.18s, opacity 0.18s;
+  white-space: nowrap;
+  border: none;
+}
+
+.cc-footer-btn--ghost {
+  background: transparent;
+  border: 1.5px solid #d1d5db;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.cc-footer-btn--ghost:hover {
+  border-color: #9ca3af;
+  color: #374151;
+}
+
+.cc-footer-btn--dup {
+  background: transparent;
+  border: 1.5px solid #d1d5db;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+.cc-footer-btn--dup:hover:not(:disabled) {
+  border-color: #ff3131;
+  color: #ff3131;
+}
+.cc-footer-btn--dup:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.cc-footer-btn--save {
+  flex: 1;
+  justify-content: center;
+  background: #ff3131;
+  border: none;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(255, 49, 49, 0.35);
+}
+
+.cc-footer-btn--save:hover:not(:disabled) {
+  box-shadow: 0 4px 14px rgba(255, 49, 49, 0.45);
+  opacity: 0.93;
+}
+
+.cc-footer-btn--save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 /* ── Section labels (supplier style) ── */
 .ccf-section-label {
@@ -1569,49 +1798,50 @@ export default {
   text-overflow: ellipsis;
 }
 
-/* ── Pill buttons (save/cancel) ── */
-.cc-pill-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 20px;
-  border-radius: 50px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-  border: none;
-  transition: all .2s;
-}
-.cc-pill-btn--outline { background: transparent; border: 1.5px solid #e5e7eb; color: #374151; }
-.cc-pill-btn--outline:hover { background: #f3f4f6; border-color: #d1d5db; }
-.cc-pill-btn--primary { background: #ff3131; color: #fff; border: none; }
-.cc-pill-btn--primary:hover { box-shadow: 0 4px 14px rgba(255, 49, 49,.4); transform: translateY(-1px); }
-.cc-pill-btn--primary:disabled { opacity: .6; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-
-@media (max-width: 768px) {
-  .cc-content { padding: 12px 16px; }
-  .cc-left-col { height: auto; }
-  .cc-right-panel { position: static; height: auto; }
-  .cc-add-btns { flex-wrap: wrap; }
-}
-
 /* ── Dark mode (classe racine .cc--dark, aligné sur ComponentTypeList) ── */
-/* Cartes & structure */
-.cc--dark .cc-left-card,
-.cc--dark .cc-right-panel { background: #1e293b; border-color: rgba(255,255,255,.08); }
-.cc--dark .cc-card-head,
-.cc--dark .cc-form-head,
-.cc--dark .cc-stats,
-.cc--dark .cc-stat { border-color: rgba(255,255,255,.06) !important; }
-.cc--dark .cc-card-title,
-.cc--dark .cc-form-title,
-.cc--dark .cc-stat__value,
+.cc--dark #component-create-page,
+.cc--dark .cc-inner,
+.cc--dark {
+  background: #111827 !important;
+}
+
+.cc--dark .cc-left-section {
+  background: #111827;
+  border-color: #374151;
+}
+
+.cc--dark .cc-right-section {
+  background: #1f2937;
+}
+
+.cc--dark .cc-right-section-header {
+  background: #1f2937;
+  border-bottom-color: #374151;
+}
+
+.cc--dark .cc-right-section-footer {
+  background: #1f2937;
+  border-top-color: #374151;
+}
+
+.cc--dark .cc-title {
+  color: #f9fafb !important;
+}
+
+.cc--dark .cc-table-card {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.cc--dark .cc-table-summary { background: #1a2332; border-color: #374151; }
+.cc--dark .cc-table-summary__label,
+.cc--dark .cc-table-summary__value { color: #94a3b8; }
+.cc--dark .cc-table-summary__divider { background: #374151; }
+.cc--dark .cc-table-summary__cost-label,
+.cc--dark .cc-table-summary__cost-value { color: #f3f4f6; }
+
 .cc--dark .cc-row-name__text { color: #e2e8f0; }
-.cc--dark .cc-card-sub,
-.cc--dark .cc-form-sub { color: #94a3b8; }
+
 .cc--dark .cc-add-btn--outline { background: rgba(255,255,255,.06); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
 .cc--dark .cc-add-btn--outline:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.24); }
 .cc--dark .cc-empty__icon { background: rgba(255,255,255,.03); border-color: rgba(255,255,255,.12); }
@@ -1626,12 +1856,17 @@ export default {
 .cc--dark .ccv-badge--component { background: rgba(37,99,235,.15); color: #93c5fd; border-color: rgba(37,99,235,.3); }
 .cc--dark .ccv-badge--storage { background: rgba(234,88,12,.15); color: #fdba74; border-color: rgba(234,88,12,.3); }
 .cc--dark .ccv-badge--unit { background: rgba(139,92,246,.15); color: #c4b5fd; border-color: rgba(139,92,246,.3); }
+.cc--dark .ccv-badge--supplier { background: rgba(14,116,144,.18); color: #67e8f9; border-color: rgba(14,116,144,.35); }
+.cc--dark .ccv-badge--supplier-more { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
+.cc--dark .ccv-badge--supplier-more:hover { background: rgba(255,255,255,.14); }
+.cc--dark .cc-suppliers-popover { background: #1e293b; border-color: rgba(255,255,255,.1); }
+.cc--dark .cc-suppliers-popover__item { color: #e2e8f0; }
+.cc--dark .cc-suppliers-popover__item:hover { background: rgba(255,255,255,.08); }
 /* Qty input & delete */
 .cc--dark .cc-qty-input { border-color: rgba(255,255,255,.14); background: #1a2332; color: #e2e8f0; }
 .cc--dark .cc-qty-input:focus { background: #1a2332; }
 .cc--dark .cc-del-btn { background: rgba(255,49,49,.15); }
 /* Formulaire droit */
-.cc--dark .cc-form-footer { background: #1e293b; border-top-color: rgba(255,255,255,.06); }
 .cc--dark .ccf-field-label { color: #94a3b8; }
 .cc--dark .ccf-field :deep(.v-field) { border-color: rgba(255,255,255,.12) !important; background: #1a2332 !important; }
 .cc--dark .ccf-field :deep(.v-field--focused) { background: #1a2332 !important; }
@@ -1654,7 +1889,9 @@ export default {
 .cc--dark .cc-pk-dialog__error { background: rgba(255,49,49,.15); }
 .cc--dark .cc-pk-dialog__footer { background: #1a2332; border-top-color: rgba(255,255,255,.06); }
 .cc--dark .cc-pk-btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; border-color: rgba(255,255,255,.14); }
-/* Pills */
-.cc--dark .cc-pill-btn--outline { border-color: rgba(255,255,255,.14); color: #cbd5e1; }
-.cc--dark .cc-pill-btn--outline:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.24); }
+/* Footer buttons */
+.cc--dark .cc-footer-btn--ghost,
+.cc--dark .cc-footer-btn--dup { border-color: rgba(255,255,255,.14); color: #cbd5e1; }
+.cc--dark .cc-footer-btn--ghost:hover { border-color: rgba(255,255,255,.3); color: #e2e8f0; }
+.cc--dark .cc-footer-btn--dup:hover:not(:disabled) { border-color: #ff3131; color: #ff3131; }
 </style>

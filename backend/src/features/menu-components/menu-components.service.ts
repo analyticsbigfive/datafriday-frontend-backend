@@ -283,7 +283,22 @@ export class MenuComponentsService {
 
   private readonly includeRelations = {
     ingredients: {
-      include: { ingredient: true },
+      // marketPrice scopé (supplier/supplierId/supplierRel.name seulement, PAS image qui peut
+      // être un base64 volumineux) : nécessaire pour résoudre le fournisseur affiché colonne
+      // Supplier côté front (ComponentCreateView.vue), sans alourdir findAll() (liste catalogue,
+      // même includeRelations) avec le payload complet MarketPrice pour chaque ingrédient de
+      // chaque composant. supplierRel.name : `MarketPrice.supplier` (string dénormalisée) est
+      // parfois vide alors que `supplierId` pointe vers un Supplier valide (données historiques
+      // désynchronisées) — la relation sert de source de vérité de secours.
+      include: {
+        ingredient: {
+          include: {
+            marketPrice: {
+              select: { supplier: true, supplierId: true, supplierRel: { select: { name: true } } },
+            },
+          },
+        },
+      },
     },
     children: {
       include: { child: true },
