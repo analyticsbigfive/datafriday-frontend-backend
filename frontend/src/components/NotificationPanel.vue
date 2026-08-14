@@ -5,27 +5,34 @@
   <div class="np-panel" :class="{ 'np-panel--dark': isDark }">
     <div class="np-head">
       <Bell :size="18" class="np-head-bell" />
-      <span class="np-title">Notifications</span>
+      <span class="np-title">{{ t('notifPanelTitle') }}</span>
       <span v-if="unreadCount > 0" class="np-count-pill">
-        {{ unreadCount }} non lue{{ unreadCount !== 1 ? 's' : '' }}
+        {{ interpolate(t('notifUnreadPill'), { n: unreadCount }) }}
       </span>
-      <button class="np-close" aria-label="Fermer" @click="onClose">
+      <button class="np-close" :aria-label="t('close')" @click="onClose">
         <X :size="15" />
       </button>
     </div>
 
     <div v-if="notifications.length === 0" class="np-empty">
       <Bell :size="34" class="np-empty-bell" />
-      <div class="np-empty-title">Aucune notification</div>
-      <div class="np-empty-sub">Vous êtes à jour !</div>
+      <div class="np-empty-title">{{ t('notifEmptyTitle') }}</div>
+      <div class="np-empty-sub">{{ t('notifEmptySub') }}</div>
     </div>
 
     <div v-else class="np-rows">
+      <!-- Ligne cliquable : marque LUE + navigue via meta (resolveNotificationRoute).
+           Sans cible reconnue, le clic marque lu et ferme — jamais d'erreur. -->
       <div
         v-for="notification in notifications"
         :key="notification.id"
         class="np-row"
         :class="{ 'np-row--read': notification.read }"
+        role="button"
+        tabindex="0"
+        :aria-label="t('notifOpenAria')"
+        @click="onRowClick(notification)"
+        @keydown.enter.prevent="onRowClick(notification)"
       >
         <div class="np-chip" :class="`np-chip--${getNotificationTone(notification.type)}`">
           <component :is="getNotificationIcon(notification.type)" :size="16" />
@@ -33,11 +40,11 @@
 
         <div class="np-row-body">
           <div class="np-row-top">
-            <span class="np-row-title">{{ notification.title }}</span>
+            <span class="np-row-title">{{ displayTitle(notification) }}</span>
             <span class="np-row-time">{{ formatTimestamp(notification.ts) }}</span>
           </div>
-          <div v-if="notification.message" class="np-row-msg">
-            {{ notification.message }}
+          <div v-if="displayMessage(notification)" class="np-row-msg">
+            {{ displayMessage(notification) }}
           </div>
         </div>
 
@@ -46,8 +53,8 @@
     </div>
 
     <div v-if="notifications.length > 0" class="np-foot">
-      <button class="np-foot-btn" @click="markAllRead">Tout marquer lu</button>
-      <button class="np-foot-btn np-foot-btn--danger" @click="clearAll">Tout effacer</button>
+      <button class="np-foot-btn" @click="markAllRead">{{ t('notifMarkAllRead') }}</button>
+      <button class="np-foot-btn np-foot-btn--danger" @click="clearAll">{{ t('notifClearAll') }}</button>
     </div>
   </div>
 </template>
@@ -64,13 +71,18 @@ import {
   Package,
 } from 'lucide-vue-next'
 import { useTheme } from 'vuetify'
+import { useI18n } from '@/i18n/useI18n'
+import { resolveNotificationRoute, interpolate } from '@/utils/notificationRouting'
 
 export default {
   name: 'NotificationPanel',
 
   setup() {
     const { global } = useTheme()
-    return { theme: global }
+    // t() réactif au switch de langue — les items i18n (titleKey/messageKey)
+    // sont traduits AU RENDU, pas au push.
+    const { t } = useI18n()
+    return { theme: global, t }
   },
 
   components: {
@@ -106,11 +118,28 @@ export default {
   },
 
   methods: {
+    interpolate,
     markAllRead() {
       this.$store.dispatch('notifications/markAllRead')
     },
     clearAll() {
       this.$store.dispatch('notifications/clear')
+    },
+    // Items i18n (titleKey/messageKey + params) traduits au rendu ; items
+    // legacy (title/message en dur) affichés tels quels — rétro-compat LS.
+    displayTitle(n) {
+      return n.titleKey ? interpolate(this.t(n.titleKey), n.params) : n.title
+    },
+    displayMessage(n) {
+      return n.messageKey ? interpolate(this.t(n.messageKey), n.params) : n.message
+    },
+    onRowClick(n) {
+      this.$store.dispatch('notifications/markRead', n.id)
+      const route = resolveNotificationRoute(n)
+      // Fermer AVANT le push : la surface téléportée du v-menu ne doit pas
+      // traîner au-dessus de la page de destination.
+      this.onClose()
+      if (route) this.$router.push(route).catch(() => {})
     },
 
     // Renvoie un NOM de composant (résolu par <component :is>).
@@ -157,10 +186,10 @@ export default {
       const diffHours = Math.floor(diffMs / 3600000)
       const diffDays = Math.floor(diffMs / 86400000)
 
-      if (diffMins < 1) return "À l'instant"
-      if (diffMins < 60) return `il y a ${diffMins} min`
-      if (diffHours < 24) return `il y a ${diffHours} h`
-      return `il y a ${diffDays} j`
+      if (diffMins < 1) return this.t('notifJustNow')
+      if (diffMins < 60) return interpolate(this.t('notifMinAgo'), { n: diffMins })
+      if (diffHours < 24) return interpolate(this.t('notifHoursAgo'), { n: diffHours })
+      return interpolate(this.t('notifDaysAgo'), { n: diffDays })
     },
   },
 }
@@ -237,6 +266,7 @@ export default {
   padding: 10px;
   border-radius: 10px;
   transition: background 0.12s;
+  cursor: pointer;
 }
 .np-row:hover {
   background: #f9fafb;

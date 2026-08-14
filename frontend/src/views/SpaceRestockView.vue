@@ -161,7 +161,26 @@
                   <span v-else-if="selectedEvents.length">
                     · {{ selectedEvents.length }} {{ selectedEvents.length > 1 ? t('srEventPlural') : t('srEventSingular') }}
                   </span>
-                  <span v-if="previousInventoryLabel">
+                  <!-- Sélecteur « Inventaire source » (maquette 14-08). Select
+                       NATIF : le bandeau est sticky, l'overlay d'un v-select y
+                       est un piège de stacking (cf. bug kebab/EventDrawerShell).
+                       Repli libellé seul quand aucun inventaire sauvegardé. -->
+                  <span v-if="sourceInventoryOptions.length > 1" class="sr-source-inventory">
+                    · {{ t('srSourceInventoryPrefix') }}
+                    <select
+                      class="sr-source-inventory-select"
+                      :value="sourceInventoryEventId || ''"
+                      :aria-label="t('srSourceInventoryPrefix')"
+                      @change="onSourceInventoryChange($event.target.value)"
+                    >
+                      <option
+                        v-for="opt in sourceInventoryOptions"
+                        :key="opt.value || 'auto'"
+                        :value="opt.value"
+                      >{{ opt.value ? opt.title : `${opt.title}${previousInventoryLabel && !sourceInventoryEventId ? ` — ${previousInventoryLabel}` : ''}` }}</option>
+                    </select>
+                  </span>
+                  <span v-else-if="previousInventoryLabel">
                     · {{ t('srSourceInventoryPrefix') }} {{ previousInventoryLabel }}
                   </span>
                 </p>
@@ -483,6 +502,41 @@
             {{ t('srStorageEmpty') }}
           </div>
           <template v-else>
+            <!-- « Ajustement Global » (maquette) : % appliqué aux lignes SANS
+                 réglage individuel (précédence individuelle). Case décochée →
+                 curseur inerte, retour au défaut 100 %. Storage seulement — le
+                 PDV garde ses presets 80/100/120. -->
+            <div class="sr-storage-global">
+              <label class="sr-storage-global-check">
+                <input
+                  type="checkbox"
+                  :checked="storageGlobalEnabled"
+                  @change="toggleStorageGlobal($event.target.checked)"
+                />
+                {{ t('srStorageGlobalAdjust') }}
+              </label>
+              <div class="sr-slider-row sr-storage-global-slider">
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  step="1"
+                  :value="storageGlobalPercent"
+                  class="sr-slider"
+                  :disabled="!storageGlobalEnabled"
+                  :aria-label="t('srStorageGlobalEnable')"
+                  :title="t('srStorageGlobalEnable')"
+                  @input="setStorageGlobalPercent($event.target.value)"
+                />
+                <span class="sr-slider-value">{{ storageGlobalPercent }}%</span>
+                <button
+                  v-if="storageGlobalPercent !== 100"
+                  type="button"
+                  class="sr-inline-btn"
+                  @click="resetStorageGlobal"
+                >{{ t('srReset') }}</button>
+              </div>
+            </div>
             <div
               v-for="group in storageRestockGroups"
               :key="group.elementId"
@@ -531,27 +585,31 @@
                   </div>
                 </div>
 
+                <!-- Curseur en % (maquette Réarmement-Stockage, décision 14/08) :
+                     100 % = nécessaire calculé (tampon − restant), 0–200 pas 5 —
+                     même langage que le curseur PDV. La quantité résultante reste
+                     affichée à côté du % : c'est elle, l'information métier. -->
                 <div class="sr-slider-wrap">
                   <label class="sr-slider-label">{{ t('srStorageRequired') }}</label>
                   <div class="sr-slider-row">
                     <input
                       type="range"
                       min="0"
-                      :max="row.sliderMax"
-                      step="1"
-                      :value="row.required"
+                      max="200"
+                      step="5"
+                      :value="row.percent"
                       class="sr-slider"
                       :aria-label="t('srStorageAdjustLabel')"
-                      @input="setStorageAdjustment(row.key, $event.target.value)"
+                      @input="setStoragePercent(row.key, $event.target.value)"
                     />
                     <span class="sr-slider-value" :class="{ 'sr-value-ok': !(row.required > 0) }">
-                      {{ formatLooseQuantity(row.required, row.unit) }}
+                      {{ row.percent }}% · {{ formatLooseQuantity(row.required, row.unit) }}
                     </span>
                     <button
                       v-if="row.adjusted"
                       type="button"
                       class="sr-inline-btn"
-                      @click="clearStorageAdjustment(row.key)"
+                      @click="clearStoragePercent(row.key)"
                     >{{ t('srReset') }}</button>
                   </div>
                 </div>
@@ -1552,6 +1610,7 @@ import { getSuppliers } from '@/api/endpoints/menu.api'
 import {
   getInventory as apiGetInventory,
   getLatestInventory as apiGetLatestInventory,
+  listInventoryReconciliations,
 } from '@/api/endpoints/inventory.api'
 import { fetchReferenceSales } from '@/composables/useReferenceSales'
 import { aggregateSalesToPredictedRecords } from '@/utils/salesAggregation'
@@ -1565,6 +1624,15 @@ import { findBestMatch } from '@/utils/menuItemMatching'
 import { countedRemaining } from '@/utils/shoppingList'
 // Netting stock ↔ feuille de course (cascade de matching + pool consommable).
 import { consumeFromPool, preparePool, orderQuantitiesByItemKey } from '@/utils/stockNetting'
+// Onglet Espaces de stockage : %, précédence globale/individuelle, seuils.
+import {
+  normalizeStoragePercent,
+  applyStoragePercent,
+  effectiveStoragePercent,
+  detectStorageAlerts,
+} from '@/utils/storageRestock'
+// Cloche de notifications (client-side) — seuils min/max storage.
+import { notify } from '@/utils/notify'
 // DB locale (localStorage) — persiste l'état réarmement sans backend.
 import * as localDb from '@/data/localDb'
 import {
@@ -1737,11 +1805,24 @@ export default {
       stockPackedModes: {},
       stockExcluded: {}, // itemKeys décochés → exclus de la génération du réarmement
       // fiche 314-01 — étape 1 : onglet actif ('shops' | 'storage') et overrides
-      // ABSOLUS (unités) du nécessaire par ligne storage. Clé =
-      // `storage:${elementId}:${normalizeStr(name)}` ; absent = défaut
-      // max(0, tampon − restant). Persisté dans RestockState (extras).
+      // en POURCENTAGE (0–200, 100 = défaut) du nécessaire par ligne storage.
+      // Clé = `storage:${elementId}:${normalizeStr(name)}` ; absent = 100 %.
+      // Persisté dans RestockState (extras). Remplace l'ancien champ
+      // `storageAdjustments` (unités absolues, abandonné 14/08 : une valeur
+      // absolue est indistinguable d'un %, et la conversion exigerait
+      // tampon/restant au restore, pas encore chargés à ce moment).
       stockTab: 'shops',
-      storageAdjustments: {},
+      storagePercents: {},
+      // « Ajustement Global » (maquette Réarmement-Stockage) : % appliqué aux
+      // lignes storage SANS réglage individuel ; case décochée = inerte (100 %).
+      storageGlobalPercent: 100,
+      storageGlobalEnabled: true,
+      // « Inventaire source » explicite (maquette) : eventId du snapshot choisi
+      // dans le bandeau, null = cascade automatique historique
+      // (loadPreviousInventory). Persisté dans RestockState (extras).
+      sourceInventoryEventId: null,
+      inventoryReconciliations: [],
+      inventoryReconciliationsLoading: false,
       // fiche 314-01 — drawer d'édition Market Price (Item Supplier Name).
       supplierEditDialog: false,
       supplierEditRow: null,
@@ -1939,6 +2020,37 @@ export default {
       }
       return Object.keys(this.previousInventoryCounts || {}).length ? this.t('srLastSnapshot') : ''
     },
+    /**
+     * Options du sélecteur « Inventaire source » (maquette 14-08) : les
+     * inventaires sauvegardés (réconciliations pre/post-event), dédupliqués par
+     * event — l'hydratation GET /inventory/:spaceId/:eventId est au grain
+     * event, pas kind (pas de ?kind= backend) : les kinds sont concaténés dans
+     * le libellé. Première option = cascade automatique historique (null).
+     */
+    sourceInventoryOptions() {
+      const options = [{ value: '', title: this.t('srSourceInventoryAuto') }]
+      const byEvent = new Map()
+      ;(this.inventoryReconciliations || []).forEach((doc) => {
+        if (!doc?.eventId) return
+        const entry = byEvent.get(doc.eventId) || { kinds: new Set(), eventName: doc.eventName || '' }
+        if (doc.kind) entry.kinds.add(doc.kind)
+        if (!entry.eventName && doc.eventName) entry.eventName = doc.eventName
+        byEvent.set(doc.eventId, entry)
+      })
+      byEvent.forEach((entry, eventId) => {
+        const ev = this.events.find((e) => e.id === eventId)
+        const name = entry.eventName || (ev ? this.eventLabel(ev) : eventId)
+        const date = ev ? this.eventDateLabel(ev) : ''
+        const kinds = Array.from(entry.kinds)
+          .map((k) => this.t(k === 'pre-event' ? 'srSourceKindPre' : 'srSourceKindPost'))
+          .join(' + ')
+        options.push({
+          value: eventId,
+          title: `${name}${date ? ` (${date})` : ''}${kinds ? ` · ${kinds}` : ''}`,
+        })
+      })
+      return options
+    },
     /** Règle 3 : comptage courant (inventoryStore.inventoryCounts) = source canonique du restant. */
     storeInventoryCounts() {
       return this.store.state.inventory?.inventoryCounts || {}
@@ -2007,8 +2119,11 @@ export default {
      *  - tampon   = row.quantity (Builder)
      *  - restant  = comptages agrégés de l'élément (aggregateCountsForElements,
      *               identité id puis nom — même cascade que le netting)
-     *  - nécessaire (défaut) = max(0, tampon − restant BRUT) ; override slider
-     *    absolu (storageAdjustments), plafonné à 5× le tampon (spec PDF).
+     *  - nécessaire (défaut) = max(0, tampon − restant BRUT) ; ajusté par un
+     *    % par ligne (storagePercents, 0–200) avec précédence sur l'
+     *    « Ajustement Global » (storageGlobalPercent/Enabled) — cf.
+     *    utils/storageRestock.js. L'ancien override absolu (storageAdjustments)
+     *    est abandonné (14/08).
      * Seuils Builder : minStock/maxStock → alertes à 10 % près (B3, front only).
      */
     /** Ids (String) des configs objectif résolues. */
@@ -2091,11 +2206,14 @@ export default {
                 .reduce((sum, c) => sum + c.qty, 0)
               const defaultRequired = Math.max(0, buffer - remaining)
               const key = `storage:${elId}:${wantName}`
-              const overrideRaw = this.storageAdjustments[key]
+              const overrideRaw = this.storagePercents[key]
               const hasOverride = overrideRaw != null && overrideRaw !== ''
-              const required = hasOverride
-                ? Math.max(0, Number(overrideRaw) || 0)
-                : defaultRequired
+              const percent = effectiveStoragePercent({
+                individual: hasOverride ? normalizeStoragePercent(overrideRaw) : null,
+                globalPercent: this.storageGlobalPercent,
+                globalEnabled: this.storageGlobalEnabled,
+              })
+              const required = applyStoragePercent(defaultRequired, percent)
               const minStock = r.minStock != null ? Number(r.minStock) : null
               const maxStock = r.maxStock != null ? Number(r.maxStock) : null
               return {
@@ -2107,10 +2225,11 @@ export default {
                 buffer,
                 remaining,
                 defaultRequired,
+                percent,
                 required,
                 adjusted: hasOverride,
-                // Plafond 5× tampon (spec) — jamais sous la valeur courante ni 1.
-                sliderMax: Math.max(Math.ceil(5 * buffer), required, 1),
+                minStock,
+                maxStock,
                 nearMax: maxStock > 0 && remaining >= 0.9 * maxStock,
               }
             })
@@ -2134,6 +2253,30 @@ export default {
         }),
       )
       return n
+    },
+    /** Alertes de seuils min/max (cloche) — nearMax ET nearMin (le nearMin n'a
+     *  plus de badge inline mais garde son signal cloche, garde minStock > 0
+     *  anti-bruit, cf. utils/storageRestock.detectStorageAlerts). */
+    storageAlertsList() {
+      const rows = []
+      this.storageRestockGroups.forEach((g) =>
+        g.rows.forEach((r) =>
+          rows.push({
+            name: r.name,
+            elementId: r.elementId,
+            elementName: g.elementName,
+            remaining: r.remaining,
+            minStock: r.minStock,
+            maxStock: r.maxStock,
+          }),
+        ),
+      )
+      return detectStorageAlerts(rows)
+    },
+    /** Signature stable des alertes — cible de watch légère (jamais de
+     *  deep-watch sur storageRestockGroups : coût + boucles). */
+    storageAlertSignature() {
+      return this.storageAlertsList.map((a) => a.dedupeKey).sort().join('|')
     },
     /** Rang « À commander » mémoïsé par ligne storage (pattern buyInfoByItem). */
     storageBuyInfoByKey() {
@@ -3081,9 +3224,12 @@ export default {
         // Envoyé dans les `extras` du PUT (restock.api.js) : un backend plus
         // ancien en whitelist stricte retombe sur le noyau sans lui.
         loadedPlanId: this.loadedPlanId,
-        // fiche 314-01 — overrides absolus de l'onglet Espaces de stockage
+        // fiche 314-01 / maquette 14-08 — état de l'onglet Espaces de stockage
         // (extras aussi : blob jsonb opaque, aucun changement backend).
-        storageAdjustments: this.storageAdjustments,
+        storagePercents: this.storagePercents,
+        storageGlobalPercent: this.storageGlobalPercent,
+        storageGlobalEnabled: this.storageGlobalEnabled,
+        sourceInventoryEventId: this.sourceInventoryEventId,
       }
     },
     overviewMetrics() {
@@ -3125,6 +3271,19 @@ export default {
       this.detachPlan({ silent: true })
       this.plansApi.reset()
       if (this.plansAvailable !== false) this.plansApi.refresh(spaceId)
+      // Inventaire source : liste et choix sont scopés à l'espace.
+      this.sourceInventoryEventId = null
+      this.inventoryReconciliations = []
+      this.loadInventoryReconciliations(spaceId)
+    },
+    // Choix persisté dont le document n'existe plus (supprimé côté serveur) →
+    // retour silencieux à la cascade automatique.
+    sourceInventoryOptions(options) {
+      if (!this.sourceInventoryEventId) return
+      if (this.inventoryReconciliationsLoading) return
+      if (!this.inventoryReconciliations.length) return
+      const known = options.some((o) => o.value === this.sourceInventoryEventId)
+      if (!known) this.sourceInventoryEventId = null
     },
     selectedEventIds: {
       deep: true,
@@ -3154,6 +3313,21 @@ export default {
     },
     restockSearch() {
       this.restockPage = 1
+    },
+    // Notifications cloche des seuils min/max storage : déclenchées quand la
+    // liste d'alertes change (données inventaire/builder résolues), dédupées
+    // par montage de vue (_storageAlertsNotified, non réactif).
+    storageAlertSignature() {
+      this.emitStorageAlertNotifications()
+    },
+    // Deep-link cloche pendant que l'instance keepAlive est vivante (mounted ne
+    // re-tourne pas) : appliquer ?step= / ?tab=storage. Garde route.name
+    // OBLIGATOIRE — une instance keepAlive observe toutes les routes.
+    'route.query'(q) {
+      if (this.route.name !== 'space-restock') return
+      const step = SLUG_STEPS[q?.step]
+      if (step && step !== this.currentStep) this.goToStep(step)
+      if (q?.tab === 'storage') this.stockTab = 'storage'
     },
     restockViewMode() {
       this.restockPage = 1
@@ -3199,6 +3373,13 @@ export default {
       },
     },
   },
+  created() {
+    // Dédup des notifications de seuils storage : une par (espace, élément,
+    // item, type de seuil) et par montage de vue. Set NON réactif (pattern
+    // _restockPutTimer) — keepAlive : survit aux allers-retours d'onglets,
+    // se vide à la vraie re-navigation.
+    this._storageAlertsNotified = new Set()
+  },
   async mounted() {
     // Active le Teleport une fois la cible du v-app-bar parent présente dans le DOM.
     this.$nextTick(() => { this.headerReady = true })
@@ -3206,11 +3387,16 @@ export default {
     // backend absent → panneau masqué (plansAvailable = false).
     const mountSpaceId = this.route.params?.spaceId
     if (mountSpaceId) this.plansApi.refresh(mountSpaceId)
+    // Sélecteur « Inventaire source » : liste des inventaires sauvegardés.
+    if (mountSpaceId) this.loadInventoryReconciliations(mountSpaceId)
     await this.loadAll()
     // Assistant : le panneau de l'étape active doit s'afficher déplié. L'URL
     // (?step=) prime sur l'étape restaurée (deep-link / refresh / partage).
     const urlStep = SLUG_STEPS[this.route.query?.step]
     this.goToStep(urlStep || this.currentStep)
+    // Deep-link cloche (?tab=storage) : atterrir sur l'onglet Espaces de
+    // stockage de l'étape 1.
+    if (this.route.query?.tab === 'storage') this.stockTab = 'storage'
     // Flux Inventaire → Sauvegarder : on arrive avec ?action=shopping pour
     // générer directement la feuille de course (par fournisseur / ingrédient).
     if (this.route.query?.action === 'shopping') {
@@ -3370,7 +3556,18 @@ export default {
       if (saved.stockAdjustments) this.stockAdjustments = { ...saved.stockAdjustments }
       if (saved.stockPackedModes) this.stockPackedModes = { ...saved.stockPackedModes }
       if (saved.stockExcluded) this.stockExcluded = { ...saved.stockExcluded }
-      if (saved.storageAdjustments) this.storageAdjustments = { ...saved.storageAdjustments }
+      // NE PAS lire `saved.storageAdjustments` (legacy absolu, fiche 314-01,
+      // abandonné 14/08 au profit des %) — les lignes retombent sur 100 %.
+      if (saved.storagePercents) this.storagePercents = { ...saved.storagePercents }
+      if (saved.storageGlobalPercent != null) {
+        this.storageGlobalPercent = normalizeStoragePercent(saved.storageGlobalPercent)
+      }
+      if (typeof saved.storageGlobalEnabled === 'boolean') {
+        this.storageGlobalEnabled = saved.storageGlobalEnabled
+      }
+      if (saved.sourceInventoryEventId != null) {
+        this.sourceInventoryEventId = saved.sourceInventoryEventId
+      }
       // Vue « Par shop » masquée : un état persisté `'shop'` (utilisateur qui
       // l'avait sélectionnée avant) ne doit PAS la ressusciter — sans la bascule
       // dans l'UI, il n'aurait aucun moyen d'en sortir.
@@ -3468,6 +3665,13 @@ export default {
         this.stockPackedModes = { ...(plan.stockPackedModes || {}) }
         this.stockExcluded = { ...(plan.stockExcluded || {}) }
         this.shoppingMode = plan.shoppingMode || 'finished'
+        // État storage figé avec le plan (meta.storage, 14-08). Plans
+        // antérieurs sans ce bloc → défauts sains.
+        const metaStorage = plan.meta?.storage || {}
+        this.storagePercents = { ...(metaStorage.percents || {}) }
+        this.storageGlobalPercent = normalizeStoragePercent(metaStorage.globalPercent)
+        this.storageGlobalEnabled = metaStorage.globalEnabled !== false
+        this.sourceInventoryEventId = metaStorage.sourceInventoryEventId ?? null
         await this.$nextTick()
         // 2) Photo — posée après le flush des watchers d'entrées.
         this.loadedPlan = plan
@@ -3547,6 +3751,11 @@ export default {
           restockedRows: this.restockedRows,
           shoppingMode: this.shoppingMode,
           snapshotAt: new Date().toISOString(),
+          // Onglet Espaces de stockage (maquette 14-08) → meta.storage.
+          storagePercents: this.storagePercents,
+          storageGlobalPercent: this.storageGlobalPercent,
+          storageGlobalEnabled: this.storageGlobalEnabled,
+          sourceInventoryEventId: this.sourceInventoryEventId,
         },
         events: this.selectedEvents,
         // BUG-296-01 — ventilation étape 1 figée avec le plan.
@@ -4392,22 +4601,84 @@ export default {
       this.applyStockAdjustmentToAll(100)
     },
     // ── fiche 314-01 — onglet Espaces de stockage ────────────────────────────
-    /** Override ABSOLU (unités) du nécessaire d'une ligne storage. */
-    async setStorageAdjustment(key, value) {
+    /** Override en % (0–200) du nécessaire d'une ligne storage. */
+    async setStoragePercent(key, value) {
       if (!(await this.guardPlanEdit())) return
-      this.storageAdjustments = {
-        ...this.storageAdjustments,
-        [key]: Math.max(0, Number(value) || 0),
+      this.storagePercents = {
+        ...this.storagePercents,
+        [key]: normalizeStoragePercent(value),
       }
       this.resetGeneratedOutputs()
     },
-    /** Retour au défaut max(0, tampon − restant) pour une ligne storage. */
-    async clearStorageAdjustment(key) {
+    /** Retour au défaut (100 % ou global actif) pour une ligne storage. */
+    async clearStoragePercent(key) {
       if (!(await this.guardPlanEdit())) return
-      const next = { ...this.storageAdjustments }
+      const next = { ...this.storagePercents }
       delete next[key]
-      this.storageAdjustments = next
+      this.storagePercents = next
       this.resetGeneratedOutputs()
+    },
+    /** « Ajustement Global » storage — % des lignes sans réglage individuel. */
+    async setStorageGlobalPercent(value) {
+      if (!(await this.guardPlanEdit())) return
+      this.storageGlobalPercent = normalizeStoragePercent(value)
+      this.resetGeneratedOutputs()
+    },
+    async toggleStorageGlobal(enabled) {
+      if (!(await this.guardPlanEdit())) return
+      this.storageGlobalEnabled = Boolean(enabled)
+      this.resetGeneratedOutputs()
+    },
+    async resetStorageGlobal() {
+      if (!(await this.guardPlanEdit())) return
+      this.storageGlobalPercent = 100
+      this.resetGeneratedOutputs()
+    },
+    /** Liste des inventaires sauvegardés (réconciliations) — best-effort,
+     *  jamais bloquant : KO → le sélecteur ne montre que « Automatique ». */
+    async loadInventoryReconciliations(spaceId) {
+      if (!spaceId) return
+      this.inventoryReconciliationsLoading = true
+      try {
+        const rows = await listInventoryReconciliations(spaceId)
+        this.inventoryReconciliations = Array.isArray(rows) ? rows : []
+      } catch (e) {
+        this.inventoryReconciliations = []
+      } finally {
+        this.inventoryReconciliationsLoading = false
+      }
+    },
+    /** Changement d'inventaire source (bandeau). Handler explicite, pas de
+     *  v-model : guardPlanEdit doit pouvoir refuser AVANT mutation. */
+    async onSourceInventoryChange(value) {
+      const next = value || null
+      if (next === this.sourceInventoryEventId) return
+      if (!(await this.guardPlanEdit())) return
+      this.sourceInventoryEventId = next
+      this.resetGeneratedOutputs()
+      await this.loadPreviousInventory()
+    },
+    /** Pousse dans la cloche les alertes de seuils encore jamais notifiées ce
+     *  montage. Ne tire que sur données résolues — pas pendant un chargement,
+     *  un restore d'état ou le chargement d'un plan. */
+    emitStorageAlertNotifications() {
+      if (this.storageInventoryLoading || this.previousInventoryLoading) return
+      if (this.restoringState || this.loadingPlan) return
+      const spaceId = this.storageSpaceId || this.route.params?.spaceId || ''
+      this.storageAlertsList.forEach((alert) => {
+        const key = `${spaceId}:${alert.dedupeKey}`
+        if (this._storageAlertsNotified.has(key)) return
+        this._storageAlertsNotified.add(key)
+        notify({
+          type: 'inventory',
+          // titleKey : traduit au rendu (suit la langue) ; le message reste la
+          // donnée brute item (espace), non traduisible.
+          titleKey: alert.kind === 'nearMax' ? 'srNotifStorageNearMax' : 'srNotifStorageNearMin',
+          message: alert.elementName ? `${alert.name} (${alert.elementName})` : alert.name,
+          // Cible du clic (resolveNotificationRoute) : réarmement, onglet storage.
+          meta: { spaceId, target: 'restock-storage' },
+        })
+      })
     },
     /** « À commander » d'une ligne storage — même rendu que buyInfo (étape 1). */
     storageBuyInfo(row) {
@@ -4631,10 +4902,13 @@ export default {
       // Inventaire — charger l'event précédent écrasait ces comptages et
       // affichait REMAINING=0). Le snapshot event précédent reste disponible en
       // fallback via previousInventoryCounts plus bas.
+      // Inventaire source explicite (maquette 14-08) : le choix du bandeau
+      // prime sur la résolution implicite (référence / event sélectionné).
       const countsEventId =
-        this.objectiveSource === 'sales'
+        this.sourceInventoryEventId ||
+        (this.objectiveSource === 'sales'
           ? this.referenceEventId
-          : this.selectedEvents[0]?.id || null
+          : this.selectedEvents[0]?.id || null)
       if (spaceId) {
         try {
           await this.store.dispatch('inventory/loadInventory', { spaceId, eventId: countsEventId || null })
@@ -4648,7 +4922,11 @@ export default {
 
       this.previousInventoryLoading = true
       try {
-        const previousEvent = this.resolvePreviousEvent()
+        // Choix explicite → l'event choisi devient la source du snapshot ET du
+        // libellé du bandeau ; sinon cascade historique (event précédent).
+        const previousEvent = this.sourceInventoryEventId
+          ? this.events.find((e) => e.id === this.sourceInventoryEventId) || null
+          : this.resolvePreviousEvent()
         let counts = {}
         let sourceEvent = previousEvent
         const useLocalInventoryOnly = !!this.store.state.analyse?.fromMock
@@ -6010,6 +6288,36 @@ export default {
 /* Chantier 317 — le groupe ne posait qu'un padding : les lignes se touchaient,
    alors que les lignes PDV héritent d'un gap de `.sr-settings-list`. Padding
    horizontal aligné sur cette même liste (12px, et non 16px). */
+/* « Ajustement Global » storage (maquette 14-08) : toolbar au-dessus des
+   groupes — checkbox d'activation + curseur continu 0–200 %. Réutilise
+   .sr-slider / .sr-slider-row / .sr-inline-btn des lignes. */
+.sr-storage-global {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--sr-border, #e5e7eb);
+}
+.sr-storage-global-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--sr-text, #111827);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sr-storage-global-slider {
+  flex: 1;
+  min-width: 220px;
+  max-width: 420px;
+}
+.sr-storage-global-slider .sr-slider:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .sr-storage-group {
   display: flex;
   flex-direction: column;
@@ -8243,6 +8551,20 @@ export default {
 .sr-header__text { min-width: 0; }
 .sr-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .sr-header__subtitle { margin: 3px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, .78); }
+/* Sélecteur « Inventaire source » — select natif fondu dans le bandeau rouge
+   (pas d'overlay Vuetify sous le sticky). */
+.sr-source-inventory { display: inline-flex; align-items: center; gap: 4px; }
+.sr-source-inventory-select {
+  max-width: 260px;
+  padding: 1px 4px;
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sr-source-inventory-select option { color: #111827; }
 .sr-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Retour (blanc sur rouge) */
