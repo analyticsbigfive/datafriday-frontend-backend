@@ -1420,7 +1420,10 @@ export default {
     // Enrichissement metadata events Weezevent
     async loadWeezeventEvents() {
       try {
-        const data = await getWeezeventEventsForSpace(this.spaceId)
+        // BUG-319-02 : sans integrationId, le backend pouvait résoudre une intégration arbitraire
+        // quand l'espace est mappé par plusieurs — weezEventMappings se réhydratait alors avec les
+        // liens d'une AUTRE intégration, symétrique à loadTimeline juste au-dessus dans mounted().
+        const data = await getWeezeventEventsForSpace(this.spaceId, this.location.id)
         const list = Array.isArray(data) ? data : (data?.data ?? [])
         // Always restore dfEventId mappings regardless of composable state
         const newMappings = { ...this.weezEventMappings }

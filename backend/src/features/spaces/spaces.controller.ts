@@ -743,10 +743,15 @@ export class SpacesController {
   @Get(':id/weezevent-events')
   @ApiOperation({ summary: 'Liste des WeezeventEvents d\'un espace avec métadonnées d\'enrichissement' })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration — désambiguïse un espace mappé par plusieurs intégrations (BUG-319-02)' })
   @ApiResponse({ status: 200, description: 'Liste des événements Weezevent avec métadonnées' })
   @ApiResponse({ status: 404, description: 'Espace non trouvé' })
-  async getWeezeventEventsForSpace(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.getWeezeventEventsForSpace(id, user.tenantId);
+  async getWeezeventEventsForSpace(
+    @Param('id') id: string,
+    @Query('integrationId') integrationId: string | undefined,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.getWeezeventEventsForSpace(id, user.tenantId, integrationId);
   }
 
   /**
