@@ -18,7 +18,13 @@ export class MenuComponentsService {
   }
 
   private async invalidateCache(tenantId: string) {
-    await this.redis.deletePattern(`datafriday:menu-components:${tenantId}:*`);
+    // `deletePattern` préfixe déjà avec `datafriday:` en interne (RedisService.buildKey) — le
+    // remettre ici double-préfixait le pattern (`datafriday:datafriday:...`), qui ne matchait
+    // donc jamais aucune clé réelle : le cache liste (`findAll`, TTL 60s) n'était en réalité
+    // JAMAIS invalidé après create/update/delete. Bug constaté 2026-08-14 (liste de composants
+    // ne se rafraîchissant pas après suppression/duplication, même après le fix front sur le
+    // fetch concurrent — cf. menuComponents.js).
+    await this.redis.deletePattern(`menu-components:${tenantId}:*`);
   }
 
   private toDecimalOrUndefined(value: unknown): any {
@@ -277,7 +283,22 @@ export class MenuComponentsService {
 
   private readonly includeRelations = {
     ingredients: {
-      include: { ingredient: true },
+      // marketPrice scopé (supplier/supplierId/supplierRel.name seulement, PAS image qui peut
+      // être un base64 volumineux) : nécessaire pour résoudre le fournisseur affiché colonne
+      // Supplier côté front (ComponentCreateView.vue), sans alourdir findAll() (liste catalogue,
+      // même includeRelations) avec le payload complet MarketPrice pour chaque ingrédient de
+      // chaque composant. supplierRel.name : `MarketPrice.supplier` (string dénormalisée) est
+      // parfois vide alors que `supplierId` pointe vers un Supplier valide (données historiques
+      // désynchronisées) — la relation sert de source de vérité de secours.
+      include: {
+        ingredient: {
+          include: {
+            marketPrice: {
+              select: { supplier: true, supplierId: true, supplierRel: { select: { name: true } } },
+            },
+          },
+        },
+      },
     },
     children: {
       include: { child: true },

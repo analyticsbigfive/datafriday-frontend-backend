@@ -257,6 +257,8 @@ export default {
     this.$store.dispatch('industrials/fetchIndustrials');
     this.$store.dispatch('marketPriceTypes/fetchMarketPriceTypes');
     this.$store.dispatch('marketPriceCategories/fetchMarketPriceCategories');
+    // Restaure les filtres mémorisés (avant les overrides d'URL, qui restent prioritaires).
+    this.restoreFilters();
     // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
     // (suppression bloquée par des MarketPrice dépendants) de lier directement vers la liste déjà
     // filtrée, plutôt que de chercher la bonne ligne à la main.
@@ -504,11 +506,42 @@ export default {
       this.searchDebounceTimer = setTimeout(() => {
         this.debouncedSearchQuery = value;
       }, 150);
+      this.persistFilters();
     },
+    selectedType() { this.persistFilters(); },
+    selectedCategory() { this.persistFilters(); },
+    selectedSupplier() { this.persistFilters(); },
   },
   methods: {
     handleThemeChange(event) { this.theme = event.detail?.theme || 'light'; },
     handleLocaleChange(event) { this.locale = event.detail?.locale || 'en'; },
+    // Mémorisation des filtres (survit au remount, ex. éviction du keep-alive :max=6
+    // quand on visite d'autres outils) : sauvegarde dans localStorage à chaque changement,
+    // restaurée au montage. Les deep-links URL (?type=&category=) restent prioritaires.
+    persistFilters() {
+      try {
+        localStorage.setItem('mpl.filters.v1', JSON.stringify({
+          searchQuery: this.searchQuery,
+          selectedType: this.selectedType,
+          selectedCategory: this.selectedCategory,
+          selectedSupplier: this.selectedSupplier,
+        }));
+      } catch (e) { /* localStorage indisponible : on ignore */ }
+    },
+    restoreFilters() {
+      try {
+        const raw = localStorage.getItem('mpl.filters.v1');
+        if (!raw) return;
+        const f = JSON.parse(raw) || {};
+        if (typeof f.searchQuery === 'string') {
+          this.searchQuery = f.searchQuery;
+          this.debouncedSearchQuery = f.searchQuery;
+        }
+        if (typeof f.selectedType === 'string') this.selectedType = f.selectedType;
+        if (typeof f.selectedCategory === 'string') this.selectedCategory = f.selectedCategory;
+        if (typeof f.selectedSupplier === 'string') this.selectedSupplier = f.selectedSupplier;
+      } catch (e) { /* JSON corrompu : on ignore */ }
+    },
 
     clearFilters() {
       clearTimeout(this.searchDebounceTimer);

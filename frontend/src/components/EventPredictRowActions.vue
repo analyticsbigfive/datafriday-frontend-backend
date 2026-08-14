@@ -2,7 +2,7 @@
   <!-- Kebab ⋮ : regroupe les actions d'une ligne « non rattaché » (Remapper /
        Ajouter / Réactiver + Space Menus) sur une seule ligne, hauteur uniforme.
        Remplace la rangée de boutons texte qui débordait sur 2 lignes. -->
-  <v-menu location="bottom end" :close-on-content-click="true">
+  <v-menu class="epra-menu-overlay" location="bottom end" :close-on-content-click="true">
     <template #activator="{ props }">
       <button
         v-bind="props"
@@ -95,6 +95,21 @@ export default {
   emits: ['remap', 'add', 'open-space-menus', 'use-history', 'assign-all'],
 }
 </script>
+
+<style>
+/* Le menu du kebab est un VOverlay séparé, téléporté hors du composant : un
+   bloc `scoped` ne l'atteindrait pas. Quand la ligne vit dans un tiroir
+   (EventDrawerShell force `z-index: 2200` sur le panneau et 2199 sur le
+   scrim), `useStack` calcule ~2000/2010 pour cet overlay et le menu s'ouvre
+   DERRIÈRE le tiroir — le clic passe, rien ne s'affiche. Symptôme et
+   correctif identiques à BUG-241 (CsvImportDrawer) et au drawer alias
+   (9af25a9) : classe posée sur le `.v-overlay` externe + z-index !important,
+   insensible à la pile. Le prop `z-index` ne suffit pas : `useStack` ne
+   l'honore que si la pile globale d'overlays est vide. */
+.epra-menu-overlay {
+  z-index: 2300 !important;
+}
+</style>
 
 <style scoped>
 .epra-kebab {

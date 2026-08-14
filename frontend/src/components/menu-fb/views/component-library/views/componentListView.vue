@@ -1,8 +1,9 @@
 
 <template>
   <div id="component-library-page" :class="{ 'cl--dark': isDark }">
+    <div class="cl-inner">
     <!-- ── Header ── -->
-    <div class="cl-header cl-header--sticky">
+    <div class="cl-header">
       <div class="cl-header__inner">
         <div class="cl-header__left">
           <div class="cl-header__icon">
@@ -33,7 +34,7 @@
     </div>
 
     <!-- ── Search bar ── -->
-    <div class="cl-searchbar cl-searchbar--sticky">
+    <div class="cl-searchbar">
       <div class="cl-searchbar__inner">
         <Search :size="17" class="cl-searchbar__icon" />
         <input v-model="searchQuery" class="cl-searchbar__input" type="search" :placeholder="t('compListSearchPlaceholder')" />
@@ -131,7 +132,6 @@
         >
           <template #item.name="{ item }">
             <div class="cl-row-name">
-              <span class="cl-row-name__dot"></span>
               <span class="cl-row-name__text">{{ (item?.raw ? item.raw.name : item.name) || '-' }}</span>
             </div>
           </template>
@@ -148,10 +148,8 @@
             </span>
           </template>
 
-          <template #item.storageType="{ item }">
-            <span class="cl-badge cl-badge--storage">
-              {{ (item?.raw ? item.raw.storageType : item.storageType) || "-" }}
-            </span>
+          <template #item.updatedAt="{ item }">
+            <span class="cl-date">{{ formatDate(item?.raw ? item.raw.updatedAt : item.updatedAt) }}</span>
           </template>
 
           <template #item.unitCost="{ item }">
@@ -170,6 +168,15 @@
               <button class="cl-act-btn cl-act-btn--edit" type="button" @click.stop="onEditComponent(item?.raw || item)">
                 <Pencil :size="14" />
               </button>
+              <button
+                class="cl-act-btn cl-act-btn--dup"
+                :class="{ 'cl-act-btn--busy': duplicatingId === ((item?.raw || item)?.id ?? (item?.raw || item)?._id) }"
+                type="button"
+                :title="t('compDuplicate')"
+                @click.stop="onDuplicateComponent(item?.raw || item)"
+              >
+                <Copy :size="14" />
+              </button>
               <button class="cl-act-btn cl-act-btn--delete" type="button" @click.stop="onDeleteComponent(item?.raw || item)">
                 <Trash2 :size="14" />
               </button>
@@ -178,6 +185,7 @@
         </v-data-table>
         </div>
       </template>
+    </div>
     </div>
 
     <ComponentDeleteDialog
@@ -254,7 +262,6 @@
           >
             <template #item.itemName="{ item }">
               <div class="cl-row-name">
-                <span class="cl-row-name__dot" :style="{ background: item.itemType === 'Ingredient' ? '#10b981' : '#3b82f6' }"></span>
                 <span class="cl-row-name__text">{{ item.itemName || '-' }}</span>
               </div>
             </template>
@@ -285,10 +292,11 @@
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
-import { Boxes, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
+import { Boxes, Copy, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { deleteMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
+import { duplicateComponentById } from "@/composables/useComponentDuplicate";
 import ComponentDeleteDialog from '../dialogs/ComponentDeleteDialog.vue';
 import ComponentCsvImportDrawer from '../drawers/ComponentCsvImportDrawer.vue';
 import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
@@ -297,6 +305,7 @@ export default {
   name: "ComponentListView",
   components: {
     Boxes,
+    Copy,
     Download,
     Pencil,
     Plus,
@@ -318,6 +327,7 @@ export default {
     return {
       searchQuery: "",
       selectedCategory: null,
+      duplicatingId: null,
       selectedType: null,
 
       loading: false,
@@ -378,7 +388,7 @@ export default {
         { title: this.t('compListColType'), key: 'type' },
         { title: this.t('compListColUnit'), key: 'unit' },
         { title: this.t('compListColUnitsRecipe'), key: 'unitsPerRecipe' },
-        { title: this.t('compListColStorageType'), key: 'storageType' },
+        { title: this.t('compListColLastModified'), key: 'updatedAt' },
         { title: this.t('compListColUnitCost'), key: 'unitCost' },
         { title: this.t('compListColSubItems'), key: 'subItems' },
         { title: this.t('compListColActions'), key: 'actions', sortable: false, align: 'end', width: 120 },
@@ -443,6 +453,7 @@ export default {
         unit: String(unit || ""),
         unitsPerRecipe: Number(unitsPerRecipe) || 0,
         storageType: String(storageType || ""),
+        updatedAt: raw?.updatedAt ?? raw?.updated_at ?? raw?.modifiedAt ?? null,
         unitCost: Number(unitCost) || 0,
         subItemsCount: Number(subItemsCount) || 0,
         description: String(description || ""),
@@ -468,6 +479,14 @@ export default {
       return value.toLocaleString("fr-FR", {
         style: "currency",
         currency: "EUR",
+      });
+    },
+    formatDate(value) {
+      if (!value) return "-";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "-";
+      return d.toLocaleDateString(this.locale === 'fr' ? 'fr-FR' : 'en-US', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
       });
     },
     onExportCsv() {
@@ -724,6 +743,25 @@ export default {
       this.deleteDialog = true;
     },
 
+    // Duplication (approche frontend) : relit le composant complet et POST une copie « (copie) ».
+    // La copie créée est insérée directement dans le store (UPSERT_ROW) au lieu de recharger
+    // toute la liste depuis le serveur — affichage instantané, sans dépendre du cache backend
+    // ni d'une course avec un fetch déjà en vol.
+    async onDuplicateComponent(component) {
+      const c = component?._raw || component || {};
+      const id = c?.id ?? c?._id ?? c?.uuid;
+      if (!id || this.duplicatingId) return;
+      this.duplicatingId = id;
+      try {
+        const created = await duplicateComponentById(id, { suffix: this.t('compCopySuffix') });
+        this.$store.commit('menuComponents/UPSERT_ROW', created);
+      } catch (e) {
+        alert(e?.response?.data?.message || e?.userMessage || e?.message || this.t('compDuplicateFailed'));
+      } finally {
+        this.duplicatingId = null;
+      }
+    },
+
     closeDeleteDialog() {
       this.deleteDialog = false;
       this.deleteTarget = null;
@@ -742,8 +780,10 @@ export default {
       this.deleteError = "";
       try {
         await deleteMenuComponent(String(id));
+        // Retrait local immédiat (REMOVE_ROW) au lieu d'un refetch complet — même raison que
+        // la duplication : affichage instantané, pas de dépendance au cache backend/réseau.
+        this.$store.commit('menuComponents/REMOVE_ROW', String(id));
         this.closeDeleteDialog();
-        await this.loadComponents(true);
       } catch (e) {
         this.deleteError = e?.userMessage || e?.message || "Failed to delete component";
       } finally {
@@ -768,12 +808,12 @@ export default {
       for (const id of ids) {
         try {
           await deleteMenuComponent(id);
+          this.$store.commit('menuComponents/REMOVE_ROW', id);
         } catch (e) {
           failed.push(id);
         }
         this.bulkProgress += 1;
       }
-      await this.loadComponents(true);
       this.bulkLoading = false;
       this.bulkSelected = failed;
       if (failed.length) this.bulkError = `${failed.length} composant(s) n'ont pas pu être supprimés.`;
@@ -796,14 +836,28 @@ export default {
 <style scoped>
 #component-library-page {
   background: rgb(var(--v-theme-background));
-  min-height: 100%;
+}
+
+/* Zone fixe (sous l'éventuelle app-bar globale, cf. var(--v-layout-top) posée par Vuetify) :
+   header + searchbar prennent leur hauteur naturelle, .cl-content se charge seul du scroll —
+   remplace l'ancien position:sticky par élément (cassait le header sticky du tableau, cf.
+   BUG-327-02 : .v-table__wrapper a son propre overflow:auto, qui devenait le contexte de
+   positionnement sticky à la place de la page). */
+.cl-inner {
+  position: fixed;
+  top: var(--v-layout-top, 64px);
+  left: var(--v-layout-left, 0px);
+  right: 0;
+  bottom: var(--v-layout-bottom, 0px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgb(var(--v-theme-background));
 }
 
 /* ── Gradient Header ── */
-.cl-header--sticky { position: sticky; top: 0; z-index: 100; flex-shrink: 0; }
-.cl-searchbar--sticky { position: sticky; top: 81px; z-index: 99; flex-shrink: 0; }
-
 .cl-header {
+  flex-shrink: 0;
   background: #ff3131;
   box-shadow: 0 4px 20px rgba(255, 49, 49, 0.25);
 }
@@ -906,6 +960,7 @@ export default {
 
 /* ── Search bar ── */
 .cl-searchbar {
+  flex-shrink: 0;
   background: #fff;
   border-bottom: 1px solid #e5e7eb;
 }
@@ -971,7 +1026,14 @@ export default {
 /* Contenu : mêmes 28px horizontaux que le header/searchbar sticky au-dessus (référence
    MarketPriceListView.vue) — un padding différent ici créait un décalage gauche/droite visible
    entre le bandeau et le tableau. */
-.cl-content { padding: 24px 28px; }
+.cl-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
 
 /* Empty State */
 .empty-state {
@@ -1002,12 +1064,23 @@ export default {
 }
 
 .table-card {
+  flex: 1 1 auto;
+  min-height: 0;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
-  overflow: hidden;
+  /* overflow-y:auto (pas hidden) : c'est ce conteneur, borné par le flex ci-dessus, qui devient
+     le vrai contexte de scroll + de positionnement du thead sticky (voir .cl-table th plus bas) —
+     tout en gardant le même effet de clipping des coins arrondis qu'un overflow:hidden. */
+  overflow-y: auto;
   animation: fadeIn 0.3s ease-out;
 }
+
+/* Neutralise le conteneur de scroll interne de Vuetify (.v-table__wrapper a overflow:auto par
+   défaut, même sans hauteur bornée) : sans ça, il devient le contexte de positionnement du
+   `sticky` ci-dessous à la place de .cl-content (le vrai conteneur qui scrolle) — cause du
+   rendu cassé en tentative précédente (BUG-327-02). */
+.cl-table :deep(.v-table__wrapper) { overflow: visible !important; }
 
 .cl-table :deep(.v-data-table__th),
 .cl-table :deep(.v-data-table__td) {
@@ -1025,6 +1098,11 @@ export default {
   letter-spacing: .06em;
   color: #9ca3af !important;
   background: #fafafa !important;
+  /* Sticky par rapport à .cl-content (seul conteneur qui scrolle désormais) : top:0 suffit,
+     header/searchbar ne sont plus dans le flux scrollable (voir .cl-inner). */
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 .cl-table :deep(tbody tr:hover td) { background: #fafafa !important; }
 
@@ -1033,13 +1111,6 @@ export default {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.cl-row-name__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ff3131, #b91c1c);
-  flex-shrink: 0;
 }
 .cl-row-name__text {
   font-weight: 600;
@@ -1061,6 +1132,8 @@ export default {
 .cl-badge--storage   { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
 .cl-badge--ingredient { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
 .cl-badge--component  { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.cl-date { color: var(--fb-muted, #6b7280); font-size: 0.85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl--dark .cl-date { color: #94a3b8; }
 
 /* Cost */
 .cl-cost {
@@ -1105,6 +1178,9 @@ export default {
 }
 .cl-act-btn--edit   { background: #eff6ff; color: #2563eb; }
 .cl-act-btn--edit:hover   { background: #dbeafe; }
+.cl-act-btn--dup    { background: #f3f4f6; color: #6b7280; }
+.cl-act-btn--dup:hover    { background: #e5e7eb; color: #374151; }
+.cl-act-btn--busy   { opacity: .5; pointer-events: none; }
 .cl-act-btn--delete { background: #fef2f2; color: #ff3131; }
 .cl-act-btn--delete:hover { background: #fee2e2; }
 
@@ -1246,6 +1322,8 @@ export default {
 .cl--dark .cl-subitems-btn:hover { background: rgba(37, 99, 235, .25); }
 .cl--dark .cl-act-btn--edit { background: rgba(37, 99, 235, .15); color: #93c5fd; }
 .cl--dark .cl-act-btn--edit:hover { background: rgba(37, 99, 235, .28); }
+.cl--dark .cl-act-btn--dup { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.cl--dark .cl-act-btn--dup:hover { background: rgba(255,255,255,.14); color: #e2e8f0; }
 .cl--dark .cl-act-btn--delete { background: rgba(255, 49, 49, .15); color: #fca5a5; }
 .cl--dark .cl-act-btn--delete:hover { background: rgba(255, 49, 49, .28); }
 /* Sub-items drawer */

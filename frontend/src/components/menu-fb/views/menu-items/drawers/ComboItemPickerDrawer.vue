@@ -56,7 +56,7 @@
 
             <div v-else-if="!filteredItems.length" class="cbd-empty">
               <div class="cbd-empty__icon"><Layers :size="24" /></div>
-              <p class="cbd-empty__text">{{ t('menuItemCreate.comboNoData') }}</p>
+              <p class="cbd-empty__text">{{ emptyStateText }}</p>
             </div>
 
             <div v-else class="cbd-list">
@@ -133,6 +133,10 @@ export default {
     isDark: { type: Boolean, default: false },
     // Menu item courant (mode édition) à exclure de la liste — un combo ne peut pas se référencer.
     excludeId: { type: String, default: null },
+    // Espaces sélectionnés pour le menu item en cours de création/édition (form.spaces du
+    // parent). Si non vide, la liste est restreinte aux menu items éligibles combo qui sont
+    // eux-mêmes fournis dans au moins un de ces espaces.
+    spaceIds: { type: Array, default: () => [] },
   },
   emits: ['update:modelValue', 'add'],
   setup() {
@@ -158,13 +162,21 @@ export default {
     document.body.style.overflow = '';
   },
   computed: {
-    items() {
+    // Menu items éligibles combo (comboItem = Yes), avant tout filtre d'espace/recherche.
+    eligibleItems() {
       const excluded = String(this.excludeId || '');
       // Seuls les menu items marqués « combo » (comboItem = Yes) sont éligibles comme combo.
       return (this.$store.getters['menuItems/rows'] || [])
         .map(m => this.normalizeRow(m))
         .filter(m => m.id && m.name && m.id !== excluded && this.isCombo(m.comboItem))
         .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    },
+    items() {
+      const wantedSpaces = (this.spaceIds || []).filter(Boolean);
+      if (!wantedSpaces.length) return this.eligibleItems;
+      // Ne garder que les menu items fournis dans au moins un des espaces sélectionnés pour
+      // l'item en cours (form.spaces du parent).
+      return this.eligibleItems.filter(m => (m.spaceIds || []).some(sid => wantedSpaces.includes(sid)));
     },
     categoryOptions() {
       return Array.from(new Set((this.items || []).map(m => m.category).filter(Boolean)))
@@ -181,6 +193,14 @@ export default {
         const matchesCategory = !cat || m.category === cat;
         return matchesSearch && matchesCategory;
       });
+    },
+    // Message d'état vide contextuel : distingue "aucun item éligible combo au global",
+    // "aucun dans l'espace sélectionné" et "recherche/filtre sans résultat".
+    emptyStateText() {
+      if (this.search || this.category) return this.t('menuItemCreate.comboNoResults');
+      if (!this.eligibleItems.length) return this.t('menuItemCreate.comboNoEligible');
+      if (!this.items.length) return this.t('menuItemCreate.comboNoneInSpace');
+      return this.t('menuItemCreate.comboNoData');
     },
   },
   methods: {
@@ -249,6 +269,7 @@ export default {
         unitCost: Number.isFinite(unitCost) ? unitCost : 0,
         basePrice: Number(raw?.basePrice ?? 0) || 0,
         comboItem: raw?.comboItem,
+        spaceIds: Array.isArray(raw?.spaceIds) ? raw.spaceIds : [],
       };
     },
   },

@@ -174,6 +174,12 @@ export class CreateMenuItemDto {
   @Transform(({ value }) => value || undefined)
   displayNameId?: string;
 
+  @ApiPropertyOptional({ description: 'ID de la Saison (Custom Date de Configuration)' })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value || undefined)
+  seasonId?: string;
+
   // Prix négatif autorisé (remises/avoirs) — pas de @Min(0).
   @ApiProperty({ description: 'Prix de vente de base (TTC brut, négatif autorisé)' })
   @IsNumber()

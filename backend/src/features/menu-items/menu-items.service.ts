@@ -91,6 +91,7 @@ export class MenuItemsService {
     productCategory: true,
     brand: true,
     displayName: true,
+    season: true,
     components: {
       include: { component: true },
       orderBy: { id: 'asc' as const },
@@ -364,6 +365,7 @@ export class MenuItemsService {
           categoryId: dto.categoryId || null,
           brandId: dto.brandId || null,
           displayNameId: dto.displayNameId || null,
+          seasonId: dto.seasonId || null,
           basePrice: dto.basePrice,
           vatRate: dto.vatRate ?? null,
           discountType: dto.discountType ?? null,
@@ -535,6 +537,7 @@ export class MenuItemsService {
         categoryId: dto.categoryId || null,
         brandId: dto.brandId || null,
         displayNameId: dto.displayNameId || null,
+        seasonId: dto.seasonId || null,
         basePrice: dto.basePrice,
         vatRate: dto.vatRate ?? null,
         discountType: dto.discountType ?? null,
@@ -870,6 +873,7 @@ export class MenuItemsService {
     if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
     if (dto.brandId !== undefined) updateData.brandId = dto.brandId || null;
     if (dto.displayNameId !== undefined) updateData.displayNameId = dto.displayNameId || null;
+    if (dto.seasonId !== undefined) updateData.seasonId = dto.seasonId || null;
     if (dto.basePrice !== undefined) updateData.basePrice = dto.basePrice;
     if (dto.vatRate !== undefined) updateData.vatRate = dto.vatRate ?? null;
     if (dto.discountType !== undefined) updateData.discountType = dto.discountType ?? null;
