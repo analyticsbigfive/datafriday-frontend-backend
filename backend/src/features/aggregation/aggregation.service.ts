@@ -251,13 +251,14 @@ export class AggregationService {
           const nextDay = new Date(baseEndDate);
           nextDay.setDate(nextDay.getDate() + 1);
 
-          // Efface les anciennes lignes de cet event avant re-agrégation
-          await this.prisma.spaceRevenueMinuteAgg.deleteMany({
-            where: { tenantId, spaceId, weezeventEventId: event.id },
-          });
-          await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({
-            where: { tenantId, spaceId, weezeventEventId: event.id },
-          });
+          // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
+          // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
+          // effaçait aussi la contribution déjà écrite par l'intégration A pour ce même event
+          // partagé (un Event DataFriday est partagé au niveau de l'espace, pas de l'intégration).
+          const deleteWhere: any = { tenantId, spaceId, weezeventEventId: event.id };
+          if (integrationId) deleteWhere.integrationId = integrationId;
+          await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
+          await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
 
           // Filtres dynamiques (SQL fragments composables)
           const integrationClause = integrationId
@@ -286,7 +287,7 @@ export class AggregationService {
           // gérée que côté écriture ici, ordre : net TTC (après remise) puis détaxe).
           const dataPoints = await this.prisma.$executeRaw(Prisma.sql`
             INSERT INTO "SpaceRevenueMinuteAgg"
-              ("id","tenantId","spaceId","minute","timezone","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId","revenueHt","transactionsCount","itemsCount","createdAt","updatedAt")
+              ("id","tenantId","spaceId","minute","timezone","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId","integrationId","revenueHt","transactionsCount","itemsCount","createdAt","updatedAt")
             SELECT
               gen_random_uuid(),
               ${tenantId},
@@ -297,6 +298,7 @@ export class AggregationService {
               t."locationId",
               t."merchantId",
               lsm."spaceElementId",
+              MAX(t."integrationId"),
               SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
               COUNT(ti."id")::int,
               SUM(ti."quantity")::float8,
@@ -318,6 +320,7 @@ export class AggregationService {
               lsm."spaceElementId"
             ON CONFLICT ("tenantId","spaceId","minute","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId")
             DO UPDATE SET
+              "integrationId" = EXCLUDED."integrationId",
               "revenueHt" = EXCLUDED."revenueHt",
               "transactionsCount" = EXCLUDED."transactionsCount",
               "itemsCount" = EXCLUDED."itemsCount",
@@ -330,13 +333,14 @@ export class AggregationService {
           // fix initial car dans une requête distincte du même bloc de code.
           await this.prisma.$executeRaw(Prisma.sql`
             INSERT INTO "SpaceProductRevenueDailyAgg"
-              ("id","tenantId","spaceId","day","weezeventProductId","revenueHt","quantity","createdAt","updatedAt")
+              ("id","tenantId","spaceId","day","weezeventProductId","integrationId","revenueHt","quantity","createdAt","updatedAt")
             SELECT
               gen_random_uuid(),
               ${tenantId},
               ${spaceId},
               ${eventDate}::date,
               ti."productId",
+              MAX(t."integrationId"),
               SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
               SUM(ti."quantity")::float8,
               NOW(),
@@ -352,6 +356,7 @@ export class AggregationService {
             GROUP BY ti."productId"
             ON CONFLICT ("tenantId","spaceId","day","weezeventProductId")
             DO UPDATE SET
+              "integrationId" = EXCLUDED."integrationId",
               "revenueHt" = EXCLUDED."revenueHt",
               "quantity" = EXCLUDED."quantity",
               "updatedAt" = NOW()
@@ -377,7 +382,7 @@ export class AggregationService {
           // comportement actuel.
           await this.prisma.$executeRaw(Prisma.sql`
             INSERT INTO "SpaceRevenueMinuteItemAgg"
-              ("id","tenantId","spaceId","minute","timezone","weezeventEventId","weezeventLocationId","weezeventLocationName","weezeventMerchantId","spaceElementId","weezeventProductId","revenueHt","transactionsCount","itemsCount","createdAt","updatedAt")
+              ("id","tenantId","spaceId","minute","timezone","weezeventEventId","weezeventLocationId","weezeventLocationName","weezeventMerchantId","spaceElementId","weezeventProductId","integrationId","revenueHt","transactionsCount","itemsCount","createdAt","updatedAt")
             SELECT
               gen_random_uuid(),
               ${tenantId},
@@ -390,6 +395,7 @@ export class AggregationService {
               t."merchantId",
               lsm."spaceElementId",
               ti."productId",
+              MAX(t."integrationId"),
               SUM(ti."unitPrice" * ti."quantity" / (1 + ti."vat" / 100)),
               COUNT(DISTINCT t."id")::int,
               SUM(ti."quantity")::float8,
@@ -415,6 +421,7 @@ export class AggregationService {
             ON CONFLICT ("tenantId","spaceId","minute","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId","weezeventProductId")
             DO UPDATE SET
               "weezeventLocationName" = EXCLUDED."weezeventLocationName",
+              "integrationId" = EXCLUDED."integrationId",
               "revenueHt" = EXCLUDED."revenueHt",
               "transactionsCount" = EXCLUDED."transactionsCount",
               "itemsCount" = EXCLUDED."itemsCount",
@@ -566,7 +573,7 @@ export class AggregationService {
    * Nettoie toutes les agrégats du space puis délègue à executeProcessEvents.
    */
   async executeSynchronize(job: Job<AggregationJobEnqueueData>) {
-    const { tenantId, spaceId, jobLogId } = job.data;
+    const { tenantId, spaceId, jobLogId, integrationId } = job.data;
     this.logger.log(`Executing synchronize for space ${spaceId} (LogId: ${jobLogId})`);
 
     await this.prisma.aggregationJobLog.update({
@@ -575,11 +582,16 @@ export class AggregationService {
     });
     await job.updateProgress(2);
 
-    // Phase 1: cleanup atomique (#9)
+    // Phase 1: cleanup atomique (#9) — scopé par integrationId quand fourni (BUG-318-02) :
+    // sinon, synchroniser l'intégration B purgeait aussi la contribution de l'intégration A pour
+    // TOUT l'espace, avant de ne reconstruire que celle de B (executeProcessEvents ci-dessous est
+    // déjà scopé, voir BUG-317-02).
+    const cleanupWhere: any = { tenantId, spaceId };
+    if (integrationId) cleanupWhere.integrationId = integrationId;
     await this.prisma.$transaction([
-      this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: { tenantId, spaceId } }),
-      this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } }),
-      this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: { tenantId, spaceId } }),
+      this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: cleanupWhere }),
+      this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: cleanupWhere }),
+      this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: cleanupWhere }),
     ]);
     await job.updateProgress(5);
 
