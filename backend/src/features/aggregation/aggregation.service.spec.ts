@@ -297,6 +297,22 @@ describe('AggregationService', () => {
 
       // 1 event → 3 $executeRaw (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg)
       expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
+      // BUG-317-02 : scopé par integrationId (makeBullJob() en fournit un par défaut) pour ne pas
+      // effacer la contribution d'une AUTRE intégration partageant le même event/space.
+      expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1, integrationId: INT_ID },
+      });
+    });
+
+    it('BUG-317-02 : deleteMany NON scopé par integrationId quand il est absent du job (retraitement toutes intégrations)', async () => {
+      const job = makeBullJob({ integrationId: undefined });
+      // Sans integrationId, la vérification "intégration mappée à cet espace" est sautée
+      // (executeProcessEvents ne l'exécute que si integrationId est fourni).
+      await service.executeProcessEvents(job);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+      });
       expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
         where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
       });
@@ -569,6 +585,31 @@ describe('AggregationService', () => {
 
       expect(result.summary.totalRevenue).toBeCloseTo(1234.56);
       expect(result.summary.totalTransactions).toBe(100);
+    });
+
+    // ─── BUG-318-02 ──────────────────────────────────────────────────────────
+    it('BUG-318-02 : le cleanup Phase 1 est scopé par integrationId quand il est fourni (makeBullJob() en fournit un par défaut)', async () => {
+      const job = makeBullJob({ type: 'synchronize' });
+      await service.executeSynchronize(job);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, integrationId: INT_ID },
+      });
+      expect(mockPrisma.spaceProductRevenueDailyAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, integrationId: INT_ID },
+      });
+      expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, integrationId: INT_ID },
+      });
+    });
+
+    it('BUG-318-02 : le cleanup Phase 1 purge tout le space (sans filtre) si integrationId est absent — resync global explicite', async () => {
+      const job = makeBullJob({ type: 'synchronize', integrationId: undefined });
+      await service.executeSynchronize(job);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE },
+      });
     });
   });
 

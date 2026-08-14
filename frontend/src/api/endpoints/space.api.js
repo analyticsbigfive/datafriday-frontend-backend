@@ -355,9 +355,10 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
 /**
  * List WeezeventEvents for a space, including enrichment metadata
  */
-export async function getWeezeventEventsForSpace(spaceId) {
+export async function getWeezeventEventsForSpace(spaceId, integrationId) {
   try {
-    const response = await api.get(`/spaces/${spaceId}/weezevent-events`)
+    const params = integrationId ? { integrationId } : {}
+    const response = await api.get(`/spaces/${spaceId}/weezevent-events`, { params })
     return response.data
   } catch (error) {
     console.error(`[SPACES API] Error fetching weezevent events for ${spaceId}:`, error)

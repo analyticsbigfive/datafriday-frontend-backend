@@ -1029,14 +1029,27 @@ export class SpacesService {
         SELECT * FROM zone_shops
       ),
       enriched AS (
+        -- BUG-320-02 : un "LEFT JOIN WeezeventLocationShopMapping" simple duplique la ligne du
+        -- shop quand PLUSIEURS locations (typiquement une par intégration, cas de 2 intégrations
+        -- mappées au même space, chacune mappant sa propre location vers le même SpaceElement —
+        -- LocationShopMapping.spaceElementId n'a aucune contrainte unique) pointent vers le même
+        -- SpaceElement. Sous-requêtes scalaires : au plus UNE ligne par (élément, config), quel
+        -- que soit le nombre de mappings pointant vers cet élément. weezeventLocationId/
+        -- isMappedToWeezevent ne sont consommés par aucun front connu aujourd'hui (grep exhaustif)
+        -- — conservés pour compat, "OR logique" sur isMappedToWeezevent plutôt qu'un pick arbitraire.
         SELECT
           a.*,
-          wm."weezeventLocationId",
-          (wm."weezeventLocationId" IS NOT NULL) AS "isMappedToWeezevent",
+          (
+            SELECT wm."weezeventLocationId" FROM "WeezeventLocationShopMapping" wm
+            WHERE wm."spaceElementId" = a.id AND wm."tenantId" = ${tenantId}
+            ORDER BY wm."weezeventLocationId" LIMIT 1
+          ) AS "weezeventLocationId",
+          EXISTS(
+            SELECT 1 FROM "WeezeventLocationShopMapping" wm
+            WHERE wm."spaceElementId" = a.id AND wm."tenantId" = ${tenantId}
+          ) AS "isMappedToWeezevent",
           COALESCE(ma.cnt, 0) AS "menuItemsCount"
         FROM all_shops a
-        LEFT JOIN "WeezeventLocationShopMapping" wm
-          ON wm."spaceElementId" = a.id AND wm."tenantId" = ${tenantId}
         LEFT JOIN LATERAL (
           -- Compteur scopé par la config de la ligne : un élément v2 partagé porte une
           -- assignation PAR config — sans ce filtre, le badge sommerait toutes les configs.
@@ -1648,33 +1661,52 @@ export class SpacesService {
    * List all WeezeventEvents linked to a space (via integration scoped to tenant).
    * Returns event data with enrichment metadata (doorsOpening, showTime, category, etc.).
    */
-  async getWeezeventEventsForSpace(spaceId: string, tenantId: string) {
+  async getWeezeventEventsForSpace(spaceId: string, tenantId: string, integrationId?: string) {
     // Verify space belongs to tenant
     await this.findOne(spaceId, tenantId);
 
-    // Find the integration linked to this space via location mapping
-    const locationMapping = await this.prisma.locationSpaceMapping.findFirst({
-      where: { tenantId, spaceId },
-      select: { salesLocationId: true },
-    });
+    let resolvedIntegrationId: string | undefined;
 
-    if (!locationMapping) {
-      return [];
+    if (integrationId) {
+      // BUG-319-02 : integrationId fourni explicitement (wizard étape 4, StepProcessTimeline.vue)
+      // — on vérifie que CETTE intégration est bien mappée à CET espace au lieu de piocher
+      // arbitrairement le premier mapping de l'espace (findFirst sans orderBy ci-dessous), qui
+      // pouvait renvoyer une AUTRE intégration quand l'espace en a plusieurs de mappées. Step 1
+      // du wizard stocke integration.id directement dans salesLocationId
+      // (createLocationSpaceMapping, mappings.service.ts) — comparaison directe.
+      const link = await this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId, salesLocationId: integrationId },
+      });
+      if (!link) {
+        return [];
+      }
+      resolvedIntegrationId = integrationId;
+    } else {
+      // Fallback legacy sans integrationId — comportement historique, correct seulement si
+      // l'espace n'a qu'une seule intégration mappée (voir BUG-319-02 pour le cas à plusieurs).
+      const locationMapping = await this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { salesLocationId: true },
+      });
+
+      if (!locationMapping) {
+        return [];
+      }
+
+      const location = await this.prisma.salesLocation.findFirst({
+        where: { id: locationMapping.salesLocationId, tenantId },
+        select: { integrationId: true },
+      });
+
+      if (!location) {
+        return [];
+      }
+
+      resolvedIntegrationId = location.integrationId;
     }
-
-    const location = await this.prisma.salesLocation.findFirst({
-      where: { id: locationMapping.salesLocationId, tenantId },
-      select: { integrationId: true },
-    });
-
-    if (!location) {
-      return [];
-    }
-
-    const integration = { id: location.integrationId };
 
     const events = await this.prisma.salesEvent.findMany({
-      where: { tenantId, integrationId: integration.id },
+      where: { tenantId, integrationId: resolvedIntegrationId },
       select: {
         id: true,
         externalId: true,
