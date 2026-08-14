@@ -2858,6 +2858,11 @@ model SpaceRevenueMinuteAgg {
   weezeventLocationId String?
   weezeventMerchantId String?
   spaceElementId      String?
+  // Pas dans @@unique : weezeventLocationId/weezeventMerchantId sont déjà des cuid uniques par
+  // intégration, l'unicité de la ligne ne dépend pas de ce champ. Sert uniquement à scoper les
+  // deleteMany par intégration (BUG-317-02/318-02, docs/bugs/) sans effacer la contribution
+  // d'une autre intégration partageant le même Space.
+  integrationId String?
 
   // Aggregated metrics
   revenueHt         Decimal @db.Decimal(12, 2)
@@ -2872,6 +2877,7 @@ model SpaceRevenueMinuteAgg {
   @@index([tenantId, spaceId, weezeventEventId, minute])
   @@index([tenantId, spaceId, spaceElementId, minute])
   @@index([tenantId, spaceId, weezeventLocationId, minute])
+  @@index([tenantId, spaceId, integrationId])
 }
 
 // Minute-level revenue aggregates WITH product dimension — sert getEventTimelineBatch
@@ -2898,6 +2904,9 @@ model SpaceRevenueMinuteItemAgg {
   weezeventMerchantId   String?
   spaceElementId        String?
   weezeventProductId    String?
+  // Même rôle/même limite que SpaceRevenueMinuteAgg.integrationId ci-dessus (BUG-317-02/318-02) :
+  // pas dans @@unique, sert uniquement à scoper les deleteMany par intégration.
+  integrationId         String?
 
   revenueHt         Decimal @db.Decimal(12, 2)
   transactionsCount Int
@@ -2909,6 +2918,7 @@ model SpaceRevenueMinuteItemAgg {
   @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId, weezeventProductId])
   @@index([tenantId, spaceId, weezeventEventId, minute])
   @@index([tenantId, spaceId, spaceElementId, minute])
+  @@index([tenantId, spaceId, integrationId])
 }
 
 // Daily product revenue aggregates
@@ -2918,6 +2928,10 @@ model SpaceProductRevenueDailyAgg {
   spaceId            String
   day                DateTime @db.Date
   weezeventProductId String
+  // Même rôle/même limite que SpaceRevenueMinuteAgg.integrationId (BUG-317-02/318-02) : pas dans
+  // @@unique (weezeventProductId est déjà unique par intégration), sert uniquement à scoper les
+  // deleteMany par intégration.
+  integrationId      String?
 
   // Aggregated metrics
   revenueHt Decimal @db.Decimal(12, 2)
@@ -2929,6 +2943,7 @@ model SpaceProductRevenueDailyAgg {
   @@unique([tenantId, spaceId, day, weezeventProductId])
   @@index([tenantId, spaceId, day])
   @@index([tenantId, spaceId, weezeventProductId, day])
+  @@index([tenantId, spaceId, integrationId])
 }
 
 // Version tracking for cache invalidation

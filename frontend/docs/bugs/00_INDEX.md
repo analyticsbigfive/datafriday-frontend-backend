@@ -335,6 +335,38 @@
 | [312-01](312_01_eventpredict_maquettes_toolbar_alias_flicker.md) | Évolution (maquettes validées 08/2026), 7 lots sur une branche : toolbar EP resserrée 2 lignes + 2 chips-filtres globaux « Article sans prévision » / « Article hors Space Menu » (compteurs, filtre cartes + bascule bucket, vues PDV et article) ; NOUVEAU alias « historique emprunté » (table `MenuItemHistoryAlias` + CRUD NestJS + store réactif + drawer « Utiliser l'historique d'un autre article » depuis le kebab, résolution 100 % frontend au point unique `activeTimelineData` — page Analyse intouchée, badge vert sur la cible) ; fix flicker Analyse ↔ Prévu (suppression overlay de transition + double rAF/setTimeout + latch skeleton à store chaud) ; fix auto-sélection à la réactivation (`applyAssignToExplicit`) ; 2 gaps 311_02 côté Réappro (`manualQuantities` lus depuis la colonne BDD, flag `isManual` conservé dans `predictedRecords`). ⚠ Migration `20260811090000_add_menu_item_history_alias` à appliquer manuellement AVANT déploiement | 🟡 Implémenté non déployé | 🟠 | Event Predict |
 | [313-01](313_01_eventpredict_kebab_article_bulk_space_menus.md) | Event Predict / Par article : kebab « ⋮ » au niveau ARTICLE — action « Ajouter l'article à tous les PDV (Space Menus) » en 1 seul `POST /space-menu` multi-shops (delta partiel backend, shops déjà activés exclus, grisé si proposé partout) + lien Space Menus ; kebabs par PDV conservés. Maquette JLH 08/2026, aucun changement backend | 🟡 Corrigé non testé | 🟡 | Event Predict / Menu & recettes |
 | [314-01](314_01_rearmement_espaces_de_stockage.md) | Réarmement (spec PDF 08/2026) : onglet « Espaces de stockage » à l'étape 1 — stock tampon lu de la section Inventaire du 3D Builder (`ElementInventory.quantity`, store `storageInventory` TTL 15 min), nécessaire = max(0, tampon − restant compté), slider absolu plafonné 5× tampon, alertes seuils min/max (front only), Item Supplier Name + édition Market Price in situ (drawer réutilisé, permission `menu.fb.marketPrices`), lignes refill injectées dans la feuille de course APRÈS le pool de netting (règle « restant brut » → question no 54). Aucun changement backend | 🟡 Corrigé non testé | 🟠 | Stock / Espaces & builder / Achats & référentiels |
+| [317-02](317_02_aggregation_processevents_deletemany_non_scope_integration.md) | Multi-intégration sur un même space (1/5) : `executeProcessEvents` effaçait (`deleteMany` sans `integrationId`) les agrégats `SpaceRevenueMinuteAgg`/`SpaceRevenueMinuteItemAgg` de TOUTES les intégrations d'un event partagé avant de ne réinsérer que celle traitée → `Event.revenue`/`transactionCount` ne reflétaient que la dernière intégration "Traitée". Fix : colonne `integrationId` (migration) + `deleteMany`/`INSERT` scopés | 🟡 Corrigé non testé | 🔴 | Intégrations & ventes / Analyse & agrégation |
+| [318-02](318_02_aggregation_synchronize_purge_espace_sans_scope_integration.md) | Multi-intégration sur un même space (2/5) : "Synchroniser" (`executeSynchronize`) purgeait les 3 tables d'agrégats de TOUT l'espace sans filtre d'intégration (integrationId même pas destructuré de `job.data`), puis ne reconstruisait que l'intégration passée. Fix : cleanup Phase 1 scopé | 🟡 Corrigé non testé | 🔴 | Intégrations & ventes / Analyse & agrégation |
+| [319-02](319_02_getweezeventeventsforspace_integration_arbitraire_espace_partage.md) | Multi-intégration sur un même space (3/5) : `getWeezeventEventsForSpace` (`findFirst` sans `orderBy` sur `LocationSpaceMapping`) résolvait une intégration arbitraire quand l'espace est mappé par plusieurs — réhydratation "déjà lié" faussée à l'étape 4. Fix : `integrationId` transmis bout en bout (route + frontend) | 🟡 Corrigé non testé | 🟠 | Intégrations & ventes |
+| [320-02](320_02_shops_dupliques_spaceelementid_sans_contrainte_unique_multi_integration.md) | Multi-intégration sur un même space (4/5) : shops dupliqués dans Space Menus et l'étape 2 du wizard — `LEFT JOIN` non agrégé dans `getSpaceShops` fan-out quand 2 intégrations mappent leurs locations vers le même `SpaceElement`. Fix : sous-requêtes scalaires (`EXISTS`/`LIMIT 1`), au plus 1 ligne par (élément, config) | 🟡 Corrigé non testé | 🟠 | Intégrations & ventes / Menu & recettes / Espaces & builder |
+| [321-02](321_02_aggregation_join_transactions_sans_scope_spaceid_contamination_croisee.md) | Multi-intégration sur un même space (5/5, symétrique) : l'agrégation par event ne restreint jamais les transactions aux locations réellement mappées à `spaceId` — risque de contamination croisée si une même intégration alimente 2 espaces différents (trouvé en creusant 317/318, non reproduit en prod) | ⚪ Diagnostiqué | 🟠 | Analyse & agrégation / Intégrations & ventes |
+
+**317-02 à 321-02 ajoutés le 2026-08-14** (signalement utilisateur KOUAME Ulrich : "quand je choisis
+le même space pour 2 data-intégrations, j'ai l'impression que les données de l'une écrasent celles
+de l'autre, surtout au step 4, events et transactions" + "plusieurs duplications au niveau des shops
+dans Spaces Menu"). Investigation en 2 temps : un premier agent de diagnostic a confirmé les 2
+symptômes rapportés dans le code réel (317/318 pour l'écrasement agrégats, 320 pour la duplication
+shops), avec vérification manuelle ligne par ligne de chaque affirmation avant rédaction des fiches.
+En creusant la chaîne d'appel complète (frontend → composables → routes → service) pour rédiger des
+fiches actionnables, deux causes supplémentaires sont apparues : 319 (réhydratation étape 4 qui
+pioche la mauvaise intégration côté lecture, distinct du problème d'écriture 317/318) et 321 (le
+symétrique inverse — une intégration servant 2 espaces n'est pas isolée non plus, risque théorique
+confirmé par le code mais non observé en production). Racine commune à 317/318 : les tables
+`SpaceRevenueMinuteAgg`/`SpaceRevenueMinuteItemAgg`/`SpaceProductRevenueDailyAgg` n'ont aucune
+colonne `integrationId` — un fix propre nécessite une migration de schéma, pas seulement un patch de
+requête. Ces 5 fiches sont un pré-requis pour que "plusieurs intégrations sur un même space" (cas
+d'usage déjà permis par le modèle de données `LocationSpaceMapping`) fonctionne réellement de bout
+en bout.
+
+**317-02 à 320-02 corrigés en code le 2026-08-14** sur la branche `fix/multi-integration-same-space`
+(demande explicite utilisateur : "crée une nouvelle branche pour fixer tout ça", 321-02 explicitement
+laissé de côté — "théorique, on laisse pour l'instant"). Migration
+`20260814170000_add_integrationid_space_revenue_agg` (colonne `integrationId` + backfill, sans
+toucher aux `@@unique` existants) ; `executeProcessEvents`/`executeSynchronize` scopent désormais
+leurs `deleteMany` par intégration ; `getWeezeventEventsForSpace` accepte `integrationId` de bout en
+bout (route + frontend) ; `getSpaceShops` dédoublonne via sous-requêtes scalaires au lieu d'un `LEFT
+JOIN` non agrégé. Suite `aggregation.service.spec.ts` verte (2 tests ajoutés), `tsc --noEmit` propre.
+Non testé en environnement réel, non déployé.
 
 BUG-277-01 ajouté et corrigé le 2026-08-02 (signalement utilisateur avec capture, thème sombre) :
 le drawer « Event detail » de la page Event Predict s'affichait corps clair (`#f9fafb`) avec
