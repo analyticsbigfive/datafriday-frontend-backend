@@ -612,7 +612,8 @@ model Season {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  spaces SeasonSpace[]
+  spaces    SeasonSpace[]
+  menuItems MenuItem[]
 
   @@index([tenantId])
 }
@@ -2304,6 +2305,7 @@ model MenuItem {
   categoryId             String? // FK to ProductCategory (optional)
   brandId                String? // FK to Brand (optional)
   displayNameId          String? // FK to DisplayName (optional)
+  seasonId               String? // FK to Season (Custom Date de Configuration, optional)
   diet                   Diet[]
   allergens              String[]
   picture                String?
@@ -2337,6 +2339,7 @@ model MenuItem {
   productCategory ProductCategory?            @relation(fields: [categoryId], references: [id])
   brand           Brand?                      @relation(fields: [brandId], references: [id])
   displayName     DisplayName?                @relation(fields: [displayNameId], references: [id])
+  season          Season?                     @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   components      MenuItemComponent[]
   ingredients     MenuItemIngredient[]
   packagings      MenuItemPackaging[]
@@ -2357,6 +2360,7 @@ model MenuItem {
   @@index([categoryId])
   @@index([brandId])
   @@index([displayNameId])
+  @@index([seasonId])
   @@index([readyForSale])
   @@index([tenantId, deletedAt])
 }

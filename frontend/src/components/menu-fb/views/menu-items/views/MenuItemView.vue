@@ -264,9 +264,30 @@
           </template>
 
           <template #item.spaceCount="{ item }">
-            <v-chip v-if="item.spaceCount > 0" size="small" variant="tonal" color="primary" rounded="lg">
-              {{ item.spaceCount }} {{ item.spaceCount > 1 ? 'espaces' : 'espace' }}
-            </v-chip>
+            <v-tooltip v-if="item.spaceCount > 0" location="top">
+              <template #activator="{ props }">
+                <v-chip v-bind="props" size="small" variant="tonal" color="primary" rounded="lg" style="cursor: help;">
+                  {{ item.spaceCount }} {{ item.spaceCount > 1 ? 'espaces' : 'espace' }}
+                </v-chip>
+              </template>
+              <div style="display:flex; flex-direction:column; gap:2px; max-width:260px;">
+                <div v-for="(name, i) in (item.spaceNames || [])" :key="i" style="font-size:0.8rem; line-height:1.3;">{{ name || '—' }}</div>
+              </div>
+            </v-tooltip>
+            <span v-else class="text-medium-emphasis">—</span>
+          </template>
+
+          <template #item.seasonCount="{ item }">
+            <v-tooltip v-if="item.seasonCount > 0" location="top">
+              <template #activator="{ props }">
+                <v-chip v-bind="props" size="small" variant="tonal" color="teal" rounded="lg" style="cursor: help;">
+                  {{ item.seasonCount }} {{ item.seasonCount > 1 ? 'saisons' : 'saison' }}
+                </v-chip>
+              </template>
+              <div style="display:flex; flex-direction:column; gap:2px; max-width:260px;">
+                <div v-for="(name, i) in (item.seasonNames || [])" :key="i" style="font-size:0.8rem; line-height:1.3;">{{ name || '—' }}</div>
+              </div>
+            </v-tooltip>
             <span v-else class="text-medium-emphasis">—</span>
           </template>
 
@@ -353,9 +374,26 @@
                   
                   <!-- Badges -->
                   <div class="d-flex align-center mb-2" style="gap: 6px; flex-wrap: wrap;">
-                    <v-chip v-if="item.spaceCount > 0" size="x-small" color="primary" variant="tonal">
-                      {{ item.spaceCount }} {{ item.spaceCount > 1 ? 'espaces' : 'espace' }}
-                    </v-chip>
+                    <v-tooltip v-if="item.spaceCount > 0" location="top">
+                      <template #activator="{ props }">
+                        <v-chip v-bind="props" size="x-small" color="primary" variant="tonal" style="cursor: help;">
+                          {{ item.spaceCount }} {{ item.spaceCount > 1 ? 'espaces' : 'espace' }}
+                        </v-chip>
+                      </template>
+                      <div style="display:flex; flex-direction:column; gap:2px; max-width:260px;">
+                        <div v-for="(name, i) in (item.spaceNames || [])" :key="i" style="font-size:0.8rem; line-height:1.3;">{{ name || '—' }}</div>
+                      </div>
+                    </v-tooltip>
+                    <v-tooltip v-if="item.seasonCount > 0" location="top">
+                      <template #activator="{ props }">
+                        <v-chip v-bind="props" size="x-small" color="teal" variant="tonal" style="cursor: help;">
+                          {{ item.seasonCount }} {{ item.seasonCount > 1 ? 'saisons' : 'saison' }}
+                        </v-chip>
+                      </template>
+                      <div style="display:flex; flex-direction:column; gap:2px; max-width:260px;">
+                        <div v-for="(name, i) in (item.seasonNames || [])" :key="i" style="font-size:0.8rem; line-height:1.3;">{{ name || '—' }}</div>
+                      </div>
+                    </v-tooltip>
                     <v-chip size="x-small" :color="item.readyForSale === 'Yes' ? 'success' : 'grey'" variant="flat">
                       {{ item.readyForSale === 'Yes' ? t('menuItemLib.ready') : t('menuItemLib.notReady') }}
                     </v-chip>
@@ -589,8 +627,11 @@ export default {
   },
   mounted() {
     this.$store.dispatch('spaces/fetchSpaces');
+    this.$store.dispatch('seasons/fetchAll');
     this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
     this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
+    // Restaure les filtres mémorisés (avant les overrides d'URL, qui restent prioritaires).
+    this.restoreFilters();
     // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
     // (ex. suppression bloquée d'un ProductType par des MenuItem dépendants) de lier directement
     // vers la liste déjà filtrée, plutôt que de laisser l'utilisateur chercher la bonne ligne à la
@@ -614,14 +655,15 @@ export default {
   },
   watch: {
     searchQuery() {
+      this.persistFilters();
       if (this.needsFullCatalog) return;
       clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = setTimeout(() => this.reloadServerFirstPage(), 300);
     },
-    spaceFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
-    typeFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
-    categoryFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
-    readyFilter() { if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    spaceFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    typeFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    categoryFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    readyFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
     viewMode() { this.ensureDataLoaded(); },
     groupByEnabled() { this.ensureDataLoaded(); },
   },
@@ -684,6 +726,7 @@ export default {
         { title: this.t("menuItemLib.colName"), key: "name", sortable },
         { title: this.t("menuItemLib.colCategory"), key: "category", sortable },
         { title: this.t("menuItemLib.colSpace"), key: "spaceCount", sortable, width: 150 },
+        { title: this.t("menuItemLib.colSeason"), key: "seasonCount", sortable: false, width: 150 },
         { title: this.t("menuItemLib.colReady"), key: "readyForSale", sortable: false, width: 90 },
         { title: this.t("menuItemLib.colCombo"), key: "comboItem", sortable: false, width: 90 },
         { title: `${this.t("menuItemLib.colPrice")} ${this.t("menuItemLib.ttcSuffix")}`, key: "price", sortable, width: 110 },
@@ -757,6 +800,33 @@ export default {
       this.categoryFilter = "All Categories";
       this.pinnedCategoryId = null;
       this.readyFilter = "All";
+    },
+    // Mémorisation des filtres (survit au remount, ex. éviction du keep-alive :max=6 quand on
+    // visite d'autres outils) : sauvegarde localStorage à chaque changement, restaurée au montage.
+    // Les deep-links URL (?type=&category=) restent prioritaires. pinnedCategoryId n'est pas
+    // persisté (artefact de deep-link) : la catégorie est mémorisée par son nom.
+    persistFilters() {
+      try {
+        localStorage.setItem('menuItems.filters.v1', JSON.stringify({
+          searchQuery: this.searchQuery,
+          spaceFilter: this.spaceFilter,
+          typeFilter: this.typeFilter,
+          categoryFilter: this.categoryFilter,
+          readyFilter: this.readyFilter,
+        }));
+      } catch (e) { /* localStorage indisponible : on ignore */ }
+    },
+    restoreFilters() {
+      try {
+        const raw = localStorage.getItem('menuItems.filters.v1');
+        if (!raw) return;
+        const f = JSON.parse(raw) || {};
+        if (typeof f.searchQuery === 'string') this.searchQuery = f.searchQuery;
+        if (typeof f.spaceFilter === 'string') this.spaceFilter = f.spaceFilter;
+        if (typeof f.typeFilter === 'string') this.typeFilter = f.typeFilter;
+        if (typeof f.categoryFilter === 'string') this.categoryFilter = f.categoryFilter;
+        if (typeof f.readyFilter === 'string') this.readyFilter = f.readyFilter;
+      } catch (e) { /* JSON corrompu : on ignore */ }
     },
     // Choix manuel dans le dropdown catégorie → on abandonne l'épinglage du lien de taxonomie
     // (@update:model-value ne se déclenche que sur interaction utilisateur, pas sur set programmatique).
@@ -844,6 +914,7 @@ export default {
         ? Number(item.costPerPiece)
         : recipeTotalCost / pieces;
       const spaceIds = Array.isArray(item?.spaceIds) ? item.spaceIds : (item?.spaceId ? [item.spaceId] : []);
+      const seasonNames = this.getSeasonsForSpaceIds(spaceIds);
 
       // Prix de chaque espace (ou prix global si aucun espace), puis on retient l'espace le plus cher.
       const priced = (spaceIds.length ? spaceIds : [null]).map((sid) => {
@@ -874,6 +945,8 @@ export default {
         spaceIds,
         spaceCount: spaceIds.length,
         spaceNames: spaceIds.map((sid) => this.getSpaceName(sid)),
+        seasonNames,
+        seasonCount: seasonNames.length,
         price: top.ttc,
         priceHt: top.ht,
         vatRate: top.vatRate,
@@ -884,6 +957,17 @@ export default {
     getSpaceName(spaceId) {
       const s = (this.spaces || []).find(x => String(x?.id || x?._id) === String(spaceId));
       return s ? String(s.name || s.title || s.label || spaceId) : String(spaceId);
+    },
+    // Saisons (Custom Dates de Configuration) applicables à un article : un Menu Item n'a pas de
+    // saison propre, on la déduit de ses espaces. Une saison s'applique si elle couvre tous les
+    // espaces (allSpaces) ou si l'un de ses espaces est vendu par l'article.
+    getSeasonsForSpaceIds(spaceIds) {
+      const ids = (Array.isArray(spaceIds) ? spaceIds : []).map((x) => String(x));
+      const seasons = this.$store.getters['seasons/seasons'] || [];
+      return seasons
+        .filter((s) => s?.allSpaces || (Array.isArray(s?.spaceIds) && s.spaceIds.some((id) => ids.includes(String(id)))))
+        .map((s) => String(s?.name || '').trim())
+        .filter(Boolean);
     },
     /**
      * Prix (TTC/HT/TVA/marge) d'un article DANS un espace : décomposition `spacePricing[spaceId]`

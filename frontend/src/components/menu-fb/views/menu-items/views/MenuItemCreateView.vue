@@ -115,10 +115,8 @@
                     <span class="font-weight-bold">{{ formatCurrencyDetailed(item.quantity * item.unitCost) }}</span>
                   </template>
 
-                  <template #item.storage="{ item }">
-                    <v-chip size="small" variant="tonal" rounded="lg" :color="getStorageColor(item.storage)">
-                      {{ item.storage }}
-                    </v-chip>
+                  <template #item.supplierName="{ item }">
+                    <span class="text-medium-emphasis">{{ item.supplierName || suppliersById[item.supplierId] || '-' }}</span>
                   </template>
 
                   <template #item.actions="{ item }">
@@ -324,6 +322,23 @@
                     />
                   </template>
                 </v-select>
+              </div>
+
+              <!-- Season (Custom Date de Configuration) -->
+              <div class="mb-3">
+                <label class="field-label">{{ t('menuItemCreate.labelSeason') }}</label>
+                <v-select
+                  v-model="form.seasonId"
+                  :items="seasonOptions"
+                  item-title="name"
+                  item-value="id"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  :placeholder="t('menuItemCreate.seasonPlaceholder')"
+                  rounded="lg"
+                  clearable
+                />
               </div>
 
               <!-- Section: Configuration -->
@@ -703,6 +718,7 @@ export default {
         spacePrices: {},
         brandId: null,
         displayNameId: null,
+        seasonId: null,
         typeName: "",
         typeId: null,
         categoryName: "",
@@ -784,6 +800,8 @@ export default {
       this.$store.dispatch('displayNames/fetchDisplayNames'),
       this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true }),
       this.$store.dispatch('storageTypes/fetchStorageTypes'),
+      this.$store.dispatch('suppliers/fetchSuppliers'),
+      this.$store.dispatch('seasons/fetchAll'),
     ]);
 
     if (this.isEditMode) {
@@ -806,6 +824,16 @@ export default {
   computed: {
     // CFG-2 : Storage Type est un référentiel CRUD-éditable (Configurations, store
     // storageTypes) — remplace les 3 checkboxes Dry/Cold/Frozen figées.
+    // Résolution supplierId -> nom : le backend renvoie supplierId (et parfois le champ texte
+    // `supplier` vide) sans la relation supplierRel. On complète donc le nom via le store suppliers.
+    suppliersById() {
+      const map = {};
+      for (const s of (this.$store.getters['suppliers/suppliers'] || [])) {
+        const id = String(s?.id || s?._id || '');
+        if (id) map[id] = String(s?.name || s?.title || s?.label || '').trim();
+      }
+      return map;
+    },
     storageTypeOptions() {
       return this.$store.getters['storageTypes/storageTypes'] || []
     },
@@ -842,6 +870,11 @@ export default {
     displayNames() {
       return this.$store.getters['displayNames/displayNames']
     },
+    seasonOptions() {
+      return (this.$store.getters['seasons/seasons'] || [])
+        .map((s) => ({ id: String(s?.id || s?._id || ''), name: String(s?.name || '').trim() }))
+        .filter((s) => s.id && s.name);
+    },
     displayNamesWithCreate() {
       return [
         ...(this.displayNames || []),
@@ -867,7 +900,7 @@ export default {
         { title: this.t("menuItemCreate.colQuantity"), key: "quantity", sortable: false, width: 120 },
         { title: this.t("menuItemCreate.colUnitCost"), key: "unitCost", sortable: false, width: 110 },
         { title: this.t("menuItemCreate.colTotalCost"), key: "totalCost", sortable: false, width: 120 },
-        { title: this.t("menuItemCreate.colStorage"), key: "storage", sortable: false, width: 110 },
+        { title: this.t("menuItemCreate.colSupplier"), key: "supplierName", sortable: false, width: 140 },
         { title: this.t("menuItemCreate.colActions"), key: "actions", sortable: false, align: "end", width: 80 },
       ];
     },
@@ -1163,6 +1196,7 @@ export default {
           spacePrices: this.form.spacePrices || {},
           brandId: this.form.brandId || null,
           displayNameId: this.form.displayNameId || null,
+          seasonId: this.form.seasonId || null,
           componentsData: {},
           components: components,
           ingredients: ingredients,
@@ -1412,6 +1446,7 @@ export default {
         );
         this.form.brandId = menuItem.brandId || menuItem.brand?.id || null;
         this.form.displayNameId = menuItem.displayNameId || menuItem.displayName?.id || null;
+        this.form.seasonId = menuItem.seasonId || menuItem.season?.id || null;
 
         // Resolve typeId → typeName
         if (menuItem.typeId) {
@@ -1456,7 +1491,7 @@ export default {
               storage: ing.ingredient?.storageType || "-",
               ingredientId,
               supplierId: marketPrice.supplierId || "",
-              supplierName: marketPrice.supplier || "",
+              supplierName: marketPrice.supplierRel?.name || marketPrice.supplier || marketPrice.supplierName || "",
               supplierItemName: marketPrice.supplierItem || "",
             };
           });
@@ -1476,7 +1511,7 @@ export default {
             storage: comp.component?.storageType || "-",
             componentId: comp.componentId,
             supplierId: comp.component?.marketPrice?.supplierId || "",
-            supplierName: comp.component?.marketPrice?.supplier || "",
+            supplierName: comp.component?.marketPrice?.supplierRel?.name || comp.component?.marketPrice?.supplier || comp.component?.marketPrice?.supplierName || "",
             supplierItemName: comp.component?.marketPrice?.supplierItem || "",
           }));
           this.items = [...this.items, ...componentItems];
@@ -1500,7 +1535,7 @@ export default {
               packagingId: pkg.packagingId,
               marketPriceId: packaging.marketPriceId || mp.id || "",
               supplierId: packaging.supplierId || mp.supplierId || "",
-              supplierName: packaging.supplier || mp.supplier || "",
+              supplierName: packaging.supplierRel?.name || mp.supplierRel?.name || packaging.supplier || mp.supplier || packaging.supplierName || "",
               supplierItemName: mp.supplierItem || "",
             };
           });
