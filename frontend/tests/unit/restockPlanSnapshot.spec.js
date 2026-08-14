@@ -267,6 +267,39 @@ describe('buildPlanSnapshot — whitelist', () => {
     ])
   })
 
+  // Maquette 14-08 — état de l'onglet Espaces de stockage figé sous meta.storage
+  // (jamais top-level : pickWritable d'un backend non redéployé le jetterait).
+  it('meta.storage fige percents/global/source quand fournis', () => {
+    const restockRows = makeRestockRows()
+    const snapshot = buildPlanSnapshot({
+      restockRows,
+      shoppingGroups: makeShoppingGroups(),
+      recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: 'finished' }),
+      inputs: {
+        storagePercents: { 'storage:el-1:biere blonde 33cl': 150 },
+        storageGlobalPercent: 120,
+        storageGlobalEnabled: false,
+        sourceInventoryEventId: 'ev-9',
+      },
+    })
+    expect(snapshot.meta.storage).toEqual({
+      percents: { 'storage:el-1:biere blonde 33cl': 150 },
+      globalPercent: 120,
+      globalEnabled: false,
+      sourceInventoryEventId: 'ev-9',
+    })
+  })
+
+  it('meta.storage : défauts sains sans inputs storage (plans antérieurs)', () => {
+    const snapshot = makeSnapshot()
+    expect(snapshot.meta.storage).toEqual({
+      percents: {},
+      globalPercent: 100,
+      globalEnabled: true,
+      sourceInventoryEventId: null,
+    })
+  })
+
   // BUG-296-01 — ventilation figée.
   it('restockLines portent surplusLoose et finalStock (0 par défaut)', () => {
     const restockRows = makeRestockRows()
