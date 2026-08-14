@@ -51,12 +51,20 @@ export default {
   },
 
   mounted() {
-    // Notifications : hydrate le miroir localStorage UNE fois au boot, puis
-    // ré-hydrate quand un AUTRE onglet écrit (event `storage`, passif). Aucun
-    // timer/polling → zéro coût récurrent.
-    this.$store.dispatch('notifications/hydrate')
+    // Notifications : la clé localStorage est scopée par utilisateur
+    // (harmonisation 14/08). Un seul watch sur auth/userId couvre boot, login,
+    // logout et switch de compte — tous les signOut passent par CLEAR_AUTH qui
+    // remet userId à null. setUser hydrate/purge en conséquence.
+    this._unwatchNotifUser = this.$store.watch(
+      () => this.$store.getters['auth/userId'],
+      (id) => this.$store.dispatch('notifications/setUser', id),
+      { immediate: true },
+    )
+    // Cross-onglet : ré-hydrate quand un AUTRE onglet écrit la clé courante
+    // (event `storage`, passif). e.key === null = localStorage.clear() ailleurs.
     this._onNotifStorage = (e) => {
-      if (e.key === 'datafriday:notifications') {
+      const key = this.$store.getters['notifications/storageKey']
+      if (e.key === null || (key && e.key === key)) {
         this.$store.dispatch('notifications/hydrate')
       }
     }
@@ -67,6 +75,10 @@ export default {
     if (this._onNotifStorage) {
       window.removeEventListener('storage', this._onNotifStorage)
       this._onNotifStorage = null
+    }
+    if (this._unwatchNotifUser) {
+      this._unwatchNotifUser()
+      this._unwatchNotifUser = null
     }
   },
 }

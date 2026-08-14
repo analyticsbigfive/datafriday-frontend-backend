@@ -68,8 +68,13 @@ export async function putRestockState(spaceId, snapshot) {
   // Plan chargé (RestockPlan) : rechargé au restore. Dans les extras — un
   // backend antérieur en whitelist stricte retombe sur le noyau sans lui.
   if (s.loadedPlanId !== undefined) extras.loadedPlanId = s.loadedPlanId
-  // fiche 314-01 — overrides absolus de l'onglet Espaces de stockage.
-  if (s.storageAdjustments !== undefined) extras.storageAdjustments = s.storageAdjustments
+  // fiche 314-01 / maquette 14-08 — état de l'onglet Espaces de stockage :
+  // % par ligne (remplace l'ancien storageAdjustments absolu, plus émis),
+  // ajustement global et inventaire source explicite.
+  if (s.storagePercents !== undefined) extras.storagePercents = s.storagePercents
+  if (s.storageGlobalPercent !== undefined) extras.storageGlobalPercent = s.storageGlobalPercent
+  if (s.storageGlobalEnabled !== undefined) extras.storageGlobalEnabled = s.storageGlobalEnabled
+  if (s.sourceInventoryEventId !== undefined) extras.sourceInventoryEventId = s.sourceInventoryEventId
   const url = `/spaces/${encodeURIComponent(spaceId)}/restock-state`
   try {
     const res = await api.put(url, { ...core, ...extras }, { suppressGlobalError: true })

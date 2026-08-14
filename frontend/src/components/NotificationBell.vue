@@ -7,7 +7,6 @@
     :close-on-content-click="false"
     location="bottom end"
     offset="10"
-    @update:model-value="onToggle"
   >
     <template #activator="{ props: menuProps }">
       <v-btn
@@ -77,10 +76,9 @@ export default {
     close() {
       this.open = false
     },
-    onToggle(v) {
-      // Fermeture du panneau = « vu » → on éteint le badge, l'historique reste.
-      if (!v) this.$store.dispatch('notifications/markAllRead')
-    },
+    // Plus de markAllRead à la fermeture (harmonisation 14/08) : le badge ne
+    // s'éteint que par clic sur un item (markRead) ou « Tout marquer lu » —
+    // sinon il ne mesure rien.
   },
 }
 </script>
