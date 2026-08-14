@@ -148,10 +148,8 @@
             </span>
           </template>
 
-          <template #item.storageType="{ item }">
-            <span class="cl-badge cl-badge--storage">
-              {{ (item?.raw ? item.raw.storageType : item.storageType) || "-" }}
-            </span>
+          <template #item.updatedAt="{ item }">
+            <span class="cl-date">{{ formatDate(item?.raw ? item.raw.updatedAt : item.updatedAt) }}</span>
           </template>
 
           <template #item.unitCost="{ item }">
@@ -378,7 +376,7 @@ export default {
         { title: this.t('compListColType'), key: 'type' },
         { title: this.t('compListColUnit'), key: 'unit' },
         { title: this.t('compListColUnitsRecipe'), key: 'unitsPerRecipe' },
-        { title: this.t('compListColStorageType'), key: 'storageType' },
+        { title: this.t('compListColLastModified'), key: 'updatedAt' },
         { title: this.t('compListColUnitCost'), key: 'unitCost' },
         { title: this.t('compListColSubItems'), key: 'subItems' },
         { title: this.t('compListColActions'), key: 'actions', sortable: false, align: 'end', width: 120 },
@@ -443,6 +441,7 @@ export default {
         unit: String(unit || ""),
         unitsPerRecipe: Number(unitsPerRecipe) || 0,
         storageType: String(storageType || ""),
+        updatedAt: raw?.updatedAt ?? raw?.updated_at ?? raw?.modifiedAt ?? null,
         unitCost: Number(unitCost) || 0,
         subItemsCount: Number(subItemsCount) || 0,
         description: String(description || ""),
@@ -468,6 +467,14 @@ export default {
       return value.toLocaleString("fr-FR", {
         style: "currency",
         currency: "EUR",
+      });
+    },
+    formatDate(value) {
+      if (!value) return "-";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "-";
+      return d.toLocaleDateString(this.locale === 'fr' ? 'fr-FR' : 'en-US', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
       });
     },
     onExportCsv() {
@@ -1061,6 +1068,8 @@ export default {
 .cl-badge--storage   { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
 .cl-badge--ingredient { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
 .cl-badge--component  { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.cl-date { color: var(--fb-muted, #6b7280); font-size: 0.85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl--dark .cl-date { color: #94a3b8; }
 
 /* Cost */
 .cl-cost {
