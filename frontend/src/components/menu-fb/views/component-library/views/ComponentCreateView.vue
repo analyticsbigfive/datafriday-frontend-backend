@@ -358,6 +358,15 @@
                   {{ t('compCreateCancel') }}
                 </button>
                 <button
+                  v-if="isEditMode"
+                  class="cc-pill-btn cc-pill-btn--outline"
+                  type="button"
+                  :disabled="duplicating || saving"
+                  @click="onDuplicate"
+                >
+                  <Copy :size="15" /> {{ duplicating ? '…' : t('compDuplicate') }}
+                </button>
+                <button
                   class="cc-pill-btn cc-pill-btn--primary"
                   type="button"
                   :disabled="saving || !formValid"
@@ -406,12 +415,13 @@
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
-import { Boxes, ChevronDown, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
+import { Boxes, ChevronDown, Copy, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { createMenuComponent, getMenuComponent, updateMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
 import { createPackingType } from "@/api/endpoints/packing-type.api";
 import { formatCurrencyDetailed, formatUnits } from '@/composables/useFormatters';
+import { duplicateComponentById } from '@/composables/useComponentDuplicate';
 import NumberField from '@/components/common/NumberField.vue';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
@@ -423,6 +433,7 @@ export default {
   components: {
     Boxes,
     ChevronDown,
+    Copy,
     Plus,
     Save,
     Trash2,
@@ -444,6 +455,7 @@ export default {
     return {
       componentId: null,
       isEditMode: false,
+      duplicating: false,
       loadingComponent: false,
       loadingError: "",
 
@@ -757,6 +769,27 @@ export default {
     },
     onCancel() {
       this.$router.push({ path: "/components" });
+    },
+
+    // Duplique la fiche courante (par id, données serveur). Redirige vers l'édition de la copie.
+    async onDuplicate() {
+      if (!this.componentId || this.duplicating || this.saving) return;
+      this.duplicating = true;
+      this.error = "";
+      try {
+        const created = await duplicateComponentById(this.componentId, { suffix: this.t('compCopySuffix') });
+        const newId = created?.id || created?._id || created?.data?.id;
+        this.$store.dispatch('menuComponents/invalidate');
+        if (newId) {
+          this.$router.push({ path: `/menu-fb/components/edit/${newId}` });
+        } else {
+          this.$router.push({ path: "/components" });
+        }
+      } catch (e) {
+        this.error = e?.response?.data?.message || e?.userMessage || e?.message || this.t('compDuplicateFailed');
+      } finally {
+        this.duplicating = false;
+      }
     },
 
     async loadComponentData() {
@@ -1547,6 +1580,7 @@ export default {
   border-radius: 50px;
   font-size: 0.875rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   border: none;
   transition: all .2s;

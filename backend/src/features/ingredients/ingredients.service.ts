@@ -16,7 +16,12 @@ export class IngredientsService {
   }
 
   private async invalidateCache(tenantId: string) {
-    await this.redis.deletePattern(`datafriday:ingredients:${tenantId}:*`);
+    // `deletePattern` préfixe déjà avec `datafriday:` en interne (RedisService.buildKey) — le
+    // remettre ici double-préfixait le pattern (`datafriday:datafriday:...`), qui ne matchait
+    // donc jamais aucune clé réelle : le cache liste n'était en réalité jamais invalidé après
+    // create/update/delete. Même bug que menu-components.service.ts, trouvé le 2026-08-14 en
+    // creusant pourquoi la liste de composants ne se rafraîchissait pas après suppression.
+    await this.redis.deletePattern(`ingredients:${tenantId}:*`);
   }
 
   // `MarketPrice.image` peut contenir du base64 (cf. DTOs) — jamais affiché depuis

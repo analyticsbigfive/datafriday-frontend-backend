@@ -170,6 +170,15 @@
               <button class="cl-act-btn cl-act-btn--edit" type="button" @click.stop="onEditComponent(item?.raw || item)">
                 <Pencil :size="14" />
               </button>
+              <button
+                class="cl-act-btn cl-act-btn--dup"
+                :class="{ 'cl-act-btn--busy': duplicatingId === ((item?.raw || item)?.id ?? (item?.raw || item)?._id) }"
+                type="button"
+                :title="t('compDuplicate')"
+                @click.stop="onDuplicateComponent(item?.raw || item)"
+              >
+                <Copy :size="14" />
+              </button>
               <button class="cl-act-btn cl-act-btn--delete" type="button" @click.stop="onDeleteComponent(item?.raw || item)">
                 <Trash2 :size="14" />
               </button>
@@ -285,10 +294,11 @@
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
-import { Boxes, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
+import { Boxes, Copy, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { deleteMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
+import { duplicateComponentById } from "@/composables/useComponentDuplicate";
 import ComponentDeleteDialog from '../dialogs/ComponentDeleteDialog.vue';
 import ComponentCsvImportDrawer from '../drawers/ComponentCsvImportDrawer.vue';
 import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
@@ -297,6 +307,7 @@ export default {
   name: "ComponentListView",
   components: {
     Boxes,
+    Copy,
     Download,
     Pencil,
     Plus,
@@ -318,6 +329,7 @@ export default {
     return {
       searchQuery: "",
       selectedCategory: null,
+      duplicatingId: null,
       selectedType: null,
 
       loading: false,
@@ -724,6 +736,25 @@ export default {
       this.deleteDialog = true;
     },
 
+    // Duplication (approche frontend) : relit le composant complet et POST une copie « (copie) ».
+    // La copie créée est insérée directement dans le store (UPSERT_ROW) au lieu de recharger
+    // toute la liste depuis le serveur — affichage instantané, sans dépendre du cache backend
+    // ni d'une course avec un fetch déjà en vol.
+    async onDuplicateComponent(component) {
+      const c = component?._raw || component || {};
+      const id = c?.id ?? c?._id ?? c?.uuid;
+      if (!id || this.duplicatingId) return;
+      this.duplicatingId = id;
+      try {
+        const created = await duplicateComponentById(id, { suffix: this.t('compCopySuffix') });
+        this.$store.commit('menuComponents/UPSERT_ROW', created);
+      } catch (e) {
+        alert(e?.response?.data?.message || e?.userMessage || e?.message || this.t('compDuplicateFailed'));
+      } finally {
+        this.duplicatingId = null;
+      }
+    },
+
     closeDeleteDialog() {
       this.deleteDialog = false;
       this.deleteTarget = null;
@@ -742,8 +773,10 @@ export default {
       this.deleteError = "";
       try {
         await deleteMenuComponent(String(id));
+        // Retrait local immédiat (REMOVE_ROW) au lieu d'un refetch complet — même raison que
+        // la duplication : affichage instantané, pas de dépendance au cache backend/réseau.
+        this.$store.commit('menuComponents/REMOVE_ROW', String(id));
         this.closeDeleteDialog();
-        await this.loadComponents(true);
       } catch (e) {
         this.deleteError = e?.userMessage || e?.message || "Failed to delete component";
       } finally {
@@ -768,12 +801,12 @@ export default {
       for (const id of ids) {
         try {
           await deleteMenuComponent(id);
+          this.$store.commit('menuComponents/REMOVE_ROW', id);
         } catch (e) {
           failed.push(id);
         }
         this.bulkProgress += 1;
       }
-      await this.loadComponents(true);
       this.bulkLoading = false;
       this.bulkSelected = failed;
       if (failed.length) this.bulkError = `${failed.length} composant(s) n'ont pas pu être supprimés.`;
@@ -1105,6 +1138,9 @@ export default {
 }
 .cl-act-btn--edit   { background: #eff6ff; color: #2563eb; }
 .cl-act-btn--edit:hover   { background: #dbeafe; }
+.cl-act-btn--dup    { background: #f3f4f6; color: #6b7280; }
+.cl-act-btn--dup:hover    { background: #e5e7eb; color: #374151; }
+.cl-act-btn--busy   { opacity: .5; pointer-events: none; }
 .cl-act-btn--delete { background: #fef2f2; color: #ff3131; }
 .cl-act-btn--delete:hover { background: #fee2e2; }
 
@@ -1246,6 +1282,8 @@ export default {
 .cl--dark .cl-subitems-btn:hover { background: rgba(37, 99, 235, .25); }
 .cl--dark .cl-act-btn--edit { background: rgba(37, 99, 235, .15); color: #93c5fd; }
 .cl--dark .cl-act-btn--edit:hover { background: rgba(37, 99, 235, .28); }
+.cl--dark .cl-act-btn--dup { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.cl--dark .cl-act-btn--dup:hover { background: rgba(255,255,255,.14); color: #e2e8f0; }
 .cl--dark .cl-act-btn--delete { background: rgba(255, 49, 49, .15); color: #fca5a5; }
 .cl--dark .cl-act-btn--delete:hover { background: rgba(255, 49, 49, .28); }
 /* Sub-items drawer */

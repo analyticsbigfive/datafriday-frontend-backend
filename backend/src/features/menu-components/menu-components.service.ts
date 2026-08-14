@@ -18,7 +18,13 @@ export class MenuComponentsService {
   }
 
   private async invalidateCache(tenantId: string) {
-    await this.redis.deletePattern(`datafriday:menu-components:${tenantId}:*`);
+    // `deletePattern` préfixe déjà avec `datafriday:` en interne (RedisService.buildKey) — le
+    // remettre ici double-préfixait le pattern (`datafriday:datafriday:...`), qui ne matchait
+    // donc jamais aucune clé réelle : le cache liste (`findAll`, TTL 60s) n'était en réalité
+    // JAMAIS invalidé après create/update/delete. Bug constaté 2026-08-14 (liste de composants
+    // ne se rafraîchissant pas après suppression/duplication, même après le fix front sur le
+    // fetch concurrent — cf. menuComponents.js).
+    await this.redis.deletePattern(`menu-components:${tenantId}:*`);
   }
 
   private toDecimalOrUndefined(value: unknown): any {
