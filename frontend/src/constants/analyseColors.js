@@ -79,7 +79,7 @@ export const KPI_CARDS = [
   },
   {
     key: 'margin',
-    label: '% MARGE',
+    label: 'MARGE',
     labelKey: 'anKpiCardMargin',
     bg: '#EFF6FF',
     accent: '#3B82F6',
