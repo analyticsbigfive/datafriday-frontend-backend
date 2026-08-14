@@ -253,8 +253,10 @@ const actions = {
         'notifications/push',
         {
           type: 'inventory',
-          title: 'Comptage enregistré',
-          message: counted ? `${counted} article(s) comptés` : 'Snapshot inventaire sauvegardé',
+          // Clés i18n traduites au rendu (NotificationPanel).
+          titleKey: 'notifInventorySavedTitle',
+          messageKey: counted ? 'notifInventorySavedCount' : 'notifInventorySavedNoCount',
+          params: counted ? { count: counted } : null,
           meta: { spaceId: state.currentSpaceId, eventId: state.currentEventId },
         },
         { root: true },

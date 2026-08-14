@@ -286,6 +286,17 @@ export function buildPlanSnapshot({
         qty: toNumber(e.qty),
       })),
       degradations: inputs.degradations ?? undefined,
+      // État de l'onglet Espaces de stockage (maquette 14-08). Niché sous
+      // `meta` (déjà dans la whitelist WRITABLE_JSON backend) : un champ
+      // top-level nouveau serait silencieusement jeté par pickWritable sur un
+      // backend non redéployé. Anciens plans sans ce bloc → défauts sains au
+      // chargement (percents vides, 100 %, global actif, source auto).
+      storage: {
+        percents: { ...(inputs.storagePercents || {}) },
+        globalPercent: toNumber(inputs.storageGlobalPercent) || 100,
+        globalEnabled: inputs.storageGlobalEnabled !== false,
+        sourceInventoryEventId: inputs.sourceInventoryEventId ?? null,
+      },
     },
   }
 }
