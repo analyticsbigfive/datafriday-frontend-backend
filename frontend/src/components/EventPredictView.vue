@@ -463,9 +463,8 @@
           </EventDetailsEditor>
 
           <!-- Note: la carte "Synthèse financière" inline a été retirée
-               (Lot 6) — les 4 cards Total Revenue / PerCap / Avg/Trans /
-               Transformation sont maintenant rendues dans la colonne de
-               droite `ep-metrics` (cf. React :2356-2446). -->
+               (Lot 6) — les métriques sont rendues dans la colonne de droite
+               `ep-metrics` (tableau de synthèse + cartes, chantier 310). -->
 
           <!-- Note: les "Versions enregistrées" sont maintenant rendues dans
                la sidebar gauche (cf. React :2060-2158 + Lot 10) — la table
@@ -941,18 +940,93 @@
 
       <!-- ============ RIGHT COLUMN : Event Metrics Widgets ============
            Affichée uniquement quand un seul event est sélectionné (cf. React
-           :2357 `selectedEventIds.length === 1 && selectedEvent`). 4 cards
-           en 2×2 : Total Revenue / PerCap / Avg/Trans / Transformation. -->
+           :2357 `selectedEventIds.length === 1 && selectedEvent`).
+           Chantier 310 : nav compacte + tableau de synthèse Prédictif/Ajusté
+           (CA · Coût global · Marge) + 6 cartes (Coût Staff, Coût Matières,
+           Marge, Per cap, Panier, Transformation). -->
       <div
         v-if="selectedEvent && multiSelectIds.length <= 1"
         class="ep-metrics"
       >
+        <!-- Nav compacte (chantier 310) : pill Résumé + icônes tooltipées.
+             Chaque icône de section ACTIVE l'onglet (predictSectionTab) puis
+             scrolle — l'ancienne nav en pills scrollait vers 3 ancres vides
+             empilées sans changer d'onglet (sections en v-if non montées). -->
+        <!-- Réunion 13/08 : pill « Résumé » supprimée (redondante — le crayon
+             du bandeau ouvre déjà l'éditeur) ; seules les 5 icônes restent. -->
         <nav class="ep-metrics-anchors" :aria-label="t('epSectionsAria')">
-          <a href="#ep-anchor-summary" @click.prevent="scrollToAnchor('ep-anchor-summary')">{{ t('epSummary') }}</a>
-          <a href="#ep-anchor-configuration" @click.prevent="scrollToAnchor('ep-anchor-configuration')">{{ t('epConfigurationTab') }}</a>
-          <a href="#ep-anchor-timeline" @click.prevent="scrollToAnchor('ep-anchor-timeline')">{{ t('epTimeline') }}</a>
-          <a href="#ep-anchor-stockup" @click.prevent="scrollToAnchor('ep-anchor-stockup')">{{ t('epStockTab') }}</a>
-          <a href="#ep-anchor-staff" @click.prevent="scrollToAnchor('ep-anchor-staff')">{{ t('epStaffTab') }}</a>
+          <div class="ep-anchor-icons">
+            <v-tooltip location="bottom" max-width="240">
+              <template #activator="{ props: tipProps }">
+                <button
+                  v-bind="tipProps"
+                  type="button"
+                  class="ep-anchor-icon ep-anchor-icon-sources"
+                  :aria-label="t('epSources')"
+                  @click="showSourcesDrawer = true"
+                >
+                  <v-icon size="17">mdi-source-branch</v-icon>
+                </button>
+              </template>
+              {{ t('epNavSourcesTip') }}
+            </v-tooltip>
+            <v-tooltip location="bottom" max-width="240">
+              <template #activator="{ props: tipProps }">
+                <button
+                  v-bind="tipProps"
+                  type="button"
+                  class="ep-anchor-icon"
+                  :aria-label="t('epTimeline')"
+                  @click="goToTimeline"
+                >
+                  <v-icon size="17">mdi-chart-line</v-icon>
+                </button>
+              </template>
+              {{ t('epNavTimelineTip') }}
+            </v-tooltip>
+            <v-tooltip location="bottom" max-width="240">
+              <template #activator="{ props: tipProps }">
+                <button
+                  v-bind="tipProps"
+                  type="button"
+                  class="ep-anchor-icon"
+                  :aria-label="t('epConfigurationTab')"
+                  @click="goToSection('configuration')"
+                >
+                  <v-icon size="17">mdi-tune-variant</v-icon>
+                </button>
+              </template>
+              {{ t('epNavConfigTip') }}
+            </v-tooltip>
+            <v-tooltip location="bottom" max-width="240">
+              <template #activator="{ props: tipProps }">
+                <button
+                  v-bind="tipProps"
+                  type="button"
+                  class="ep-anchor-icon"
+                  :aria-label="t('epStockTab')"
+                  @click="goToSection('stockup')"
+                >
+                  <v-icon size="17">mdi-package-variant-closed</v-icon>
+                </button>
+              </template>
+              {{ t('epNavStockTip') }}
+            </v-tooltip>
+            <v-tooltip location="bottom" max-width="240">
+              <template #activator="{ props: tipProps }">
+                <button
+                  v-bind="tipProps"
+                  type="button"
+                  class="ep-anchor-icon"
+                  :aria-label="t('epStaffTab')"
+                  @click="goToSection('staff')"
+                >
+                  <v-icon size="17">mdi-account-group-outline</v-icon>
+                </button>
+              </template>
+              {{ t('epNavStaffTip') }}
+            </v-tooltip>
+          </div>
         </nav>
         <div id="ep-anchor-summary" class="ep-metrics-head">
           <div class="ep-metrics-kicker-row">
@@ -973,26 +1047,75 @@
             </span>
           </p>
         </div>
+        <!-- Tableau de synthèse (chantier 310) : Prédictif / Ajusté ×
+             CA · Coût · Marge. Coût = Matières + Staff (staffing/totals),
+             Marge = (CA − coût global) / CA — décision produit 08/2026. -->
+        <!-- Retouche 13/08 : une ligne PAR MÉTRIQUE au lieu d'un tableau
+             4 colonnes. Les 3 colonnes de montants ne tenaient pas dans le
+             rail (360px) : la colonne Marge sortait de la carte et l'
+             `overflow: hidden` la tronquait. Empilé, plus rien à faire tenir
+             côte à côte, et le bloc parle le même langage que les cartes KPI
+             (label muted, valeur prédite, « Ajusté » en rouge dessous). -->
+        <div class="ep-synth">
+          <div class="ep-synth-row">
+            <span class="ep-synth-label">{{ t('epTotalRevenueHt') }}</span>
+            <span class="ep-synth-value" :title="t('epSynthPredicted')">
+              <template v-if="predictedReady">{{ formatCurrency(totalPredictedRevenue) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
+            </span>
+            <span class="ep-synth-adj-label">{{ t('epmAdjusted') }}</span>
+            <span class="ep-synth-adj-value">
+              <template v-if="adjustedReady">{{ formatCurrency(totalAdjustedRevenue) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
+            </span>
+          </div>
+          <div class="ep-synth-row">
+            <span class="ep-synth-label">{{ t('epMetricCost') }}</span>
+            <span class="ep-synth-value" :title="t('epSynthPredicted')">
+              <template v-if="predictedReady && staffingReady">{{ formatCurrencyDetailed(totalPredictedCostGlobal) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
+            </span>
+            <span class="ep-synth-adj-label">{{ t('epmAdjusted') }}</span>
+            <span class="ep-synth-adj-value">
+              <template v-if="adjustedReady && staffingReady">{{ formatCurrencyDetailed(totalAdjustedCostGlobal) }}</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
+            </span>
+          </div>
+          <div class="ep-synth-row">
+            <span class="ep-synth-label">{{ t('epMetricMargin') }}</span>
+            <span class="ep-synth-value" :title="t('epSynthPredicted')">
+              <template v-if="predictedReady && staffingReady">{{ predictedMargin.toFixed(2) }}%</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
+            </span>
+            <span class="ep-synth-adj-label">{{ t('epmAdjusted') }}</span>
+            <span class="ep-synth-adj-value">
+              <template v-if="adjustedReady && staffingReady">{{ adjustedMargin.toFixed(2) }}%</template>
+              <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
+            </span>
+          </div>
+        </div>
         <div class="ep-metrics-grid">
-          <!-- Total Revenue -->
+          <!-- Coût Staff (chantier 310) — remplace la carte CA total, le CA
+               vit dans le tableau de synthèse. Source : staffing/totals,
+               fetch hoisté au niveau vue (plus seulement l'onglet Staff). -->
           <div class="ep-metric-card ep-metric-card-primary">
-            <h3 class="ep-metric-label">{{ t('epTotalRevenueHt') }}</h3>
-            <p v-if="predictedReady" class="ep-metric-value">
-              {{ formatCurrency(totalPredictedRevenue) }}
+            <h3 class="ep-metric-label">{{ t('epMetricStaffCost') }}</h3>
+            <p v-if="staffingReady" class="ep-metric-value">
+              {{ formatCurrencyDetailed(staffPredictedCost) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
-              <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                {{ formatCurrency(totalAdjustedRevenue) }}
+              <p v-if="staffingReady" class="ep-metric-adjusted-value">
+                {{ formatCurrencyDetailed(staffAdjustedCost) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
           </div>
 
-          <!-- Cost -->
+          <!-- Coût Matières (ex-« Coût » : coût unitaire × quantités) -->
           <div class="ep-metric-card ep-metric-card-neutral">
-            <h3 class="ep-metric-label">{{ t('epMetricCost') }}</h3>
+            <h3 class="ep-metric-label">{{ t('epMetricMaterialsCost') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
               {{ formatCurrencyDetailed(totalPredictedCost) }}
             </p>
@@ -1634,6 +1757,9 @@ export default {
       // Passe à true après une tentative de chargement (distingue "pas chargé"
       // de "chargé vide" → arme le warning menuAssignmentMissing).
       _assignmentLoaded: false,
+      // Chantier 310 : fetch staffing/totals en échec → la colonne de droite
+      // dégrade (Coût Staff 0 €, marge matières seules) au lieu de skeleton ∞.
+      staffingFetchFailed: false,
       // Lot 2 — popup de remapping (rattacher un élément vendu → menu item du shop).
       remapDlg: {
         open: false,
@@ -2804,6 +2930,11 @@ export default {
             itemKey,
             qty: 0,
             rev: 0,
+            // Transactions (tickets) de la timeline — présentes sur les lignes
+            // d'un event PASSÉ (`loadPastTimeline`), absentes du prédictif : les
+            // consommateurs retombent alors sur la quantité, comme le faisaient
+            // déjà les computeds transactions basés sur les records.
+            tx: 0,
             wpid: r.weezeventProductId || null,
             nameLower,
             shopNorm: normalizeStr(r.shopName || r.elementName) || null,
@@ -2812,12 +2943,18 @@ export default {
         }
         a.qty += Number(r.totalQuantity || r.quantity || 0);
         a.rev += Number(r.totalRevenue || r.revenue || 0);
+        a.tx += Number(r.transactionCount || 0);
         if (!a.wpid && r.weezeventProductId) a.wpid = r.weezeventProductId;
       }
       let predicted = 0;
       let adjusted = 0;
       let predictedCost = 0;
       let adjustedCost = 0;
+      // Transactions : même gate et même slider % que le CA. Panier et
+      // Transformation en dérivent — sans ça ils restaient sur les records du
+      // scoring, muets aux ajustements dès que les ids ne correspondaient pas.
+      let predictedTx = 0;
+      let adjustedTx = 0;
       for (const a of agg.values()) {
         // Shop FERMÉ (connu) → exclu du CA (brut ET ajusté) : on ne vend pas sur
         // un PDV fermé (ex. Auxerre 1B/3ABC). On n'exclut QUE les shops
@@ -2859,8 +2996,13 @@ export default {
         const pct = isSel ? Number(adj[`${a.shopId}-${a.itemKey}`] ?? 100) : 0;
         adjusted += pRev * (pct / 100);
         adjustedCost += pCost * (pct / 100);
+        // Tickets si la timeline les porte (events passés), sinon la quantité —
+        // même repli que `r.transactionCount || r.quantity` côté records.
+        const tx = a.tx > 0 ? a.tx : a.qty;
+        predictedTx += tx;
+        adjustedTx += tx * (pct / 100);
       }
-      return { predicted, adjusted, predictedCost, adjustedCost };
+      return { predicted, adjusted, predictedCost, adjustedCost, predictedTx, adjustedTx };
     },
     totalPredictedRevenue() {
       const t = this.timelineRevenueTotals;
@@ -2884,12 +3026,42 @@ export default {
       // sélection : coché → prédit × slider % (défaut 100) ; décoché → 0. La case
       // est l'unique gate (défaut = attachés). Remplace l'ancien défaut mapStatus
       // unmapped→0 (le prédit/CA brut, lui, garde tous les records).
-      const cfg = this.effectiveMenuConfig || {};
+      //
+      // BUG réunion 13/08 (Panier/Transformation ajustés à 0) : la gate testait
+      // l'inclusion STRICTE d'ids `cfg[elementId].includes(mid)` — ids
+      // cross-config / synthétiques jamais matchés → pct 0 partout →
+      // totalAdjustedTransactions 0. On passe par `selectedKeySet` (2 alias
+      // shop × 2 alias item), la même gate tolérante que timelineRevenueTotals,
+      // comme son docblock le prévoyait déjà.
+      const sk = this.selectedKeySet;
+      const elNorm = this.configElementNormNameById;
+      const adj = this.quantityAdjustments || {};
       return this.reconciledRecords.map((r) => {
-        const key = `${r.elementId}-${r.menuItemId}`;
         const mid = r.reconciledMenuItemId || r.menuItemId;
-        const sel = Array.isArray(cfg[r.elementId]) && cfg[r.elementId].includes(mid);
-        const pct = sel ? Number(this.quantityAdjustments[key] ?? 100) : 0;
+        const shopNorm =
+          r.shopKey ||
+          elNorm.get(r.elementId) ||
+          normalizeStr(r.shopName) ||
+          normalizeStr(r.elementName) ||
+          null;
+        const nameLower = r.menuItemName ? String(r.menuItemName).toLowerCase() : null;
+        const sel =
+          sk.has(`${r.elementId}|${mid}`) ||
+          (shopNorm && sk.has(`${shopNorm}|${mid}`)) ||
+          (nameLower && sk.has(`${r.elementId}|${nameLower}`)) ||
+          (shopNorm && nameLower && sk.has(`${shopNorm}|${nameLower}`));
+        // Le slider écrit sous `${elementId}-${menuItemId}` (ids de la config).
+        // Un record dont les ids viennent de la timeline ne matchait aucune de
+        // ces clés : pct restait à 100 et l'ajustement n'avait aucun effet. On
+        // essaie les mêmes alias que la gate, première clé connue gagnante.
+        const pctKey = [
+          `${r.elementId}-${r.menuItemId}`,
+          `${r.elementId}-${mid}`,
+          shopNorm ? `${shopNorm}-${mid}` : null,
+          nameLower ? `${r.elementId}-${nameLower}` : null,
+          shopNorm && nameLower ? `${shopNorm}-${nameLower}` : null,
+        ].find((k) => k && adj[k] != null);
+        const pct = sel ? Number(pctKey != null ? adj[pctKey] : 100) : 0;
         const factor = pct / 100;
         return {
           ...r,
@@ -3117,15 +3289,46 @@ export default {
       // Coût des items manuels → marge ajustée cohérente (CA et coût alignés).
       return base + this.manualAdjustedCost;
     },
+    /**
+     * Totaux staff du store `staffing`, gardés par eventId : le module est un
+     * singleton par événement — sans cette garde, un changement d'event
+     * afficherait les coûts staff de l'event précédent pendant le fetch.
+     */
+    staffTotalsForEvent() {
+      const st = store.state.staffing;
+      if (!st || st.eventId !== this.selectedEventId) return null;
+      return st.payload?.totals || null;
+    },
+    staffPredictedCost() {
+      return Number(this.staffTotalsForEvent?.predictedCost) || 0;
+    },
+    staffAdjustedCost() {
+      return Number(this.staffTotalsForEvent?.adjustedCost) || 0;
+    },
+    /** Staffing chargé pour CET event, ou échec assumé (dégradé matières seul). */
+    staffingReady() {
+      if (this.staffingFetchFailed) return true;
+      const st = store.state.staffing;
+      return !!st && st.eventId === this.selectedEventId && st.cachedAt > 0;
+    },
+    /** Coût global (chantier 310) = matières + staff. */
+    totalPredictedCostGlobal() {
+      return this.totalPredictedCost + this.staffPredictedCost;
+    },
+    totalAdjustedCostGlobal() {
+      return this.totalAdjustedCost + this.staffAdjustedCost;
+    },
+    // Marge sur le coût GLOBAL (matières + staff) — décision produit 08/2026
+    // (chantier 310). Avant : matières seules, marge surestimée.
     predictedMargin() {
       const rev = this.totalPredictedRevenue;
       if (!rev) return 0;
-      return ((rev - this.totalPredictedCost) / rev) * 100;
+      return ((rev - this.totalPredictedCostGlobal) / rev) * 100;
     },
     adjustedMargin() {
       const rev = this.totalAdjustedRevenue;
       if (!rev) return 0;
-      return ((rev - this.totalAdjustedCost) / rev) * 100;
+      return ((rev - this.totalAdjustedCostGlobal) / rev) * 100;
     },
     perCapitaPredicted() {
       const att = this.selectedEvent?.ticketsScanned || this.selectedEvent?.ticketsSold || 0;
@@ -3138,36 +3341,37 @@ export default {
       return this.totalAdjustedRevenue / att;
     },
     transformationRate() {
-      // Approximation : transactions / attendees * 100 (sur records prédits bruts)
+      // Approximation : transactions / attendees * 100.
       const att = this.selectedEvent?.ticketsScanned || this.selectedEvent?.ticketsSold || 0;
-      const transactions = (this.windowedPredictedRecords || []).reduce(
-        (s, r) => s + (r.transactionCount || r.quantity || 0),
-        0,
-      );
       if (!att) return 0;
-      return (transactions / att) * 100;
+      return (this.totalPredictedTransactions / att) * 100;
     },
     /** Transformation rate après ajustements (cf. React eventMetrics.adjustedTransformationRate). */
     adjustedTransformationRate() {
       const att = this.selectedEvent?.ticketsScanned || this.selectedEvent?.ticketsSold || 0;
-      const transactions = (this.windowedAdjustedRecords || []).reduce(
-        (s, r) => s + (r.transactionCount || r.adjustedQuantity || 0),
-        0,
-      );
       if (!att) return 0;
-      return (transactions / att) * 100;
+      return (this.totalAdjustedTransactions / att) * 100;
     },
     /**
      * Total des transactions prédites (brut). Utilisé pour Avg/Transaction
      * (cf. React eventMetrics.avgPerTransaction).
+     *
+     * Source = `timelineRevenueTotals`, comme le CA et le coût : les records du
+     * scoring ne servent plus que de repli (event futur sans timeline). Sans
+     * ça, Panier et Transformation étaient les 2 seuls KPI à lire une source
+     * différente du reste de la colonne — d'où leur incohérence.
      */
     totalPredictedTransactions() {
+      const t = this.timelineRevenueTotals;
+      if (t.predicted > 0) return t.predictedTx;
       return (this.windowedPredictedRecords || []).reduce(
         (s, r) => s + (r.transactionCount || r.quantity || 0),
         0,
       );
     },
     totalAdjustedTransactions() {
+      const t = this.timelineRevenueTotals;
+      if (t.predicted > 0) return t.adjustedTx;
       return (this.windowedAdjustedRecords || []).reduce(
         (s, r) => s + (r.transactionCount || r.adjustedQuantity || 0),
         0,
@@ -3477,6 +3681,9 @@ export default {
         // Réconciliation Lot 1 : (re)charge l'assignation menu de la config de
         // ce nouvel event (no-op + cache si même configId).
         this.loadShopMenuAssignment();
+        // Coût staff de la colonne de droite (chantier 310) — cache par
+        // eventId, no-op si déjà frais.
+        this.fetchStaffingTotals();
       }
       // Sync URL ?event= avec la sélection courante (deep-link / refresh /
       // partage). Capture tous les chemins de sélection (autocomplete,
@@ -3579,6 +3786,39 @@ export default {
     scrollToAnchor(id) {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    /**
+     * Nav compacte (chantier 310) : active l'onglet PUIS scrolle. Les sections
+     * sont montées en v-if sur `predictSectionTab` — scroller sans activer
+     * l'onglet (ancien comportement des ancres) n'affichait rien.
+     */
+    goToSection(tab) {
+      this.predictSectionTab = tab;
+      this.$nextTick(() => this.scrollToAnchor('ep-anchor-configuration'));
+    },
+    /**
+     * L'ancre timeline n'existe que dans la branche event futur ; pour un
+     * event passé on retombe sur le haut de page (chronologie passée en tête).
+     */
+    goToTimeline() {
+      const el = document.getElementById('ep-anchor-timeline');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      else this.scrollToAnchor('ep-anchor-summary');
+    },
+    /**
+     * Coût staff au niveau vue (chantier 310) : fire-and-forget, cache 15 min
+     * partagé avec EventPredictStaffSection (pas de double fetch). Échec →
+     * staffingFetchFailed, la colonne dégrade en coût matières seul.
+     */
+    fetchStaffingTotals() {
+      const eventId = this.selectedEventId;
+      if (!eventId) return;
+      this.staffingFetchFailed = false;
+      store.dispatch("staffing/fetchStaffing", { eventId }).catch((e) => {
+        this.staffingFetchFailed = true;
+        // eslint-disable-next-line no-console
+        console.warn("[EVENT PREDICT] staffing fetch failed:", e?.message);
+      });
     },
     getEventConfigName(ev) {
       if (!ev?.configurationId) return '';
@@ -7941,25 +8181,112 @@ export default {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+/* Nav compacte (chantier 310) : pill Résumé + rangée d'icônes. */
 .ep-metrics-anchors {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  padding: 6px 12px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 10px;
   border-bottom: 1px solid var(--fb-border, #e2e8f0);
   margin-bottom: 10px;
 }
-.ep-metrics-anchors a {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--fb-muted, #475569);
-  text-decoration: none;
-  padding: 2px 6px;
-  border-radius: 6px;
+.ep-anchor-icons {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+  justify-content: space-evenly;
+  background: var(--fb-subtle, #fafafa);
+  border: 1px solid var(--fb-border, #e5e7eb);
+  border-radius: 11px;
+  padding: 3px;
 }
-.ep-metrics-anchors a:hover {
-  background: var(--fb-border, #f1f5f9);
+.ep-anchor-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fb-muted, #475569);
+  cursor: pointer;
+}
+.ep-anchor-icon:hover,
+.ep-anchor-icon:focus-visible {
+  background: var(--fb-surface, #fff);
   color: var(--fb-text, #0f172a);
+  border-color: var(--fb-border, #e5e7eb);
+}
+.ep-anchor-icon-sources {
+  color: #ff3131;
+}
+
+/* Tableau de synthèse Prédictif / Ajusté (chantier 310) — même langage
+   visuel que les cartes KPI : surface, liseré gauche, label muted 750,
+   valeurs 800, ligne Ajusté séparée et en indigo (comme
+   .ep-metric-adjusted-value). */
+.ep-synth {
+  background: var(--fb-surface, #ffffff);
+  border: 1px solid var(--fb-border, #e2e8f0);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 12px;
+  /* Les lignes portent leur propre padding (dont le retrait à gauche qui
+     dégage le liseré). */
+  padding: 2px 0;
+}
+.ep-synth::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: #4f46e5;
+}
+/* Une ligne par métrique : libellé + valeur prédite, « Ajusté » dessous. Le
+   libellé est le seul élément élastique (il s'ellipse), les montants gardent
+   `nowrap` — c'est ce qui garantit qu'aucun chiffre n'est tronqué, quelle que
+   soit la largeur du rail. */
+.ep-synth-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 9px 12px 9px 14px;
+}
+.ep-synth-row + .ep-synth-row {
+  border-top: 1px solid var(--fb-border, #e2e8f0);
+}
+.ep-synth-label {
+  font-size: 0.75rem;
+  font-weight: 750;
+  color: var(--fb-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-synth-value {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--fb-text, #0f172a);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ep-synth-adj-label {
+  font-size: 0.7rem;
+  color: var(--fb-muted, #64748b);
+}
+.ep-synth-adj-value {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #4338ca;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .ep-metric-card {
   background: var(--fb-surface, #ffffff);
@@ -9031,6 +9358,25 @@ export default {
   border-color: var(--ep-border);
 }
 
+/* Synthèse (chantier 310) : mêmes tokens thème que les cartes. */
+.ep-synth {
+  background: var(--ep-surface);
+  border-color: var(--ep-border);
+}
+.ep-synth-label,
+.ep-synth-adj-label {
+  color: var(--ep-muted);
+}
+.ep-synth-value {
+  color: var(--ep-text);
+}
+.ep-synth-adj-value {
+  color: var(--ep-primary);
+}
+.ep-synth-row + .ep-synth-row {
+  border-color: var(--ep-border);
+}
+
 .ep-metric-card {
   min-height: 112px;
   padding: 12px;
@@ -9775,24 +10121,15 @@ export default {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
+/* Chantier 310 : la nav est une rangée pill Résumé + icônes (plus de <a>).
+   L'override 999px du track pills est remplacé par un conteneur discret. */
 .ep-metrics-anchors {
-  gap: 4px;
-  padding: 3px;
+  gap: 8px;
+  padding: 4px;
   border: 1px solid var(--fb-border, #e5e7eb);
-  border-radius: 999px;
-  background: var(--fb-subtle, #fafafa);
-}
-
-.ep-metrics-anchors a {
-  flex: 1 1 auto;
-  padding: 6px 8px;
-  border-radius: 999px;
-  text-align: center;
-}
-
-.ep-metrics-anchors a:first-child {
-  background: #ff3131;
-  color: #fff;
+  border-radius: 14px;
+  border-bottom: 1px solid var(--fb-border, #e5e7eb);
+  background: var(--fb-surface, #fff);
 }
 
 .ep-metric-card {

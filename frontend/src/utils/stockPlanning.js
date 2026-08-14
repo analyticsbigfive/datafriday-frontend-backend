@@ -496,12 +496,22 @@ export function buildMenuItemDemand({
   return Array.from(out.values())
 }
 
-export function findStockReference(item, ingredients = [], components = [], menuItems = []) {
+export function findStockReference(
+  item,
+  ingredients = [],
+  components = [],
+  menuItems = [],
+  marketPrices = [],
+) {
   const idCandidates = new Set(
     [item?.itemId, item?.id, item?.sourceId, item?.marketPriceId].filter(Boolean).map(String),
   )
   const name = normalizeName(item?.itemName || item?.name)
-  const pools = [ingredients || [], components || [], menuItems || []]
+  // Les Market Prices ferment la marche : c'est un catalogue d'ACHAT, pas de
+  // recette. Une ligne qui résout déjà en ingrédient / composant / menu item
+  // garde sa référence — le pool ne sert qu'aux lignes libres (réserves saisies
+  // dans le Builder), sans quoi rien ne porterait leur conditionnement.
+  const pools = [ingredients || [], components || [], menuItems || [], marketPrices || []]
 
   // BUG-299-01 — deux passes STRICTES : l'ID sur TOUT le catalogue d'abord, le nom
   // seulement si aucun id ne résout nulle part. L'ancien prédicat mixte (id OU nom,
@@ -534,8 +544,9 @@ export function computePackagingForQuantity(
   ingredients = [],
   components = [],
   menuItems = [],
+  marketPrices = [],
 ) {
-  const src = findStockReference(item, ingredients, components, menuItems)
+  const src = findStockReference(item, ingredients, components, menuItems, marketPrices)
   if (!src) return null
 
   // Un ingrédient (/ingredients) ne porte AUCUN champ conditionnement à plat :

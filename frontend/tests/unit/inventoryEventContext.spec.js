@@ -85,3 +85,32 @@ describe('pickAnchorEvent', () => {
     expect(pickAnchorEvent(null, { isPreMode: false, now: NOW })).toBeNull()
   })
 })
+
+// « Prochain Évènement : {match} » (retour JLH 13/08) : libellé composé des
+// équipes quand elles sont connues, repli sur le nom de l'évènement sinon.
+describe('matchLabel', () => {
+  const { matchLabel } = require('@/utils/inventoryEventContext')
+
+  it('compose « home vs visiteur » quand les deux équipes sont connues', () => {
+    expect(
+      matchLabel({ name: 'AJA-Angers', homeTeamName: 'Auxerre', visitingTeamName: 'Angers' }),
+    ).toBe('Auxerre vs Angers')
+  })
+
+  it("replie sur le nom de l'évènement quand une équipe manque", () => {
+    expect(matchLabel({ name: 'AJA-Angers', homeTeamName: 'Auxerre' })).toBe('AJA-Angers')
+    expect(matchLabel({ name: 'AJA-Angers', visitingTeamName: 'Angers' })).toBe('AJA-Angers')
+    expect(matchLabel({ eventName: 'AJA-Nice' })).toBe('AJA-Nice')
+  })
+
+  it('ignore les équipes en espaces blancs', () => {
+    expect(matchLabel({ name: 'AJA-Angers', homeTeamName: '  ', visitingTeamName: 'Angers' })).toBe(
+      'AJA-Angers',
+    )
+  })
+
+  it('chaîne vide sur une entrée absente ou non-objet', () => {
+    expect(matchLabel(null)).toBe('')
+    expect(matchLabel('AJA-Angers')).toBe('')
+  })
+})
