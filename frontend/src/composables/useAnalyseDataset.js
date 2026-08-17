@@ -38,7 +38,14 @@ import {
   buildItemsByShopRows,
   itemLevelTotalsByEvent,
 } from '@/utils/analyseAggregations'
-import { resolveShopType, resolveItemType, resolveItemCategory, resolveItemName } from '@/utils/analyseDimensions'
+import {
+  resolveShopType,
+  resolveItemType,
+  resolveItemCategory,
+  resolveItemName,
+  NO_DISPLAY_NAME_KEY,
+} from '@/utils/analyseDimensions'
+import { useItemGrouping } from '@/composables/useItemGrouping'
 import { UNATTACHED_SHOP_KEY, UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 import { groupBasketsByCombo } from '@/utils/transactionBaskets'
 import { SHOP_TYPE_LABEL_KEYS } from '@/constants/shopTypes'
@@ -64,6 +71,12 @@ export function useAnalyseDataset(sources) {
   // français resterait valide après un passage en anglais, et le classeur
   // sortirait des onglets français dans une interface anglaise.
   const { t, locale } = useI18n()
+  // Regroupement du classement d'articles : MÊME état que le panneau « Performance
+  // des articles » (singleton) — sinon la feuille « Classement » afficherait un
+  // découpage différent de ce que l'utilisateur a sous les yeux.
+  const { mode: itemGroupingMode, groupKeyOf } = useItemGrouping(
+    () => store.state.analyse.menuItems,
+  )
 
   const {
     spaceName,
@@ -123,6 +136,9 @@ export function useAnalyseDataset(sources) {
       // « valide » avec ses colonnes Coût / Marge vides.
       Object.keys(store.state.analyse.menuItemCostMap || {}).length,
       shopPerformance?.enriched?.value ? 'perf' : 'base',
+      // Bascule Article / DisplayName du classement (17/08) : sans elle dans la
+      // signature, l'export resterait figé sur le regroupement d'avant la bascule.
+      itemGroupingMode.value,
     ].join('§')
   })
 
@@ -421,12 +437,19 @@ export function useAnalyseDataset(sources) {
 
     const shops = groupBy(chartRecords.value, (r) => r.shopName, (r) => r.revenue || 0)
     const events = groupBy(chartRecords.value, (r) => r.eventName || r.eventId, (r) => r.revenue || 0)
+    // Classement d'articles : suit la bascule Article / DisplayName du panneau.
     const items = groupBy(
       (itemLevelRecords.value || []).length ? itemLevelRecords.value : articleRecords.value,
-      resolveItemName,
+      groupKeyOf,
       (r) => r.revenue || 0,
     )
-    const asEntries = (g) => g.labels.map((name, i) => ({ name, revenue: g.values[i] }))
+    const asEntries = (g) => g.labels.map((name, i) => ({
+      // La sentinelle du bucket « sans DisplayName » ne sort jamais telle quelle.
+      name: itemGroupingMode.value === 'displayName' && name === NO_DISPLAY_NAME_KEY
+        ? t('anNoDisplayName')
+        : name,
+      revenue: g.values[i],
+    }))
 
     return {
       key: 'leaderboard',

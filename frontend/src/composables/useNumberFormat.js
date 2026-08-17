@@ -23,6 +23,26 @@ export function currentIntlLocale() {
 }
 
 /**
+ * Séparateur de milliers maison : espace fine insécable (U+202F), jamais la
+ * virgule de la locale EN (retour maquette 17/08 — « pas de virgules pour les
+ * 1000 »). Écrit en échappement à dessein : l'espace brute est invisible en
+ * revue et un formateur d'éditeur peut la transformer en espace normale.
+ */
+export const GROUP_SEPARATOR = '\u202F'
+
+/**
+ * Formate `n` via l'instance `nf` en remplaçant le séparateur de groupe de la
+ * locale par GROUP_SEPARATOR. fr-FR produit déjà une espace (U+202F ou U+00A0
+ * selon la version d'ICU) — le passage par formatToParts uniformise les deux.
+ */
+export function formatSpacedGroups(nf, n) {
+  return nf
+    .formatToParts(n)
+    .map((p) => (p.type === 'group' ? GROUP_SEPARATOR : p.value))
+    .join('')
+}
+
+/**
  * Composable réactif — à appeler dans setup().
  * Retourne { intlLocale, formatDecimal, formatPrice, formatPercentLocale }.
  */
