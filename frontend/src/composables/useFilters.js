@@ -23,6 +23,28 @@ function _scheduleRecomputeDone(hasPending) {
   }))
 }
 
+/**
+ * Sélection résultante d'un toggle GROUPÉ (17/08, clic sur une ligne
+ * « DisplayName » du classement qui couvre N articles) : sémantique d'ENSEMBLE
+ * et non valeur par valeur — toutes déjà présentes → on les retire toutes,
+ * sinon → on complète les manquantes. Inverser chaque membre un à un donnerait
+ * un résultat incohérent sur une sélection partielle.
+ * Exporté pour test unitaire (la logique est pure, le reste du toggle est du
+ * plombage store + debounce).
+ * @param {Array<string>} base sélection courante
+ * @param {Array<string>} values membres du groupe cliqué
+ * @returns {Array<string>} nouvelle sélection
+ */
+export function nextGroupSelection(base = [], values = []) {
+  const baseSet = new Set(base)
+  const allPresent = values.length > 0 && values.every((v) => baseSet.has(v))
+  if (allPresent) {
+    const drop = new Set(values)
+    return base.filter((v) => !drop.has(v))
+  }
+  return [...base, ...values.filter((v) => !baseSet.has(v))]
+}
+
 function debounce(fn, delay = 150) {
   let t = null
   return (...args) => {
@@ -113,6 +135,34 @@ export function useFilters() {
     }, 150))
   }
 
+  /**
+   * Toggle GROUPÉ : plusieurs valeurs d'un coup, sémantique d'ensemble et non
+   * valeur par valeur (17/08, clic sur une ligne « DisplayName » du classement
+   * qui couvre N articles). Toutes déjà présentes → on les retire toutes ;
+   * sinon → on ajoute les manquantes. Une boucle sur toggleArrayFilter donnerait
+   * un résultat incohérent sur une sélection partielle (elle inverserait chaque
+   * membre au lieu de sélectionner le groupe). Même file d'attente et même
+   * debounce que toggleArrayFilter (un seul dispatch après 150 ms).
+   */
+  function toggleArrayFilterMany(key, values) {
+    const list = (Array.isArray(values) ? values : [values]).filter((v) => v != null)
+    if (!list.length) return
+    if (list.length === 1) return toggleArrayFilter(key, list[0])
+    const base = _pendingArrays.has(key)
+      ? _pendingArrays.get(key)
+      : (store.state.analyse.filters?.[key] || [])
+    const next = nextGroupSelection(base, list)
+    _pendingArrays.set(key, next)
+    filtersRecomputing.value = true
+    clearTimeout(_toggleTimers.get(key))
+    _toggleTimers.set(key, setTimeout(() => {
+      _toggleTimers.delete(key)
+      _pendingArrays.delete(key)
+      store.dispatch('analyse/updateFilter', { key, value: next })
+      _scheduleRecomputeDone(() => _toggleTimers.size > 0)
+    }, 150))
+  }
+
   function setFilterImmediate(key, value) {
     // Un write direct sur une clé annule le toggle en attente sur cette clé —
     // sinon le toggle différé écraserait ce write 150 ms plus tard (ex. « tout
@@ -144,6 +194,7 @@ export function useFilters() {
     setFilter,
     setFilterImmediate,
     toggleArrayFilter,
+    toggleArrayFilterMany,
     resetFilters,
     filtersRecomputing,
   }

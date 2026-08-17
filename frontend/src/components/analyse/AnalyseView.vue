@@ -504,7 +504,7 @@
             @analyze="onAnalyzeQuery"
             @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
             @event-click="(v) => toggleArrayFilter('selectedEventIds', v)"
-            @item-click="(v) => toggleArrayFilter('selectedMenuItemIds', v)"
+            @item-click="(v) => toggleArrayFilterMany('selectedMenuItemIds', v)"
           />
         </div>
       </div>
@@ -666,6 +666,7 @@ const {
   analysableEvents,
   setFilterImmediate,
   toggleArrayFilter,
+  toggleArrayFilterMany,
   resetFilters,
 } = useFilters()
 
