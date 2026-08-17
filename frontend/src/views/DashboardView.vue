@@ -232,12 +232,11 @@
            correctement. Cible vide sur les autres routes = agit comme spacer. -->
       <div id="space-builder-header-target" class="d-flex align-center flex-grow-1"></div>
 
-      <!-- Action buttons — cloche masquée en mobile pour libérer de la place. -->
-      <v-btn v-if="!isMobile" icon variant="text" class="action-btn">
-        <v-badge color="#ff3131" content="3" offset-x="-2" offset-y="2">
-          <Bell :size="20" />
-        </v-badge>
-      </v-btn>
+      <!-- Vraie cloche (harmonisation 14/08) : remplace l'ancien badge « 3 »
+           codé en dur — compteur réel + panneau + navigation par item, comme
+           sur les routes self-headed (WorkspaceAppHeader). Masquée en mobile
+           pour libérer de la place (comportement conservé). -->
+      <NotificationBell v-if="!isMobile" />
 
       <v-btn icon variant="text" class="action-btn" @click="openSettingsDrawer">
         <Settings :size="20" />
@@ -335,8 +334,8 @@
 import { mapActions, mapGetters } from "vuex";
 import { t as translate } from '@/i18n';
 import isMobileMixin from "@/ui/useMobile";
+import NotificationBell from "@/components/NotificationBell.vue";
 import {
-  Bell,
   Carrot,
   Settings,
   LogOut,
@@ -423,7 +422,7 @@ export default {
     ShoppingBag,
     Building,
     Coffee,
-    Bell,
+    NotificationBell,
     Settings,
     LogOut,
     Building2,

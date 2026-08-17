@@ -638,6 +638,15 @@ export default {
     },
   },
 
+  watch: {
+    // Deep-link cloche pendant qu'on est DÉJÀ sur /events (ni mounted ni
+    // activated ne re-tournent) : ?editEventId= posé par une navigation
+    // in-place rouvre la fiche. Garde route.name — keepAlive observe tout.
+    '$route.query.editEventId'(id) {
+      if (!id || this.$route.name !== 'events') return;
+      this.openDeepLinkedEvent();
+    },
+  },
   async mounted() {
     window.addEventListener('locale-changed', this.handleLocaleChange);
     window.addEventListener('theme-changed', this._onThemeChanged);

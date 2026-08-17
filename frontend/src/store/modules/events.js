@@ -102,8 +102,11 @@ export default {
         'notifications/push',
         {
           type: 'event',
-          title: 'Event mis à jour',
-          message: name ? `« ${name} »` : 'Un event a été modifié',
+          // Clés i18n : traduites au rendu par NotificationPanel (le store n'a
+          // pas accès au t() réactif ; la notif suit la langue de l'app).
+          titleKey: 'notifEventUpdatedTitle',
+          messageKey: name ? 'notifEventUpdatedName' : 'notifEventUpdatedNoName',
+          params: name ? { name } : null,
           meta: { id: item?.id },
         },
         { root: true },
