@@ -146,23 +146,25 @@
               <v-icon size="20" color="#9E9E9E">mdi-package-variant-closed</v-icon>
             </div>
             <div class="si-count-name-text">
-              <div class="si-count-name">{{ item.name }}</div>
-              <!-- Retours maquette 17/08 : compteur + infobulle (liste complète)
-                   au lieu de la ligne texte tronquée à 3 produits. Le contenu du
-                   tooltip est téléporté dans <body> → stylé par le bloc <style>
-                   NON scopé en fin de fichier (même gotcha que
-                   ShopMenuItemsDrawer). -->
-              <div
-                v-if="itemUsedInNames(item).length"
-                class="si-count-usedin si-count-usedin-trigger"
-              >
-                {{ t('invUsedIn') }} {{ itemUsedInNames(item).length }}
-                {{ t(itemUsedInNames(item).length > 1 ? 'invUsedInProducts' : 'invUsedInProduct') }}
-                <v-tooltip activator="parent" location="top" max-width="360" content-class="si-usedin-tooltip">
-                  <ul class="si-usedin-tooltip-list">
-                    <li v-for="name in itemUsedInNames(item)" :key="name">{{ name }}</li>
-                  </ul>
-                </v-tooltip>
+              <!-- Retours 17/08 (v2) : plus AUCUNE ligne de sous-titre « Used
+                   in » — elle faisait varier la hauteur des cartes. À la place,
+                   une icône ⓘ cliquable qui déplie une section listant tous
+                   les produits (bloc .si-count-usedin-panel ci-dessous). -->
+              <div class="si-count-name">
+                <span class="si-count-name__text">{{ item.name }}</span>
+                <button
+                  v-if="itemUsedInNames(item).length"
+                  type="button"
+                  class="si-usedin-btn"
+                  :class="{ 'si-usedin-btn--open': usedInOpen[item.id] }"
+                  :aria-expanded="!!usedInOpen[item.id]"
+                  :aria-label="t('invUsedInAria')"
+                  :title="t('invUsedInAria')"
+                  @click.stop="toggleUsedIn(item.id)"
+                  @keydown.enter.space.stop
+                >
+                  <v-icon size="15">mdi-information-outline</v-icon>
+                </button>
               </div>
             </div>
           </div>
@@ -173,6 +175,18 @@
           <v-icon v-if="mobile" size="20" class="si-count-chevron">
             {{ isExpanded(item.id) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}
           </v-icon>
+        </div>
+
+        <!-- Section dépliable « Utilisé dans » (ouverte via l'icône ⓘ). -->
+        <div
+          v-if="itemUsedInNames(item).length"
+          v-show="usedInOpen[item.id]"
+          class="si-count-usedin-panel"
+        >
+          <div class="si-count-usedin-panel__title">{{ t('invUsedIn') }}</div>
+          <ul class="si-count-usedin-panel__list">
+            <li v-for="name in itemUsedInNames(item)" :key="name">{{ name }}</li>
+          </ul>
         </div>
 
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs">
@@ -306,6 +320,11 @@ const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop'
 
 // Images produit en échec de chargement → fallback icône (parité React).
 const failedImages = ref({})
+// Sections « Utilisé dans » dépliées, par id d'article (icône ⓘ — retours 17/08 v2).
+const usedInOpen = reactive({})
+function toggleUsedIn(id) {
+  usedInOpen[id] = !usedInOpen[id]
+}
 
 // Indice de référence d'un article, ou null si le parent n'en fournit pas.
 function expectedTotalUnits(item) {
@@ -567,15 +586,59 @@ function stepValue(shopId, itemId, field, delta) {
   background: var(--fb-subtle, #FAFAFA);
   border: 1px solid var(--fb-border, #EEEEEE);
 }
-.si-count-name { font-weight: 600; color: var(--fb-text, #212121); }
-.si-count-usedin { font-size: 0.72rem; color: var(--fb-muted, #6B7280); margin-top: 2px; font-weight: 500; }
-/* Déclencheur de l'infobulle « Used in » (retours maquette 17/08) : affordance
-   discrète — souligné pointillé + curseur help. */
-.si-count-usedin-trigger {
-  display: inline-block;
-  cursor: help;
-  text-decoration: underline dotted;
-  text-underline-offset: 2px;
+/* Ligne nom = flex : le nom s'ellipse (span interne), l'icône ⓘ reste toujours
+   visible à sa droite (flex-shrink: 0) même sur un libellé long. */
+.si-count-name {
+  font-weight: 600;
+  color: var(--fb-text, #212121);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.si-count-name__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Icône ⓘ « Utilisé dans » (retours 17/08 v2) : inline dans la ligne nom, sans
+   en augmenter la hauteur — l'ancienne ligne de sous-titre faisait varier la
+   hauteur des cartes. */
+.si-usedin-btn {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fb-muted, #9CA3AF);
+  cursor: pointer;
+  line-height: 1;
+}
+.si-usedin-btn:hover,
+.si-usedin-btn:focus-visible,
+.si-usedin-btn--open {
+  color: #ff3131;
+}
+/* Section dépliable listant les produits qui utilisent l'article. */
+.si-count-usedin-panel {
+  background: var(--fb-subtle, #FAFAFA);
+  border: 1px solid var(--fb-border, #EEEEEE);
+  border-radius: 9px;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  color: var(--fb-muted, #4B5563);
+}
+.si-count-usedin-panel__title {
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--fb-text, #374151);
+}
+.si-count-usedin-panel__list {
+  margin: 0;
+  padding-left: 16px;
+  list-style: disc;
+  line-height: 1.6;
 }
 .si-count-badge {
   display: inline-flex; align-items: center;
@@ -889,29 +952,5 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .v-theme--dataFridayDark .si-shop-switch-done {
   color: #86efac;
-}
-</style>
-
-<!-- Bloc NON scopé : le contenu du v-tooltip « Used in » est téléporté dans
-     <body>, hors de portée des styles scopés ET des variables --fb-* (posées
-     sur les racines de page, pas sur :root). Même gotcha et même parti pris
-     que ShopMenuItemsDrawer.smi-missing-tooltip : tooltip blanc en dur,
-     lisible sur thème clair et sombre. -->
-<style>
-.si-usedin-tooltip {
-  background: #fff !important;
-  color: #111827 !important;
-  border: 1px solid #E5E7EB;
-  border-radius: 10px !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25) !important;
-  padding: 10px 14px !important;
-  font-size: 0.78rem;
-  line-height: 1.6;
-  opacity: 1 !important;
-}
-.si-usedin-tooltip .si-usedin-tooltip-list {
-  margin: 0;
-  padding-left: 16px;
-  list-style: disc;
 }
 </style>

@@ -196,11 +196,9 @@
                   :title="`${t('epActiveVersionTitle')} : ${editingVersionName || t('epUnnamed')}`"
                 >{{ editingVersionName || t('epActiveVersion') }}</span>
                 <span v-else class="ep-side-badge ep-side-badge-outline">{{ t('epDraftUnsaved') }}</span>
-                <span
-                  v-if="hasUnsavedChanges"
-                  class="ep-side-badge ep-side-badge-dirty"
-                  :title="t('epNotSavedTitle')"
-                >● {{ t('epNotSaved') }}</span>
+                <!-- Retours 17/08 : plus de badge « non sauvegardé » (ni ici ni
+                     colonne droite) — le popup de confirmation à la sortie
+                     suffit ; le bouton Save garde son halo ep-save-dirty. -->
               </div>
               <p class="ep-side-version-zone-hint">
                 {{ t('epSaveHintFr') }}<br />
@@ -7673,13 +7671,6 @@ export default {
   border: 1px solid var(--border, #e5e7eb);
   color: var(--muted-foreground, #6b7280);
 }
-/* Indicateur "modifications non sauvegardées" (Save réactif). */
-.ep-side-badge-dirty {
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fde68a;
-  font-weight: 700;
-}
 /* Badge "Active" sur la carte de la version actuellement sélectionnée. */
 .ep-side-badge-active {
   margin-left: 6px;
@@ -10206,13 +10197,6 @@ export default {
 .dark .ep-empty-state-icon {
   background: rgba(59, 130, 246, 0.18);
   color: #93c5fd;
-}
-
-/* Badge « brouillon » (ambre) : soft bg + texte ambre foncé → voile + clair. */
-.dark .ep-side-badge-dirty {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fcd34d;
-  border-color: rgba(245, 158, 11, 0.35);
 }
 
 /* Encarts multi-événements / avertissements timeline (ambre pâle). */
