@@ -147,8 +147,22 @@
             </div>
             <div class="si-count-name-text">
               <div class="si-count-name">{{ item.name }}</div>
-              <div v-if="itemUsedIn(item)" class="si-count-usedin">
-                {{ t('invUsedIn') }} {{ itemUsedIn(item) }}
+              <!-- Retours maquette 17/08 : compteur + infobulle (liste complète)
+                   au lieu de la ligne texte tronquée à 3 produits. Le contenu du
+                   tooltip est téléporté dans <body> → stylé par le bloc <style>
+                   NON scopé en fin de fichier (même gotcha que
+                   ShopMenuItemsDrawer). -->
+              <div
+                v-if="itemUsedInNames(item).length"
+                class="si-count-usedin si-count-usedin-trigger"
+              >
+                {{ t('invUsedIn') }} {{ itemUsedInNames(item).length }}
+                {{ t(itemUsedInNames(item).length > 1 ? 'invUsedInProducts' : 'invUsedInProduct') }}
+                <v-tooltip activator="parent" location="top" max-width="360" content-class="si-usedin-tooltip">
+                  <ul class="si-usedin-tooltip-list">
+                    <li v-for="name in itemUsedInNames(item)" :key="name">{{ name }}</li>
+                  </ul>
+                </v-tooltip>
               </div>
             </div>
           </div>
@@ -301,12 +315,17 @@ function expectedTotalUnits(item) {
 }
 
 // Plats / menu items auxquels cet article de stock appartient (usedIn). Pour un
-// ingrédient d'un plat composé (ex: huile de « Tenders Frites »), affiche le(s)
-// plat(s) parent(s). Vide pour un produit fini vendu tel quel (usedIn absent).
-function itemUsedIn(item) {
+// ingrédient d'un plat composé (ex: huile de « Tenders Frites »), les plats
+// parents. Vide pour un produit fini vendu tel quel (usedIn absent).
+// Retours maquette 17/08 : liste COMPLÈTE (l'ancienne version tronquait à 3
+// sans indicateur) — l'affichage passe par un compteur + infobulle, plus par
+// une ligne de texte. Diverge volontairement du miroir
+// SpaceLogisticView.itemUsedIn (hors périmètre de la demande).
+// 3e sonde fbElementName : entrées shape storage, comme InventoryStorageCard.
+function itemUsedInNames(item) {
   const arr = Array.isArray(item?.usedIn) ? item.usedIn : []
-  const names = arr.map((u) => u?.name || u?.menuItemName).filter(Boolean)
-  return [...new Set(names)].slice(0, 3).join(', ')
+  const names = arr.map((u) => u?.name || u?.menuItemName || u?.fbElementName).filter(Boolean)
+  return [...new Set(names)]
 }
 
 // Label du champ « emballé » : « Nombre de fûts de 30L » quand le packaging
@@ -550,6 +569,14 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-count-name { font-weight: 600; color: var(--fb-text, #212121); }
 .si-count-usedin { font-size: 0.72rem; color: var(--fb-muted, #6B7280); margin-top: 2px; font-weight: 500; }
+/* Déclencheur de l'infobulle « Used in » (retours maquette 17/08) : affordance
+   discrète — souligné pointillé + curseur help. */
+.si-count-usedin-trigger {
+  display: inline-block;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
 .si-count-badge {
   display: inline-flex; align-items: center;
   padding: 3px 10px;
@@ -652,25 +679,29 @@ function stepValue(shopId, itemId, field, delta) {
   font-variant-numeric: tabular-nums;
 }
 .si-expected-total--negative { color: #DC2626; }
+/* Retours maquette 17/08 : les 3 actions (Transfer / Reset / Mark counted)
+   tiennent sur UNE ligne — nowrap + boutons compactés (la carte fait ~308px
+   utiles en grille minmax(340px)). */
 .si-count-actions {
-  display: flex; gap: 8px;
+  display: flex; gap: 6px;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding-top: 10px;
   border-top: 1px solid var(--fb-border, #EEEEEE);
 }
 /* Boutons d'action de la carte (remplacent les v-btn) */
 .si-act {
   display: inline-flex; align-items: center;
-  padding: 7px 14px;
+  padding: 6px 10px;
   border-radius: 9px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.2;
   border: 1.5px solid transparent;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 .si-act--ghost {
   background: transparent;
@@ -858,5 +889,29 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .v-theme--dataFridayDark .si-shop-switch-done {
   color: #86efac;
+}
+</style>
+
+<!-- Bloc NON scopé : le contenu du v-tooltip « Used in » est téléporté dans
+     <body>, hors de portée des styles scopés ET des variables --fb-* (posées
+     sur les racines de page, pas sur :root). Même gotcha et même parti pris
+     que ShopMenuItemsDrawer.smi-missing-tooltip : tooltip blanc en dur,
+     lisible sur thème clair et sombre. -->
+<style>
+.si-usedin-tooltip {
+  background: #fff !important;
+  color: #111827 !important;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25) !important;
+  padding: 10px 14px !important;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  opacity: 1 !important;
+}
+.si-usedin-tooltip .si-usedin-tooltip-list {
+  margin: 0;
+  padding-left: 16px;
+  list-style: disc;
 }
 </style>

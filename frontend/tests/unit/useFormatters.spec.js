@@ -6,7 +6,11 @@ import {
   formatPercent,
   formatVariation,
 } from '@/composables/useFormatters'
-import { toIntlLocale, currentIntlLocale } from '@/composables/useNumberFormat'
+import {
+  toIntlLocale,
+  currentIntlLocale,
+  GROUP_SEPARATOR,
+} from '@/composables/useNumberFormat'
 
 // La locale par défaut des formatters suit la langue de l'app (localStorage.appLocale).
 const setAppLocale = (locale) => localStorage.setItem('appLocale', locale)
@@ -30,11 +34,25 @@ describe('toIntlLocale / currentIntlLocale', () => {
 })
 
 describe('formatCurrency (KPI, 0 décimale)', () => {
-  it('suit la langue de l’app : fr → "1 235 €", en → "€1,235"', () => {
+  it('suit la langue de l’app : fr → "1 235 €", en → "€1 235"', () => {
     setAppLocale('fr')
     expect(flat(formatCurrency(1234.56))).toBe('1 235 €')
     setAppLocale('en')
-    expect(formatCurrency(1234.56)).toBe('€1,235')
+    expect(flat(formatCurrency(1234.56))).toBe('€1 235')
+  })
+
+  // Retour maquette 17/08 : le séparateur de milliers est une espace fine
+  // insécable dans les deux langues — la virgule de en-US est proscrite.
+  it('sépare les milliers par GROUP_SEPARATOR, jamais par une virgule', () => {
+    setAppLocale('en')
+    expect(formatCurrency(1234.56)).toBe(`€1${GROUP_SEPARATOR}235`)
+    expect(formatCurrency(1234.56)).not.toContain(',')
+    setAppLocale('fr')
+    // `toContain` : l'espace qui précède le « € » est une insécable normale
+    // (U+00A0) posée par Intl, seuls les groupes de milliers nous intéressent.
+    expect(formatCurrency(1234567)).toContain(
+      `1${GROUP_SEPARATOR}234${GROUP_SEPARATOR}567`
+    )
   })
 
   it('retourne — pour null/NaN et accepte 0', () => {
@@ -85,6 +103,6 @@ describe('formatNumber', () => {
     setAppLocale('fr')
     expect(flat(formatNumber(1234.6))).toBe('1 235')
     setAppLocale('en')
-    expect(formatNumber(1234.6)).toBe('1,235')
+    expect(formatNumber(1234.6)).toBe(`1${GROUP_SEPARATOR}235`)
   })
 })
