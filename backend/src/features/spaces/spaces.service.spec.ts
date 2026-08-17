@@ -1031,6 +1031,76 @@ describe('SpacesService', () => {
     });
   });
 
+  // BUG-130-01 : la lecture de SpaceRevenueMinuteItemAgg doit dédupliquer les lignes
+  // jumelles des deux writers (MAX au grain merchant, seul "weezeventEventId" écrasé)
+  // PUIS sommer les merchants/locations distincts. Le MAX à un seul niveau du commit
+  // perf event-timeline-item-agg plafonnait chaque minute à la plus grosse ligne →
+  // timeline réelle aplatie en plateau constant.
+  describe('getEventTimelineBatch', () => {
+    const spaceId = 'space-1';
+    const tenantId = 'tenant-1';
+
+    beforeEach(() => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue({ salesLocationId: 'integ-1' });
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'ev-1', eventDate: new Date('2026-03-01T18:00:00Z'), eventEndDate: null },
+      ]);
+      (mockPrismaService as any).salesEvent = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    it('déduplique par merchant (MAX interne) puis SOMME au grain affichage (BUG-130-01)', async () => {
+      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      // Niveau interne : le merchant reste dans le GROUP BY de la CTE dedup…
+      expect(sql).toContain('dedup AS (');
+      expect(sql).toContain('mem."weezeventMerchantId", mem."weezeventProductId"');
+      expect(sql).toContain('MAX(mem."revenueHt")');
+      // …et le niveau affichage ADDITIONNE les lignes dédupliquées.
+      expect(sql).toContain('SUM(dd."revenueHt")');
+      expect(sql).toContain('SUM(dd."itemsCount")');
+      expect(sql).not.toContain('MAX(dd.');
+    });
+
+    it('mappe les lignes SQL vers le shape timeline attendu par le front', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        {
+          eventId: 'ev-1',
+          minute: '20:30',
+          shopId: 'el-1',
+          shopName: 'Bar Nord',
+          shopType: 'beverages',
+          shopArea: null,
+          weezeventProductId: 'wp-1',
+          menuItemId: 'mi-1',
+          menuItemName: 'Bière blonde 50cl',
+          menuItemType: 'Beverage',
+          menuItemCategory: 'Bières',
+          quantity: 3,
+          transactionCount: 2,
+          revenueHt: '12.50',
+        },
+      ]);
+
+      const res = await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1']).toHaveLength(1);
+      expect(res['ev-1'][0]).toMatchObject({
+        minute: '20:30',
+        shopId: 'el-1',
+        menuItemId: 'mi-1',
+        quantity: 3,
+        transactionCount: 2,
+        revenueHt: 12.5,
+        revenue: 12.5,
+      });
+    });
+  });
+
   // ===== Correctifs Wizard Weezevent (A1/A3/A4/A6) =====
   describe('Wizard Weezevent fixes', () => {
     const tenantId = 'tenant-1';

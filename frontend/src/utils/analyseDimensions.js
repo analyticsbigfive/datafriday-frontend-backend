@@ -132,6 +132,68 @@ export function resolveItemName(r) {
   )
 }
 
+/**
+ * Sentinelle du regroupement par DisplayName (même rôle que UNATTACHED_ITEM_KEY :
+ * une clé technique, traduite à l'affichage, jamais un nom d'article réel).
+ */
+export const NO_DISPLAY_NAME_KEY = '__NO_DISPLAY_NAME__'
+
+/**
+ * Index catalogue pour le regroupement par DisplayName (référentiel N→1 :
+ * plusieurs MenuItem partagent un même libellé commercial — `MenuItem.displayNameId`).
+ *
+ * Deux sorties, une par usage :
+ * - `nameByMenuItemId` : id d'article → libellé DisplayName, pour la clé de REGROUPEMENT ;
+ * - `itemNamesByDisplayName` : libellé → noms d'articles membres, pour le FILTRE
+ *   (le filtre article de la page travaille sur des NOMS, pas des ids — cf.
+ *   store/modules/analyse.js, `itemNameSet`).
+ *
+ * @param {Array<Record<string, unknown>>} menuItems catalogue (store.state.analyse.menuItems)
+ * @returns {{ nameByMenuItemId: Map<string,string>, itemNamesByDisplayName: Map<string,string[]> }}
+ */
+export function buildDisplayNameIndex(menuItems = []) {
+  const nameByMenuItemId = new Map()
+  const membersByDisplayName = new Map()
+  for (const mi of menuItems || []) {
+    const id = mi?.id != null ? String(mi.id) : ''
+    // Le catalogue peut porter l'objet relation ({id,name}) ou un simple libellé.
+    const dn = textValue(mi?.displayName)
+    if (!id || !dn) continue
+    nameByMenuItemId.set(id, dn)
+    const itemName = textValue(mi?.name)
+    if (!itemName) continue
+    if (!membersByDisplayName.has(dn)) membersByDisplayName.set(dn, new Set())
+    membersByDisplayName.get(dn).add(itemName)
+  }
+  const itemNamesByDisplayName = new Map()
+  for (const [dn, set] of membersByDisplayName) itemNamesByDisplayName.set(dn, [...set])
+  return { nameByMenuItemId, itemNamesByDisplayName }
+}
+
+/**
+ * Clé de regroupement « par DisplayName » d'un record de vente.
+ *
+ * Retourne NO_DISPLAY_NAME_KEY dans DEUX cas volontairement fusionnés (décision
+ * produit 17/08 : un seul bucket) — l'article est mappé au catalogue mais aucun
+ * DisplayName ne lui est affecté, OU la vente n'est rattachée à aucun article
+ * (produit non mappé, donc aucun id résoluble). Le bucket mélange donc « pas
+ * encore renseigné » et « pas rattaché » ; c'est assumé.
+ *
+ * L'id est fiable sur les records item-level : `reconcileRecord` renseigne
+ * `menuItemId` depuis le catalogue avant toute agrégation.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {{ nameByMenuItemId: Map<string,string> }} index issu de buildDisplayNameIndex
+ * @returns {string} libellé DisplayName, ou NO_DISPLAY_NAME_KEY
+ */
+export function resolveDisplayNameGroup(record, index) {
+  const map = index?.nameByMenuItemId
+  if (!map || !map.size) return NO_DISPLAY_NAME_KEY
+  const id = record?.menuItemId ?? record?.mappedMenuItemId
+  if (id == null || id === '') return NO_DISPLAY_NAME_KEY
+  return map.get(String(id)) || NO_DISPLAY_NAME_KEY
+}
+
 /** Libellés lisibles des buckets (clé technique → affichage). */
 export const MENU_BUCKET_LABELS = { FOOD: 'Food', BEVERAGE: 'Beverage', BEER: 'Beer', COMBO: 'Combo' }
 

@@ -274,7 +274,18 @@
           </v-expansion-panel-title>
           <v-expansion-panel-text class="px-0">
 
-      <div class="d-flex align-center justify-end mb-2">
+      <!-- Bascule du regroupement (17/08) : une ligne par article, ou fusion
+           des articles partageant un même DisplayName (référentiel N→1). -->
+      <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-2">
+        <v-btn-toggle v-model="itemGroupingMode" mandatory density="compact" class="pill-toggle">
+          <v-btn value="menuItem" size="x-small">{{ t('anGroupByItem') }}</v-btn>
+          <v-btn
+            value="displayName"
+            size="x-small"
+            :disabled="!hasDisplayNames"
+            :title="hasDisplayNames ? undefined : t('anNoDisplayName')"
+          >{{ t('anGroupByDisplayName') }}</v-btn>
+        </v-btn-toggle>
         <v-btn-toggle v-model="menuMode" mandatory density="compact" class="pill-toggle">
           <v-btn value="total" size="x-small">{{ t('anTotal') }}</v-btn>
           <v-btn value="avg" size="x-small">{{ t('anAvg') }}</v-btn>
@@ -284,12 +295,12 @@
       <div class="lb-list">
         <div
           v-for="(item, idx) in (showAllItems ? topItems : topItems.slice(0, 5))"
-          :key="item.name"
+          :key="item.key"
           class="lb-card lb-card--items sp-clickable"
           role="button"
           tabindex="0"
-          @click="$emit('item-click', item.name)"
-          @keydown.enter="$emit('item-click', item.name)"
+          @click="$emit('item-click', item.memberNames)"
+          @keydown.enter="$emit('item-click', item.memberNames)"
         >
           <div class="lb-top">
             <v-avatar size="24" :color="rankColor(idx + 1)" class="rank-badge">
@@ -300,6 +311,9 @@
           </div>
           <div class="lb-sub">
             <span class="lb-spacer"></span>
+            <span v-if="item.itemCount > 1" class="item-units-below mr-2">
+              {{ item.itemCount }} {{ t('anItemsCount') }}
+            </span>
             <span v-if="menuMode === 'avg'" class="item-units-below">
               {{ formatNumber(item.avgUnits) }} {{ t('anUnits') }} {{ t('anPerEvent') }}
             </span>
@@ -337,7 +351,8 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useTheme } from 'vuetify'
 import { RANK_COLORS } from '@/constants/analyseColors'
-import { resolveItemName } from '@/utils/analyseDimensions'
+import { resolveItemName, NO_DISPLAY_NAME_KEY } from '@/utils/analyseDimensions'
+import { useItemGrouping } from '@/composables/useItemGrouping'
 import { formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import {
   answer,
@@ -378,6 +393,19 @@ defineEmits(['update:modelValue', 'analyze', 'shop-click', 'event-click', 'item-
 const aiQuery = ref('')
 const shopMode = ref('total')
 const menuMode = ref('total')
+// Bascule « Article / DisplayName » du classement (17/08). État PARTAGÉ avec
+// l'export XLSX (feuille Classement) via le singleton useItemGrouping.
+const { mode: itemGroupingMode, groupKeyOf, displayNameIndex } = useItemGrouping(
+  () => store.state.analyse.menuItems,
+)
+// Aucun DisplayName affecté dans le catalogue → la bascule regrouperait TOUT
+// sous « Sans DisplayName » (lecture « c'est cassé »). On désactive le bouton,
+// et on repasse en mode Article si le catalogue change et perd ses DisplayName
+// (changement d'espace).
+const hasDisplayNames = computed(() => displayNameIndex.value.nameByMenuItemId.size > 0)
+watch(hasDisplayNames, (has) => {
+  if (!has && itemGroupingMode.value === 'displayName') itemGroupingMode.value = 'menuItem'
+})
 
 // Etat des filtres globaux pour griser les lignes actives.
 const selectedShopNames = computed(() => store.state.analyse.filters?.selectedShopIds || [])
@@ -539,23 +567,36 @@ const itemSource = computed(() =>
 
 const topItems = computed(() => {
   const map = new Map()
+  const byDisplayName = itemGroupingMode.value === 'displayName'
   for (const r of itemSource.value) {
     // Résolution tolérante : les records sans `menuItemName` (predict, enrichissement
     // partiel) portent `itemName`. Sans ce fallback, tout se regroupe sous « — »
     // → « pas d'items item par item » sur un event sélectionné.
-    const key = resolveItemName(r) || '—'
+    // En mode DisplayName, groupKeyOf agrège les articles d'un même libellé
+    // commercial (les articles sans DisplayName tombent dans NO_DISPLAY_NAME_KEY).
+    const key = groupKeyOf(r) || '—'
     if (!map.has(key)) {
-      map.set(key, { name: key, revenue: 0, units: 0, eventIds: new Set() })
+      map.set(key, { name: key, revenue: 0, units: 0, eventIds: new Set(), itemNames: new Set() })
     }
     const e = map.get(key)
     e.revenue += r.revenue || 0
     e.units += r.quantity || 0
     if (r.eventId) e.eventIds.add(r.eventId)
+    // Noms d'articles RÉELLEMENT présents dans les records : c'est eux qu'on
+    // envoie au filtre au clic (le filtre article travaille sur des noms), pas
+    // toute la liste catalogue du DisplayName — sinon on filtrerait sur des
+    // articles absents de la période.
+    const itemName = resolveItemName(r)
+    if (itemName) e.itemNames.add(itemName)
   }
   const list = [...map.values()].map((e) => {
     const n = e.eventIds.size || 1
+    const isNoDisplayName = byDisplayName && e.name === NO_DISPLAY_NAME_KEY
     return {
-      name: e.name,
+      name: isNoDisplayName ? t('anNoDisplayName') : e.name,
+      key: e.name,
+      memberNames: [...e.itemNames],
+      itemCount: e.itemNames.size,
       revenue: e.revenue,
       units: e.units,
       eventCount: e.eventIds.size,
