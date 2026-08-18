@@ -417,7 +417,61 @@
 
               <!-- Add price group row — visible en création ET en édition (BUG : la barre
                    disparaissait au retour sur un Menu Item existant, `v-if="!isEditMode"`). -->
-              <div class="mic-price-add-row mb-3">
+
+              <!-- Combo : la zone bascule en Prix € ↔ Promo % (base = somme des prix des enfants). -->
+              <div v-if="isCombo" class="mic-price-add-row mb-3">
+                <div class="mic-prefix-wrap mic-price-add-row__amount">
+                  <span class="mic-prefix-symbol">€</span>
+                  <NumberField
+                    v-model="newComboPrice"
+                    :decimals="2"
+                    pad
+                    grouping
+                    :empty-value="0"
+                    class="form-control mic-input mic-input--prefixed"
+                    :placeholder="t('menuItemCreate.pricePlaceholder')"
+                  />
+                </div>
+                <div class="mic-suffix-wrap mic-price-add-row__vat">
+                  <NumberField
+                    v-model="newComboPromo"
+                    :decimals="2"
+                    :step="1"
+                    :min="0"
+                    :max="100"
+                    class="form-control mic-input mic-input--suffixed"
+                    :placeholder="t('menuItemCreate.promoPlaceholder')"
+                  />
+                  <span class="mic-suffix-symbol">%</span>
+                </div>
+                <v-select
+                  v-model="newPriceSpaces"
+                  :items="availableSpaceOptions"
+                  item-title="title"
+                  item-value="value"
+                  multiple
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  rounded="lg"
+                  placeholder="Spaces…"
+                  class="mic-price-space-sel"
+                  :menu-props="{ zIndex: 10000 }"
+                />
+                <button
+                  class="mic-price-add-btn"
+                  :disabled="!newPriceSpaces.length"
+                  @click="addComboPriceGroup"
+                  type="button"
+                >
+                  <Plus :size="15" />
+                </button>
+              </div>
+              <div v-if="isCombo && comboRefBase" class="mic-combo-base-hint mb-3">
+                {{ t('menuItemCreate.comboBaseLabel') }} : {{ formatCurrencyDetailed(comboRefBase) }}
+              </div>
+
+              <div v-if="!isCombo" class="mic-price-add-row mb-3">
                 <div class="mic-prefix-wrap mic-price-add-row__amount">
                   <span class="mic-prefix-symbol">€</span>
                   <!-- Pas de :min : les prix négatifs sont autorisés (remises/avoirs).
@@ -766,6 +820,10 @@ export default {
       newPriceAmount: 0,
       newPriceVat: null,
       newPriceSpaces: [],
+      // Mode combo : prix € ↔ promo % liés (base = somme des prix des enfants pour l'espace).
+      newComboPrice: 0,
+      newComboPromo: 0,
+      comboPriceSyncing: false,
       
       // Ingredient drawer
       ingredientDrawer: false,
@@ -802,6 +860,9 @@ export default {
       this.$store.dispatch('storageTypes/fetchStorageTypes'),
       this.$store.dispatch('suppliers/fetchSuppliers'),
       this.$store.dispatch('seasons/fetchAll'),
+      // Catalogue complet (avec spacePrices) : sert à résoudre le prix par espace de chaque
+      // enfant d'un combo (base = somme de ces prix, cf. tarification combo).
+      this.$store.dispatch('menuItems/fetchMenuItems'),
     ]);
 
     if (this.isEditMode) {
@@ -819,6 +880,30 @@ export default {
         this.menuItemId = newId;
         this.loadMenuItemData().then(() => this.$nextTick(() => this.takeSnapshot()));
       }
+    },
+    // Liaison prix ↔ promo (combo) : éditer l'un recalcule l'autre contre la base de référence.
+    newComboPromo(v) {
+      if (this.comboPriceSyncing) return;
+      this.comboPriceSyncing = true;
+      const base = this.comboRefBase;
+      this.newComboPrice = Math.round(base * (1 - (Number(v) || 0) / 100) * 100) / 100;
+      this.$nextTick(() => { this.comboPriceSyncing = false; });
+    },
+    newComboPrice(v) {
+      if (this.comboPriceSyncing) return;
+      this.comboPriceSyncing = true;
+      const base = this.comboRefBase;
+      this.newComboPromo = base > 0 ? Math.round((1 - (Number(v) || 0) / base) * 10000) / 100 : 0;
+      this.$nextTick(() => { this.comboPriceSyncing = false; });
+    },
+    // Changement d'espaces en mode combo : la base peut changer → on réaligne le prix affiché
+    // (en conservant la promo courante).
+    newPriceSpaces() {
+      if (!this.isCombo) return;
+      this.comboPriceSyncing = true;
+      const base = this.comboRefBase;
+      this.newComboPrice = Math.round(base * (1 - (Number(this.newComboPromo) || 0) / 100) * 100) / 100;
+      this.$nextTick(() => { this.comboPriceSyncing = false; });
     },
   },
   computed: {
@@ -874,6 +959,19 @@ export default {
       return (this.$store.getters['seasons/seasons'] || [])
         .map((s) => ({ id: String(s?.id || s?._id || ''), name: String(s?.name || '').trim() }))
         .filter((s) => s.id && s.name);
+    },
+    // « Cet item EST un combo » : vrai dès qu'il contient au moins un élément combo (distinct du
+    // flag comboItem « réutilisable dans un combo »). Posé automatiquement, envoyé au backend.
+    isCombo() {
+      return (this.items || []).some((i) => i.type === 'ComboItem');
+    },
+    comboChildItems() {
+      return (this.items || []).filter((i) => i.type === 'ComboItem');
+    },
+    // Base pour la liaison prix↔promo : espace de référence = 1er espace sélectionné, sinon prix de base des enfants.
+    comboRefBase() {
+      const refSpace = (this.newPriceSpaces && this.newPriceSpaces[0]) || null;
+      return this.comboBaseForSpace(refSpace);
     },
     displayNamesWithCreate() {
       return [
@@ -1012,6 +1110,43 @@ export default {
       const p = Number(price || 0);
       if (!p) return 'text-medium-emphasis';
       return ((p - this.costPerPiece) / p) * 100 >= 60 ? 'text-success' : 'text-error';
+    },
+    // --- Combo : résolution du prix de vente d'un enfant depuis le catalogue (par espace) ---
+    comboChildRow(comboItemId) {
+      return (this.$store.getters['menuItems/rows'] || []).find(
+        (r) => String(r?.id || r?._id) === String(comboItemId),
+      );
+    },
+    comboChildTtc(comboItemId, spaceId) {
+      const child = this.comboChildRow(comboItemId);
+      if (!child) return 0;
+      const sp = spaceId && child.spacePrices ? child.spacePrices[spaceId] : null;
+      const ttc = sp && sp.ttc != null ? Number(sp.ttc) : Number(child.basePrice || 0);
+      return Number.isFinite(ttc) ? ttc : 0;
+    },
+    // Base d'un combo pour un espace = somme (prix enfant × quantité) ; seuls les ComboItem comptent.
+    comboBaseForSpace(spaceId) {
+      return this.comboChildItems.reduce(
+        (sum, it) => sum + this.comboChildTtc(it.comboItemId, spaceId) * (Number(it.quantity) || 1),
+        0,
+      );
+    },
+    // Ajout d'un prix de combo : une promo par espace (chaque espace calcule son prix depuis SA base).
+    addComboPriceGroup() {
+      if (!this.newPriceSpaces.length) return;
+      const promo = Number(this.newComboPromo) || 0;
+      const vatRate = this.form.vatRate != null && this.form.vatRate !== '' ? Number(this.form.vatRate) : null;
+      const prices = { ...this.form.spacePrices };
+      this.newPriceSpaces.forEach((spaceId) => {
+        const base = this.comboBaseForSpace(spaceId);
+        const ttc = Math.round(base * (1 - promo / 100) * 100) / 100;
+        prices[spaceId] = { ttc, vatRate, discountType: 'percent', discountValue: promo };
+      });
+      this.form.spacePrices = prices;
+      this.form.spaces = [...new Set([...this.form.spaces, ...this.newPriceSpaces])];
+      this.newComboPrice = 0;
+      this.newComboPromo = 0;
+      this.newPriceSpaces = [];
     },
     addPriceGroup() {
       const price = Number(this.newPriceAmount);
@@ -1188,6 +1323,7 @@ export default {
           readyForSale: String(this.form.readyForSale || "No").trim(),
           kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
           comboItem: String(this.form.comboItem || "No").trim(),
+          isCombo: this.isCombo,
           numberOfPiecesRecipe: Number(this.form.numberOfPiecesRecipe) || 1,
           inventoryPackagingType: this.form.inventoryPackagingType || null,
           inventoryNumberOfUnits: Number(this.form.inventoryNumberOfUnits) || 1,
@@ -2156,6 +2292,12 @@ label {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.mic-combo-base-hint {
+  font-size: 0.78rem;
+  color: var(--fb-muted, #6b7280);
+  font-variant-numeric: tabular-nums;
+  padding-left: 2px;
 }
 .mic-price-add-row__amount {
   flex: 0 0 140px;

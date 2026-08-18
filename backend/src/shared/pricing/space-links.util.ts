@@ -10,6 +10,8 @@ export type SpaceLinkRow = {
   spaceId: string;
   priceTtc?: unknown; // Prisma.Decimal | number | null selon le select
   vatRate?: unknown;
+  discountType?: unknown; // promo par espace (combo) : "percent" | "amount" | null
+  discountValue?: unknown;
 };
 
 /** Contrat API `spaceIds` : ids d'espaces associés (condition 0). */
@@ -24,15 +26,26 @@ export function linksToSpaceIds(links: SpaceLinkRow[] | null | undefined): strin
  */
 export function linksToSpacePrices(
   links: SpaceLinkRow[] | null | undefined,
-): Record<string, { ttc: number; vatRate: number | null }> | null {
-  const out: Record<string, { ttc: number; vatRate: number | null }> = {};
+): Record<
+  string,
+  { ttc: number; vatRate: number | null; discountType: string | null; discountValue: number | null }
+> | null {
+  const out: Record<
+    string,
+    { ttc: number; vatRate: number | null; discountType: string | null; discountValue: number | null }
+  > = {};
   for (const l of links ?? []) {
     if (l.priceTtc == null) continue;
     const ttc = Number(l.priceTtc);
     if (!Number.isFinite(ttc)) continue;
+    const dt = l.discountType;
     out[l.spaceId] = {
       ttc,
       vatRate: l.vatRate != null && Number.isFinite(Number(l.vatRate)) ? Number(l.vatRate) : null,
+      // Promo par espace (combo) : remontée dans le contrat spacePrices pour l'affichage front.
+      discountType: dt === 'percent' || dt === 'amount' ? dt : null,
+      discountValue:
+        l.discountValue != null && Number.isFinite(Number(l.discountValue)) ? Number(l.discountValue) : null,
     };
   }
   return Object.keys(out).length ? out : null;
@@ -40,5 +53,5 @@ export function linksToSpacePrices(
 
 /** Select Prisma standard des liens pour la sérialisation. */
 export const spaceLinksSelect = {
-  select: { spaceId: true, priceTtc: true, vatRate: true },
+  select: { spaceId: true, priceTtc: true, vatRate: true, discountType: true, discountValue: true },
 } as const;

@@ -2319,7 +2319,8 @@ model MenuItem {
   storageType            String[]
   readyForSale           String? // "Yes", "No" ou null
   kitchenType            KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
-  comboItem              String? // "Yes", "No" ou null
+  comboItem              String? // "Yes", "No" ou null — flag « réutilisable dans un combo »
+  isCombo                Boolean      @default(false) // « cet item EST un combo » (posé quand il a des comboChildren) — distinct de comboItem
   numberOfPiecesRecipe   Int?
   componentsData         Json? // Pour stocker les components JSON de Figma
   inventoryPackagingType String? // Type de conditionnement inventaire (ex: Box, Bag)
@@ -2390,8 +2391,10 @@ model SpaceMenuItem {
   id         String   @id @default(cuid())
   spaceId    String
   menuItemId String
-  priceTtc   Decimal? @db.Decimal(10, 2) // prix TTC spécifique à cet espace (null = basePrice global)
+  priceTtc   Decimal? @db.Decimal(10, 2) // prix TTC spécifique à cet espace (null = basePrice global) ; pour un combo = prix APRÈS promo
   vatRate    Decimal? @db.Decimal(5, 2) // TVA spécifique (null = vatRate item, sinon défaut tenant)
+  discountType  String?  // Promo par espace (combo) : "percent" | "amount" | null
+  discountValue Decimal? @db.Decimal(10, 2) // Valeur de la promo (% si percent, montant TTC si amount)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

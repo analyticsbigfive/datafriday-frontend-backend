@@ -247,7 +247,7 @@ export class MenuItemsService {
             menuItemId,
             ...(priced.length ? { spaceId: { notIn: priced.map(([sid]) => sid) } } : {}),
           },
-          data: { priceTtc: null, vatRate: null },
+          data: { priceTtc: null, vatRate: null, discountType: null, discountValue: null },
         }),
       );
       for (const [sid, p] of priced) {
@@ -255,7 +255,7 @@ export class MenuItemsService {
         ops.push(
           this.prisma.spaceMenuItem.updateMany({
             where: { menuItemId, spaceId: sid },
-            data: { priceTtc: p.ttc, vatRate: p.vatRate },
+            data: { priceTtc: p.ttc, vatRate: p.vatRate, discountType: p.discountType, discountValue: p.discountValue },
           }),
         );
       }
@@ -282,7 +282,14 @@ export class MenuItemsService {
         const p = prices[spaceId];
         return this.prisma.spaceMenuItem.upsert({
           where: { menuItemId_spaceId: { menuItemId, spaceId } },
-          create: { menuItemId, spaceId, priceTtc: p?.ttc ?? null, vatRate: p?.vatRate ?? null },
+          create: {
+            menuItemId,
+            spaceId,
+            priceTtc: p?.ttc ?? null,
+            vatRate: p?.vatRate ?? null,
+            discountType: p?.discountType ?? null,
+            discountValue: p?.discountValue ?? null,
+          },
           // Ne touche pas un lien déjà existant : ne pas écraser un prix espace déjà réglé.
           update: {},
         });
@@ -366,6 +373,7 @@ export class MenuItemsService {
           brandId: dto.brandId || null,
           displayNameId: dto.displayNameId || null,
           seasonId: dto.seasonId || null,
+          isCombo: dto.isCombo ?? false,
           basePrice: dto.basePrice,
           vatRate: dto.vatRate ?? null,
           discountType: dto.discountType ?? null,
@@ -538,6 +546,7 @@ export class MenuItemsService {
         brandId: dto.brandId || null,
         displayNameId: dto.displayNameId || null,
         seasonId: dto.seasonId || null,
+        isCombo: dto.isCombo ?? false,
         basePrice: dto.basePrice,
         vatRate: dto.vatRate ?? null,
         discountType: dto.discountType ?? null,
@@ -874,6 +883,7 @@ export class MenuItemsService {
     if (dto.brandId !== undefined) updateData.brandId = dto.brandId || null;
     if (dto.displayNameId !== undefined) updateData.displayNameId = dto.displayNameId || null;
     if (dto.seasonId !== undefined) updateData.seasonId = dto.seasonId || null;
+    if (dto.isCombo !== undefined) updateData.isCombo = dto.isCombo;
     if (dto.basePrice !== undefined) updateData.basePrice = dto.basePrice;
     if (dto.vatRate !== undefined) updateData.vatRate = dto.vatRate ?? null;
     if (dto.discountType !== undefined) updateData.discountType = dto.discountType ?? null;
@@ -1014,8 +1024,13 @@ export class MenuItemsService {
    * Idempotent : si le prix courant est déjà celui résolu, ne réécrit ni n'historise rien.
    */
   /** Normalise le JSON `spacePrices` stocké en `{ [spaceId]: { ttc, vatRate } }` (migre le legacy `number`). */
-  private normalizeSpacePricesMap(raw: any): Record<string, { ttc: number; vatRate: number | null }> {
-    const out: Record<string, { ttc: number; vatRate: number | null }> = {};
+  private normalizeSpacePricesMap(
+    raw: any,
+  ): Record<string, { ttc: number; vatRate: number | null; discountType: string | null; discountValue: number | null }> {
+    const out: Record<
+      string,
+      { ttc: number; vatRate: number | null; discountType: string | null; discountValue: number | null }
+    > = {};
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       for (const [spaceId, v] of Object.entries(raw)) {
         const n = this.pricing.normalizeSpacePrice(v);
