@@ -696,7 +696,7 @@ export class WeezeventController {
     @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
     @ApiQuery({ name: 'category', required: false, description: 'Filtrer par catégorie de produit' })
     @ApiQuery({ name: 'spaceId', required: false, description: 'Espace : le prix renvoyé est celui pratiqué DANS cet espace (ventes des locations mappées), pas le basePrice figé du produit. ATTENTION coûteux (cascade de repli espace→weezeventId→nom) — pour un simple filtrage catalogue sans ce coût, utiliser catalogSpaceId.' })
-    @ApiQuery({ name: 'onlySold', required: false, description: 'true → ne renvoie que les produits ayant un prix (donc réellement vendus) ; masque le bruit du catalogue jamais vendu' })
+    @ApiQuery({ name: 'onlySold', required: false, description: "true → ne renvoie que les produits ayant un prix (donc réellement vendus) ; masque le bruit du catalogue jamais vendu. Filtré AVANT pagination (BUG-337-02) : `meta.total`/`total_pages` reflètent le compte filtré, `meta.catalogTotal` porte le compte non filtré (pour l'UI 'X produits masqués')." })
     @ApiQuery({ name: 'catalogSpaceId', required: false, description: "Filtre LÉGER le catalogue sur l'intégration Weezevent de cet espace (requête indexée simple), SANS activer la cascade de prix scopée-espace de `spaceId` — le prix reste le prix modal global rapide. Ignoré si `integrationId` ou `spaceId` sont fournis." })
     @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
@@ -728,15 +728,14 @@ export class WeezeventController {
             if (mapping?.salesLocationId) where.integrationId = mapping.salesLocationId;
         }
 
-        const [products, total] = await Promise.all([
-            this.prisma.salesProduct.findMany({
-                where,
-                orderBy: { name: 'asc' },
-                skip: (p - 1) * pp,
-                take: pp,
-            }),
-            this.prisma.salesProduct.count({ where }),
-        ]);
+        // BUG-337-02 (docs/bugs/) : le catalogue COMPLET (pas seulement la page demandée) est
+        // chargé ici, requête unique et bon marché (indexée, pas de résolution de prix). Nécessaire
+        // pour que `onlySold` filtre AVANT la pagination plutôt qu'après (cf. plus bas) — sinon
+        // `total`/`total_pages` restent le décompte non filtré et l'appelant est forcé de boucler
+        // sur toutes les pages pour reconstituer la liste réellement vendue (c'était le cas avant ce
+        // fix : voir l'ancien commentaire sur `onlySold` ci-dessous, conservé en historique de bug).
+        const catalogue = await this.prisma.salesProduct.findMany({ where, orderBy: { name: 'asc' } });
+        const catalogTotal = catalogue.length;
 
         let data: any[];
         if (spaceId) {
@@ -745,72 +744,78 @@ export class WeezeventController {
             // est déduite de la nature Weezevent. basePrice = dernier prix non nul de l'espace (même
             // règle que l'apply) ; salesPrices = distribution des prix de l'espace. Aucune vente dans
             // l'espace → on ne prend JAMAIS un prix d'un autre espace (repli sur le catalogue propre).
-            const allIds = products.map((pr: any) => pr.id);
-            const [latest, dist] = await Promise.all([
-                this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, allIds),
-                this.pricing.getSpaceScopedModalPrices(tenantId, spaceId, allIds),
-            ]);
-            data = products.map((pr: any) => {
-                const px = latest.get(pr.id);
-                if (px && px.ttc > 0) {
-                    return {
-                        ...pr,
-                        basePrice: px.ttc,
-                        vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : px.vatRate,
-                        priceSource: 'sales_space',
-                        salesPrices: dist.get(pr.id) ?? [],
-                    };
-                }
-                // Aucune vente attribuable (ni espace, ni non-attribuée) : on garde le prix propre.
-                return { ...pr, priceSource: 'catalog' };
-            });
-
-            // Repli par item_id Weezevent (lien le plus fiable) : produits sans vente sous leur id FK.
-            const missingForWid = data.filter((pr: any) => pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.weezeventId);
-            if (missingForWid.length) {
-                const wids = [...new Set(missingForWid.map((pr: any) => pr.weezeventId))];
-                const [latestByWid, distByWid] = await Promise.all([
-                    this.pricing.getSpaceScopedLatestPricesByWeezeventId(tenantId, spaceId, wids, { integrationId }),
-                    this.pricing.getSpaceScopedModalPricesByWeezeventId(tenantId, spaceId, wids, { integrationId }),
+            //
+            // BUG-337-02 (suite, docs/bugs/) : les 3 niveaux de repli (par productId, par item_id
+            // Weezevent, par nom) étaient enchaînés SÉQUENTIELLEMENT — chaque niveau ne tournait que
+            // sur les produits encore "manquants" du niveau précédent — et chacun (`getSpaceScoped*`)
+            // re-résolvait `spaceLocationIds` indépendamment (jusqu'à 4 requêtes redondantes par
+            // appel). Même raisonnement que BUG-333-02 (cascade de repli location, mesuré : coût
+            // dominé par le JOIN vers WeezeventTransaction, pas par la taille de la liste d'ids) :
+            // les 3 niveaux sont indépendants (chacun sa propre clé de correspondance), donc résolus
+            // une seule fois pour `spaceLocationIds` puis lancés en PARALLÈLE contre le catalogue
+            // complet, fusionnés par priorité (productId > item_id > nom, même ordre qu'avant).
+            //
+            // Corrigé au passage : le niveau 2 (repli par item_id Weezevent) ne s'était JAMAIS
+            // déclenché — il filtrait sur `pr.weezeventId`, un champ qui n'existe pas sur
+            // `SalesProduct` (le champ Prisma est `externalId`, `@map("weezeventId")` ne renomme que
+            // la colonne DB) — remplacé par `pr.externalId`.
+            const spaceLocationIds = await this.pricing.resolveSpaceLocationIds(tenantId, spaceId);
+            if (!spaceLocationIds.length) {
+                data = catalogue.map((pr: any) => ({ ...pr, priceSource: 'catalog' }));
+            } else {
+                const allIds = catalogue.map((pr: any) => pr.id);
+                const wids = [...new Set(catalogue.map((pr: any) => pr.externalId).filter(Boolean))];
+                const names = [...new Set(catalogue.map((pr: any) => pr.name).filter(Boolean))];
+                const locOpts = { locationIds: spaceLocationIds };
+                const [byId, byIdDist, byWid, byWidDist, byName, byNameDist] = await Promise.all([
+                    this.pricing.getLatestSalesPrices(tenantId, allIds, locOpts),
+                    this.pricing.getModalSalesPrices(tenantId, allIds, locOpts),
+                    wids.length
+                        ? this.pricing.getLatestSalesPricesByWeezeventId(tenantId, wids, { integrationId, ...locOpts })
+                        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+                    wids.length
+                        ? this.pricing.getModalSalesPricesByWeezeventId(tenantId, wids, { integrationId, ...locOpts })
+                        : Promise.resolve(new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>()),
+                    names.length
+                        ? this.pricing.getLatestSalesPricesByName(tenantId, names, { integrationId, ...locOpts })
+                        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+                    names.length
+                        ? this.pricing.getModalSalesPricesByName(tenantId, names, { integrationId, ...locOpts })
+                        : Promise.resolve(new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>()),
                 ]);
-                data = data.map((pr: any) => {
-                    if (!(pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.weezeventId)) return pr;
-                    const px = latestByWid.get(pr.weezeventId);
-                    if (px && px.ttc > 0) {
+                data = catalogue.map((pr: any) => {
+                    const byIdPx = byId.get(pr.id);
+                    if (byIdPx && byIdPx.ttc > 0) {
                         return {
                             ...pr,
-                            basePrice: px.ttc,
-                            vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : px.vatRate,
+                            basePrice: byIdPx.ttc,
+                            vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : byIdPx.vatRate,
+                            priceSource: 'sales_space',
+                            salesPrices: byIdDist.get(pr.id) ?? [],
+                        };
+                    }
+                    const byWidPx = pr.externalId ? byWid.get(pr.externalId) : undefined;
+                    if (byWidPx && byWidPx.ttc > 0) {
+                        return {
+                            ...pr,
+                            basePrice: byWidPx.ttc,
+                            vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : byWidPx.vatRate,
                             priceSource: 'sales_item',
-                            salesPrices: distByWid.get(pr.weezeventId) ?? [],
+                            salesPrices: byWidDist.get(pr.externalId) ?? [],
                         };
                     }
-                    return pr;
-                });
-            }
-
-            // Repli par NOM : produits sans vente sous leur propre id (ex. item recréé chaque saison
-            // avec un nouvel id) → on cherche le prix des ventes du même NOM (scopé espace/intégration).
-            const stillMissing = data.filter((pr: any) => pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.name);
-            if (stillMissing.length) {
-                const names = [...new Set(stillMissing.map((pr: any) => pr.name))];
-                const [latestByName, distByName] = await Promise.all([
-                    this.pricing.getSpaceScopedLatestPricesByName(tenantId, spaceId, names, { integrationId }),
-                    this.pricing.getSpaceScopedModalPricesByName(tenantId, spaceId, names, { integrationId }),
-                ]);
-                data = data.map((pr: any) => {
-                    if (!(pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.name)) return pr;
-                    const px = latestByName.get(pr.name);
-                    if (px && px.ttc > 0) {
+                    const byNamePx = pr.name ? byName.get(pr.name) : undefined;
+                    if (byNamePx && byNamePx.ttc > 0) {
                         return {
                             ...pr,
-                            basePrice: px.ttc,
-                            vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : px.vatRate,
+                            basePrice: byNamePx.ttc,
+                            vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : byNamePx.vatRate,
                             priceSource: 'sales_name',
-                            salesPrices: distByName.get(pr.name) ?? [],
+                            salesPrices: byNameDist.get(pr.name) ?? [],
                         };
                     }
-                    return pr;
+                    // Aucune vente attribuable (ni par id, ni par item_id, ni par nom) : prix propre.
+                    return { ...pr, priceSource: 'catalog' };
                 });
             }
         } else {
@@ -818,9 +823,9 @@ export class WeezeventController {
             // par un sync dont la 1re vente vue était à 0 (gratuité/staff, fréquent "HAPPY HOUR") a
             // basePrice FIGÉ à 0 → il faut aussi le dériver des ventes (sinon il reste à 0 à vie).
             const needsPrice = (v: any) => v == null || Number(v) === 0;
-            const productsNeedingPrice = products.filter((pr: any) => needsPrice(pr.basePrice)).map((pr: any) => pr.id);
+            const productsNeedingPrice = catalogue.filter((pr: any) => needsPrice(pr.basePrice)).map((pr: any) => pr.id);
             const salesByProduct = await this.deriveSalesPrices(tenantId, productsNeedingPrice);
-            data = products.map((pr: any) => {
+            data = catalogue.map((pr: any) => {
                 if (!needsPrice(pr.basePrice)) return pr;
                 const sales = salesByProduct.get(pr.id);
                 if (!sales || sales.length === 0) return pr;
@@ -842,20 +847,25 @@ export class WeezeventController {
         data = data.map((pr: any) => this.pricing.withPricing(pr, tenantVatRate, null));
 
         // onlySold : ne renvoie que les produits ayant un prix (= réellement vendus) → on retire le
-        // bruit du catalogue jamais vendu. `total`/`total_pages` restent le décompte NON filtré :
-        // le front boucle sur toutes les pages (il concatène les data filtrées) et déduit le nombre
-        // masqué = total − nb renvoyés.
+        // bruit du catalogue jamais vendu. BUG-337-02 : filtré ICI, AVANT la pagination (data porte
+        // déjà tout le catalogue résolu, cf. `catalogue` plus haut) — `total`/`total_pages`
+        // reflètent donc le compte RÉELLEMENT vendu, une vraie pagination devient possible côté
+        // appelant (plus besoin de boucler sur toutes les pages pour tout reconstituer).
+        // `catalogTotal` (non filtré) reste exposé séparément pour l'UI "X produits masqués".
         if (onlySold === 'true') {
             data = data.filter((pr: any) => pr.basePrice != null && Number(pr.basePrice) > 0);
         }
+        const total = data.length;
+        const pageData = data.slice((p - 1) * pp, (p - 1) * pp + pp);
 
         return {
-            data,
+            data: pageData,
             meta: {
                 current_page: p,
                 per_page: pp,
                 total,
                 total_pages: Math.ceil(total / pp),
+                catalogTotal,
             },
         };
     }

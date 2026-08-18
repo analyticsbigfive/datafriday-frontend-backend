@@ -5,7 +5,9 @@ import axios from 'axios'
 import router from '@/router'
 
 // Configuration de base
-const API_BASE_URL = process.env.VUE_APP_API_URL
+// Trailing slash retiré : la valeur déployée peut finir par "/" et les fetch()
+// bruts ci-dessous (warm-up /health) produiraient ".../api/v1//health" → 404.
+const API_BASE_URL = (process.env.VUE_APP_API_URL || '').replace(/\/+$/, '')
 
 // Créer l'instance Axios
 const apiClient = axios.create({

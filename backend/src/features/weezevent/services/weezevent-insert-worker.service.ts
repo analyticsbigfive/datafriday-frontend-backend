@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
+import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 const POLL_INTERVAL_MS = 500;
 const PARALLEL_CHUNKS = 5;
@@ -12,6 +13,7 @@ export class WeezeventInsertWorkerService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly incrementalSync: WeezeventIncrementalSyncService,
+        private readonly priceAgg: SalesPriceAggService,
     ) {}
 
     /**
@@ -35,10 +37,11 @@ export class WeezeventInsertWorkerService {
                     continue;
                 }
 
-                // Aucun chunk disponible — vérifier l'état du job
+                // Aucun chunk disponible — vérifier l'état du job (tenantId/integrationId :
+                // BUG-337-02, docs/bugs/ — nécessaires pour le refresh SalesPriceAgg à COMPLETED)
                 const job = await this.prisma.weezeventSyncJob.findUnique({
                     where: { id: jobId },
-                    select: { collectDone: true, totalChunks: true, processedChunks: true, status: true },
+                    select: { collectDone: true, totalChunks: true, processedChunks: true, status: true, tenantId: true, integrationId: true },
                 });
 
                 if (!job || job.status === 'FAILED' || job.status === 'CANCELLED') break;
@@ -49,6 +52,13 @@ export class WeezeventInsertWorkerService {
                         data: { status: 'COMPLETED', completedAt: new Date() },
                     });
                     this.logger.log(`[InsertWorker] Job ${jobId} COMPLETED — ${job.totalChunks} chunks traités`);
+                    // BUG-337-02 : insertTransactionBatch (processChunk ci-dessous) saute le refresh
+                    // ciblé par chunk pour ce chemin (import historique massif) — un unique
+                    // refreshForIntegration ici couvre tout ce qui vient d'être importé. Best-effort,
+                    // ne bloque pas la transition COMPLETED (déjà persistée ci-dessus).
+                    if (job.totalChunks > 0) {
+                        void this.priceAgg.refreshForIntegrationSafe(job.tenantId, job.integrationId);
+                    }
                     break;
                 }
 
