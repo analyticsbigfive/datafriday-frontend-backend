@@ -145,47 +145,53 @@ export class MenuItemPricingService {
   }
 
   /**
-   * Locations Weezevent rattachées à un espace (`WeezeventLocationSpaceMapping`). Sert à scoper
-   * les ventes d'un produit À UN ESPACE (`WeezeventTransaction.locationId`).
-   * `weezeventLocationId` du mapping = `WeezeventLocation.id` = `WeezeventTransaction.locationId`.
+   * Vraies locations Weezevent (`SalesLocation`/`WeezeventLocation`) rattachées À CET ESPACE —
+   * BUG-335-02 (docs/bugs/) : la version précédente interrogeait `LocationSpaceMapping`
+   * (l'étape 1 du wizard, "Space"), dont `salesLocationId` contient en réalité l'id de
+   * l'INTÉGRATION entière, pas un id de location individuelle (l'étape 1 rattache toute une
+   * intégration à un espace, pas location par location — voir `StepMapSpace.vue::createEvent`
+   * appelant `createLocationSpaceMapping(integration.id, spaceId)`). Comparer ces valeurs à
+   * `WeezeventTransaction.locationId` (un vrai id de point de vente) ne pouvait donc JAMAIS
+   * matcher — le "niveau 1, prioritaire" du cascade de prix n'a jamais résolu quoi que ce soit en
+   * pratique, silencieusement.
+   *
+   * Les vraies locations individuelles sont dans `LocationShopMapping` (étape 2, "Locations" —
+   * `salesLocationId` = un vrai `SalesLocation.id`, `spaceElementId` = le shop/PDV du builder
+   * auquel cette location est rattachée). On résout donc : les `SpaceElement` de cet espace
+   * (mêmes 4 chemins que `SpacesService.getSpaceShops` — Floor/Forecourt/ExternalMerch via
+   * Config.spaceId, ou Zone.spaceId direct pour le builder v2), puis les locations mappées à
+   * l'un de ces éléments.
    */
   async resolveSpaceLocationIds(tenantId: string, spaceId: string): Promise<string[]> {
-    const rows = await this.prisma.locationSpaceMapping.findMany({
-      where: { tenantId, spaceId },
+    const spaceElements = await this.prisma.spaceElement.findMany({
+      where: {
+        OR: [
+          { floor: { config: { spaceId } } },
+          { forecourt: { config: { spaceId } } },
+          { externalMerch: { config: { spaceId } } },
+          { zone: { spaceId } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!spaceElements.length) return [];
+    const rows = await this.prisma.locationShopMapping.findMany({
+      where: { tenantId, spaceElementId: { in: spaceElements.map((se) => se.id) } },
       select: { salesLocationId: true },
     });
-    return rows.map((r) => r.salesLocationId);
+    return [...new Set(rows.map((r) => r.salesLocationId))];
   }
 
   /**
-   * Découpe les locations mappées : celles de CET espace vs celles d'AUTRES espaces. Sert au repli
-   * « jamais un prix d'un autre espace » : on privilégie les ventes de l'espace, sinon on autorise
-   * les ventes NON attribuées à un autre espace (locations non mappées / nulles), mais jamais celles
-   * d'un autre espace. Si aucune location n'est mappée nulle part → aucun cloisonnement (tout permis).
-   */
-  async resolveSpaceLocationScope(
-    tenantId: string,
-    spaceId: string,
-  ): Promise<{ spaceLocationIds: string[]; otherSpaceLocationIds: string[] }> {
-    const rows = await this.prisma.locationSpaceMapping.findMany({
-      where: { tenantId },
-      select: { salesLocationId: true, spaceId: true },
-    });
-    const spaceLocationIds: string[] = [];
-    const otherSpaceLocationIds: string[] = [];
-    for (const r of rows) {
-      if (r.spaceId === spaceId) spaceLocationIds.push(r.salesLocationId);
-      else otherSpaceLocationIds.push(r.salesLocationId);
-    }
-    return { spaceLocationIds, otherSpaceLocationIds };
-  }
-
-  /**
-   * Prix « de l'espace » avec repli en trois niveaux (priorité, jamais 0 si une vente existe) :
-   *  1. dernier prix non nul des ventes DE CET ESPACE (locations mappées) — priorité ;
-   *  2. sinon, ventes NON attribuées à un AUTRE espace (locations non mappées / nulles) ;
-   *  3. dernier recours : ventes GLOBALES (n'importe quelle location) — pour ne jamais renvoyer 0
-   *     quand une vente existe (mapping location→espace incomplet). L'espace reste PRIORITAIRE.
+   * Prix « de l'espace » — STRICTEMENT les ventes DE CET ESPACE (locations mappées à `spaceId`
+   * à l'étape 2 du wizard). BUG-335-02 (docs/bugs/) : les anciens niveaux de repli
+   * "non-attribué à un autre espace" et "global" ont été supprimés — une location non mappée à
+   * l'étape 2 n'est pas "probablement cet espace, juste oubliée", c'est un point de vente que
+   * l'utilisateur a explicitement choisi de ne pas rattacher. Emprunter son CA (ou celui d'un
+   * AUTRE espace, niveau global) pour l'afficher comme prix de CET espace induisait l'utilisateur
+   * en erreur, sans qu'aucun signal ne le distingue à l'écran. Un produit jamais vendu sur les
+   * locations mappées à cet espace n'a maintenant aucun prix résolu ici (repli catalogue côté
+   * appelant) — honnête plutôt qu'un prix deviné.
    */
   async getSpaceScopedLatestPrices(
     tenantId: string,
@@ -193,66 +199,25 @@ export class MenuItemPricingService {
     productIds: string[],
     opts: { eventIds?: string[] } = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
     const ids = [...new Set(productIds.filter(Boolean))];
-    if (!ids.length) return out;
-    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
-    const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
-      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
-    };
-    // BUG-333-02 (docs/bugs/) : les 3 niveaux étaient attendus SÉQUENTIELLEMENT ("query le niveau
-    // suivant seulement si le précédent n'a pas tout résolu") — chaque niveau coûte plusieurs
-    // secondes sur un gros tenant (dominé par le JOIN, pas par la taille de la liste d'ids), donc
-    // un cascade à 3 niveaux payait 3× ce coût en série. Les 3 requêtes sont indépendantes (chacune
-    // sa propre restriction de location) : les lancer en parallèle ramène le coût total au niveau
-    // le plus lent au lieu de leur somme, sans changer le résultat — la fusion respecte le même
-    // ordre de priorité (espace > non-attribué à un autre espace > global).
-    const [level1, level2, level3] = await Promise.all([
-      spaceLocationIds.length
-        ? this.getLatestSalesPrices(tenantId, ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds })
-        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
-      otherSpaceLocationIds.length
-        ? this.getLatestSalesPrices(tenantId, ids, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds })
-        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
-      this.getLatestSalesPrices(tenantId, ids, { eventIds: opts.eventIds }),
-    ]);
-    merge(level1);
-    merge(level2);
-    merge(level3);
-    return out;
+    if (!ids.length) return new Map();
+    const spaceLocationIds = await this.resolveSpaceLocationIds(tenantId, spaceId);
+    if (!spaceLocationIds.length) return new Map();
+    return this.getLatestSalesPrices(tenantId, ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds });
   }
 
-  /** Distribution des prix « de l'espace » (affichage) : espace prioritaire, repli global (jamais vide). */
+  /** Distribution des prix « de l'espace » (affichage) — mêmes règles que getSpaceScopedLatestPrices (BUG-335-02). */
   async getSpaceScopedModalPrices(
     tenantId: string,
     spaceId: string,
     productIds: string[],
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
     const ids = [...new Set(productIds.filter(Boolean))];
-    if (!ids.length) return out;
-    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
-    const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
-      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
-    };
-    // BUG-333-02 : mêmes 3 niveaux indépendants que getSpaceScopedLatestPrices, parallélisés pour
-    // la même raison (voir son commentaire).
-    type ModalMap = Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>;
-    const [level1, level2, level3] = await Promise.all([
-      spaceLocationIds.length
-        ? this.getModalSalesPrices(tenantId, ids, { locationIds: spaceLocationIds })
-        : Promise.resolve(new Map() as ModalMap),
-      otherSpaceLocationIds.length
-        ? this.getModalSalesPrices(tenantId, ids, { excludeLocationIds: otherSpaceLocationIds })
-        : Promise.resolve(new Map() as ModalMap),
-      this.getModalSalesPrices(tenantId, ids, {}),
-    ]);
-    merge(level1);
-    merge(level2);
-    merge(level3);
-    return out;
+    if (!ids.length) return new Map();
+    const spaceLocationIds = await this.resolveSpaceLocationIds(tenantId, spaceId);
+    if (!spaceLocationIds.length) return new Map();
+    return this.getModalSalesPrices(tenantId, ids, { locationIds: spaceLocationIds });
   }
-
   // ── Repli par NOM de produit ──────────────────────────────────────────────
   // Un même produit peut exister sous plusieurs `WeezeventProduct` (Weezevent recrée l'item avec un
   // nouvel id chaque saison/event) : la ligne affichée (dernière saison) n'a pas de vente, mais
@@ -335,65 +300,32 @@ export class MenuItemPricingService {
     return out;
   }
 
-  /** Prix « de l'espace » par NOM (3 niveaux : espace → non-attribué → global). Espace prioritaire. */
+  /** Prix « de l'espace » par NOM — strictement les locations mappées à cet espace (BUG-335-02). */
   async getSpaceScopedLatestPricesByName(
     tenantId: string,
     spaceId: string,
     names: string[],
     opts: { integrationId?: string } = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
     const uniq = [...new Set(names.filter(Boolean))];
-    if (!uniq.length) return out;
-    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
-    const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
-      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
-    };
-    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
-    const [level1, level2, level3] = await Promise.all([
-      spaceLocationIds.length
-        ? this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
-        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
-      otherSpaceLocationIds.length
-        ? this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
-        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
-      this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId }),
-    ]);
-    merge(level1);
-    merge(level2);
-    merge(level3);
-    return out;
+    if (!uniq.length) return new Map();
+    const spaceLocationIds = await this.resolveSpaceLocationIds(tenantId, spaceId);
+    if (!spaceLocationIds.length) return new Map();
+    return this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds });
   }
 
-  /** Distribution des prix « de l'espace » par NOM (espace prioritaire, repli global). */
+  /** Distribution des prix « de l'espace » par NOM — mêmes règles (BUG-335-02). */
   async getSpaceScopedModalPricesByName(
     tenantId: string,
     spaceId: string,
     names: string[],
     opts: { integrationId?: string } = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
     const uniq = [...new Set(names.filter(Boolean))];
-    if (!uniq.length) return out;
-    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
-    const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
-      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
-    };
-    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
-    type ModalMap = Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>;
-    const [level1, level2, level3] = await Promise.all([
-      spaceLocationIds.length
-        ? this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
-        : Promise.resolve(new Map() as ModalMap),
-      otherSpaceLocationIds.length
-        ? this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
-        : Promise.resolve(new Map() as ModalMap),
-      this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId }),
-    ]);
-    merge(level1);
-    merge(level2);
-    merge(level3);
-    return out;
+    if (!uniq.length) return new Map();
+    const spaceLocationIds = await this.resolveSpaceLocationIds(tenantId, spaceId);
+    if (!spaceLocationIds.length) return new Map();
+    return this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds });
   }
 
   // ── Repli par item_id WEEZEVENT (lien le plus fiable) ─────────────────────
@@ -468,65 +400,32 @@ export class MenuItemPricingService {
     return out;
   }
 
-  /** Prix « de l'espace » par item_id Weezevent (3 niveaux : espace → non-attribué → global). */
+  /** Prix « de l'espace » par item_id Weezevent — strictement les locations mappées à cet espace (BUG-335-02). */
   async getSpaceScopedLatestPricesByWeezeventId(
     tenantId: string,
     spaceId: string,
     weezeventIds: string[],
     opts: { integrationId?: string } = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
     const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
-    if (!uniq.length) return out;
-    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
-    const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
-      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
-    };
-    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
-    const [level1, level2, level3] = await Promise.all([
-      spaceLocationIds.length
-        ? this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
-        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
-      otherSpaceLocationIds.length
-        ? this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
-        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
-      this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId }),
-    ]);
-    merge(level1);
-    merge(level2);
-    merge(level3);
-    return out;
+    if (!uniq.length) return new Map();
+    const spaceLocationIds = await this.resolveSpaceLocationIds(tenantId, spaceId);
+    if (!spaceLocationIds.length) return new Map();
+    return this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds });
   }
 
-  /** Distribution des prix « de l'espace » par item_id Weezevent (espace prioritaire, repli global). */
+  /** Distribution des prix « de l'espace » par item_id Weezevent — mêmes règles (BUG-335-02). */
   async getSpaceScopedModalPricesByWeezeventId(
     tenantId: string,
     spaceId: string,
     weezeventIds: string[],
     opts: { integrationId?: string } = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
     const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
-    if (!uniq.length) return out;
-    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
-    const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
-      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
-    };
-    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
-    type ModalMap = Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>;
-    const [level1, level2, level3] = await Promise.all([
-      spaceLocationIds.length
-        ? this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
-        : Promise.resolve(new Map() as ModalMap),
-      otherSpaceLocationIds.length
-        ? this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
-        : Promise.resolve(new Map() as ModalMap),
-      this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId }),
-    ]);
-    merge(level1);
-    merge(level2);
-    merge(level3);
-    return out;
+    if (!uniq.length) return new Map();
+    const spaceLocationIds = await this.resolveSpaceLocationIds(tenantId, spaceId);
+    if (!spaceLocationIds.length) return new Map();
+    return this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds });
   }
 
   /**
