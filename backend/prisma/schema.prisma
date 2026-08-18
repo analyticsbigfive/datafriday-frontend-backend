@@ -984,6 +984,9 @@ model SpaceElement {
   @@index([type])
   @@index([floorId, type]) // Composite: shop queries filter by floor + type
   @@index([forecourtId, type]) // Composite: shop queries filter by forecourt + type
+  // Réconciliation du drift avec 20260731000000_analyse_page_perf_indexes (branche Zone/Builder v2
+  // de la résolution v_shop_ids dans la RPC get_space_shop_details).
+  @@index([zoneId, type])
 }
 
 // ==================== ELEMENT PERFORMANCE ====================
@@ -1515,6 +1518,14 @@ model SalesTransaction {
   @@index([tenantId, locationId, transactionDate]) // Aggregation query: WHERE tenantId + locationId IN (...) + transactionDate range
   @@index([tenantId, integrationId, transactionDate]) // step4-context: WHERE tenantId + integrationId + transactionDate range
   @@index([tenantId, provider]) // filtre des ventes par source (dashboards, exports, debug)
+  // Réconciliation du drift avec 20260731000000_analyse_page_perf_indexes (index créés en SQL,
+  // jamais reportés ici — un `prisma migrate dev` les aurait silencieusement droppés).
+  // map: obligatoire sur le premier — Postgres a tronqué le nom à 63 caractères à la création.
+  @@index([tenantId, integrationId, status, transactionDate], map: "WeezeventTransaction_tenantId_integrationId_status_transactionD") // resolveEventSalesScope (event-timeline / transaction-baskets)
+  @@index([tenantId, locationId, status]) // RPC get_space_shop_details : _space_event_ids
+  // BUG-128-01 : rend le scan _space_event_ids de la RPC index-only (eventId dans la clé) —
+  // sans lui, le planner passait par locationId seul + re-filtre heap (185k lignes, ~11 s).
+  @@index([tenantId, locationId, status, eventId])
   @@map("WeezeventTransaction")
 }
 
@@ -2948,6 +2959,45 @@ model SpaceProductRevenueDailyAgg {
   @@index([tenantId, spaceId, day])
   @@index([tenantId, spaceId, weezeventProductId, day])
   @@index([tenantId, spaceId, integrationId])
+}
+
+// Pré-agrégat de la cascade de prix (productId / item_id Weezevent / nom normalisé) — remplace
+// le triple raw JOIN de MenuItemPricingService.getLatestSalesPrices*/getModalSalesPrices*
+// (17-40s mesurés sur un tenant réel, WeezeventTransactionItem à 3,1M lignes) par une lecture
+// indexée sur une table tenue à jour à l'écriture (sync bulk/webhook/Digifood), pas recalculée
+// à chaque page vue. BUG-337-02 (docs/bugs/).
+//
+// productId/itemWeezeventId/productNameNorm sont NON-nullables (sentinel '') plutôt que String? :
+// contrairement à SpaceRevenueMinuteAgg (nullable dans @@unique, jamais écrit qu'en delete-puis-
+// insert-frais complet), cette table subit des écritures CIBLÉES concurrentes (webhooks quasi
+// simultanés) — Postgres traite NULL <> NULL dans un index unique, deux écritures concurrentes sur
+// une combinaison "non renseignée" auraient pu créer 2 lignes dupliquées au lieu de fusionner par
+// ON CONFLICT. Le sentinel '' rend la clé comparable, l'upsert sûr.
+model SalesPriceAgg {
+  id            String @id @default(cuid())
+  tenantId      String
+  integrationId String // dénormalisé (SalesLocation.integrationId) — filtre pratique, pas dans @@unique (déjà déterminé par locationId)
+  locationId    String // jamais null : une vente sans location n'est attribuable à aucun espace, non agrégée ici
+
+  productId       String @default("") // SalesProduct.id si résolu, sinon ''
+  itemWeezeventId String @default("") // rawData->>'item_id' (Weezevent) / externalItemId (Digifood), quasi toujours renseigné
+  productNameNorm String @default("") // LOWER(TRIM(productName)), '' si absent
+
+  unitPrice Decimal @db.Decimal(10, 2)
+  vat       Decimal @db.Decimal(5, 2)
+
+  salesCount Int // nb de WeezeventTransactionItem agrégées pour ce (location, clé, prix, tva)
+  lastSoldAt DateTime // MAX(transactionDate) des ventes agrégées — "dernier prix"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, locationId, productId, itemWeezeventId, productNameNorm, unitPrice, vat])
+  @@index([tenantId, locationId, productId])
+  @@index([tenantId, locationId, itemWeezeventId])
+  @@index([tenantId, locationId, productNameNorm])
+  @@index([tenantId, integrationId])
+  @@map("SalesPriceAgg")
 }
 
 // Version tracking for cache invalidation

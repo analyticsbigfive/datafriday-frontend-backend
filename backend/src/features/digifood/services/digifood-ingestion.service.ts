@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { NormalizedOrder } from './digifood-order-normalizer';
+import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 export type DigifoodIngestSource = 'webhook' | 'csv';
 
@@ -41,7 +42,10 @@ export interface DigifoodIngestionCache {
 export class DigifoodIngestionService {
     private readonly logger = new Logger(DigifoodIngestionService.name);
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly priceAgg: SalesPriceAggService,
+    ) { }
 
     /** Un cache par import CSV — jamais réutilisé d'un import à l'autre (voir DigifoodIngestionCache). */
     createCache(): DigifoodIngestionCache {
@@ -161,6 +165,23 @@ export class DigifoodIngestionService {
 
             return [row, !!existing] as const;
         });
+
+        // BUG-337-02 (docs/bugs/) : refresh ciblé de SalesPriceAgg pour les items de cet order —
+        // best-effort, ne doit jamais faire échouer l'ingestion webhook/CSV. `productKey` est
+        // l'équivalent Digifood du `item_id` Weezevent (identité produit stable, indépendante du
+        // FK `productId` — sert la même cascade de repli productId → item_id → nom).
+        if (itemsData.length > 0) {
+            void this.priceAgg.refreshForKeysSafe(
+                tenantId,
+                integrationId,
+                salesLocation?.id ?? null,
+                itemsData.map((d, i) => ({
+                    productId: d.productId,
+                    itemWeezeventId: order.items[i]?.productKey ?? null,
+                    productName: d.productName,
+                })),
+            );
+        }
 
         this.logger.log(
             `Digifood ${source} ${order.type} ${externalId} ${existedBefore ? 'mis à jour' : 'créé'} — ${itemsData.length} ligne(s), total ${order.total}€, tenant ${tenantId}`,

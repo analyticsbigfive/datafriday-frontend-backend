@@ -885,7 +885,8 @@ export default {
       priceHistoryRows: [],
       priceHistoryLoading: false,
       // Masquer les produits du catalogue jamais vendus (filtrés côté backend via onlySold). Total
-      // catalogue (meta.total) pour afficher le nombre masqué. Interrupteur pour tout réafficher.
+      // catalogue (meta.catalogTotal, BUG-337-02) pour afficher le nombre masqué. Interrupteur pour
+      // tout réafficher.
       hideUnsold: true,
       catalogTotal: 0,
       // Plafond de pagination atteint côté API (getWeezeventProducts meta.truncated) : des
@@ -896,7 +897,8 @@ export default {
 
   computed: {
     // Le filtrage « vendus seulement » est fait CÔTÉ BACKEND (onlySold) : this.products ne contient
-    // déjà que les produits pertinents. Le nombre masqué = total catalogue (meta.total) − renvoyés.
+    // déjà que les produits pertinents. Le nombre masqué = total catalogue (meta.catalogTotal,
+    // BUG-337-02) − renvoyés.
     unsoldHiddenCount() {
       if (!this.hideUnsold) return 0
       return Math.max((this.catalogTotal || 0) - this.products.length, 0)
@@ -1132,8 +1134,10 @@ export default {
         ])
 
         this.products = this.filterNonVariantProducts(productsRes?.data || productsRes || [])
-        // meta.total = total catalogue NON filtré → sert à afficher le nombre de produits masqués.
-        this.catalogTotal = productsRes?.meta?.total ?? this.products.length
+        // BUG-337-02 : meta.total est désormais le total FILTRÉ (onlySold appliqué avant pagination
+        // côté backend) — le total catalogue NON filtré (pour le compteur "produits masqués") est
+        // meta.catalogTotal.
+        this.catalogTotal = productsRes?.meta?.catalogTotal ?? this.products.length
         this.productsTruncated = !!productsRes?.meta?.truncated
         this.mappingStats = statsRes?.data || statsRes || null
         this.menuItemsList = Array.isArray(menuItemsRes?.data)
@@ -1786,7 +1790,8 @@ export default {
       // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom)
       const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold)
       this.products = this.filterNonVariantProducts(productsRes?.data || productsRes || [])
-      this.catalogTotal = productsRes?.meta?.total ?? this.products.length
+      // BUG-337-02 : meta.catalogTotal = total catalogue non filtré (meta.total est le total filtré).
+      this.catalogTotal = productsRes?.meta?.catalogTotal ?? this.products.length
       this.productsTruncated = !!productsRes?.meta?.truncated
 
       // Recalculer les lignes non mappées avec les données fraîches

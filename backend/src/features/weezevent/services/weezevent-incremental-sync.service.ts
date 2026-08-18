@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from './weezevent-client.service';
+import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 export interface IncrementalSyncOptions {
     // Force full sync (ignore last sync state)
@@ -50,6 +51,7 @@ export class WeezeventIncrementalSyncService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly weezeventClient: WeezeventClientService,
+        private readonly priceAgg: SalesPriceAggService,
     ) {}
 
     // ==================== EVENTS INCREMENTAL SYNC ====================
@@ -297,12 +299,19 @@ export class WeezeventIncrementalSyncService {
                 result.itemsSkipped += transactions.length - newTransactions.length;
 
                 if (newTransactions.length > 0) {
-                    // Batch upsert
+                    // Batch upsert. refreshPriceAgg=useIncremental (BUG-337-02, docs/bugs/) : en
+                    // steady-state (useIncremental=true), refresh ciblé bon marché par lot. En
+                    // premier sync/forceFullSync (useIncremental=false), sauté ici — un
+                    // refreshForIntegration unique tourne après la boucle complète (voir plus bas) :
+                    // des centaines de petits refreshs sur un import historique massif seraient
+                    // pires qu'un seul recalcul complet.
                     const batchResult = await this.processBatchTransactions(
                         tenantId,
                         integrationId,
                         newTransactions,
                         existingIds,
+                        '',
+                        useIncremental,
                     );
 
                     result.itemsCreated += batchResult.created;
@@ -344,6 +353,13 @@ export class WeezeventIncrementalSyncService {
 
             result.success = result.errors === 0;
             result.duration = Date.now() - startTime;
+
+            // BUG-337-02 (docs/bugs/) : premier sync/forceFullSync a sauté le refresh ciblé par lot
+            // (voir processBatchTransactions ci-dessus) — un unique recalcul complet ici couvre tout
+            // l'historique qui vient d'être importé. Best-effort, ne bloque pas la réponse du sync.
+            if (!useIncremental && result.itemsCreated > 0) {
+                void this.priceAgg.refreshForIntegrationSafe(tenantId, integrationId);
+            }
 
             this.logger.log(
                 `✅ Transactions sync completed: ${result.itemsSynced} synced (${result.itemsCreated} new, ${result.itemsSkipped} skipped) in ${result.duration}ms`,
@@ -616,7 +632,11 @@ export class WeezeventIncrementalSyncService {
             select: { externalId: true },
         });
         const existingIds = new Set(existing.map(t => t.externalId));
-        return this.processBatchTransactions(tenantId, integrationId, transactions, existingIds, organizationId);
+        // refreshPriceAgg=false : ce point d'entrée sert les gros imports historiques (bisection
+        // worker, PARALLEL_CHUNKS) — un refresh ciblé par chunk ajouterait un coût cumulé non
+        // borné. WeezeventInsertWorkerService déclenche un refreshForIntegration unique à la fin
+        // du job complet (BUG-337-02, docs/bugs/).
+        return this.processBatchTransactions(tenantId, integrationId, transactions, existingIds, organizationId, false);
     }
 
     /**
@@ -637,6 +657,7 @@ export class WeezeventIncrementalSyncService {
         transactions: any[],
         existingIds: Set<string>,
         organizationId = '',
+        refreshPriceAgg = true,
     ): Promise<{ created: number; updated: number; errors: number }> {
         const result = { created: 0, updated: 0, errors: 0 };
 
@@ -824,11 +845,13 @@ export class WeezeventIncrementalSyncService {
         if (itemsByTxWeezeventId.size > 0) {
             const allWeezeventIds = [...itemsByTxWeezeventId.keys()];
 
-            // Get DB ids for all V transactions in this batch
+            // Get DB ids for all V transactions in this batch (locationId : BUG-337-02, nécessaire
+            // pour regrouper les items par location et rafraîchir SalesPriceAgg ci-dessous)
             const dbTxs = await this.prisma.salesTransaction.findMany({
                 where: { tenantId, integrationId, externalId: { in: allWeezeventIds } },
-                select: { id: true, externalId: true },
+                select: { id: true, externalId: true, locationId: true },
             });
+            const locationByTxId = new Map(dbTxs.map(t => [t.id, t.locationId]));
 
             // Find which transactions already have items (to avoid duplicates)
             const txIdsWithItems = new Set<string>();
@@ -871,6 +894,29 @@ export class WeezeventIncrementalSyncService {
                     data: itemsToInsert,
                     skipDuplicates: true,
                 });
+
+                // BUG-337-02 (docs/bugs/) : refresh ciblé de SalesPriceAgg par location touchée par
+                // ce lot — best-effort, ne doit jamais faire échouer le sync. Regroupe les items par
+                // locationId de leur transaction (résolu via locationByTxId), un refreshForKeys par
+                // location. Sauté en full-sync/premier-sync (`refreshPriceAgg=false`) : un refresh
+                // ciblé par petit lot serait pire qu'un unique refreshForIntegration en fin de run
+                // (cf. syncTransactionsIncremental) sur un import historique massif.
+                if (refreshPriceAgg) {
+                    const itemsByLocation = new Map<string, Array<{ productId: string | null; itemWeezeventId: string | null; productName: string | null }>>();
+                    for (const item of itemsToInsert) {
+                        const locationId = locationByTxId.get(item.transactionId) ?? null;
+                        if (!locationId) continue;
+                        const itemWeezeventId = (item.rawData as any)?.item_id != null ? String((item.rawData as any).item_id) : null;
+                        const list = itemsByLocation.get(locationId) ?? [];
+                        list.push({ productId: item.productId, itemWeezeventId, productName: item.productName });
+                        itemsByLocation.set(locationId, list);
+                    }
+                    await Promise.all(
+                        [...itemsByLocation.entries()].map(([locationId, items]) =>
+                            this.priceAgg.refreshForKeysSafe(tenantId, integrationId, locationId, items),
+                        ),
+                    );
+                }
             }
         }
 

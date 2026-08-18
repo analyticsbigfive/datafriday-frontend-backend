@@ -2,9 +2,15 @@
  * useSpaceData — chargement des données d'un space via API réelle.
  *
  * Chargement par étapes pour accélérer le premier rendu :
- *   Phase 1  (bloquante)  : GET /spaces/:id + /configurations + /shop-details (shops + events, sans granular) + /events
- *   Phase 2a (background) : /menu-items + /shop-details?granular=1 + taxonomie + produits/mappings Weezevent
- *                           → tout ce dont les GRAPHES ont besoin
+ *   t=0      (fond)       : /shop-details?granular=1 lancé IMMÉDIATEMENT (l'appel le plus lent,
+ *                           15-20 s sur un gros espace — RPC get_space_shop_details). Un seul
+ *                           appel : sa réponse est un SURENSEMBLE strict de l'ancien appel
+ *                           granular=0 (mêmes shops/menuItemCostMap/meta), qui doublait le
+ *                           coût RPC et sérialisait phase 1 → phase 2a (~36 s cumulés,
+ *                           cf. BUG-323-01).
+ *   Phase 1  (bloquante)  : GET /spaces/:id + /configurations + /events → premier rendu en ~1-2 s
+ *   Phase 2a (background) : /menu-items + attente du granular lancé à t=0 + taxonomie +
+ *                           produits/mappings Weezevent → tout ce dont les GRAPHES ont besoin
  *   Phase 2b (background) : /ingredients + /menu-components (paginé + fan-out détail) + /packaging
  *                           → catalogues RECETTE, consommés par Restock / Stock up uniquement
  *
@@ -13,7 +19,7 @@
  * consommateur n'a rien de spécial à gérer, mais il peut lever ses skeletons dès 2a.
  * Sans callback, tout est attendu et retourné en une fois (rétrocompatible).
  */
-import { getSpace, getSpaceConfigurations, getSpaceShopDetails, getSpaceShopGranular } from '@/api/endpoints/space.api'
+import { getSpace, getSpaceConfigurations, getSpaceShopGranular } from '@/api/endpoints/space.api'
 import { getEvents } from '@/api/endpoints/event.api'
 import { getAllMenuItems } from '@/api/endpoints/menu-item.api'
 import { normalizeMenuItem, menuItemsCoverage, resolveComponentRefs } from '@/utils/menuItemNormalize'
@@ -100,10 +106,20 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
   let configurationsFetchFailed = false
 
   try {
+    // ── t=0 : shop-details granular lancé AVANT la phase 1 ──────────────────
+    // C'est l'appel le plus lent de tout le chargement (RPC lourde). Le lancer
+    // ici plutôt qu'en vague 2a supprime la sérialisation phase1 → 2a : il
+    // progresse pendant que la phase 1 et les autres appels 2a s'exécutent.
+    // La promesse est consommée (unique await) dans la vague 2a.
+    const granularPromise = getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
+      console.warn('[useSpaceData] ⚠️ shopGranular failed:', e?.response?.status, e?.message)
+      return {}
+    })
+
     // ── Phase 1 : données critiques pour le premier rendu ──────────────────
-    console.log('[useSpaceData] phase 1 — 4 endpoints critiques en parallèle...')
+    console.log('[useSpaceData] phase 1 — 3 endpoints critiques en parallèle...')
     const _t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
-    const [space, configurations, details, eventsResponse] = await Promise.all([
+    const [space, configurations, eventsResponse] = await Promise.all([
       getSpace(spaceId).catch((e) => { console.error('[useSpaceData] ❌ getSpace failed:', e?.response?.status, e?.message); throw e }),
       // Repli `[]` conservé (le reste de la phase 1 doit pouvoir rendre), mais l'échec
       // est SIGNALÉ : le store distingue « cet espace n'a aucune config » (liste vide,
@@ -113,11 +129,6 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message)
         configurationsFetchFailed = true
         return []
-      }),
-      // Phase 1: fast — returns shops + weezeventEvents + meta only (no granular join)
-      getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
-        console.warn('[useSpaceData] ⚠️ shopDetails unavailable:', e?.response?.status, e?.message, '— continuing without sales data')
-        return {}
       }),
       // Always fetch DataFriday Events (individual matches, not Weezevent seasons)
       // Scopé par spaceId côté backend — avant ce fix, seule la 1re page (50 events)
@@ -139,16 +150,16 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
     // Phase 1 has no granular data (loaded later in background)
     const shopGranularData = []
 
-    const hasMissingWeezeventTable = details?.__softFailureReason === 'missing-weezevent-table'
-
     // DataFriday Events (individual matches) are the ONLY source for the events list.
     // No fallback to RPC WeezeventEvents (those are seasons, not individual matches).
     // The SQL migration resolves granular record eventId → DataFriday Event UUID via date join.
     // Déjà scopé par spaceId côté backend (getEvents({spaceId})) — pas de refiltrage client.
     const events = normalizeList(eventsResponse?.data ?? eventsResponse)
-    const menuItemCostMap = details?.menuItemCostMap || details?.costMap || {}
+    // La costMap arrive avec la réponse granular (vague 2a) — la map phase-1 est
+    // vide par construction, le store la fusionne sans l'écraser (analyse.js).
+    const menuItemCostMap = {}
 
-    const hasData = events.length > 0 || (details?.shops?.length ?? 0) > 0
+    const hasData = events.length > 0
     const hasConfig = Array.isArray(configurations) && configurations.length > 0
 
     console.log('[useSpaceData] phase 1 ✅ space:', space?.name, '| events:', events.length, '| cfgs:', configurations?.length || 0,
@@ -169,40 +180,10 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         ticketsSold: e?.ticketsSold,
       })),
     )
-    // ── Diagnostic COÛTS (shop-details.menuItemCostMap) ───────────────────
-    const costMapKeys = Object.keys(menuItemCostMap)
-    console.log(
-      `[useSpaceData] 💶 coûts API (shop-details.menuItemCostMap) — ${costMapKeys.length} entrée(s)`,
-      costMapKeys.length ? menuItemCostMap : '(vide → fallback sur cost des menu items en phase 2)',
-    )
-
     if (!space) {
       const err = new Error('Space not found in API')
       err.code = 'SPACE_NOT_FOUND'
       throw err
-    }
-
-    if (hasMissingWeezeventTable) {
-      console.warn(
-        '[useSpaceData] ⚠️ Backend incomplete (Weezevent table missing). Returning empty data.',
-      )
-      // Phase 2 non pertinente si les tables Weezevent manquent
-      if (onEnrichment) onEnrichment({ menuItems: [], ingredients: [], components: [], suppliers: [] })
-      return {
-        space,
-        configurations,
-        events: [],
-        shopGranularData: [],
-        menuItemCostMap: {},
-        menuItems: [],
-        suppliers: [],
-        ingredients: [],
-        components: [],
-        summary: null,
-        _fromMock: false,
-        _weezeventSetupIncomplete: true,
-        _configurationsFetchFailed: configurationsFetchFailed,
-      }
     }
 
     if (!hasData) {
@@ -224,11 +205,8 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       // fan-out de détails (concurrence 5) qui n'alimente que Restock/Stock up.
       const [apiMenuItems, granularDetails, apiProductTypes, apiProductCategories, apiWeezeventProducts, apiWeezeventProductMappings] = await Promise.all([
         getAllMenuItems(spaceId).catch((e) => { console.warn('[useSpaceData] ⚠️ menuItems failed:', e?.response?.status, e?.message); return [] }),
-        // Granular data — heavy join, loaded in background
-        getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
-          console.warn('[useSpaceData] ⚠️ shopGranular failed:', e?.response?.status, e?.message)
-          return {}
-        }),
+        // Granular data — heavy join, lancé à t=0 (avant la phase 1), consommé ici.
+        granularPromise,
         getProductTypes().catch(() => []),
         getProductCategories().catch(() => []),
         // Produits Weezevent → prix réels (basePrice) pour Event Predict + repli
@@ -245,6 +223,19 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         // non scopé (backend filtre déjà par tenant).
         getProductMappings().catch((e) => { console.warn('[useSpaceData] ⚠️ productMappings failed:', e?.response?.status, e?.message); return [] }),
       ])
+      // Détection « tables Weezevent absentes » : portée par la réponse shop-details,
+      // donc déplacée ici depuis la phase 1 (qui ne fait plus cet appel). L'état
+      // s'affiche à la fin du chargement de fond au lieu de bloquer le premier
+      // rendu — cas rare de backend incomplet, arbitrage assumé (BUG-323-01).
+      if (granularDetails?.__softFailureReason === 'missing-weezevent-table') {
+        console.warn('[useSpaceData] ⚠️ Backend incomplete (Weezevent table missing). Returning empty enrichment.')
+        const emptyPayload = {
+          menuItems: [], ingredients: [], components: [], suppliers: [], weezeventSetupIncomplete: true,
+        }
+        if (onPartial) onPartial(emptyPayload)
+        return emptyPayload
+      }
+
       const menuItems = normalizeList(apiMenuItems)
       const productTypes = normalizeList(apiProductTypes)
       const productCategories = normalizeList(apiProductCategories)
@@ -270,9 +261,9 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         return normalizeMenuItem(tagged)
       })
       // ── Coûts unitaires par menu item (pour la MARGE) ─────────────────────
-      // Source primaire = shop-details (phase 1). Fallback : champ cost /
-      // costPerUnit / unitCost des menu items renvoyés par l'API → permet de
-      // calculer la marge même si shop-details ne fournit pas de costMap.
+      // Source primaire = shop-details granular (réponse ci-dessus). Fallback :
+      // champ cost / costPerUnit / unitCost des menu items renvoyés par l'API →
+      // permet de calculer la marge même si shop-details ne fournit pas de costMap.
       // Calculé sur `normalizedMenuItems` : la résolution des refs catalogue
       // (vague 2b) ne touche PAS les champs de coût.
       const costFromMenuItems = {}
@@ -289,8 +280,10 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       // (noms de composants résolus) et ajouter ingredients/components.
       const chartsPayload = {
         menuItems: normalizedMenuItems,
-        menuItemCostMap: costFromMenuItems,
-        suppliers: details?.suppliers?.length ? details.suppliers : [],
+        // La costMap RPC (shop-details) prime sur le fallback menu items —
+        // même précédence qu'avant, quand elle transitait par la phase 1.
+        menuItemCostMap: { ...costFromMenuItems, ...(granularDetails?.menuItemCostMap || granularDetails?.costMap || {}) },
+        suppliers: granularDetails?.suppliers?.length ? granularDetails.suppliers : [],
         // Do not pass events in phase 2 — DataFriday events (individual matches)
         // are already loaded in phase 1 and must not be overwritten by Weezevent seasons.
         events: [],
@@ -325,9 +318,10 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       const catalogComponents = normalizeList(apiMenuComponents)
       const catalogPackagings = normalizeList(apiPackagings)
       // Rétro-compat : les catalogues shop-details restent prioritaires s'ils
-      // existent (même source qu'avant), sinon les endpoints dédiés.
-      const baseComponents = normalizeList(details?.components).length
-        ? normalizeList(details?.components)
+      // existent (même source qu'avant), sinon les endpoints dédiés. La RPC
+      // actuelle ne renvoie ni components ni ingredients — chemin de repli pur.
+      const baseComponents = normalizeList(granularDetails?.components).length
+        ? normalizeList(granularDetails?.components)
         : catalogComponents
       // shop-details ne porte PAS la recette (`subComponents`/`numberOfUnitsRecipe`) :
       // on l'enrichit depuis /menu-components (catalogComponents) par id puis nom.
@@ -353,8 +347,8 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         `[useSpaceData] 🧩 components recette — base=${baseComponents.length}, catalog=${catalogComponents.length}, ` +
           `avec subComponents=${components.filter((c) => c?.subComponents?.length).length}`,
       )
-      const ingredients = normalizeList(details?.ingredients).length
-        ? normalizeList(details?.ingredients)
+      const ingredients = normalizeList(granularDetails?.ingredients).length
+        ? normalizeList(granularDetails?.ingredients)
         : catalogIngredients
       // Jointure catalogues : complète les components sans nom (refs backend).
       const refResolution = resolveComponentRefs(normalizedMenuItems, {
@@ -388,7 +382,8 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       events,
       shopGranularData,
       menuItemCostMap,
-      summary: details?.summary || null,
+      // La RPC shop-details n'a jamais renvoyé de `summary` — toujours null.
+      summary: null,
       _fromMock: false,
       _configurationsFetchFailed: configurationsFetchFailed,
     }
@@ -450,13 +445,12 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
 export async function fetchLiveShopSnapshot(spaceId, {
   menuItems, productTypes, productCategories, weezeventProducts, weezeventProductMappings,
 } = {}) {
-  const [granularDetails, details, eventsResponse] = await Promise.all([
+  // Un SEUL appel shop-details (granular=1) par tick : sa réponse porte déjà
+  // shops + menuItemCostMap (surensemble de l'ancien appel granular=0, qui
+  // doublait la charge RPC toutes les 15 s — BUG-323-01).
+  const [granularDetails, eventsResponse] = await Promise.all([
     getSpaceShopGranular(spaceId, { page: 1, limit: 200 }).catch((e) => {
       console.warn('[useSpaceData] ⚠️ live shopGranular failed:', e?.response?.status, e?.message)
-      return {}
-    }),
-    getSpaceShopDetails(spaceId, { page: 1, limit: 20 }).catch((e) => {
-      console.warn('[useSpaceData] ⚠️ live shopDetails failed:', e?.response?.status, e?.message)
       return {}
     }),
     // BUG trouvé le 2026-08-05 : un event créé APRÈS le premier chargement de la
@@ -491,8 +485,9 @@ export async function fetchLiveShopSnapshot(spaceId, {
   })
   return {
     shopGranularData,
-    menuItemCostMap: details?.menuItemCostMap || details?.costMap || {},
-    summary: details?.summary || null,
+    menuItemCostMap: granularDetails?.menuItemCostMap || granularDetails?.costMap || {},
+    // La RPC shop-details n'a jamais renvoyé de `summary` — toujours null.
+    summary: null,
     events: eventsResponse?.__failed ? null : normalizeList(eventsResponse?.data ?? eventsResponse),
   }
 }
