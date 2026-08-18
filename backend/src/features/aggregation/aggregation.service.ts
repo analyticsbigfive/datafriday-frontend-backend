@@ -16,6 +16,18 @@ type EventWindow =
   | { mode: 'exact'; salesEventId: string }
   | { mode: 'range'; start: Date; end: Date };
 
+// BUG-338-02 (docs/bugs/) : même seuil que resolveEventSalesScope (spaces.service.ts,
+// MAX_EVENT_SPAN_DAYS, fix du 2026-08-04) — un WeezeventEvent/SalesEvent "conteneur de saison"
+// (toute la billetterie de la saison regroupée sous un seul id Weezevent) casse le rattachement
+// exact par eventId introduit par BUG-330-02 : CE conteneur a bien un eventId non-null sur 100%
+// de ses transactions, mais cet id ne correspond à AUCUN match précis. Contrairement au fix du
+// 04/08 (qui lit Event.eventDate/eventEndDate — fiable seulement quand un Event "saison" a été
+// créé avec un span réaliste), on ne peut PAS se fier aux dates déclarées du SalesEvent lui-même
+// ici : vérifié sur un tenant réel, le `live_start`/`live_end` Weezevent d'un conteneur de saison
+// peut être un artefact étroit (13h observées) alors que ses transactions couvrent 10 mois — la
+// seule mesure fiable est l'étalement RÉEL des transactions qui lui sont effectivement liées.
+const MAX_EVENT_SPAN_DAYS = 2;
+
 @Injectable()
 export class AggregationService {
   private readonly logger = new Logger(AggregationService.name);
@@ -215,25 +227,58 @@ export class AggregationService {
   }
 
   /**
-   * Résout la fenêtre de rattachement transaction → event (BUG-328/329/330-02, docs/bugs/) :
+   * Résout la fenêtre de rattachement transaction → event (BUG-328/329/330/338-02, docs/bugs/) :
    *
    * 1. Si l'Event DataFriday est lié à un vrai `SalesEvent` (`weezeventEventId` — posé par le
    *    matching auto BUG-021, la résolution manuelle, ou désormais `bulkCreateEvents`, voir
-   *    BUG-331-02) : rattachement EXACT via `WeezeventTransaction.eventId`, aucune ambiguïté
-   *    possible même si les dates de deux events se recoupent (BUG-330-02).
+   *    BUG-331-02) ET que ce `SalesEvent` n'est PAS un conteneur de saison (BUG-338-02,
+   *    `seasonContainerIds`) : rattachement EXACT via `WeezeventTransaction.eventId`, aucune
+   *    ambiguïté possible même si les dates de deux events se recoupent (BUG-330-02).
    * 2. Sinon, si `sessions[0].doorsOpening` est renseigné : fenêtre = heure d'ouverture réelle
    *    ± buffer (mêmes constantes que le Staffing, `staffing-calculator.service.ts`), au lieu du
    *    jour calendaire entier (BUG-329-02).
-   * 3. Sinon : dérive la fenêtre des transactions NON liées (`eventId IS NULL`) réellement
-   *    observées dans un scan large — resserre sur `MIN`/`MAX` ± buffer plutôt que de garder le
-   *    jour calendaire entier (proposition Ulrich, BUG-329-02).
-   * 4. En dernier recours (aucune transaction non liée trouvée) : repli historique, jour
-   *    calendaire entier.
+   * 3. Sinon : dérive la fenêtre des transactions NON liées (ou liées à un conteneur de saison,
+   *    BUG-338-02) réellement observées dans un scan large — resserre sur `MIN`/`MAX` ± buffer
+   *    plutôt que de garder le jour calendaire entier (proposition Ulrich, BUG-329-02).
+   * 4. En dernier recours (aucune transaction trouvée) : repli historique, jour calendaire entier.
    *
-   * Les modes 2/3/4 filtrent TOUJOURS `t."eventId" IS NULL` dans la requête appelante — une
-   * transaction déjà liée à un `SalesEvent` ne peut plus jamais être captée par une fenêtre de
-   * repli d'un AUTRE event, quel que soit le chevauchement de dates.
+   * Les modes 2/3/4 filtrent TOUJOURS `t."eventId" IS NULL OR t."eventId" IN (conteneurs de
+   * saison)` dans la requête appelante — une transaction déjà liée avec CONFIANCE à un match
+   * précis (un `SalesEvent` qui n'est PAS un conteneur) ne peut plus jamais être captée par une
+   * fenêtre de repli d'un AUTRE event (protection BUG-328/330-02 intacte) ; une transaction liée
+   * à un conteneur de saison reste éligible, exactement comme une transaction non liée.
    */
+  /**
+   * BUG-338-02 (docs/bugs/) : identifie les `WeezeventEvent`/`SalesEvent` "conteneur de saison"
+   * pour ce tenant/intégration — ceux dont les transactions RÉELLEMENT liées (`t.eventId`)
+   * s'étalent sur plus de `MAX_EVENT_SPAN_DAYS`. Mesuré sur les transactions observées, PAS sur
+   * les dates déclarées du SalesEvent (`startDate`/`endDate`, alimentées par `live_start`/
+   * `live_end` côté Weezevent) : vérifié sur un tenant réel que ce champ peut être un artefact
+   * étroit (13h) alors que les ventes qui lui sont liées couvrent 10 mois — donc pas fiable comme
+   * signal de détection, contrairement à `Event.eventDate`/`eventEndDate` (resolveEventSalesScope,
+   * spaces.service.ts, fix du 2026-08-04) qui reste fiable pour les tenants où un Event "saison" a
+   * été créé avec un span réaliste.
+   */
+  private async resolveSeasonContainerEventIds(
+    tenantId: string,
+    integrationId: string | undefined,
+  ): Promise<Set<string>> {
+    const integrationClause = integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.sql``;
+    const rows = await this.prisma.$queryRaw<Array<{ eventId: string; minDate: Date; maxDate: Date }>>(Prisma.sql`
+      SELECT t."eventId", MIN(t."transactionDate") AS "minDate", MAX(t."transactionDate") AS "maxDate"
+      FROM "WeezeventTransaction" t
+      WHERE t."tenantId" = ${tenantId}
+        ${integrationClause}
+        AND t."eventId" IS NOT NULL
+        AND t."deletedAt" IS NULL
+      GROUP BY t."eventId"
+    `);
+    const spanMs = MAX_EVENT_SPAN_DAYS * 86_400_000;
+    return new Set(
+      rows.filter((r) => new Date(r.maxDate).getTime() - new Date(r.minDate).getTime() > spanMs).map((r) => r.eventId),
+    );
+  }
+
   private async resolveEventWindow(
     tenantId: string,
     spaceId: string,
@@ -247,8 +292,12 @@ export class AggregationService {
       weezeventEventId: string | null;
     },
     spaceTimezone: string,
+    seasonContainerIds: Set<string>,
   ): Promise<EventWindow> {
-    if (event.weezeventEventId) {
+    // BUG-338-02 : un lien exact vers un conteneur de saison n'identifie PAS un match précis
+    // (100% des transactions de la saison partagent ce même eventId) — le traiter comme non lié,
+    // pour retomber sur le repli par date ci-dessous (qui, lui, sait répartir par jour réel).
+    if (event.weezeventEventId && !seasonContainerIds.has(event.weezeventEventId)) {
       return { mode: 'exact', salesEventId: event.weezeventEventId };
     }
 
@@ -269,21 +318,25 @@ export class AggregationService {
     }
 
     // Ni lien exact, ni doorsOpening : scan large (jour de début − 1 à jour de fin + 2) sur les
-    // transactions NON liées, puis resserrement sur MIN/MAX ± buffer. Même scoping
-    // (tenantId/integrationId) que la requête d'agrégation principale — ne corrige pas
-    // volontairement BUG-321-02 (contamination inter-espaces), hors périmètre de ce fix.
+    // transactions NON liées (ou liées à un conteneur de saison, BUG-338-02), puis resserrement
+    // sur MIN/MAX ± buffer. Même scoping (tenantId/integrationId) que la requête d'agrégation
+    // principale — ne corrige pas volontairement BUG-321-02 (contamination inter-espaces), hors
+    // périmètre de ce fix.
     const coarseStart = new Date(startDay);
     coarseStart.setUTCDate(coarseStart.getUTCDate() - 1);
     const coarseEnd = new Date(endDay);
     coarseEnd.setUTCDate(coarseEnd.getUTCDate() + 2);
     const integrationClause = integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.sql``;
+    const eventLinkClause = seasonContainerIds.size
+      ? Prisma.sql`(t."eventId" IS NULL OR t."eventId" IN (${Prisma.join([...seasonContainerIds])}))`
+      : Prisma.sql`t."eventId" IS NULL`;
 
     const bounds = await this.prisma.$queryRaw<Array<{ minDate: Date | null; maxDate: Date | null }>>(Prisma.sql`
       SELECT MIN(t."transactionDate") AS "minDate", MAX(t."transactionDate") AS "maxDate"
       FROM "WeezeventTransaction" t
       WHERE t."tenantId" = ${tenantId}
         ${integrationClause}
-        AND t."eventId" IS NULL
+        AND ${eventLinkClause}
         AND t."transactionDate" >= ${coarseStart}
         AND t."transactionDate" < ${coarseEnd}
         AND t."deletedAt" IS NULL
@@ -336,6 +389,10 @@ export class AggregationService {
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { timezone: true } });
     const spaceTimezone = space?.timezone || 'Europe/Paris';
 
+    // BUG-338-02 : calculé UNE fois pour tout le run (pas par event) — un conteneur de saison est
+    // le même pour tous les matchs de cette intégration.
+    const seasonContainerIds = await this.resolveSeasonContainerEventIds(tenantId, integrationId);
+
     try {
       // Step 1 of the wizard saves `integration.id` as `weezeventLocationId` in
       // WeezeventLocationSpaceMapping. We verify the integration is mapped to this space.
@@ -355,14 +412,18 @@ export class AggregationService {
         try {
           const eventDate = new Date(event.eventDate);
 
-          // BUG-328/329/330-02 : rattachement exact via eventId quand l'Event est lié à un
-          // SalesEvent, sinon fenêtre par date améliorée (heure d'ouverture réelle ou dérivée des
-          // transactions non liées) au lieu du jour calendaire brut — voir resolveEventWindow.
-          const window = await this.resolveEventWindow(tenantId, spaceId, integrationId, event, spaceTimezone);
+          // BUG-328/329/330/338-02 : rattachement exact via eventId quand l'Event est lié à un
+          // SalesEvent qui n'est pas un conteneur de saison, sinon fenêtre par date améliorée
+          // (heure d'ouverture réelle ou dérivée des transactions non liées/de saison) au lieu du
+          // jour calendaire brut — voir resolveEventWindow.
+          const window = await this.resolveEventWindow(tenantId, spaceId, integrationId, event, spaceTimezone, seasonContainerIds);
+          const eventLinkClause = seasonContainerIds.size
+            ? Prisma.sql`(t."eventId" IS NULL OR t."eventId" IN (${Prisma.join([...seasonContainerIds])}))`
+            : Prisma.sql`t."eventId" IS NULL`;
           const matchClause =
             window.mode === 'exact'
               ? Prisma.sql`t."eventId" = ${window.salesEventId}`
-              : Prisma.sql`t."eventId" IS NULL AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
+              : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
 
           // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
           // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
