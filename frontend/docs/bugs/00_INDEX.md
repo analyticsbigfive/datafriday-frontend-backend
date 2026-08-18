@@ -346,6 +346,10 @@
 | [325-02](325_02_componentcreateview_sous_composants_mapping_champs_incorrect.md) | `ComponentCreateView.vue` : mapping des sous-composants (`children`) lisait `child.componentId`/`child.itemName`, des champs inexistants sur la forme réelle de l'API (`child.childId`/`child.child.name`) — id et nom toujours faux/"-" pour ces lignes en édition | 🟢 Corrigé | 🟠 | Menu & recettes |
 | [326-02](326_02_composants_colonne_supplier_jamais_peuplee.md) | Composants : colonne Supplier toujours "-" — champ jamais lu côté front + `MarketPrice.supplier` (dénormalisé) vide sur des lignes réelles malgré un `supplierId` valide. Fix : lecture `marketPrice.supplierRel?.name` en priorité, résolution des fournisseurs des sous-composants via leurs ingrédients directs, affichage tronqué + popup si &gt;2 fournisseurs | 🟢 Corrigé | 🟠 | Menu & recettes |
 | [327-02](327_02_composants_liste_header_tableau_non_sticky.md) | Composants : l'en-tête des colonnes du tableau (COMPONENT NAME/CATEGORY/...) n'était pas sticky au scroll, contrairement au bandeau et à la barre de recherche — `position: sticky` ajouté, offset `141px` estimé non vérifié visuellement | 🟡 Corrigé non testé | 🟡 | Menu & recettes |
+| [328-02](328_02_aggregation_chevauchement_fenetres_events_double_comptage.md) | Deux events du même space dont les plages de dates se recoupent comptaient deux fois les mêmes transactions (`executeProcessEvents` traitait chaque event indépendamment, aucune exclusion mutuelle) — résolu comme conséquence de 330-02/329-02 | 🟡 Corrigé non testé | 🔴 | Intégrations & ventes / Analyse & agrégation |
+| [329-02](329_02_aucune_heure_capturee_evenement_buffer_pre_ouverture.md) | `executeProcessEvents` ignorait `Event.sessions[0].doorsOpening`/`eventEndTime` — réutilise maintenant le mécanisme Staffing (`combineDayAndLocalTime`, offsets ±2h) via `resolveEventWindow()`, + repli dérivé des transactions non liées observées (MIN/MAX ± 90 min) si `doorsOpening` absent | 🟡 Corrigé non testé | 🔴 | Intégrations & ventes / Analyse & agrégation / RH & staffing |
+| [330-02](330_02_aggregation_utiliser_transaction_eventid_au_lieu_de_date_range.md) | Root cause commune à 328/329 : l'agrégation devinait l'event d'une transaction par plage de dates — `resolveEventWindow()` priorise maintenant `t."eventId" = weezeventEventId` (exact) quand le lien existe, repli par date scopé `t."eventId" IS NULL` sinon | 🟡 Corrigé non testé | 🔴 | Analyse & agrégation / Intégrations & ventes |
+| [331-02](331_02_bulkcreateevents_ne_pose_jamais_event_weezeventeventid.md) | Prérequis de 330-02 : "Créer et lier tout" ne posait jamais `Event.weezeventEventId` — appelle maintenant `resolveWeezeventLink`. Script de backfill écrit et testé en dry-run (0 lien exploitable trouvé sur l'environnement `.env` actuel) | 🟡 Corrigé non testé | 🔴 | Intégrations & ventes / Analyse & agrégation |
 
 **317-02 à 321-02 ajoutés le 2026-08-14** (signalement utilisateur KOUAME Ulrich : "quand je choisis
 le même space pour 2 data-intégrations, j'ai l'impression que les données de l'une écrasent celles
@@ -373,6 +377,60 @@ leurs `deleteMany` par intégration ; `getWeezeventEventsForSpace` accepte `inte
 bout (route + frontend) ; `getSpaceShops` dédoublonne via sous-requêtes scalaires au lieu d'un `LEFT
 JOIN` non agrégé. Suite `aggregation.service.spec.ts` verte (2 tests ajoutés), `tsc --noEmit` propre.
 Non testé en environnement réel, non déployé.
+
+**328-02 à 330-02 ajoutés le 2026-08-14**, même fil de discussion que 317-320 (KOUAME Ulrich, après
+explication du fonctionnement de l'agrégation par event) : "c'est un vrai problème" sur le
+chevauchement de fenêtres entre deux events du même space. 328 documente le symptôme confirmé
+(double comptage des transactions sur les dates communes). 329 documente l'absence totale de champ
+"heure de début" dans toute l'app (`type="date"` partout, `eventEndTime` jamais fusionné à
+`eventEndDate`) — bloquant pour le besoin métier explicite d'un buffer de 1-2h avant l'heure
+d'ouverture réelle. 330 documente la cause racine commune : `WeezeventTransaction.eventId`, une FK
+exacte posée automatiquement à l'ingestion (Weezevent ET Digifood, indexée en base), existe déjà et
+n'est jamais utilisée par l'agrégation — qui devine par comparaison de dates à la place. Fix
+structurel proposé : prioriser `eventId` (élimine le chevauchement pour les transactions liées),
+repli par date amélioré (329) uniquement pour les transactions non liées. Trois fiches
+`⚪ Diagnostiqué` — pas encore corrigées, impact business élevé (chiffres de revenus), nécessitent
+validation Bertrand sur plusieurs points produit avant implémentation (buffer configurable par
+tenant/space/event ? sémantique du "site as event" Digifood ?).
+
+**329-02 corrigée le même jour** suite à la relance d'Ulrich ("tu es sûr que sur les events qu'on
+crée sur DataFriday il y a pas opendoor ou un truc de ce genre ?") : le diagnostic initial
+("aucune heure de début n'existe nulle part") était faux. `Event.sessions[0].doorsOpening` existe
+réellement, et `StaffingService.getEventContext()` (`staffing.service.ts:60-178`) le combine déjà
+à la date via `combineDayAndLocalTime` (timezone-aware, DST géré) avec un buffer par défaut
+`DEFAULT_OFFSET_OPEN_MINUTES = -120` / `DEFAULT_OFFSET_CLOSE_MINUTES = +120` — exactement le besoin
+métier décrit. Le fix se réduit donc à réutiliser ce mécanisme dans l'agrégation plutôt qu'à en
+concevoir un nouveau — périmètre revu à la baisse, moins de questions ouvertes pour Bertrand.
+Repli sans `doorsOpening` également précisé : dérivé des transactions réellement observées
+(`MIN`/`MAX` sur un scan large + buffer 1-2h) plutôt qu'un repli sur le jour calendaire entier.
+
+**331-02 ajoutée le même jour**, en réponse à une seconde question d'Ulrich ("l'event de vérité est
+celui créé dans DataFriday, pas ceux venant de Weezevent/Digifood — comment on gère les données
+manquantes ?"). Le principe était déjà le bon dans 330-02 (`SalesEvent` = pont, jamais source de
+données), mais en vérifiant COMMENT ce pont (`Event.weezeventEventId`) est réellement posé en
+pratique, découverte d'un bug distinct et bloquant : le flux "Créer et lier tout" (le plus utilisé)
+n'utilise pas le mécanisme typé (`PATCH :id/weezevent-link`) mais écrit dans
+`SalesEvent.metadata.dfEventId` — un champ non déclaré, jamais relu par l'API. 330-02 mis à jour
+pour dépendre explicitement de 331-02.
+
+**328-02 à 331-02 corrigés en code le 2026-08-14** sur la branche
+`fix/event-aggregation-window-precision` (demande explicite : "procède à l'implémentation des
+fixes"). `combineDayAndLocalTime`/`parseEventSessions`/`DEFAULT_EVENT_DURATION_HOURS` extraits de
+`staffing.service.ts` vers `backend/src/shared/utils/event-window.util.ts` (comportement Staffing
+inchangé, duplication supprimée). Nouvelle méthode `AggregationService.resolveEventWindow()` :
+lien exact `eventId` (330) → `doorsOpen`±offsets Staffing (329) → repli dérivé des transactions non
+liées MIN/MAX ± 90 min (329) → repli historique jour calendaire — chaque mode de repli filtre
+`t."eventId" IS NULL` (328). `bulkCreateEvents` pose désormais `Event.weezeventEventId` via
+`resolveWeezeventLink` (331) ; script de backfill écrit et testé en dry-run
+(`scripts/backfill-event-weezevent-link.ts`, 0 lien exploitable sur l'environnement `.env` actuel).
+5 tests ajoutés dans `aggregation.service.spec.ts` (describe "résolution de fenêtre transaction →
+event"), suite complète verte (`aggregation`, `staffing`, `spaces.controller`), `tsc --noEmit`
+propre. **Pas de resync lancé** : les events déjà traités gardent leurs anciens agrégats tant qu'un
+nouveau "Traiter"/"Synchroniser" n'est pas déclenché. Non testé en environnement réel, non déployé.
+Un balayage de tests plus large (aggregation/staffing/events/spaces) a révélé 2 échecs
+préexistants sans rapport avec ce fix (confirmés reproductibles en isolation, fichiers jamais
+touchés cette session) : `events.service.spec.ts` (mock `spaceRevenueMinuteAgg` manquant) et
+`spaces.service.spec.ts` (`getRevenueSummaries`/`findAll`, déjà signalé lors de BUG-317-02).
 
 BUG-277-01 ajouté et corrigé le 2026-08-02 (signalement utilisateur avec capture, thème sombre) :
 le drawer « Event detail » de la page Event Predict s'affichait corps clair (`#f9fafb`) avec
