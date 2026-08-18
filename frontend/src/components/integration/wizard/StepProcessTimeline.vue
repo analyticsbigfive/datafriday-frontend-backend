@@ -1370,6 +1370,10 @@ export default {
               const newEvent = res?.data || res
               if (!newEvent?.id) throw new Error('No id returned')
               await this.$store.dispatch('events/addEvent', newEvent)
+              // BUG-331-02 : pose le VRAI lien typé (Event.weezeventEventId), lu par
+              // executeProcessEvents pour le rattachement exact des transactions (BUG-330-02) —
+              // dfEventId ci-dessous n'est qu'un champ hérité, jamais relu par l'API.
+              await resolveWeezeventLink(newEvent.id, weezEvent.id)
               await updateWeezeventEventMetadata(this.spaceId, weezEvent.id, { dfEventId: newEvent.id })
               const updated = { ...this.weezEventMappings }
               updated[weezEvent.id] = newEvent.id

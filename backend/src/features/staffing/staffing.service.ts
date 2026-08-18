@@ -11,70 +11,14 @@ import {
   DEFAULT_OFFSET_CLOSE_MINUTES,
 } from './staffing-calculator.service';
 import { detectFnbTags } from './fnb-tags.util';
+import {
+  parseEventSessions,
+  combineDayAndLocalTime,
+  DEFAULT_EVENT_DURATION_HOURS,
+} from '../../shared/utils/event-window.util';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
-
-/** JSON.parse tolérant : renvoie `fallback` en cas d'échec plutôt que de throw. */
-function safeJsonParse<T>(str: string, fallback: T): T {
-  try {
-    return JSON.parse(str) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-/**
- * Parse `Event.sessions` (miroir de `frontend/src/utils/eventSessions.js`) : le champ est
- * parfois une string JSON d'array, parfois un array dont chaque élément est lui-même une
- * string JSON — sans ce parsing tolérant, `sessions[0].doorsOpening` lit un caractère
- * (« [ ») au lieu du champ attendu.
- */
-function parseEventSessions(raw: unknown): Array<{ doorsOpening?: string; showTime?: string }> {
-  let list: unknown[] = [];
-  if (Array.isArray(raw)) list = raw;
-  else if (typeof raw === 'string' && raw.trim()) {
-    const parsed = safeJsonParse<unknown>(raw, []);
-    list = Array.isArray(parsed) ? parsed : [];
-  }
-  return list
-    .map((s) => (typeof s === 'string' ? safeJsonParse(s, null) : s))
-    .filter(
-      (s): s is { doorsOpening?: string; showTime?: string } =>
-        !!s && typeof s === 'object' && !Array.isArray(s),
-    );
-}
-
-/** Décalage UTC (minutes) d'un fuseau IANA à un instant donné, via `Intl` (pas de dépendance). */
-function utcOffsetMinutes(instant: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset', hour: '2-digit' }).formatToParts(
-    instant,
-  );
-  const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+00:00';
-  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(raw);
-  if (!match) return 0;
-  const sign = match[1] === '-' ? -1 : 1;
-  return sign * (parseInt(match[2], 10) * 60 + parseInt(match[3] ?? '0', 10));
-}
-
-/**
- * Combine un jour calendaire (Date ancrée à minuit UTC — `Event.eventDate`/`eventStartDate`/
- * `eventEndDate` ne portent aucune heure) avec une heure locale « HH:mm » saisie par
- * l'utilisateur pour ce fuseau (`Space.timezone`, défaut Europe/Paris, même convention que
- * BUG-270) → instant UTC réel. `null` si `hhmm` absent/invalide (l'appelant se replie alors
- * sur le jour calendaire brut).
- */
-function combineDayAndLocalTime(day: Date, hhmm: string | undefined | null, timeZone: string): Date | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec((hhmm ?? '').trim());
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  // Passe 1 : traite HH:mm comme UTC ; passe 2 : corrige par le décalage réel du fuseau à
-  // cet instant (gère les changements d'heure été/hiver).
-  const naiveUtc = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hours, minutes);
-  const offsetMin = utcOffsetMinutes(new Date(naiveUtc), timeZone);
-  return new Date(naiveUtc - offsetMin * 60_000);
-}
 
 /**
  * Orchestration du staffing par événement (spec §1.3) :
@@ -93,8 +37,6 @@ function combineDayAndLocalTime(day: Date, hhmm: string | undefined | null, time
 /** Types d'éléments considérés comme PDV pour le staffing (hypothèse, cf. rapport). */
 export const STAFFING_ELEMENT_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack'];
 
-/** Fallback si l'événement n'a pas de date de fin (hypothèse, cf. rapport). */
-export const DEFAULT_EVENT_DURATION_HOURS = 6;
 /** front (base RZ) = rpdv + caissiers + runners + barman. */
 const FRONT_ALGO_KEYS = ['RESPONSABLE_PDV', 'CAISSIER', 'RUNNER', 'BARMAN'];
 

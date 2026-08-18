@@ -4,6 +4,17 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
+import {
+  parseEventSessions,
+  combineDayAndLocalTime,
+  DEFAULT_EVENT_DURATION_HOURS,
+} from '../../shared/utils/event-window.util';
+import { DEFAULT_OFFSET_OPEN_MINUTES, DEFAULT_OFFSET_CLOSE_MINUTES } from '../staffing/staffing-calculator.service';
+
+/** Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/). */
+type EventWindow =
+  | { mode: 'exact'; salesEventId: string }
+  | { mode: 'range'; start: Date; end: Date };
 
 @Injectable()
 export class AggregationService {
@@ -204,6 +215,98 @@ export class AggregationService {
   }
 
   /**
+   * Résout la fenêtre de rattachement transaction → event (BUG-328/329/330-02, docs/bugs/) :
+   *
+   * 1. Si l'Event DataFriday est lié à un vrai `SalesEvent` (`weezeventEventId` — posé par le
+   *    matching auto BUG-021, la résolution manuelle, ou désormais `bulkCreateEvents`, voir
+   *    BUG-331-02) : rattachement EXACT via `WeezeventTransaction.eventId`, aucune ambiguïté
+   *    possible même si les dates de deux events se recoupent (BUG-330-02).
+   * 2. Sinon, si `sessions[0].doorsOpening` est renseigné : fenêtre = heure d'ouverture réelle
+   *    ± buffer (mêmes constantes que le Staffing, `staffing-calculator.service.ts`), au lieu du
+   *    jour calendaire entier (BUG-329-02).
+   * 3. Sinon : dérive la fenêtre des transactions NON liées (`eventId IS NULL`) réellement
+   *    observées dans un scan large — resserre sur `MIN`/`MAX` ± buffer plutôt que de garder le
+   *    jour calendaire entier (proposition Ulrich, BUG-329-02).
+   * 4. En dernier recours (aucune transaction non liée trouvée) : repli historique, jour
+   *    calendaire entier.
+   *
+   * Les modes 2/3/4 filtrent TOUJOURS `t."eventId" IS NULL` dans la requête appelante — une
+   * transaction déjà liée à un `SalesEvent` ne peut plus jamais être captée par une fenêtre de
+   * repli d'un AUTRE event, quel que soit le chevauchement de dates.
+   */
+  private async resolveEventWindow(
+    tenantId: string,
+    spaceId: string,
+    integrationId: string | undefined,
+    event: {
+      eventDate: Date;
+      eventStartDate: Date | null;
+      eventEndDate: Date | null;
+      eventEndTime: string | null;
+      sessions: string | null;
+      weezeventEventId: string | null;
+    },
+    spaceTimezone: string,
+  ): Promise<EventWindow> {
+    if (event.weezeventEventId) {
+      return { mode: 'exact', salesEventId: event.weezeventEventId };
+    }
+
+    const startDay = event.eventStartDate ?? event.eventDate;
+    const endDay = event.eventEndDate ?? startDay;
+    const sessions = parseEventSessions(event.sessions);
+    const doorsOpen = combineDayAndLocalTime(startDay, sessions[0]?.doorsOpening, spaceTimezone);
+
+    if (doorsOpen) {
+      const doorsClose =
+        combineDayAndLocalTime(endDay, event.eventEndTime ?? sessions[sessions.length - 1]?.showTime, spaceTimezone) ??
+        new Date(doorsOpen.getTime() + DEFAULT_EVENT_DURATION_HOURS * 3_600_000);
+      return {
+        mode: 'range',
+        start: new Date(doorsOpen.getTime() + DEFAULT_OFFSET_OPEN_MINUTES * 60_000),
+        end: new Date(doorsClose.getTime() + DEFAULT_OFFSET_CLOSE_MINUTES * 60_000),
+      };
+    }
+
+    // Ni lien exact, ni doorsOpening : scan large (jour de début − 1 à jour de fin + 2) sur les
+    // transactions NON liées, puis resserrement sur MIN/MAX ± buffer. Même scoping
+    // (tenantId/integrationId) que la requête d'agrégation principale — ne corrige pas
+    // volontairement BUG-321-02 (contamination inter-espaces), hors périmètre de ce fix.
+    const coarseStart = new Date(startDay);
+    coarseStart.setUTCDate(coarseStart.getUTCDate() - 1);
+    const coarseEnd = new Date(endDay);
+    coarseEnd.setUTCDate(coarseEnd.getUTCDate() + 2);
+    const integrationClause = integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.sql``;
+
+    const bounds = await this.prisma.$queryRaw<Array<{ minDate: Date | null; maxDate: Date | null }>>(Prisma.sql`
+      SELECT MIN(t."transactionDate") AS "minDate", MAX(t."transactionDate") AS "maxDate"
+      FROM "WeezeventTransaction" t
+      WHERE t."tenantId" = ${tenantId}
+        ${integrationClause}
+        AND t."eventId" IS NULL
+        AND t."transactionDate" >= ${coarseStart}
+        AND t."transactionDate" < ${coarseEnd}
+        AND t."deletedAt" IS NULL
+    `);
+
+    const DERIVED_WINDOW_BUFFER_MS = 90 * 60_000; // 1h30 — même ordre de grandeur que le buffer doorsOpening
+    const min = bounds[0]?.minDate;
+    const max = bounds[0]?.maxDate;
+    if (min && max) {
+      return {
+        mode: 'range',
+        start: new Date(new Date(min).getTime() - DERIVED_WINDOW_BUFFER_MS),
+        end: new Date(new Date(max).getTime() + DERIVED_WINDOW_BUFFER_MS),
+      };
+    }
+
+    // Repli historique : aucune transaction non liée trouvée dans le scan large.
+    const nextDay = new Date(endDay);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    return { mode: 'range', start: startDay, end: nextDay };
+  }
+
+  /**
    * Logique d'exécution réelle — appelée par AggregationProcessor.
    * Met à jour AggregationJobLog en DB + progression BullMQ au fil du traitement.
    */
@@ -228,6 +331,11 @@ export class AggregationService {
     const results: any[] = [];
     let processedCount = 0;
 
+    // BUG-329-02 : nécessaire pour combiner sessions[0].doorsOpening/eventEndTime (heures locales)
+    // à eventDate/eventEndDate (jours calendaires) via combineDayAndLocalTime.
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { timezone: true } });
+    const spaceTimezone = space?.timezone || 'Europe/Paris';
+
     try {
       // Step 1 of the wizard saves `integration.id` as `weezeventLocationId` in
       // WeezeventLocationSpaceMapping. We verify the integration is mapped to this space.
@@ -246,10 +354,15 @@ export class AggregationService {
       for (const event of events) {
         try {
           const eventDate = new Date(event.eventDate);
-          // #8 — événements multi-jours : utiliser eventEndDate si disponible
-          const baseEndDate = event.eventEndDate ? new Date(event.eventEndDate) : new Date(eventDate);
-          const nextDay = new Date(baseEndDate);
-          nextDay.setDate(nextDay.getDate() + 1);
+
+          // BUG-328/329/330-02 : rattachement exact via eventId quand l'Event est lié à un
+          // SalesEvent, sinon fenêtre par date améliorée (heure d'ouverture réelle ou dérivée des
+          // transactions non liées) au lieu du jour calendaire brut — voir resolveEventWindow.
+          const window = await this.resolveEventWindow(tenantId, spaceId, integrationId, event, spaceTimezone);
+          const matchClause =
+            window.mode === 'exact'
+              ? Prisma.sql`t."eventId" = ${window.salesEventId}`
+              : Prisma.sql`t."eventId" IS NULL AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
 
           // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
           // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
@@ -310,8 +423,7 @@ export class AggregationService {
               ON lsm."weezeventLocationId" = t."locationId" AND lsm."tenantId" = ${tenantId}
             WHERE t."tenantId" = ${tenantId}
               ${integrationClause}
-              AND t."transactionDate" >= ${eventDate}
-              AND t."transactionDate" < ${nextDay}
+              AND ${matchClause}
               AND t."deletedAt" IS NULL
             GROUP BY
               date_trunc('minute', t."transactionDate"),
@@ -349,8 +461,7 @@ export class AggregationService {
             JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t."id"
             WHERE t."tenantId" = ${tenantId}
               ${integrationClause}
-              AND t."transactionDate" >= ${eventDate}
-              AND t."transactionDate" < ${nextDay}
+              AND ${matchClause}
               AND t."deletedAt" IS NULL
               AND ti."productId" IS NOT NULL
             GROUP BY ti."productId"
@@ -407,8 +518,7 @@ export class AggregationService {
               ON lsm."weezeventLocationId" = t."locationId" AND lsm."tenantId" = ${tenantId}
             WHERE t."tenantId" = ${tenantId}
               ${integrationClause}
-              AND t."transactionDate" >= ${eventDate}
-              AND t."transactionDate" < ${nextDay}
+              AND ${matchClause}
               AND t."deletedAt" IS NULL
               AND t."status" = 'V'
             GROUP BY
