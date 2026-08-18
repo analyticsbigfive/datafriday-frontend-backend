@@ -182,8 +182,16 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
-   * Get or set pattern - fetch from cache or compute and store
+   * Get or set pattern - fetch from cache or compute and store.
+   *
+   * Single-flight (in-process) : des appels concurrents sur la même clé pendant
+   * un miss partagent UNE seule exécution de `factory()` au lieu de la relancer
+   * chacun — indispensable pour les factories coûteuses (RPC get_space_shop_details
+   * ~secondes) où un double-dispatch ou deux onglets déclenchaient N calculs
+   * identiques en parallèle (BUG-128-01).
    */
+  private readonly inflight = new Map<string, Promise<unknown>>();
+
   async getOrSet<T>(
     key: string,
     factory: () => Promise<T>,
@@ -195,13 +203,24 @@ export class RedisService implements OnModuleDestroy {
       return cached;
     }
 
-    // Cache miss - compute value
-    const value = await factory();
-    
-    // Store in cache
-    await this.set(key, value, options);
-    
-    return value;
+    const fullKey = this.buildKey(key, options.prefix);
+    const pending = this.inflight.get(fullKey) as Promise<T> | undefined;
+    if (pending) {
+      return pending;
+    }
+
+    // Cache miss - compute value once, shared by concurrent callers
+    const computation = (async () => {
+      const value = await factory();
+      // Store in cache
+      await this.set(key, value, options);
+      return value;
+    })().finally(() => {
+      this.inflight.delete(fullKey);
+    });
+    this.inflight.set(fullKey, computation);
+
+    return computation;
   }
 
   /**

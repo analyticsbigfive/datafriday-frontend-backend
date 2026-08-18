@@ -1982,6 +1982,12 @@ const actions = {
         commit('SET_MENU_ITEM_COST_MAP', merged)
         console.log(`[analyse] 💶 costMap fusionné — ${Object.keys(merged).length} entrée(s) (shop-details prioritaire + fallback menu items)`)
       }
+      // Détection « tables Weezevent absentes » : portée par la réponse shop-details
+      // granular, qui n'est plus appelée en phase 1 — le flag remonte donc par
+      // l'enrichissement (vague 2a). Clé présente uniquement dans ce cas.
+      if ('weezeventSetupIncomplete' in enrichment) {
+        commit('SET_WEEZEVENT_SETUP_INCOMPLETE', !!enrichment.weezeventSetupIncomplete)
+      }
       if (enrichment.weezeventProducts?.length) commit('SET_WEEZEVENT_PRODUCTS', enrichment.weezeventProducts)
       if (enrichment.weezeventProductMappings?.length) commit('SET_WEEZEVENT_PRODUCT_MAPPINGS', enrichment.weezeventProductMappings)
       // Granular data (heavy join) — chargé en arrière-plan (Option A)

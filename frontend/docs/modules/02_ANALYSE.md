@@ -411,12 +411,14 @@ TVA, Piège n°1) **peuvent structurellement ne pas sommer au même total** pour
 
 `store/modules/analyse.js:1696` (`loadSpace`) délègue à `useSpaceDataFetch`
 (`analyse.js:1716-1795`) qui appelle `fetchSpaceData` (`src/composables/useSpaceData.js:25-392`),
-en 2 phases :
-- **Phase 1 (bloquante)** : `getSpace`, `getSpaceConfigurations`, `getSpaceShopDetails(spaceId,
-  {page:1, limit:20})` (→ `GET /spaces/:id/shop-details?granular=0`), `getEvents`. Pas de granular
-  ici — `shopGranularData` reste `[]` à ce stade.
-- **Phase 2 (arrière-plan)** : `getSpaceShopGranular(spaceId, {page:1, limit:200})` (→
-  `GET /spaces/:id/shop-details?granular=1`, **c'est l'appel qui remonte le join lourd**), plus
+en 2 phases (restructuré 2026-08-18, BUG-323-01 — l'ancien appel phase-1
+`shop-details?granular=0` était un sous-ensemble strict du granular=1 et sérialisait ~36 s) :
+- **t=0** : `getSpaceShopGranular(spaceId, {page:1, limit:200})` (→
+  `GET /spaces/:id/shop-details?granular=1`, **c'est l'appel qui remonte le join lourd**) lancé
+  AVANT la phase 1, consommé par la phase 2.
+- **Phase 1 (bloquante)** : `getSpace`, `getSpaceConfigurations`, `getEvents`. Pas de granular
+  ici — `shopGranularData` reste `[]` à ce stade, `menuItemCostMap` vide (rempli en phase 2).
+- **Phase 2 (arrière-plan)** : attend la promesse granular lancée à t=0, plus le
   catalogue (menu items, produits Weezevent, mappings, taxonomies) nécessaire à l'enrichissement
   client-side.
 
