@@ -200,17 +200,25 @@ export class MenuItemPricingService {
     const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
-    if (spaceLocationIds.length) {
-      merge(await this.getLatestSalesPrices(tenantId, ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds }));
-    }
-    let missing = ids.filter((id) => !out.has(id));
-    if (missing.length && otherSpaceLocationIds.length) {
-      merge(await this.getLatestSalesPrices(tenantId, missing, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds }));
-    }
-    missing = ids.filter((id) => !out.has(id));
-    if (missing.length) {
-      merge(await this.getLatestSalesPrices(tenantId, missing, { eventIds: opts.eventIds }));
-    }
+    // BUG-333-02 (docs/bugs/) : les 3 niveaux étaient attendus SÉQUENTIELLEMENT ("query le niveau
+    // suivant seulement si le précédent n'a pas tout résolu") — chaque niveau coûte plusieurs
+    // secondes sur un gros tenant (dominé par le JOIN, pas par la taille de la liste d'ids), donc
+    // un cascade à 3 niveaux payait 3× ce coût en série. Les 3 requêtes sont indépendantes (chacune
+    // sa propre restriction de location) : les lancer en parallèle ramène le coût total au niveau
+    // le plus lent au lieu de leur somme, sans changer le résultat — la fusion respecte le même
+    // ordre de priorité (espace > non-attribué à un autre espace > global).
+    const [level1, level2, level3] = await Promise.all([
+      spaceLocationIds.length
+        ? this.getLatestSalesPrices(tenantId, ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds })
+        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+      otherSpaceLocationIds.length
+        ? this.getLatestSalesPrices(tenantId, ids, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds })
+        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+      this.getLatestSalesPrices(tenantId, ids, { eventIds: opts.eventIds }),
+    ]);
+    merge(level1);
+    merge(level2);
+    merge(level3);
     return out;
   }
 
@@ -227,11 +235,21 @@ export class MenuItemPricingService {
     const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
-    if (spaceLocationIds.length) merge(await this.getModalSalesPrices(tenantId, ids, { locationIds: spaceLocationIds }));
-    let missing = ids.filter((id) => !out.has(id));
-    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPrices(tenantId, missing, { excludeLocationIds: otherSpaceLocationIds }));
-    missing = ids.filter((id) => !out.has(id));
-    if (missing.length) merge(await this.getModalSalesPrices(tenantId, missing, {}));
+    // BUG-333-02 : mêmes 3 niveaux indépendants que getSpaceScopedLatestPrices, parallélisés pour
+    // la même raison (voir son commentaire).
+    type ModalMap = Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>;
+    const [level1, level2, level3] = await Promise.all([
+      spaceLocationIds.length
+        ? this.getModalSalesPrices(tenantId, ids, { locationIds: spaceLocationIds })
+        : Promise.resolve(new Map() as ModalMap),
+      otherSpaceLocationIds.length
+        ? this.getModalSalesPrices(tenantId, ids, { excludeLocationIds: otherSpaceLocationIds })
+        : Promise.resolve(new Map() as ModalMap),
+      this.getModalSalesPrices(tenantId, ids, {}),
+    ]);
+    merge(level1);
+    merge(level2);
+    merge(level3);
     return out;
   }
 
@@ -331,17 +349,19 @@ export class MenuItemPricingService {
     const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
-    if (spaceLocationIds.length) {
-      merge(await this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
-    }
-    let missing = uniq.filter((n) => !out.has(n));
-    if (missing.length && otherSpaceLocationIds.length) {
-      merge(await this.getLatestSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
-    }
-    missing = uniq.filter((n) => !out.has(n));
-    if (missing.length) {
-      merge(await this.getLatestSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId }));
-    }
+    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
+    const [level1, level2, level3] = await Promise.all([
+      spaceLocationIds.length
+        ? this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
+        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+      otherSpaceLocationIds.length
+        ? this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
+        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+      this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId }),
+    ]);
+    merge(level1);
+    merge(level2);
+    merge(level3);
     return out;
   }
 
@@ -359,11 +379,20 @@ export class MenuItemPricingService {
     const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
-    if (spaceLocationIds.length) merge(await this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
-    let missing = uniq.filter((n) => !out.has(n));
-    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
-    missing = uniq.filter((n) => !out.has(n));
-    if (missing.length) merge(await this.getModalSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId }));
+    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
+    type ModalMap = Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>;
+    const [level1, level2, level3] = await Promise.all([
+      spaceLocationIds.length
+        ? this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
+        : Promise.resolve(new Map() as ModalMap),
+      otherSpaceLocationIds.length
+        ? this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
+        : Promise.resolve(new Map() as ModalMap),
+      this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId }),
+    ]);
+    merge(level1);
+    merge(level2);
+    merge(level3);
     return out;
   }
 
@@ -453,11 +482,19 @@ export class MenuItemPricingService {
     const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
-    if (spaceLocationIds.length) merge(await this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
-    let missing = uniq.filter((w) => !out.has(w));
-    if (missing.length && otherSpaceLocationIds.length) merge(await this.getLatestSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
-    missing = uniq.filter((w) => !out.has(w));
-    if (missing.length) merge(await this.getLatestSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId }));
+    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
+    const [level1, level2, level3] = await Promise.all([
+      spaceLocationIds.length
+        ? this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
+        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+      otherSpaceLocationIds.length
+        ? this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
+        : Promise.resolve(new Map<string, { ttc: number; vatRate: number | null }>()),
+      this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId }),
+    ]);
+    merge(level1);
+    merge(level2);
+    merge(level3);
     return out;
   }
 
@@ -475,11 +512,20 @@ export class MenuItemPricingService {
     const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
-    if (spaceLocationIds.length) merge(await this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
-    let missing = uniq.filter((w) => !out.has(w));
-    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
-    missing = uniq.filter((w) => !out.has(w));
-    if (missing.length) merge(await this.getModalSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId }));
+    // BUG-333-02 : 3 niveaux indépendants, parallélisés (voir getSpaceScopedLatestPrices).
+    type ModalMap = Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>;
+    const [level1, level2, level3] = await Promise.all([
+      spaceLocationIds.length
+        ? this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds })
+        : Promise.resolve(new Map() as ModalMap),
+      otherSpaceLocationIds.length
+        ? this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds })
+        : Promise.resolve(new Map() as ModalMap),
+      this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId }),
+    ]);
+    merge(level1);
+    merge(level2);
+    merge(level3);
     return out;
   }
 
