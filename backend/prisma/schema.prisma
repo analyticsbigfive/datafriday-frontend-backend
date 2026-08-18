@@ -984,6 +984,9 @@ model SpaceElement {
   @@index([type])
   @@index([floorId, type]) // Composite: shop queries filter by floor + type
   @@index([forecourtId, type]) // Composite: shop queries filter by forecourt + type
+  // Réconciliation du drift avec 20260731000000_analyse_page_perf_indexes (branche Zone/Builder v2
+  // de la résolution v_shop_ids dans la RPC get_space_shop_details).
+  @@index([zoneId, type])
 }
 
 // ==================== ELEMENT PERFORMANCE ====================
@@ -1515,6 +1518,14 @@ model SalesTransaction {
   @@index([tenantId, locationId, transactionDate]) // Aggregation query: WHERE tenantId + locationId IN (...) + transactionDate range
   @@index([tenantId, integrationId, transactionDate]) // step4-context: WHERE tenantId + integrationId + transactionDate range
   @@index([tenantId, provider]) // filtre des ventes par source (dashboards, exports, debug)
+  // Réconciliation du drift avec 20260731000000_analyse_page_perf_indexes (index créés en SQL,
+  // jamais reportés ici — un `prisma migrate dev` les aurait silencieusement droppés).
+  // map: obligatoire sur le premier — Postgres a tronqué le nom à 63 caractères à la création.
+  @@index([tenantId, integrationId, status, transactionDate], map: "WeezeventTransaction_tenantId_integrationId_status_transactionD") // resolveEventSalesScope (event-timeline / transaction-baskets)
+  @@index([tenantId, locationId, status]) // RPC get_space_shop_details : _space_event_ids
+  // BUG-128-01 : rend le scan _space_event_ids de la RPC index-only (eventId dans la clé) —
+  // sans lui, le planner passait par locationId seul + re-filtre heap (185k lignes, ~11 s).
+  @@index([tenantId, locationId, status, eventId])
   @@map("WeezeventTransaction")
 }
 
