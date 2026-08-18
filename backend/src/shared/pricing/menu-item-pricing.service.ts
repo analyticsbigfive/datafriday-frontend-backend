@@ -201,15 +201,15 @@ export class MenuItemPricingService {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
     if (spaceLocationIds.length) {
-      merge(await this.getLatestSalesPrices(ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds }));
+      merge(await this.getLatestSalesPrices(tenantId, ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds }));
     }
     let missing = ids.filter((id) => !out.has(id));
     if (missing.length && otherSpaceLocationIds.length) {
-      merge(await this.getLatestSalesPrices(missing, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds }));
+      merge(await this.getLatestSalesPrices(tenantId, missing, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds }));
     }
     missing = ids.filter((id) => !out.has(id));
     if (missing.length) {
-      merge(await this.getLatestSalesPrices(missing, { eventIds: opts.eventIds }));
+      merge(await this.getLatestSalesPrices(tenantId, missing, { eventIds: opts.eventIds }));
     }
     return out;
   }
@@ -227,11 +227,11 @@ export class MenuItemPricingService {
     const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
       for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
     };
-    if (spaceLocationIds.length) merge(await this.getModalSalesPrices(ids, { locationIds: spaceLocationIds }));
+    if (spaceLocationIds.length) merge(await this.getModalSalesPrices(tenantId, ids, { locationIds: spaceLocationIds }));
     let missing = ids.filter((id) => !out.has(id));
-    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPrices(missing, { excludeLocationIds: otherSpaceLocationIds }));
+    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPrices(tenantId, missing, { excludeLocationIds: otherSpaceLocationIds }));
     missing = ids.filter((id) => !out.has(id));
-    if (missing.length) merge(await this.getModalSalesPrices(missing, {}));
+    if (missing.length) merge(await this.getModalSalesPrices(tenantId, missing, {}));
     return out;
   }
 
@@ -495,6 +495,7 @@ export class MenuItemPricingService {
    * (`(tenantId, locationId, transactionDate)` + `productId`).
    */
   async getLatestSalesPrices(
+    tenantId: string,
     productIds: string[],
     opts: { locationIds?: string[]; excludeLocationIds?: string[]; eventIds?: string[] } = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
@@ -503,7 +504,14 @@ export class MenuItemPricingService {
     if (ids.length === 0) return out;
     // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
     if (opts.locationIds && opts.locationIds.length === 0) return out;
+    // BUG-332-02 (docs/bugs/) : le commentaire ci-dessus promettait déjà l'index
+    // (tenantId, locationId, transactionDate) — jamais engagé faute de ce filtre. Sans lui, le
+    // JOIN vers "WeezeventTransaction" force un Seq Scan de TOUTE la table (tous tenants, ~1,8M
+    // lignes mesurées) pour construire le côté hash du join → ~23s sur un tenant à gros volume,
+    // largement au-delà du timeout du proxy Render (502 côté front). Même correctif déjà en place
+    // sur getLatestSalesPricesByName/getLatestSalesPricesByWeezeventId (plus bas dans ce fichier).
     const conds: Prisma.Sql[] = [
+      Prisma.sql`t."tenantId" = ${tenantId}`,
       Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
       Prisma.sql`ti."unitPrice" > 0`,
     ];
@@ -614,6 +622,7 @@ export class MenuItemPricingService {
    * `[]` = espace sans location mappée → aucune vente attribuable (Map vide).
    */
   async getModalSalesPrices(
+    tenantId: string,
     productIds: string[],
     opts: { locationIds?: string[]; excludeLocationIds?: string[] } = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
@@ -629,6 +638,10 @@ export class MenuItemPricingService {
       Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
       Prisma.sql`ti."unitPrice" > 0`,
     ];
+    // BUG-332-02 (docs/bugs/) : le filtre tenantId ne peut porter sur `t` que si le JOIN est
+    // présent — sans location filter, needsJoin=false et le chemin reste volontairement le
+    // "fast path" documenté ci-dessus (productId déjà vérifié tenant par l'appelant, pas de join).
+    if (needsJoin) conds.push(Prisma.sql`t."tenantId" = ${tenantId}`);
     if (hasLoc) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds!)})`);
     if (hasExcl) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds!)}))`);
     const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`

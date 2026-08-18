@@ -1058,7 +1058,7 @@ export class MenuItemsService {
         latest = (await this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, [productId])).get(productId);
       }
     } else {
-      latest = (await this.pricing.getLatestSalesPrices([productId], {})).get(productId);
+      latest = (await this.pricing.getLatestSalesPrices(tenantId, [productId], {})).get(productId);
     }
     return this.pricing.resolveWeezeventApplyPrice(product, latest);
   }
@@ -1215,7 +1215,7 @@ export class MenuItemsService {
       this.prisma.salesProduct.findMany({ where: { id: { in: productIds }, tenantId }, include: { prices: true } }),
       spaceId
         ? this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, productIds)
-        : this.pricing.getLatestSalesPrices(productIds, {}),
+        : this.pricing.getLatestSalesPrices(tenantId, productIds, {}),
       this.prisma.menuItem.findMany({
         where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
         select: { id: true, basePrice: true, vatRate: true },

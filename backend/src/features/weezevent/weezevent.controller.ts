@@ -679,10 +679,14 @@ export class WeezeventController {
      * scopée par productId (déjà vérifiés côté tenant par l'appelant, le raw n'est pas CLS).
      */
     private deriveSalesPrices(
+        tenantId: string,
         productIds: string[],
     ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
         // Source unique : prix modal partagé (réutilisé par l'application du prix aux menu items).
-        return this.pricing.getModalSalesPrices(productIds);
+        // Pas de location filter ici → needsJoin=false côté getModalSalesPrices, reste le "fast
+        // path" documenté (~20ms/100 produits) : tenantId transmis pour cohérence de signature,
+        // sans coût (aucun JOIN déclenché par cet appel).
+        return this.pricing.getModalSalesPrices(tenantId, productIds);
     }
 
     @Get('products')
@@ -815,7 +819,7 @@ export class WeezeventController {
             // basePrice FIGÉ à 0 → il faut aussi le dériver des ventes (sinon il reste à 0 à vie).
             const needsPrice = (v: any) => v == null || Number(v) === 0;
             const productsNeedingPrice = products.filter((pr: any) => needsPrice(pr.basePrice)).map((pr: any) => pr.id);
-            const salesByProduct = await this.deriveSalesPrices(productsNeedingPrice);
+            const salesByProduct = await this.deriveSalesPrices(tenantId, productsNeedingPrice);
             data = products.map((pr: any) => {
                 if (!needsPrice(pr.basePrice)) return pr;
                 const sales = salesByProduct.get(pr.id);
@@ -935,7 +939,7 @@ export class WeezeventController {
                     }
                 }
             } else {
-                const sales = (await this.deriveSalesPrices([product.id])).get(product.id);
+                const sales = (await this.deriveSalesPrices(tenantId, [product.id])).get(product.id);
                 if (sales && sales.length > 0) {
                     const top = sales[0];
                     localData.basePrice = top.ttc;
