@@ -1343,43 +1343,71 @@ export class SpacesService {
     // brut à l'identique, y compris le chevauchement légitime entre deux events dont les
     // fenêtres se recoupent.
     //
-    // MAX(...) au lieu de SUM(...) sur les colonnes agrégées : si les deux pipelines ont
-    // toutes les deux écrit pour la même fenêtre, on obtient DEUX lignes "SpaceRevenueMinuteItemAgg"
-    // pour le même (minute, shop, article) — même transactions réelles, seul le tag
-    // "weezeventEventId" diffère (volontairement exclu du GROUP BY ci-dessous). Les deux
-    // lignes portent la même valeur (même source, même formule) ; SUM les compterait en
-    // double, MAX retombe sur la valeur correcte sans hypothèse fragile sur quel writer a
-    // tourné en dernier.
+    // Agrégation en DEUX niveaux (BUG-130-01, régression du commit perf
+    // event-timeline-item-agg qui faisait un MAX à un seul niveau) :
+    //
+    // 1. CTE "dedup" — MAX(...) par (event, minute, shop, location, MERCHANT, article),
+    //    en écrasant UNIQUEMENT "weezeventEventId" : si les deux pipelines d'écriture ont
+    //    tous les deux écrit pour la même fenêtre, on obtient deux lignes jumelles pour le
+    //    même créneau — mêmes transactions réelles, seul le tag "weezeventEventId" diffère
+    //    (id Event DataFriday vs id WeezeventEvent brut). Les jumelles portent la même
+    //    valeur (même source, même formule) ; SUM les compterait en double, MAX retombe
+    //    sur la valeur correcte sans hypothèse fragile sur quel writer a tourné en dernier.
+    //
+    // 2. Niveau affichage — SUM(...) par (event, minute locale, shop, article) : deux
+    //    merchants (ou deux locations non mappées) qui vendent le même article à la même
+    //    minute sont des ventes LÉGITIMEMENT DISTINCTES et doivent s'additionner. C'est ce
+    //    que le MAX à un seul niveau écrasait (le GROUP BY sortait aussi
+    //    "weezeventMerchantId") : chaque minute était plafonnée à la plus grosse ligne au
+    //    lieu du total → timeline réelle aplatie en plateau constant.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql})
+      WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql}),
+      dedup AS (
+        SELECT
+          ev."eventId"                 AS "eventId",
+          mem."minute"                 AS "minute",
+          mem."spaceElementId"         AS "spaceElementId",
+          mem."weezeventLocationId"    AS "weezeventLocationId",
+          mem."weezeventLocationName"  AS "weezeventLocationName",
+          mem."weezeventProductId"     AS "weezeventProductId",
+          MAX(mem."itemsCount")        AS "itemsCount",
+          MAX(mem."transactionsCount") AS "transactionsCount",
+          MAX(mem."revenueHt")         AS "revenueHt"
+        FROM ev
+        INNER JOIN "SpaceRevenueMinuteItemAgg" mem
+          ON mem."minute" >= ev."eventDate"
+         AND mem."minute" <  ev."windowEnd"
+         AND mem."tenantId" = ${tenantId}
+         AND mem."spaceId"  = ${spaceId}
+        WHERE ${shopScopeClause}
+        GROUP BY
+          ev."eventId", mem."minute",
+          mem."spaceElementId", mem."weezeventLocationId", mem."weezeventLocationName",
+          mem."weezeventMerchantId", mem."weezeventProductId"
+      )
       SELECT
-        ev."eventId"                                                      AS "eventId",
+        dd."eventId"                                                      AS "eventId",
         TO_CHAR(tz."minuteLocal", 'HH24:MI')                              AS minute,
-        COALESCE(mem."spaceElementId", mem."weezeventLocationId")         AS "shopId",
-        COALESCE(se.name, mem."weezeventLocationName", mem."weezeventLocationId") AS "shopName",
+        COALESCE(dd."spaceElementId", dd."weezeventLocationId")           AS "shopId",
+        COALESCE(se.name, dd."weezeventLocationName", dd."weezeventLocationId") AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
         se.attributes::jsonb->>'area'                                     AS "shopArea",
-        mem."weezeventProductId"                                          AS "weezeventProductId",
+        dd."weezeventProductId"                                           AS "weezeventProductId",
         wpm."menuItemId",
         mi.name                                                           AS "menuItemName",
         pt.name                                                           AS "menuItemType",
         pc.name                                                           AS "menuItemCategory",
-        MAX(mem."itemsCount")::integer                                    AS quantity,
-        MAX(mem."transactionsCount")::integer                             AS "transactionCount",
-        MAX(mem."revenueHt")::numeric(12,2)                               AS "revenueHt"
-      FROM ev
-      INNER JOIN "SpaceRevenueMinuteItemAgg" mem
-        ON mem."minute" >= ev."eventDate"
-       AND mem."minute" <  ev."windowEnd"
-       AND mem."tenantId" = ${tenantId}
-       AND mem."spaceId"  = ${spaceId}
+        SUM(dd."itemsCount")::integer                                     AS quantity,
+        SUM(dd."transactionsCount")::integer                              AS "transactionCount",
+        SUM(dd."revenueHt")::numeric(12,2)                                AS "revenueHt"
+      FROM dedup dd
       CROSS JOIN LATERAL (
-        SELECT DATE_TRUNC('minute', mem."minute" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}) AS "minuteLocal"
+        SELECT DATE_TRUNC('minute', dd."minute" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}) AS "minuteLocal"
       ) tz
       LEFT JOIN "SpaceElement" se
-        ON se.id = mem."spaceElementId"
+        ON se.id = dd."spaceElementId"
       LEFT JOIN "WeezeventProductMapping" wpm
-        ON wpm."weezeventProductId" = mem."weezeventProductId"
+        ON wpm."weezeventProductId" = dd."weezeventProductId"
        AND wpm."tenantId" = ${tenantId}
       LEFT JOIN "MenuItem" mi
         ON mi.id = wpm."menuItemId"
@@ -1387,14 +1415,13 @@ export class SpacesService {
         ON pt.id = mi."typeId"
       LEFT JOIN "ProductCategory" pc
         ON pc.id = mi."categoryId"
-      WHERE ${shopScopeClause}
       GROUP BY
-        ev."eventId", tz."minuteLocal",
-        COALESCE(mem."spaceElementId", mem."weezeventLocationId"),
-        COALESCE(se.name, mem."weezeventLocationName", mem."weezeventLocationId"),
+        dd."eventId", tz."minuteLocal",
+        COALESCE(dd."spaceElementId", dd."weezeventLocationId"),
+        COALESCE(se.name, dd."weezeventLocationName", dd."weezeventLocationId"),
         se.type, se.attributes,
-        mem."weezeventProductId", wpm."menuItemId", mi.name, pt.name, pc.name
-      ORDER BY ev."eventId", minute ASC
+        dd."weezeventProductId", wpm."menuItemId", mi.name, pt.name, pc.name
+      ORDER BY dd."eventId", minute ASC
     `);
 
     for (const r of rows) {

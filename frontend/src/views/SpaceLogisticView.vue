@@ -854,7 +854,11 @@ export default {
       const item = this.itemsOf(entry).find((it) => it.name === itemName)
       if (item) this.openMovement(entry.element, item, 'add')
     },
-    /** Plats/menu items qui utilisent cette denrée (miroir InventoryCountingInterface.itemUsedIn). */
+    /** Plats/menu items qui utilisent cette denrée. Ex-miroir de
+     * InventoryCountingInterface.itemUsedIn — divergence assumée depuis les
+     * retours maquette 17/08 : l'inventaire affiche désormais un compteur +
+     * infobulle (itemUsedInNames, liste complète), la Logistique garde la
+     * ligne texte tronquée à 3 (hors périmètre de la demande). */
     usedInLabel(item) {
       const arr = Array.isArray(item?.usedIn) ? item.usedIn : []
       const names = arr.map((u) => u?.name || u?.menuItemName).filter(Boolean)

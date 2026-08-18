@@ -196,11 +196,9 @@
                   :title="`${t('epActiveVersionTitle')} : ${editingVersionName || t('epUnnamed')}`"
                 >{{ editingVersionName || t('epActiveVersion') }}</span>
                 <span v-else class="ep-side-badge ep-side-badge-outline">{{ t('epDraftUnsaved') }}</span>
-                <span
-                  v-if="hasUnsavedChanges"
-                  class="ep-side-badge ep-side-badge-dirty"
-                  :title="t('epNotSavedTitle')"
-                >● {{ t('epNotSaved') }}</span>
+                <!-- Retours 17/08 : plus de badge « non sauvegardé » (ni ici ni
+                     colonne droite) — le popup de confirmation à la sortie
+                     suffit ; le bouton Save garde son halo ep-save-dirty. -->
               </div>
               <p class="ep-side-version-zone-hint">
                 {{ t('epSaveHintFr') }}<br />
@@ -961,7 +959,7 @@
                 <button
                   v-bind="tipProps"
                   type="button"
-                  class="ep-anchor-icon ep-anchor-icon-sources"
+                  class="ep-anchor-icon"
                   :aria-label="t('epSources')"
                   @click="showSourcesDrawer = true"
                 >
@@ -1028,25 +1026,12 @@
             </v-tooltip>
           </div>
         </nav>
-        <div id="ep-anchor-summary" class="ep-metrics-head">
-          <div class="ep-metrics-kicker-row">
-            <p class="ep-metrics-kicker">{{ t('epSummary') }}</p>
-            <span
-              v-if="hasUnsavedChanges"
-              class="ep-side-badge ep-side-badge-dirty"
-              :title="t('epUnsavedClickSaveTitle')"
-            >● {{ t('epNotSaved') }}</span>
-          </div>
-          <h2 class="ep-metrics-title">
-            {{ selectedEvent.eventName || selectedEvent.name || t('epEventFallbackName') }}
-          </h2>
-          <p class="ep-metrics-subtitle">
-            {{ formatDateWithDay(selectedEvent.eventDate || selectedEvent.date || '') }}
-            <span v-if="selectedEvent.sessions?.[0]?.showTime">
-              · {{ selectedEvent.sessions[0].showTime }}
-            </span>
-          </p>
-        </div>
+        <!-- Retours maquette 17/08 : l'en-tête de la colonne (kicker « Résumé »,
+             nom + date/heure, puis badge « non sauvegardé ») a été retiré en
+             entier — redondant avec le bandeau rouge de l'event et la pastille
+             de la colonne de gauche (:199). L'ancre #ep-anchor-summary migre
+             sur le tableau de synthèse : goToTimeline() y retombe pour un
+             event passé. -->
         <!-- Tableau de synthèse (chantier 310) : Prédictif / Ajusté ×
              CA · Coût · Marge. Coût = Matières + Staff (staffing/totals),
              Marge = (CA − coût global) / CA — décision produit 08/2026. -->
@@ -1057,7 +1042,7 @@
              élastiques, et `overflow-x: auto` porté par la table au lieu de
              l'`overflow: hidden` de la carte — c'est ce dernier qui tronquait
              la colonne Marge. -->
-        <div class="ep-synth">
+        <div id="ep-anchor-summary" class="ep-synth">
           <div class="ep-synth-table">
             <span class="ep-synth-corner" aria-hidden="true"></span>
             <span class="ep-synth-col">{{ t('epTotalRevenueHt') }}</span>
@@ -1070,7 +1055,7 @@
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
             </span>
             <span class="ep-synth-cell">
-              <template v-if="predictedReady && staffingReady">{{ formatCurrencyDetailed(totalPredictedCostGlobal) }}</template>
+              <template v-if="predictedReady && staffingReady">{{ formatCurrency(totalPredictedCostGlobal) }}</template>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
             </span>
             <span class="ep-synth-cell">
@@ -1084,7 +1069,7 @@
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </span>
             <span class="ep-synth-cell ep-synth-cell-adj">
-              <template v-if="adjustedReady && staffingReady">{{ formatCurrencyDetailed(totalAdjustedCostGlobal) }}</template>
+              <template v-if="adjustedReady && staffingReady">{{ formatCurrency(totalAdjustedCostGlobal) }}</template>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </span>
             <span class="ep-synth-cell ep-synth-cell-adj">
@@ -1100,13 +1085,13 @@
           <div class="ep-metric-card ep-metric-card-primary">
             <h3 class="ep-metric-label">{{ t('epMetricStaffCost') }}</h3>
             <p v-if="staffingReady" class="ep-metric-value">
-              {{ formatCurrencyDetailed(staffPredictedCost) }}
+              {{ formatCurrency(staffPredictedCost) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="staffingReady" class="ep-metric-adjusted-value">
-                {{ formatCurrencyDetailed(staffAdjustedCost) }}
+                {{ formatCurrency(staffAdjustedCost) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1116,13 +1101,13 @@
           <div class="ep-metric-card ep-metric-card-neutral">
             <h3 class="ep-metric-label">{{ t('epMetricMaterialsCost') }}</h3>
             <p v-if="predictedReady" class="ep-metric-value">
-              {{ formatCurrencyDetailed(totalPredictedCost) }}
+              {{ formatCurrency(totalPredictedCost) }}
             </p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
               <p v-if="adjustedReady" class="ep-metric-adjusted-value">
-                {{ formatCurrencyDetailed(totalAdjustedCost) }}
+                {{ formatCurrency(totalAdjustedCost) }}
               </p>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epWaitingSpaceMenuAria')" />
             </div>
@@ -1192,8 +1177,12 @@
     </div>
     </div>
 
-    <!-- Dialog Vuetify universel : prompt + confirm (cf. React §13.5) -->
-    <v-dialog v-model="dlg.open" max-width="420" persistent>
+    <!-- Dialog Vuetify universel : prompt + confirm (cf. React §13.5).
+         content-class="ep-dialog" (retours maquette 17/08) : le contenu est
+         téléporté hors de .event-predict-overlay, seul un bloc <style> NON
+         scopé (fin de fichier) peut restyler ses v-btn (casse normale, radius
+         maison au lieu du MAJUSCULES/4px Vuetify par défaut). -->
+    <v-dialog v-model="dlg.open" max-width="420" persistent content-class="ep-dialog">
       <v-card>
         <v-card-title class="text-subtitle-1">{{ dlg.title }}</v-card-title>
         <v-card-text>
@@ -1231,7 +1220,7 @@
     </v-dialog>
 
     <!-- Lot 2 — popup de remapping (rattacher un élément vendu au menu du shop) -->
-    <v-dialog v-model="remapDlg.open" max-width="520" persistent>
+    <v-dialog v-model="remapDlg.open" max-width="520" persistent content-class="ep-dialog">
       <v-card>
         <v-card-title class="text-subtitle-1">{{ t('epRemapDialogTitle') }}</v-card-title>
         <v-card-text>
@@ -1351,8 +1340,11 @@ import { resolveIngredientSupplierId } from "../utils/menuItemAvailability";
 import { runWithConcurrency } from "../utils/asyncPool";
 import { htFromTtc, menuItemPriceHt } from "../utils/price";
 import { useEventPredictVersions } from "../composables/useEventPredictVersions";
-import { currentIntlLocale } from "@/composables/useNumberFormat";
-import { formatNumber, formatCurrencyDetailed } from "@/composables/useFormatters";
+import {
+  formatNumber,
+  formatCurrencyDetailed,
+  formatCurrency as formatCurrencyShared,
+} from "@/composables/useFormatters";
 import { usePredictiveTimeline } from "../composables/usePredictiveTimeline";
 import {
   aggregateTimelinePerMinute,
@@ -6203,14 +6195,13 @@ export default {
       // "modifications non sauvegardées" si une version est éditée.
       this.handleReset();
     },
+    /**
+     * Totaux en euros, 0 décimale. Délègue au helper partagé (séparateur de
+     * milliers = espace fine, jamais de virgule) tout en gardant le vide à
+     * « 0 € » — le partagé rend « — », ce que ces cellules n'attendent pas.
+     */
     formatCurrency(n) {
-      const v = Number(n) || 0;
-      return new Intl.NumberFormat(currentIntlLocale(), {
-        style: "currency",
-        currency: "EUR",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      }).format(v);
+      return formatCurrencyShared(Number(n) || 0);
     },
     /**
      * Retourne la date normalisée en DD/MM/YYYY.
@@ -7680,13 +7671,6 @@ export default {
   border: 1px solid var(--border, #e5e7eb);
   color: var(--muted-foreground, #6b7280);
 }
-/* Indicateur "modifications non sauvegardées" (Save réactif). */
-.ep-side-badge-dirty {
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fde68a;
-  font-weight: 700;
-}
 /* Badge "Active" sur la carte de la version actuellement sélectionnée. */
 .ep-side-badge-active {
   margin-left: 6px;
@@ -7697,12 +7681,6 @@ export default {
   font-size: 0.6875rem;
   border-radius: 999px;
   white-space: nowrap;
-}
-.ep-metrics-kicker-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 /* Bouton Save mis en avant quand il y a des changements à enregistrer. */
 .ep-save-dirty {
@@ -8149,32 +8127,6 @@ export default {
   background: rgba(255, 255, 255, 0.72);
   scrollbar-gutter: auto;
 }
-.ep-metrics-head {
-  padding: 4px 2px 14px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--fb-border, #e2e8f0);
-}
-.ep-metrics-kicker {
-  margin: 0 0 4px;
-  font-size: 0.6875rem;
-  font-weight: 800;
-  color: var(--fb-muted, #64748b);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.ep-metrics-title {
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.25;
-  font-weight: 750;
-  color: var(--fb-text, #0f172a);
-}
-.ep-metrics-subtitle {
-  margin: 5px 0 0;
-  color: var(--fb-muted, #64748b);
-  font-size: 0.75rem;
-  font-weight: 500;
-}
 .ep-metrics-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -8217,9 +8169,9 @@ export default {
   color: var(--fb-text, #0f172a);
   border-color: var(--fb-border, #e5e7eb);
 }
-.ep-anchor-icon-sources {
-  color: #ff3131;
-}
+/* Retour maquette 17/08 : l'icône Sources était la seule en rouge (règle
+   .ep-anchor-icon-sources supprimée) — les 5 icônes de la nav partagent
+   désormais le gris de .ep-anchor-icon. */
 
 /* Tableau de synthèse Prédictif / Ajusté (chantier 310) — même langage
    visuel que les cartes KPI : surface, liseré gauche, label muted 750,
@@ -9204,7 +9156,6 @@ export default {
 }
 
 .ep-event-selector-title,
-.ep-metrics-title,
 .ep-side-event-name,
 .ep-side-version-name,
 .ep-past-source-title {
@@ -9346,7 +9297,6 @@ export default {
   background: var(--ep-surface);
 }
 
-.ep-metrics-head,
 .ep-metrics-anchors,
 .ep-metric-adjusted {
   border-color: var(--ep-border);
@@ -9378,7 +9328,6 @@ export default {
 }
 
 .ep-metric-label,
-.ep-metrics-subtitle,
 .ep-muted,
 .ep-event-meta,
 .ep-past-source-date,
@@ -9627,7 +9576,6 @@ export default {
 }
 .ep-title h1,
 .ep-event-selector-title,
-.ep-metrics-title,
 .ep-section-h2 {
   letter-spacing: -0.01em;
 }
@@ -10251,13 +10199,6 @@ export default {
   color: #93c5fd;
 }
 
-/* Badge « brouillon » (ambre) : soft bg + texte ambre foncé → voile + clair. */
-.dark .ep-side-badge-dirty {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fcd34d;
-  border-color: rgba(245, 158, 11, 0.35);
-}
-
 /* Encarts multi-événements / avertissements timeline (ambre pâle). */
 .dark .ep-event-item.is-multi:not(.is-selected),
 .dark .ep-multi-bar,
@@ -10285,6 +10226,23 @@ export default {
 }
 .dark .ep-link-btn.ep-danger {
   border-color: rgba(220, 38, 38, 0.4);
+}
+</style>
+
+<!-- Bloc NON scopé (retours maquette 17/08) : les v-dialog
+     content-class="ep-dialog" (confirm/prompt/date/info + remap) sont
+     téléportés dans <body> — hors de portée des :deep() scopés ci-dessus et
+     des variables --fb-* posées sur les racines de page (d'où le fallback
+     8px, identique à la valeur du token --fb-radius-control). Même recette
+     que .ep-header :deep(.v-btn) : casse normale + radius maison, à la place
+     du MAJUSCULES + letter-spacing + 4px du .v-btn Vuetify de base. -->
+<style>
+.ep-dialog .v-btn {
+  border-radius: var(--fb-radius-control, 8px);
+  text-transform: none;
+  letter-spacing: normal;
+  text-indent: 0;
+  font-weight: 650;
 }
 </style>
 <!-- force 1 nouveau buiild -->
