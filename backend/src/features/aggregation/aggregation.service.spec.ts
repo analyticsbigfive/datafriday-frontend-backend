@@ -4,6 +4,7 @@ import { AggregationService } from './aggregation.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
+import { combineDayAndLocalTime } from '../../shared/utils/event-window.util';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
@@ -280,6 +281,10 @@ describe('AggregationService', () => {
         _sum: { revenueHt: '150.00', transactionsCount: 3 },
       });
       mockPrisma.event.update.mockResolvedValue({});
+      // BUG-329/330-02 : resolveEventWindow — timezone du space + repli MIN/MAX (aucune borne par
+      // défaut, explicite plutôt que de dépendre d'un état résiduel d'un describe précédent).
+      mockPrisma.space.findFirst.mockResolvedValue({ timezone: 'Europe/Paris' });
+      mockPrisma.$queryRaw.mockResolvedValue([{ minDate: null, maxDate: null }]);
     });
 
     it('upsert sur spaceRevenueMinuteAgg (pas spaceRevenueDailyAgg)', async () => {
@@ -531,6 +536,91 @@ describe('AggregationService', () => {
       expect(mockPrisma.event.update).toHaveBeenCalledWith({
         where: { id: EVENT_1 },
         data: expect.objectContaining({ perCapita: 4 }),
+      });
+    });
+
+    // ─── BUG-328/329/330-02 : résolution de fenêtre (resolveEventWindow) ─────
+    describe('résolution de fenêtre transaction → event', () => {
+      const SALES_EVENT_ID = 'sales-event-1';
+
+      it("BUG-330-02 : Event lié (weezeventEventId) → rattachement EXACT par eventId, pas de plage de dates", async () => {
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), weezeventEventId: SALES_EVENT_ID },
+        ]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        expect(sqlArg.values).toContain(SALES_EVENT_ID);
+        expect(sqlArg.text ?? sqlArg.sql).toEqual(expect.stringContaining('t."eventId" ='));
+        // Le repli MIN/MAX ne doit jamais être interrogé quand le lien exact existe.
+        expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+      });
+
+      it('BUG-329-02 : Event non lié avec sessions[0].doorsOpening → fenêtre = heure réelle ± offset (pas la journée entière)', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        const eventWithDoors = {
+          ...baseEvent,
+          sessions: JSON.stringify([{ doorsOpening: '18:00', showTime: '20:00' }]),
+        };
+        mockPrisma.event.findMany.mockResolvedValue([eventWithDoors]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
+        // Attendu calculé avec la même fonction que l'implémentation (pas de fuseau/DST en dur) :
+        // doorsOpening 18:00 Europe/Paris − 120 min (DEFAULT_OFFSET_OPEN_MINUTES).
+        const doorsOpen = combineDayAndLocalTime(baseEvent.eventDate, '18:00', 'Europe/Paris')!;
+        const expectedStart = new Date(doorsOpen.getTime() - 120 * 60_000);
+        expect(dates.some((d: Date) => d.getTime() === expectedStart.getTime())).toBe(true);
+        // Ne doit PAS être minuit du jour de l'event (comportement historique jour calendaire) —
+        // la fenêtre est désormais ancrée sur l'heure réelle, pas sur le jour entier.
+        const midnightOfEventDate = new Date(Date.UTC(
+          baseEvent.eventDate.getUTCFullYear(), baseEvent.eventDate.getUTCMonth(), baseEvent.eventDate.getUTCDate(),
+        ));
+        expect(dates.every((d: Date) => d.getTime() !== midnightOfEventDate.getTime())).toBe(true);
+        expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+      });
+
+      it('BUG-329-02 : Event non lié sans doorsOpening, transactions non liées trouvées → fenêtre dérivée MIN/MAX ± buffer', async () => {
+        const minDate = new Date('2025-05-10T22:00:00Z');
+        const maxDate = new Date('2025-05-11T01:30:00Z'); // déborde après minuit
+        mockPrisma.$queryRaw.mockResolvedValue([{ minDate, maxDate }]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
+        // buffer 90 min : borne basse = 20:30, borne haute = 03:00 (lendemain)
+        expect(dates.some((d: Date) => d.getTime() === minDate.getTime() - 90 * 60_000)).toBe(true);
+        expect(dates.some((d: Date) => d.getTime() === maxDate.getTime() + 90 * 60_000)).toBe(true);
+      });
+
+      it("BUG-329-02 : Event non lié, sans doorsOpening, aucune transaction non liée trouvée → repli historique (jour calendaire)", async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([baseEvent]);
+        mockPrisma.$queryRaw.mockResolvedValue([{ minDate: null, maxDate: null }]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
+        // Comportement historique : borne basse = eventDate telle quelle (repli, pas de recalage).
+        expect(dates.some((d: Date) => d.getTime() === baseEvent.eventDate.getTime())).toBe(true);
+      });
+
+      it('BUG-328-02 : la fenêtre de repli (mode range) exclut toujours les transactions déjà liées à un event (t.eventId IS NULL)', async () => {
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        expect(sqlArg.text ?? sqlArg.sql).toEqual(expect.stringContaining('t."eventId" IS NULL'));
       });
     });
   });
