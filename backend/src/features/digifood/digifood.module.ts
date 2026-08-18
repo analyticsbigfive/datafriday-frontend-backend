@@ -5,6 +5,7 @@ import { DigifoodSignatureService } from './services/digifood-signature.service'
 import { DigifoodWebhookHandler } from './services/digifood-webhook.handler';
 import { DigifoodIngestionService } from './services/digifood-ingestion.service';
 import { DigifoodCsvImportService } from './services/digifood-csv-import.service';
+import { PricingModule } from '../../shared/pricing/pricing.module';
 
 /**
  * Intégration Digifood (PLAN_INTEGRATION_DIGIFOOD §4) : webhooks temps réel
@@ -13,7 +14,9 @@ import { DigifoodCsvImportService } from './services/digifood-csv-import.service
  * enregistré = routes mortes silencieuses.
  */
 // PrismaModule et EncryptionModule sont @Global() : pas d'imports nécessaires.
+// PricingModule : DigifoodIngestionService appelle SalesPriceAggService (BUG-337-02, docs/bugs/).
 @Module({
+    imports: [PricingModule],
     controllers: [DigifoodWebhookController, DigifoodController],
     providers: [
         DigifoodSignatureService,

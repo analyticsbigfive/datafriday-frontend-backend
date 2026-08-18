@@ -169,7 +169,9 @@ export async function getWeezeventProducts(merchantId, integrationId, spaceId, o
     // pour un simple filtrage catalogue par espace sans ce coût, utiliser opts.catalogSpaceId.
     if (spaceId) params.spaceId = spaceId
     // onlySold : le backend ne renvoie que les produits ayant un prix (réellement vendus) → on ne
-    // ramène pas le catalogue jamais vendu. meta.total reste le total NON filtré (pour le décompte).
+    // ramène pas le catalogue jamais vendu. Filtré AVANT pagination (BUG-337-02) : meta.total est
+    // le total FILTRÉ (sert la pagination réelle), meta.catalogTotal le total NON filtré (décompte
+    // "produits masqués" affiché par StepMapMenuItems).
     if (onlySold) params.onlySold = 'true'
     // Filtre LÉGER par espace (intégration Weezevent de l'espace, requête indexée simple) —
     // n'active PAS la cascade de prix scopée-espace de `spaceId`. Ignoré si integrationId/spaceId fournis.

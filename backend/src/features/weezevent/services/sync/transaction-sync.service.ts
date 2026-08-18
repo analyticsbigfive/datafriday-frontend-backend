@@ -5,6 +5,7 @@ import {
     WeezeventTransaction as ApiTransaction,
 } from '../../interfaces/weezevent-entities.interface';
 import { SyncResult, SyncTransactionsOptions } from '../weezevent-sync.service';
+import { SalesPriceAggService } from '../../../../shared/pricing/sales-price-agg.service';
 
 /**
  * WeezeventTransactionSyncService
@@ -20,6 +21,7 @@ export class WeezeventTransactionSyncService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly weezeventClient: WeezeventClientService,
+        private readonly priceAgg: SalesPriceAggService,
     ) {}
 
     /**
@@ -408,12 +410,15 @@ export class WeezeventTransactionSyncService {
             },
         });
 
-        await this.upsertTransactionItems(transaction.id, apiTransaction.rows, productIdMap);
+        await this.upsertTransactionItems(tenantId, integrationId, locationDbId, transaction.id, apiTransaction.rows, productIdMap);
 
         return { created: !existing, updated: !!existing };
     }
 
     private async upsertTransactionItems(
+        tenantId: string,
+        integrationId: string,
+        locationDbId: string | null,
         transactionId: string,
         rows: ApiTransaction['rows'],
         productIdMap: Map<string, string>,
@@ -440,6 +445,23 @@ export class WeezeventTransactionSyncService {
         });
 
         await this.prisma.salesTransactionItem.createMany({ data: itemsData });
+
+        // BUG-337-02 (docs/bugs/) : refresh ciblé de SalesPriceAgg pour les items de CETTE
+        // transaction (1-20 lignes typiquement, bon marché) — best-effort, ne doit jamais faire
+        // échouer le webhook. `item_id` (résolution produit) est le même champ que `productWid`
+        // ci-dessus, pas `externalItemId` (l'id de la ligne elle-même).
+        if (itemsData.length > 0) {
+            void this.priceAgg.refreshForKeysSafe(
+                tenantId,
+                integrationId,
+                locationDbId,
+                itemsData.map(d => ({
+                    productId: d.productId,
+                    itemWeezeventId: (d.rawData as any)?.item_id != null ? String((d.rawData as any).item_id) : null,
+                    productName: d.productName,
+                })),
+            );
+        }
 
         const createdItems = await this.prisma.salesTransactionItem.findMany({
             where: { transactionId },
