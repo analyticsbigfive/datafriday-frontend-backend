@@ -594,6 +594,59 @@ routé sur `/spaces-overview` (`router/index.js:130-134`), **pas** `/spaces/:id`
 contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analyse mais utilisé sur cet
 écran voisin ; à corriger séparément si `/spaces-overview` est audité un jour.
 
+### Cartographie 2026-08-18 — propriété de la donnée par composant (relecture)
+
+> Relecture ciblée du 2026-08-18 (3 passes de lecture sur le code réel). Complète les deux
+> tableaux ci-dessus avec l'angle **« qui possède / écrit la donnée »** — c'est la vraie source
+> de l'impression d'éclatement (« dispaché ») remontée en revue. Une version **visuelle
+> navigable** (schéma de flux + pastilles) existe en artifact :
+> [Cartographie — Module Analyse](https://claude.ai/code/artifact/6898e2f9-1783-458f-9cbf-4490f5585297)
+> (privée ; le présent texte fait foi et se suffit à lui-même).
+
+**Le flux nominal reste centralisé, mais le module a grossi.** `AnalyseView.vue` est passé à
+**≈ 2 420 lignes** (vs 1 644 au 2026-07-15) et le store `analyse.js` à **≈ 2 592 lignes** (vs 2 273).
+`AnalyseView` monte, `dispatch analyse/loadSpace` (TTL 15 min, stale-while-revalidate) puis distribue
+en props ~20 enfants. **La majorité des enfants sont présentationnels** ; le couplage se concentre
+sur une poignée qui **lisent ou écrivent le store en direct** au lieu de rester `props ↓ / events ↑` :
+
+| Couplage | Composants | Mécanisme (fichier réel) |
+|---|---|---|
+| **Écrit / dispatch le store** | `tables/MenuItemsByShopTable.vue` · `panels/SummaryPanel.vue` · `filters/FilterPanel.vue` | `setFilterImmediate(...)` sur 2 `v-select` ; `commit analyse/SET_PENDING_ASSISTANT_QUERY` (importe le **store singleton**, pas `useStore()`) ; dispatch `analyse/loadConfigShopContext`/`loadAllConfigsShopContext` — **les mêmes actions que la vue**, dédup par `configContextReqId` |
+| **Lit le store en direct** (sans écrire) | `charts/ShopDistributionPieChart.vue` (4 lectures `state.analyse.*`) · `tables/MenuItemRevenueDistribution.vue` (5 lectures + `useFilters`) · `panels/SummaryPanel.vue` (lectures) | `useStore()` / `store` → `filters.*`, `productTypesList`/`productCategoriesList`, `configContext*` |
+| **Fetch API propre, hors Vuex** | `panels/LiveInventoryPanel.vue` | `getSpaceLiveInventory(spaceId)` + poll 15 s + garde par request-id — cycle de vie complet indépendant du store |
+| **Autre module** | `LiveSaleSimulatorWidget.vue` / `LiveSimulationHistoryDialog.vue` | dispatch `logistics/*` (loadStock, simulateSale, runs…) |
+
+**Les 6 chemins d'entrée de données** (le détail vit déjà dans §« chaîne de données réelle » et
+§« Client API » ci-dessous ; récap consolidé) :
+1. `analyse/loadSpace` → `useSpaceData` (8 APIs : space/event/menu-item/menu/ingredient/inventory/aggregation/mapping) — le seul qui passe par le store.
+2. `useAnalyseItemRecords` **×2** (principal + comparaison) → `getSpaceEventTimelineBatch`, cache propre.
+3. `useAnalyseTimeline` → `getSpaceEventTimelineBatch` (commit `SET_TIMELINE`), cache propre.
+4. `useTransactionBaskets` → `getSpaceTransactionBasketsBatch`, cache session propre.
+5. `LiveInventoryPanel` → `getSpaceLiveInventory` (hors Vuex).
+6. `AnalyseView` → `getSpaceLiveStatus` en direct (`applyLiveScope`).
+
+**3 de ces chemins frappent le même endpoint `getSpaceEventTimelineBatch`** avec 3 caches distincts —
+c'est le cœur du « dispaché ». **5 modules Vuex** alimentent l'écran : `analyse` (hub), `seasons`,
+`inventory`, `logistics` (via le simulateur), `auth` (header).
+
+**Contexte Analyse vs Live** : aucun `props`/`query` de route — la bascule est purement
+`route.name === 'space-live'` → `isLive` → `watch` → `commit analyse/SET_LIVE_ROUTE`
+(`AnalyseView.vue:1802,1808`). La route `space-live` est `keepAlive` (l'instance survit au va-et-vient,
+d'où le `watch` continu plutôt qu'un set au montage). Predict est un **onglet** (`?toolbox=` → `SET_TOOLBOX`),
+pas une route.
+
+**Ajout au code mort** (complète le tableau §« Code mort confirmé ») : `src/components/MenuItemsByShopTable.vue`
+(racine, ~51 Ko, portage React en Options API) — la version vivante est `analyse/tables/MenuItemsByShopTable.vue` ;
+la racine n'est importée nulle part (seules des mentions en commentaire dans `utils/analyseAggregations.js:73`
+et `utils/predictScenarioRecords.js:17`, qui la nomment « legacy export »).
+
+**Grappes de logique dupliquée** (candidates factorisation, sans urgence) : `hexToRgba` (EventRevenueByShopChart
++ EventTimelineChart) ; `eventMetaById`/`safeEventName` (BUG-123-01 : GenericByEventChart + EventRevenueByShopChart) ;
+`animation:{duration:200}` (BUG-284, dupliqué dans les 4 charts Chart.js) ; `groupBy`/`dimLabel` locaux vs
+`utils/analyseAggregations` ; l'agrégation « reduce-to-Map » de `SummaryPanel` qui refait
+`aggregateByShop`/`aggregateByItem` ; le scaffolding d'export xlsx et le CSS pagination dark (BUG-278),
+copiés entre `MenuItemsByShopTable` et `ShopPerformanceByTransactionRate`.
+
 ---
 
 ## Client API — qui appelle quoi
