@@ -93,6 +93,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 
@@ -109,8 +110,11 @@ const props = defineProps({
 
 defineEmits(['select-event', 'select-scenario'])
 
+// Lookup O(1) : isSelected() est appelé ~4× par évènement à chaque rendu.
+const selectedSet = computed(() => new Set(props.selectedEventIds))
+
 function isSelected(id) {
-  return props.selectedEventIds.includes(id)
+  return selectedSet.value.has(id)
 }
 
 function formatRevenue(n) {
@@ -130,15 +134,16 @@ function formatRevenue(n) {
 /* Label du v-checkbox : pleine largeur + pas d'atténuation Vuetify. */
 .resp-check :deep(.v-label) { opacity: 1; width: 100%; }
 .resp-item {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 10px;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  border-radius: var(--fb-radius-control, 8px);
+  background: var(--fb-surface, #fff);
   padding: 6px 10px;
   margin-bottom: 8px;
   transition: border-color 120ms, background 120ms;
 }
 .resp-item.is-selected {
-  border-color: var(--primary, #ff3131);
-  background: #fff5f5;
+  border-color: rgba(255, 49, 49, 0.34);
+  background: var(--fb-primary-soft, #fff5f5);
 }
 .resp-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .resp-name { font-size: 0.875rem; font-weight: 600; }
@@ -164,19 +169,20 @@ function formatRevenue(n) {
   gap: 8px;
 }
 .resp-scenario-card {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 12px;
-  background: var(--muted, #f9fafb);
+  border: 1px solid var(--fb-border, #e5e7eb);
+  border-radius: var(--fb-radius-control, 8px);
+  background: var(--fb-surface, #fff);
   padding: 10px 12px;
   cursor: pointer;
   transition: border-color 120ms, box-shadow 120ms, background 120ms;
 }
 .resp-scenario-card:hover {
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  border-color: rgba(255, 49, 49, 0.26);
+  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.05));
 }
 .resp-scenario-card.is-active {
-  border-color: var(--primary, #ff3131);
-  background: #fff5f5;
+  border-color: rgba(255, 49, 49, 0.34);
+  background: var(--fb-primary-soft, #fff5f5);
 }
 .resp-scenario-head {
   display: flex;
@@ -245,21 +251,6 @@ function formatRevenue(n) {
   margin: 2px 0 2px 28px;
 }
 
-.resp-item,
-.resp-scenario-card {
-  border-color: var(--fb-border, #E5E7EB);
-  border-radius: var(--fb-radius-control, 8px);
-  background: var(--fb-surface, #FFFFFF);
-}
-.resp-item.is-selected,
-.resp-scenario-card.is-active {
-  border-color: rgba(255, 49, 49, 0.34);
-  background: var(--fb-primary-soft, #FFF5F5);
-}
-.resp-scenario-card:hover {
-  border-color: rgba(255, 49, 49, 0.26);
-  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.05));
-}
 .resp-scenario-card:focus-visible,
 .resp-item:focus-visible {
   outline: 3px solid rgba(255, 49, 49, 0.18);

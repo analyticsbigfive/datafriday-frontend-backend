@@ -144,7 +144,7 @@ const routes = [
       {
         path: '/spaces/:spaceId',
         name: 'space-analyse',
-        component: () => import('@/components/analyse/AnalyseView.vue'),
+        component: () => import('@/components/space-workspace/analyse/AnalyseView.vue'),
         // Vue par défaut d'un espace : le guard fait atterrir chaque rôle sur
         // son 1er écran autorisé (Analyse sinon Inventory/Réarmement…).
         beforeEnter: spaceEntryGuard,
@@ -164,14 +164,14 @@ const routes = [
       {
         path: '/spaces/:spaceId/predict',
         name: 'space-predict',
-        component: () => import('@/views/SpacePredictView.vue'),
+        component: () => import('@/components/space-workspace/event-predict/SpacePredictView.vue'),
         meta: { title: 'Event Predict', keepAlive: true, permission: 'front.fb.eventPredict' }
       },
 
       {
         path: '/spaces/:spaceId/inventory',
         name: 'space-inventory',
-        component: () => import('@/views/SpaceInventoryView.vue'),
+        component: () => import('@/components/space-workspace/inventory/SpaceInventoryView.vue'),
         meta: { title: 'Post-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'post' }
       },
 
@@ -181,21 +181,21 @@ const routes = [
         // route.path). Doc : docs/modules/10_POST_EVENT_INVENTORY.md §8.
         path: '/spaces/:spaceId/pre-inventory',
         name: 'space-pre-inventory',
-        component: () => import('@/views/SpaceInventoryView.vue'),
+        component: () => import('@/components/space-workspace/inventory/SpaceInventoryView.vue'),
         meta: { title: 'Pre-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'pre' }
       },
 
       {
         path: '/spaces/:spaceId/logistic',
         name: 'space-logistic',
-        component: () => import('@/views/SpaceLogisticView.vue'),
+        component: () => import('@/components/space-workspace/logistic/SpaceLogisticView.vue'),
         meta: { title: 'Logistique', keepAlive: true, permission: 'front.fb.logistic' }
       },
 
       {
         path: '/spaces/:spaceId/restock',
         name: 'space-restock',
-        component: () => import('@/views/SpaceRestockView.vue'),
+        component: () => import('@/components/space-workspace/restock/SpaceRestockView.vue'),
         meta: { title: 'Réarmement', keepAlive: true, permission: ['front.fb.restock', 'front.fb.restockBoard'] }
       },
 
@@ -205,7 +205,7 @@ const routes = [
         // Inventaire (v2). `front.fb.live` déjà catalogué. `keepAlive` explicite.
         path: '/spaces/:spaceId/live',
         name: 'space-live',
-        component: () => import('@/components/analyse/AnalyseView.vue'),
+        component: () => import('@/components/space-workspace/analyse/AnalyseView.vue'),
         meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
       },
 
@@ -474,7 +474,7 @@ const routes = [
     : [{
       path: '/predict-test',
       name: 'predict-test',
-      component: () => import('../views/PredictTestView.vue'),
+      component: () => import('@/components/space-workspace/event-predict/PredictTestView.vue'),
       meta: { title: 'Predict — Test Harness' }
     }]),
 

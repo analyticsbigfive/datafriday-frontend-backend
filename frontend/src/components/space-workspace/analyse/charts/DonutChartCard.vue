@@ -71,7 +71,7 @@ import { registerChartJs } from '@/lib/chartjs'
 import { formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useI18n } from '@/i18n/useI18n'
 import { useFilters } from '@/composables/useFilters'
-import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
+import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
 
 registerChartJs()
 

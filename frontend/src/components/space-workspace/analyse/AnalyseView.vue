@@ -574,12 +574,12 @@ import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import FilterPanel from './filters/FilterPanel.vue'
-import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
-import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
+import LiveInventoryPanel from '@/components/space-workspace/live/LiveInventoryPanel.vue'
+import LiveSaleSimulatorWidget from '@/components/space-workspace/live/LiveSaleSimulatorWidget.vue'
 import FilterSummary from './filters/FilterSummary.vue'
 import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'
-import EventTimelineChart from './charts/EventTimelineChart.vue'
+import EventTimelineChart from '@/components/space-workspace/shared/EventTimelineChart.vue'
 import ShopDistributionPieChart from './charts/ShopDistributionPieChart.vue'
 import TransactionCategoryMixChart from './charts/TransactionCategoryMixChart.vue'
 import MenuItemRevenueDistribution from './tables/MenuItemRevenueDistribution.vue'
@@ -592,7 +592,7 @@ import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
-const EventPredictView = defineAsyncComponent(() => import('@/components/EventPredictView.vue'))
+const EventPredictView = defineAsyncComponent(() => import('@/components/space-workspace/event-predict/EventPredictView.vue'))
 import GenericByEventChart from './charts/GenericByEventChart.vue'
 import ShopItemEventsDialog from './dialogs/ShopItemEventsDialog.vue'
 import UnalignedEventsDialog from './dialogs/UnalignedEventsDialog.vue'

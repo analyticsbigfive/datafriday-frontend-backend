@@ -46,7 +46,7 @@ import { computed, onMounted, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 // PERF: async → EventPredictView sort du chunk partagé 183 ; chargé à l'affichage.
-const EventPredictView = defineAsyncComponent(() => import('@/components/EventPredictView.vue'))
+const EventPredictView = defineAsyncComponent(() => import('@/components/space-workspace/event-predict/EventPredictView.vue'))
 
 const route = useRoute()
 const router = useRouter()

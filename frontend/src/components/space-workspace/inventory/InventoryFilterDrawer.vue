@@ -251,7 +251,7 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
-import InventoryReconciliationSection from '@/components/InventoryReconciliationSection.vue'
+import InventoryReconciliationSection from '@/components/space-workspace/inventory/InventoryReconciliationSection.vue'
 
 export default {
   name: 'InventoryFilterDrawer',

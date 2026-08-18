@@ -60,7 +60,7 @@
  * Le markup était auparavant dupliqué inline dans les deux vues, avec un coût
  * affiché d'un seul côté.
  */
-import Badge from '../ui/badge.vue'
+import Badge from '@/ui/badge.vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrencyDetailed as fmtCurrency } from '@/composables/useFormatters'
 
