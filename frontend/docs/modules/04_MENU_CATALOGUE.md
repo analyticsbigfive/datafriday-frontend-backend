@@ -189,6 +189,56 @@ routes `PUT :id/xxx` existantes) ne recalcule PAS la contribution combo — seul
 `replaceComboItems()`/`create()`/`update()` avec `comboItems` la met à jour. Même famille de limite
 que le bug déjà documenté sur `MenuComponent.unitCost` (voir section MenuComponent plus bas).
 
+### 🟣 Demande de Bertrand (2026-08-18) — mettre un prix sur un combo, choix à faire
+
+> D'après les maquettes de Bertrand (« Add Price to a Combo »). Ce qui existe déjà, ce qui manque,
+> et les choix à faire. **Rien n'est encore développé** — on cadre le sujet avant de coder.
+
+**L'idée** : dès qu'un menu item est composé d'autres menu items (un « combo »), on veut pouvoir lui
+mettre un prix par espace, avec une remise :
+- le prix de départ = la **somme des prix des éléments du combo** pour cet espace (un emballage compte 0) ;
+- on saisit soit un **prix**, soit un **pourcentage de promo** — l'un met l'autre à jour tout seul ;
+- une fois ajouté, une petite **fiche par espace** montre le détail (prix de chaque élément, total
+  avant et après promo, TTC / HT / TVA). On peut la modifier ou la supprimer ;
+- la marge tient compte du coût et du prix **après** promo.
+
+**Attention à deux choses qui portent presque le même nom** :
+- « **c'est un combo** » (le menu item est composé d'autres menu items) — **n'existe pas encore**.
+- « **peut servir dans un combo** » (une case Oui/Non déjà présente) — **existe déjà**.
+Ce sont deux choses différentes.
+
+**Ce qui marche déjà** : ajouter des éléments à un combo fonctionne ; on peut cocher « peut servir
+dans un combo » ; on peut déjà mettre un **prix par espace** (avec TVA) — mais ce n'est **pas** une
+promo, c'est juste un prix.
+
+**Au sujet de la « promo » qui existerait déjà** — à clarifier, car c'est trompeur : dans les
+données, un menu item peut porter une remise (un type + une valeur), mais **une seule pour tout
+l'article** (pas par espace). Et surtout, **il n'y a AUCUN écran pour la saisir** dans la
+création/édition d'un menu item : le champ existe dans le modèle et est envoyé au serveur, mais il
+reste **invisible** et **sans effet** sur le prix/la marge affichés. Autrement dit, aujourd'hui
+personne ne peut mettre de promo depuis cet écran — il n'y a **pas** de vraie section promo
+utilisable.
+
+**Ce qui manque** :
+- l'étiquette « c'est un combo » ;
+- le champ « promo » relié au prix ;
+- une **remise différente selon l'espace** ;
+- récupérer le **prix de vente de chaque élément du combo, espace par espace** (pour l'instant on n'a
+  que leur coût, pas leur prix de vente).
+
+**Décisions prises (Bertrand, 2026-08-18)** :
+
+| # | Choix | Décision |
+|---|---|---|
+| **A** | « c'est un combo » : donnée stockée ou devinée ? | **Donnée stockée** (`isCombo` = vrai dès qu'on ajoute un élément combo), distincte de « peut servir dans un combo ». |
+| **B** | Promo/remise par espace ? | **Oui** — une promo peut viser **un ou plusieurs espaces**. (Il n'y a pas de promo utilisable aujourd'hui : le champ existant est global et sans écran.) |
+| **C** | Prix de base du combo ? | Chaque élément du combo est **lui-même un Menu Item avec son propre prix** (par espace) → base = **somme de ces prix** ; un emballage compte 0. |
+| **D** | Écran : mode combo à la place, ou en plus ? | Quand c'est un combo, la zone de prix **bascule** en mode « Prix ↔ Promo » **à la place** de la zone habituelle (maquette : « the section changes »). |
+
+C'est un chantier qui touche à la fois l'écran **et** la base de données (la promo par espace). À
+faire par petites étapes. Côté équipe : le menu item est le domaine d'Ulrich ; la demande vient de
+Bertrand.
+
 ### Import/Export CSV — reprise du format `Recipe` legacy (BUG-257-02)
 
 `MenuItemCsvImportDrawer.vue` gérait déjà un format `Recipe` packé (BUG-108, `parseRecipe()`) mais
