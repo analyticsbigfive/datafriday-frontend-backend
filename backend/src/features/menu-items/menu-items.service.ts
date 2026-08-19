@@ -108,6 +108,12 @@ export class MenuItemsService {
       include: { child: true },
       orderBy: { id: 'asc' as const },
     },
+    promotion: {
+      include: {
+        promotionType: { select: { id: true, name: true } },
+        discountedProduct: { select: { id: true, name: true } },
+      },
+    },
     menuAssignments: {
       include: {
         // select scalaire : serializeItem ne lit que station.config.spaceId — un
@@ -139,7 +145,7 @@ export class MenuItemsService {
     for (const sid of assignmentSpaceIds) {
       if (!mergedSpaceIds.includes(sid)) mergedSpaceIds.push(sid);
     }
-    const { menuAssignments, spaceLinks, ...rest } = item;
+    const { menuAssignments, spaceLinks, promotion, ...rest } = item;
     const spacePrices = linksToSpacePrices(spaceLinks);
     // Coût PAR PIÈCE dérivé du coût total recette (colonne `totalCost` = fournée entière) ÷ nombre
     // de pièces. C'est la valeur à afficher/comparer au prix de vente d'une portion (cf. pricing).
@@ -150,6 +156,12 @@ export class MenuItemsService {
       costPerPiece,
       spaceIds: mergedSpaceIds,
       spacePrices,
+      // Promotion « est en promotion » : contrat plat pour le front (le form lit ces champs).
+      isOnPromotion: !!promotion,
+      discountedProductId: promotion?.discountedProductId ?? null,
+      promotionTypeId: promotion?.promotionTypeId ?? null,
+      discountedProductName: promotion?.discountedProduct?.name ?? null,
+      promotionTypeName: promotion?.promotionType?.name ?? null,
       pricing: this.pricing.computePricing(item, tenantVatRate, null),
       spacePricing: this.pricing.computeSpacePricing({ ...item, spacePrices }, tenantVatRate, null),
     };
@@ -436,6 +448,20 @@ export class MenuItemsService {
                     unit: l.unit,
                     cost: l.cost != null ? Number(l.cost) : undefined,
                   })),
+                },
+              }
+            : {}),
+
+          // Promotion « cet item est en promotion » → ligne Promotion liée (0 ou 1).
+          ...(dto.isOnPromotion
+            ? {
+                promotion: {
+                  create: {
+                    tenantId,
+                    discountedProductId: dto.discountedProductId || null,
+                    promotionTypeId: dto.promotionTypeId || null,
+                    isActive: true,
+                  },
                 },
               }
             : {}),
@@ -961,6 +987,30 @@ export class MenuItemsService {
         spaceIds: (dto as any).spaceIds,
         spacePrices: (dto as any).spacePrices,
       });
+
+      // Promotion « cet item est en promotion » : upsert (créer/maj le produit remisé + type)
+      // ou suppression selon le flag. menuItemId est @unique → upsert par menuItemId.
+      if (dto.isOnPromotion !== undefined) {
+        if (dto.isOnPromotion) {
+          await this.prisma.promotion.upsert({
+            where: { menuItemId: id },
+            create: {
+              tenantId,
+              menuItemId: id,
+              discountedProductId: dto.discountedProductId || null,
+              promotionTypeId: dto.promotionTypeId || null,
+              isActive: true,
+            },
+            update: {
+              discountedProductId: dto.discountedProductId || null,
+              promotionTypeId: dto.promotionTypeId || null,
+              isActive: true,
+            },
+          });
+        } else {
+          await this.prisma.promotion.deleteMany({ where: { menuItemId: id } });
+        }
+      }
 
       if (componentsLines || ingredientsLines || packagingsLines) {
         await this.refreshCosts(tenantId, { itemIds: [id] });

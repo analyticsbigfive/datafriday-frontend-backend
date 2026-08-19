@@ -410,6 +410,70 @@
                 />
               </div>
 
+              <!-- Promotion : « cet item est en promotion » → produit remisé + type de promo -->
+              <div class="mic-promo-card mb-3">
+                <div class="mic-promo-card__title">{{ t('menuItemCreate.promotionSectionTitle') }}</div>
+                <div class="mic-promo-card__divider"></div>
+
+                <div class="mic-promo-card__field">
+                  <label class="mic-field-label">{{ t('menuItemCreate.promotionLabel') }}</label>
+                  <v-select
+                    v-model="form.isOnPromotion"
+                    :items="[{ title: t('menuItemCreate.promotionYes'), value: true }, { title: t('menuItemCreate.promotionNo'), value: false }]"
+                    item-title="title"
+                    item-value="value"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    rounded="lg"
+                  />
+                </div>
+
+                <div v-if="form.isOnPromotion" class="mic-promo-card__field">
+                  <label class="mic-field-label">{{ t('menuItemCreate.promotionDiscountedProduct') }}</label>
+                  <v-select
+                    v-model="form.discountedProductId"
+                    :items="promotionDiscountedOptions"
+                    item-title="name"
+                    item-value="id"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    clearable
+                    rounded="lg"
+                    :placeholder="t('menuItemCreate.promotionSelectPlaceholder')"
+                  />
+                  <div class="mic-promo-card__hint">{{ t('menuItemCreate.promotionDiscountedHelper') }}</div>
+                </div>
+
+                <div v-if="form.isOnPromotion" class="mic-promo-card__field">
+                  <label class="mic-field-label">{{ t('menuItemCreate.promotionType') }}</label>
+                  <div class="mic-promo-card__type-row">
+                    <v-select
+                      v-model="form.promotionTypeId"
+                      :items="promotionTypeOptions"
+                      item-title="name"
+                      item-value="id"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      clearable
+                      rounded="lg"
+                      class="mic-promo-card__type-select"
+                      :placeholder="t('menuItemCreate.promotionTypePlaceholder')"
+                    />
+                    <button
+                      type="button"
+                      class="mic-promo-card__add-btn"
+                      :title="t('menuItemCreate.promotionTypeDialogAdd')"
+                      @click="createPromotionTypeDialog = true"
+                    >
+                      <Plus :size="18" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <!-- Prix par space -->
               <div class="form-section-divider mb-2 mt-1">
                 <span>{{ t('menuItemCreate.sectionPricePerSpace') }}</span>
@@ -522,8 +586,76 @@
                 </button>
               </div>
 
+              <!-- Combo : fiche détail par espace (breakdown enfants + promo + marge) -->
+              <div v-if="isCombo && comboSpaceCards.length" class="mb-3">
+                <div v-for="card in comboSpaceCards" :key="card.spaceId" class="mic-combo-card mb-2">
+                  <div class="mic-combo-card__head">
+                    <span class="mic-combo-card__price">{{ formatCurrencyDetailed(card.finalTtc) }}</span>
+                    <span class="mic-combo-card__space">{{ card.spaceName }}</span>
+                    <v-btn
+                      icon
+                      size="x-small"
+                      variant="text"
+                      color="error"
+                      class="mic-combo-card__del"
+                      @click="removeGroupFromItem([card.spaceId])"
+                    >
+                      <Trash2 :size="14" />
+                    </v-btn>
+                  </div>
+
+                  <div v-if="card.discountType" class="mic-combo-card__discount">
+                    Remise :
+                    <strong>{{
+                      card.discountType === 'percent'
+                        ? `${card.discountValue} %`
+                        : formatCurrencyDetailed(card.discountValue)
+                    }}</strong>
+                  </div>
+
+                  <div class="mic-combo-card__lines">
+                    <div v-for="(c, i) in card.children" :key="`b-${i}`" class="mic-combo-card__line">
+                      <span class="mic-combo-card__line-name">{{ c.name }}</span>
+                      <span class="mic-combo-card__line-val">{{ formatCurrencyDetailed(c.beforeTtc) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="mic-combo-card__totals">
+                    <div class="mic-combo-card__total-row">
+                      <span>Total TTC avant remise</span>
+                      <span>{{ formatCurrencyDetailed(card.totalBefore) }}</span>
+                    </div>
+                    <div class="mic-combo-card__total-row mic-combo-card__total-row--strong">
+                      <span>Total TTC après promo</span>
+                      <span>{{ formatCurrencyDetailed(card.totalAfter) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="mic-combo-card__split">
+                    <div v-for="(c, i) in card.children" :key="`s-${i}`" class="mic-combo-card__split-line">
+                      <span class="mic-combo-card__line-name">{{ c.name }}</span>
+                      <span class="mic-combo-card__split-val">
+                        {{ formatCurrencyDetailed(c.afterTtc) }} TTC · {{ formatCurrencyDetailed(c.ht) }} HT<template
+                          v-if="c.vatRate != null"
+                        >
+                          ({{ formatCurrencyDetailed(c.tva) }} TVA {{ c.vatRate }}%)</template
+                        >
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="mic-combo-card__sep" />
+                  <div class="mic-combo-card__margin">
+                    <span class="mic-price-margin-label">Marge</span>
+                    <span :class="getGroupMarginColor(card.finalTtc)" class="mic-margin-value">
+                      {{ getGroupMargin(card.finalTtc) }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               <!-- Price group cards -->
-              <div v-if="groupedSpaces.length" class="mb-3">
+              <div v-else-if="groupedSpaces.length" class="mb-3">
                 <div v-for="group in groupedSpaces" :key="group.key" class="mic-price-card mb-2">
                   <div class="mic-price-row">
                     <div class="mic-price-display mic-price-input">
@@ -683,6 +815,8 @@
     <!-- Create Packing Type Dialog -->
     <CreatePackingTypeDialog v-model="packingTypeCreateOpen" :is-dark="isDark" @created="onPackingTypeCreated" />
 
+    <CreatePromotionTypeDialog v-model="createPromotionTypeDialog" :is-dark="isDark" @created="onPromotionTypeCreated" />
+
     <!-- Create Type Dialog -->
     <CreateTypeDialog v-model="createTypeDialog" :is-dark="isDark" @created="onTypeCreated" />
 
@@ -740,10 +874,11 @@ import CreateCategoryDialog from '../dialogs/CreateCategoryDialog.vue';
 import BrandNameFormDrawer from '@/components/brand-name/drawers/BrandNameFormDrawer.vue';
 import DisplayNameFormDrawer from '@/components/display-name/drawers/DisplayNameFormDrawer.vue';
 import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
+import CreatePromotionTypeDialog from '../dialogs/CreatePromotionTypeDialog.vue';
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog, CreatePromotionTypeDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -792,8 +927,12 @@ export default {
         allergens: [],
         description: "",
         numberOfPiecesRecipe: 1,
+        // Promotion « est en promotion » : produit remisé (autre menu item) + type de promo.
+        isOnPromotion: false,
+        discountedProductId: null,
+        promotionTypeId: null,
       },
-      
+
       // Space selection drawer
       spaceDrawer: false,
       groupDrawer: false,
@@ -803,6 +942,9 @@ export default {
 
       // Create Type dialog
       createTypeDialog: false,
+
+      // Create Promotion Type dialog (bouton + de la carte Promotion)
+      createPromotionTypeDialog: false,
 
       // Create Category dialog
       createCategoryDialog: false,
@@ -860,8 +1002,11 @@ export default {
       this.$store.dispatch('storageTypes/fetchStorageTypes'),
       this.$store.dispatch('suppliers/fetchSuppliers'),
       this.$store.dispatch('seasons/fetchAll'),
+      // Référentiel des types de promotion (select du bloc « est en promotion »).
+      this.$store.dispatch('promotionTypes/fetchPromotionTypes'),
       // Catalogue complet (avec spacePrices) : sert à résoudre le prix par espace de chaque
-      // enfant d'un combo (base = somme de ces prix, cf. tarification combo).
+      // enfant d'un combo (base = somme de ces prix, cf. tarification combo) ET à alimenter le
+      // select « produit remisé » de la promotion.
       this.$store.dispatch('menuItems/fetchMenuItems'),
     ]);
 
@@ -960,6 +1105,20 @@ export default {
         .map((s) => ({ id: String(s?.id || s?._id || ''), name: String(s?.name || '').trim() }))
         .filter((s) => s.id && s.name);
     },
+    // Options du select « type de promotion » (référentiel Configuration).
+    promotionTypeOptions() {
+      return (this.$store.getters['promotionTypes/promotionTypes'] || [])
+        .map((p) => ({ id: String(p?.id || p?._id || ''), name: String(p?.name || '').trim() }))
+        .filter((p) => p.id && p.name);
+    },
+    // Options du select « produit remisé » : tous les menu items sauf l'item courant.
+    promotionDiscountedOptions() {
+      const currentId = String(this.menuItemId || '');
+      return (this.$store.getters['menuItems/rows'] || [])
+        .map((m) => ({ id: String(m?.id || m?._id || ''), name: String(m?.name || m?.title || '').trim() }))
+        .filter((m) => m.id && m.name && m.id !== currentId)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
     // « Cet item EST un combo » : vrai dès qu'il contient au moins un élément combo (distinct du
     // flag comboItem « réutilisable dans un combo »). Posé automatiquement, envoyé au backend.
     isCombo() {
@@ -972,6 +1131,45 @@ export default {
     comboRefBase() {
       const refSpace = (this.newPriceSpaces && this.newPriceSpaces[0]) || null;
       return this.comboBaseForSpace(refSpace);
+    },
+    // Fiche détail par espace (combo) : breakdown par élément, total avant/après promo, TTC/HT/TVA, marge.
+    comboSpaceCards() {
+      if (!this.isCombo) return [];
+      return (this.form.spaces || [])
+        .filter((sid) => this.form.spacePrices[sid] != null)
+        .map((sid) => {
+          const entry = this.form.spacePrices[sid];
+          const finalTtc = this.spTtc(entry);
+          const discountType = entry && typeof entry === 'object' ? (entry.discountType || null) : null;
+          const discountValue =
+            entry && typeof entry === 'object' && entry.discountValue != null ? Number(entry.discountValue) : 0;
+          // Prix « avant remise » par élément (ComboItem = son prix pour l'espace, sinon 0).
+          const rows = (this.items || []).map((it) => {
+            const isChild = it.type === 'ComboItem';
+            const beforeTtc = isChild ? this.comboChildTtc(it.comboItemId, sid) * (Number(it.quantity) || 1) : 0;
+            const vatRate = isChild ? this.comboChildVat(it.comboItemId, sid) : null;
+            return { name: it.name, beforeTtc, vatRate };
+          });
+          const totalBefore = rows.reduce((s, r) => s + r.beforeTtc, 0);
+          // Ratio universel (marche pour % et montant) : le prix final stocké / la base.
+          const factor = totalBefore > 0 ? finalTtc / totalBefore : 1;
+          const children = rows.map((r) => {
+            const afterTtc = Math.round(r.beforeTtc * factor * 100) / 100;
+            const ht = r.vatRate && r.vatRate > 0 ? afterTtc / (1 + r.vatRate / 100) : afterTtc;
+            return { ...r, afterTtc, ht, tva: afterTtc - ht };
+          });
+          return {
+            spaceId: sid,
+            spaceName: this.getSpaceName(sid),
+            finalTtc,
+            discountType,
+            discountValue,
+            children,
+            totalBefore,
+            totalAfter: finalTtc,
+            margin: finalTtc ? ((finalTtc - this.costPerPiece) / finalTtc) * 100 : 0,
+          };
+        });
     },
     displayNamesWithCreate() {
       return [
@@ -1123,6 +1321,13 @@ export default {
       const sp = spaceId && child.spacePrices ? child.spacePrices[spaceId] : null;
       const ttc = sp && sp.ttc != null ? Number(sp.ttc) : Number(child.basePrice || 0);
       return Number.isFinite(ttc) ? ttc : 0;
+    },
+    comboChildVat(comboItemId, spaceId) {
+      const child = this.comboChildRow(comboItemId);
+      if (!child) return null;
+      const sp = spaceId && child.spacePrices ? child.spacePrices[spaceId] : null;
+      const v = sp && sp.vatRate != null ? Number(sp.vatRate) : (child.vatRate != null ? Number(child.vatRate) : null);
+      return v != null && Number.isFinite(v) ? v : null;
     },
     // Base d'un combo pour un espace = somme (prix enfant × quantité) ; seuls les ComboItem comptent.
     comboBaseForSpace(spaceId) {
@@ -1333,6 +1538,10 @@ export default {
           brandId: this.form.brandId || null,
           displayNameId: this.form.displayNameId || null,
           seasonId: this.form.seasonId || null,
+          // Promotion « est en promotion » : le produit remisé + le type ne sont envoyés que si actif.
+          isOnPromotion: !!this.form.isOnPromotion,
+          discountedProductId: this.form.isOnPromotion ? (this.form.discountedProductId || null) : null,
+          promotionTypeId: this.form.isOnPromotion ? (this.form.promotionTypeId || null) : null,
           componentsData: {},
           components: components,
           ingredients: ingredients,
@@ -1497,6 +1706,13 @@ export default {
         this.form.inventoryPackagingType = name;
       }
     },
+    onPromotionTypeCreated(created) {
+      const id = created?.id || created?._id;
+      if (id) {
+        this.$store.dispatch('promotionTypes/fetchPromotionTypes', { forceRefresh: true });
+        this.form.promotionTypeId = id;
+      }
+    },
     onBrandCreated(brand) {
       const id = brand?.id || brand?._id;
       if (id) {
@@ -1564,6 +1780,10 @@ export default {
         this.form.inventoryUnit = menuItem.inventoryUnit || "Pc";
         this.form.comboItem = menuItem.comboItem || "No";
         this.form.numberOfPiecesRecipe = Number(menuItem.numberOfPiecesRecipe) || 1;
+        // Promotion (contrat plat renvoyé par le backend : isOnPromotion + ids).
+        this.form.isOnPromotion = !!menuItem.isOnPromotion;
+        this.form.discountedProductId = menuItem.discountedProductId || null;
+        this.form.promotionTypeId = menuItem.promotionTypeId || null;
         this.form.storageTypes = Array.isArray(menuItem.storageType) ? menuItem.storageType : [];
         this.form.dietTypes = Array.isArray(menuItem.diet) ? menuItem.diet : [];
         this.form.allergens = Array.isArray(menuItem.allergens) ? menuItem.allergens : [];
@@ -2298,6 +2518,214 @@ label {
   color: var(--fb-muted, #6b7280);
   font-variant-numeric: tabular-nums;
   padding-left: 2px;
+}
+/* Carte Promotion : bloc « est en promotion » regroupé */
+.mic-promo-card {
+  background: #eff4fe;
+  border: 1.5px solid #dbe7fb;
+  border-radius: 16px;
+  padding: 18px 20px 20px;
+}
+.mic-promo-card__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #111827;
+}
+.mic-promo-card__divider {
+  height: 1px;
+  background: #d5e1f6;
+  margin: 12px 0 16px;
+}
+.mic-promo-card__field {
+  margin-bottom: 14px;
+}
+.mic-promo-card__field:last-child {
+  margin-bottom: 0;
+}
+.mic-promo-card__field .mic-field-label {
+  display: block;
+  margin-bottom: 6px;
+}
+.mic-promo-card__hint {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+.mic-promo-card__type-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.mic-promo-card__type-select {
+  flex: 1;
+  min-width: 0;
+}
+.mic-promo-card__add-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, box-shadow .15s;
+}
+.mic-promo-card__add-btn:hover {
+  border-color: #ff3131;
+  color: #ff3131;
+  box-shadow: 0 1px 6px rgba(255, 49, 49, .12);
+}
+.mic--dark .mic-promo-card {
+  background: #172136;
+  border-color: rgba(255, 255, 255, .1);
+}
+.mic--dark .mic-promo-card__title {
+  color: #f1f5f9;
+}
+.mic--dark .mic-promo-card__divider {
+  background: rgba(255, 255, 255, .12);
+}
+.mic--dark .mic-promo-card__hint {
+  color: #94a3b8;
+}
+.mic--dark .mic-promo-card__add-btn {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, .12);
+  color: #cbd5e1;
+}
+.mic--dark .mic-promo-card__add-btn:hover {
+  border-color: #ff3131;
+  color: #fca5a5;
+}
+
+/* Combo : fiche détail par espace */
+.mic-combo-card {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.mic-combo-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mic-combo-card__price {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #111827;
+}
+.mic-combo-card__space {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mic-combo-card__del {
+  flex: 0 0 auto;
+}
+.mic-combo-card__discount {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: #b91c1c;
+}
+.mic-combo-card__lines {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mic-combo-card__line,
+.mic-combo-card__split-line,
+.mic-combo-card__total-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+.mic-combo-card__line-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mic-combo-card__line-val,
+.mic-combo-card__split-val {
+  flex: 0 0 auto;
+  text-align: right;
+  color: #111827;
+}
+.mic-combo-card__totals {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mic-combo-card__total-row--strong {
+  font-weight: 700;
+  color: #111827;
+}
+.mic-combo-card__total-row--strong span {
+  color: #111827;
+}
+.mic-combo-card__split {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mic-combo-card__split-val {
+  font-size: 0.74rem;
+  color: #6b7280;
+}
+.mic-combo-card__sep {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 10px 0 8px;
+}
+.mic-combo-card__margin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mic--dark .mic-combo-card {
+  background: #142033;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.mic--dark .mic-combo-card__price,
+.mic--dark .mic-combo-card__line-val,
+.mic--dark .mic-combo-card__total-row--strong,
+.mic--dark .mic-combo-card__total-row--strong span {
+  color: #f1f5f9;
+}
+.mic--dark .mic-combo-card__space {
+  color: #cbd5e1;
+}
+.mic--dark .mic-combo-card__line,
+.mic--dark .mic-combo-card__split-line,
+.mic--dark .mic-combo-card__total-row {
+  color: #94a3b8;
+}
+.mic--dark .mic-combo-card__totals {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+.mic--dark .mic-combo-card__sep {
+  background: rgba(255, 255, 255, 0.12);
+}
+.mic--dark .mic-combo-card__discount {
+  color: #fca5a5;
 }
 .mic-price-add-row__amount {
   flex: 0 0 140px;

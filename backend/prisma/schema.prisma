@@ -2354,6 +2354,9 @@ model MenuItem {
   comboChildren   MenuItemCombo[]             @relation("ComboParentToChild")
   comboParents    MenuItemCombo[]             @relation("ComboChildToParent")
   salesInputs     ElementMenuItemSalesInput[]
+  // Promotion portée par CET item (0 ou 1) + promotions où CET item est le produit remisé.
+  promotion               Promotion?  @relation("MenuItemPromotion")
+  discountedInPromotions  Promotion[] @relation("PromotionDiscountedProduct")
 
   @@index([tenantId])
   @@index([name])
@@ -2364,6 +2367,42 @@ model MenuItem {
   @@index([seasonId])
   @@index([readyForSale])
   @@index([tenantId, deletedAt])
+}
+
+/// Type de promotion (référentiel de configuration, comme DisplayName) — alimente le select
+/// « type de promotion » d'une Promotion. Géré dans Configuration > Types de promotion.
+model PromotionType {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  promotions Promotion[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// Promotion attachée à UN menu item (0 ou 1 par item, `menuItemId @unique`). Quand un menu
+/// item « est en promotion », il désigne un produit remisé (`discountedProduct`, un autre
+/// MenuItem) et un `promotionType` (référentiel ci-dessus).
+model Promotion {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  menuItemId          String    @unique
+  menuItem            MenuItem  @relation("MenuItemPromotion", fields: [menuItemId], references: [id], onDelete: Cascade)
+  discountedProductId String?
+  discountedProduct   MenuItem? @relation("PromotionDiscountedProduct", fields: [discountedProductId], references: [id], onDelete: SetNull)
+  promotionTypeId     String?
+  promotionType       PromotionType? @relation(fields: [promotionTypeId], references: [id], onDelete: SetNull)
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([menuItemId])
+  @@index([discountedProductId])
+  @@index([promotionTypeId])
 }
 
 model MenuItemCombo {

@@ -172,11 +172,12 @@ export default {
         .sort((a, b) => String(a.name).localeCompare(String(b.name)));
     },
     items() {
-      const wantedSpaces = (this.spaceIds || []).filter(Boolean);
-      if (!wantedSpaces.length) return this.eligibleItems;
-      // Ne garder que les menu items fournis dans au moins un des espaces sélectionnés pour
-      // l'item en cours (form.spaces du parent).
-      return this.eligibleItems.filter(m => (m.spaceIds || []).some(sid => wantedSpaces.includes(sid)));
+      // Tous les menu items éligibles combo sont sélectionnables, indépendamment des espaces du
+      // parent. Le modèle de prix combo DÉRIVE les espaces vendus des enfants (base = somme des
+      // prix des enfants, avec repli sur basePrice hors espace) : restreindre les enfants aux
+      // espaces du parent était une logique inversée qui masquait un combo qu'on venait de retirer
+      // (form.spaces conservant les espaces de prix du combo supprimé).
+      return this.eligibleItems;
     },
     categoryOptions() {
       return Array.from(new Set((this.items || []).map(m => m.category).filter(Boolean)))

@@ -195,6 +195,23 @@ export class CreateMenuItemDto {
   @IsBoolean()
   isCombo?: boolean;
 
+  @ApiPropertyOptional({ description: '« Cet item est en promotion » — crée/maj une Promotion liée' })
+  @IsOptional()
+  @IsBoolean()
+  isOnPromotion?: boolean;
+
+  @ApiPropertyOptional({ description: 'ID du menu item remisé (discounted product) de la promotion' })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value || undefined)
+  discountedProductId?: string;
+
+  @ApiPropertyOptional({ description: 'ID du PromotionType (référentiel Configuration)' })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value || undefined)
+  promotionTypeId?: string;
+
   // Prix négatif autorisé (remises/avoirs) — pas de @Min(0).
   @ApiProperty({ description: 'Prix de vente de base (TTC brut, négatif autorisé)' })
   @IsNumber()

@@ -239,6 +239,35 @@ C'est un chantier qui touche à la fois l'écran **et** la base de données (la 
 faire par petites étapes. Côté équipe : le menu item est le domaine d'Ulrich ; la demande vient de
 Bertrand.
 
+### 🟣 Demande de Bertrand (2026-08-19) — « mettre un menu item en promotion »
+
+Distinct de la promo **par espace** du combo ci-dessus : ici un menu item peut « être en
+promotion », désignant **un autre menu item comme produit remisé** (discounted product) et **un
+type de promotion**. Modélisé en **table dédiée** (extensible : dates/cumul plus tard).
+
+**Modèle de données** (migration `20260819120000_add_promotions`) :
+- `PromotionType` — référentiel de configuration (comme `DisplayName`) : `{ id, name, tenantId }`,
+  unique `(tenantId, name)`. Géré dans **Configuration > Types de promotion**
+  (`/configurations/promotion-types`, `PromotionTypeListView` = wrapper `FlatReferentialListView`,
+  store `promotionTypes`, api `promotion-type.api.js`, feature backend `promotion-types/`).
+- `Promotion` — **0 ou 1 par menu item** (`menuItemId @unique`) : `{ menuItemId → MenuItem (cascade),
+  discountedProductId → MenuItem (setNull), promotionTypeId → PromotionType (setNull), isActive }`.
+  Relations sur `MenuItem` : `promotion` (portée par l'item) + `discountedInPromotions` (item cité
+  comme produit remisé).
+
+**Contrat API** : le menu item sérialise à plat `isOnPromotion`, `discountedProductId`,
+`promotionTypeId` (+ `discountedProductName`/`promotionTypeName` pour l'affichage). En
+création/édition, le DTO accepte ces trois champs ; le service `menu-items.service.ts` crée la
+`Promotion` en nested-create (create) ou en `upsert`/`deleteMany` par `menuItemId` (update).
+
+**UI** : `MenuItemCreateView`, bloc **après « Nombre de pièces »** — select « En promotion »
+(Oui/Non) ; si Oui → select « Produit remisé » (liste des menu items sauf l'item courant) + select
+« Type de promotion » (référentiel).
+
+**Reste à finaliser** (connu, non bloquant) : la **mécanique** d'application de la remise (ce que
+« type de promotion » fait concrètement au prix du produit remisé) n'est pas encore branchée — seul
+le lien est stocké. `PromotionType` est un simple libellé pour l'instant.
+
 ### Import/Export CSV — reprise du format `Recipe` legacy (BUG-257-02)
 
 `MenuItemCsvImportDrawer.vue` gérait déjà un format `Recipe` packé (BUG-108, `parseRecipe()`) mais
@@ -251,9 +280,10 @@ que Components (voir sa propre section plus bas) :
   recours, puis auto-référence à une autre ligne du même fichier CSV (résolue en 2 passes,
   indépendamment de l'ordre des lignes) ou à un `MenuItem` déjà existant dans ce tenant, alimentant
   `MenuItemCombo` en résultat final.
-- Colonnes ignorées à l'import (décision produit) : `Is this a Promotion`/`Discounted Product`/
-  `Promotion Type` — aucun champ MenuItem ne modélise un lien "cet article promo remise cet autre
-  article".
+- Colonnes ignorées à l'import (décision produit, **à réviser**) : `Is this a Promotion`/
+  `Discounted Product`/`Promotion Type` — historiquement aucun champ ne modélisait ce lien. Depuis
+  2026-08-19 le modèle existe (`Promotion` + `PromotionType`, voir section promotion plus haut) :
+  ces colonnes *pourraient* désormais être mappées, mais le câblage import n'est pas encore fait.
 - Import individuel (`withRecipe`, recette incluse dans le body — inchangé) et passe 2 (composition
   combo) parallélisés par lots bornés (`IMPORT_CONCURRENCY = 5`) + retry sur 429 avec le vrai
   `Retry-After`, même pattern que l'import CSV événements (BUG-252) — remplace une boucle
