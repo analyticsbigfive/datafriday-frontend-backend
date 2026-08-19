@@ -148,3 +148,51 @@ describe('isMeasureSymbol', () => {
     expect(isMeasureSymbol(null)).toBe(true)
   })
 })
+
+/**
+ * Total de paquets d'un GROUPE article (réunion Bertrand 2026-08-19 :
+ * « Blumberger 50 + 27 → 77 packs »). La règle est une somme des arrondis PAR
+ * LIGNE — on dépose des colis entiers par PdV — jamais l'arrondi de la somme.
+ * `groupPackTotal` (SpaceRestockView) n'est que cette somme sur
+ * packCountForQuantity ; c'est la propriété qu'on fige ici.
+ */
+describe('total de paquets par groupe (somme des arrondis par ligne)', () => {
+  const packaging = {
+    packagingType: 'Pack',
+    packagingUnitNumber: 4,
+    packagingUnit: 'pc',
+  }
+
+  it('50 + 27 packs sur deux PdV → 77', () => {
+    const rows = [200, 108] // unités : 200/4 = 50 packs, 108/4 = 27 packs
+    const total = rows.reduce((sum, qty) => sum + packCountForQuantity(qty, packaging), 0)
+    expect(total).toBe(77)
+  })
+
+  it('somme des arrondis, pas arrondi de la somme (2×1,5 colis → 4, pas 3)', () => {
+    const rows = [6, 6] // 6/4 = 1,5 → 2 colis par PdV
+    const perRow = rows.map((qty) => packCountForQuantity(qty, packaging))
+    expect(perRow).toEqual([2, 2])
+    const total = perRow.reduce((a, b) => a + b, 0)
+    const ceilOfSum = Math.ceil((6 + 6) / 4)
+    expect(total).toBe(4)
+    expect(ceilOfSum).toBe(3) // le piège qu'on refuse
+  })
+
+  it('override de plan chargé : le total suit la quantité éditée, pas la calculée', () => {
+    // effectiveRestockQuantity (SpaceRestockView) : lineOverrides[rowKey] ?? restockQuantity.
+    // L'utilisateur corrige le PdV A de 200 unités (50 packs) à 120 (30 packs) :
+    // le total de groupe doit lire l'override, sinon il contredit le champ édité.
+    const rows = [
+      { rowKey: 'pdv-a', restockQuantity: 200 },
+      { rowKey: 'pdv-b', restockQuantity: 108 },
+    ]
+    const lineOverrides = { 'pdv-a': 120 }
+    const effective = (row) => lineOverrides[row.rowKey] ?? row.restockQuantity
+    const total = rows.reduce(
+      (sum, row) => sum + packCountForQuantity(effective(row), packaging),
+      0
+    )
+    expect(total).toBe(30 + 27) // 57, plus 77
+  })
+})

@@ -57,6 +57,9 @@ const state = () => ({
   space: null, // { id, name } — résolu par /stock, plus besoin d'analyse/loadSpace
   configurations: [], // [{ id, name }]
   resolvedConfigId: null, // id de config, ou 'all' = vue agrégée toutes configs (chantier 341)
+  // Event le plus proche dans le futur pour cet espace, résolu côté serveur — calibre le
+  // "besoin prédit" par défaut (feuille de réarmement) sans ?event= explicite dans l'URL.
+  nextEventId: null,
   // [{ id, name, type, items: [...], configIds?: string[] }] — configIds uniquement peuplé
   // quand resolvedConfigId === 'all' (chantier 341) : ids des configs où l'élément a au
   // moins un MenuAssignment actif, pour le tag "Plan Max, Plan Réduit" sur les lignes PDV.
@@ -142,11 +145,12 @@ const mutations = {
   SET_SAVING(state, v) { state.saving = !!v },
   SET_RESETTING(state, v) { state.resetting = !!v },
   SET_ERROR(state, v) { state.error = v || null },
-  SET_STOCK(state, { spaceId, space, configurations, resolvedConfigId, elements, levels, consumption, anchor }) {
+  SET_STOCK(state, { spaceId, space, configurations, resolvedConfigId, nextEventId, elements, levels, consumption, anchor }) {
     state.spaceId = spaceId || null
     state.space = space || null
     state.configurations = Array.isArray(configurations) ? configurations : []
     state.resolvedConfigId = resolvedConfigId || null
+    state.nextEventId = nextEventId || null
     state.elements = Array.isArray(elements) ? elements : []
     const levelMap = {}
     for (const l of levels || []) levelMap[keyOf(l.elementId, l.itemKey)] = l
@@ -223,6 +227,7 @@ const actions = {
         space: data?.space || null,
         configurations: data?.configurations || [],
         resolvedConfigId: data?.resolvedConfigId || null,
+        nextEventId: data?.nextEventId || null,
         elements: data?.elements || [],
         levels: data?.levels || [],
         consumption: data?.consumption || [],

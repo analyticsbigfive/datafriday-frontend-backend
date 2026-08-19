@@ -1,4 +1,4 @@
-import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex } from '@/utils/preEventExpected'
+import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits, buildExpectedCalcDetails } from '@/utils/preEventExpected'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 
 const K = expectedKey
@@ -194,5 +194,93 @@ describe('aggregateExpectedUnitsFromIndex', () => {
     const index = { [K('st1', 'ice')]: 7 }
     const storageEntry = { element: { id: 'st1' }, storageInventory: [{ id: 'ice', unit: 'Kg' }] }
     expect(aggregateExpectedUnitsFromIndex(index, storageEntry)).toEqual([{ unit: 'Kg', total: 7 }])
+  })
+})
+
+// ── flattenExpectedUnits — badge « Attendu » de section pre-event ─────────────
+// (réunion Bertrand 2026-08-19 : post-event précédent + Logistique, plus le
+// plan Stockup sauvegardé).
+
+describe('flattenExpectedUnits', () => {
+  it('null sans index (pas de baseline / permission absente)', () => {
+    expect(flattenExpectedUnits(null)).toBeNull()
+    expect(flattenExpectedUnits(undefined)).toBeNull()
+  })
+
+  it('passe le total serveur tel quel quand `units` est présent', () => {
+    const out = flattenExpectedUnits({ [K('el1', 'beer')]: { packed: 2, loose: 3, units: 51 } })
+    expect(out[K('el1', 'beer')]).toBe(51)
+  })
+
+  it('conserve un total serveur négatif (signal, jamais clampé)', () => {
+    const out = flattenExpectedUnits({ [K('el1', 'beer')]: { packed: 0, loose: 0, units: -3 } })
+    expect(out[K('el1', 'beer')]).toBe(-3)
+  })
+
+  it('sans `units` ni taille écran : packed + loose (facteur 1)', () => {
+    const out = flattenExpectedUnits({ [K('el1', 'beer')]: { packed: 2, loose: 3, units: null } })
+    expect(out[K('el1', 'beer')]).toBe(5)
+  })
+
+  it('sans `units` mais taille de paquet ÉCRAN connue : packed × taille + loose', () => {
+    // Champ légendé « Nombre de Cartons de 24 » → le badge somme ce que
+    // l'écran montre (2 × 24 + 3 = 51), pas un packed+loose contradictoire.
+    const out = flattenExpectedUnits(
+      { [K('el1', 'beer')]: { packed: 2, loose: 3, units: null } },
+      { unitsPerItemId: { beer: 24 } },
+    )
+    expect(out[K('el1', 'beer')]).toBe(51)
+  })
+})
+
+// ── buildExpectedCalcDetails — détail du calcul (infobulles, demande JLH
+// 2026-08-19). Les termes sont DÉRIVÉS pour que l'identité affichée tienne
+// toujours : pre `base + moves = attendu`, post `base + moves − sold = attendu`.
+
+describe('buildExpectedCalcDetails', () => {
+  const baseline = { el1: { beer: { packedUnits: 2, looseUnits: 3 } } }
+
+  it('null sans index attendu', () => {
+    expect(buildExpectedCalcDetails({ baseline, expectedUnits: null })).toBeNull()
+    expect(buildExpectedCalcDetails()).toBeNull()
+  })
+
+  it('pre-event : base depuis le comptage (taille écran) et moves dérivé', () => {
+    const out = buildExpectedCalcDetails({
+      baseline,
+      expectedUnits: { [K('el1', 'beer')]: 75 },
+      unitsPerItemId: { beer: 24 },
+    })
+    // base = 2 × 24 + 3 = 51 ; moves = 75 − 51 = 24 → « 51 + 24 = 75 »
+    expect(out[K('el1', 'beer')]).toEqual({ base: 51, moves: 24, sold: null })
+  })
+
+  it('pre-event : article absent du comptage précédent → base 0, tout en moves', () => {
+    const out = buildExpectedCalcDetails({
+      baseline,
+      expectedUnits: { [K('el1', 'wine')]: 12 },
+    })
+    expect(out[K('el1', 'wine')]).toEqual({ base: 0, moves: 12, sold: null })
+  })
+
+  it('post-event : moves = net serveur, sold dérivé (base + moves − attendu)', () => {
+    const out = buildExpectedCalcDetails({
+      baseline,
+      movementUnits: { el1: { beer: 10 } },
+      expectedUnits: { [K('el1', 'beer')]: 47 },
+      unitsPerItemId: { beer: 24 },
+    })
+    // base 51 + moves 10 − sold 14 = 47
+    expect(out[K('el1', 'beer')]).toEqual({ base: 51, moves: 10, sold: 14 })
+  })
+
+  it('post-event : attendu négatif conservé — sold absorbe (identité maintenue)', () => {
+    const out = buildExpectedCalcDetails({
+      baseline: { el1: { beer: { packedUnits: 0, looseUnits: 5 } } },
+      movementUnits: { el1: { beer: -2 } },
+      expectedUnits: { [K('el1', 'beer')]: -3 },
+    })
+    // 5 − 2 − sold = −3 → sold = 6
+    expect(out[K('el1', 'beer')]).toEqual({ base: 5, moves: -2, sold: 6 })
   })
 })

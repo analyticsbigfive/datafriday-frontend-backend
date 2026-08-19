@@ -493,7 +493,8 @@ import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/lo
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { ClipboardList, GitCompare, Download, TrendingDown } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
-import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
+import { loadPredictedNeed, lookupPredictedNeed, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
+import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', icon: 'mdi-store' },
@@ -962,17 +963,38 @@ export default {
         this.loading = false
       }
     },
-    /** Besoin prédit du match ciblé par `?event=`. Hors contexte event, la colonne
-     *  reste absente : un besoin sans match auquel le rattacher n'a pas de sens. */
+    /** Besoin prédit du match ciblé par `?event=`, ou à défaut le prochain event de
+     *  l'espace (`nextEventId`, résolu serveur — retour PO 2026-08-19 : Logistic doit
+     *  être calibré par défaut, pas seulement via un deep-link explicite). Priorité à
+     *  la feuille de réarmement sauvegardée (RestockPlan.restockLines, décision
+     *  opérationnelle) sur la prévision brute Event Predict (repli). Hors tout contexte
+     *  event, la colonne reste absente : un besoin sans match n'a pas de sens. */
     async fetchPredictedNeed(eventId) {
       this.predictedNeed = null
-      if (!eventId) return
+      const effectiveEventId = eventId || this.store.state.logistics?.nextEventId || null
+      if (!effectiveEventId) return
+
+      try {
+        const plans = await listRestockPlans(this.currentSpaceId)
+        const match = (plans || []).find((p) => (p.selectedEventIds || []).map(String).includes(String(effectiveEventId)))
+        if (match) {
+          const full = await getRestockPlan(match.id)
+          const restockIndex = buildRestockNeedIndex(full?.restockLines)
+          if (restockIndex) {
+            this.predictedNeed = restockIndex
+            return
+          }
+        }
+      } catch (e) {
+        console.warn('[logistics] lookup feuille de réarmement échoué, repli Event Predict :', e?.message)
+      }
+
       const elements = [...this.shopEntries, ...this.storageEntries].map((e) => ({
         id: e.element.id,
         name: e.element.name,
       }))
       const { index } = await loadPredictedNeed({
-        eventId,
+        eventId: effectiveEventId,
         elements,
         menuItems: this.store.state.analyse?.menuItems || [],
         components: this.store.state.analyse?.components || [],

@@ -31,6 +31,10 @@ export class IngredientsService {
     supplierItem: true, recipeUnit: true, supplier: true, supplierId: true, pricePerUnit: true,
     packedUnits: true, numberOfUnits: true, unitsPerPurchase: true, purchasePackaging: true,
     inventoryPackaging: true, marketPriceTypeId: true, marketPriceCategoryId: true,
+    // BUG-131-01 : sans elle, le repli front (stockPlanning.js, packagingFieldsFrom) traite la
+    // conversion unité d'achat comme 1 — « 405 packs de 1 kg » au lieu de 9
+    // (réunion Bertrand 2026-08-19, viande tranchée à 0,02 kg/pièce).
+    purchaseUnitConversion: true,
   };
 
   async create(dto: any, tenantId: string) {

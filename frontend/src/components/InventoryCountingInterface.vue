@@ -65,10 +65,11 @@
         <v-icon size="20">mdi-chevron-right</v-icon>
       </v-btn>
 
-      <!-- Unités ATTENDUES de la section (pré-event, RBAC
-           front.fb.preInventoryExpected) : somme des cibles du plan de
-           réarmement sauvegardé pour l'événement, un segment par unité
-           (« Attendu : 1 250 Pc · 12 Kg »). Prop absente/vide → rien. -->
+      <!-- Unités ATTENDUES de la section (RBAC front.fb.preInventoryExpected) :
+           somme de l'indice serveur — pre : post-event précédent + Logistique,
+           post : ventes déduites (réunion Bertrand 2026-08-19, remplace le plan
+           de réarmement sauvegardé) — un segment par unité des articles de la
+           section (« Attendu : 1 250 Pc »). Prop absente/vide → rien. -->
       <v-chip
         v-if="expectedSectionUnits && expectedSectionUnits.length"
         color="primary"
@@ -208,12 +209,14 @@
                 <v-icon size="16">mdi-plus</v-icon>
               </button>
             </div>
-            <!-- Pre-event Inventory : quantité ATTENDUE (post-event précédent +
-                 mouvements Logistic) — rendue UNIQUEMENT si le parent fournit
-                 expectedFor (permission front.fb.preInventoryExpected). -->
+            <!-- Quantité ATTENDUE (pre : post-event précédent + mouvements
+                 Logistic ; post : pre-event + Logistic − ventes) — rendue
+                 UNIQUEMENT si le parent fournit expectedFor (permission
+                 front.fb.preInventoryExpected). -->
             <div
               v-if="expectedFor && expectedFor(shop.element.id, item.id, 'packed') != null"
               class="si-expected-hint"
+              :title="expectedDetailFor ? expectedDetailFor(shop.element.id, item.id) : null"
             >
               {{ t('invExpectedHint') }} : {{ expectedFor(shop.element.id, item.id, 'packed') }}
             </div>
@@ -239,6 +242,7 @@
             <div
               v-if="expectedFor && expectedFor(shop.element.id, item.id, 'loose') != null"
               class="si-expected-hint"
+              :title="expectedDetailFor ? expectedDetailFor(shop.element.id, item.id) : null"
             >
               {{ t('invExpectedHint') }} : {{ expectedFor(shop.element.id, item.id, 'loose') }}
             </div>
@@ -255,6 +259,7 @@
               v-if="expectedTotalUnits(item) != null"
               class="si-expected-total"
               :class="{ 'si-expected-total--negative': expectedTotalUnits(item) < 0 }"
+              :title="expectedTotalDetailFor ? expectedTotalDetailFor(shop.element.id, item.id) : null"
             >
               {{ t(expectedTotalLabelKey) }} : {{ formatUnits(expectedTotalUnits(item)) }}
             </span>
@@ -299,17 +304,23 @@ const props = defineProps({
   getCount: { type: Function, required: true },
   totalForItem: { type: Function, required: true },
   isItemCounted: { type: Function, required: true },
-  // Pre-event Inventory : (shopId, itemId, 'packed'|'loose') → quantité attendue
+  // Les deux modes : (shopId, itemId, 'packed'|'loose') → quantité attendue
   // ou null. Absent/null → aucun hint sous les champs.
   expectedFor: { type: Function, default: null },
+  // Détail du calcul de l'attendu (infobulle title sur les hints Packed/Loose) :
+  // (shopId, itemId) → « Post-event précédent 12 + livraisons 24 = 36 » ou null.
+  expectedDetailFor: { type: Function, default: null },
+  // Même détail pour le chip du TOTAL — prop séparée : en pre-event le chip
+  // affiche le besoin prédit (autre grandeur), le parent passe alors null.
+  expectedTotalDetailFor: { type: Function, default: null },
   // Indice de référence en regard du TOTAL : (elementId, item) → unités ou null.
   // Absent/null → rendu strictement inchangé.
   expectedTotalFor: { type: Function, default: null },
   // Les deux modes n'affichent pas la même grandeur — le libellé vient du parent.
   expectedTotalLabelKey: { type: String, default: 'invPredictedNeedHint' },
-  // Unités attendues de la SECTION ([{unit, total}]) depuis le plan de
-  // réarmement sauvegardé — null/vide = pas de badge (pas de plan, RBAC non
-  // couvert, mode post).
+  // Unités attendues de la SECTION ([{unit, total}]) depuis l'indice serveur
+  // (pre : post-event précédent + Logistique ; post : ventes déduites) —
+  // null/vide = pas de badge (pas de baseline, RBAC non couvert).
   expectedSectionUnits: { type: Array, default: null },
   // Transfert Logistic depuis le comptage — le parent monte le drawer et fait
   // l'appel API ; false (démo, module absent) = bouton masqué, rendu inchangé.

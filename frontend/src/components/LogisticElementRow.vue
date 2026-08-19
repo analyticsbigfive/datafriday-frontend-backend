@@ -18,17 +18,6 @@
       <span class="lg-row-meta">{{ totalItems }} {{ t('logiRowItemsSuffix') }}</span>
     </div>
 
-    <div class="lg-row-stats">
-      <div class="lg-row-stat">
-        <span class="lg-row-stat-num">{{ totalPacked }}</span>
-        <span class="lg-row-stat-lbl">{{ t('logiPackedShort') }}</span>
-      </div>
-      <div class="lg-row-stat">
-        <span class="lg-row-stat-num">{{ totalLoose }}</span>
-        <span class="lg-row-stat-lbl">{{ t('logiLooseShort') }}</span>
-      </div>
-    </div>
-
     <div class="lg-row-actions">
       <button type="button" class="lg-btn lg-btn--ghost lg-row-history" @click="$emit('open-history', element)">
         <v-icon size="15" class="mr-1">mdi-history</v-icon>
@@ -131,10 +120,6 @@ defineEmits(['open', 'open-history'])
   text-overflow: ellipsis;
 }
 .lg-row-meta { font-size: 0.75rem; color: var(--fb-faint, #9ca3af); }
-.lg-row-stats { display: flex; gap: 22px; flex: 1 1 200px; }
-.lg-row-stat { display: flex; flex-direction: column; }
-.lg-row-stat-num { font-weight: 800; font-size: 0.95rem; color: var(--fb-text, #212121); }
-.lg-row-stat-lbl { font-size: 0.7rem; color: var(--fb-muted, #6b7280); }
 .lg-row-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
 /* Boutons charte — rouge marque codé en dur (reste rouge en dark, contrairement à
@@ -164,7 +149,6 @@ defineEmits(['open', 'open-history'])
 @media (max-width: 760px) {
   .lg-row { flex-wrap: wrap; gap: 10px 12px; }
   .lg-row-main { flex-basis: 100%; }
-  .lg-row-stats { flex-basis: 100%; }
   .lg-row-actions { margin-left: auto; }
 }
 </style>
