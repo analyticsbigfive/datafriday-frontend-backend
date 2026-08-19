@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Logistic multi-config — maquettes (chantier 341)</title>
+<style>
+  body { margin: 0; background: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .mockup-section { padding: 24px 0 48px; }
+  .mockup-section h2 { margin: 0 0 16px 24px; font-size: 18px; color: #212121; }
+  .mockup-section .app-shell { margin: 0 auto; box-shadow: 0 4px 24px rgba(15,23,42,.12); }
+/* ===== Main.dc.html ===== */
+ #scope-Main * { box-sizing: border-box; } #scope-Main html, body { margin: 0; padding: 0; } #scope-Main .app-shell { width: 1600px; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; color: #212121; } #scope-Main svg.ic { display: block; flex-shrink: 0; } #scope-Main /* top app bar */
+  .topbar { height: 56px; background: #ffffff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; } #scope-Main .topbar-left { display: flex; align-items: center; gap: 14px; color: #374151; } #scope-Main .topbar-space { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #212121; } #scope-Main .topbar-right { display: flex; align-items: center; gap: 20px; color: #374151; } #scope-Main .topbar-bell { position: relative; display: flex; } #scope-Main .topbar-bell-badge { position: absolute; top: -7px; right: -9px; background: #ff3131; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 3px; } #scope-Main .topbar-avatar { width: 30px; height: 30px; border-radius: 999px; background: #ff3131; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; } #scope-Main .lg-layout { display: grid; grid-template-columns: 292px minmax(0, 1fr) 340px; gap: 18px; padding: 18px 24px 24px; align-items: start; } #scope-Main .lg-header { position: relative; margin: 0 0 16px; border-radius: 18px; background: #ff3131; box-shadow: 0 8px 24px rgba(255, 49, 49, .28); } #scope-Main .lg-header__inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; flex-wrap: wrap; } #scope-Main .lg-header__left { display: flex; align-items: center; gap: 12px; min-width: 0; } #scope-Main .lg-header__icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, .2); display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; } #scope-Main .lg-header__text { min-width: 0; } #scope-Main .lg-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; } #scope-Main .lg-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } #scope-Main .lg-hbtn-pill { border: 1.5px solid rgba(255,255,255,.62); border-radius: 100px; background: rgba(255,255,255,.1); color: #fff; display: inline-flex; align-items: center; gap: 6px; padding: 8px 15px; font-size: 12.5px; font-weight: 700; white-space: nowrap; } #scope-Main .lg-hbtn-pill.icon-only { padding: 9px; width: 34px; height: 34px; justify-content: center; } #scope-Main .lg-hbtn-pill.disabled { opacity: .48; } #scope-Main .lg-config-select { margin-top: 5px; display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,.16); border: 1.5px solid rgba(255,255,255,.55); border-radius: 100px; padding: 5px 8px 5px 12px; color: #fff; font-size: 12.5px; font-weight: 700; cursor: pointer; } #scope-Main .lg-config-select .cfg-chevron { display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); border-radius: 999px; width: 20px; height: 20px; } #scope-Main .lg-config-caption { margin: 4px 0 0 2px; font-size: 11px; color: rgba(255,255,255,.75); font-weight: 600; } #scope-Main .lg-tabs { display: flex; gap: 4px; padding: 0 0 10px; } #scope-Main .lg-tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 0; border-radius: 10px 10px 0 0; background: transparent; color: #6b7280; font-weight: 600; font-size: .85rem; } #scope-Main .lg-tab-active { background: #ffffff; color: #ff3131; } #scope-Main .lg-tab-count { margin-left: 2px; font-weight: 500; } #scope-Main .lg-tab-new { margin-left: 4px; background: #ff3131; color: #fff; font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 5px; padding: 2px 5px; text-transform: uppercase; } #scope-Main .lg-panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; margin-bottom: 12px; } #scope-Main .lg-panel-title { display: flex; align-items: center; gap: 6px; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #6b7280; margin-bottom: 8px; } #scope-Main .lg-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } #scope-Main .lg-kpi-cell { position: relative; overflow: hidden; padding: 7px 10px 7px 12px; border: 1px solid #e5e7eb; border-radius: 9px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); } #scope-Main .lg-kpi-cell::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--kpi, #64748b); } #scope-Main .lg-kpi-label { color: #64748b; font-size: 8px; font-weight: 700; line-height: 1.1; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; } #scope-Main .lg-kpi-value { font-size: 16px; font-weight: 800; line-height: 1.15; letter-spacing: -.2px; color: #212121; } #scope-Main .lg-agg-badge-row { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 7px 9px; border-radius: 9px; background: #fef2f2; border: 1px dashed rgba(255,49,49,.35); color: #ff3131; font-size: 11px; font-weight: 700; } #scope-Main .lg-filter-panel { border: 1px solid #e5e7eb; border-radius: 18px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.04); padding: 12px 10px; } #scope-Main .lg-fp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; min-height: 28px; } #scope-Main .lg-fp-title { font-size: 13px; font-weight: 700; color: #212121; margin: 0; } #scope-Main .lg-search { display: flex; align-items: center; gap: 8px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; color: #9ca3af; font-size: .82rem; } #scope-Main .lg-fp-accordion { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; } #scope-Main .lg-fp-section { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; min-height: 40px; border: 0; background: transparent; color: #ff3131; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; } #scope-Main .lg-fp-section-body { padding: 10px 12px 14px; background: #fff; } #scope-Main .lg-chip-row { display: flex; flex-wrap: wrap; gap: 6px; } #scope-Main .lg-chip { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 999px; padding: 5px 11px; font-size: .78rem; font-weight: 600; } #scope-Main .lg-chip-active { background: #ff3131; border-color: #ff3131; color: #fff; } #scope-Main .lg-reset-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 14px; padding: 9px; border-radius: 10px; background: rgba(255,49,49,.1); color: #ff3131; font-size: .82rem; font-weight: 700; border: 0; } #scope-Main .lg-sort-bar { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; } #scope-Main .lg-sort-label { font-size: .76rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; } #scope-Main .lg-rows { display: flex; flex-direction: column; gap: 10px; } #scope-Main .lg-row { position: relative; overflow: hidden; display: flex; align-items: center; gap: 16px; min-height: 66px; padding: 10px 16px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 1px 3px rgba(15,23,42,.05); } #scope-Main .lg-row-stripe { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; } #scope-Main .lg-stripe-bad { background: #dc2626; } #scope-Main .lg-stripe-warn { background: #d97706; } #scope-Main .lg-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1 1 26%; gap: 4px; } #scope-Main .lg-row-name { font-weight: 700; font-size: .92rem; color: #212121; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; } #scope-Main .lg-row-meta { font-size: .75rem; color: #9ca3af; } #scope-Main .lg-status-badge { display: inline-flex; align-items: center; font-size: .66rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; } #scope-Main .lg-status-bad { background: #fef2f2; color: #dc2626; } #scope-Main .lg-status-warn { background: #fffbeb; color: #d97706; } #scope-Main .lg-cfg-tag { display: inline-flex; align-items: center; gap: 4px; font-size: .66rem; font-weight: 700; border-radius: 999px; padding: 2px 8px 2px 6px; background: #f1f5f9; color: #475569; white-space: nowrap; } #scope-Main .lg-row-stats { display: flex; gap: 22px; flex: 1 1 200px; } #scope-Main .lg-row-stat { display: flex; flex-direction: column; } #scope-Main .lg-row-stat-num { font-weight: 800; font-size: .95rem; color: #212121; } #scope-Main .lg-row-stat-lbl { font-size: .7rem; color: #6b7280; } #scope-Main .lg-row-actions { display: flex; gap: 8px; flex-shrink: 0; } #scope-Main .lg-btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border-radius: 8px; font-size: .8rem; font-weight: 700; line-height: 1.4; white-space: nowrap; border: none; } #scope-Main .lg-btn--ghost { background: transparent; border: 1.5px solid #e5e7eb; color: #374151; } #scope-Main .lg-btn--primary { background: #ff3131; color: #fff; } #scope-Main .lg-agg { background: #fff; border: 1px solid #d9e2ec; border-radius: 18px; box-shadow: 0 1px 3px rgba(15,23,42,.04); padding: 14px; display: flex; flex-direction: column; gap: 12px; } #scope-Main .lg-agg-title { display: flex; align-items: center; gap: 6px; font-size: .85rem; font-weight: 700; color: #212121; } #scope-Main .lg-agg-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; } #scope-Main .lg-agg-stat { border: 1px solid #e5e7eb; border-radius: 8px; padding: 7px 5px; text-align: center; background: #fafafa; } #scope-Main .lg-agg-stat-bad { border-color: rgba(255,49,49,.3); background: #fef2f2; } #scope-Main .lg-agg-stat-warn { border-color: rgba(217,119,6,.3); background: #fffbeb; } #scope-Main .lg-agg-stat-num { font-size: 1.05rem; font-weight: 800; color: #212121; } #scope-Main .lg-agg-stat-lbl { font-size: .6rem; color: #6b7280; margin-top: 1px; } #scope-Main .lg-agg-list { display: flex; flex-direction: column; gap: 8px; } #scope-Main .lg-agg-group-card { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; } #scope-Main .lg-agg-group-bad { border-color: rgba(255,49,49,.22); } #scope-Main .lg-agg-group-trigger { width: 100%; box-sizing: border-box; min-height: 52px; display: grid; grid-template-columns: 34px minmax(0,1fr) auto 16px; align-items: center; gap: 9px; padding: 9px; border: 0; background: transparent; text-align: left; } #scope-Main .lg-agg-item-icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #f7f7f8; } #scope-Main .lg-agg-item-icon-bad { background: #fef2f2; color: #ff3131; } #scope-Main .lg-agg-item-icon-warn { background: #fffbeb; color: #d97706; } #scope-Main .lg-agg-item-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; } #scope-Main .lg-agg-item-copy strong { font-size: 12px; font-weight: 700; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #scope-Main .lg-agg-item-copy small { font-size: 9.5px; color: #6b7280; } #scope-Main .lg-agg-item-total { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; } #scope-Main .lg-agg-item-total strong { font-size: 12px; font-weight: 700; } #scope-Main .lg-agg-total-bad { color: #ff3131; } #scope-Main .lg-agg-total-warn { color: #d97706; } #scope-Main .lg-agg-item-total small { font-size: 9.5px; color: #6b7280; }
+/* ===== ConfigSelector.dc.html ===== */
+ #scope-ConfigSelector * { box-sizing: border-box; } #scope-ConfigSelector html, body { margin: 0; padding: 0; } #scope-ConfigSelector .app-shell { width: 1600px; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; color: #212121; position: relative; } #scope-ConfigSelector svg.ic { display: block; flex-shrink: 0; } #scope-ConfigSelector .topbar { height: 56px; background: #ffffff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; } #scope-ConfigSelector .topbar-left { display: flex; align-items: center; gap: 14px; color: #374151; } #scope-ConfigSelector .topbar-space { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #212121; } #scope-ConfigSelector .topbar-right { display: flex; align-items: center; gap: 20px; color: #374151; } #scope-ConfigSelector .topbar-bell { position: relative; display: flex; } #scope-ConfigSelector .topbar-bell-badge { position: absolute; top: -7px; right: -9px; background: #ff3131; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 3px; } #scope-ConfigSelector .topbar-avatar { width: 30px; height: 30px; border-radius: 999px; background: #ff3131; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; } #scope-ConfigSelector .lg-layout { display: grid; grid-template-columns: 292px minmax(0, 1fr) 340px; gap: 18px; padding: 18px 24px 24px; align-items: start; filter: none; } #scope-ConfigSelector .lg-scrim { position: absolute; inset: 56px 0 0 0; background: rgba(15,23,42,.28); z-index: 30; } #scope-ConfigSelector .lg-header { position: relative; margin: 0 0 16px; border-radius: 18px; background: #ff3131; box-shadow: 0 8px 24px rgba(255, 49, 49, .28); z-index: 40; } #scope-ConfigSelector .lg-header__inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; flex-wrap: wrap; } #scope-ConfigSelector .lg-header__left { display: flex; align-items: center; gap: 12px; min-width: 0; } #scope-ConfigSelector .lg-header__icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, .2); display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; } #scope-ConfigSelector .lg-header__text { min-width: 0; } #scope-ConfigSelector .lg-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; } #scope-ConfigSelector .lg-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } #scope-ConfigSelector .lg-hbtn-pill { border: 1.5px solid rgba(255,255,255,.62); border-radius: 100px; background: rgba(255,255,255,.1); color: #fff; display: inline-flex; align-items: center; gap: 6px; padding: 8px 15px; font-size: 12.5px; font-weight: 700; white-space: nowrap; } #scope-ConfigSelector .lg-hbtn-pill.icon-only { padding: 9px; width: 34px; height: 34px; justify-content: center; } #scope-ConfigSelector .lg-hbtn-pill.disabled { opacity: .48; } #scope-ConfigSelector .lg-config-select { margin-top: 5px; display: inline-flex; align-items: center; gap: 8px; background: #fff; border: 1.5px solid #fff; border-radius: 100px 100px 0 0; padding: 5px 8px 5px 12px; color: #ff3131; font-size: 12.5px; font-weight: 700; position: relative; } #scope-ConfigSelector .lg-config-select .cfg-chevron { display: flex; align-items: center; justify-content: center; background: rgba(255,49,49,.12); border-radius: 999px; width: 20px; height: 20px; color: #ff3131; } #scope-ConfigSelector .lg-cfg-menu { position: absolute; top: 100%; left: 0; width: 320px; background: #fff; border: 1px solid #e5e7eb; border-radius: 0 14px 14px 14px; box-shadow: 0 16px 40px rgba(15,23,42,.22); padding: 8px; z-index: 50; } #scope-ConfigSelector .lg-cfg-menu-kicker { font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #9ca3af; padding: 8px 12px 4px; } #scope-ConfigSelector .lg-cfg-menu-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; } #scope-ConfigSelector .lg-cfg-menu-item.active { background: #fef2f2; } #scope-ConfigSelector .lg-cfg-menu-icon { width: 30px; height: 30px; border-radius: 8px; background: #f1f5f9; color: #64748b; display: flex; align-items: center; justify-content: center; flex-shrink: 0; } #scope-ConfigSelector .lg-cfg-menu-item.active .lg-cfg-menu-icon { background: #ff3131; color: #fff; } #scope-ConfigSelector .lg-cfg-menu-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; } #scope-ConfigSelector .lg-cfg-menu-name { font-size: .85rem; font-weight: 700; color: #212121; } #scope-ConfigSelector .lg-cfg-menu-item.active .lg-cfg-menu-name { color: #ff3131; } #scope-ConfigSelector .lg-cfg-menu-meta { font-size: .7rem; color: #9ca3af; } #scope-ConfigSelector .lg-cfg-menu-check { color: #ff3131; flex-shrink: 0; } #scope-ConfigSelector .lg-cfg-menu-sep { height: 1px; background: #e5e7eb; margin: 6px 4px; } #scope-ConfigSelector .lg-tabs { display: flex; gap: 4px; padding: 0 0 10px; } #scope-ConfigSelector .lg-tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 0; border-radius: 10px 10px 0 0; background: transparent; color: #6b7280; font-weight: 600; font-size: .85rem; } #scope-ConfigSelector .lg-tab-active { background: #ffffff; color: #ff3131; } #scope-ConfigSelector .lg-tab-count { margin-left: 2px; font-weight: 500; } #scope-ConfigSelector .lg-tab-new { margin-left: 4px; background: #ff3131; color: #fff; font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 5px; padding: 2px 5px; text-transform: uppercase; } #scope-ConfigSelector .lg-panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; margin-bottom: 12px; } #scope-ConfigSelector .lg-panel-title { display: flex; align-items: center; gap: 6px; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #6b7280; margin-bottom: 8px; } #scope-ConfigSelector .lg-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } #scope-ConfigSelector .lg-kpi-cell { position: relative; overflow: hidden; padding: 7px 10px 7px 12px; border: 1px solid #e5e7eb; border-radius: 9px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); } #scope-ConfigSelector .lg-kpi-cell::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--kpi, #64748b); } #scope-ConfigSelector .lg-kpi-label { color: #64748b; font-size: 8px; font-weight: 700; line-height: 1.1; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; } #scope-ConfigSelector .lg-kpi-value { font-size: 16px; font-weight: 800; line-height: 1.15; letter-spacing: -.2px; color: #212121; } #scope-ConfigSelector .lg-filter-panel { border: 1px solid #e5e7eb; border-radius: 18px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.04); padding: 12px 10px; } #scope-ConfigSelector .lg-fp-title { font-size: 13px; font-weight: 700; color: #212121; margin: 0 0 10px; } #scope-ConfigSelector .lg-search { display: flex; align-items: center; gap: 8px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; color: #9ca3af; font-size: .82rem; } #scope-ConfigSelector .lg-fp-accordion { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; } #scope-ConfigSelector .lg-fp-section { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; min-height: 40px; border: 0; background: transparent; color: #ff3131; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; } #scope-ConfigSelector .lg-fp-section-body { padding: 10px 12px 14px; background: #fff; } #scope-ConfigSelector .lg-chip-row { display: flex; flex-wrap: wrap; gap: 6px; } #scope-ConfigSelector .lg-chip { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 999px; padding: 5px 11px; font-size: .78rem; font-weight: 600; } #scope-ConfigSelector .lg-rows { display: flex; flex-direction: column; gap: 10px; opacity: .55; } #scope-ConfigSelector .lg-row { position: relative; overflow: hidden; display: flex; align-items: center; gap: 16px; min-height: 66px; padding: 10px 16px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 1px 3px rgba(15,23,42,.05); } #scope-ConfigSelector .lg-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1 1 26%; gap: 4px; } #scope-ConfigSelector .lg-row-name { font-weight: 700; font-size: .92rem; color: #212121; } #scope-ConfigSelector .lg-row-meta { font-size: .75rem; color: #9ca3af; }
+/* ===== ByItemView.dc.html ===== */
+ #scope-ByItemView * { box-sizing: border-box; } #scope-ByItemView html, body { margin: 0; padding: 0; } #scope-ByItemView .app-shell { width: 1600px; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; color: #212121; } #scope-ByItemView svg.ic { display: block; flex-shrink: 0; } #scope-ByItemView .topbar { height: 56px; background: #ffffff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; } #scope-ByItemView .topbar-left { display: flex; align-items: center; gap: 14px; color: #374151; } #scope-ByItemView .topbar-space { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #212121; } #scope-ByItemView .topbar-right { display: flex; align-items: center; gap: 20px; color: #374151; } #scope-ByItemView .topbar-bell { position: relative; display: flex; } #scope-ByItemView .topbar-bell-badge { position: absolute; top: -7px; right: -9px; background: #ff3131; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 3px; } #scope-ByItemView .topbar-avatar { width: 30px; height: 30px; border-radius: 999px; background: #ff3131; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; } #scope-ByItemView .lg-layout { display: grid; grid-template-columns: 292px minmax(0, 1fr) 340px; gap: 18px; padding: 18px 24px 24px; align-items: start; } #scope-ByItemView .lg-header { margin: 0 0 16px; border-radius: 18px; background: #ff3131; box-shadow: 0 8px 24px rgba(255, 49, 49, .28); } #scope-ByItemView .lg-header__inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; flex-wrap: wrap; } #scope-ByItemView .lg-header__left { display: flex; align-items: center; gap: 12px; min-width: 0; } #scope-ByItemView .lg-header__icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, .2); display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; } #scope-ByItemView .lg-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; } #scope-ByItemView .lg-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } #scope-ByItemView .lg-hbtn-pill { border: 1.5px solid rgba(255,255,255,.62); border-radius: 100px; background: rgba(255,255,255,.1); color: #fff; display: inline-flex; align-items: center; gap: 6px; padding: 8px 15px; font-size: 12.5px; font-weight: 700; white-space: nowrap; } #scope-ByItemView .lg-hbtn-pill.icon-only { padding: 9px; width: 34px; height: 34px; justify-content: center; } #scope-ByItemView .lg-hbtn-pill.disabled { opacity: .48; } #scope-ByItemView .lg-config-select { margin-top: 5px; display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,.16); border: 1.5px solid rgba(255,255,255,.55); border-radius: 100px; padding: 5px 8px 5px 12px; color: #fff; font-size: 12.5px; font-weight: 700; } #scope-ByItemView .lg-config-select .cfg-chevron { display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); border-radius: 999px; width: 20px; height: 20px; } #scope-ByItemView .lg-tabs { display: flex; gap: 4px; padding: 0 0 10px; } #scope-ByItemView .lg-tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 0; border-radius: 10px 10px 0 0; background: transparent; color: #6b7280; font-weight: 600; font-size: .85rem; } #scope-ByItemView .lg-tab-active { background: #ffffff; color: #ff3131; } #scope-ByItemView .lg-tab-count { margin-left: 2px; font-weight: 500; } #scope-ByItemView .lg-panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; margin-bottom: 12px; } #scope-ByItemView .lg-panel-title { display: flex; align-items: center; gap: 6px; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #6b7280; margin-bottom: 8px; } #scope-ByItemView .lg-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } #scope-ByItemView .lg-kpi-cell { position: relative; overflow: hidden; padding: 7px 10px 7px 12px; border: 1px solid #e5e7eb; border-radius: 9px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); } #scope-ByItemView .lg-kpi-cell::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--kpi, #64748b); } #scope-ByItemView .lg-kpi-label { color: #64748b; font-size: 8px; font-weight: 700; line-height: 1.1; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; } #scope-ByItemView .lg-kpi-value { font-size: 16px; font-weight: 800; line-height: 1.15; letter-spacing: -.2px; color: #212121; } #scope-ByItemView .lg-filter-panel { border: 1px solid #e5e7eb; border-radius: 18px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.04); padding: 12px 10px; } #scope-ByItemView .lg-fp-title { font-size: 13px; font-weight: 700; color: #212121; margin: 0 0 10px; } #scope-ByItemView .lg-search { display: flex; align-items: center; gap: 8px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; color: #9ca3af; font-size: .82rem; } #scope-ByItemView .lg-fp-accordion { border: 1px solid #ff3131; border-radius: 10px; overflow: hidden; } #scope-ByItemView .lg-fp-section { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; min-height: 40px; border: 0; background: transparent; color: #ff3131; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; } #scope-ByItemView .lg-fp-section-body { padding: 10px 12px 14px; background: #fff; } #scope-ByItemView .lg-chip-row { display: flex; flex-wrap: wrap; gap: 6px; } #scope-ByItemView .lg-chip { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 999px; padding: 5px 11px; font-size: .78rem; font-weight: 600; } #scope-ByItemView .lg-chip-active { background: #ff3131; border-color: #ff3131; color: #fff; } #scope-ByItemView .lg-byitem-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 12px; } #scope-ByItemView .lg-sort-label { font-size: .76rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; } #scope-ByItemView .lg-byitem-search { display: flex; align-items: center; gap: 8px; border: 1px solid #e5e7eb; background: #fff; border-radius: 999px; padding: 7px 14px; color: #9ca3af; font-size: .8rem; width: 240px; } #scope-ByItemView .lg-items { display: flex; flex-direction: column; gap: 10px; } #scope-ByItemView .lg-item-card { border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.05); overflow: hidden; } #scope-ByItemView .lg-item-card.expanded { border-color: rgba(255,49,49,.28); box-shadow: 0 6px 20px rgba(15,23,42,.08); } #scope-ByItemView .lg-item-trigger { display: grid; grid-template-columns: 40px minmax(0,1fr) auto auto 18px; align-items: center; gap: 12px; padding: 12px 16px; } #scope-ByItemView .lg-item-icon { width: 40px; height: 40px; border-radius: 10px; background: #f7f7f8; color: #6b7280; display: flex; align-items: center; justify-content: center; flex-shrink: 0; } #scope-ByItemView .lg-item-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; } #scope-ByItemView .lg-item-name { font-size: .92rem; font-weight: 700; color: #212121; display: flex; align-items: center; gap: 8px; } #scope-ByItemView .lg-item-kind { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #64748b; background: #f1f5f9; border-radius: 5px; padding: 2px 6px; } #scope-ByItemView .lg-item-meta { font-size: .75rem; color: #9ca3af; } #scope-ByItemView .lg-item-summary { display: flex; gap: 6px; flex-shrink: 0; } #scope-ByItemView .lg-mini-badge { font-size: .68rem; font-weight: 700; border-radius: 999px; padding: 3px 9px; white-space: nowrap; } #scope-ByItemView .lg-mini-bad { background: #fef2f2; color: #dc2626; } #scope-ByItemView .lg-mini-warn { background: #fffbeb; color: #d97706; } #scope-ByItemView .lg-mini-ok { background: #f0fdf4; color: #16a34a; } #scope-ByItemView .lg-mini-muted { background: #f3f4f6; color: #6b7280; } #scope-ByItemView .lg-item-detail { border-top: 1px solid #f3f4f6; padding: 10px 16px 16px; display: flex; flex-direction: column; gap: 8px; } #scope-ByItemView .lg-shop-row { display: grid; grid-template-columns: 30px minmax(0,1fr) auto auto; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fafafa; } #scope-ByItemView .lg-shop-row.bad { background: #fef2f2; border-color: rgba(220,38,38,.25); } #scope-ByItemView .lg-shop-row.warn { background: #fffbeb; border-color: rgba(217,119,6,.25); } #scope-ByItemView .lg-shop-icon { width: 26px; height: 26px; border-radius: 7px; background: #fff; border: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: center; color: #6b7280; } #scope-ByItemView .lg-shop-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; } #scope-ByItemView .lg-shop-name { font-size: .82rem; font-weight: 700; color: #212121; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #scope-ByItemView .lg-cfg-tag { display: inline-flex; align-items: center; gap: 4px; font-size: .64rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; background: #f1f5f9; color: #475569; white-space: nowrap; } #scope-ByItemView .lg-shop-stats { text-align: right; font-size: .8rem; font-weight: 700; color: #212121; white-space: nowrap; } #scope-ByItemView .lg-shop-stats small { display: block; font-size: .64rem; font-weight: 600; color: #9ca3af; } #scope-ByItemView .lg-agg { background: #fff; border: 1px solid #d9e2ec; border-radius: 18px; box-shadow: 0 1px 3px rgba(15,23,42,.04); padding: 14px; display: flex; flex-direction: column; gap: 12px; } #scope-ByItemView .lg-agg-title { display: flex; align-items: center; gap: 6px; font-size: .85rem; font-weight: 700; color: #212121; } #scope-ByItemView .lg-agg-empty { font-size: .8rem; color: #9ca3af; text-align: center; padding: 30px 12px; }
+/* ===== SingleConfig.dc.html ===== */
+ #scope-SingleConfig * { box-sizing: border-box; } #scope-SingleConfig html, body { margin: 0; padding: 0; } #scope-SingleConfig .app-shell { width: 1600px; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; color: #212121; } #scope-SingleConfig svg.ic { display: block; flex-shrink: 0; } #scope-SingleConfig .topbar { height: 56px; background: #ffffff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; } #scope-SingleConfig .topbar-left { display: flex; align-items: center; gap: 14px; color: #374151; } #scope-SingleConfig .topbar-space { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #212121; } #scope-SingleConfig .topbar-right { display: flex; align-items: center; gap: 20px; color: #374151; } #scope-SingleConfig .topbar-bell { position: relative; display: flex; } #scope-SingleConfig .topbar-bell-badge { position: absolute; top: -7px; right: -9px; background: #ff3131; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 3px; } #scope-SingleConfig .topbar-avatar { width: 30px; height: 30px; border-radius: 999px; background: #ff3131; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; } #scope-SingleConfig .lg-layout { display: grid; grid-template-columns: 292px minmax(0, 1fr) 340px; gap: 18px; padding: 18px 24px 24px; align-items: start; } #scope-SingleConfig .lg-header { margin: 0 0 16px; border-radius: 18px; background: #ff3131; box-shadow: 0 8px 24px rgba(255, 49, 49, .28); } #scope-SingleConfig .lg-header__inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; flex-wrap: wrap; } #scope-SingleConfig .lg-header__left { display: flex; align-items: center; gap: 12px; min-width: 0; } #scope-SingleConfig .lg-header__icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, .2); display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; } #scope-SingleConfig .lg-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; } #scope-SingleConfig .lg-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } #scope-SingleConfig .lg-hbtn-pill { border: 1.5px solid rgba(255,255,255,.62); border-radius: 100px; background: rgba(255,255,255,.1); color: #fff; display: inline-flex; align-items: center; gap: 6px; padding: 8px 15px; font-size: 12.5px; font-weight: 700; white-space: nowrap; } #scope-SingleConfig .lg-hbtn-pill.icon-only { padding: 9px; width: 34px; height: 34px; justify-content: center; } #scope-SingleConfig .lg-hbtn-pill.disabled { opacity: .48; } #scope-SingleConfig .lg-config-select { margin-top: 5px; display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,.16); border: 1.5px solid rgba(255,255,255,.55); border-radius: 100px; padding: 5px 8px 5px 12px; color: #fff; font-size: 12.5px; font-weight: 700; } #scope-SingleConfig .lg-config-select .cfg-chevron { display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); border-radius: 999px; width: 20px; height: 20px; } #scope-SingleConfig .lg-tabs { display: flex; gap: 4px; padding: 0 0 10px; } #scope-SingleConfig .lg-tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 0; border-radius: 10px 10px 0 0; background: transparent; color: #6b7280; font-weight: 600; font-size: .85rem; } #scope-SingleConfig .lg-tab-active { background: #ffffff; color: #ff3131; } #scope-SingleConfig .lg-tab-count { margin-left: 2px; font-weight: 500; } #scope-SingleConfig .lg-tab-new { margin-left: 4px; background: #ff3131; color: #fff; font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 5px; padding: 2px 5px; text-transform: uppercase; } #scope-SingleConfig .lg-panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; margin-bottom: 12px; } #scope-SingleConfig .lg-panel-title { display: flex; align-items: center; gap: 6px; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #6b7280; margin-bottom: 8px; } #scope-SingleConfig .lg-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } #scope-SingleConfig .lg-kpi-cell { position: relative; overflow: hidden; padding: 7px 10px 7px 12px; border: 1px solid #e5e7eb; border-radius: 9px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); } #scope-SingleConfig .lg-kpi-cell::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--kpi, #64748b); } #scope-SingleConfig .lg-kpi-label { color: #64748b; font-size: 8px; font-weight: 700; line-height: 1.1; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; } #scope-SingleConfig .lg-kpi-value { font-size: 16px; font-weight: 800; line-height: 1.15; letter-spacing: -.2px; color: #212121; } #scope-SingleConfig .lg-filter-panel { border: 1px solid #e5e7eb; border-radius: 18px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.04); padding: 12px 10px; } #scope-SingleConfig .lg-fp-title { font-size: 13px; font-weight: 700; color: #212121; margin: 0 0 10px; } #scope-SingleConfig .lg-search { display: flex; align-items: center; gap: 8px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; color: #9ca3af; font-size: .82rem; } #scope-SingleConfig .lg-fp-accordion { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; } #scope-SingleConfig .lg-fp-section { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; min-height: 40px; border: 0; background: transparent; color: #ff3131; font-size: .6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; } #scope-SingleConfig .lg-fp-section-body { padding: 10px 12px 14px; background: #fff; } #scope-SingleConfig .lg-chip-row { display: flex; flex-wrap: wrap; gap: 6px; } #scope-SingleConfig .lg-chip { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 999px; padding: 5px 11px; font-size: .78rem; font-weight: 600; } #scope-SingleConfig .lg-sort-bar { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; } #scope-SingleConfig .lg-sort-label { font-size: .76rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; } #scope-SingleConfig .lg-rows { display: flex; flex-direction: column; gap: 10px; } #scope-SingleConfig .lg-row { position: relative; overflow: hidden; display: flex; align-items: center; gap: 16px; min-height: 66px; padding: 10px 16px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 1px 3px rgba(15,23,42,.05); } #scope-SingleConfig .lg-row-stripe { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; } #scope-SingleConfig .lg-stripe-warn { background: #d97706; } #scope-SingleConfig .lg-stripe-bad { background: #dc2626; } #scope-SingleConfig .lg-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1 1 26%; gap: 4px; } #scope-SingleConfig .lg-row-name { font-weight: 700; font-size: .92rem; color: #212121; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; } #scope-SingleConfig .lg-row-meta { font-size: .75rem; color: #9ca3af; } #scope-SingleConfig .lg-status-badge { display: inline-flex; align-items: center; font-size: .66rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; } #scope-SingleConfig .lg-status-warn { background: #fffbeb; color: #d97706; } #scope-SingleConfig .lg-status-bad { background: #fef2f2; color: #dc2626; } #scope-SingleConfig .lg-row-stats { display: flex; gap: 22px; flex: 1 1 200px; } #scope-SingleConfig .lg-row-stat { display: flex; flex-direction: column; } #scope-SingleConfig .lg-row-stat-num { font-weight: 800; font-size: .95rem; color: #212121; } #scope-SingleConfig .lg-row-stat-lbl { font-size: .7rem; color: #6b7280; } #scope-SingleConfig .lg-row-actions { display: flex; gap: 8px; flex-shrink: 0; } #scope-SingleConfig .lg-btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border-radius: 8px; font-size: .8rem; font-weight: 700; line-height: 1.4; white-space: nowrap; border: none; } #scope-SingleConfig .lg-btn--ghost { background: transparent; border: 1.5px solid #e5e7eb; color: #374151; } #scope-SingleConfig .lg-btn--primary { background: #ff3131; color: #fff; } #scope-SingleConfig .lg-agg { background: #fff; border: 1px solid #d9e2ec; border-radius: 18px; box-shadow: 0 1px 3px rgba(15,23,42,.04); padding: 14px; display: flex; flex-direction: column; gap: 12px; } #scope-SingleConfig .lg-agg-title { display: flex; align-items: center; gap: 6px; font-size: .85rem; font-weight: 700; color: #212121; } #scope-SingleConfig .lg-agg-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; } #scope-SingleConfig .lg-agg-stat { border: 1px solid #e5e7eb; border-radius: 8px; padding: 7px 5px; text-align: center; background: #fafafa; } #scope-SingleConfig .lg-agg-stat-bad { border-color: rgba(255,49,49,.3); background: #fef2f2; } #scope-SingleConfig .lg-agg-stat-warn { border-color: rgba(217,119,6,.3); background: #fffbeb; } #scope-SingleConfig .lg-agg-stat-num { font-size: 1.05rem; font-weight: 800; color: #212121; } #scope-SingleConfig .lg-agg-stat-lbl { font-size: .6rem; color: #6b7280; margin-top: 1px; } #scope-SingleConfig .lg-agg-list { display: flex; flex-direction: column; gap: 8px; } #scope-SingleConfig .lg-agg-group-card { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; } #scope-SingleConfig .lg-agg-group-bad { border-color: rgba(255,49,49,.22); } #scope-SingleConfig .lg-agg-group-trigger { width: 100%; box-sizing: border-box; min-height: 52px; display: grid; grid-template-columns: 34px minmax(0,1fr) auto 16px; align-items: center; gap: 9px; padding: 9px; border: 0; background: transparent; text-align: left; } #scope-SingleConfig .lg-agg-item-icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #f7f7f8; color: #6b7280; } #scope-SingleConfig .lg-agg-item-icon-bad { background: #fef2f2; color: #ff3131; } #scope-SingleConfig .lg-agg-item-icon-warn { background: #fffbeb; color: #d97706; } #scope-SingleConfig .lg-agg-item-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; } #scope-SingleConfig .lg-agg-item-copy strong { font-size: 12px; font-weight: 700; color: #111827; } #scope-SingleConfig .lg-agg-item-copy small { font-size: 9.5px; color: #6b7280; } #scope-SingleConfig .lg-agg-item-total { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; } #scope-SingleConfig .lg-agg-item-total strong { font-size: 12px; font-weight: 700; } #scope-SingleConfig .lg-agg-total-bad { color: #ff3131; } #scope-SingleConfig .lg-agg-total-warn { color: #d97706; } #scope-SingleConfig .lg-agg-item-total small { font-size: 9.5px; color: #6b7280; } #scope-SingleConfig .lg-agg-empty { font-size: .8rem; color: #9ca3af; text-align: center; padding: 30px 12px; }
+
+</style>
+</head>
+<body>
+<section class="mockup-section"><h2>A — Vue agrégée (défaut), F&B Shops</h2><div id="scope-Main" class="app-shell">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M9 21V9h6v12"/></svg>
+      <div class="topbar-space">
+        Stade Jean Bouin
+        <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-bell">
+        <svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="topbar-bell-badge">50</span>
+      </div>
+      <svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 005 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      <div class="topbar-avatar">BJ</div>
+      <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+  </div>
+
+  <div class="lg-layout">
+
+    <!-- ================= ASIDE ================= -->
+    <aside>
+      <div class="lg-panel">
+        <div class="lg-panel-title">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          Summary
+        </div>
+        <div class="lg-summary-grid">
+          <div class="lg-kpi-cell" style="--kpi:#ff3131">
+            <div class="lg-kpi-label">Tracked shops &amp; storages</div>
+            <div class="lg-kpi-value">7</div>
+          </div>
+          <div class="lg-kpi-cell" style="--kpi:#64748b">
+            <div class="lg-kpi-label">Tracked items</div>
+            <div class="lg-kpi-value">42</div>
+          </div>
+          <div class="lg-kpi-cell" style="--kpi:#dc2626">
+            <div class="lg-kpi-label">Out of stock</div>
+            <div class="lg-kpi-value">3</div>
+          </div>
+          <div class="lg-kpi-cell" style="--kpi:#d97706">
+            <div class="lg-kpi-label">Low stock</div>
+            <div class="lg-kpi-value">5</div>
+          </div>
+        </div>
+        <div class="lg-agg-badge-row">
+          <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          3 configurations agrégées · 7 PDV fusionnés
+        </div>
+      </div>
+
+      <div class="lg-filter-panel">
+        <div class="lg-fp-head">
+          <h3 class="lg-fp-title">Filters</h3>
+        </div>
+        <div class="lg-search">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Search a shop...
+        </div>
+        <div class="lg-fp-accordion">
+          <div class="lg-fp-section">
+            <span>Item type</span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          </div>
+          <div class="lg-fp-section-body">
+            <div class="lg-chip-row">
+              <span class="lg-chip">Ingredient</span>
+              <span class="lg-chip">Component</span>
+              <span class="lg-chip">Packaging</span>
+              <span class="lg-chip">Product</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="lg-reset-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+          Reset filters
+        </button>
+      </div>
+    </aside>
+
+    <!-- ================= MAIN ================= -->
+    <section>
+      <header class="lg-header">
+        <div class="lg-header__inner">
+          <div class="lg-header__left">
+            <div class="lg-header__icon">
+              <svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v9l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v9"/></svg>
+            </div>
+            <div class="lg-header__text">
+              <h1 class="lg-header__title">Logistic</h1>
+              <div class="lg-config-select">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                Toutes les configurations
+                <span class="cfg-chevron">
+                  <svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="lg-header__right">
+            <button type="button" class="lg-hbtn-pill icon-only">
+              <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+            <button type="button" class="lg-hbtn-pill">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v5l-5.5 9.5a1 1 0 00.87 1.5h13.26a1 1 0 00.87-1.5L14 8V3"/></svg>
+              Simulate a sale
+            </button>
+            <button type="button" class="lg-hbtn-pill disabled">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+              Reset inventory
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="lg-tabs">
+        <div class="lg-tab lg-tab-active">
+          <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9"/><path d="M9 20v-6h6v6"/></svg>
+          F&amp;B Shops <span class="lg-tab-count">(4)</span>
+        </div>
+        <div class="lg-tab">
+          <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v9l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v9"/></svg>
+          Storage <span class="lg-tab-count">(3)</span>
+        </div>
+        <div class="lg-tab">
+          <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          By Item <span class="lg-tab-count">(42)</span>
+          <span class="lg-tab-new">New</span>
+        </div>
+      </div>
+
+      <div class="lg-sort-bar">
+        <span class="lg-sort-label">Sort</span>
+        <div class="lg-chip-row">
+          <span class="lg-chip lg-chip-active">Alerts first</span>
+          <span class="lg-chip">A → Z</span>
+        </div>
+      </div>
+
+      <div class="lg-rows">
+
+        <div class="lg-row">
+          <span class="lg-row-stripe lg-stripe-bad"></span>
+          <div class="lg-row-main">
+            <span class="lg-row-name">
+              Bar Nord
+              <span class="lg-status-badge lg-status-bad">2 ruptures</span>
+              <span class="lg-cfg-tag">
+                <svg class="ic" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                Plan Max, Plan Réduit
+              </span>
+            </span>
+            <span class="lg-row-meta">9 items</span>
+          </div>
+          <div class="lg-row-stats">
+            <div class="lg-row-stat"><span class="lg-row-stat-num">14</span><span class="lg-row-stat-lbl">Packed</span></div>
+            <div class="lg-row-stat"><span class="lg-row-stat-num">6</span><span class="lg-row-stat-lbl">Loose</span></div>
+          </div>
+          <div class="lg-row-actions">
+            <span class="lg-btn lg-btn--ghost">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              History
+            </span>
+            <span class="lg-btn lg-btn--primary">
+              Manage stock
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="lg-row">
+          <span class="lg-row-stripe lg-stripe-warn"></span>
+          <div class="lg-row-main">
+            <span class="lg-row-name">
+              Snack Est
+              <span class="lg-status-badge lg-status-warn">1 stock bas</span>
+              <span class="lg-cfg-tag">
+                <svg class="ic" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                Plan Max
+              </span>
+            </span>
+            <span class="lg-row-meta">7 items</span>
+          </div>
+          <div class="lg-row-stats">
+            <div class="lg-row-stat"><span class="lg-row-stat-num">21</span><span class="lg-row-stat-lbl">Packed</span></div>
+            <div class="lg-row-stat"><span class="lg-row-stat-num">12</span><span class="lg-row-stat-lbl">Loose</span></div>
+          </div>
+          <div class="lg-row-actions">
+            <span class="lg-btn lg-btn--ghost">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              History
+            </span>
+            <span class="lg-btn lg-btn--primary">
+              Manage stock
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="lg-row">
+          <div class="lg-row-main">
+            <span class="lg-row-name">
+              Boutique VIP Tribune Ouest
+              <span class="lg-cfg-tag">
+                <svg class="ic" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                Plan Max, Plan Réduit, Plan Soir Concert
+              </span>
+            </span>
+            <span class="lg-row-meta">11 items</span>
+          </div>
+          <div class="lg-row-stats">
+            <div class="lg-row-stat"><span class="lg-row-stat-num">33</span><span class="lg-row-stat-lbl">Packed</span></div>
+            <div class="lg-row-stat"><span class="lg-row-stat-num">18</span><span class="lg-row-stat-lbl">Loose</span></div>
+          </div>
+          <div class="lg-row-actions">
+            <span class="lg-btn lg-btn--ghost">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              History
+            </span>
+            <span class="lg-btn lg-btn--primary">
+              Manage stock
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="lg-row">
+          <div class="lg-row-main">
+            <span class="lg-row-name">
+              Stand Glaces Sud
+              <span class="lg-cfg-tag">
+                <svg class="ic" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                Plan Soir Concert
+              </span>
+            </span>
+            <span class="lg-row-meta">4 items</span>
+          </div>
+          <div class="lg-row-stats">
+            <div class="lg-row-stat"><span class="lg-row-stat-num">9</span><span class="lg-row-stat-lbl">Packed</span></div>
+            <div class="lg-row-stat"><span class="lg-row-stat-num">2</span><span class="lg-row-stat-lbl">Loose</span></div>
+          </div>
+          <div class="lg-row-actions">
+            <span class="lg-btn lg-btn--ghost">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              History
+            </span>
+            <span class="lg-btn lg-btn--primary">
+              Manage stock
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= RESTOCK ALERTS ================= -->
+    <aside class="lg-agg">
+      <div class="lg-agg-title">
+        <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 1 21h22L12 2z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Restock alerts
+      </div>
+      <div class="lg-agg-stats">
+        <div class="lg-agg-stat lg-agg-stat-bad"><div class="lg-agg-stat-num">3</div><div class="lg-agg-stat-lbl">out of stock</div></div>
+        <div class="lg-agg-stat lg-agg-stat-warn"><div class="lg-agg-stat-num">5</div><div class="lg-agg-stat-lbl">low stock</div></div>
+        <div class="lg-agg-stat"><div class="lg-agg-stat-num">1</div><div class="lg-agg-stat-lbl">never counted</div></div>
+      </div>
+      <div class="lg-agg-list">
+        <div class="lg-agg-group-card lg-agg-group-bad">
+          <div class="lg-agg-group-trigger">
+            <span class="lg-agg-item-icon lg-agg-item-icon-bad">
+              <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </span>
+            <span class="lg-agg-item-copy">
+              <strong>Bière 25cl</strong>
+              <small>6 PDV concernés</small>
+            </span>
+            <span class="lg-agg-item-total">
+              <strong class="lg-agg-total-bad">1</strong>
+              <small>rupture</small>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        <div class="lg-agg-group-card">
+          <div class="lg-agg-group-trigger">
+            <span class="lg-agg-item-icon lg-agg-item-icon-warn">
+              <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 1 21h22L12 2z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </span>
+            <span class="lg-agg-item-copy">
+              <strong>Frites</strong>
+              <small>2 PDV concernés</small>
+            </span>
+            <span class="lg-agg-item-total">
+              <strong class="lg-agg-total-warn">2</strong>
+              <small>stock bas</small>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        <div class="lg-agg-group-card">
+          <div class="lg-agg-group-trigger">
+            <span class="lg-agg-item-icon lg-agg-item-icon-warn">
+              <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 1 21h22L12 2z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </span>
+            <span class="lg-agg-item-copy">
+              <strong>Gobelet réutilisable</strong>
+              <small>1 PDV concerné</small>
+            </span>
+            <span class="lg-agg-item-total">
+              <strong class="lg-agg-total-warn">1</strong>
+              <small>stock bas</small>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div></section><section class="mockup-section"><h2>B — Sélecteur de configuration ouvert</h2><div id="scope-ConfigSelector" class="app-shell">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M9 21V9h6v12"/></svg>
+      <div class="topbar-space">
+        Stade Jean Bouin
+        <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-bell">
+        <svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="topbar-bell-badge">50</span>
+      </div>
+      <div class="topbar-avatar">BJ</div>
+    </div>
+  </div>
+
+  <div class="lg-scrim"></div>
+
+  <div class="lg-layout">
+
+    <aside>
+      <div class="lg-panel">
+        <div class="lg-panel-title">Summary</div>
+        <div class="lg-summary-grid">
+          <div class="lg-kpi-cell" style="--kpi:#ff3131"><div class="lg-kpi-label">Tracked shops &amp; storages</div><div class="lg-kpi-value">7</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#64748b"><div class="lg-kpi-label">Tracked items</div><div class="lg-kpi-value">42</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#dc2626"><div class="lg-kpi-label">Out of stock</div><div class="lg-kpi-value">3</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#d97706"><div class="lg-kpi-label">Low stock</div><div class="lg-kpi-value">5</div></div>
+        </div>
+      </div>
+      <div class="lg-filter-panel">
+        <h3 class="lg-fp-title">Filters</h3>
+        <div class="lg-search">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Search a shop...
+        </div>
+        <div class="lg-fp-accordion">
+          <div class="lg-fp-section">
+            <span>Item type</span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          </div>
+          <div class="lg-fp-section-body">
+            <div class="lg-chip-row">
+              <span class="lg-chip">Ingredient</span>
+              <span class="lg-chip">Component</span>
+              <span class="lg-chip">Packaging</span>
+              <span class="lg-chip">Product</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section>
+      <header class="lg-header">
+        <div class="lg-header__inner">
+          <div class="lg-header__left">
+            <div class="lg-header__icon">
+              <svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v9l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v9"/></svg>
+            </div>
+            <div class="lg-header__text">
+              <h1 class="lg-header__title">Logistic</h1>
+              <div class="lg-config-select">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                Toutes les configurations
+                <span class="cfg-chevron">
+                  <svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                </span>
+
+                <div class="lg-cfg-menu">
+                  <div class="lg-cfg-menu-kicker">Vue</div>
+                  <div class="lg-cfg-menu-item active">
+                    <span class="lg-cfg-menu-icon">
+                      <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                    </span>
+                    <span class="lg-cfg-menu-label">
+                      <span class="lg-cfg-menu-name">Toutes les configurations</span>
+                      <span class="lg-cfg-menu-meta">Agrégation · 3 configurations · 7 PDV</span>
+                    </span>
+                    <svg class="ic lg-cfg-menu-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+
+                  <div class="lg-cfg-menu-sep"></div>
+                  <div class="lg-cfg-menu-kicker">Configurations</div>
+
+                  <div class="lg-cfg-menu-item">
+                    <span class="lg-cfg-menu-icon">
+                      <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    </span>
+                    <span class="lg-cfg-menu-label">
+                      <span class="lg-cfg-menu-name">Plan Max (SFP+PFC)</span>
+                      <span class="lg-cfg-menu-meta">4 PDV</span>
+                    </span>
+                  </div>
+                  <div class="lg-cfg-menu-item">
+                    <span class="lg-cfg-menu-icon">
+                      <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    </span>
+                    <span class="lg-cfg-menu-label">
+                      <span class="lg-cfg-menu-name">Plan Réduit (SFP)</span>
+                      <span class="lg-cfg-menu-meta">4 PDV</span>
+                    </span>
+                  </div>
+                  <div class="lg-cfg-menu-item">
+                    <span class="lg-cfg-menu-icon">
+                      <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    </span>
+                    <span class="lg-cfg-menu-label">
+                      <span class="lg-cfg-menu-name">Plan Soir Concert</span>
+                      <span class="lg-cfg-menu-meta">3 PDV</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="lg-header__right">
+            <button type="button" class="lg-hbtn-pill icon-only">
+              <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+            <button type="button" class="lg-hbtn-pill">Simulate a sale</button>
+            <button type="button" class="lg-hbtn-pill disabled">Reset inventory</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="lg-tabs">
+        <div class="lg-tab lg-tab-active">F&amp;B Shops <span class="lg-tab-count">(4)</span></div>
+        <div class="lg-tab">Storage <span class="lg-tab-count">(3)</span></div>
+        <div class="lg-tab">By Item <span class="lg-tab-count">(42)</span><span class="lg-tab-new">New</span></div>
+      </div>
+
+      <div class="lg-rows">
+        <div class="lg-row"><div class="lg-row-main"><span class="lg-row-name">Bar Nord</span><span class="lg-row-meta">9 items</span></div></div>
+        <div class="lg-row"><div class="lg-row-main"><span class="lg-row-name">Snack Est</span><span class="lg-row-meta">7 items</span></div></div>
+        <div class="lg-row"><div class="lg-row-main"><span class="lg-row-name">Boutique VIP Tribune Ouest</span><span class="lg-row-meta">11 items</span></div></div>
+      </div>
+    </section>
+
+    <aside></aside>
+
+  </div>
+</div></section><section class="mockup-section"><h2>C — Nouvelle vue « By Item »</h2><div id="scope-ByItemView" class="app-shell">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M9 21V9h6v12"/></svg>
+      <div class="topbar-space">Stade Jean Bouin
+        <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-bell">
+        <svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="topbar-bell-badge">50</span>
+      </div>
+      <div class="topbar-avatar">BJ</div>
+    </div>
+  </div>
+
+  <div class="lg-layout">
+
+    <aside>
+      <div class="lg-panel">
+        <div class="lg-panel-title">Summary</div>
+        <div class="lg-summary-grid">
+          <div class="lg-kpi-cell" style="--kpi:#ff3131"><div class="lg-kpi-label">Tracked shops &amp; storages</div><div class="lg-kpi-value">7</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#64748b"><div class="lg-kpi-label">Tracked items</div><div class="lg-kpi-value">42</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#dc2626"><div class="lg-kpi-label">Out of stock</div><div class="lg-kpi-value">3</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#d97706"><div class="lg-kpi-label">Low stock</div><div class="lg-kpi-value">5</div></div>
+        </div>
+      </div>
+      <div class="lg-filter-panel">
+        <h3 class="lg-fp-title">Filters</h3>
+        <div class="lg-search">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Search an item...
+        </div>
+        <div class="lg-fp-accordion">
+          <div class="lg-fp-section">
+            <span>Item type</span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          </div>
+          <div class="lg-fp-section-body">
+            <div class="lg-chip-row">
+              <span class="lg-chip lg-chip-active">Ingredient</span>
+              <span class="lg-chip">Component</span>
+              <span class="lg-chip">Packaging</span>
+              <span class="lg-chip">Product</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section>
+      <header class="lg-header">
+        <div class="lg-header__inner">
+          <div class="lg-header__left">
+            <div class="lg-header__icon">
+              <svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v9l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v9"/></svg>
+            </div>
+            <div>
+              <h1 class="lg-header__title">Logistic</h1>
+              <div class="lg-config-select">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                Toutes les configurations
+                <span class="cfg-chevron">
+                  <svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="lg-header__right">
+            <button type="button" class="lg-hbtn-pill icon-only">
+              <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+            <button type="button" class="lg-hbtn-pill">Simulate a sale</button>
+            <button type="button" class="lg-hbtn-pill disabled">Reset inventory</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="lg-tabs">
+        <div class="lg-tab">F&amp;B Shops <span class="lg-tab-count">(4)</span></div>
+        <div class="lg-tab">Storage <span class="lg-tab-count">(3)</span></div>
+        <div class="lg-tab lg-tab-active">
+          <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          By Item <span class="lg-tab-count">(42)</span>
+        </div>
+      </div>
+
+      <div class="lg-byitem-toolbar">
+        <span class="lg-sort-label">42 items · toutes configurations</span>
+        <div class="lg-byitem-search">
+          <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Search an item...
+        </div>
+      </div>
+
+      <div class="lg-items">
+
+        <div class="lg-item-card expanded">
+          <div class="lg-item-trigger">
+            <span class="lg-item-icon">
+              <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 010 6h-1"/><path d="M3 11h14v6a4 4 0 01-4 4H7a4 4 0 01-4-4v-6z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+            </span>
+            <span class="lg-item-copy">
+              <span class="lg-item-name">Bière 25cl <span class="lg-item-kind">Ingredient</span></span>
+              <span class="lg-item-meta">6 PDV le vendent ou le stockent</span>
+            </span>
+            <span class="lg-item-summary">
+              <span class="lg-mini-badge lg-mini-bad">1 rupture</span>
+              <span class="lg-mini-badge lg-mini-warn">1 stock bas</span>
+              <span class="lg-mini-badge lg-mini-ok">3 OK</span>
+              <span class="lg-mini-badge lg-mini-muted">1 jamais compté</span>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff3131" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          </div>
+          <div class="lg-item-detail">
+
+            <div class="lg-shop-row bad">
+              <span class="lg-shop-icon">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9"/><path d="M9 20v-6h6v6"/></svg>
+              </span>
+              <span class="lg-shop-copy">
+                <span class="lg-shop-name">Bar Nord <span class="lg-cfg-tag">Plan Max, Plan Réduit</span></span>
+              </span>
+              <span class="lg-shop-stats">0 <small>packed</small></span>
+              <span class="lg-mini-badge lg-mini-bad">Rupture</span>
+            </div>
+
+            <div class="lg-shop-row warn">
+              <span class="lg-shop-icon">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9"/><path d="M9 20v-6h6v6"/></svg>
+              </span>
+              <span class="lg-shop-copy">
+                <span class="lg-shop-name">Snack Est <span class="lg-cfg-tag">Plan Max</span></span>
+              </span>
+              <span class="lg-shop-stats">2 <small>packed</small></span>
+              <span class="lg-mini-badge lg-mini-warn">Stock bas</span>
+            </div>
+
+            <div class="lg-shop-row">
+              <span class="lg-shop-icon">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9"/><path d="M9 20v-6h6v6"/></svg>
+              </span>
+              <span class="lg-shop-copy">
+                <span class="lg-shop-name">Boutique VIP Tribune Ouest <span class="lg-cfg-tag">Plan Max, Plan Réduit, Plan Soir Concert</span></span>
+              </span>
+              <span class="lg-shop-stats">18 <small>packed</small></span>
+              <span class="lg-mini-badge lg-mini-ok">OK</span>
+            </div>
+
+            <div class="lg-shop-row">
+              <span class="lg-shop-icon">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v9l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v9"/></svg>
+              </span>
+              <span class="lg-shop-copy">
+                <span class="lg-shop-name">Réserve Centrale <span class="lg-cfg-tag">Plan Max, Plan Réduit</span></span>
+              </span>
+              <span class="lg-shop-stats">64 <small>packed</small></span>
+              <span class="lg-mini-badge lg-mini-ok">OK</span>
+            </div>
+
+            <div class="lg-shop-row">
+              <span class="lg-shop-icon">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9"/><path d="M9 20v-6h6v6"/></svg>
+              </span>
+              <span class="lg-shop-copy">
+                <span class="lg-shop-name">Stand Glaces Sud <span class="lg-cfg-tag">Plan Soir Concert</span></span>
+              </span>
+              <span class="lg-shop-stats">12 <small>packed</small></span>
+              <span class="lg-mini-badge lg-mini-ok">OK</span>
+            </div>
+
+            <div class="lg-shop-row">
+              <span class="lg-shop-icon">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v9l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v9"/></svg>
+              </span>
+              <span class="lg-shop-copy">
+                <span class="lg-shop-name">Local Nord <span class="lg-cfg-tag">Plan Soir Concert</span></span>
+              </span>
+              <span class="lg-shop-stats">N/A <small>jamais compté</small></span>
+              <span class="lg-mini-badge lg-mini-muted">Jamais compté</span>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="lg-item-card">
+          <div class="lg-item-trigger">
+            <span class="lg-item-icon">
+              <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11h1a3 3 0 010 6h-1"/><path d="M3 11h14v6a4 4 0 01-4 4H7a4 4 0 01-4-4v-6z"/></svg>
+            </span>
+            <span class="lg-item-copy">
+              <span class="lg-item-name">Frites <span class="lg-item-kind">Ingredient</span></span>
+              <span class="lg-item-meta">2 PDV le vendent ou le stockent</span>
+            </span>
+            <span class="lg-item-summary">
+              <span class="lg-mini-badge lg-mini-warn">2 stock bas</span>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+
+        <div class="lg-item-card">
+          <div class="lg-item-trigger">
+            <span class="lg-item-icon">
+              <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            </span>
+            <span class="lg-item-copy">
+              <span class="lg-item-name">Sandwich Jambon-Beurre <span class="lg-item-kind">Product</span></span>
+              <span class="lg-item-meta">4 PDV le vendent ou le stockent</span>
+            </span>
+            <span class="lg-item-summary">
+              <span class="lg-mini-badge lg-mini-ok">4 OK</span>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+
+        <div class="lg-item-card">
+          <div class="lg-item-trigger">
+            <span class="lg-item-icon">
+              <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+            </span>
+            <span class="lg-item-copy">
+              <span class="lg-item-name">Gobelet réutilisable <span class="lg-item-kind">Packaging</span></span>
+              <span class="lg-item-meta">5 PDV le vendent ou le stockent</span>
+            </span>
+            <span class="lg-item-summary">
+              <span class="lg-mini-badge lg-mini-warn">1 stock bas</span>
+              <span class="lg-mini-badge lg-mini-ok">4 OK</span>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <aside class="lg-agg">
+      <div class="lg-agg-title">
+        <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 1 21h22L12 2z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Restock alerts
+      </div>
+      <div class="lg-agg-empty">Vue "By Item" active. Le détail par PDV est déjà visible dans la liste centrale.</div>
+    </aside>
+
+  </div>
+</div></section><section class="mockup-section"><h2>D — Une configuration unique sélectionnée</h2><div id="scope-SingleConfig" class="app-shell">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M9 21V9h6v12"/></svg>
+      <div class="topbar-space">Stade Jean Bouin
+        <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-bell">
+        <svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="topbar-bell-badge">50</span>
+      </div>
+      <div class="topbar-avatar">BJ</div>
+    </div>
+  </div>
+
+  <div class="lg-layout">
+
+    <aside>
+      <div class="lg-panel">
+        <div class="lg-panel-title">Summary</div>
+        <div class="lg-summary-grid">
+          <div class="lg-kpi-cell" style="--kpi:#ff3131"><div class="lg-kpi-label">Tracked shops &amp; storages</div><div class="lg-kpi-value">4</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#64748b"><div class="lg-kpi-label">Tracked items</div><div class="lg-kpi-value">22</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#dc2626"><div class="lg-kpi-label">Out of stock</div><div class="lg-kpi-value">2</div></div>
+          <div class="lg-kpi-cell" style="--kpi:#d97706"><div class="lg-kpi-label">Low stock</div><div class="lg-kpi-value">1</div></div>
+        </div>
+      </div>
+      <div class="lg-filter-panel">
+        <h3 class="lg-fp-title">Filters</h3>
+        <div class="lg-search">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Search a shop...
+        </div>
+        <div class="lg-fp-accordion">
+          <div class="lg-fp-section">
+            <span>Item type</span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          </div>
+          <div class="lg-fp-section-body">
+            <div class="lg-chip-row">
+              <span class="lg-chip">Ingredient</span>
+              <span class="lg-chip">Component</span>
+              <span class="lg-chip">Packaging</span>
+              <span class="lg-chip">Product</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section>
+      <header class="lg-header">
+        <div class="lg-header__inner">
+          <div class="lg-header__left">
+            <div class="lg-header__icon">
+              <svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v9l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v9"/></svg>
+            </div>
+            <div>
+              <h1 class="lg-header__title">Logistic</h1>
+              <div class="lg-config-select">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                Plan Max (SFP+PFC)
+                <span class="cfg-chevron">
+                  <svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="lg-header__right">
+            <button type="button" class="lg-hbtn-pill icon-only">
+              <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+            <button type="button" class="lg-hbtn-pill">Simulate a sale</button>
+            <button type="button" class="lg-hbtn-pill disabled">Reset inventory</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="lg-tabs">
+        <div class="lg-tab lg-tab-active">F&amp;B Shops <span class="lg-tab-count">(3)</span></div>
+        <div class="lg-tab">Storage <span class="lg-tab-count">(1)</span></div>
+        <div class="lg-tab">By Item <span class="lg-tab-count">(18)</span><span class="lg-tab-new">New</span></div>
+      </div>
+
+      <div class="lg-sort-bar">
+        <span class="lg-sort-label">Sort</span>
+        <div class="lg-chip-row">
+          <span class="lg-chip lg-chip-active">Alerts first</span>
+          <span class="lg-chip">A → Z</span>
+        </div>
+      </div>
+
+      <div class="lg-rows">
+
+        <div class="lg-row">
+          <span class="lg-row-stripe lg-stripe-bad"></span>
+          <div class="lg-row-main">
+            <span class="lg-row-name">
+              Bar Nord
+              <span class="lg-status-badge lg-status-bad">2 ruptures</span>
+            </span>
+            <span class="lg-row-meta">9 items</span>
+          </div>
+          <div class="lg-row-stats">
+            <div class="lg-row-stat"><span class="lg-row-stat-num">14</span><span class="lg-row-stat-lbl">Packed</span></div>
+            <div class="lg-row-stat"><span class="lg-row-stat-num">6</span><span class="lg-row-stat-lbl">Loose</span></div>
+          </div>
+          <div class="lg-row-actions">
+            <span class="lg-btn lg-btn--ghost">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              History
+            </span>
+            <span class="lg-btn lg-btn--primary">
+              Manage stock
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="lg-row">
+          <span class="lg-row-stripe lg-stripe-warn"></span>
+          <div class="lg-row-main">
+            <span class="lg-row-name">
+              Snack Est
+              <span class="lg-status-badge lg-status-warn">1 stock bas</span>
+            </span>
+            <span class="lg-row-meta">7 items</span>
+          </div>
+          <div class="lg-row-stats">
+            <div class="lg-row-stat"><span class="lg-row-stat-num">21</span><span class="lg-row-stat-lbl">Packed</span></div>
+            <div class="lg-row-stat"><span class="lg-row-stat-num">12</span><span class="lg-row-stat-lbl">Loose</span></div>
+          </div>
+          <div class="lg-row-actions">
+            <span class="lg-btn lg-btn--ghost">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              History
+            </span>
+            <span class="lg-btn lg-btn--primary">
+              Manage stock
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="lg-row">
+          <div class="lg-row-main">
+            <span class="lg-row-name">Boutique VIP Tribune Ouest</span>
+            <span class="lg-row-meta">11 items</span>
+          </div>
+          <div class="lg-row-stats">
+            <div class="lg-row-stat"><span class="lg-row-stat-num">33</span><span class="lg-row-stat-lbl">Packed</span></div>
+            <div class="lg-row-stat"><span class="lg-row-stat-num">18</span><span class="lg-row-stat-lbl">Loose</span></div>
+          </div>
+          <div class="lg-row-actions">
+            <span class="lg-btn lg-btn--ghost">
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+              History
+            </span>
+            <span class="lg-btn lg-btn--primary">
+              Manage stock
+              <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <aside class="lg-agg">
+      <div class="lg-agg-title">
+        <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 1 21h22L12 2z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Restock alerts
+      </div>
+      <div class="lg-agg-stats">
+        <div class="lg-agg-stat lg-agg-stat-bad"><div class="lg-agg-stat-num">2</div><div class="lg-agg-stat-lbl">out of stock</div></div>
+        <div class="lg-agg-stat lg-agg-stat-warn"><div class="lg-agg-stat-num">1</div><div class="lg-agg-stat-lbl">low stock</div></div>
+        <div class="lg-agg-stat"><div class="lg-agg-stat-num">0</div><div class="lg-agg-stat-lbl">never counted</div></div>
+      </div>
+      <div class="lg-agg-list">
+        <div class="lg-agg-group-card lg-agg-group-bad">
+          <div class="lg-agg-group-trigger">
+            <span class="lg-agg-item-icon lg-agg-item-icon-bad">
+              <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </span>
+            <span class="lg-agg-item-copy">
+              <strong>Bière 25cl</strong>
+              <small>1 PDV concerné</small>
+            </span>
+            <span class="lg-agg-item-total">
+              <strong class="lg-agg-total-bad">1</strong>
+              <small>rupture</small>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        <div class="lg-agg-group-card">
+          <div class="lg-agg-group-trigger">
+            <span class="lg-agg-item-icon lg-agg-item-icon-warn">
+              <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 1 21h22L12 2z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </span>
+            <span class="lg-agg-item-copy">
+              <strong>Frites</strong>
+              <small>1 PDV concerné</small>
+            </span>
+            <span class="lg-agg-item-total">
+              <strong class="lg-agg-total-warn">1</strong>
+              <small>stock bas</small>
+            </span>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div></section>
+</body>
+</html>

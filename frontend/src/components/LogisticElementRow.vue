@@ -10,6 +10,10 @@
         <span v-else-if="lowCount" class="lg-status-badge lg-status-warn">
           {{ lowCount }} {{ t('logiRowLowStock') }}
         </span>
+        <span v-if="configTags.length" class="lg-cfg-tag" :title="configTags.join(', ')">
+          <v-icon size="10" class="mr-1">mdi-tag-outline</v-icon>
+          {{ configTags.join(', ') }}
+        </span>
       </span>
       <span class="lg-row-meta">{{ totalItems }} {{ t('logiRowItemsSuffix') }}</span>
     </div>
@@ -51,6 +55,9 @@ defineProps({
   /** Nb de denrées en rupture (0 packed + 0 loose) / en stock bas (0 pack, vrac entamé). */
   ruptureCount: { type: Number, default: 0 },
   lowCount: { type: Number, default: 0 },
+  /** Chantier 341 : noms des configs source de cet élément en vue agrégée (vide en
+   *  mode single-config, où le tag n'apporte rien). */
+  configTags: { type: Array, default: () => [] },
 })
 
 defineEmits(['open', 'open-history'])
@@ -93,6 +100,22 @@ defineEmits(['open', 'open-history'])
 }
 .lg-status-bad { background: var(--fb-danger-soft, #fef2f2); color: var(--fb-danger, #dc2626); }
 .lg-status-warn { background: var(--fb-warning-soft, #fffbeb); color: var(--fb-warning, #d97706); }
+.lg-cfg-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px 2px 6px;
+  margin-left: 8px;
+  background: var(--fb-subtle, #f1f5f9);
+  color: var(--fb-muted, #475569);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
 .lg-row-main {
   display: flex;
   flex-direction: column;
