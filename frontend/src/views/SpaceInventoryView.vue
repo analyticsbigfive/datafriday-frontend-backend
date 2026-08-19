@@ -329,7 +329,9 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
-          :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
+          :expected-for="canSeeExpected ? expectedForField : null"
+          :expected-detail-for="canSeeExpected ? expectedDetailFor : null"
+          :expected-total-detail-for="canSeeExpected && !isPreMode ? expectedDetailFor : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
           :expected-section-units="expectedSectionUnitsFor(countingShop)"
@@ -622,7 +624,9 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
-          :expected-for="canSeeExpected && isPreMode ? expectedForField : null"
+          :expected-for="canSeeExpected ? expectedForField : null"
+          :expected-detail-for="canSeeExpected ? expectedDetailFor : null"
+          :expected-total-detail-for="canSeeExpected && !isPreMode ? expectedDetailFor : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
           :expected-section-units="expectedSectionUnitsFor(countingShop)"
@@ -747,9 +751,7 @@ import {
   createPreEventReconciliation,
   getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
-import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
-import { aggregateExpectedUnitsByElement } from '@/utils/restockPlanSnapshot'
-import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex } from '@/utils/preEventExpected'
+import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits, buildExpectedCalcDetails } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -909,13 +911,15 @@ export default {
       // chaque article — map `expectedKey(el,item)` → nombre d'unités SIGNÉ
       // (négatif = incohérence de sources, jamais clampé, décision 2026-07-30).
       postExpectedUnits: null,
+      // Détail du calcul (infobulles, demande JLH 2026-08-19) : blobs bruts de la
+      // réponse baseline — comptage d'ancrage et net des mouvements (post
+      // uniquement). Les termes affichés sont dérivés par buildExpectedCalcDetails.
+      expectedBaselineBlob: null,
+      expectedMovementUnitsBlob: null,
       // Pre-event Inventory : besoin prédit Event Predict (version par défaut du
       // match), index {byItemId, byItemName} — affiché en regard du TOTAL.
       predictedNeed: null,
       predictedNeedMissing: false,
-      // Lignes (shop × article) du plan de réarmement sauvegardé couvrant
-      // l'événement ancré — badge « Attendu » par section (pré-event, RBAC).
-      expectedPlanRows: null,
       // Pourquoi il n'y a pas d'attendu, quand il n'y en a pas :
       // null | 'no-permission' | 'forbidden' | 'not-deployed' | 'no-baseline'.
       // Sans ça, 403 / 404 / baseline vide / bug produisent le MÊME écran muet de
@@ -1089,20 +1093,69 @@ export default {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryExpected') : false
     },
+    /** Chip « Besoin prédit » (pre-event) : permission DÉDIÉE, distincte des
+     *  attendus — réunion Bertrand 2026-08-19, réservé aux administrateurs et
+     *  directeurs de site (le Chef exécutif garde preInventoryExpected mais pas
+     *  celle-ci). Gating d'affichage : la donnée vient d'Event Predict, dont
+     *  l'endpoint reste gaté par front.fb.eventPredict. */
+    canSeePredicted() {
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? can('front.fb.preInventoryPredicted') : false
+    },
     /** Libellé de l'indice affiché à côté du Total : les deux modes ne montrent
-     *  PAS la même grandeur (besoin prédit avant match, stock restant après) —
-     *  les légender du même mot fabriquerait une fausse comparaison. */
+     *  PAS la même grandeur (besoin prédit avant match, attendu restant après) —
+     *  clés distinctes conservées ; le mot affiché en post devient « Attendu »
+     *  (réunion Bertrand 2026-08-19, ex-« Doit rester »). */
     expectedTotalLabelKey() {
       return this.isPreMode ? 'invPredictedNeedHint' : 'invPostExpectedHint'
     },
     /**
-     * Unités attendues par élément depuis le plan de réarmement sauvegardé —
-     * logique pure dans aggregateExpectedUnitsByElement (restockPlanSnapshot,
-     * testée unitairement), unité vide repliée sur le libellé du comptage.
+     * Badge « Attendu » de section, mode PRE : total en unités par article
+     * depuis le blob serveur (post-event précédent + Logistique — réunion
+     * Bertrand 2026-08-19, remplace le plan Stockup sauvegardé du retour JLH
+     * 13/08). Repli de conversion avec la taille de paquet de l'ÉCRAN
+     * (unitsPerItemIdMap) quand le serveur n'a pas résolu de conditionnement —
+     * cf. flattenExpectedUnits.
      */
-    expectedUnitsByElement() {
-      return aggregateExpectedUnitsByElement(this.expectedPlanRows, {
-        fallbackUnit: this.t('invCountUnitFallback'),
+    preExpectedUnits() {
+      return flattenExpectedUnits(this.preExpected, { unitsPerItemId: this.unitsPerItemIdMap })
+    },
+    /**
+     * Mode POST : re-découpage packed/loose de l'indice serveur (`expectedUnits`,
+     * ventes déjà déduites) dans la taille de paquet de l'écran — les hints sous
+     * les champs Packed/Loose (réunion Bertrand 2026-08-19 : « Expected manquant
+     * en post-event »). `trunc`, pas `floor` : l'indice n'est pas clampé
+     * (négatif = incohérence de sources, décision 2026-07-30) et floor(-3/24)
+     * fabriquerait « −1 pack + 21 ». Les totaux négatifs sont exclus ici : le
+     * signal est déjà porté, en rouge, par le chip du total — deux hints
+     * négatifs sous des champs de saisie se liraient comme un bug d'affichage.
+     */
+    postExpectedFields() {
+      if (!this.postExpectedUnits) return null
+      const round2 = (n) => Math.round(n * 100) / 100
+      const out = {}
+      for (const [key, units] of Object.entries(this.postExpectedUnits)) {
+        if (!(units >= 0)) continue
+        const itemId = key.split('|')[1] ?? ''
+        const q = Number(this.unitsPerItemIdMap?.[itemId]) > 0 ? Number(this.unitsPerItemIdMap[itemId]) : 1
+        const packed = Math.trunc(units / q)
+        out[key] = { packed, loose: round2(units - packed * q) }
+      }
+      return out
+    },
+    /** Détail du calcul de l'attendu, par article (infobulles — demande JLH
+     *  2026-08-19) : pre « post-event précédent + livraisons », post « pre-event
+     *  + mouvements − vendu ». Termes dérivés (buildExpectedCalcDetails) pour que
+     *  l'égalité affichée tienne même quand les référentiels de conditionnement
+     *  divergent (BUG-239/Q39). */
+    expectedCalcDetails() {
+      const expectedUnits = this.isPreMode ? this.preExpectedUnits : this.postExpectedUnits
+      if (!expectedUnits) return null
+      return buildExpectedCalcDetails({
+        baseline: this.expectedBaselineBlob,
+        movementUnits: this.isPreMode ? null : this.expectedMovementUnitsBlob,
+        expectedUnits,
+        unitsPerItemId: this.unitsPerItemIdMap,
       })
     },
     /** Message d'indisponibilité des attendus — `no-permission` reste MUET :
@@ -1721,7 +1774,6 @@ export default {
         // a la même dépendance (périmètre des PdV affichés).
         this.fetchPreExpected()
         this.fetchPredictedNeed()
-        this.fetchExpectedPlan()
 
         this.mock = buildSpaceInventoryMock()
         if (this.demo) {
@@ -2023,6 +2075,8 @@ export default {
     async fetchPreExpected() {
       this.preExpected = null
       this.postExpectedUnits = null
+      this.expectedBaselineBlob = null
+      this.expectedMovementUnitsBlob = null
       this.expectedUnavailable = null
       if (!this.canSeeExpected) {
         this.expectedUnavailable = 'no-permission'
@@ -2039,6 +2093,11 @@ export default {
           this.expectedUnavailable = 'no-baseline'
           return
         }
+        // Blobs bruts pour le détail du calcul (infobulles) : comptage d'ancrage
+        // (post-event précédent en pre, pre-event du match en post) et, en post,
+        // net des mouvements de la fenêtre.
+        this.expectedBaselineBlob = baseline.baseline
+        this.expectedMovementUnitsBlob = this.isPreMode ? null : baseline.movementUnits || null
         if (this.isPreMode) {
           // Résolution nom→item des mouvements sans menuItemId : référentiel AFFICHÉ.
           const itemIdByNormName = new Map()
@@ -2078,15 +2137,45 @@ export default {
         console.warn('[SpaceInventory] baseline attendus KO (pas de hints):', e?.message)
         this.preExpected = null
         this.postExpectedUnits = null
+        this.expectedBaselineBlob = null
+        this.expectedMovementUnitsBlob = null
       } finally {
         this.preExpectedLoading = false
       }
     },
-    /** Accessor passé à InventoryCountingInterface — null quand pas de hint. */
+    /** Accessor passé à InventoryCountingInterface — null quand pas de hint.
+     *  Pre : blob serveur packed/loose (BUG-232/239). Post : re-découpage de
+     *  l'indice ventes déduites (postExpectedFields, réunion Bertrand
+     *  2026-08-19). */
     expectedForField(shopId, itemId, field) {
-      const exp = this.preExpected?.[expectedKey(shopId, itemId)]
+      const exp = this.isPreMode
+        ? this.preExpected?.[expectedKey(shopId, itemId)]
+        : this.postExpectedFields?.[expectedKey(shopId, itemId)]
       if (!exp) return null
       return field === 'packed' ? exp.packed : exp.loose
+    },
+    /** Détail du calcul de l'attendu d'un article, en clair (infobulle title —
+     *  demande JLH 2026-08-19). Pre : « Post-event précédent 12 + livraisons 24
+     *  = 36 ». Post : « Pre-event 36 + mouvements 10 − vendu 14 = 32 ». null =
+     *  pas de détail (pas d'attendu pour cette ligne). */
+    expectedDetailFor(elementId, itemId) {
+      const d = this.expectedCalcDetails?.[expectedKey(elementId, itemId)]
+      if (!d) return null
+      const expectedUnits = this.isPreMode ? this.preExpectedUnits : this.postExpectedUnits
+      const total = expectedUnits?.[expectedKey(elementId, itemId)]
+      if (!Number.isFinite(total)) return null
+      const fmt = formatUnits
+      const signed = (n) => (n < 0 ? `− ${fmt(-n)}` : `+ ${fmt(n)}`)
+      if (this.isPreMode) {
+        return `${this.t('invExpectedDetailPrevPost')} ${fmt(d.base)} ${signed(d.moves)} ${this.t('invExpectedDetailMoves')} = ${fmt(total)}`
+      }
+      // Vendu soustrait : signe inversé (un « vendu négatif » — retour/correction —
+      // s'affiche « + x vendu », jamais « − -x »).
+      const soldTerm = d.sold < 0 ? `+ ${fmt(-d.sold)}` : `− ${fmt(d.sold)}`
+      return (
+        `${this.t('invExpectedDetailPreCount')} ${fmt(d.base)} ${signed(d.moves)} ` +
+        `${this.t('invExpectedDetailMovements')} ${soldTerm} ${this.t('invExpectedDetailSold')} = ${fmt(total)}`
+      )
     },
     /** Indice affiché à côté du TOTAL d'un article. Pre : besoin prédit Event
      *  Predict. Post : stock qui doit rester. null = rien à afficher (« — »). */
@@ -2115,11 +2204,13 @@ export default {
       return Object.keys(out).length ? out : null
     },
     /** Besoin prédit du match (pre-event uniquement) — version Event Predict par
-     *  défaut. Silencieux en cas d'échec : on ne bloque jamais un comptage. */
+     *  défaut. Silencieux en cas d'échec : on ne bloque jamais un comptage.
+     *  Permission DÉDIÉE preInventoryPredicted (réunion Bertrand 2026-08-19) :
+     *  sans elle, ni fetch ni chip — l'index reste null. */
     async fetchPredictedNeed() {
       this.predictedNeed = null
       this.predictedNeedMissing = false
-      if (!this.isPreMode || !this.canSeeExpected || !this.selectedEventId || isDemoMode()) return
+      if (!this.isPreMode || !this.canSeePredicted || !this.selectedEventId || isDemoMode()) return
       const elements = (this.realShops || []).map((c) => ({
         id: c.element.id,
         name: c.element.name,
@@ -2132,37 +2223,6 @@ export default {
       })
       this.predictedNeed = index
       this.predictedNeedMissing = reason === 'no-default-version'
-    },
-    /**
-     * Unités ATTENDUES par section (retour JLH 13/08) : lignes du plan de
-     * réarmement SAUVEGARDÉ le plus récent couvrant l'événement ancré — pas la
-     * prédiction Event Predict (usePredictedNeed, grain article), le Stockup.
-     * Backend sans lookup par événement : la liste de métadonnées porte
-     * `selectedEventIds`, on filtre côté client puis on charge la photo.
-     * Fire-and-forget, jamais bloquant ; échec ou absence de plan → pas de
-     * badge, silencieusement.
-     */
-    async fetchExpectedPlan() {
-      this.expectedPlanRows = null
-      if (!this.isPreMode || !this.canSeeExpected || !this.contextEventId || isDemoMode()) return
-      const spaceId = this.route?.params?.spaceId
-      const eventId = String(this.contextEventId)
-      if (!spaceId) return
-      try {
-        const metas = await listRestockPlans(spaceId)
-        const hit = (Array.isArray(metas) ? metas : []).find((p) =>
-          (p?.selectedEventIds || []).map(String).includes(eventId),
-        )
-        if (!hit) return
-        const plan = await getRestockPlan(hit.id)
-        // Garde anti-course : l'event ancré a pu changer pendant le fetch.
-        if (String(this.contextEventId) !== eventId) return
-        this.expectedPlanRows = Array.isArray(plan?.restockLines) ? plan.restockLines : null
-      } catch (err) {
-        // Module restock-plans absent (404) ou erreur réseau : badge absent.
-        // eslint-disable-next-line no-console
-        console.warn('[INVENTORY] expected plan load failed:', err?.message)
-      }
     },
     /** Candidat au transfert enrichi du stock Logistic actuel de la denrée. */
     movementCandidate(el, itemName) {
@@ -2238,17 +2298,17 @@ export default {
         this.movementSaving = false
       }
     },
-    /** Segments « Attendu » d'une section : [{unit, total}] ou null.
-     *  Pre : agrégat du Stockup sauvegardé. Post : somme de l'indice serveur
-     *  (ventes déduites = pre-event + Logistic) sur les articles de la section. */
+    /** Segments « Attendu » d'une section : [{unit, total}] ou null. Même
+     *  agrégateur dans les deux modes, seule la source change — pre : post-event
+     *  précédent + Logistique (réunion Bertrand 2026-08-19) ; post : indice
+     *  serveur ventes déduites (pre-event + Logistic − ventes). Groupé par
+     *  `item.unit` des articles réellement présents dans la section : plus de
+     *  kg fabriqués sur un PdV qui ne compte que des pièces. */
     expectedSectionUnitsFor(entry) {
-      if (!this.isPreMode) {
-        return aggregateExpectedUnitsFromIndex(this.postExpectedUnits, entry, {
-          fallbackUnit: this.t('invCountUnitFallback'),
-        })
-      }
-      const agg = this.expectedUnitsByElement[String(entry?.element?.id)]
-      return agg && agg.length ? agg : null
+      const index = this.isPreMode ? this.preExpectedUnits : this.postExpectedUnits
+      return aggregateExpectedUnitsFromIndex(index, entry, {
+        fallbackUnit: this.t('invCountUnitFallback'),
+      })
     },
     /**
      * Événement à réconcilier = l'event de l'ÉCRAN, strictement (« un match =

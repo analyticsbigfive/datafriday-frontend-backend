@@ -27,7 +27,7 @@
         <span class="lcs-menu-icon" :class="{ 'lcs-menu-icon--active': isAggregate }"><Layers :size="15" /></span>
         <span class="lcs-menu-label">
           <span class="lcs-menu-name" :class="{ 'lcs-menu-name--active': isAggregate }">{{ t('logiConfigAll') }}</span>
-          <span class="lcs-menu-meta">{{ t('logiConfigAllMeta', { count: configurations.length }) }}</span>
+          <span class="lcs-menu-meta">{{ t('logiConfigAllMeta') }} {{ configurations.length }} {{ t('logiConfigAllMetaSuffix') }}</span>
         </span>
         <Check v-if="isAggregate" :size="16" class="lcs-menu-check" />
       </button>

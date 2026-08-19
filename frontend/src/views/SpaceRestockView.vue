@@ -982,6 +982,12 @@
               <header class="sr-group-head">
                 <div>
                   <h3>{{ group.itemName }}</h3>
+                  <!-- Référence d'achat (colonne Supplier item du Market Price
+                       résolu) — réunion Bertrand 2026-08-19. Absente → rien. -->
+                  <span
+                    v-if="marketPriceRefFor(group)"
+                    style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
+                  >{{ t('srMarketRef') }} {{ marketPriceRefFor(group) }}</span>
                   <span
                     v-if="(group.sourceBreakdown || []).length < 2 && groupSourceSummary(group)"
                     style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
@@ -995,12 +1001,25 @@
                   </ul>
                 </div>
                 <div class="sr-group-head-end">
-                  <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
-                  <button
-                    type="button"
-                    class="sr-inline-btn"
-                    @click="setGroupRestocked(group, !isGroupRestocked(group))"
-                  >{{ isGroupRestocked(group) ? t('srUncheckAll') : t('srConfirmAll') }}</button>
+                  <!-- Total de PAQUETS du groupe, tous PdV (« 77 Packs de 4 ») —
+                       réunion Bertrand 2026-08-19. Sur SA propre ligne, au-dessus
+                       du compteur de PdV et de « Tout confirmer » (retour JLH) :
+                       c'est la quantité à préparer, pas une action.
+                       Conditionnement non résolu → pas de chip. -->
+                  <v-chip
+                    v-if="groupPackTotal(group) != null"
+                    size="x-small"
+                    variant="tonal"
+                    color="primary"
+                  >{{ groupPackTotalLabel(group) }}</v-chip>
+                  <div class="sr-group-head-actions">
+                    <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
+                    <button
+                      type="button"
+                      class="sr-inline-btn"
+                      @click="setGroupRestocked(group, !isGroupRestocked(group))"
+                    >{{ isGroupRestocked(group) ? t('srUncheckAll') : t('srConfirmAll') }}</button>
+                  </div>
                 </div>
               </header>
               <table class="sr-table sr-restock-table">
@@ -1261,7 +1280,19 @@
                         · {{ t('srDiagBuy') }} <strong>{{ formatDiagQty(item.buyQuantity, item.unit) }}</strong>
                       </span>
                     </td>
-                    <td :data-label="t('srColToBuyShort')" class="sr-strong">{{ formatShoppingQuantity(item) }}</td>
+                    <!-- Conditionnement non résolu (fiche catalogue incomplète) :
+                         quantité brute + explication au survol, plutôt que des
+                         pièces qui se font passer pour un choix d'affichage. -->
+                    <td
+                      :data-label="t('srColToBuyShort')"
+                      class="sr-strong"
+                      :title="!item.packaging ? t('srShoppingNoPackaging') : undefined"
+                    >{{ formatShoppingQuantity(item) }}<v-icon
+                      v-if="!item.packaging"
+                      size="13"
+                      class="ml-1"
+                      style="color:var(--sr-muted, #64748b);"
+                    >mdi-information-outline</v-icon></td>
                     <td :data-label="t('srColShops')">
                       <button
                         type="button"
@@ -1802,7 +1833,6 @@ export default {
       shoppingSearch: '',
       mobileConfigSheet: false,
       stockAdjustments: {},
-      stockPackedModes: {},
       stockExcluded: {}, // itemKeys décochés → exclus de la génération du réarmement
       // fiche 314-01 — étape 1 : onglet actif ('shops' | 'storage') et overrides
       // en POURCENTAGE (0–200, 100 = défaut) du nécessaire par ligne storage.
@@ -3214,7 +3244,6 @@ export default {
         referenceEventId: this.referenceEventId,
         selectedEventIds: this.selectedEventIds,
         stockAdjustments: this.stockAdjustments,
-        stockPackedModes: this.stockPackedModes,
         restockedRows: this.restockedRows,
         restockGenerated: this.restockGenerated,
         shoppingGenerated: this.shoppingGenerated,
@@ -3554,7 +3583,9 @@ export default {
         if (Array.isArray(saved.selectedEventIds)) this.selectedEventIds = saved.selectedEventIds
       }
       if (saved.stockAdjustments) this.stockAdjustments = { ...saved.stockAdjustments }
-      if (saved.stockPackedModes) this.stockPackedModes = { ...saved.stockPackedModes }
+      // `saved.stockPackedModes` (legacy) IGNORÉ volontairement : le latch
+      // « affiché en pièces » seedé quand le conditionnement ne se résolvait pas
+      // bloquait les packs après coup (fiche 344-01) — packaging résolu = packs.
       if (saved.stockExcluded) this.stockExcluded = { ...saved.stockExcluded }
       // NE PAS lire `saved.storageAdjustments` (legacy absolu, fiche 314-01,
       // abandonné 14/08 au profit des %) — les lignes retombent sur 100 %.
@@ -3662,7 +3693,8 @@ export default {
         this.selectedEventIds = Array.isArray(plan.selectedEventIds) ? [...plan.selectedEventIds] : []
         this.selectedScenarioByEventId = { ...(plan.scenarioByEventId || {}) }
         this.stockAdjustments = { ...(plan.stockAdjustments || {}) }
-        this.stockPackedModes = { ...(plan.stockPackedModes || {}) }
+        // `plan.stockPackedModes` (legacy) IGNORÉ — cf. fiche 344-01 : le format
+        // packs/pièces se déduit du conditionnement résolu, plus d'un mode figé.
         this.stockExcluded = { ...(plan.stockExcluded || {}) }
         this.shoppingMode = plan.shoppingMode || 'finished'
         // État storage figé avec le plan (meta.storage, 14-08). Plans
@@ -3746,7 +3778,6 @@ export default {
           selectedEventIds: this.selectedEventIds,
           scenarioByEventId: this.selectedScenarioByEventId,
           stockAdjustments: this.stockAdjustments,
-          stockPackedModes: this.stockPackedModes,
           stockExcluded: this.stockExcluded,
           restockedRows: this.restockedRows,
           shoppingMode: this.shoppingMode,
@@ -3832,7 +3863,7 @@ export default {
      * unités (tout l'aval y travaille) — la conversion vit ici seule.
      */
     depositFieldValue(row) {
-      const stored = this.lineOverrides[row.rowKey] ?? row.restockQuantity
+      const stored = this.effectiveRestockQuantity(row)
       if (!this.depositPackSize(row)) return stored
       return packCountForQuantity(stored, row.packaging)
     },
@@ -4507,18 +4538,13 @@ export default {
     },
     ensureStockItemDefaults() {
       // Garde loadPlan : le watcher stockSettingsSignature ÉCRIT
-      // stockAdjustments/stockPackedModes et écraserait les valeurs du plan.
+      // stockAdjustments et écraserait les valeurs du plan.
       if (this.loadingPlan) return
       const adjustments = { ...this.stockAdjustments }
-      const packedModes = { ...this.stockPackedModes }
       this.stockSettingsRows.forEach((row) => {
         if (adjustments[row.itemKey] == null) adjustments[row.itemKey] = 100
-        if (packedModes[row.itemKey] == null) {
-          packedModes[row.itemKey] = !!this.packagingForItem(row, row.totalQuantity)
-        }
       })
       this.stockAdjustments = adjustments
-      this.stockPackedModes = packedModes
     },
     recipeComponentsForStockItem(item) {
       const normalize = (value) => String(value || '').trim().toLowerCase()
@@ -4784,25 +4810,22 @@ export default {
       this.store.dispatch('inventory/invalidateMarketPrices')
       await this.store.dispatch('inventory/loadMarketPrices')
     },
-    /**
-     * Affichage en colis PAR DÉFAUT dès que le conditionnement se résout — la
-     * case « Empaqueté » a été retirée (le calcul arrondit toujours en colis
-     * entiers depuis BUG-295-01, la case ne pilotait plus que le format).
-     * `false` explicite (plans sauvegardés avec la case décochée) respecté.
-     */
-    isPackedMode(itemKey) {
-      return this.stockPackedModes[itemKey] !== false
-    },
     adjustedQuantity(quantity, unit, itemKey) {
       return roundForUnit((Number(quantity) || 0) * (this.stockAdjustment(itemKey) / 100), unit)
     },
     packagingForItem(item, quantity) {
+      // 4e pool `marketPrices` OBLIGATOIRE (BUG-342-01, « Saucisse de
+      // Francfort » en pièces) : les articles dont le conditionnement ne vit
+      // que sur la ligne d'achat ne se résolvaient jamais ici, alors que
+      // storagePackagingByKey et buyInfo, dans ce même fichier, passaient déjà
+      // le pool.
       return computePackagingForQuantity(
         item,
         quantity,
         this.ingredients,
         this.components,
         this.menuItems,
+        this.marketPrices,
       )
     },
     remainingQuantityForRow(row, packaging) {
@@ -5349,8 +5372,69 @@ export default {
      * conditionnement ne se résout pas → l'affichage reste en unités.
      */
     depositPackSize(row) {
-      if (!row || !row.packaging || !this.isPackedMode(row.itemKey)) return null
+      if (!row || !row.packaging) return null
       return packSizeForPackaging(row.packaging)
+    },
+    /**
+     * Quantité « À déposer » réellement AFFICHÉE pour la ligne : l'override du
+     * plan chargé (stocké en unités, cf. setLineOverridePacks) prime sur la
+     * quantité calculée. Tout total dérivé (sous-titre paquets, total de
+     * groupe) doit lire CETTE valeur, sinon il contredit le champ que
+     * l'utilisateur vient d'éditer.
+     */
+    effectiveRestockQuantity(row) {
+      return this.lineOverrides[row.rowKey] ?? row.restockQuantity
+    },
+    /**
+     * Total de PAQUETS d'un groupe article, tous PdV confondus (réunion
+     * Bertrand 2026-08-19 : « Blumberger 50 + 27 → 77 packs »). Somme des
+     * arrondis PAR LIGNE, pas arrondi de la somme : on dépose des colis
+     * entiers par PdV. null si le conditionnement du groupe ne se résout pas
+     * (le chip est alors absent, pas un 0 fabriqué).
+     */
+    groupPackTotal(group) {
+      let total = 0
+      let found = false
+      for (const row of group?.rows || []) {
+        if (!this.depositPackSize(row)) continue
+        const count = packCountForQuantity(this.effectiveRestockQuantity(row), row.packaging)
+        if (count == null) continue
+        total += count
+        found = true
+      }
+      return found ? total : null
+    },
+    /** Libellé du chip de groupe : « 77 Packs de 4 pièces » — type accordé sur
+     *  le total, taille au singulier (c'est UN colis qu'on décrit). */
+    groupPackTotalLabel(group) {
+      const total = this.groupPackTotal(group)
+      if (total == null) return ''
+      const ref = (group.rows || []).find((r) => this.depositPackSize(r))
+      const type = pluralizePackLabel(this.depositPackLabelSingular(ref), total)
+      const size = this.depositPackSizeLabel(ref)
+      return size ? `${total} ${type} ${this.t('srDepositHelpOf')} ${size}` : `${total} ${type}`
+    },
+    /**
+     * Référence d'achat du groupe article : colonne « Supplier item » du Market
+     * Price résolu (réunion Bertrand 2026-08-19 — « la référence du market
+     * price qui est dans la recette »). Toutes les lignes d'un groupe désignent
+     * le même article : la première référence résolue fait foi. Chaîne vide si
+     * le catalogue ne la porte pas — rien d'affiché, pas de « — ».
+     */
+    marketPriceRefFor(group) {
+      const row = (group?.rows || [])[0]
+      if (!row) return ''
+      // Pool marketPrices OBLIGATOIRE (même règle que packagingForItem,
+      // BUG-342-01 ; oubli ici relevé par BUG-344-01) : une ligne libre type
+      // « Coca-Cola Cherry - CAN 33CL »
+      // n'existe que côté catalogue d'achat — sans le pool, pas de référence.
+      // Sûr par construction : dernier pool + deux passes BUG-299-01 (ids avant
+      // noms), un Market Price ne gagne que si rien côté recette ne résout.
+      const src =
+        row.packaging?.source ||
+        findStockReference(row, this.ingredients, this.components, this.menuItems, this.marketPrices)
+      if (!src) return ''
+      return String(src.marketPrice?.supplierItem ?? src.supplierItem ?? '').trim()
     },
     /**
      * « À déposer » exprimé en NOMBRE DE PAQUETS (demande JLH) — c'est l'unité
@@ -5359,7 +5443,9 @@ export default {
      */
     depositPackCount(row) {
       if (!this.depositPackSize(row)) return null
-      return packCountForQuantity(row.restockQuantity, row.packaging)
+      // Quantité affichée (override du plan compris) — sinon le sous-titre
+      // « 3 Cartons » contredit le champ que l'utilisateur vient d'éditer.
+      return packCountForQuantity(this.effectiveRestockQuantity(row), row.packaging)
     },
     /** Type de colis, accordé sur le nombre déposé (« 3 Cartons », « 1 Sac »). */
     depositPackLabel(row) {
@@ -5411,11 +5497,7 @@ export default {
     formatRestockUnits(row) {
       return this.formatCeilQuantity(row.restockQuantity, row.unit)
     },
-    /**
-     * « 3 Cartons de 6 bouteilles » — même accord que « À déposer ». Ne teste
-     * PAS isPackedMode : les appelants arbitrent (buyInfo affiche les colis dès
-     * que le conditionnement se résout).
-     */
+    /** « 3 Cartons de 6 bouteilles » — même accord que « À déposer ». */
     formatPackedQuantity(packaging, unit) {
       if (!packaging) return ''
       const count = Number(packaging.packedCount || 0)
@@ -5425,7 +5507,11 @@ export default {
       return size ? `${label} ${this.t('srDepositHelpOf')} ${size}` : label
     },
     formatShoppingQuantity(item) {
-      if (this.isPackedMode(item.itemKey) && item.packaging) {
+      // Conditionnement résolu = paquets, sans mode figé : l'ancien latch
+      // `stockPackedModes` (seedé false quand la résolution échouait, persisté
+      // dans snapshots et plans, plus aucune UI pour le lever) gardait table,
+      // email et impression en pièces après coup — fiche 344-01.
+      if (item.packaging) {
         return this.formatPackedQuantity(item.packaging, item.unit)
       }
       return this.formatLooseQuantity(item.quantity, item.unit)
@@ -7011,8 +7097,12 @@ export default {
 }
 .sr-supplier-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .sr-supplier-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-/* Compteur boutiques + « Tout confirmer » par carte article (vue Par article). */
-.sr-group-head-end { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* Compteur boutiques + « Tout confirmer » par carte article (vue Par article).
+   Colonne alignée à droite : le total de paquets du groupe occupe la 1re ligne,
+   les actions la 2e (retour JLH 2026-08-19 — le total est une quantité à
+   préparer, il ne doit pas se lire comme un bouton). */
+.sr-group-head-end { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.sr-group-head-actions { display: flex; align-items: center; gap: 8px; }
 
 .sr-group-head span,
 .sr-supplier-head span {

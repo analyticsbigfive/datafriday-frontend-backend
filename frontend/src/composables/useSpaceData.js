@@ -26,6 +26,7 @@ import { normalizeMenuItem, menuItemsCoverage, resolveComponentRefs } from '@/ut
 import { mergeSubComponentsFromCatalog, hydrateSubComponents } from '@/utils/componentCatalog'
 import { getProductTypes, getProductCategories, getMenuComponents } from '@/api/endpoints/menu.api'
 import { getIngredients } from '@/api/endpoints/ingredient.api'
+import { fetchAllPaginated } from '@/utils/paginateAll'
 import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
 import { getWeezeventProducts } from '@/api/endpoints/aggregation.api'
 import { getProductMappings } from '@/api/endpoints/mapping.api'
@@ -309,7 +310,10 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       // dénormalise pas components[] (cf. docs/dejaFaits/menuItems.api.md).
       const _t2b = (typeof performance !== 'undefined' ? performance.now() : Date.now())
       const [apiIngredients, apiMenuComponents, apiPackagings] = await Promise.all([
-        getIngredients().catch((e) => { console.warn('[useSpaceData] ⚠️ ingredients failed:', e?.response?.status, e?.message); return [] }),
+        // Boucle paginée OBLIGATOIRE (fiche 345-01) : sans elle, seuls les 100
+        // premiers ingrédients (tri alphabétique) arrivaient — « Tsingtao »,
+        // « X1 »… perdaient leur conditionnement au Réarmement.
+        fetchAllPaginated((p) => getIngredients(p)).catch((e) => { console.warn('[useSpaceData] ⚠️ ingredients failed:', e?.response?.status, e?.message); return [] }),
         fetchAllMenuComponents().catch((e) => { console.warn('[useSpaceData] ⚠️ menuComponents failed:', e?.response?.status, e?.message); return [] }),
         getAllPackagingTypes().catch((e) => { console.warn('[useSpaceData] ⚠️ packagings failed:', e?.response?.status, e?.message); return [] }),
       ])

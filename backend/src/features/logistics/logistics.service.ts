@@ -1295,7 +1295,7 @@ export class LogisticsService {
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
     if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
 
-    const [configurations, event, allLevels, lastReco, firstMovement, elementIds] = await Promise.all([
+    const [configurations, event, allLevels, lastReco, firstMovement, elementIds, nextEvent] = await Promise.all([
       // Config n'a pas de tenantId propre (scoping via spaceId, déjà vérifié tenant plus haut).
       this.prisma.config.findMany({ where: { spaceId }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } }),
       eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
@@ -1315,6 +1315,15 @@ export class LogisticsService {
         select: { createdAt: true },
       }),
       this.getSpaceElementIds(spaceId, tenantId),
+      // Event le plus proche dans le futur pour cet espace — calibre le "besoin
+      // prédit" par défaut (retour PO, sans ?event= explicite dans l'URL) sur la
+      // feuille de réarmement du prochain match plutôt que rien. Miroir du calcul
+      // fait côté front par SpaceInventoryView.resolveEventContext (mode pré-event).
+      this.prisma.event.findFirst({
+        where: { spaceId, tenantId, eventDate: { gt: new Date() } },
+        orderBy: { eventDate: 'asc' },
+        select: { id: true },
+      }),
     ]);
 
     // Priorité : configId explicite (deep-link ?configuration=) > config de l'event
@@ -1386,6 +1395,7 @@ export class LogisticsService {
       space,
       configurations,
       resolvedConfigId,
+      nextEventId: nextEvent?.id ?? null,
       anchor: anchorAt ? { at: anchorAt, reconciliationId: lastReco?.id ?? null } : null,
       elements: elementsWithItems,
       levels,
