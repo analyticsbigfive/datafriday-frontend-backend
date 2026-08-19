@@ -10,6 +10,7 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
+import { parseEventSessions, combineDayAndLocalTime } from '../../shared/utils/event-window.util';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -1205,11 +1206,18 @@ export class SpacesService {
     // shop IDs resolved from plan floors + forecourt, and the space's timezone
     // (used to display transaction hours in venue-local time, see BUG-270) —
     // none of this varies per event.
-    const [, datafridayEvents, weezeventEvents, locationMapping, shopIds, spaceRow] = await Promise.all([
+    const [, datafridayEvents, allSpaceEvents, weezeventEvents, locationMapping, shopIds, spaceRow] = await Promise.all([
       this.findOne(spaceId, tenantId),
       this.prisma.event.findMany({
         where: { id: { in: uniqueIds }, tenantId, spaceId },
-        select: { id: true, eventDate: true, eventEndDate: true },
+        select: { id: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
+      }),
+      // BUG-339-02 : tous les events de l'espace (pas seulement le batch demandé) — nécessaires
+      // pour détecter qu'un event VOISIN, hors batch, se termine le jour où celui du batch
+      // commence (ex. "PFC - RC Lens" finit le 15/02 à 03h00, jour de début de "SFP-Toulouse").
+      this.prisma.event.findMany({
+        where: { tenantId, spaceId },
+        select: { id: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
       }),
       this.prisma.salesEvent.findMany({
         where: { id: { in: uniqueIds }, tenantId },
@@ -1248,7 +1256,31 @@ export class SpacesService {
     const MAX_EVENT_SPAN_DAYS = 2;
     const dfMap = new Map(datafridayEvents.map(e => [e.id, e]));
     const wzMap = new Map(weezeventEvents.map(e => [e.id, e]));
-    const windows: { id: string; eventDate: Date; windowEnd: Date }[] = [];
+
+    // BUG-339-02 (docs/bugs/) : fin de fenêtre à l'heure de fin réelle de l'event
+    // (Event.eventEndTime, posée sur eventEndDate — repli : showTime de la dernière session),
+    // plus au jour calendaire entier "+1 jour". Règle métier (2026-08-19) : les transactions
+    // d'un event vont de minuit (jour de début) jusqu'à son heure de fin (jour de fin), EN
+    // EXCLUANT la tranche minuit → heure de fin d'un event précédent qui se termine le jour
+    // où celui-ci commence (ex. "PFC - RC Lens" 14/02 → 15/02 03h00 ; "SFP-Toulouse" démarre
+    // le 15/02 : sa fenêtre commence à 03h00, pas à minuit). Sans ça, la fenêtre au jour
+    // entier de PFC (14/02 → 16/02) absorbait tout le CA de SFP-Toulouse (48k€ → 184k€).
+    const preciseEndOf = (e: {
+      eventDate: Date;
+      eventEndDate: Date | null;
+      eventEndTime: string | null;
+      sessions: string | null;
+    }): Date | null => {
+      const endDay = new Date(e.eventEndDate ?? e.eventDate);
+      const sessions = parseEventSessions(e.sessions);
+      return combineDayAndLocalTime(
+        endDay,
+        e.eventEndTime ?? sessions[sessions.length - 1]?.showTime,
+        spaceTimezone,
+      );
+    };
+
+    const windows: { id: string; windowStart: Date; windowEnd: Date }[] = [];
     for (const id of uniqueIds) {
       const df = dfMap.get(id);
       const wz = wzMap.get(id);
@@ -1263,11 +1295,31 @@ export class SpacesService {
         : wz?.endDate
           ? new Date(wz.endDate)
           : eventDate;
-      const windowEnd = new Date(endDate);
-      windowEnd.setDate(windowEnd.getDate() + 1);
+      // Fin de fenêtre : heure de fin réelle si connue (event DataFriday), sinon repli
+      // historique jour calendaire entier (+1 jour, eventEndDate = dernier jour INCLUS).
+      const fallbackEnd = new Date(endDate);
+      fallbackEnd.setDate(fallbackEnd.getDate() + 1);
+      const windowEnd = (df && preciseEndOf(df)) || fallbackEnd;
+      // Début de fenêtre : minuit du jour de début, avancé à l'heure de fin du dernier
+      // event voisin qui se termine ce jour-là (sa tranche minuit → heure de fin lui
+      // appartient). Seuls les voisins finissant AVANT la fin de cet event comptent —
+      // sinon, deux events le même jour se videraient mutuellement leur fenêtre.
+      let windowStart = eventDate;
+      if (df) {
+        for (const neighbor of allSpaceEvents) {
+          if (neighbor.id === id) continue;
+          const neighborEndDay = new Date(neighbor.eventEndDate ?? neighbor.eventDate);
+          if (neighborEndDay.getTime() !== eventDate.getTime()) continue;
+          const neighborEnd = preciseEndOf(neighbor);
+          if (!neighborEnd) continue; // voisin sans heure de fin → pas d'exclusion (comportement historique)
+          if (neighborEnd >= windowEnd) continue;
+          if (neighborEnd > windowStart) windowStart = neighborEnd;
+        }
+      }
+      if (windowStart >= windowEnd) continue; // fenêtre vide → stays []
       const spanDays = (windowEnd.getTime() - eventDate.getTime()) / 86_400_000;
       if (spanDays > MAX_EVENT_SPAN_DAYS) continue; // event-conteneur (saison…) → stays []
-      windows.push({ id, eventDate, windowEnd });
+      windows.push({ id, windowStart, windowEnd });
     }
     if (!windows.length) return null;
 
@@ -1292,7 +1344,7 @@ export class SpacesService {
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
 
     const valuesSql = Prisma.join(
-      windows.map(w => Prisma.sql`(${w.id}::text, ${w.eventDate}::timestamp, ${w.windowEnd}::timestamp)`),
+      windows.map(w => Prisma.sql`(${w.id}::text, ${w.windowStart}::timestamp, ${w.windowEnd}::timestamp)`),
       ', ',
     );
 
@@ -1334,14 +1386,14 @@ export class SpacesService {
     // pour reprojeter en heure murale locale de l'espace (BUG-125-01 : factorisée dans le
     // LATERAL `tz` pour que Postgres ne voie qu'une seule interpolation du paramètre).
     //
-    // Le JOIN reste borné par fenêtre de dates (ev."eventDate"/"windowEnd"), PAS par égalité
+    // Le JOIN reste borné par fenêtre de dates (ev."windowStart"/"windowEnd"), PAS par égalité
     // sur "weezeventEventId" : les deux pipelines d'écriture (aggregation.service.ts,
     // space-aggregation.service.ts) taguent ce champ avec des conventions d'id différentes
     // (id "Event" DataFriday vs id "WeezeventEvent" brut — cf. BUG-123-01 dans la RPC
     // get_space_shop_details) ; une égalité stricte manquerait les events qui n'existent
-    // qu'en WeezeventEvent. La fenêtre de dates reproduit le comportement historique du scan
-    // brut à l'identique, y compris le chevauchement légitime entre deux events dont les
-    // fenêtres se recoupent.
+    // qu'en WeezeventEvent. Depuis BUG-339-02, la fenêtre est resserrée sur l'heure de fin
+    // réelle de l'event (voir resolveEventSalesScope) — deux events consécutifs ne se
+    // chevauchent plus quand leurs heures de fin sont connues.
     //
     // Agrégation en DEUX niveaux (BUG-130-01, régression du commit perf
     // event-timeline-item-agg qui faisait un MAX à un seul niveau) :
@@ -1361,7 +1413,7 @@ export class SpacesService {
     //    "weezeventMerchantId") : chaque minute était plafonnée à la plus grosse ligne au
     //    lieu du total → timeline réelle aplatie en plateau constant.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql}),
+      WITH ev("eventId", "windowStart", "windowEnd") AS (VALUES ${valuesSql}),
       dedup AS (
         SELECT
           ev."eventId"                 AS "eventId",
@@ -1375,7 +1427,7 @@ export class SpacesService {
           MAX(mem."revenueHt")         AS "revenueHt"
         FROM ev
         INNER JOIN "SpaceRevenueMinuteItemAgg" mem
-          ON mem."minute" >= ev."eventDate"
+          ON mem."minute" >= ev."windowStart"
          AND mem."minute" <  ev."windowEnd"
          AND mem."tenantId" = ${tenantId}
          AND mem."spaceId"  = ${spaceId}
@@ -1495,7 +1547,7 @@ export class SpacesService {
     // et BUG-108. Un panier à N lignes ne produit qu'UNE ligne ici : c'est ce qui
     // évite le double comptage au dénominateur.
     const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "eventDate", "windowEnd") AS (VALUES ${valuesSql}),
+      WITH ev("eventId", "windowStart", "windowEnd") AS (VALUES ${valuesSql}),
       tx AS (
         SELECT
           t.id                                                            AS "txId",
@@ -1516,7 +1568,7 @@ export class SpacesService {
           )::numeric(12,2)                                                AS "revenueHt"
         FROM ev
         INNER JOIN "WeezeventTransaction" t
-          ON t."transactionDate" >= ev."eventDate"
+          ON t."transactionDate" >= ev."windowStart"
          AND t."transactionDate" <  ev."windowEnd"
          AND t."tenantId" = ${tenantId}
          ${integrationClause}
