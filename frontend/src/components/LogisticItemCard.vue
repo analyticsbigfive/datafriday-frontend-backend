@@ -60,7 +60,8 @@
       <div v-if="predictedNeed != null" class="lg-field-row lg-field-row-predicted">
         <div class="lg-field-label">{{ t('logiColPredictedNeed') }}</div>
         <div class="lg-field-value">
-          {{ formatUnits(predictedNeed) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span>
+          <template v-if="predictedNeedPacksDisplay != null">{{ predictedNeedPacksDisplay }}<span class="lg-field-unit">{{ t('logiPacksShort') }}</span></template>
+          <template v-else>{{ formatUnits(predictedNeed) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span></template>
         </div>
       </div>
     </div>
@@ -127,6 +128,11 @@ const props = defineProps({
   unitsPerPack: { type: [Number, String], default: null },
   /** Besoin prédit Event Predict en unités, ou null = rien de prédit (jamais 0). */
   predictedNeed: { type: Number, default: null },
+  /** Packs déjà décidés au réarmement (packaging.packedCount natif de RestockPlan),
+   *  null si le besoin vient du repli Event Predict ou si le pack n'était pas connu
+   *  sur la ligne — retour utilisateur 2026-08-19 : ne pas ré-éclater par division
+   *  quand ce nombre existe déjà, la décision réelle peut arrondir autrement. */
+  predictedNeedPacks: { type: Number, default: null },
   usedInLabel: { type: String, default: '' },
   /** 'bad' (rupture) | 'warn' (stock bas) | 'ok'. */
   status: { type: String, default: 'ok' },
@@ -147,6 +153,19 @@ const imgFailed = ref(false)
 
 /** Photo affichée : prop `picture` (résolue parent : item.picture || MarketPrice.image) sinon item.picture brut. */
 const resolvedPicture = computed(() => props.picture || props.item?.picture || null)
+
+/** Besoin prédit en nombre de packs à afficher (retour utilisateur 2026-08-19 : même
+ *  forme que EMBALLÉ, pas les unités brutes). Priorité au pack NATIF du réarmement
+ *  (`predictedNeedPacks` prop, `packaging.packedCount`) — sinon repli sur une
+ *  estimation par division (arrondi au pack supérieur, un achat n'est pas un état,
+ *  miroir storageBuyInfo côté Réarmement), seulement quand le prop natif est absent
+ *  (repli Event Predict, ou pack inconnu sur la ligne réarmement). */
+const predictedNeedPacksDisplay = computed(() => {
+  if (props.predictedNeedPacks != null) return props.predictedNeedPacks
+  const upp = Number(props.unitsPerPack)
+  if (!upp || props.predictedNeed == null) return null
+  return Math.ceil(props.predictedNeed / upp)
+})
 
 /**
  * Lien direct vers la fiche Market Price à corriger (nouvel onglet, ne perd pas
@@ -258,7 +277,7 @@ function pendingTransferQtyLabel(pt) {
 }
 .lg-field-row {
   display: grid;
-  grid-template-columns: 1fr 52px;
+  grid-template-columns: 1fr auto;
   align-items: baseline;
   gap: 8px;
   padding: 3px 0;
@@ -286,6 +305,7 @@ function pendingTransferQtyLabel(pt) {
   color: var(--fb-text, #212121);
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .lg-field-unit {
   font-size: 0.72rem;
