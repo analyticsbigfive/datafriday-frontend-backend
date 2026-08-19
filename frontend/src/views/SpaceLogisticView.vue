@@ -348,7 +348,12 @@
                 :expected-display="expectedDisplay"
                 :resolve-item-picture="resolveItemPicture"
                 :config-names-for="configNamesFor"
+                :predicted-need-for="predictedNeedFor"
+                :predicted-need-packs-for="predictedNeedPacksFor"
+                :units-per-pack-for="unitsPerPackFor"
                 @go="goToItem"
+                @add="openMovement($event.element, $event.item, 'add')"
+                @remove="openMovement($event.element, $event.item, 'remove')"
               />
             </template>
 
@@ -366,6 +371,7 @@
                   :expected="expectedDisplay(drillElement.element.id, item)"
                   :units-per-pack="unitsPerPackFor(drillElement.element.id, item)"
                   :predicted-need="predictedNeedFor(drillElement.element.id, item)"
+                  :predicted-need-packs="predictedNeedPacksFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
@@ -493,7 +499,7 @@ import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/lo
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { ClipboardList, GitCompare, Download, TrendingDown } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
-import { loadPredictedNeed, lookupPredictedNeed, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
+import { loadPredictedNeed, lookupPredictedNeed, lookupPredictedNeedPacks, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
 import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 
 const TABS = [
@@ -1005,6 +1011,12 @@ export default {
      *  par NOM, la résolution par nom normalisé est donc le chemin nominal ici. */
     predictedNeedFor(elementId, item) {
       return lookupPredictedNeed(this.predictedNeed, elementId, item)
+    },
+    /** Packs déjà décidés au réarmement pour cette denrée sur cet élément — natif
+     *  (packaging.packedCount), null si l'index vient du repli Event Predict (pas
+     *  de packs) ou si le conditionnement n'était pas connu sur cette ligne. */
+    predictedNeedPacksFor(elementId, item) {
+      return lookupPredictedNeedPacks(this.predictedNeed, elementId, item)
     },
     /** Dernier inventaire (tous events) → valeurs grisées + source du reset. */
     async loadLatestInventory(spaceId) {
