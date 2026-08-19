@@ -8,6 +8,7 @@ import {
   getAllPackagingTypes as apiGetAllPackagingTypes,
 } from '@/api/endpoints/inventory.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
+import { fetchAllPaginated } from '@/utils/paginateAll'
 import { isDemoMode } from '@/utils/demoMode'
 import * as localDb from '@/data/localDb'
 
@@ -297,8 +298,10 @@ const actions = {
     console.log('[inventory] 💰 loadMarketPrices — GET /market-prices …')
     const p = (async () => {
       try {
-        const data = await getMarketPrices()
-        const list = Array.isArray(data) ? data : data?.data || []
+        // Boucle paginée (fiche 345-01) : le backend plafonne à 200/page — un
+        // catalogue plus gros était tronqué en silence (conditionnements et
+        // fournisseurs introuvables au Réarmement pour la fin de l'alphabet).
+        const list = await fetchAllPaginated((params) => getMarketPrices(params), { limit: 200 })
         commit('SET_MARKET_PRICES', list)
         localDb.setMarketPricesCache(list)
         console.log(`[inventory] 💰✅ loadMarketPrices OK — ${list.length} coût(s) récupéré(s) depuis l'API`, list.slice(0, 3))

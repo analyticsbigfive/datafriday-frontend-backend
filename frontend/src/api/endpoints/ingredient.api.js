@@ -11,8 +11,14 @@ import { api } from '../client'
  * Récupérer toutes les catégories de produits
  * @returns {Promise<Array>}
  */
-export async function getIngredients() {
-  return api.get('/ingredients')
+export async function getIngredients({ page, limit } = {}) {
+  // Sans params, le backend renvoie la PAGE 1 (100 lignes, tri alphabétique) —
+  // pour un catalogue complet, boucler via fetchAllPaginated (utils/paginateAll).
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/ingredients${qs ? '?' + qs : ''}`)
 }
 
 /**

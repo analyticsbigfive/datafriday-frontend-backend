@@ -538,17 +538,13 @@ export function findStockReference(
   return null
 }
 
-export function computePackagingForQuantity(
-  item,
-  quantity,
-  ingredients = [],
-  components = [],
-  menuItems = [],
-  marketPrices = [],
-) {
-  const src = findStockReference(item, ingredients, components, menuItems, marketPrices)
-  if (!src) return null
-
+/**
+ * Champs de conditionnement exploitables d'une référence, ou null s'il en
+ * manque un (type, taille ou unité). Extraction inchangée (repli MarketPrice
+ * niché pour les ingrédients) — seulement sortie de computePackagingForQuantity
+ * pour pouvoir être rejouée sur un AUTRE porteur (cf. candidats ci-dessous).
+ */
+function packagingFieldsFrom(src, item) {
   // Un ingrédient (/ingredients) ne porte AUCUN champ conditionnement à plat :
   // tout vit dans son MarketPrice niché (inventoryPackaging, packedUnits…).
   // Sans ce repli, le réarmement ne résolvait jamais de colis pour un ingrédient
@@ -581,7 +577,82 @@ export function computePackagingForQuantity(
     toNumber(src.purchaseUnitConversion, 0) || toNumber(mp?.purchaseUnitConversion, 1) || 1
 
   if (!packagingType || !packagingUnitNumber || !packagingUnit) return null
+  return { packagingType, packagingUnitNumber, packagingUnit, purchaseUnitConversion }
+}
 
+/**
+ * Candidats de résolution ORDONNÉS : toutes les correspondances par ID (ordre
+ * des pools), puis toutes celles par NOM. Ne sert qu'à trouver un PORTEUR de
+ * conditionnement quand la référence principale n'en a pas — la référence
+ * elle-même reste `findStockReference` (règles BUG-299-01 inchangées : un
+ * homonyme par nom ne peut jamais passer devant une correspondance par id).
+ */
+function findStockReferenceCandidates(
+  item,
+  ingredients = [],
+  components = [],
+  menuItems = [],
+  marketPrices = [],
+) {
+  const idCandidates = new Set(
+    [item?.itemId, item?.id, item?.sourceId, item?.marketPriceId].filter(Boolean).map(String),
+  )
+  const name = normalizeName(item?.itemName || item?.name)
+  const pools = [ingredients || [], components || [], menuItems || [], marketPrices || []]
+  const matchesId = (c) =>
+    !!c &&
+    [c.id, c.sourceId, c.marketPriceId, c.marketPrice?.id].some(
+      (v) => v != null && idCandidates.has(String(v)),
+    )
+  const out = []
+  if (idCandidates.size) {
+    for (const pool of pools) for (const c of pool) if (matchesId(c)) out.push(c)
+  }
+  if (name) {
+    for (const pool of pools) {
+      for (const c of pool) {
+        if (c && normalizeName(c.name || c.itemName) === name && !out.includes(c)) out.push(c)
+      }
+    }
+  }
+  return out
+}
+
+export function computePackagingForQuantity(
+  item,
+  quantity,
+  ingredients = [],
+  components = [],
+  menuItems = [],
+  marketPrices = [],
+) {
+  const src = findStockReference(item, ingredients, components, menuItems, marketPrices)
+  if (!src) return null
+
+  // Référence principale d'abord ; si elle ne porte AUCUN conditionnement
+  // exploitable, on continue sur les autres candidats (id puis nom) — cas Coca
+  // 33cl (réunion Bertrand 2026-08-19) : la ligne résout l'INGRÉDIENT homonyme
+  // sans conditionnement alors que la carte « Inventory Information » du menu
+  // item porte « pack de 24 ». On ne change PAS la référence (`source` reste
+  // `src`, identité/fournisseur intacts) : on emprunte seulement les champs de
+  // colisage au premier porteur qui en a.
+  let fields = packagingFieldsFrom(src, item)
+  if (!fields) {
+    for (const candidate of findStockReferenceCandidates(
+      item,
+      ingredients,
+      components,
+      menuItems,
+      marketPrices,
+    )) {
+      if (candidate === src) continue
+      fields = packagingFieldsFrom(candidate, item)
+      if (fields) break
+    }
+  }
+  if (!fields) return null
+
+  const { packagingType, packagingUnitNumber, packagingUnit, purchaseUnitConversion } = fields
   const packedCount = Math.ceil((toNumber(quantity) / packagingUnitNumber) * purchaseUnitConversion)
   return {
     source: src,
@@ -589,6 +660,10 @@ export function computePackagingForQuantity(
     packagingType,
     packagingUnitNumber,
     packagingUnit,
+    // Conversion EFFECTIVE du calcul, à plat : quand le colisage vient d'un
+    // autre porteur que `source`, coveredQuantityForPackaging doit inverser
+    // avec la même conversion — la relire sur `source` rendrait l'inverse faux.
+    purchaseUnitConversion,
     looseQty: packedCount * packagingUnitNumber,
   }
 }

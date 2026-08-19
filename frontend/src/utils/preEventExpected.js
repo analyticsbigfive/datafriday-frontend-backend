@@ -139,3 +139,79 @@ export function buildPreEventExpected(baselineResponse, { itemIdByNormName, unit
 
   return out
 }
+
+/**
+ * Index plat `expectedKey(elementId,itemId)` → TOTAL en unités, depuis la sortie
+ * de buildPreEventExpected. Alimente le badge « Attendu » de section pre-event
+ * (réunion Bertrand 2026-08-19 : post-event précédent + Logistique — plus le
+ * plan Stockup sauvegardé, retour JLH 13/08 remplacé).
+ *
+ * `units` peut manquer : le serveur ne le renvoie que s'il a résolu une taille
+ * de paquet (inventory.service.ts, sortie de computeExpected). Repli avec la
+ * taille de paquet de l'ÉCRAN (`unitsPerItemId`, inventoryQuantityPackaged) :
+ * le badge doit sommer ce que les hints Packed/Loose affichés laissent
+ * recalculer de tête — un total `packed + loose` sous un champ légendé
+ * « Nombre de Cartons de 24 » contredirait l'écran. Référentiel serveur vs
+ * écran : divergence connue (BUG-239 / Q39), même arbitrage que le re-découpage
+ * de buildPreEventExpected.
+ */
+/**
+ * Détail du calcul de l'attendu, par `expectedKey(elementId,itemId)` — alimente
+ * les infobulles « voir le détail » (demande JLH 2026-08-19, suite réunion
+ * Bertrand) : pre-event « post-event précédent + livraisons », post-event
+ * « pre-event + mouvements − vendu ».
+ *
+ * Les termes sont DÉRIVÉS pour que l'identité affichée tienne toujours :
+ *  - base = comptage du blob `baseline` converti avec la taille de paquet de
+ *    l'ÉCRAN (même convention que flattenExpectedUnits — quand le serveur a
+ *    calculé avec un autre référentiel (BUG-239/Q39), c'est le terme dérivé qui
+ *    absorbe l'écart, jamais l'égalité) ;
+ *  - avec `movementUnits` (post-event) : moves = net serveur, sold dérivé
+ *    (base + moves − attendu) ;
+ *  - sans (pre-event) : moves dérivé (attendu − base), sold null.
+ *
+ * @param {{ baseline: object|null, movementUnits?: object|null,
+ *           expectedUnits: Record<string, number>|null,
+ *           unitsPerItemId?: Record<string, number> }} params
+ * @returns {Record<string, {base: number, moves: number, sold: number|null}>|null}
+ */
+export function buildExpectedCalcDetails({ baseline, movementUnits, expectedUnits, unitsPerItemId } = {}) {
+  if (!expectedUnits || typeof expectedUnits !== 'object') return null
+  const round2 = (n) => Math.round(n * 100) / 100
+  const out = {}
+  for (const [key, expected] of Object.entries(expectedUnits)) {
+    if (!Number.isFinite(Number(expected))) continue
+    const sep = key.indexOf('|')
+    const elementId = key.slice(0, sep)
+    const itemId = key.slice(sep + 1)
+    const c = baseline?.[elementId]?.[itemId]
+    const q = Number(unitsPerItemId?.[itemId]) > 0 ? Number(unitsPerItemId[itemId]) : 1
+    const base = round2((Number(c?.packedUnits) || 0) * q + (Number(c?.looseUnits) || 0))
+    if (movementUnits && typeof movementUnits === 'object') {
+      const moves = round2(Number(movementUnits?.[elementId]?.[itemId]) || 0)
+      out[key] = { base, moves, sold: round2(base + moves - Number(expected)) }
+    } else {
+      out[key] = { base, moves: round2(Number(expected) - base), sold: null }
+    }
+  }
+  return out
+}
+
+export function flattenExpectedUnits(preExpected, { unitsPerItemId } = {}) {
+  if (!preExpected || typeof preExpected !== 'object') return null
+  const round2 = (n) => Math.round(n * 100) / 100
+  const out = {}
+  for (const [key, v] of Object.entries(preExpected)) {
+    // Garde `!= null` obligatoire : Number(null) vaut 0 (fini) et écraserait
+    // le repli — même piège que dans buildPreEventExpected.
+    const units = v?.units != null ? Number(v.units) : NaN
+    if (Number.isFinite(units)) {
+      out[key] = round2(units)
+      continue
+    }
+    const itemId = key.split('|')[1] ?? ''
+    const q = Number(unitsPerItemId?.[itemId]) > 0 ? Number(unitsPerItemId[itemId]) : 1
+    out[key] = round2((Number(v?.packed) || 0) * q + (Number(v?.loose) || 0))
+  }
+  return out
+}
