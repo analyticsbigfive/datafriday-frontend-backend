@@ -957,6 +957,13 @@ export default {
           stalled = true
           this.feedbackSnackbarText = this.t('intgTimelineAggSlow')
           this.feedbackSnackbarColor = 'warning'
+          // Le poll a épuisé son budget sans preuve d'échec — le job backend tourne
+          // probablement toujours. Sans ce retry différé, rien ne rafraîchit plus jamais la
+          // timeline ensuite : le watcher `events` (plus bas) ne fait que déverrouiller le
+          // bouton quand un statut résolu arrive, il n'en déclenche jamais la récupération
+          // lui-même. Même délai que la branche erreur réseau ci-dessous (retry unique, pas
+          // de re-poll infini).
+          setTimeout(() => this.loadTimeline(this.spaceId, this.location.id), SINGLE_EVENT_RETRY_DELAY_MS)
         }
         this.feedbackSnackbar = true
 
@@ -1060,6 +1067,10 @@ export default {
         } else {
           this.feedbackSnackbarText = this.t('intgTimelineAggSlow')
           this.feedbackSnackbarColor = 'warning'
+          // Même raisonnement que handleProcessSingle : sans ce retry différé, rien ne
+          // rafraîchit plus jamais la timeline après un poll épuisé (le watcher `events` ne
+          // fait que déverrouiller les boutons, il ne relance pas loadTimeline() lui-même).
+          setTimeout(() => this.loadTimeline(this.spaceId, this.location.id), SINGLE_EVENT_RETRY_DELAY_MS)
         }
         this.feedbackSnackbar = true
       } catch (err) {
@@ -1355,7 +1366,17 @@ export default {
             chunk.map(async (weezEvent) => {
               const toDate = d => (d ? String(d).slice(0, 10) : null)
               const startDate = toDate(weezEvent.startDate || weezEvent.start_date || weezEvent.date || weezEvent.start || weezEvent.eventDate || weezEvent.event_date)
-              const endDate = toDate(weezEvent.endDate || weezEvent.end_date || weezEvent.end) || startDate
+              const rawEndDate = toDate(weezEvent.endDate || weezEvent.end_date || weezEvent.end)
+              // Un `live_end` Weezevent qui déborde de quelques heures après minuit (wallet
+              // cashless encore ouvert après le coup de sifflet final) ne fait PAS de ce match
+              // un event de 2 jours — resolveEventSalesScope (spaces.service.ts) ajoute déjà
+              // +1 jour à eventEndDate (convention métier décidée le 30/07 : eventEndDate =
+              // dernier jour INCLUS). Un rawEndDate à startDate+1 y ajouterait un jour de trop,
+              // débordant sur l'event du lendemain (BUG-339-02 constaté : CA de deux matchs
+              // additionné). On ne garde rawEndDate que s'il dépasse vraiment 1 jour d'écart —
+              // signe d'un event réellement multi-jours (festival, etc.).
+              const daysBetween = rawEndDate ? (new Date(rawEndDate) - new Date(startDate)) / 86_400_000 : 0
+              const endDate = (rawEndDate && daysBetween > 1) ? rawEndDate : startDate
               if (!startDate) {
                 console.warn('[bulkCreateEvents] champs disponibles sur le weezEvent sans date:', JSON.stringify(weezEvent))
                 return { __skipped: true }

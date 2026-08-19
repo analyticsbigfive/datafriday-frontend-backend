@@ -1101,6 +1101,128 @@ describe('SpacesService', () => {
     });
   });
 
+  // BUG-339-02 : la fenêtre de vente d'un event doit se terminer à son heure de fin réelle
+  // (Event.eventEndTime sur eventEndDate), pas au jour calendaire entier "+1 jour" — sinon un
+  // event finissant après minuit (eventEndDate = lendemain) absorbe tout le CA de l'event du
+  // lendemain (PFC - RC Lens 48k€ affiché 184k€). Et la fenêtre de l'event suivant doit
+  // commencer à l'heure de fin du précédent, pas à minuit.
+  describe('resolveEventSalesScope — fenêtres à l’heure de fin réelle (BUG-339-02)', () => {
+    const spaceId = 'space-1';
+    const tenantId = 'tenant-1';
+
+    // Timezone par défaut Europe/Paris (space.findFirst ne renvoie pas de timezone) ;
+    // en février, UTC+1 → "03:00" local = 02:00Z.
+    const pfc = {
+      id: 'ev-pfc',
+      eventDate: new Date('2026-02-14T00:00:00.000Z'),
+      eventEndDate: new Date('2026-02-15T00:00:00.000Z'),
+      eventEndTime: '03:00',
+      sessions: null,
+    };
+    const sfp = {
+      id: 'ev-sfp',
+      eventDate: new Date('2026-02-15T00:00:00.000Z'),
+      eventEndDate: new Date('2026-02-16T00:00:00.000Z'),
+      eventEndTime: '04:00',
+      sessions: null,
+    };
+
+    const mockEvents = (all: any[]) => {
+      // 1er findMany (batch, filtré par id) vs 2e (tous les events de l'espace).
+      mockPrismaService.event.findMany.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.id ? all.filter((e) => where.id.in.includes(e.id)) : all),
+      );
+    };
+
+    // Les bornes passées au VALUES CTE : chaque fenêtre est (id::text, start::timestamp,
+    // end::timestamp) dans les paramètres de la requête, dans cet ordre.
+    const windowsFromLastQuery = (): Record<string, { start: Date; end: Date }> => {
+      const sqlObj: any = mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0];
+      const values: any[] = sqlObj?.values ?? [];
+      const out: Record<string, { start: Date; end: Date }> = {};
+      for (let i = 0; i < values.length - 2; i++) {
+        if (typeof values[i] === 'string' && values[i + 1] instanceof Date && values[i + 2] instanceof Date) {
+          out[values[i]] = { start: values[i + 1], end: values[i + 2] };
+        }
+      }
+      return out;
+    };
+
+    beforeEach(() => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue({ salesLocationId: 'integ-1' });
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
+      (mockPrismaService as any).salesEvent = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    it('resserre la fin de fenêtre sur eventEndTime et démarre l’event suivant à cette borne (PFC/SFP)', async () => {
+      mockEvents([pfc, sfp]);
+
+      await service.getEventTimelineBatch(spaceId, ['ev-pfc', 'ev-sfp'], tenantId);
+
+      const w = windowsFromLastQuery();
+      // PFC : minuit du 14/02 → 15/02 03:00 Paris (02:00Z), plus 16/02 (jour entier +1).
+      expect(w['ev-pfc'].start.toISOString()).toBe('2026-02-14T00:00:00.000Z');
+      expect(w['ev-pfc'].end.toISOString()).toBe('2026-02-15T02:00:00.000Z');
+      // SFP : démarre à la fin de PFC (02:00Z), pas à minuit ; finit 16/02 04:00 Paris (03:00Z).
+      expect(w['ev-sfp'].start.toISOString()).toBe('2026-02-15T02:00:00.000Z');
+      expect(w['ev-sfp'].end.toISOString()).toBe('2026-02-16T03:00:00.000Z');
+      // Aucun chevauchement : c'était le double comptage du bug.
+      expect(w['ev-pfc'].end.getTime()).toBeLessThanOrEqual(w['ev-sfp'].start.getTime());
+    });
+
+    it('exclut la tranche de tête même quand l’event précédent est HORS du batch demandé', async () => {
+      mockEvents([pfc, sfp]);
+
+      await service.getEventTimelineBatch(spaceId, ['ev-sfp'], tenantId);
+
+      const w = windowsFromLastQuery();
+      expect(w['ev-pfc']).toBeUndefined();
+      expect(w['ev-sfp'].start.toISOString()).toBe('2026-02-15T02:00:00.000Z');
+    });
+
+    it('sans eventEndTime ni sessions : repli historique jour calendaire entier (+1 jour)', async () => {
+      mockEvents([
+        { id: 'ev-1', eventDate: new Date('2026-03-01T00:00:00.000Z'), eventEndDate: null, eventEndTime: null, sessions: null },
+      ]);
+
+      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId);
+
+      const w = windowsFromLastQuery();
+      expect(w['ev-1'].start.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+      expect(w['ev-1'].end.toISOString()).toBe('2026-03-02T00:00:00.000Z');
+    });
+
+    it('deux events le même jour : le second démarre à la fin du premier, le premier garde minuit', async () => {
+      const e1 = {
+        id: 'ev-apresmidi',
+        eventDate: new Date('2026-02-14T00:00:00.000Z'),
+        eventEndDate: null,
+        eventEndTime: '18:00', // 17:00Z
+        sessions: null,
+      };
+      const e2 = {
+        id: 'ev-soir',
+        eventDate: new Date('2026-02-14T00:00:00.000Z'),
+        eventEndDate: null,
+        eventEndTime: '23:00', // 22:00Z
+        sessions: null,
+      };
+      mockEvents([e1, e2]);
+
+      await service.getEventTimelineBatch(spaceId, ['ev-apresmidi', 'ev-soir'], tenantId);
+
+      const w = windowsFromLastQuery();
+      // Le voisin du soir finit APRÈS l'event de l'après-midi → ne doit pas vider sa fenêtre.
+      expect(w['ev-apresmidi'].start.toISOString()).toBe('2026-02-14T00:00:00.000Z');
+      expect(w['ev-apresmidi'].end.toISOString()).toBe('2026-02-14T17:00:00.000Z');
+      expect(w['ev-soir'].start.toISOString()).toBe('2026-02-14T17:00:00.000Z');
+      expect(w['ev-soir'].end.toISOString()).toBe('2026-02-14T22:00:00.000Z');
+    });
+  });
+
   // ===== Correctifs Wizard Weezevent (A1/A3/A4/A6) =====
   describe('Wizard Weezevent fixes', () => {
     const tenantId = 'tenant-1';
