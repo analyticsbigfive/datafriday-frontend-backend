@@ -105,6 +105,42 @@ export function lookupPredictedNeed(index, elementId, item) {
 }
 
 /**
+ * Index du besoin à partir d'une feuille de réarmement sauvegardée (RestockPlan,
+ * `restockLines`, grain shop × article, `restockPlanSnapshot.js`). Retour du PO
+ * (2026-08-19) : Logistic doit se calibrer sur la quantité DÉCIDÉE à déposer
+ * (`restockQuantity`, réarmement) plutôt que sur la prévision brute Event Predict
+ * quand une feuille existe pour l'event visé — cf. `fetchPredictedNeed` (appelant),
+ * qui n'utilise cet index qu'en priorité, avant repli sur `loadPredictedNeed`.
+ * Même forme de sortie que `buildPredictedNeedIndex` pour rester compatible avec
+ * `lookupPredictedNeed` côté consommateur (LogisticItemCard).
+ * @param {Array<object>} restockLines lignes figées d'un RestockPlan (grain shop × article)
+ * @returns {{byItemId: Record<string, number>, byItemName: Record<string, number>}|null}
+ */
+export function buildRestockNeedIndex(restockLines) {
+  const lines = Array.isArray(restockLines) ? restockLines : []
+  if (!lines.length) return null
+
+  const byItemId = {}
+  const byItemName = {}
+  for (const line of lines) {
+    const elementId = line?.shopId
+    const units = Number(line?.restockQuantity) || 0
+    if (!elementId || !units) continue
+    if (line.itemKey != null) {
+      const k = expectedKey(elementId, line.itemKey)
+      byItemId[k] = (byItemId[k] || 0) + units
+    }
+    const nk = normalizeStr(line?.itemName)
+    if (nk) {
+      const k = expectedKey(elementId, nk)
+      byItemName[k] = (byItemName[k] || 0) + units
+    }
+  }
+  if (!Object.keys(byItemId).length && !Object.keys(byItemName).length) return null
+  return { byItemId, byItemName }
+}
+
+/**
  * Charge la version de référence et construit l'index. Ne jette jamais : un
  * indice absent ne doit pas empêcher de compter.
  * @returns {Promise<{index: object|null, reason: null|'no-default-version'}>}
