@@ -191,10 +191,15 @@
                     <h1 class="lg-header__title">
                       {{ drillElement ? drillElement.element.name : t('logiPageTitle') }}
                     </h1>
-                    <p class="lg-header__subtitle">
-                      <template v-if="drillElement">{{ t('logiPageTitle') }}<span v-if="spaceLabel"> · {{ spaceLabel }}</span></template>
-                      <template v-else-if="activeConfigName">{{ activeConfigName }}</template>
+                    <p v-if="drillElement" class="lg-header__subtitle">
+                      {{ t('logiPageTitle') }}<span v-if="spaceLabel"> · {{ spaceLabel }}</span>
                     </p>
+                    <LogisticConfigSelect
+                      v-else
+                      :configurations="configurations"
+                      :model-value="selectedConfigId || 'all'"
+                      @update:model-value="onConfigSelect"
+                    />
                   </div>
                 </div>
 
@@ -206,29 +211,34 @@
                   <v-btn icon variant="outlined" size="small" class="lg-hbtn" :loading="stockLoading" @click="refresh">
                     <v-icon size="18">mdi-refresh</v-icon>
                   </v-btn>
-                  <!-- QA : simuler une vente Weezevent — niveau liste, permission logisticReconcile -->
-                  <v-btn
-                    v-if="!drillElement && canReconcile"
-                    variant="outlined"
-                    size="small"
-                    class="lg-simulate-btn"
-                    @click="openSimulate"
-                  >
-                    <v-icon size="16" class="mr-1">mdi-flask-outline</v-icon>
-                    {{ t('logiSimulateBtn') }}
-                  </v-btn>
+                  <!-- QA : simuler une vente Weezevent — niveau liste, permission logisticReconcile.
+                       Désactivé en vue agrégée (question 57, tranchée : Ulrich 2026-08-19, option a) —
+                       ces actions ont besoin d'une config précise (prix/menu). -->
+                  <span v-if="!drillElement && canReconcile" :title="isAggregateView ? t('logiQaDisabledAggregate') : undefined">
+                    <v-btn
+                      variant="outlined"
+                      size="small"
+                      class="lg-simulate-btn"
+                      :disabled="isAggregateView"
+                      @click="openSimulate"
+                    >
+                      <v-icon size="16" class="mr-1">mdi-flask-outline</v-icon>
+                      {{ t('logiSimulateBtn') }}
+                    </v-btn>
+                  </span>
                   <!-- Reset inventory : niveau liste, permission logisticReconcile -->
-                  <v-btn
-                    v-if="!drillElement && canReconcile"
-                    variant="flat"
-                    class="lg-reset-btn"
-                    :loading="resetting"
-                    :disabled="!hasCountedValues"
-                    @click="resetDialog = true"
-                  >
-                    <v-icon size="16" class="mr-1">mdi-restore</v-icon>
-                    {{ t('logiResetBtn') }}
-                  </v-btn>
+                  <span v-if="!drillElement && canReconcile" :title="isAggregateView ? t('logiQaDisabledAggregate') : undefined">
+                    <v-btn
+                      variant="flat"
+                      class="lg-reset-btn"
+                      :loading="resetting"
+                      :disabled="isAggregateView || !hasCountedValues"
+                      @click="resetDialog = true"
+                    >
+                      <v-icon size="16" class="mr-1">mdi-restore</v-icon>
+                      {{ t('logiResetBtn') }}
+                    </v-btn>
+                  </span>
                 </div>
               </div>
             </header>
@@ -253,7 +263,7 @@
               >
                 <v-icon size="16" class="mr-1">{{ tab.icon }}</v-icon>
                 {{ t(tab.labelKey) }}
-                <span class="lg-tab-count">({{ tab.value === 'shops' ? filteredShops.length : filteredStorages.length }})</span>
+                <span class="lg-tab-count">({{ tabCount(tab.value) }})</span>
               </button>
             </div>
             <!-- Squelettes : reprennent la forme réelle (ligne PDV ou carte item)
@@ -286,7 +296,7 @@
             </template>
 
             <!-- ── NIVEAU 1 : liste des PDV / Storage ─────────────────────────── -->
-            <template v-else-if="!drillElement">
+            <template v-else-if="!drillElement && activeTab !== 'byItem'">
               <div v-if="currentEntries.length" class="lg-sort-bar">
                 <span class="lg-sort-label">{{ t('logiSort') }}</span>
                 <div class="lg-chip-row">
@@ -321,10 +331,25 @@
                   :total-loose="totalLooseFor(entry)"
                   :rupture-count="entryStatusCounts(entry).bad"
                   :low-count="entryStatusCounts(entry).warn"
+                  :config-tags="configNamesFor(entry.element)"
                   @open="drillElement = entry"
                   @open-history="openHistory(entry.element)"
                 />
               </div>
+            </template>
+
+            <!-- ── NIVEAU 1 bis : vue « By Item » (chantier 341) ──────────────── -->
+            <template v-else-if="!drillElement && activeTab === 'byItem'">
+              <LogisticByItemView
+                :entries="[...shopEntries, ...storageEntries]"
+                :item-kind-filter="itemKindFilter"
+                :item-status="itemStatus"
+                :is-counted="(elementId, item) => !!countedFor(elementId, item)"
+                :expected-display="expectedDisplay"
+                :resolve-item-picture="resolveItemPicture"
+                :config-names-for="configNamesFor"
+                @go="goToItem"
+              />
             </template>
 
             <!-- ── NIVEAU 2 : drill-in grille de cartes-articles ──────────────── -->
@@ -461,6 +486,8 @@ import LogisticLossesDrawer from '@/components/LogisticLossesDrawer.vue'
 import LogisticHistoryDrawer from '@/components/LogisticHistoryDrawer.vue'
 import LogisticAggregateView from '@/components/LogisticAggregateView.vue'
 import LogisticSimulateSaleDialog from '@/components/LogisticSimulateSaleDialog.vue'
+import LogisticConfigSelect from '@/components/LogisticConfigSelect.vue'
+import LogisticByItemView from '@/components/LogisticByItemView.vue'
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
 import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/logistics.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
@@ -471,6 +498,7 @@ import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredict
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', icon: 'mdi-store' },
   { value: 'storage', labelKey: 'logiTabStorage', icon: 'mdi-warehouse' },
+  { value: 'byItem', labelKey: 'logiTabByItem', icon: 'mdi-view-list' },
 ]
 
 const ITEM_KIND_OPTIONS = [
@@ -531,6 +559,8 @@ export default {
     TrendingDown,
     WorkspacePanelToggle,
     LogisticSimulateSaleDialog,
+    LogisticConfigSelect,
+    LogisticByItemView,
   },
   setup() {
     const store = useStore()
@@ -613,10 +643,8 @@ export default {
     spaceLabel() { return this.currentSpace?.name || this.route?.params?.spaceId || null },
     configurations() { return this.store.state.logistics?.configurations || [] },
     selectedConfigId() { return this.store.state.logistics?.resolvedConfigId || null },
-    activeConfigName() {
-      const c = this.configurations.find((x) => String(x.id) === String(this.selectedConfigId))
-      return c?.name || c?.title || null
-    },
+    /** Vue agrégée toutes configs (chantier 341) — désactive les actions QA scopées à une config. */
+    isAggregateView() { return this.selectedConfigId === 'all' || !this.selectedConfigId },
     can() { return this.store.getters['auth/can'] },
     canReconcile() { return this.can('front.fb.logisticReconcile') },
     toolboxSelectItems() {
@@ -638,12 +666,13 @@ export default {
       const at = this.store.state.logistics?.anchor?.at
       return at ? this.formatDate(at) : null
     },
-    /** Entrées niveau 1, shape { element:{id,name}, items } — miroir de l'ancien wrapper useInventoryData. */
+    /** Entrées niveau 1, shape { element:{id,name,configIds}, items } — miroir de l'ancien wrapper
+     *  useInventoryData. configIds n'est peuplé que côté backend en vue agrégée (chantier 341). */
     shopEntries() {
-      return (this.store.getters['logistics/shopElements'] || []).map((e) => ({ element: { id: e.id, name: e.name }, items: e.items || [] }))
+      return (this.store.getters['logistics/shopElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [] }, items: e.items || [] }))
     },
     storageEntries() {
-      return (this.store.getters['logistics/storageElements'] || []).map((e) => ({ element: { id: e.id, name: e.name }, items: e.items || [] }))
+      return (this.store.getters['logistics/storageElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [] }, items: e.items || [] }))
     },
     /** Candidats aux transferts, avec le stock actuel de la denrée (pour choisir en
      *  connaissance de cause). PDV : uniquement ceux qui suivent déjà la denrée
@@ -809,6 +838,32 @@ export default {
       this.itemKindFilter = []
       this.elementSearch = ''
     },
+    /** Nb affiché sur chaque tab — shops/storage comptent les entrées filtrées, byItem
+     *  compte les denrées distinctes de tout l'espace (indépendant du tab actif). */
+    tabCount(tabValue) {
+      if (tabValue === 'shops') return this.filteredShops.length
+      if (tabValue === 'storage') return this.filteredStorages.length
+      return this.summaryItemsCount
+    },
+    /** Noms de config d'un élément (chantier 341) — pour le tag "Plan Max, Plan Réduit"
+     *  sur les lignes PDV en vue agrégée. Vide en mode single-config (configIds absent). */
+    configNamesFor(element) {
+      const ids = element?.configIds || []
+      if (!ids.length) return []
+      return ids
+        .map((id) => this.configurations.find((c) => String(c.id) === String(id)))
+        .filter(Boolean)
+        .map((c) => c.name || c.title)
+    },
+    /** Changement de configuration depuis le sélecteur (LogisticConfigSelect) — recharge
+     *  le stock et met à jour l'URL pour rester deep-linkable (remplace l'ancien
+     *  deep-link invisible ?configuration= par un choix piloté par l'UI). */
+    onConfigSelect(configId) {
+      const spaceId = this.currentSpaceId
+      if (!spaceId) return
+      this.router.replace({ query: { ...this.route.query, configuration: configId } })
+      this.store.dispatch('logistics/loadStock', { spaceId, configId })
+    },
     /** 'bad' (rupture) | 'warn' (stock bas, mêmes critères que itemMatchesFilters) | 'ok'. */
     itemStatus(elementId, item) {
       const expected = this.expectedDisplay(elementId, item)
@@ -886,8 +941,11 @@ export default {
       try {
         // configId/eventId : le backend résout lui-même (priorité configId > event > 1re config,
         // cf. LogisticsService.getStock) — plus besoin de charger configurations/events avant.
-        const configId = this.route?.query?.configuration || this.route?.query?.config || null
+        // Chantier 341 : défaut = 'all' (vue agrégée) SAUF un ?event= présent sans ?configuration=
+        // explicite — dans ce cas on laisse le backend résoudre via la config de l'event (deep-link
+        // existant depuis Event Predict), sinon 'all' l'écraserait silencieusement.
         const eventId = this.route?.query?.event || null
+        const configId = this.route?.query?.configuration || this.route?.query?.config || (eventId ? null : 'all')
         const tasks = [
           this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId }),
           this.loadLatestInventory(spaceId),

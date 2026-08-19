@@ -1016,7 +1016,13 @@ export class LogisticsService {
     } as any;
   }
 
-  private async getSpaceElementsWithItems(spaceId: string, tenantId: string, configId?: string) {
+  private async getSpaceElementsWithItems(
+    spaceId: string,
+    tenantId: string,
+    configId?: string,
+    opts?: { aggregateAllConfigs?: boolean },
+  ) {
+    const aggregateAllConfigs = !!opts?.aggregateAllConfigs;
     const rows = await this.prisma.spaceElement.findMany({
       where: this.spaceElementScopeWhere(spaceId, tenantId),
       select: {
@@ -1035,18 +1041,40 @@ export class LogisticsService {
     const shops = (rows as any[]).filter((r) => SHOP_TYPES.includes(r.type));
     const storages = (rows as any[]).filter((r) => r.type === 'storage');
 
-    // Enabled menuItemIds par shop, scopés à la config effective de CE shop.
+    // Enabled menuItemIds par shop, scopés à la config effective de CE shop —
+    // sauf en mode agrégé (chantier 341), où on unionne TOUTES les configs actives
+    // du shop au lieu d'en résoudre une seule via resolveElementConfigId.
     const enabledByShop = new Map<string, string[]>();
+    const configIdsByShop = new Map<string, string[]>();
     const allMenuItemIds = new Set<string>();
     for (const shop of shops) {
-      const effectiveConfigId = this.resolveElementConfigId(shop, configId);
-      const ids = [
-        ...new Set<string>(
-          (shop.menuAssignments ?? [])
-            .filter((a: any) => (a.configId ?? null) === effectiveConfigId && a.enabled)
-            .map((a: any) => String(a.menuItemId)),
-        ),
-      ];
+      let ids: string[];
+      if (aggregateAllConfigs) {
+        ids = [
+          ...new Set<string>(
+            (shop.menuAssignments ?? [])
+              .filter((a: any) => a.enabled)
+              .map((a: any) => String(a.menuItemId)),
+          ),
+        ];
+        const shopConfigIds = [
+          ...new Set<string>(
+            (shop.menuAssignments ?? [])
+              .filter((a: any) => a.enabled && a.configId)
+              .map((a: any) => String(a.configId)),
+          ),
+        ];
+        if (shopConfigIds.length) configIdsByShop.set(shop.id, shopConfigIds);
+      } else {
+        const effectiveConfigId = this.resolveElementConfigId(shop, configId);
+        ids = [
+          ...new Set<string>(
+            (shop.menuAssignments ?? [])
+              .filter((a: any) => (a.configId ?? null) === effectiveConfigId && a.enabled)
+              .map((a: any) => String(a.menuItemId)),
+          ),
+        ];
+      }
       enabledByShop.set(shop.id, ids);
       for (const id of ids) allMenuItemIds.add(id);
     }
@@ -1079,7 +1107,14 @@ export class LogisticsService {
     );
 
     const itemMapByShop = new Map<string, Map<string, ElementItem>>();
-    const elements: Array<{ id: string; name: string; type: string; items: ElementItem[]; provider?: string | null }> = [];
+    const elements: Array<{
+      id: string;
+      name: string;
+      type: string;
+      items: ElementItem[];
+      provider?: string | null;
+      configIds?: string[];
+    }> = [];
     for (const shop of configuredShops) {
       const ids = enabledByShop.get(shop.id) ?? [];
       const menuItems = ids.map((id) => byId.get(id)).filter(Boolean).map((mi: any) => ({ id: mi.id, name: mi.name }));
@@ -1091,6 +1126,7 @@ export class LogisticsService {
         type: shop.type,
         items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
         provider: providerByElementId.get(shop.id) ?? null,
+        ...(aggregateAllConfigs ? { configIds: configIdsByShop.get(shop.id) ?? [] } : {}),
       });
     }
 
@@ -1099,9 +1135,13 @@ export class LogisticsService {
         ? (storage.attributes as any).selectedShops.map(String)
         : [];
       const merged = new Map<string, ElementItem>();
+      const storageConfigIds = new Set<string>();
       for (const shopId of selectedShopIds) {
         const shopMap = itemMapByShop.get(shopId);
         if (!shopMap) continue;
+        if (aggregateAllConfigs) {
+          for (const c of configIdsByShop.get(shopId) ?? []) storageConfigIds.add(c);
+        }
         for (const [key, item] of shopMap) {
           let entry = merged.get(key);
           if (!entry) {
@@ -1114,7 +1154,13 @@ export class LogisticsService {
           }
         }
       }
-      elements.push({ id: storage.id, name: storage.name, type: storage.type, items: [...merged.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')) });
+      elements.push({
+        id: storage.id,
+        name: storage.name,
+        type: storage.type,
+        items: [...merged.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+        ...(aggregateAllConfigs ? { configIds: [...storageConfigIds] } : {}),
+      });
     }
 
     return elements;
@@ -1273,12 +1319,16 @@ export class LogisticsService {
 
     // Priorité : configId explicite (deep-link ?configuration=) > config de l'event
     // (deep-link ?event=, comme Space Inventory) > 1re configuration de l'espace.
+    // Sentinel 'all' explicite (chantier 341, vue agrégée par défaut) : ne rentre PAS
+    // dans cette résolution single-config, court-circuite directement.
+    const aggregateAllConfigs = configId === 'all';
     const inConfigs = (id: string | null | undefined) => !!id && configurations.some((c) => c.id === id);
-    const resolvedConfigId =
-      (inConfigs(configId) ? configId : null) ??
-      (inConfigs(event?.configurationId) ? event!.configurationId : null) ??
-      configurations[0]?.id ??
-      null;
+    const resolvedConfigId = aggregateAllConfigs
+      ? 'all'
+      : (inConfigs(configId) ? configId : null) ??
+        (inConfigs(event?.configurationId) ? event!.configurationId : null) ??
+        configurations[0]?.id ??
+        null;
 
     // Ancre de dérivation des ventes : dernière réconciliation, sinon premier
     // mouvement (= activation de la logistique sur l'espace). Sans ancre, pas de
@@ -1289,7 +1339,12 @@ export class LogisticsService {
     // indépendants (aucun ne dépend du résultat de l'autre) — en parallèle plutôt
     // qu'en série pour ne pas payer deux fois la latence réseau DB.
     const [elementsWithItems, consumption] = await Promise.all([
-      this.getSpaceElementsWithItems(spaceId, tenantId, resolvedConfigId ?? undefined),
+      this.getSpaceElementsWithItems(
+        spaceId,
+        tenantId,
+        aggregateAllConfigs ? undefined : resolvedConfigId ?? undefined,
+        { aggregateAllConfigs },
+      ),
       anchorAt && elementIds.length
         ? this.deriveSalesRaw(tenantId, elementIds, anchorAt).then((raw) => this.explodeSalesToConsumption(raw, tenantId))
         : Promise.resolve([] as Array<{ elementId: string; itemKey: string; quantity: number }>),
