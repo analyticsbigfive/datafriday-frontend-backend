@@ -1,6 +1,7 @@
 # BUG-339-02 — Analyse : le CA d'un event peut inclure celui de l'event suivant (`resolveEventSalesScope` fenêtre au jour calendaire entier au lieu d'utiliser l'heure de fin déjà en base)
 
-- **Statut** : ⚪ Diagnostiqué (root cause confirmée empiriquement, fix conçu, **pas implémenté**)
+- **Statut** : 🟢 Corrigé le 2026-08-19 (branche `fix/analyse-page-load-perf`) — règle métier
+  finale précisée par JLH, différente de la « Correction retenue » initiale (voir ci-dessous)
 - **Sévérité** : 🔴 Bloquant/impact business (CA affiché faux sur la page Analyse, tenant client
   réel "Eat Is Family" — chiffre montré à l'utilisateur, pas juste un écran de debug)
 - **Domaine** : Analyse & agrégation
@@ -74,27 +75,45 @@ Deux sources de CA coexistent sur la page Analyse (`AnalyseView.vue:856-865`, `c
    (la fonction bugguée ci-dessus). `chartRecords` bascule silencieusement sur cette 2ᵉ source dès
    qu'elle répond — d'où le chiffre correct puis faux.
 
-## Correction retenue
+## Correction implémentée (2026-08-19)
 
-Porter dans `resolveEventSalesScope` le même calcul que `resolveEventWindow` (mode heure-précise) :
-```
-doorsOpen  = combineDayAndLocalTime(eventDate,    sessions[0].doorsOpening, spaceTimezone)
-doorsClose = combineDayAndLocalTime(eventEndDate, eventEndTime,             spaceTimezone)
-```
-avec les mêmes buffers (`DEFAULT_OFFSET_OPEN_MINUTES`/`DEFAULT_OFFSET_CLOSE_MINUTES`,
-`event-window.util.ts`) au lieu du jour calendaire brut. Résultat pour ce cas : PFC - RC Lens
-`[14/02 19h00, 15/02 03h00[`, SFP-Toulouse `[15/02 19h00, 16/02 04h00[` — aucun chevauchement.
+Règle métier finale (JLH, 2026-08-19, avec schéma de la timeline) — elle diffère de la
+« Correction retenue » envisagée au diagnostic (fenêtre `doorsOpening → eventEndTime` avec
+buffers) : la fenêtre d'un event garde le **jour de début entier** (les ventes d'avant-match
+comptent pour lui), seule la **tranche de tête** appartenant au match précédent est exclue :
 
-`combineDayAndLocalTime`/`parseEventSessions` sont des fonctions JS **pures** (déjà dans
-`event-window.util.ts`, aucune requête DB) : calculables pour tout le batch d'events d'un coup,
-sans perte de la performance batch qui est la raison d'être de `resolveEventSalesScope`. Pas de
-changement d'architecture — remplacer le calcul de `windowEnd`/`eventDate` actuel (lignes
-1249-1271) par le même appel que côté Data Integration, avec repli sur le jour calendaire brut
-uniquement si `doorsOpening`/`eventEndTime` sont absents (comme `resolveEventWindow` le fait déjà).
+> Les transactions attribuées à un évènement sont celles de sa date de début, à l'exclusion de
+> la tranche minuit → heure de fin d'un évènement dont la date de fin est la date de début de
+> celui-ci, jusqu'à l'heure de fin de sa date de fin.
+
+Implémentation dans `resolveEventSalesScope` (`spaces.service.ts`) :
+
+- `windowEnd` = `combineDayAndLocalTime(eventEndDate, eventEndTime ?? dernière session.showTime,
+  spaceTimezone)` — repli : jour calendaire entier (+1 jour, comportement historique) si aucune
+  heure de fin connue. Même repli pour les ids `WeezeventEvent` (pas d'heure de fin en base).
+- `windowStart` = minuit du jour de début (`eventDate`), avancé à l'heure de fin du dernier
+  event **voisin** (tous les events de l'espace, pas seulement le batch demandé — requête
+  supplémentaire dans le `Promise.all`) dont la date de fin tombe ce jour-là. Seuls les voisins
+  finissant avant la fin de l'event courant comptent (deux events le même jour ne se vident pas
+  mutuellement).
+- Pas de buffers `DEFAULT_OFFSET_*` : les bornes sont exactes, la frontière entre deux events
+  consécutifs est l'heure de fin du premier.
+- Colonne du CTE renommée `eventDate` → `windowStart` (les 2 requêtes SQL consommatrices).
+
+Résultat pour ce cas : PFC - RC Lens `[14/02 00h00, 15/02 03h00[`, SFP-Toulouse
+`[15/02 03h00, 16/02 04h00[` (heures locales) — aucun chevauchement, tranche 15/02 00h-03h
+attribuée à PFC.
+
+Tests : `spaces.service.spec.ts`, describe « resolveEventSalesScope — fenêtres à l'heure de fin
+réelle (BUG-339-02) » — 4 cas (PFC/SFP, voisin hors batch, repli sans heure de fin, deux events
+le même jour). ✅ 4/4, aucune régression sur la suite (l'échec `findAll › paginated spaces`
+préexiste sur HEAD propre, indépendant).
 
 **Non retenu** : dérivation depuis les trous d'activité dans les transactions observées (l'idée
 initiale, validée empiriquement — trou net de 19h entre les deux matchs — mais rendue inutile
-puisque l'heure précise existe déjà en base, pas besoin de la redéduire).
+puisque l'heure précise existe déjà en base, pas besoin de la redéduire). **Non retenu aussi** :
+la variante `doorsOpening → eventEndTime + buffers` du diagnostic initial — elle aurait exclu
+les ventes d'avant-ouverture du jour du match, que la règle métier attribue à l'event.
 
 ## Risque de régression / à surveiller
 
@@ -113,7 +132,12 @@ puisque l'heure précise existe déjà en base, pas besoin de la redéduire).
   match" qui fonctionnent déjà correctement.
 - Vérifier le cas où `sessions`/`eventEndTime` sont absents pour un event (repli sur le jour
   calendaire actuel, comme `resolveEventWindow` le fait déjà) — ne doit pas régresser les espaces
-  dont les events n'ont pas cette précision.
+  dont les events n'ont pas cette précision. ✅ couvert par test unitaire (repli +1 jour).
+- **Nouveau (post-fix)** : un event d'un seul jour avec `eventEndTime` avant minuit (ex. fin
+  22h00) perd désormais les ventes entre son heure de fin et minuit — conforme à la règle
+  métier littérale, mais à surveiller si un espace saisit des heures de fin serrées alors que
+  le wallet vend encore après. Si ça remonte, question à poser (QUESTIONS_A_BERTRAND) plutôt
+  qu'élargir en silence.
 
 ## Références
 
