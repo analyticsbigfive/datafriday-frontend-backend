@@ -56,8 +56,11 @@ const state = () => ({
   spaceId: null,
   space: null, // { id, name } — résolu par /stock, plus besoin d'analyse/loadSpace
   configurations: [], // [{ id, name }]
-  resolvedConfigId: null,
-  elements: [], // [{ id, name, type, items: [{name,id,unit,marketPriceId,unitsPerPack,picture,usedIn}] }]
+  resolvedConfigId: null, // id de config, ou 'all' = vue agrégée toutes configs (chantier 341)
+  // [{ id, name, type, items: [...], configIds?: string[] }] — configIds uniquement peuplé
+  // quand resolvedConfigId === 'all' (chantier 341) : ids des configs où l'élément a au
+  // moins un MenuAssignment actif, pour le tag "Plan Max, Plan Réduit" sur les lignes PDV.
+  elements: [],
   levels: {}, // { `${elementId}::${itemKey}`: StockLevel }
   consumption: {}, // { `${elementId}::${itemKey}`: quantity (unités loose vendues) }
   anchor: null, // { at, reconciliationId } | null
