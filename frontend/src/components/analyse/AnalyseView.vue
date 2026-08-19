@@ -617,6 +617,7 @@ import {
   resolveItemType,
   resolveItemCategory,
   buildItemFilterPredicate,
+  hasItemOnlyFilters,
 } from '@/utils/analyseDimensions'
 import { UNATTACHED_ITEM_KEY, reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
@@ -858,10 +859,20 @@ const chartRecords = computed(() =>
     ? filteredRecords.value
     : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
 )
+// BUG-339-04 (docs/bugs/) : les KPI totaux restent sur le SHOP-LEVEL (source de vérité,
+// alignée Event.revenue via la RPC shop-details) — plus de bascule silencieuse vers
+// l'item-level en fin de chargement, qui faisait sauter le total (2,71M → 2,69M) parce
+// que les deux sources ne calculent pas le CA pareil (attribution par fenêtre de dates,
+// events-conteneurs sans fenêtre, cap 50 events, formule revenueHt). L'item-level ne
+// prend la main que si un filtre que le shop-level ne sait pas exprimer est actif
+// (article / type / catégorie d'article, tranche horaire) : le changement de chiffre est
+// alors sémantiquement attendu — c'est un périmètre filtré, pas la même mesure.
 const kpiRecords = computed(() =>
   isPredictRecords.value
     ? filteredRecords.value
-    : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
+    : (hasItemOnlyFilters(filters.value || {}) && itemLevelRecords.value.length
+        ? itemLevelRecords.value
+        : filteredRecords.value),
 )
 
 // ─── Grain ARTICLE en mode Predict ─────────────────────────────────────────

@@ -5,6 +5,7 @@ import {
   buildCategoryParentTypeMap,
   correctTypeViaCatalog,
   applyCatalogTypeCorrection,
+  hasItemOnlyFilters,
 } from '@/utils/analyseDimensions'
 
 describe('analyse dimensions', () => {
@@ -121,5 +122,36 @@ describe('correction type via catalogue (Beer dans By item type)', () => {
     )[0]
     expect(out.menuItemType).toBe('Beverage')
     expect(out.menuItemCategory).toBe('Beer')
+  })
+})
+
+// BUG-339-04 : décide la source des KPI totaux (AnalyseView.kpiRecords) — shop-level par
+// défaut, item-level seulement quand un filtre au grain article/minute est actif.
+describe('hasItemOnlyFilters (BUG-339-04)', () => {
+  it('aucun filtre → false (KPI totaux restent shop-level)', () => {
+    expect(hasItemOnlyFilters()).toBe(false)
+    expect(hasItemOnlyFilters({})).toBe(false)
+    expect(hasItemOnlyFilters({ selectedTimeRange: { start: null, end: null } })).toBe(false)
+  })
+
+  it('chaque dimension article déclenche à elle seule', () => {
+    expect(hasItemOnlyFilters({ selectedMenuItemIds: ['Bière'] })).toBe(true)
+    expect(hasItemOnlyFilters({ selectedMenuItemTypes: ['Beverage'] })).toBe(true)
+    expect(hasItemOnlyFilters({ selectedMenuItemCategories: ['Beer'] })).toBe(true)
+  })
+
+  it('tranche horaire bornée (même partiellement) déclenche', () => {
+    expect(hasItemOnlyFilters({ selectedTimeRange: { start: '19:00', end: null } })).toBe(true)
+    expect(hasItemOnlyFilters({ selectedTimeRange: { start: null, end: '23:00' } })).toBe(true)
+  })
+
+  it('filtres PdV seuls → false (le shop-level sait déjà les appliquer)', () => {
+    expect(
+      hasItemOnlyFilters({
+        selectedShopIds: ['Buvette Nord'],
+        selectedShopTypes: ['Bar'],
+        selectedShopAreas: ['Tribune Est'],
+      }),
+    ).toBe(false)
   })
 })

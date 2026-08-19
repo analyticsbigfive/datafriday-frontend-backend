@@ -7,6 +7,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { computeEventSalesWindow } from '../../shared/utils/event-window.util';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
 import { StartSimulationRunDto } from './dto/simulation-run.dto';
@@ -1712,9 +1713,10 @@ export class LogisticsService {
    * (explosion des combos) y atterrit, la réco en hérite sans modification.
    *
    * Sélection des transactions = MIROIR de `SpacesService.getEventTimelineBatch`
-   * (fenêtre `eventDate → endDate+1j`, scope intégration, status='V', deletedAt NULL)
-   * — dupliqué à dessein comme deriveSalesRaw ↔ loadRecipeContext ; toute clause
-   * modifiée ici doit l'être là-bas, cf. spaces.service.ts:1225-1252. Différence
+   * (fenêtre de vente `computeEventSalesWindow` — event-window.util.ts, BUG-339-03 —,
+   * scope intégration, status='V', deletedAt NULL) — dupliqué à dessein comme
+   * deriveSalesRaw ↔ loadRecipeContext ; toute clause modifiée ici doit l'être
+   * là-bas, cf. resolveEventSalesScope (spaces.service.ts). Différence
    * assumée avec `deriveSalesRaw` : pas d'ancre StockReconciliation (le périmètre
    * est l'événement, pas « depuis le dernier reset »).
    *
@@ -1725,23 +1727,48 @@ export class LogisticsService {
     await this.assertSpace(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
-      select: { id: true, name: true, eventDate: true, eventEndDate: true },
+      select: { id: true, name: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
     });
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const windowStart = new Date(event.eventDate);
-    const windowEnd = new Date(event.eventEndDate ?? event.eventDate);
-    windowEnd.setDate(windowEnd.getDate() + 1);
-
-    const [elementIds, locationMapping] = await Promise.all([
+    const [elementIds, locationMapping, allSpaceEvents, spaceRow] = await Promise.all([
       this.getSpaceElementIds(spaceId, tenantId),
       this.prisma.locationSpaceMapping.findFirst({
         where: { tenantId, spaceId },
         select: { salesLocationId: true },
       }),
+      // BUG-339-03 : voisins nécessaires à computeEventSalesWindow (un event finissant le
+      // jour où celui-ci commence garde sa tranche minuit → heure de fin).
+      this.prisma.event.findMany({
+        where: { tenantId, spaceId },
+        select: { id: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
+      }),
+      this.prisma.space.findFirst({
+        where: { id: spaceId, tenantId },
+        select: { timezone: true },
+      }),
     ]);
+
     if (!elementIds.length) {
       return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null };
+    }
+
+    // BUG-339-03 : même fenêtre de vente que la page Analyse (resolveEventSalesScope) —
+    // sans ça, la réco post-event de deux matchs consécutifs comptait la consommation de
+    // la tranche minuit → fin du match précédent dans les DEUX matchs. Fenêtre nulle
+    // (event-conteneur type saison, ou fenêtre vide) → repli historique jour calendaire
+    // entier, le comportement d'avant ce fix — MIROIR de getPostEventBaseline
+    // (inventory.service.ts), qui fait le même repli pour que ventes et mouvements
+    // parlent toujours de la même période.
+    const window = computeEventSalesWindow(event, allSpaceEvents, spaceRow?.timezone || 'Europe/Paris');
+    let windowStart: Date;
+    let windowEnd: Date;
+    if (window) {
+      ({ windowStart, windowEnd } = window);
+    } else {
+      windowStart = new Date(event.eventDate);
+      windowEnd = new Date(event.eventEndDate ?? event.eventDate);
+      windowEnd.setDate(windowEnd.getDate() + 1);
     }
 
     // Même précédence que le timeline : scope intégration si mappé, sinon mode

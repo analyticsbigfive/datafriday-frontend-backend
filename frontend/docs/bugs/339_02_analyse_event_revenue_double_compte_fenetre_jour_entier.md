@@ -141,6 +141,13 @@ les ventes d'avant-ouverture du jour du match, que la règle métier attribue à
 
 ## Références
 
+- [BUG-339-03](339_03_reco_logistique_inventaire_miroirs_fenetre_vente_non_alignes.md) — suite
+  directe : les miroirs logistics/inventory de cette fenêtre, non alignés par ce fix, corrigés
+  le même jour via l'extraction en fonction partagée `computeEventSalesWindow`
+  (event-window.util.ts).
+- [BUG-339-04](339_04_analyse_total_kpi_bascule_source_shop_vs_item.md) — le « bug secondaire »
+  du symptôme initial (total KPI 2,71M → 2,69M pendant le chargement), même mécanisme de
+  bascule de source côté front, corrigé le même jour.
 - [BUG-338-02](338_02_stade_jean_bouin_agregation_vide_events_saison_vs_match.md) — fix de la
   veille sur `aggregation.service.ts`, même famille de fonction (fenêtrage transaction↔event),
   même espace/tenant.

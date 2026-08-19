@@ -68,3 +68,82 @@ export function combineDayAndLocalTime(day: Date, hhmm: string | undefined | nul
 
 /** Fallback si l'événement n'a ni heure de fin ni durée déductible. */
 export const DEFAULT_EVENT_DURATION_HOURS = 6;
+
+/**
+ * Au-delà de ce span (jours), un event est traité comme un "conteneur" (saison entière) et
+ * n'obtient pas de fenêtre de vente : voir le commentaire détaillé de resolveEventSalesScope
+ * (spaces.service.ts) — seuil à 2 jours pour couvrir un match à cheval sur minuit sans
+ * repêcher un conteneur de saison (271-356 jours observés).
+ */
+export const MAX_EVENT_SPAN_DAYS = 2;
+
+/** Champs d'un Event (ou équivalent) nécessaires au calcul de sa fenêtre de vente. */
+export interface SalesWindowEventInput {
+  id: string;
+  eventDate: Date;
+  eventEndDate: Date | null;
+  eventEndTime: string | null;
+  sessions: string | null;
+}
+
+/**
+ * Heure de fin réelle d'un event : `eventEndTime` (posée sur `eventEndDate`), repli sur le
+ * `showTime` de la dernière session. `null` si aucune heure de fin connue.
+ */
+export function preciseEventEnd(
+  e: Pick<SalesWindowEventInput, 'eventDate' | 'eventEndDate' | 'eventEndTime' | 'sessions'>,
+  spaceTimezone: string,
+): Date | null {
+  const endDay = new Date(e.eventEndDate ?? e.eventDate);
+  const sessions = parseEventSessions(e.sessions);
+  return combineDayAndLocalTime(endDay, e.eventEndTime ?? sessions[sessions.length - 1]?.showTime, spaceTimezone);
+}
+
+/**
+ * Fenêtre de vente d'un event — règle métier BUG-339-02 (2026-08-19, docs/bugs/) :
+ * les transactions d'un event vont de minuit (jour de début) jusqu'à son heure de fin réelle
+ * (jour de fin, borne EXCLUSIVE côté requête : « jusqu'à 2h00 » = dernière transaction à
+ * 1h59:59.999), EN EXCLUANT la tranche minuit → heure de fin d'un event voisin qui se termine
+ * le jour où celui-ci commence (ex. "PFC - RC Lens" 14/02 → 15/02 03h00 ; "SFP-Toulouse"
+ * démarre le 15/02 : sa fenêtre commence à 03h00, pas à minuit).
+ *
+ * - `windowEnd` : heure de fin réelle si connue, sinon repli historique jour calendaire
+ *   entier (+1 jour, `eventEndDate` = dernier jour INCLUS).
+ * - `windowStart` : minuit du jour de début, avancé à l'heure de fin du dernier voisin
+ *   (`allSpaceEvents`, TOUS les events de l'espace) finissant ce jour-là. Seuls les voisins
+ *   finissant AVANT la fin de cet event comptent — sinon, deux events le même jour se
+ *   videraient mutuellement leur fenêtre.
+ * - `null` : fenêtre vide (windowStart >= windowEnd) ou event-conteneur
+ *   (span > MAX_EVENT_SPAN_DAYS, ex. "Saison 26/27").
+ *
+ * Consommateurs : resolveEventSalesScope (spaces.service.ts, page Analyse),
+ * deriveEventConsumption (logistics.service.ts, réco post-event) et getPostEventBaseline
+ * (inventory.service.ts) — les trois doivent parler de la MÊME fenêtre (BUG-339-03).
+ */
+export function computeEventSalesWindow(
+  event: SalesWindowEventInput,
+  allSpaceEvents: SalesWindowEventInput[],
+  spaceTimezone: string,
+): { windowStart: Date; windowEnd: Date } | null {
+  const eventDate = new Date(event.eventDate);
+  const endDate = new Date(event.eventEndDate ?? event.eventDate);
+  const fallbackEnd = new Date(endDate);
+  fallbackEnd.setDate(fallbackEnd.getDate() + 1);
+  const windowEnd = preciseEventEnd(event, spaceTimezone) ?? fallbackEnd;
+
+  let windowStart = eventDate;
+  for (const neighbor of allSpaceEvents) {
+    if (neighbor.id === event.id) continue;
+    const neighborEndDay = new Date(neighbor.eventEndDate ?? neighbor.eventDate);
+    if (neighborEndDay.getTime() !== eventDate.getTime()) continue;
+    const neighborEnd = preciseEventEnd(neighbor, spaceTimezone);
+    if (!neighborEnd) continue; // voisin sans heure de fin → pas d'exclusion (comportement historique)
+    if (neighborEnd >= windowEnd) continue;
+    if (neighborEnd > windowStart) windowStart = neighborEnd;
+  }
+
+  if (windowStart >= windowEnd) return null; // fenêtre vide
+  const spanDays = (windowEnd.getTime() - eventDate.getTime()) / 86_400_000;
+  if (spanDays > MAX_EVENT_SPAN_DAYS) return null; // event-conteneur (saison…)
+  return { windowStart, windowEnd };
+}

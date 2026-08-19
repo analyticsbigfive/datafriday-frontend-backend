@@ -74,6 +74,9 @@ const mockPrisma = {
   // à cette spec — son absence faisait jeter TypeError, 3 tests cassés).
   event: {
     findFirst: jest.fn().mockResolvedValue(null),
+    // getPostEventBaseline (BUG-339-03) : voisins de computeEventSalesWindow — vide par
+    // défaut, la fenêtre retombe sur le jour calendaire entier.
+    findMany: jest.fn().mockResolvedValue([]),
   },
   // Pre-event expected (BUG-232) : rejeu des mouvements + résolution unitsPerPack
   // (chaîne MarketPrice → MenuComponent → MenuItem, via LogisticsService réel).
@@ -118,7 +121,8 @@ describe('InventoryService', () => {
     // jest.clearAllMocks() efface aussi les mockResolvedValue par défaut — on
     // les repose pour les mocks « toujours vides ».
     mockPrisma.event.findFirst.mockResolvedValue(null);
-    mockPrisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+    mockPrisma.event.findMany.mockResolvedValue([]);
+    mockPrisma.space.findFirst.mockResolvedValue({ id: 'space-1', timezone: 'Europe/Paris' });
     mockPrisma.stockMovement.findMany.mockResolvedValue([]);
     mockPrisma.spaceElement.findMany.mockResolvedValue([]);
     mockPrisma.menuItem.findMany.mockResolvedValue([]);

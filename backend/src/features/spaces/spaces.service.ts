@@ -10,7 +10,7 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
-import { parseEventSessions, combineDayAndLocalTime } from '../../shared/utils/event-window.util';
+import { computeEventSalesWindow } from '../../shared/utils/event-window.util';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -1241,7 +1241,7 @@ export class SpacesService {
     // back to WeezeventEvent (when the frontend passes a Weezevent CUID). Same precedence
     // as the single-event method before batching.
     //
-    // MAX_EVENT_SPAN_DAYS : certains "Event" ne représentent pas une session unique mais
+    // MAX_EVENT_SPAN_DAYS (event-window.util.ts) : certains "Event" ne représentent pas une session unique mais
     // un conteneur pour toute une saison (ex. "AJ AUXERRE - Saison 26/27", 356 jours) —
     // rien en amont (création de l'event, scoring predict-v2, filtres Analyse) ne les
     // distingue d'un vrai match. Demander le détail minute par minute sur une fenêtre
@@ -1253,73 +1253,35 @@ export class SpacesService {
     // Seuil à 2 jours : couvre un event à cheval sur minuit (coup d'envoi tard le soir,
     // fin après 00h) sans risquer de repêcher un conteneur de saison (271 à 356 jours
     // observés). Les vrais events observés font 0 à 1 jour.
-    const MAX_EVENT_SPAN_DAYS = 2;
     const dfMap = new Map(datafridayEvents.map(e => [e.id, e]));
     const wzMap = new Map(weezeventEvents.map(e => [e.id, e]));
 
-    // BUG-339-02 (docs/bugs/) : fin de fenêtre à l'heure de fin réelle de l'event
-    // (Event.eventEndTime, posée sur eventEndDate — repli : showTime de la dernière session),
-    // plus au jour calendaire entier "+1 jour". Règle métier (2026-08-19) : les transactions
-    // d'un event vont de minuit (jour de début) jusqu'à son heure de fin (jour de fin), EN
-    // EXCLUANT la tranche minuit → heure de fin d'un event précédent qui se termine le jour
-    // où celui-ci commence (ex. "PFC - RC Lens" 14/02 → 15/02 03h00 ; "SFP-Toulouse" démarre
-    // le 15/02 : sa fenêtre commence à 03h00, pas à minuit). Sans ça, la fenêtre au jour
-    // entier de PFC (14/02 → 16/02) absorbait tout le CA de SFP-Toulouse (48k€ → 184k€).
-    const preciseEndOf = (e: {
-      eventDate: Date;
-      eventEndDate: Date | null;
-      eventEndTime: string | null;
-      sessions: string | null;
-    }): Date | null => {
-      const endDay = new Date(e.eventEndDate ?? e.eventDate);
-      const sessions = parseEventSessions(e.sessions);
-      return combineDayAndLocalTime(
-        endDay,
-        e.eventEndTime ?? sessions[sessions.length - 1]?.showTime,
-        spaceTimezone,
-      );
-    };
-
+    // BUG-339-02/03 (docs/bugs/) : fenêtre de vente calculée par computeEventSalesWindow
+    // (event-window.util.ts) — heure de fin réelle, tranche de tête rendue au voisin qui
+    // finit ce jour-là, gardes fenêtre vide / event-conteneur. Fonction PARTAGÉE avec
+    // deriveEventConsumption (logistics) et getPostEventBaseline (inventory) : les trois
+    // doivent parler de la même fenêtre. Un id WeezeventEvent (pas d'heure de fin, pas de
+    // voisins comparables) passe par la même fonction avec des champs null → repli
+    // historique jour calendaire entier, sans exclusion de voisin.
     const windows: { id: string; windowStart: Date; windowEnd: Date }[] = [];
     for (const id of uniqueIds) {
       const df = dfMap.get(id);
       const wz = wzMap.get(id);
-      const eventDate: Date | null = df
-        ? new Date(df.eventDate)
+      const input = df
+        ? df
         : wz?.startDate
-          ? new Date(wz.startDate)
+          ? {
+              id,
+              eventDate: new Date(wz.startDate),
+              eventEndDate: wz.endDate ? new Date(wz.endDate) : null,
+              eventEndTime: null,
+              sessions: null,
+            }
           : null;
-      if (!eventDate) continue; // event not found in either table → stays []
-      const endDate = df
-        ? new Date(df.eventEndDate ?? df.eventDate)
-        : wz?.endDate
-          ? new Date(wz.endDate)
-          : eventDate;
-      // Fin de fenêtre : heure de fin réelle si connue (event DataFriday), sinon repli
-      // historique jour calendaire entier (+1 jour, eventEndDate = dernier jour INCLUS).
-      const fallbackEnd = new Date(endDate);
-      fallbackEnd.setDate(fallbackEnd.getDate() + 1);
-      const windowEnd = (df && preciseEndOf(df)) || fallbackEnd;
-      // Début de fenêtre : minuit du jour de début, avancé à l'heure de fin du dernier
-      // event voisin qui se termine ce jour-là (sa tranche minuit → heure de fin lui
-      // appartient). Seuls les voisins finissant AVANT la fin de cet event comptent —
-      // sinon, deux events le même jour se videraient mutuellement leur fenêtre.
-      let windowStart = eventDate;
-      if (df) {
-        for (const neighbor of allSpaceEvents) {
-          if (neighbor.id === id) continue;
-          const neighborEndDay = new Date(neighbor.eventEndDate ?? neighbor.eventDate);
-          if (neighborEndDay.getTime() !== eventDate.getTime()) continue;
-          const neighborEnd = preciseEndOf(neighbor);
-          if (!neighborEnd) continue; // voisin sans heure de fin → pas d'exclusion (comportement historique)
-          if (neighborEnd >= windowEnd) continue;
-          if (neighborEnd > windowStart) windowStart = neighborEnd;
-        }
-      }
-      if (windowStart >= windowEnd) continue; // fenêtre vide → stays []
-      const spanDays = (windowEnd.getTime() - eventDate.getTime()) / 86_400_000;
-      if (spanDays > MAX_EVENT_SPAN_DAYS) continue; // event-conteneur (saison…) → stays []
-      windows.push({ id, windowStart, windowEnd });
+      if (!input) continue; // event not found in either table → stays []
+      const window = computeEventSalesWindow(input, df ? allSpaceEvents : [], spaceTimezone);
+      if (!window) continue; // fenêtre vide ou event-conteneur (saison…) → stays []
+      windows.push({ id, ...window });
     }
     if (!windows.length) return null;
 

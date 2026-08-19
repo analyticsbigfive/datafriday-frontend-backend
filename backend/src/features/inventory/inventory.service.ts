@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InventorySnapshot, StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
+import { computeEventSalesWindow } from '../../shared/utils/event-window.util';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
@@ -944,8 +945,9 @@ export class InventoryService {
   //           − ventes dérivées de la même fenêtre
   //
   // Trois précisions décidées avec le métier (2026-07-30) :
-  //  1. FENÊTRE identique à celle des ventes (`eventDate → eventEndDate + 1 j`,
-  //     cf. logistics.deriveEventConsumption). Les deux termes doivent parler de
+  //  1. FENÊTRE identique à celle des ventes (`computeEventSalesWindow`,
+  //     event-window.util.ts — même fenêtre que logistics.deriveEventConsumption
+  //     et la page Analyse, BUG-339-03). Les deux termes doivent parler de
   //     la même période, sinon un réarmement du match SUIVANT gonfle l'indice.
   //  2. Mouvements `SALE` EXCLUS du rejeu : `logistics.reset()` matérialise les
   //     ventes des niveaux non couverts en mouvements `SALE` ; les compter en plus
@@ -957,7 +959,7 @@ export class InventoryService {
     await this.assertSpace(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
-      select: { id: true, name: true, eventDate: true, eventEndDate: true },
+      select: { id: true, name: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
     });
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
@@ -975,9 +977,28 @@ export class InventoryService {
       };
     }
 
-    // Borne haute : miroir exact de la fenêtre de deriveEventConsumption.
-    const movementsBefore = new Date(event.eventEndDate ?? event.eventDate);
-    movementsBefore.setDate(movementsBefore.getDate() + 1);
+    // Borne haute : miroir exact de la fenêtre de deriveEventConsumption
+    // (computeEventSalesWindow, BUG-339-03 — heure de fin réelle, tranche de tête rendue
+    // au match précédent). Repli historique (jour calendaire + 1 j) si la fenêtre est
+    // nulle (event-conteneur / fenêtre vide) : l'indice reste calculable.
+    const [allSpaceEvents, spaceRow] = await Promise.all([
+      this.prisma.event.findMany({
+        where: { tenantId, spaceId },
+        select: { id: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
+      }),
+      this.prisma.space.findFirst({
+        where: { id: spaceId, tenantId },
+        select: { timezone: true },
+      }),
+    ]);
+    const window = computeEventSalesWindow(event, allSpaceEvents, spaceRow?.timezone || 'Europe/Paris');
+    let movementsBefore: Date;
+    if (window) {
+      movementsBefore = window.windowEnd;
+    } else {
+      movementsBefore = new Date(event.eventEndDate ?? event.eventDate);
+      movementsBefore.setDate(movementsBefore.getDate() + 1);
+    }
 
     const { snapshot, expected, movements, netMovementUnits, unjoinedItemKeys } =
       await this.computeExpected(spaceId, tenantId, {

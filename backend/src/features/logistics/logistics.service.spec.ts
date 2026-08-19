@@ -410,14 +410,18 @@ describe('LogisticsService — readyForSale display logic', () => {
     // littéral figé par l'inférence TS).
     const p = mockPrisma as any;
     const mockPrismaFull = () => {
-      p.space = { findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }) };
+      p.space = { findFirst: jest.fn().mockResolvedValue({ id: 'space-1', timezone: 'Europe/Paris' }) };
       p.event = {
         findFirst: jest.fn().mockResolvedValue({
           id: 'ev-1',
           name: 'Match test',
           eventDate: new Date('2026-07-30T00:00:00Z'),
           eventEndDate: null,
+          eventEndTime: null,
+          sessions: null,
         }),
+        // BUG-339-03 : voisins de computeEventSalesWindow — aucun ici, fenêtre = jour entier.
+        findMany: jest.fn().mockResolvedValue([]),
       };
       p.spaceElement = { findMany: jest.fn().mockResolvedValue([{ id: 'shop-1' }, { id: 'shop-2' }]) };
       p.locationSpaceMapping = { findFirst: jest.fn().mockResolvedValue({ salesLocationId: 'integ-1' }) };

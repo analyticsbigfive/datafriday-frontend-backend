@@ -1,7 +1,7 @@
 import { normalizeShopType, OTHER_SHOP_TYPE } from '@/constants/shopTypes'
 import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
-import { isMinuteInRange } from '@/utils/timelineBucketing'
+import { isMinuteInRange, hasActiveRange } from '@/utils/timelineBucketing'
 
 function textValue(value) {
   if (typeof value === 'string') return value.trim()
@@ -375,6 +375,24 @@ export function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
     if (!skipMinute && !isMinuteInRange(r.minute, range)) return false
     return true
   }
+}
+
+/**
+ * BUG-339-04 : vrai si les filtres actifs exigent le grain ARTICLE (dimensions que le
+ * shop-level ne porte pas : article, type/catégorie d'article, tranche horaire minute).
+ * Les filtres PdV (ids/types/zones) ne comptent PAS — le getter store
+ * `filteredShopGranularData` sait déjà les appliquer au shop-level.
+ * Consommé par `kpiRecords` (AnalyseView) pour décider de la source des KPI totaux :
+ * shop-level (source de vérité, alignée Event.revenue) par défaut, item-level seulement
+ * quand un de ces filtres est actif. Mêmes champs que `buildItemFilterPredicate`.
+ */
+export function hasItemOnlyFilters(f = {}) {
+  return Boolean(
+    (f.selectedMenuItemIds || []).length ||
+    (f.selectedMenuItemTypes || []).length ||
+    (f.selectedMenuItemCategories || []).length ||
+    hasActiveRange(f.selectedTimeRange),
+  )
 }
 
 /** Rend slug technique lisible sans modifier clé utilisée par filtres. */
