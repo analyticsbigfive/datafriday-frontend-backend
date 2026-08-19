@@ -1103,12 +1103,15 @@ export default {
 
         // Niveau d'étage par shop (renvoyé par le backend : floorLevel = level d'étage,
         // 'forecourt' ou 'externalmerch'). Sert à reconstruire le badge d'étage au
-        // rechargement (sinon floorMap repart vide et le badge disparaît).
+        // rechargement (sinon floorMap repart vide et le badge disparaît), et est
+        // conservé sur l'instance pour être réutilisé par _updateMappingOne/executeBulk
+        // quand un shop existant est associé en cours de session (sans recharger la page).
         const levelByShop = {}
         for (const s of rawShops) {
           const shopId = s.shopId || s.id
           if (s.floorLevel !== null && s.floorLevel !== undefined) levelByShop[shopId] = s.floorLevel
         }
+        this._levelByShop = levelByShop
 
         // Build confirmed mappings from saved API data (only for this integration)
         const locationIds = new Set(this.locations.map(m => m.id))
@@ -1178,6 +1181,7 @@ export default {
           }
           this.floorMap = newFloorMap
           this.floorNameMap = newFloorNameMap
+          this._elementFloorIndex = elementFloorIndex
         } catch (e) {
           console.warn('[StepMapShops] Could not rebuild floorMap from configs:', e)
         }
@@ -1289,6 +1293,18 @@ export default {
       return (longer.length - costs[shorter.length]) / longer.length
     },
 
+    // Étage réel connu d'un shop, à partir des index construits par loadData().
+    // elementFloorIndex a un nom mais est scopé à userConfigs[0] (BUG-208) ; levelByShop
+    // est space-wide mais n'a que le niveau. On combine les deux au lieu de dépendre
+    // uniquement de la reconstruction faite au rechargement de page.
+    getFloorInfoForElement(elementId) {
+      const fromIndex = this._elementFloorIndex?.[elementId]
+      if (fromIndex) return fromIndex
+      const level = this._levelByShop?.[elementId]
+      if (level !== null && level !== undefined) return { level, name: null }
+      return null
+    },
+
     // Sérialise les appels concurrents pour une même location (double-clic / re-sélection
     // rapide sur le select) : sans ce verrou, deux createLocationShopMapping peuvent
     // partir en parallèle pour la même location, avec un ordre de résolution non garanti.
@@ -1303,6 +1319,8 @@ export default {
       // Valeur avant la mise à jour optimiste, pour pouvoir faire un rollback
       // symétrique à applyAutoSuggestions en cas d'échec.
       const previousElementId = this.localMappings[locationId]
+      const previousFloor = this.floorMap[locationId]
+      const previousFloorName = this.floorNameMap[locationId]
 
       // Update local state immediately
       const updated = { ...this.localMappings }
@@ -1316,6 +1334,22 @@ export default {
       const suggestions = { ...this.autoSuggestions }
       delete suggestions[locationId]
       this.autoSuggestions = suggestions
+
+      // Reprend l'étage réel du shop choisi (existant) : sans ça le badge disparaît
+      // et le dialogue d'assignation d'étage s'ouvre vide tant que la page n'a pas
+      // été rechargée, ce qui pousse à re-choisir/écraser manuellement l'étage.
+      const floorInfo = elementId != null ? this.getFloorInfoForElement(elementId) : null
+      const floorMap = { ...this.floorMap }
+      const floorNameMap = { ...this.floorNameMap }
+      if (floorInfo) {
+        floorMap[locationId] = floorInfo.level
+        floorNameMap[locationId] = floorInfo.name || this.floorBadgeLabel(floorInfo.level)
+      } else {
+        delete floorMap[locationId]
+        delete floorNameMap[locationId]
+      }
+      this.floorMap = floorMap
+      this.floorNameMap = floorNameMap
 
       // Persist to API
       this.savingRows = { ...this.savingRows, [locationId]: 'saving' }
@@ -1343,6 +1377,20 @@ export default {
             rolledBack[locationId] = previousElementId
           }
           this.localMappings = rolledBack
+          const rolledBackFloorMap = { ...this.floorMap }
+          const rolledBackFloorNameMap = { ...this.floorNameMap }
+          if (previousFloor === undefined) {
+            delete rolledBackFloorMap[locationId]
+          } else {
+            rolledBackFloorMap[locationId] = previousFloor
+          }
+          if (previousFloorName === undefined) {
+            delete rolledBackFloorNameMap[locationId]
+          } else {
+            rolledBackFloorNameMap[locationId] = previousFloorName
+          }
+          this.floorMap = rolledBackFloorMap
+          this.floorNameMap = rolledBackFloorNameMap
           this.savingRows = { ...this.savingRows, [locationId]: 'error' }
         }
       }
@@ -1672,6 +1720,15 @@ export default {
               floorMap[r.weezeventLocationId] = r.floorLevel
               floorNameMap[r.weezeventLocationId] = r.areaName || this.floorBadgeLabel(r.floorLevel)
             }
+          } else {
+            // Shop existant matché en masse : le backend renvoie floorLevel=null pour
+            // ces lignes (seuls les shops nouvellement créés le renseignent), donc on
+            // reprend l'étage réel via l'index construit par loadData().
+            const floorInfo = this.getFloorInfoForElement(r.elementId)
+            if (floorInfo) {
+              floorMap[r.weezeventLocationId] = floorInfo.level
+              floorNameMap[r.weezeventLocationId] = floorInfo.name || this.floorBadgeLabel(floorInfo.level)
+            }
           }
         }
         this.localMappings = updatedMappings
@@ -1766,6 +1823,15 @@ export default {
           forecourt: options?.forecourt || null,
           externalMerch: options?.externalMerch || null,
         }
+
+        // Réamorce le niveau affiché depuis l'étage réel du shop de la location
+        // ancrée, une fois les floors de la config chargés (floorMap peut être vide
+        // si le shop existant vient d'être associé sans passer par un rechargement).
+        const anchorElementId = this.localMappings[this.floorDialogAnchorLocationId]
+        const knownLevel = this.floorMap[this.floorDialogAnchorLocationId] !== undefined
+          ? this.floorMap[this.floorDialogAnchorLocationId]
+          : anchorElementId ? this.getFloorInfoForElement(anchorElementId)?.level : undefined
+        if (knownLevel !== undefined) this.floorDialogLevel = knownLevel
       } catch (e) {
         console.error('[StepMapShops] onFloorDialogConfigChange error:', e)
       } finally {
