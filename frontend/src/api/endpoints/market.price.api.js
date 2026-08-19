@@ -11,8 +11,14 @@ import { api } from '../client'
  * Récupérer toutes les market prices
  * @returns {Promise<Array>}
  */
-export async function getMarketPrices() {
-  return api.get('/market-prices')
+export async function getMarketPrices({ page, limit } = {}) {
+  // Sans params, le backend renvoie la PAGE 1 (200 lignes, défaut contrôleur) —
+  // pour un catalogue complet, boucler via fetchAllPaginated (utils/paginateAll).
+  const params = new URLSearchParams()
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  const qs = params.toString()
+  return api.get(`/market-prices${qs ? '?' + qs : ''}`)
 }
 
 /**

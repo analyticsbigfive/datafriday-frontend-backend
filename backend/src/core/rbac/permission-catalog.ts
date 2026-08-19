@@ -59,6 +59,17 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
       "côté du total. Sans cette permission, l'utilisateur compte à l'aveugle (les endpoints " +
       "baseline renvoient 403 — gating serveur, pas un simple masquage).",
   },
+  {
+    code: 'front.fb.preInventoryPredicted',
+    name: 'Pre-event Inventory — Besoin prédit',
+    category: 'F&B Front',
+    description:
+      "Voir le chip « Besoin prédit » (Event Predict) à côté du total compté du Pre-event " +
+      "Inventory. Séparé de preInventoryExpected (réunion Bertrand 2026-08-19 : réservé aux " +
+      "administrateurs et directeurs de site — le Chef exécutif garde les attendus mais pas le " +
+      "prédit). Gating d'AFFICHAGE : la donnée vient des versions Event Predict, dont l'endpoint " +
+      "reste gaté par front.fb.eventPredict (partagé avec l'écran Event Predict).",
+  },
   { code: 'front.fb.stockUp', name: 'Stock Up', category: 'F&B Front' },
   { code: 'front.fb.live', name: 'Live', category: 'F&B Front' },
   { code: 'front.fb.shoppingList', name: 'Liste de course', category: 'F&B Front' },
@@ -178,12 +189,15 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'avec quantités attendues visibles.',
     // spaceInventory ajouté 2026-07-20 (Pre-event Inventory) : sans lui le rôle ne peut pas
     // ouvrir les écrans d'inventaire dont il doit voir les quantités attendues (Q23 Bertrand).
+    // preInventoryPredicted ajouté 2026-08-19 (réunion Bertrand) : le besoin prédit est réservé
+    // aux administrateurs et directeurs de site — le Chef exécutif ne le reçoit pas.
     permissions: [
       'nav.spaces',
       'front.fb.logistic',
       'front.fb.logisticReconcile',
       'front.fb.spaceInventory',
       'front.fb.preInventoryExpected',
+      'front.fb.preInventoryPredicted',
     ],
   },
   {

@@ -457,11 +457,33 @@ les events passés).
   **repli legacy** si `expected` est absent (backend pas encore redéployé — réflexe BUG-228),
   à supprimer après déploiement conjoint.
 - Affichage : `InventoryCountingInterface` prop additive `expectedFor` → caption « Attendu : N »
-  sous chaque champ Packed/Loose ; prop null → rendu post-event strictement inchangé.
+  sous chaque champ Packed/Loose. Depuis le 2026-08-19 (réunion Bertrand, fiche
+  [341-01](../bugs/341_01_attendus_inventaire_sources_incorrectes.md)), la prop est branchée dans
+  les **deux modes** : en post-event, re-découpage packed/loose de l'indice serveur ventes
+  déduites (`postExpectedFields`, `trunc`, totaux négatifs exclus des hints — le signal reste sur
+  le chip du total) ; le chip du total post s'appelle « Attendu » (ex-« Doit rester »).
   Depuis le 2026-07-24, le hint est exprimé dans l'unité du champ qu'il légende : le serveur calcule
   en **unités** et renvoie `units`/`unitsPerPack`, le front re-découpe ce total avec le
   conditionnement affiché (avant : casse de pack serveur en MarketPrice, affichage en MenuItem —
   deux unités différentes) — fiche [239](../bugs/239_pre_event_taille_de_paquet_divergente_serveur_front.md).
+- Badge « Attendu » de section (les deux modes, même agrégateur
+  `aggregateExpectedUnitsFromIndex`, groupé par unités des articles réellement présents) : depuis
+  le 2026-08-19, la source pre-event est le **blob serveur** (post-event précédent + Logistique,
+  aplati par `flattenExpectedUnits`). L'ancienne source « cibles du plan de réarmement (Stockup)
+  sauvegardé » (retour JLH 13/08) est retirée — décision Bertrand 19/08, remplaçante et tracée
+  (fiche 341-01) : elle affichait des kg sans rapport sur des PdV à la pièce.
+- **Libellés & détail du calcul (2026-08-19, session 2 — fiche
+  [343-01](../bugs/343_01_predicted_permission_dediee_details_calcul.md))** : les libellés
+  « Attendu »/« Expected » (hints, chip du total post, badge de section) deviennent
+  « Quantité attendue »/« Expected quantity ». Infobulle `title` sur les hints (et le chip du
+  total en post) avec le détail du calcul (`buildExpectedCalcDetails`, termes dérivés pour que
+  l'égalité tienne malgré Q39) : pre « Post-event précédent 51 + 24 livraisons = 75 », post
+  « Comptage pre-event 51 + 10 mouvements − 14 vendu = 47 ».
+- **RBAC du chip « Besoin prédit » (2026-08-19, session 2)** : permission dédiée
+  `front.fb.preInventoryPredicted` (ADMIN + Directeur de site — Chef exécutif exclu, réunion
+  Bertrand 19/08). `canSeePredicted` gate le fetch ET l'affichage ; `preInventoryExpected` ne
+  couvre plus que les attendus. Gating d'affichage : la donnée vient d'Event Predict
+  (`front.fb.eventPredict` côté serveur). Fiches 343-01 (web) / 132-01 (backend), Q59 soldée.
 
 ### 8.4 Réconciliation pre-event (attendu vs compté)
 
