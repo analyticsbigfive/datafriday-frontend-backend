@@ -111,10 +111,19 @@ export function lookupPredictedNeed(index, elementId, item) {
  * (`restockQuantity`, réarmement) plutôt que sur la prévision brute Event Predict
  * quand une feuille existe pour l'event visé — cf. `fetchPredictedNeed` (appelant),
  * qui n'utilise cet index qu'en priorité, avant repli sur `loadPredictedNeed`.
- * Même forme de sortie que `buildPredictedNeedIndex` pour rester compatible avec
- * `lookupPredictedNeed` côté consommateur (LogisticItemCard).
+ *
+ * Expose AUSSI le nombre de packs déjà décidé au réarmement
+ * (`line.packaging.packedCount`, `packsByItemId`/`packsByItemName`) : retour
+ * utilisateur 2026-08-19, ne pas ré-éclater `restockQuantity / unitsPerPack`
+ * soi-même (arrondi différent de la décision réelle prise au réarmement, qui
+ * peut nettoyer/arrondir autrement) — utiliser ce nombre de packs natif en
+ * priorité, `lookupPredictedNeedPacks` ci-dessous. Absent (undefined) pour une
+ * ligne sans conditionnement connu, jamais un 0 fabriqué.
+ *
+ * Même forme de sortie (byItemId/byItemName) que `buildPredictedNeedIndex` pour
+ * rester compatible avec `lookupPredictedNeed` côté consommateur.
  * @param {Array<object>} restockLines lignes figées d'un RestockPlan (grain shop × article)
- * @returns {{byItemId: Record<string, number>, byItemName: Record<string, number>}|null}
+ * @returns {{byItemId: Record<string, number>, byItemName: Record<string, number>, packsByItemId: Record<string, number>, packsByItemName: Record<string, number>}|null}
  */
 export function buildRestockNeedIndex(restockLines) {
   const lines = Array.isArray(restockLines) ? restockLines : []
@@ -122,22 +131,43 @@ export function buildRestockNeedIndex(restockLines) {
 
   const byItemId = {}
   const byItemName = {}
+  const packsByItemId = {}
+  const packsByItemName = {}
   for (const line of lines) {
     const elementId = line?.shopId
     const units = Number(line?.restockQuantity) || 0
     if (!elementId || !units) continue
+    const packs = Number(line?.packaging?.packedCount) || null
     if (line.itemKey != null) {
       const k = expectedKey(elementId, line.itemKey)
       byItemId[k] = (byItemId[k] || 0) + units
+      if (packs != null) packsByItemId[k] = (packsByItemId[k] || 0) + packs
     }
     const nk = normalizeStr(line?.itemName)
     if (nk) {
       const k = expectedKey(elementId, nk)
       byItemName[k] = (byItemName[k] || 0) + units
+      if (packs != null) packsByItemName[k] = (packsByItemName[k] || 0) + packs
     }
   }
   if (!Object.keys(byItemId).length && !Object.keys(byItemName).length) return null
-  return { byItemId, byItemName }
+  return { byItemId, byItemName, packsByItemId, packsByItemName }
+}
+
+/**
+ * Nombre de packs déjà décidé au réarmement pour ce (PdV, article) — natif
+ * (`packaging.packedCount`), PAS recalculé par division. null si l'index ne
+ * vient pas d'une feuille de réarmement (repli Event Predict, pas de packs) ou
+ * si le conditionnement n'était pas connu sur cette ligne.
+ * @returns {number|null}
+ */
+export function lookupPredictedNeedPacks(index, elementId, item) {
+  if (!index || !elementId || !item) return null
+  const byId = item.id != null ? index.packsByItemId?.[expectedKey(elementId, item.id)] : undefined
+  if (Number.isFinite(byId)) return byId
+  const nk = normalizeStr(item?.name)
+  const byName = nk ? index.packsByItemName?.[expectedKey(elementId, nk)] : undefined
+  return Number.isFinite(byName) ? byName : null
 }
 
 /**

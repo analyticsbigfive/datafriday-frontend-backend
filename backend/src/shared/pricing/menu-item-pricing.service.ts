@@ -114,16 +114,26 @@ export class MenuItemPricingService {
    *  - courante: `{ ttc, vatRate }` = TVA propre à l'espace (spec « TVA pratiquée par espace »).
    * Renvoie `{ ttc, vatRate }` (`vatRate` null si non fournie) ou `null` si TTC invalide.
    */
-  normalizeSpacePrice(raw: unknown): { ttc: number; vatRate: number | null } | null {
+  normalizeSpacePrice(
+    raw: unknown,
+  ): { ttc: number; vatRate: number | null; discountType: string | null; discountValue: number | null } | null {
     if (raw == null) return null;
     if (typeof raw === 'object' && !Array.isArray(raw)) {
       const ttc = Number((raw as any).ttc);
       if (!Number.isFinite(ttc)) return null;
       const v = (raw as any).vatRate;
-      return { ttc, vatRate: v != null && Number.isFinite(Number(v)) ? Number(v) : null };
+      const dt = (raw as any).discountType;
+      const dv = (raw as any).discountValue;
+      return {
+        ttc,
+        vatRate: v != null && Number.isFinite(Number(v)) ? Number(v) : null,
+        // Promo par espace (combo) : type + valeur, sinon null.
+        discountType: dt === 'percent' || dt === 'amount' ? dt : null,
+        discountValue: dv != null && Number.isFinite(Number(dv)) ? Number(dv) : null,
+      };
     }
     const n = Number(raw);
-    return Number.isFinite(n) ? { ttc: n, vatRate: null } : null;
+    return Number.isFinite(n) ? { ttc: n, vatRate: null, discountType: null, discountValue: null } : null;
   }
 
   /**

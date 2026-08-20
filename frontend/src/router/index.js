@@ -48,6 +48,7 @@ const BrandNameListView = () => import('@/components/brand-name/views/BrandNameL
 const DisplayNameListView = () => import('@/components/display-name/views/DisplayNameListView.vue')
 const IndustrialListView = () => import('@/components/industrial/views/IndustrialListView.vue')
 const PackingTypeListView = () => import('@/components/packing-type/views/PackingTypeListView.vue')
+const PromotionTypeListView = () => import('@/components/promotion-type/views/PromotionTypeListView.vue')
 const StorageTypeListView = () => import('@/components/storage-type/views/StorageTypeListView.vue')
 const SeasonsListView = () => import('@/components/seasons/views/SeasonsListView.vue')
 const DepartmentListView = () => import('@/components/departments/views/DepartmentListView.vue')
@@ -398,6 +399,13 @@ const routes = [
         meta: { title: 'Liste des packing types', keepAlive: true, permission: 'menu.config.manage' }
       },
       { path: '/packing-types', redirect: '/configurations/packing-types' },
+      {
+        path: '/configurations/promotion-types',
+        name: 'promotion-types',
+        component: PromotionTypeListView,
+        meta: { title: 'Liste des types de promotion', keepAlive: true, permission: 'menu.config.manage' }
+      },
+      { path: '/promotion-types', redirect: '/configurations/promotion-types' },
       {
         path: '/configurations/storage-types',
         name: 'storage-types',

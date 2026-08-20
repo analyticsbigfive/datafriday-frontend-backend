@@ -150,11 +150,14 @@ export function storageSubtypesFor(tenantStorageTypes = []) {
 }
 
 // ── Matrice sections d'inspecteur × type (doc §wireframe WF-02) ────────────────
-// Reprend les règles v1 : Configurations masquée pour storage/entrance/access ;
+// Reprend les règles v1 : Configurations masquée pour entrance/access ;
 // Performance masquée pour storage/entertainment/access/kitchen ; Menu réservé aux
 // types "vendeurs" ; Inventory pour vendeurs + storage ; Staff pour vendeurs + entrance + kitchen + entertainment.
 // storage a deux sections dédiées : Shops (F&B qui stockent ici) et un Inventory
 // AGRÉGÉ sur ces shops (storageInventory remplace inventory pour ce type).
+// NB (demande Bertrand 2026-08-20) : la section Configuration EST affichée pour storage —
+// un stockage est partagé par tout l'espace et naît membre de toutes les configs (cf.
+// createElementFromDraw dans builderStore.js), mais on veut pouvoir voir/ajuster ce rattachement.
 const SELLER_TYPES = new Set(['shop', 'merchshop', 'hospitality'])
 
 export function sectionsForType(type, tools = []) {
@@ -164,7 +167,7 @@ export function sectionsForType(type, tools = []) {
     identity: true,
     geometry: true,
     subtypes: (toolOf(t, tools)?.subtypes?.length || 0) > 0,
-    configs: !['storage', 'entrance', 'access'].includes(t),
+    configs: !['entrance', 'access'].includes(t),
     usage: seller,
     performance: !['storage', 'entertainment', 'access', 'kitchen'].includes(t),
     menu: seller,
