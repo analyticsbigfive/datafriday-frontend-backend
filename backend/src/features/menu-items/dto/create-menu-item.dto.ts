@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsOptional,
+  IsBoolean,
   IsNumber,
   IsInt,
   IsArray,
@@ -36,18 +37,27 @@ function IsSpacePricesRecord(validationOptions?: ValidationOptions) {
           return Object.values(value as Record<string, unknown>).every((v) => {
             if (typeof v === 'number') return Number.isFinite(v);
             if (v && typeof v === 'object') {
-              const { ttc, vatRate } = v as { ttc?: unknown; vatRate?: unknown };
+              const { ttc, vatRate, discountType, discountValue } = v as {
+                ttc?: unknown;
+                vatRate?: unknown;
+                discountType?: unknown;
+                discountValue?: unknown;
+              };
               const ttcOk = typeof ttc === 'number' && Number.isFinite(ttc);
               const vatOk =
                 vatRate == null ||
                 (typeof vatRate === 'number' && Number.isFinite(vatRate) && vatRate >= 0 && vatRate <= 100);
-              return ttcOk && vatOk;
+              // Promo par espace (combo), optionnelle.
+              const dtOk = discountType == null || discountType === 'percent' || discountType === 'amount';
+              const dvOk =
+                discountValue == null || (typeof discountValue === 'number' && Number.isFinite(discountValue));
+              return ttcOk && vatOk && dtOk && dvOk;
             }
             return false;
           });
         },
         defaultMessage: () =>
-          'spacePrices doit être { [spaceId]: { ttc: number, vatRate?: 0-100 } } ou { [spaceId]: number }',
+          'spacePrices doit être { [spaceId]: { ttc: number, vatRate?: 0-100, discountType?: "percent"|"amount", discountValue?: number } } ou { [spaceId]: number }',
       },
     });
   };
@@ -179,6 +189,28 @@ export class CreateMenuItemDto {
   @IsString()
   @Transform(({ value }) => value || undefined)
   seasonId?: string;
+
+  @ApiPropertyOptional({ description: '« Cet item EST un combo » (posé quand il a des éléments combo)' })
+  @IsOptional()
+  @IsBoolean()
+  isCombo?: boolean;
+
+  @ApiPropertyOptional({ description: '« Cet item est en promotion » — crée/maj une Promotion liée' })
+  @IsOptional()
+  @IsBoolean()
+  isOnPromotion?: boolean;
+
+  @ApiPropertyOptional({ description: 'ID du menu item remisé (discounted product) de la promotion' })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value || undefined)
+  discountedProductId?: string;
+
+  @ApiPropertyOptional({ description: 'ID du PromotionType (référentiel Configuration)' })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value || undefined)
+  promotionTypeId?: string;
 
   // Prix négatif autorisé (remises/avoirs) — pas de @Min(0).
   @ApiProperty({ description: 'Prix de vente de base (TTC brut, négatif autorisé)' })
