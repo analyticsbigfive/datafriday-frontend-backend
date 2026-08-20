@@ -40,6 +40,7 @@
             <span class="lgbi-meta">
               <template v-if="group.unitsPerPack">{{ group.unitsPerPack }} {{ group.unit || t('logiUnits') }}/pack</template>
               <template v-else>{{ group.rows.length }} {{ t('logiByItemShopsSuffix') }}</template>
+              <template v-if="group.totalPredictedPacks != null"> · <span class="lgbi-predicted-inline">{{ group.totalPredictedPacks }} {{ t('logiByItemPredictedTotal') }}</span></template>
             </span>
           </span>
           <span class="lgbi-summary">
@@ -191,7 +192,9 @@ const groupedItems = computed(() => {
     .map((g) => {
       const severity = (s) => ({ bad: 3, warn: 2, uncounted: 1, ok: 0 }[s] || 0)
       const rows = [...g.rows].sort((a, b) => severity(b.status) - severity(a.status) || a.elementName.localeCompare(b.elementName, 'fr'))
-      return { ...g, rows }
+      const predictedRows = rows.filter((r) => r.predictedNeedPacks != null)
+      const totalPredictedPacks = predictedRows.length ? predictedRows.reduce((sum, r) => sum + r.predictedNeedPacks, 0) : null
+      return { ...g, rows, totalPredictedPacks }
     })
     .sort((a, b) => a.itemName.localeCompare(b.itemName, 'fr'))
 })
