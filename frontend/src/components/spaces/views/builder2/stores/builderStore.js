@@ -321,6 +321,11 @@ function createBuilderStore(spaceId) {
     const zoneId = state.activeZoneId
     const sameType = Object.values(state.elements)
       .filter((e) => normalizeType(e.type) === tool.type).length
+    // Storage : partagé par tout l'espace → naît membre de TOUTES les configs de l'espace
+    // (demande Bertrand 2026-08-20). Les autres types naissent dans la seule config active
+    // (doc §2.3) — jamais « partout ». Le backend filtre déjà ces ids sur spaceId.
+    const isStorage = normalizeType(tool.type) === 'storage'
+    const allConfigIds = configsSorted.value.map((c) => c.id)
     const payload = {
       name: `${tool.label} ${sameType + 1}`,
       type: tool.type,
@@ -331,8 +336,9 @@ function createBuilderStore(spaceId) {
       depth: rect.depth,
       height3d: DEFAULTS.element.height3d,
       rotation: 0,
-      // L'élément naît membre de la config active (doc §2.3) — jamais « partout ».
-      configIds: state.activeConfigId ? [state.activeConfigId] : [],
+      configIds: isStorage
+        ? allConfigIds
+        : (state.activeConfigId ? [state.activeConfigId] : []),
     }
 
     const localId = `pending-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
