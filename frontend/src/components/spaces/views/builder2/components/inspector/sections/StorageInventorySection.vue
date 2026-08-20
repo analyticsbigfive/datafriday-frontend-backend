@@ -203,12 +203,11 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watch, onMounted } from 'vue'
+import { ref, computed, inject, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
 import { putElementInventory } from '@/api/endpoints/builder-v2.api'
 import { getStorageInventory } from '@/api/endpoints/menu.api'
-import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { normalizeType } from '../../../constants/elementTaxonomy'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
 
@@ -302,26 +301,18 @@ function boundsFor(name) {
 
 // Retour Ulrich (2026-08-13) : quantité/Min/Max étaient saisies en unité de recette
 // BRUTE (ex. "1000 Pc"), sans rapport avec le conditionnement réel de l'article
-// (ex. cartons de 24). Résolu ici en "information d'inventaire" (packs) via le
-// même champ MarketPrice.packedUnits que Logistique, chargé une fois, par nom
-// (plusieurs Market Price peuvent partager un nom ; on prend la première ligne
-// avec un packedUnits renseigné, même repli que resolveUnitsPerPackForItemKey côté
-// backend). Repli silencieux sur l'unité brute si aucun Market Price ne matche.
-const marketPrices = ref([])
-onMounted(async () => {
-  try {
-    const list = await getMarketPrices()
-    marketPrices.value = Array.isArray(list) ? list : (list?.data || list?.marketPrices || [])
-  } catch (err) {
-    marketPrices.value = []
-  }
-})
+// (ex. cartons de 24). Résolu en "information d'inventaire" (packs) via
+// unitsPerPack/packagingType, déjà résolus PAR ID côté backend (getStorageInventory,
+// space-menus.service.ts) sur chaque ligne — plus de fetch catalogue séparé ici (l'ancien
+// getMarketPrices() par nom, tronqué à la page 1, produisait le repli "Pack" générique
+// documenté en BUG-345-01). Repli silencieux sur l'unité brute pour les lignes hors menu
+// (ajout manuel, sans référence catalogue donc sans id à résoudre).
 const packInfoByName = computed(() => {
   const map = new Map()
-  for (const mp of marketPrices.value) {
-    const key = String(mp?.itemName ?? '').trim().toLowerCase()
-    if (!key || !mp?.packedUnits) continue
-    if (!map.has(key)) map.set(key, { unitsPerPack: mp.packedUnits, packagingType: mp.inventoryPackaging ?? null })
+  for (const line of derived.value) {
+    const key = String(line?.name ?? '').trim().toLowerCase()
+    if (!key || !line?.unitsPerPack) continue
+    if (!map.has(key)) map.set(key, { unitsPerPack: line.unitsPerPack, packagingType: line.packagingType ?? null })
   }
   return map
 })
