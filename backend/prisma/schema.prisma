@@ -2330,7 +2330,8 @@ model MenuItem {
   storageType            String[]
   readyForSale           String? // "Yes", "No" ou null
   kitchenType            KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
-  comboItem              String? // "Yes", "No" ou null
+  comboItem              String? // "Yes", "No" ou null — flag « réutilisable dans un combo »
+  isCombo                Boolean      @default(false) // « cet item EST un combo » (posé quand il a des comboChildren) — distinct de comboItem
   numberOfPiecesRecipe   Int?
   componentsData         Json? // Pour stocker les components JSON de Figma
   inventoryPackagingType String? // Type de conditionnement inventaire (ex: Box, Bag)
@@ -2364,6 +2365,9 @@ model MenuItem {
   comboChildren   MenuItemCombo[]             @relation("ComboParentToChild")
   comboParents    MenuItemCombo[]             @relation("ComboChildToParent")
   salesInputs     ElementMenuItemSalesInput[]
+  // Promotion portée par CET item (0 ou 1) + promotions où CET item est le produit remisé.
+  promotion               Promotion?  @relation("MenuItemPromotion")
+  discountedInPromotions  Promotion[] @relation("PromotionDiscountedProduct")
 
   @@index([tenantId])
   @@index([name])
@@ -2374,6 +2378,42 @@ model MenuItem {
   @@index([seasonId])
   @@index([readyForSale])
   @@index([tenantId, deletedAt])
+}
+
+/// Type de promotion (référentiel de configuration, comme DisplayName) — alimente le select
+/// « type de promotion » d'une Promotion. Géré dans Configuration > Types de promotion.
+model PromotionType {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  promotions Promotion[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// Promotion attachée à UN menu item (0 ou 1 par item, `menuItemId @unique`). Quand un menu
+/// item « est en promotion », il désigne un produit remisé (`discountedProduct`, un autre
+/// MenuItem) et un `promotionType` (référentiel ci-dessus).
+model Promotion {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  menuItemId          String    @unique
+  menuItem            MenuItem  @relation("MenuItemPromotion", fields: [menuItemId], references: [id], onDelete: Cascade)
+  discountedProductId String?
+  discountedProduct   MenuItem? @relation("PromotionDiscountedProduct", fields: [discountedProductId], references: [id], onDelete: SetNull)
+  promotionTypeId     String?
+  promotionType       PromotionType? @relation(fields: [promotionTypeId], references: [id], onDelete: SetNull)
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([menuItemId])
+  @@index([discountedProductId])
+  @@index([promotionTypeId])
 }
 
 model MenuItemCombo {
@@ -2401,8 +2441,10 @@ model SpaceMenuItem {
   id         String   @id @default(cuid())
   spaceId    String
   menuItemId String
-  priceTtc   Decimal? @db.Decimal(10, 2) // prix TTC spécifique à cet espace (null = basePrice global)
+  priceTtc   Decimal? @db.Decimal(10, 2) // prix TTC spécifique à cet espace (null = basePrice global) ; pour un combo = prix APRÈS promo
   vatRate    Decimal? @db.Decimal(5, 2) // TVA spécifique (null = vatRate item, sinon défaut tenant)
+  discountType  String?  // Promo par espace (combo) : "percent" | "amount" | null
+  discountValue Decimal? @db.Decimal(10, 2) // Valeur de la promo (% si percent, montant TTC si amount)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
