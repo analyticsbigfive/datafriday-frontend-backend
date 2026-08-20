@@ -15,7 +15,7 @@
       <div class="lg-item-name-wrap">
         <div class="lg-item-name">{{ item?.name }}</div>
         <div v-if="unitsPerPack" class="lg-item-unit">
-          {{ unitsPerPack }} {{ item?.unit || t('logiUnits') }}/pack
+          {{ unitsPerPack }} {{ item?.unit || t('logiUnits') }}/{{ localizedPackagingType || t('logiPacksShort') }}
         </div>
         <!-- Seules les denrées 'ingredient' ont vocation à porter un pack (résolu depuis
              le Market Price lié) — un pack manquant/à 0 y est donc un vrai trou de
@@ -60,7 +60,7 @@
       <div v-if="predictedNeed != null" class="lg-field-row lg-field-row-predicted">
         <div class="lg-field-label">{{ t('logiColPredictedNeed') }}</div>
         <div class="lg-field-value">
-          <template v-if="predictedNeedPacksDisplay != null">{{ predictedNeedPacksDisplay }}<span class="lg-field-unit">{{ t('logiPacksShort') }}</span></template>
+          <template v-if="predictedNeedPacksDisplay != null">{{ predictedNeedPacksDisplay }}<span class="lg-field-unit">{{ localizedPackagingType ? pluralize(localizedPackagingType) : t('logiPacksShort') }}</span></template>
           <template v-else>{{ formatUnits(predictedNeed) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span></template>
         </div>
       </div>

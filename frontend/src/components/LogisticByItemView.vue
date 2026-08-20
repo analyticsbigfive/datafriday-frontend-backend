@@ -38,9 +38,9 @@
               <span class="lgbi-kind">{{ t(kindLabelKey(group.kind)) }}</span>
             </span>
             <span class="lgbi-meta">
-              <template v-if="group.unitsPerPack">{{ group.unitsPerPack }} {{ group.unit || t('logiUnits') }}/pack</template>
+              <template v-if="group.unitsPerPack">{{ group.unitsPerPack }} {{ group.unit || t('logiUnits') }}/{{ packagingTypeLabel(group) }}</template>
               <template v-else>{{ group.rows.length }} {{ t('logiByItemShopsSuffix') }}</template>
-              <template v-if="group.totalPredictedPacks != null"> · <span class="lgbi-predicted-inline">{{ group.totalPredictedPacks }} {{ t('logiByItemPredictedTotal') }}</span></template>
+              <template v-if="group.totalPredictedPacks != null"> · <span class="lgbi-predicted-inline">{{ group.totalPredictedPacks }} {{ predictedPacksLabel(group) }}</span></template>
             </span>
           </span>
           <span class="lgbi-summary">
@@ -70,8 +70,8 @@
               </span>
             </button>
             <span class="lgbi-shop-stats">
-              {{ row.packed }} <small>{{ t('logiPackedShort') }}</small> · {{ formatUnits(row.loose) }} <small>{{ t('logiLooseShort') }}</small>
-              <template v-if="row.predictedNeedPacks != null"> · <span class="lgbi-predicted-inline">{{ row.predictedNeedPacks }} <small>{{ t('logiPacksShort') }} {{ t('logiPredictedShort') }}</small></span></template>
+              {{ compactQtyLabel(row.packed, row.loose, row.item, group.unitsPerPack, t, locale, formatUnits) }}
+              <template v-if="row.predictedNeedPacks != null"> · <span class="lgbi-predicted-inline">{{ row.predictedNeedPacks }} <small>{{ predictedPacksLabel(group) }}</small></span></template>
               <template v-else-if="row.predictedNeed != null"> · <span class="lgbi-predicted-inline">{{ formatUnits(row.predictedNeed) }}{{ group.unit ? ` ${group.unit}` : '' }} <small>{{ t('logiPredictedShort') }}</small></span></template>
             </span>
             <span class="lgbi-shop-actions">
@@ -103,8 +103,28 @@
 import { ref, computed, reactive } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
+import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+/** Type de conditionnement réel (ex. "Carton", "Fût") quand connu (item.packagingType,
+ *  résolu côté backend, cf. LogisticItemCard.vue packLabel) — repli sur le mot générique
+ *  "pack" seulement si aucun type n'est configuré (BUG-348-02 : ce libellé affichait "pack"
+ *  pour tout le monde, y compris quand le vrai type était déjà disponible sur `item`). */
+function packagingTypeLabel(group) {
+  return translatePackagingType(group.packagingType, locale.value) || t('logiPacksShort')
+}
+
+/** Libellé "N {Type} predicted" (ex. "27 Pipettes predicted") — même repli que
+ *  packagingTypeLabel, réutilisé pour l'en-tête ET les lignes dépliées (BUG-348-02 : le
+ *  besoin prédit affichait encore "packs" générique alors que le type était déjà résolu,
+ *  juste à côté, pour le ratio unitsPerPack). */
+function predictedPacksLabel(group) {
+  const type = translatePackagingType(group.packagingType, locale.value)
+  const word = type ? pluralize(type) : t('logiPacksShort')
+  return `${word} ${t('logiPredictedShort')}`
+}
 
 const props = defineProps({
   /** [{ element: {id, name, configIds}, items: [...] }] — shops + storages combinés (question
@@ -160,11 +180,19 @@ const groupedItems = computed(() => {
       if (props.itemKindFilter.length && !props.itemKindFilter.includes(item.kind || 'product')) continue
       let group = map.get(item.name)
       if (!group) {
-        group = { itemName: item.name, kind: item.kind || 'product', unit: item.unit || null, picture: props.resolveItemPicture(item) || null, rows: [] }
+        group = {
+          itemName: item.name,
+          kind: item.kind || 'product',
+          unit: item.unit || null,
+          packagingType: item.packagingType || null,
+          picture: props.resolveItemPicture(item) || null,
+          rows: [],
+        }
         map.set(item.name, group)
       } else {
         if (!group.picture) group.picture = props.resolveItemPicture(item) || null
         if (!group.unit) group.unit = item.unit || null
+        if (!group.packagingType) group.packagingType = item.packagingType || null
       }
       const rawStatus = props.itemStatus(entry.element.id, item)
       const counted = props.isCounted(entry.element.id, item)

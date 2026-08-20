@@ -58,9 +58,10 @@ modifiée. À vérifier en recette si l'écran Market Price List est volumineux.
 ## Limites / à surveiller
 
 - **Autres appelants non touchés** (toujours page 1 seule, comportement d'avant) :
-  `StorageInventorySection.vue:313` (Builder), `SpaceLogisticView.vue:1007`,
-  `useInventoryApi.js`, `RecipeImportDrawer.vue:174` (ingrédients). Même famille de bug latent —
-  à traiter si un symptôme remonte, chantier séparé.
+  `SpaceLogisticView.vue:1007`, `useInventoryApi.js`, `RecipeImportDrawer.vue:174`
+  (ingrédients). Même famille de bug latent — à traiter si un symptôme remonte, chantier séparé.
+  `StorageInventorySection.vue:313` (Builder) traité séparément par BUG-347-02 — plus un fetch
+  catalogue par nom, résolution par ID côté backend.
 - Volume : un tenant à N articles fait désormais ceil(N/100) appels ingrédients (parallèle
   borné). Cache Redis backend 60 s par (page, limit) : inchangé.
 - `fetchAllMenuComponents` (useSpaceData) garde sa boucle locale historique — non refactorée
