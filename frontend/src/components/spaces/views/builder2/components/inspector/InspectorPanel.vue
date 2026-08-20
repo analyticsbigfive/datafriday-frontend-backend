@@ -50,12 +50,13 @@
 
     <!-- Sections (matrice sections × type — elementTaxonomy.sectionsForType) -->
     <div class="flex-grow-1 px-4" style="overflow-y: auto; min-height: 0;">
-      <!-- Ordre (capture) : Name → Shop Type → [Area] → Configuration →
-           Performance → Menu → Inventory → Staffing inputs → Staff → Position. -->
+      <!-- Ordre : Name → Configuration → Shop Type → [Area] →
+           Performance → Menu → Inventory → Staffing inputs → Staff → Position.
+           (Configuration remontée au-dessus du Subtype — demande Bertrand 2026-08-20.) -->
       <IdentitySection />
+      <ConfigsSection v-if="sections.configs" />
       <SubtypesSection v-if="sections.subtypes" />
       <StorageShopsSection v-if="sections.storageShops" />
-      <ConfigsSection v-if="sections.configs" />
       <PerformanceSection v-if="sections.performance" />
       <MenuSection v-if="sections.menu" />
       <InventorySection v-if="sections.inventory" />
