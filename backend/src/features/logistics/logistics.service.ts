@@ -1314,14 +1314,15 @@ export class LogisticsService {
 
   // ─── GET /logistics/:spaceId/stock ───────────────────────────────────────────
 
-  async getStock(spaceId: string, tenantId: string, configId?: string, eventId?: string) {
-    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
-    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
-
-    const [configurations, event, allLevels, lastReco, firstMovement, elementIds, nextEvent] = await Promise.all([
-      // Config n'a pas de tenantId propre (scoping via spaceId, déjà vérifié tenant plus haut).
-      this.prisma.config.findMany({ where: { spaceId }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } }),
-      eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
+  /**
+   * État courant du registre : niveaux + consommation dérivée des ventes depuis
+   * l'ancre (dernier reset logistique, sinon premier mouvement). Chemin UNIQUE
+   * partagé par `getStock` (écran Logistic) et `getExpectedStockIndex` (attendus
+   * des écrans d'inventaire, décision JLH 2026-08-20) — les deux ne peuvent pas
+   * diverger.
+   */
+  private async getLevelsAndConsumption(spaceId: string, tenantId: string) {
+    const [allLevels, lastReco, firstMovement, elementIds] = await Promise.all([
       this.prisma.stockLevel.findMany({ where: { tenantId, spaceId } }),
       this.prisma.stockReconciliation.findFirst({
         // kind:null = resets logistiques UNIQUEMENT. Les documents 'post-event'
@@ -1338,6 +1339,80 @@ export class LogisticsService {
         select: { createdAt: true },
       }),
       this.getSpaceElementIds(spaceId, tenantId),
+    ]);
+
+    // Ancre de dérivation des ventes : dernière réconciliation, sinon premier
+    // mouvement (= activation de la logistique sur l'espace). Sans ancre, pas de
+    // ventes décomptées (aucun stock suivi de toute façon).
+    const anchorAt = lastReco?.createdAt ?? firstMovement?.createdAt ?? null;
+
+    const consumption =
+      anchorAt && elementIds.length
+        ? await this.deriveSalesRaw(tenantId, elementIds, anchorAt).then((raw) =>
+            this.explodeSalesToConsumption(raw, tenantId),
+          )
+        : ([] as Array<{ elementId: string; itemKey: string; quantity: number }>);
+
+    // Niveaux pointant vers des SpaceElement disparus (le saveConfiguration v1 fait
+    // du delete+recreate) : masqués — sinon la vue affiche des lignes fantômes que
+    // le reset rejette ensuite (element hors espace).
+    const currentIds = new Set(elementIds);
+    const levels = allLevels.filter((l) => currentIds.has(l.elementId));
+
+    return { levels, consumption, anchorAt, lastRecoId: lastReco?.id ?? null };
+  }
+
+  /**
+   * Attendu Logistic « en l'état » par `elementId::itemKey` — exactement ce que
+   * l'écran Logistic affiche (StockLevel − consommation, casse de pack, clamp ≥ 0 ;
+   * miroir serveur du getter front `logistics/expectedFor`). Consommé par les
+   * attendus des écrans Pre/Post-event Inventory (décision JLH 2026-08-20 :
+   * l'attendu d'inventaire = les chiffres Logistic au moment où on ouvre l'écran).
+   */
+  async getExpectedStockIndex(spaceId: string, tenantId: string) {
+    const { levels, consumption, anchorAt } = await this.getLevelsAndConsumption(spaceId, tenantId);
+
+    const levelByKey = new Map(levels.map((l) => [`${l.elementId}::${l.itemKey}`, l]));
+    const consumedByKey = new Map<string, number>();
+    for (const c of consumption) {
+      const k = `${c.elementId}::${c.itemKey}`;
+      consumedByKey.set(k, (consumedByKey.get(k) ?? 0) + (Number(c.quantity) || 0));
+    }
+
+    // Union niveaux ∪ consommation : une vente sur un niveau jamais approvisionné
+    // s'affiche 0 côté Logistic (expectedFor), pas « absent » — même contrat ici.
+    const index = new Map<
+      string,
+      { elementId: string; itemKey: string; packed: number; loose: number; unitsPerPack: number | null }
+    >();
+    for (const k of new Set([...levelByKey.keys(), ...consumedByKey.keys()])) {
+      const level = levelByKey.get(k);
+      const consumed = consumedByKey.get(k) ?? 0;
+      const norm = this.normalizeLevel(
+        level?.packedUnits ?? 0,
+        (level?.looseUnits ?? 0) - consumed,
+        level?.unitsPerPack,
+      );
+      const [elementId, ...rest] = k.split('::');
+      index.set(k, {
+        elementId,
+        itemKey: rest.join('::'),
+        packed: norm.packed,
+        loose: norm.loose,
+        unitsPerPack: level?.unitsPerPack ?? null,
+      });
+    }
+    return { index, asOf: new Date(), anchorAt };
+  }
+
+  async getStock(spaceId: string, tenantId: string, configId?: string, eventId?: string) {
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
+    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+
+    const [configurations, event, nextEvent, stockState] = await Promise.all([
+      // Config n'a pas de tenantId propre (scoping via spaceId, déjà vérifié tenant plus haut).
+      this.prisma.config.findMany({ where: { spaceId }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } }),
+      eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
       // Event le plus proche dans le futur pour cet espace — calibre le "besoin
       // prédit" par défaut (retour PO, sans ?event= explicite dans l'URL) sur la
       // feuille de réarmement du prochain match plutôt que rien. Miroir du calcul
@@ -1347,7 +1422,9 @@ export class LogisticsService {
         orderBy: { eventDate: 'asc' },
         select: { id: true },
       }),
+      this.getLevelsAndConsumption(spaceId, tenantId),
     ]);
+    const { levels, consumption, anchorAt, lastRecoId } = stockState;
 
     // Priorité : configId explicite (deep-link ?configuration=) > config de l'event
     // (deep-link ?event=, comme Space Inventory) > 1re configuration de l'espace.
@@ -1362,31 +1439,12 @@ export class LogisticsService {
         configurations[0]?.id ??
         null;
 
-    // Ancre de dérivation des ventes : dernière réconciliation, sinon premier
-    // mouvement (= activation de la logistique sur l'espace). Sans ancre, pas de
-    // ventes décomptées (aucun stock suivi de toute façon).
-    const anchorAt = lastReco?.createdAt ?? firstMovement?.createdAt ?? null;
-
-    // Référentiel (PDV + Storage) et consommation dérivée des ventes sont
-    // indépendants (aucun ne dépend du résultat de l'autre) — en parallèle plutôt
-    // qu'en série pour ne pas payer deux fois la latence réseau DB.
-    const [elementsWithItems, consumption] = await Promise.all([
-      this.getSpaceElementsWithItems(
-        spaceId,
-        tenantId,
-        aggregateAllConfigs ? undefined : resolvedConfigId ?? undefined,
-        { aggregateAllConfigs },
-      ),
-      anchorAt && elementIds.length
-        ? this.deriveSalesRaw(tenantId, elementIds, anchorAt).then((raw) => this.explodeSalesToConsumption(raw, tenantId))
-        : Promise.resolve([] as Array<{ elementId: string; itemKey: string; quantity: number }>),
-    ]);
-
-    // Niveaux pointant vers des SpaceElement disparus (le saveConfiguration v1 fait
-    // du delete+recreate) : masqués — sinon la vue affiche des lignes fantômes que
-    // le reset rejette ensuite (element hors espace).
-    const currentIds = new Set(elementIds);
-    const levels = allLevels.filter((l) => currentIds.has(l.elementId));
+    const elementsWithItems = await this.getSpaceElementsWithItems(
+      spaceId,
+      tenantId,
+      aggregateAllConfigs ? undefined : resolvedConfigId ?? undefined,
+      { aggregateAllConfigs },
+    );
 
     // Un mouvement (ex. transfert) peut viser un élément qui ne vend pas cette
     // denrée sur son propre menu (référentiel vide pour cet itemKey) — le niveau
@@ -1439,7 +1497,7 @@ export class LogisticsService {
       configurations,
       resolvedConfigId,
       nextEventId: nextEvent?.id ?? null,
-      anchor: anchorAt ? { at: anchorAt, reconciliationId: lastReco?.id ?? null } : null,
+      anchor: anchorAt ? { at: anchorAt, reconciliationId: lastRecoId } : null,
       elements: elementsWithItems,
       levels,
       consumption,

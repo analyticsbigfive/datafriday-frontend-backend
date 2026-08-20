@@ -2077,23 +2077,18 @@ export const translations = {
     invToolPreInventory: 'Pre-event Inventory',
     hdrSecPreInventory: 'Pre-event Inventory',
     invExpectedHint: 'Expected quantity',
-    invExpectedSource: 'Expected = previous post-event count + Logistic movements',
+    invExpectedSource: 'Expected = current Logistic stock when the screen loaded',
     // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
     // avant match on annonce un besoin, après match un reste.
     invPredictedNeedHint: 'Predicted need',
     invPostExpectedHint: 'Expected quantity',
-    // Détail du calcul (infobulle title sur les hints et le chip du total —
-    // demande JLH 2026-08-19). Composé côté vue : pas d'interpolation dans t().
-    invExpectedDetailPrevPost: 'Previous post-event',
-    invExpectedDetailMoves: 'deliveries',
-    invExpectedDetailPreCount: 'Pre-event count',
-    invExpectedDetailMovements: 'movements',
-    invExpectedDetailSold: 'sold',
+    // Provenance de l'attendu (infobulle title sur les hints et le chip du
+    // total) : état Logistic au chargement — décision JLH 2026-08-20, plus de
+    // décomposition « comptage + mouvements − vendu ».
+    invExpectedFromLogistic: 'Logistic stock when the screen loaded',
     invPredictNoDefaultVersion: 'No reference scenario — set a default version in Event Predict.',
     invExpectedForbidden: 'Expected quantities are not enabled for your role.',
     invExpectedNotDeployed: 'Expected quantities unavailable: server not up to date.',
-    invExpectedNoBaselinePre: 'No post-event count on the previous match — nothing to compare against.',
-    invExpectedNoBaselinePost: 'No pre-event count on this match — nothing to compare against.',
     preInvNoUpcoming: 'No upcoming event for this space — nothing to count ahead.',
     invRecoKindPre: 'Pre-event',
     invRecoKindPost: 'Post-event',
@@ -6616,23 +6611,18 @@ export const translations = {
     invToolPreInventory: 'Inventaire pré-événement',
     hdrSecPreInventory: 'Inventaire pré-événement',
     invExpectedHint: 'Quantité attendue',
-    invExpectedSource: 'Attendu = comptage post-event précédent + mouvements Logistic',
+    invExpectedSource: "Attendu = stock Logistic au chargement de l'écran",
     // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
     // avant match on annonce un besoin, après match un reste.
     invPredictedNeedHint: 'Besoin prédit',
     invPostExpectedHint: 'Quantité attendue',
-    // Détail du calcul (infobulle title sur les hints et le chip du total —
-    // demande JLH 2026-08-19). Composé côté vue : pas d'interpolation dans t().
-    invExpectedDetailPrevPost: 'Post-event précédent',
-    invExpectedDetailMoves: 'livraisons',
-    invExpectedDetailPreCount: 'Comptage pre-event',
-    invExpectedDetailMovements: 'mouvements',
-    invExpectedDetailSold: 'vendu',
+    // Provenance de l'attendu (infobulle title sur les hints et le chip du
+    // total) : état Logistic au chargement — décision JLH 2026-08-20, plus de
+    // décomposition « comptage + mouvements − vendu ».
+    invExpectedFromLogistic: "Stock Logistic au chargement de l'écran",
     invPredictNoDefaultVersion: 'Pas de scénario de référence — définissez une version par défaut dans Event Predict.',
     invExpectedForbidden: 'Quantités attendues non activées pour votre rôle.',
     invExpectedNotDeployed: 'Quantités attendues indisponibles : serveur non à jour.',
-    invExpectedNoBaselinePre: 'Aucun comptage post-event sur le match précédent — pas de base de comparaison.',
-    invExpectedNoBaselinePost: 'Aucun comptage pre-event sur ce match — pas de base de comparaison.',
     preInvNoUpcoming: 'Aucun événement à venir pour cet espace — rien à compter en avance.',
     invRecoKindPre: 'Pré-event',
     invRecoKindPost: 'Post-event',

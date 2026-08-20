@@ -428,70 +428,80 @@ les events passés).
 
 ### 8.3 Quantités attendues — gating serveur
 
+> **⚠️ Refonte du 2026-08-20 (décision JLH, fiche
+> [134-01](../../../backend/docs/bugs/134_01_attendus_inventaire_source_etat_logistic.md)) :
+> l'attendu des DEUX écrans = l'état Logistic « en l'état » au chargement** (StockLevel − ventes
+> dérivées, casse de pack, clamp ≥ 0 — exactement le chiffre de l'écran Logistic, chemin serveur
+> partagé `LogisticsService.getExpectedStockIndex`/`getStock`). Le rejeu « comptage d'ancrage +
+> mouvements » (BUG-232/239) est supprimé ; les paragraphes historiques ci-dessous sont conservés
+> pour la traçabilité des décisions, mais la mécanique d'ancre/fenêtre n'existe plus.
+
 - Permission dédiée **`front.fb.preInventoryExpected`**
   ([permission-catalog.ts](../../../backend/src/core/rbac/permission-catalog.ts)) — attribuée aux
   rôles système « Directeur de site » et « Chef exécutif » (+ ADMIN via ALL_CODES). Ces deux
   rôles reçoivent AUSSI `front.fb.spaceInventory` au passage (ils ne pouvaient pas ouvrir les
   écrans d'inventaire) — élargissement **validé par Bertrand le 2026-07-24**
-  ([Question #23](../QUESTIONS_A_BERTRAND.md)). Provisioning : seed RBAC idempotent **reste à
-  rejouer en prod** pour que l'élargissement soit effectif sur les tenants existants.
+  ([Question #23](../QUESTIONS_A_BERTRAND.md)). Provisioning : depuis le 2026-08-20, le catalogue
+  RBAC est **rejoué à chaque boot du backend** (`RbacCatalogSyncService`, fiche 134-01) — plus de
+  seed manuel à rejouer en prod.
 - `GET /inventory/:spaceId/pre-event-baseline/:eventId` — **décorateur méthode**
   `@RequirePermissions('front.fb.preInventoryExpected')` (getAllAndOverride → remplace la
   permission de classe) : un compteur sans le droit reçoit un 403, pas des données masquées.
-  Retour : `{ previousEvent, baseline, movements, expected, unjoinedItemKeys }` ;
-  `baseline`/`expected: null` si l'événement précédent n'a pas de comptage post-event
-  (décision user : « — », pas de mode « mouvements seuls »).
-- **Calcul serveur normalisé (BUG-232)** : `computeExpected` (chemin unique, aussi consommé par
-  la réconciliation § 8.4) rejoue les `StockMovement` **séquentiellement** depuis le snapshot
-  post-event en appliquant `LogisticsService.normalizeLevel` après CHAQUE mouvement (casse de
-  pack + clamp ≥ 0, `unitsPerPack` via `resolveUnitsPerPackForItemKey` — même chaîne
-  MarketPrice → MenuComponent → MenuItem que la Logistique). Jointure **menuItemId d'abord,
-  repli nom normalisé** (`StockMovement.itemKey` est un NOM libre, piège n°1 du domaine) ;
-  mouvement non joignable → ignoré mais **surfacé** (`unjoinedItemKeys` + warning log).
-  La décision « deltas négatifs conservés comme signal » (2026-07-20) est **révoquée**
-  (2026-07-23) : un attendu négatif était un artefact de la somme brute sans casse de pack.
-- Front : `fetchPreExpected` (SpaceInventoryView) n'émet l'appel que si `can('front.fb.preInventoryExpected')` ;
-  util pur [`buildPreEventExpected`](../../src/utils/preEventExpected.js) (10 tests,
-  `tests/unit/preEventExpected.spec.js`) aplatit le blob `expected` serveur ; l'ancienne somme
-  brute front (baseline + mouvements, jointure sur le référentiel affiché) ne subsiste qu'en
-  **repli legacy** si `expected` est absent (backend pas encore redéployé — réflexe BUG-228),
-  à supprimer après déploiement conjoint.
+  Retour : `{ source: 'logistic-live', asOf, expected, unjoinedItemKeys }` (+ `baseline: {}` et
+  `movements: []` de compat pour un front antérieur). **Plus de cas « no-baseline »** : l'état
+  Logistic existe toujours — le bandeau « Aucun comptage post-event sur le match précédent » a
+  disparu. Un article jamais suivi par la Logistique (aucun StockLevel) reste « — » (décision
+  « jamais de 0 fabriqué », 2026-07-20).
+- **Calcul serveur (2026-08-20)** : `computeLogisticExpected` (chemin unique, aussi consommé par
+  le GET post-event § 7 et la réconciliation § 8.4) lit l'index Logistic
+  (`getExpectedStockIndex` : niveaux − consommation dérivée depuis l'ancre du dernier reset,
+  `normalizeLevel` — le MÊME calcul que l'écran Logistic), joint **menuItemId par nom normalisé**
+  (`StockMovement.itemKey`/`StockLevel.itemKey` sont des NOMS libres, piège n°1 du domaine) et
+  re-découpe en packed/loose dans la taille de paquet de l'**INVENTAIRE**
+  (`resolveInventoryUnitsPerPack`, BUG-239 : le hint légende le champ Packed dans SA propre
+  unité, `units`/`unitsPerPack` null si conditionnement inconnu — pas de total fabriqué).
+  Clé non joignable → ignorée mais **surfacée** (`unjoinedItemKeys` + warning log).
+- Front : `fetchPreExpected` (SpaceInventoryView) n'émet l'appel que si
+  `can('front.fb.preInventoryExpected')` ; util pur
+  [`buildPreEventExpected`](../../src/utils/preEventExpected.js)
+  (`tests/unit/preEventExpected.spec.js`) aplatit le blob `expected` serveur — le repli legacy
+  « baseline + mouvements » est supprimé (2026-08-20) : blob absent = « serveur non à jour ».
+  **Cartouche de provenance** (même gabarit v-alert que les autres bandeaux) : « Attendu = stock
+  Logistic au chargement de l'écran » (`invExpectedSource`) dès que des attendus sont affichés.
 - Affichage : `InventoryCountingInterface` prop additive `expectedFor` → caption « Attendu : N »
-  sous chaque champ Packed/Loose. Depuis le 2026-08-19 (réunion Bertrand, fiche
-  [341-01](../bugs/341_01_attendus_inventaire_sources_incorrectes.md)), la prop est branchée dans
-  les **deux modes** : en post-event, re-découpage packed/loose de l'indice serveur ventes
-  déduites (`postExpectedFields`, `trunc`, totaux négatifs exclus des hints — le signal reste sur
-  le chip du total) ; le chip du total post s'appelle « Attendu » (ex-« Doit rester »).
-  Depuis le 2026-07-24, le hint est exprimé dans l'unité du champ qu'il légende : le serveur calcule
-  en **unités** et renvoie `units`/`unitsPerPack`, le front re-découpe ce total avec le
-  conditionnement affiché (avant : casse de pack serveur en MarketPrice, affichage en MenuItem —
-  deux unités différentes) — fiche [239](../bugs/239_pre_event_taille_de_paquet_divergente_serveur_front.md).
+  sous chaque champ Packed/Loose, dans les **deux modes** (réunion Bertrand 19/08, fiche
+  [341-01](../bugs/341_01_attendus_inventaire_sources_incorrectes.md)) ; en post-event,
+  re-découpage packed/loose de l'indice serveur (`postExpectedFields`) — l'indice est désormais
+  **clampé ≥ 0** (c'est le chiffre Logistic ; l'ancien signal « négatif = incohérence de
+  sources », décision 2026-07-30 #3, disparaît avec le rejeu). Le chip du total post s'appelle
+  « Attendu » (ex-« Doit rester »).
 - Badge « Attendu » de section (les deux modes, même agrégateur
-  `aggregateExpectedUnitsFromIndex`, groupé par unités des articles réellement présents) : depuis
-  le 2026-08-19, la source pre-event est le **blob serveur** (post-event précédent + Logistique,
-  aplati par `flattenExpectedUnits`). L'ancienne source « cibles du plan de réarmement (Stockup)
-  sauvegardé » (retour JLH 13/08) est retirée — décision Bertrand 19/08, remplaçante et tracée
-  (fiche 341-01) : elle affichait des kg sans rapport sur des PdV à la pièce.
-- **Libellés & détail du calcul (2026-08-19, session 2 — fiche
-  [343-01](../bugs/343_01_predicted_permission_dediee_details_calcul.md))** : les libellés
-  « Attendu »/« Expected » (hints, chip du total post, badge de section) deviennent
-  « Quantité attendue »/« Expected quantity ». Infobulle `title` sur les hints (et le chip du
-  total en post) avec le détail du calcul (`buildExpectedCalcDetails`, termes dérivés pour que
-  l'égalité tienne malgré Q39) : pre « Post-event précédent 51 + 24 livraisons = 75 », post
-  « Comptage pre-event 51 + 10 mouvements − 14 vendu = 47 ».
+  `aggregateExpectedUnitsFromIndex`, groupé par unités des articles réellement présents) :
+  source = le blob serveur aplati par `flattenExpectedUnits`. L'ancienne source « cibles du plan
+  de réarmement (Stockup) sauvegardé » (retour JLH 13/08) reste retirée — décision Bertrand
+  19/08, reconfirmée par JLH le 20/08 (badge = attendu stock, le Stockup vit dans le chip
+  « Besoin prédit »).
+- **Infobulle de détail (2026-08-20)** : la décomposition « comptage + mouvements − vendu »
+  (`buildExpectedCalcDetails`, fiche 343-01) n'existe plus — l'infobulle des hints montre
+  l'identité de conversion « packs × conditionnement + vrac = total » (« 15 × 4 + 2 = 62 ») ;
+  l'historique par mouvement vit sur l'écran Logistic. La provenance est portée par la cartouche.
 - **RBAC du chip « Besoin prédit » (2026-08-19, session 2)** : permission dédiée
   `front.fb.preInventoryPredicted` (ADMIN + Directeur de site — Chef exécutif exclu, réunion
   Bertrand 19/08). `canSeePredicted` gate le fetch ET l'affichage ; `preInventoryExpected` ne
   couvre plus que les attendus. Gating d'affichage : la donnée vient d'Event Predict
-  (`front.fb.eventPredict` côté serveur). Fiches 343-01 (web) / 132-01 (backend), Q59 soldée.
+  (`front.fb.eventPredict` côté serveur). Fiches 343-01 (web) / 132-01 (backend, propagation
+  corrigée par 134-01), Q59 soldée.
 
 ### 8.4 Réconciliation pre-event (attendu vs compté)
 
 - « Générer la réconciliation » (même bouton) → `POST /inventory/:spaceId/pre-event-reconciliations`
   `{ eventId }` — **lignes construites CÔTÉ SERVEUR** (`createPreEventReconciliation`) : le client,
   potentiellement sans la permission « attendus », ne les a jamais eues. Compté = fusion
-  existante (`getBySpaceAndEvent`), attendu = **`computeExpected` normalisé** (même chemin que le
-  GET § 8.3, BUG-232) — hints à l'écran et lignes de réconciliation ne peuvent plus diverger.
+  existante (`getBySpaceAndEvent`), attendu = **état Logistic au moment de la sauvegarde**
+  (`computeLogisticExpected`, même chemin que le GET § 8.3 — décision JLH 2026-08-20, fiche
+  134-01) — hints à l'écran et lignes de réconciliation ne peuvent plus diverger. Article compté
+  mais hors registre Logistic → colonnes attendu/écart à « — » (null), jamais 0 fabriqué ;
+  `meta.baseline = { source: 'logistic-live', asOf }`.
 - Lignes persistées en **packed/loose bruts** (+ deltas) : le conditionnement
   (`inventoryQuantityPackaged`) est un référentiel front — la vue convertit en unités à
   l'affichage (`unitsPerItemId`), l'Écart € vient de `menuItemCostMap` (`costByItemId`), repli
