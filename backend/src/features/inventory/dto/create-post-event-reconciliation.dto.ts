@@ -52,6 +52,12 @@ export class PostEventReconciliationLineDto {
   @Type(() => Number)
   leftFromSales?: number | null;
 
+  @ApiPropertyOptional({ description: 'Delta net des mouvements Logistic depuis le comptage pré-événement, en unités — null si baseline indisponible', type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  movementUnits?: number | null;
+
   @ApiProperty({ description: 'Unités comptées (inventaire post-événement)', type: Number })
   @IsNumber()
   @Type(() => Number)
