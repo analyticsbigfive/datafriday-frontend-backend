@@ -275,21 +275,27 @@ export class LogisticsService {
     const name = String(itemKey ?? '').trim();
     if (!name) return null;
 
+    // Plusieurs lignes peuvent partager ce nom (pas de contrainte unique sur
+    // itemName/name) — tri déterministe (BUG-133-02) pour ne plus dépendre d'un
+    // ordre Postgres arbitraire.
     const mp = await this.prisma.marketPrice.findFirst({
       where: { tenantId, deletedAt: null, itemName: { equals: name, mode: 'insensitive' } },
       select: { packedUnits: true },
+      orderBy: { createdAt: 'asc' },
     });
     if (mp?.packedUnits) return mp.packedUnits;
 
     const comp = await this.prisma.menuComponent.findFirst({
       where: { tenantId, deletedAt: null, name: { equals: name, mode: 'insensitive' } },
       select: { packedUnits: true },
+      orderBy: { createdAt: 'asc' },
     });
     if (comp?.packedUnits) return comp.packedUnits;
 
     const mi = await this.prisma.menuItem.findFirst({
       where: { tenantId, deletedAt: null, name: { equals: name, mode: 'insensitive' } },
       select: { inventoryNumberOfUnits: true },
+      orderBy: { createdAt: 'asc' },
     });
     return mi?.inventoryNumberOfUnits ?? null;
   }
@@ -817,10 +823,23 @@ export class LogisticsService {
       for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
     }
 
+    // BUG-133-02 : la boucle des ingrédients d'itemRefsForMenuItem (résolution mp
+    // par nom, `ctx.mpByName.get(...)`) n'est atteinte QUE pour les items qui ne
+    // sont pas readyForSale='Yes' seul (isCombo || readyForSale!=='Yes', même garde
+    // que ligne ~890 ci-dessous) — mais AVANT ce fix, `unresolvedNames` ne
+    // collectait que les items readyForSale='Yes' mono-ingrédient, une population
+    // héritée d'avant BUG-048 qui ne recoupe quasiment jamais les items atteignant
+    // réellement cette boucle. Résultat : pour un ingrédient sans marketPriceId
+    // direct référencé par un item readyForSale='No' (le chemin d'explosion
+    // principal) ou un combo, la résolution par nom n'était jamais tentée —
+    // packagingType/unitsPerPack silencieusement null malgré une Market Price au
+    // nom identique dans le catalogue.
     const unresolvedNames = new Set<string>();
     for (const item of [...seedItems, ...comboByName.values()]) {
-      if (this.normYesNo(item.readyForSale) === 'Yes' && item.ingredients.length === 1) {
-        const ing = item.ingredients[0].ingredient;
+      const isCombo = this.normYesNo(item.comboItem) === 'Yes';
+      if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') continue;
+      for (const line of item.ingredients ?? []) {
+        const ing = line.ingredient;
         if (ing?.name && !ing.marketPrice) unresolvedNames.add(ing.name.trim());
       }
     }
@@ -829,6 +848,10 @@ export class LogisticsService {
       const rows = await this.prisma.marketPrice.findMany({
         where: { tenantId, deletedAt: null, itemName: { in: [...unresolvedNames] } },
         select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true },
+        // Plusieurs Market Price peuvent partager un itemName (pas de contrainte
+        // unique) — tri déterministe pour que "dernier gagne" (ligne suivante)
+        // pointe toujours vers la même ligne plutôt qu'un ordre Postgres arbitraire.
+        orderBy: { createdAt: 'asc' },
       });
       for (const mp of rows) mpByName.set(mp.itemName.trim().toLowerCase(), mp);
     }
@@ -1370,23 +1393,43 @@ export class LogisticsService {
     // existe quand même en base. Sans ce filet, ce stock devient invisible côté
     // élément receveur/donneur (« le produit a disparu ») alors qu'il est bien là.
     // On complète chaque élément avec les niveaux orphelins, en ligne minimale.
+    const orphanEntries: Array<{ el: any; level: any }> = [];
     for (const el of elementsWithItems) {
       const known = new Set(el.items.map((it) => it.name));
       for (const level of levels) {
         if (level.elementId !== el.id || known.has(level.itemKey)) continue;
-        el.items.push({
-          name: level.itemKey,
-          id: level.itemKey,
-          kind: 'product',
-          unit: null,
-          marketPriceId: level.marketPriceId ?? null,
-          unitsPerPack: level.unitsPerPack ?? null,
-          packagingType: null,
-          picture: null,
-          usedIn: [],
-        });
+        orphanEntries.push({ el, level });
         known.add(level.itemKey);
       }
+    }
+    // BUG-133-02 : marketPriceId est déjà connu sur le niveau (posé par le
+    // mouvement qui l'a créé) — résolution groupée du packagingType, bornée aux
+    // seuls ids réellement référencés par ces niveaux orphelins (jamais tout le
+    // catalogue tenant), au lieu de figer packagingType à null alors que l'info
+    // est à portée d'un simple hop.
+    const orphanMarketPriceIds = [...new Set(orphanEntries.map((o) => o.level.marketPriceId).filter(Boolean))] as string[];
+    const orphanMarketPriceById = new Map<string, { inventoryPackaging: string | null }>();
+    if (orphanMarketPriceIds.length) {
+      const rows = await this.prisma.marketPrice.findMany({
+        where: { tenantId, id: { in: orphanMarketPriceIds }, deletedAt: null },
+        select: { id: true, inventoryPackaging: true },
+      });
+      for (const mp of rows) orphanMarketPriceById.set(mp.id, mp);
+    }
+    for (const { el, level } of orphanEntries) {
+      el.items.push({
+        name: level.itemKey,
+        id: level.itemKey,
+        kind: 'product',
+        unit: null,
+        marketPriceId: level.marketPriceId ?? null,
+        unitsPerPack: level.unitsPerPack ?? null,
+        packagingType: level.marketPriceId ? orphanMarketPriceById.get(level.marketPriceId)?.inventoryPackaging ?? null : null,
+        picture: null,
+        usedIn: [],
+      });
+    }
+    for (const el of elementsWithItems) {
       el.items.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     }
 
@@ -2478,6 +2521,10 @@ export class LogisticsService {
       this.prisma.marketPrice.findMany({
         where: { tenantId, deletedAt: null, itemName: { in: itemKeys, mode: 'insensitive' } },
         select: { itemName: true, packedUnits: true },
+        // Tri déterministe (BUG-133-02) : plusieurs Market Price peuvent partager
+        // un itemName, "dernier gagne" ci-dessous doit pointer vers la même ligne
+        // à chaque appel plutôt qu'un ordre Postgres arbitraire.
+        orderBy: { createdAt: 'asc' },
       }),
     ]);
     const levelByKey = new Map(levels.map((l) => [l.itemKey, l]));
