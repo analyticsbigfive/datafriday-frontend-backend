@@ -955,7 +955,18 @@ export class SpaceMenusService {
       for (const id of s.enabledIds) set.add(id);
     }
 
-    const refWithStorage = { id: true, name: true, recipeUnit: true, storageType: true, deletedAt: true };
+    // marketPriceId/packedUnits/inventoryPackaging sélectionnés ici pour résoudre le
+    // conditionnement (BUG packaging "Pack" générique affiché au lieu de la vraie valeur
+    // "is stored in") par ID plutôt que par nom sur tout le catalogue tenant — cf. résolution
+    // groupée après la boucle shopInfos ci-dessous.
+    const refWithStorage = {
+      id: true,
+      name: true,
+      recipeUnit: true,
+      storageType: true,
+      deletedAt: true,
+      marketPriceId: true,
+    };
     const menuItemsBySpace = new Map<string, Map<string, any>>();
     await Promise.all(
       [...idsBySpace].map(async ([spaceId, idSet]) => {
@@ -965,9 +976,25 @@ export class SpaceMenusService {
             id: true,
             name: true,
             picture: true,
+            inventoryPackagingType: true,
+            inventoryNumberOfUnits: true,
             ingredients: { select: { ingredient: { select: refWithStorage } } },
             packagings: { select: { packaging: { select: refWithStorage } } },
-            components: { select: { component: { select: { id: true, name: true, unit: true, storageType: true, deletedAt: true } } } },
+            components: {
+              select: {
+                component: {
+                  select: {
+                    id: true,
+                    name: true,
+                    unit: true,
+                    storageType: true,
+                    deletedAt: true,
+                    packedUnits: true,
+                    inventoryPackaging: true,
+                  },
+                },
+              },
+            },
           },
         });
         menuItemsBySpace.set(spaceId, new Map(rows.map((r) => [r.id, r])));
@@ -994,6 +1021,8 @@ export class SpaceMenusService {
       unit: string | null;
       picture: string | null; // articles merch uniquement (les références n'ont pas d'image)
       storageType: string | null; // code stable ('dry'|'cold'|'belowzero'), id StorageType custom, ou 'merch'
+      unitsPerPack: number | null; // conditionnement résolu par ID (MarketPrice/MenuComponent/MenuItem)
+      packagingType: string | null; // libellé "is stored in" résolu par ID (ex: Carton, Pipette)
       usedIn: Array<{
         shopId: string;
         shopName: string;
@@ -1001,6 +1030,10 @@ export class SpaceMenusService {
       }>;
     };
     const lines = new Map<string, StorageLine>();
+    // ingredient/packaging résolvent leur conditionnement via MarketPrice (FK marketPriceId,
+    // résolue en un seul findMany borné après la boucle) ; component/article le portent déjà
+    // directement sur leur propre modèle (pas de hop nécessaire).
+    const marketPriceIdByKey = new Map<string, string>();
     const seenMenuItemIds = new Set<string>();
     const usageOf = (line: StorageLine, shop: { id: string; name: string }) => {
       let usage = line.usedIn.find((u) => u.shopId === shop.id);
@@ -1027,9 +1060,12 @@ export class SpaceMenusService {
           unit: ref.recipeUnit ?? ref.unit ?? null,
           picture: null,
           storageType: mapStorageType(ref.storageType),
+          unitsPerPack: kind === 'component' ? (ref.packedUnits ?? null) : null,
+          packagingType: kind === 'component' ? (ref.inventoryPackaging ?? null) : null,
           usedIn: [],
         };
         lines.set(key, line);
+        if (kind !== 'component' && ref.marketPriceId) marketPriceIdByKey.set(key, ref.marketPriceId);
       }
       const usage = usageOf(line, shop);
       if (!usage.menuItems.some((m) => m.id === mi.id)) {
@@ -1039,7 +1075,13 @@ export class SpaceMenusService {
     // Article merch : le menu item EST la ligne — « Used in » ne liste que les shops
     // porteurs (menuItems vide, l'item ne s'utilise pas lui-même).
     const pushArticle = (
-      mi: { id: string; name: string; picture: string | null },
+      mi: {
+        id: string;
+        name: string;
+        picture: string | null;
+        inventoryNumberOfUnits?: number | null;
+        inventoryPackagingType?: string | null;
+      },
       shop: { id: string; name: string },
     ) => {
       const key = `article:${mi.id}`;
@@ -1052,6 +1094,8 @@ export class SpaceMenusService {
           unit: null,
           picture: mi.picture ?? null,
           storageType: 'merch',
+          unitsPerPack: mi.inventoryNumberOfUnits ?? null,
+          packagingType: mi.inventoryPackagingType ?? null,
           usedIn: [],
         };
         lines.set(key, line);
@@ -1073,6 +1117,27 @@ export class SpaceMenusService {
         for (const l of mi.ingredients) push('ingredient', l.ingredient, shop, mi);
         for (const l of mi.packagings) push('packaging', l.packaging, shop, mi);
         for (const l of mi.components) push('component', l.component, shop, mi);
+      }
+    }
+
+    // Résolution groupée, bornée aux marketPriceId réellement référencés par CET élément de
+    // stockage (dizaines d'ids, jamais le catalogue tenant entier) — corrige le repli sur le
+    // libellé générique "Pack" causé par l'ancienne résolution client-side par NOM sur une
+    // page 1 tronquée du catalogue (BUG-345-01, StorageInventorySection.vue).
+    if (marketPriceIdByKey.size) {
+      const marketPriceIds = [...new Set(marketPriceIdByKey.values())];
+      const marketPrices = await this.prisma.marketPrice.findMany({
+        where: { tenantId, id: { in: marketPriceIds }, deletedAt: null },
+        select: { id: true, packedUnits: true, inventoryPackaging: true },
+      });
+      const marketPriceById = new Map(marketPrices.map((mp) => [mp.id, mp]));
+      for (const [key, marketPriceId] of marketPriceIdByKey) {
+        const line = lines.get(key);
+        const mp = marketPriceById.get(marketPriceId);
+        if (line && mp) {
+          line.unitsPerPack = mp.packedUnits ?? null;
+          line.packagingType = mp.inventoryPackaging ?? null;
+        }
       }
     }
 
