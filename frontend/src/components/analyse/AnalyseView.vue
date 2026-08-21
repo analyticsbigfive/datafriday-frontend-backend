@@ -1701,8 +1701,10 @@ function onOpenChart(kind) {
 function onChartBarClick(eventId) {
   const ev = events.value.find((e) => e.id === eventId)
   if (!ev) return
-  // Mode Predict → clic sur une barre ouvre Event Predict pour CET event
-  // (passé OU futur : Event Predict gère les deux). La version par défaut locale
+  // Mode Predict → clic sur une barre ouvre Event Predict pour CET event.
+  // BUG-349-01 : un event PASSÉ (ou en cours) est désormais rejeté côté
+  // EventPredictView (fallback sur le prochain event futur + toast) — seul un
+  // event futur est réellement ciblé. La version par défaut locale
   // (localStorage) est passée en query si présente. Cible : SpacePredictView →
   // EventPredictView.applyDeepLinkFromRoute.
   if (isPredictMode.value) {
