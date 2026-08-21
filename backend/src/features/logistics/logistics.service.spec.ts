@@ -615,4 +615,66 @@ describe('LogisticsService — readyForSale display logic', () => {
       expect(result).toEqual([{ id: 'shop-1', name: 'Buvette', menuItemIds: ['mi-override'] }]);
     });
   });
+
+  // ── getExpectedStockIndex — attendus inventaire = état Logistic ─────────────
+  // (décision JLH 2026-08-20) : les écrans Pre/Post-event Inventory affichent
+  // EXACTEMENT le chiffre de l'écran Logistic. Chemin partagé avec getStock
+  // (getLevelsAndConsumption) : niveau − consommation dérivée, casse de pack,
+  // clamp ≥ 0 — miroir serveur du getter front `logistics/expectedFor`.
+
+  describe('getExpectedStockIndex — attendus inventaire = état Logistic', () => {
+    const p = mockPrisma as any;
+
+    function wireStockTables({ levels = [], elementIds = ['el-1'], anchor = null }: any) {
+      p.stockLevel = { findMany: jest.fn().mockResolvedValue(levels) };
+      p.stockReconciliation = { findFirst: jest.fn().mockResolvedValue(anchor) };
+      p.stockMovement = { findFirst: jest.fn().mockResolvedValue(null) };
+      p.spaceElement.findMany = jest.fn().mockResolvedValue(elementIds.map((id: string) => ({ id })));
+    }
+
+    it('niveau − consommation, avec casse de pack et clamp ≥ 0 (miroir de expectedFor)', async () => {
+      wireStockTables({
+        levels: [{ elementId: 'el-1', itemKey: 'Bière', packedUnits: 2, looseUnits: 1, unitsPerPack: 6 }],
+        anchor: { id: 'reco-1', createdAt: new Date('2026-08-01T00:00:00Z'), eventId: null },
+      });
+      jest.spyOn(service, 'deriveSalesRaw').mockResolvedValue([{ raw: true }]);
+      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([
+        { elementId: 'el-1', itemKey: 'Bière', quantity: 7 },
+      ]);
+
+      const { index } = await service.getExpectedStockIndex('space-1', 'tenant-1');
+
+      // loose 1 − 7 = −6 → casse d'1 pack (6/pack) → packed 1, loose 0.
+      expect(index.get('el-1::Bière')).toMatchObject({ packed: 1, loose: 0, unitsPerPack: 6 });
+    });
+
+    it('vente sur un niveau jamais approvisionné : entrée à 0 (comme l’écran Logistic), pas absente', async () => {
+      wireStockTables({
+        levels: [],
+        anchor: { id: 'reco-1', createdAt: new Date('2026-08-01T00:00:00Z'), eventId: null },
+      });
+      jest.spyOn(service, 'deriveSalesRaw').mockResolvedValue([{ raw: true }]);
+      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([
+        { elementId: 'el-1', itemKey: 'Frites', quantity: 4 },
+      ]);
+
+      const { index } = await service.getExpectedStockIndex('space-1', 'tenant-1');
+
+      expect(index.get('el-1::Frites')).toMatchObject({ packed: 0, loose: 0 });
+    });
+
+    it('sans ancre (ni reset ni mouvement) : aucune dérivation de ventes, l’état = les niveaux', async () => {
+      wireStockTables({
+        levels: [{ elementId: 'el-1', itemKey: 'Bière', packedUnits: 3, looseUnits: 0, unitsPerPack: null }],
+        anchor: null,
+      });
+      const derive = jest.spyOn(service, 'deriveSalesRaw');
+
+      const { index, anchorAt } = await service.getExpectedStockIndex('space-1', 'tenant-1');
+
+      expect(anchorAt).toBeNull();
+      expect(derive).not.toHaveBeenCalled();
+      expect(index.get('el-1::Bière')).toMatchObject({ packed: 3, loose: 0 });
+    });
+  });
 });

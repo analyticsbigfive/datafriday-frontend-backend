@@ -236,10 +236,12 @@ describe('buildPlanSnapshot — whitelist', () => {
       {
         itemKey: 'beer', itemName: 'Bière blonde 33cl', unit: 'pcs',
         totalQuantity: 180, adjustmentPercent: 110, packedMode: true, excluded: false,
+        buyQuantity: null,
       },
       {
         itemKey: 'hotdog', itemName: 'Hot-dog', unit: 'pcs',
         totalQuantity: 40, adjustmentPercent: 100, packedMode: false, excluded: false,
+        buyQuantity: null,
       },
     ])
   })
@@ -348,6 +350,34 @@ describe('buildPlanSnapshot — whitelist', () => {
     })
     expect(without.stockLines[0].gap).toBeUndefined()
     expect(without.stockLines[0].remainingQuantity).toBeUndefined()
+  })
+
+  // « À commander » figé par article : null = inconnu (« — »), 0 = « Rien à
+  // acheter » — la distinction doit survivre à la photo.
+  it('stockLines figent buyQuantity depuis orderQuantities, null sinon', () => {
+    const restockRows = makeRestockRows()
+    const stockRows = [
+      { itemKey: 'beer', itemName: 'Bière blonde 33cl', unit: 'pcs', totalQuantity: 180 },
+      { itemKey: 'hotdog', itemName: 'Hot-dog', unit: 'pcs', totalQuantity: 40 },
+      { itemKey: 'fries', itemName: 'Frites', unit: 'kg', totalQuantity: 10 },
+    ]
+    const snapshot = buildPlanSnapshot({
+      stockRows, restockRows,
+      recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: 'finished' }),
+      inputs: { selectedEventIds: [] },
+      // hotdog: 0 = couvert par le Storage ; fries: absent (article exclu).
+      orderQuantities: { beer: 72, hotdog: 0 },
+    })
+    expect(snapshot.stockLines[0].buyQuantity).toBe(72)
+    expect(snapshot.stockLines[1].buyQuantity).toBe(0)
+    expect(snapshot.stockLines[2].buyQuantity).toBeNull()
+    // Sans orderQuantities (anciens appels) : null partout, jamais 0 fabriqué.
+    const without = buildPlanSnapshot({
+      stockRows, restockRows,
+      recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: 'finished' }),
+      inputs: { selectedEventIds: [] },
+    })
+    expect(without.stockLines.map((l) => l.buyQuantity)).toEqual([null, null, null])
   })
 
   it('immuabilité : muter les lignes vivantes ne change pas la photo', () => {

@@ -247,6 +247,18 @@
     >
       {{ expectedUnavailableText }}
     </v-alert>
+    <!-- Provenance des attendus (décision JLH 2026-08-20) : état Logistic au
+         chargement de l'écran. La cartouche le dit UNE fois pour toute la page ;
+         les infobulles par article gardent le détail chiffré (packs × upp + vrac). -->
+    <v-alert
+      v-if="expectedSourceText"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="si-carried-alert"
+    >
+      {{ expectedSourceText }}
+    </v-alert>
     <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur. -->
     <div class="si-search-wrap">
       <AppSearchBar
@@ -751,7 +763,7 @@ import {
   createPreEventReconciliation,
   getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
-import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits, buildExpectedCalcDetails } from '@/utils/preEventExpected'
+import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -903,27 +915,25 @@ export default {
       recoLoading: false,
       recoCreating: false,
       selectedReconciliationId: null,
-      // Pre-event Inventory : quantités attendues sous Packed/Loose (null = pas de
-      // baseline OU permission absente) — map `expectedKey(el,item)` → {packed, loose}.
+      // Pre-event Inventory : quantités attendues sous Packed/Loose (null = pas
+      // encore chargé OU permission absente) — map `expectedKey(el,item)` →
+      // {packed, loose}. Source : état Logistic au chargement (décision JLH
+      // 2026-08-20 — l'attendu d'inventaire = le chiffre de l'écran Logistic).
       preExpected: null,
       preExpectedLoading: false,
       // Post-event Inventory : indice de référence affiché à côté du TOTAL de
-      // chaque article — map `expectedKey(el,item)` → nombre d'unités SIGNÉ
-      // (négatif = incohérence de sources, jamais clampé, décision 2026-07-30).
+      // chaque article — map `expectedKey(el,item)` → unités. État Logistic :
+      // ventes déjà déduites, clamp ≥ 0 (même chiffre que l'écran Logistic).
       postExpectedUnits: null,
-      // Détail du calcul (infobulles, demande JLH 2026-08-19) : blobs bruts de la
-      // réponse baseline — comptage d'ancrage et net des mouvements (post
-      // uniquement). Les termes affichés sont dérivés par buildExpectedCalcDetails.
-      expectedBaselineBlob: null,
-      expectedMovementUnitsBlob: null,
       // Pre-event Inventory : besoin prédit Event Predict (version par défaut du
       // match), index {byItemId, byItemName} — affiché en regard du TOTAL.
       predictedNeed: null,
       predictedNeedMissing: false,
       // Pourquoi il n'y a pas d'attendu, quand il n'y en a pas :
-      // null | 'no-permission' | 'forbidden' | 'not-deployed' | 'no-baseline'.
-      // Sans ça, 403 / 404 / baseline vide / bug produisent le MÊME écran muet de
-      // tirets — c'est ce qui a rendu le défaut d'origine indiagnosticable.
+      // null | 'no-permission' | 'forbidden' | 'not-deployed'.
+      // Sans ça, 403 / 404 / bug produisent le MÊME écran muet de tirets — c'est
+      // ce qui a rendu le défaut d'origine indiagnosticable. (« no-baseline » a
+      // disparu avec la source état-Logistic : l'attendu existe toujours.)
       expectedUnavailable: null,
       loading: false,
       availableSpaces: [],
@@ -1143,30 +1153,24 @@ export default {
       }
       return out
     },
-    /** Détail du calcul de l'attendu, par article (infobulles — demande JLH
-     *  2026-08-19) : pre « post-event précédent + livraisons », post « pre-event
-     *  + mouvements − vendu ». Termes dérivés (buildExpectedCalcDetails) pour que
-     *  l'égalité affichée tienne même quand les référentiels de conditionnement
-     *  divergent (BUG-239/Q39). */
-    expectedCalcDetails() {
-      const expectedUnits = this.isPreMode ? this.preExpectedUnits : this.postExpectedUnits
-      if (!expectedUnits) return null
-      return buildExpectedCalcDetails({
-        baseline: this.expectedBaselineBlob,
-        movementUnits: this.isPreMode ? null : this.expectedMovementUnitsBlob,
-        expectedUnits,
-        unitsPerItemId: this.unitsPerItemIdMap,
-      })
+    /** Cartouche de provenance des attendus (décision JLH 2026-08-20) : dès que
+     *  des attendus sont affichés, dire d'où ils viennent — état Logistic au
+     *  chargement de l'écran. Une seule cartouche page, même gabarit v-alert que
+     *  les autres bandeaux ; le détail chiffré par article reste en infobulle. */
+    expectedSourceText() {
+      if (!this.canSeeExpected) return ''
+      const loaded = this.isPreMode ? this.preExpected : this.postExpectedUnits
+      return loaded ? this.t('invExpectedSource') : ''
     },
     /** Message d'indisponibilité des attendus — `no-permission` reste MUET :
-     *  un utilisateur non habilité ne doit pas apprendre que la donnée existe. */
+     *  un utilisateur non habilité ne doit pas apprendre que la donnée existe.
+     *  (Le cas « no-baseline » a disparu : l'attendu = état Logistic, il existe
+     *  toujours — décision JLH 2026-08-20.) */
     expectedUnavailableText() {
       if (this.expectedUnavailable === 'no-permission') return ''
       switch (this.expectedUnavailable) {
         case 'forbidden': return this.t('invExpectedForbidden')
         case 'not-deployed': return this.t('invExpectedNotDeployed')
-        case 'no-baseline':
-          return this.isPreMode ? this.t('invExpectedNoBaselinePre') : this.t('invExpectedNoBaselinePost')
         default:
           // Attendus OK mais aucun scénario de référence : le besoin prédit à côté
           // du total reste vide tant qu'aucune version n'est marquée par défaut.
@@ -2075,8 +2079,6 @@ export default {
     async fetchPreExpected() {
       this.preExpected = null
       this.postExpectedUnits = null
-      this.expectedBaselineBlob = null
-      this.expectedMovementUnitsBlob = null
       this.expectedUnavailable = null
       if (!this.canSeeExpected) {
         this.expectedUnavailable = 'no-permission'
@@ -2089,31 +2091,17 @@ export default {
         const baseline = this.isPreMode
           ? await getPreEventBaseline(spaceId, this.selectedEventId)
           : await getPostEventBaseline(spaceId, this.selectedEventId)
-        if (!baseline?.baseline) {
-          this.expectedUnavailable = 'no-baseline'
+        // Source « état Logistic » (décision JLH 2026-08-20) : le blob `expected`
+        // existe toujours côté serveur à jour. Absent = backend antérieur.
+        if (!baseline?.expected) {
+          this.expectedUnavailable = 'not-deployed'
           return
         }
-        // Blobs bruts pour le détail du calcul (infobulles) : comptage d'ancrage
-        // (post-event précédent en pre, pre-event du match en post) et, en post,
-        // net des mouvements de la fenêtre.
-        this.expectedBaselineBlob = baseline.baseline
-        this.expectedMovementUnitsBlob = this.isPreMode ? null : baseline.movementUnits || null
         if (this.isPreMode) {
-          // Résolution nom→item des mouvements sans menuItemId : référentiel AFFICHÉ.
-          const itemIdByNormName = new Map()
-          const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
-          for (const entry of entries) {
-            const items = entry.consolidatedInventory || entry.storageInventory || entry.merchInventory || []
-            for (const it of items) {
-              const nk = normalizeStr(it?.name)
-              if (nk && it?.id && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, String(it.id))
-            }
-          }
           // `unitsPerItemId` (BUG-239) : le serveur peut avoir calculé l'attendu
           // avec la taille de paquet de la Logistique — on le re-découpe dans celle
           // du champ Packed affiché (total en unités inchangé).
           this.preExpected = buildPreEventExpected(baseline, {
-            itemIdByNormName,
             unitsPerItemId: this.unitsPerItemIdMap,
           })
         } else {
@@ -2137,8 +2125,6 @@ export default {
         console.warn('[SpaceInventory] baseline attendus KO (pas de hints):', e?.message)
         this.preExpected = null
         this.postExpectedUnits = null
-        this.expectedBaselineBlob = null
-        this.expectedMovementUnitsBlob = null
       } finally {
         this.preExpectedLoading = false
       }
@@ -2154,28 +2140,26 @@ export default {
       if (!exp) return null
       return field === 'packed' ? exp.packed : exp.loose
     },
-    /** Détail du calcul de l'attendu d'un article, en clair (infobulle title —
-     *  demande JLH 2026-08-19). Pre : « Post-event précédent 12 + livraisons 24
-     *  = 36 ». Post : « Pre-event 36 + mouvements 10 − vendu 14 = 32 ». null =
-     *  pas de détail (pas d'attendu pour cette ligne). */
+    /** Détail du calcul de l'attendu d'un article (infobulle title). Depuis la
+     *  décision JLH 2026-08-20 (attendu = état Logistic au chargement — la
+     *  provenance est portée par la cartouche de page, pas répétée ici), le
+     *  détail montre la conversion packs × conditionnement + vrac = total :
+     *  « 15 × 4 + 2 = 62 ». Identité pure, aucune prose — la décomposition
+     *  « comptage + mouvements − vendu » n'existe plus (l'historique par
+     *  mouvement vit sur l'écran Logistic). null = pas d'attendu. */
     expectedDetailFor(elementId, itemId) {
-      const d = this.expectedCalcDetails?.[expectedKey(elementId, itemId)]
-      if (!d) return null
+      const key = expectedKey(elementId, itemId)
       const expectedUnits = this.isPreMode ? this.preExpectedUnits : this.postExpectedUnits
-      const total = expectedUnits?.[expectedKey(elementId, itemId)]
+      const total = expectedUnits?.[key]
       if (!Number.isFinite(total)) return null
       const fmt = formatUnits
-      const signed = (n) => (n < 0 ? `− ${fmt(-n)}` : `+ ${fmt(n)}`)
-      if (this.isPreMode) {
-        return `${this.t('invExpectedDetailPrevPost')} ${fmt(d.base)} ${signed(d.moves)} ${this.t('invExpectedDetailMoves')} = ${fmt(total)}`
+      const pair = this.isPreMode ? this.preExpected?.[key] : this.postExpectedFields?.[key]
+      const itemId2 = String(itemId)
+      const q = Number(this.unitsPerItemIdMap?.[itemId2]) > 0 ? Number(this.unitsPerItemIdMap[itemId2]) : 1
+      if (pair && q > 1) {
+        return `${fmt(pair.packed)} × ${fmt(q)} + ${fmt(pair.loose)} = ${fmt(total)}`
       }
-      // Vendu soustrait : signe inversé (un « vendu négatif » — retour/correction —
-      // s'affiche « + x vendu », jamais « − -x »).
-      const soldTerm = d.sold < 0 ? `+ ${fmt(-d.sold)}` : `− ${fmt(d.sold)}`
-      return (
-        `${this.t('invExpectedDetailPreCount')} ${fmt(d.base)} ${signed(d.moves)} ` +
-        `${this.t('invExpectedDetailMovements')} ${soldTerm} ${this.t('invExpectedDetailSold')} = ${fmt(total)}`
-      )
+      return `${this.t('invExpectedFromLogistic')} = ${fmt(total)}`
     },
     /** Indice affiché à côté du TOTAL d'un article. Pre : besoin prédit Event
      *  Predict. Post : stock qui doit rester. null = rien à afficher (« — »). */

@@ -17,9 +17,16 @@ voyait donc le prédit alors que la demande l'exclut.
 
 - Nouvelle permission `front.fb.preInventoryPredicted` dans `SYSTEM_PERMISSIONS`, attribuée au
   rôle **Directeur de site** (ADMIN l'a via `ALL_CODES`). Chef exécutif exclu volontairement.
-- **Aucun SQL de rattrapage** : `ensureSystemPermissionCatalog` propage automatiquement un code
+- ~~**Aucun SQL de rattrapage** : `ensureSystemPermissionCatalog` propage automatiquement un code
   neuf aux tenants existants sans écraser les personnalisations (commentaire du catalogue,
-  réf. BUG-038).
+  réf. BUG-038).~~ **Correctif 2026-08-20 (BUG-134-01)** : cette promesse était fausse en
+  pratique — `ensureSystemPermissionCatalog` n'était appelée QUE par `prisma/seed.ts`,
+  `prisma/backfill-rbac.ts` (scripts manuels) et l'onboarding des NOUVEAUX tenants ; rien ne
+  l'exécutait au déploiement (vérifié en base dev le 20/08 : 0 ligne `preInventoryPredicted`,
+  tous tenants). Désormais `RbacCatalogSyncService` (`src/core/rbac/rbac-catalog-sync.service.ts`,
+  hébergé par `PermissionsModule`) rejoue le catalogue à chaque boot du backend, sous
+  `pg_advisory_xact_lock` (multi-instances), échec loggé non bloquant. La propagation reste sûre :
+  seuls les codes nouvellement créés sont accordés aux rôles existants.
 - Gating d'**affichage** côté frontend (`canSeePredicted`, fiche web BUG-343-01) : la donnée
   vient de `GET /event-predict` versions, endpoint partagé avec l'écran Event Predict
   (`front.fb.eventPredict`) — pas de gating serveur dédié possible sans le casser.
