@@ -17,7 +17,7 @@
         {{ config.label }}
       </span>
       <span
-        v-if="variation != null"
+        v-if="!loading && variation != null"
         class="kpi-variation d-flex align-center"
         :style="{ color: variationColor }"
       >
@@ -28,7 +28,10 @@
       </span>
     </div>
 
-    <div class="kpi-value">{{ value }}</div>
+    <!-- BUG-350-01 : tant que la source canonique n'a pas répondu, on montre un
+         squelette — JAMAIS une valeur de repli destinée à bouger. -->
+    <div v-if="loading" class="kpi-value kpi-skeleton" aria-hidden="true"></div>
+    <div v-else class="kpi-value">{{ value }}</div>
   </v-card>
 </template>
 
@@ -44,6 +47,8 @@ export default {
     subtext: { type: String, default: '' },
     variation: { type: Number, default: null },
     variationUnit: { type: String, default: '%' }, // % | pp
+    // BUG-350-01 — squelette au lieu d'une valeur provisoire.
+    loading: { type: Boolean, default: false },
   },
   emits: ['click'],
   setup() {
@@ -123,6 +128,25 @@ export default {
   white-space: nowrap;
 }
 
+/* BUG-350-01 — squelette de valeur (même gabarit que .kpi-value pour éviter le
+   saut de hauteur au moment où la vraie valeur arrive). */
+.kpi-skeleton {
+  width: 60%;
+  min-width: 90px;
+  height: 1.1em;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #eceff1 25%, #f5f7f8 50%, #eceff1 75%);
+  background-size: 200% 100%;
+  animation: kpi-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes kpi-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kpi-skeleton { animation: none; }
+}
+
 /* ===================== DARK MODE ===================== */
 .kpi-card--dark {
   background: #1e293b;
@@ -134,5 +158,9 @@ export default {
 }
 .kpi-card--dark .kpi-value {
   color: #f9fafb;
+}
+.kpi-card--dark .kpi-skeleton {
+  background: linear-gradient(90deg, #273549 25%, #334155 50%, #273549 75%);
+  background-size: 200% 100%;
 }
 </style>
