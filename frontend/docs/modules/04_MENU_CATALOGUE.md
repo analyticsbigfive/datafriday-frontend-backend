@@ -268,6 +268,24 @@ création/édition, le DTO accepte ces trois champs ; le service `menu-items.ser
 « type de promotion » fait concrètement au prix du produit remisé) n'est pas encore branchée — seul
 le lien est stocké. `PromotionType` est un simple libellé pour l'instant.
 
+### 🟣 Demande de Bertrand (2026-08-21) — consigne (quantité négative sur un packaging)
+
+Dans le tableau *component & ingredient* de `MenuItemCreateView`, une **quantité négative** est
+désormais autorisée **uniquement sur les lignes de type Packaging** — le signe négatif marque une
+**consigne**. Ingrédients / composants / combo gardent le garde-fou anti-négatif.
+
+- **UI** : sur chaque ligne Packaging, un toggle icône (♻) « Consigne » bascule la quantité en
+  négatif (défaut -1 si 0) ou repasse en positif ; le champ accepte aussi une saisie négative
+  directe (`-1`, `-2.45`). Champ + bouton virent orange quand actif. Le signe **est** le marqueur
+  (pas de flag séparé : `isConsigne = quantité < 0`).
+- **Coût** : le négatif **agit réellement** sur le coût recette (`quantité × unitCost` reste négatif
+  → réduit `totalCost`, impacte la marge). `refreshCosts()` fait déjà `unitCost × numberOfUnits`
+  sans `abs`, donc aucun changement de calcul — il suffisait de laisser passer le négatif.
+- **Portée technique** : front = `:min` conditionnel (null pour packaging) + suppression du
+  `Math.max(0,…)` sur le mapping packaging à la sauvegarde. Backend = `@Min(0)` retiré de
+  `MenuItemPackagingLineDto.numberOfUnits` **seulement**. `MenuItemPackaging.numberOfUnits` est un
+  `Float` (accepte le négatif) → **pas de migration**.
+
 ### Import/Export CSV — reprise du format `Recipe` legacy (BUG-257-02)
 
 `MenuItemCsvImportDrawer.vue` gérait déjà un format `Recipe` packé (BUG-108, `parseRecipe()`) mais

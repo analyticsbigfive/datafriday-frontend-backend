@@ -92,9 +92,11 @@ export class MenuItemPackagingLineDto {
   @IsString()
   packagingId: string;
 
-  @ApiProperty({ description: "Nombre d'unités" })
+  // Négatif AUTORISÉ (consigne — demande Bertrand) : pas de @Min(0), contrairement aux
+  // ingrédients/composants. Le signe négatif marque une consigne et réduit le coût recette
+  // (refreshCosts fait unitCost × numberOfUnits sans abs).
+  @ApiProperty({ description: "Nombre d'unités (négatif = consigne pour un packaging)" })
   @IsNumber()
-  @Min(0)
   @Type(() => Number)
   numberOfUnits: number;
 }
