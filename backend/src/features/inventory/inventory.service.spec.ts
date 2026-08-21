@@ -119,6 +119,7 @@ const mockPrisma = {
 
 describe('InventoryService', () => {
   let service: InventoryService;
+  let logistics: LogisticsService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -155,6 +156,7 @@ describe('InventoryService', () => {
       ],
     }).compile();
     service = module.get<InventoryService>(InventoryService);
+    logistics = module.get<LogisticsService>(LogisticsService);
   });
 
   it('should be defined', () => {
@@ -520,6 +522,7 @@ describe('InventoryService', () => {
       expect(result.previousEvent).toBeNull();
     });
 
+
     it("conditionnement d'inventaire inconnu : canaux packed/loose conservés, pas de total fabriqué", async () => {
       wireEvent();
       wireElements(['shop-1']);
@@ -595,6 +598,61 @@ describe('InventoryService', () => {
       expect(ghost.deltaPacked).toBeNull();
       expect(ghost.countedPacked).toBe(1);
       expect((reco.meta as any).baseline).toEqual({ source: 'logistic-live', asOf: expect.any(Date) });
+    });
+
+    // PDF 2026-08-21 + précision JLH : « idéalement reset sur pre ou post event
+    // inventory quand ils sont terminés et que la réconciliation est faite ».
+    it('recale le stock Logistic depuis le comptage, marqué comme issu d’un inventaire', async () => {
+      const resetSpy = jest.spyOn(logistics, 'reset').mockResolvedValue({} as any);
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.id ? { id: 'event-next', name: 'Prochain match' } : null),
+      );
+      wireElements(['shop-1'], [{ id: 'shop-1', name: 'Buvette 1' }]);
+      wireCatalog([{ id: 'item-choco', name: 'Barre chocolatée', inventoryNumberOfUnits: 5 }]);
+      mockPrisma.stockLevel.findMany.mockResolvedValue([]);
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-choco', packedUnits: 2, looseUnits: 3 }),
+      ]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'reco-1', ...data }),
+      );
+
+      await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+
+      expect(resetSpy).toHaveBeenCalledTimes(1);
+      const [, dto, , actor, meta] = resetSpy.mock.calls[0];
+      // Comptage poussé en canaux BRUTS (le conditionnement est un référentiel
+      // d'affichage — le registre le résout de son côté).
+      expect(dto.lines).toEqual([
+        { elementId: 'shop-1', itemKey: 'Barre chocolatée', countedPacked: 2, countedLoose: 3 },
+      ]);
+      expect(actor).toBe('user-1');
+      // Ce marqueur est ce qui évitera le double comptage au prochain écran.
+      expect(meta).toMatchObject({ source: 'inventory-count', phase: 'pre-event' });
+      resetSpy.mockRestore();
+    });
+
+    it('recalage Logistic en échec : le document de réconciliation est CONSERVÉ', async () => {
+      const resetSpy = jest
+        .spyOn(logistics, 'reset')
+        .mockRejectedValue(new Error('element hors espace'));
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.id ? { id: 'event-next', name: 'Prochain match' } : null),
+      );
+      wireElements(['shop-1'], [{ id: 'shop-1', name: 'Buvette 1' }]);
+      wireCatalog([{ id: 'item-choco', name: 'Barre chocolatée', inventoryNumberOfUnits: 5 }]);
+      mockPrisma.stockLevel.findMany.mockResolvedValue([]);
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-choco', packedUnits: 1, looseUnits: 0 }),
+      ]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'reco-1', ...data }),
+      );
+
+      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+
+      expect(reco).toMatchObject({ id: 'reco-1', kind: 'pre-event' });
+      resetSpy.mockRestore();
     });
   });
 

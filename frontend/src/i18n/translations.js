@@ -2055,7 +2055,6 @@ export const translations = {
     // « un match = un eventId » (docs/modules/10_POST_EVENT_INVENTORY.md §12.4).
     invContextAnchorLast: 'Post-event inventory of: {match}',
     preInvContextAnchorNext: 'Next event: {match}',
-    preInvExpectedBadge: 'Expected quantity',
     invContextNoPastEvent: 'No finished match for this space',
     invContextCountsIndependent: 'counts not linked to this match',
     invChangeSpace: 'Change space',
@@ -2078,6 +2077,8 @@ export const translations = {
     hdrSecPreInventory: 'Pre-event Inventory',
     invExpectedHint: 'Expected quantity',
     invExpectedSource: 'Expected = current Logistic stock when the screen loaded',
+    invExpectedHintPacked: 'Expected quantity: {n} {packaging} of {qty}',
+    invExpectedHintLoose: 'Expected quantity: {n} {unit} loose',
     // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
     // avant match on annonce un besoin, après match un reste.
     invPredictedNeedHint: 'Predicted need',
@@ -6599,7 +6600,6 @@ export const translations = {
     // Contexte évènement du bandeau — cf. bloc EN.
     invContextAnchorLast: 'Post Inventaire de l\'évènement : {match}',
     preInvContextAnchorNext: 'Prochain Évènement : {match}',
-    preInvExpectedBadge: 'Quantité attendue',
     invContextNoPastEvent: 'Aucun match terminé sur cet espace',
     invContextCountsIndependent: 'comptages non rattachés à ce match',
     invChangeSpace: "Changer d'espace",
@@ -6622,6 +6622,8 @@ export const translations = {
     hdrSecPreInventory: 'Inventaire pré-événement',
     invExpectedHint: 'Quantité attendue',
     invExpectedSource: "Attendu = stock Logistic au chargement de l'écran",
+    invExpectedHintPacked: 'Quantité attendue : {n} {packaging} de {qty}',
+    invExpectedHintLoose: 'Quantité attendue : {n} {unit} en vrac',
     // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
     // avant match on annonce un besoin, après match un reste.
     invPredictedNeedHint: 'Besoin prédit',

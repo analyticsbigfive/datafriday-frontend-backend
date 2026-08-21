@@ -22,6 +22,7 @@ import {
   TIMELINE_BUCKET_STRATEGIES,
   bucketMinute,
   formatMinute,
+  minutesSinceShow,
   parseMinuteToken,
   preprocessTimelineRecords,
 } from '@/utils/timelineBucketing'
@@ -68,14 +69,39 @@ function bucketTime(totalMinutes) {
 }
 
 /**
- * Aligne une minute de vente passée sur l'horaire du futur event :
- * minute décalée de timeOffset (= horaireCible − horairePassé), repliée sur
- * [0, 1440) (modulo — l'offset peut donner négatif ou > 24h), puis bucketée.
+ * Aligne une minute de vente passée sur l'horaire du futur event : minute
+ * décalée de timeOffset (= horaireCible − horairePassé), puis bucketée.
  * Exportée pour test (cœur de l'alignement temporel de la timeline prédictive).
+ *
+ * ⚠️ BUG-351-01 — le repli modulo 1440 a été RETIRÉ. Il ramenait au début de la
+ * courbe toute vente postérieure à minuit : une transaction survenue 5 h après
+ * le coup d'envoi d'un match de référence doit peser 5 h après le coup d'envoi
+ * du match prédit (21h + 5h = 02:00 LE LENDEMAIN), pas à 02:00 le jour même
+ * (précision owner 2026-08-21). Le libellé rendu reste une heure murale —
+ * `formatMinute` la normalise pour l'affichage —, mais l'ORDRE est porté par
+ * `relativeDatedKey` ci-dessous.
  */
 export function alignPastMinute(recMinutes, timeOffset) {
-  const shifted = (((recMinutes + timeOffset) % 1440) + 1440) % 1440
-  return bucketTime(shifted)
+  return bucketTime(recMinutes + timeOffset)
+}
+
+/**
+ * Clé DATÉE et triable d'une minute alignée, pour que les points d'après minuit
+ * se placent en FIN de courbe (BUG-351-01). La date est synthétique : tous les
+ * events de référence sont reprojetés sur la MÊME horloge cible, seul l'ordre
+ * relatif compte. J0 = jour du coup d'envoi ; J+1 = après minuit ; J−1 = avant.
+ *
+ * @param {number} absMinutes minutes depuis 00:00 le jour du coup d'envoi
+ *   (négatif ou > 1440 accepté).
+ * @returns {string} "YYYY-MM-DDTHH:MM"
+ */
+export function relativeDatedKey(absMinutes) {
+  const dayOffset = Math.floor(absMinutes / 1440)
+  // Base arbitraire, loin de tout changement d'heure : seule la différence de
+  // jours est signifiante. UTC pour ne pas dépendre du fuseau du navigateur.
+  const d = new Date(Date.UTC(2000, 0, 1 + dayOffset))
+  const iso = d.toISOString().slice(0, 10)
+  return `${iso}T${formatMinute(absMinutes)}`
 }
 
 /**
@@ -1003,16 +1029,26 @@ export function usePredictiveTimeline(options) {
           })
         }
 
+        const pastShowTime = pastShowTimeById.get(eId) || null
         timelineResults[idx] = records.map((r) => {
-          const recMinutes =
-            typeof r.minute === 'string' ? parseTime(r.minute) : r.minute || 0
           // ALIGNEMENT TEMPOREL (essentiel) : on décale la chronologie passée
           // pour caler son coup d'envoi sur celui du futur event
           // (timeOffset = horaireCible − horairePassé). Les pics clés (mi-temps,
           // affluence) se superposent ainsi entre events à horaires différents.
+          //
+          // BUG-351-01 : `recMinutes` se lit désormais en MINUTES DEPUIS LE COUP
+          // D'ENVOI du match de référence (`minuteLocal` daté quand le serveur le
+          // fournit). Sans ça, une vente à 02:00 le lendemain valait « 120 » —
+          // deux heures APRÈS minuit du jour du match, soit 19 h trop tôt.
+          const relMinutes = minutesSinceShow(r.minuteLocal ?? r.minute, pastShowTime)
+          const recMinutes =
+            relMinutes != null
+              ? parseTime(pastShowTime) + relMinutes
+              : typeof r.minute === 'string' ? parseTime(r.minute) : r.minute || 0
           return {
             ...r,
             minute: alignPastMinute(recMinutes, timeOffset),
+            minuteLocal: relativeDatedKey(recMinutes + timeOffset),
             totalRevenue: (r.totalRevenue || 0) * combinedFactor,
             totalQuantity: (r.totalQuantity || 0) * combinedFactor,
             transactionCount: (r.transactionCount || 0) * combinedFactor,

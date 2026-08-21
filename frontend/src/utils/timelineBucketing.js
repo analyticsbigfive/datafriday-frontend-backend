@@ -27,6 +27,14 @@ export const TIMELINE_BUCKET_STRATEGIES = Object.freeze({
 })
 
 const HHMM_RE = /^(\d{1,2}):(\d{2})$/
+// Minute DATÉE en heure murale locale : "YYYY-MM-DDTHH:MM" (BUG-351-01, servie
+// par `minuteLocal` de GET /spaces/:id/event-timeline). Un suffixe (secondes,
+// "Z", millisecondes) est toléré : seules la date et l'heure sont lues.
+const DATED_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
+// Fenêtre d'avant-match tolérée quand on doit deviner le JOUR d'un coup d'envoi
+// connu à l'heure seule : au-delà de 6 h avant, la vente est réputée appartenir
+// au lendemain (continuation de l'événement) plutôt qu'à une prévente.
+const PRE_SHOW_WINDOW_MINUTES = 6 * 60
 
 /**
  * Parse une valeur minute (HH:MM string ou nombre déjà en minutes) → total
@@ -80,6 +88,91 @@ export function bucketMinute(minute, bucketMinutes = 1) {
   return formatMinute(Math.floor(total / size) * size)
 }
 
+// ---------------------------------------------------------------------------
+// Minutes DATÉES (BUG-351-01).
+//
+// `minute` (HH:MM) ne peut pas ordonner un événement qui franchit minuit : une
+// vente à 00h30 qui prolonge le match de la veille se trie avant 19h00 et se
+// confond avec une vente à 00h30 du jour même. Les fonctions ci-dessous
+// travaillent sur la minute DATÉE quand elle est disponible ; TOUT le reste du
+// module garde son comportement HH:MM d'origine (aucun consommateur existant
+// n'est impacté).
+// ---------------------------------------------------------------------------
+
+/**
+ * Décompose une minute datée "YYYY-MM-DDTHH:MM" (suffixe toléré).
+ *
+ * @param {string|number|null|undefined} value
+ * @returns {{ dateKey: string, minuteOfDay: number, epochMinutes: number }|null}
+ *   null si la valeur ne porte pas de date (HH:MM nu, nombre, vide).
+ */
+export function parseDatedMinute(value) {
+  if (value == null || typeof value === 'number') return null
+  const m = DATED_RE.exec(String(value))
+  if (!m) return null
+  const [, y, mo, d, hh, mm] = m
+  const minuteOfDay = Number(hh) * 60 + Number(mm)
+  // UTC : la valeur est déjà une heure MURALE locale de l'espace (convertie côté
+  // serveur). La relire en UTC évite qu'un fuseau navigateur la décale encore.
+  const epochMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(hh), Number(mm))
+  return {
+    dateKey: `${y}-${mo}-${d}`,
+    minuteOfDay,
+    epochMinutes: Math.round(epochMs / 60000),
+  }
+}
+
+/**
+ * Clé de bucket DATÉE et triable ("YYYY-MM-DDTHH:MM"), ou null si la valeur ne
+ * porte pas de date. Même granularité que `bucketMinute`.
+ *
+ * @param {string|number} value
+ * @param {number} [bucketMinutes=1]
+ * @returns {string|null}
+ */
+export function bucketDatedMinute(value, bucketMinutes = 1) {
+  const parsed = parseDatedMinute(value)
+  if (!parsed) return null
+  const size = Number(bucketMinutes) > 0 ? Number(bucketMinutes) : 1
+  const bucketed = Math.floor(parsed.minuteOfDay / size) * size
+  return `${parsed.dateKey}T${formatMinute(bucketed)}`
+}
+
+/**
+ * Minutes écoulées depuis le coup d'envoi (`showTime`) de l'événement — la
+ * grandeur d'alignement d'Event Predict (précision owner 2026-08-21) : une
+ * transaction survenue 5 h après le coup d'envoi d'un match de référence doit
+ * peser 5 h après le coup d'envoi du match prédit, donc le lendemain si le
+ * coup d'envoi est à 21h.
+ *
+ * Négatif avant le coup d'envoi (ventes d'avant-match), > 1440 si l'événement
+ * déborde de minuit. JAMAIS normalisé sur 24 h : c'est cette normalisation qui
+ * ramenait les ventes d'après minuit en tête de courbe.
+ *
+ * @param {string|number} value        minute datée, ou HH:MM (repli même jour).
+ * @param {string|number|null} showTime  coup d'envoi : "HH:MM" ou minute datée.
+ * @returns {number|null} null si la minute est illisible.
+ */
+export function minutesSinceShow(value, showTime) {
+  const show = parseDatedMinute(showTime)
+  const point = parseDatedMinute(value)
+  if (point && show) return point.epochMinutes - show.epochMinutes
+
+  const showMinutes = show ? show.minuteOfDay : parseMinuteToken(showTime)
+  const pointMinutes = point ? point.minuteOfDay : parseMinuteToken(value)
+  if (pointMinutes == null) return null
+  if (showMinutes == null) return pointMinutes
+
+  const diff = pointMinutes - showMinutes
+  // Point DATÉ, coup d'envoi seulement horaire ("21:00") : le jour du coup
+  // d'envoi n'est pas connu, on le déduit de la fenêtre plausible d'un
+  // événement. Une vente lue à 02:00 pour un coup d'envoi à 21:00 donne −19 h ;
+  // c'est en réalité +5 h, le lendemain. Seuil à −6 h : au-delà, c'est une vente
+  // d'avant-match (ouverture des portes, prévente), qu'on garde négative.
+  if (point && diff < -PRE_SHOW_WINDOW_MINUTES) return diff + 1440
+  return diff
+}
+
 /**
  * Indique si une minute (HH:MM ou nombre) est dans la fenêtre `range`
  * (start/end inclusifs). `{start:null,end:null}` = pas de filtre.
@@ -90,6 +183,17 @@ export function bucketMinute(minute, bucketMinutes = 1) {
  */
 export function isMinuteInRange(minute, range) {
   if (!range) return true
+  // Bornes DATÉES (BUG-351-01) : quand la fenêtre ET le point portent une date,
+  // on compare des instants — sinon une borne de fin à 01:00 le lendemain
+  // exclurait toute la soirée au lieu de l'inclure.
+  const datedStart = parseDatedMinute(range.start)
+  const datedEnd = parseDatedMinute(range.end)
+  const datedPoint = parseDatedMinute(minute)
+  if (datedPoint && (datedStart || datedEnd)) {
+    if (datedStart && datedPoint.epochMinutes < datedStart.epochMinutes) return false
+    if (datedEnd && datedPoint.epochMinutes > datedEnd.epochMinutes) return false
+    return true
+  }
   const s = parseMinuteToken(range.start)
   const e = parseMinuteToken(range.end)
   if (s == null && e == null) return true
@@ -162,8 +266,13 @@ export function aggregateTimeline(records, opts = {}) {
   for (const r of records) {
     if (!r) continue
     if (filter && !filter(r)) continue
-    const minute = bucketMinute(r.minute ?? r.time ?? r.timestamp ?? r.createdAt, bucketSize)
+    // `minuteLocal` (minute DATÉE, BUG-351-01) sert de clé de bucket et de tri ;
+    // `minute` (HH:MM) reste la valeur d'affichage lue par tous les consommateurs.
+    // Sans la date, deux ventes à 00h30 de deux jours différents fusionnaient.
+    const rawMinute = r.minute ?? r.time ?? r.timestamp ?? r.createdAt
+    const minute = bucketMinute(rawMinute, bucketSize)
     if (!minute) continue
+    const minuteLocal = bucketDatedMinute(r.minuteLocal ?? rawMinute, bucketSize)
 
     const eventId = r.eventId || opts.eventId || null
     const configurationVersionId =
@@ -182,7 +291,7 @@ export function aggregateTimeline(records, opts = {}) {
         : null
 
     const key = [
-      minute,
+      minuteLocal || minute,
       eventId || '',
       configurationVersionId || '',
       scenarioId || '',
@@ -193,6 +302,7 @@ export function aggregateTimeline(records, opts = {}) {
     if (!agg) {
       agg = {
         minute,
+        minuteLocal,
         eventId,
         configurationVersionId,
         scenarioId,
@@ -265,6 +375,7 @@ export function aggregateTimeline(records, opts = {}) {
   for (const agg of byKey.values()) {
     out.push({
       minute: agg.minute,
+      minuteLocal: agg.minuteLocal || null,
       eventId: agg.eventId,
       configurationVersionId: agg.configurationVersionId,
       scenarioId: agg.scenarioId,
@@ -308,7 +419,10 @@ export function aggregateTimeline(records, opts = {}) {
     })
   }
   return out.sort((a, b) => {
-    const cmp = String(a.minute).localeCompare(String(b.minute))
+    // Tri sur la minute DATÉE quand elle existe (BUG-351-01) : trier sur HH:MM
+    // remontait les ventes d'après minuit en tête de courbe. Repli HH:MM pour
+    // les sources sans date (prédictions, stockup, inventaire).
+    const cmp = String(a.minuteLocal || a.minute).localeCompare(String(b.minuteLocal || b.minute))
     if (cmp !== 0) return cmp
     return (
       String(a.shopId || '').localeCompare(String(b.shopId || '')) ||
@@ -387,7 +501,9 @@ export function buildTimelineFilter(criteria = {}) {
       const cat = r.menuItemCategory || r.category
       if (!cat || !categories.has(cat)) return false
     }
-    if (range && !isMinuteInRange(r.minute, range)) return false
+    // Minute DATÉE en priorité (BUG-351-01) : une fenêtre qui franchit minuit
+    // ne peut pas être évaluée sur une heure murale seule.
+    if (range && !isMinuteInRange(r.minuteLocal ?? r.minute, range)) return false
     if (extra && !extra(r)) return false
     return true
   }

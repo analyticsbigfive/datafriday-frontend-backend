@@ -202,7 +202,9 @@ const tempEndMinute = ref('59')
 
 import {
   TIMELINE_BUCKET_STRATEGIES,
+  bucketDatedMinute,
   bucketMinute as sharedBucketMinute,
+  parseDatedMinute,
   preprocessTimelineRecords,
 } from '@/utils/timelineBucketing'
 
@@ -387,15 +389,21 @@ const series = computed(() => {
 
   const minuteSet = new Set()
   const totalsBySeries = new Map() // key id -> total
-  // perMinute: Map<minute, Map<seriesKey, value>>
+  // perMinute: Map<minuteKey, Map<seriesKey, value>>
   const perMinute = new Map()
+  // BUG-351-01 : la clé d'axe est la minute DATÉE (triable, distincte d'un jour
+  // à l'autre) ; l'étiquette affichée reste l'heure murale. Sans la date, une
+  // vente à 00h30 prolongeant l'événement de la veille se triait AVANT 19h00.
+  const labelByKey = new Map()
 
   for (const r of filtered) {
     const key = resolveSeriesKey(r)
     if (!key) continue
-    const minute = bucketTimelineMinute(r.minute)
-    if (!minute) continue
+    const label = bucketTimelineMinute(r.minute)
+    if (!label) continue
+    const minute = bucketDatedMinute(r.minuteLocal ?? r.minute, TIMELINE_BUCKET_MINUTES) || label
     minuteSet.add(minute)
+    if (!labelByKey.has(minute)) labelByKey.set(minute, label)
     if (!perMinute.has(minute)) perMinute.set(minute, new Map())
     const slot = perMinute.get(minute)
     slot.set(key, (slot.get(key) || 0) + (Number(r[valueField]) || 0))
@@ -403,6 +411,7 @@ const series = computed(() => {
   }
 
   const sortedMinutes = [...minuteSet].sort()
+  const axisLabels = sortedMinutes.map((m) => labelByKey.get(m) || m)
   const sortedKeysAll = [...totalsBySeries.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([k]) => k)
@@ -458,7 +467,11 @@ const series = computed(() => {
   }
 
   return {
-    labels: sortedMinutes,
+    labels: axisLabels,
+    // Clés DATÉES alignées sur `labels` (BUG-351-01) : les bornes de la fenêtre
+    // s'expriment en date + heure, comme demandé, et la fenêtre peut franchir
+    // minuit sans exclure la soirée.
+    keys: sortedMinutes,
     datasets,
     totalsBySeries,
   }
@@ -584,15 +597,36 @@ const chartOptions = computed(() => ({
 }))
 
 // ----- Time range labels & emit -----
+// Les bornes affichent DATE + HEURE quand la timeline en porte une (spec PDF
+// 2026-08-21) : sur un événement qui franchit minuit, « 01:00 » seul ne dit pas
+// s'il s'agit du début ou de la fin de la soirée.
 const startTimeLabel = computed(() => labelAtPct(rangePct.value[0]))
 const endTimeLabel = computed(() => labelAtPct(rangePct.value[1]))
+// Bornes brutes (clé datée) transmises au parent pour le filtrage.
+const startTimeKey = computed(() => keyAtPct(rangePct.value[0]))
+const endTimeKey = computed(() => keyAtPct(rangePct.value[1]))
+
+function indexAtPct(p) {
+  const labels = series.value.labels
+  if (!labels || labels.length === 0) return -1
+  const total = labels.length
+  return Math.min(total - 1, Math.max(0, Math.round((p / 100) * (total - 1))))
+}
 
 function labelAtPct(p) {
-  const labels = series.value.labels
-  if (!labels || labels.length === 0) return '--:--'
-  const total = labels.length
-  const idx = Math.min(total - 1, Math.max(0, Math.round((p / 100) * (total - 1))))
-  return labels[idx] || '--:--'
+  const idx = indexAtPct(p)
+  if (idx < 0) return '--:--'
+  const hhmm = series.value.labels[idx] || '--:--'
+  const dated = parseDatedMinute(series.value.keys?.[idx])
+  if (!dated) return hhmm
+  const [, mo, d] = dated.dateKey.split('-')
+  return `${d}/${mo} ${hhmm}`
+}
+
+function keyAtPct(p) {
+  const idx = indexAtPct(p)
+  if (idx < 0) return null
+  return series.value.keys?.[idx] || series.value.labels[idx] || null
 }
 
 function parseHHMM(s) {
@@ -643,9 +677,15 @@ function onRangeChange() {
   emitRange()
 }
 function emitRange() {
+  // Les BORNES émises sont les clés datées (BUG-351-01) : `isMinuteInRange` sait
+  // les comparer en instants, donc une fenêtre 19:00 → 01:00 le lendemain garde
+  // la soirée entière au lieu de la vider. Repli HH:MM quand la source n'a pas
+  // de date (prédictions, stockup).
   emit('time-range-change', {
-    start: rangePct.value[0] === 0 ? null : startTimeLabel.value,
-    end: rangePct.value[1] === 100 ? null : endTimeLabel.value,
+    start: rangePct.value[0] === 0 ? null : startTimeKey.value,
+    end: rangePct.value[1] === 100 ? null : endTimeKey.value,
+    startLabel: startTimeLabel.value,
+    endLabel: endTimeLabel.value,
     startPct: rangePct.value[0],
     endPct: rangePct.value[1],
   })
@@ -663,16 +703,19 @@ watch(
   },
 )
 
-// Sync popover temp values when label changes externally
+// Sync popover temp values when label changes externally.
+// L'heure est lue en FIN de libellé : depuis BUG-351-01 il peut être préfixé de
+// la date (« 15/02 19:00 »), et un ancrage strict au début ne matchait plus.
+const HHMM_AT_END = /(\d{2}):(\d{2})$/
 watch(startTimeLabel, (l) => {
-  const m = /^(\d{2}):(\d{2})$/.exec(l)
+  const m = HHMM_AT_END.exec(l)
   if (m) {
     tempStartHour.value = m[1]
     tempStartMinute.value = m[2]
   }
 })
 watch(endTimeLabel, (l) => {
-  const m = /^(\d{2}):(\d{2})$/.exec(l)
+  const m = HHMM_AT_END.exec(l)
   if (m) {
     tempEndHour.value = m[1]
     tempEndMinute.value = m[2]

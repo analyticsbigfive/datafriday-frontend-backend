@@ -182,7 +182,16 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
             if (off == null) return [] // sans showTime → courbe SKIPPÉE (jamais offset 0)
             const data = byEventId.get(ev.id)
             return Array.isArray(data)
-              ? alignAndScaleRecords(data, off, alignment.keptIds.length, { eventId: ev.id })
+              ? alignAndScaleRecords(
+                  data,
+                  off,
+                  alignment.keptIds.length,
+                  { eventId: ev.id },
+                  // Coup d'envoi de CET event = ancre − offset (BUG-351-01) :
+                  // sert à lire les ventes en écart au coup d'envoi, donc à
+                  // placer celles d'après minuit en fin de courbe.
+                  alignment.anchorMinutes != null ? alignment.anchorMinutes - off : null,
+                )
               : []
           })
         : eventsToLoad.flatMap((ev) => {

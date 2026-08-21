@@ -2012,7 +2012,17 @@ export class LogisticsService {
    * strictement concurrents au reset peuvent tomber dans la fenêtre (écart absorbé au
    * prochain inventaire).
    */
-  async reset(spaceId: string, dto: InventoryResetDto, tenantId: string, userId?: string) {
+  async reset(
+    spaceId: string,
+    dto: InventoryResetDto,
+    tenantId: string,
+    userId?: string,
+    /** Provenance du recalage, archivée sur le document (BUG-352-01). Un reset
+     *  issu d'un comptage d'inventaire porte `{ source: 'inventory-count' }` :
+     *  c'est ce marqueur qui dit aux écrans d'inventaire que le registre CONTIENT
+     *  déjà ce comptage, et qu'il ne faut donc pas le rajouter à l'attendu. */
+    meta?: Record<string, unknown> | null,
+  ) {
     if (!dto.lines?.length) throw new BadRequestException('Aucune ligne à réconcilier');
 
     const stock = await this.getStock(spaceId, tenantId);
@@ -2093,6 +2103,7 @@ export class LogisticsService {
             eventId: dto.eventId ?? null,
             eventName: dto.eventName ?? null,
             lines: recoLines as any,
+            ...(meta ? { meta: meta as any } : {}),
             createdBy: userId ?? null,
           },
         });

@@ -263,7 +263,7 @@ export class InventoryService {
     });
     if (!event) throw new NotFoundException(`Event ${dto.eventId} not found in space ${spaceId}`);
 
-    return this.prisma.stockReconciliation.create({
+    const created = await this.prisma.stockReconciliation.create({
       data: {
         tenantId,
         spaceId,
@@ -288,6 +288,26 @@ export class InventoryService {
         createdBy: userId ?? null,
       } as any,
     });
+
+    // Le comptage d'après-match devient la nouvelle référence du registre
+    // Logistic (PDF 2026-08-21) — jusqu'ici le post-event ne touchait JAMAIS aux
+    // StockLevel, et l'écart constaté était donc oublié par l'attendu du match
+    // suivant.
+    //
+    // Source du comptage : la MÊME que le snapshot (canaux packed/loose bruts).
+    // Les lignes du DTO ne portent qu'un total en unités (`countedUnits`) — s'en
+    // servir obligerait à refabriquer une répartition packed/loose.
+    const merged = await this.getBySpaceAndEvent(spaceId, event.id, tenantId, 'post-event');
+    await this.pushCountToLogistic(
+      spaceId,
+      tenantId,
+      'post-event',
+      event,
+      (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>,
+      userId,
+    );
+
+    return created;
   }
 
   // ── GET /inventory/:spaceId/reconciliations ──────────────────────────────────
@@ -803,8 +823,11 @@ export class InventoryService {
       };
     }
     return {
-      // État Logistic à l'instant du chargement (décision JLH 2026-08-20) — plus
-      // d'ancre snapshot ni de « no-baseline » : l'attendu existe toujours.
+      // PDF v3 (2026-08-21, dernière version — simplification owner après le
+      // retour client) : « La quantité attendue sera toujours le Total sur la
+      // logistique pour chaque élément. » Le registre est recalé automatiquement
+      // depuis le comptage à la génération de chaque réconciliation
+      // (pushCountToLogistic) : il contient donc toujours le dernier comptage.
       source: 'logistic-live',
       asOf,
       previousEvent: null,
@@ -821,12 +844,11 @@ export class InventoryService {
   // Indice de référence du comptage POST-event, même gating serveur que le
   // pre-event (front.fb.preInventoryExpected, décorateur méthode du contrôleur).
   //
-  // attendu = état Logistic à l'instant du chargement (décision JLH 2026-08-20,
-  // remplace « pre-event + mouvements de la fenêtre − ventes »). Après un match,
-  // le registre vaut « comptage pre-event (poussé à l'ouverture des portes par
-  // autoInitLiveStockFromPreEventInventory) + mouvements − ventes dérivées » :
-  // la même formule, tenue en temps réel par la Logistique — et l'écran
-  // Post-event affiche EXACTEMENT ce que l'écran Logistic affiche.
+  // attendu = Total Logistic (PDF v3 du 2026-08-21 : « La quantité attendue sera
+  // toujours le Total sur la logistique pour chaque élément »). Le registre est
+  // recalé depuis le comptage à chaque génération de réconciliation
+  // (pushCountToLogistic) et à l'ouverture des portes : il porte donc toujours
+  // le dernier comptage physique.
   //
   // `movementUnits` reste calculé sur la FENÊTRE DU MATCH
   // (netMovementUnitsForEventWindow) : c'est le terme « mouvements » des lignes
@@ -907,9 +929,9 @@ export class InventoryService {
     const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId);
     const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
 
-    // Attendus = état Logistic à l'instant de la sauvegarde — même chemin que le
-    // GET pre-event-baseline (décision JLH 2026-08-20) : hints à l'écran et
-    // lignes de réconciliation ne peuvent plus diverger.
+    // Attendus à l'instant de la sauvegarde — MÊME chemin que le GET
+    // pre-event-baseline (PDF v3 2026-08-21 : Total Logistic) : hints à l'écran
+    // et lignes de réconciliation ne peuvent pas diverger.
     const { expected, asOf } = await this.computeLogisticExpected(spaceId, tenantId);
 
     // Union des clés attendu ∪ compté.
@@ -1042,10 +1064,84 @@ export class InventoryService {
         createdBy: userId ?? null,
       } as any,
     });
+    // Le comptage devient la nouvelle référence du registre Logistic (PDF
+    // 2026-08-21). Après la création du document : un échec de recalage ne doit
+    // jamais faire perdre la réconciliation.
+    await this.pushCountToLogistic(spaceId, tenantId, 'pre-event', event, countedBlob, userId);
+
     // BUG-233 : le document persisté est complet ; la RÉPONSE est expurgée pour
     // un appelant sans `front.fb.preInventoryExpected` (il a le droit de créer,
     // pas de voir les attendus).
     return canSeeExpected ? created : this.redactPreEventDoc(created as any);
+  }
+
+  /**
+   * Pousse un comptage d'inventaire dans le registre Logistic (PDF 2026-08-21 +
+   * précision JLH : « idéalement, reset sur pre ou post event inventory quand ils
+   * sont terminés et que la réconciliation est faite »).
+   *
+   * C'est ce qui rend la formule de l'attendu vraie par construction : le
+   * registre repart toujours du dernier comptage physique, donc l'écran suivant
+   * lit un total Logistic qui contient déjà le comptage (`logistic-only`) au lieu
+   * de devoir l'additionner.
+   *
+   * ⚠️ Un reset MATÉRIALISE les ventes non couvertes en mouvements et DÉPLACE
+   * l'ancre de dérivation des ventes de l'écran Logistic. La règle « documenter ≠
+   * resetter » (module 10 §7.3) est donc levée ici, sciemment.
+   *
+   * Jamais bloquant : un échec de recalage ne doit pas empêcher la création du
+   * document de réconciliation, qui est l'objet de la demande utilisateur.
+   */
+  private async pushCountToLogistic(
+    spaceId: string,
+    tenantId: string,
+    phase: 'pre-event' | 'post-event',
+    event: { id: string; name?: string | null },
+    countedBlob: Record<string, Record<string, any>>,
+    userId?: string,
+  ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
+    const itemIds = new Set<string>();
+    for (const byItem of Object.values(countedBlob ?? {})) {
+      for (const itemId of Object.keys(byItem ?? {})) itemIds.add(itemId);
+    }
+    if (!itemIds.size) return { ok: false, reason: 'no-counts' };
+
+    const itemKeyById = await this.resolveItemKeysByIds([...itemIds], tenantId);
+    const lines: Array<{ elementId: string; itemKey: string; countedPacked: number; countedLoose: number }> = [];
+    for (const [elementId, byItem] of Object.entries(countedBlob)) {
+      for (const [itemId, count] of Object.entries(byItem ?? {})) {
+        const itemKey = itemKeyById.get(itemId);
+        // Orphelin des deux catalogues : non adressable côté Logistic (même
+        // limitation que autoInitLiveStockFromPreEventInventory).
+        if (!itemKey) continue;
+        lines.push({
+          elementId,
+          itemKey,
+          countedPacked: Number((count as any)?.packedUnits) || 0,
+          countedLoose: Number((count as any)?.looseUnits) || 0,
+        });
+      }
+    }
+    if (!lines.length) return { ok: false, reason: 'no-addressable-lines' };
+
+    try {
+      await this.logistics.reset(
+        spaceId,
+        { eventId: event.id, eventName: event.name ?? undefined, lines },
+        tenantId,
+        userId ?? `system-${phase}-reconciliation`,
+        { source: 'inventory-count', phase, eventId: event.id },
+      );
+      this.logger.log(
+        `Stock Logistic recalé depuis le comptage ${phase} — space ${spaceId} / event ${event.id} (${lines.length} ligne(s))`,
+      );
+      return { ok: true, lineCount: lines.length };
+    } catch (error: any) {
+      this.logger.warn(
+        `Recalage Logistic depuis le comptage ${phase} échoué (document conservé) — space ${spaceId} / event ${event.id} : ${error?.message}`,
+      );
+      return { ok: false, reason: 'reset-failed' };
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

@@ -65,22 +65,9 @@
         <v-icon size="20">mdi-chevron-right</v-icon>
       </v-btn>
 
-      <!-- Unités ATTENDUES de la section (RBAC front.fb.preInventoryExpected) :
-           somme de l'indice serveur — pre : post-event précédent + Logistique,
-           post : ventes déduites (réunion Bertrand 2026-08-19, remplace le plan
-           de réarmement sauvegardé) — un segment par unité des articles de la
-           section (« Attendu : 1 250 Pc »). Prop absente/vide → rien. -->
-      <v-chip
-        v-if="expectedSectionUnits && expectedSectionUnits.length"
-        color="primary"
-        variant="tonal"
-        size="small"
-        class="si-counting-expected"
-      >
-        {{ t('preInvExpectedBadge') }} :
-        {{ expectedSectionUnits.map((s) => `${formatUnits(s.total)} ${s.unit}`).join(' · ') }}
-      </v-chip>
-
+      <!-- BUG-352-01 : le récap « Attendu » de section a été RETIRÉ (demande JLH
+           2026-08-21). Il sommait des articles d'unités différentes au-dessus
+           d'une liste où chaque ligne porte déjà son propre attendu. -->
       <v-chip color="success" variant="tonal" size="small" class="si-counting-progress">
         {{ counted }} / {{ total }}
       </v-chip>
@@ -218,7 +205,7 @@
               class="si-expected-hint"
               :title="expectedDetailFor ? expectedDetailFor(shop.element.id, item.id) : null"
             >
-              {{ t('invExpectedHint') }} : {{ expectedFor(shop.element.id, item.id, 'packed') }}
+              {{ expectedPackedLabel(item, expectedFor(shop.element.id, item.id, 'packed')) }}
             </div>
           </div>
           <div class="si-count-field">
@@ -244,13 +231,26 @@
               class="si-expected-hint"
               :title="expectedDetailFor ? expectedDetailFor(shop.element.id, item.id) : null"
             >
-              {{ t('invExpectedHint') }} : {{ expectedFor(shop.element.id, item.id, 'loose') }}
+              {{ expectedLooseLabel(item, expectedFor(shop.element.id, item.id, 'loose')) }}
             </div>
           </div>
           <div class="si-count-total">
             {{ t('invCountTotal') }} :
             <strong>{{ formatUnits(totalForItem(shop.element.id, item)) }}</strong>
             {{ item.unit || t('invCountUnitFallback') }}
+            <!-- ATTENDU total de l'article, dans son unité (BUG-352-01). En
+                 pre-event ce créneau n'affichait QUE le besoin prédit : l'attendu
+                 de stock n'était lisible nulle part au niveau de l'article, il
+                 fallait additionner les deux hints de tête. Les deux chips
+                 coexistent désormais, sous deux permissions distinctes. -->
+            <span
+              v-if="expectedStockUnits(item) != null"
+              class="si-expected-total"
+              :title="expectedStockDetailFor ? expectedStockDetailFor(shop.element.id, item.id) : null"
+            >
+              {{ t('invPostExpectedHint') }} : {{ formatUnits(expectedStockUnits(item)) }}
+              {{ item.unit || t('invCountUnitFallback') }}
+            </span>
             <!-- Indice de référence en regard du total compté : besoin prédit
                  (pre-event) ou stock qui doit rester (post-event). Négatif rendu
                  tel quel et signalé — c'est le symptôme d'une source incohérente,
@@ -318,10 +318,10 @@ const props = defineProps({
   expectedTotalFor: { type: Function, default: null },
   // Les deux modes n'affichent pas la même grandeur — le libellé vient du parent.
   expectedTotalLabelKey: { type: String, default: 'invPredictedNeedHint' },
-  // Unités attendues de la SECTION ([{unit, total}]) depuis l'indice serveur
-  // (pre : post-event précédent + Logistique ; post : ventes déduites) —
-  // null/vide = pas de badge (pas de baseline, RBAC non couvert).
-  expectedSectionUnits: { type: Array, default: null },
+  // ATTENDU total de stock : (elementId, item) → unités ou null (BUG-352-01).
+  // Distinct d'`expectedTotalFor`, qui porte le besoin prédit en pre-event.
+  expectedStockFor: { type: Function, default: null },
+  expectedStockDetailFor: { type: Function, default: null },
   // Transfert Logistic depuis le comptage — le parent monte le drawer et fait
   // l'appel API ; false (démo, module absent) = bouton masqué, rendu inchangé.
   canTransfer: { type: Boolean, default: false },
@@ -335,6 +335,13 @@ const failedImages = ref({})
 const usedInOpen = reactive({})
 function toggleUsedIn(id) {
   usedInOpen[id] = !usedInOpen[id]
+}
+
+// Attendu total de STOCK d'un article, ou null si le parent n'en fournit pas.
+function expectedStockUnits(item) {
+  if (!props.expectedStockFor) return null
+  const v = props.expectedStockFor(props.shop.element.id, item)
+  return Number.isFinite(v) ? v : null
 }
 
 // Indice de référence d'un article, ou null si le parent n'en fournit pas.
@@ -370,6 +377,26 @@ function packedUnitsLabel(item) {
   const qty = Number(item?.inventoryQuantityPackaged) > 0 ? item.inventoryQuantityPackaged : null
   if (!name || !qty) return t('invCountPackedUnits')
   return `${t('invCountNumberOf')} ${pluralize(name)} ${t('invCountOf')} ${qty}${item?.unit || ''}`
+}
+
+// Libellé d'un attendu, DANS L'UNITÉ DU CHAMP qu'il légende (retour JLH
+// 2026-08-21). Avant : « Expected quantity : 2 » sous un champ « Number of
+// Cartons of 40 » — le 2 était un nombre de cartons, mais rien ne le disait, et
+// le même libellé légendait trois grandeurs différentes sur la même carte.
+// Repli sur la formulation d'origine quand le conditionnement est inconnu.
+function expectedPackedLabel(item, n) {
+  const name = item?.inventoryPackaging
+  const qty = Number(item?.inventoryQuantityPackaged) > 0 ? item.inventoryQuantityPackaged : null
+  if (!name || !qty) return `${t('invExpectedHint')} : ${formatUnits(n)}`
+  return t('invExpectedHintPacked')
+    .replace('{n}', formatUnits(n))
+    .replace('{packaging}', Number(n) > 1 ? pluralize(name) : String(name).trim())
+    .replace('{qty}', qty)
+}
+function expectedLooseLabel(item, n) {
+  const unit = item?.unit
+  if (!unit) return `${t('invExpectedHint')} : ${formatUnits(n)}`
+  return t('invExpectedHintLoose').replace('{n}', formatUnits(n)).replace('{unit}', unit)
 }
 
 // Accordéon mobile. État par défaut dérivé du statut : un article non compté est
