@@ -3626,6 +3626,15 @@ export default {
       if (!newId) return;
       const ev = this.events.find((e) => e.id === newId);
       if (!ev) return;
+      // BUG-349-01 : event passé/en cours poussé par AnalyseView → rejeté, la
+      // sélection courante (déjà valide) est conservée.
+      if (!this.isTargetableEventId(newId)) {
+        this.$store.commit('analyse/SET_PENDING_PREDICT_EVENT_ID', null);
+        this.snackbarText = `L'évènement demandé (${ev.eventName || ''} — ${ev.eventDate || ''}) est déjà passé : cible non applicable.`;
+        this.snackbarColor = 'warning';
+        this.snackbar = true;
+        return;
+      }
       this.selectedEventId = newId;
       this.multiSelectIds = [newId];
       this.$store.commit('analyse/SET_PENDING_PREDICT_EVENT_ID', null);
@@ -4154,11 +4163,24 @@ export default {
           }
         }
 
+        // BUG-349-01 : un deep-link vers un event PASSÉ (ou en cours) est rejeté →
+        // fallback sur le prochain event futur, comme sans deep-link. On ne rejette
+        // que les cibles TROUVÉES et passées ; une cible inconnue garde le
+        // comportement existant (fallback mock demo ci-dessus / état vide).
+        let effectiveTarget = deepLinkTarget;
+        let rejectedPastEvent = null;
+        if (effectiveTarget) {
+          const targetEv = this.events.find((e) => e.id === effectiveTarget) || null;
+          if (targetEv && !this.isTargetableEventId(effectiveTarget)) {
+            rejectedPastEvent = targetEv;
+            effectiveTarget = null;
+          }
+        }
         // Sélection par défaut (B.1) : si aucun deep-link explicite (clic depuis
         // Predict ou query `?event=`), on présélectionne l'event FUTUR le plus
         // proche dans le temps (futureEvents est trié par date croissante).
-        const autoEvent = !deepLinkTarget ? (this.futureEvents[0] || null) : null;
-        const targetId = deepLinkTarget || autoEvent?.id || null;
+        const autoEvent = !effectiveTarget ? (this.futureEvents[0] || null) : null;
+        const targetId = effectiveTarget || autoEvent?.id || null;
         const initialEvent = targetId
           ? this.events.find((e) => e.id === targetId) || null
           : null;
@@ -4198,12 +4220,31 @@ export default {
                 `${initialEvent.eventName} (${initialEvent.eventDate}) — ` +
                 `${matched} évènement(s) passé(s) similaire(s)`,
             );
-            this.snackbarText = matched > 0
-              ? `Évènement le plus proche présélectionné : ${initialEvent.eventName} — ${matched} évènement(s) passé(s) similaire(s)`
-              : `Évènement le plus proche présélectionné : ${initialEvent.eventName} — aucun évènement passé similaire (vérifier le matching)`;
-            this.snackbarColor = matched > 0 ? 'info' : 'warning';
+            if (rejectedPastEvent) {
+              // BUG-349-01 : un seul toast — le rejet du deep-link prime sur le
+              // diagnostic de présélection.
+              this.snackbarText =
+                `L'évènement du lien (${rejectedPastEvent.eventName || ''} — ${rejectedPastEvent.eventDate || ''}) ` +
+                `est déjà passé : présélection du prochain évènement à venir (${initialEvent.eventName})`;
+              this.snackbarColor = 'warning';
+            } else {
+              this.snackbarText = matched > 0
+                ? `Évènement le plus proche présélectionné : ${initialEvent.eventName} — ${matched} évènement(s) passé(s) similaire(s)`
+                : `Évènement le plus proche présélectionné : ${initialEvent.eventName} — aucun évènement passé similaire (vérifier le matching)`;
+              this.snackbarColor = matched > 0 ? 'info' : 'warning';
+            }
             this.snackbar = true;
           }
+        } else if (rejectedPastEvent) {
+          // BUG-349-01 : deep-link passé rejeté ET aucun event futur → état vide.
+          // Le watcher selectedEventId ne tire pas (sélection reste null), donc
+          // on nettoie l'URL explicitement.
+          this.snackbarText =
+            `L'évènement du lien (${rejectedPastEvent.eventName || ''} — ${rejectedPastEvent.eventDate || ''}) ` +
+            `est déjà passé et aucun évènement à venir n'est disponible.`;
+          this.snackbarColor = 'warning';
+          this.snackbar = true;
+          this.syncEventQueryToUrl(null);
         }
         // Pas d'event présélectionné : charger quand même les données lourdes en
         // arrière-plan (idempotent — no-op si déjà lancé dans le bloc ci-dessus).
@@ -4993,6 +5034,14 @@ export default {
       this.selectedEventId = id || null;
       this.multiSelectIds = id ? [id] : [];
       if (id) this.rememberLastEvent(id);
+    },
+    /**
+     * True si `id` correspond à un event ciblable par deep-link : futur et pas
+     * en cours — même prédicat que futureEventOptions (cibles sélectionnables à
+     * la main). Un deep-link vers un event passé est rejeté (BUG-349-01).
+     */
+    isTargetableEventId(id) {
+      return !!id && this.futureEvents.some((e) => e.id === id);
     },
     /**
      * Écrit l'event sélectionné dans l'URL (?event=<id>) sans polluer
@@ -7006,6 +7055,11 @@ export default {
       const versionId = q.version || q.versionId;
       const configId = q.configuration || q.config;
       if (eventId && this.events.find((e) => e.id === eventId)) {
+        // BUG-349-01 : deep-link vers un event passé/en cours → rejet (la
+        // sélection de loadAll — prochain futur — reste en place). On skippe
+        // aussi ?version= : une version d'un event rejeté n'a pas de sens ici.
+        // Pas de toast : loadAll l'a déjà émis pour la même route au même mount.
+        if (!this.isTargetableEventId(eventId)) return;
         this.selectedEventId = eventId;
         this.multiSelectIds = [eventId];
         // Applique la config du lien AVANT que le watcher selectedEventId ne
