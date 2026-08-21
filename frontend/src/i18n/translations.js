@@ -2055,7 +2055,6 @@ export const translations = {
     // « un match = un eventId » (docs/modules/10_POST_EVENT_INVENTORY.md §12.4).
     invContextAnchorLast: 'Post-event inventory of: {match}',
     preInvContextAnchorNext: 'Next event: {match}',
-    preInvExpectedBadge: 'Expected quantity',
     invContextNoPastEvent: 'No finished match for this space',
     invContextCountsIndependent: 'counts not linked to this match',
     invChangeSpace: 'Change space',
@@ -2078,6 +2077,8 @@ export const translations = {
     hdrSecPreInventory: 'Pre-event Inventory',
     invExpectedHint: 'Expected quantity',
     invExpectedSource: 'Expected = current Logistic stock when the screen loaded',
+    invExpectedHintPacked: 'Expected quantity: {n} {packaging} of {qty}',
+    invExpectedHintLoose: 'Expected quantity: {n} {unit} loose',
     // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
     // avant match on annonce un besoin, après match un reste.
     invPredictedNeedHint: 'Predicted need',
@@ -4409,6 +4410,16 @@ export const translations = {
     anHeaderKpiPerCap: 'Per cap',
     anKpiCardMargin: 'Margin',
     anKpiCardTransactionRate: 'tx/min',
+    // BUG-350-01 — scope disclosure + truncation / empty states
+    anPerCapScopeFiltered: 'over the {n} filtered event(s)',
+    anPerCapScopeAllSpaceEvents: 'over every event of this space, including upcoming ones',
+    anItemLevelTruncated: 'Detail limited to the first {n} events: revenue from the others is not counted.',
+    anItemLevelEmpty: 'No sales detail available for this scope.',
+    // Space card tiles (BUG-350-01: moved out of the hardcoded template)
+    spaceCardFbRevenue: 'F&B Revenue',
+    spaceCardPerCapita: 'Per Capita',
+    spaceCardAvgTx: 'Avg / Tx',
+    spaceCardAvgEvent: 'Avg / Event',
     anHeaderAlertRevenueUp: 'sharply up',
     anHeaderAlertRevenueDown: 'markedly down',
     anHeaderAlertVsPreviousPeriod: 'vs previous period',
@@ -6589,7 +6600,6 @@ export const translations = {
     // Contexte évènement du bandeau — cf. bloc EN.
     invContextAnchorLast: 'Post Inventaire de l\'évènement : {match}',
     preInvContextAnchorNext: 'Prochain Évènement : {match}',
-    preInvExpectedBadge: 'Quantité attendue',
     invContextNoPastEvent: 'Aucun match terminé sur cet espace',
     invContextCountsIndependent: 'comptages non rattachés à ce match',
     invChangeSpace: "Changer d'espace",
@@ -6612,6 +6622,8 @@ export const translations = {
     hdrSecPreInventory: 'Inventaire pré-événement',
     invExpectedHint: 'Quantité attendue',
     invExpectedSource: "Attendu = stock Logistic au chargement de l'écran",
+    invExpectedHintPacked: 'Quantité attendue : {n} {packaging} de {qty}',
+    invExpectedHintLoose: 'Quantité attendue : {n} {unit} en vrac',
     // Indices en regard du TOTAL — deux grandeurs différentes, deux libellés :
     // avant match on annonce un besoin, après match un reste.
     invPredictedNeedHint: 'Besoin prédit',
@@ -8926,6 +8938,17 @@ export const translations = {
     anHeaderKpiPerCap: 'Per cap',
     anKpiCardMargin: 'Marge',
     anKpiCardTransactionRate: 'tx/min',
+    // BUG-350-01 — mention du périmètre + états tronqué / vide
+    anPerCapScopeFiltered: 'sur les {n} évènement(s) filtrés',
+    anPerCapScopeAllSpaceEvents: 'sur tous les évènements de l\'espace, y compris à venir',
+    anItemLevelTruncated: 'Détail limité aux {n} premiers évènements : le CA des suivants n\'est pas compté.',
+    anItemLevelEmpty: 'Aucun détail de vente disponible sur ce périmètre.',
+    // Tuiles de la carte d'espace (BUG-350-01 : sorties du template en dur).
+    // Volontairement identiques à l'anglais : routage i18n, pas retraduction.
+    spaceCardFbRevenue: 'F&B Revenue',
+    spaceCardPerCapita: 'Per Capita',
+    spaceCardAvgTx: 'Avg / Tx',
+    spaceCardAvgEvent: 'Avg / Event',
     anHeaderAlertRevenueUp: 'en forte hausse',
     anHeaderAlertRevenueDown: 'en baisse marquée',
     anHeaderAlertVsPreviousPeriod: 'vs période précédente',

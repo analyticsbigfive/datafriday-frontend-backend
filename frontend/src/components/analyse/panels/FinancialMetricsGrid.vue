@@ -3,6 +3,7 @@
     <v-col cols="12" sm="6" lg="3">
       <KpiCard
         :config="cards[0]"
+        :loading="isLoading"
         :value="formatCurrency(metrics.displayRevenue.value)"
         :subtext="`${t('anAvgPerEvent')} : ${formatCurrency(metrics.displayAvgRevenue.value)}`"
         :variation="v('revenue')"
@@ -12,8 +13,9 @@
     <v-col cols="12" sm="6" lg="3">
       <KpiCard
         :config="cards[1]"
+        :loading="isLoading"
         :value="formatCurrencyDetailed(metrics.displayPerCapita.value)"
-        :subtext="`${t('anHeaderKpiAttendees')} : ${formatNumber(metrics.displayAttendees.value)}`"
+        :subtext="perCapitaSubtext"
         :variation="v('perCapita')"
         @click="$emit('open-chart', 'percap')"
       />
@@ -21,8 +23,9 @@
     <v-col cols="12" sm="6" lg="3">
       <KpiCard
         :config="cards[2]"
-        :value="`${metrics.displayMargin.value.toFixed(1)}%`"
-        :subtext="`${t('anTotal')} : ${formatCurrencyDetailed(metrics.displayRevenue.value - metrics.displayCost.value)}`"
+        :loading="isLoading"
+        :value="marginLabel"
+        :subtext="marginSubtext"
         :variation="v('margin')"
         @click="$emit('open-chart', 'margin')"
       />
@@ -30,6 +33,7 @@
     <v-col cols="12" sm="6" lg="3">
       <KpiCard
         :config="cards[3]"
+        :loading="isLoading"
         :value="transactionRateLabel"
         :subtext="transactionRateSubtext"
         :variation="v('transferRate')"
@@ -50,8 +54,14 @@ import { useI18n } from '@/i18n/useI18n'
 const props = defineProps({
   metrics: { type: Object, required: true },
   summary: { type: Object, default: null },
+  // BUG-350-01 — état de la source canonique : 'loading' | 'ready' | 'empty'.
+  // 'empty' N'EST PAS 'loading' : un batch en échec ou un périmètre réellement
+  // sans vente doit afficher ses zéros, pas un squelette qui tourne à l'infini.
+  sourceState: { type: String, default: 'ready' },
 })
 defineEmits(['open-chart'])
+
+const isLoading = computed(() => props.sourceState === 'loading')
 
 const { t } = useI18n()
 const { formatDecimal } = useNumberFormat()
@@ -74,6 +84,33 @@ const v = (key) => {
     : props.summary?.variations?.[key]
   return raw == null || !Number.isFinite(raw) ? null : raw
 }
+
+// BUG-350-01 — la marge vaut `null` quand aucun coût n'est résolvable (records
+// sans `menuItemId`, ou costMap vide). On affiche « — » : 100,0 % serait faux,
+// pas provisoire. Idem pour le sous-texte « Total », qui vaudrait le CA entier.
+const NO_VALUE = '—'
+
+const marginLabel = computed(() => {
+  const m = props.metrics.displayMargin?.value
+  return m == null ? NO_VALUE : `${m.toFixed(1)}%`
+})
+
+const marginSubtext = computed(() => {
+  if (props.metrics.displayMargin?.value == null) return `${t('anTotal')} : ${NO_VALUE}`
+  const net = props.metrics.displayRevenue.value - props.metrics.displayCost.value
+  return `${t('anTotal')} : ${formatCurrencyDetailed(net)}`
+})
+
+// BUG-350-01 — le périmètre du per-capita est affiché : ici les spectateurs des
+// SEULS events filtrés, alors que la carte d'espace (`SpaceItem.vue`) rapporte le
+// CA aux billets de TOUS les events de l'espace. Deux chiffres légitimes, deux
+// périmètres — sans cette mention ils se lisent comme une contradiction.
+const perCapitaSubtext = computed(() => {
+  const attendees = formatNumber(props.metrics.displayAttendees.value)
+  const evts = props.metrics.validEventsCount?.value || 0
+  const scope = evts ? ` · ${t('anPerCapScopeFiltered').replace('{n}', evts)}` : ''
+  return `${t('anHeaderKpiAttendees')} : ${attendees}${scope}`
+})
 
 // Taux de transaction = transactions / minute (parité React 'Transaction Rate Widget')
 const transactionRateLabel = computed(() => {

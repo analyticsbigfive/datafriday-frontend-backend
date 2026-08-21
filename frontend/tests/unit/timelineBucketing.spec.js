@@ -1,6 +1,9 @@
 import {
   TIMELINE_BUCKET_STRATEGIES,
   parseMinuteToken,
+  parseDatedMinute,
+  bucketDatedMinute,
+  minutesSinceShow,
   formatMinute,
   bucketMinute,
   isMinuteInRange,
@@ -230,6 +233,92 @@ describe('timelineBucketing', () => {
     it('no-ops when range is inactive', () => {
       const out = windowPredictedRecords(records, timeline, { start: null, end: null })
       expect(out).toBe(records)
+    })
+  })
+})
+
+// BUG-351-01 — la timeline ne retenait que l'heure de la transaction, jamais la
+// date : une vente à 00h30 prolongeant l'événement de la veille remontait en
+// tête de courbe. Cas de référence : SFP-Toulouse du 15/02, coup d'envoi 19h.
+describe('minutes datées (BUG-351-01)', () => {
+  describe('parseDatedMinute', () => {
+    it('lit date et heure, suffixe toléré', () => {
+      expect(parseDatedMinute('2026-02-16T00:30:00Z')).toMatchObject({
+        dateKey: '2026-02-16',
+        minuteOfDay: 30,
+      })
+    })
+
+    it('renvoie null sur une heure nue ou un nombre', () => {
+      expect(parseDatedMinute('19:00')).toBeNull()
+      expect(parseDatedMinute(1140)).toBeNull()
+      expect(parseDatedMinute(null)).toBeNull()
+    })
+  })
+
+  describe('bucketDatedMinute', () => {
+    it('produit une clé triable qui distingue deux jours', () => {
+      const veille = bucketDatedMinute('2026-02-15T23:45')
+      const lendemain = bucketDatedMinute('2026-02-16T00:30')
+      expect([lendemain, veille].sort()).toEqual([veille, lendemain])
+    })
+
+    it('respecte la granularité demandée', () => {
+      expect(bucketDatedMinute('2026-02-15T19:07', 15)).toBe('2026-02-15T19:00')
+    })
+
+    it('renvoie null sans date (le repli HH:MM reste à bucketMinute)', () => {
+      expect(bucketDatedMinute('19:07', 15)).toBeNull()
+    })
+  })
+
+  describe('minutesSinceShow', () => {
+    it('vente après minuit = 5 h APRÈS un coup d’envoi à 21:00', () => {
+      expect(minutesSinceShow('2026-02-16T02:00', '21:00')).toBe(300)
+    })
+
+    it('vente d’avant-match reste négative', () => {
+      expect(minutesSinceShow('2026-02-15T18:00', '21:00')).toBe(-180)
+    })
+
+    it('coup d’envoi daté : différence d’instants, sans heuristique', () => {
+      expect(minutesSinceShow('2026-02-16T02:00', '2026-02-15T21:00')).toBe(300)
+    })
+
+    it('minute illisible → null', () => {
+      expect(minutesSinceShow(null, '21:00')).toBeNull()
+    })
+  })
+
+  describe('aggregateTimeline', () => {
+    it('ne fusionne pas deux minutes identiques de jours différents et les ordonne', () => {
+      const out = aggregateTimeline([
+        { minute: '00:30', minuteLocal: '2026-02-16T00:30', revenue: 10 },
+        { minute: '19:00', minuteLocal: '2026-02-15T19:00', revenue: 100 },
+      ])
+      expect(out).toHaveLength(2)
+      expect(out.map((p) => p.minute)).toEqual(['19:00', '00:30'])
+      expect(out[1].totalRevenue).toBe(10)
+    })
+
+    it('sans minuteLocal, comportement d’origine inchangé', () => {
+      const out = aggregateTimeline([
+        { minute: '19:00', revenue: 40 },
+        { minute: '19:00', revenue: 60 },
+      ])
+      expect(out).toHaveLength(1)
+      expect(out[0].totalRevenue).toBe(100)
+      expect(out[0].minuteLocal).toBeNull()
+    })
+  })
+
+  describe('isMinuteInRange', () => {
+    it('une fenêtre datée qui franchit minuit garde la soirée ET l’après-minuit', () => {
+      const range = { start: '2026-02-15T19:00', end: '2026-02-16T01:00' }
+      expect(isMinuteInRange('2026-02-15T22:30', range)).toBe(true)
+      expect(isMinuteInRange('2026-02-16T00:30', range)).toBe(true)
+      expect(isMinuteInRange('2026-02-15T12:00', range)).toBe(false)
+      expect(isMinuteInRange('2026-02-16T02:00', range)).toBe(false)
     })
   })
 })

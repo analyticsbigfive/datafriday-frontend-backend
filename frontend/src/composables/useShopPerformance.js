@@ -50,10 +50,16 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
     const windowed = hasActiveRange(range) && enriched.value
     // Fenêtre active : les agrégats de base (CA/transactions/quantité) viennent
     // de la timeline fenêtrée — shopGranularData n'a pas de colonne minute.
+    // BUG-350-01 — plus de repli sur les agrégats de base tant que la timeline
+    // n'a pas répondu. L'ancien `if (!enriched) return base` publiait des chiffres
+    // shop-level (autre moteur de calcul, cf. fiche 350-01) sous les libellés du
+    // panneau, puis les remplaçait : c'était la même valeur provisoire que celle
+    // retirée de la bande KPI, au même moment, avec un écart du même ordre.
+    // Vide + `loading` du composable → le panneau montre son état de chargement.
+    if (!enriched.value) return []
     const base = windowed
       ? aggregateShopsFromTimeline(timelineData.value, events, range)
       : aggregateBaseShops(shopGranularData.value || [], events)
-    if (!enriched.value) return base // échec fetch : agrégats de base seuls
     return computeRatesFromTimeline(base, events, timelineData.value, {
       timeRange: windowed ? range : null,
     })

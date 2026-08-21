@@ -428,6 +428,17 @@ les events passés).
 
 ### 8.3 Quantités attendues — gating serveur
 
+> **⚠️ Mise à jour du 2026-08-21 (PDF owner v3, fiche
+> [352-01](../bugs/352_01_attendus_comptage_plus_logistic.md)) : l'attendu des DEUX écrans reste
+> le `Total Logistic`** (« La quantité attendue sera toujours le Total sur la logistique pour
+> chaque élément ») — la mécanique du 2026-08-20 décrite ci-dessous est donc CONFIRMÉE. Ce qui
+> change : **le registre est recalé automatiquement depuis le comptage à la génération de chaque
+> réconciliation** (pre ET post, `pushCountToLogistic`), en plus de l'ouverture des portes — le
+> Total Logistic porte ainsi toujours le dernier comptage physique, et la règle « documenter ≠
+> resetter » du § 7.3 est levée pour ce chemin. (Une version intermédiaire du même jour, PDF v2
+> « comptage + Logistic », a été implémentée puis retirée dans la même session — trace dans la
+> fiche 352-01.)
+>
 > **⚠️ Refonte du 2026-08-20 (décision JLH, fiche
 > [134-01](../../../backend/docs/bugs/134_01_attendus_inventaire_source_etat_logistic.md)) :
 > l'attendu des DEUX écrans = l'état Logistic « en l'état » au chargement** (StockLevel − ventes

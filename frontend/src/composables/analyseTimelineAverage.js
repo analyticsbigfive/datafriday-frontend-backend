@@ -12,8 +12,8 @@
 // Module PUR (aucune dépendance store/router) → testable Jest tel quel
 // (cf. tests/unit/analyseTimelineAverage.spec.js).
 
-import { alignPastMinute } from '@/composables/usePredictiveTimeline'
-import { parseMinuteToken } from '@/utils/timelineBucketing'
+import { alignPastMinute, relativeDatedKey } from '@/composables/usePredictiveTimeline'
+import { formatMinute, minutesSinceShow, parseMinuteToken } from '@/utils/timelineBucketing'
 import { parseEventDate } from '@/utils/dateFr'
 import { parseEventSessions } from '@/utils/eventSessions'
 
@@ -85,11 +85,17 @@ export function computeAverageAlignment(events) {
  * @param {object|null} extra champs additionnels à poser sur chaque record (ex. { eventId })
  * @returns {Array<object>}
  */
-export function alignAndScaleRecords(records, offsetMin, keptCount, extra = null) {
+export function alignAndScaleRecords(records, offsetMin, keptCount, extra = null, showTimeMin = null) {
   const n = keptCount > 0 ? keptCount : 1
   const out = []
   for (const r of records || []) {
-    const recMinutes = parseMinuteToken(r.minute)
+    // BUG-351-01 : quand le coup d'envoi de l'event est connu, la minute se lit
+    // en ÉCART AU COUP D'ENVOI (à partir de `minuteLocal`, daté) — sinon une
+    // vente d'après minuit est lue comme une vente du matin même et remonte en
+    // tête de courbe. Sans coup d'envoi, comportement d'origine inchangé.
+    const relMinutes =
+      showTimeMin != null ? minutesSinceShow(r.minuteLocal ?? r.minute, formatMinute(showTimeMin)) : null
+    const recMinutes = relMinutes != null ? showTimeMin + relMinutes : parseMinuteToken(r.minute)
     // Minute illisible → record droppé. Divergence DÉLIBÉRÉE vs EP (qui coerce
     // à 0) : même effet net que le drop actuel de bucketMinute(null) en aval,
     // sans pic artificiel à l'ancre.
@@ -98,6 +104,7 @@ export function alignAndScaleRecords(records, offsetMin, keptCount, extra = null
       ...r,
       ...(extra || null),
       minute: alignPastMinute(recMinutes, offsetMin),
+      minuteLocal: relativeDatedKey(recMinutes + offsetMin),
       totalRevenue: (Number(r.totalRevenue ?? r.revenue) || 0) / n,
       totalQuantity: (Number(r.totalQuantity ?? r.quantity) || 0) / n,
       transactionCount: (Number(r.transactionCount ?? r.transactions) || 0) / n,
