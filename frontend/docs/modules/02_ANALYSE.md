@@ -357,8 +357,11 @@ consomme deux endpoints du module `Spaces` (déjà partiellement documentés dan
 
 ### `GET /spaces/:id/shop-details` (+`?granular=`) — shop-level, pré-agrégé
 
-Délègue à la fonction Postgres `get_space_shop_details` (RPC, `SECURITY DEFINER`), dernière version
-`supabase/migrations/20260704200000_shop_details_rpc_builder_v2_zones.sql`. Reçoit `spaceId`,
+Délègue à la fonction Postgres `get_space_shop_details` (RPC, `SECURITY DEFINER`).
+⚠️ **Version vivante au 2026-08-21 :
+`supabase/migrations/20260818120000_shop_details_rpc_costmap_from_mappings.sql`** — les renvois
+à `20260704200000_shop_details_rpc_builder_v2_zones.sql` dans le reste de ce document sont
+antérieurs (numéros de ligne à relire dans la migration récente avant de s'y fier). Reçoit `spaceId`,
 `tenantId`, `page`, `limit`, `includeGranular`. Retourne un objet unique `{shops, shopGranularData,
 events, menuItemCostMap, meta}` :
 - `shops[]` : liste des `SpaceElement` de type shop (v1 floor/forecourt **et** v2 zone, jointes
@@ -377,15 +380,35 @@ events, menuItemCostMap, meta}` :
   Weezevent le même jour calendaire sur le même espace collisionneraient silencieusement sur le
   même `Event` DataFriday. Zone à risque non couverte par un test connu (voir Zones grises).
 
-### `GET /spaces/:id/event-timeline` (batch, `?eventIds=`) — item-level, temps réel
+### `GET /spaces/:id/event-timeline` (batch, `?eventIds=`) — item-level
 
-`spaces.service.ts:1035-1174` (`getEventTimelineBatch`). **Ne lit aucune table pré-agrégée** :
-JOIN live `WeezeventTransaction`/`WeezeventTransactionItem`/`WeezeventLocationShopMapping`/
-`WeezeventProductMapping`/`MenuItem`/`ProductType`/`ProductCategory`, formule
-`unitPrice × quantity / (1 + vat/100)` (ligne 1118-1121, **cette fois avec conversion TVA
-correcte**, contrairement au pipeline pré-agrégé vivant du Piège n°1). Plafonné à 100 `eventIds`
-par appel (`spaces.service.ts:1036`). C'est la source de toutes les vues item-level (donut par
+> ⚠️ **Corrigé le 2026-08-21 ([BUG-350-01](../bugs/350_01_ca_variable_home_analyse_bascule_source.md))**
+> — la description ci-dessous (« ne lit aucune table pré-agrégée », « JOIN live ») est **périmée**.
+> `getEventTimelineBatch` lit désormais la table pré-agrégée **`SpaceRevenueMinuteItemAgg`**
+> (`spaces.service.ts:1451` : `SUM(dd."revenueHt")`, la colonne est déjà HT), et n'y résout à la
+> lecture que `menuItemId`/nom/type/catégorie via `LEFT JOIN WeezeventProductMapping → MenuItem`
+> (`:1461-1465`) — d'où le commentaire du schéma Prisma : l'agrégat ne stocke pas ces dimensions
+> « pour rester à jour si les mappings changent sans jamais devoir réinvalider l'agrégat ».
+>
+> Conséquence à connaître avant de comparer deux totaux : les deux tables sont écrites par la
+> **même méthode** (`aggregation.service.ts`) avec des formules **volontairement différentes** —
+> `SpaceRevenueMinuteAgg` déduit `reduction` et ne filtre pas le statut (`:476`, `:485-489`),
+> `SpaceRevenueMinuteItemAgg` ne déduit PAS `reduction` et filtre `t."status" = 'V'` (`:571`,
+> `:584`), et leurs `transactionsCount` ne comptent pas la même chose (`COUNT(ti."id")` vs
+> `COUNT(DISTINCT t."id")` par produit). Décision assumée et commentée en clair dans le code
+> (`aggregation.service.ts:543-554`) : **ne pas « corriger » pour aligner sans validation métier.**
+
+`spaces.service.ts:1035-1174` (`getEventTimelineBatch`). Formule
+`unitPrice × quantity / (1 + vat/100)` (**avec conversion TVA correcte**, contrairement aux
+agrégats périmés du Piège n°1). Plafonné à 100 `eventIds` par appel
+(`spaces.service.ts:1036`). C'est la source de toutes les vues item-level (donut par
 article, tableau « Menu items by shop », timeline minute par minute d'un event précis).
+
+⚠️ **Côté front, un second plafond, distinct et plus bas** : `useAnalyseItemRecords`
+(`MAX_EVENTS`) borne le nombre d'events pour lesquels le batch est demandé — **50 jusqu'au
+2026-08-21, 100 depuis** (BUG-350-01, différé BUG-298-01 levé). Au-delà, les events ne
+contribuent à **aucune** vue item-level : ni CA, ni coût, ni transactions, ni présence dans la
+légende « par shop ». La troncature résiduelle est désormais signalée à l'écran.
 
 **Corrigé 2026-07-18 (fiche back 103, non déployé)** : la jointure shop était un `INNER JOIN`
 `WeezeventLocationShopMapping` + `spaceElementId = ANY(shopIds)` — toute vente d'un PdV non mappé

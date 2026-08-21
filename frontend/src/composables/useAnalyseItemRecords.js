@@ -6,7 +6,18 @@ import { reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import store from '@/store'
 
-const MAX_EVENTS = 50
+// BUG-350-01 (2026-08-21) — porté de 50 à 100 sur décision JLH. Le différé de
+// BUG-298-01 (« hors périmètre ») est levé : à 50, un espace à plus de 50 events
+// dans le périmètre laissait les suivants à 0 € dans TOUTES les vues item-level
+// (KPI, graphe par shop, donuts, tables) sans le moindre signalement.
+// 100 = borne dure du backend, `spaces.service.ts` plafonne `eventIds` à 100 par
+// appel → tient encore en un seul batch, pas de découpage à écrire.
+// À surveiller : ce chemin porte BUG-284-01 (freeze) et BUG-285-01 (mémoire) —
+// doubler le volume double la pression sur le cache ci-dessous.
+const MAX_EVENTS = 100
+
+/** Cap exposé pour l'affichage du message de troncature — pas de littéral dupliqué côté vue. */
+export const ITEM_LEVEL_EVENT_CAP = MAX_EVENTS
 
 // Une seule alerte par session, tous composables confondus (AnalyseView monte
 // deux instances : courante + comparaison) — même pattern que
@@ -28,7 +39,7 @@ let _warnedBatchKo = false
  * @param {import('vue').ComputedRef<Array<{id:string}>>} filteredEvents
  * @param {{ maxEvents?: number }} [options] — cap de fetch (défaut MAX_EVENTS) ;
  *   l'instance comparaison (fenêtres prev∪N-1 jusqu'à 24 mois) passe un cap élevé.
- * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>>, fetchError: import('vue').Ref<string|null>, refresh: () => Promise<void> }}
+ * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>>, fetchError: import('vue').Ref<string|null>, refresh: () => Promise<void>, truncatedEventCount: import('vue').ComputedRef<number>, sourceState: import('vue').ComputedRef<'loading'|'ready'|'empty'> }}
  */
 export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS } = {}) {
   const route = useRoute()
@@ -163,11 +174,45 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   // records effectivement disponibles.
   const loadedEventIds = computed(() => new Set(Object.keys(cache.value)))
 
+  // BUG-350-01 — events du périmètre écartés par le cap. Déplacer le seuil ne
+  // supprime pas la troncature, il la rend juste plus rare : un total tronqué
+  // doit le dire (c'est le « sans signalement » que pointait BUG-298-01).
+  const truncatedEventCount = computed(() =>
+    Math.max(0, (filteredEvents.value || []).length - maxEvents),
+  )
+
+  // BUG-350-01 — état de la source item-level, à trois valeurs :
+  //   'loading' → le batch n'a pas encore répondu pour tout le périmètre
+  //   'ready'   → des records sont disponibles
+  //   'empty'   → réponse obtenue, mais aucun record (batch KO, PdV non mappés,
+  //               dates d'event hors fenêtre…)
+  // Surtout PAS un booléen `loading || !length` : `length === 0` est aussi un
+  // état TERMINAL, et le confondre avec « en cours » fige l'écran sur un
+  // skeleton infini — pire que la valeur provisoire qu'on retire.
+  const sourceState = computed(() => {
+    const scoped = (filteredEvents.value || []).slice(0, maxEvents).filter((e) => e?.id)
+    if (!scoped.length) return 'empty'
+    if (itemRecords.value.length) return 'ready'
+    if (loading.value) return 'loading'
+    // Tous tentés (le catch met [] en cache) et rien n'est remonté → terminal.
+    const attempted = loadedEventIds.value
+    return scoped.every((e) => attempted.has(e.id)) ? 'empty' : 'loading'
+  })
+
   /** BUG-285 : purge (changement d'espace in-page — les eventIds de l'ancien espace
       ne seront plus jamais demandés, leurs lignes resteraient en mémoire). */
   function clearCache() {
     cache.value = {}
   }
 
-  return { itemRecords, loading, loadedEventIds, fetchError, refresh, clearCache }
+  return {
+    itemRecords,
+    loading,
+    loadedEventIds,
+    fetchError,
+    refresh,
+    clearCache,
+    truncatedEventCount,
+    sourceState,
+  }
 }

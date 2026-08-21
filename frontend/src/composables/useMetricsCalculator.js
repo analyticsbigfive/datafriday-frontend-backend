@@ -46,11 +46,15 @@ export function useMetricsCalculator({
     let cost = 0
     let transactions = 0
     let ticketsScanned = 0
+    // BUG-350-01 — au moins une ligne rattachée à un article : sans ça aucun coût
+    // ne PEUT être résolu et la marge vaut 100 % par construction (voir plus bas).
+    let hasCostableRow = false
 
     for (const r of records) {
       const rowRevenue = r.revenue || 0
       revenue += rowRevenue
       cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
+      if (r.menuItemId) hasCostableRow = true
       transactions += r.transactionCount || 0
       if (rowRevenue > 0 && r.eventId) eventIdsWithRevenue.add(r.eventId)
     }
@@ -65,9 +69,24 @@ export function useMetricsCalculator({
     const eventsWithRevenueCount = eventIdsWithRevenue.size || events.length || 0
     const validEventsCount = events.length || eventsWithRevenueCount || 1
 
+    // BUG-350-01 — `null` (affiché « — ») et non 0/100 quand aucun coût ne peut
+    // être résolu. Deux cas, tous deux structurels, pas transitoires :
+    //  - records shop-level : la RPC `get_space_shop_details` force `menuItemId`
+    //    à NULL → `costMap[undefined]` = 0 sur CHAQUE ligne → marge 100 % quoi
+    //    qu'il arrive. Ce n'est pas une marge, c'est l'absence de grain article ;
+    //  - `menuItemCostMap` vide (catalogue pas encore chargé, ou aucun
+    //    `MenuItem.totalCost` saisi).
+    // Sans ce garde-fou, l'écran a longtemps publié « MARGE 100,0 % » comme un
+    // résultat. Les consommateurs doivent traiter `null` (KpiCard rend « — »).
+    const costResolvable = hasCostableRow && Object.keys(costMap).length > 0
+    const margin = !revenue || !costResolvable
+      ? null
+      : ((revenue - cost) / revenue) * 100
+
     return {
       revenue,
       cost,
+      costResolvable,
       transactions,
       ticketsScanned,
       eventsWithRevenueCount,
@@ -75,7 +94,7 @@ export function useMetricsCalculator({
       avgRevenuePerEvent: eventsWithRevenueCount ? revenue / eventsWithRevenueCount : 0,
       avgPerTransaction: transactions ? revenue / transactions : 0,
       perCapita: ticketsScanned ? revenue / ticketsScanned : 0,
-      margin: revenue ? ((revenue - cost) / revenue) * 100 : 0,
+      margin,
     }
   })
 
@@ -89,6 +108,8 @@ export function useMetricsCalculator({
   const avgPerTransaction = computed(() => totals.value.avgPerTransaction)
   const perCapita = computed(() => totals.value.perCapita)
   const margin = computed(() => totals.value.margin)
+  // BUG-350-01 — false = la marge n'est pas calculable sur ce lot (voir `totals`).
+  const costResolvable = computed(() => totals.value.costResolvable)
 
   // Display values — identiques en mode non-timeline (stubs pour extension future)
   const displayRevenue = computed(() => totalRevenue.value)
@@ -119,6 +140,7 @@ export function useMetricsCalculator({
     avgRevenuePerEvent,
     avgPerTransaction,
     margin,
+    costResolvable,
     totals,
     eventsWithRevenueCount,
     validEventsCount,

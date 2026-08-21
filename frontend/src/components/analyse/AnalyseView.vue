@@ -301,6 +301,30 @@
             {{ t('anNoEventsForConfig') }}
           </v-alert>
 
+          <!-- BUG-350-01 — état vide explicite : ne jamais laisser lire un 0 €
+               comme « pas de ventes » quand c'est le détail qui manque. -->
+          <v-alert
+            v-if="itemLevelEmpty"
+            type="info"
+            variant="tonal"
+            icon="mdi-database-off-outline"
+            class="mb-4"
+          >
+            {{ t('anItemLevelEmpty') }}
+          </v-alert>
+
+          <!-- BUG-350-01 — le périmètre dépasse le cap item-level : le CA affiché
+               sous-compte. Bandeau permanent, pas seulement un snackbar fugace. -->
+          <v-alert
+            v-if="itemRecordsTruncatedCount > 0"
+            type="warning"
+            variant="tonal"
+            icon="mdi-alert-outline"
+            class="mb-4"
+          >
+            {{ t('anItemLevelTruncated').replace('{n}', String(ITEM_LEVEL_EVENT_CAP)) }}
+          </v-alert>
+
           <v-row v-if="chartsLoading" dense class="mb-4">
             <v-col v-for="i in 4" :key="`kpi-sk-${i}`" cols="12" sm="6" lg="3">
               <v-skeleton-loader type="article" class="an-chart-skeleton" />
@@ -310,6 +334,7 @@
             v-else
             :metrics="metrics"
             :summary="itemSummary"
+            :source-state="kpiSourceState"
             @open-chart="onOpenChart"
           />
 
@@ -601,7 +626,8 @@ import { useFilters } from '@/composables/useFilters'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
 import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
-import { useAnalyseItemRecords } from '@/composables/useAnalyseItemRecords'
+import { useAnalyseItemRecords, ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
+import { pickRevenueRecords, resolveKpiSourceState } from '@/utils/analyseRevenueSource'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
 import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
@@ -679,7 +705,14 @@ const loading = computed(() => initialLoadPending.value || store.state.analyse.l
 // qu'elle tourne et qu'aucun record n'est encore arrivé, on affiche un skeleton
 // animé à la place des graphiques plutôt que le message « aucune donnée ».
 const enriching = computed(() => store.state.analyse.enriching)
-const chartsLoading = computed(() => enriching.value && filteredRecords.value.length === 0)
+// BUG-350-01 — les graphes suivent la MÊME règle que les KPI : tant que la source
+// canonique n'a pas répondu, squelette. Sans ce second terme, le graphe « CA
+// évènement par shop » et les donuts peignaient le repli shop-level (42 PdV) puis
+// le remplaçaient par l'item-level (38 PdV) — deux jeux de données, pas deux
+// étapes de chargement.
+const chartsLoading = computed(() =>
+  kpiSourceState.value === 'loading' || (enriching.value && filteredRecords.value.length === 0)
+)
 const error = computed(() => store.state.analyse.error)
 const weezeventSetupIncomplete = computed(() => store.state.analyse.weezeventSetupIncomplete)
 const space = computed(() => store.state.analyse.space)
@@ -733,6 +766,9 @@ const {
   fetchError: itemRecordsError,
   refresh: refreshItemRecords,
   clearCache: clearItemRecordsCache,
+  // BUG-350-01 — cap porté à 100 ; au-delà la troncature subsiste et doit être dite.
+  truncatedEventCount: itemRecordsTruncatedCount,
+  sourceState: itemRecordsSourceState,
 } = useAnalyseItemRecords(filteredEvents)
 
 // Contexte de réconciliation PARTAGÉ avec useAnalyseItemRecords : voir
@@ -850,18 +886,47 @@ const soldItemOptionRecords = computed(() => globalItemRecords.value || [])
 // Mode PREDICT : on consomme le shop-level (`filteredRecords` = filteredShopGranularData)
 // qui INCLUT les records prédictifs des events À VENIR (regeneratePredictions). L'item-level
 // (event-timeline) ne couvre QUE le passé → en predict il masquerait tous les events futurs.
-// Mode ANALYSE : item-level (futurs déjà exclus en amont) ; repli shop-level si aucun
-// item-level chargé (pré-load).
+// Le shop-level y est donc la source CANONIQUE, pas un repli.
+//
+// Mode ANALYSE : item-level uniquement (futurs déjà exclus en amont).
+//
+// BUG-350-01 — le repli shop-level a été RETIRÉ. Il publiait un CA calculé par un
+// autre moteur (`SpaceRevenueMinuteAgg` : remises déduites, transactions non
+// validées incluses, `menuItemId` toujours NULL donc marge figée à 100 %) comme
+// s'il était définitif, puis le remplaçait quelques secondes plus tard par la
+// vraie valeur — 7 % d'écart mesuré sur Jean Bouin, 28 % sur Auxerre (BUG-247-01).
+// Règle retenue : aucune valeur provisoire nulle part. Tant que la source
+// canonique n'a pas répondu, les consommateurs affichent un squelette
+// (`kpiSourceState === 'loading'`), jamais un montant destiné à bouger.
 const isPredictRecords = computed(() => store.state.analyse.selectedToolbox === 'predict')
-const chartRecords = computed(() =>
-  isPredictRecords.value
-    ? filteredRecords.value
-    : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
+
+// Le choix de source et la résolution de l'état vivent dans
+// `utils/analyseRevenueSource.js` : arbitrage non tranché (QUESTIONS #62), il
+// doit rester repérable et testable hors de ce SFC.
+const recordsArgs = () => ({
+  isPredict: isPredictRecords.value,
+  itemLevelRecords: itemLevelRecords.value,
+  shopLevelRecords: filteredRecords.value,
+})
+const chartRecords = computed(() => pickRevenueRecords(recordsArgs()))
+const kpiRecords = computed(() => pickRevenueRecords(recordsArgs()))
+
+// BUG-350-01 — 'loading' | 'ready' | 'empty', relayé à TOUS les consommateurs.
+const kpiSourceState = computed(() =>
+  resolveKpiSourceState({
+    isPredict: isPredictRecords.value,
+    itemLevelState: itemRecordsSourceState.value,
+  }),
 )
-const kpiRecords = computed(() =>
-  isPredictRecords.value
-    ? filteredRecords.value
-    : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
+
+// BUG-350-01 — état vide EXPLICITE : des events dans le périmètre, mais aucun
+// record item-level et plus rien en vol (batch KO, PdV non mappés, dates d'event
+// hors fenêtre — cf. « Match 10 Mai », BUG-247-01). Sans ce message, l'écran
+// affiche 0 € et se lit comme « pas de ventes », ce qui est souvent faux.
+const itemLevelEmpty = computed(() =>
+  !isPredictRecords.value
+  && kpiSourceState.value === 'empty'
+  && (filteredEvents.value || []).length > 0
 )
 
 // ─── Grain ARTICLE en mode Predict ─────────────────────────────────────────
@@ -1086,7 +1151,14 @@ function buildVar(curr, prev) {
 // l'item-level est chargé), sinon summary store (shop-level). Variations masquées
 // tant que l'item-level des périodes de comparaison charge (évite un faux « -100% »).
 const itemSummary = computed(() => {
-  if (isPredictRecords.value || !itemLevelRecords.value.length) return summary.value
+  if (isPredictRecords.value) return summary.value
+  // BUG-350-01 — hors predict, plus de repli sur `summary` (store, shop-level) :
+  // afficher une variation calculée sur l'AUTRE moteur à côté d'une valeur
+  // item-level, c'est exactement la divergence valeur/variation du bug #9 du
+  // module 02. Sans item-level → pas de variation, pas de faux %.
+  if (!itemLevelRecords.value.length) {
+    return { ...(summary.value || {}), variations: {}, variationsYoY: {} }
+  }
   const base = { ...(summary.value || {}), comparisonMode: filters.value.comparisonMode }
   if (comparisonLoading.value) return { ...base, variations: {}, variationsYoY: {} }
   const kept = comparisonItemRecords.value
@@ -1139,6 +1211,20 @@ watch([itemRecordsError, comparisonItemRecordsError], ([mainErr, compErr]) => {
   snackbarColor.value = 'warning'
   snackbar.value = true
 })
+
+// BUG-350-01 — le cap item-level est passé de 50 à 100, mais la troncature n'a
+// pas disparu : au-delà de 100 events dans le périmètre, le CA des suivants
+// n'entre dans AUCUNE vue item-level. Ce total sous-compte, il doit le dire.
+// Snackbar une fois par montage + bandeau permanent (`itemLevelTruncated`) tant
+// que la condition tient : le bandeau est la garantie, le snackbar l'alerte.
+let _warnedTruncation = false
+watch(itemRecordsTruncatedCount, (n) => {
+  if (!n || _warnedTruncation) return
+  _warnedTruncation = true
+  snackbarText.value = t('anItemLevelTruncated').replace('{n}', String(ITEM_LEVEL_EVENT_CAP))
+  snackbarColor.value = 'warning'
+  snackbar.value = true
+}, { immediate: true })
 
 // Contexte PdV (shops DataFriday + assignation item↔PdV) rechargé à chaque
 // changement de configuration → la réconciliation (getters shop-level + item-level)
@@ -1313,6 +1399,10 @@ function headerVariation(key) {
 
 const headerKpis = computed(() => {
   const m = metrics
+  // BUG-350-01 — la bande KPI du header suit la même règle que les tuiles : tant
+  // que la source canonique n'a pas répondu, aucune valeur. `WorkspaceAppHeader`
+  // n'affiche pas de chip sans donnée → liste vide plutôt que 8 montants faux.
+  if (kpiSourceState.value === 'loading') return []
   const rev = m.displayRevenue?.value ?? 0
   const trans = m.displayTransactions?.value ?? 0
   const att = m.displayAttendees?.value ?? 0

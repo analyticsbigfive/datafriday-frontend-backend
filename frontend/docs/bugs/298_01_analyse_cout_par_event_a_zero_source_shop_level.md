@@ -103,12 +103,26 @@ ici) :
   `utils/analyseAssistant.js:105-110`) → les barres Transactions ne somment pas
   exactement au KPI TRANSAC. non plus. Antérieur à ce bug, hors périmètre choisi —
   ne pas le re-diagnostiquer comme BUG-298-01.
-- Le cap `MAX_EVENTS = 50` de `useAnalyseItemRecords` (instance principale
+- ~~Le cap `MAX_EVENTS = 50` de `useAnalyseItemRecords` (instance principale
   `AnalyseView.vue:677`, valeur par défaut) borne l'item-level : au-delà de 50
   events dans la période, les events non fetchés restent à coût 0 dans le graphe,
   **sans signalement à l'écran** — décision JLH de ne rien afficher pour l'instant.
   Le KPI COST du bandeau est tronqué de la même façon (il lit la même source), donc
-  graphe et KPI restent cohérents entre eux.
+  graphe et KPI restent cohérents entre eux.~~
+
+  ⚠️ **Différé LEVÉ le 2026-08-21 par JLH** — ne plus traiter ce point comme
+  « hors périmètre ». Le cap est passé à **100** (`useAnalyseItemRecords.js`,
+  exposé en `ITEM_LEVEL_EVENT_CAP` ; instance principale montée dans
+  `AnalyseView.vue` — le `:677` barré ci-dessus est périmé, chercher
+  `useAnalyseItemRecords(filteredEvents)`) et la troncature résiduelle est
+  désormais **signalée** (snackbar + bandeau permanent), dans le cadre de
+  [BUG-350-01](350_01_ca_variable_home_analyse_bascule_source.md) : sur l'espace
+  Stade Jean Bouin (54 events avec CA), ce plafond est la cause dominante
+  candidate d'un CA item-level inférieur de 7,12 % au shop-level, et de 4 points
+  de vente disparus de la légende du graphe « CA évènement par shop ».
+  À surveiller : ce chemin porte BUG-284-01 (freeze) et BUG-285-01 (mémoire
+  2-3 Go) — si la mémoire décroche, la réponse est l'éviction de BUG-285-01, pas
+  un retour à 50.
 
 ## Risque de régression / à surveiller
 

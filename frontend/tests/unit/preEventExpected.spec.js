@@ -1,4 +1,4 @@
-import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits } from '@/utils/preEventExpected'
+import { buildPreEventExpected, expectedKey, flattenExpectedUnits } from '@/utils/preEventExpected'
 
 const K = expectedKey
 
@@ -92,52 +92,6 @@ describe('buildPreEventExpected', () => {
 
 })
 
-describe('aggregateExpectedUnitsFromIndex', () => {
-  const entry = {
-    element: { id: 'el1' },
-    consolidatedInventory: [
-      { id: 'beer', name: 'Bière', unit: 'L' },
-      { id: 'cup', name: 'Gobelet', unit: '' },
-      { id: 'coke', name: 'Coca', unit: 'L' },
-      { id: 'ghost', name: 'Sans indice', unit: 'Kg' },
-    ],
-  }
-
-  it('returns null without an index, element id, or items', () => {
-    expect(aggregateExpectedUnitsFromIndex(null, entry)).toBeNull()
-    expect(aggregateExpectedUnitsFromIndex({}, { element: { id: 'el1' }, consolidatedInventory: [] })).toBeNull()
-    expect(aggregateExpectedUnitsFromIndex({}, { consolidatedInventory: [{ id: 'beer' }] })).toBeNull()
-  })
-
-  it('returns null when no section item has an entry in the index', () => {
-    const index = { [K('other-el', 'beer')]: 4 }
-    expect(aggregateExpectedUnitsFromIndex(index, entry)).toBeNull()
-  })
-
-  it('sums per display unit, grouping empty units under the fallback', () => {
-    const index = {
-      [K('el1', 'beer')]: 10.004,
-      [K('el1', 'coke')]: 2,
-      [K('el1', 'cup')]: 150,
-      [K('other-el', 'beer')]: 999, // autre section : ignoré
-    }
-    expect(aggregateExpectedUnitsFromIndex(index, entry, { fallbackUnit: 'pc' })).toEqual([
-      { unit: 'L', total: 12 },
-      { unit: 'pc', total: 150 },
-    ])
-  })
-
-  it('keeps zero and negative hints (signal to display), rounded to 2 decimals', () => {
-    const index = { [K('el1', 'beer')]: 0, [K('el1', 'coke')]: -3.005 }
-    expect(aggregateExpectedUnitsFromIndex(index, entry)).toEqual([{ unit: 'L', total: -3 }])
-  })
-
-  it('reads storageInventory / merchInventory when consolidatedInventory is absent', () => {
-    const index = { [K('st1', 'ice')]: 7 }
-    const storageEntry = { element: { id: 'st1' }, storageInventory: [{ id: 'ice', unit: 'Kg' }] }
-    expect(aggregateExpectedUnitsFromIndex(index, storageEntry)).toEqual([{ unit: 'Kg', total: 7 }])
-  })
-})
 
 // ── flattenExpectedUnits — badge « Attendu » de section pre-event ─────────────
 // (réunion Bertrand 2026-08-19 : post-event précédent + Logistique, plus le

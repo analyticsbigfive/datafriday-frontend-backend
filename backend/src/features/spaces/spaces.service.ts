@@ -1440,6 +1440,13 @@ export class SpacesService {
       SELECT
         dd."eventId"                                                      AS "eventId",
         TO_CHAR(tz."minuteLocal", 'HH24:MI')                              AS minute,
+        -- BUG-351-01 : la minute DATEE, en heure murale locale de l'espace.
+        -- La colonne minute seule (HH24:MI) perd le jour : une vente a 00h30 qui
+        -- prolonge l'evenement de la veille se retrouvait triee AVANT 19h00, en
+        -- tete de courbe. minute est conservee telle quelle (tous les
+        -- consommateurs actuels la lisent) ; les ecrans qui doivent ordonner ou
+        -- franchir minuit lisent minuteLocal.
+        TO_CHAR(tz."minuteLocal", 'YYYY-MM-DD"T"HH24:MI')                 AS "minuteLocal",
         COALESCE(dd."spaceElementId", dd."weezeventLocationId")           AS "shopId",
         COALESCE(se.name, dd."weezeventLocationName", dd."weezeventLocationId") AS "shopName",
         COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
@@ -1473,7 +1480,9 @@ export class SpacesService {
         COALESCE(se.name, dd."weezeventLocationName", dd."weezeventLocationId"),
         se.type, se.attributes,
         dd."weezeventProductId", wpm."menuItemId", mi.name, pt.name, pc.name
-      ORDER BY dd."eventId", minute ASC
+      -- Tri sur la minute DATEE (BUG-351-01) : trier sur la colonne minute
+      -- (HH24:MI) placait les ventes d'apres minuit en tete d'evenement.
+      ORDER BY dd."eventId", tz."minuteLocal" ASC
     `);
 
     for (const r of rows) {
@@ -1481,6 +1490,7 @@ export class SpacesService {
       if (!bucket) continue;
       bucket.push({
         minute:           r.minute,
+        minuteLocal:      r.minuteLocal ?? null,
         shopId:           r.shopId,
         shopName:         r.shopName,
         shopType:         r.shopType ?? null,

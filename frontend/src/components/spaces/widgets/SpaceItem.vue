@@ -57,19 +57,23 @@
     <!-- ── Stats grid ── -->
     <div class="si-stats">
       <div class="si-stat">
-        <div class="si-stat__label"><TrendingUp :size="11" />F&B Revenue</div>
+        <div class="si-stat__label"><TrendingUp :size="11" />{{ t('spaceCardFbRevenue') }}</div>
         <div class="si-stat__value si-stat__value--red">{{ formatCurrency(space?.fbRevenue) }}</div>
       </div>
-      <div class="si-stat">
-        <div class="si-stat__label"><Coins :size="11" />Per Capita</div>
+      <!-- BUG-350-01 — périmètre explicite : ce per-capita rapporte le CA aux
+           billets de TOUS les events de l'espace (à venir et sans vente compris),
+           là où l'écran Analyse ne prend que les events filtrés. Deux chiffres
+           légitimes, deux périmètres — sans la mention ils se contredisent. -->
+      <div class="si-stat" :title="t('anPerCapScopeAllSpaceEvents')">
+        <div class="si-stat__label"><Coins :size="11" />{{ t('spaceCardPerCapita') }}</div>
         <div class="si-stat__value si-stat__value--green">{{ formatCurrency(space?.perCapita) }}</div>
       </div>
       <div class="si-stat si-stat--bl">
-        <div class="si-stat__label"><ShoppingBasket :size="11" />Avg / Tx</div>
+        <div class="si-stat__label"><ShoppingBasket :size="11" />{{ t('spaceCardAvgTx') }}</div>
         <div class="si-stat__value si-stat__value--purple">{{ formatCurrency(space?.avgTransaction) }}</div>
       </div>
       <div class="si-stat si-stat--bl">
-        <div class="si-stat__label"><Calendar :size="11" />Avg / Event</div>
+        <div class="si-stat__label"><Calendar :size="11" />{{ t('spaceCardAvgEvent') }}</div>
         <div class="si-stat__value si-stat__value--amber">{{ formatCurrency(space?.avgEvent) }}</div>
       </div>
     </div>
@@ -95,11 +99,19 @@ import { clearDemoMode } from "@/utils/demoMode";
 import { getSpaceLiveStatus } from "@/api/endpoints/space.api";
 import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import { currentIntlLocale } from "@/composables/useNumberFormat";
+import { useI18n } from "@/i18n/useI18n";
 export default {
   name: 'SpaceItem',
   components: {
     TrendingUp, Coins, ShoppingBasket, Calendar,
     Pencil, Trash2, Users, Layers, Hammer, MapPin,
+  },
+  // Libellés des 4 tuiles : plus de texte utilisateur en dur dans le template
+  // (règle CLAUDE.md). Valeurs FR identiques à l'anglais — c'est un routage i18n,
+  // pas une retraduction : l'écran ne change pas d'apparence.
+  setup() {
+    const { t } = useI18n();
+    return { t };
   },
   props: {
     space:         { type: Object,   default: null },

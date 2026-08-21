@@ -141,10 +141,16 @@
              espace. L'ancrage est automatique et silencieux (docs modules/10
              §12.4) — sans ce sous-titre, l'écran ne dit jamais quel match il
              affiche, ni pourquoi ce n'est pas celui du deep-link. -->
+        <!-- BUG-352-01 : le nom court de la fiche (« PFC-Nice ») a été RETIRÉ —
+             `contextAnchorLabel` nomme déjà le match par ses deux équipes
+             (« Prochain Évènement : Paris FC vs OGC Nice »). Les deux côte à côte
+             donnaient l'impression de DEUX événements empilés. `matchLabel`
+             retombe sur le nom de la fiche quand les équipes ne sont pas
+             renseignées : rien n'est perdu. La computed reste utilisée par
+             l'en-tête d'impression. -->
         <p v-else-if="contextEvent" class="si-band-title__sub">
-          <strong class="si-band-title__event">{{ contextEventName }}</strong>
+          <strong class="si-band-title__event">{{ contextAnchorLabel }}</strong>
           <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
-          <span class="si-band-title__anchor"> · {{ contextAnchorLabel }}</span>
           <span v-if="spaceLabel"> · {{ spaceLabel }}</span>
           <span v-if="countsAreEventIndependent" class="si-band-title__warn">
             · {{ t('invContextCountsIndependent') }}
@@ -247,18 +253,12 @@
     >
       {{ expectedUnavailableText }}
     </v-alert>
-    <!-- Provenance des attendus (décision JLH 2026-08-20) : état Logistic au
-         chargement de l'écran. La cartouche le dit UNE fois pour toute la page ;
-         les infobulles par article gardent le détail chiffré (packs × upp + vrac). -->
-    <v-alert
-      v-if="expectedSourceText"
-      type="info"
-      variant="tonal"
-      density="compact"
-      class="si-carried-alert"
-    >
-      {{ expectedSourceText }}
-    </v-alert>
+    <!-- BUG-352-01 : la cartouche de provenance des attendus a été RETIRÉE. Elle
+         s'affichait à CHAQUE chargement, pour tout profil autorisé — du bruit
+         permanent au-dessus de la recherche. La phrase et l'heure de calcul
+         vivent maintenant dans l'infobulle de chaque attendu (expectedDetailFor).
+         Les cartouches ci-dessus restent : elles ne s'affichent qu'en ANOMALIE
+         (403, serveur non à jour, comptage reporté du pre-event). -->
     <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur. -->
     <div class="si-search-wrap">
       <AppSearchBar
@@ -345,8 +345,9 @@
           :expected-detail-for="canSeeExpected ? expectedDetailFor : null"
           :expected-total-detail-for="canSeeExpected && !isPreMode ? expectedDetailFor : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
+          :expected-stock-for="canSeeExpected && isPreMode ? expectedStockFor : null"
+          :expected-stock-detail-for="canSeeExpected && isPreMode ? expectedDetailFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :expected-section-units="expectedSectionUnitsFor(countingShop)"
           :can-transfer="!demo"
           @close="countingShop = null"
           @change-shop="startCount"
@@ -640,8 +641,9 @@
           :expected-detail-for="canSeeExpected ? expectedDetailFor : null"
           :expected-total-detail-for="canSeeExpected && !isPreMode ? expectedDetailFor : null"
           :expected-total-for="canSeeExpected ? expectedTotalFor : null"
+          :expected-stock-for="canSeeExpected && isPreMode ? expectedStockFor : null"
+          :expected-stock-detail-for="canSeeExpected && isPreMode ? expectedDetailFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :expected-section-units="expectedSectionUnitsFor(countingShop)"
           :can-transfer="!demo"
           @close="closeMobileCounting"
           @change-shop="startCount"
@@ -763,7 +765,7 @@ import {
   createPreEventReconciliation,
   getEventSalesConsumption,
 } from '@/api/endpoints/inventory.api'
-import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits } from '@/utils/preEventExpected'
+import { buildPreEventExpected, expectedKey, flattenExpectedUnits } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -921,6 +923,9 @@ export default {
       // 2026-08-20 — l'attendu d'inventaire = le chiffre de l'écran Logistic).
       preExpected: null,
       preExpectedLoading: false,
+      // Instant de calcul des attendus (`asOf` serveur) : un mouvement Logistic
+      // postérieur n'y est pas reflété — l'infobulle doit pouvoir le dire.
+      expectedAsOf: null,
       // Post-event Inventory : indice de référence affiché à côté du TOTAL de
       // chaque article — map `expectedKey(el,item)` → unités. État Logistic :
       // ventes déjà déduites, clamp ≥ 0 (même chiffre que l'écran Logistic).
@@ -1153,14 +1158,25 @@ export default {
       }
       return out
     },
-    /** Cartouche de provenance des attendus (décision JLH 2026-08-20) : dès que
-     *  des attendus sont affichés, dire d'où ils viennent — état Logistic au
-     *  chargement de l'écran. Une seule cartouche page, même gabarit v-alert que
-     *  les autres bandeaux ; le détail chiffré par article reste en infobulle. */
+    /** Provenance des attendus, rendue dans l'INFOBULLE de chaque attendu depuis
+     *  BUG-352-01 (avant : une cartouche permanente en haut de page). PDF v3 du
+     *  2026-08-21 : l'attendu = le Total Logistic, toujours — le registre étant
+     *  recalé depuis le comptage à chaque réconciliation, il porte le dernier
+     *  comptage physique. `''` si aucun attendu n'est affiché. */
     expectedSourceText() {
       if (!this.canSeeExpected) return ''
       const loaded = this.isPreMode ? this.preExpected : this.postExpectedUnits
-      return loaded ? this.t('invExpectedSource') : ''
+      if (!loaded) return ''
+      const text = this.t('invExpectedSource')
+      return this.expectedAsOfLabel ? `${text} (${this.expectedAsOfLabel})` : text
+    },
+    /** Heure de calcul des attendus (`asOf` serveur) — ce qui manquait pour
+     *  savoir si un mouvement Logistic postérieur y est déjà reflété. */
+    expectedAsOfLabel() {
+      if (!this.expectedAsOf) return ''
+      const d = new Date(this.expectedAsOf)
+      if (Number.isNaN(d.getTime())) return ''
+      return d.toLocaleTimeString(this.intlLocale, { hour: '2-digit', minute: '2-digit' })
     },
     /** Message d'indisponibilité des attendus — `no-permission` reste MUET :
      *  un utilisateur non habilité ne doit pas apprendre que la donnée existe.
@@ -2080,6 +2096,7 @@ export default {
       this.preExpected = null
       this.postExpectedUnits = null
       this.expectedUnavailable = null
+      this.expectedAsOf = null
       if (!this.canSeeExpected) {
         this.expectedUnavailable = 'no-permission'
         return
@@ -2097,6 +2114,8 @@ export default {
           this.expectedUnavailable = 'not-deployed'
           return
         }
+        // Instant de calcul (`asOf`) : porté par l'infobulle de chaque attendu.
+        this.expectedAsOf = baseline.asOf ?? null
         if (this.isPreMode) {
           // `unitsPerItemId` (BUG-239) : le serveur peut avoir calculé l'attendu
           // avec la taille de paquet de la Logistique — on le re-découpe dans celle
@@ -2156,10 +2175,25 @@ export default {
       const pair = this.isPreMode ? this.preExpected?.[key] : this.postExpectedFields?.[key]
       const itemId2 = String(itemId)
       const q = Number(this.unitsPerItemIdMap?.[itemId2]) > 0 ? Number(this.unitsPerItemIdMap[itemId2]) : 1
-      if (pair && q > 1) {
-        return `${fmt(pair.packed)} × ${fmt(q)} + ${fmt(pair.loose)} = ${fmt(total)}`
-      }
-      return `${this.t('invExpectedFromLogistic')} = ${fmt(total)}`
+      // Ligne 1 : l'identité de conversion, vérifiable de tête.
+      const calc =
+        pair && q > 1
+          ? `${fmt(pair.packed)} × ${fmt(q)} + ${fmt(pair.loose)} = ${fmt(total)}`
+          : `${this.t('invExpectedFromLogistic')} = ${fmt(total)}`
+      // Ligne 2 : la provenance, qui vivait dans une cartouche permanente avant
+      // BUG-352-01. Elle n'apparaît donc plus que quand on la cherche.
+      const source = this.expectedSourceText
+      return source ? `${calc}\n${source}` : calc
+    },
+    /** ATTENDU total de stock d'un article (BUG-352-01). Rendu en pre-event, où
+     *  le créneau du total ne portait que le besoin prédit — une autre grandeur,
+     *  qu'on ne peut pas légender du même mot. En post-event, `expectedTotalFor`
+     *  joue déjà ce rôle : le parent ne passe donc cette prop qu'en pre. */
+    expectedStockFor(elementId, item) {
+      const itemId = item?.id
+      if (itemId == null) return null
+      const v = this.preExpectedUnits?.[expectedKey(elementId, itemId)]
+      return Number.isFinite(v) ? v : null
     },
     /** Indice affiché à côté du TOTAL d'un article. Pre : besoin prédit Event
      *  Predict. Post : stock qui doit rester. null = rien à afficher (« — »). */
@@ -2281,18 +2315,6 @@ export default {
       } finally {
         this.movementSaving = false
       }
-    },
-    /** Segments « Attendu » d'une section : [{unit, total}] ou null. Même
-     *  agrégateur dans les deux modes, seule la source change — pre : post-event
-     *  précédent + Logistique (réunion Bertrand 2026-08-19) ; post : indice
-     *  serveur ventes déduites (pre-event + Logistic − ventes). Groupé par
-     *  `item.unit` des articles réellement présents dans la section : plus de
-     *  kg fabriqués sur un PdV qui ne compte que des pièces. */
-    expectedSectionUnitsFor(entry) {
-      const index = this.isPreMode ? this.preExpectedUnits : this.postExpectedUnits
-      return aggregateExpectedUnitsFromIndex(index, entry, {
-        fallbackUnit: this.t('invCountUnitFallback'),
-      })
     },
     /**
      * Événement à réconcilier = l'event de l'ÉCRAN, strictement (« un match =
