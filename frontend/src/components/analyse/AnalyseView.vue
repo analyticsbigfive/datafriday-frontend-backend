@@ -306,10 +306,14 @@
               <v-skeleton-loader type="article" class="an-chart-skeleton" />
             </v-col>
           </v-row>
+          <!-- `margin-loading` : seul le coût vient de l'item-level (BUG-247-01),
+               la carte Marge attend donc qu'il soit chargé plutôt que d'afficher
+               100 % puis se corriger. -->
           <FinancialMetricsGrid
             v-else
             :metrics="metrics"
             :summary="itemSummary"
+            :margin-loading="itemLevelPending"
             @open-chart="onOpenChart"
           />
 
@@ -417,6 +421,7 @@
                 v-else
                 embedded
                 :records="chartRecords"
+                :item-records="articleRecords"
                 :events="filteredEvents"
                 :is-predict-mode="isPredictMode"
                 @show-average="onShowAverage"
@@ -521,7 +526,8 @@
     <!-- Drill-down d'une cellule de MenuItemsByShopTable : MÊME dataset que la
          table (`articleRecords`), sinon en mode Predict le dialog interrogerait le
          shop-level sans nom d'article → toujours 0 event. Hors Predict,
-         articleRecords === chartRecords : aucun changement. -->
+         articleRecords = item-level pur (sans les lignes de repli shop-level
+         BUG-247-01, qui n'ont pas de grain article) : cohérent avec la table. -->
     <ShopItemEventsDialog
       v-model="shopItemEventsDialog"
       :records="articleRecords"
@@ -853,16 +859,32 @@ const soldItemOptionRecords = computed(() => globalItemRecords.value || [])
 // Mode ANALYSE : item-level (futurs déjà exclus en amont) ; repli shop-level si aucun
 // item-level chargé (pré-load).
 const isPredictRecords = computed(() => store.state.analyse.selectedToolbox === 'predict')
-const chartRecords = computed(() =>
-  isPredictRecords.value
-    ? filteredRecords.value
-    : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
-)
-const kpiRecords = computed(() =>
-  isPredictRecords.value
-    ? filteredRecords.value
-    : (itemLevelRecords.value.length ? itemLevelRecords.value : filteredRecords.value),
-)
+
+// ─── BUG-247-01 — le CA d'Analyse s'aligne sur la page d'accueil ───────────
+// Révision JLH 2026-08-21 (2ᵉ passe), SUPERSEDE la décision A (« le CA courant
+// vient de l'item-level ») : la carte d'un espace sur /spaces affiche
+// `space.fbRevenue` = SUM(SpaceRevenueMinuteAgg."revenueHt") ; le CA d'Analyse
+// doit afficher le MÊME montant. L'item-level lit une autre table d'agrégat
+// (SpaceRevenueMinuteItemAgg), avec une autre formule et un autre rattachement
+// des ventes aux events — son total diffère event par event, aucun rattrapage
+// ne le ramène au montant de l'accueil. Le CA reste donc shop-level de bout en
+// bout, comme au premier chargement.
+// L'item-level sert toujours au grain ARTICLE (articleRecords) et au COÛT
+// (les lignes shop-level portent menuItemId NULL → coût 0 → marge 100 %).
+const chartRecords = computed(() => filteredRecords.value)
+const kpiRecords = computed(() => filteredRecords.value)
+
+// Chargement item-level en cours OU couverture incomplète des events visibles
+// (couvre le trou entre le changement de filteredEvents et le passage de
+// `loading` à true par le watch du composable). Un event tenté-mais-vide est
+// dans loadedEventIds (cache []) → pas d'attente infinie. Ne gate plus le CA
+// (définitif dès le shop-level), uniquement le coût et la marge.
+const itemLevelPending = computed(() => {
+  if (isPredictRecords.value) return false
+  if (itemRecordsLoading.value) return true
+  const loaded = mainLoadedEventIds.value
+  return (filteredEvents.value || []).some((e) => e?.id && !loaded.has(e.id))
+})
 
 // ─── Grain ARTICLE en mode Predict ─────────────────────────────────────────
 // `chartRecords` est shop-level en predict (menuItemId null partout) → les 2 vues
@@ -894,12 +916,16 @@ const scenarioEventIds = computed(
   () => new Set((store.state.analyse.predictScenarioItemRecords || []).map((r) => r.eventId)),
 )
 
-// Source des 2 vues article. Hors predict : inchangé (`chartRecords`). En predict :
-// même périmètre que le reste de la page — réel item-level pour les events sans
-// scénario, records de scénario pour les autres (un event passé AVEC scénario existe
-// en double côté shop-level : réel + copie prédictive scalée, cf. `pastPredictive`).
+// Source des 2 vues article. Hors predict : item-level PUR — `chartRecords` est
+// shop-level depuis BUG-247-01 (menuItemId null → aucun grain article). Leur
+// total est donc INFÉRIEUR au CA des KPI : les deux lectures n'agrègent pas la
+// même table, c'est attendu et documenté fiche 247-01. En predict : même
+// périmètre que le reste de la page — réel item-level pour les events sans
+// scénario, records de scénario pour les autres (un event passé AVEC scénario
+// existe en double côté shop-level : réel + copie prédictive scalée,
+// cf. `pastPredictive`).
 const articleRecords = computed(() => {
-  if (!isPredictRecords.value) return chartRecords.value
+  if (!isPredictRecords.value) return itemLevelRecords.value
   const covered = scenarioEventIds.value
   const actualPast = itemLevelRecords.value.filter((r) => !covered.has(r.eventId))
   return [...actualPast, ...predictScenarioRecords.value]
@@ -963,14 +989,13 @@ const comparisonEvents = computed(() => {
 const comparisonEventsGated = computed(() =>
   itemRecordsLoading.value ? [] : comparisonEvents.value,
 )
-// Cap élevé (100 vs 50) : les fenêtres prev∪N-1 couvrent jusqu'à 24 mois.
 const {
   itemRecords: comparisonItemRecords,
   loading: comparisonLoading,
   loadedEventIds: comparisonLoadedEventIds,
   fetchError: comparisonItemRecordsError,
   clearCache: clearComparisonCache,
-} = useAnalyseItemRecords(comparisonEventsGated, { maxEvents: 100 })
+} = useAnalyseItemRecords(comparisonEventsGated)
 
 // État explicite « pas de données de comparaison » (au lieu du silence) : bornes
 // de comparaison nulles OU aucun event dans la fenêtre du mode courant.
@@ -1100,10 +1125,8 @@ const itemSummary = computed(() => {
     }
     return s
   }
-  // Intersection avec les events réellement fetchés (cap useAnalyseItemRecords) :
-  // eventCount/attendees restent cohérents avec le revenue partiel. Biais résiduel
-  // au-delà du cap : les totaux absolus comparent des échantillons, mais les
-  // ratios (panier, per-capita, marge, transfo) couvrent le même set d'events.
+  // Intersection avec les events réellement fetchés (tranche batch KO = non
+  // couvert) : eventCount/attendees restent cohérents avec le revenue partiel.
   const withLoaded = (set, loaded) => new Set([...set].filter((id) => loaded.has(id)))
   // Côté COURANT = filteredEvents (déjà bornés par le preset daté ; en 'all'
   // la comparaison est désactivée — parité React).
@@ -1274,7 +1297,7 @@ watch(
   },
 )
 
-const metrics = useMetricsCalculator({
+const baseMetrics = useMetricsCalculator({
   filteredShopGranularData: kpiRecords,
   chartFilteredEvents: filteredEvents,
   menuItemCostMap,
@@ -1294,6 +1317,40 @@ const metrics = useMetricsCalculator({
       : null,
   ),
 })
+
+// ─── Coût et marge : seul grain disponible = l'item-level ──────────────────
+// BUG-247-01 : depuis que le CA est shop-level, `baseMetrics` calcule un coût
+// NUL — la RPC émet `menuItemId: NULL` sur ses lignes granulaires, et le coût
+// est un produit `costMap[menuItemId] × quantity`. Laissé tel quel, la carte
+// Marge afficherait 100 % en permanence. On prend donc le coût sur l'item-level
+// (même formule que useMetricsCalculator, seule source portant menuItemId) et
+// on RECALCULE la marge sur les valeurs AFFICHÉES : le sous-titre de la carte
+// montre « Total : revenue − cost », l'arithmétique doit tomber juste à l'écran.
+// Conséquence assumée (documentée fiche 247-01) : la marge est légèrement
+// optimiste, sa base de revenus étant la plus large des deux.
+const itemLevelCost = computed(() => {
+  const costMap = menuItemCostMap.value || {}
+  let cost = 0
+  for (const r of itemLevelRecords.value) cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
+  return cost
+})
+const effectiveCost = computed(() =>
+  isPredictRecords.value ? baseMetrics.displayCost.value : itemLevelCost.value,
+)
+const effectiveMargin = computed(() => {
+  const rev = baseMetrics.displayRevenue.value
+  return rev ? ((rev - effectiveCost.value) / rev) * 100 : 0
+})
+const metrics = {
+  ...baseMetrics,
+  totalCost: effectiveCost,
+  displayCost: effectiveCost,
+  displayAvgCost: computed(() =>
+    baseMetrics.validEventsCount.value ? effectiveCost.value / baseMetrics.validEventsCount.value : 0,
+  ),
+  margin: effectiveMargin,
+  displayMargin: effectiveMargin,
+}
 
 // ---- KPI de la bande centre du header (WorkspaceAppHeader) -----------------
 // Les 8 KPI (ex-AnalyseAppHeader) alimentent la bande KPI partagée. Couleurs
@@ -1319,7 +1376,9 @@ const headerKpis = computed(() => {
   return [
     { label: t('anHeaderKpiRevenue'), kind: 'revenue', value: formatCurrency(rev), color: '#10B981', variation: headerVariation('revenue') },
     { label: t('anHeaderKpiAvgPerEvent'), kind: 'avg-revenue', value: formatCurrency(m.displayAvgRevenue?.value ?? 0), color: '#F97316', variation: headerVariation('avgRevenuePerEvent') },
-    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrencyDetailed(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true },
+    // `loading` : le coût est la seule pastille qui dépend de l'item-level
+    // (BUG-247-01) — skeleton plutôt qu'un 0,00 € qui se corrige ensuite.
+    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrencyDetailed(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true, loading: itemLevelPending.value },
     { label: t('anHeaderKpiTransactions'), kind: 'transactions', value: formatNumber(trans), color: '#3B82F6', variation: headerVariation('transactions') },
     // Locale-aware (règle BUG-240 « plus jamais de fr-FR en dur ») : ces trois
     // valeurs suivaient le format français même en interface anglaise.

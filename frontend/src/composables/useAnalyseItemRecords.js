@@ -6,7 +6,12 @@ import { reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import store from '@/store'
 
-const MAX_EVENTS = 50
+// Taille de tranche par requête batch — PAS un plafond de couverture (BUG-247-01,
+// décision JLH 2026-08-21 : tous les events visibles sont chargés). Le backend
+// tronque silencieusement à 100 ids par appel (spaces.service.ts, slice(0, 100)) :
+// des ids au-delà seraient cachés à [] pour toujours. 50 garde une marge et une
+// query string raisonnable (~25 chars/cuid).
+const CHUNK_SIZE = 50
 
 // Une seule alerte par session, tous composables confondus (AnalyseView monte
 // deux instances : courante + comparaison) — même pattern que
@@ -26,11 +31,9 @@ let _warnedBatchKo = false
  * le cache et ne fetch que les events manquants.
  *
  * @param {import('vue').ComputedRef<Array<{id:string}>>} filteredEvents
- * @param {{ maxEvents?: number }} [options] — cap de fetch (défaut MAX_EVENTS) ;
- *   l'instance comparaison (fenêtres prev∪N-1 jusqu'à 24 mois) passe un cap élevé.
  * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>>, fetchError: import('vue').Ref<string|null>, refresh: () => Promise<void> }}
  */
-export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS } = {}) {
+export function useAnalyseItemRecords(filteredEvents) {
   const route = useRoute()
   // Contexte de réconciliation PARTAGÉ (cf. useReconciliationContext) — surtout
   // pas reconstruit ici : la timeline et les records de scénario Predict se
@@ -55,9 +58,26 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   const fetchError = ref(null)
   let abortController = null
 
+  function chunked(ids) {
+    const out = []
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) out.push(ids.slice(i, i + CHUNK_SIZE))
+    return out
+  }
+
+  function buildPatch(ids, byEventId) {
+    const patch = {}
+    for (const id of ids) {
+      const data = byEventId.get(id) || []
+      const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
+      patch[id] = freezeRows(preprocessTimelineRecords(raw, {
+        menuItemCostMap: store.state.analyse.menuItemCostMap || {},
+      }))
+    }
+    return patch
+  }
+
   async function ensureLoaded(events) {
-    const list = (events || []).slice(0, maxEvents)
-    const missing = list.filter((e) => e?.id && !(e.id in cache.value))
+    const missing = (events || []).filter((e) => e?.id && !(e.id in cache.value))
     if (!missing.length) return
 
     if (abortController) abortController.abort()
@@ -66,35 +86,36 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     loading.value = true
 
     const spaceId = route.params.spaceId
-    const ids = missing.map((e) => e.id)
     try {
-      // Un seul appel batch pour tous les events manquants (le backend résout
-      // shopIds/ownership/scope d'intégration une fois pour le space, pas par event).
-      const byEventId = await getSpaceEventTimelineBatch(spaceId, ids)
-      if (controller.signal.aborted) return
-      const patch = {}
-      for (const id of ids) {
-        const data = byEventId.get(id) || []
-        const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
-        patch[id] = freezeRows(preprocessTimelineRecords(raw, {
-          menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-        }))
+      // Tranches séquentielles (pas de Promise.all : le backend résout
+      // shopIds/ownership/scope d'intégration à chaque appel, inutile de le
+      // marteler) ; le cache est patché après CHAQUE tranche → les donuts, la
+      // table articles et les options du panneau filtres se remplissent au fil
+      // de l'eau.
+      for (const ids of chunked(missing.map((e) => e.id))) {
+        if (controller.signal.aborted) return
+        try {
+          const byEventId = await getSpaceEventTimelineBatch(spaceId, ids)
+          if (controller.signal.aborted) return
+          cache.value = { ...cache.value, ...buildPatch(ids, byEventId) }
+        } catch (err) {
+          if (controller.signal.aborted) return
+          console.warn(`[useAnalyseItemRecords] event-timeline batch KO (${err?.message})`)
+          // Sans signalement, l'échec est indistinguable d'un « 0 article pour
+          // cette configuration » (fiche 164) — on remonte l'erreur une fois par
+          // session. La tranche KO est marquée tentée ([] → pas de refetch en
+          // boucle) et on CONTINUE les tranches suivantes : ses events tombent
+          // dans le comptage de repli shop-level (BUG-247-01) au lieu de
+          // disparaître.
+          if (!_warnedBatchKo) {
+            _warnedBatchKo = true
+            fetchError.value = err?.message || 'event-timeline batch failed'
+          }
+          const patch = {}
+          for (const id of ids) patch[id] = []
+          cache.value = { ...cache.value, ...patch }
+        }
       }
-      // Nouvelle référence pour déclencher la réactivité du computed.
-      cache.value = { ...cache.value, ...patch }
-    } catch (err) {
-      if (controller.signal.aborted) return
-      console.warn(`[useAnalyseItemRecords] event-timeline batch KO (${err?.message})`)
-      // Sans signalement, l'échec est indistinguable d'un « 0 article pour cette
-      // configuration » (fiche 164) — on remonte l'erreur une fois par session.
-      if (!_warnedBatchKo) {
-        _warnedBatchKo = true
-        fetchError.value = err?.message || 'event-timeline batch failed'
-      }
-      // marque tout comme tenté → pas de refetch en boucle
-      const patch = {}
-      for (const id of ids) patch[id] = []
-      cache.value = { ...cache.value, ...patch }
     } finally {
       if (!controller.signal.aborted) loading.value = false
       if (abortController === controller) abortController = null
@@ -121,19 +142,13 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     loading.value = true
 
     const spaceId = route.params.spaceId
-    const ids = list.map((e) => e.id)
     try {
-      const byEventId = await getSpaceEventTimelineBatch(spaceId, ids, { bypassCache: true })
-      if (controller.signal.aborted) return
-      const patch = {}
-      for (const id of ids) {
-        const data = byEventId.get(id) || []
-        const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
-        patch[id] = freezeRows(preprocessTimelineRecords(raw, {
-          menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-        }))
+      for (const ids of chunked(list.map((e) => e.id))) {
+        if (controller.signal.aborted) return
+        const byEventId = await getSpaceEventTimelineBatch(spaceId, ids, { bypassCache: true })
+        if (controller.signal.aborted) return
+        cache.value = { ...cache.value, ...buildPatch(ids, byEventId) }
       }
-      cache.value = { ...cache.value, ...patch }
       _warnedBatchKo = false
     } catch (err) {
       if (controller.signal.aborted) return
@@ -158,9 +173,9 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     return out.map((r) => reconcileRecord(r, reconciliationCtx.value))
   })
 
-  // Events réellement fetchés (cap inclus, batch KO = [] compté « tenté ») —
-  // permet aux consommateurs d'aligner leurs comptages (eventCount) sur les
-  // records effectivement disponibles.
+  // Events réellement fetchés (batch KO = [] compté « tenté ») — permet aux
+  // consommateurs d'aligner leurs comptages (eventCount) sur les records
+  // effectivement disponibles.
   const loadedEventIds = computed(() => new Set(Object.keys(cache.value)))
 
   /** BUG-285 : purge (changement d'espace in-page — les eventIds de l'ancien espace

@@ -1,6 +1,9 @@
 # BUG-247-01 — Analyse : les KPI du header affichent d'abord le CA shop-level (+28,6 %) puis basculent sur l'item-level, et un event perd son CA en silence
 
-- **Statut** : 🔴 Non corrigé — diagnostic établi en navigateur (traces `[DIAG cfg]`, 2026-07-30)
+- **Statut** : 🟡 Corrigé le 2026-08-21 (front, non testé) — **le CA d'Analyse est désormais aligné
+  sur celui de la page d'accueil** (décision JLH, 2ᵉ passe du 2026-08-21, qui SUPERSEDE la
+  décision A). Volet B (recalcul des agrégats TVA) toujours à faire ; diagnostic établi en
+  navigateur (traces `[DIAG cfg]`, 2026-07-30)
 - **Sévérité** : 🔴 Critique (un CA faux de +69 689 € est affiché puis remplacé sans signal ; le CA
   final sous-compte un event sans que rien ne l'indique)
 - **Domaine** : Analyse & agrégation
@@ -39,6 +42,69 @@ qui ne traite que l'échec complet du batch.
 `ATTENDEES` reste à 238 252 sur toute la séquence : les spectateurs sont sommés sur
 `filteredEvents` et non sur les records (`useMetricsCalculator.js:58-63`), donc cette pastille est
 la seule à ne pas dépendre de la source qui a gagné la course.
+
+## Occurrence n°2 — Stade Jean Bouin, 2026-08-21
+
+Espace **Stade Jean Bouin** (`cmsufah9p0c08gpkz2wsg5pzo`), « All Configurations », « All history » :
+
+| | au chargement (shop-level) | après « Loading the catalog… » (item-level) |
+|---|---|---|
+| REVENUE | **2 926 565 €** | **2 718 041 €** (−7,13 %) |
+| Points de vente | 42 | 38 |
+| « By area » | 6 zones | 5 zones |
+| « By POS type » | 3 types (Food/Beer/…) | 4 types (Beverages/Food/…) |
+
+L'utilisateur a naturellement attribué la chute aux **Advanced filters** : la bascule se produit
+à l'instant exact où l'alerte « Loading the catalog… » disparaît. Ce libellé ment — voir
+§ « Pourquoi l'utilisateur voit "Loading the catalog…" ». Aucun filtre n'est appliqué ni modifié
+pendant la séquence.
+
+L'écart (7,13 %) est plus faible que les 13,06 % d'Auxerre : la TVA périmée (bug #2 module 02)
+ne peut pas être présentée comme l'explication arithmétique unique sur cet espace — des termes
+compensent en sens inverse (rows non mappées `spaceElementId IS NULL` **gagnées** par
+l'item-level, plafond front de 50 events, events > 2 jours). Décomposition non mesurée en base.
+
+### Pourquoi l'utilisateur voit « Loading the catalog… »
+
+Le libellé `anCatalogLoading` (FilterPanel) ne suit pas un catalogue : le getter `filtersState`
+(`analyse.js:1232-1251`) reste `'loading'` tant que `soldItemOptionsLoading` est vrai — simple
+relais de `itemRecordsLoading`, c'est-à-dire du batch `event-timeline` lui-même
+(`AnalyseView.vue` → `setSoldItemOptionsLoading`). Sa disparition est donc l'instant exact où
+les chiffres basculent, d'où la fausse piste « les filtres changent les données ». Corrigé le
+2026-08-21 : « Chargement des ventes détaillées… » / « Loading detailed sales… » (clé conservée).
+
+Un **second** chargement se termine quasi simultanément, sans libellé : l'union « All
+Configurations » (`loadAllConfigsShopContext`, `analyse.js:2195-2281`) — voir ci-dessous.
+
+### Effets cosmétiques simultanés : zones et POS types (à ne pas confondre avec la perte de CA)
+
+- **Zones 6 → 5** : relabellisation, pas une perte. Après le chargement différé de
+  `configShopContext`, `reconcileRecord` fait gagner `element.floorName` sur `record.shopArea`
+  (`analyseReconciliation.js:396-398`) → le regroupement « By area » change de clés (fusion sous
+  un même étage). Même chaîne que BUG-300-01, cause différente.
+- **POS types 3 → 4** : `resolveShopType` (`analyseDimensions.js:273-283`) utilise
+  `menuItemType`, présent uniquement sur les records item-level (NULL en dur dans la RPC
+  shop-level) → un PdV générique se ventile sous un type réel une fois l'item-level chargé.
+  Candidat secondaire : bucket « Non rattachés » (rows `spaceElementId IS NULL` conservées par
+  l'item-level, jetées par la RPC).
+
+### Exclusions exclusives à l'item-level — inventaire complet (2026-08-21)
+
+Toutes dans `resolveEventSalesScope` (`backend/src/features/spaces/spaces.service.ts:1198-1352`),
+en plus de la fenêtre de dates (cause n°3) :
+
+- **`MAX_EVENT_SPAN_DAYS = 2`** : tout event de plus de 2 jours rend `[]` — exclusion volontaire
+  des events « conteneurs de saison » (commit `113a34f`, KOUAME Ulrich, 2026-08-04). Effet de
+  bord : un vrai événement de 3 jours (festival, tournoi) disparaît aussi.
+- **Resserrement de fenêtre par event voisin** (`windowStart >= windowEnd` → exclu) : fix
+  anti-double-comptage BUG-339-02 (commit `99af245`, JLH, 2026-08-19).
+- **Plafond front `MAX_EVENTS = 50`** (`useAnalyseItemRecords.js`) : troncature silencieuse des
+  events au-delà de 50 — constante héritée du commit d'initialisation du repo (`8bf2429`,
+  2026-07-15), aucun propriétaire, aucune décision tracée. **Levée le 2026-08-21** (décision
+  JLH, la perf n'est pas un critère). ⚠️ le backend tronque lui-même à **100 ids par requête**
+  (`spaces.service.ts:1374`, `.slice(0, 100)` silencieux) → le chunking client est obligatoire.
+- Le cap jumeau **`useTransactionBaskets.js` (MAX_EVENTS = 50)** n'est PAS levé → le donut
+  paniers couvre 50 events quand les KPI en couvrent N. Question posée à JLH/Bertrand.
 
 ## Cause racine
 
@@ -218,18 +284,102 @@ Effet de bord relevé au passage, **hors périmètre** : deux `integrationId`
 transactions et les mêmes 6 059 lignes pour cette journée. Une seule est rattachée à l'espace, donc
 aucun double comptage aujourd'hui — mais un rattachement des deux le provoquerait.
 
-## Correction — pas encore appliquée, deux volets
+## Révision du 2026-08-21 (2ᵉ passe) — le CA d'Analyse s'aligne sur la page d'accueil
 
-### Volet A (front, sans dépendance backend)
+**Demande JLH** : « il faut que le CA soit le même que celui de la page d'accueil ». Sur
+`/spaces`, la carte Stade Jean Bouin affiche **2 926 565,31 €** ; Analyse affichait ce montant au
+chargement puis basculait à 2 718 041 €. **Le chiffre de l'accueil fait foi.**
 
-1. Ne pas publier le repli shop-level comme une valeur finale : marquer les pastilles KPI comme
-   provisoires tant que l'item-level des events du périmètre n'est pas chargé (le composable expose
-   déjà `loading` et `loadedEventIds` — `useAnalyseItemRecords.js:153`), plutôt que d'afficher un
-   montant qui bougera de 28,6 %.
-2. Signaler le cas mixte : comparer `loadedEventIds` aux events du périmètre qui ont du CA
-   shop-level, et remonter les events dont l'item-level est vide (même canal que BUG-187 :
-   `fetchError` → snackbar, ou un compteur affiché comme pour
-   `predictEventsWithoutScenarioCount`). Un CA qui sous-compte doit le dire.
+### Ce que compare exactement l'utilisateur : deux requêtes sur la même table
+
+| | Page d'accueil | Analyse (shop-level) |
+|---|---|---|
+| Code | `getRevenueSummaries`, `backend/src/features/spaces/spaces.service.ts:166-224` | RPC `get_space_shop_details`, migration `20260818120000_...sql:131-205` |
+| Affichage | `space.fbRevenue` brut, `frontend/src/components/spaces/widgets/SpaceItem.vue:61` | getter `filteredShopGranularData` → `filteredRecords` |
+| Table | `SpaceRevenueMinuteAgg."revenueHt"` | **la même** |
+| Rattachement PdV | `se.id = srma."spaceElementId"` | via `WeezeventLocationShopMapping` |
+| Whitelist locations | **aucune** | `weezeventLocationId = ANY(v_location_ids)` → lignes des locations **non mappées jetées** |
+| Merch | **exclu** (`se.type = 'merchshop'`) | non exclu |
+| Events simulés / futurs | inclus | exclus (`analysableEvents`) |
+
+**L'égalité n'est donc PAS structurelle** : elle tient sur Jean Bouin parce que ces trois axes y
+sont nuls. Sur un espace à locations non mappées Analyse lira **plus bas** ; sur un espace avec du
+merch, **plus haut**. La rendre garantie demande un choix backend (RPC sans whitelist + exclusion
+merch, ou accueil adoptant la RPC) — voir la question portée à Bertrand.
+
+### Pourquoi aucun rattrapage ne suffisait
+
+L'item-level ne lit pas la même table d'agrégat (`SpaceRevenueMinuteItemAgg`) et sa formule
+diverge **par conception** (`backend/prisma/schema.prisma:2940-2977` : la remise n'y est pas
+soustraite, contrairement à `SpaceRevenueMinuteAgg`). Le montant diffère **event par event** :
+ajouter les events manquants — ce que faisait le repli de la 1ʳᵉ passe — ne ramène jamais au
+montant de l'accueil. Seul un CA sourcé shop-level de bout en bout y arrive.
+
+### Implémentation (2ᵉ passe)
+
+- `chartRecords` / `kpiRecords` = `filteredRecords` (shop-level), Predict inchangé.
+  `articleRecords` reste item-level pur.
+- **Coût et marge** : les lignes shop-level portent `menuItemId: NULL` / `itemCost: NULL`
+  (migration `:143-152`) et le coût est un produit `costMap[menuItemId] × quantity`
+  (`useMetricsCalculator.js:53`) → coût 0, **marge 100 %** si on ne fait rien (visible sur la
+  capture du premier chargement : COST 0,00 € / MARGIN 100,0 %). Le coût est donc pris sur
+  l'item-level (`itemLevelCost`), et **la marge est recalculée sur les valeurs AFFICHÉES**
+  `(revenue − cost) / revenue` : le sous-titre de la carte montre « Total : revenue − cost »,
+  l'arithmétique doit tomber juste à l'écran. Conséquence assumée : marge légèrement optimiste,
+  sa base de revenus étant la plus large des deux.
+- Attente ciblée : pastille COST en skeleton (`kpi.loading` par pastille) et carte Marge à « — »
+  tant que l'item-level charge ; le CA, lui, n'attend plus rien (définitif dès le shop-level).
+- `EventRevenueByShopChart` reçoit `:item-records="articleRecords"` — son mode « Menu Types »
+  indexe sur `menuItemType` (`:251`), absent du shop-level : sans cette source dédiée il se
+  viderait.
+- Supprimés (sans objet) : `itemCoveredEventIds`, `articleFilterActive`, `shopFallbackEventIds`,
+  `shopFallbackRecords`, `shopFallbackEventCount`, l'alerte et les 2 clés `anShopFallbackCounted`.
+
+### Décisions de la 1ʳᵉ passe SUPERSEDED (conservées pour mémoire)
+
+- **Décision A** (« le CA courant vient de l'item-level ») → remplacée : le CA vient du
+  shop-level, aligné sur l'accueil.
+- **Q1 skeleton sur tous les KPI** → réduit au coût et à la marge : masquer un CA déjà définitif
+  ferait attendre l'utilisateur pour rien.
+- **Q2 « events sans item-level comptés à leur valeur shop-level » + garde filtre article** →
+  sans objet : le shop-level les contient tous par construction.
+
+### Limites connues, non traitées
+
+- Les variations Précédent/N-1 restent calculées sur l'item-level (`itemSummary`,
+  `AnalyseView.vue`) alors que les totaux sont shop-level : chaque comparaison est cohérente avec
+  elle-même (même base des deux côtés), mais la base diffère de celle du montant affiché. Tracé
+  en question, non modifié — la comparaison est OFF par défaut.
+- Les vues article totalisent **moins** que les KPI (grain et table différents). Attendu.
+- Le CA affiché reste celui de l'accueil, donc **gonflé de 10-15 % par les agrégats TTC
+  antérieurs au 2026-07-21** (bug #2 du module 02). S'aligner dessus propage ce biais à Analyse :
+  c'est assumé, seul le Volet B le corrige.
+
+## Correction — Volet A appliqué le 2026-08-21 (1ʳᵉ passe, partiellement superseded ci-dessus), Volet B restant
+
+### Volet A (front) — APPLIQUÉ le 2026-08-21, selon les décisions JLH du même jour
+
+| Décision JLH | Implémentation |
+|---|---|
+| 1. **Skeleton** pendant le chargement item-level | `itemLevelPending` (AnalyseView) : `itemRecordsLoading` OU couverture incomplète de `filteredEvents` par `mainLoadedEventIds`. Cartes KPI : skeletons existants étendus (`chartsLoading \|\| itemLevelPending`). Bande header : prop `kpisLoading` sur `WorkspaceAppHeader` → `v-skeleton-loader` à largeur fixe à la place des montants, labels conservés. Predict : jamais de skeleton. |
+| 2. Event avec CA shop-level mais item-level vide : **compté** | Dataset hybride : `analyseRecords = [...itemLevelRecords, ...shopFallbackRecords]` où `shopFallbackRecords` = lignes shop-level des events à `revenue > 0` non couverts par `globalItemRecords` (BRUT, pas filtré — sinon un event vidé par un filtre article rentrerait par la porte de derrière). Signalé par une `v-alert` compacte au-dessus des KPI (`anShopFallbackCounted`, « {n} événement(s) compté(s) depuis les totaux pré-agrégés »). **Garde** : si une dimension article est active, le repli est exclu du total (ses lignes n'ont pas le grain article — décision JLH « exclure du total »). Les vues article consomment `itemLevelRecords` pur (pas de lignes repli « Unattached » artificielles). |
+| 3. **Plafond 50 levé** | `useAnalyseItemRecords` : `MAX_EVENTS` supprimé → `CHUNK_SIZE = 50`, tranches **séquentielles** avec patch du cache après chacune (rendu progressif) ; erreur par tranche → ids cachés `[]`, alerte une fois, tranches suivantes continuées (les events KO tombent dans le comptage de repli au lieu de disparaître) ; `refresh()` (Live) chunké pareil ; option `maxEvents` retirée (l'instance comparaison passait 100 — au-delà du slice backend de 100, déjà limite). |
+| 4. **Libellé corrigé** | `anCatalogLoading` : « Chargement des ventes détaillées… » / « Loading detailed sales… » (clé conservée, seul consommateur FilterPanel). |
+
+Limites connues du Volet A, assumées et documentées :
+
+- Les events de repli sont comptés **tels que stockés** : agrégat écrit avant le 2026-07-21 =
+  TTC (bug #2) → part du total gonflée de 10-15 % jusqu'au recalcul (Volet B).
+- Marge légèrement surestimée pour les events de repli (`menuItemId` null → coût 0) — identique
+  au comportement shop-level historique.
+- Le panneau filtres reste « loading » jusqu'à la dernière tranche — message désormais honnête,
+  et les options article se remplissent au fil des tranches ; `pruneFiltersToOptions` (gardé par
+  `filtersState === 'ready'`) s'exécute sur des options complètes, plus sûr qu'avant.
+- Cap `useTransactionBaskets` (50) non levé → périmètre du donut paniers ≠ périmètre KPI sur les
+  espaces à > 50 events.
+- Total hybride : pour les events de repli, aucun détail article — la somme du tableau articles
+  ne retombe pas sur le total KPI. C'est le prix du choix « compté » (total juste, dataset
+  hétérogène, signalé).
 
 ### Volet B (backend — la vraie racine)
 
@@ -260,21 +410,19 @@ aucun double comptage aujourd'hui — mais un rattachement des deux le provoquer
 Tant que 1 et 2 tiennent, **toute** vue shop-level et toute vue item-level du même espace
 afficheront des CA différents — ce n'est pas propre à la bande KPI.
 
-## Questions ouvertes
+## Questions ouvertes — arbitrées le 2026-08-21 (JLH), sauf la n°3
 
-Le choix de source est tranché (item-level, décision A). Ne sont **pas** tranchés :
-
-1. Que doit afficher la bande KPI pendant le chargement de l'item-level — un skeleton, la valeur
-   shop-level marquée comme provisoire, ou rien ?
-2. Un event avec CA shop-level mais item-level vide doit-il être compté à sa valeur shop-level (total
-   juste, dataset hétérogène) ou exclu avec un avertissement (dataset homogène, total qui
-   sous-compte) ?
+1. Affichage pendant le chargement item-level : **skeleton** (décision JLH 2026-08-21, appliquée).
+2. Event avec CA shop-level mais item-level vide : **compté** à sa valeur shop-level, avec
+   signalement visible ; **exclu du total si un filtre article est actif** (impossible de savoir
+   quelle part répond au filtre). Décision JLH 2026-08-21, appliquée.
 3. Le rattachement des ventes à un event doit-il être le lien explicite `weezeventEventId` (règle de
    la RPC depuis le 2026-07-21) partout, y compris item-level ? Si oui, que devient une vente dont la
    date tombe dans la fenêtre d'un event mais qui appartient à un autre `WeezeventEvent` ?
-
-→ à porter dans [`QUESTIONS_A_BERTRAND.md`](../QUESTIONS_A_BERTRAND.md) si l'arbitrage n'est pas
-immédiat. La question 3 a un impact backend et touche aussi les paniers et la timeline.
+   **Non tranchée** → portée dans [`QUESTIONS_A_BERTRAND.md`](../QUESTIONS_A_BERTRAND.md)
+   (impact backend : paniers et timeline aussi).
+4. (Nouvelle, 2026-08-21) Le cap 50 de `useTransactionBaskets` doit-il être levé comme celui de
+   `useAnalyseItemRecords` ? → portée dans `QUESTIONS_A_BERTRAND.md`.
 
 ## Ce que la trace a écarté
 
@@ -307,6 +455,73 @@ Quatre hypothèses testées et **invalidées** en navigateur le 2026-07-30, à n
   C'est la **même cause racine** que ci-dessus, sous un autre angle : ces events ont des agrégats
   shop-level sans transactions item-level correspondantes. Le poids d'un event diffère d'un facteur
   ~60 selon la vue qui le regarde.
+
+## En clair (sans jargon)
+
+La page Analyse a deux « calculettes ». La rapide lit des totaux pré-calculés par buvette —
+certains gardent la TVA par erreur (données jamais recalculées depuis le fix du 21/07). C'est
+elle qui alimente aussi les cartes de la page d'accueil. La lente recompte article par article,
+mais avec des règles plus strictes pour rattacher une vente à un match : la date du match (fausse
+date = CA perdu en silence), maximum 2 jours (les « saisons » sont ignorées, exprès), et —
+jusqu'au 2026-08-21 — seulement les 50 premiers événements.
+
+Au chargement, la page affichait le chiffre de la rapide, puis le remplaçait sans prévenir par
+celui de la lente, pendant un message qui prétendait charger « le catalogue ».
+
+**Décision finale du 2026-08-21 : le chiffre de la page d'accueil fait foi.** Analyse garde donc
+la calculette rapide pour tout le chiffre d'affaires, du début à la fin — plus aucune bascule.
+La calculette lente ne sert plus qu'à ce qu'elle seule sait faire : le détail par article, et le
+**coût** (sans lui, la marge afficherait 100 %). Le plafond de 50 événements est supprimé et le
+message dit enfin la vérité.
+
+À savoir : le chiffre affiché est le même partout, mais il reste **trop haut de 10 à 15 %** tant
+que les vieux totaux n'ont pas été recalculés (TVA comptée en trop, Volet B). Quand ce sera fait,
+tous les montants baisseront d'autant — c'est la correction, pas une panne.
+
+## Journal — session du 2026-08-21
+
+### Contexte
+
+Occurrence n°2 signalée par l'utilisateur sur Stade Jean Bouin (« des events disparaissent quand
+Advanced filters finit de charger ») — diagnostic : même cause racine, PAS un filtrage. Nouveaux
+mécanismes documentés : libellé `anCatalogLoading` trompeur, plafond `MAX_EVENTS = 50` (hérité,
+sans propriétaire), `MAX_EVENT_SPAN_DAYS = 2`, troncature backend silencieuse à 100 ids/requête,
+relabellisation zones (configShopContext) et POS types (menuItemType) — cosmétiques.
+
+### Livré — 2ᵉ passe (alignement sur la page d'accueil)
+
+- `src/components/analyse/AnalyseView.vue` — `chartRecords`/`kpiRecords` = shop-level ;
+  `itemLevelCost` + `metrics` composé (coût item-level, marge recalculée sur les valeurs
+  affichées) ; `itemLevelPending` recentré sur coût/marge ; machinerie de repli supprimée ;
+  `:item-records` passé au graphique.
+- `src/components/WorkspaceAppHeader.vue` — prop globale `kpisLoading` remplacée par un flag
+  `loading` **par pastille**.
+- `src/components/analyse/panels/FinancialMetricsGrid.vue` — prop `marginLoading` (carte Marge à
+  « — » au lieu de 100 %).
+- `src/components/analyse/charts/EventRevenueByShopChart.vue` — prop `itemRecords` + computed
+  `sourceRecords` (mode « Menu Types » sur le grain article).
+- `src/i18n/translations.js` — clés `anShopFallbackCounted` retirées (EN/FR).
+- Cette fiche (§ Révision 2ᵉ passe) + `00_INDEX.md` + `QUESTIONS_A_BERTRAND.md`.
+
+Tests : `analyseFiltersState`, `analyseDataset`, `analyseAggregations` — 51 verts, aucun spec
+modifié.
+
+### Livré — 1ʳᵉ passe (Volet A, code)
+
+- `src/composables/useAnalyseItemRecords.js` — plafond levé, chunking séquentiel par 50 avec
+  rendu progressif, erreurs par tranche non bloquantes, `refresh()` (Live) chunké.
+- `src/components/analyse/AnalyseView.vue` — `itemLevelPending` (skeleton KPI), dataset hybride
+  `analyseRecords` (item-level + repli shop-level des events non couverts, garde filtre article),
+  alerte `anShopFallbackCounted`, `articleRecords` → item-level pur hors predict, instance
+  comparaison sans cap.
+- `src/components/WorkspaceAppHeader.vue` — prop `kpisLoading` + skeleton à largeur fixe.
+- `src/i18n/translations.js` — `anCatalogLoading` corrigé (EN/FR), `anShopFallbackCounted` (EN/FR).
+- Cette fiche + `00_INDEX.md` + `QUESTIONS_A_BERTRAND.md` (Q3 rattachement, cap paniers).
+
+Non testé (dev server / tests lancés par l'utilisateur). Vérifs attendues : skeletons au
+chargement puis une seule publication de valeur ; plusieurs requêtes `event-timeline` de ≤ 50
+ids ; alerte « N événement(s) compté(s)… » si events de repli ; Predict inchangé ;
+`tests/unit/analyseFiltersState.spec.js` vert sans modification.
 
 ## Journal — session du 2026-07-30
 
@@ -367,4 +582,5 @@ identifier avant qu'elle n'embarque du travail non relu dans une PR.
 
 ---
 
-Rédaction : **JLH**, 2026-07-30.
+Rédaction : **JLH**, 2026-07-30. Mise à jour (occurrence n°2, décisions, Volet A) : **JLH**,
+2026-08-21.

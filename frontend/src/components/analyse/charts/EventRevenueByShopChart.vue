@@ -159,6 +159,10 @@ const UNATTACHED_COLOR = '#9CA3AF'
 
 const props = defineProps({
   records: { type: Array, default: () => [] },
+  // Records au grain ARTICLE, pour le seul mode « Menu Types » : depuis
+  // BUG-247-01 `records` est shop-level (CA aligné sur la page d'accueil) et
+  // porte `menuItemType: NULL` — sans cette source dédiée, ce mode se viderait.
+  itemRecords: { type: Array, default: () => [] },
   events: { type: Array, default: () => [] },
   isPredictMode: { type: Boolean, default: false },
   // Aplatit la <v-card> racine pour s'intégrer dans une carte parente
@@ -243,6 +247,14 @@ function dimValueFor(r, dimKey) {
   return v || '—'
 }
 
+// Le mode « Menu Types » a besoin du grain article : `records` est shop-level
+// (BUG-247-01) et n'en porte pas. Repli sur `records` si aucun item-level n'a
+// été fourni (autres consommateurs du composant, mode Predict).
+const sourceRecords = computed(() => {
+  if (viewMode.value === 'shops') return props.records || []
+  return (props.itemRecords || []).length ? props.itemRecords : (props.records || [])
+})
+
 const aggregated = computed(() => {
   const dimKey = viewMode.value === 'shops' ? 'shopName' : 'menuItemType'
   const mode = aggregationMode.value
@@ -251,7 +263,7 @@ const aggregated = computed(() => {
   if (mode !== 'event') {
     // Bucket records by period.
     const byBucket = new Map()
-    for (const r of props.records || []) {
+    for (const r of sourceRecords.value) {
       if (!r) continue
       const dim = dimValueFor(r, dimKey)
       if (dim === null) continue
@@ -308,7 +320,7 @@ const aggregated = computed(() => {
   // Per-event aggregation
   const byEvent = new Map()
 
-  for (const r of props.records || []) {
+  for (const r of sourceRecords.value) {
     if (!r || !r.eventId) continue
     const dim = dimValueFor(r, dimKey)
     if (dim === null) continue

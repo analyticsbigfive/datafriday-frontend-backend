@@ -19,11 +19,15 @@
       />
     </v-col>
     <v-col cols="12" sm="6" lg="3">
+      <!-- Marge en attente du coût item-level (BUG-247-01) : « — » plutôt que
+           100 % (les lignes shop-level n'ont pas de coût) corrigé après coup. -->
       <KpiCard
         :config="cards[2]"
-        :value="`${metrics.displayMargin.value.toFixed(1)}%`"
-        :subtext="`${t('anTotal')} : ${formatCurrencyDetailed(metrics.displayRevenue.value - metrics.displayCost.value)}`"
-        :variation="v('margin')"
+        :value="marginLoading ? '—' : `${metrics.displayMargin.value.toFixed(1)}%`"
+        :subtext="marginLoading
+          ? ''
+          : `${t('anTotal')} : ${formatCurrencyDetailed(metrics.displayRevenue.value - metrics.displayCost.value)}`"
+        :variation="marginLoading ? null : v('margin')"
         @click="$emit('open-chart', 'margin')"
       />
     </v-col>
@@ -50,6 +54,9 @@ import { useI18n } from '@/i18n/useI18n'
 const props = defineProps({
   metrics: { type: Object, required: true },
   summary: { type: Object, default: null },
+  // Coût pas encore chargé (item-level) → carte Marge en attente plutôt qu'à
+  // 100 %. Cf. BUG-247-01.
+  marginLoading: { type: Boolean, default: false },
 })
 defineEmits(['open-chart'])
 

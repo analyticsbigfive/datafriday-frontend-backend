@@ -47,7 +47,15 @@
         @keydown.enter="kpi.kind && $emit('kpi-click', kpi.kind)"
       >
         <div class="wsh-kpi-label">{{ kpi.label }}</div>
-        <div class="wsh-kpi-value">
+        <!-- `kpi.loading` : pastille dont la valeur n'est pas encore définitive
+             (BUG-247-01, le coût d'Analyse arrive avec l'item-level) — skeleton
+             plutôt qu'une valeur provisoire qui se corrige ensuite. -->
+        <v-skeleton-loader
+          v-if="kpi.loading"
+          type="text"
+          class="wsh-kpi-skeleton"
+        />
+        <div v-else class="wsh-kpi-value">
           {{ kpi.value }}
           <span
             v-if="kpi.variation != null"
@@ -97,7 +105,8 @@ import NotificationBell from '@/components/NotificationBell.vue'
 const props = defineProps({
   spaceName: { type: String, default: '' },
   section: { type: String, default: '' },
-  // [{ label, value, color }] — color = nom Vuetify/clé connue (success, blue…).
+  // [{ label, value, color, loading }] — color = nom Vuetify/clé connue
+  // (success, blue…) ; `loading` remplace la valeur par un skeleton.
   kpis: { type: Array, default: () => [] },
   // Affiche un bouton « Accueil » (→ liste des espaces) après le hamburger.
   // Off par défaut : DashboardView (/spaces) utilise aussi ce header et n'en a pas besoin.
@@ -263,6 +272,18 @@ onBeforeUnmount(() => {
   letter-spacing: -0.1px;
 }
 .wsh-kpi-var--bad { color: #ff3131; }
+/* BUG-247-01 : placeholder de valeur KPI — largeur/hauteur fixes calées sur
+   .wsh-kpi-value pour éviter tout layout shift au remplacement. */
+.wsh-kpi-skeleton {
+  width: 48px;
+  height: 14px;
+  overflow: hidden;
+  background: transparent;
+}
+.wsh-kpi-skeleton :deep(.v-skeleton-loader__text) {
+  margin: 0;
+  height: 12px;
+}
 .wsh-kpi-cell--clickable { cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease; }
 .wsh-kpi-cell--clickable:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(var(--kpi-rgb, 0, 0, 0), 0.25); }
 /* 2e ligne (extension) : pleine largeur sous la ligne principale. */
