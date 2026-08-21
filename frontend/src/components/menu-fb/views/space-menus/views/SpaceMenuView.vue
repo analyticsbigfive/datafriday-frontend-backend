@@ -130,6 +130,7 @@
             :is-dark="isDark"
             :space-has-no-configuration="!configurationsLoading && configOptions.length === 0"
             @edit-shop="editShop"
+            @duplicate-shop="openDuplicateDialog"
             @select-shop="selectShop"
             @retry="selectedConfigId && loadShopsForSpace(selectedSpaceId, selectedConfigId, { forceRefresh: true })"
           />
@@ -174,13 +175,53 @@
         @save-error="onChildError"
       />
 
+      <!-- Duplication d'un shop vers une autre configuration (appariement par NOM) -->
+      <v-dialog v-model="duplicateDialogOpen" max-width="460" persistent>
+        <div class="smv-dupdlg" :class="{ 'smv-dupdlg--dark': isDark }">
+          <!-- Overlay de progression : bloque la carte pendant la tâche. -->
+          <div v-if="duplicating" class="smv-dupdlg__overlay">
+            <v-progress-circular indeterminate color="#ff3131" size="40" width="4" />
+            <span class="smv-dupdlg__overlay-text">{{ t('spaceMenu.duplicating') }}</span>
+          </div>
+          <div class="smv-dupdlg__head">
+            <div class="smv-dupdlg__icon"><Copy :size="18" color="white" /></div>
+            <div class="smv-dupdlg__titles">
+              <div class="smv-dupdlg__title">{{ t('spaceMenu.duplicateTitle') }}</div>
+              <div class="smv-dupdlg__sub">{{ duplicateSource ? duplicateSource.name : '' }}</div>
+            </div>
+            <button class="smv-dupdlg__close" @click="duplicateDialogOpen = false"><X :size="16" /></button>
+          </div>
+          <div class="smv-dupdlg__body">
+            <p class="smv-dupdlg__hint">{{ t('spaceMenu.duplicateHint') }}</p>
+            <label class="smv-dupdlg__label">{{ t('spaceMenu.duplicateTargetConfig') }}</label>
+            <select v-model="duplicateTargetConfigId" class="smv-dupdlg__select" :disabled="duplicating">
+              <option value="">{{ t('spaceMenu.selectConfiguration') }}</option>
+              <option v-for="c in duplicateConfigOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+          </div>
+          <div class="smv-dupdlg__foot">
+            <button class="smv-dupdlg__btn smv-dupdlg__btn--cancel" :disabled="duplicating" @click="duplicateDialogOpen = false">
+              {{ t('spaceMenu.cancel') }}
+            </button>
+            <button
+              class="smv-dupdlg__btn smv-dupdlg__btn--primary"
+              :disabled="!duplicateTargetConfigId || duplicating"
+              @click="confirmDuplicate"
+            >
+              <Copy :size="14" />
+              {{ duplicating ? t('spaceMenu.duplicating') : t('spaceMenu.duplicateConfirm') }}
+            </button>
+          </div>
+        </div>
+      </v-dialog>
+
     </div>
 
     <!-- Snackbar feedback -->
     <v-snackbar
       v-model="snackbar"
       :color="snackbarColor"
-      location="bottom right"
+      location="top right"
       :timeout="3500"
       rounded="lg"
     >
@@ -196,9 +237,9 @@
 import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { useI18n } from "@/i18n/useI18n";
-import { Utensils, Store, UtensilsCrossed, Search, X } from 'lucide-vue-next';
+import { Utensils, Store, UtensilsCrossed, Search, X, Copy } from 'lucide-vue-next';
 import { getSpacesLight } from '@/api/endpoints/space.api';
-import { getSpaceMenuConfiguration, getSpaceMenuItemsWithAvailability } from '@/api/endpoints/menu.api';
+import { getSpaceMenuConfiguration, getSpaceMenuItemsWithAvailability, assignMenuItemsToShop } from '@/api/endpoints/menu.api';
 import ShopMenuItemsDrawer from '../drawers/ShopMenuItemsDrawer.vue';
 import SpaceMenuEditShopDrawer from '../drawers/SpaceMenuEditShopDrawer.vue';
 import SpaceMenuShopView from './SpaceMenuShopView.vue';
@@ -206,7 +247,7 @@ import SpaceMenuItemView from './SpaceMenuItemView.vue';
 
 export default {
   name: "SpaceMenuView",
-  components: { ShopMenuItemsDrawer, SpaceMenuEditShopDrawer, SpaceMenuShopView, SpaceMenuItemView, Utensils, Store, UtensilsCrossed, Search, X },
+  components: { ShopMenuItemsDrawer, SpaceMenuEditShopDrawer, SpaceMenuShopView, SpaceMenuItemView, Utensils, Store, UtensilsCrossed, Search, X, Copy },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -260,6 +301,12 @@ export default {
       snackbar: false,
       snackbarColor: 'success',
       snackbarMessage: '',
+
+      // Duplication d'un shop vers une autre configuration (appariement par nom)
+      duplicateDialogOpen: false,
+      duplicateSource: null,
+      duplicateTargetConfigId: '',
+      duplicating: false,
     };
   },
   computed: {
@@ -283,6 +330,11 @@ export default {
           _raw: c,
         }))
         .filter((c) => c.id && c.name);
+    },
+
+    // Cibles de duplication : toutes les configs sauf celle actuellement affichée.
+    duplicateConfigOptions() {
+      return this.configOptions.filter((c) => c.id !== String(this.selectedConfigId || ''));
     },
 
     // `rawShops` est déjà scopé par le backend (GET /spaces/:id/shops?configId=...) —
@@ -625,6 +677,86 @@ export default {
       this.editDrawerOpen = true;
     },
 
+    openDuplicateDialog(shop) {
+      if (!shop?.id) return;
+      this.duplicateSource = shop;
+      this.duplicateTargetConfigId = '';
+      this.duplicateDialogOpen = true;
+    },
+
+    // Duplique les menu items cochés d'un shop (config courante) vers le shop de MÊME NOM
+    // d'une autre configuration. Échoue si aucun shop de ce nom n'existe dans la config cible.
+    // Sémantique « Remplacer » (miroir) : l'upsert backend est PARTIEL, donc on envoie une map
+    // complète = toutes les clés déjà assignées à la cible passées à false, puis superposition
+    // de l'état de la source.
+    async confirmDuplicate() {
+      const shop = this.duplicateSource;
+      const spaceId = String(this.selectedSpaceId || '');
+      const srcConfigId = String(this.selectedConfigId || '');
+      const targetConfigId = String(this.duplicateTargetConfigId || '');
+      if (!shop?.id || !spaceId || !srcConfigId || !targetConfigId) return;
+
+      this.duplicating = true;
+      try {
+        const norm = (n) => String(n || '').trim().toLowerCase();
+
+        // 1) Shops de la config cible → recherche du shop de même nom.
+        const targetShopsRaw = await this.$store.dispatch('spaceShops/fetchForSpace', {
+          spaceId, configId: targetConfigId, forceRefresh: true,
+        });
+        const targetShops = (targetShopsRaw || []).map((s) => this.normalizeShop(s)).filter((s) => s.id);
+        const matches = targetShops.filter((s) => norm(s.name) === norm(shop.name));
+        if (!matches.length) {
+          this.snackbarColor = 'error';
+          this.snackbarMessage = this.t('spaceMenu.duplicateImpossible');
+          this.snackbar = true;
+          return;
+        }
+        // Appariement par NOM (des shops homonymes peuvent avoir des ids différents selon la
+        // config). On préfère toutefois un match d'id exact (même élément membre des 2 configs),
+        // sinon le 1er homonyme.
+        const targetShop = matches.find((s) => s.id === shop.id) || matches[0];
+
+        // 2) Map source (config courante) + map cible actuelle.
+        const [resSrc, resTgt] = await Promise.all([
+          getSpaceMenuConfiguration(spaceId, srcConfigId),
+          getSpaceMenuConfiguration(spaceId, targetConfigId),
+        ]);
+        const srcMap = (resSrc?.menuItems && resSrc.menuItems[shop.id]) || {};
+        const tgtMap = (resTgt?.menuItems && resTgt.menuItems[targetShop.id]) || {};
+
+        // 3) Map de remplacement : clés existantes de la cible à false, puis superposition source.
+        const replaceMap = {};
+        for (const k of Object.keys(tgtMap)) replaceMap[k] = false;
+        for (const [k, v] of Object.entries(srcMap)) replaceMap[k] = v === true;
+
+        await assignMenuItemsToShop(spaceId, targetConfigId, targetShop.id, replaceMap);
+
+        // Caches de la config cible périmés (compteur shops + roster) — invalidation ciblée.
+        this.$store.dispatch('spaceShops/invalidateForSpace', `${spaceId}:${targetConfigId}`);
+        this.$store.dispatch('shopMenuItems/invalidateForShop', { shopId: targetShop.id, configId: targetConfigId });
+
+        const enabledCount = Object.values(replaceMap).filter(Boolean).length;
+        this.snackbarColor = 'success';
+        this.snackbarMessage = this.t('spaceMenu.duplicateSuccess')
+          .replace('{count}', String(enabledCount))
+          .replace('{config}', this.configOptions.find((c) => c.id === targetConfigId)?.name || '');
+        this.snackbar = true;
+        this.duplicateDialogOpen = false;
+
+        // Si la config cible est celle affichée (impossible ici car exclue), on rafraîchirait.
+        if (targetConfigId === srcConfigId) {
+          this.loadShopsForSpace(spaceId, srcConfigId, { forceRefresh: true });
+        }
+      } catch (e) {
+        this.snackbarColor = 'error';
+        this.snackbarMessage = e?.response?.data?.message || e?.message || this.t('spaceMenu.duplicateFailed');
+        this.snackbar = true;
+      } finally {
+        this.duplicating = false;
+      }
+    },
+
     // Le cache Vuex spaceShops (TTL 15 min) gardait les anciens compteurs après une
     // écriture : changer de config puis revenir resservait l'état d'avant l'attach
     // (« je dois hard-refresh »). On l'invalide à chaque écriture — la mise à jour
@@ -835,4 +967,41 @@ export default {
 .space-menu-view--dark .smv-empty__icon { background: #1e293b; }
 .space-menu-view--dark .smv-empty__title { color: #94a3b8; }
 .space-menu-view--dark .smv-empty__sub { color: #64748b; }
+
+/* ── Dialog de duplication de shop ── */
+.smv-dupdlg { position: relative; background: #fff; border-radius: 18px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
+.smv-dupdlg__overlay {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(255,255,255,.82); backdrop-filter: blur(2px);
+}
+.smv-dupdlg__overlay-text { font-size: 13px; font-weight: 600; color: #b91c1c; }
+.smv-dupdlg--dark .smv-dupdlg__overlay { background: rgba(15,23,42,.82); }
+.smv-dupdlg--dark .smv-dupdlg__overlay-text { color: #fca5a5; }
+.smv-dupdlg__head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: #ff3131; }
+.smv-dupdlg__icon { width: 38px; height: 38px; border-radius: 10px; background: rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.smv-dupdlg__titles { flex: 1; min-width: 0; }
+.smv-dupdlg__title { font-size: 15px; font-weight: 700; color: #fff; }
+.smv-dupdlg__sub { font-size: 12px; color: rgba(255,255,255,.8); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smv-dupdlg__close { background: rgba(255,255,255,.15); border: none; cursor: pointer; width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; transition: background .15s; }
+.smv-dupdlg__close:hover { background: rgba(255,255,255,.25); }
+.smv-dupdlg__body { padding: 18px 18px 8px; }
+.smv-dupdlg__hint { font-size: 13px; color: #6b7280; line-height: 1.45; margin: 0 0 14px; }
+.smv-dupdlg__label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+.smv-dupdlg__select { width: 100%; height: 42px; border: 1.5px solid #e5e7eb; border-radius: 11px; padding: 0 12px; font-size: 14px; background: #fafafa; color: #111827; outline: none; transition: border-color .15s, box-shadow .15s; }
+.smv-dupdlg__select:focus { border-color: #ff3131; box-shadow: 0 0 0 3px rgba(255,49,49,.1); }
+.smv-dupdlg__foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px 18px; }
+.smv-dupdlg__btn { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px; height: 40px; border-radius: 50px; font-size: 13.5px; font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
+.smv-dupdlg__btn--cancel { background: #f3f4f6; color: #374151; }
+.smv-dupdlg__btn--cancel:hover { background: #e5e7eb; }
+.smv-dupdlg__btn--primary { background: #ff3131; color: #fff; }
+.smv-dupdlg__btn--primary:hover { box-shadow: 0 4px 14px rgba(255,49,49,.4); }
+.smv-dupdlg__btn:disabled { opacity: .55; cursor: not-allowed; }
+/* Dark */
+.smv-dupdlg--dark { background: #1e293b; }
+.smv-dupdlg--dark .smv-dupdlg__hint { color: #94a3b8; }
+.smv-dupdlg--dark .smv-dupdlg__label { color: #cbd5e1; }
+.smv-dupdlg--dark .smv-dupdlg__select { background: #0f172a; border-color: rgba(255,255,255,.12); color: #e2e8f0; }
+.smv-dupdlg--dark .smv-dupdlg__btn--cancel { background: rgba(255,255,255,.08); color: #cbd5e1; }
+.smv-dupdlg--dark .smv-dupdlg__btn--cancel:hover { background: rgba(255,255,255,.14); }
 </style>
