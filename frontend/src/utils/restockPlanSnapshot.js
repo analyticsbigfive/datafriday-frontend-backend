@@ -129,8 +129,12 @@ export function buildRecipeCoeffs({ restockRows = [], shoppingMode = 'finished',
 /** Ligne d'étape 1 figée (grain article) — whitelist stricte, rien d'autre.
  *  BUG-296-01 : `outcome` (agrégat stockOutcomeByItem) fige la ventilation
  *  restant/manque/paquets/couvert/vrac/stock final ; absent sur les plans
- *  sauvegardés avant le changement → le bloc ventilation reste masqué. */
-function freezeStockLine(row, inputs, outcome) {
+ *  sauvegardés avant le changement → le bloc ventilation reste masqué.
+ *  `orderQuantity` fige la photo « À commander » de l'étape 1 (besoin netté
+ *  contre le Storage au moment de la sauvegarde) : `null` = inconnu (plan
+ *  ancien ou article exclu → « — »), `0` = « Rien à acheter » — la
+ *  distinction compte à l'affichage. */
+function freezeStockLine(row, inputs, outcome, orderQuantity) {
   return {
     itemKey: row.itemKey,
     itemName: row.itemName,
@@ -139,6 +143,7 @@ function freezeStockLine(row, inputs, outcome) {
     adjustmentPercent: toNumber(inputs?.stockAdjustments?.[row.itemKey], 100),
     packedMode: !!inputs?.stockPackedModes?.[row.itemKey],
     excluded: !!inputs?.stockExcluded?.[row.itemKey],
+    buyQuantity: orderQuantity == null ? null : toNumber(orderQuantity),
     ...(outcome
       ? {
           targetQuantity: toNumber(outcome.targetQuantity),
@@ -246,9 +251,11 @@ export function buildPlanSnapshot({
   events = [],
   // BUG-296-01 — ventilation étape 1 (stockOutcomeByItem), keyée itemKey.
   stockOutcomes = {},
+  // Photo « À commander » de l'étape 1 (liveStockOrderByItem), keyée itemKey.
+  orderQuantities = {},
 } = {}) {
   const stockLines = stockRows.map((row) =>
-    freezeStockLine(row, inputs, stockOutcomes?.[row.itemKey]),
+    freezeStockLine(row, inputs, stockOutcomes?.[row.itemKey], orderQuantities?.[row.itemKey]),
   )
   const restockLines = restockRows.map(freezeRestockLine)
   const frozenShopping = shoppingGroups.map(freezeShoppingGroup)

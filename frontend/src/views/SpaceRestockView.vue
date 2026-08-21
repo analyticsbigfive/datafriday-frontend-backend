@@ -2738,24 +2738,14 @@ export default {
      * Tri par itemName = ordre de consommation de l'étape 3 : si deux articles
      * matchent la même entrée Storage (consumeFromPool consomme tout), le cas
      * limite tombe du même côté. Article décoché → absent de la map → « — ».
-     * Plan chargé → null (la photo ne porte pas de buyQuantity par article).
      * Coût O(articles × entrées Storage), mémoïsé — le template ne fait que
      * des lookups O(1), jamais de netting dans la boucle v-for.
+     * TOUJOURS l'état vivant (agrégat live, jamais la photo du plan) : c'est
+     * cette map que `buildPlanPayload` fige en `buyQuantity` — la sourcer sur
+     * `stockOutcomeByItem` (qui bascule sur la photo) figerait des nulls.
      */
-    /**
-     * Lot 3 — rang ACHAT prêt à afficher, pour la PAGE COURANTE seulement.
-     * Mémoïsé : le template lit 5 champs par ligne, et `buyInfo` résout un
-     * packaging (parcours des catalogues) — l'appeler depuis le template le
-     * referait à chaque lecture et à chaque re-render.
-     */
-    buyInfoByItem() {
-      const out = {}
-      for (const item of this.pagedStockSettingsRows) out[item.itemKey] = this.buyInfo(item)
-      return out
-    },
-    stockOrderByItem() {
-      if (this.loadedPlan) return null
-      const outcomes = this.stockOutcomeByItem
+    liveStockOrderByItem() {
+      const outcomes = aggregateRestockOutcomesByItem(this.liveRestockRowsAll)
       const items = this.liveStockSettingsRows
         .filter((row) => !this.stockExcluded[row.itemKey])
         .map((row) => ({
@@ -2769,6 +2759,34 @@ export default {
         .sort((a, b) => String(a.itemName).localeCompare(String(b.itemName)))
       const storagePool = preparePool(this.aggregateCountsForElements(this.storageElementIds))
       return orderQuantitiesByItemKey(items, storagePool)
+    },
+    /**
+     * Lot 3 — rang ACHAT prêt à afficher, pour la PAGE COURANTE seulement.
+     * Mémoïsé : le template lit 5 champs par ligne, et `buyInfo` résout un
+     * packaging (parcours des catalogues) — l'appeler depuis le template le
+     * referait à chaque lecture et à chaque re-render.
+     */
+    buyInfoByItem() {
+      const out = {}
+      for (const item of this.pagedStockSettingsRows) out[item.itemKey] = this.buyInfo(item)
+      return out
+    },
+    /**
+     * « À commander » affiché à l'étape 1 : calcul vivant hors plan, sinon
+     * `buyQuantity` FIGÉ des stockLines de la photo. Plans sauvegardés avant
+     * l'ajout du champ (ou article exclu) → clé absente → « — ».
+     */
+    stockOrderByItem() {
+      if (!this.loadedPlan) return this.liveStockOrderByItem
+      const out = {}
+      for (const line of this.loadedPlan.stockLines || []) {
+        // `!= null` d'abord : Number(null) === 0, qui passerait isFinite et
+        // afficherait « Rien à acheter » au lieu de « — ».
+        if (line && line.itemKey != null && line.buyQuantity != null && Number.isFinite(Number(line.buyQuantity))) {
+          out[line.itemKey] = Number(line.buyQuantity)
+        }
+      }
+      return out
     },
     /**
      * Étape 2 affichée : PHOTO du plan (avec corrections « À déposer »
@@ -3432,6 +3450,17 @@ export default {
       await this.autoGenerateShopping()
     }
   },
+  activated() {
+    // keepAlive : l'écran Inventaire partage inventory.inventoryCounts et le
+    // vide (clearContext) ou l'écrase (loadInventory pre/post). Au retour sur
+    // le réarmement, on resynchronise le pool Storage de l'étape 1 — sinon
+    // « À commander » diverge avant/après la génération de l'étape 2 (qui
+    // recharge l'inventaire via generateRestockTable). Première activation
+    // ignorée : elle tire en même temps que mounted(), et loadAll() appelle
+    // déjà loadPreviousInventory(). Le store dédoublonne les appels en vol.
+    if (this._restockActivatedOnce) this.loadPreviousInventory()
+    else this._restockActivatedOnce = true
+  },
   beforeUnmount() {
     // Annule un PUT /restock-state en attente → pas d'appel sur composant démonté.
     clearTimeout(this._restockPutTimer)
@@ -3791,6 +3820,10 @@ export default {
         events: this.selectedEvents,
         // BUG-296-01 — ventilation étape 1 figée avec le plan.
         stockOutcomes: this.stockOutcomeByItem,
+        // « À commander » figé par article — TOUJOURS le calcul vivant
+        // (liveStockOrderByItem), jamais stockOrderByItem : plan chargé, ce
+        // dernier relit la photo et figerait des valeurs vides.
+        orderQuantities: this.liveStockOrderByItem,
       })
     },
     /** CTA « Sauvegarder le plan » (aucun plan chargé) : ouvre le nommage. */
@@ -5304,7 +5337,8 @@ export default {
      */
     buyInfo(item) {
       const order = this.stockOrderByItem ? this.stockOrderByItem[item.itemKey] : undefined
-      // Plan chargé (photo sans quantité d'achat) ou article décoché.
+      // Article décoché, ou plan chargé sans buyQuantity figé (plan
+      // sauvegardé avant l'ajout du champ) → « — ».
       if (order == null) {
         return { main: '—', sub: '', covered: false, unknown: true }
       }

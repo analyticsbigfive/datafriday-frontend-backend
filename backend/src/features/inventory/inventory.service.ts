@@ -1,31 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InventorySnapshot, StockMovementReason } from '@prisma/client';
+import { StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
-
-/** Ancre d'un calcul d'attendus : l'event de référence et le comptage figé qui
- *  sert de point de départ au rejeu des mouvements. Pre-event Inventory ancre sur
- *  le post-event du match PRÉCÉDENT, Post-event Inventory sur le pre-event du
- *  MÊME match (cf. resolvePreEventBaseline / resolvePostEventBaseline). */
-type ExpectedAnchor = {
-  anchorEvent: { id: string; name: string | null } | null;
-  snapshot: InventorySnapshot | null;
-};
-
-/** Réglages du rejeu des mouvements. Sans eux, `computeExpected` se comporte
- *  exactement comme avant (ancre pre-event, fenêtre ouverte, aucun motif exclu). */
-type ExpectedOpts = {
-  anchor?: ExpectedAnchor;
-  /** Borne haute EXCLUSIVE des mouvements rejoués. La borne basse reste la date
-   *  du snapshot d'ancrage. */
-  movementsBefore?: Date;
-  /** Motifs de mouvement à ignorer (post-event : `SALE`, déjà déduit par les
-   *  ventes dérivées — sinon double comptage). */
-  excludeReasons?: StockMovementReason[];
-};
 
 @Injectable()
 export class InventoryService {
@@ -425,8 +404,12 @@ export class InventoryService {
     // ⚠️ Approximation assumée : les mouvements Logistic entre les deux matchs ne
     // sont PAS déduits — d'où `source` renvoyé au client, qui l'archive dans le
     // document (`meta.baseline.source`) et l'affiche.
+    // `isSimulated: false` (décision JLH 2026-08-20) : les events créés par
+    // l'outil QA « simuler une vente » ne participent pas au cycle d'inventaire —
+    // sans ce filtre, un « [Simulé] ... » intercalé devant le dernier vrai match
+    // capte le repli et le pré-remplissage tombe sur un event jamais compté.
     const previousEvent = await this.prisma.event.findFirst({
-      where: { spaceId, tenantId, eventDate: { lt: event.eventDate } },
+      where: { spaceId, tenantId, eventDate: { lt: event.eventDate }, isSimulated: false },
       orderBy: { eventDate: 'desc' },
       select: { id: true, name: true },
     });
@@ -550,62 +533,6 @@ export class InventoryService {
       .toLowerCase();
   }
 
-  /** Résout la base des quantités attendues d'un event FUTUR. Retourne
-   *  baseline null si l'événement précédent n'a pas de comptage post-event
-   *  (décision user 2026-07-20 : « — », jamais de 0 fabriqué — pas de mode
-   *  « mouvements seuls »). */
-  private async resolvePreEventBaseline(spaceId: string, tenantId: string): Promise<ExpectedAnchor> {
-    const now = new Date();
-    const anchorEvent = await this.prisma.event.findFirst({
-      where: { spaceId, tenantId, eventDate: { lte: now } },
-      orderBy: { eventDate: 'desc' },
-      select: { id: true, name: true },
-    });
-    if (!anchorEvent) return { anchorEvent: null, snapshot: null };
-
-    // Priorité au snapshot kindé 'post-event' ; repli legacy = dernier snapshot
-    // de cet event toutes phases confondues (données antérieures au kind).
-    const snapshot =
-      (await this.prisma.inventorySnapshot.findFirst({
-        where: { tenantId, spaceId, eventId: anchorEvent.id, kind: 'post-event' },
-        orderBy: { createdAt: 'desc' },
-      })) ??
-      (await this.prisma.inventorySnapshot.findFirst({
-        where: { tenantId, spaceId, eventId: anchorEvent.id },
-        orderBy: { createdAt: 'desc' },
-      }));
-
-    return { anchorEvent, snapshot };
-  }
-
-  /** Ancre des attendus d'un event EN COURS (écran Post-event Inventory) : le
-   *  comptage Pre-event Inventory de CE match. Les attendus sont ensuite
-   *  `ancre + mouvements de la fenêtre du match − ventes` (cf. getPostEventBaseline).
-   *
-   *  Pas de repli sur un snapshot `kind: null` du même event, contrairement à
-   *  `resolvePreEventBaseline` : un snapshot non kindé de CE match peut être un
-   *  comptage post-event, qui sèmerait la baseline avec la réponse qu'on cherche.
-   *  Rien trouvé → ancre nulle → attendus `null` → « — », jamais de 0 fabriqué. */
-  private async resolvePostEventBaseline(
-    spaceId: string,
-    eventId: string,
-    tenantId: string,
-  ): Promise<ExpectedAnchor> {
-    const anchorEvent = await this.prisma.event.findFirst({
-      where: { id: eventId, spaceId, tenantId },
-      select: { id: true, name: true },
-    });
-    if (!anchorEvent) return { anchorEvent: null, snapshot: null };
-
-    const snapshot = await this.prisma.inventorySnapshot.findFirst({
-      where: { tenantId, spaceId, eventId: anchorEvent.id, kind: 'pre-event' },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!snapshot) return { anchorEvent: null, snapshot: null };
-
-    return { anchorEvent, snapshot };
-  }
-
   /** nom normalisé → menuItemId du tenant. `StockMovement.itemKey` et les lignes
    *  de consommation ventes sont des NOMS libres (piège n°1 du domaine Stock) :
    *  c'est le seul pont vers le référentiel compté. */
@@ -673,67 +600,138 @@ export class InventoryService {
     return out;
   }
 
-  /** Calcule les quantités attendues (BUG-232 puis BUG-239).
+  /** Attendus des écrans Pre/Post-event Inventory = état Logistic « en l'état »
+   *  (décision JLH 2026-08-20, remplace le rejeu snapshot + mouvements de
+   *  BUG-232/239) : ce que l'écran Logistic affiche à l'instant du chargement —
+   *  StockLevel − ventes dérivées depuis l'ancre logistique, casse de pack,
+   *  clamp ≥ 0 (`LogisticsService.getExpectedStockIndex`, chemin partagé avec
+   *  `getStock` : les deux écrans ne peuvent pas diverger).
    *
-   *  Le calcul se fait **en unités** — la seule grandeur physique commune aux
-   *  deux référentiels de conditionnement :
+   *  Ici on ne fait que traduire ce registre (clé = NOM libre, unité = paquet
+   *  LOGISTIQUE) vers le référentiel compté : jointure nom → menuItemId, puis
+   *  re-découpage en packed/loose dans la taille de paquet de l'INVENTAIRE
+   *  (BUG-239 : le hint doit légender le champ Packed de l'écran dans SA propre
+   *  unité). `units`/`unitsPerPack` restent null quand le conditionnement
+   *  d'inventaire est inconnu — pas de total fabriqué.
    *
-   *  1. seed = comptage post-event précédent converti avec la taille de paquet de
-   *     l'INVENTAIRE (c'est dans cette unité que le comptage a été saisi) ;
-   *  2. rejeu SÉQUENTIEL des mouvements Logistic, chacun converti avec la taille
-   *     de paquet de la LOGISTIQUE (c'est dans cette unité qu'il a été
-   *     enregistré), clamp ≥ 0 après chaque mouvement — équivalent unitaire de
-   *     `normalizeLevel` (la « casse de pack » n'est qu'un report de retenue) ;
-   *  3. re-découpage final en packed/loose avec la taille de paquet de
-   *     l'inventaire, et `unitsPerPack`/`units` renvoyés avec chaque entrée pour
-   *     que le front n'ait plus à deviner le diviseur.
+   *  Chemin unique du GET pre-event-baseline, du GET post-event-baseline ET de
+   *  la réconciliation pre-event : les trois ne peuvent pas diverger. */
+  private async computeLogisticExpected(spaceId: string, tenantId: string) {
+    const { index, asOf } = await this.logistics.getExpectedStockIndex(spaceId, tenantId);
+    const expected = new Map<
+      string,
+      { packed: number; loose: number; units: number | null; unitsPerPack: number | null }
+    >();
+    if (!index.size) return { expected, unjoinedItemKeys: [] as string[], asOf };
+
+    const idByNormName = await this.menuItemIdByNormName(tenantId);
+    const unjoined = new Set<string>();
+    const joined: Array<{
+      elementId: string;
+      itemId: string;
+      packed: number;
+      loose: number;
+      logUpp: number | null;
+    }> = [];
+    for (const entry of index.values()) {
+      const itemId = idByNormName.get(this.normalizeName(entry.itemKey));
+      if (!itemId) {
+        unjoined.add(entry.itemKey);
+        continue;
+      }
+      joined.push({
+        elementId: entry.elementId,
+        itemId,
+        packed: entry.packed,
+        loose: entry.loose,
+        logUpp: entry.unitsPerPack && entry.unitsPerPack > 0 ? entry.unitsPerPack : null,
+      });
+    }
+    if (unjoined.size) {
+      this.logger.warn(
+        `Inventory expected: ${unjoined.size} itemKey(s) Logistic non joignable(s) au référentiel ` +
+          `compté, niveaux ignorés : ${[...unjoined].join(', ')}`,
+      );
+    }
+
+    const invUppByItemId = await this.resolveInventoryUnitsPerPack(
+      joined.map((j) => j.itemId),
+      tenantId,
+    );
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    // Deux clés Logistic peuvent résoudre le même article (noms libres) : on
+    // agrège par (élément × article) — en unités quand le conditionnement
+    // d'inventaire est connu, par canaux packed/loose sinon (sémantique
+    // Logistique historique, pas de conversion fabriquée).
+    for (const j of joined) {
+      const k = `${j.elementId}::${j.itemId}`;
+      const invUpp = Number(invUppByItemId.get(j.itemId));
+      const q = invUpp > 0 ? invUpp : 1;
+      const cur = expected.get(k) ?? { packed: 0, loose: 0, units: null as number | null, unitsPerPack: null as number | null };
+      if (q > 1) {
+        // Le niveau a été tenu dans l'unité de la LOGISTIQUE ; les unités sont la
+        // seule grandeur commune aux deux référentiels (BUG-239).
+        const mUpp = j.logUpp ?? q;
+        const units = round2((cur.units ?? cur.packed * q + cur.loose) + j.packed * mUpp + j.loose);
+        const packed = Math.floor(units / q);
+        expected.set(k, { packed, loose: round2(units - packed * q), units, unitsPerPack: q });
+      } else {
+        expected.set(k, {
+          packed: cur.packed + j.packed,
+          loose: round2(cur.loose + j.loose),
+          units: null,
+          unitsPerPack: null,
+        });
+      }
+    }
+
+    return { expected, unjoinedItemKeys: [...unjoined], asOf };
+  }
+
+  /** Delta NET des mouvements Logistic de la fenêtre du match, en unités, par
+   *  `elementId::menuItemId` — le terme « mouvements » des lignes de
+   *  réconciliation post-event (`leftFromSales = pre-event − vendu + mouvements`,
+   *  cf. utils/postEventReconciliation.js ; archivé par ligne, BUG-343-01/346-01).
+   *  Indépendant de l'ATTENDU affiché (état Logistic, cf. computeLogisticExpected).
    *
-   *  Chemin unique consommé par le GET pre-event-baseline, le GET
-   *  post-event-baseline ET la création de réconciliation pre-event : les trois ne
-   *  peuvent pas diverger. Seuls l'ANCRE et la FENÊTRE changent d'un appelant à
-   *  l'autre (`opts`) ; sans `opts`, comportement strictement identique à avant. */
-  private async computeExpected(spaceId: string, tenantId: string, opts?: ExpectedOpts) {
-    const { anchorEvent, snapshot } =
-      opts?.anchor ?? (await this.resolvePreEventBaseline(spaceId, tenantId));
-    const empty = {
-      anchorEvent: anchorEvent ?? null,
-      snapshot: null as typeof snapshot,
-      expected: null as Map<
-        string,
-        { packed: number; loose: number; units: number; unitsPerPack: number }
-      > | null,
-      movements: [] as Array<{
-        elementId: string;
-        itemKey: string;
-        menuItemId: string | null;
-        packedDelta: number;
-        looseDelta: number;
-      }>,
-      netMovementUnits: new Map<string, number>(),
-      unjoinedItemKeys: [] as string[],
-    };
-    if (!anchorEvent || !snapshot) return empty;
+   *  Fenêtre : du comptage pre-event de CE match (sinon eventDate) à
+   *  eventEndDate + 1 j — miroir de deriveEventConsumption. `SALE` exclus :
+   *  matérialisées par les resets, déjà comptées dans les ventes dérivées
+   *  (décision 2026-07-30 #2). NON clampé : la réconciliation a besoin du
+   *  mouvement réel du registre, pas d'un stock physique — le dériver d'une
+   *  soustraction de stocks rendrait leur clamp. */
+  private async netMovementUnitsForEventWindow(
+    spaceId: string,
+    tenantId: string,
+    event: { id: string; eventDate: Date; eventEndDate: Date | null },
+  ) {
+    const preSnapshot = await this.prisma.inventorySnapshot.findFirst({
+      where: { tenantId, spaceId, eventId: event.id, kind: 'pre-event' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    const from = preSnapshot?.createdAt ?? event.eventDate;
+    const to = new Date(event.eventEndDate ?? event.eventDate);
+    to.setDate(to.getDate() + 1);
+
+    const net = new Map<string, number>();
+    const unjoined = new Set<string>();
+    if (!(from < to)) return { net, unjoinedItemKeys: [...unjoined] };
 
     const rows = await this.prisma.stockMovement.findMany({
       where: {
         tenantId,
         spaceId,
-        createdAt: opts?.movementsBefore
-          ? { gt: snapshot.createdAt, lt: opts.movementsBefore }
-          : { gt: snapshot.createdAt },
-        ...(opts?.excludeReasons?.length ? { reason: { notIn: opts.excludeReasons } } : {}),
+        createdAt: { gt: from, lt: to },
+        reason: { notIn: [StockMovementReason.SALE] },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { elementId: true, itemKey: true, menuItemId: true, packedDelta: true, looseDelta: true },
     });
+    if (!rows.length) return { net, unjoinedItemKeys: [...unjoined] };
 
-    // Jointure nom → MenuItem du tenant pour les mouvements sans menuItemId
-    // (StockMovement.itemKey = nom libre — piège n°1 du domaine Stock).
-    let idByNormName = new Map<string, string>();
-    if (rows.some((m) => !m.menuItemId)) {
-      idByNormName = await this.menuItemIdByNormName(tenantId);
-    }
-
+    const idByNormName = await this.menuItemIdByNormName(tenantId);
     // unitsPerPack par itemKey — même chaîne de résolution que la Logistique
     // (MarketPrice → MenuComponent → MenuItem.inventoryNumberOfUnits), mémoïsée.
     const uppByNormKey = new Map<string, number | null>();
@@ -743,144 +741,37 @@ export class InventoryService {
         uppByNormKey.set(nk, await this.logistics.resolveUnitsPerPackForItemKey(m.itemKey, tenantId));
       }
     }
-
-    // Taille de paquet côté INVENTAIRE, pour toutes les clés en jeu (baseline ∪
-    // mouvements joignables) — c'est l'unité des champs Packed de l'écran.
-    const baselineBlob = snapshot.inventoryCounts as Record<string, Record<string, any>> | null;
-    const itemIdsInPlay: string[] = [];
-    if (baselineBlob && typeof baselineBlob === 'object') {
-      for (const byItem of Object.values(baselineBlob)) {
-        for (const itemId of Object.keys(byItem ?? {})) itemIdsInPlay.push(itemId);
-      }
-    }
-    for (const m of rows) {
-      const id = m.menuItemId ?? idByNormName.get(this.normalizeName(m.itemKey));
-      if (id) itemIdsInPlay.push(id);
-    }
-    const invUppByItemId = await this.resolveInventoryUnitsPerPack(itemIdsInPlay, tenantId);
-    const invUppOf = (itemId: string) => {
-      const v = Number(invUppByItemId.get(itemId));
-      return v > 0 ? v : 1;
-    };
+    const itemIds = rows
+      .map((m) => m.menuItemId ?? idByNormName.get(this.normalizeName(m.itemKey)))
+      .filter((id): id is string => !!id);
+    const invUppByItemId = await this.resolveInventoryUnitsPerPack(itemIds, tenantId);
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
-    // Seed depuis le blob baseline (comptage humain, supposé ≥ 0).
-    const levels = new Map<string, { packed: number; loose: number }>();
-    if (baselineBlob && typeof baselineBlob === 'object') {
-      for (const [shopId, byItem] of Object.entries(baselineBlob)) {
-        for (const [itemId, c] of Object.entries(byItem ?? {})) {
-          levels.set(`${shopId}::${itemId}`, {
-            packed: Number((c as any)?.packedUnits) || 0,
-            loose: Number((c as any)?.looseUnits) || 0,
-          });
-        }
-      }
-    }
-
-    // Delta NET des mouvements, en unités, SANS clamp — grandeur distincte de
-    // l'attendu. L'attendu clampe à chaque pas (un stock négatif n'existe pas
-    // physiquement) ; la réconciliation, elle, a besoin du mouvement réel du
-    // registre. Le dériver par soustraction (`stock final − ancre`) rendrait le
-    // clamp : ancre 5, mouvements −10 puis +8 → net réel −2, mais stock clampé 8,
-    // donc « +3 » fabriqué.
-    const netMovementUnits = new Map<string, number>();
-    const addNet = (k: string, d: number) => netMovementUnits.set(k, round2((netMovementUnits.get(k) ?? 0) + d));
-
-    // Agrégat legacy conservé pour la compat du GET (front pas encore redéployé).
-    const legacyByKey = new Map<
-      string,
-      { elementId: string; itemKey: string; menuItemId: string | null; packedDelta: number; looseDelta: number }
-    >();
-    const unjoined = new Set<string>();
-
     for (const m of rows) {
-      const lk = `${m.elementId}::${m.menuItemId ?? this.normalizeName(m.itemKey)}`;
-      const legacy = legacyByKey.get(lk) ?? {
-        elementId: m.elementId,
-        itemKey: m.itemKey,
-        menuItemId: m.menuItemId ?? null,
-        packedDelta: 0,
-        looseDelta: 0,
-      };
-      legacy.packedDelta += m.packedDelta ?? 0;
-      legacy.looseDelta += m.looseDelta ?? 0;
-      legacyByKey.set(lk, legacy);
-
       const itemId = m.menuItemId ?? idByNormName.get(this.normalizeName(m.itemKey));
       if (!itemId) {
         unjoined.add(m.itemKey);
         continue;
       }
       const k = `${m.elementId}::${itemId}`;
-      const cur = levels.get(k) ?? { packed: 0, loose: 0 };
-      // Le mouvement a été SAISI dans l'unité de la LOGISTIQUE.
-      const logUpp = uppByNormKey.get(this.normalizeName(m.itemKey)) ?? null;
-      const invUpp = invUppOf(itemId);
-
-      if (invUpp > 1) {
-        // Conditionnement d'inventaire connu → on raisonne en UNITÉS, la seule
-        // grandeur commune aux deux référentiels (BUG-239) : sans ça, un pack
-        // de baseline compté en 24 était amputé par un emprunt calculé en 12.
-        const mUpp = logUpp && logUpp > 0 ? logUpp : invUpp;
-        const units = cur.packed * invUpp + cur.loose;
-        const deltaUnits = (m.packedDelta ?? 0) * mUpp + (m.looseDelta ?? 0);
-        addNet(k, deltaUnits);
-        // Clamp ≥ 0 après CHAQUE mouvement — équivalent unitaire de
-        // `normalizeLevel` (l'emprunt sur les packs n'est qu'un report de retenue).
-        const next = Math.max(0, round2(units + deltaUnits));
-        const packed = Math.floor(next / invUpp);
-        levels.set(k, { packed, loose: round2(next - packed * invUpp) });
-      } else {
-        // Aucun conditionnement d'inventaire connu : on ne fabrique pas de
-        // conversion — canaux packed/loose séparés, sémantique Logistique
-        // historique (`normalizeLevel`, casse de pack si la Logistique, elle,
-        // connaît un unitsPerPack).
-        const next = this.logistics.normalizeLevel(
-          cur.packed + (m.packedDelta ?? 0),
-          cur.loose + (m.looseDelta ?? 0),
-          logUpp,
-        );
-        // Conditionnement d'inventaire inconnu : le total en unités vaut
-        // packed + loose (cf. sortie `units`), le net suit la même convention.
-        addNet(k, (m.packedDelta ?? 0) + (m.looseDelta ?? 0));
-        levels.set(k, { packed: next.packed, loose: next.loose });
-      }
+      const invUpp = Number(invUppByItemId.get(itemId));
+      // Conditionnement d'inventaire connu → delta en unités (paquet LOGISTIQUE
+      // pour la conversion, BUG-239) ; inconnu → packed + loose, même convention
+      // que la sortie `units` des attendus.
+      const logUpp = uppByNormKey.get(this.normalizeName(m.itemKey));
+      const delta =
+        invUpp > 1
+          ? (m.packedDelta ?? 0) * (logUpp && logUpp > 0 ? logUpp : invUpp) + (m.looseDelta ?? 0)
+          : (m.packedDelta ?? 0) + (m.looseDelta ?? 0);
+      net.set(k, round2((net.get(k) ?? 0) + delta));
     }
-
     if (unjoined.size) {
       this.logger.warn(
-        `Pre-event expected: ${unjoined.size} itemKey(s) non joignable(s) au référentiel, ` +
-          `mouvements ignorés (attendus sous-estimés) : ${[...unjoined].join(', ')}`,
+        `Post-event movementUnits: ${unjoined.size} itemKey(s) non joignable(s) au référentiel, ` +
+          `mouvements ignorés : ${[...unjoined].join(', ')}`,
       );
     }
-
-    // Sortie : packed/loose dans l'unité de l'INVENTAIRE, plus `units` et
-    // `unitsPerPack` quand le conditionnement est connu — le front n'a alors plus
-    // à deviner le diviseur (BUG-239). Conditionnement inconnu → les deux restent
-    // `null` : pas de total fabriqué, le front garde son propre référentiel.
-    const expected = new Map<
-      string,
-      { packed: number; loose: number; units: number | null; unitsPerPack: number | null }
-    >();
-    for (const [k, lvl] of levels) {
-      const itemId = k.split('::')[1] ?? '';
-      const q = invUppOf(itemId);
-      expected.set(k, {
-        packed: lvl.packed,
-        loose: round2(lvl.loose),
-        units: q > 1 ? round2(lvl.packed * q + lvl.loose) : null,
-        unitsPerPack: q > 1 ? q : null,
-      });
-    }
-
-    return {
-      anchorEvent,
-      snapshot,
-      expected,
-      movements: [...legacyByKey.values()],
-      netMovementUnits,
-      unjoinedItemKeys: [...unjoined],
-    };
+    return { net, unjoinedItemKeys: [...unjoined] };
   }
 
   // ── GET /inventory/:spaceId/pre-event-baseline/:eventId ─────────────────────
@@ -895,27 +786,12 @@ export class InventoryService {
     });
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const { anchorEvent, snapshot, expected, movements, unjoinedItemKeys } = await this.computeExpected(
-      spaceId,
-      tenantId,
-    );
-    if (!anchorEvent || !snapshot) {
-      return {
-        previousEvent: anchorEvent ?? null,
-        baseline: null,
-        movements: [],
-        expected: null,
-        unjoinedItemKeys: [],
-      };
-    }
-    // `expected` : blob normalisé (rejeu séquentiel + casse de pack, BUG-232) —
-    // la source à afficher. `baseline`/`movements` conservés pour compat (repli
-    // front tant que les deux côtés ne sont pas déployés ensemble).
+    const { expected, unjoinedItemKeys, asOf } = await this.computeLogisticExpected(spaceId, tenantId);
     const expectedBlob: Record<
       string,
-      Record<string, { packed: number; loose: number; units: number; unitsPerPack: number }>
+      Record<string, { packed: number; loose: number; units: number | null; unitsPerPack: number | null }>
     > = {};
-    for (const [k, v] of expected ?? []) {
+    for (const [k, v] of expected) {
       const [elementId, itemId] = k.split('::');
       // `units`/`unitsPerPack` (BUG-239) : le front affiche le hint dans l'unité
       // de son propre champ Packed sans avoir à redeviner le conditionnement.
@@ -927,9 +803,15 @@ export class InventoryService {
       };
     }
     return {
-      previousEvent: { id: anchorEvent.id, name: anchorEvent.name, snapshotAt: snapshot.createdAt },
-      baseline: snapshot.inventoryCounts,
-      movements,
+      // État Logistic à l'instant du chargement (décision JLH 2026-08-20) — plus
+      // d'ancre snapshot ni de « no-baseline » : l'attendu existe toujours.
+      source: 'logistic-live',
+      asOf,
+      previousEvent: null,
+      // Compat ancien front (gate `baseline?.baseline`) : objet vide truthy — la
+      // donnée affichée vient exclusivement du blob `expected`.
+      baseline: {},
+      movements: [],
       expected: expectedBlob,
       unjoinedItemKeys,
     };
@@ -939,20 +821,16 @@ export class InventoryService {
   // Indice de référence du comptage POST-event, même gating serveur que le
   // pre-event (front.fb.preInventoryExpected, décorateur méthode du contrôleur).
   //
-  // attendu = comptage PRE-event de CE match
-  //           + Σ mouvements Logistic de la fenêtre du match (hors `SALE`)
-  //           − ventes dérivées de la même fenêtre
+  // attendu = état Logistic à l'instant du chargement (décision JLH 2026-08-20,
+  // remplace « pre-event + mouvements de la fenêtre − ventes »). Après un match,
+  // le registre vaut « comptage pre-event (poussé à l'ouverture des portes par
+  // autoInitLiveStockFromPreEventInventory) + mouvements − ventes dérivées » :
+  // la même formule, tenue en temps réel par la Logistique — et l'écran
+  // Post-event affiche EXACTEMENT ce que l'écran Logistic affiche.
   //
-  // Trois précisions décidées avec le métier (2026-07-30) :
-  //  1. FENÊTRE identique à celle des ventes (`eventDate → eventEndDate + 1 j`,
-  //     cf. logistics.deriveEventConsumption). Les deux termes doivent parler de
-  //     la même période, sinon un réarmement du match SUIVANT gonfle l'indice.
-  //  2. Mouvements `SALE` EXCLUS du rejeu : `logistics.reset()` matérialise les
-  //     ventes des niveaux non couverts en mouvements `SALE` ; les compter en plus
-  //     des ventes dérivées les déduirait deux fois.
-  //  3. Résultat NON clampé : un attendu négatif signale une incohérence de
-  //     sources (vente non rattachée, mouvement oublié, comptage pre-event faux) —
-  //     c'est le signal utile pour le directeur de site, un 0 le masquerait.
+  // `movementUnits` reste calculé sur la FENÊTRE DU MATCH
+  // (netMovementUnitsForEventWindow) : c'est le terme « mouvements » des lignes
+  // de réconciliation post-event (BUG-343-01/346-01), pas l'attendu affiché.
   async getPostEventBaseline(spaceId: string, eventId: string, tenantId: string) {
     await this.assertSpace(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
@@ -961,110 +839,44 @@ export class InventoryService {
     });
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const anchor = await this.resolvePostEventBaseline(spaceId, eventId, tenantId);
-    if (!anchor.anchorEvent || !anchor.snapshot) {
-      return {
-        anchorEvent: null,
-        baseline: null,
-        movements: [],
-        expected: null,
-        expectedUnits: null,
-        movementUnits: null,
-        salesUnjoined: null,
-        unjoinedItemKeys: [],
-      };
-    }
-
-    // Borne haute : miroir exact de la fenêtre de deriveEventConsumption.
-    const movementsBefore = new Date(event.eventEndDate ?? event.eventDate);
-    movementsBefore.setDate(movementsBefore.getDate() + 1);
-
-    const { snapshot, expected, movements, netMovementUnits, unjoinedItemKeys } =
-      await this.computeExpected(spaceId, tenantId, {
-        anchor,
-        movementsBefore,
-        excludeReasons: [StockMovementReason.SALE],
-      });
-    if (!snapshot || !expected) {
-      return {
-        anchorEvent: null,
-        baseline: null,
-        movements: [],
-        expected: null,
-        expectedUnits: null,
-        movementUnits: null,
-        salesUnjoined: null,
-        unjoinedItemKeys: [],
-      };
-    }
-
-    // Ventes de la fenêtre, explosées en articles d'inventaire — clé = NOM libre,
-    // donc jointure par nom normalisé vers le référentiel compté (clé = itemId).
-    const consumption = await this.logistics.deriveEventConsumption(spaceId, eventId, tenantId);
-    const idByNormName = await this.menuItemIdByNormName(tenantId);
-    const soldByKey = new Map<string, number>();
-    const soldUnjoined = new Set<string>();
-    for (const line of consumption.lines ?? []) {
-      const itemId = idByNormName.get(this.normalizeName(line.itemKey));
-      if (!itemId) {
-        soldUnjoined.add(line.itemKey);
-        continue;
-      }
-      const k = `${line.elementId}::${itemId}`;
-      soldByKey.set(k, (soldByKey.get(k) ?? 0) + (Number(line.quantity) || 0));
-    }
+    const [{ expected, unjoinedItemKeys, asOf }, movementNet] = await Promise.all([
+      this.computeLogisticExpected(spaceId, tenantId),
+      this.netMovementUnitsForEventWindow(spaceId, tenantId, event),
+    ]);
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const invUppOf = (v: { units: number | null; unitsPerPack: number | null; packed: number; loose: number }) =>
-      v.unitsPerPack && v.unitsPerPack > 1 ? v.unitsPerPack : 1;
-
-    // `expected` porte packed/loose (clampés ≥ 0 par le rejeu) ; l'indice affiché
-    // est un TOTAL en unités, signé après déduction des ventes.
-    //
-    // `movementUnits` = delta NET du registre, en unités, NON clampé. Renvoyé
-    // séparément de l'attendu parce que la réconciliation en a besoin brut : sans
-    // ce terme, un transfert entre PdV pendant le match se lit comme un manquant
-    // d'un côté et un surplus de l'autre. Il vient de `netMovementUnits`, PAS
-    // d'une soustraction `stock final − ancre` — celle-ci rendrait le clamp de
-    // l'attendu (ancre 5, mouvements −10 puis +8 : net réel −2, stock clampé 8).
     const expectedBlob: Record<string, Record<string, unknown>> = {};
     const expectedUnitsBlob: Record<string, Record<string, number>> = {};
     const movementUnitsBlob: Record<string, Record<string, number>> = {};
-    const keys = new Set<string>([
-      ...expected.keys(),
-      ...soldByKey.keys(),
-      ...netMovementUnits.keys(),
-    ]);
+    const keys = new Set<string>([...expected.keys(), ...movementNet.net.keys()]);
     for (const k of keys) {
       const [elementId, itemId] = k.split('::');
       const v = expected.get(k) ?? { packed: 0, loose: 0, units: null, unitsPerPack: null };
-      const upp = invUppOf(v);
-      const stockUnits = v.units ?? round2(v.packed * upp + v.loose);
       (expectedBlob[elementId] ??= {})[itemId] = v;
-      (expectedUnitsBlob[elementId] ??= {})[itemId] = round2(stockUnits - (soldByKey.get(k) ?? 0));
-      (movementUnitsBlob[elementId] ??= {})[itemId] = netMovementUnits.get(k) ?? 0;
+      // Indice du total : unités quand le conditionnement d'inventaire est connu,
+      // packed + loose sinon (même convention que `units`). Ventes déjà déduites
+      // — et clampées ≥ 0 — par l'état Logistic (c'est le chiffre de l'écran
+      // Logistic, plus un indice signé).
+      (expectedUnitsBlob[elementId] ??= {})[itemId] = v.units ?? round2(v.packed + v.loose);
+      (movementUnitsBlob[elementId] ??= {})[itemId] = movementNet.net.get(k) ?? 0;
     }
 
     return {
-      anchorEvent: {
-        id: anchor.anchorEvent.id,
-        name: anchor.anchorEvent.name,
-        snapshotAt: snapshot.createdAt,
-      },
-      // Clé `baseline` obligatoire : le front gate dessus (utils/preEventExpected.js).
-      baseline: snapshot.inventoryCounts,
-      movements,
+      source: 'logistic-live',
+      asOf,
+      anchorEvent: null,
+      // Compat ancien front (gate `baseline?.baseline`) : objet vide truthy — la
+      // donnée affichée vient des blobs `expected`/`expectedUnits`.
+      baseline: {},
+      movements: [],
       expected: expectedBlob,
       expectedUnits: expectedUnitsBlob,
       movementUnits: movementUnitsBlob,
-      salesUnjoined: consumption.unjoined
-        ? { ...consumption.unjoined, itemKeys: [...soldUnjoined].slice(0, 50) }
-        : soldUnjoined.size
-          ? { shopNames: [], productNames: [], units: 0, itemKeys: [...soldUnjoined].slice(0, 50) }
-          : null,
-      unjoinedItemKeys,
+      salesUnjoined: null,
+      unjoinedItemKeys: [...new Set([...unjoinedItemKeys, ...movementNet.unjoinedItemKeys])],
     };
   }
+
 
   // ── POST /inventory/:spaceId/pre-event-reconciliations ──────────────────────
   // Le BACKEND construit les lignes : le client (potentiellement sans la
@@ -1095,13 +907,10 @@ export class InventoryService {
     const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId);
     const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
 
-    // Attendus normalisés (rejeu séquentiel + casse de pack) — même chemin que
-    // le GET pre-event-baseline (BUG-232) : hints à l'écran et lignes de
-    // réconciliation ne peuvent plus diverger.
-    const { snapshot, expected: expectedMap } = await this.computeExpected(spaceId, tenantId);
-    const expected =
-      expectedMap ??
-      new Map<string, { packed: number; loose: number; units: number; unitsPerPack: number }>();
+    // Attendus = état Logistic à l'instant de la sauvegarde — même chemin que le
+    // GET pre-event-baseline (décision JLH 2026-08-20) : hints à l'écran et
+    // lignes de réconciliation ne peuvent plus diverger.
+    const { expected, asOf } = await this.computeLogisticExpected(spaceId, tenantId);
 
     // Union des clés attendu ∪ compté.
     const keys = new Set<string>(expected.keys());
@@ -1139,7 +948,6 @@ export class InventoryService {
     );
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const hasBaseline = snapshot != null;
     // Exclusion des lignes orphelines : comptages dont l'itemId/elementId ne résout plus aucun
     // MenuItem/SpaceElement courant (catalogue ré-importé → anciens ids supprimés). Sans nom
     // récupérable en base, ces lignes s'affichaient « — » ; on les retire du document plutôt que
@@ -1178,13 +986,13 @@ export class InventoryService {
       const q = uppOf(itemId);
       const unitsPerPack = q > 1 ? q : null;
       const countedUnits = unitsPerPack ? round2(countedPacked * unitsPerPack + countedLoose) : null;
-      // Pas de baseline → attendu/écart null (« — »), jamais 0 fabriqué.
-      const expectedPacked = hasBaseline ? (exp?.packed ?? 0) : null;
-      const expectedLoose = hasBaseline ? round2(exp?.loose ?? 0) : null;
+      // Article absent du registre Logistic (jamais approvisionné) → attendu/écart
+      // null (« — »), jamais 0 fabriqué (décision 2026-07-20, conservée avec la
+      // source « état Logistic », décision JLH 2026-08-20).
+      const expectedPacked = exp ? exp.packed : null;
+      const expectedLoose = exp ? round2(exp.loose) : null;
       const expectedUnits =
-        hasBaseline && unitsPerPack
-          ? round2(exp?.units ?? (exp ? exp.packed * unitsPerPack + exp.loose : 0))
-          : null;
+        exp && unitsPerPack ? round2(exp.units ?? exp.packed * unitsPerPack + exp.loose) : null;
       // Besoin prédit (Event Predict) : deuxième référence du document. L'attendu
       // ci-dessus dit « ce que la Logistique pense qu'il y a », celui-ci « ce que
       // le scénario demande d'avoir » — les deux écarts se lisent ensemble.
@@ -1225,9 +1033,7 @@ export class InventoryService {
         // Contexte de fabrication (BUG-235/238/241) : ce qui a été écarté du
         // document doit rester lisible sur l'archive.
         meta: {
-          baseline: hasBaseline
-            ? { source: 'previous-post-event', snapshotAt: snapshot?.createdAt ?? null }
-            : { source: 'none' },
+          baseline: { source: 'logistic-live', asOf },
           orphanLinesExcluded: orphanCount,
           // Le document porte-t-il la comparaison au scénario ? Sans marqueur, une
           // colonne prédit vide se confond avec « rien n'était prédit ».
