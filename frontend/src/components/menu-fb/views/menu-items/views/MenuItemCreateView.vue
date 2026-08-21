@@ -94,16 +94,31 @@
 
                   <!-- BUG-267-01 : pas de stepper −/+ ici — leur pas était codé en dur à 1, donc
                        inutilisable sur des quantités au kg (0,04 → 1,04 en un clic). Saisie
-                       directe uniquement ; le clamp @change reste le garde-fou anti-négatif. -->
+                       directe uniquement.
+                       Consigne (demande Bertrand) : SEULES les lignes Packaging autorisent une
+                       quantité négative (le signe négatif = « consigne »). Les autres types
+                       gardent le garde-fou anti-négatif (:min=0). -->
                   <template #item.quantity="{ item }">
                     <div class="mic-qty-stepper">
                       <NumberField
                         v-model="item.quantity"
                         :decimals="2"
-                        :min="0"
+                        :min="item.type === 'Packaging' ? null : 0"
                         :empty-value="0"
                         class="mic-qty-input"
+                        :class="{ 'mic-qty-input--consigne': item.type === 'Packaging' && Number(item.quantity) < 0 }"
                       />
+                      <button
+                        v-if="item.type === 'Packaging'"
+                        type="button"
+                        class="mic-consigne-btn"
+                        :class="{ 'mic-consigne-btn--on': Number(item.quantity) < 0 }"
+                        :title="t('menuItemCreate.consigneTooltip')"
+                        :aria-label="t('menuItemCreate.consigne')"
+                        @click="toggleConsigne(item)"
+                      >
+                        <Recycle :size="14" />
+                      </button>
                     </div>
                   </template>
 
@@ -861,7 +876,7 @@ import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from "@/composables/useFormatters.js";
 import NumberField from "@/components/common/NumberField.vue";
-import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy } from "lucide-vue-next";
+import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
 import { duplicateMenuItemById } from "@/composables/useMenuItemDuplicate";
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
@@ -878,7 +893,7 @@ import CreatePromotionTypeDialog from '../dialogs/CreatePromotionTypeDialog.vue'
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog, CreatePromotionTypeDialog },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog, CreatePromotionTypeDialog },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -1193,7 +1208,7 @@ export default {
         { title: this.t("menuItemCreate.colType"), key: "type", sortable: false, width: 120 },
         { title: this.t("menuItemCreate.colCategory"), key: "category", sortable: false, width: 140 },
         { title: this.t("menuItemCreate.colUnit"), key: "unit", sortable: false, width: 100 },
-        { title: this.t("menuItemCreate.colQuantity"), key: "quantity", sortable: false, width: 120 },
+        { title: this.t("menuItemCreate.colQuantity"), key: "quantity", sortable: false, width: 150 },
         { title: this.t("menuItemCreate.colUnitCost"), key: "unitCost", sortable: false, width: 110 },
         { title: this.t("menuItemCreate.colTotalCost"), key: "totalCost", sortable: false, width: 120 },
         { title: this.t("menuItemCreate.colSupplier"), key: "supplierName", sortable: false, width: 140 },
@@ -1432,12 +1447,13 @@ export default {
           }))
           .filter((comp) => comp.componentId);
 
-        // Préparer les packagings selon le format API
+        // Préparer les packagings selon le format API — quantité négative AUTORISÉE (consigne) :
+        // pas de Math.max(0, …) ici, contrairement aux ingrédients/composants.
         const packagings = (this.items || [])
           .filter((item) => item.type === "Packaging" && item.packagingId)
           .map((item) => ({
             packagingId: String(item.packagingId || "").trim(),
-            numberOfUnits: Math.max(0, Number(item.quantity || 0)),
+            numberOfUnits: Number(item.quantity) || 0,
           }))
           .filter((pkg) => pkg.packagingId);
 
@@ -1738,6 +1754,14 @@ export default {
       if (index > -1) {
         this.items.splice(index, 1);
       }
+    },
+    // Consigne (packaging uniquement) : le signe de la quantité EST le marqueur. Bascule
+    // vers négatif (défaut -1 si la valeur était 0) ou repasse en positif. L'utilisateur
+    // peut aussi taper directement une valeur négative dans le champ.
+    toggleConsigne(item) {
+      if (!item || item.type !== 'Packaging') return;
+      const q = Number(item.quantity) || 0;
+      item.quantity = q < 0 ? Math.abs(q) : -(Math.abs(q) || 1);
     },
     formatCurrency,
     formatCurrencyDetailed,
@@ -2360,7 +2384,60 @@ export default {
 .mic-qty-stepper {
   display: flex;
   align-items: stretch;
+  gap: 6px;
   width: 100%;
+}
+.mic-qty-stepper .mic-qty-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+/* Consigne : champ en négatif → liseré orange (couleur du type Packaging).
+   !important car `.mic-qty-input` (même spécificité) est défini plus bas et fixe fond/couleur. */
+.mic-qty-input--consigne {
+  border-color: #f59e0b !important;
+  color: #b45309 !important;
+  background: #fffbeb !important;
+}
+/* Bouton toggle consigne (icône) — actif = plein orange. */
+.mic-consigne-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.mic-consigne-btn:hover {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+.mic-consigne-btn--on {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+}
+.mic--dark .mic-consigne-btn {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, .18);
+  color: #94a3b8;
+}
+.mic--dark .mic-consigne-btn--on {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #1e293b;
+}
+.mic--dark .mic-qty-input--consigne {
+  background: rgba(245, 158, 11, .12) !important;
+  color: #fbbf24 !important;
+  border-color: #f59e0b !important;
 }
 
 .mic-qty-input {

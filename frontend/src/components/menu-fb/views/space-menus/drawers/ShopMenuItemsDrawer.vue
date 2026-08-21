@@ -98,6 +98,26 @@
                 </span>
               </div>
 
+              <!-- Classification par type (pills) — filtre la liste de l'onglet courant. -->
+              <div v-if="typeOptions.length" class="smi-type-pills">
+                <button
+                  class="smi-type-pill"
+                  :class="{ active: typeFilter === 'all' }"
+                  @click="typeFilter = 'all'"
+                >
+                  {{ t('spaceMenu.allTypes') }}
+                </button>
+                <button
+                  v-for="ty in typeOptions"
+                  :key="ty"
+                  class="smi-type-pill"
+                  :class="{ active: typeFilter === ty }"
+                  @click="typeFilter = ty"
+                >
+                  {{ ty }}
+                </button>
+              </div>
+
               <!-- List header -->
               <div class="smi-list-header">
                 <div class="smi-list-header__item">{{ t("spaceMenu.menuItem") }}</div>
@@ -225,6 +245,8 @@ export default {
       allMenuItems: [],
       loadError: null,
       availabilityTab: 'available',
+      // Filtre de classification par type (pills). 'all' = tous les types.
+      typeFilter: 'all',
       selectedMenuItemIds: [],
       initialSelectedIds: [],
       attachLoading: false,
@@ -243,6 +265,7 @@ export default {
       if (isOpen && this.shop) {
         this.selectedMenuItemIds = [];
         this.availabilityTab = 'available';
+        this.typeFilter = 'all';
         this.loadMenuItems();
       } else if (!isOpen) {
         this._clearTimer = setTimeout(() => {
@@ -252,14 +275,30 @@ export default {
         }, 300);
       }
     },
+    // Changer d'onglet (Disponible / Indisponible) remet le filtre type à « Tous » —
+    // évite une liste vide si le type sélectionné n'existe pas dans l'autre onglet.
+    availabilityTab() {
+      this.typeFilter = 'all';
+    },
   },
   computed: {
     availableMenuItems()    { return (this.allMenuItems || []).filter(item => item.available === true); },
     notAvailableMenuItems() { return (this.allMenuItems || []).filter(item => item.available !== true); },
-    displayedMenuItems() {
+    // Items de l'onglet de disponibilité courant, AVANT le filtre par type.
+    tabBaseItems() {
       if (this.availabilityTab === 'available')     return this.availableMenuItems;
       if (this.availabilityTab === 'not-available') return this.notAvailableMenuItems;
       return this.allMenuItems;
+    },
+    // Types présents dans l'onglet courant (pills), triés. Vide → pas de rangée de pills.
+    typeOptions() {
+      return [...new Set((this.tabBaseItems || []).map(i => String(i.type || '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b));
+    },
+    displayedMenuItems() {
+      const base = this.tabBaseItems;
+      if (this.typeFilter === 'all') return base;
+      return base.filter(i => String(i.type || '').trim() === this.typeFilter);
     },
     availableCount()    { return this.availableMenuItems.length; },
     notAvailableCount() { return this.notAvailableMenuItems.length; },
@@ -299,6 +338,7 @@ export default {
         this.allMenuItems = (res?.items || []).map(item => ({
           id: String(item.id),
           name: item.name || '-',
+          type: item.type || '',
           category: item.category || '',
           price: item.price,
           image: item.picture || '',
@@ -469,6 +509,24 @@ export default {
 .smi-panel--dark .smi-check-box { border-color: #475569; background: #1e293b; }
 .smi-panel--dark .smi-check-box.checked,
 .smi-panel--dark .smi-check-box.indeterminate { background: #ff3131; border-color: #ff3131; }
+
+/* ── Type pills (classification par type) ── */
+.smi-type-pills {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 12px 12px 4px; background: #fff;
+}
+.smi-type-pill {
+  padding: 5px 14px; border-radius: 100px;
+  border: 1.5px solid #e5e7eb; background: #fff;
+  font-size: 12.5px; font-weight: 600; color: #6b7280; cursor: pointer;
+  transition: all .15s;
+}
+.smi-type-pill:hover { border-color: #ff3131; color: #ff3131; }
+.smi-type-pill.active { background: #ff3131; border-color: #ff3131; color: #fff; }
+.smi-panel--dark .smi-type-pills { background: #111827; }
+.smi-panel--dark .smi-type-pill { background: #1e293b; border-color: #334155; color: #94a3b8; }
+.smi-panel--dark .smi-type-pill:hover { border-color: #ff3131; color: #fca5a5; }
+.smi-panel--dark .smi-type-pill.active { background: #ff3131; border-color: #ff3131; color: #fff; }
 
 /* ── List header ── */
 .smi-list-header {

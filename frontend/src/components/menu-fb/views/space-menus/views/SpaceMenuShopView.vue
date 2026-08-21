@@ -71,8 +71,17 @@
           >
             {{ shop.isOpen ? t("spaceMenu.open") : t("spaceMenu.closed") }}
           </span>
+          <!-- Duplicate button : copie les menu items de ce shop vers le même shop (par nom)
+               d'une autre configuration. -->
+          <button
+            class="smsh-card__edit smsh-card__dup"
+            :title="t('spaceMenu.duplicateShop')"
+            @click.stop="$emit('duplicate-shop', shop)"
+          >
+            <Copy :size="13" />
+          </button>
           <!-- Edit button -->
-          <button class="smsh-card__edit" @click.stop="$emit('edit-shop', shop)">
+          <button class="smsh-card__edit" :title="t('spaceMenu.editShop')" @click.stop="$emit('edit-shop', shop)">
             <Pencil :size="13" />
           </button>
         </div>
@@ -126,11 +135,11 @@
 
 <script>
 import { useI18n } from "@/i18n/useI18n";
-import { Store, Pencil, UtensilsCrossed, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-vue-next';
+import { Store, Pencil, Copy, UtensilsCrossed, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-vue-next';
 
 export default {
   name: "SpaceMenuShopView",
-  components: { Store, Pencil, UtensilsCrossed, ChevronLeft, ChevronRight, AlertCircle },
+  components: { Store, Pencil, Copy, UtensilsCrossed, ChevronLeft, ChevronRight, AlertCircle },
   props: {
     shops:                 { type: Array,   required: true },
     filteredShops:         { type: Array,   required: true },
@@ -144,7 +153,7 @@ export default {
     // sinon, la vraie cause n'étant pas communiquée).
     spaceHasNoConfiguration: { type: Boolean, default: false },
   },
-  emits: ["edit-shop", "select-shop", "retry"],
+  emits: ["edit-shop", "duplicate-shop", "select-shop", "retry"],
   setup() {
     const { t } = useI18n();
     return { t };
@@ -218,6 +227,11 @@ export default {
 }
 .smsh-card:hover .smsh-card__edit,
 .smsh-card__edit:focus-visible { opacity: 1; }
+
+/* Bouton dupliquer : à gauche du crayon. */
+.smsh-card__dup { right: 42px; }
+.smsh-card__dup:hover { color: #ff3131; }
+.smsh-root--dark .smsh-card__dup:hover { color: #fca5a5; }
 
 .smsh-card__body { padding: 12px 14px; }
 .smsh-card__name { font-size: 14px; font-weight: 700; color: #111827; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
