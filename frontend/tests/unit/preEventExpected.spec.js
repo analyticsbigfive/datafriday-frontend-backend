@@ -1,12 +1,11 @@
-import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits, buildExpectedCalcDetails } from '@/utils/preEventExpected'
-import { normalizeStr } from '@/utils/predictiveAnalytics'
+import { buildPreEventExpected, expectedKey, aggregateExpectedUnitsFromIndex, flattenExpectedUnits } from '@/utils/preEventExpected'
 
 const K = expectedKey
 
 describe('buildPreEventExpected', () => {
-  it('returns null without a baseline (no post-event count for the previous event)', () => {
+  it('returns null without the server `expected` blob (backend antérieur → « serveur non à jour »)', () => {
     expect(buildPreEventExpected(null)).toBeNull()
-    expect(buildPreEventExpected({ baseline: null, movements: [] })).toBeNull()
+    expect(buildPreEventExpected({ baseline: {}, movements: [] })).toBeNull()
     expect(buildPreEventExpected({})).toBeNull()
   })
 
@@ -91,63 +90,6 @@ describe('buildPreEventExpected', () => {
     expect(out[K('el1', 'choco')]).toEqual({ packed: 2, loose: 5, units: null })
   })
 
-  // ── Repli legacy (réponse d'un backend antérieur à BUG-232, sans `expected`) ─
-
-  it('maps the baseline blob to packed/loose per element×item', () => {
-    const out = buildPreEventExpected({
-      baseline: { el1: { beer: { packedUnits: 4, looseUnits: 7.5 } } },
-      movements: [],
-    })
-    expect(out[K('el1', 'beer')]).toEqual({ packed: 4, loose: 7.5 })
-  })
-
-  it('applies movement deltas by menuItemId (direct join)', () => {
-    const out = buildPreEventExpected({
-      baseline: { el1: { beer: { packedUnits: 4, looseUnits: 2 } } },
-      movements: [{ elementId: 'el1', menuItemId: 'beer', packedDelta: 3, looseDelta: -1.5 }],
-    })
-    expect(out[K('el1', 'beer')]).toEqual({ packed: 7, loose: 0.5 })
-  })
-
-  it('falls back to normalized-name join when the movement has no menuItemId', () => {
-    const itemIdByNormName = new Map([[normalizeStr('Pinte Bière 50cl'), 'beer']])
-    const out = buildPreEventExpected(
-      {
-        baseline: { el1: { beer: { packedUnits: 1, looseUnits: 0 } } },
-        movements: [{ elementId: 'el1', itemKey: 'PINTE BIERE 50CL', packedDelta: 2, looseDelta: 0 }],
-      },
-      { itemIdByNormName },
-    )
-    expect(out[K('el1', 'beer')].packed).toBe(3)
-  })
-
-  it('ignores movements that resolve to no known item', () => {
-    const out = buildPreEventExpected(
-      {
-        baseline: { el1: { beer: { packedUnits: 1, looseUnits: 0 } } },
-        movements: [{ elementId: 'el1', itemKey: 'Inconnu Total', packedDelta: 99, looseDelta: 9 }],
-      },
-      { itemIdByNormName: new Map() },
-    )
-    expect(out[K('el1', 'beer')]).toEqual({ packed: 1, loose: 0 })
-    expect(Object.keys(out)).toHaveLength(1)
-  })
-
-  it('creates a key for a movement on an item absent from the baseline (restock of a new item)', () => {
-    const out = buildPreEventExpected({
-      baseline: { el1: { beer: { packedUnits: 1, looseUnits: 0 } } },
-      movements: [{ elementId: 'el2', menuItemId: 'coke', packedDelta: 5, looseDelta: 0 }],
-    })
-    expect(out[K('el2', 'coke')]).toEqual({ packed: 5, loose: 0 })
-  })
-
-  it('legacy fallback only: keeps negative values (no pack-breaking client-side — BUG-232, fixed server-side)', () => {
-    const out = buildPreEventExpected({
-      baseline: { el1: { beer: { packedUnits: 1, looseUnits: 0 } } },
-      movements: [{ elementId: 'el1', menuItemId: 'beer', packedDelta: -4, looseDelta: -2 }],
-    })
-    expect(out[K('el1', 'beer')]).toEqual({ packed: -3, loose: -2 })
-  })
 })
 
 describe('aggregateExpectedUnitsFromIndex', () => {
@@ -230,57 +172,5 @@ describe('flattenExpectedUnits', () => {
       { unitsPerItemId: { beer: 24 } },
     )
     expect(out[K('el1', 'beer')]).toBe(51)
-  })
-})
-
-// ── buildExpectedCalcDetails — détail du calcul (infobulles, demande JLH
-// 2026-08-19). Les termes sont DÉRIVÉS pour que l'identité affichée tienne
-// toujours : pre `base + moves = attendu`, post `base + moves − sold = attendu`.
-
-describe('buildExpectedCalcDetails', () => {
-  const baseline = { el1: { beer: { packedUnits: 2, looseUnits: 3 } } }
-
-  it('null sans index attendu', () => {
-    expect(buildExpectedCalcDetails({ baseline, expectedUnits: null })).toBeNull()
-    expect(buildExpectedCalcDetails()).toBeNull()
-  })
-
-  it('pre-event : base depuis le comptage (taille écran) et moves dérivé', () => {
-    const out = buildExpectedCalcDetails({
-      baseline,
-      expectedUnits: { [K('el1', 'beer')]: 75 },
-      unitsPerItemId: { beer: 24 },
-    })
-    // base = 2 × 24 + 3 = 51 ; moves = 75 − 51 = 24 → « 51 + 24 = 75 »
-    expect(out[K('el1', 'beer')]).toEqual({ base: 51, moves: 24, sold: null })
-  })
-
-  it('pre-event : article absent du comptage précédent → base 0, tout en moves', () => {
-    const out = buildExpectedCalcDetails({
-      baseline,
-      expectedUnits: { [K('el1', 'wine')]: 12 },
-    })
-    expect(out[K('el1', 'wine')]).toEqual({ base: 0, moves: 12, sold: null })
-  })
-
-  it('post-event : moves = net serveur, sold dérivé (base + moves − attendu)', () => {
-    const out = buildExpectedCalcDetails({
-      baseline,
-      movementUnits: { el1: { beer: 10 } },
-      expectedUnits: { [K('el1', 'beer')]: 47 },
-      unitsPerItemId: { beer: 24 },
-    })
-    // base 51 + moves 10 − sold 14 = 47
-    expect(out[K('el1', 'beer')]).toEqual({ base: 51, moves: 10, sold: 14 })
-  })
-
-  it('post-event : attendu négatif conservé — sold absorbe (identité maintenue)', () => {
-    const out = buildExpectedCalcDetails({
-      baseline: { el1: { beer: { packedUnits: 0, looseUnits: 5 } } },
-      movementUnits: { el1: { beer: -2 } },
-      expectedUnits: { [K('el1', 'beer')]: -3 },
-    })
-    // 5 − 2 − sold = −3 → sold = 6
-    expect(out[K('el1', 'beer')]).toEqual({ base: 5, moves: -2, sold: 6 })
   })
 })
