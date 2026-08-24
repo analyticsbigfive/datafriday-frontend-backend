@@ -555,13 +555,25 @@ export class DigifoodCsvImportService {
         const first = entries[0].row;
         // Export réel : type peut être « Refund »/« Remboursement » — détection tolérante
         const isRefund = entries.some((e) => /refund|rembours/i.test(e.row.type));
-        const sign: 1 | -1 = isRefund ? -1 : 1;
 
         const items: NormalizedItem[] = entries.map(({ row }) => {
             const qtyAbs = Math.abs(parseAmount(row.quantity));
+            const hasPricePu = row.price_pu !== '' && Number.isFinite(parseAmount(row.price_pu));
+            const hasTotalTtc = row.total_ttc !== '' && Number.isFinite(parseAmount(row.total_ttc));
+            // Digifood signe déjà certaines lignes en négatif (déconsigne, avoirs) même quand
+            // `type` reste "pos" (ex. DECONSGINE A 1€ : total_ttc="-5.00 €", quantity="5",
+            // type="pos") — Math.abs() plus bas écrasait ce signe, comptant le remboursement de
+            // consigne comme une vente en plus au lieu de l'annuler. Le signe de la ligne suit
+            // maintenant le montant source (price_pu sinon total_ttc) en plus du flag `type` au
+            // niveau de l'order — qtyAbs/unitPrice repartent toujours de Math.abs, une seule
+            // négation appliquée ensuite, pas de risque de double signe.
+            const rowIsNegative = hasPricePu
+                ? parseAmount(row.price_pu) < 0
+                : hasTotalTtc && parseAmount(row.total_ttc) < 0;
+            const sign: 1 | -1 = isRefund || rowIsNegative ? -1 : 1;
             const qty = qtyAbs * sign;
             // price_pu = unitaire en CENTIMES ; sinon total_ttc = total de ligne en EUROS
-            const unitPrice = row.price_pu !== '' && Number.isFinite(parseAmount(row.price_pu))
+            const unitPrice = hasPricePu
                 ? Math.abs(parseAmount(row.price_pu)) / 100
                 : qtyAbs > 0
                     ? Math.abs(parseAmount(row.total_ttc)) / qtyAbs

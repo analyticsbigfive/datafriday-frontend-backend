@@ -613,6 +613,7 @@ export default {
 .ctl--dark .ctl-searchbar__input {
   color: #f9fafb;
 }
+
 .ctl--dark .ctl-abtn { background: #1f2937; color: #cbd5e1; }
 .ctl--dark .ctl-abtn--edit { background: rgba(37,99,235,.15); color: #93c5fd; }
 .ctl--dark .ctl-abtn--del { background: rgba(255,49,49,.14); color: #fca5a5; }
