@@ -63,6 +63,33 @@
                 >
                   <v-icon size="18">mdi-pencil-outline</v-icon>
                 </v-btn>
+                <!-- BUG-356-01 v2/v3 (retours client + user, 24/08) : l'indicateur
+                     « Non mappées » vit DANS le bandeau rouge — le bandeau dédié prenait
+                     de la place. v3 : triangle warning `mdi-alert` (plus lisible que
+                     link-variant-off) + VRAIE infobulle Vuetify (patron SummaryPanel)
+                     au lieu du title natif. Visible seulement si volume > 0 ;
+                     clic → Data Integration. Ne change aucun chiffre. -->
+                <v-tooltip v-if="unmappedBannerText" location="bottom" max-width="300">
+                  <template #activator="{ props: tipProps }">
+                    <v-btn
+                      v-bind="tipProps"
+                      icon
+                      variant="text"
+                      size="small"
+                      class="fs-icon-btn av-unmapped-warn"
+                      :aria-label="unmappedBannerText"
+                      @click="router.push({ name: 'data-integration-fb' })"
+                    >
+                      <v-icon size="18">mdi-alert</v-icon>
+                    </v-btn>
+                  </template>
+                  <div class="av-unmapped-tip">
+                    <div>{{ unmappedBannerText }}</div>
+                    <div class="av-unmapped-tip__action">
+                      {{ t('anUnmappedTipAction') }} {{ t('anUnmappedInfoLink') }}
+                    </div>
+                  </div>
+                </v-tooltip>
                 <v-spacer />
                 <v-btn
                   icon
@@ -325,22 +352,6 @@
             {{ t('anItemLevelTruncated').replace('{n}', String(ITEM_LEVEL_EVENT_CAP)) }}
           </v-alert>
 
-          <!-- BUG-356-01 — volume non mappé, bandeau INFORMATIF : ces ventes sont
-               comptées, affichées « Non mappées » (décision JLH 2026-08-24). Le
-               bandeau évite qu'un gros bucket « Non mappées » se lise comme un bug
-               (piège BUG-300-01) et pointe le travail restant en Data Integration. -->
-          <v-alert
-            v-if="unmappedBannerText"
-            type="info"
-            variant="tonal"
-            icon="mdi-link-variant-off"
-            class="mb-4"
-          >
-            {{ unmappedBannerText }}
-            <router-link :to="{ name: 'data-integration-fb' }" class="an-unmapped-link">
-              {{ t('anUnmappedInfoLink') }}
-            </router-link>
-          </v-alert>
 
           <v-row v-if="chartsLoading" dense class="mb-4">
             <v-col v-for="i in 4" :key="`kpi-sk-${i}`" cols="12" sm="6" lg="3">
@@ -848,10 +859,12 @@ const {
   clearCache: clearBasketsCache,
 } = useTransactionBaskets(filteredEvents)
 
-// ── Volume non mappé (BUG-356-01) — bandeau INFORMATIF ──────────────────────
+// ── Volume non mappé (BUG-356-01) — indicateur INFORMATIF du bandeau rouge ──
 // Décision JLH 2026-08-24 : les ventes non mappées restent COMPTÉES, affichées
-// « Non mappées ». Ce bandeau ne change aucun chiffre : il distingue « rien
-// vendu » de « rien de mappé » et pointe le travail restant en Data Integration.
+// « Non mappées ». v2 (retour client, même jour) : plus de bandeau dédié — une
+// icône ambre dans le bandeau rouge, texte complet au survol, clic → Data
+// Integration. Ne change aucun chiffre : distingue « rien vendu » de « rien de
+// mappé » (piège BUG-300-01) et pointe le travail restant.
 const { unmapped: analyseUnmapped, clearCache: clearUnmappedCache } =
   useAnalyseUnmapped(filteredEvents)
 const unmappedBannerText = computed(() => {
@@ -2321,6 +2334,19 @@ function findTodayEventId() {
   background: #ff3131;
   box-shadow: 0 8px 24px rgba(255, 49, 49, 0.28);
 }
+/* Indicateur « Non mappées » (BUG-356-01 v2/v3) : triangle warning ambre sur le
+   bandeau rouge — les autres icônes y sont blanches, celle-ci doit se lire comme
+   un avertissement. */
+.av-unmapped-warn .v-icon {
+  color: #ffd54f;
+}
+
+.av-unmapped-tip__action {
+  margin-top: 4px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
 /* Badge Live (module Live) : pastille claire + point pulsant sur le bandeau rouge. */
 .av-live-badge {
   display: inline-flex;

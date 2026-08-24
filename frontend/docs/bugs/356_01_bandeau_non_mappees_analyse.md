@@ -5,7 +5,7 @@
 - **Domaine** : Analyse & agrégation
 - **Repo(s) concerné(s)** : les deux — fiche miroir api **BUG-137-01**
 - **Découvert le** : 2026-08-24
-- **Fichiers** : `src/composables/useAnalyseUnmapped.js` (nouveau), `src/api/endpoints/space.api.js` (`getSpaceAnalyseUnmappedBatch`), `src/components/analyse/AnalyseView.vue` (bandeau), `src/i18n/translations.js` (`anUnmappedInfo`, `anUnmatchedItems`, `anUnmatchedShops`)
+- **Fichiers** : `src/composables/useAnalyseUnmapped.js` (nouveau), `src/api/endpoints/space.api.js` (`getSpaceAnalyseUnmappedBatch`), `src/components/analyse/AnalyseView.vue` (indicateur du bandeau rouge), `src/i18n/translations.js` (`anUnmappedInfo`, `anUnmatchedItems`, `anUnmatchedShops`)
 
 ## Symptôme
 
@@ -33,10 +33,17 @@ item à l'étape 3 du wizard — 0 ligne orpheline d'import sur 786 882 non mapp
   i18n pilote tous les consommateurs (donuts, tables, tooltips) — aucun changement de clé
   technique (`UNATTACHED_ITEM_KEY`/`UNATTACHED_SHOP_KEY` inchangées, ce sont des clés de
   filtre).
-- **Bandeau informatif** dans `AnalyseView` (même patron que l'alerte de troncature
-  BUG-350-01) : « {lines} lignes de vente ({revenue}) ne sont pas mappées dans Data
-  Integration — comptées sous « Non mappées ». » + lien vers Data Integration. Affiché
-  seulement si > 0. Il ne modifie **aucun** chiffre.
+- **Indicateur dans le bandeau rouge** (v2, retour client du 24/08 : « pas de bandeau,
+  ça prend de la place ») : icône ambre `mdi-link-variant-off` dans la ligne de titre du
+  bandeau rouge, visible seulement si volume > 0 ; le texte complet — « {lines} lignes de
+  vente ({revenue}) ne sont pas mappées dans Data Integration — comptées sous
+  « Non mappées ». » — apparaît **au survol** (title natif, comme les autres boutons du
+  bandeau) ; le clic ouvre Data Integration. La v1 (v-alert dédié au-dessus des KPI) a
+  vécu quelques heures puis a été retirée. Ne modifie **aucun** chiffre.
+- **v3 (même jour)** : icône passée à **`mdi-alert`** (triangle warning, plus lisible que
+  `link-variant-off`) et title natif remplacé par une **vraie infobulle Vuetify**
+  (`v-tooltip location="bottom"`, patron `SummaryPanel.vue`) à deux lignes : le texte
+  complet + « Cliquer : Ouvrir Data Integration ».
 - **Source** : `useAnalyseUnmapped` (calqué sur `useTransactionBaskets` : cache par
   eventId, batch, cap `ITEM_LEVEL_EVENT_CAP` partagé) → `GET /spaces/:id/analyse-unmapped`
   (fiche api BUG-137-01). Un échec réseau met `null` en cache : le bandeau se tait plutôt
