@@ -274,9 +274,28 @@ export class AggregationService {
       GROUP BY t."eventId"
     `);
     const spanMs = MAX_EVENT_SPAN_DAYS * 86_400_000;
-    return new Set(
+    const containerIds = new Set(
       rows.filter((r) => new Date(r.maxDate).getTime() - new Date(r.minDate).getTime() > spanMs).map((r) => r.eventId),
     );
+
+    // Un SalesEvent Digifood (metadata.provider === 'digifood', digifood-ingestion.service.ts:239
+    // upsertSiteAsEvent, §5.4 PLAN_INTEGRATION_DIGIFOOD.md) projette le SITE entier — jamais un
+    // match précis — quel que soit le nombre de dates déjà synchronisées. Contrairement au
+    // conteneur de saison Weezevent ci-dessus (déduit du span car aucun signal structurel
+    // n'existe), ce cas est connu à la création : pas besoin d'attendre 2 jours de span observé
+    // pour le classer conteneur, sous peine de bloquer toute intégration Digifood qui démarre
+    // (un seul match synchronisé jusqu'ici a un span de quelques heures).
+    const digifoodEvents = await this.prisma.salesEvent.findMany({
+      where: {
+        tenantId,
+        ...(integrationId ? { integrationId } : {}),
+        metadata: { path: ['provider'], equals: 'digifood' },
+      },
+      select: { id: true },
+    });
+    digifoodEvents.forEach((e) => containerIds.add(e.id));
+
+    return containerIds;
   }
 
   private async resolveEventWindow(
