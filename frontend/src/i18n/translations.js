@@ -4430,6 +4430,7 @@ export const translations = {
     anItemLevelEmpty: 'No sales detail available for this scope.',
     anUnmappedInfo: '{lines} sale lines ({revenue}) are not mapped in Data Integration — counted under “Unmapped”.',
     anUnmappedInfoLink: 'Open Data Integration',
+    anUnmappedTipAction: 'Click:',
     // Space card tiles (BUG-350-01: moved out of the hardcoded template)
     spaceCardFbRevenue: 'F&B Revenue',
     spaceCardPerCapita: 'Per Capita',
@@ -8973,6 +8974,7 @@ export const translations = {
     anItemLevelEmpty: 'Aucun détail de vente disponible sur ce périmètre.',
     anUnmappedInfo: '{lines} lignes de vente ({revenue}) ne sont pas mappées dans Data Integration — comptées sous « Non mappées ».',
     anUnmappedInfoLink: 'Ouvrir Data Integration',
+    anUnmappedTipAction: 'Cliquer :',
     // Tuiles de la carte d'espace (BUG-350-01 : sorties du template en dur).
     // Volontairement identiques à l'anglais : routage i18n, pas retraduction.
     spaceCardFbRevenue: 'F&B Revenue',
