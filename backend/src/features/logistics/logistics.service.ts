@@ -1053,9 +1053,9 @@ export class LogisticsService {
         name: true,
         type: true,
         attributes: true,
-        floor: { select: { config: { select: { id: true } } } },
-        forecourt: { select: { config: { select: { id: true } } } },
-        externalMerch: { select: { config: { select: { id: true } } } },
+        floor: { select: { id: true, config: { select: { id: true } } } },
+        forecourt: { select: { id: true, config: { select: { id: true } } } },
+        externalMerch: { select: { id: true, config: { select: { id: true } } } },
         configurationElements: { select: { configId: true }, orderBy: { createdAt: 'asc' }, take: 1 },
         menuAssignments: { select: { menuItemId: true, enabled: true, configId: true } },
       },
@@ -1137,6 +1137,7 @@ export class LogisticsService {
       items: ElementItem[];
       provider?: string | null;
       configIds?: string[];
+      floorGroupId: string | null;
     }> = [];
     for (const shop of configuredShops) {
       const ids = enabledByShop.get(shop.id) ?? [];
@@ -1150,6 +1151,7 @@ export class LogisticsService {
         items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
         provider: providerByElementId.get(shop.id) ?? null,
         ...(aggregateAllConfigs ? { configIds: configIdsByShop.get(shop.id) ?? [] } : {}),
+        floorGroupId: this.floorGroupIdOf(shop),
       });
     }
 
@@ -1183,10 +1185,17 @@ export class LogisticsService {
         type: storage.type,
         items: [...merged.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
         ...(aggregateAllConfigs ? { configIds: [...storageConfigIds] } : {}),
+        floorGroupId: this.floorGroupIdOf(storage),
       });
     }
 
     return elements;
+  }
+
+  /** Regroupement "même étage/zone" (mockups Restocker, 08/2026) : id du Floor v1, ou à
+   *  défaut du Forecourt/ExternalMerch — null si aucun (élément v2 sans floor/forecourt). */
+  private floorGroupIdOf(el: { floor?: { id?: string } | null; forecourt?: { id?: string } | null; externalMerch?: { id?: string } | null }): string | null {
+    return el.floor?.id ?? el.forecourt?.id ?? el.externalMerch?.id ?? null;
   }
 
   /**

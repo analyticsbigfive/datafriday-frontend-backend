@@ -5,10 +5,12 @@
 // dans le host).
 
 // Seuils de la jauge "restant / départ", palette status figée (jamais thémée),
-// cf. skill dataviz : good ≥50%, warning 20-50%, critical <20%. Mode-invariant
-// (validée à la fois sur surface claire et sombre).
-export const GAUGE_WARNING_THRESHOLD = 50;
-export const GAUGE_CRITICAL_THRESHOLD = 20;
+// cf. skill dataviz : good ≥30%, warning 15-30%, critical <15% (mockups "Initiation
+// d'un transfert Live inventory", 08/2026 — décision explicite : mêmes seuils pilotent
+// aussi les badges/filtres toolbar "Low stock"/"Out of stock", cf. countGlobalByStatus).
+// Mode-invariant (validée à la fois sur surface claire et sombre).
+export const GAUGE_WARNING_THRESHOLD = 30;
+export const GAUGE_CRITICAL_THRESHOLD = 15;
 
 // Ordre de tri par criticité — les vrais problèmes remontent en premier, "good" en
 // dernier. Même logique côté badge (countByStatus ci-dessous).
@@ -31,7 +33,7 @@ function computeGaugeStatus(gaugePercent) {
 
 // Restant affiché = (packs × unitsPerPack + loose) − consumedLoose, repack ici
 // (casse de pack). Composants bruts fournis par l'endpoint (LIVE_API_GUIDE §3.3).
-export function buildLiveInventoryChild(node, label, keySeed) {
+export function buildLiveInventoryChild(node, label, keySeed, extra = {}) {
   const unit = node.unit || '';
   const unitsPerPack = Number(node.unitsPerPack) || 0;
   const packed = Number(node.packedUnits) || 0;
@@ -53,6 +55,7 @@ export function buildLiveInventoryChild(node, label, keySeed) {
   return {
     key: keySeed, label, unit, remainingLoose, consumedLoose: consumed,
     totalLoose, gaugePercent, gaugeStatus, gaugeLabel, gaugeLabelInside,
+    ...extra,
   };
 }
 
@@ -99,18 +102,21 @@ export function buildLiveInventoryRows(inv, view, search = '', statusFilters = [
     return [...filtered].sort((a, b) => STATUS_RANK[a.gaugeStatus] - STATUS_RANK[b.gaugeStatus]);
   };
 
+  // shopId/itemKey portés explicitement sur chaque enfant (pas déduits de `key`,
+  // dont le format diffère selon la vue) — le bouton "Stocker" (RestockerDrawer) en
+  // a besoin quelle que soit la vue affichée.
   let groups;
   if (view === 'shop') {
     groups = (inv.shops || []).map((s) => ({
       key: `shop:${s.shopId}`,
       label: s.shopName || s.shopId || '—',
-      children: sortAndFilter((s.items || []).map((it) => buildLiveInventoryChild(it, it.itemKey || '—', `${s.shopId}:${it.itemKey}`))),
+      children: sortAndFilter((s.items || []).map((it) => buildLiveInventoryChild(it, it.itemKey || '—', `${s.shopId}:${it.itemKey}`, { shopId: s.shopId, itemKey: it.itemKey }))),
     }));
   } else {
     groups = (inv.items || []).map((it) => ({
       key: `item:${it.itemKey}`,
       label: it.itemKey || '—',
-      children: sortAndFilter((it.shops || []).map((s) => buildLiveInventoryChild(s, s.shopName || s.shopId || '—', `${it.itemKey}:${s.shopId}`))),
+      children: sortAndFilter((it.shops || []).map((s) => buildLiveInventoryChild(s, s.shopName || s.shopId || '—', `${it.itemKey}:${s.shopId}`, { shopId: s.shopId, itemKey: it.itemKey }))),
     }));
   }
 

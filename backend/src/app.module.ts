@@ -44,6 +44,7 @@ import { DisplayNamesModule } from './features/display-names/display-names.modul
 import { IndustrialsModule } from './features/industrials/industrials.module';
 import { InventoryModule } from './features/inventory/inventory.module';
 import { LogisticsModule } from './features/logistics/logistics.module';
+import { LogisticTasksModule } from './features/logistic-tasks/logistic-tasks.module';
 import { PackingTypesModule } from './features/packing-types/packing-types.module';
 import { PromotionTypesModule } from './features/promotion-types/promotion-types.module';
 import { StorageTypesModule } from './features/storage-types/storage-types.module';
@@ -176,6 +177,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     IndustrialsModule,
     InventoryModule,
     LogisticsModule,
+    LogisticTasksModule,
     PackingTypesModule,
     PromotionTypesModule,
     StorageTypesModule,

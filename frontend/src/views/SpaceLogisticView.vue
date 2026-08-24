@@ -676,10 +676,10 @@ export default {
     /** Entrées niveau 1, shape { element:{id,name,configIds}, items } — miroir de l'ancien wrapper
      *  useInventoryData. configIds n'est peuplé que côté backend en vue agrégée (chantier 341). */
     shopEntries() {
-      return (this.store.getters['logistics/shopElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [] }, items: e.items || [] }))
+      return (this.store.getters['logistics/shopElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [], floorGroupId: e.floorGroupId ?? null }, items: e.items || [] }))
     },
     storageEntries() {
-      return (this.store.getters['logistics/storageElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [] }, items: e.items || [] }))
+      return (this.store.getters['logistics/storageElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [], floorGroupId: e.floorGroupId ?? null }, items: e.items || [] }))
     },
     /** Candidats aux transferts, avec le stock actuel de la denrée (pour choisir en
      *  connaissance de cause). PDV : uniquement ceux qui suivent déjà la denrée
@@ -1077,7 +1077,7 @@ export default {
     /** Élément candidat au transfert, enrichi du stock actuel de la denrée en cours. */
     elementWithStock(entry, itemName) {
       const expected = itemName ? this.expectedDisplay(entry.element.id, { name: itemName }) : { packed: 0, loose: 0 }
-      return { id: entry.element.id, name: entry.element.name, packed: expected.packed, loose: expected.loose }
+      return { id: entry.element.id, name: entry.element.name, packed: expected.packed, loose: expected.loose, floorGroupId: entry.element.floorGroupId ?? null }
     },
     unitsPerPackFor(elementId, item) {
       const level = this.store.getters['logistics/levelFor'](elementId, item.name)
@@ -1132,7 +1132,7 @@ export default {
       }
     },
     async openMovement(element, item, mode) {
-      this.movementElement = { id: element.id, name: element.name }
+      this.movementElement = { id: element.id, name: element.name, floorGroupId: element.floorGroupId ?? null }
       this.movementItem = item
       this.movementMode = mode
       this.movementError = null

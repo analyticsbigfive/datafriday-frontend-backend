@@ -185,6 +185,7 @@
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { sortElementsByFloorAndQuantity } from '@/utils/logisticElementOptions'
 
 /**
  * Sidebar Ajouter / Supprimer un produit (interface Logistic) — ouverture
@@ -307,14 +308,16 @@ export default {
       }
       return matches
     },
+    /** Tri partagé avec RestockerDrawer : même étage/zone que l'élément courant
+     *  d'abord, puis quantité restante décroissante (mockups Restocker, 08/2026). */
     shopOptions() {
-      return this.shops
-        .filter((s) => s.id !== this.element?.id)
+      const candidates = this.shops.filter((s) => s.id !== this.element?.id)
+      return sortElementsByFloorAndQuantity(candidates, this.element, this.unitsPerPack)
         .map((s) => ({ title: this.optionLabel(s), value: s.id }))
     },
     storageOptions() {
-      return this.storages
-        .filter((s) => s.id !== this.element?.id)
+      const candidates = this.storages.filter((s) => s.id !== this.element?.id)
+      return sortElementsByFloorAndQuantity(candidates, this.element, this.unitsPerPack)
         .map((s) => ({ title: this.optionLabel(s), value: s.id }))
     },
     /** Valeurs réellement envoyées (packed = entier ≥ 0, loose = float ≥ 0). */

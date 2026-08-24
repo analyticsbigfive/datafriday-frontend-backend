@@ -138,25 +138,49 @@
               </div>
               <span class="lip-row__gauge-num lip-row__gauge-num--end">{{ formatQty(child.totalLoose, child.unit) }}</span>
             </div>
+
+            <button
+              class="lip-row__restock-btn"
+              type="button"
+              :title="t('restockButton')"
+              @click="openRestocker(node, child)"
+            >
+              <Truck :size="15" />
+            </button>
           </div>
         </div>
       </div>
     </div>
+
+    <RestockerDrawer
+      v-model="restockerOpen"
+      :space-id="spaceId"
+      :element="restockerElement"
+      :item-key="restockerItemKey"
+      :tasks="restockerTasks"
+      :confirming="restockerConfirming"
+      :error="restockerError"
+      @add-task="onRestockAddTask"
+      @remove-task="onRestockRemoveTask"
+      @confirm="onRestockConfirm"
+    />
   </div>
 </template>
 
 <script>
-import { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search } from 'lucide-vue-next';
+import { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
 import { buildLiveInventoryRows, countByStatus, countGlobalByStatus } from '@/utils/liveInventoryRows';
+import { useRestockerTaskQueue } from '@/composables/useRestockerTaskQueue';
+import RestockerDrawer from './live-inventory/RestockerDrawer.vue';
 
 // Rafraîchissement live aligné sur le mode flux d'AnalyseView (11_LIVE.md §5).
 const LIVE_POLL_MS = 15000;
 
 export default {
   name: 'LiveInventoryPanel',
-  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search },
+  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, RestockerDrawer },
   props: {
     spaceId: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
@@ -165,7 +189,10 @@ export default {
   },
   setup() {
     const { t } = useI18n();
-    return { t };
+    // Possédée ici (pas dans le drawer) : survit à sa fermeture/réouverture entre
+    // deux items — cf. mockup "cliquer sur un autre bouton transfert dans un Item".
+    const restockerTaskQueue = useRestockerTaskQueue();
+    return { t, restockerTaskQueue };
   },
   data() {
     return {
@@ -183,6 +210,9 @@ export default {
       // docs/modules/11_LIVE.md §14) : un tick de 15s qui répond après un tick
       // plus récent est ignoré, sinon il peut écraser l'arbre avec du stock périmé.
       _invReqId: 0,
+      restockerOpen: false,
+      restockerElement: null,
+      restockerItemKey: '',
     };
   },
   computed: {
@@ -216,6 +246,9 @@ export default {
       if (!this.lastUpdated) return '';
       try { return new Date(this.lastUpdated).toLocaleTimeString(); } catch { return ''; }
     },
+    restockerTasks() { return this.restockerTaskQueue.queue.value; },
+    restockerConfirming() { return this.restockerTaskQueue.confirming.value; },
+    restockerError() { return this.restockerTaskQueue.error.value; },
   },
   watch: {
     spaceId() { this.fetchInventory(); },
@@ -274,6 +307,29 @@ export default {
     formatQty(v, unit) {
       const num = this.formatNumber(v);
       return unit ? `${num} ${unit.toLowerCase()}` : num;
+    },
+    // `child.shopId`/`child.itemKey` portés explicitement par buildLiveInventoryChild
+    // (cf. utils/liveInventoryRows.js) — valables dans les deux vues (shop/item), le
+    // nom du shop seul diffère (node.label en vue shop, child.label en vue item).
+    openRestocker(node, child) {
+      const shopName = this.view === 'shop' ? node.label : child.label;
+      this.restockerElement = { id: child.shopId, name: shopName };
+      this.restockerItemKey = child.itemKey;
+      this.restockerOpen = true;
+    },
+    onRestockAddTask(task) {
+      this.restockerTaskQueue.addTask(task);
+    },
+    onRestockRemoveTask(localId) {
+      this.restockerTaskQueue.removeTask(localId);
+    },
+    async onRestockConfirm() {
+      try {
+        await this.restockerTaskQueue.confirm(this.spaceId);
+        this.restockerOpen = false;
+      } catch {
+        // Erreur déjà exposée via restockerError (alerte dans le drawer).
+      }
     },
   },
 };
@@ -438,7 +494,7 @@ export default {
 .lip-rows { padding: 2px 6px 8px 30px; }
 .lip-rows__header {
   display: grid;
-  grid-template-columns: 1fr 260px;
+  grid-template-columns: 1fr 260px 30px;
   gap: 8px;
   padding: 8px 12px 6px;
   font-size: 0.7rem;
@@ -450,13 +506,28 @@ export default {
 .lip-rows__col--gauge { text-align: right; }
 .lip-row {
   display: grid;
-  grid-template-columns: 1fr 260px;
+  grid-template-columns: 1fr 260px 30px;
   gap: 12px;
   align-items: center;
   padding: 10px 12px;
   border-top: 1px solid #f3f4f6;
   font-size: 0.8125rem;
 }
+.lip-row__restock-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  flex-shrink: 0;
+}
+.lip-row__restock-btn:hover { background: #fef2f2; color: #ff3131; border-color: rgba(255, 49, 49, .3); }
 .lip-row__main-col {
   display: flex;
   flex-direction: column;
@@ -556,6 +627,8 @@ export default {
 .lip--dark .lip-row__consumed-sub { color: #94a3b8; }
 .lip--dark .lip-row__gauge-num { color: #f1f5f9; }
 .lip--dark .lip-row__gauge-track { background: rgba(255, 255, 255, .1); }
+.lip--dark .lip-row__restock-btn { background: #0f172a; border-color: rgba(255,255,255,.1); color: #94a3b8; }
+.lip--dark .lip-row__restock-btn:hover { background: rgba(255,49,49,.12); color: #f87171; border-color: rgba(248,113,113,.4); }
 /* Statuts good/critical mode-invariants (validés dataviz skill sur
    les 2 surfaces), seul warning est réajusté : #b8860b (assombri pour lisibilité en
    texte clair sur fond blanc) est trop terne sur fond sombre, on reprend le hex
