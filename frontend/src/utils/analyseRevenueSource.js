@@ -55,17 +55,29 @@ export function pickRevenueRecords({
  * « Match 10 Mai », BUG-247-01). Les confondre figerait l'écran sur un squelette
  * éternel : pire que la valeur provisoire qu'on vient de retirer.
  *
+ * BUG-354-01 — la bande KPI a désormais DEUX sources canoniques : l'item-level pour
+ * le CA et les quantités, les PANIERS pour les transactions et le panier moyen. Tant
+ * que l'une des deux n'a pas répondu, l'état est 'loading' : afficher le CA pendant
+ * que les transactions valent encore la somme (surcomptée) du grain article
+ * publierait exactement la valeur provisoire que BUG-350-01 a retirée.
+ * 'empty' d'un côté et 'ready' de l'autre reste 'ready' : ce sont deux résultats
+ * terminaux, pas une attente.
+ *
  * @param {{isPredict: boolean, itemLevelState: 'loading'|'ready'|'empty',
+ *          transactionState?: 'loading'|'ready'|'empty',
  *          canonicalSource?: 'item-level'|'shop-level'}} args
  * @returns {'loading'|'ready'|'empty'}
  */
 export function resolveKpiSourceState({
   isPredict,
   itemLevelState,
+  transactionState = 'ready',
   canonicalSource = CANONICAL_REVENUE_SOURCE,
 }) {
   // Predict et shop-level canonique lisent une source déjà en mémoire (store) :
-  // rien à attendre, donc jamais de squelette de leur fait.
+  // rien à attendre, donc jamais de squelette de leur fait. En Predict les
+  // transactions viennent des scénarios, pas des paniers.
   if (isPredict || canonicalSource !== 'item-level') return 'ready'
+  if (itemLevelState === 'loading' || transactionState === 'loading') return 'loading'
   return itemLevelState
 }

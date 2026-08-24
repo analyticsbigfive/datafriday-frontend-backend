@@ -40,9 +40,10 @@ export function useReconciliationContext() {
         menuItems: a.menuItems || [],
         productCategories: a.productCategoriesList || [],
         productTypes: a.productTypesList || [],
+        // BUG-353-01 : plus d'`assignment` / `assignmentItemsByShop`. Le SpaceMenu ne
+        // participe plus à l'identité article de l'Analyse ; `floorElements` ne sert
+        // qu'aux dimensions du PdV.
         floorElements: a.configShopContext?.floorElements || [],
-        assignment: a.configShopContext?.assignment || null,
-        assignmentItemsByShop: a.configShopContext?.assignmentItemsByShop || null,
         weezeventProducts: a.weezeventProducts || [],
       })
     }))

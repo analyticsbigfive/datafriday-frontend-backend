@@ -107,6 +107,7 @@ describe('SpacesService', () => {
     },
     locationSpaceMapping: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
     $queryRaw: jest.fn(),
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
@@ -904,7 +905,7 @@ describe('SpacesService', () => {
 
     beforeEach(() => {
       mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
-      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue({ salesLocationId: 'integ-1' });
+      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: 'integ-1' }]);
       mockPrismaService.config.findMany.mockResolvedValue([]);
       mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
       mockPrismaService.event.findMany.mockResolvedValue([
@@ -935,6 +936,64 @@ describe('SpacesService', () => {
       expect(sql).toContain('t.id');
     });
 
+    // BUG-136-01 : un espace peut être alimenté par PLUSIEURS intégrations Weezevent.
+    // Le scope n'en retenait qu'UNE (findFirst sans orderBy) et le filtre
+    // t."integrationId" = <celle-là> vidait ce donut de toutes les ventes de l'autre —
+    // « 0 transactions » pendant que le reste de la page (qui lit la pré-agrégat, sans
+    // ce filtre) continuait d'afficher le CA de l'event.
+    it('scope les ventes sur TOUTES les intégrations de l’espace, pas une seule', async () => {
+      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([
+        { salesLocationId: 'integ-1' },
+        { salesLocationId: 'integ-2' },
+      ]);
+
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const call = mockPrismaService.$queryRaw.mock.calls.at(-1);
+      const sql: string = (call?.[0]?.strings ?? []).join('');
+      const values: any[] = call?.[0]?.values ?? [];
+
+      expect(sql).toContain('t."integrationId" = ANY(');
+      expect(values).toContainEqual(['integ-1', 'integ-2']);
+    });
+
+    it('sans aucune intégration mappée : pas de filtre intégration, scope PdV strict', async () => {
+      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([]);
+
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      expect(sql).not.toContain('t."integrationId"');
+      // Mode dégradé tenant-wide : les PdV non mappés ne doivent PAS entrer.
+      expect(sql).not.toContain('mem."spaceElementId" IS NULL OR');
+    });
+
+    // BUG-136-01 : sans minuteLocal, le curseur horaire (bornes DATÉES depuis
+    // BUG-351-01) comparait des instants à un simple HH:MM et vidait les donuts
+    // paniers dès qu'un event franchissait minuit.
+    it('expose la minute DATÉE (minuteLocal), comme getEventTimelineBatch', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        {
+          eventId: 'ev-1',
+          minute: '19:42',
+          minuteLocal: '2026-03-01T19:42',
+          shopId: 'el-1',
+          shopName: 'Bar Nord',
+          categoryCombo: ['Bières'],
+          typeCombo: ['Beverage'],
+          itemCombo: ['Heineken'],
+          transactionCount: 3,
+          quantity: 4,
+          revenueHt: '12.00',
+        },
+      ]);
+
+      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1'][0].minuteLocal).toBe('2026-03-01T19:42');
+      expect(res['ev-1'][0].minute).toBe('19:42');
+    });
+
     it('trie les combinaisons côté SQL — « Bières, Consigne » et « Consigne, Bières » sont un seul bucket', async () => {
       await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
@@ -955,14 +1014,21 @@ describe('SpacesService', () => {
       expect(sql).toContain('LEFT JOIN "ProductType"');
     });
 
-    it('n’écarte JAMAIS les lignes non résolues (pas de filtre sur la catégorie)', async () => {
+    // Décision JLH 2026-08-24 (BUG-137-01, après aller-retour) : les ventes non
+    // mappées restent COMPTÉES, affichées « Non mappées » — jamais filtrées ici. Le
+    // volume non mappé est mesuré à part par getAnalyseUnmappedBatch (bandeau).
+    it('n’écarte JAMAIS les lignes non résolues (ni mapping, ni catégorie)', async () => {
       await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
-      // Convention maison : afficher « Non rattachés » plutôt que sous-compter en silence.
+      // Convention maison : afficher « Non mappées » plutôt que sous-compter en silence.
+      expect(sql).not.toContain('wpm."menuItemId" IS NOT NULL');
       expect(sql).not.toContain('pc.name IS NOT NULL');
       expect(sql).toContain('LEFT JOIN "ProductCategory"');
       expect(sql).toContain('LEFT JOIN "MenuItem"');
+      // PdV non mappés : gardés eux aussi (branche permissive) dès qu'une intégration
+      // scope la requête — ils remontent dans le bucket « Non rattachés ».
+      expect(sql).toContain('mem."spaceElementId" IS NULL OR');
     });
 
     it('un panier de 2 lignes = UNE combinaison à 2 catégories, transactionCount 1', async () => {
@@ -1036,13 +1102,14 @@ describe('SpacesService', () => {
   // PUIS sommer les merchants/locations distincts. Le MAX à un seul niveau du commit
   // perf event-timeline-item-agg plafonnait chaque minute à la plus grosse ligne →
   // timeline réelle aplatie en plateau constant.
-  describe('getEventTimelineBatch', () => {
+  // BUG-137-01 — volume NON MAPPÉ, informatif (bandeau) : ne filtre rien.
+  describe('getAnalyseUnmappedBatch', () => {
     const spaceId = 'space-1';
     const tenantId = 'tenant-1';
 
     beforeEach(() => {
       mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
-      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue({ salesLocationId: 'integ-1' });
+      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: 'integ-1' }]);
       mockPrismaService.config.findMany.mockResolvedValue([]);
       mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
       mockPrismaService.event.findMany.mockResolvedValue([
@@ -1050,6 +1117,75 @@ describe('SpacesService', () => {
       ]);
       (mockPrismaService as any).salesEvent = { findMany: jest.fn().mockResolvedValue([]) };
       mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    it('retourne des zéros (pas des trous) pour un event entièrement mappé', async () => {
+      const res = await service.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1']).toEqual({
+        unmappedLines: 0,
+        unmappedUnits: 0,
+        unmappedRevenueHt: 0,
+        unmappedProductLines: 0,
+        unmappedPosLines: 0,
+      });
+    });
+
+    it('cible produit OU PdV non mappé, avec les mêmes prédicats de lecture que la page', async () => {
+      await service.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      expect(sql).toContain('wpm."menuItemId" IS NULL OR mem."spaceElementId" IS NULL');
+      // Les ventes mappées vers les shops d'un AUTRE espace ne sont pas comptées ici.
+      expect(sql).toContain('mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(');
+      // Mêmes prédicats que event-timeline / transaction-baskets.
+      expect(sql).toContain("t.status = 'V'");
+      expect(sql).toContain('t."deletedAt" IS NULL');
+    });
+
+    it('mappe les lignes SQL par eventId et convertit en nombres', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        {
+          eventId: 'ev-1',
+          unmappedLines: 12,
+          unmappedUnits: 30,
+          unmappedRevenueHt: '145.50',
+          unmappedProductLines: 10,
+          unmappedPosLines: 2,
+        },
+      ]);
+
+      const res = await service.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1'].unmappedRevenueHt).toBe(145.5);
+      expect(res['ev-1'].unmappedProductLines).toBe(10);
+    });
+  });
+
+  describe('getEventTimelineBatch', () => {
+    const spaceId = 'space-1';
+    const tenantId = 'tenant-1';
+
+    beforeEach(() => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: 'integ-1' }]);
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'ev-1', eventDate: new Date('2026-03-01T18:00:00Z'), eventEndDate: null },
+      ]);
+      (mockPrismaService as any).salesEvent = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrismaService.$queryRaw.mockResolvedValue([]);
+    });
+
+    // BUG-137-01 : les produits non mappés restent DANS le flux (menuItemId null),
+    // affichés « Non mappées » côté page — pas de WHERE d'exclusion sur le mapping.
+    it('renvoie aussi les produits non mappés (pas de filtre wpm dans le WHERE)', async () => {
+      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      expect(sql).not.toContain('wpm."menuItemId" IS NOT NULL');
+      expect(sql).toContain('LEFT JOIN "WeezeventProductMapping"');
     });
 
     it('déduplique par merchant (MAX interne) puis SOMME au grain affichage (BUG-130-01)', async () => {
@@ -1150,7 +1286,7 @@ describe('SpacesService', () => {
 
     beforeEach(() => {
       mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
-      mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue({ salesLocationId: 'integ-1' });
+      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: 'integ-1' }]);
       mockPrismaService.config.findMany.mockResolvedValue([]);
       mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
       (mockPrismaService as any).salesEvent = { findMany: jest.fn().mockResolvedValue([]) };

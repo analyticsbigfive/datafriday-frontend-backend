@@ -279,8 +279,17 @@ export function aggregateTimeline(records, opts = {}) {
       r.configurationVersionId || r.configVersionId || r.versionId || opts.configurationVersionId || null
     const scenarioId = r.predictionScenarioId || r.scenarioId || opts.scenarioId || null
     const rawShopId = r.shopId || r.elementId || r.shop || null
+    // Identité ARTICLE du bucket (sert aux champs menuItemId/mappedMenuItemId et au
+    // lookup de coût, tous deux indexés sur MenuItem) — inchangée.
     const rawProductId =
       r.productId || r.menuItemId || r.mappedMenuItemId || r.itemId || null
+    // BUG-353-01 : clé de REGROUPEMENT distincte, `weezeventProductId` en tête. Les lignes
+    // d'`event-timeline` portent `weezeventProductId` + `menuItemId` mais jamais
+    // `productId` : regrouper sur `rawProductId` repliait donc sur `menuItemId`, ce qui
+    // (1) fusionnait deux produits Weezevent distincts mappés au même MenuItem et
+    // (2) effondrait toutes les ventes NON mappées (`menuItemId = null`) dans un seul
+    // bucket `''` par minute × PdV. La clé sépare, l'identité reste MenuItem.
+    const rawProductGroupId = r.weezeventProductId || rawProductId
     const shopId =
       groupBy === 'shop' || groupBy === 'shopProduct'
         ? rawShopId
@@ -289,6 +298,10 @@ export function aggregateTimeline(records, opts = {}) {
       groupBy === 'product' || groupBy === 'shopProduct'
         ? rawProductId
         : null
+    const productGroupKey =
+      groupBy === 'product' || groupBy === 'shopProduct'
+        ? rawProductGroupId
+        : null
 
     const key = [
       minuteLocal || minute,
@@ -296,7 +309,7 @@ export function aggregateTimeline(records, opts = {}) {
       configurationVersionId || '',
       scenarioId || '',
       shopId || '',
-      productId || '',
+      productGroupKey || '',
     ].join('|')
     let agg = byKey.get(key)
     if (!agg) {

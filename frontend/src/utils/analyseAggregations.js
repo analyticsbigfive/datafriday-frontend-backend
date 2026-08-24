@@ -123,6 +123,25 @@ function itemNameOf(r) {
 }
 
 /**
+ * Clé d'agrégation d'un article : l'ID du mapping Data Integration d'abord, le nom
+ * seulement en repli pour les ventes non mappées (BUG-353-01).
+ *
+ * Grouper par NOM fusionnait deux MenuItem homonymes en une seule ligne — un libellé
+ * n'est pas une identité, il s'édite et peut collisionner d'une saison ou d'un espace
+ * à l'autre. Le nom reste le LIBELLÉ affiché (`name`), il n'est plus la clé.
+ *
+ * Renvoie `null` quand le record n'a pas de libellé : ces deux tableaux sont indexés
+ * PAR NOM à l'écran (agrégats shop-level, lignes sans article). Une ligne sans libellé
+ * y apparaîtrait vide — on continue de l'écarter, comme avant, plutôt que de la
+ * regrouper sous un fourre-tout.
+ */
+function itemAggKeyOf(r) {
+  if (!itemNameOf(r)) return null
+  if (r.menuItemId != null && r.menuItemId !== '') return `id:${r.menuItemId}`
+  return `name:${itemNameOf(r)}`
+}
+
+/**
  * Ventes groupées par PdV puis par article (vue « By shop » du tableau).
  *
  * `pictureOf` permet au composant d'injecter sa résolution d'image catalogue
@@ -142,15 +161,16 @@ export function aggregateByShop(records, { pictureOf = null } = {}) {
       eventsPerShop.set(r.shopName, new Set())
     }
     const itemsMap = shopMap.get(r.shopName)
-    const key = itemNameOf(r)
+    const key = itemAggKeyOf(r)
     if (!key) continue
+    const label = itemNameOf(r)
     if (!itemsMap.has(key)) {
       itemsMap.set(key, {
-        name: key,
+        name: label,
         menuItemId: r.menuItemId || null,
         type: resolveItemType(r),
         category: resolveItemCategory(r),
-        picture: pictureOf ? pictureOf(key, r) : null,
+        picture: pictureOf ? pictureOf(label, r) : null,
         quantity: 0,
         revenue: 0,
         eventIds: new Set(),
@@ -192,13 +212,13 @@ export function aggregateByItem(records) {
 
   for (const r of records || []) {
     if (!r) continue
-    // Les agrégats shop-level n'ont pas de nom d'article : on les ignore plutôt
+    // Les agrégats shop-level n'ont ni id ni nom d'article : on les ignore plutôt
     // que de les regrouper sous un libellé fourre-tout.
-    const key = itemNameOf(r)
+    const key = itemAggKeyOf(r)
     if (!key) continue
     if (!itemMap.has(key)) {
       itemMap.set(key, {
-        name: key,
+        name: itemNameOf(r),
         menuItemId: r.menuItemId || null,
         type: resolveItemType(r),
         category: resolveItemCategory(r),

@@ -22,8 +22,17 @@ export function useMetricsCalculator({
   // (somme des transactionRate par shop). Quand fourni et > 0, il remplace la
   // valeur basique `transactions / operatingMinutes`.
   overrideTransactionRate,
+  // BUG-354-01 — SOURCE des transactions. Les records item-level sont au grain
+  // (minute × PdV × ARTICLE) : leur `transactionCount` compte les tickets distincts
+  // DE CET ARTICLE, donc un panier à 3 articles différents y pèse 3. Les sommer
+  // surcompte. Les records paniers (endpoint transaction-baskets) sont au grain
+  // (minute × PdV × combinaison) construit sur UNE ligne par ticket : chaque ticket
+  // y apparaît exactement une fois, la somme est donc le nombre réel de tickets et
+  // reste filtrable par PdV/horaire. Quand fourni, il remplace la somme item-level.
+  transactionRecords = null,
 }) {
   const _records = () => unref(filteredShopGranularData) || []
+  const _txRecords = () => unref(transactionRecords)
   const _events = () => unref(chartFilteredEvents) || []
   const _costMap = () => unref(menuItemCostMap) || {}
   const _tl = () => !!unref(isTimelineFilterActive)
@@ -57,6 +66,16 @@ export function useMetricsCalculator({
       if (r.menuItemId) hasCostableRow = true
       transactions += r.transactionCount || 0
       if (rowRevenue > 0 && r.eventId) eventIdsWithRevenue.add(r.eventId)
+    }
+
+    // BUG-354-01 — bascule sur la source ticket quand elle est disponible. `null`
+    // (source pas encore chargée) ≠ `[]` (chargée, aucun ticket sur ce périmètre) :
+    // seul le second doit ramener 0, le premier garde la valeur item-level plutôt
+    // que d'afficher un 0 provisoire (règle « aucune valeur provisoire »).
+    const txRecords = _txRecords()
+    if (Array.isArray(txRecords)) {
+      transactions = 0
+      for (const b of txRecords) transactions += b.transactionCount || 0
     }
 
     for (const e of events) {
