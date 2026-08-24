@@ -128,13 +128,21 @@ export function useTransactionBaskets(filteredEvents, { maxEvents = MAX_EVENTS }
   // chargement : sans ça, elle publierait la somme item-level — le nombre surcompté
   // que ce lot retire — puis le remplacerait. C'est la valeur provisoire interdite par
   // BUG-350-01. `[]` (chargé, aucun panier) est TERMINAL et ne doit pas figer l'écran.
+  // Décision JLH 2026-08-24 (carte TX/MIN) : 'ready' n'est publié que lorsque TOUS
+  // les events scopés ont été tentés. L'ancien ordre (`if (basketRecords.length)
+  // return 'ready'`) publiait 'ready' dès le premier record en cache alors que
+  // d'autres events étaient encore en vol (sélection élargie, cache partiel d'un
+  // autre consommateur) → les KPI dérivés (Σ des taux par PdV, transactions,
+  // panier moyen) affichaient une somme PARTIELLE destinée à bouger — la valeur
+  // provisoire interdite par BUG-350-01. `[]` posé sur un event en échec compte
+  // comme « tenté » → pas de squelette éternel sur batch KO.
   const sourceState = computed(() => {
     const scoped = (filteredEvents.value || []).slice(0, maxEvents).filter((e) => e?.id)
     if (!scoped.length) return 'empty'
-    if (basketRecords.value.length) return 'ready'
     if (loading.value) return 'loading'
     const attempted = loadedEventIds.value
-    return scoped.every((e) => attempted.has(e.id)) ? 'empty' : 'loading'
+    if (!scoped.every((e) => attempted.has(e.id))) return 'loading'
+    return basketRecords.value.length ? 'ready' : 'empty'
   })
 
   /** BUG-285 : purge (changement d'espace in-page — les eventIds de l'ancien espace

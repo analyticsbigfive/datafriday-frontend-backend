@@ -4423,6 +4423,7 @@ export const translations = {
     anHeaderKpiPerCap: 'Per cap',
     anKpiCardMargin: 'Margin',
     anKpiCardTransactionRate: 'tx/min',
+    anKpiTxRateScope: 'Sum of per-outlet avg rates',
     // BUG-350-01 — scope disclosure + truncation / empty states
     anPerCapScopeFiltered: 'over the {n} filtered event(s)',
     anPerCapScopeAllSpaceEvents: 'over every event of this space, including upcoming ones',
@@ -8967,6 +8968,7 @@ export const translations = {
     anHeaderKpiPerCap: 'Per cap',
     anKpiCardMargin: 'Marge',
     anKpiCardTransactionRate: 'tx/min',
+    anKpiTxRateScope: 'Σ des taux moyens par PdV',
     // BUG-350-01 — mention du périmètre + états tronqué / vide
     anPerCapScopeFiltered: 'sur les {n} évènement(s) filtrés',
     anPerCapScopeAllSpaceEvents: 'sur tous les évènements de l\'espace, y compris à venir',

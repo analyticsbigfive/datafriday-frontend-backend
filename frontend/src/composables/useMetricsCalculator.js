@@ -18,10 +18,13 @@ export function useMetricsCalculator({
   isTimelineFilterActive,
   operatingMinutes,
   selectedEventIds,
-  // Lot 4.1 / Transaction Rate panel — override calculé depuis la timeline
-  // (somme des transactionRate par shop). Quand fourni et > 0, il remplace la
-  // valeur basique `transactions / operatingMinutes`.
-  overrideTransactionRate,
+  // Décision JLH 2026-08-24 — TX/MIN = somme des taux moyens par PdV (Σ txn/min
+  // sur les minutes actives réelles de chaque shop), calculée depuis les records
+  // paniers filtrés. Ref<number|null> : `null` = pas de valeur (predict, ou
+  // source paniers pas terminale) → repli legacy ci-dessous. Remplace l'ancien
+  // `overrideTransactionRate` (Lot 4.1) qui ne s'activait qu'à l'ouverture du
+  // panneau Shop Performance et faisait sauter la carte au clic.
+  perShopTransactionRate,
   // BUG-354-01 — SOURCE des transactions. Les records item-level sont au grain
   // (minute × PdV × ARTICLE) : leur `transactionCount` compte les tickets distincts
   // DE CET ARTICLE, donc un panier à 3 articles différents y pèse 3. Les sommer
@@ -38,7 +41,7 @@ export function useMetricsCalculator({
   const _tl = () => !!unref(isTimelineFilterActive)
   const _ops = () => unref(operatingMinutes) || 0
   const _selectedEventIds = () => unref(selectedEventIds) || []
-  const _override = () => unref(overrideTransactionRate)
+  const _perShop = () => unref(perShopTransactionRate)
 
   // Lot 3.1 — Mode «single event» : un seul event sélectionné dans les filtres.
   // Quand actif : pas de moyenne par événement (les « Moy./Évén. » retombent sur
@@ -145,8 +148,14 @@ export function useMetricsCalculator({
   )
   const displayMargin = computed(() => margin.value)
   const displayTransactionRate = computed(() => {
-    const o = _override()
-    if (o != null && o > 0) return o
+    // `!= null` et non `> 0` : 0 est une valeur TERMINALE légitime (périmètre
+    // chargé sans ticket) — l'ancien garde `o > 0` retombait silencieusement sur
+    // l'autre formule. Le repli transactions/operatingMinutes ne sert plus qu'au
+    // mode Predict (pas de source paniers) ; en Analyse, `null` coïncide avec
+    // `kpiSourceState === 'loading'` → la carte est en squelette, le repli n'est
+    // jamais visible (règle « zéro valeur provisoire », BUG-350-01).
+    const v = _perShop()
+    if (v != null) return v
     return _ops() ? displayTransactions.value / _ops() : 0
   })
 

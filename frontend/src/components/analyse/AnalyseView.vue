@@ -677,6 +677,7 @@ import { useReconciliationContext } from '@/composables/useReconciliationContext
 import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
 import { useAnalyseUnmapped } from '@/composables/useAnalyseUnmapped'
 import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
+import { sumShopTransactionRates } from '@/utils/shopPerformanceCompute'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -898,6 +899,19 @@ const reconciledBaskets = computed(() => {
 // filtres : c'est voulu, un pourcentage doit toujours dire sur quoi il porte.
 const filteredBaskets = computed(() =>
   reconciledBaskets.value.filter(buildBasketFilterPredicate(filters.value || {})),
+)
+
+// Décision JLH 2026-08-24 — valeur UNIQUE de la carte TX/MIN : Σ des taux moyens
+// par PdV (txn / minutes actives réelles de chaque shop), dérivée des paniers
+// filtrés — donc réactive à TOUS les filtres de la page comme les autres KPI, et
+// stable à l'ouverture/fermeture du panneau Shop Performance (l'ancien override
+// au clic faisait sauter la carte d'une formule à l'autre). `null` = pas de
+// valeur (predict, ou source paniers pas terminale → squelette via
+// kpiSourceState) ; un périmètre chargé sans ticket donne 0, terminal et exact.
+const perShopTransactionRateSum = computed(() =>
+  isPredictRecords.value || basketsSourceState.value === 'loading'
+    ? null
+    : sumShopTransactionRates(filteredBaskets.value),
 )
 
 // Signature des filtres qui BOUGENT les données de la timeline. Sert au
@@ -1438,13 +1452,10 @@ const metrics = useMetricsCalculator({
       ? null
       : filteredBaskets.value,
   ),
-  // Lot 4.1 — si le panneau Transaction Rate est ouvert et enrichi, on
-  // pousse la somme des txn/min par shop (cf. React `shopPerformanceData`).
-  overrideTransactionRate: computed(() =>
-    showTransactionRateShops.value && shopPerformance.enriched.value
-      ? shopPerformance.totalTransactionRate.value
-      : null,
-  ),
+  // Décision JLH 2026-08-24 — Σ des taux par PdV en permanence (voir la
+  // définition de `perShopTransactionRateSum`) : plus d'override conditionné à
+  // l'ouverture du panneau, le chiffre de la carte ne bouge plus au clic.
+  perShopTransactionRate: perShopTransactionRateSum,
 })
 
 // ---- KPI de la bande centre du header (WorkspaceAppHeader) -----------------
@@ -1604,6 +1615,15 @@ watch(
     const sameLen = ids.length === (prev?.length || 0)
     const sameContent = sameLen && ids.every((x) => prev.includes(x))
     if (sameContent) return
+
+    // BUG-359-01 — au remontage après un changement d'espace, ce watcher
+    // (`immediate: true`) tire AVANT loadSpace : le store contient encore les
+    // events ET la sélection de l'ANCIEN espace → la timeline s'ouvrait titrée
+    // avec le match de l'espace précédent pendant que le fetch partait avec le
+    // nouveau spaceId. Tant que le store n'est pas aligné sur la route, on ne
+    // déclenche rien : le reset des filtres au changement d'espace (store,
+    // CLEAR_SPACE_KEYED_CACHES) refera passer ce watcher avec un état cohérent.
+    if (String(store.state.analyse.spaceId || '') !== String(route.params.spaceId || '')) return
 
     if (!ids || ids.length === 0) {
       if (isTimelineActive.value) closeTimeline()
@@ -2099,6 +2119,11 @@ watch(
       // requestDeferredAllConfigsContext, qui voyait le contexte de l'ANCIEN
       // espace — purgé désormais par CLEAR_SPACE_KEYED_CACHES (store).
       allConfigsCtxRequested = false
+      // BUG-359-01 — le détail timeline ouvert appartient à l'ancien espace
+      // (instance survivante = route keepAlive, key = route.name) : on le ferme
+      // avant de charger le nouveau, sinon il reste affiché avec le match de
+      // l'espace précédent.
+      if (isTimelineActive.value) closeTimeline()
     }
     ensureAuthAndLoad(id)
   }

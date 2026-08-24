@@ -112,17 +112,17 @@ const perCapitaSubtext = computed(() => {
   return `${t('anHeaderKpiAttendees')} : ${attendees}${scope}`
 })
 
-// Taux de transaction = transactions / minute (parité React 'Transaction Rate Widget')
+// Décision JLH 2026-08-24 — TX/MIN = Σ des taux moyens par PdV, en permanence
+// (plus de « Cliquer » ni de bascule de formule à l'ouverture du panneau).
+// 0,00/min est TERMINAL (périmètre chargé sans ticket), pas provisoire ; `null`
+// (predict sans minutes) rend « — ».
 const transactionRateLabel = computed(() => {
-  const rate = props.metrics.displayTransactionRate?.value ?? 0
-  if (!rate) return t('anClick')
+  const rate = props.metrics.displayTransactionRate?.value
+  if (rate == null) return NO_VALUE
   return `${formatDecimal(rate, 2, { pad: true })}/min`
 })
 
-const transactionRateSubtext = computed(() => {
-  const trans = props.metrics.displayTransactions.value
-  const evts = props.metrics.validEventsCount.value
-  if (!evts) return ''
-  return `${t('anAvgPerEvent')} : ${(trans / evts).toFixed(0)}`
-})
+// Le sous-texte dit la FORMULE (Σ par PdV) — l'ancien « Moy./Évén. » décrivait
+// les transactions, pas le taux, et laissait croire à un rythme global.
+const transactionRateSubtext = computed(() => t('anKpiTxRateScope'))
 </script>

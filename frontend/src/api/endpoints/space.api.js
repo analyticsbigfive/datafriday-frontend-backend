@@ -214,20 +214,33 @@ export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = fa
 // 77 events, 275k lignes d'agrégat, 376k lignes brutes), envoyer les 77 fenêtres en UNE
 // requête faisait matérialiser toute la réponse côté Node → « Ran out of memory (used
 // over 2GB) » en boucle sur Render, et la page se peignait à 0 € (échecs mis en cache
-// « tenté/vide »). Les trois endpoints batch sont donc appelés par PAQUETS, en
-// SÉQUENTIEL — volontairement pas en parallèle : un seul gros SELECT à la fois par
-// client, la mémoire backend reste bornée par la taille d'un paquet.
+// « tenté/vide »). Les trois endpoints batch sont donc appelés par PAQUETS.
+// BUG-361-01 : le tout-séquentiel initial multipliait le temps de chargement par le
+// nombre de paquets (5-7 allers-retours sériels sur un espace courant) — on borne
+// désormais la CONCURRENCE au lieu de l'interdire : au plus _BATCH_CONCURRENCY
+// paquets en vol par endpoint, la mémoire backend reste bornée par
+// concurrence × taille de paquet (2 × 15 events, loin des 77 de l'OOM) et le
+// wall-clock redevient ≈ celui du paquet le plus lent.
 const BATCH_CHUNK_SIZE = 15
+const _BATCH_CONCURRENCY = 2
 
 async function _fetchBatchChunked(spaceId, path, ids, chunkSize = BATCH_CHUNK_SIZE) {
+  const chunks = []
+  for (let i = 0; i < ids.length; i += chunkSize) chunks.push(ids.slice(i, i + chunkSize))
   const merged = {}
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const chunk = ids.slice(i, i + chunkSize)
-    const response = await api.get(`/spaces/${spaceId}/${path}`, {
-      params: { eventIds: chunk.join(',') },
-    })
-    Object.assign(merged, response.data || {})
+  let next = 0
+  const worker = async () => {
+    while (next < chunks.length) {
+      const chunk = chunks[next++]
+      const response = await api.get(`/spaces/${spaceId}/${path}`, {
+        params: { eventIds: chunk.join(',') },
+      })
+      Object.assign(merged, response.data || {})
+    }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(_BATCH_CONCURRENCY, chunks.length) }, worker),
+  )
   return merged
 }
 

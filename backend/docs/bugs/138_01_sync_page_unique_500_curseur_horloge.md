@@ -35,8 +35,27 @@ généreux (5 000 en incrémental, 50 000 en hebdo) sont inopérants.
 **2. `batchSize: 500` demandé au cron** (`weezevent-cron.service.ts:72,198,367,373`), alors
 que le service documente lui-même « Weezevent API per_page max is 100 »
 (`weezevent-incremental-sync.service.ts:47`). Résultat observé : une page unique de
-500 éléments par passe — le « plafond » mesuré deux fois (passe de 22:00:09 et full sync
-du 23/08 02:00, toutes deux à exactement 500).
+500 éléments par passe — le « plafond » mesuré **trois fois**, et **jamais dépassé sur
+toute l'histoire de l'intégration** :
+
+```sql
+-- max = 500 exactement, 0 passe au-dessus, sur 32 passes : la pagination ne s'enclenche jamais
+SELECT MAX(cnt), COUNT(*) FILTER (WHERE cnt = 500) FROM (
+  SELECT date_trunc('minute',"createdAt"), COUNT(*) cnt FROM "WeezeventTransaction"
+  WHERE "integrationId" = 'cmt01vzza007dqw011q4js95x' GROUP BY 1) x;
+```
+
+| Passe (`createdAt`) | Importé | Fenêtre `transactionDate` couverte |
+|---|---|---|
+| 19/08 12:20 — **premier sync**, sans borne de date | 500 | 07/02 11:24 → 07/02 14:03 |
+| 22/08 20:00 — pic mi-temps | 500 | 22/08 19:45:10 → 19:54:05 |
+| 23/08 02:00 — full sync hebdo | 500 | 15/08 13:14 → 15/08 15:17 |
+
+La 1re ligne montre que ce n'est pas un défaut de pic : le sync **initial**, sans borne de
+date, s'est lui aussi arrêté à 500 — sur 2 h 40 de février. Le plafond est dur et s'applique
+à **tous** les imports de cette intégration (6 721 lignes en base au total, dont 5 721 pour
+la seule soirée du 22/08). Combien manque-t-il côté Weezevent sur l'historique complet n'a
+pas été mesuré — à instruire après le fix de pagination.
 
 **3. Curseur = horloge murale, pas données importées.**
 `lastSyncedAt: new Date()` (`:347`) est posé à la fin du run même si tout n'a pas été pris,
@@ -74,6 +93,12 @@ Déroulé reconstitué (heure locale, `createdAt` en base) :
 Rattrapage des 81 transactions du 22/08 : voir
 `docs/RUNBOOK_2026-08-24_ANALYSE_TRANSACTIONS.md` §2 — avec des fenêtres **étroites**
 (< 500 transactions chacune), sinon le présent bug plafonne aussi la resync manuelle.
+
+⚠ Les commandes de rattrapage initialement écrites au runbook **ne pouvaient pas aboutir**,
+pour une raison **distincte** : [BUG-139-01](139_01_resync_manuelle_fromdate_ignore.md) — en
+mode incrémental, le `fromDate` passé à `POST /weezevent/sync` est ignoré, et le bouton
+« Re-synchroniser » du front n'envoie aucune borne de date. Ajouter `"full": true` au curl
+(runbook §2 corrigé) ; le bouton, lui, ne rattrapera jamais une date passée.
 
 ## Risque de régression / à surveiller
 

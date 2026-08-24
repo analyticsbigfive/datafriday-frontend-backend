@@ -71,12 +71,6 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
     })
   })
 
-  // Somme des transactionRate de tous les shops — utilisée par le KPI
-  // "Transaction Rate" du header / FinancialMetricsGrid quand le panel est ouvert.
-  const totalTransactionRate = computed(() =>
-    shops.value.reduce((s, sh) => s + (sh.transactionRate || 0), 0),
-  )
-
   function reset() {
     timelineData.value = []
     basketData.value = []
@@ -156,7 +150,6 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
     shops,
     loading,
     enriched,
-    totalTransactionRate,
     enrich,
     reset,
   }
