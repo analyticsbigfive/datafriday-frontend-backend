@@ -309,6 +309,37 @@ describe('AggregationService', () => {
       });
     });
 
+    // BUG-135-01 : la colonne s'appelle "transactionsCount" mais comptait COUNT(ti."id"),
+    // c'est-à-dire des LIGNES de vente. Sur « Le Mans-Brest » (22/08/2026) : 13 925 lignes
+    // pour 5 721 tickets réels — et c'est ce 13 925 que remontaient Event.transactionCount,
+    // le RPC get_space_shop_details et le panier moyen (4,71 € au lieu de 11,46 €).
+    it('BUG-135-01 : transactionsCount = COUNT(DISTINCT t."id"), jamais COUNT(ti."id")', async () => {
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      const minuteAggSql: string = (mockPrisma.$executeRaw.mock.calls[0][0].strings ?? []).join('');
+      // Les commentaires SQL citent l'ancienne expression : on n'assert que l'exécutable.
+      const executable = minuteAggSql
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n');
+      expect(executable).toContain('INSERT INTO "SpaceRevenueMinuteAgg"');
+      expect(executable).toContain('COUNT(DISTINCT t."id")::int');
+      expect(executable).not.toContain('COUNT(ti."id")');
+    });
+
+    // Corollaire : le grain de SpaceRevenueMinuteAgg ne porte PAS de dimension article,
+    // sinon COUNT(DISTINCT t."id") cesserait d'être additif (un panier de N articles
+    // distincts compterait N fois, exactement le défaut de SpaceRevenueMinuteItemAgg).
+    it('BUG-135-01 : le grain reste (minute × location × merchant × élément), sans produit', async () => {
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      const minuteAggSql: string = (mockPrisma.$executeRaw.mock.calls[0][0].strings ?? []).join('');
+      const groupBy = minuteAggSql.slice(minuteAggSql.lastIndexOf('GROUP BY'));
+      expect(groupBy).not.toContain('ti."productId"');
+    });
+
     it('BUG-317-02 : deleteMany NON scopé par integrationId quand il est absent du job (retraitement toutes intégrations)', async () => {
       const job = makeBullJob({ integrationId: undefined });
       // Sans integrationId, la vérification "intégration mappée à cet espace" est sautée

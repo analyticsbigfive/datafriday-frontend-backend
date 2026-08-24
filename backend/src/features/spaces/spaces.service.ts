@@ -1199,7 +1199,7 @@ export class SpacesService {
     spaceId: string,
     uniqueIds: string[],
     tenantId: string,
-  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string } | null> {
+  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string; shopIds: string[] } | null> {
     // All independent queries run in parallel: ownership check, event dates (tried
     // against both DataFriday Event and WeezeventEvent so the frontend can pass
     // either a DataFriday UUID or a WeezeventEvent CUID), integration scope,
@@ -1223,7 +1223,14 @@ export class SpacesService {
         where: { id: { in: uniqueIds }, tenantId },
         select: { id: true, startDate: true, endDate: true },
       }),
-      this.prisma.locationSpaceMapping.findFirst({
+      // BUG-136-01 : findMany, PAS findFirst — un espace peut être alimenté par PLUSIEURS
+      // intégrations (7 espaces sur 31 en base ; ex. « Le Mans FC » + « Le Mans FC Weez »).
+      // Un findFirst sans orderBy en retenait une au hasard, et le filtre
+      // `t."integrationId" = <celle-là>` vidait l'endpoint paniers de toutes les ventes
+      // appartenant à l'autre (« 0 transactions » sur le donut « Répartition des catégories
+      // par transaction »), alors que le reste de la page tenait : getEventTimelineBatch
+      // ne déstructure pas integrationClause et lit la pré-agrégat, déjà scopée par spaceId.
+      this.prisma.locationSpaceMapping.findMany({
         where: { tenantId, spaceId },
         select: { salesLocationId: true },
       }),
@@ -1323,23 +1330,27 @@ export class SpacesService {
     }
     if (!windows.length) return null;
 
-    // Scope transactions to the integration that feeds this space (étape 1 du wizard).
-    // WeezeventLocationSpaceMapping.weezeventLocationId stores the integrationId.
+    // Scope transactions to the integrationS that feed this space (étape 1 du wizard).
+    // WeezeventLocationSpaceMapping.weezeventLocationId stores the integrationId, et un
+    // espace peut en avoir PLUSIEURS (BUG-136-01) — d'où `= ANY(...)` et non `= <une>`.
     // If no mapping yet, fall back to tenant-wide (degraded mode, broader scope).
-    const integrationId = locationMapping?.salesLocationId ?? null;
-    const integrationClause = integrationId
-      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+    const integrationIds = locationMapping.map(m => m.salesLocationId).filter(Boolean);
+    const integrationClause = integrationIds.length
+      ? Prisma.sql`AND t."integrationId" = ANY(${integrationIds})`
       : Prisma.sql``;
 
     // Shop scoping aligned with the get_space_shop_details RPC: keep sales whose
     // location has no shop mapping (they surface as the frontend's grey
-    // "unattached" bucket, UNATTACHED_SHOP_KEY) instead of silently dropping them
-    // — an unmapped POS previously zeroed out every item-level view while the
-    // shop-level aggregate kept showing revenue. Rows mapped to another space's
-    // shops stay excluded. Without an integration scope the query is tenant-wide,
-    // so the unmapped branch would leak other spaces' sales into this space's
-    // date windows — in that degraded mode, require the mapping.
-    const shopScopeClause = integrationId
+    // "unattached" bucket) instead of silently dropping them — an unmapped POS
+    // previously zeroed out every item-level view while the shop-level aggregate
+    // kept showing revenue. Rows mapped to another space's shops stay excluded.
+    // Without an integration scope the query is tenant-wide, so the unmapped branch
+    // would leak other spaces' sales into this space's date windows — in that
+    // degraded mode, require the mapping.
+    // Décision JLH 2026-08-24 (BUG-137-01, après aller-retour) : les ventes non
+    // mappées restent COMPTÉES, affichées « Non mappées » — le volume est mesuré à
+    // part (getAnalyseUnmappedBatch → bandeau informatif), jamais filtré ici.
+    const shopScopeClause = integrationIds.length
       ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
 
@@ -1348,7 +1359,7 @@ export class SpacesService {
       ', ',
     );
 
-    return { integrationClause, shopScopeClause, valuesSql, spaceTimezone };
+    return { integrationClause, shopScopeClause, valuesSql, spaceTimezone, shopIds };
   }
 
   /**
@@ -1563,6 +1574,11 @@ export class SpacesService {
           t.id                                                            AS "txId",
           ev."eventId"                                                    AS "eventId",
           TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'HH24:MI') AS minute,
+          -- BUG-136-01 : la minute DATEE, meme semantique que getEventTimelineBatch.
+          -- Sans elle, buildBasketFilterPredicate (qui n applique PAS skipMinute) evalue
+          -- les bornes DATEES du curseur horaire contre un simple HH24:MI et renvoie false
+          -- pour toutes les lignes des qu un event franchit minuit : donuts paniers vides.
+          TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'YYYY-MM-DD"T"HH24:MI') AS "minuteLocal",
           COALESCE(mem."spaceElementId", t."locationId")                  AS "shopId",
           COALESCE(se.name, t."locationName", t."locationId")             AS "shopName",
           COALESCE(se.attributes::jsonb->>'originalType', se.type::text)  AS "shopType",
@@ -1608,23 +1624,24 @@ export class SpacesService {
           se.type, se.attributes
       )
       SELECT
-        "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
+        "eventId", minute, "minuteLocal", "shopId", "shopName", "shopType", "shopArea",
         "categoryCombo", "typeCombo", "itemCombo",
         COUNT(*)::integer                AS "transactionCount",
         SUM(quantity)::integer           AS quantity,
         SUM("revenueHt")::numeric(12,2)  AS "revenueHt"
       FROM tx
       GROUP BY
-        "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
+        "eventId", minute, "minuteLocal", "shopId", "shopName", "shopType", "shopArea",
         "categoryCombo", "typeCombo", "itemCombo"
-      ORDER BY "eventId", minute ASC
+      ORDER BY "eventId", "minuteLocal" ASC
     `);
 
     for (const r of rows) {
       const bucket = out[r.eventId];
       if (!bucket) continue;
       bucket.push({
-        minute:   r.minute,
+        minute:      r.minute,
+        minuteLocal: r.minuteLocal ?? null,
         shopId:   r.shopId,
         shopName: r.shopName,
         shopType: r.shopType ?? null,
@@ -1639,6 +1656,84 @@ export class SpacesService {
         revenueHt:        Number(r.revenueHt        || 0),
         revenue:          Number(r.revenueHt        || 0),
       });
+    }
+    return out;
+  }
+
+  /**
+   * Volume NON MAPPÉ des ventes de l'Analyse (BUG-137-01) : lignes dont le produit
+   * externe n'a pas de WeezeventProductMapping, ou dont le PdV n'a pas de
+   * WeezeventLocationShopMapping vers cet espace.
+   *
+   * INFORMATIF UNIQUEMENT — décision JLH 2026-08-24 (après aller-retour) : ces ventes
+   * restent COMPTÉES dans toutes les vues, sous le libellé « Non mappées ». Cet
+   * endpoint ne filtre rien ; il alimente le bandeau de la page, qui distingue
+   * « rien vendu » de « rien de mappé » (piège BUG-300-01) et pointe le travail
+   * restant en Data Integration. Cause unique mesurée en base : produit importé au
+   * catalogue mais jamais associé à un menu item à l'étape 3 du wizard (0 ligne à
+   * productId NULL sur 786 882 lignes non mappées).
+   * Mêmes fenêtres, même scope d'intégration et mêmes prédicats de lecture
+   * (status 'V', deletedAt) que event-timeline / transaction-baskets. Les ventes
+   * mappées vers les shops d'un AUTRE espace ne sont pas comptées ici : elles
+   * n'appartiennent pas à cet écran.
+   * Retourne { [eventId]: { unmappedLines, unmappedUnits, unmappedRevenueHt,
+   * unmappedProductLines, unmappedPosLines } } — ids demandés absents → zéros.
+   */
+  async getAnalyseUnmappedBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any>> {
+    const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
+    const zero = () => ({
+      unmappedLines: 0,
+      unmappedUnits: 0,
+      unmappedRevenueHt: 0,
+      unmappedProductLines: 0,
+      unmappedPosLines: 0,
+    });
+    const out: Record<string, any> = Object.fromEntries(uniqueIds.map(id => [id, zero()]));
+    if (!uniqueIds.length) return out;
+
+    const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
+    if (!scope) return out;
+    const { integrationClause, valuesSql, shopIds } = scope;
+
+    const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
+      WITH ev("eventId", "windowStart", "windowEnd") AS (VALUES ${valuesSql})
+      SELECT
+        ev."eventId"                                                        AS "eventId",
+        COUNT(ti."id")::int                                                 AS "unmappedLines",
+        COALESCE(SUM(ti."quantity"), 0)::float8                             AS "unmappedUnits",
+        COALESCE(SUM(ti."unitPrice" * ti."quantity" / (1 + ti."vat" / 100)), 0)::float8 AS "unmappedRevenueHt",
+        COUNT(ti."id") FILTER (WHERE wpm."menuItemId" IS NULL)::int         AS "unmappedProductLines",
+        COUNT(ti."id") FILTER (WHERE mem."spaceElementId" IS NULL)::int     AS "unmappedPosLines"
+      FROM ev
+      INNER JOIN "WeezeventTransaction" t
+        ON t."transactionDate" >= ev."windowStart"
+       AND t."transactionDate" <  ev."windowEnd"
+       AND t."tenantId" = ${tenantId}
+       ${integrationClause}
+       AND t.status = 'V'
+       AND t."deletedAt" IS NULL
+      INNER JOIN "WeezeventTransactionItem" ti
+        ON ti."transactionId" = t.id
+      LEFT JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
+       AND mem."tenantId" = ${tenantId}
+      LEFT JOIN "WeezeventProductMapping" wpm
+        ON wpm."weezeventProductId" = ti."productId"
+       AND wpm."tenantId" = ${tenantId}
+      WHERE (mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))
+        AND (wpm."menuItemId" IS NULL OR mem."spaceElementId" IS NULL)
+      GROUP BY ev."eventId"
+    `);
+
+    for (const r of rows) {
+      if (!(r.eventId in out)) continue;
+      out[r.eventId] = {
+        unmappedLines: Number(r.unmappedLines || 0),
+        unmappedUnits: Number(r.unmappedUnits || 0),
+        unmappedRevenueHt: Number(r.unmappedRevenueHt || 0),
+        unmappedProductLines: Number(r.unmappedProductLines || 0),
+        unmappedPosLines: Number(r.unmappedPosLines || 0),
+      };
     }
     return out;
   }

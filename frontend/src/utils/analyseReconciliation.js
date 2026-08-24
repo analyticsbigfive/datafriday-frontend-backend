@@ -1,26 +1,30 @@
 // Réconciliation « vente API → menu item DataFriday » pour la page Analyse.
 //
-// Principe (data-driven 2026-07-02) : la réconciliation est un ENRICHISSEMENT pur —
-// elle retrouve l'identité catalogue (dims type/catégorie, coût) d'une vente mais
-// n'EXCLUT jamais rien. Dimensions : catalogue DataFriday d'abord, repli sur les
-// champs portés par le record API (menuItemType/Category du join backend), sentinelle
-// « Non rattachés » en dernier recours. Toute vente compte dans les vues.
+// Principe (data-driven 2026-07-02, réaffirmé par JLH le 2026-08-24 après avoir
+// envisagé puis écarté l'exclusion — BUG-356-01) : la réconciliation est un
+// ENRICHISSEMENT pur — elle retrouve les dimensions catalogue (type/catégorie,
+// coût) d'une vente mais n'EXCLUT jamais rien. Toute vente compte dans les vues ;
+// une vente sans mapping est affichée sous « Non mappées » (UNATTACHED_ITEM_KEY),
+// et le volume non mappé est chiffré par le bandeau de la page
+// (useAnalyseUnmapped), pour que ce bucket ne se lise jamais comme un bug.
 //
-// Algo de match = MÊME que la réconciliation EventPredict (cf. EventPredictView
-// reconciledRecords) : exact menuItemId ∈ assignation PdV → mapping nom→id
-// explicite → findBestMatch (nom seul, prix omis, seuil 70) → catalogue global
-// si l'assignation PdV est partielle → unmapped.
+// IDENTITÉ ARTICLE (BUG-353-01) : elle vient EXCLUSIVEMENT du mapping Data Integration,
+// déjà résolu côté backend (`getEventTimelineBatch` : WeezeventProductMapping → MenuItem,
+// spaces.service.ts). Ce module ne fait PLUS de rapprochement par nom et ne consulte PLUS
+// le SpaceMenu. L'ancien algorithme (calqué sur EventPredict : id accepté seulement s'il
+// appartenait à l'assignation du PdV, sinon findBestMatch sur le nom au seuil 70) faisait
+// basculer les ventes d'un article absent du SpaceMenu sur son homonyme le plus proche —
+// « Bud 33cl 26/27 (LMFC) » comptabilisé sous « Budweiser 45cl 26/27 (LMFC) », 916 unités
+// perdues sur 14 PdV. Le SpaceMenu ne sert qu'au Predict, qui garde sa propre
+// réconciliation dans EventPredictView.
 
-import { findBestMatch, similarity } from '@/utils/menuItemMatching'
+import { similarity } from '@/utils/menuItemMatching'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { normalizeShopType } from '@/constants/shopTypes'
 
 /** Clés techniques stables des buckets « non rattaché » (label i18n côté composant). */
 export const UNATTACHED_ITEM_KEY = '__unattached_item__'
 export const UNATTACHED_SHOP_KEY = '__unattached_shop__'
-
-/** Seuil de match nom (identique à EventPredict / wizard /data-integration/fb). */
-const MATCH_THRESHOLD = 70
 
 function norm(v) {
   return normalizeStr(v)
@@ -66,26 +70,6 @@ function recordName(r) {
 }
 
 /**
- * Normalise l'assignation PdV↔items vers `Map<elementId, Set<menuItemId>>`.
- * Accepte : une Map déjà construite, la forme canonique Edge
- * `{ menuItems: { [elementId]: { [menuItemId]: bool } } }`
- * (cf. useSpaceMenu.js), ou directement `{ [elementId]: { [menuItemId]: bool } }`.
- */
-function toAssignmentMap(assignment) {
-  if (assignment instanceof Map) return assignment
-  const map = new Map()
-  const raw = assignment?.menuItems || assignment || {}
-  for (const [elementId, obj] of Object.entries(raw)) {
-    const set = new Set()
-    for (const [miId, checked] of Object.entries(obj || {})) {
-      if (checked) set.add(String(miId))
-    }
-    map.set(String(elementId), set)
-  }
-  return map
-}
-
-/**
  * Catégorie + type d'un menu item, lus EXCLUSIVEMENT du catalogue DataFriday.
  * Walk : item → categoryId → ProductCategory (porte `typeName`) ; type via
  * `typeId` → ProductType, ou via la catégorie parente. Aucun repli Weezevent.
@@ -107,27 +91,27 @@ export function resolveCatalogDims(mi, catById, typeById) {
 }
 
 /**
- * Construit le contexte de réconciliation (indexé UNE fois). `reconcileRecord`
- * s'appuie ensuite sur `matchMemo` (clé `shopKey|nomNormalisé`) → coût amorti
- * O(records), pas O(records × items) à chaque rendu.
+ * Construit le contexte de réconciliation (indexé UNE fois) : catalogue par id et par nom,
+ * taxonomie, PdV par nom. `reconcileRecord` n'y fait plus que des lectures indexées —
+ * `categoryMatchMemo` reste le seul mémo, pour l'assimilation de catégorie.
  *
  * @param {Object}  p
  * @param {Array}   p.menuItems          catalogue [{ id, name, categoryId, typeId, ... }]
  * @param {Array}   p.productCategories   [{ id, name, typeId, typeName }]
  * @param {Array}   p.productTypes        [{ id, name }]
  * @param {Array}   p.floorElements       PdV de la config : [{ id, name, shopType:[], floorName }]
- * @param {Map|Object} p.assignment       getSpaceMenuConfiguration (forme canonique) ou Map
- * @param {Map}     [p.nameToMenuItemId]  mappings nom→id explicites (optionnel)
  * @param {Array}   [p.weezeventProducts] produits Weezevent [{ id, weezeventId, name, nature, subnature }]
+ *
+ * BUG-353-01 : plus de paramètre `assignment` / `assignmentItemsByShop` / `nameToMenuItemId`.
+ * L'assignation SpaceMenu ne participe plus à l'identité article, et `floorElements` ne sert
+ * plus qu'aux DIMENSIONS du PdV (type, zone) — le rattachement PdV lui-même vient de
+ * WeezeventLocationShopMapping, côté backend.
  */
 export function buildReconciliationContext({
   menuItems = [],
   productCategories = [],
   productTypes = [],
   floorElements = [],
-  assignment = null,
-  assignmentItemsByShop = null,
-  nameToMenuItemId = null,
   weezeventProducts = [],
 } = {}) {
   const menuItemById = new Map()
@@ -139,34 +123,16 @@ export function buildReconciliationContext({
   }
   const catById = new Map(productCategories.map((c) => [String(c?.id), c]))
   const typeById = new Map(productTypes.map((t) => [String(t?.id), t]))
-  const assignedByElement = toAssignmentMap(assignment)
-  // Objets items assignés par NOM de shop (NestJS getShopMenus) : { id, name, category }.
-  // Indispensable pour les configs Weezevent où l'assignation Edge (ids) est absente.
-  const itemsByShopKey =
-    assignmentItemsByShop instanceof Map ? assignmentItemsByShop : new Map()
 
-  // shopKey (nom de PdV normalisé) → { element, set, items }. Clé NOM = join stable
-  // entre l'espace d'ids ventes (records) et DataFriday (FloorElements / shops).
+  // shopKey (nom de PdV normalisé) → { element }. Clé NOM = join stable entre l'espace
+  // d'ids ventes (records) et DataFriday (FloorElements / shops). Sert UNIQUEMENT à
+  // habiller le record des dimensions du PdV (type, zone) — jamais à décider quel
+  // article a été vendu.
   const shopByKey = new Map()
-  const assignedItemById = new Map()
   for (const el of floorElements) {
     const key = norm(el?.name)
     if (!key) continue
-    const set = assignedByElement.get(String(el?.id ?? '')) || null
-    const items = itemsByShopKey.get(key) || null
-    if (Array.isArray(items)) {
-      for (const it of items) if (it?.id != null) assignedItemById.set(String(it.id), it)
-    }
-    shopByKey.set(key, { element: el, set, items })
-  }
-  // Shops présents UNIQUEMENT dans l'assignation NestJS (pas dans floorElements) :
-  // on les ajoute aussi (cas où floorElements vient d'une autre source).
-  for (const [key, items] of itemsByShopKey.entries()) {
-    if (shopByKey.has(key)) continue
-    if (Array.isArray(items)) {
-      for (const it of items) if (it?.id != null) assignedItemById.set(String(it.id), it)
-    }
-    shopByKey.set(key, { element: { name: key }, set: null, items })
+    shopByKey.set(key, { element: el })
   }
 
   // ── Produits Weezevent : dernier repli de dimensions (nature → type,
@@ -210,11 +176,9 @@ export function buildReconciliationContext({
   return {
     menuItemById,
     catalogByName,
-    assignedItemById,
     catById,
     typeById,
     shopByKey,
-    nameToMenuItemId: nameToMenuItemId instanceof Map ? nameToMenuItemId : new Map(),
     weezeventProductById,
     weezeventProductByName,
     typeNameByNorm,
@@ -223,7 +187,6 @@ export function buildReconciliationContext({
     categoryByTaxonomyKey,
     categoryEntries,
     categoryMatchMemo: new Map(),
-    matchMemo: new Map(),
     hasShops: shopByKey.size > 0,
   }
 }
@@ -281,90 +244,21 @@ function resolveSourceCategory(value, ctx) {
 }
 
 /**
- * Résout l'identité menu item d'un record (4 étapes EventPredict). Mémoïsé.
- * @returns {{ menuItemId: string|null, mapStatus: 'mapped'|'remapped'|'unmapped' }}
+ * Identité menu item d'un record : STRICTEMENT celle que le backend a résolue depuis le
+ * mapping Data Integration (`WeezeventProductMapping` → `MenuItem`, cf.
+ * `getEventTimelineBatch` dans spaces.service.ts). Aucun rapprochement par nom, aucun pool
+ * de candidats issu du SpaceMenu — c'était la cause de BUG-353-01.
+ *
+ * Une vente sans mapping n'est PAS écartée (décision 2026-07-02, confirmée 2026-08-24) :
+ * elle reste dans les totaux, en « Non rattachés ».
+ *
+ * @returns {{ menuItemId: string|null, mapStatus: 'mapped'|'unmapped' }}
  */
-function resolveItem(record, rawName, shop, ctx) {
+function resolveItem(record) {
   const recId = record?.menuItemId != null ? String(record.menuItemId) : ''
-
-  // Pool de candidats du PdV : objets items assignés (NestJS getShopMenus) en
-  // priorité — match par NOM, robuste à l'écart d'id-space getShopMenus↔catalogue.
-  // Sinon ids d'assignation Edge (résolus via le catalogue). Sinon catalogue global
-  // (PdV sans assignation propre → repli lenient).
-  let candidates = null
-  let candidateIds = null
-  if (Array.isArray(shop?.items) && shop.items.length) {
-    candidates = shop.items
-    candidateIds = new Set(shop.items.map((i) => String(i.id)))
-  } else if (shop?.set && shop.set.size) {
-    candidates = [...shop.set].map((mid) => ctx.menuItemById.get(String(mid))).filter(Boolean)
-    candidateIds = shop.set
-  }
-  const scoped = !!candidates // PdV avec assignation propre → match restreint à ce PdV
-  if (!scoped) {
-    // Data-driven (décision user 2026-07-02, parité React) : le match ne sert plus
-    // qu'à retrouver l'IDENTITÉ catalogue de l'article (dims type/catégorie, coût) —
-    // jamais à exclure une vente. PdV sans assignation propre ou hors config →
-    // repli LENIENT contre tout le catalogue.
-    candidates = [...ctx.menuItemById.values()]
-  }
-
-  // 1) exact : l'id du record est assigné au PdV (ou existe au catalogue en repli global).
-  if (recId) {
-    if (scoped && candidateIds.has(recId)) return { menuItemId: recId, mapStatus: 'mapped' }
-    if (!scoped && ctx.menuItemById.has(recId)) return { menuItemId: recId, mapStatus: 'mapped' }
-  }
-
-  const nName = norm(rawName)
-
-  // 2) mapping nom→id explicite, si l'id est assigné au PdV (ou en repli global).
-  if (nName && ctx.nameToMenuItemId.size) {
-    const mappedId = ctx.nameToMenuItemId.get(nName)
-    if (mappedId && (!scoped || candidateIds.has(String(mappedId)))) {
-      return { menuItemId: String(mappedId), mapStatus: 'remapped' }
-    }
-  }
-
-  // 3) match flou par NOM seul (prix omis → évite le piège HT/TTC) contre les
-  //    items assignés au PdV, ou tout le catalogue en repli.
-  if (rawName && candidates.length) {
-    const best = findBestMatch({ name: rawName, basePrice: null }, candidates)
-    if (best && (best.matchScore || 0) >= MATCH_THRESHOLD) {
-      return {
-        menuItemId: String(best.id),
-        mapStatus: String(best.id) === recId ? 'mapped' : 'remapped',
-      }
-    }
-  }
-
-  // 4) PdV avec assignation partielle : second passage contre catalogue global.
-  // L'assignation aide le match mais ne bloque jamais l'enrichissement data-driven.
-  if (scoped) {
-    if (recId && ctx.menuItemById.has(recId)) {
-      return { menuItemId: recId, mapStatus: 'mapped' }
-    }
-    if (nName && ctx.nameToMenuItemId.size) {
-      const mappedId = ctx.nameToMenuItemId.get(nName)
-      if (mappedId && ctx.menuItemById.has(String(mappedId))) {
-        return { menuItemId: String(mappedId), mapStatus: 'remapped' }
-      }
-    }
-    if (rawName && ctx.menuItemById.size) {
-      const best = findBestMatch(
-        { name: rawName, basePrice: null },
-        [...ctx.menuItemById.values()],
-      )
-      if (best && (best.matchScore || 0) >= MATCH_THRESHOLD) {
-        return {
-          menuItemId: String(best.id),
-          mapStatus: String(best.id) === recId ? 'mapped' : 'remapped',
-        }
-      }
-    }
-  }
-
-  // 5) aucune correspondance → non rattaché (on garde l'id d'origine pour les totaux).
-  return { menuItemId: recId || null, mapStatus: 'unmapped' }
+  return recId
+    ? { menuItemId: recId, mapStatus: 'mapped' }
+    : { menuItemId: null, mapStatus: 'unmapped' }
 }
 
 /**
@@ -413,18 +307,12 @@ export function reconcileRecord(record, ctx) {
     }
   }
 
-  // ── Item (catalogue, mémoïsé) ──────────────────────────────────────────────
-  const memoKey = shopKey + '|' + norm(rawName)
-  let match = ctx.matchMemo.get(memoKey)
-  if (match === undefined) {
-    match = resolveItem(record, rawName, shop, ctx)
-    ctx.matchMemo.set(memoKey, match)
-  }
+  // ── Item : identité = mapping Data Integration, résolue en amont par le backend ────
+  // Pas de mémo : `resolveItem` est une lecture de champ, pas une recherche.
+  const match = resolveItem(record)
 
   const matchedItem = match.menuItemId
-    ? ctx.menuItemById.get(String(match.menuItemId)) ||
-      ctx.assignedItemById?.get(String(match.menuItemId)) ||
-      null
+    ? ctx.menuItemById.get(String(match.menuItemId)) || null
     : null
   const mapped = match.mapStatus !== 'unmapped'
   const dims = mapped ? resolveCatalogDims(matchedItem, ctx.catById, ctx.typeById) : { type: '', category: '' }
@@ -540,3 +428,8 @@ export function reconcileRecord(record, ctx) {
 // keepCatalogRecord / unmappedReason / computeCoverage supprimés (refonte data-driven
 // 2026-07-02) : l'assignation n'est plus jamais un filtre — toute vente compte.
 // `shopStatus`/`mapStatus` restent posés sur chaque record (diagnostic + libellés).
+//
+// BUG-353-01 (2026-08-24) : `resolveItem` (5 étapes, match flou par nom au seuil 70 sur
+// l'assignation SpaceMenu du PdV) et `toAssignmentMap` supprimés. `mapStatus` ne vaut plus
+// 'remapped' : le front ne remappe plus rien, il lit le mapping Data Integration. Modifier
+// le SpaceMenu n'a désormais AUCUN effet sur les chiffres de l'Analyse.

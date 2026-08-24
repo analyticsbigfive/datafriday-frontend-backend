@@ -5,7 +5,16 @@
       "name": "frontend-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
-      "port": 8080
+      "port": 3000
+    },
+    {
+      "name": "frontend-local-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VUE_APP_API_URL=http://localhost:3001/api/v1 npm run dev --prefix frontend"
+      ],
+      "port": 3000
     }
   ]
 }

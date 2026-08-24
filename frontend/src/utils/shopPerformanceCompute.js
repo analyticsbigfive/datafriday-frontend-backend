@@ -53,8 +53,10 @@ function finalizeShops(byShop) {
 
 /**
  * Agrégats par shop depuis les records granulaires shop-level (revenue,
- * transactions, quantité, eventCount). Le `transactionRate` n'est pas calculé
- * ici — il sera ajouté par `computeRatesFromTimeline`.
+ * quantité, eventCount). Le `transactionRate` n'est pas calculé ici — il sera
+ * ajouté par `computeRatesFromTimeline`, qui écrase aussi `totalTransactions`
+ * avec le compte de TICKETS issu des paniers (BUG-354-01) : la valeur posée ici
+ * somme le grain article et surcompte les paniers multi-articles.
  *
  * @param {Array} records  shopGranularData (shop-level, sans minute)
  * @param {Array} events   events filtrés (scope)
@@ -103,7 +105,7 @@ export function aggregateShopsFromTimeline(allTimelineData, events, timeRange) {
     if (!r || !eventIds.has(r.eventId)) continue
     // Même convention de clé que computeRatesFromTimeline (shopName prioritaire).
     const id = r.shopName || r.shopId || '—'
-    if (!isMinuteInRange(r.minute, timeRange)) continue
+    if (!isMinuteInRange(r.minuteLocal ?? r.minute, timeRange)) continue
     let s = byShop.get(id)
     if (!s) {
       s = makeShopEntry(id)
@@ -194,7 +196,7 @@ export function computeRatesFromTimeline(baseShops, events, allTimelineData, { t
     if (minutes > evStats.lastMinute) evStats.lastMinute = minutes
     evStats.perMinute.set(minutes, (evStats.perMinute.get(minutes) || 0) + txn)
 
-    if (windowed && isMinuteInRange(r.minute, timeRange)) {
+    if (windowed && isMinuteInRange(r.minuteLocal ?? r.minute, timeRange)) {
       evStats.windowTxns += txn
       if (evStats.windowFirst == null || minutes < evStats.windowFirst) evStats.windowFirst = minutes
       if (evStats.windowLast == null || minutes > evStats.windowLast) evStats.windowLast = minutes
@@ -266,6 +268,14 @@ export function computeRatesFromTimeline(baseShops, events, allTimelineData, { t
       ...shop,
       transactionRate,
       operatingMinutes: totalMinutes,
+      // BUG-354-01 — `totalTransactions` vient de la MÊME source que le taux : les
+      // records paniers (un ticket = une ligne). Les agrégats de base le calculaient
+      // en sommant le grain ARTICLE, où un ticket de 3 articles distincts pèse 3.
+      // Posé ici, et pas dans un post-traitement : c'est le seul endroit qui résout
+      // déjà l'alias shopName/shopId (`aliasToPrimary`) et applique la plage horaire.
+      // Un shop absent de cette source sort plus haut par `if (!shopMap) return shop`
+      // et garde sa valeur d'origine — jamais un 0 écrit par défaut.
+      totalTransactions: totalTxn,
       totalTransactionsFromTimeline: totalTxn,
       first60MinTransactionRate,
       first60MinTransactions: first60Txn,
