@@ -210,6 +210,27 @@ export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = fa
  * shopIds/ownership/integration-scope once for the space either way). Returns a Map
  * keyed by eventId, same record shape as getSpaceEventTimeline per event.
  */
+// BUG-357-01 (OOM backend, 24/08) : sur un espace à gros historique (Jean Bouin :
+// 77 events, 275k lignes d'agrégat, 376k lignes brutes), envoyer les 77 fenêtres en UNE
+// requête faisait matérialiser toute la réponse côté Node → « Ran out of memory (used
+// over 2GB) » en boucle sur Render, et la page se peignait à 0 € (échecs mis en cache
+// « tenté/vide »). Les trois endpoints batch sont donc appelés par PAQUETS, en
+// SÉQUENTIEL — volontairement pas en parallèle : un seul gros SELECT à la fois par
+// client, la mémoire backend reste bornée par la taille d'un paquet.
+const BATCH_CHUNK_SIZE = 15
+
+async function _fetchBatchChunked(spaceId, path, ids, chunkSize = BATCH_CHUNK_SIZE) {
+  const merged = {}
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize)
+    const response = await api.get(`/spaces/${spaceId}/${path}`, {
+      params: { eventIds: chunk.join(',') },
+    })
+    Object.assign(merged, response.data || {})
+  }
+  return merged
+}
+
 export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCache = false } = {}) {
   const ids = [...new Set((eventIds || []).filter(Boolean))]
   const result = new Map()
@@ -242,8 +263,7 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
 
   const inflight = (async () => {
     try {
-      const response = await api.get(`/spaces/${spaceId}/event-timeline`, { params: { eventIds: missing.join(',') } })
-      return response.data || {}
+      return await _fetchBatchChunked(spaceId, 'event-timeline', missing)
     } catch (error) {
       console.error(`[SPACES API] Error fetching batched event timeline for ${spaceId}:`, error)
       throw error
@@ -321,10 +341,7 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
 
   const inflight = (async () => {
     try {
-      const response = await api.get(`/spaces/${spaceId}/transaction-baskets`, {
-        params: { eventIds: missing.join(',') },
-      })
-      return response.data || {}
+      return await _fetchBatchChunked(spaceId, 'transaction-baskets', missing)
     } catch (error) {
       console.error(`[SPACES API] Error fetching transaction baskets for ${spaceId}:`, error)
       throw error
@@ -573,10 +590,7 @@ export async function getSpaceAnalyseUnmappedBatch(spaceId, eventIds) {
   const result = new Map()
   if (!ids.length) return result
   try {
-    const response = await api.get(`/spaces/${spaceId}/analyse-unmapped`, {
-      params: { eventIds: ids.join(',') },
-    })
-    const data = response.data || {}
+    const data = await _fetchBatchChunked(spaceId, 'analyse-unmapped', ids, 30)
     for (const id of ids) result.set(id, data[id] || null)
     return result
   } catch (error) {
