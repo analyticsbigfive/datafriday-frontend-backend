@@ -22,7 +22,7 @@
  *   utils/shopPerformanceCompute.js et docs/bugs/287_01_*.md).
  */
 import { ref, shallowRef, computed } from 'vue'
-import { getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
+import { getSpaceEventTimelineBatch, getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
 import { hasActiveRange } from '@/utils/timelineBucketing'
 import {
   aggregateBaseShops,
@@ -36,6 +36,9 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
   // Timeline brute du dernier fetch + snapshot des events correspondants.
   // shallowRef : gros volume (1 ligne / minute / shop / produit), lecture seule.
   const timelineData = shallowRef([])
+  // BUG-354-01 — source TICKET du txn/min : une ligne par panier, alors que la
+  // timeline est au grain article (un ticket de 3 articles distincts y comptait 3).
+  const basketData = shallowRef([])
   const timelineEvents = shallowRef([])
   let lastKey = ''
 
@@ -60,7 +63,10 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
     const base = windowed
       ? aggregateShopsFromTimeline(timelineData.value, events, range)
       : aggregateBaseShops(shopGranularData.value || [], events)
-    return computeRatesFromTimeline(base, events, timelineData.value, {
+    // BUG-354-01 — CA/quantités depuis la timeline, TRANSACTIONS et txn/min depuis les
+    // paniers : `computeRatesFromTimeline` pose lui-même `totalTransactions` à partir de
+    // la source qu'on lui donne, en réutilisant sa résolution d'alias shopName/shopId.
+    return computeRatesFromTimeline(base, events, basketData.value, {
       timeRange: windowed ? range : null,
     })
   })
@@ -73,6 +79,7 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
 
   function reset() {
     timelineData.value = []
+    basketData.value = []
     timelineEvents.value = []
     enriched.value = false
     lastKey = ''
@@ -83,16 +90,28 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
    */
   async function loadAllTimelines(events) {
     const sid = typeof spaceId === 'object' ? spaceId.value : spaceId
-    if (!sid) return []
-    try {
-      const byEventId = await getSpaceEventTimelineBatch(sid, events.map((ev) => ev.id))
-      return events.flatMap((ev) => {
-        const data = byEventId.get(ev.id) || []
+    if (!sid) return { timeline: [], baskets: [] }
+    const ids = events.map((ev) => ev.id)
+    const flatten = (byEventId) =>
+      events.flatMap((ev) => {
+        const data = byEventId?.get(ev.id) || []
         return Array.isArray(data) && data.length ? data.map((r) => ({ ...r, eventId: ev.id })) : []
       })
-    } catch (err) {
-      console.error('[useShopPerformance] API error loading batched timeline:', err?.message)
-      return []
+    // BUG-354-01 — deux sources : la timeline (CA, quantités) et les paniers
+    // (tickets). `allSettled` : une source KO ne doit pas emporter l'autre.
+    const [tl, bk] = await Promise.allSettled([
+      getSpaceEventTimelineBatch(sid, ids),
+      getSpaceTransactionBasketsBatch(sid, ids),
+    ])
+    if (tl.status === 'rejected') {
+      console.error('[useShopPerformance] API error loading batched timeline:', tl.reason?.message)
+    }
+    if (bk.status === 'rejected') {
+      console.error('[useShopPerformance] API error loading batched baskets:', bk.reason?.message)
+    }
+    return {
+      timeline: tl.status === 'fulfilled' ? flatten(tl.value) : [],
+      baskets: bk.status === 'fulfilled' ? flatten(bk.value) : [],
     }
   }
 
@@ -114,8 +133,9 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
     lastKey = key
     loading.value = true
     try {
-      const timeline = await loadAllTimelines(events)
+      const { timeline, baskets } = await loadAllTimelines(events)
       timelineData.value = timeline
+      basketData.value = baskets
       timelineEvents.value = events
       enriched.value = true
     } catch (err) {
@@ -123,6 +143,7 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
       // → le computed rend la base seule) et on autorise un retry : sans le
       // reset de lastKey, un échec gelait définitivement la sélection.
       timelineData.value = []
+      basketData.value = []
       timelineEvents.value = events
       enriched.value = false
       lastKey = ''

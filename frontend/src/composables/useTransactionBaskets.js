@@ -1,8 +1,16 @@
 import { ref, shallowRef, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
+import { ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
 
-const MAX_EVENTS = 50
+// BUG-354-01 : MÊME cap que l'item-level. Depuis que les paniers alimentent le KPI
+// transactions (et le txn/min), deux caps différents (50 ici, 100 là) publieraient un
+// CA calculé sur 100 events et des transactions calculées sur 50 — un sous-comptage
+// silencieux, et un panier moyen faux, exactement ce qu'interdit BUG-350-01.
+const MAX_EVENTS = ITEM_LEVEL_EVENT_CAP
+
+/** Cap exposé pour l'affichage du message de troncature (cf. ITEM_LEVEL_EVENT_CAP). */
+export const BASKET_EVENT_CAP = MAX_EVENTS
 
 // Une seule alerte par session, tous consommateurs confondus — même pattern que
 // `_warnedBatchKo` dans useAnalyseItemRecords.
@@ -108,11 +116,41 @@ export function useTransactionBaskets(filteredEvents, { maxEvents = MAX_EVENTS }
   /** Events réellement chargés — permet d'aligner un comptage sur le réel. */
   const loadedEventIds = computed(() => new Set(Object.keys(cache.value)))
 
+  // BUG-354-01 — events du périmètre écartés par le cap, remontés comme le fait déjà
+  // `useAnalyseItemRecords` : un total tronqué doit le dire.
+  const truncatedEventCount = computed(() =>
+    Math.max(0, (filteredEvents.value || []).length - maxEvents),
+  )
+
+  // BUG-354-01 — état de la source paniers, MÊME contrat à 3 valeurs que l'item-level
+  // (`useAnalyseItemRecords.sourceState`). Depuis que les paniers sont la source des
+  // transactions, la bande KPI doit pouvoir afficher son squelette pendant leur
+  // chargement : sans ça, elle publierait la somme item-level — le nombre surcompté
+  // que ce lot retire — puis le remplacerait. C'est la valeur provisoire interdite par
+  // BUG-350-01. `[]` (chargé, aucun panier) est TERMINAL et ne doit pas figer l'écran.
+  const sourceState = computed(() => {
+    const scoped = (filteredEvents.value || []).slice(0, maxEvents).filter((e) => e?.id)
+    if (!scoped.length) return 'empty'
+    if (basketRecords.value.length) return 'ready'
+    if (loading.value) return 'loading'
+    const attempted = loadedEventIds.value
+    return scoped.every((e) => attempted.has(e.id)) ? 'empty' : 'loading'
+  })
+
   /** BUG-285 : purge (changement d'espace in-page — les eventIds de l'ancien espace
       ne seront plus jamais demandés, leurs lignes resteraient en mémoire). */
   function clearCache() {
     cache.value = {}
   }
 
-  return { basketRecords, loading, fetchError, loadedEventIds, refresh, clearCache }
+  return {
+    basketRecords,
+    loading,
+    fetchError,
+    loadedEventIds,
+    truncatedEventCount,
+    sourceState,
+    refresh,
+    clearCache,
+  }
 }

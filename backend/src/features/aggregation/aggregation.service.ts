@@ -474,7 +474,17 @@ export class AggregationService {
               lsm."spaceElementId",
               MAX(t."integrationId"),
               SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
-              COUNT(ti."id")::int,
+              -- BUG-135-01 : COUNT(DISTINCT t."id"), PAS COUNT(ti."id"). Cette colonne
+              -- s'appelle "transactionsCount" mais comptait des LIGNES de vente : sur
+              -- « Le Mans-Brest » du 22/08/2026, 13 925 lignes pour 5 721 tickets réels —
+              -- et c'est ce 13 925 que remontaient Event.transactionCount, le RPC
+              -- get_space_shop_details et le panier moyen (4,71 € au lieu de 11,46 €).
+              -- L'autre writer de la même colonne (space-aggregation.service.ts) comptait
+              -- déjà COUNT(DISTINCT t.id) : les deux sont désormais alignés.
+              -- Additif par construction : le grain est (minute × locationId × merchantId ×
+              -- spaceElementId) et une transaction n'a qu'une date, une location et un
+              -- merchant — elle tombe donc dans exactement un groupe.
+              COUNT(DISTINCT t."id")::int,
               SUM(ti."quantity")::float8,
               NOW(),
               NOW()

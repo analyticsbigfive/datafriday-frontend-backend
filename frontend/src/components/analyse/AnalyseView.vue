@@ -325,6 +325,23 @@
             {{ t('anItemLevelTruncated').replace('{n}', String(ITEM_LEVEL_EVENT_CAP)) }}
           </v-alert>
 
+          <!-- BUG-356-01 — volume non mappé, bandeau INFORMATIF : ces ventes sont
+               comptées, affichées « Non mappées » (décision JLH 2026-08-24). Le
+               bandeau évite qu'un gros bucket « Non mappées » se lise comme un bug
+               (piège BUG-300-01) et pointe le travail restant en Data Integration. -->
+          <v-alert
+            v-if="unmappedBannerText"
+            type="info"
+            variant="tonal"
+            icon="mdi-link-variant-off"
+            class="mb-4"
+          >
+            {{ unmappedBannerText }}
+            <router-link :to="{ name: 'data-integration-fb' }" class="an-unmapped-link">
+              {{ t('anUnmappedInfoLink') }}
+            </router-link>
+          </v-alert>
+
           <v-row v-if="chartsLoading" dense class="mb-4">
             <v-col v-for="i in 4" :key="`kpi-sk-${i}`" cols="12" sm="6" lg="3">
               <v-skeleton-loader type="article" class="an-chart-skeleton" />
@@ -647,6 +664,7 @@ import {
 import { UNATTACHED_ITEM_KEY, reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
+import { useAnalyseUnmapped } from '@/composables/useAnalyseUnmapped'
 import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -825,9 +843,24 @@ const filteredTimelineData = computed(() =>
 const {
   basketRecords,
   loading: basketsLoading,
+  sourceState: basketsSourceState,
   refresh: refreshBaskets,
   clearCache: clearBasketsCache,
 } = useTransactionBaskets(filteredEvents)
+
+// ── Volume non mappé (BUG-356-01) — bandeau INFORMATIF ──────────────────────
+// Décision JLH 2026-08-24 : les ventes non mappées restent COMPTÉES, affichées
+// « Non mappées ». Ce bandeau ne change aucun chiffre : il distingue « rien
+// vendu » de « rien de mappé » et pointe le travail restant en Data Integration.
+const { unmapped: analyseUnmapped, clearCache: clearUnmappedCache } =
+  useAnalyseUnmapped(filteredEvents)
+const unmappedBannerText = computed(() => {
+  const x = analyseUnmapped.value
+  if (!x.known || !x.lines) return ''
+  return t('anUnmappedInfo')
+    .replace('{lines}', formatNumber(x.lines))
+    .replace('{revenue}', formatCurrency(x.revenueHt))
+})
 
 // Réconciliation AVANT filtrage, exactement comme la timeline — et pour la même
 // raison : les donuts « type de PdV » / « zone » émettent des clés RÉCONCILIÉES
@@ -863,6 +896,10 @@ const filteredBaskets = computed(() =>
 const timelineFilterSignature = computed(() => {
   const f = filters.value || {}
   return [
+    // BUG-355-01 : `selectedEventIds` INCLUS. Sans lui, changer d'event conservait
+    // une plage horaire DATÉE de l'event précédent — bornes d'un autre jour, donc
+    // aucun record dans la fenêtre et les vues se vidaient en silence.
+    f.selectedEventIds,
     f.selectedShopIds,
     f.selectedShopTypes,
     f.selectedShopAreas,
@@ -916,6 +953,9 @@ const kpiSourceState = computed(() =>
   resolveKpiSourceState({
     isPredict: isPredictRecords.value,
     itemLevelState: itemRecordsSourceState.value,
+    // BUG-354-01 — les transactions et le panier moyen viennent des paniers : la bande
+    // reste en squelette tant que cette seconde source canonique n'a pas répondu.
+    transactionState: basketsSourceState.value,
   }),
 )
 
@@ -1372,6 +1412,19 @@ const metrics = useMetricsCalculator({
     filteredEvents.value.reduce((sum, e) => sum + (e.durationMinutes || 180), 0)
   ),
   selectedEventIds: computed(() => filters.value.selectedEventIds || []),
+  // BUG-354-01 — les transactions viennent des PANIERS (un ticket = une ligne),
+  // plus de la somme du grain article qui comptait un ticket autant de fois qu'il
+  // portait d'articles distincts. `null` tant que la source n'a pas répondu.
+  // `null` tant que la source paniers n'est pas terminale — `basketsLoading` seul ne
+  // suffit pas : au tout premier rendu il vaut encore `false` alors que le batch n'est
+  // pas parti, et `filteredBaskets` vaut `[]` (donc « 0 transaction »). L'état à 3
+  // valeurs distingue « pas encore » de « rien à afficher ». Pendant 'loading', la
+  // bande KPI est de toute façon en squelette (`kpiSourceState`).
+  transactionRecords: computed(() =>
+    isPredictRecords.value || basketsSourceState.value === 'loading'
+      ? null
+      : filteredBaskets.value,
+  ),
   // Lot 4.1 — si le panneau Transaction Rate est ouvert et enrichi, on
   // pousse la somme des txn/min par shop (cf. React `shopPerformanceData`).
   overrideTransactionRate: computed(() =>
@@ -2026,6 +2079,7 @@ watch(
       clearItemRecordsCache()
       clearComparisonCache()
       clearBasketsCache()
+      clearUnmappedCache()
       // BUG-300-01 — reset immédiat du latch du différé « All Configurations »
       // (le watcher `loading` le remet aussi à false, mais plus tard) : la
       // cause racine du « Par zone » vide était la garde « déjà chargé » de

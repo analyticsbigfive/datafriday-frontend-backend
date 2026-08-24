@@ -372,7 +372,11 @@ export function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
     if (itemSet && !itemSet.has(normalizeStr(resolveItemName(r)))) return false
     if (itemTypes.length && !itemTypes.includes(resolveItemType(r))) return false
     if (itemCats.length && !itemCats.includes(resolveItemCategory(r))) return false
-    if (!skipMinute && !isMinuteInRange(r.minute, range)) return false
+    // BUG-355-01 : `minuteLocal` (minute DATÉE, heure locale de l'espace) en priorité.
+    // Le curseur horaire émet des bornes datées depuis BUG-351-01 ; les comparer à un
+    // simple HH:MM retombait sur la branche legacy et excluait toute la soirée d'un
+    // event qui franchit minuit. `isMinuteInRange` accepte les deux formes.
+    if (!skipMinute && !isMinuteInRange(r.minuteLocal ?? r.minute, range)) return false
     return true
   }
 }

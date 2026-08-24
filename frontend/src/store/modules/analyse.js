@@ -920,9 +920,8 @@ const getters = {
       menuItems: state.menuItems || [],
       productCategories: state.productCategoriesList || [],
       productTypes: state.productTypesList || [],
+      // BUG-353-01 : plus d'`assignment` / `assignmentItemsByShop` (cf. analyseReconciliation.js).
       floorElements: state.configShopContext?.floorElements || [],
-      assignment: state.configShopContext?.assignment || null,
-      assignmentItemsByShop: state.configShopContext?.assignmentItemsByShop || null,
       weezeventProducts: state.weezeventProducts || [],
     })
     const _t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())

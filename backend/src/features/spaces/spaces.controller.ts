@@ -535,7 +535,8 @@ export class SpacesController {
       'Pré-groupé par (event × minute × PdV × combo) pour rester filtrable côté client sans refetch. ' +
       'Les remboursements sont comptés (statut V, montants négatifs) ; les lignes non résolues ' +
       '(produit non mappé ou MenuItem sans catégorie) apparaissent en null DANS le tableau, ' +
-      'jamais écartées. Retourne { [eventId]: records[] }.',
+      'jamais écartées (décision JLH 2026-08-24 : comptées, affichées « Non mappées » — le volume ' +
+      'est mesuré à part par GET :id/analyse-unmapped). Retourne { [eventId]: records[] }.',
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
   @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
@@ -549,7 +550,8 @@ export class SpacesController {
         items: {
           type: 'object',
           properties: {
-            minute:           { type: 'string', example: '19:42', description: 'Minute HH:MM (heure locale UTC)' },
+            minute:           { type: 'string', example: '19:42', description: 'Minute HH:MM (heure locale de l\'espace)' },
+            minuteLocal:      { type: 'string', nullable: true, example: '2026-08-22T19:42', description: 'Minute DATÉE en heure locale de l\'espace — nécessaire pour ordonner et filtrer un event qui franchit minuit' },
             shopId:           { type: 'string', description: 'ID du SpaceElement (shop), ou locationId brut si non mappé' },
             shopName:         { type: 'string', description: 'Nom du shop' },
             shopType:         { type: 'string', nullable: true },
@@ -557,7 +559,7 @@ export class SpacesController {
             categoryCombo:    {
               type: 'array',
               items: { type: 'string', nullable: true },
-              description: 'Noms ProductCategory DISTINCTS et TRIÉS du panier ; null = non résolu',
+              description: 'Noms ProductCategory DISTINCTS et TRIÉS du panier ; null = non résolu (produit non mappé ou MenuItem sans catégorie)',
               example: ['Bières', 'Boissons Soft'],
             },
             typeCombo:        {
@@ -587,6 +589,49 @@ export class SpacesController {
   ) {
     const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
     return this.spacesService.getTransactionBasketsBatch(id, ids, user.tenantId);
+  }
+
+  /**
+   * Volume NON MAPPÉ des ventes de l'Analyse (BUG-137-01) — informatif, alimente le
+   * bandeau de la page. Ne filtre rien : ces ventes restent comptées, en « Non mappées ».
+   */
+  @Get(':id/analyse-unmapped')
+  @ApiOperation({
+    summary: 'Volume de ventes non mappées (informatif), par événement',
+    description:
+      'Lignes de vente dont le produit externe n\'a pas de WeezeventProductMapping ou dont le ' +
+      'PdV n\'a pas de WeezeventLocationShopMapping vers cet espace. INFORMATIF : ces ventes ' +
+      'restent comptées dans event-timeline et transaction-baskets, affichées « Non mappées » ' +
+      '(décision JLH 2026-08-24). Mêmes fenêtres, même scope d\'intégration et mêmes prédicats ' +
+      '(status V, deletedAt) que ces deux endpoints. Sert à distinguer « rien vendu » de ' +
+      '« rien de mappé » et à pointer le travail restant en Data Integration.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Volumes non mappés, par eventId (zéros si tout est mappé)',
+    schema: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          unmappedLines:        { type: 'integer', description: 'Lignes de vente non mappées (produit OU PdV)' },
+          unmappedUnits:        { type: 'number',  description: 'Unités non mappées' },
+          unmappedRevenueHt:    { type: 'number',  description: 'CA HT non mappé (€)' },
+          unmappedProductLines: { type: 'integer', description: 'Dont lignes au produit non mappé' },
+          unmappedPosLines:     { type: 'integer', description: 'Dont lignes au PdV non mappé' },
+        },
+      },
+    },
+  })
+  async getAnalyseUnmappedBatch(
+    @Param('id') id: string,
+    @Query('eventIds') eventIds: string,
+    @CurrentUser() user: any,
+  ) {
+    const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return this.spacesService.getAnalyseUnmappedBatch(id, ids, user.tenantId);
   }
 
   /**
