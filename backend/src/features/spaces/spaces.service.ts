@@ -10,11 +10,10 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
-import { parseEventSessions, combineDayAndLocalTime, DEFAULT_EVENT_DURATION_HOURS } from '../../shared/utils/event-window.util';
+import { resolveEventTransactionWindow } from '../../shared/utils/event-window.util';
 // BUG-146-01 : mêmes marges portes→fin que l'agrégation (resolveEventWindow) — la fenêtre
 // de l'Analyse doit être identique à celle qui a écrit les agrégats, sinon les deux
 // pages divergent à nouveau.
-import { DEFAULT_OFFSET_OPEN_MINUTES, DEFAULT_OFFSET_CLOSE_MINUTES } from '../staffing/staffing-calculator.service';
 import { Semaphore } from '../../shared/utils/semaphore';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 
@@ -1268,7 +1267,7 @@ export class SpacesService {
           const [allSpaceEvents, locationMapping, spaceRow] = await Promise.all([
             this.prisma.event.findMany({
               where: { tenantId, spaceId },
-              select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, sessions: true, weezeventEventId: true },
+              select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, weezeventEventId: true },
             }),
             this.prisma.locationSpaceMapping.findMany({
               where: { tenantId, spaceId },
@@ -1294,7 +1293,8 @@ export class SpacesService {
       this.resolveShopIdsForSpace(spaceId, tenantId),
     ]);
     // NB : sur un hit Redis, les Date sont des strings ISO — tout le code aval fait
-    // déjà `new Date(...)` avant usage (fenêtres, voisins, preciseEndOf).
+    // déjà `new Date(...)` avant usage (fenêtres, voisins — resolveEventTransactionWindow
+    // tolère aussi les ISO strings directement).
     const { allSpaceEvents, integrationIds, spaceTimezone } = statics;
 
     if (shopIds.length === 0) return null;
@@ -1319,86 +1319,43 @@ export class SpacesService {
     const dfMap = new Map(allSpaceEvents.map(e => [e.id, e]));
     const wzMap = new Map(weezeventEvents.map(e => [e.id, e]));
 
-    // BUG-339-02 (docs/bugs/) : fin de fenêtre à l'heure de fin réelle de l'event
-    // (Event.eventEndTime, posée sur eventEndDate — repli : showTime de la dernière session),
-    // plus au jour calendaire entier "+1 jour". Règle métier (2026-08-19) : les transactions
-    // d'un event vont de minuit (jour de début) jusqu'à son heure de fin (jour de fin), EN
-    // EXCLUANT la tranche minuit → heure de fin d'un event précédent qui se termine le jour
-    // où celui-ci commence (ex. "PFC - RC Lens" 14/02 → 15/02 03h00 ; "SFP-Toulouse" démarre
-    // le 15/02 : sa fenêtre commence à 03h00, pas à minuit). Sans ça, la fenêtre au jour
-    // entier de PFC (14/02 → 16/02) absorbait tout le CA de SFP-Toulouse (48k€ → 184k€).
-    const preciseEndOf = (e: {
-      eventDate: Date;
-      eventEndDate: Date | null;
-      eventEndTime: string | null;
-      sessions: string | null;
-    }): Date | null => {
-      const endDay = new Date(e.eventEndDate ?? e.eventDate);
-      const sessions = parseEventSessions(e.sessions);
-      return combineDayAndLocalTime(
-        endDay,
-        e.eventEndTime ?? sessions[sessions.length - 1]?.showTime,
-        spaceTimezone,
-      );
-    };
-
+    // Fiche 147-01 (slide « Transactions prises en compte par Event » — remplace la lecture
+    // « portes ±2 h » que BUG-146-01 avait faite de cette même slide : les boîtes « Ouverture
+    // des portes 19h00 » y sont des repères, la bande de transactions démarre à 00h00) :
+    // fenêtre = minuit LOCAL du jour de début → heure de fin déclarée (posée sur le jour de
+    // fin — minuit franchi autorisé ; repli journée calendaire pleine), avancée à la fin
+    // déclarée d'un voisin qui se termine le jour de début (ex. slide : « PFC - RC Lens »
+    // fin 02h00 le 15/02 → « SFP-Toulouse » démarre le 15/02 à 02h00, pas à minuit — sans ça
+    // la fenêtre de PFC absorbait le CA de SFP-Toulouse, 48k€ → 184k€, BUG-339-02).
+    // MÊME logique que l'agrégation (resolveEventTransactionWindow, event-window.util) : la
+    // divergence lecteur/writer était la cause des trois CA différents de la fiche 145-01.
     const windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null }[] = [];
     for (const id of uniqueIds) {
       const df = dfMap.get(id);
       const wz = wzMap.get(id);
-      // BUG-146-01 : même précédence de jour que l'agrégation (`eventStartDate ?? eventDate`,
-      // aggregation.service.ts resolveEventWindow) — un event dont eventDate est faux mais
-      // eventStartDate juste (SFP-Montauban, fiche 145-01) obtient une fenêtre valide au
-      // lieu d'un `windowStart >= windowEnd` silencieux (0 € affiché dans l'Analyse).
+      // BUG-146-01 : même précédence de jour que l'agrégation (`eventStartDate ?? eventDate`)
+      // — un event dont eventDate est faux mais eventStartDate juste (SFP-Montauban, fiche
+      // 145-01) obtient une fenêtre valide au lieu d'un `windowStart >= windowEnd` silencieux.
       const eventDate: Date | null = df
         ? new Date(df.eventStartDate ?? df.eventDate)
         : wz?.startDate
           ? new Date(wz.startDate)
           : null;
       if (!eventDate) continue; // event not found in either table → stays []
-      const endDate = df
-        ? new Date(df.eventEndDate ?? df.eventStartDate ?? df.eventDate)
-        : wz?.endDate
-          ? new Date(wz.endDate)
-          : eventDate;
-      // Fin de fenêtre : heure de fin réelle si connue (event DataFriday), sinon repli
-      // historique jour calendaire entier (+1 jour, eventEndDate = dernier jour INCLUS).
-      const fallbackEnd = new Date(endDate);
-      fallbackEnd.setDate(fallbackEnd.getDate() + 1);
-      // BUG-146-01 (règle Bertrand 25/08, slide « Transactions prises en compte par
-      // Event ») : la fenêtre de l'Analyse s'aligne sur celle de l'AGRÉGATION — ouverture
-      // des portes → heure de fin, avec les MÊMES marges ±2 h (constantes staffing) — au
-      // lieu de minuit → heure de fin. Deux events le même jour n'ont plus besoin de la
-      // règle de voisinage BUG-339-02 quand leurs heures de portes sont saisies ; elle
-      // reste le repli des events sans doorsOpening.
-      const sessions = df ? parseEventSessions(df.sessions) : [];
-      const doorsOpen = df ? combineDayAndLocalTime(eventDate, sessions[0]?.doorsOpening, spaceTimezone) : null;
       let windowStart: Date;
       let windowEnd: Date;
-      if (doorsOpen) {
-        const doorsClose =
-          (df && preciseEndOf(df)) ||
-          new Date(doorsOpen.getTime() + DEFAULT_EVENT_DURATION_HOURS * 3_600_000);
-        windowStart = new Date(doorsOpen.getTime() + DEFAULT_OFFSET_OPEN_MINUTES * 60_000);
-        windowEnd = new Date(doorsClose.getTime() + DEFAULT_OFFSET_CLOSE_MINUTES * 60_000);
+      if (df) {
+        ({ start: windowStart, end: windowEnd } = resolveEventTransactionWindow(
+          df,
+          spaceTimezone,
+          allSpaceEvents,
+        ));
       } else {
-        // Comportement historique (BUG-339-02) : minuit du jour de début, avancé à l'heure
-        // de fin du dernier event voisin qui se termine ce jour-là (sa tranche minuit →
-        // heure de fin lui appartient). Seuls les voisins finissant AVANT la fin de cet
-        // event comptent — sinon, deux events le même jour se videraient mutuellement.
-        windowEnd = (df && preciseEndOf(df)) || fallbackEnd;
+        // Repli WeezeventEvent (le front a passé un CUID Weezevent, pas un Event DataFriday) :
+        // jour calendaire entier, endDate = dernier jour INCLUS → +1 jour.
         windowStart = eventDate;
-        if (df) {
-          for (const neighbor of allSpaceEvents) {
-            if (neighbor.id === id) continue;
-            const neighborEndDay = new Date(neighbor.eventEndDate ?? neighbor.eventDate);
-            if (neighborEndDay.getTime() !== eventDate.getTime()) continue;
-            const neighborEnd = preciseEndOf(neighbor);
-            if (!neighborEnd) continue; // voisin sans heure de fin → pas d'exclusion (comportement historique)
-            if (neighborEnd >= windowEnd) continue;
-            if (neighborEnd > windowStart) windowStart = neighborEnd;
-          }
-        }
+        windowEnd = new Date(wz?.endDate ? new Date(wz.endDate) : eventDate);
+        windowEnd.setDate(windowEnd.getDate() + 1);
       }
       if (windowStart >= windowEnd) continue; // fenêtre vide → stays []
       const spanDays = (windowEnd.getTime() - eventDate.getTime()) / 86_400_000;
