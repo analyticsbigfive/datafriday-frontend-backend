@@ -676,6 +676,29 @@ describe('AggregationService', () => {
         expect(sqlArg.values).toContain(SALES_EVENT_ID);
       });
 
+      it('BUG-370-02 : mode integration-range ignore l\'integrationId du JOB (wizard ouvert) quand il diffère de celui de l\'event — sinon la requête devient insatisfiable (0 résultat)', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...baseEvent, integrationId: 'integration-pfc' },
+        ]);
+
+        // Job lancé depuis le wizard d'une AUTRE intégration (ex. SFP) que celle de l'event
+        // (PFC) — cas réel : liste "Couvertes" mixte, "Relancer" cliqué sur une ligne de
+        // l'autre club depuis le mauvais wizard.
+        const job = makeBullJob({ integrationId: 'integration-sfp' });
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        // Un seul filtre "t.integrationId =" dans la requête : celui de l'event (window),
+        // jamais celui du job — avant le fix, "AND t.\"integrationId\" = 'integration-sfp'"
+        // s'ajoutait en plus, rendant la requête insatisfiable (une transaction ne peut pas
+        // avoir 2 integrationId à la fois).
+        expect(text.match(/t\."integrationId" =/g)?.length).toBe(1);
+        expect(sqlArg.values).toContain('integration-pfc');
+        expect(sqlArg.values).not.toContain('integration-sfp');
+      });
+
       it('règle métier 2026-08-25 : Event non lié, 1 seul jour → fenêtre = journée calendaire locale complète (00h00 → minuit suivant, pas ancrée sur une heure d\'ouverture)', async () => {
         const baseEvent = makeEvent(EVENT_1);
         mockPrisma.event.findMany.mockResolvedValue([baseEvent]);

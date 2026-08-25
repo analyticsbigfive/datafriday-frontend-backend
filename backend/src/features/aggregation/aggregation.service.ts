@@ -505,9 +505,21 @@ export class AggregationService {
           await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
 
           // Filtres dynamiques (SQL fragments composables)
-          const integrationClause = integrationId
-            ? Prisma.sql`AND t."integrationId" = ${integrationId}`
-            : Prisma.sql``;
+          // BUG-370-02 (2026-08-25) : `integrationId` ici est celui du JOB (le wizard qui a lancé
+          // "Relancer"/"Tout agréger", cf. StepProcessTimeline `this.location.id`) — un concept
+          // hérité d'avant `Event.integrationId`, quand il fallait bien dire au backend quelle
+          // intégration scoper faute de le savoir par event. En mode `integration-range`, le
+          // window PORTE DÉJÀ la seule intégration qui compte (celle de CET event, autoritaire) —
+          // ANDer en plus le filtre du job devient FAUX dès que le wizard ouvert diffère du club
+          // de l'event traité (ex. "Relancer" cliqué sur une ligne PFC visible depuis le wizard
+          // SFP, la liste "Couvertes" mélangeant les deux) : les deux conditions s'excluent,
+          // donnant 0 résultat au lieu des vraies transactions de l'event. Constaté en base sur
+          // Jean Bouin (SFP-Cardiff/PFC-Le Havre) : agrégations tantôt correctes tantôt vides
+          // selon le wizard ouvert au moment du clic.
+          const integrationClause =
+            integrationId && window.mode !== 'integration-range'
+              ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+              : Prisma.sql``;
 
           // Agrégation DB-level : JOIN + GROUP BY + INSERT en une seule requête
           // Aucune donnée chargée en mémoire Node.js — élimination du findMany + JS loop

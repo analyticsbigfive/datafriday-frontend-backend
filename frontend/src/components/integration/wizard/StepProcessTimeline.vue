@@ -251,8 +251,34 @@
                       {{ formatDate(item.startDate || item.eventDate || item.date) }}
                       <span v-if="item.endDate && item.endDate !== (item.startDate || item.eventDate || item.date)"> — {{ formatDate(item.endDate) }}</span>
                     </span>
-                    <div v-if="item.name || item.eventName" class="spt-row__event-name">
-                      {{ item.name || item.eventName }}
+                    <div v-if="item.name || item.eventName" class="spt-row__event-name-wrap">
+                      <span class="spt-row__event-name">{{ item.name || item.eventName }}</span>
+                      <v-menu
+                        v-if="item._raw?.integration?.name"
+                        :model-value="integrationMenuOpenId === item.id"
+                        location="bottom start"
+                        @update:model-value="val => { integrationMenuOpenId = val ? item.id : null }"
+                      >
+                        <template #activator="{ props: menuProps }">
+                          <button
+                            v-bind="menuProps"
+                            type="button"
+                            class="spt-chip spt-chip--gray spt-row__integration-badge spt-row__integration-badge--clickable"
+                            :title="t('intgTimelineChangeIntegrationTooltip')"
+                          >{{ item._raw.integration.name }}</button>
+                        </template>
+                        <v-list density="compact">
+                          <v-list-item
+                            v-for="opt in spaceIntegrations"
+                            :key="opt.id"
+                            :active="opt.id === item._raw.integrationId"
+                            :disabled="changingIntegrationEventId === item.id"
+                            @click="handleChangeEventIntegration(item, opt)"
+                          >
+                            <v-list-item-title>{{ opt.name }}</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-menu>
                     </div>
                   </div>
                 </div>
@@ -524,7 +550,7 @@
       v-model="mapToEventDialog"
       :item="mapToEventItem"
       :formatted-date="mapToEventItem ? formatDate(mapToEventItem.date || mapToEventItem.start) : ''"
-      :events="registeredEvents"
+      :events="mappableEvents"
       :loading="mappingEventLoading"
       @confirm="confirmMapToEvent"
     />
@@ -668,6 +694,8 @@ export default {
       // Mapping WeezeventEvent → DataFriday Event { weezEventId: dfEventId }
       weezEventMappings: {},
       unmappingEventId: null,
+      changingIntegrationEventId: null,
+      integrationMenuOpenId: null,
       // §breakdown
       expandedEventId: null,
       breakdownDrawer: false,
@@ -691,6 +719,30 @@ export default {
     // §3 — tous les events enregistrés (les futurs sont signalés en info mais restent listés)
     registeredEvents() {
       return this.events || []
+    },
+    // BUG-368-02 (2026-08-25) : candidats du dialog "Mapper à un événement existant" — un event
+    // déjà tagué sur une AUTRE intégration (ex. SFP) ne doit jamais être proposé depuis le wizard
+    // d'une intégration différente (PFC) : même règle que le relink automatique de
+    // bulkCreateEvents (event non tagué, ou déjà tagué sur l'intégration courante).
+    // registeredEvents reste inchangé (table "Couvertes", toujours mixte, à but informatif).
+    mappableEvents() {
+      return this.registeredEvents.filter(e => {
+        const raw = e._raw || {}
+        return !raw.integrationId || raw.integrationId === this.location.id
+      })
+    },
+    // Intégrations proposées dans le sélecteur du badge (clic pour reclasser un event mal
+    // classé, ex. PFC/SFP sur un même space) — dérivées des events déjà chargés plutôt qu'un
+    // nouvel appel API : pas d'endpoint dédié "intégrations d'un space" (cf. recherche du
+    // 2026-08-25), et la seule info utile ici est celle déjà visible dans les badges.
+    spaceIntegrations() {
+      const map = new Map()
+      if (this.location?.id) map.set(this.location.id, { id: this.location.id, name: this.location.name })
+      for (const e of this.registeredEvents) {
+        const integ = e._raw?.integration
+        if (integ?.id) map.set(integ.id, { id: integ.id, name: integ.name })
+      }
+      return Array.from(map.values())
     },
     futureEventsCount() {
       const now = new Date()
@@ -1186,6 +1238,28 @@ export default {
         this.feedbackSnackbar = true
       } finally {
         this.unmappingEventId = null
+      }
+    },
+    // Reclassement manuel du club/intégration d'un event déjà couvert (clic sur le badge) —
+    // corrige un mauvais classement (event créé/backfillé sur la mauvaise intégration) sans
+    // passer par Démapper + Créer et lier tout, qui exigerait de re-matcher les transactions.
+    async handleChangeEventIntegration(item, opt) {
+      this.integrationMenuOpenId = null
+      if (!opt || opt.id === item._raw?.integrationId) return
+      this.changingIntegrationEventId = item.id
+      try {
+        const updated = await updateEvent(item.id, { integrationId: opt.id })
+        this.$store.dispatch('events/updateEvent', updated?.data ?? updated)
+        await this.loadTimeline(this.spaceId, this.location.id)
+        this.feedbackSnackbarText = `${item.name || item.eventName} → ${opt.name}`
+        this.feedbackSnackbarColor = 'success'
+        this.feedbackSnackbar = true
+      } catch (err) {
+        this.feedbackSnackbarText = err?.response?.data?.message || err.message
+        this.feedbackSnackbarColor = 'error'
+        this.feedbackSnackbar = true
+      } finally {
+        this.changingIntegrationEventId = null
       }
     },
     async handleToggleBreakdown(event) {
@@ -1730,10 +1804,20 @@ export default {
 .spt--dark .spt-row__date-text { color: #f3f4f6; }
 
 .spt-row__event-info { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
-.spt-row__event-name {
-  font-size: 11.5px; color: #6b7280; margin-top: 2px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.spt-row__event-name-wrap {
+  display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 2px;
 }
+.spt-row__event-name {
+  font-size: 11.5px; color: #6b7280;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.spt-row__integration-badge { flex-shrink: 0; }
+.spt-row__integration-badge--clickable {
+  cursor: pointer; border: none; font: inherit; -webkit-appearance: none; appearance: none;
+  line-height: 1;
+}
+.spt-row__integration-badge--clickable:hover { background: #e5e7eb; }
+.spt--dark .spt-row__integration-badge--clickable:hover { background: #374151; }
 .spt--dark .spt-row__event-name { color: #9ca3af; }
 
 .spt-row__transactions { display: flex; align-items: center; }

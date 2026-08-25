@@ -44,6 +44,11 @@ export class EventsService {
     eventCategory: true,
     eventSubcategory: true,
     visitingTeam: true,
+    // BUG-368-02 (2026-08-25) : expose le nom du club/intégration réel (Integration.name),
+    // affiché en badge dans le wizard (step 4) — un espace partagé par plusieurs intégrations
+    // (ex. PFC/SFP sur Jean Bouin) n'avait jusqu'ici aucun repère fiable, seulement le nom
+    // saisi manuellement sur l'event.
+    integration: { select: { id: true, name: true } },
   };
 
   private async findOwnedEventTypeOrThrow(id: string, tenantId: string) {
