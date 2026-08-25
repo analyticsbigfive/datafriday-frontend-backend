@@ -31,9 +31,20 @@ wizard PFC, rien n'empêchait de sélectionner par erreur un event SFP.
 - **Filtre du dialog de mapping** : computed `mappableEvents`, même règle que le relink
   automatique de `bulkCreateEvents` (`!integrationId || integrationId === location.id`) —
   seuls les events sans intégration ou déjà de l'intégration courante sont proposés.
-- **Reclassement manuel** : le badge est cliquable (menu Vuetify listant les intégrations
-  connues du space, dérivées des events déjà chargés) → `updateEvent(id, {integrationId})`,
-  pour corriger un event mal classé sans repasser par Démapper + Créer et lier tout.
+- **Reclassement manuel — 2 tentatives** :
+  1. Un menu cliquable sur le badge (`v-menu` Vuetify inline, liste dérivée des events déjà
+     chargés) a été implémenté puis abandonné : comportement de clic erratique en usage réel
+     (menu qui s'ouvre par intermittence), non reproductible en lecture de code ni sans
+     navigateur. Retiré entièrement.
+  2. Reparti sur le pattern déjà éprouvé du composant (`MapEventToExistingDialog`, `<select>`
+     natif dans un `v-dialog`) plutôt qu'un `v-menu` inline par ligne : bouton dédié "Changer"
+     à côté de "Démapper" sur chaque ligne couverte, ouvrant `ChangeEventIntegrationDialog.vue` →
+     `updateEvent(id, {integrationId})`. La liste des intégrations proposées vient d'un vrai
+     endpoint (`GET /spaces/:id/integrations`, `spaces.service.ts::getSpaceIntegrations`) — plus
+     fiable que la dérivation depuis les events déjà chargés (révèle aussi une intégration
+     n'ayant encore aucun event taggué) — mis en cache côté front 15 min
+     (`store/modules/spaceIntegrations.js`, même pattern que `spaceShops.js`), le nombre
+     d'intégrations d'un space changeant rarement.
 
 ## Risque de régression / à surveiller
 

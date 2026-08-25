@@ -2181,6 +2181,32 @@ export class SpacesService {
   }
 
   /**
+   * BUG-369-02 (2026-08-25) : liste des intégrations rattachées à un espace — remplace le
+   * dérivé côté front (`spaceIntegrations`, à partir des events déjà chargés, retiré le même
+   * jour) qui ne révélait une intégration qu'une fois qu'un event lui était déjà tagué. Même
+   * pattern que `getWeezeventEventsForSpace` : `locationSpaceMapping` peut avoir PLUSIEURS
+   * lignes pour un même espace (BUG-136-01), pas de relation Prisma directe vers `Integration`
+   * (`salesLocationId` est un `String` simple) — résolution en 2 requêtes.
+   */
+  async getSpaceIntegrations(spaceId: string, tenantId: string) {
+    await this.findOne(spaceId, tenantId);
+
+    const mappings = await this.prisma.locationSpaceMapping.findMany({
+      where: { tenantId, spaceId },
+      select: { salesLocationId: true },
+    });
+    const integrationIds = [...new Set(mappings.map((m) => m.salesLocationId).filter(Boolean))];
+    if (!integrationIds.length) return [];
+
+    const integrations = await this.prisma.integration.findMany({
+      where: { id: { in: integrationIds }, tenantId },
+      select: { id: true, name: true, provider: true },
+      orderBy: { name: 'asc' },
+    });
+    return integrations;
+  }
+
+  /**
    * Update enrichment metadata for a single WeezeventEvent.
    * Only fields explicitly provided in the payload are updated (shallow merge).
    */

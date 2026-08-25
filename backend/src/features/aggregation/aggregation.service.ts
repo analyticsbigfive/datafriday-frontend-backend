@@ -449,7 +449,7 @@ export class AggregationService {
     const allSpaceEvents: EventDayFields[] = eventIds?.length
       ? await this.prisma.event.findMany({
           where: { tenantId, spaceId },
-          select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true },
+          select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, integrationId: true },
         })
       : events;
 

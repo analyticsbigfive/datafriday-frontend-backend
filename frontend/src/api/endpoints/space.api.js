@@ -449,6 +449,19 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
 }
 
 /**
+ * List integrations attached to a space (ex. PFC + SFP on a shared space)
+ */
+export async function getSpaceIntegrations(spaceId) {
+  try {
+    const response = await api.get(`/spaces/${spaceId}/integrations`)
+    return response.data
+  } catch (error) {
+    console.error(`[SPACES API] Error fetching integrations for space ${spaceId}:`, error)
+    throw error
+  }
+}
+
+/**
  * List WeezeventEvents for a space, including enrichment metadata
  */
 export async function getWeezeventEventsForSpace(spaceId, integrationId) {

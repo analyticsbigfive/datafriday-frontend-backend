@@ -253,32 +253,10 @@
                     </span>
                     <div v-if="item.name || item.eventName" class="spt-row__event-name-wrap">
                       <span class="spt-row__event-name">{{ item.name || item.eventName }}</span>
-                      <v-menu
+                      <span
                         v-if="item._raw?.integration?.name"
-                        :model-value="integrationMenuOpenId === item.id"
-                        location="bottom start"
-                        @update:model-value="val => { integrationMenuOpenId = val ? item.id : null }"
-                      >
-                        <template #activator="{ props: menuProps }">
-                          <button
-                            v-bind="menuProps"
-                            type="button"
-                            class="spt-chip spt-chip--gray spt-row__integration-badge spt-row__integration-badge--clickable"
-                            :title="t('intgTimelineChangeIntegrationTooltip')"
-                          >{{ item._raw.integration.name }}</button>
-                        </template>
-                        <v-list density="compact">
-                          <v-list-item
-                            v-for="opt in spaceIntegrations"
-                            :key="opt.id"
-                            :active="opt.id === item._raw.integrationId"
-                            :disabled="changingIntegrationEventId === item.id"
-                            @click="handleChangeEventIntegration(item, opt)"
-                          >
-                            <v-list-item-title>{{ opt.name }}</v-list-item-title>
-                          </v-list-item>
-                        </v-list>
-                      </v-menu>
+                        class="spt-chip spt-chip--gray spt-row__integration-badge"
+                      >{{ item._raw.integration.name }}</span>
                     </div>
                   </div>
                 </div>
@@ -350,6 +328,15 @@
                       <v-progress-circular v-if="unmappingEventId === item.id" indeterminate size="11" width="2" color="currentColor" />
                       <v-icon v-else size="12">mdi-link-off</v-icon>
                       {{ t('intgTimelineBtnUnmap') }}
+                    </button>
+                    <button
+                      v-if="item._raw?.integration?.name"
+                      class="spt-act-btn spt-act-btn--gray"
+                      :title="t('intgTimelineChangeIntgTooltip')"
+                      @click="openChangeIntegrationDialog(item)"
+                    >
+                      <v-icon size="12">mdi-swap-horizontal</v-icon>
+                      {{ t('intgTimelineBtnChangeIntg') }}
                     </button>
                   </div>
 
@@ -563,6 +550,16 @@
       @created="handleEventCreated"
     />
 
+    <!-- ── Dialog: changer l'intégration d'un event couvert (BUG-369-02) ── -->
+    <ChangeEventIntegrationDialog
+      v-model="changeIntegrationDialog"
+      :event-name="changeIntegrationItem ? (changeIntegrationItem.name || changeIntegrationItem.eventName) : ''"
+      :current-integration-id="changeIntegrationItem?._raw?.integrationId || null"
+      :integrations="spaceIntegrationsList"
+      :loading="changingIntegrationEventId === changeIntegrationItem?.id"
+      @confirm="confirmChangeIntegration"
+    />
+
     <!-- ── Snackbar feedback ── -->
     <v-snackbar v-model="feedbackSnackbar" :color="feedbackSnackbarColor" timeout="3000" location="bottom right">
       {{ feedbackSnackbarText }}
@@ -596,6 +593,7 @@ import { updateWeezeventEventMetadata, syncWeezeventEventAttendees, getWeezevent
 import EventTimelineProgressIndicator from '@/components/EventTimelineProgressIndicator.vue'
 import MapEventToExistingDialog from './dialogs/MapEventToExistingDialog.vue'
 import CreateEventDialog from './dialogs/CreateEventDialog.vue'
+import ChangeEventIntegrationDialog from './dialogs/ChangeEventIntegrationDialog.vue'
 import EventBreakdownDrawer from './dialogs/EventBreakdownDrawer.vue'
 
 // Poll cadence for a single event's aggregation job (handleProcessSingle)
@@ -621,6 +619,7 @@ export default {
     EventTimelineProgressIndicator,
     MapEventToExistingDialog,
     CreateEventDialog,
+    ChangeEventIntegrationDialog,
     EventBreakdownDrawer,
   },
   props: {
@@ -694,8 +693,11 @@ export default {
       // Mapping WeezeventEvent → DataFriday Event { weezEventId: dfEventId }
       weezEventMappings: {},
       unmappingEventId: null,
+      // §changement d'intégration (BUG-369-02)
+      changeIntegrationDialog: false,
+      changeIntegrationItem: null,
       changingIntegrationEventId: null,
-      integrationMenuOpenId: null,
+      spaceIntegrationsList: [],
       // §breakdown
       expandedEventId: null,
       breakdownDrawer: false,
@@ -730,19 +732,6 @@ export default {
         const raw = e._raw || {}
         return !raw.integrationId || raw.integrationId === this.location.id
       })
-    },
-    // Intégrations proposées dans le sélecteur du badge (clic pour reclasser un event mal
-    // classé, ex. PFC/SFP sur un même space) — dérivées des events déjà chargés plutôt qu'un
-    // nouvel appel API : pas d'endpoint dédié "intégrations d'un space" (cf. recherche du
-    // 2026-08-25), et la seule info utile ici est celle déjà visible dans les badges.
-    spaceIntegrations() {
-      const map = new Map()
-      if (this.location?.id) map.set(this.location.id, { id: this.location.id, name: this.location.name })
-      for (const e of this.registeredEvents) {
-        const integ = e._raw?.integration
-        if (integ?.id) map.set(integ.id, { id: integ.id, name: integ.name })
-      }
-      return Array.from(map.values())
     },
     futureEventsCount() {
       const now = new Date()
@@ -873,6 +862,7 @@ export default {
       // Réhydrate weezEventMappings (liens dfEventId persistés) au chargement,
       // symétriquement à loadTimeline, pour que "Créer et lier tout" ne recrée pas de doublons.
       this.loadWeezeventEvents()
+      this.loadSpaceIntegrations()
     }
   },
   unmounted() {
@@ -888,6 +878,7 @@ export default {
         this.uncoveredPage = 1
         this.loadTimeline(val, this.location.id)
         this.loadWeezeventEvents()
+        this.loadSpaceIntegrations()
       }
     },
     activeTab() {
@@ -1240,28 +1231,6 @@ export default {
         this.unmappingEventId = null
       }
     },
-    // Reclassement manuel du club/intégration d'un event déjà couvert (clic sur le badge) —
-    // corrige un mauvais classement (event créé/backfillé sur la mauvaise intégration) sans
-    // passer par Démapper + Créer et lier tout, qui exigerait de re-matcher les transactions.
-    async handleChangeEventIntegration(item, opt) {
-      this.integrationMenuOpenId = null
-      if (!opt || opt.id === item._raw?.integrationId) return
-      this.changingIntegrationEventId = item.id
-      try {
-        const updated = await updateEvent(item.id, { integrationId: opt.id })
-        this.$store.dispatch('events/updateEvent', updated?.data ?? updated)
-        await this.loadTimeline(this.spaceId, this.location.id)
-        this.feedbackSnackbarText = `${item.name || item.eventName} → ${opt.name}`
-        this.feedbackSnackbarColor = 'success'
-        this.feedbackSnackbar = true
-      } catch (err) {
-        this.feedbackSnackbarText = err?.response?.data?.message || err.message
-        this.feedbackSnackbarColor = 'error'
-        this.feedbackSnackbar = true
-      } finally {
-        this.changingIntegrationEventId = null
-      }
-    },
     async handleToggleBreakdown(event) {
       this.expandedEventId = event.id
       this.breakdownDrawer = true
@@ -1568,6 +1537,39 @@ export default {
         console.error('[StepProcessTimeline] Failed to load weezevent events:', err)
       }
     },
+    // Liste des intégrations du space (BUG-369-02) — mise en cache côté store (15 min TTL,
+    // spaceIntegrations.js), peuple le sélecteur de ChangeEventIntegrationDialog.
+    async loadSpaceIntegrations() {
+      try {
+        this.spaceIntegrationsList = await this.$store.dispatch('spaceIntegrations/fetchForSpace', { spaceId: this.spaceId })
+      } catch (err) {
+        console.error('[StepProcessTimeline] Failed to load space integrations:', err)
+      }
+    },
+    openChangeIntegrationDialog(item) {
+      this.changeIntegrationItem = item
+      this.changeIntegrationDialog = true
+    },
+    async confirmChangeIntegration(newIntegrationId) {
+      const item = this.changeIntegrationItem
+      if (!item || !newIntegrationId) return
+      this.changingIntegrationEventId = item.id
+      try {
+        const updated = await updateEvent(item.id, { integrationId: newIntegrationId })
+        this.$store.dispatch('events/updateEvent', updated?.data ?? updated)
+        this.changeIntegrationDialog = false
+        await this.loadTimeline(this.spaceId, this.location.id)
+        this.feedbackSnackbarText = this.t('intgTimelineIntgChanged')
+        this.feedbackSnackbarColor = 'success'
+        this.feedbackSnackbar = true
+      } catch (err) {
+        this.feedbackSnackbarText = err?.response?.data?.message || err.message
+        this.feedbackSnackbarColor = 'error'
+        this.feedbackSnackbar = true
+      } finally {
+        this.changingIntegrationEventId = null
+      }
+    },
     // loadAmbiguousMatches/handleResolveWeezeventLink (banner + ResolveWeezeventLinkDialog,
     // BUG-021 résolution manuelle) supprimées le 2026-08-25 : le banner proposait des conteneurs
     // de saison/site comme candidats de résolution (BUG-361-02) et était jugé sans valeur une fois
@@ -1812,12 +1814,6 @@ export default {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .spt-row__integration-badge { flex-shrink: 0; }
-.spt-row__integration-badge--clickable {
-  cursor: pointer; border: none; font: inherit; -webkit-appearance: none; appearance: none;
-  line-height: 1;
-}
-.spt-row__integration-badge--clickable:hover { background: #e5e7eb; }
-.spt--dark .spt-row__integration-badge--clickable:hover { background: #374151; }
 .spt--dark .spt-row__event-name { color: #9ca3af; }
 
 .spt-row__transactions { display: flex; align-items: center; }
