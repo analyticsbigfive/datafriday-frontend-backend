@@ -963,7 +963,10 @@ describe('SpacesService', () => {
       await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
-      expect(sql).not.toContain('t."integrationId"');
+      // BUG-368-02 : t."integrationId" apparaît maintenant aussi dans la clause
+      // eventIntegrationId (par event, sans rapport avec le scope d'intégrations mappées
+      // ci-dessous) — l'assertion cible spécifiquement la clause ANY(...) dégradée.
+      expect(sql).not.toContain('t."integrationId" = ANY(');
       // Mode dégradé tenant-wide : les PdV non mappés ne doivent PAS entrer.
       expect(sql).not.toContain('mem."spaceElementId" IS NULL OR');
     });

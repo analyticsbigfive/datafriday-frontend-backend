@@ -315,6 +315,7 @@
                       }}
                     </button>
                     <button
+                      v-if="item._raw?.weezeventEventId"
                       class="spt-act-btn spt-act-btn--amber"
                       :disabled="unmappingEventId === item.id || (bulkAggregateLocked && item.aggregationStatus !== 'completed')"
                       :title="(bulkAggregateLocked && item.aggregationStatus !== 'completed') ? t('intgTimelineAggregateAllTooltip') : t('intgTimelineUnmapTooltip')"
@@ -1162,16 +1163,17 @@ export default {
     },
     // handleCreateEventFromWeez() (ouverture du dialog de création depuis l'onglet
     // "Événements Weezevent" mort) supprimée — aucun point d'appel dans le template.
-    // Démappe l'event du space courant (spaceId → null) au lieu de le supprimer :
-    // l'event reste en base (Événements, revenus, taxonomie…), disparaît juste de
-    // cette intégration — sa date repasse en « Non couverte ». Voir events.service.ts
-    // (resolveEventSpaceFields) côté backend.
+    // Démappe le LIEN vers la donnée Weezevent/Digifood (weezeventEventId → null), PAS l'event
+    // du space (2026-08-25, corrige un défaut de conception signalé par l'utilisateur : l'event
+    // est un event DE l'espace, retirer spaceId le faisait disparaître de la liste de ce space,
+    // rendant tout re-mapping ultérieur impossible faute de pouvoir le retrouver). L'event reste
+    // visible ici, juste "non lié" — ses agrégats périmés sont purgés côté backend
+    // (events.service.ts, resolveWeezeventLink).
     async handleUnmapEvent(event) {
       const label = event.name || event.eventName || event.id
-      if (!confirm(`${this.t('intgTimelineUnmapConfirmPrefix')} « ${label} » ${this.t('intgTimelineUnmapConfirmSuffix')}`)) return
       this.unmappingEventId = event.id
       try {
-        const updated = await updateEvent(event.id, { spaceId: null })
+        const updated = await resolveWeezeventLink(event.id, null)
         this.$store.dispatch('events/updateEvent', updated?.data ?? updated)
         await this.loadTimeline(this.spaceId, this.location.id)
         this.feedbackSnackbarText = `${this.t('intgTimelineEvent')} « ${label} » ${this.t('intgTimelineUnmappedSuffix')}`
@@ -1343,6 +1345,7 @@ export default {
         // ── Phase 1 : créer les events DF et les lier au Weezevent ──
         this.bulkCreateEventsPhase = 'creating'
         let createdCount = 0
+        let relinkedCount = 0
         let skippedCount = 0
 
         for (let i = 0; i < toCreate.length; i += BULK_CREATE_BATCH_SIZE) {
@@ -1366,30 +1369,61 @@ export default {
                 console.warn('[bulkCreateEvents] champs disponibles sur le weezEvent sans date:', JSON.stringify(weezEvent))
                 return { __skipped: true }
               }
-              const res = await createEvent({
-                name: weezEvent.name || `${this.t('intgTimelineEventFallbackName')} ${weezEvent.id}`,
-                eventDate: startDate,
-                eventStartDate: startDate,
-                eventEndDate: endDate,
-                spaceId: this.spaceId,
+              // BUG-366-02 : un event de CET espace, non lié (démappé, ou jamais lié), pour la
+              // MÊME date que ce weezEvent → le relier au lieu d'en créer un second. Sans cette
+              // vérification, "Démapper" puis "Créer et lier tout" créait un doublon (un nouvel
+              // Event fraîchement lié, l'ancien démappé restant orphelin à côté).
+              // BUG-368-02 : exige aussi que l'event n'appartienne à AUCUNE intégration, ou
+              // déjà à celle-ci — sans ça, un event SFP démappé pourrait se faire voler par un
+              // weezEvent PFC de la même date (deux clubs, même jour, cf. Stade Jean Bouin).
+              const existingUnlinked = (this.events || []).find(e => {
+                const raw = e._raw || {}
+                return !raw.weezeventEventId
+                  && (!raw.integrationId || raw.integrationId === this.location.id)
+                  && toDate(raw.eventStartDate ?? raw.eventDate ?? e.startDate) === startDate
               })
-              const newEvent = res?.data || res
-              if (!newEvent?.id) throw new Error('No id returned')
-              await this.$store.dispatch('events/addEvent', newEvent)
+              let targetEvent
+              if (existingUnlinked) {
+                targetEvent = existingUnlinked._raw
+                // BUG-368-02 : un event legacy (jamais tagué) qu'on relie ici passe aussi sur
+                // le mécanisme robuste, plutôt que de rester coincé sur le mode conteneur legacy.
+                if (!targetEvent.integrationId) {
+                  const updated = await updateEvent(targetEvent.id, { integrationId: this.location.id })
+                  targetEvent = { ...targetEvent, ...(updated?.data ?? updated) }
+                }
+              } else {
+                const res = await createEvent({
+                  name: weezEvent.name || `${this.t('intgTimelineEventFallbackName')} ${weezEvent.id}`,
+                  eventDate: startDate,
+                  eventStartDate: startDate,
+                  eventEndDate: endDate,
+                  spaceId: this.spaceId,
+                  // BUG-368-02 : source de vérité explicite pour l'agrégation (mode
+                  // integration-range, prioritaire) — remplace la déduction implicite via
+                  // weezeventEventId → conteneur de saison (BUG-146-01, legacy).
+                  integrationId: this.location.id,
+                })
+                targetEvent = res?.data || res
+                if (!targetEvent?.id) throw new Error('No id returned')
+                await this.$store.dispatch('events/addEvent', targetEvent)
+              }
               // BUG-331-02 : pose le VRAI lien typé (Event.weezeventEventId), lu par
               // executeProcessEvents pour le rattachement exact des transactions (BUG-330-02) —
-              // dfEventId ci-dessous n'est qu'un champ hérité, jamais relu par l'API.
-              await resolveWeezeventLink(newEvent.id, weezEvent.id)
-              await updateWeezeventEventMetadata(this.spaceId, weezEvent.id, { dfEventId: newEvent.id })
+              // dfEventId ci-dessous n'est qu'un miroir pour réhydrater weezEventMappings côté
+              // front (loadWeezeventEvents), synchronisé aussi côté backend depuis le 2026-08-25
+              // (resolveWeezeventLink) pour tout appelant, pas seulement celui-ci.
+              await resolveWeezeventLink(targetEvent.id, weezEvent.id)
+              await updateWeezeventEventMetadata(this.spaceId, weezEvent.id, { dfEventId: targetEvent.id })
               const updated = { ...this.weezEventMappings }
-              updated[weezEvent.id] = newEvent.id
+              updated[weezEvent.id] = targetEvent.id
               this.weezEventMappings = updated
-              return newEvent
+              return { ...targetEvent, __relinked: !!existingUnlinked }
             })
           )
           for (const result of results) {
             if (result.status === 'fulfilled') {
               if (result.value?.__skipped) skippedCount++
+              else if (result.value?.__relinked) relinkedCount++
               else createdCount++
             } else {
               console.warn('[bulkCreateEvents] create error:', result.reason)
@@ -1400,18 +1434,19 @@ export default {
         }
 
         const patchSummary = patchedCount > 0 ? `${patchedCount} ${this.t('intgTimelineBulkEventsAttached')} ` : ''
+        const relinkSummary = relinkedCount > 0 ? ` ${relinkedCount} ${this.t('intgTimelineBulkEventsRelinked')}` : ''
         const skipSummary = skippedCount > 0 ? ` ${skippedCount} ${this.t('intgTimelineBulkSkippedNoDate')}` : ''
         if (this.bulkCreateEventsErrors > 0) {
           this.bulkCreateEventsPhase = 'error'
-          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedOn')} ${toCreate.length - skippedCount}. ${this.bulkCreateEventsErrors} ${this.t('intgTimelineBulkFailedShort')}${skipSummary}`
+          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedOn')} ${toCreate.length - skippedCount}. ${this.bulkCreateEventsErrors} ${this.t('intgTimelineBulkFailedShort')}${skipSummary}${relinkSummary}`
         } else {
           this.bulkCreateEventsPhase = 'done'
-          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedLinked')}${skipSummary}`
+          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedLinked')}${relinkSummary}${skipSummary}`
         }
         await this.loadTimeline(this.spaceId, this.location.id)
         // BUG-109/361-02 : voir commentaire jumeau ci-dessus (branche "patch seul") — même
         // déclenchement automatique ici, après création.
-        if (patchedCount > 0 || createdCount > 0) this.handleAggregateAll()
+        if (patchedCount > 0 || createdCount > 0 || relinkedCount > 0) this.handleAggregateAll()
       } catch (err) {
         console.error('[bulkCreateEvents] fatal error:', err)
         this.bulkCreateEventsPhase = 'error'

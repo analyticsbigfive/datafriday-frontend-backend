@@ -13,15 +13,21 @@ import {
 
 /**
  * Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/).
- * `container-range` (BUG-146-01, règle Bertrand 25/08) : l'event est lié au CONTENEUR de
- * saison de son club (`Event.weezeventEventId` → « STADE FRANÇAIS 25-26 », « PARIS
- * FOOTBALL CLUB »…) — attribution = tag du conteneur ET fenêtre portes→fin. Sans le tag,
- * deux events le même jour au même stade (foot PFC l'après-midi, rugby SFP le soir) se
- * partageaient les mêmes ventes par fenêtres qui se recouvrent : 80 343,07 € comptés
- * deux fois sur Jean Bouin (mesuré en base, fiche 145-01).
+ * `integration-range` (BUG-368-02, 2026-08-25) : mode PRIORITAIRE — l'Event porte
+ * explicitement `integrationId`, posé à la création (bulkCreateEvents). Attribution = la
+ * bonne intégration ET la fenêtre calendaire, sans jamais regarder `t.eventId` : élimine
+ * toute détection de "conteneur de saison" pour les events qui l'utilisent.
+ * `container-range` (BUG-146-01, règle Bertrand 25/08, LEGACY — cohabite avec integration-range
+ * pour les tenants pas encore migrés) : l'event est lié au CONTENEUR de saison de son club
+ * (`Event.weezeventEventId` → « STADE FRANÇAIS 25-26 », « PARIS FOOTBALL CLUB »…) —
+ * attribution = tag du conteneur ET fenêtre portes→fin. Sans le tag, deux events le même
+ * jour au même stade (foot PFC l'après-midi, rugby SFP le soir) se partageaient les mêmes
+ * ventes par fenêtres qui se recouvrent : 80 343,07 € comptés deux fois sur Jean Bouin
+ * (mesuré en base, fiche 145-01).
  */
 type EventWindow =
   | { mode: 'exact'; salesEventId: string }
+  | { mode: 'integration-range'; integrationId: string; start: Date; end: Date }
   | { mode: 'container-range'; salesEventId: string; start: Date; end: Date }
   | { mode: 'range'; start: Date; end: Date };
 
@@ -97,12 +103,18 @@ export class AggregationService {
 
     const eventsWithStatus = events.map((event) => {
       const job = latestJobByEvent.get(event.id);
+      const dataPoints = dataPointsByEvent.get(event.id) ?? 0;
+      // BUG-367-02 : un job "completed" en historique ne veut plus rien dire une fois les
+      // données réelles purgées (Démapper, BUG-366-02) — affichait "Agrégé" à côté de "—" data
+      // points, contradiction visuelle constatée par l'utilisateur. Le statut suit désormais
+      // aussi l'état ACTUEL des données, pas seulement le dernier job en historique.
+      const aggregationStatus = job?.status === 'completed' && dataPoints === 0 ? 'pending' : (job?.status || 'pending');
       return {
         ...event,
-        aggregationStatus: job?.status || 'pending',
+        aggregationStatus,
         lastProcessedAt: job?.completedAt || null,
         transactionsProcessed: job?.transactionsProcessed || 0,
-        dataPoints: dataPointsByEvent.get(event.id) ?? 0,
+        dataPoints,
       };
     });
 
@@ -130,7 +142,14 @@ export class AggregationService {
           WHERE t."tenantId" = ${tenantId}
             ${integrationFilter}
             AND DATE(t."transactionDate") NOT IN (
-              SELECT DATE(e."eventDate") FROM "Event" e WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
+              -- BUG-368-02 : un Event qui déclare explicitement SON intégration ne peut plus
+              -- "couvrir" par coïncidence de date les transactions d'une AUTRE intégration du
+              -- même space (ex. SFP-Montauban ne couvre plus les transactions PFC du 06/09
+              -- s'il n'existe aucun event PFC ce jour-là) — les events legacy sans
+              -- integrationId gardent l'ancien comportement (coïncidence de date seule).
+              SELECT DATE(e."eventDate") FROM "Event" e
+              WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
+                AND (e."integrationId" IS NULL OR e."integrationId" = ${integrationId})
             )
           GROUP BY DATE(t."transactionDate")
           ORDER BY DATE(t."transactionDate") DESC
@@ -347,6 +366,7 @@ export class AggregationService {
       eventEndDate: Date | null;
       eventEndTime: string | null;
       weezeventEventId: string | null;
+      integrationId: string | null;
     },
     spaceTimezone: string,
     seasonContainerIds: Set<string>,
@@ -356,8 +376,10 @@ export class AggregationService {
     // (100% des transactions de la saison partagent ce même eventId) — mais depuis
     // BUG-146-01 (règle Bertrand 25/08) il identifie le CLUB : combiné à la fenêtre
     // ci-dessous, il devient le mode `container-range` (tag ET fenêtre), qui empêche les
-    // ventes de l'autre club d'entrer dans la fenêtre les jours à double affiche. Seul un
-    // lien vers un match précis reste un rattachement exact sans fenêtre.
+    // ventes de l'autre club d'entrer dans la fenêtre les jours à double affiche.
+    // BUG-368-02 : un lien vers un match PRÉCIS (pas un conteneur) reste le rattachement le
+    // plus fiable possible (zéro ambiguïté par construction) — prioritaire même si
+    // `integrationId` est aussi posé sur cet Event.
     const isContainerLink = !!event.weezeventEventId && seasonContainerIds.has(event.weezeventEventId);
     if (event.weezeventEventId && !isContainerLink) {
       return { mode: 'exact', salesEventId: event.weezeventEventId };
@@ -371,9 +393,17 @@ export class AggregationService {
     // `resolveEventSalesScope` (spaces.service.ts) via event-window.util.
     const { start, end } = resolveEventTransactionWindow(event, spaceTimezone, allSpaceEvents);
 
-    // BUG-146-01 : un lien conteneur devient `container-range` (tag du club ET fenêtre) —
-    // le tag sépare les clubs les jours à double affiche, la fenêtre démarrant à minuit
-    // évite de retronquer les ventes avant-match (BUG-360-02).
+    // BUG-368-02 : `integrationId` explicite prioritaire sur le tag conteneur legacy — plus
+    // besoin de deviner via resolveSeasonContainerEventIds (span observé/déclaré, cold-start),
+    // ni de dépendre d'un backfill manuel par tenant (BUG-146-01).
+    if (event.integrationId) {
+      return { mode: 'integration-range', integrationId: event.integrationId, start, end };
+    }
+
+    // BUG-146-01 (LEGACY, cohabite avec integration-range) : un lien conteneur devient
+    // `container-range` (tag du club ET fenêtre) — le tag sépare les clubs les jours à double
+    // affiche, la fenêtre démarrant à minuit évite de retronquer les ventes avant-match
+    // (BUG-360-02).
     return isContainerLink
       ? { mode: 'container-range', salesEventId: event.weezeventEventId as string, start, end }
       : { mode: 'range', start, end };
@@ -453,11 +483,17 @@ export class AggregationService {
           const matchClause =
             window.mode === 'exact'
               ? Prisma.sql`t."eventId" = ${window.salesEventId}`
-              : window.mode === 'container-range'
-                // BUG-146-01 : tag du conteneur du club ET fenêtre portes→fin — une vente
-                // de l'AUTRE club dans la même fenêtre (jour à double affiche) est exclue.
-                ? Prisma.sql`t."eventId" = ${window.salesEventId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
-                : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
+              : window.mode === 'integration-range'
+                // BUG-368-02 : la bonne intégration ET la fenêtre calendaire — jamais
+                // `t.eventId`. Robuste par construction : pas de dépendance à la détection
+                // de conteneur de saison, fonctionne même sans historique de transactions.
+                ? Prisma.sql`t."integrationId" = ${window.integrationId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
+                : window.mode === 'container-range'
+                  // BUG-146-01 (LEGACY) : tag du conteneur du club ET fenêtre portes→fin —
+                  // une vente de l'AUTRE club dans la même fenêtre (jour à double affiche)
+                  // est exclue.
+                  ? Prisma.sql`t."eventId" = ${window.salesEventId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
+                  : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
 
           // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
           // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B

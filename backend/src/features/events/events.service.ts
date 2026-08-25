@@ -232,6 +232,20 @@ export class EventsService {
     return space;
   }
 
+  // BUG-368-02 : ownership check pour Event.integrationId, même patron que
+  // findOwnedSpaceOrThrow/findOwnedConfigOrThrow.
+  private async findOwnedIntegrationOrThrow(id: string, tenantId: string) {
+    const integration = await this.prisma.integration.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!integration) {
+      throw new NotFoundException(`Integration ${id} not found`);
+    }
+
+    return integration;
+  }
+
   /**
    * BUG-34 : `Config` (configuration d'espace) n'a pas de `tenantId` propre — son
    * appartenance tenant est portée par l'espace parent (`Config.spaceId` ->
@@ -335,6 +349,16 @@ export class EventsService {
       } else {
         await this.findOwnedConfigOrThrow(dto.configurationId, tenantId);
         data.configurationId = dto.configurationId;
+      }
+    }
+    // BUG-368-02 : intégration explicite de l'event — voir resolveEventWindow
+    // (aggregation.service.ts) pour son usage (mode `integration-range`, prioritaire).
+    if (dto.integrationId !== undefined) {
+      if (dto.integrationId === null) {
+        data.integrationId = null;
+      } else {
+        await this.findOwnedIntegrationOrThrow(dto.integrationId, tenantId);
+        data.integrationId = dto.integrationId;
       }
     }
     return data;
@@ -600,10 +624,14 @@ export class EventsService {
 
   /**
    * Résolution manuelle d'un appariement Event <-> WeezeventEvent laissé ambigu.
-   * `weezeventEventId: null` délie explicitement un event déjà lié.
+   * `weezeventEventId: null` délie explicitement un event déjà lié — c'est le "Démapper" du step 4
+   * (StepProcessTimeline.vue, `handleUnmapEvent`) : ne touche QUE le lien vers la donnée
+   * Weezevent/Digifood, jamais `spaceId` (2026-08-25 — l'event reste un event DE l'espace, sa
+   * date/son lieu ne changent pas ; retirer `spaceId` le faisait disparaître de la liste du
+   * space, empêchant tout re-mapping ultérieur — confusion signalée par l'utilisateur).
    */
   async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null, user?: SpaceScopedUser) {
-    await this.findOne(id, tenantId, user);
+    const existing = await this.findOne(id, tenantId, user);
 
     if (weezeventEventId !== null) {
       const target = await this.prisma.salesEvent.findFirst({
@@ -615,11 +643,58 @@ export class EventsService {
       }
     }
 
-    return this.prisma.event.update({
+    const updated = await this.prisma.event.update({
       where: { id },
       data: { weezeventEventId },
       include: this.includeRelations,
     });
+
+    // Garde `SalesEvent.metadata.dfEventId` (miroir écrit par bulkCreateEvents, lu par
+    // loadWeezeventEvents pour réhydrater weezEventMappings côté front, BUG-331-02) synchronisé
+    // avec `Event.weezeventEventId` — la vraie source de vérité — quel que soit l'appelant de CE
+    // endpoint, pas seulement bulkCreateEvents qui l'écrit lui-même en plus à la création. Sans
+    // ça, "Démapper" rompait le vrai lien mais laissait le miroir pointer sur cet Event : le
+    // WeezeventEvent restait invisible pour "Créer et lier tout" indéfiniment (weezEventMappings
+    // le montrait toujours "déjà lié"), même après un rechargement complet (2026-08-25).
+    const oldLink = existing.weezeventEventId;
+    if (oldLink && oldLink !== weezeventEventId) {
+      await this.clearDfEventIdMirrorIfOwnedBy(oldLink, tenantId, id);
+    }
+    if (weezeventEventId) {
+      await this.setDfEventIdMirror(weezeventEventId, tenantId, id);
+    }
+
+    // Le lien change (ou se vide) : les agrégats déjà calculés pour l'ANCIEN rattachement sont
+    // périmés — même raisonnement que le nettoyage historique de update()/spaceId=null, étendu
+    // ici aux DEUX tables (SpaceRevenueMinuteAgg pour le step 4, SpaceRevenueMinuteItemAgg pour
+    // l'Analyse — la seconde n'était jamais purgée, cf. constat du 2026-08-25).
+    if (existing.spaceId) {
+      const deleteWhere = { tenantId, spaceId: existing.spaceId, weezeventEventId: id };
+      await Promise.all([
+        this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere }),
+        this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere }),
+      ]);
+    }
+
+    return updated;
+  }
+
+  /** Efface le miroir dfEventId d'un SalesEvent — seulement s'il pointe encore vers `expectedDfEventId`
+   *  (un autre Event a pu reprendre ce lien entre-temps, ne pas lui voler son miroir). */
+  private async clearDfEventIdMirrorIfOwnedBy(salesEventId: string, tenantId: string, expectedDfEventId: string) {
+    const se = await this.prisma.salesEvent.findFirst({ where: { id: salesEventId, tenantId }, select: { id: true, metadata: true } });
+    if (!se) return;
+    const meta = (se.metadata as Record<string, unknown>) ?? {};
+    if (meta.dfEventId !== expectedDfEventId) return;
+    await this.prisma.salesEvent.update({ where: { id: se.id }, data: { metadata: { ...meta, dfEventId: null } } });
+  }
+
+  /** Pose/écrase le miroir dfEventId d'un SalesEvent pour qu'il pointe vers `dfEventId`. */
+  private async setDfEventIdMirror(salesEventId: string, tenantId: string, dfEventId: string) {
+    const se = await this.prisma.salesEvent.findFirst({ where: { id: salesEventId, tenantId }, select: { id: true, metadata: true } });
+    if (!se) return;
+    const meta = (se.metadata as Record<string, unknown>) ?? {};
+    await this.prisma.salesEvent.update({ where: { id: se.id }, data: { metadata: { ...meta, dfEventId } } });
   }
 
   // ── Event Types CRUD ──
