@@ -337,24 +337,6 @@ describe('EventsService', () => {
     });
   });
 
-  describe('BUG-021: listAmbiguousWeezeventMatches', () => {
-    it('returns the raw query result', async () => {
-      const rows = [
-        {
-          eventId: 'evt-1',
-          eventName: 'Festival 2024',
-          eventDate: new Date('2024-08-01'),
-          candidates: [{ id: 'we-1', name: 'Festival', startDate: new Date('2024-08-01'), externalId: '123' }],
-        },
-      ];
-      mockPrisma.$queryRaw.mockResolvedValue(rows);
-
-      const result = await service.listAmbiguousWeezeventMatches('tenant-1');
-      expect(result).toEqual(rows);
-      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
-    });
-  });
-
   describe('BUG-021: resolveWeezeventLink', () => {
     it('links to the given WeezeventEvent when it belongs to the tenant', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);

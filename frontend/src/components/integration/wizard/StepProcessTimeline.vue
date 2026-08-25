@@ -74,23 +74,6 @@
 
       <template v-else>
 
-        <!-- ── Ambiguous Weezevent link banner (BUG-021 manual resolution) ── -->
-        <div
-          v-if="ambiguousMatches.length > 0"
-          class="spt-banner spt-banner--amber"
-        >
-          <div class="spt-banner__left">
-            <v-icon size="16" color="#ff3131">mdi-link-variant-plus</v-icon>
-            <span>
-              <strong>{{ ambiguousMatches.length }}</strong> {{ t('intgTimelineEvent') }}{{ ambiguousMatches.length > 1 ? 's' : '' }} {{ t('intgResolveLinkNeedsChoice') }}
-            </span>
-          </div>
-          <button class="spt-banner-btn spt-banner-btn--amber" @click="ambiguousMatchesDialog = true">
-            <v-icon size="14">mdi-link-variant-plus</v-icon>
-            {{ t('intgResolveLinkButton') }}
-          </button>
-        </div>
-
         <!-- ── Bulk create banner ── -->
         <div
           v-if="(unmappedCount > 0 || patchableEventsCount > 0) && !bulkCreateEventsRunning"
@@ -553,14 +536,6 @@
       @created="handleEventCreated"
     />
 
-    <!-- ── Dialog: résoudre les liens Weezevent ambigus (BUG-021) ── -->
-    <ResolveWeezeventLinkDialog
-      v-model="ambiguousMatchesDialog"
-      :matches="ambiguousMatches"
-      :resolving-id="resolvingWeezeventLinkId"
-      @resolve="handleResolveWeezeventLink"
-    />
-
     <!-- ── Snackbar feedback ── -->
     <v-snackbar v-model="feedbackSnackbar" :color="feedbackSnackbarColor" timeout="3000" location="bottom right">
       {{ feedbackSnackbarText }}
@@ -589,13 +564,12 @@ import { formatDateMedium } from '@/utils/dateFr'
 import { useTimelineProcessing } from '@/composables/useTimelineProcessing'
 import { useSynchronization } from '@/composables/useSynchronization'
 import { getJobProgress, getEventBreakdown, getEventMinuteChart } from '@/api/endpoints/aggregation.api'
-import { createEvent, updateEvent, getAmbiguousWeezeventMatches, resolveWeezeventLink } from '@/api/endpoints/event.api'
+import { createEvent, updateEvent, resolveWeezeventLink } from '@/api/endpoints/event.api'
 import { updateWeezeventEventMetadata, syncWeezeventEventAttendees, getWeezeventEventsForSpace } from '@/api/endpoints/space.api'
 import EventTimelineProgressIndicator from '@/components/EventTimelineProgressIndicator.vue'
 import MapEventToExistingDialog from './dialogs/MapEventToExistingDialog.vue'
 import CreateEventDialog from './dialogs/CreateEventDialog.vue'
 import EventBreakdownDrawer from './dialogs/EventBreakdownDrawer.vue'
-import ResolveWeezeventLinkDialog from './dialogs/ResolveWeezeventLinkDialog.vue'
 
 // Poll cadence for a single event's aggregation job (handleProcessSingle)
 const SINGLE_EVENT_POLL_INTERVAL_MS = 1000
@@ -621,7 +595,6 @@ export default {
     MapEventToExistingDialog,
     CreateEventDialog,
     EventBreakdownDrawer,
-    ResolveWeezeventLinkDialog,
   },
   props: {
     location: { type: Object, required: true },
@@ -676,11 +649,6 @@ export default {
       mapToEventDialog: false,
       mapToEventItem: null,
       mappingEventLoading: false,
-      // Events sans lien Weezevent univoque (BUG-021) : plusieurs candidats le même
-      // jour, l'auto-link s'abstient, résolution manuelle nécessaire.
-      ambiguousMatches: [],
-      ambiguousMatchesDialog: false,
-      resolvingWeezeventLinkId: null,
       // §6 — dialog création event
       createEventDialog: false,
       createEventPrefill: null,
@@ -852,7 +820,6 @@ export default {
       // Réhydrate weezEventMappings (liens dfEventId persistés) au chargement,
       // symétriquement à loadTimeline, pour que "Créer et lier tout" ne recrée pas de doublons.
       this.loadWeezeventEvents()
-      this.loadAmbiguousMatches()
     }
   },
   unmounted() {
@@ -868,7 +835,6 @@ export default {
         this.uncoveredPage = 1
         this.loadTimeline(val, this.location.id)
         this.loadWeezeventEvents()
-        this.loadAmbiguousMatches()
       }
     },
     activeTab() {
@@ -1493,34 +1459,11 @@ export default {
         console.error('[StepProcessTimeline] Failed to load weezevent events:', err)
       }
     },
-    // Events créés dont l'auto-link (BUG-021) n'a pas pu choisir un WeezeventEvent
-    // univoque (plusieurs candidats le même jour) : résolution manuelle.
-    async loadAmbiguousMatches() {
-      try {
-        const data = await getAmbiguousWeezeventMatches()
-        this.ambiguousMatches = Array.isArray(data) ? data : (data?.data ?? [])
-      } catch (err) {
-        console.error('[StepProcessTimeline] Failed to load ambiguous Weezevent matches:', err)
-      }
-    },
-    async handleResolveWeezeventLink({ eventId, weezeventEventId }) {
-      this.resolvingWeezeventLinkId = eventId
-      try {
-        await resolveWeezeventLink(eventId, weezeventEventId)
-        this.ambiguousMatches = this.ambiguousMatches.filter(m => m.eventId !== eventId)
-        if (!this.ambiguousMatches.length) this.ambiguousMatchesDialog = false
-        this.feedbackSnackbarText = this.t('intgResolveLinkSuccess')
-        this.feedbackSnackbarColor = 'success'
-        this.feedbackSnackbar = true
-        await this.loadTimeline(this.spaceId, this.location.id)
-      } catch (err) {
-        this.feedbackSnackbarText = this.t('intgResolveLinkError') + ' ' + (err?.response?.data?.message || err.message)
-        this.feedbackSnackbarColor = 'error'
-        this.feedbackSnackbar = true
-      } finally {
-        this.resolvingWeezeventLinkId = null
-      }
-    },
+    // loadAmbiguousMatches/handleResolveWeezeventLink (banner + ResolveWeezeventLinkDialog,
+    // BUG-021 résolution manuelle) supprimées le 2026-08-25 : le banner proposait des conteneurs
+    // de saison/site comme candidats de résolution (BUG-361-02) et était jugé sans valeur une fois
+    // ce cas corrigé — resolveWeezeventLink (l'endpoint PATCH lui-même) reste utilisé par
+    // bulkCreateEvents pour le rattachement automatique, seul ce flux manuel est retiré.
     // saveWeezEventMapping/openEnrichDialog/saveEnrichment (onglet "Événements Weezevent"
     // mort) supprimées : aucun point d'appel dans le template. EnrichEventDialog n'était
     // de toute façon jamais ouvrable (son seul déclencheur, openEnrichDialog, n'était

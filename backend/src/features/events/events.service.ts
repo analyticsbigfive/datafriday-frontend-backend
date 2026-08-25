@@ -542,55 +542,11 @@ export class EventsService {
 
   // ── BUG-021 : désambiguïsation manuelle Event <-> WeezeventEvent ──
 
-  /**
-   * Events non liés (`weezeventEventId` null) pour lesquels au moins un
-   * WeezeventEvent existe le même jour calendaire — cas laissés de côté par
-   * l'auto-link (EventWeezeventLinkService) faute d'appariement 1:1 univoque.
-   * Retourne les candidats WeezeventEvent pour chaque event, à choisir manuellement.
-   *
-   * BUG-361-02 : un conteneur de saison Weezevent (span déclaré > MAX_EVENT_SPAN_DAYS, même seuil
-   * que resolveSeasonContainerEventIds, aggregation.service.ts) ou un site Digifood
-   * (metadata.provider === 'digifood') n'est jamais un candidat de résolution manuelle valide —
-   * il ne désigne aucun match précis, quel que soit le jour calendaire de son startDate. Exclu ici
-   * pour ne pas proposer "PARIS FOOTBALL CLUB SAISON 26-27" comme s'il s'agissait d'un match du
-   * jour (vérifié en base : cas réel avant ce fix).
-   */
-  async listAmbiguousWeezeventMatches(tenantId: string) {
-    return this.prisma.$queryRaw<
-      { eventId: string; eventName: string; eventDate: Date; candidates: unknown }[]
-    >`
-      SELECT
-        e.id           AS "eventId",
-        e.name         AS "eventName",
-        e."eventDate"  AS "eventDate",
-        (
-          SELECT jsonb_agg(jsonb_build_object(
-            'id',         we.id,
-            'name',       we.name,
-            'startDate',  we."startDate",
-            'externalId', we."weezeventId"
-          ) ORDER BY we."startDate")
-          FROM "WeezeventEvent" we
-          WHERE we."tenantId" = e."tenantId"
-            AND we."startDate" IS NOT NULL
-            AND DATE(we."startDate") = DATE(e."eventDate")
-            AND (we."endDate" IS NULL OR we."endDate" - we."startDate" <= INTERVAL '2 days')
-            AND (we.metadata->>'provider') IS DISTINCT FROM 'digifood'
-        ) AS candidates
-      FROM "Event" e
-      WHERE e."tenantId" = ${tenantId}
-        AND e."weezeventEventId" IS NULL
-        AND EXISTS (
-          SELECT 1 FROM "WeezeventEvent" we
-          WHERE we."tenantId" = e."tenantId"
-            AND we."startDate" IS NOT NULL
-            AND DATE(we."startDate") = DATE(e."eventDate")
-            AND (we."endDate" IS NULL OR we."endDate" - we."startDate" <= INTERVAL '2 days')
-            AND (we.metadata->>'provider') IS DISTINCT FROM 'digifood'
-        )
-      ORDER BY e."eventDate" DESC
-    `;
-  }
+  // listAmbiguousWeezeventMatches (banner de résolution manuelle BUG-021, GET
+  // /events/weezevent-ambiguous-matches) supprimée le 2026-08-25 : proposait des conteneurs de
+  // saison/site comme candidats de résolution (cas réel observé, BUG-361-02) et jugée sans valeur
+  // par l'utilisateur une fois ce cas corrigé. resolveWeezeventLink ci-dessous (endpoint PATCH)
+  // reste utilisé par bulkCreateEvents (StepProcessTimeline.vue) pour le rattachement automatique.
 
   /**
    * Résolution manuelle d'un appariement Event <-> WeezeventEvent laissé ambigu.
