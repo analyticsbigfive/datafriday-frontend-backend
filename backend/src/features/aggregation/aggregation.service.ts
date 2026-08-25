@@ -3,17 +3,23 @@ import { Prisma } from '@prisma/client';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.service';
+import { RedisService } from '../../core/redis/redis.service';
+import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { MappingsService } from '../mappings/mappings.service';
-import {
-  parseEventSessions,
-  combineDayAndLocalTime,
-  DEFAULT_EVENT_DURATION_HOURS,
-} from '../../shared/utils/event-window.util';
-import { DEFAULT_OFFSET_OPEN_MINUTES, DEFAULT_OFFSET_CLOSE_MINUTES } from '../staffing/staffing-calculator.service';
+import { combineDayAndLocalTime } from '../../shared/utils/event-window.util';
 
-/** Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/). */
+/**
+ * Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/).
+ * `container-range` (BUG-146-01, règle Bertrand 25/08) : l'event est lié au CONTENEUR de
+ * saison de son club (`Event.weezeventEventId` → « STADE FRANÇAIS 25-26 », « PARIS
+ * FOOTBALL CLUB »…) — attribution = tag du conteneur ET fenêtre portes→fin. Sans le tag,
+ * deux events le même jour au même stade (foot PFC l'après-midi, rugby SFP le soir) se
+ * partageaient les mêmes ventes par fenêtres qui se recouvrent : 80 343,07 € comptés
+ * deux fois sur Jean Bouin (mesuré en base, fiche 145-01).
+ */
 type EventWindow =
   | { mode: 'exact'; salesEventId: string }
+  | { mode: 'container-range'; salesEventId: string; start: Date; end: Date }
   | { mode: 'range'; start: Date; end: Date };
 
 // BUG-338-02 (docs/bugs/) : même seuil que resolveEventSalesScope (spaces.service.ts,
@@ -36,6 +42,9 @@ export class AggregationService {
     private prisma: PrismaService,
     private queueService: QueueService,
     private mappingsService: MappingsService,
+    // BUG-143-01 : RedisService injecté directement (RedisModule est @Global) plutôt que
+    // via SpacesService — une dépendance vers SpacesService créerait un cycle de modules.
+    private redis: RedisService,
   ) {}
 
   /**
@@ -234,19 +243,25 @@ export class AggregationService {
    *    BUG-331-02) ET que ce `SalesEvent` n'est PAS un conteneur de saison (BUG-338-02,
    *    `seasonContainerIds`) : rattachement EXACT via `WeezeventTransaction.eventId`, aucune
    *    ambiguïté possible même si les dates de deux events se recoupent (BUG-330-02).
-   * 2. Sinon, si `sessions[0].doorsOpening` est renseigné : fenêtre = heure d'ouverture réelle
-   *    ± buffer (mêmes constantes que le Staffing, `staffing-calculator.service.ts`), au lieu du
-   *    jour calendaire entier (BUG-329-02).
-   * 3. Sinon : dérive la fenêtre des transactions NON liées (ou liées à un conteneur de saison,
-   *    BUG-338-02) réellement observées dans un scan large — resserre sur `MIN`/`MAX` ± buffer
-   *    plutôt que de garder le jour calendaire entier (proposition Ulrich, BUG-329-02).
-   * 4. En dernier recours (aucune transaction trouvée) : repli historique, jour calendaire entier.
+   * 1bis. (BUG-146-01, règle Bertrand 25/08) Si le lien pointe un CONTENEUR de saison — donc
+   *    identifie le CLUB, pas un match — : rattachement `container-range` = tag du conteneur ET
+   *    journée(s) calendaire(s) locale(s) complète(s) (même fenêtre que le mode 2 ci-dessous).
+   *    Les jours à double affiche (deux clubs le même jour), chaque match ne capte plus que les
+   *    ventes de son club — le tag suffit à séparer les clubs, la fenêtre calendaire évite de
+   *    retronquer les ventes avant-match (cf. mode 2).
+   * 2. Sinon : journée(s) calendaire(s) locale(s) complète(s) (00h00 → minuit suivant, fuseau de
+   *    l'espace) — le jour 1 démarre toujours à 00h00 (jamais à l'heure d'ouverture des portes,
+   *    des ventes avant-match légitimes précèdent parfois largement cette heure), et seul le
+   *    DERNIER jour peut se terminer avant 23h59 si `eventEndTime` place la coupure sur le jour
+   *    suivant (règle métier Ulrich, 2026-08-25 — remplace l'ancien mode `doorsOpening ± buffer`
+   *    qui tronquait silencieusement les ventes antérieures à l'ouverture des portes ; s'applique
+   *    aussi au mode 1bis, pour la même raison).
    *
-   * Les modes 2/3/4 filtrent TOUJOURS `t."eventId" IS NULL OR t."eventId" IN (conteneurs de
-   * saison)` dans la requête appelante — une transaction déjà liée avec CONFIANCE à un match
-   * précis (un `SalesEvent` qui n'est PAS un conteneur) ne peut plus jamais être captée par une
-   * fenêtre de repli d'un AUTRE event (protection BUG-328/330-02 intacte) ; une transaction liée
-   * à un conteneur de saison reste éligible, exactement comme une transaction non liée.
+   * Le mode 2 filtre TOUJOURS `t."eventId" IS NULL OR t."eventId" IN (conteneurs de saison)` dans
+   * la requête appelante — une transaction déjà liée avec CONFIANCE à un match précis (un
+   * `SalesEvent` qui n'est PAS un conteneur) ne peut plus jamais être captée par la fenêtre
+   * calendaire d'un AUTRE event (protection BUG-328/330-02 intacte) ; une transaction liée à un
+   * conteneur de saison reste éligible, exactement comme une transaction non liée.
    */
   /**
    * BUG-338-02 (docs/bugs/) : identifie les `WeezeventEvent`/`SalesEvent` "conteneur de saison"
@@ -274,89 +289,108 @@ export class AggregationService {
       GROUP BY t."eventId"
     `);
     const spanMs = MAX_EVENT_SPAN_DAYS * 86_400_000;
-    return new Set(
+    const containerIds = new Set(
       rows.filter((r) => new Date(r.maxDate).getTime() - new Date(r.minDate).getTime() > spanMs).map((r) => r.eventId),
     );
+
+    // BUG-361-02 (Le Mans FC) : le span OBSERVÉ ci-dessus ne détecte rien tant que l'intégration
+    // vient d'être branchée — "LE MANS FC - SAISON 26/27" n'a que quelques heures de transactions
+    // synchronisées le jour du fix, alors que son span DÉCLARÉ (startDate/endDate, alimentés par
+    // live_start/live_end côté Weezevent — la fenêtre live réelle du calendrier saison, pas la
+    // période de vente des billets) couvre déjà 9,5 mois, cohérent avec un vrai calendrier de
+    // saison. Contrairement au cas narrow-artefact documenté en BUG-338-02 (13h déclarées pour
+    // 10 mois observés — l'inverse de la situation ici), un span déclaré large n'est pas fiable
+    // pour EXCLURE un conteneur, mais un span déclaré large EST un signal suffisant pour en
+    // INCLURE un — les deux signaux se combinent en OU, jamais un seul ne peut faire perdre le
+    // statut de conteneur détecté par l'autre.
+    const declaredSpanEvents = await this.prisma.salesEvent.findMany({
+      where: {
+        tenantId,
+        ...(integrationId ? { integrationId } : {}),
+        startDate: { not: null },
+        endDate: { not: null },
+      },
+      select: { id: true, startDate: true, endDate: true },
+    });
+    declaredSpanEvents
+      .filter((e) => e.endDate!.getTime() - e.startDate!.getTime() > spanMs)
+      .forEach((e) => containerIds.add(e.id));
+
+    // Un SalesEvent Digifood (metadata.provider === 'digifood', digifood-ingestion.service.ts:239
+    // upsertSiteAsEvent, §5.4 PLAN_INTEGRATION_DIGIFOOD.md) projette le SITE entier — jamais un
+    // match précis — quel que soit le nombre de dates déjà synchronisées. Contrairement au
+    // conteneur de saison Weezevent ci-dessus (déduit du span car aucun signal structurel
+    // n'existe), ce cas est connu à la création : pas besoin d'attendre 2 jours de span observé
+    // pour le classer conteneur, sous peine de bloquer toute intégration Digifood qui démarre
+    // (un seul match synchronisé jusqu'ici a un span de quelques heures).
+    const digifoodEvents = await this.prisma.salesEvent.findMany({
+      where: {
+        tenantId,
+        ...(integrationId ? { integrationId } : {}),
+        metadata: { path: ['provider'], equals: 'digifood' },
+      },
+      select: { id: true },
+    });
+    digifoodEvents.forEach((e) => containerIds.add(e.id));
+
+    return containerIds;
   }
 
-  private async resolveEventWindow(
-    tenantId: string,
-    spaceId: string,
-    integrationId: string | undefined,
+  private resolveEventWindow(
     event: {
       eventDate: Date;
       eventStartDate: Date | null;
       eventEndDate: Date | null;
       eventEndTime: string | null;
-      sessions: string | null;
       weezeventEventId: string | null;
     },
     spaceTimezone: string,
     seasonContainerIds: Set<string>,
-  ): Promise<EventWindow> {
+  ): EventWindow {
     // BUG-338-02 : un lien exact vers un conteneur de saison n'identifie PAS un match précis
-    // (100% des transactions de la saison partagent ce même eventId) — le traiter comme non lié,
-    // pour retomber sur le repli par date ci-dessous (qui, lui, sait répartir par jour réel).
-    if (event.weezeventEventId && !seasonContainerIds.has(event.weezeventEventId)) {
+    // (100% des transactions de la saison partagent ce même eventId) — mais depuis
+    // BUG-146-01 (règle Bertrand 25/08) il identifie le CLUB : combiné à la fenêtre
+    // calendaire ci-dessous, il devient le mode `container-range` (tag ET fenêtre), qui
+    // empêche les ventes de l'autre club d'entrer dans la fenêtre les jours à double
+    // affiche. Seul un lien vers un match précis reste un rattachement exact sans fenêtre.
+    const isContainerLink = !!event.weezeventEventId && seasonContainerIds.has(event.weezeventEventId);
+    if (event.weezeventEventId && !isContainerLink) {
       return { mode: 'exact', salesEventId: event.weezeventEventId };
     }
 
+    // Règle métier (Ulrich, 2026-08-25) : un jour capture TOUTE sa journée calendaire locale par
+    // défaut (00h00 → minuit suivant), sauf débordement connu sur la nuit suivante. Le jour 1 (ou
+    // l'unique jour) démarre TOUJOURS à 00h00 — jamais à l'heure d'ouverture des portes, les
+    // ventes avant-match/hospitalité commencent parfois bien avant elle (cf. Nantes-Rodez : ventes
+    // dès 13h58 locale pour des portes à 19h00). Seul le DERNIER jour peut se terminer avant 23h59,
+    // si `eventEndTime` place la coupure sur le jour suivant (fermeture du bar après un match du
+    // soir, cf. events réels en base "SFP vs La Rochelle" : eventStartDate/eventEndDate deux jours
+    // consécutifs, eventEndTime "02:00"). Les jours intermédiaires (event sur 3+ jours) restent des
+    // journées calendaires complètes par défaut, faute de coupure par jour dans le modèle actuel —
+    // pas d'heuristique inventée pour ce cas.
     const startDay = event.eventStartDate ?? event.eventDate;
     const endDay = event.eventEndDate ?? startDay;
-    const sessions = parseEventSessions(event.sessions);
-    const doorsOpen = combineDayAndLocalTime(startDay, sessions[0]?.doorsOpening, spaceTimezone);
+    const isMultiDay = endDay.getTime() > startDay.getTime();
 
-    if (doorsOpen) {
-      const doorsClose =
-        combineDayAndLocalTime(endDay, event.eventEndTime ?? sessions[sessions.length - 1]?.showTime, spaceTimezone) ??
-        new Date(doorsOpen.getTime() + DEFAULT_EVENT_DURATION_HOURS * 3_600_000);
-      return {
-        mode: 'range',
-        start: new Date(doorsOpen.getTime() + DEFAULT_OFFSET_OPEN_MINUTES * 60_000),
-        end: new Date(doorsClose.getTime() + DEFAULT_OFFSET_CLOSE_MINUTES * 60_000),
-      };
-    }
+    const start = combineDayAndLocalTime(startDay, '00:00', spaceTimezone) ?? startDay;
+    const end =
+      (isMultiDay && event.eventEndTime ? combineDayAndLocalTime(endDay, event.eventEndTime, spaceTimezone) : null) ??
+      this.startOfNextLocalDay(endDay, spaceTimezone);
 
-    // Ni lien exact, ni doorsOpening : scan large (jour de début − 1 à jour de fin + 2) sur les
-    // transactions NON liées (ou liées à un conteneur de saison, BUG-338-02), puis resserrement
-    // sur MIN/MAX ± buffer. Même scoping (tenantId/integrationId) que la requête d'agrégation
-    // principale — ne corrige pas volontairement BUG-321-02 (contamination inter-espaces), hors
-    // périmètre de ce fix.
-    const coarseStart = new Date(startDay);
-    coarseStart.setUTCDate(coarseStart.getUTCDate() - 1);
-    const coarseEnd = new Date(endDay);
-    coarseEnd.setUTCDate(coarseEnd.getUTCDate() + 2);
-    const integrationClause = integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.sql``;
-    const eventLinkClause = seasonContainerIds.size
-      ? Prisma.sql`(t."eventId" IS NULL OR t."eventId" IN (${Prisma.join([...seasonContainerIds])}))`
-      : Prisma.sql`t."eventId" IS NULL`;
+    // BUG-146-01 : un lien conteneur devient `container-range` (tag du club ET fenêtre
+    // calendaire) — le tag suffit à séparer les clubs les jours à double affiche, la fenêtre
+    // calendaire (pas portes→fin) évite de retronquer les ventes avant-match (même raison que
+    // le mode 2 ci-dessus).
+    return isContainerLink
+      ? { mode: 'container-range', salesEventId: event.weezeventEventId as string, start, end }
+      : { mode: 'range', start, end };
+  }
 
-    const bounds = await this.prisma.$queryRaw<Array<{ minDate: Date | null; maxDate: Date | null }>>(Prisma.sql`
-      SELECT MIN(t."transactionDate") AS "minDate", MAX(t."transactionDate") AS "maxDate"
-      FROM "WeezeventTransaction" t
-      WHERE t."tenantId" = ${tenantId}
-        ${integrationClause}
-        AND ${eventLinkClause}
-        AND t."transactionDate" >= ${coarseStart}
-        AND t."transactionDate" < ${coarseEnd}
-        AND t."deletedAt" IS NULL
-    `);
-
-    const DERIVED_WINDOW_BUFFER_MS = 90 * 60_000; // 1h30 — même ordre de grandeur que le buffer doorsOpening
-    const min = bounds[0]?.minDate;
-    const max = bounds[0]?.maxDate;
-    if (min && max) {
-      return {
-        mode: 'range',
-        start: new Date(new Date(min).getTime() - DERIVED_WINDOW_BUFFER_MS),
-        end: new Date(new Date(max).getTime() + DERIVED_WINDOW_BUFFER_MS),
-      };
-    }
-
-    // Repli historique : aucune transaction non liée trouvée dans le scan large.
-    const nextDay = new Date(endDay);
+  /** Minuit local (fuseau de l'espace) du jour suivant `day` — borne haute exclusive d'une journée calendaire. */
+  private startOfNextLocalDay(day: Date, spaceTimezone: string): Date {
+    const nextDay = new Date(day);
     nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    return { mode: 'range', start: startDay, end: nextDay };
+    return combineDayAndLocalTime(nextDay, '00:00', spaceTimezone) ?? nextDay;
   }
 
   /**
@@ -413,17 +447,21 @@ export class AggregationService {
           const eventDate = new Date(event.eventDate);
 
           // BUG-328/329/330/338-02 : rattachement exact via eventId quand l'Event est lié à un
-          // SalesEvent qui n'est pas un conteneur de saison, sinon fenêtre par date améliorée
-          // (heure d'ouverture réelle ou dérivée des transactions non liées/de saison) au lieu du
-          // jour calendaire brut — voir resolveEventWindow.
-          const window = await this.resolveEventWindow(tenantId, spaceId, integrationId, event, spaceTimezone, seasonContainerIds);
+          // SalesEvent qui n'est pas un conteneur de saison, sinon journée(s) calendaire(s)
+          // locale(s) complète(s), avec coupure sur le dernier jour si eventEndTime déborde sur la
+          // nuit suivante — voir resolveEventWindow.
+          const window = this.resolveEventWindow(event, spaceTimezone, seasonContainerIds);
           const eventLinkClause = seasonContainerIds.size
             ? Prisma.sql`(t."eventId" IS NULL OR t."eventId" IN (${Prisma.join([...seasonContainerIds])}))`
             : Prisma.sql`t."eventId" IS NULL`;
           const matchClause =
             window.mode === 'exact'
               ? Prisma.sql`t."eventId" = ${window.salesEventId}`
-              : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
+              : window.mode === 'container-range'
+                // BUG-146-01 : tag du conteneur du club ET fenêtre portes→fin — une vente
+                // de l'AUTRE club dans la même fenêtre (jour à double affiche) est exclue.
+                ? Prisma.sql`t."eventId" = ${window.salesEventId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
+                : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
 
           // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
           // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
@@ -664,6 +702,13 @@ export class AggregationService {
         data: { status: 'completed', completedAt: new Date(), transactionsProcessed: processedCount },
       });
       await job.updateProgress(100);
+
+      // BUG-143-01 : les endpoints batch Analyse cachent leurs réponses par event (TTL 6 h
+      // pour un event passé) — sans cette purge, une re-agrégation servirait des données
+      // périmées jusqu'à expiration. Mêmes motifs que SpacesService.invalidateSpaceCache.
+      for (const pattern of eventBatchCachePatterns(tenantId, spaceId)) {
+        await this.redis.deletePattern(pattern);
+      }
 
       // Auto-sync attendees for each successfully processed event.
       // Finds the matching WeezeventEvent(s) by date and queues an attendees sync
@@ -927,7 +972,7 @@ export class AggregationService {
    * conserve l'ancien comportement tenant-wide en repli.
    */
   async getStep4Context(tenantId: string, spaceId: string, integrationId?: string) {
-    const [timeline, weezeventEvents, hasMappings] = await Promise.all([
+    const [timeline, weezeventEvents, hasMappings, seasonContainerIds] = await Promise.all([
       this.getEventsTimelineStatus(tenantId, spaceId, integrationId),
       integrationId
         ? this.prisma.salesEvent.findMany({
@@ -938,11 +983,21 @@ export class AggregationService {
       integrationId
         ? this.mappingsService.hasShopMappingForIntegration(tenantId, integrationId)
         : this.prisma.locationShopMapping.count({ where: { tenantId } }).then((count) => count > 0),
+      integrationId ? this.resolveSeasonContainerEventIds(tenantId, integrationId) : Promise.resolve(new Set<string>()),
     ]);
+
+    // BUG-358/338-02 : un WeezeventEvent "conteneur" (saison Weezevent groupée sous un seul id,
+    // ou site Digifood) ne désigne jamais un match précis — le signaler pour que le front n'en
+    // fasse pas un candidat "Créer et lier tout" (créerait un faux Event DataFriday de plusieurs
+    // mois, cf. docs/bugs/361_02).
+    const weezeventEventsWithFlag = weezeventEvents.map((we) => ({
+      ...we,
+      isSeasonContainer: seasonContainerIds.has(we.id),
+    }));
 
     return {
       ...timeline,
-      weezeventEvents,
+      weezeventEvents: weezeventEventsWithFlag,
       hasMappings,
     };
   }

@@ -284,3 +284,60 @@ export function computeRatesFromTimeline(baseShops, events, allTimelineData, { t
     }
   })
 }
+
+/**
+ * Somme des taux moyens (txn/min) par PdV, dérivée des seuls records paniers.
+ *
+ * Alimente la carte KPI « TX/MIN » en PERMANENCE (décision JLH 2026-08-24) : la
+ * carte affichait deux formules selon l'état du panneau Shop Performance
+ * (transactions/durées nominales vs Σ des rates) et sautait au clic. Une seule
+ * sémantique désormais : Σ_shops (Σ txn / Σ_events span actif), la même que
+ * `computeRatesFromTimeline` — parité verrouillée par test d'égalité.
+ *
+ * Pas de fenêtrage interne : les records passés sont déjà filtrés (plage horaire
+ * comprise) par le prédicat partagé de la page. Ne mute rien (records gelés).
+ *
+ * @param {Array} basketRecords  records {eventId, shopId|shopName, minute (HH:MM),
+ *   transactionCount}
+ * @returns {number} somme des rates ; 0 si aucun record exploitable
+ */
+export function sumShopTransactionRates(basketRecords) {
+  // shop → event → { txn, first, last } — même clé et mêmes skips que
+  // computeRatesFromTimeline (shopName prioritaire, minutes invalides et
+  // records sans transaction ignorés).
+  const stats = new Map()
+  for (const r of basketRecords || []) {
+    const key = r?.shopName || r?.shopId
+    if (!key || !r.eventId || !r.minute) continue
+    const minutes = parseHHMM(r.minute)
+    if (minutes == null) continue
+    const txn = Number(r.transactionCount ?? 0)
+    if (txn <= 0) continue
+
+    let shopMap = stats.get(key)
+    if (!shopMap) {
+      shopMap = new Map()
+      stats.set(key, shopMap)
+    }
+    let ev = shopMap.get(r.eventId)
+    if (!ev) {
+      ev = { txn: 0, first: minutes, last: minutes }
+      shopMap.set(r.eventId, ev)
+    }
+    ev.txn += txn
+    if (minutes < ev.first) ev.first = minutes
+    if (minutes > ev.last) ev.last = minutes
+  }
+
+  let sum = 0
+  for (const shopMap of stats.values()) {
+    let totalTxn = 0
+    let totalMinutes = 0
+    for (const ev of shopMap.values()) {
+      totalTxn += ev.txn
+      totalMinutes += Math.max(ev.last - ev.first + 1, 1)
+    }
+    if (totalMinutes > 0) sum += totalTxn / totalMinutes
+  }
+  return sum
+}

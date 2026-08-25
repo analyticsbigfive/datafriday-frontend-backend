@@ -214,24 +214,76 @@ export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = fa
 // 77 events, 275k lignes d'agrégat, 376k lignes brutes), envoyer les 77 fenêtres en UNE
 // requête faisait matérialiser toute la réponse côté Node → « Ran out of memory (used
 // over 2GB) » en boucle sur Render, et la page se peignait à 0 € (échecs mis en cache
-// « tenté/vide »). Les trois endpoints batch sont donc appelés par PAQUETS, en
-// SÉQUENTIEL — volontairement pas en parallèle : un seul gros SELECT à la fois par
-// client, la mémoire backend reste bornée par la taille d'un paquet.
+// « tenté/vide »). Les trois endpoints batch sont donc appelés par PAQUETS.
+// BUG-361-01 : le tout-séquentiel initial multipliait le temps de chargement par le
+// nombre de paquets (5-7 allers-retours sériels sur un espace courant) — on borne
+// désormais la CONCURRENCE au lieu de l'interdire : au plus _BATCH_CONCURRENCY
+// paquets en vol par endpoint, la mémoire backend reste bornée par
+// concurrence × taille de paquet (2 × 15 events, loin des 77 de l'OOM) et le
+// wall-clock redevient ≈ celui du paquet le plus lent.
 const BATCH_CHUNK_SIZE = 15
+const _BATCH_CONCURRENCY = 2
 
-async function _fetchBatchChunked(spaceId, path, ids, chunkSize = BATCH_CHUNK_SIZE) {
-  const merged = {}
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const chunk = ids.slice(i, i + chunkSize)
-    const response = await api.get(`/spaces/${spaceId}/${path}`, {
-      params: { eventIds: chunk.join(',') },
-    })
-    Object.assign(merged, response.data || {})
+// BUG-364-01 (fiche backend 144-01) : _BATCH_CONCURRENCY borne chaque endpoint, mais la
+// page Analyse monte 4 chargeurs en `watch { immediate: true }` — soit jusqu'à
+// 4 × 2 = 8 requêtes SQL lourdes simultanées côté backend (512 Mo Render) : récidive de
+// l'OOM 357-01 par un autre chemin. File FIFO GLOBALE au niveau module : au plus
+// _GLOBAL_BATCH_CONCURRENCY requêtes batch en vol pour TOUTE la page, tous endpoints
+// confondus. Les workers par endpoint restent (ordre et fusion par lot inchangés) ;
+// seul l'aller HTTP passe par le portillon global.
+const _GLOBAL_BATCH_CONCURRENCY = 2
+let _globalBatchInFlight = 0
+const _globalBatchQueue = []
+async function _acquireBatchSlot() {
+  if (_globalBatchInFlight < _GLOBAL_BATCH_CONCURRENCY) {
+    _globalBatchInFlight++
+    return
   }
+  await new Promise(resolve => _globalBatchQueue.push(resolve))
+  _globalBatchInFlight++
+}
+function _releaseBatchSlot() {
+  _globalBatchInFlight--
+  const wake = _globalBatchQueue.shift()
+  if (wake) wake()
+}
+
+async function _fetchBatchChunked(spaceId, path, ids, chunkSize = BATCH_CHUNK_SIZE, onChunk, extraParams) {
+  const chunks = []
+  for (let i = 0; i < ids.length; i += chunkSize) chunks.push(ids.slice(i, i + chunkSize))
+  const merged = {}
+  let next = 0
+  const worker = async () => {
+    while (next < chunks.length) {
+      const chunk = chunks[next++]
+      await _acquireBatchSlot()
+      let response
+      try {
+        response = await api.get(`/spaces/${spaceId}/${path}`, {
+          params: { eventIds: chunk.join(','), ...(extraParams || {}) },
+        })
+      } finally {
+        _releaseBatchSlot()
+      }
+      const data = response.data || {}
+      Object.assign(merged, data)
+      // BUG-363-01 : notifie le paquet terminé — permet aux appelants de livrer
+      // chaque event dès que SON paquet répond, sans attendre la fin du lot.
+      onChunk?.(chunk, data)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(_BATCH_CONCURRENCY, chunks.length) }, worker),
+  )
   return merged
 }
 
-export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCache = false } = {}) {
+// BUG-364-01 : `granularity: 'summary'` = grain event × shop × produit SANS minute
+// (~100× plus léger) pour le chargement de montage ; la courbe horaire garde le
+// grain minute par défaut. Caches session distincts par granularité (suffixe ':sum').
+export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCache = false, onEvent, granularity } = {}) {
+  const summary = granularity === 'summary'
+  const keyOf = (eventId) => `${spaceId}:${eventId}${summary ? ':sum' : ''}`
   const ids = [...new Set((eventIds || []).filter(Boolean))]
   const result = new Map()
   if (!ids.length) return result
@@ -248,7 +300,7 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
   // tout va au réseau, mais le cache est quand même réécrit avec la réponse fraîche.
   const missing = []
   for (const eventId of ids) {
-    const cacheKey = `${spaceId}:${eventId}`
+    const cacheKey = keyOf(eventId)
     if (bypassCache) {
       missing.push(eventId)
     } else if (_eventTimelineCache.has(cacheKey)) {
@@ -261,38 +313,55 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
   }
   if (!missing.length) return result
 
-  const inflight = (async () => {
-    try {
-      return await _fetchBatchChunked(spaceId, 'event-timeline', missing)
-    } catch (error) {
-      console.error(`[SPACES API] Error fetching batched event timeline for ${spaceId}:`, error)
-      throw error
-    }
-  })()
+  // BUG-363-01 : résolution PAR PAQUET. Une promesse dédiée par event, résolue dès
+  // que SON paquet HTTP atterrit — au lieu d'une promesse unique résolue à la fin du
+  // lot entier (Jean Bouin, 77 events : 5-6 paquets séquentiels, le premier résultat
+  // n'apparaissait qu'après le dernier). `onEvent(eventId, rows)` permet aux
+  // composables de patcher leur cache au fil de l'eau.
+  const deferred = new Map()
   for (const eventId of missing) {
-    const derived = inflight.then((data) => data[eventId] || [])
-    // Marque la promesse dérivée comme « handled » : si AUCUN appel concurrent ne
-    // l'await avant l'échec du batch, son rejet devenait une unhandledRejection
-    // (crash process en test, warning console en navigateur). Les awaiters
-    // concurrents reçoivent toujours le rejet via `derived`.
-    derived.catch(() => {})
-    _eventTimelineInflight.set(`${spaceId}:${eventId}`, derived)
+    const d = { settled: false }
+    d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject })
+    // Marque la promesse comme « handled » : si AUCUN appel concurrent ne l'await
+    // avant l'échec du batch, son rejet devenait une unhandledRejection (crash
+    // process en test, warning console en navigateur). Les awaiters concurrents
+    // reçoivent toujours le rejet via la Map inflight.
+    d.promise.catch(() => {})
+    deferred.set(eventId, d)
+    _eventTimelineInflight.set(keyOf(eventId), d.promise)
   }
-
+  const settle = (eventId, data) => {
+    const d = deferred.get(eventId)
+    if (!d || d.settled) return
+    d.settled = true
+    if (Array.isArray(data) && data.length) _lruSet(_eventTimelineCache, keyOf(eventId), data)
+    result.set(eventId, data)
+    d.resolve(data)
+    // Callback appelant isolé : une erreur dans son handler ne doit pas faire
+    // passer le batch entier en échec.
+    try { onEvent?.(eventId, data) } catch (err) {
+      console.error('[SPACES API] onEvent callback failed:', err)
+    }
+  }
   // Nettoyage inflight en finally (pas seulement sur succès) : si la requête batch
   // rejette, les entrées laissées en Map seraient des promesses rejetées permanentes —
   // tout appel ultérieur pour ces events re-lèverait la même erreur jusqu'au reload.
   // Même pattern que le `finally` de getSpaceEventTimeline ci-dessus.
-  let byEventId
   try {
-    byEventId = await inflight
+    await _fetchBatchChunked(spaceId, 'event-timeline', missing, BATCH_CHUNK_SIZE,
+      (chunkIds, data) => {
+        for (const eventId of chunkIds) settle(eventId, data[eventId] || [])
+      }, summary ? { granularity: 'summary' } : undefined)
+  } catch (error) {
+    console.error(`[SPACES API] Error fetching batched event timeline for ${spaceId}:`, error)
+    // Events dont le paquet a échoué : leur promesse rejette (les awaiters
+    // concurrents reçoivent l'erreur, comme avant la résolution par paquet).
+    for (const d of deferred.values()) {
+      if (!d.settled) { d.settled = true; d.reject(error) }
+    }
+    throw error
   } finally {
-    for (const eventId of missing) _eventTimelineInflight.delete(`${spaceId}:${eventId}`)
-  }
-  for (const eventId of missing) {
-    const data = byEventId[eventId] || []
-    if (Array.isArray(data) && data.length) _lruSet(_eventTimelineCache, `${spaceId}:${eventId}`, data)
-    result.set(eventId, data)
+    for (const eventId of missing) _eventTimelineInflight.delete(keyOf(eventId))
   }
   return result
 }
@@ -313,7 +382,7 @@ const _basketInflight = new Map()
  *
  * @returns {Promise<Map<string, Array<object>>>} eventId → BasketComboRecord[]
  */
-export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypassCache = false } = {}) {
+export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypassCache = false, onEvent } = {}) {
   const ids = [...new Set((eventIds || []).filter(Boolean))]
   const result = new Map()
   if (!ids.length) return result
@@ -339,32 +408,42 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
   }
   if (!missing.length) return result
 
-  const inflight = (async () => {
-    try {
-      return await _fetchBatchChunked(spaceId, 'transaction-baskets', missing)
-    } catch (error) {
-      console.error(`[SPACES API] Error fetching transaction baskets for ${spaceId}:`, error)
-      throw error
-    }
-  })()
+  // BUG-363-01 : résolution PAR PAQUET, même mécanique que getSpaceEventTimelineBatch
+  // ci-dessus (promesse dédiée par event + onEvent au fil des paquets).
+  const deferred = new Map()
   for (const eventId of missing) {
-    const derived = inflight.then((data) => data[eventId] || [])
+    const d = { settled: false }
+    d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject })
     // Idem BUG-173 côté timeline : sans ce catch, un batch en échec qu'aucun appel
     // concurrent n'await devient une unhandledRejection.
-    derived.catch(() => {})
-    _basketInflight.set(`${spaceId}:${eventId}`, derived)
+    d.promise.catch(() => {})
+    deferred.set(eventId, d)
+    _basketInflight.set(`${spaceId}:${eventId}`, d.promise)
   }
-
-  let byEventId
-  try {
-    byEventId = await inflight
-  } finally {
-    for (const eventId of missing) _basketInflight.delete(`${spaceId}:${eventId}`)
-  }
-  for (const eventId of missing) {
-    const data = byEventId[eventId] || []
+  const settle = (eventId, data) => {
+    const d = deferred.get(eventId)
+    if (!d || d.settled) return
+    d.settled = true
     if (Array.isArray(data) && data.length) _lruSet(_basketCache, `${spaceId}:${eventId}`, data)
     result.set(eventId, data)
+    d.resolve(data)
+    try { onEvent?.(eventId, data) } catch (err) {
+      console.error('[SPACES API] onEvent callback failed:', err)
+    }
+  }
+  try {
+    await _fetchBatchChunked(spaceId, 'transaction-baskets', missing, BATCH_CHUNK_SIZE,
+      (chunkIds, data) => {
+        for (const eventId of chunkIds) settle(eventId, data[eventId] || [])
+      })
+  } catch (error) {
+    console.error(`[SPACES API] Error fetching transaction baskets for ${spaceId}:`, error)
+    for (const d of deferred.values()) {
+      if (!d.settled) { d.settled = true; d.reject(error) }
+    }
+    throw error
+  } finally {
+    for (const eventId of missing) _basketInflight.delete(`${spaceId}:${eventId}`)
   }
   return result
 }
@@ -590,7 +669,10 @@ export async function getSpaceAnalyseUnmappedBatch(spaceId, eventIds) {
   const result = new Map()
   if (!ids.length) return result
   try {
-    const data = await _fetchBatchChunked(spaceId, 'analyse-unmapped', ids, 30)
+    // BUG-364-01 : paquets alignés sur BATCH_CHUNK_SIZE (15) — l'endpoint scanne les
+    // transactions brutes (le plus lourd des trois), un paquet de 30 doublait sa
+    // fenêtre SQL par rapport aux deux autres endpoints.
+    const data = await _fetchBatchChunked(spaceId, 'analyse-unmapped', ids)
     for (const id of ids) result.set(id, data[id] || null)
     return result
   } catch (error) {

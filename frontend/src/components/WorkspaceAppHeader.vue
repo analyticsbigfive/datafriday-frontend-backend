@@ -161,11 +161,22 @@ function kpiVarBad(kpi) {
 
 // ---- Élévation au scroll ----
 const isScrolled = ref(false)
-function updateSticky() {
-  const y = window.scrollY
-    || document.querySelector('.v-main')?.scrollTop
-    || 0
+// Lighthouse 24/08 (BUG-363-01) : 753 ms de reflow forcé au boot — la lecture
+// géométrique (scrollTop) partait de façon SYNCHRONE au montage, en plein milieu
+// des invalidations de style du premier rendu, et chaque événement scroll refaisait
+// un querySelector. Désormais : lecture dans un requestAnimationFrame (après le
+// layout du frame), élément .v-main mis en cache, événements scroll coalescés par
+// frame (un seul read par frame quelle que soit la rafale).
+let scrollHost = null
+let stickyRafId = 0
+function readSticky() {
+  stickyRafId = 0
+  if (!scrollHost || !scrollHost.isConnected) scrollHost = document.querySelector('.v-main')
+  const y = window.scrollY || scrollHost?.scrollTop || 0
   isScrolled.value = y > 8
+}
+function updateSticky() {
+  if (!stickyRafId) stickyRafId = requestAnimationFrame(readSticky)
 }
 onMounted(() => {
   updateSticky()
@@ -173,6 +184,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', updateSticky, { capture: true })
+  if (stickyRafId) cancelAnimationFrame(stickyRafId)
 })
 </script>
 

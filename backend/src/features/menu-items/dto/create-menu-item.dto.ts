@@ -117,10 +117,12 @@ export class MenuItemComboLineDto {
   @IsString()
   unit?: string;
 
-  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, recalculé automatiquement si non fourni)' })
+  // Négatif AUTORISÉ, même raison que `totalCost` : un enfant dont la recette se réduit à un
+  // packaging en consigne a un coût négatif, et `computeMenuItemComboCost` propage
+  // `childCost × quantity` sans abs. Le signe vient du calcul, pas d'une saisie erronée.
+  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, recalculé automatiquement si non fourni ; négatif possible — consigne)' })
   @IsOptional()
   @IsNumber()
-  @Min(0)
   @Type(() => Number)
   cost?: number;
 }
@@ -240,10 +242,12 @@ export class CreateMenuItemDto {
   @Type(() => Number)
   discountValue?: number;
 
-  @ApiPropertyOptional({ description: 'Coût total calculé' })
+  // Négatif AUTORISÉ : un article dont la seule ligne de recette est un packaging en consigne
+  // (numberOfUnits < 0) a un coût recette négatif. `refreshCosts` somme les lignes sans abs et
+  // persiste ce total tel quel — un @Min(0) ici rejetterait un cas que le calcul produit lui-même.
+  @ApiPropertyOptional({ description: 'Coût total calculé (négatif possible — consigne)' })
   @IsOptional()
   @IsNumber()
-  @Min(0)
   @Type(() => Number)
   totalCost?: number;
 

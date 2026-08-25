@@ -353,6 +353,30 @@
           </v-alert>
 
 
+          <!-- BUG-363-01 — chargement progressif : indicateur x/N pendant que les
+               paquets event-timeline arrivent (Jean Bouin, 77 events : remplace
+               110 s d'écran figé sans feedback). -->
+          <v-alert
+            v-if="itemRecordsSourceState === 'loading' && itemRecordsLoadProgress.total > 1"
+            type="info"
+            variant="tonal"
+            density="compact"
+            icon="mdi-progress-download"
+            class="mb-4"
+          >
+            {{ t('anEventsLoadingProgress').replace('{x}', String(itemRecordsLoadProgress.loaded)).replace('{n}', String(itemRecordsLoadProgress.total)) }}
+            <!-- BUG-364-01 : barre DÉTERMINÉE (progression réelle connue par paquet,
+                 pas de spinner — règle « zéro valeur provisoire »), même palette que
+                 l'alerte tonale. -->
+            <v-progress-linear
+              :model-value="(itemRecordsLoadProgress.loaded / itemRecordsLoadProgress.total) * 100"
+              color="info"
+              height="6"
+              rounded
+              class="mt-2"
+            />
+          </v-alert>
+
           <v-row v-if="chartsLoading" dense class="mb-4">
             <v-col v-for="i in 4" :key="`kpi-sk-${i}`" cols="12" sm="6" lg="3">
               <v-skeleton-loader type="article" class="an-chart-skeleton" />
@@ -672,11 +696,14 @@ import {
   resolveItemCategory,
   buildItemFilterPredicate,
 } from '@/utils/analyseDimensions'
+// BUG-364-01 : détection d'une plage horaire active (curseur de la courbe).
+import { hasActiveRange } from '@/utils/timelineBucketing'
 import { UNATTACHED_ITEM_KEY, reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
 import { useAnalyseUnmapped } from '@/composables/useAnalyseUnmapped'
 import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
+import { sumShopTransactionRates } from '@/utils/shopPerformanceCompute'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -798,6 +825,8 @@ const {
   // BUG-350-01 — cap porté à 100 ; au-delà la troncature subsiste et doit être dite.
   truncatedEventCount: itemRecordsTruncatedCount,
   sourceState: itemRecordsSourceState,
+  // BUG-363-01 — progression du chargement par paquets (indicateur « x/N »).
+  loadProgress: itemRecordsLoadProgress,
 } = useAnalyseItemRecords(filteredEvents)
 
 // Contexte de réconciliation PARTAGÉ avec useAnalyseItemRecords : voir
@@ -811,9 +840,21 @@ const reconciliationCtx = useReconciliationContext()
 // ci-dessous, les records article des scénarios Predict, et la timeline. Le
 // filtre event est déjà appliqué en amont (filteredEvents).
 const itemLevelRecords = computed(() => {
+  // BUG-364-01 (étape 5) : le montage est en grain SUMMARY (event × shop × produit,
+  // sans minute). Le curseur horaire (`selectedTimeRange`, écrit par la courbe
+  // ouverte) ne peut donc plus filtrer ces lignes — quand la courbe est OUVERTE et
+  // qu'une plage est active, la source devient les lignes MINUTE de la courbe
+  // (déjà chargées plein grain, même réconciliation, même prédicat). Les bornes
+  // sont DATÉES : seules les lignes de l'event ouvert passent — la sémantique
+  // d'avant, à l'identique. Courbe fermée : plage résiduelle inerte (skipMinute),
+  // le curseur n'a jamais agi sans courbe ouverte.
+  const cursorActive = isTimelineActive.value && hasActiveRange(filters.value?.selectedTimeRange)
+  if (cursorActive) {
+    return reconciledTimelineData.value.filter(buildItemFilterPredicate(filters.value || {}))
+  }
   const recs = globalItemRecords.value || []
   if (!recs.length) return []
-  return recs.filter(buildItemFilterPredicate(filters.value || {}))
+  return recs.filter(buildItemFilterPredicate(filters.value || {}, { skipMinute: true }))
 })
 
 // ─── Timeline : réconciliation + filtrage AVANT le graphique ───────────────
@@ -898,6 +939,19 @@ const reconciledBaskets = computed(() => {
 // filtres : c'est voulu, un pourcentage doit toujours dire sur quoi il porte.
 const filteredBaskets = computed(() =>
   reconciledBaskets.value.filter(buildBasketFilterPredicate(filters.value || {})),
+)
+
+// Décision JLH 2026-08-24 — valeur UNIQUE de la carte TX/MIN : Σ des taux moyens
+// par PdV (txn / minutes actives réelles de chaque shop), dérivée des paniers
+// filtrés — donc réactive à TOUS les filtres de la page comme les autres KPI, et
+// stable à l'ouverture/fermeture du panneau Shop Performance (l'ancien override
+// au clic faisait sauter la carte d'une formule à l'autre). `null` = pas de
+// valeur (predict, ou source paniers pas terminale → squelette via
+// kpiSourceState) ; un périmètre chargé sans ticket donne 0, terminal et exact.
+const perShopTransactionRateSum = computed(() =>
+  isPredictRecords.value || basketsSourceState.value === 'loading'
+    ? null
+    : sumShopTransactionRates(filteredBaskets.value),
 )
 
 // Signature des filtres qui BOUGENT les données de la timeline. Sert au
@@ -1413,10 +1467,48 @@ watch(
   },
 )
 
+// BUG-146-01 (décision Bertrand 25/08) — CA/transactions de la bande KPI depuis le
+// rollup `Event.revenue`/`transactionCount` (même donnée qu'Events Library et que la
+// carte d'accueil → cohérence au centime par construction), UNIQUEMENT quand le
+// périmètre affiché est « des events entiers » : mode Analyse, aucun filtre qui
+// découpe l'INTÉRIEUR des events (PdV / type / zone / article / curseur horaire).
+// Les filtres d'events (catégories, équipes, dates…) réduisent `filteredEvents` et
+// restent compatibles — le rollup se somme sur les events filtrés. `null` sinon →
+// formules record-level historiques.
+const intraEventFiltersActive = computed(() => {
+  const f = filters.value || {}
+  const some = (v) => Array.isArray(v) && v.length > 0
+  const tr = f.selectedTimeRange
+  return (
+    some(f.selectedShopIds) || some(f.selectedShopTypes) || some(f.selectedShopAreas) ||
+    some(f.selectedMenuItemIds) || some(f.selectedMenuItemTypes) || some(f.selectedMenuItemCategories) ||
+    !!(tr && (tr.start || tr.end))
+  )
+})
+const eventRollupTotals = computed(() => {
+  if (isPredictRecords.value || intraEventFiltersActive.value) return null
+  const evs = filteredEvents.value || []
+  if (!evs.length) return null
+  let revenue = 0
+  let transactions = 0
+  let eventsWithRevenueCount = 0
+  for (const e of evs) {
+    // Un event sans rollup (jamais agrégé : `revenue` null/undefined) invalide la
+    // bascule — mélanger rollup et absence sous-compterait en silence.
+    const r = e.revenue
+    if (r == null || Number.isNaN(Number(r))) return null
+    revenue += Number(r)
+    transactions += Number(e.transactionCount || 0)
+    if (Number(r) > 0) eventsWithRevenueCount++
+  }
+  return { revenue, transactions, eventsWithRevenueCount }
+})
+
 const metrics = useMetricsCalculator({
   filteredShopGranularData: kpiRecords,
   chartFilteredEvents: filteredEvents,
   menuItemCostMap,
+  eventRollupTotals,
   isTimelineFilterActive: isTimelineActive,
   // operatingMinutes doit refléter les events filtrés (et non l'ensemble brut)
   // pour que la métrique « Transaction Rate » réagisse aux filtres.
@@ -1438,13 +1530,10 @@ const metrics = useMetricsCalculator({
       ? null
       : filteredBaskets.value,
   ),
-  // Lot 4.1 — si le panneau Transaction Rate est ouvert et enrichi, on
-  // pousse la somme des txn/min par shop (cf. React `shopPerformanceData`).
-  overrideTransactionRate: computed(() =>
-    showTransactionRateShops.value && shopPerformance.enriched.value
-      ? shopPerformance.totalTransactionRate.value
-      : null,
-  ),
+  // Décision JLH 2026-08-24 — Σ des taux par PdV en permanence (voir la
+  // définition de `perShopTransactionRateSum`) : plus d'override conditionné à
+  // l'ouverture du panneau, le chiffre de la carte ne bouge plus au clic.
+  perShopTransactionRate: perShopTransactionRateSum,
 })
 
 // ---- KPI de la bande centre du header (WorkspaceAppHeader) -----------------
@@ -1494,6 +1583,22 @@ const shopPerformance = useShopPerformance({
   spaceId: computed(() => route.params.spaceId),
   // BUG-287-01 : la plage horaire de la timeline fenêtre txn/min + agrégats.
   timeRange: computed(() => filters.value?.selectedTimeRange || null),
+  // BUG-364-01 — sources PARTAGÉES : la page possède déjà la timeline item-level
+  // (useAnalyseItemRecords) et les paniers (useTransactionBaskets) pour les mêmes
+  // events. Les passer ici supprime le re-téléchargement ET la copie mémoire que
+  // ce composable gardait en double (5ᵉ point de rétention, ~164 Mo).
+  // BUG-364-01 (étape 5) : le montage est en grain summary (sans minute) ; quand le
+  // curseur horaire est actif (courbe ouverte), le panneau bascule sur les lignes
+  // MINUTE de la courbe — même source que les KPIs, même sémantique fenêtrée.
+  sharedTimelineRecords: computed(() =>
+    isTimelineActive.value && hasActiveRange(filters.value?.selectedTimeRange)
+      ? reconciledTimelineData.value
+      : globalItemRecords.value,
+  ),
+  sharedBasketRecords: basketRecords,
+  sharedReady: computed(
+    () => itemRecordsSourceState.value !== 'loading' && basketsSourceState.value !== 'loading',
+  ),
 })
 
 // Ferme automatiquement le panneau si la sélection devient vide
@@ -1604,6 +1709,15 @@ watch(
     const sameLen = ids.length === (prev?.length || 0)
     const sameContent = sameLen && ids.every((x) => prev.includes(x))
     if (sameContent) return
+
+    // BUG-359-01 — au remontage après un changement d'espace, ce watcher
+    // (`immediate: true`) tire AVANT loadSpace : le store contient encore les
+    // events ET la sélection de l'ANCIEN espace → la timeline s'ouvrait titrée
+    // avec le match de l'espace précédent pendant que le fetch partait avec le
+    // nouveau spaceId. Tant que le store n'est pas aligné sur la route, on ne
+    // déclenche rien : le reset des filtres au changement d'espace (store,
+    // CLEAR_SPACE_KEYED_CACHES) refera passer ce watcher avec un état cohérent.
+    if (String(store.state.analyse.spaceId || '') !== String(route.params.spaceId || '')) return
 
     if (!ids || ids.length === 0) {
       if (isTimelineActive.value) closeTimeline()
@@ -2057,7 +2171,20 @@ function resetLiveFiltersIfNeeded() {
   liveEventDetected.value = false
 }
 onDeactivated(resetLiveFiltersIfNeeded)
-onBeforeUnmount(resetLiveFiltersIfNeeded)
+// BUG-364-01 — purge des caches composables au VRAI démontage (pas onDeactivated :
+// la route Live keepAlive doit garder ses données). Jusqu'ici la purge n'existait
+// qu'au changement d'espace (watcher route plus bas) : quitter l'Analyse pour un
+// autre module laissait ~164 Mo de records préprocessés en mémoire pour rien.
+// Le cache session module-level de space.api.js (LRU 30, borné) n'est PAS touché —
+// revenir sur la page reste instantané pour les events encore dans le LRU.
+onBeforeUnmount(() => {
+  resetLiveFiltersIfNeeded()
+  clearItemRecordsCache()
+  clearComparisonCache()
+  clearBasketsCache()
+  clearUnmappedCache()
+  shopPerformance.reset()
+})
 
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
@@ -2099,6 +2226,11 @@ watch(
       // requestDeferredAllConfigsContext, qui voyait le contexte de l'ANCIEN
       // espace — purgé désormais par CLEAR_SPACE_KEYED_CACHES (store).
       allConfigsCtxRequested = false
+      // BUG-359-01 — le détail timeline ouvert appartient à l'ancien espace
+      // (instance survivante = route keepAlive, key = route.name) : on le ferme
+      // avant de charger le nouveau, sinon il reste affiché avec le match de
+      // l'espace précédent.
+      if (isTimelineActive.value) closeTimeline()
     }
     ensureAuthAndLoad(id)
   }

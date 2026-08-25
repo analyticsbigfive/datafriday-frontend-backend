@@ -9,8 +9,9 @@ import { PrismaService } from '../../../core/database/prisma.service';
  * N'auto-lie QUE quand exactement 1 Event non lié et 1 WeezeventEvent partagent
  * tenant+date calendaire — toute ambiguïté (plusieurs candidats d'un côté ou de
  * l'autre) est laissée non résolue pour éviter une association silencieuse
- * potentiellement fausse ; voir EventsService.listAmbiguousWeezeventMatches /
- * resolveWeezeventLink pour la résolution manuelle.
+ * potentiellement fausse. `EventsService.resolveWeezeventLink` (PATCH
+ * /events/:id/weezevent-link) reste disponible pour lier manuellement au besoin ; le banner de
+ * résolution assistée (listAmbiguousWeezeventMatches) a été retiré le 2026-08-25 (BUG-361-02).
  */
 @Injectable()
 export class EventWeezeventLinkService {
