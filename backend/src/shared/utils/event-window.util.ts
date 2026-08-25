@@ -68,3 +68,69 @@ export function combineDayAndLocalTime(day: Date, hhmm: string | undefined | nul
 
 /** Fallback si l'événement n'a ni heure de fin ni durée déductible. */
 export const DEFAULT_EVENT_DURATION_HOURS = 6;
+
+/**
+ * Champs de dates d'un `Event` nécessaires au calcul de fenêtre. Tolère des ISO strings :
+ * les events peuvent sortir d'un cache Redis où les Date ont été sérialisées.
+ */
+export interface EventDayFields {
+  id?: string;
+  eventDate: Date | string;
+  eventStartDate?: Date | string | null;
+  eventEndDate?: Date | string | null;
+  eventEndTime?: string | null;
+}
+
+const startDayOf = (e: EventDayFields): Date => new Date((e.eventStartDate ?? e.eventDate) as any);
+const endDayOf = (e: EventDayFields): Date =>
+  new Date((e.eventEndDate ?? e.eventStartDate ?? e.eventDate) as any);
+
+/** Minuit local (fuseau donné) du jour suivant `day` — borne haute exclusive d'une journée calendaire. */
+export function startOfNextLocalDay(day: Date, timeZone: string): Date {
+  const nextDay = new Date(day);
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  return combineDayAndLocalTime(nextDay, '00:00', timeZone) ?? nextDay;
+}
+
+/** Fin DÉCLARÉE d'un event : `eventEndTime` posée sur son jour de fin — `null` si non saisie/invalide. */
+export function declaredEndOf(e: EventDayFields, timeZone: string): Date | null {
+  return combineDayAndLocalTime(endDayOf(e), e.eventEndTime ?? null, timeZone);
+}
+
+/**
+ * Fenêtre de transactions d'un event — règle métier de la slide « Transactions prises en compte
+ * par Event » (Bertrand, 2026-08-25 — fiche 147-01), partagée entre l'agrégation (writer) et
+ * `resolveEventSalesScope` (lecteur) pour que les deux ne divergent plus (cause racine des trois
+ * CA différents de la fiche 145-01) :
+ *
+ * - début : minuit LOCAL du jour de début — jamais l'heure d'ouverture des portes, les ventes
+ *   avant-match/hospitalité la précèdent parfois largement (BUG-360-02, Nantes-Rodez) ;
+ * - fin : l'heure de fin déclarée (`eventEndTime`, posée sur le jour de fin — minuit franchi
+ *   autorisé, ex. réel « SFP vs La Rochelle » fin 02:00 le lendemain), sinon journée calendaire
+ *   pleine (minuit local suivant le jour de fin — pas d'heuristique inventée, règle Ulrich
+ *   2026-08-25) ;
+ * - frontière (slide : PFC-RC Lens 14/02 fin 02h00 → SFP-Toulouse démarre le 15/02 à 02h00) :
+ *   si un voisin FINIT le jour où cet event commence, la fenêtre démarre à sa fin déclarée —
+ *   la tranche minuit → fin du voisin lui appartient. Seule une fin DÉCLARÉE borne : le repli
+ *   « journée pleine » d'un voisin sans `eventEndTime` ne doit jamais vider la fenêtre, et un
+ *   voisin finissant après cet event ne borne pas non plus (deux events le même jour se
+ *   videraient mutuellement).
+ */
+export function resolveEventTransactionWindow(
+  event: EventDayFields,
+  timeZone: string,
+  neighbors: ReadonlyArray<EventDayFields> = [],
+): { start: Date; end: Date } {
+  const startDay = startDayOf(event);
+  let start = combineDayAndLocalTime(startDay, '00:00', timeZone) ?? startDay;
+  const end = declaredEndOf(event, timeZone) ?? startOfNextLocalDay(endDayOf(event), timeZone);
+  for (const neighbor of neighbors) {
+    if (event.id && neighbor.id === event.id) continue;
+    if (endDayOf(neighbor).getTime() !== startDay.getTime()) continue;
+    const neighborEnd = declaredEndOf(neighbor, timeZone);
+    if (!neighborEnd) continue; // pas de fin déclarée → pas d'exclusion
+    if (neighborEnd >= end) continue;
+    if (neighborEnd > start) start = neighborEnd;
+  }
+  return { start, end };
+}
