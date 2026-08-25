@@ -52,6 +52,7 @@
             class="smiv-item-card"
             :class="{ 'smiv-item-card--unavailable': !isMenuItemAvailable(item) }"
             :title="missingTitle(item)"
+            @click="openShopsDrawer(item)"
           >
             <!-- Image -->
             <div class="smiv-item-card__img">
@@ -64,94 +65,45 @@
               <div class="smiv-item-card__cat">{{ item.category || item?.productCategory?.name || '' }}</div>
               <div class="smiv-item-card__price">{{ formatCurrency(item.price ?? item.basePrice ?? 0) }}</div>
             </div>
-            <!-- Shops expandable footer -->
-            <div class="smiv-item-card__foot" @click.stop="toggleExpand(item.id || item._id)">
+            <!-- Pied de carte : simple compteur. L'ouverture du drawer de sélection des
+                 boutiques est portée par la carte entière (@click ci-dessus). -->
+            <div class="smiv-item-card__foot">
               <span class="smiv-item-card__shop-count">
                 <Store :size="11" />
                 {{ shopsWithMenuItem(item.id || item._id).length }}/{{ shops.length }} {{ t('spaceMenu.shops') }}
               </span>
-              <ChevronDown
-                :size="14"
-                :style="{ transform: isExpanded(item.id || item._id) ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }"
-              />
-            </div>
-            <!-- Expandable shops list -->
-            <div v-if="isExpanded(item.id || item._id)" class="smiv-shops-list">
-              <div v-if="!shops.length" class="smiv-shops-list__empty">{{ t('spaceMenu.noShopsAvailable') }}</div>
-
-              <!-- Tout sélectionner / tout désélectionner (repris de ShopMenuItemsDrawer.vue,
-                   BUG-268) : évite de cocher 16-20 boutiques une par une pour un article vendu
-                   partout. Sauvegarde immédiate (1 seul appel batché pour les boutiques dont
-                   l'état change), même modèle que le clic unitaire ci-dessous. -->
-              <div
-                v-else
-                class="smiv-select-all"
-                :class="{ 'smiv-select-all--pending': isBulkTogglePending(item.id || item._id) }"
-                @click.stop="toggleSelectAllShops(item)"
-              >
-                <span
-                  class="smiv-select-all__box"
-                  :class="{
-                    checked: allShopsSelected(item.id || item._id),
-                    indeterminate: someShopsSelected(item.id || item._id) && !allShopsSelected(item.id || item._id),
-                  }"
-                >
-                  <Check v-if="allShopsSelected(item.id || item._id)" :size="11" color="white" />
-                  <Minus v-else-if="someShopsSelected(item.id || item._id)" :size="11" color="white" />
-                </span>
-                <span class="smiv-select-all__label">
-                  {{ allShopsSelected(item.id || item._id) ? t('unselectAll') : t('selectAll') }}
-                  ({{ shops.length }})
-                </span>
-                <span v-if="isBulkTogglePending(item.id || item._id)" class="smiv-spinner" />
-              </div>
-
-              <div
-                v-for="shop in shops"
-                :key="shop.id"
-                class="smiv-shops-list__row"
-                :class="{
-                  'smiv-shops-list__row--checked': shopsWithMenuItem(item.id || item._id).some(s => s.id === shop.id),
-                  'smiv-shops-list__row--pending': isTogglePending(shop.id, item.id || item._id),
-                }"
-                @click="toggleShopForMenuItem(shop, item.id || item._id)"
-              >
-                <div class="smiv-shops-list__icon-wrap">
-                  <Store :size="16" style="color:#6b7280" />
-                </div>
-                <div class="smiv-shops-list__info">
-                  <span class="smiv-shops-list__name">{{ shop.name }}</span>
-                  <span v-if="shop.type" class="smiv-shops-list__type">{{ shop.type }}</span>
-                </div>
-                <span v-if="isTogglePending(shop.id, item.id || item._id)" class="smiv-spinner" />
-                <!-- .prevent : l'état coché vient du serveur (:checked), pas du DOM.
-                     .stop + appel direct : avant, @click.stop SANS handler avalait le
-                     clic → cocher la case ne déclenchait rien (bug « rien ne se passe »). -->
-                <input
-                  v-else
-                  type="checkbox"
-                  :checked="shopsWithMenuItem(item.id || item._id).some(s => s.id === shop.id)"
-                  class="smiv-checkbox"
-                  @click.stop.prevent="toggleShopForMenuItem(shop, item.id || item._id)"
-                />
-              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Sélection des boutiques pour l'article courant. Monté ici (et non dans
+         SpaceMenuView) : `shops`, `menuAssignmentMap`, spaceId et configId sont déjà
+         les props de cette vue — rien de nouveau à faire redescendre. -->
+    <SpaceMenuShopsDrawer
+      v-model="shopsDrawerOpen"
+      :menu-item="shopsDrawerItem"
+      :shops="shops"
+      :menu-assignment-map="menuAssignmentMap"
+      :space-id="spaceId"
+      :config-id="configId"
+      :is-dark="isDark"
+      @menu-item-toggled="$emit('menu-item-toggled', $event)"
+      @show-error="$emit('show-error', $event)"
+    />
   </div>
 </template>
 
 <script>
 import { useI18n } from "@/i18n/useI18n";
-import { Package, Store, ChevronDown, AlertCircle, Check, Minus } from 'lucide-vue-next';
-import { assignMenuItemsToShop, saveSpaceMenuConfiguration } from '@/api/endpoints/menu.api';
+import { Package, Store, AlertCircle } from 'lucide-vue-next';
+import SpaceMenuShopsDrawer from "../drawers/SpaceMenuShopsDrawer.vue";
 import { formatCurrencyDetailed } from "@/composables/useFormatters";
 
 export default {
   name: "SpaceMenuItemView",
-  components: { Package, Store, ChevronDown, AlertCircle, Check, Minus },
+  components: { Package, Store, AlertCircle, SpaceMenuShopsDrawer },
   props: {
     menuItemsByCategory: { type: Array,   required: true },
     shops:               { type: Array,   required: true },
@@ -177,9 +129,8 @@ export default {
   },
   data() {
     return {
-      expandedIds: [],
-      pendingToggles: {},
-      pendingBulkToggles: {},
+      shopsDrawerOpen: false,
+      shopsDrawerItem: null,
     };
   },
   computed: {
@@ -218,91 +169,18 @@ export default {
       return `${this.t('spaceMenu.missingIngredients')}\n` +
         missing.map(m => `• ${m.name}${m.supplierName ? ` (${m.supplierName})` : ''}`).join('\n');
     },
-    isMenuItemAssignedToShop(shopId, menuItemId) {
-      return this.menuAssignmentMap?.[shopId]?.[String(menuItemId)] === true;
-    },
     // BUG-127 : lecture O(1) dans la Map mémoïsée `shopsByMenuItemId` au lieu d'un filter O(shops)
-    // recalculé à chaque appel.
+    // recalculé à chaque appel. Ne sert plus qu'au compteur « x/y shops » du pied de carte,
+    // la sélection elle-même ayant migré dans SpaceMenuShopsDrawer.
     shopsWithMenuItem(menuItemId) {
       return this.shopsByMenuItemId.get(String(menuItemId)) || [];
     },
-    toggleExpand(id) {
-      const sid = String(id);
-      if (this.expandedIds.includes(sid)) {
-        this.expandedIds = this.expandedIds.filter(x => x !== sid);
-      } else {
-        this.expandedIds = [...this.expandedIds, sid];
-      }
-    },
-    isExpanded(id) {
-      return this.expandedIds.includes(String(id));
-    },
-    isTogglePending(shopId, menuItemId) {
-      return !!this.pendingToggles[`${shopId}_${menuItemId}`];
-    },
-    // Tri-état de la barre « Tout sélectionner » d'un article (repris de
-    // ShopMenuItemsDrawer.vue, BUG-268) — basé sur `shops` (toutes les boutiques déjà
-    // filtrées merchshop-exclu par le parent, cf. BUG-274/275), pas sur un sous-ensemble.
-    allShopsSelected(menuItemId) {
-      if (!this.shops.length) return false;
-      const selected = this.shopsWithMenuItem(menuItemId);
-      return selected.length === this.shops.length;
-    },
-    someShopsSelected(menuItemId) {
-      return this.shopsWithMenuItem(menuItemId).length > 0;
-    },
-    isBulkTogglePending(menuItemId) {
-      return !!this.pendingBulkToggles[String(menuItemId)];
-    },
-    // Bascule TOUTES les boutiques d'un coup pour un article : si toutes sont déjà cochées
-    // → tout décocher, sinon → tout cocher. N'envoie que le delta (boutiques dont l'état
-    // change réellement), en 1 seul appel batché (saveSpaceMenuConfiguration accepte
-    // { [shopId]: { [menuItemId]: bool } } pour plusieurs shops à la fois — contrairement à
-    // assignMenuItemsToShop, qui n'en couvre qu'un).
-    async toggleSelectAllShops(item) {
-      const mid = String(item.id || item._id);
-      if (this.isBulkTogglePending(mid) || !this.shops.length) return;
-      const targetEnabled = !this.allShopsSelected(mid);
-      const currentlyAssigned = new Set(this.shopsWithMenuItem(mid).map(s => String(s.id)));
-      const shopsToChange = this.shops.filter(shop => currentlyAssigned.has(String(shop.id)) !== targetEnabled);
-      if (!shopsToChange.length) return;
-      this.pendingBulkToggles = { ...this.pendingBulkToggles, [mid]: true };
-      try {
-        const menuItems = {};
-        for (const shop of shopsToChange) menuItems[String(shop.id)] = { [mid]: targetEnabled };
-        await saveSpaceMenuConfiguration({ spaceId: this.spaceId, configId: this.configId, menuItems });
-        for (const shop of shopsToChange) {
-          this.$emit('menu-item-toggled', { shopId: String(shop.id), menuItemId: mid, enabled: targetEnabled });
-        }
-      } catch (e) {
-        this.$emit('show-error', e?.response?.data?.message || e?.message || this.t('spaceMenu.updateFailed'));
-      } finally {
-        const updated = { ...this.pendingBulkToggles };
-        delete updated[mid];
-        this.pendingBulkToggles = updated;
-      }
-    },
-    async toggleShopForMenuItem(shop, menuItemId) {
-      const mid = String(menuItemId);
-      const shopId = String(shop.id);
-      const key = `${shopId}_${mid}`;
-      if (this.pendingToggles[key]) return;
-      const isCurrentlyAssigned = this.isMenuItemAssignedToShop(shopId, mid);
-      this.pendingToggles = { ...this.pendingToggles, [key]: true };
-      try {
-        const enabled = !isCurrentlyAssigned;
-        await assignMenuItemsToShop(this.spaceId, this.configId, shopId, { [mid]: enabled });
-        // Le backend upsert désormais en PARTIEL (cf. saveMenuConfiguration) : ce toggle
-        // ne touche QUE cette paire shop×item, pas besoin de refetch — on connaît déjà
-        // exactement ce qui a changé.
-        this.$emit('menu-item-toggled', { shopId, menuItemId: mid, enabled });
-      } catch (e) {
-        this.$emit('show-error', e?.response?.data?.message || e?.message || this.t('spaceMenu.updateFailed'));
-      } finally {
-        const updated = { ...this.pendingToggles };
-        delete updated[key];
-        this.pendingToggles = updated;
-      }
+    openShopsDrawer(item) {
+      // Article indisponible : pied de carte neutralisé en CSS (pointer-events), ce garde-fou
+      // couvre un appel programmatique.
+      if (!this.isMenuItemAvailable(item)) return;
+      this.shopsDrawerItem = item;
+      this.shopsDrawerOpen = true;
     },
   },
 };
@@ -331,13 +209,13 @@ export default {
 .smiv-item-card {
   background: #fff; border-radius: 16px; border: 1px solid #e5e7eb;
   overflow: hidden; transition: box-shadow .2s, border-color .2s; display: flex; flex-direction: column;
+  cursor: pointer;
 }
 .smiv-item-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); border-color: #d1d5db; }
-/* pointer-events uniquement sur les zones interactives (pas sur la carte entière,
-   sinon le tooltip natif :title des raisons d'indisponibilité ne s'affiche jamais). */
-.smiv-item-card--unavailable { opacity: .45; }
-.smiv-item-card--unavailable .smiv-item-card__foot,
-.smiv-item-card--unavailable .smiv-shops-list { pointer-events: none; }
+/* Article indisponible : PAS de pointer-events:none, sinon le tooltip natif :title des
+   raisons d'indisponibilité ne s'affiche jamais. L'ouverture du drawer est bloquée côté
+   JS (openShopsDrawer), le curseur `help` annonce que la carte informe sans agir. */
+.smiv-item-card--unavailable { opacity: .45; cursor: help; }
 
 .smiv-item-card__img { height: 110px; background: #f3f4f6; overflow: hidden; }
 .smiv-item-card__img img { width: 100%; height: 100%; object-fit: cover; }
@@ -350,56 +228,10 @@ export default {
 
 .smiv-item-card__foot {
   border-top: 1px solid #f3f4f6; padding: 8px 12px;
-  display: flex; align-items: center; justify-content: space-between;
-  cursor: pointer; background: #fafafa; transition: background .15s;
+  display: flex; align-items: center; background: #fafafa; transition: background .15s;
 }
-.smiv-item-card__foot:hover { background: #f3f4f6; }
+.smiv-item-card:hover .smiv-item-card__foot { background: #f3f4f6; }
 .smiv-item-card__shop-count { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; font-weight: 500; }
-
-/* ── Shops dropdown ── */
-.smiv-shops-list { border-top: 1px solid #f3f4f6; background: #fafafa; max-height: 260px; overflow-y: auto; }
-.smiv-shops-list__empty { font-size: 12px; color: #9ca3af; padding: 10px 12px; }
-
-/* ── Select all (BUG-268/276, repris de ShopMenuItemsDrawer.vue) ── */
-.smiv-select-all {
-  display: flex; align-items: center; gap: 8px;
-  margin: 8px 10px; padding: 8px 10px;
-  background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px;
-  cursor: pointer; transition: background .15s;
-}
-.smiv-select-all:hover { background: #fee2e2; }
-.smiv-select-all--pending { opacity: .7; cursor: wait; pointer-events: none; }
-.smiv-select-all__box {
-  width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
-  border: 2px solid #d1d5db; background: #fff;
-  display: flex; align-items: center; justify-content: center;
-  transition: all .15s;
-}
-.smiv-select-all__box.checked,
-.smiv-select-all__box.indeterminate { background: #ff3131; border-color: #ff3131; }
-.smiv-select-all__label { font-size: 11.5px; font-weight: 700; color: #ff3131; flex: 1; }
-.smiv-shops-list__row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; cursor: pointer; transition: background .15s; border-bottom: 1px solid #f3f4f6;
-}
-.smiv-shops-list__row:last-child { border-bottom: none; }
-.smiv-shops-list__row:hover { background: #f3f4f6; }
-.smiv-shops-list__row--checked { background: #eff6ff; }
-.smiv-shops-list__row--checked:hover { background: #dbeafe; }
-.smiv-shops-list__row--pending { opacity: .7; cursor: wait; pointer-events: none; }
-
-.smiv-spinner {
-  width: 16px; height: 16px; flex-shrink: 0;
-  border: 2px solid #e5e7eb; border-top-color: #ff3131;
-  border-radius: 50%; animation: smivSpin .6s linear infinite;
-}
-@keyframes smivSpin { to { transform: rotate(360deg); } }
-.smiv-shops-list__icon-wrap { width: 28px; height: 28px; border-radius: 6px; background: #e5e7eb; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.smiv-shops-list__row--checked .smiv-shops-list__icon-wrap { background: #bfdbfe; }
-.smiv-shops-list__info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.smiv-shops-list__name { font-size: 12.5px; font-weight: 600; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.smiv-shops-list__type { font-size: 10.5px; color: #9ca3af; }
-.smiv-checkbox { width: 16px; height: 16px; accent-color: #ff3131; cursor: pointer; flex-shrink: 0; }
 
 /* ── Skeleton ── */
 @keyframes shimmer {
@@ -442,21 +274,8 @@ export default {
 .smiv-root--dark .smiv-item-card__name { color: #e2e8f0; }
 .smiv-root--dark .smiv-item-card__cat { color: #64748b; }
 .smiv-root--dark .smiv-item-card__foot { background: #111827; border-top-color: rgba(255,255,255,.06); }
-.smiv-root--dark .smiv-item-card__foot:hover { background: #1e293b; }
+.smiv-root--dark .smiv-item-card:hover .smiv-item-card__foot { background: #1e293b; }
 .smiv-root--dark .smiv-item-card__shop-count { color: #94a3b8; }
-.smiv-root--dark .smiv-shops-list { background: #111827; border-top-color: rgba(255,255,255,.06); }
-.smiv-root--dark .smiv-select-all { background: rgba(255,49,49,.1); border-color: rgba(255,49,49,.3); }
-.smiv-root--dark .smiv-select-all:hover { background: rgba(255,49,49,.18); }
-.smiv-root--dark .smiv-select-all__box { border-color: #475569; background: #1e293b; }
-.smiv-root--dark .smiv-select-all__box.checked,
-.smiv-root--dark .smiv-select-all__box.indeterminate { background: #ff3131; border-color: #ff3131; }
-.smiv-root--dark .smiv-shops-list__row { border-bottom-color: rgba(255,255,255,.06); }
-.smiv-root--dark .smiv-shops-list__row:hover { background: #1e293b; }
-.smiv-root--dark .smiv-shops-list__row--checked { background: rgba(255, 49, 49,.12); }
-.smiv-root--dark .smiv-shops-list__row--checked:hover { background: rgba(255, 49, 49,.18); }
-.smiv-root--dark .smiv-shops-list__icon-wrap { background: #1e293b; }
-.smiv-root--dark .smiv-shops-list__name { color: #e2e8f0; }
-.smiv-root--dark .smiv-shops-list__type { color: #64748b; }
 .smiv-root--dark .smiv-skeleton { background: #1e293b; border-color: rgba(255,255,255,.06); }
 .smiv-root--dark .smiv-skeleton__img,
 .smiv-root--dark .smiv-skeleton__line { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 800px 100%; }

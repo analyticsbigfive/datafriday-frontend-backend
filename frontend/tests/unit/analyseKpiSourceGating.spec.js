@@ -19,6 +19,7 @@
  */
 jest.mock('@/api/endpoints/space.api', () => ({
   getSpaceEventTimelineBatch: jest.fn(),
+  getSpaceTransactionBasketsBatch: jest.fn(),
 }))
 jest.mock('vue-router', () => ({ useRoute: () => ({ params: { spaceId: 'sp-1' } }) }))
 jest.mock('@/store', () => ({ state: { analyse: { menuItemCostMap: {} } } }))
@@ -32,7 +33,8 @@ jest.mock('@/utils/timelineBucketing', () => ({
 }))
 
 import { computed, ref, nextTick } from 'vue'
-import { getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
+import { getSpaceEventTimelineBatch, getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
+import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
 import {
   useAnalyseItemRecords,
   ITEM_LEVEL_EVENT_CAP,
@@ -221,7 +223,7 @@ describe('BUG-354-01 — source des transactions dans useMetricsCalculator', () 
       isTimelineFilterActive: computed(() => false),
       operatingMinutes: computed(() => 90),
       selectedEventIds: computed(() => []),
-      overrideTransactionRate: computed(() => null),
+      perShopTransactionRate: computed(() => null),
       transactionRecords: computed(() => transactionRecords),
     })
 
@@ -249,7 +251,7 @@ describe('BUG-350-01 — marge non calculable', () => {
       isTimelineFilterActive: computed(() => false),
       operatingMinutes: computed(() => 90),
       selectedEventIds: computed(() => []),
-      overrideTransactionRate: computed(() => null),
+      perShopTransactionRate: computed(() => null),
     })
 
   it('renvoie null (et non 100) sur des records shop-level sans menuItemId', () => {
@@ -281,5 +283,49 @@ describe('BUG-350-01 — marge non calculable', () => {
   it('renvoie null sur un CA nul (aucune marge définissable)', () => {
     const m = build([], { 'mi-1': 2 })
     expect(m.margin.value).toBeNull()
+  })
+})
+
+// Décision JLH 2026-08-24 (carte TX/MIN) — 'ready' ne doit être publié que quand
+// TOUS les events scopés ont été tentés : un cache partiel avec d'autres events en
+// vol publiait 'ready' dès le premier record, donc une Σ des taux PARTIELLE
+// destinée à bouger (valeur provisoire interdite, BUG-350-01).
+describe('useTransactionBaskets.sourceState — chargement complet requis', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  const rows = [{ shopName: 'Bar A', minute: '20:00', transactionCount: 2 }]
+
+  it("cache partiel + events supplémentaires en vol → 'loading', pas 'ready'", async () => {
+    getSpaceTransactionBasketsBatch.mockResolvedValueOnce(new Map([['ev-0', rows]]))
+    const events = ref([{ id: 'ev-0' }])
+    const { sourceState, basketRecords } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    expect(sourceState.value).toBe('ready')
+
+    // La sélection s'élargit : ev-1 part en batch et n'a pas répondu. Des records
+    // sont déjà en cache (ev-0) — l'ancien ordre publiait 'ready' ici.
+    getSpaceTransactionBasketsBatch.mockReturnValueOnce(new Promise(() => {}))
+    events.value = [{ id: 'ev-0' }, { id: 'ev-1' }]
+    await flush()
+    expect(basketRecords.value.length).toBeGreaterThan(0)
+    expect(sourceState.value).toBe('loading')
+  })
+
+  it("batch KO : events marqués tentés → 'empty' terminal, pas de squelette éternel", async () => {
+    getSpaceTransactionBasketsBatch.mockRejectedValueOnce(new Error('KO'))
+    const events = ref([{ id: 'ev-0' }])
+    const { sourceState } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    expect(sourceState.value).toBe('empty')
+  })
+
+  it("tous les events tentés et des records présents → 'ready'", async () => {
+    getSpaceTransactionBasketsBatch.mockResolvedValueOnce(
+      new Map([['ev-0', rows], ['ev-1', []]]),
+    )
+    const events = ref([{ id: 'ev-0' }, { id: 'ev-1' }])
+    const { sourceState } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    expect(sourceState.value).toBe('ready')
   })
 })

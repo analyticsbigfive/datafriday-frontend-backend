@@ -62,14 +62,6 @@ export class EventsController {
     );
   }
 
-  // NB: doit rester déclaré AVANT `GET /:id` pour ne pas être capturé par ce dernier.
-  @Get('weezevent-ambiguous-matches')
-  @ApiOperation({ summary: 'Lister les events sans lien Weezevent univoque (BUG-021)', description: 'Events dont weezeventEventId est null alors qu\'au moins un WeezeventEvent existe le même jour calendaire — cas laissés de côté par l\'auto-link faute d\'appariement 1:1 univoque, à résoudre manuellement.' })
-  @ApiResponse({ status: 200, description: 'Liste des events ambigus avec leurs candidats WeezeventEvent' })
-  listAmbiguousWeezeventMatches(@Req() req) {
-    return this.eventsService.listAmbiguousWeezeventMatches(req.user.tenantId);
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un événement par ID' })
   @ApiParam({ name: 'id', description: 'ID de l’événement' })

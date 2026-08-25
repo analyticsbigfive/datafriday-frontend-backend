@@ -512,13 +512,25 @@ export class SpacesController {
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
   @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
+  @ApiQuery({
+    name: 'granularity',
+    required: false,
+    enum: ['minute', 'summary'],
+    description:
+      'BUG-364-01 : "summary" = grain event × shop × produit SANS la dimension minute (~100× plus léger) — ' +
+      'le chargement de montage de l\'Analyse n\'a besoin que de totaux ; le grain minute reste servi par ' +
+      'défaut (courbe horaire). Toute autre valeur = minute.',
+  })
   async getEventTimelineBatch(
     @Param('id') id: string,
     @Query('eventIds') eventIds: string,
     @CurrentUser() user: any,
+    @Query('granularity') granularity?: string,
   ) {
     const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spacesService.getEventTimelineBatch(id, ids, user.tenantId);
+    return this.spacesService.getEventTimelineBatch(id, ids, user.tenantId, {
+      granularity: granularity === 'summary' ? 'summary' : 'minute',
+    });
   }
 
   /**

@@ -60,29 +60,19 @@
         </div>
       </div>
 
-      <!-- ── Loading ── -->
-      <div v-if="loading" class="spt-skeletons">
+      <!-- ── Loading ──
+           Skeleton uniquement au tout premier chargement (aucune donnée encore affichée).
+           loadTimeline() est rappelé après chaque action (Relancer, Tout agréger, Créer et lier
+           tout...) — sans cette garde, toute la zone (liste, banners, progression inline d'un
+           event en cours) disparaissait et réapparaissait à chaque refresh, y compris pendant le
+           polling d'un job en cours, cachant la progression que l'utilisateur était en train de
+           suivre. events.value n'est de toute façon remplacé qu'à la fin de loadTimeline (jamais
+           vidé en cours de route), donc les données affichées restent valides pendant un refresh. -->
+      <div v-if="loading && !events.length" class="spt-skeletons">
         <div v-for="i in 5" :key="i" class="spt-skeleton-row"></div>
       </div>
 
       <template v-else>
-
-        <!-- ── Ambiguous Weezevent link banner (BUG-021 manual resolution) ── -->
-        <div
-          v-if="ambiguousMatches.length > 0"
-          class="spt-banner spt-banner--amber"
-        >
-          <div class="spt-banner__left">
-            <v-icon size="16" color="#ff3131">mdi-link-variant-plus</v-icon>
-            <span>
-              <strong>{{ ambiguousMatches.length }}</strong> {{ t('intgTimelineEvent') }}{{ ambiguousMatches.length > 1 ? 's' : '' }} {{ t('intgResolveLinkNeedsChoice') }}
-            </span>
-          </div>
-          <button class="spt-banner-btn spt-banner-btn--amber" @click="ambiguousMatchesDialog = true">
-            <v-icon size="14">mdi-link-variant-plus</v-icon>
-            {{ t('intgResolveLinkButton') }}
-          </button>
-        </div>
 
         <!-- ── Bulk create banner ── -->
         <div
@@ -546,14 +536,6 @@
       @created="handleEventCreated"
     />
 
-    <!-- ── Dialog: résoudre les liens Weezevent ambigus (BUG-021) ── -->
-    <ResolveWeezeventLinkDialog
-      v-model="ambiguousMatchesDialog"
-      :matches="ambiguousMatches"
-      :resolving-id="resolvingWeezeventLinkId"
-      @resolve="handleResolveWeezeventLink"
-    />
-
     <!-- ── Snackbar feedback ── -->
     <v-snackbar v-model="feedbackSnackbar" :color="feedbackSnackbarColor" timeout="3000" location="bottom right">
       {{ feedbackSnackbarText }}
@@ -582,13 +564,12 @@ import { formatDateMedium } from '@/utils/dateFr'
 import { useTimelineProcessing } from '@/composables/useTimelineProcessing'
 import { useSynchronization } from '@/composables/useSynchronization'
 import { getJobProgress, getEventBreakdown, getEventMinuteChart } from '@/api/endpoints/aggregation.api'
-import { createEvent, updateEvent, getAmbiguousWeezeventMatches, resolveWeezeventLink } from '@/api/endpoints/event.api'
+import { createEvent, updateEvent, resolveWeezeventLink } from '@/api/endpoints/event.api'
 import { updateWeezeventEventMetadata, syncWeezeventEventAttendees, getWeezeventEventsForSpace } from '@/api/endpoints/space.api'
 import EventTimelineProgressIndicator from '@/components/EventTimelineProgressIndicator.vue'
 import MapEventToExistingDialog from './dialogs/MapEventToExistingDialog.vue'
 import CreateEventDialog from './dialogs/CreateEventDialog.vue'
 import EventBreakdownDrawer from './dialogs/EventBreakdownDrawer.vue'
-import ResolveWeezeventLinkDialog from './dialogs/ResolveWeezeventLinkDialog.vue'
 
 // Poll cadence for a single event's aggregation job (handleProcessSingle)
 const SINGLE_EVENT_POLL_INTERVAL_MS = 1000
@@ -614,7 +595,6 @@ export default {
     MapEventToExistingDialog,
     CreateEventDialog,
     EventBreakdownDrawer,
-    ResolveWeezeventLinkDialog,
   },
   props: {
     location: { type: Object, required: true },
@@ -669,11 +649,6 @@ export default {
       mapToEventDialog: false,
       mapToEventItem: null,
       mappingEventLoading: false,
-      // Events sans lien Weezevent univoque (BUG-021) : plusieurs candidats le même
-      // jour, l'auto-link s'abstient, résolution manuelle nécessaire.
-      ambiguousMatches: [],
-      ambiguousMatchesDialog: false,
-      resolvingWeezeventLinkId: null,
       // §6 — dialog création event
       createEventDialog: false,
       createEventPrefill: null,
@@ -737,7 +712,10 @@ export default {
       return this.bulkAggregateRunning || this.unprocessedEvents.some(e => this.stalledEventIds.includes(e.id))
     },
     unmappedCount() {
-      return (this.weezeventEvents || []).filter(e => !this.weezEventMappings[e.id]).length
+      // BUG-361-02 : un conteneur de saison/site (isSeasonContainer, posé par getStep4Context)
+      // ne désigne jamais un match précis — ne pas le compter comme "à mapper", il ne le sera
+      // jamais individuellement.
+      return (this.weezeventEvents || []).filter(e => !e.isSeasonContainer && !this.weezEventMappings[e.id]).length
     },
     patchableEventsCount() {
       if (!this.spaceId) return 0
@@ -842,7 +820,6 @@ export default {
       // Réhydrate weezEventMappings (liens dfEventId persistés) au chargement,
       // symétriquement à loadTimeline, pour que "Créer et lier tout" ne recrée pas de doublons.
       this.loadWeezeventEvents()
-      this.loadAmbiguousMatches()
     }
   },
   unmounted() {
@@ -858,7 +835,6 @@ export default {
         this.uncoveredPage = 1
         this.loadTimeline(val, this.location.id)
         this.loadWeezeventEvents()
-        this.loadAmbiguousMatches()
       }
     },
     activeTab() {
@@ -1316,7 +1292,11 @@ export default {
         .filter(dfId => dfId && !currentSpaceIds.has(String(dfId)))
 
       // Phase 1 : events Weezevent non liés à un event DF
-      const toCreate = (this.weezeventEvents || []).filter(e => !this.weezEventMappings[e.id])
+      // BUG-361-02 : exclut les conteneurs de saison/site (isSeasonContainer, posé par
+      // getStep4Context) — un conteneur ne désigne jamais un match précis ; le créer produirait
+      // un faux Event DataFriday de plusieurs mois (vérifié en base : 7 events "Saison XX/YY"
+      // déjà créés par erreur avant ce fix, certains avec du CA agrégé dessus).
+      const toCreate = (this.weezeventEvents || []).filter(e => !e.isSeasonContainer && !this.weezEventMappings[e.id])
 
       if (!toPatch.length && !toCreate.length) return
 
@@ -1352,6 +1332,11 @@ export default {
           this.bulkCreateEventsPhase = 'done'
           this.bulkCreateEventsMessage = `${patchedCount} ${this.t('intgTimelineBulkEventsAttached')}`
           await this.loadTimeline(this.spaceId, this.location.id)
+          // BUG-109/361-02 : "Créer et lier tout" ne déclenchait jusqu'ici jamais l'agrégation —
+          // bouton "Tout agréger" séparé, facile à oublier, symptôme observé "Analyse vide dès
+          // que je fais une data integration". Fire-and-forget : handleAggregateAll gère son
+          // propre état/snackbar, ne bloque pas la fermeture de ce dialog.
+          if (patchedCount > 0) this.handleAggregateAll()
           return
         }
 
@@ -1424,6 +1409,9 @@ export default {
           this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedLinked')}${skipSummary}`
         }
         await this.loadTimeline(this.spaceId, this.location.id)
+        // BUG-109/361-02 : voir commentaire jumeau ci-dessus (branche "patch seul") — même
+        // déclenchement automatique ici, après création.
+        if (patchedCount > 0 || createdCount > 0) this.handleAggregateAll()
       } catch (err) {
         console.error('[bulkCreateEvents] fatal error:', err)
         this.bulkCreateEventsPhase = 'error'
@@ -1471,34 +1459,11 @@ export default {
         console.error('[StepProcessTimeline] Failed to load weezevent events:', err)
       }
     },
-    // Events créés dont l'auto-link (BUG-021) n'a pas pu choisir un WeezeventEvent
-    // univoque (plusieurs candidats le même jour) : résolution manuelle.
-    async loadAmbiguousMatches() {
-      try {
-        const data = await getAmbiguousWeezeventMatches()
-        this.ambiguousMatches = Array.isArray(data) ? data : (data?.data ?? [])
-      } catch (err) {
-        console.error('[StepProcessTimeline] Failed to load ambiguous Weezevent matches:', err)
-      }
-    },
-    async handleResolveWeezeventLink({ eventId, weezeventEventId }) {
-      this.resolvingWeezeventLinkId = eventId
-      try {
-        await resolveWeezeventLink(eventId, weezeventEventId)
-        this.ambiguousMatches = this.ambiguousMatches.filter(m => m.eventId !== eventId)
-        if (!this.ambiguousMatches.length) this.ambiguousMatchesDialog = false
-        this.feedbackSnackbarText = this.t('intgResolveLinkSuccess')
-        this.feedbackSnackbarColor = 'success'
-        this.feedbackSnackbar = true
-        await this.loadTimeline(this.spaceId, this.location.id)
-      } catch (err) {
-        this.feedbackSnackbarText = this.t('intgResolveLinkError') + ' ' + (err?.response?.data?.message || err.message)
-        this.feedbackSnackbarColor = 'error'
-        this.feedbackSnackbar = true
-      } finally {
-        this.resolvingWeezeventLinkId = null
-      }
-    },
+    // loadAmbiguousMatches/handleResolveWeezeventLink (banner + ResolveWeezeventLinkDialog,
+    // BUG-021 résolution manuelle) supprimées le 2026-08-25 : le banner proposait des conteneurs
+    // de saison/site comme candidats de résolution (BUG-361-02) et était jugé sans valeur une fois
+    // ce cas corrigé — resolveWeezeventLink (l'endpoint PATCH lui-même) reste utilisé par
+    // bulkCreateEvents pour le rattachement automatique, seul ce flux manuel est retiré.
     // saveWeezEventMapping/openEnrichDialog/saveEnrichment (onglet "Événements Weezevent"
     // mort) supprimées : aucun point d'appel dans le template. EnrichEventDialog n'était
     // de toute façon jamais ouvrable (son seul déclencheur, openEnrichDialog, n'était
