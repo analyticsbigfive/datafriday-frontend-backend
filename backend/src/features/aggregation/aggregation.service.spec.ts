@@ -755,6 +755,87 @@ describe('AggregationService', () => {
         expect(secondEventSql.values).not.toContain(CONTAINER_PFC);
       });
 
+      it('fiche 147-01 (slide) : event finissant après minuit → le suivant démarre à sa fin déclarée, pas à minuit (PFC-RC Lens / SFP-Toulouse)', async () => {
+        // Février, Europe/Paris = UTC+1 : "02:00" local = 01:00Z, "03:00" local = 02:00Z.
+        const pfc = {
+          ...makeEvent(EVENT_1),
+          eventDate: new Date('2026-02-14T00:00:00.000Z'),
+          eventStartDate: null,
+          eventEndDate: new Date('2026-02-15T00:00:00.000Z'),
+          eventEndTime: '02:00',
+        };
+        const sfp = {
+          ...makeEvent(EVENT_2),
+          eventDate: new Date('2026-02-15T00:00:00.000Z'),
+          eventStartDate: null,
+          eventEndDate: new Date('2026-02-16T00:00:00.000Z'),
+          eventEndTime: '03:00',
+        };
+        mockPrisma.event.findMany.mockResolvedValue([pfc, sfp]);
+
+        const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
+        await service.executeProcessEvents(job);
+
+        const datesOf = (call: number) =>
+          (mockPrisma.$executeRaw.mock.calls[call][0].values ?? []).filter((v: any) => v instanceof Date);
+        const pfcEnd = combineDayAndLocalTime(pfc.eventEndDate, '02:00', 'Europe/Paris')!;
+        // PFC : minuit local du 14/02 → 15/02 02:00 local.
+        expect(datesOf(0).some((d: Date) => d.getTime() === combineDayAndLocalTime(pfc.eventDate, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
+        expect(datesOf(0).some((d: Date) => d.getTime() === pfcEnd.getTime())).toBe(true);
+        // SFP : démarre à la fin de PFC (02:00 local le 15/02), pas à minuit ; finit 16/02 03:00 local.
+        expect(datesOf(3).some((d: Date) => d.getTime() === pfcEnd.getTime())).toBe(true);
+        expect(datesOf(3).some((d: Date) => d.getTime() === combineDayAndLocalTime(sfp.eventEndDate, '03:00', 'Europe/Paris')!.getTime())).toBe(true);
+        expect(datesOf(3).every((d: Date) => d.getTime() !== combineDayAndLocalTime(sfp.eventDate, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
+      });
+
+      it('fiche 147-01 : double affiche même jour SANS tag (mode range, CSV) → fenêtres disjointes, pas de double comptage (anti-145-01)', async () => {
+        const sameDay = new Date('2026-02-14T00:00:00.000Z');
+        const apresMidi = { ...makeEvent(EVENT_1), eventDate: sameDay, eventStartDate: null, eventEndTime: '18:00' };
+        const soir = { ...makeEvent(EVENT_2), eventDate: sameDay, eventStartDate: null, eventEndTime: '23:00' };
+        mockPrisma.event.findMany.mockResolvedValue([apresMidi, soir]);
+
+        const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
+        await service.executeProcessEvents(job);
+
+        const datesOf = (call: number) =>
+          (mockPrisma.$executeRaw.mock.calls[call][0].values ?? []).filter((v: any) => v instanceof Date);
+        const finApresMidi = combineDayAndLocalTime(sameDay, '18:00', 'Europe/Paris')!;
+        // L'event de l'après-midi garde minuit → 18:00 ; celui du soir démarre à 18:00.
+        expect(datesOf(0).some((d: Date) => d.getTime() === combineDayAndLocalTime(sameDay, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
+        expect(datesOf(0).some((d: Date) => d.getTime() === finApresMidi.getTime())).toBe(true);
+        expect(datesOf(3).some((d: Date) => d.getTime() === finApresMidi.getTime())).toBe(true);
+        expect(datesOf(3).some((d: Date) => d.getTime() === combineDayAndLocalTime(sameDay, '23:00', 'Europe/Paris')!.getTime())).toBe(true);
+      });
+
+      it('fiche 147-01 : re-agrégation incrémentale → le voisin HORS batch borne quand même le début de fenêtre', async () => {
+        const pfc = {
+          ...makeEvent(EVENT_1),
+          eventDate: new Date('2026-02-14T00:00:00.000Z'),
+          eventStartDate: null,
+          eventEndDate: new Date('2026-02-15T00:00:00.000Z'),
+          eventEndTime: '02:00',
+        };
+        const sfp = {
+          ...makeEvent(EVENT_2),
+          eventDate: new Date('2026-02-15T00:00:00.000Z'),
+          eventStartDate: null,
+          eventEndDate: new Date('2026-02-16T00:00:00.000Z'),
+          eventEndTime: '03:00',
+        };
+        // 1er findMany (batch, filtré par id) vs 2e (tous les events de l'espace).
+        mockPrisma.event.findMany.mockImplementation(({ where }: any) =>
+          Promise.resolve(where?.id ? [pfc, sfp].filter((e) => where.id.in.includes(e.id)) : [pfc, sfp]),
+        );
+
+        const job = makeBullJob({ eventIds: [EVENT_2] });
+        await service.executeProcessEvents(job);
+
+        const dates = (mockPrisma.$executeRaw.mock.calls[0][0].values ?? []).filter((v: any) => v instanceof Date);
+        const pfcEnd = combineDayAndLocalTime(pfc.eventEndDate, '02:00', 'Europe/Paris')!;
+        expect(dates.some((d: Date) => d.getTime() === pfcEnd.getTime())).toBe(true);
+        expect(dates.every((d: Date) => d.getTime() !== combineDayAndLocalTime(sfp.eventDate, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
+      });
+
       it('BUG-328-02 : la fenêtre de repli (mode range) exclut toujours les transactions déjà liées à un event (t.eventId IS NULL)', async () => {
         const job = makeBullJob();
         await service.executeProcessEvents(job);

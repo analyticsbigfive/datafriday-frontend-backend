@@ -6,7 +6,10 @@ import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.
 import { RedisService } from '../../core/redis/redis.service';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { MappingsService } from '../mappings/mappings.service';
-import { combineDayAndLocalTime } from '../../shared/utils/event-window.util';
+import {
+  EventDayFields,
+  resolveEventTransactionWindow,
+} from '../../shared/utils/event-window.util';
 
 /**
  * Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/).
@@ -245,17 +248,17 @@ export class AggregationService {
    *    ambiguïté possible même si les dates de deux events se recoupent (BUG-330-02).
    * 1bis. (BUG-146-01, règle Bertrand 25/08) Si le lien pointe un CONTENEUR de saison — donc
    *    identifie le CLUB, pas un match — : rattachement `container-range` = tag du conteneur ET
-   *    journée(s) calendaire(s) locale(s) complète(s) (même fenêtre que le mode 2 ci-dessous).
-   *    Les jours à double affiche (deux clubs le même jour), chaque match ne capte plus que les
-   *    ventes de son club — le tag suffit à séparer les clubs, la fenêtre calendaire évite de
-   *    retronquer les ventes avant-match (cf. mode 2).
-   * 2. Sinon : journée(s) calendaire(s) locale(s) complète(s) (00h00 → minuit suivant, fuseau de
-   *    l'espace) — le jour 1 démarre toujours à 00h00 (jamais à l'heure d'ouverture des portes,
-   *    des ventes avant-match légitimes précèdent parfois largement cette heure), et seul le
-   *    DERNIER jour peut se terminer avant 23h59 si `eventEndTime` place la coupure sur le jour
-   *    suivant (règle métier Ulrich, 2026-08-25 — remplace l'ancien mode `doorsOpening ± buffer`
-   *    qui tronquait silencieusement les ventes antérieures à l'ouverture des portes ; s'applique
-   *    aussi au mode 1bis, pour la même raison).
+   *    fenêtre de transactions (même fenêtre que le mode 2 ci-dessous). Les jours à double
+   *    affiche (deux clubs le même jour), chaque match ne capte plus que les ventes de son club.
+   * 2. Sinon : fenêtre de la slide « Transactions prises en compte par Event » (fiche 147-01,
+   *    `resolveEventTransactionWindow`) : minuit LOCAL du jour de début (jamais l'heure
+   *    d'ouverture des portes — des ventes avant-match légitimes la précèdent parfois largement,
+   *    BUG-360-02) → heure de fin déclarée (`eventEndTime`, posée sur le jour de fin, minuit
+   *    franchi autorisé), repli journée calendaire pleine si aucune fin déclarée (règle Ulrich
+   *    2026-08-25, pas d'heuristique). Frontière : si un voisin finit (fin déclarée) le jour où
+   *    l'event commence, la fenêtre démarre à cette fin — la tranche minuit → fin du voisin lui
+   *    appartient (slide : PFC-RC Lens fin 02h00 le 15/02 → SFP-Toulouse démarre à 02h00).
+   *    S'applique aussi au mode 1bis.
    *
    * Le mode 2 filtre TOUJOURS `t."eventId" IS NULL OR t."eventId" IN (conteneurs de saison)` dans
    * la requête appelante — une transaction déjà liée avec CONFIANCE à un match précis (un
@@ -338,6 +341,7 @@ export class AggregationService {
 
   private resolveEventWindow(
     event: {
+      id: string;
       eventDate: Date;
       eventStartDate: Date | null;
       eventEndDate: Date | null;
@@ -346,51 +350,33 @@ export class AggregationService {
     },
     spaceTimezone: string,
     seasonContainerIds: Set<string>,
+    allSpaceEvents: ReadonlyArray<EventDayFields>,
   ): EventWindow {
     // BUG-338-02 : un lien exact vers un conteneur de saison n'identifie PAS un match précis
     // (100% des transactions de la saison partagent ce même eventId) — mais depuis
     // BUG-146-01 (règle Bertrand 25/08) il identifie le CLUB : combiné à la fenêtre
-    // calendaire ci-dessous, il devient le mode `container-range` (tag ET fenêtre), qui
-    // empêche les ventes de l'autre club d'entrer dans la fenêtre les jours à double
-    // affiche. Seul un lien vers un match précis reste un rattachement exact sans fenêtre.
+    // ci-dessous, il devient le mode `container-range` (tag ET fenêtre), qui empêche les
+    // ventes de l'autre club d'entrer dans la fenêtre les jours à double affiche. Seul un
+    // lien vers un match précis reste un rattachement exact sans fenêtre.
     const isContainerLink = !!event.weezeventEventId && seasonContainerIds.has(event.weezeventEventId);
     if (event.weezeventEventId && !isContainerLink) {
       return { mode: 'exact', salesEventId: event.weezeventEventId };
     }
 
-    // Règle métier (Ulrich, 2026-08-25) : un jour capture TOUTE sa journée calendaire locale par
-    // défaut (00h00 → minuit suivant), sauf débordement connu sur la nuit suivante. Le jour 1 (ou
-    // l'unique jour) démarre TOUJOURS à 00h00 — jamais à l'heure d'ouverture des portes, les
-    // ventes avant-match/hospitalité commencent parfois bien avant elle (cf. Nantes-Rodez : ventes
-    // dès 13h58 locale pour des portes à 19h00). Seul le DERNIER jour peut se terminer avant 23h59,
-    // si `eventEndTime` place la coupure sur le jour suivant (fermeture du bar après un match du
-    // soir, cf. events réels en base "SFP vs La Rochelle" : eventStartDate/eventEndDate deux jours
-    // consécutifs, eventEndTime "02:00"). Les jours intermédiaires (event sur 3+ jours) restent des
-    // journées calendaires complètes par défaut, faute de coupure par jour dans le modèle actuel —
-    // pas d'heuristique inventée pour ce cas.
-    const startDay = event.eventStartDate ?? event.eventDate;
-    const endDay = event.eventEndDate ?? startDay;
-    const isMultiDay = endDay.getTime() > startDay.getTime();
+    // Fenêtre = règle de la slide « Transactions prises en compte par Event » (fiche 147-01) :
+    // minuit local du jour de début → heure de fin déclarée (sinon journée pleine), fenêtre
+    // avancée à la fin déclarée d'un voisin qui se termine le jour de début (frontière
+    // partagée — sans elle, le repli sans tag (CSV Digifood) re-crée le double comptage de
+    // la fiche 145-01 quand deux events se suivent). Logique partagée avec le lecteur
+    // `resolveEventSalesScope` (spaces.service.ts) via event-window.util.
+    const { start, end } = resolveEventTransactionWindow(event, spaceTimezone, allSpaceEvents);
 
-    const start = combineDayAndLocalTime(startDay, '00:00', spaceTimezone) ?? startDay;
-    const end =
-      (isMultiDay && event.eventEndTime ? combineDayAndLocalTime(endDay, event.eventEndTime, spaceTimezone) : null) ??
-      this.startOfNextLocalDay(endDay, spaceTimezone);
-
-    // BUG-146-01 : un lien conteneur devient `container-range` (tag du club ET fenêtre
-    // calendaire) — le tag suffit à séparer les clubs les jours à double affiche, la fenêtre
-    // calendaire (pas portes→fin) évite de retronquer les ventes avant-match (même raison que
-    // le mode 2 ci-dessus).
+    // BUG-146-01 : un lien conteneur devient `container-range` (tag du club ET fenêtre) —
+    // le tag sépare les clubs les jours à double affiche, la fenêtre démarrant à minuit
+    // évite de retronquer les ventes avant-match (BUG-360-02).
     return isContainerLink
       ? { mode: 'container-range', salesEventId: event.weezeventEventId as string, start, end }
       : { mode: 'range', start, end };
-  }
-
-  /** Minuit local (fuseau de l'espace) du jour suivant `day` — borne haute exclusive d'une journée calendaire. */
-  private startOfNextLocalDay(day: Date, spaceTimezone: string): Date {
-    const nextDay = new Date(day);
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    return combineDayAndLocalTime(nextDay, '00:00', spaceTimezone) ?? nextDay;
   }
 
   /**
@@ -418,14 +404,24 @@ export class AggregationService {
     const results: any[] = [];
     let processedCount = 0;
 
-    // BUG-329-02 : nécessaire pour combiner sessions[0].doorsOpening/eventEndTime (heures locales)
-    // à eventDate/eventEndDate (jours calendaires) via combineDayAndLocalTime.
+    // BUG-329-02 : nécessaire pour combiner eventEndTime (heure locale) à eventDate/eventEndDate
+    // (jours calendaires) via combineDayAndLocalTime.
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { timezone: true } });
     const spaceTimezone = space?.timezone || 'Europe/Paris';
 
     // BUG-338-02 : calculé UNE fois pour tout le run (pas par event) — un conteneur de saison est
     // le même pour tous les matchs de cette intégration.
     const seasonContainerIds = await this.resolveSeasonContainerEventIds(tenantId, integrationId);
+
+    // Fiche 147-01 : la frontière de fenêtre (fin déclarée d'un voisin qui se termine le jour de
+    // début) a besoin de TOUS les events de l'espace, pas seulement du batch — en re-agrégation
+    // incrémentale (`eventIds` fourni), le voisin peut être hors batch.
+    const allSpaceEvents: EventDayFields[] = eventIds?.length
+      ? await this.prisma.event.findMany({
+          where: { tenantId, spaceId },
+          select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true },
+        })
+      : events;
 
     try {
       // Step 1 of the wizard saves `integration.id` as `weezeventLocationId` in
@@ -446,11 +442,11 @@ export class AggregationService {
         try {
           const eventDate = new Date(event.eventDate);
 
-          // BUG-328/329/330/338-02 : rattachement exact via eventId quand l'Event est lié à un
-          // SalesEvent qui n'est pas un conteneur de saison, sinon journée(s) calendaire(s)
-          // locale(s) complète(s), avec coupure sur le dernier jour si eventEndTime déborde sur la
-          // nuit suivante — voir resolveEventWindow.
-          const window = this.resolveEventWindow(event, spaceTimezone, seasonContainerIds);
+          // BUG-328/329/330/338-02 + fiche 147-01 : rattachement exact via eventId quand l'Event
+          // est lié à un SalesEvent qui n'est pas un conteneur de saison, sinon fenêtre
+          // minuit local → fin déclarée (repli journée pleine) avec frontière au voisin —
+          // voir resolveEventWindow / resolveEventTransactionWindow.
+          const window = this.resolveEventWindow(event, spaceTimezone, seasonContainerIds, allSpaceEvents);
           const eventLinkClause = seasonContainerIds.size
             ? Prisma.sql`(t."eventId" IS NULL OR t."eventId" IN (${Prisma.join([...seasonContainerIds])}))`
             : Prisma.sql`t."eventId" IS NULL`;
