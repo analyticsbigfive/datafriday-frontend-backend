@@ -36,7 +36,9 @@ WITH season_containers AS (
 )
 UPDATE "Event" e
 SET "integrationId" = se."integrationId"
-FROM "SalesEvent" se
+-- NB : le modèle Prisma s'appelle SalesEvent, mais la table physique reste WeezeventEvent
+-- (@@map historique) — corrigé ici après une 1ʳᵉ tentative qui utilisait le nom du modèle.
+FROM "WeezeventEvent" se
 WHERE e."weezeventEventId" = se.id
   AND e."integrationId" IS NULL
   AND e."weezeventEventId" IN (SELECT "eventId" FROM season_containers);
