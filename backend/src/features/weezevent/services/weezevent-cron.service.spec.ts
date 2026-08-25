@@ -23,6 +23,9 @@ describe('WeezeventCronService', () => {
         event: {
             findMany: jest.fn(),
         },
+        salesEvent: {
+            findMany: jest.fn(),
+        },
         aggregationJobLog: {
             create: jest.fn(),
         },
@@ -207,6 +210,31 @@ describe('WeezeventCronService', () => {
             expect(mockPrismaService.aggregationJobLog.create).toHaveBeenCalledTimes(1);
             expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith(
                 expect.objectContaining({ eventIds: ['event-1', 'event-2'] }),
+            );
+        });
+
+        it('BUG-365-02: never merges two different integrations feeding the same space into one job (Stade Jean Bouin PFC/SFP case)', async () => {
+            mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.event.findMany.mockResolvedValue([
+                { id: 'event-pfc', spaceId: 'space-1', eventDate: new Date(), eventEndDate: null, weezeventEventId: 'we-pfc' },
+                { id: 'event-sfp', spaceId: 'space-1', eventDate: new Date(), eventEndDate: null, weezeventEventId: 'we-sfp' },
+            ]);
+            mockPrismaService.salesEvent.findMany.mockResolvedValue([
+                { id: 'we-pfc', integrationId: 'integration-pfc' },
+                { id: 'we-sfp', integrationId: 'integration-sfp' },
+            ]);
+            mockPrismaService.aggregationJobLog.create.mockResolvedValue({ id: 'job-log-1' });
+
+            await service.triggerLiveAggregationSafetyNet();
+
+            // Sans le fix : un seul job, eventIds mélangés, integrationId absent — executeProcessEvents
+            // pourrait alors taguer les transactions de l'une sous l'event de l'autre.
+            expect(mockPrismaService.aggregationJobLog.create).toHaveBeenCalledTimes(2);
+            expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith(
+                expect.objectContaining({ eventIds: ['event-pfc'], integrationId: 'integration-pfc' }),
+            );
+            expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith(
+                expect.objectContaining({ eventIds: ['event-sfp'], integrationId: 'integration-sfp' }),
             );
         });
 
