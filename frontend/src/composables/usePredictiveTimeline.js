@@ -105,6 +105,30 @@ export function relativeDatedKey(absMinutes) {
 }
 
 /**
+ * Variante de `relativeDatedKey` ancrée sur la VRAIE date de l'event prédit.
+ * Le chart partagé (EventTimelineChart) affiche la partie date de la clé telle
+ * quelle dans les inputs de plage (« 07/09 21:00 », comme sur Analyse) : une
+ * base synthétique y montrerait « 01/01 ». Même arithmétique de jours
+ * (J−1 / J0 / J+1, débordements normalisés par Date.UTC) ; repli sur
+ * `relativeDatedKey` si la date de l'event est imparsable.
+ *
+ * @param {string|Date|null|undefined} eventDate date de l'event prédit
+ *   (DD/MM/YYYY, ISO ou Date — cf. parseEventDate de dateFr).
+ * @param {number} absMinutes minutes depuis 00:00 le jour du coup d'envoi.
+ * @returns {string} "YYYY-MM-DDTHH:MM"
+ */
+export function datedKeyForEvent(eventDate, absMinutes) {
+  const d0 = parseEventDateFr(eventDate)
+  if (!d0) return relativeDatedKey(absMinutes)
+  const dayOffset = Math.floor(absMinutes / 1440)
+  // Y/M/D LOCAUX de la date parsée (cohérents avec formatDateShort du header),
+  // reprojetés en UTC pour que la clé ne dépende pas du fuseau du navigateur.
+  const d = new Date(Date.UTC(d0.getFullYear(), d0.getMonth(), d0.getDate() + dayOffset))
+  const iso = d.toISOString().slice(0, 10)
+  return `${iso}T${formatMinute(absMinutes)}`
+}
+
+/**
  * Coerce une valeur "minute" hétérogène en "HH:MM". Indispensable : la pipeline
  * (parseMinuteToken / bucketMinute) n'accepte QUE "HH:MM" ancré ; or les ventes
  * granulaires du store portent un TIMESTAMP ISO (`2025-09-13T16:13:00.000Z`),
@@ -314,6 +338,10 @@ export function usePredictiveTimeline(options) {
   function mapRestTimelineRow(r) {
     return {
       minute: toHHMM(r.minute) ?? '19:00',
+      // Minute DATÉE du backend (YYYY-MM-DDTHH:MM, heure locale du Space).
+      // Indispensable à minutesSinceShow : sans elle, une vente à 00:30 pour un
+      // coup d'envoi 21:00 se lit −1230 min au lieu de +210 (BUG-351-01).
+      minuteLocal: r.minuteLocal ?? null,
       shopId: r.shopId ?? r.elementId ?? r.shop ?? r.shopName ?? '',
       shopName: r.shopName ?? r.elementName ?? null,
       weezeventProductId: r.weezeventProductId ?? null,
@@ -385,6 +413,9 @@ export function usePredictiveTimeline(options) {
         const minute = computeLocalMinute(r) ?? '19:00'
         return {
           minute,
+          // Pass-through de la minute datée si la source locale la porte
+          // (sinon minutesSinceShow retombe sur son heuristique heure murale).
+          minuteLocal: r.minuteLocal ?? null,
           // shopId attendu par EventTimelineChart = registryElementId du shop
           // (cf. elementIdToShopNameMap). Prioriser `elementId` (registry id),
           // fallback sur shopId / shop / shopName pour couvrir API + variantes.
@@ -544,6 +575,7 @@ export function usePredictiveTimeline(options) {
           return {
             eventId: event.id,
             minute,
+            minuteLocal: r.minuteLocal ?? null,
             shopId: r.elementId ?? r.shopId ?? r.shop ?? r.shopName ?? '',
             shopName: r.shopName ?? r.elementName ?? null,
             menuItemId: r.menuItemId ?? r.itemId ?? '',
@@ -1048,7 +1080,9 @@ export function usePredictiveTimeline(options) {
           return {
             ...r,
             minute: alignPastMinute(recMinutes, timeOffset),
-            minuteLocal: relativeDatedKey(recMinutes + timeOffset),
+            // Clé datée ancrée sur la VRAIE date de l'event prédit : le chart
+            // affiche « 07/09 21:00 » (format Analyse) au lieu de « 00:00 ».
+            minuteLocal: datedKeyForEvent(event.eventDate, recMinutes + timeOffset),
             totalRevenue: (r.totalRevenue || 0) * combinedFactor,
             totalQuantity: (r.totalQuantity || 0) * combinedFactor,
             transactionCount: (r.transactionCount || 0) * combinedFactor,
@@ -1091,11 +1125,15 @@ export function usePredictiveTimeline(options) {
       const aggregated = new Map()
       validTimelines.forEach((record) => {
         const identifier = record.menuItemId || record.itemName || 'unknown'
-        const key = `${record.minute}_${record.shopId}_${identifier}`
+        // Clé DATÉE : deux ventes à la même heure murale sur des jours
+        // différents (23:30 J0 vs 23:30 J+1) doivent rester des buckets
+        // distincts — la clé nue `HH:MM` les fusionnait silencieusement.
+        const key = `${record.minuteLocal || record.minute}_${record.shopId}_${identifier}`
         let agg = aggregated.get(key)
         if (!agg) {
           agg = {
             minute: record.minute,
+            minuteLocal: record.minuteLocal ?? null,
             shopId: record.shopId,
             shopName: record.shopName ?? null,
             menuItemId: record.menuItemId,
@@ -1116,6 +1154,7 @@ export function usePredictiveTimeline(options) {
       const predicted = Array.from(aggregated.values()).map((agg) => ({
         eventId: event.id,
         minute: agg.minute,
+        minuteLocal: agg.minuteLocal ?? null,
         shopId: agg.shopId,
         shopName: agg.shopName ?? null,
         menuItemId: agg.menuItemId,

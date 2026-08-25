@@ -573,7 +573,10 @@ export function computeWindowRatios(timelineData, range) {
     f.rev += rev
     f.qty += qty
     f.tx += tx
-    if (isMinuteInRange(r.minute, range)) {
+    // Minute DATÉE en priorité, comme buildTimelineFilter ci-dessus : une
+    // fenêtre franchissant minuit (21:00 → 01:00 J+1) évaluée sur l'heure
+    // murale seule viderait la part après-minuit.
+    if (isMinuteInRange(r.minuteLocal ?? r.minute, range)) {
       let w = win.get(key)
       if (!w) {
         w = { rev: 0, qty: 0, tx: 0 }
